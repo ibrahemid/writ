@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 
 use crate::errors::{StorageError, StorageResult};
@@ -143,6 +143,47 @@ pub fn rename_buffer(conn: &Connection, id: &str, title: &str) -> StorageResult<
     conn.execute(
         "UPDATE buffers SET title = ?1, updated_at = ?2 WHERE id = ?3",
         params![title, Utc::now().to_rfc3339(), id],
+    )?;
+    Ok(())
+}
+
+pub fn find_active_by_source_path(
+    conn: &Connection,
+    source_path: &str,
+) -> StorageResult<Option<BufferDocument>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, filename, status, language, source_path,
+                cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at
+         FROM buffers WHERE source_path = ?1 AND status = 'active' LIMIT 1",
+    )?;
+    let result = stmt
+        .query_row(params![source_path], row_to_document)
+        .optional()
+        .map_err(StorageError::Database)?;
+    Ok(result)
+}
+
+pub fn find_history_by_source_path(
+    conn: &Connection,
+    source_path: &str,
+) -> StorageResult<Option<BufferDocument>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, filename, status, language, source_path,
+                cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at
+         FROM buffers WHERE source_path = ?1 AND status = 'history'
+         ORDER BY updated_at DESC LIMIT 1",
+    )?;
+    let result = stmt
+        .query_row(params![source_path], row_to_document)
+        .optional()
+        .map_err(StorageError::Database)?;
+    Ok(result)
+}
+
+pub fn update_language(conn: &Connection, id: &str, language: Option<&str>) -> StorageResult<()> {
+    conn.execute(
+        "UPDATE buffers SET language = ?1, updated_at = ?2 WHERE id = ?3",
+        params![language, Utc::now().to_rfc3339(), id],
     )?;
     Ok(())
 }

@@ -11,22 +11,47 @@ import { sidebarStore } from "./stores/sidebar";
 import { editorStore } from "./stores/editor";
 import { configStore } from "./stores/config";
 import { focusSearchBar } from "./components/Sidebar/SearchBar";
-import { registerCommand } from "./commands/registry";
+import { registerCommand, executeCommand } from "./commands/registry";
 import { installKeyboardHandler, rebuildKeyMap } from "./commands/keybindings";
 import { onEvent } from "./services/events";
-import type { UnlistenFn } from "@tauri-apps/api/event";
+import { onDragDrop, consumePendingOpens } from "./services/tauri";
+import type { UnlistenFn } from "./services/events";
 import "./styles/global.css";
 import "./App.css";
 
+let processingPending = false;
+async function processPendingOpens() {
+  if (processingPending) return;
+  processingPending = true;
+  try {
+    const pending = await consumePendingOpens();
+    for (const path of pending) {
+      try {
+        await bufferStore.openFile(path);
+      } catch {}
+    }
+  } finally {
+    processingPending = false;
+  }
+}
+
 export default function App() {
   let unlisteners: UnlistenFn[] = [];
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
 
   onMount(async () => {
     await configStore.load();
     await bufferStore.load();
 
-    if (bufferStore.activeTabs().length === 0) {
+    await processPendingOpens();
+
+    if (bufferStore.activeTabs().length === 0 && !bufferStore.activeTabId()) {
       await bufferStore.createTab();
+    } else if (!bufferStore.activeTabId()) {
+      const tabs = bufferStore.activeTabs();
+      if (tabs.length > 0) {
+        bufferStore.setActiveTabId(tabs[tabs.length - 1].id);
+      }
     }
 
     registerCommand({
@@ -35,6 +60,14 @@ export default function App() {
       keybinding: "CmdOrCtrl+T",
       scope: "app",
       execute: () => bufferStore.createTab(),
+    });
+
+    registerCommand({
+      id: "file.open",
+      label: "Open File",
+      keybinding: "CmdOrCtrl+O",
+      scope: "app",
+      execute: () => bufferStore.openFileDialog(),
     });
 
     registerCommand({
@@ -137,9 +170,28 @@ export default function App() {
       bufferStore.load();
     });
     unlisteners.push(unlisten2);
+
+    const unlisten3 = await onEvent("menu:action", (payload) => {
+      executeCommand(payload.action);
+    });
+    unlisteners.push(unlisten3);
+
+    const unlisten4 = await onDragDrop((event) => {
+      if (event.type === "drop" && event.paths.length > 0) {
+        for (const path of event.paths) {
+          bufferStore.openFile(path).catch(() => {
+            showToast(`Failed to open ${path}`, "error");
+          });
+        }
+      }
+    });
+    unlisteners.push(unlisten4);
+
+    pollTimer = setInterval(processPendingOpens, 500);
   });
 
   onCleanup(() => {
+    if (pollTimer) clearInterval(pollTimer);
     for (const unlisten of unlisteners) {
       unlisten();
     }

@@ -16,6 +16,17 @@ function createBufferStore() {
     setHistoryList(history);
   }
 
+  async function loadAndActivate() {
+    await load();
+    const active = activeTabs();
+    const currentId = activeTabId();
+    if (currentId && !active.find(b => b.id === currentId)) {
+      setActiveTabId(active.length > 0 ? active[active.length - 1].id : null);
+    } else if (!currentId && active.length > 0) {
+      setActiveTabId(active[active.length - 1].id);
+    }
+  }
+
   async function createTab(title?: string): Promise<BufferDocument> {
     const doc = await api.createBuffer(title);
     setActiveTabs(prev => [...prev, doc]);
@@ -77,10 +88,34 @@ function createBufferStore() {
     setHistoryList(prev => prev.map(b => b.id === id ? { ...b, title } : b));
   }
 
+  async function openFile(path: string): Promise<BufferDocument> {
+    const existing = activeTabs().find(b => b.source_path === path);
+    if (existing) {
+      setActiveTabId(existing.id);
+      return existing;
+    }
+    const doc = await api.openFile(path);
+    const alreadyInTabs = activeTabs().find(b => b.id === doc.id);
+    if (alreadyInTabs) {
+      setActiveTabId(doc.id);
+      return doc;
+    }
+    setActiveTabs(prev => [...prev, doc]);
+    setActiveTabId(doc.id);
+    return doc;
+  }
+
+  async function openFileDialog(): Promise<BufferDocument | null> {
+    const path = await api.showOpenFileDialog();
+    if (!path) return null;
+    return openFile(path);
+  }
+
   return {
     activeTabs, historyList, activeTabId, setActiveTabId,
-    load, createTab, closeTab, closeOtherTabs, closeAllTabs,
+    load, loadAndActivate, createTab, closeTab, closeOtherTabs, closeAllTabs,
     restoreFromHistory, deleteFromHistory, clearAllHistory, renameTab,
+    openFile, openFileDialog,
   };
 }
 

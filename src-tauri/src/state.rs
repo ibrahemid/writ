@@ -16,6 +16,7 @@ pub struct AppState {
     pub writ_dir: PathBuf,
     pub buffers_dir: PathBuf,
     pub watcher_ignore: IgnoreSet,
+    pub pending_opens: Mutex<Vec<String>>,
 }
 
 impl AppState {
@@ -49,6 +50,7 @@ impl AppState {
             writ_dir,
             buffers_dir,
             watcher_ignore,
+            pending_opens: Mutex::new(Vec::new()),
         })
     }
 }
