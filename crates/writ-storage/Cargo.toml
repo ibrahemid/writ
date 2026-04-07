@@ -1,0 +1,23 @@
+[package]
+name = "writ-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+writ-core = { path = "../writ-core" }
+rusqlite = { version = "0.31" }
+toml = "0.8"
+tracing = "0.1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+[features]
+bundled = ["rusqlite/bundled"]
+
+[dev-dependencies]
+rusqlite = { version = "0.31", features = ["bundled"] }
+tempfile = "3"

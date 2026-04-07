@@ -1,0 +1,15 @@
+# Rust crates
+/crates/ @ibrahemid
+/src-tauri/ @ibrahemid
+
+# Frontend
+/src/ @ibrahemid
+
+# CI and project config
+/.github/ @ibrahemid
+/Cargo.toml @ibrahemid
+/package.json @ibrahemid
+
+# Documentation
+/docs/ @ibrahemid
+/*.md @ibrahemid

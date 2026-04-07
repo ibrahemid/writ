@@ -1,0 +1,35 @@
+:root {
+  --writ-bg-primary: #0e0e14;
+  --writ-bg-secondary: #12121a;
+  --writ-bg-sidebar: #0a0a10;
+  --writ-bg-tab-active: #1a1a2e;
+  --writ-bg-tab-inactive: #12121a;
+  --writ-bg-statusbar: #0a0a10;
+  --writ-bg-input: #16161e;
+  --writ-bg-hover: #1e1e2e;
+  --writ-bg-toast: #1a1a2e;
+
+  --writ-text-primary: #e0e0e0;
+  --writ-text-secondary: #888899;
+  --writ-text-muted: #555566;
+  --writ-text-accent: #7aa2f7;
+
+  --writ-border: #1e1e2e;
+  --writ-border-focus: #7aa2f7;
+
+  --writ-accent: #7aa2f7;
+  --writ-accent-hover: #89b4fa;
+  --writ-error: #f7768e;
+  --writ-warning: #e0af68;
+  --writ-success: #9ece6a;
+
+  --writ-font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", ui-monospace, monospace;
+  --writ-font-size: 14px;
+  --writ-font-size-sm: 12px;
+  --writ-line-height: 1.6;
+
+  --writ-sidebar-width: 260px;
+  --writ-statusbar-height: 28px;
+  --writ-tabbar-height: 36px;
+  --writ-titlebar-height: 32px;
+}

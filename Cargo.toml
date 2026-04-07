@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "crates/writ-core",
+    "crates/writ-storage",
+    "crates/writ-plugin",
+    "src-tauri",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/user/writ"

@@ -1,0 +1,42 @@
+import "./TabItem.css";
+
+interface Props {
+  title: string;
+  isActive?: boolean;
+  onClick: () => void;
+  onClose?: () => void;
+  onRestore?: () => void;
+  secondary?: string;
+}
+
+export default function TabItem(props: Props) {
+  return (
+    <div
+      class={`tab-item ${props.isActive ? "tab-item-active" : ""}`}
+      onClick={props.onClick}
+    >
+      <span class="tab-item-title">{props.title}</span>
+      {props.secondary && <span class="tab-item-secondary">{props.secondary}</span>}
+      <div class="tab-item-actions">
+        {props.onRestore && (
+          <span
+            class="tab-item-action"
+            onClick={(e) => { e.stopPropagation(); props.onRestore!(); }}
+            title="Restore"
+          >
+            ↩
+          </span>
+        )}
+        {props.onClose && (
+          <span
+            class="tab-item-action tab-item-close"
+            onClick={(e) => { e.stopPropagation(); props.onClose!(); }}
+            title="Close"
+          >
+            ×
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
