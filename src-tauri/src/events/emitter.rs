@@ -15,6 +15,9 @@ pub enum WritFrontendEvent {
         snapshot_id: String,
         buffer_count: u32,
     },
+
+    #[serde(rename = "menu:action")]
+    MenuAction { action: String },
 }
 
 pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), String> {
@@ -22,6 +25,7 @@ pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), Strin
         WritFrontendEvent::ConfigChanged { .. } => "writ://config-changed",
         WritFrontendEvent::BufferExternal { .. } => "writ://buffer-external",
         WritFrontendEvent::RecoveryDirty { .. } => "writ://recovery-dirty",
+        WritFrontendEvent::MenuAction { .. } => "writ://menu-action",
     };
     app.emit(event_name, &event).map_err(|e| e.to_string())
 }

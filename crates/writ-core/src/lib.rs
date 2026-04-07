@@ -3,6 +3,7 @@ pub mod command;
 pub mod config;
 pub mod errors;
 pub mod events;
+pub mod file_ops;
 pub mod history;
 pub mod watcher;
 pub mod workspace;

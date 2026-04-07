@@ -1,4 +1,6 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+
+export type { UnlistenFn };
 import type { WritEvent } from "../types/events";
 
 type EventKind = WritEvent["kind"];
@@ -9,6 +11,7 @@ const EVENT_MAP: Record<EventKind, string> = {
   "config:changed": "writ://config-changed",
   "buffer:external": "writ://buffer-external",
   "recovery:dirty": "writ://recovery-dirty",
+  "menu:action": "writ://menu-action",
 };
 
 export async function onEvent<K extends EventKind>(

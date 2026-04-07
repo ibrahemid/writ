@@ -87,4 +87,39 @@ impl BufferStore {
         let fts = crate::fts::FtsIndex::new(&self.conn);
         fts.search(query)
     }
+
+    pub fn find_active_by_source_path(&self, source_path: &str) -> StorageResult<Option<BufferDocument>> {
+        queries::find_active_by_source_path(&self.conn, source_path)
+    }
+
+    pub fn find_history_by_source_path(&self, source_path: &str) -> StorageResult<Option<BufferDocument>> {
+        queries::find_history_by_source_path(&self.conn, source_path)
+    }
+
+    pub fn open_from_path(&self, doc: &BufferDocument, content: &str) -> StorageResult<()> {
+        queries::insert_buffer(&self.conn, doc)?;
+        let buffer_file = self.buffers_dir.join(&doc.filename);
+        std::fs::write(&buffer_file, content)?;
+        let fts = crate::fts::FtsIndex::new(&self.conn);
+        let _ = fts.update(&doc.id, &doc.title, content);
+        Ok(())
+    }
+
+    pub fn save_to_source(&self, id: &str, content: &str) -> StorageResult<()> {
+        let doc = queries::get_buffer(&self.conn, id)?;
+        let source_path = doc.source_path.as_ref().ok_or_else(|| StorageError::Consistency {
+            message: format!("buffer {} has no source_path", id),
+        })?;
+        std::fs::write(source_path, content)?;
+        let buffer_file = self.buffers_dir.join(&doc.filename);
+        std::fs::write(&buffer_file, content)?;
+        queries::update_timestamp(&self.conn, id)?;
+        let fts = crate::fts::FtsIndex::new(&self.conn);
+        let _ = fts.update(id, &doc.title, content);
+        Ok(())
+    }
+
+    pub fn update_language(&self, id: &str, language: Option<&str>) -> StorageResult<()> {
+        queries::update_language(&self.conn, id, language)
+    }
 }
