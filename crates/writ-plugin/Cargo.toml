@@ -1,0 +1,13 @@
+[package]
+name = "writ-plugin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+writ-core = { path = "../writ-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+toml = "0.8"

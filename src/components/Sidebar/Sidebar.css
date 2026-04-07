@@ -1,0 +1,44 @@
+.sidebar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--writ-sidebar-width);
+  height: 100%;
+  background: var(--writ-bg-sidebar);
+  border-right: 1px solid var(--writ-border);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-section:last-child {
+  flex: 1;
+}
+
+.sidebar-section-title {
+  padding: 8px 12px 4px;
+  font-size: 11px;
+  color: var(--writ-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  flex-shrink: 0;
+}
+
+.tab-list, .history-list {
+  overflow-y: auto;
+  padding: 2px 0;
+}
+
+.tab-list-empty {
+  padding: 8px 12px;
+  color: var(--writ-text-muted);
+  font-size: var(--writ-font-size-sm);
+  font-style: italic;
+}

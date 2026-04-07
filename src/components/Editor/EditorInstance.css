@@ -1,0 +1,8 @@
+.editor-instance {
+  height: 100%;
+  width: 100%;
+}
+
+.editor-instance .cm-editor {
+  height: 100%;
+}
