@@ -1,0 +1,83 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("../../services/tauri", () => ({
+  getConfig: vi.fn(),
+  updateConfig: vi.fn().mockResolvedValue(undefined),
+}));
+
+import { configStore } from "../../stores/config";
+import { getConfig, updateConfig } from "../../services/tauri";
+import type { WritConfig } from "../../types/config";
+
+const mockedGetConfig = vi.mocked(getConfig);
+const mockedUpdateConfig = vi.mocked(updateConfig);
+
+const MOCK_CONFIG: WritConfig = {
+  hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
+  sidebar: { toggle: "CmdOrCtrl+B", default_visible: false, position: "left" },
+  editor: { font_family: "JetBrains Mono", font_size: 16, word_wrap: true, tab_size: 4, autosave_debounce_ms: 500 },
+  window: { width: 1200, height: 800 },
+  keybindings: {},
+  history: { max_entries: 1000 },
+  storage: { path: "~/.writ" },
+};
+
+describe("configStore", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe("load", () => {
+    it("loads config from backend", async () => {
+      mockedGetConfig.mockResolvedValueOnce(MOCK_CONFIG);
+
+      await configStore.load();
+
+      expect(mockedGetConfig).toHaveBeenCalledOnce();
+      expect(configStore.config().editor.font_size).toBe(16);
+      expect(configStore.config().editor.tab_size).toBe(4);
+    });
+
+    it("keeps default config on load failure", async () => {
+      const defaultFontSize = configStore.config().editor.font_size;
+      mockedGetConfig.mockRejectedValueOnce(new Error("no file"));
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await configStore.load();
+
+      expect(configStore.config().editor.font_size).toBe(defaultFontSize);
+      consoleSpy.mockRestore();
+    });
+  });
+
+  describe("save", () => {
+    it("persists config to backend and updates local state", async () => {
+      await configStore.save(MOCK_CONFIG);
+
+      expect(mockedUpdateConfig).toHaveBeenCalledOnce();
+      expect(mockedUpdateConfig).toHaveBeenCalledWith(MOCK_CONFIG);
+      expect(configStore.config().editor.font_size).toBe(16);
+    });
+
+    it("propagates save errors", async () => {
+      mockedUpdateConfig.mockRejectedValueOnce(new Error("write failed"));
+
+      await expect(configStore.save(MOCK_CONFIG)).rejects.toThrow("write failed");
+    });
+  });
+
+  describe("defaults", () => {
+    it("restores defaults on fresh load failure", async () => {
+      mockedGetConfig.mockRejectedValueOnce(new Error("no config"));
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await configStore.load();
+
+      const config = configStore.config();
+      expect(config.hotkey.toggle).toBeTruthy();
+      expect(config.editor.autosave_debounce_ms).toBeGreaterThan(0);
+      expect(config.history.max_entries).toBeGreaterThan(0);
+      consoleSpy.mockRestore();
+    });
+  });
+});
