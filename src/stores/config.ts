@@ -19,8 +19,8 @@ function createConfigStore() {
     try {
       const loaded = await api.getConfig();
       setConfig(loaded);
-    } catch (e) {
-      console.error("failed to load config:", e);
+    } catch {
+      setConfig(DEFAULT_CONFIG);
     }
   }
 

@@ -41,7 +41,7 @@ impl EventBus {
     {
         self.subscribers
             .lock()
-            .expect("subscribers lock poisoned")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .push(Arc::new(handler));
     }
 
@@ -49,7 +49,7 @@ impl EventBus {
         let subscribers = self
             .subscribers
             .lock()
-            .expect("subscribers lock poisoned")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
         for subscriber in subscribers {
             subscriber(&event);
