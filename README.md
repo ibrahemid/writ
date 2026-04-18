@@ -1,51 +1,46 @@
 # Writ
 
-**Writ — A lightweight, always-ready text editor for developers**
+A lightweight, always-ready text editor for developers.
 
-A distraction-free scratchpad that lives in your system tray. Summon it with a global hotkey, write something, and it saves itself. No dialogs, no friction.
+Writ is a distraction-free scratchpad that lives in your system tray. It launches instantly, saves continuously, and disappears when you are done. There are no dialogs, no project setup, no "save as", and nothing leaves your machine.
 
-<!-- screenshot -->
+## Why
+
+Every developer keeps a scratch file somewhere: a notes buffer, a throwaway snippet, a paste target between two terminals. Editors designed for projects are the wrong shape for this. Writ is built for the five-second write, with a global hotkey, autosave, and a minimal binary footprint.
 
 ## Features
 
-- **Global hotkey** — toggle the window from anywhere with `Cmd+Shift+Space` (macOS) or `Ctrl+Shift+Space` (Linux/Windows)
-- **Browser-like tabs** — open multiple buffers, reorder them, restore closed ones
-- **Autosave** — every buffer saves automatically; nothing is lost on crash
-- **Full-text search** — search across all buffers instantly with FTS5
-- **CodeMirror 6** — syntax highlighting for 50+ languages, detected automatically by extension or shebang
-- **Dark theme** — easy on the eyes, built with CSS custom properties
-- **Command palette** — `Cmd+Shift+P` for all actions without leaving the keyboard
-- **Session recovery** — crash detection restores your last session on relaunch
+- Global hotkey to toggle the window from anywhere (`Cmd+Shift+Space` on macOS, `Ctrl+Shift+Space` on Linux and Windows)
+- Browser-like tabs with reorder and reopen-closed support
+- Autosave on every edit, with crash recovery on relaunch
+- Full-text search across buffers backed by SQLite FTS5
+- CodeMirror 6 editor with language auto-detection for 50+ languages
+- Command palette with fuzzy matching (`Cmd+Shift+P`)
+- Dark theme driven entirely by CSS custom properties
+- Local-only storage; no network, no telemetry
 
-## Installation
+## Install
 
-### Build from Source
+### From source
 
-**Prerequisites**
-
-- Rust 1.77+ (`rustup`)
-- Node.js 20+
-- pnpm 9+ (`npm install -g pnpm`)
-- Platform Tauri prerequisites: [tauri.app/start/prerequisites](https://tauri.app/start/prerequisites/)
-
-**Steps**
+Prerequisites: Rust 1.77+, Node.js 20+, pnpm 9+, and the [Tauri v2 platform prerequisites](https://tauri.app/start/prerequisites/) for your OS.
 
 ```bash
-git clone https://github.com/your-org/writ.git
+git clone https://github.com/ibrahemid/writ.git
 cd writ
 pnpm install
 cargo tauri dev
 ```
 
-To produce a release build:
+For a release build:
 
 ```bash
 cargo tauri build
 ```
 
-The installer or app bundle will be in `src-tauri/target/release/bundle/`.
+The installer or app bundle is written to `src-tauri/target/release/bundle/`.
 
-## Usage
+## Shortcuts
 
 | Action | Shortcut |
 |---|---|
@@ -57,23 +52,26 @@ The installer or app bundle will be in `src-tauri/target/release/bundle/`.
 | Toggle sidebar | `Cmd+B` |
 | Search buffers | `Cmd+F` (sidebar) |
 
-The sidebar shows active tabs and browsable history. Buffers are stored locally in an SQLite database; nothing leaves your machine.
+Buffers are stored in a local SQLite database under your OS's standard application data directory.
 
-## Tech Stack
+## Architecture
+
+Writ is a Cargo workspace with compiler-enforced crate boundaries and a thin Tauri adapter over pure Rust core logic.
 
 | Layer | Technology |
 |---|---|
-| Desktop shell | Tauri v2 (Rust) |
+| Desktop shell | Tauri v2 |
 | Frontend | SolidJS + Vite |
 | Editor | CodeMirror 6 |
 | Storage | SQLite (WAL mode, FTS5) |
-| Config | TOML with hot-reload |
-| Core logic | Rust — `writ-core`, `writ-storage`, `writ-plugin` crates |
+| Core logic | Rust: `writ-core`, `writ-storage`, `writ-plugin` |
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system design and [docs/adr/](docs/adr/) for architecture decision records.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Architecture decisions are documented in [docs/adr/](docs/adr/).
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, coding conventions, and pull request process. Security issues go through [SECURITY.md](SECURITY.md).
 
 ## License
 
-[MIT](LICENSE) — Copyright 2026 Writ Contributors.
+MIT. See [LICENSE](LICENSE).

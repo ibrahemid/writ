@@ -1,9 +1,29 @@
+# Rust
 /target
+Cargo.lock.bak
+
+# Node / frontend
 node_modules/
 dist/
+
+# Local databases and WAL/shm sidecars
 *.db
 *.db-wal
 *.db-shm
+
+# macOS
 .DS_Store
+
+# Editor / AI tool metadata
+.idea/
+.vscode/
 .claude/
+.serena/
 CLAUDE.md
+
+# Private planning that should not be public
+docs/launch/
+docs/superpowers/
+
+# Local backups
+.git.backup-*

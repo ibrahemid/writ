@@ -1,8 +1,16 @@
 [package]
 name = "writ-storage"
+description = "SQLite-backed persistence and FTS5 search for the Writ editor."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 writ-core = { path = "../writ-core" }

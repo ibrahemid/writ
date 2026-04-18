@@ -14,6 +14,7 @@ import { focusSearchBar } from "./components/Sidebar/SearchBar";
 import { registerCommand, executeCommand } from "./commands/registry";
 import { installKeyboardHandler, rebuildKeyMap } from "./commands/keybindings";
 import { onEvent } from "./services/events";
+import { onAutosaveError } from "./services/autosave";
 import { onDragDrop, consumePendingOpens } from "./services/tauri";
 import type { UnlistenFn } from "./services/events";
 import "./styles/global.css";
@@ -155,15 +156,13 @@ export default function App() {
     rebuildKeyMap();
     installKeyboardHandler();
 
-    const unlisten1 = await onEvent("config:changed", (payload) => {
-      console.log("config changed:", payload.keys);
+    const unlisten1 = await onEvent("config:changed", () => {
       configStore.load();
       showToast("Config reloaded", "info");
     });
     unlisteners.push(unlisten1);
 
     const unlisten2 = await onEvent("buffer:external", (payload) => {
-      console.log("buffer external change:", payload);
       if (payload.bufferId && payload.change) {
         showToast(`File "${payload.bufferId}" ${payload.change} externally`, "warning");
       }
@@ -188,6 +187,11 @@ export default function App() {
     unlisteners.push(unlisten4);
 
     pollTimer = setInterval(processPendingOpens, 500);
+
+    const offAutosaveError = onAutosaveError((bufferId) => {
+      showToast(`Autosave failed for ${bufferId}`, "error");
+    });
+    unlisteners.push(offAutosaveError);
   });
 
   onCleanup(() => {

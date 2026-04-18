@@ -10,5 +10,18 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.77"
 license = "MIT"
-repository = "https://github.com/user/writ"
+repository = "https://github.com/ibrahemid/writ"
+homepage = "https://github.com/ibrahemid/writ"
+authors = ["Ibrahem ID <ibrahemid@gmail.com>"]
+description = "A lightweight, always-ready text editor for developers."
+readme = "README.md"
+keywords = ["editor", "tauri", "scratchpad", "codemirror"]
+categories = ["text-editors", "gui"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
+panic = "abort"

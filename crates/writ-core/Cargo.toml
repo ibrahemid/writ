@@ -1,8 +1,16 @@
 [package]
 name = "writ-core"
+description = "Pure Rust domain logic for the Writ editor: buffers, config, events, and conflict policy."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
