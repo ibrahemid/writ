@@ -5,20 +5,32 @@ use writ_core::buffer::document::BufferStatus;
 use crate::buffer_store::BufferStore;
 use crate::errors::StorageResult;
 
+/// Result of a consistency check between the database and the on-disk
+/// buffer directory.
 pub struct ConsistencyReport {
+    /// Files present in the buffers directory with no matching row.
     pub orphan_files: Vec<String>,
+    /// Buffer ids whose backing content file is missing.
     pub missing_files: Vec<String>,
 }
 
+/// Compares the database and the on-disk buffer directory and reports
+/// anything that does not line up.
+///
+/// This is used at startup to detect corruption from partial writes,
+/// manual file edits, or interrupted migrations. The check is read-only;
+/// callers decide how to repair.
 pub struct ConsistencyChecker {
     store: BufferStore,
 }
 
 impl ConsistencyChecker {
+    /// Wraps an existing [`BufferStore`] for inspection.
     pub fn new(store: BufferStore) -> Self {
         Self { store }
     }
 
+    /// Runs the check and returns a [`ConsistencyReport`].
     pub fn check(&self) -> StorageResult<ConsistencyReport> {
         let mut all_buffers = self.store.list_by_status(BufferStatus::Active)?;
         all_buffers.extend(self.store.list_by_status(BufferStatus::History)?);

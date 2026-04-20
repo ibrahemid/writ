@@ -4,15 +4,22 @@ use writ_core::config::WritConfig;
 
 use crate::errors::StorageResult;
 
+/// TOML-backed configuration store.
+///
+/// The store reads and writes [`WritConfig`] at a single path. A missing
+/// file is treated as "use defaults" to keep fresh installs friction-free.
 pub struct ConfigStore {
     path: PathBuf,
 }
 
 impl ConfigStore {
+    /// Constructs a store rooted at `path`.
     pub fn new(path: PathBuf) -> Self {
         Self { path }
     }
 
+    /// Reads the configuration file, returning defaults if it does not
+    /// exist.
     pub fn read(&self) -> StorageResult<WritConfig> {
         if !self.path.exists() {
             return Ok(WritConfig::default());
@@ -22,6 +29,8 @@ impl ConfigStore {
         Ok(config)
     }
 
+    /// Writes the configuration to disk, creating the parent directory
+    /// if needed.
     pub fn write(&self, config: &WritConfig) -> StorageResult<()> {
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -31,6 +40,7 @@ impl ConfigStore {
         Ok(())
     }
 
+    /// Returns the filesystem path this store reads from and writes to.
     pub fn path(&self) -> &Path {
         &self.path
     }
