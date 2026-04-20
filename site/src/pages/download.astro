@@ -1,0 +1,221 @@
+---
+import Base from '../layouts/Base.astro';
+import release from '../data/release.json';
+
+const sections = [
+  {
+    os: 'mac',
+    title: 'macOS',
+    items: [
+      {
+        name: 'Apple Silicon (.dmg)',
+        sub: 'M1, M2, M3, M4',
+        href: release.assets['mac-arm64'],
+      },
+      {
+        name: 'Intel (.dmg)',
+        sub: 'x86_64',
+        href: release.assets['mac-x64'],
+      },
+    ],
+    notes:
+      'Writ is not currently notarized. On first launch, right-click the app and choose Open to bypass Gatekeeper. Signing is on the roadmap for v0.2.',
+  },
+  {
+    os: 'win',
+    title: 'Windows',
+    items: [
+      {
+        name: 'x64 installer (.msi)',
+        sub: 'Windows 10, Windows 11',
+        href: release.assets['win-x64'],
+      },
+    ],
+    notes:
+      'Writ is not yet code-signed. Windows SmartScreen may prompt for confirmation on first launch. Click More info, then Run anyway.',
+  },
+  {
+    os: 'linux',
+    title: 'Linux',
+    items: [
+      {
+        name: 'AppImage',
+        sub: 'Portable, runs on most distros',
+        href: release.assets['linux-appimage'],
+      },
+      {
+        name: 'Debian package (.deb)',
+        sub: 'Ubuntu, Debian, Pop!_OS',
+        href: release.assets['linux-deb'],
+      },
+    ],
+    notes:
+      'AUR, Flatpak, and Snap packages are planned for future releases.',
+  },
+];
+---
+
+<Base
+  title="Download"
+  description="Download Writ for macOS, Windows, or Linux. Direct installers from GitHub Releases."
+>
+  <section class="section">
+    <div class="container">
+      <header class="page-head">
+        <p class="eyebrow">Download</p>
+        <h1>Install Writ</h1>
+        <p class="muted lede">
+          Latest stable release: <strong>v{release.version}</strong>.
+          <a href="https://github.com/ibrahemid/writ/releases" rel="noopener noreferrer">Browse all releases.</a>
+        </p>
+      </header>
+
+      <div class="os-grid">
+        {sections.map((s) => (
+          <article class={`os-card os-card--${s.os}`} aria-labelledby={`os-${s.os}`}>
+            <header class="os-head">
+              <h2 id={`os-${s.os}`}>{s.title}</h2>
+            </header>
+            <ul class="os-items" role="list">
+              {s.items.map((item) => (
+                <li>
+                  <a class="btn os-item" href={item.href} rel="noopener">
+                    <span class="os-item-name">{item.name}</span>
+                    <span class="os-item-sub">{item.sub}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+            <p class="os-notes muted">{s.notes}</p>
+          </article>
+        ))}
+      </div>
+
+      <aside class="verify">
+        <h3>Verify your download</h3>
+        <p class="muted">
+          Each release includes a <code>SHA256SUMS.txt</code> file on the
+          <a href="https://github.com/ibrahemid/writ/releases" rel="noopener noreferrer"> releases page </a>.
+          Compare it against the hash of your download before running.
+        </p>
+      </aside>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .page-head {
+    max-width: 680px;
+    margin: 0 auto 2.5rem;
+    text-align: center;
+  }
+  .eyebrow {
+    display: inline-block;
+    margin: 0 0 0.5rem;
+    padding: 0.2rem 0.6rem;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    background: color-mix(in oklab, var(--accent) 15%, transparent);
+    border: 1px solid color-mix(in oklab, var(--accent) 30%, transparent);
+    border-radius: 999px;
+  }
+  .lede {
+    font-size: 1.05rem;
+  }
+  .lede strong {
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .os-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+  }
+  .os-card {
+    display: flex;
+    flex-direction: column;
+    padding: 1.5rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+  .os-head h2 {
+    margin: 0 0 1rem;
+    font-size: 1.2rem;
+  }
+  .os-items {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0 0 1rem;
+    padding: 0;
+    list-style: none;
+  }
+  .os-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+    padding: 0.85rem 1rem;
+  }
+  .os-item-name {
+    color: var(--fg);
+    font-weight: 500;
+    font-size: 0.95rem;
+  }
+  .os-item-sub {
+    color: var(--fg-muted);
+    font-size: 0.82rem;
+  }
+  .os-notes {
+    margin: 0;
+    font-size: 0.85rem;
+    line-height: 1.55;
+  }
+  .verify {
+    margin-top: 2.5rem;
+    padding: 1.25rem 1.5rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+  .verify h3 {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+  }
+  .verify p {
+    margin: 0;
+    font-size: 0.92rem;
+  }
+  .verify code {
+    padding: 0.1em 0.4em;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.85em;
+  }
+</style>
+
+<script>
+  function detectOs(): 'mac' | 'win' | 'linux' | null {
+    if (typeof navigator === 'undefined') return null;
+    const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+    const p = (nav.userAgentData?.platform || nav.platform || '').toLowerCase();
+    const ua = (navigator.userAgent || '').toLowerCase();
+    if (p.includes('mac') || ua.includes('mac os')) return 'mac';
+    if (p.includes('win') || ua.includes('windows')) return 'win';
+    if (p.includes('linux') || ua.includes('linux')) return 'linux';
+    return null;
+  }
+  const os = detectOs();
+  if (os) {
+    const card = document.querySelector<HTMLElement>(`.os-card--${os}`);
+    if (card) {
+      card.style.borderColor = 'color-mix(in oklab, var(--accent) 50%, var(--border))';
+      card.style.boxShadow = '0 0 0 2px color-mix(in oklab, var(--accent) 20%, transparent)';
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+</script>

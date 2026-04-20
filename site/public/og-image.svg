@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="Writ, a scratchpad text editor for developers">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#14141b"/>
+      <stop offset="1" stop-color="#0d0d10"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.2" cy="0.25" r="0.5">
+      <stop offset="0" stop-color="#3b82f6" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#3b82f6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <g transform="translate(90 120)">
+    <rect width="96" height="96" rx="22" fill="#3b82f6"/>
+    <path d="M22 32h10l6.5 28 7-28h9l7 28 6.5-28h10L67 70h-9l-7-28-7 28h-9L22 32z" fill="#ffffff"/>
+  </g>
+  <text x="90" y="330" font-family="Inter, -apple-system, system-ui, sans-serif" font-size="88" font-weight="700" fill="#e6e6ea" letter-spacing="-3">Writ</text>
+  <text x="90" y="400" font-family="Inter, -apple-system, system-ui, sans-serif" font-size="36" font-weight="500" fill="#a1a1aa">Always-ready text editor for developers.</text>
+  <text x="90" y="450" font-family="Inter, -apple-system, system-ui, sans-serif" font-size="28" font-weight="400" fill="#6b6b73">Global hotkey. Autosave. Full-text search.</text>
+  <g transform="translate(90 520)" font-family="ui-monospace, SF Mono, Menlo, monospace" font-size="22" fill="#a1a1aa">
+    <rect x="0" y="-28" width="260" height="44" rx="10" fill="#17171c" stroke="#2a2a32"/>
+    <text x="18" y="2">Cmd + Shift + Space</text>
+  </g>
+  <g transform="translate(840 120)" opacity="0.85">
+    <rect width="270" height="390" rx="14" fill="#17171c" stroke="#2a2a32"/>
+    <circle cx="18" cy="20" r="5" fill="#ef4444"/>
+    <circle cx="38" cy="20" r="5" fill="#f59e0b"/>
+    <circle cx="58" cy="20" r="5" fill="#22c55e"/>
+    <rect x="18" y="50" width="220" height="8" rx="2" fill="#2a2a32"/>
+    <rect x="18" y="70" width="180" height="8" rx="2" fill="#2a2a32"/>
+    <rect x="18" y="90" width="200" height="8" rx="2" fill="#3b82f6"/>
+    <rect x="18" y="110" width="150" height="8" rx="2" fill="#2a2a32"/>
+    <rect x="18" y="130" width="190" height="8" rx="2" fill="#2a2a32"/>
+    <rect x="18" y="150" width="120" height="8" rx="2" fill="#2a2a32"/>
+    <rect x="18" y="180" width="220" height="8" rx="2" fill="#2a2a32"/>
+    <rect x="18" y="200" width="170" height="8" rx="2" fill="#2a2a32"/>
+    <rect x="18" y="220" width="210" height="8" rx="2" fill="#2a2a32"/>
+  </g>
+</svg>

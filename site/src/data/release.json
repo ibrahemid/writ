@@ -1,0 +1,12 @@
+{
+  "version": "0.1.0",
+  "tag": "v0.1.0",
+  "publishedAt": "",
+  "assets": {
+    "mac-arm64": "#",
+    "mac-x64": "#",
+    "win-x64": "#",
+    "linux-appimage": "#",
+    "linux-deb": "#"
+  }
+}

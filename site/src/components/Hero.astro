@@ -1,0 +1,173 @@
+---
+import DownloadButtons from './DownloadButtons.astro';
+---
+
+<section class="hero" aria-labelledby="hero-heading">
+  <div class="container hero-inner">
+    <div class="hero-copy">
+      <span class="badge hero-badge">v0.1.0 preview</span>
+      <h1 id="hero-heading">
+        A text editor that's always <span class="accent">one keypress</span> away.
+      </h1>
+      <p class="hero-tagline">
+        Lightweight, always-ready text editor for developers. Global hotkey, autosave, full-text search.
+      </p>
+      <DownloadButtons variant="hero" />
+      <ul class="hero-trust" role="list">
+        <li>MIT licensed</li>
+        <li>No telemetry</li>
+        <li>Tauri v2 + SolidJS</li>
+      </ul>
+    </div>
+    <div class="hero-media">
+      <figure class="video-frame">
+        <div class="video-placeholder" role="img" aria-label="Hero demo placeholder">
+          <div class="video-bar">
+            <span></span><span></span><span></span>
+          </div>
+          <div class="video-body">
+            <div class="video-title">[hero.mp4 placeholder]</div>
+            <div class="video-hint">3 to 5 second loop: summon, type, switch tabs, dismiss.</div>
+          </div>
+        </div>
+        <figcaption class="visually-hidden">[hero.mp4 placeholder]</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    padding: 4.5rem 0 3rem;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 15% 20%, rgba(59, 130, 246, 0.12), transparent 45%),
+      radial-gradient(circle at 85% 60%, rgba(59, 130, 246, 0.06), transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .hero-inner {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    gap: 3rem;
+    align-items: center;
+  }
+  .hero-badge {
+    margin-bottom: 1.25rem;
+    color: var(--accent);
+    background: color-mix(in oklab, var(--accent) 15%, transparent);
+    border-color: color-mix(in oklab, var(--accent) 30%, transparent);
+  }
+  h1 {
+    margin-bottom: 1rem;
+  }
+  .accent {
+    color: var(--accent);
+  }
+  .hero-tagline {
+    font-size: 1.15rem;
+    max-width: 54ch;
+    margin-bottom: 1.75rem;
+  }
+  .hero-trust {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.25rem;
+    list-style: none;
+    margin: 1rem 0 0;
+    padding: 0;
+    font-size: 0.85rem;
+    color: var(--fg-subtle);
+  }
+  .hero-trust li {
+    position: relative;
+    padding-left: 1rem;
+  }
+  .hero-trust li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+    transform: translateY(-50%);
+  }
+  .hero-media {
+    display: block;
+  }
+  .video-frame {
+    margin: 0;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    background: var(--bg-elevated);
+    box-shadow: var(--shadow-lg);
+  }
+  .video-placeholder {
+    aspect-ratio: 16 / 10;
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(180deg, #121218 0%, #0c0c11 100%);
+  }
+  .video-bar {
+    display: flex;
+    gap: 6px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    background: #0f0f14;
+  }
+  .video-bar span {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--border-strong);
+  }
+  .video-bar span:first-child {
+    background: #ef4444;
+  }
+  .video-bar span:nth-child(2) {
+    background: #f59e0b;
+  }
+  .video-bar span:nth-child(3) {
+    background: #22c55e;
+  }
+  .video-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    text-align: center;
+  }
+  .video-title {
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    color: var(--fg-muted);
+    margin-bottom: 0.4rem;
+  }
+  .video-hint {
+    font-size: 0.85rem;
+    color: var(--fg-subtle);
+    max-width: 32ch;
+  }
+  @media (max-width: 900px) {
+    .hero {
+      padding: 3rem 0 2rem;
+    }
+    .hero-inner {
+      grid-template-columns: 1fr;
+      gap: 2rem;
+    }
+  }
+</style>
