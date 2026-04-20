@@ -17,7 +17,7 @@ pub struct BufferManager {
 }
 
 impl BufferManager {
-    /// Creates an empty manager with no buffers.
+    /// Creates a new, empty manager.
     pub fn new() -> Self {
         Self {
             buffers: HashMap::new(),
