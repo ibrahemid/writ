@@ -1,0 +1,150 @@
+name: Packages Bump
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to bump against (e.g. v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    name: Bump distribution manifests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "release" ]; then
+            TAG="$RELEASE_TAG"
+          else
+            TAG="$INPUT_TAG"
+          fi
+          if [ -z "$TAG" ]; then
+            echo "No release tag resolved" >&2
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download release artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cd artifacts
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "Writ_${VERSION}_aarch64.dmg" \
+            --pattern "Writ_${VERSION}_x64.dmg" \
+            --pattern "Writ_${VERSION}_x64_en-US.msi" \
+            --pattern "writ_${VERSION}_amd64.AppImage" \
+            --pattern "writ_${VERSION}_amd64.deb" \
+            --pattern "SHA256SUMS.txt" \
+            --pattern "latest.json" \
+            --clobber
+
+      - name: Compute checksums
+        id: checksums
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd artifacts
+          compute_sha() {
+            local file="$1"
+            if [ ! -f "$file" ]; then
+              echo "Missing artifact: $file" >&2
+              exit 1
+            fi
+            sha256sum "$file" | awk '{print $1}'
+          }
+          SHA_ARM64=$(compute_sha "Writ_${VERSION}_aarch64.dmg")
+          SHA_INTEL=$(compute_sha "Writ_${VERSION}_x64.dmg")
+          SHA_MSI=$(compute_sha "Writ_${VERSION}_x64_en-US.msi")
+          SHA_APPIMAGE=$(compute_sha "writ_${VERSION}_amd64.AppImage")
+          SHA_DEB=$(compute_sha "writ_${VERSION}_amd64.deb")
+          {
+            echo "sha_dmg_arm64=${SHA_ARM64}"
+            echo "sha_dmg_intel=${SHA_INTEL}"
+            echo "sha_msi=${SHA_MSI}"
+            echo "sha_appimage=${SHA_APPIMAGE}"
+            echo "sha_deb=${SHA_DEB}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Bump Homebrew cask
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+          SHA_ARM64: ${{ steps.checksums.outputs.sha_dmg_arm64 }}
+          SHA_INTEL: ${{ steps.checksums.outputs.sha_dmg_intel }}
+        run: |
+          set -euo pipefail
+          python3 scripts/packaging_bump_homebrew.py
+
+      - name: Bump winget manifests
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+          SHA_MSI: ${{ steps.checksums.outputs.sha_msi }}
+        run: |
+          set -euo pipefail
+          RELEASE_DATE=$(date -u +%Y-%m-%d) \
+          VERSION="$VERSION" \
+          SHA_MSI="$SHA_MSI" \
+          python3 scripts/packaging_bump_winget.py
+
+      - name: Bump AUR PKGBUILD
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+          SHA_APPIMAGE: ${{ steps.checksums.outputs.sha_appimage }}
+        run: |
+          set -euo pipefail
+          python3 scripts/packaging_bump_aur.py
+
+      - name: Create bump pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: packages/bump-${{ steps.tag.outputs.version }}
+          base: main
+          commit-message: "chore(packaging): bump to ${{ steps.tag.outputs.tag }}"
+          title: "chore(packaging): bump distribution manifests to ${{ steps.tag.outputs.tag }}"
+          body: |
+            Automated bump triggered by release `${{ steps.tag.outputs.tag }}`.
+
+            Updated files:
+            - `packaging/homebrew/Casks/writ.rb` (version + SHA256 for both DMGs)
+            - `packaging/winget/manifests/i/ibrahemid/Writ/${{ steps.tag.outputs.version }}/` (copied from previous version, rewritten)
+            - `packaging/aur/writ-bin/PKGBUILD` + regenerated `.SRCINFO`
+
+            Follow-up submission steps (manual):
+            - Copy the updated cask into the `homebrew-writ` tap repo and push.
+            - Open a PR in `microsoft/winget-pkgs` with the new version folder.
+            - Push the updated PKGBUILD and `.SRCINFO` to the AUR `writ-bin` remote.
+
+            This PR is NOT auto-merged. Review and merge manually once the artifact SHAs are confirmed.
+          labels: |
+            packaging
+            automated
+          delete-branch: true
