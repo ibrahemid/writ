@@ -106,6 +106,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             commands::buffer::create_buffer,
