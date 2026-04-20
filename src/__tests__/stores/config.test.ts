@@ -38,14 +38,20 @@ describe("configStore", () => {
       expect(configStore.config().editor.tab_size).toBe(4);
     });
 
-    it("keeps default config on load failure", async () => {
-      const defaultFontSize = configStore.config().editor.font_size;
+    it("resets to defaults on load failure", async () => {
+      mockedGetConfig.mockResolvedValueOnce(MOCK_CONFIG);
+      await configStore.load();
+      expect(configStore.config().editor.font_size).toBe(16);
+
       mockedGetConfig.mockRejectedValueOnce(new Error("no file"));
       const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
       await configStore.load();
 
-      expect(configStore.config().editor.font_size).toBe(defaultFontSize);
+      const resetConfig = configStore.config();
+      expect(resetConfig.editor.font_size).not.toBe(16);
+      expect(resetConfig.hotkey.toggle).toBeTruthy();
+      expect(resetConfig.editor.autosave_debounce_ms).toBeGreaterThan(0);
       consoleSpy.mockRestore();
     });
   });
