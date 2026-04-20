@@ -4,7 +4,7 @@ vi.mock("../../services/tauri", () => ({
   saveBufferContent: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { debouncedSave, cancelAutosave } from "../../services/autosave";
+import { debouncedSave, cancelAutosave, onAutosaveError } from "../../services/autosave";
 import { saveBufferContent } from "../../services/tauri";
 
 const mockedSave = vi.mocked(saveBufferContent);
@@ -57,15 +57,16 @@ describe("autosave", () => {
       expect(mockedSave).toHaveBeenCalledWith("buf-b", "content-b");
     });
 
-    it("does not throw when save fails", async () => {
+    it("notifies error listeners when save fails", async () => {
       mockedSave.mockRejectedValueOnce(new Error("disk full"));
-      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const listener = vi.fn();
+      const unsubscribe = onAutosaveError(listener);
 
       debouncedSave("buf-1", "data", 50);
       await vi.advanceTimersByTimeAsync(50);
 
-      expect(consoleSpy).toHaveBeenCalledWith("autosave failed:", expect.any(Error));
-      consoleSpy.mockRestore();
+      expect(listener).toHaveBeenCalledWith("buf-1", expect.any(Error));
+      unsubscribe();
     });
   });
 
