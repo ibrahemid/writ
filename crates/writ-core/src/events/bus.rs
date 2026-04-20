@@ -2,39 +2,62 @@ use crate::watcher::change_event::ExternalChange;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
+/// Domain events emitted by `writ-core`.
+///
+/// All variants are `Serialize` / `Deserialize` so the Tauri adapter can
+/// forward them to the frontend without re-encoding.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WritEvent {
+    /// The user's configuration changed. `keys` lists the dotted paths
+    /// that changed, so listeners can respond selectively.
     ConfigChanged {
+        /// Dotted config paths that changed (for example `editor.font_size`).
         keys: Vec<String>,
     },
+    /// A buffer's backing file was modified or deleted externally.
     BufferExternal {
+        /// Identifier of the buffer that observed the change.
         buffer_id: String,
+        /// Nature of the external change.
         change: ExternalChange,
     },
+    /// A dirty shutdown was detected and session state was recovered.
     RecoveryDirty {
+        /// Identifier of the recovered session snapshot.
         snapshot_id: String,
+        /// Number of buffers restored from the snapshot.
         buffer_count: u32,
     },
+    /// The global toggle hotkey was pressed.
     HotkeyToggle,
+    /// A plugin-defined event payload.
     PluginEvent {
+        /// Identifier of the plugin that emitted the event.
         plugin_id: String,
+        /// Opaque payload; interpretation is plugin-specific.
         data: serde_json::Value,
     },
 }
 
 type Subscriber = Arc<dyn Fn(&WritEvent) + Send + Sync>;
 
+/// Fan-out event bus for [`WritEvent`] payloads.
+///
+/// Subscribers are invoked synchronously in the order they subscribed.
+/// The bus is internally synchronized and may be shared across threads.
 pub struct EventBus {
     subscribers: Arc<Mutex<Vec<Subscriber>>>,
 }
 
 impl EventBus {
+    /// Creates an empty bus with no subscribers.
     pub fn new() -> Self {
         Self {
             subscribers: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
+    /// Registers a handler to be invoked for every subsequent event.
     pub fn subscribe<F>(&self, handler: F)
     where
         F: Fn(&WritEvent) + Send + Sync + 'static,
@@ -45,6 +68,11 @@ impl EventBus {
             .push(Arc::new(handler));
     }
 
+    /// Delivers `event` to every current subscriber.
+    ///
+    /// Subscribers added after this call returns will not receive the
+    /// event. Poisoned locks are recovered transparently so a panicking
+    /// subscriber cannot take the bus down with it.
     pub fn emit(&self, event: WritEvent) {
         let subscribers = self
             .subscribers

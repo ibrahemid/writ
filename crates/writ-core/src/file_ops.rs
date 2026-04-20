@@ -1,3 +1,5 @@
+//! Pure file helpers: validation, language detection, filename extraction.
+
 use std::path::Path;
 
 use crate::errors::{WritError, WritResult};
@@ -6,6 +8,10 @@ const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024;
 
 const BINARY_CHECK_BYTES: usize = 8192;
 
+/// Infers a language identifier from a file path's extension.
+///
+/// Returns a lowercase language tag (for example `"rust"`) suitable for
+/// passing to CodeMirror, or `None` if the extension is unknown.
 pub fn detect_language_from_path(path: &Path) -> Option<String> {
     let ext = path.extension()?.to_str()?.to_lowercase();
     match ext.as_str() {
@@ -65,6 +71,16 @@ pub fn detect_language_from_path(path: &Path) -> Option<String> {
     .map(String::from)
 }
 
+/// Validates that `path` refers to a regular, non-binary file small enough
+/// to open.
+///
+/// Fails with [`WritError::Io`] if any of the following hold:
+///
+/// - the path does not exist,
+/// - the path is not a regular file,
+/// - the file exceeds the internal 10 MiB size limit,
+/// - the first 8 KiB contain a NUL byte, which Writ treats as a binary
+///   heuristic.
 pub fn validate_file_for_opening(path: &Path) -> WritResult<()> {
     if !path.exists() {
         return Err(WritError::Io(std::io::Error::new(
@@ -108,6 +124,8 @@ pub fn validate_file_for_opening(path: &Path) -> WritResult<()> {
     Ok(())
 }
 
+/// Returns the file name component of `path` as an owned string, or
+/// `"untitled"` when the path has no usable file name.
 pub fn extract_filename(path: &Path) -> String {
     path.file_name()
         .and_then(|n| n.to_str())

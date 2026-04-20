@@ -6,12 +6,18 @@ use uuid::Uuid;
 use crate::buffer::document::{BufferDocument, BufferStatus};
 use crate::errors::{WritError, WritResult};
 
+/// In-memory collection of buffers with lifecycle operations.
+///
+/// `BufferManager` is the authoritative view of which buffers exist and
+/// what state each is in. Persistence is performed separately by
+/// `writ-storage`; this type owns only in-memory state.
 pub struct BufferManager {
     buffers: HashMap<String, BufferDocument>,
     next_tab_order: u32,
 }
 
 impl BufferManager {
+    /// Creates an empty manager with no buffers.
     pub fn new() -> Self {
         Self {
             buffers: HashMap::new(),
@@ -19,6 +25,10 @@ impl BufferManager {
         }
     }
 
+    /// Creates a new scratch buffer and assigns the next tab order.
+    ///
+    /// When `title` is `None`, a timestamp-derived title (`writ-<ms>`) is
+    /// generated so that buffers created in a tight loop remain distinct.
     pub fn create_buffer(&mut self, title: Option<String>) -> WritResult<BufferDocument> {
         let now = Utc::now();
         let id = Uuid::new_v4().to_string();
@@ -45,6 +55,10 @@ impl BufferManager {
         Ok(doc)
     }
 
+    /// Opens an external file as a new active buffer.
+    ///
+    /// The buffer's `source_path` is set to `path` so later saves write
+    /// back to the origin file. The title is derived from the file name.
     pub fn open_external(&mut self, path: String) -> WritResult<BufferDocument> {
         let filename = std::path::Path::new(&path)
             .file_name()
@@ -76,12 +90,15 @@ impl BufferManager {
         Ok(doc)
     }
 
+    /// Returns the buffer with the given id, or
+    /// [`WritError::BufferNotFound`] if none exists.
     pub fn get_buffer(&self, id: &str) -> WritResult<&BufferDocument> {
         self.buffers
             .get(id)
             .ok_or_else(|| WritError::BufferNotFound { id: id.to_string() })
     }
 
+    /// Moves a buffer to [`BufferStatus::History`] and stamps `closed_at`.
     pub fn close_buffer(&mut self, id: &str) -> WritResult<()> {
         let doc = self
             .buffers
@@ -94,6 +111,7 @@ impl BufferManager {
         Ok(())
     }
 
+    /// Restores a history buffer back to [`BufferStatus::Active`].
     pub fn restore_buffer(&mut self, id: &str) -> WritResult<()> {
         let doc = self
             .buffers
@@ -106,12 +124,14 @@ impl BufferManager {
         Ok(())
     }
 
+    /// Permanently removes a buffer from the manager and returns it.
     pub fn delete_buffer(&mut self, id: &str) -> WritResult<BufferDocument> {
         self.buffers
             .remove(id)
             .ok_or_else(|| WritError::BufferNotFound { id: id.to_string() })
     }
 
+    /// Returns all active buffers, ordered by their tab position.
     pub fn list_active(&self) -> Vec<&BufferDocument> {
         let mut active: Vec<&BufferDocument> = self
             .buffers
@@ -122,6 +142,7 @@ impl BufferManager {
         active
     }
 
+    /// Returns all history buffers, most recently closed first.
     pub fn list_history(&self) -> Vec<&BufferDocument> {
         let mut history: Vec<&BufferDocument> = self
             .buffers
@@ -132,6 +153,10 @@ impl BufferManager {
         history
     }
 
+    /// Rewrites tab order to match `ordered_ids`.
+    ///
+    /// Returns [`WritError::BufferNotFound`] if any id is unknown; partial
+    /// reorderings may be observed in that case.
     pub fn reorder_tabs(&mut self, ordered_ids: &[String]) -> WritResult<()> {
         for (position, id) in ordered_ids.iter().enumerate() {
             let doc = self
