@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 #### Phase 1 — Core Foundation
 
-- Cargo workspace with four crates: `writ-core`, `writ-storage`, `writ-plugin`, `writ-cli`
+- Cargo workspace with three library crates plus the Tauri shell: `writ-core`, `writ-storage`, `writ-plugin`, `src-tauri`
 - `writ-core`: buffer model (`document.rs`, `manager.rs`) with create, update, delete, and reorder operations
 - `writ-core`: workspace management and tab ordering
 - `writ-core`: command registry (`command/registry.rs`) for palette-driven actions
@@ -41,7 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `Editor` component wrapping CodeMirror 6 with language auto-detection by file extension and shebang
 - `TitleBar` component with draggable tab strip, new-tab button, and close-tab button
 - `Sidebar` component showing active tabs, buffer history, and full-text search input
-- `CommandPalette` component (`Cmd+Shift+P`) listing all registered commands with fuzzy filtering
+- `CommandPalette` component (double-tap `Shift`) listing all registered commands with fuzzy filtering
 - `ErrorBoundary` component for graceful rendering failure recovery
 - `Notifications` component for transient toast messages
 - `buffers` store managing tab state, active buffer, and reorder operations
@@ -50,5 +50,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `config` store consuming Tauri config events with hot-reload
 - Frontend service layer (`services/`) wrapping Tauri IPC calls with typed return values
 - Dark theme with CSS custom properties and no hard-coded colour values
-- Keyboard shortcut handling: `Cmd+N` new tab, `Cmd+W` close tab, `Cmd+Shift+T` reopen closed tab, `Cmd+B` toggle sidebar
+- Keyboard shortcut handling: `Cmd+T` new tab, `Cmd+W` close tab, `Cmd+[` / `Cmd+]` switch tabs, `Cmd+Shift+T` reopen closed tab, double-tap `Cmd+S` toggle sidebar
 - Autosave debounce wired through the editor store — no manual save required
