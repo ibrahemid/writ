@@ -1,0 +1,109 @@
+---
+const faqs = [
+  {
+    q: 'What is Writ?',
+    a: 'Writ is a lightweight, always-ready text editor that lives in your system tray. Press a global hotkey to summon it, type, dismiss. It autosaves everything locally, so you never lose a thought.',
+  },
+  {
+    q: 'How is it different from VS Code or Obsidian?',
+    a: 'Writ is not a code editor or a knowledge base. It is a scratchpad for quick notes, snippets, and drafts. It opens instantly, disappears just as fast, and stays out of your way. Think of it as the text editor equivalent of Spotlight.',
+  },
+  {
+    q: 'Where is my data stored?',
+    a: 'Everything is stored locally in a single SQLite database in your app data directory. There is no cloud sync, no telemetry, and nothing leaves your machine.',
+  },
+  {
+    q: 'Is Writ free and open source?',
+    a: 'Yes. Writ is MIT licensed. The source is on GitHub, and contributions are welcome.',
+  },
+  {
+    q: 'Which platforms are supported?',
+    a: 'macOS (Apple Silicon and Intel), Windows x64, and Linux (.AppImage and .deb). Built on Tauri v2, SolidJS, and CodeMirror 6.',
+  },
+];
+---
+
+<section class="section" id="faq" aria-labelledby="faq-heading">
+  <div class="container container-narrow">
+    <header class="section-head">
+      <p class="eyebrow">FAQ</p>
+      <h2 id="faq-heading">Common questions</h2>
+    </header>
+    <div class="faq-list">
+      {faqs.map((item, i) => (
+        <details class="faq-item" open={i === 0}>
+          <summary>
+            <span>{item.q}</span>
+            <span class="chev" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </span>
+          </summary>
+          <p>{item.a}</p>
+        </details>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .container-narrow {
+    max-width: 760px;
+  }
+  .section-head {
+    text-align: center;
+    margin: 0 auto 2rem;
+  }
+  .eyebrow {
+    display: inline-block;
+    margin: 0 0 0.5rem;
+    padding: 0.2rem 0.6rem;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    background: color-mix(in oklab, var(--accent) 15%, transparent);
+    border: 1px solid color-mix(in oklab, var(--accent) 30%, transparent);
+    border-radius: 999px;
+  }
+  .faq-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .faq-item {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+  .faq-item summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    font-weight: 500;
+    color: var(--fg);
+    cursor: pointer;
+    list-style: none;
+  }
+  .faq-item summary::-webkit-details-marker {
+    display: none;
+  }
+  .faq-item summary:hover {
+    background: var(--bg-hover);
+  }
+  .chev {
+    color: var(--fg-muted);
+    transition: transform 0.2s ease;
+    display: inline-flex;
+  }
+  .faq-item[open] .chev {
+    transform: rotate(180deg);
+  }
+  .faq-item p {
+    margin: 0;
+    padding: 0 1.25rem 1.1rem;
+    font-size: 0.95rem;
+  }
+</style>

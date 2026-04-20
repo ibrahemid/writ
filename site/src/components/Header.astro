@@ -1,0 +1,101 @@
+---
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const nav = [
+  { label: 'Features', href: `${base}/#features` },
+  { label: 'Shortcuts', href: `${base}/#shortcuts` },
+  { label: 'FAQ', href: `${base}/#faq` },
+  { label: 'Download', href: `${base}/download` },
+];
+const repoUrl = 'https://github.com/ibrahemid/writ';
+---
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href={`${base}/`} aria-label="Writ home">
+      <span class="brand-mark" aria-hidden="true">W</span>
+      <span class="brand-name">Writ</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary">
+      <ul>
+        {nav.map((item) => (
+          <li><a href={item.href}>{item.label}</a></li>
+        ))}
+        <li><a href={repoUrl} rel="noopener noreferrer">GitHub</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<style>
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: color-mix(in oklab, var(--bg) 85%, transparent);
+    backdrop-filter: saturate(140%) blur(10px);
+    -webkit-backdrop-filter: saturate(140%) blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  .header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 60px;
+    gap: 1rem;
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: var(--fg);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .brand:hover {
+    color: var(--fg);
+  }
+  .brand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: var(--accent);
+    color: var(--accent-contrast);
+    font-weight: 700;
+    border-radius: 7px;
+    font-size: 0.9rem;
+  }
+  .brand-name {
+    font-size: 1.05rem;
+  }
+  .site-nav ul {
+    display: flex;
+    gap: 1.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .site-nav a {
+    color: var(--fg-muted);
+    font-size: 0.92rem;
+  }
+  .site-nav a:hover {
+    color: var(--fg);
+  }
+  @media (max-width: 640px) {
+    .site-nav ul {
+      gap: 0.75rem;
+    }
+    .site-nav a {
+      font-size: 0.85rem;
+    }
+  }
+  @media (max-width: 420px) {
+    .site-nav li:nth-child(1),
+    .site-nav li:nth-child(2),
+    .site-nav li:nth-child(3) {
+      display: none;
+    }
+  }
+</style>

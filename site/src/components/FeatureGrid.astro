@@ -1,0 +1,108 @@
+---
+const features = [
+  {
+    title: 'Global hotkey',
+    body: 'Summon and dismiss Writ from anywhere with Cmd+Shift+Space. Always a keypress away.',
+  },
+  {
+    title: 'Autosave',
+    body: 'Every keystroke is persisted to local SQLite. No save button. No lost work.',
+  },
+  {
+    title: 'Full-text search',
+    body: 'SQLite FTS5 across every tab and history entry. Find anything in milliseconds.',
+  },
+  {
+    title: 'CodeMirror syntax',
+    body: 'First-class highlighting for Rust, TypeScript, Python, Markdown, and more.',
+  },
+  {
+    title: 'Dark by default',
+    body: 'Calm, terminal-grade theme that matches your editor and stays out of the way.',
+  },
+  {
+    title: 'Command palette',
+    body: 'Double-tap Shift to run any action. Keyboard-first, always discoverable.',
+  },
+  {
+    title: 'Tabs',
+    body: 'Cmd+T to create, Cmd+W to close, Cmd+[ and Cmd+] to switch. Renameable.',
+  },
+  {
+    title: 'Session recovery',
+    body: 'Crash, reboot, or close without thinking. Your tabs and cursor position come back.',
+  },
+];
+---
+
+<section class="section" id="features" aria-labelledby="features-heading">
+  <div class="container">
+    <header class="section-head">
+      <p class="eyebrow">Features</p>
+      <h2 id="features-heading">Built for keyboard-driven work</h2>
+      <p class="muted lede">
+        Writ is small on purpose. Every feature earns its place by saving you a click.
+      </p>
+    </header>
+    <ul class="feature-grid" role="list">
+      {features.map((f) => (
+        <li class="feature-card">
+          <h3>{f.title}</h3>
+          <p>{f.body}</p>
+        </li>
+      ))}
+    </ul>
+  </div>
+</section>
+
+<style>
+  .section-head {
+    max-width: 620px;
+    margin: 0 auto 2.5rem;
+    text-align: center;
+  }
+  .eyebrow {
+    display: inline-block;
+    margin: 0 0 0.5rem;
+    padding: 0.2rem 0.6rem;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    background: color-mix(in oklab, var(--accent) 15%, transparent);
+    border: 1px solid color-mix(in oklab, var(--accent) 30%, transparent);
+    border-radius: 999px;
+  }
+  .lede {
+    font-size: 1.05rem;
+  }
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .feature-card {
+    padding: 1.25rem 1.25rem 1.1rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    transition: border-color 0.15s ease, transform 0.15s ease;
+  }
+  .feature-card:hover {
+    border-color: var(--border-strong);
+    transform: translateY(-2px);
+  }
+  .feature-card h3 {
+    font-size: 1rem;
+    margin: 0 0 0.4rem;
+    color: var(--fg);
+  }
+  .feature-card p {
+    margin: 0;
+    font-size: 0.92rem;
+    color: var(--fg-muted);
+  }
+</style>

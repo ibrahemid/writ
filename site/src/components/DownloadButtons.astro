@@ -1,0 +1,157 @@
+---
+import release from '../data/release.json';
+
+interface Props {
+  variant?: 'hero' | 'compact';
+}
+
+const { variant = 'hero' } = Astro.props;
+
+const buttons = [
+  {
+    os: 'mac',
+    label: 'Download for macOS',
+    sub: 'Apple Silicon and Intel',
+    href: release.assets['mac-arm64'],
+    icon: 'mac',
+  },
+  {
+    os: 'win',
+    label: 'Download for Windows',
+    sub: 'x64 .msi installer',
+    href: release.assets['win-x64'],
+    icon: 'win',
+  },
+  {
+    os: 'linux',
+    label: 'Download for Linux',
+    sub: '.AppImage / .deb',
+    href: release.assets['linux-appimage'],
+    icon: 'linux',
+  },
+];
+---
+
+<div class={`download-group download-group--${variant}`} data-download-group>
+  {buttons.map((b) => (
+    <a
+      class={`btn ${variant === 'hero' ? 'btn-lg' : ''} dl-btn`}
+      href={b.href}
+      data-os={b.os}
+      rel="noopener"
+    >
+      <span class="dl-icon" aria-hidden="true">
+        {b.icon === 'mac' && (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16.365 1.43c0 1.14-.46 2.23-1.21 3.02-.8.83-2.09 1.48-3.14 1.4-.13-1.14.45-2.33 1.18-3.08.82-.83 2.2-1.44 3.17-1.34zM20.5 17.3c-.57 1.32-.84 1.9-1.57 3.06-1.02 1.62-2.46 3.63-4.24 3.65-1.58.02-1.99-1.03-4.14-1.02-2.15.01-2.6 1.04-4.18 1.02-1.78-.02-3.14-1.84-4.16-3.46C-.22 17.2-.62 11.9 1.13 9.15c1.24-1.95 3.2-3.09 5.03-3.09 1.87 0 3.04 1.03 4.58 1.03 1.49 0 2.4-1.03 4.57-1.03 1.64 0 3.37.9 4.6 2.45-4.04 2.22-3.38 8.01.59 8.79z"/></svg>
+        )}
+        {b.icon === 'win' && (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5 11 4.3v7.2H3V5.5Zm0 13v-6h8v7.2L3 18.5Zm9-7h9v9.5l-9-1.3v-8.2Zm0-7.5 9-1.2v8.2h-9V4Z"/></svg>
+        )}
+        {b.icon === 'linux' && (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c-2.5 0-4 2.5-4 5.5 0 1.2.4 2.2.9 3-.6.7-1.3 1.6-2 2.7-1.4 2.2-2.2 4.2-2.2 5.8 0 .8.4 1.5 1.1 2 .6.4 1.4.5 2.1.2.4.5 1.2.8 2.4.8h3.4c1.2 0 2-.3 2.4-.8.7.3 1.5.2 2.1-.2.7-.5 1.1-1.2 1.1-2 0-1.6-.8-3.6-2.2-5.8-.7-1.1-1.4-2-2-2.7.5-.8.9-1.8.9-3C16 4.5 14.5 2 12 2Zm-1.4 5.2c.3 0 .6.3.6.7 0 .4-.3.7-.6.7-.3 0-.6-.3-.6-.7 0-.4.3-.7.6-.7Zm2.8 0c.3 0 .6.3.6.7 0 .4-.3.7-.6.7-.3 0-.6-.3-.6-.7 0-.4.3-.7.6-.7ZM12 9.2c.6 0 1.1.3 1.3.6.1.1.1.3 0 .4-.2.3-.7.6-1.3.6s-1.1-.3-1.3-.6c-.1-.1-.1-.3 0-.4.2-.3.7-.6 1.3-.6Z"/></svg>
+        )}
+      </span>
+      <span class="dl-text">
+        <span class="dl-label">{b.label}</span>
+        <span class="dl-sub">{b.sub}</span>
+      </span>
+    </a>
+  ))}
+</div>
+
+<p class="dl-version muted">
+  Latest: <strong>v{release.version}</strong>
+  {' '}&middot;{' '}
+  <a href="https://github.com/ibrahemid/writ/releases" rel="noopener noreferrer">All releases</a>
+</p>
+
+<style>
+  .download-group {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .download-group--compact {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+  .dl-btn {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.75rem;
+    text-align: left;
+    padding: 0.85rem 1rem;
+  }
+  .dl-icon {
+    display: inline-flex;
+    color: var(--fg);
+  }
+  .dl-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.25;
+  }
+  .dl-label {
+    font-weight: 500;
+    color: var(--fg);
+  }
+  .dl-sub {
+    font-size: 0.78rem;
+    color: var(--fg-muted);
+    margin-top: 2px;
+  }
+  .dl-version {
+    font-size: 0.85rem;
+    margin-top: 0.5rem;
+  }
+  .dl-version strong {
+    color: var(--fg);
+    font-weight: 500;
+  }
+  @media (max-width: 720px) {
+    .download-group {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<script>
+  function detectOs(): 'mac' | 'win' | 'linux' | null {
+    if (typeof navigator === 'undefined') return null;
+    const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+    const p = (nav.userAgentData?.platform || nav.platform || '').toLowerCase();
+    const ua = (navigator.userAgent || '').toLowerCase();
+    if (p.includes('mac') || ua.includes('mac os')) return 'mac';
+    if (p.includes('win') || ua.includes('windows')) return 'win';
+    if (p.includes('linux') || ua.includes('linux')) return 'linux';
+    return null;
+  }
+
+  const os = detectOs();
+  if (os) {
+    const groups = document.querySelectorAll<HTMLElement>('[data-download-group]');
+    groups.forEach((group) => {
+      const match = group.querySelector<HTMLElement>(`.dl-btn[data-os="${os}"]`);
+      if (match) {
+        match.classList.remove('btn');
+        match.classList.add('btn', 'btn-primary');
+        if (match.classList.contains('btn-lg') === false) {
+          match.classList.add('btn-lg');
+        }
+        const sub = match.querySelector<HTMLElement>('.dl-sub');
+        if (sub) {
+          sub.style.color = 'rgba(255,255,255,0.85)';
+        }
+        const label = match.querySelector<HTMLElement>('.dl-label');
+        if (label) {
+          label.style.color = '#fff';
+        }
+        const icon = match.querySelector<HTMLElement>('.dl-icon');
+        if (icon) {
+          icon.style.color = '#fff';
+        }
+      }
+    });
+  }
+</script>

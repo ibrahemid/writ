@@ -1,0 +1,102 @@
+---
+const shortcuts = [
+  { keys: ['Cmd', 'Shift', 'Space'], action: 'Toggle window (global)' },
+  { keys: ['Cmd', 'T'], action: 'New tab' },
+  { keys: ['Cmd', 'W'], action: 'Close tab' },
+  { keys: ['Cmd', '['], action: 'Previous tab' },
+  { keys: ['Cmd', ']'], action: 'Next tab' },
+  { keys: ['Cmd', 'S', 'S'], action: 'Toggle sidebar (double-tap)' },
+  { keys: ['Shift', 'Shift'], action: 'Command palette' },
+  { keys: ['Double-click'], action: 'Rename tab' },
+];
+---
+
+<section class="section" id="shortcuts" aria-labelledby="shortcuts-heading">
+  <div class="container">
+    <header class="section-head">
+      <p class="eyebrow">Shortcuts</p>
+      <h2 id="shortcuts-heading">Keyboard, not menus</h2>
+    </header>
+    <div class="shortcut-wrap">
+      <table class="shortcut-table">
+        <thead>
+          <tr>
+            <th scope="col">Shortcut</th>
+            <th scope="col">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {shortcuts.map((s) => (
+            <tr>
+              <td>
+                {s.keys.map((k, i) => (
+                  <>
+                    <kbd>{k}</kbd>
+                    {i < s.keys.length - 1 && <span class="plus" aria-hidden="true"> + </span>}
+                  </>
+                ))}
+              </td>
+              <td>{s.action}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<style>
+  .section-head {
+    max-width: 620px;
+    margin: 0 auto 2rem;
+    text-align: center;
+  }
+  .eyebrow {
+    display: inline-block;
+    margin: 0 0 0.5rem;
+    padding: 0.2rem 0.6rem;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    background: color-mix(in oklab, var(--accent) 15%, transparent);
+    border: 1px solid color-mix(in oklab, var(--accent) 30%, transparent);
+    border-radius: 999px;
+  }
+  .shortcut-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-elevated);
+  }
+  .shortcut-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+  }
+  .shortcut-table th,
+  .shortcut-table td {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .shortcut-table tr:last-child td {
+    border-bottom: none;
+  }
+  .shortcut-table th {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-subtle);
+    font-weight: 500;
+    background: var(--bg);
+  }
+  .shortcut-table td:last-child {
+    color: var(--fg-muted);
+  }
+  .plus {
+    padding: 0 0.25rem;
+    color: var(--fg-subtle);
+  }
+</style>

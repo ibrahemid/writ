@@ -1,0 +1,78 @@
+---
+const year = new Date().getFullYear();
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+
+<footer class="site-footer">
+  <div class="container footer-inner">
+    <div class="footer-col">
+      <div class="foot-brand">Writ</div>
+      <p class="muted small">Lightweight, always-ready text editor for developers.</p>
+    </div>
+    <nav aria-label="Footer">
+      <ul>
+        <li><a href={`${base}/`}>Home</a></li>
+        <li><a href={`${base}/download`}>Download</a></li>
+        <li><a href="https://github.com/ibrahemid/writ" rel="noopener noreferrer">GitHub</a></li>
+        <li><a href="https://github.com/ibrahemid/writ/issues" rel="noopener noreferrer">Issues</a></li>
+      </ul>
+    </nav>
+    <div class="foot-credit">
+      <p class="small muted">Built with Tauri + SolidJS + Astro.</p>
+      <p class="small muted">&copy; {year} Writ contributors. MIT licensed.</p>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    margin-top: 4rem;
+    padding: 3rem 0 2rem;
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .footer-inner {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1.4fr;
+    gap: 2rem;
+    align-items: start;
+  }
+  .foot-brand {
+    font-weight: 600;
+    font-size: 1.05rem;
+    margin-bottom: 0.4rem;
+  }
+  nav ul {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  nav a {
+    color: var(--fg-muted);
+    font-size: 0.9rem;
+  }
+  nav a:hover {
+    color: var(--fg);
+  }
+  .small {
+    font-size: 0.85rem;
+  }
+  .foot-credit {
+    text-align: right;
+  }
+  .foot-credit p {
+    margin: 0 0 0.25rem;
+  }
+  @media (max-width: 720px) {
+    .footer-inner {
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+    }
+    .foot-credit {
+      text-align: left;
+    }
+  }
+</style>
