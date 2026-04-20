@@ -1,0 +1,36 @@
+name: Question
+description: Ask a question about using or building Writ
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions belong in GitHub Discussions, not Issues. The Issues tracker is reserved for reproducible bugs and actionable feature requests.
+
+        Please open a new Discussion instead: https://github.com/ibrahemid/writ/discussions
+
+        If you are certain your question belongs here (for example, an ambiguity in the documentation that should be fixed), fill in the fields below.
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: I searched existing Discussions and Issues and could not find an answer.
+          required: true
+        - label: I understand this will likely be converted to a Discussion by a maintainer.
+          required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What do you want to know?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What have you already tried? Link any relevant docs you have read.
+    validations:
+      required: false

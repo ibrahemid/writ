@@ -17,7 +17,7 @@ homepage = "https://github.com/ibrahemid/writ"
 authors = ["Ibrahem ID <ibrahemid@gmail.com>"]
 description = "A lightweight, always-ready text editor for developers."
 readme = "README.md"
-keywords = ["editor", "tauri", "scratchpad", "codemirror"]
+keywords = ["editor", "tauri", "scratchpad", "codemirror", "notes"]
 categories = ["text-editors", "gui"]
 
 [profile.release]
