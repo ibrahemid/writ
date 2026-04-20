@@ -3,28 +3,160 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (must exist, e.g. v0.1.0)"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
+  create-release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create.outputs.release_id }}
+      tag_name: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="$REF_NAME"
+          fi
+          if [ -z "$TAG" ]; then
+            echo "No tag resolved" >&2
+            exit 1
+          fi
+          case "$TAG" in
+            v*.*.*) ;;
+            *) echo "Refusing to release non-semver tag: $TAG" >&2; exit 1 ;;
+          esac
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog from conventional commits
+        id: changelog
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREV_TAG="$(git describe --tags --abbrev=0 --match 'v*.*.*' "${TAG}^" 2>/dev/null || true)"
+          if [ -z "$PREV_TAG" ]; then
+            RANGE=""
+            echo "No previous tag found, listing all commits"
+          else
+            RANGE="${PREV_TAG}..${TAG}"
+            echo "Generating changelog for range ${RANGE}"
+          fi
+
+          {
+            echo "## What's changed"
+            echo
+            echo "### Features"
+            git log ${RANGE:-} --pretty=format:"- %s (%h)" --no-merges | grep -E "^- feat(\(.+\))?: " || echo "- None"
+            echo
+            echo
+            echo "### Fixes"
+            git log ${RANGE:-} --pretty=format:"- %s (%h)" --no-merges | grep -E "^- fix(\(.+\))?: " || echo "- None"
+            echo
+            echo
+            echo "### Other"
+            git log ${RANGE:-} --pretty=format:"- %s (%h)" --no-merges | grep -vE "^- (feat|fix)(\(.+\))?: " || echo "- None"
+            echo
+            if [ -n "$PREV_TAG" ]; then
+              echo
+              echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}"
+            fi
+          } > CHANGELOG_RELEASE.md
+
+          {
+            echo "body<<CHANGELOG_EOF"
+            cat CHANGELOG_RELEASE.md
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create draft GitHub Release
+        id: create
+        uses: actions/github-script@v7
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          BODY: ${{ steps.changelog.outputs.body }}
+        with:
+          script: |
+            const tag = process.env.TAG;
+            const body = process.env.BODY || '';
+            const { owner, repo } = context.repo;
+            const releases = await github.rest.repos.listReleases({ owner, repo, per_page: 100 });
+            let release = releases.data.find(r => r.tag_name === tag);
+            if (release) {
+              core.info(`Release for ${tag} already exists (id=${release.id}), reusing.`);
+              release = (await github.rest.repos.updateRelease({
+                owner, repo,
+                release_id: release.id,
+                name: `Writ ${tag}`,
+                body,
+                draft: true,
+                prerelease: tag.includes('-'),
+              })).data;
+            } else {
+              core.info(`Creating draft release ${tag}`);
+              release = (await github.rest.repos.createRelease({
+                owner, repo,
+                tag_name: tag,
+                name: `Writ ${tag}`,
+                body,
+                draft: true,
+                prerelease: tag.includes('-'),
+              })).data;
+            }
+            core.setOutput('release_id', release.id);
+
   build:
+    name: Build (${{ matrix.label }})
+    needs: create-release
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-latest
-            label: macOS
-            targets: aarch64-apple-darwin,x86_64-apple-darwin
-          - os: ubuntu-latest
-            label: Linux
-            targets: ""
+            label: macOS (universal)
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            tauri_args: --target universal-apple-darwin
+            bundles: app,dmg
           - os: windows-latest
-            label: Windows
-            targets: ""
+            label: Windows (x64)
+            rust_targets: x86_64-pc-windows-msvc
+            tauri_args: --target x86_64-pc-windows-msvc
+            bundles: msi
+          - os: ubuntu-22.04
+            label: Linux (x64)
+            rust_targets: x86_64-unknown-linux-gnu
+            tauri_args: --target x86_64-unknown-linux-gnu
+            bundles: deb,appimage
 
-    name: Build (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -32,9 +164,11 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
 
       - name: Install Linux dependencies
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -62,16 +196,109 @@ jobs:
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          shared-key: release-${{ matrix.os }}
+
+      - name: Import Apple Developer ID certificate
+        if: matrix.os == 'macos-latest' && env.APPLE_CERTIFICATE != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '" ')
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          rm -f "$RUNNER_TEMP/certificate.p12"
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Writ ${{ github.ref_name }}"
-          releaseBody: "See the [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details."
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          tagName: ${{ needs.create-release.outputs.tag_name }}
+          releaseName: "Writ ${{ needs.create-release.outputs.tag_name }}"
           releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.targets && format('--target {0}', matrix.targets) || '' }}
+          prerelease: ${{ contains(needs.create-release.outputs.tag_name, '-') }}
+          includeUpdaterJson: false
+          args: ${{ matrix.tauri_args }} --bundles ${{ matrix.bundles }}
           projectPath: src-tauri
+
+  finalize:
+    name: Finalize release (checksums + updater manifest)
+    needs: [create-release, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.create-release.outputs.tag_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          cd release-assets
+          gh release download "$TAG" --repo "$REPO" --pattern "*"
+          ls -la
+
+      - name: Generate SHA256SUMS.txt
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=( *.dmg *.msi *.AppImage *.deb *.rpm *.tar.gz *.zip *.sig *.exe )
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No artifacts found to checksum" >&2
+            ls -la
+            exit 1
+          fi
+          sha256sum "${files[@]}" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Build latest.json updater manifest
+        working-directory: release-assets
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+          TAG: ${{ needs.create-release.outputs.tag_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 ../.github/scripts/build_latest_json.py
+
+      - name: Upload SHA256SUMS.txt and latest.json to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.create-release.outputs.tag_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cd release-assets
+          gh release upload "$TAG" SHA256SUMS.txt --clobber --repo "$REPO"
+          gh release upload "$TAG" latest.json --clobber --repo "$REPO"
+
+      - name: Leave release as draft
+        run: echo "Release left as draft. Publish manually via GitHub UI or docs/RELEASING.md steps."
