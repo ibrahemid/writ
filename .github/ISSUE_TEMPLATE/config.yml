@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a Question
+    url: https://github.com/ibrahemid/writ/discussions
+    about: Use GitHub Discussions for general questions, usage help, and open-ended feedback.
+  - name: Report a Security Vulnerability
+    url: https://github.com/ibrahemid/writ/security/advisories/new
+    about: Privately disclose a security issue via GitHub Security Advisories. Do not open a public issue.
