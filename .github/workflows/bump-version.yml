@@ -1,0 +1,84 @@
+name: Bump version
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "New version without leading v (e.g. 0.1.1, 0.2.0-rc.1)"
+        required: true
+        type: string
+      create_pr:
+        description: "Open a pull request instead of pushing to main"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    name: Bump workspace + frontend version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version input
+        env:
+          NEW_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$NEW_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "Version '$NEW_VERSION' is not a valid semver (without leading v)." >&2
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Bump versions
+        env:
+          NEW_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/bump_version.py "$NEW_VERSION"
+
+      - name: Show diff
+        run: git diff
+
+      - name: Commit + push to branch
+        if: ${{ inputs.create_pr }}
+        env:
+          NEW_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BRANCH="chore/bump-v$NEW_VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add Cargo.toml src-tauri/tauri.conf.json package.json
+          git commit -m "chore(release): bump version to v$NEW_VERSION"
+          git push --set-upstream origin "$BRANCH"
+          gh pr create \
+            --title "chore(release): bump version to v$NEW_VERSION" \
+            --body "Automated version bump to v$NEW_VERSION. Merge, then tag v$NEW_VERSION on main to trigger the release workflow." \
+            --base main \
+            --head "$BRANCH"
+
+      - name: Commit + push to main
+        if: ${{ !inputs.create_pr }}
+        env:
+          NEW_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml src-tauri/tauri.conf.json package.json
+          git commit -m "chore(release): bump version to v$NEW_VERSION"
+          git push origin HEAD:main

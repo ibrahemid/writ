@@ -23,12 +23,23 @@
             }
         ],
         "security": {
-            "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+            "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://github.com https://*.githubusercontent.com; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+        }
+    },
+    "plugins": {
+        "updater": {
+            "active": true,
+            "endpoints": [
+                "https://github.com/ibrahemid/writ/releases/latest/download/latest.json"
+            ],
+            "dialog": true,
+            "pubkey": "REPLACE_WITH_PUBLIC_KEY_FROM_TAURI_SIGNER_GENERATE"
         }
     },
     "bundle": {
         "active": true,
-        "targets": ["app", "dmg"],
+        "targets": ["app", "dmg", "msi", "deb", "appimage"],
+        "createUpdaterArtifacts": true,
         "icon": [
             "icons/32x32.png",
             "icons/128x128.png",
@@ -38,6 +49,30 @@
         ],
         "category": "DeveloperTool",
         "shortDescription": "Lightweight text editor for developers",
+        "longDescription": "Writ is a distraction-free, always-ready scratchpad editor for developers. Global hotkey summon, autosave, full-text search, CodeMirror 6 with language detection. Local-only, zero telemetry.",
+        "publisher": "Ibrahem ID",
+        "copyright": "Copyright (c) 2026 Ibrahem ID",
+        "macOS": {
+            "minimumSystemVersion": "10.15",
+            "dmg": {
+                "appPosition": { "x": 180, "y": 170 },
+                "applicationFolderPosition": { "x": 480, "y": 170 },
+                "windowSize": { "width": 660, "height": 400 }
+            }
+        },
+        "windows": {
+            "wix": {
+                "language": ["en-US"]
+            }
+        },
+        "linux": {
+            "deb": {
+                "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+            },
+            "appimage": {
+                "bundleMediaFramework": false
+            }
+        },
         "fileAssociations": [
             {
                 "ext": ["txt", "text", "log"],
