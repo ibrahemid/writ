@@ -46,6 +46,7 @@ fn row_to_document(row: &rusqlite::Row) -> rusqlite::Result<BufferDocument> {
     })
 }
 
+/// Inserts a new buffer row.
 pub fn insert_buffer(conn: &Connection, doc: &BufferDocument) -> StorageResult<()> {
     let status = match doc.status {
         BufferStatus::Active => "active",
@@ -75,6 +76,8 @@ pub fn insert_buffer(conn: &Connection, doc: &BufferDocument) -> StorageResult<(
     Ok(())
 }
 
+/// Fetches a buffer row by id, mapping a missing row to
+/// [`StorageError::Consistency`].
 pub fn get_buffer(conn: &Connection, id: &str) -> StorageResult<BufferDocument> {
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
@@ -92,6 +95,7 @@ pub fn get_buffer(conn: &Connection, id: &str) -> StorageResult<BufferDocument> 
     Ok(result)
 }
 
+/// Lists buffers filtered by status literal (`"active"` or `"history"`).
 pub fn list_buffers_by_status(
     conn: &Connection,
     status: &str,
@@ -109,6 +113,7 @@ pub fn list_buffers_by_status(
     Ok(docs)
 }
 
+/// Marks the buffer as history and stamps `closed_at`.
 pub fn close_buffer(conn: &Connection, id: &str) -> StorageResult<()> {
     let now = Utc::now().to_rfc3339();
     conn.execute(
@@ -118,6 +123,7 @@ pub fn close_buffer(conn: &Connection, id: &str) -> StorageResult<()> {
     Ok(())
 }
 
+/// Restores a history buffer to active state and clears `closed_at`.
 pub fn restore_buffer(conn: &Connection, id: &str) -> StorageResult<()> {
     conn.execute(
         "UPDATE buffers SET status = 'active', closed_at = NULL, updated_at = ?1 WHERE id = ?2",
@@ -126,11 +132,13 @@ pub fn restore_buffer(conn: &Connection, id: &str) -> StorageResult<()> {
     Ok(())
 }
 
+/// Deletes a buffer row by id.
 pub fn delete_buffer(conn: &Connection, id: &str) -> StorageResult<()> {
     conn.execute("DELETE FROM buffers WHERE id = ?1", params![id])?;
     Ok(())
 }
 
+/// Updates the persistent tab order for a buffer.
 pub fn update_tab_order(conn: &Connection, id: &str, order: u32) -> StorageResult<()> {
     conn.execute(
         "UPDATE buffers SET tab_order = ?1 WHERE id = ?2",
@@ -139,6 +147,7 @@ pub fn update_tab_order(conn: &Connection, id: &str, order: u32) -> StorageResul
     Ok(())
 }
 
+/// Renames a buffer's title and stamps `updated_at`.
 pub fn rename_buffer(conn: &Connection, id: &str, title: &str) -> StorageResult<()> {
     conn.execute(
         "UPDATE buffers SET title = ?1, updated_at = ?2 WHERE id = ?3",
@@ -147,6 +156,7 @@ pub fn rename_buffer(conn: &Connection, id: &str, title: &str) -> StorageResult<
     Ok(())
 }
 
+/// Returns the active buffer with the given `source_path`, if any.
 pub fn find_active_by_source_path(
     conn: &Connection,
     source_path: &str,
@@ -163,6 +173,8 @@ pub fn find_active_by_source_path(
     Ok(result)
 }
 
+/// Returns the most recently updated history buffer with the given
+/// `source_path`, if any.
 pub fn find_history_by_source_path(
     conn: &Connection,
     source_path: &str,
@@ -180,6 +192,7 @@ pub fn find_history_by_source_path(
     Ok(result)
 }
 
+/// Updates the detected or user-assigned language for a buffer.
 pub fn update_language(conn: &Connection, id: &str, language: Option<&str>) -> StorageResult<()> {
     conn.execute(
         "UPDATE buffers SET language = ?1, updated_at = ?2 WHERE id = ?3",
@@ -188,6 +201,8 @@ pub fn update_language(conn: &Connection, id: &str, language: Option<&str>) -> S
     Ok(())
 }
 
+/// Stamps a buffer's `updated_at` to now without changing any other
+/// fields.
 pub fn update_timestamp(conn: &Connection, id: &str) -> StorageResult<()> {
     conn.execute(
         "UPDATE buffers SET updated_at = ?1 WHERE id = ?2",

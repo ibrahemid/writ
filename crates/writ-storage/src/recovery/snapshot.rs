@@ -3,23 +3,33 @@ use uuid::Uuid;
 
 use crate::errors::StorageResult;
 
+/// A point-in-time snapshot of Writ's session state.
 pub struct SessionSnapshot {
+    /// Snapshot UUID, assigned at creation.
     pub id: String,
+    /// Snapshot format version. Bumped when the shape of
+    /// `state_json` changes in a breaking way.
     pub format_version: i32,
+    /// Opaque session state encoded as JSON.
     pub state_json: serde_json::Value,
+    /// Creation timestamp formatted as SQLite `datetime('now')`.
     pub created_at: String,
+    /// `true` when written during a clean shutdown.
     pub is_clean: bool,
 }
 
+/// Persistence facade over session snapshots.
 pub struct SnapshotManager<'a> {
     conn: &'a Connection,
 }
 
 impl<'a> SnapshotManager<'a> {
+    /// Constructs a manager over the given connection.
     pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
 
+    /// Writes a new snapshot row with `state` as its encoded state.
     pub fn write_snapshot(&self, state: &serde_json::Value, is_clean: bool) -> StorageResult<()> {
         let id = Uuid::new_v4().to_string();
         let state_str = serde_json::to_string(state)?;
@@ -32,6 +42,8 @@ impl<'a> SnapshotManager<'a> {
         Ok(())
     }
 
+    /// Returns the most recently written snapshot, or `None` when the
+    /// table is empty.
     pub fn latest_snapshot(&self) -> StorageResult<Option<SessionSnapshot>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, format_version, state_json, created_at, is_clean

@@ -4,6 +4,13 @@ use tracing::info;
 
 const MIGRATIONS: &[(i32, &str)] = &[(1, include_str!("../../migrations/001_initial.sql"))];
 
+/// Applies every pending schema migration to `conn`.
+///
+/// Migrations are embedded at compile time and tracked in a
+/// `schema_version` table. A migration is applied when its version is
+/// strictly greater than the highest previously applied version. The
+/// function is idempotent: calling it on an up-to-date database is a
+/// no-op.
 pub fn run_migrations(conn: &Connection) -> StorageResult<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_version (
