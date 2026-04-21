@@ -21,7 +21,8 @@ const siteName = 'Writ';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
 const ogImageUrl = new URL(`${base}/${ogImage}`, Astro.site).toString();
-const fullTitle = title === siteName ? `${siteName}, a scratchpad text editor for developers` : `${title} | ${siteName}`;
+const fullTitle =
+  title === siteName ? `${siteName}, a scratchpad text editor for developers` : `${title} | ${siteName}`;
 ---
 
 <!doctype html>
@@ -30,8 +31,31 @@ const fullTitle = title === siteName ? `${siteName}, a scratchpad text editor fo
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="generator" content={Astro.generator} />
-    <meta name="theme-color" content="#0d0d10" />
-    <meta name="color-scheme" content="dark" />
+
+    <script is:inline>
+      (function () {
+        try {
+          const stored = localStorage.getItem('writ-theme');
+          const themes = ['warm-light', 'cool-light', 'warm-dark', 'cool-dark'];
+          const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          const fallback = prefersDark ? 'warm-dark' : 'warm-light';
+          const theme = stored && themes.indexOf(stored) !== -1 ? stored : fallback;
+          document.documentElement.setAttribute('data-theme', theme);
+          const meta = document.querySelector('meta[name="theme-color"]');
+          const themeColors = {
+            'warm-light': '#faf8f5',
+            'cool-light': '#f1f5f9',
+            'warm-dark': '#171310',
+            'cool-dark': '#0f172a',
+          };
+          if (meta) meta.setAttribute('content', themeColors[theme]);
+        } catch (err) {
+          document.documentElement.setAttribute('data-theme', 'warm-light');
+        }
+      })();
+    </script>
+
+    <meta name="theme-color" content="#faf8f5" />
 
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
@@ -69,20 +93,5 @@ const fullTitle = title === siteName ? `${siteName}, a scratchpad text editor fo
       <slot />
     </main>
     <Footer />
-    <style>
-      .skip-link {
-        position: absolute;
-        top: -40px;
-        left: 1rem;
-        padding: 0.5rem 1rem;
-        background: var(--accent);
-        color: var(--accent-contrast);
-        border-radius: var(--radius-sm);
-        z-index: 100;
-      }
-      .skip-link:focus {
-        top: 0.75rem;
-      }
-    </style>
   </body>
 </html>

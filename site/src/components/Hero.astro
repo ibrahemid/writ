@@ -1,37 +1,52 @@
 ---
 import DownloadButtons from './DownloadButtons.astro';
+import HeroDemo from './motion/HeroDemo.tsx';
+import release from '../data/release.json';
 ---
 
 <section class="hero" aria-labelledby="hero-heading">
+  <div class="hero-bg" aria-hidden="true"></div>
   <div class="container hero-inner">
     <div class="hero-copy">
-      <span class="badge hero-badge">v0.1.0 preview</span>
+      <span class="badge hero-badge">
+        <span class="hero-badge-dot" aria-hidden="true"></span>
+        <span>v{release.version} preview</span>
+      </span>
       <h1 id="hero-heading">
-        A text editor that's always <span class="accent">one keypress</span> away.
+        A scratchpad that's always
+        <span class="hero-accent-word">one keypress</span>
+        away.
       </h1>
       <p class="hero-tagline">
-        Lightweight, always-ready text editor for developers. Global hotkey, autosave, full-text search.
+        Writ is a lightweight, always-ready text editor for developers. Global hotkey,
+        autosave to local SQLite, full-text search across every scratch. No account,
+        no telemetry, no cloud.
       </p>
-      <DownloadButtons variant="hero" />
+      <div class="hero-cta">
+        <DownloadButtons variant="hero" />
+      </div>
       <ul class="hero-trust" role="list">
         <li>MIT licensed</li>
+        <li>Local-only</li>
         <li>No telemetry</li>
-        <li>Tauri v2 + SolidJS</li>
+        <li>macOS · Windows · Linux</li>
       </ul>
     </div>
+
     <div class="hero-media">
-      <figure class="video-frame">
-        <div class="video-placeholder" role="img" aria-label="Hero demo placeholder">
-          <div class="video-bar">
-            <span></span><span></span><span></span>
-          </div>
-          <div class="video-body">
-            <div class="video-title">[hero.mp4 placeholder]</div>
-            <div class="video-hint">3 to 5 second loop: summon, type, switch tabs, dismiss.</div>
-          </div>
-        </div>
-        <figcaption class="visually-hidden">[hero.mp4 placeholder]</figcaption>
+      <figure class="hero-frame">
+        <HeroDemo client:visible />
+        <figcaption class="visually-hidden">Writ editor preview: typing into a scratchpad file with live syntax highlighting.</figcaption>
       </figure>
+      <div class="hero-marquee" aria-hidden="true">
+        <span class="hmq-item"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>Space</kbd> summon</span>
+        <span class="hmq-sep"></span>
+        <span class="hmq-item"><kbd>⇧</kbd><kbd>⇧</kbd> command palette</span>
+        <span class="hmq-sep"></span>
+        <span class="hmq-item"><kbd>⌘</kbd><kbd>T</kbd> new tab</span>
+        <span class="hmq-sep"></span>
+        <span class="hmq-item"><kbd>⌘</kbd><kbd>S</kbd><kbd>S</kbd> sidebar</span>
+      </div>
     </div>
   </div>
 </section>
@@ -39,53 +54,72 @@ import DownloadButtons from './DownloadButtons.astro';
 <style>
   .hero {
     position: relative;
-    padding: 4.5rem 0 3rem;
+    padding: clamp(3rem, 6vw, 5rem) 0 clamp(2.5rem, 5vw, 4rem);
     overflow: hidden;
   }
-  .hero::before {
-    content: '';
+  .hero-bg {
     position: absolute;
-    inset: 0;
+    inset: -10% -5% auto -5%;
+    height: 140%;
     background:
-      radial-gradient(circle at 15% 20%, rgba(59, 130, 246, 0.12), transparent 45%),
-      radial-gradient(circle at 85% 60%, rgba(59, 130, 246, 0.06), transparent 50%);
-    pointer-events: none;
+      radial-gradient(40% 50% at 18% 22%, var(--hero-glow-a), transparent 65%),
+      radial-gradient(36% 44% at 82% 64%, var(--hero-glow-b), transparent 60%);
+    filter: blur(10px);
     z-index: 0;
+    pointer-events: none;
   }
   .hero-inner {
     position: relative;
     z-index: 1;
     display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
-    gap: 3rem;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.15fr);
+    gap: clamp(2rem, 4vw, 3.25rem);
     align-items: center;
   }
   .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
     margin-bottom: 1.25rem;
     color: var(--accent);
-    background: color-mix(in oklab, var(--accent) 15%, transparent);
+    background: var(--accent-soft);
     border-color: color-mix(in oklab, var(--accent) 30%, transparent);
   }
-  h1 {
-    margin-bottom: 1rem;
+  .hero-badge-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
   }
-  .accent {
+  h1 {
+    font-size: var(--text-display);
+    line-height: 1.05;
+    letter-spacing: -0.035em;
+    margin-bottom: 1.1rem;
+  }
+  .hero-accent-word {
     color: var(--accent);
+    white-space: nowrap;
   }
   .hero-tagline {
-    font-size: 1.15rem;
-    max-width: 54ch;
-    margin-bottom: 1.75rem;
+    font-size: var(--text-md);
+    max-width: 58ch;
+    color: var(--muted-foreground);
+    margin: 0 0 1.75rem;
+  }
+  .hero-cta {
+    margin-bottom: 1.2rem;
   }
   .hero-trust {
     display: flex;
     flex-wrap: wrap;
     gap: 1.25rem;
     list-style: none;
-    margin: 1rem 0 0;
+    margin: 0;
     padding: 0;
     font-size: 0.85rem;
-    color: var(--fg-subtle);
+    color: var(--muted-foreground);
   }
   .hero-trust li {
     position: relative;
@@ -96,78 +130,216 @@ import DownloadButtons from './DownloadButtons.astro';
     position: absolute;
     left: 0;
     top: 50%;
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
     border-radius: 50%;
     background: var(--success);
     transform: translateY(-50%);
   }
   .hero-media {
-    display: block;
+    position: relative;
   }
-  .video-frame {
+  .hero-frame {
     margin: 0;
     border-radius: var(--radius-lg);
-    border: 1px solid var(--border);
     overflow: hidden;
-    background: var(--bg-elevated);
-    box-shadow: var(--shadow-lg);
+    background: var(--card);
+    border: 1px solid var(--border);
+    box-shadow: var(--card-shadow-hover);
   }
-  .video-placeholder {
-    aspect-ratio: 16 / 10;
+  .hero-marquee {
+    margin-top: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.9rem;
+    font-size: 0.78rem;
+    color: var(--muted-foreground);
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: var(--radius-full);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .hero-marquee::-webkit-scrollbar {
+    display: none;
+  }
+  .hmq-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    white-space: nowrap;
+  }
+  .hmq-sep {
+    width: 1px;
+    height: 14px;
+    background: var(--border-strong);
+    flex: 0 0 auto;
+  }
+
+  :global(.hero-demo) {
     display: flex;
     flex-direction: column;
-    background: linear-gradient(180deg, #121218 0%, #0c0c11 100%);
+    background: var(--syntax-bg);
+    color: var(--syntax-fg);
+    font-family: var(--font-mono);
+    font-size: 0.88rem;
+    line-height: 1.55;
   }
-  .video-bar {
+  :global(.hero-demo-chrome) {
     display: flex;
-    gap: 6px;
+    align-items: center;
+    gap: 0.8rem;
     padding: 10px 12px;
     border-bottom: 1px solid var(--border);
-    background: #0f0f14;
+    background: color-mix(in oklab, var(--card) 92%, transparent);
   }
-  .video-bar span {
+  :global(.hero-demo-dots) {
+    display: flex;
+    gap: 6px;
+    flex: 0 0 auto;
+  }
+  :global(.hero-demo-dots span) {
     width: 10px;
     height: 10px;
     border-radius: 50%;
     background: var(--border-strong);
   }
-  .video-bar span:first-child {
+  :global(.hero-demo-dots span:first-child) {
     background: #ef4444;
   }
-  .video-bar span:nth-child(2) {
+  :global(.hero-demo-dots span:nth-child(2)) {
     background: #f59e0b;
   }
-  .video-bar span:nth-child(3) {
+  :global(.hero-demo-dots span:nth-child(3)) {
     background: #22c55e;
   }
-  .video-body {
-    flex: 1;
+  :global(.hero-demo-tabs) {
+    display: flex;
+    gap: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    overflow: hidden;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  :global(.hero-demo-tab) {
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+    color: var(--muted-foreground);
+    background: transparent;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  :global(.hero-demo-tab.is-active) {
+    color: var(--foreground);
+    background: var(--muted);
+    border-color: var(--border);
+  }
+  :global(.hero-demo-hotkey) {
+    display: inline-flex;
+    gap: 3px;
+    flex: 0 0 auto;
+  }
+  :global(.hero-demo-hotkey kbd) {
+    font-size: 0.68rem;
+    padding: 0.1em 0.4em;
+  }
+  :global(.hero-demo-code) {
+    margin: 0;
+    padding: 16px 18px;
+    min-height: 220px;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    background: transparent;
+    border: 0;
+    font-size: 0.88rem;
+  }
+  :global(.hero-demo-code code) {
     display: flex;
     flex-direction: column;
+    gap: 0;
+  }
+  :global(.hdl) {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    gap: 10px;
+  }
+  :global(.hdl-gutter) {
+    text-align: right;
+    color: var(--syntax-comment);
+    opacity: 0.55;
+    user-select: none;
+  }
+  :global(.hdl-body) {
+    white-space: pre;
+    color: var(--syntax-fg);
+  }
+  :global(.hdl-caret) {
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    margin-left: 2px;
+    vertical-align: -0.15em;
+    background: var(--syntax-accent);
+    border-radius: 1px;
+  }
+  :global(.tok-keyword) {
+    color: var(--syntax-keyword);
+  }
+  :global(.tok-string) {
+    color: var(--syntax-string);
+  }
+  :global(.tok-comment) {
+    color: var(--syntax-comment);
+    font-style: italic;
+  }
+  :global(.tok-accent) {
+    color: var(--syntax-accent);
+  }
+  :global(.tok-fn) {
+    color: var(--syntax-keyword);
+    font-weight: 500;
+  }
+  :global(.tok-punct) {
+    color: var(--syntax-muted);
+  }
+  :global(.hero-demo-status) {
+    display: flex;
     align-items: center;
-    justify-content: center;
-    padding: 2rem;
-    text-align: center;
-  }
-  .video-title {
+    gap: 0.5rem;
+    padding: 8px 14px;
     font-family: var(--font-mono);
-    font-size: 0.95rem;
-    color: var(--fg-muted);
-    margin-bottom: 0.4rem;
+    font-size: 0.72rem;
+    color: var(--muted-foreground);
+    border-top: 1px solid var(--border);
+    background: color-mix(in oklab, var(--card) 94%, transparent);
   }
-  .video-hint {
-    font-size: 0.85rem;
-    color: var(--fg-subtle);
-    max-width: 32ch;
+  :global(.hero-demo-status-right) {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
   }
+  :global(.hero-demo-status-right kbd) {
+    font-size: 0.68rem;
+    padding: 0.1em 0.4em;
+  }
+  :global(.hds-dot) {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--success) 25%, transparent);
+  }
+
   @media (max-width: 900px) {
-    .hero {
-      padding: 3rem 0 2rem;
-    }
     .hero-inner {
       grid-template-columns: 1fr;
       gap: 2rem;
+    }
+    :global(.hero-demo-code) {
+      min-height: 200px;
     }
   }
 </style>

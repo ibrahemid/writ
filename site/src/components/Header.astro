@@ -1,7 +1,10 @@
 ---
+import ThemeToggle from './ThemeToggle.astro';
+
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const nav = [
   { label: 'Features', href: `${base}/#features` },
+  { label: 'Compare', href: `${base}/#compare` },
   { label: 'Shortcuts', href: `${base}/#shortcuts` },
   { label: 'FAQ', href: `${base}/#faq` },
   { label: 'Download', href: `${base}/download` },
@@ -12,7 +15,12 @@ const repoUrl = 'https://github.com/ibrahemid/writ';
 <header class="site-header">
   <div class="container header-inner">
     <a class="brand" href={`${base}/`} aria-label="Writ home">
-      <span class="brand-mark" aria-hidden="true">W</span>
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 20h16"></path>
+          <path d="M6 16 14 4l4 4-8 12z"></path>
+        </svg>
+      </span>
       <span class="brand-name">Writ</span>
     </a>
     <nav class="site-nav" aria-label="Primary">
@@ -20,9 +28,17 @@ const repoUrl = 'https://github.com/ibrahemid/writ';
         {nav.map((item) => (
           <li><a href={item.href}>{item.label}</a></li>
         ))}
-        <li><a href={repoUrl} rel="noopener noreferrer">GitHub</a></li>
       </ul>
     </nav>
+    <div class="header-actions">
+      <a class="gh-link" href={repoUrl} rel="noopener noreferrer" aria-label="Writ on GitHub">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 .5C5.37.5 0 5.87 0 12.5c0 5.3 3.44 9.8 8.21 11.39.6.11.82-.26.82-.58 0-.29-.01-1.04-.02-2.04-3.34.73-4.04-1.61-4.04-1.61-.55-1.38-1.33-1.75-1.33-1.75-1.09-.75.08-.73.08-.73 1.2.09 1.83 1.24 1.83 1.24 1.07 1.83 2.8 1.3 3.49.99.11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.13-.3-.54-1.52.11-3.17 0 0 1.01-.32 3.3 1.23A11.52 11.52 0 0 1 12 6.8c1.02.01 2.05.14 3.01.41 2.28-1.55 3.29-1.23 3.29-1.23.66 1.65.25 2.87.12 3.17.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.63-5.49 5.92.43.37.81 1.1.81 2.22 0 1.6-.01 2.89-.01 3.29 0 .32.22.7.83.58C20.56 22.3 24 17.8 24 12.5 24 5.87 18.63.5 12 .5z"/>
+        </svg>
+        <span class="visually-hidden">GitHub</span>
+      </a>
+      <ThemeToggle />
+    </div>
   </div>
 </header>
 
@@ -31,70 +47,89 @@ const repoUrl = 'https://github.com/ibrahemid/writ';
     position: sticky;
     top: 0;
     z-index: 20;
-    background: color-mix(in oklab, var(--bg) 85%, transparent);
-    backdrop-filter: saturate(140%) blur(10px);
-    -webkit-backdrop-filter: saturate(140%) blur(10px);
+    background: color-mix(in oklab, var(--background) 82%, transparent);
+    backdrop-filter: saturate(140%) blur(12px);
+    -webkit-backdrop-filter: saturate(140%) blur(12px);
     border-bottom: 1px solid var(--border);
   }
   .header-inner {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    min-height: 60px;
+    min-height: 64px;
     gap: 1rem;
   }
   .brand {
     display: inline-flex;
     align-items: center;
-    gap: 0.6rem;
-    color: var(--fg);
+    gap: 0.55rem;
+    color: var(--foreground);
     font-weight: 600;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.015em;
   }
   .brand:hover {
-    color: var(--fg);
+    color: var(--foreground);
   }
   .brand-mark {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 30px;
+    height: 30px;
     background: var(--accent);
-    color: var(--accent-contrast);
-    font-weight: 700;
-    border-radius: 7px;
-    font-size: 0.9rem;
+    color: var(--accent-foreground);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px -4px color-mix(in oklab, var(--accent) 55%, transparent);
   }
   .brand-name {
     font-size: 1.05rem;
   }
   .site-nav ul {
     display: flex;
-    gap: 1.25rem;
+    gap: 1.5rem;
     margin: 0;
     padding: 0;
     list-style: none;
   }
   .site-nav a {
-    color: var(--fg-muted);
-    font-size: 0.92rem;
+    color: var(--muted-foreground);
+    font-size: 0.9rem;
+    font-weight: 500;
   }
   .site-nav a:hover {
-    color: var(--fg);
+    color: var(--foreground);
   }
-  @media (max-width: 640px) {
-    .site-nav ul {
-      gap: 0.75rem;
-    }
-    .site-nav a {
-      font-size: 0.85rem;
+  .header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .gh-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    color: var(--muted-foreground);
+    transition:
+      background-color var(--duration-fast) var(--ease-out),
+      color var(--duration-fast) var(--ease-out),
+      border-color var(--duration-fast) var(--ease-out);
+  }
+  .gh-link:hover {
+    background: var(--muted);
+    color: var(--foreground);
+    border-color: var(--border-strong);
+  }
+  @media (max-width: 820px) {
+    .site-nav {
+      display: none;
     }
   }
   @media (max-width: 420px) {
-    .site-nav li:nth-child(1),
-    .site-nav li:nth-child(2),
-    .site-nav li:nth-child(3) {
+    .brand-name {
       display: none;
     }
   }
