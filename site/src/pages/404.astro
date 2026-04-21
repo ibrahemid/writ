@@ -6,14 +6,21 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 <Base title="Page not found" description="The page you were looking for does not exist." noindex>
   <section class="section">
     <div class="container not-found">
-      <p class="eyebrow">404</p>
-      <h1>Page not found</h1>
+      <div class="mono-block" aria-hidden="true">
+        <span class="line"><span class="gutter">1</span><span class="t-keyword">fn</span> <span class="t-fn">locate</span>(<span class="t-var">path</span>: <span class="t-type">&amp;str</span>) {`{`}</span>
+        <span class="line"><span class="gutter">2</span>  <span class="t-keyword">return</span> <span class="t-fn">lookup</span>(<span class="t-var">path</span>)?;</span>
+        <span class="line is-error"><span class="gutter">3</span>  <span class="t-comment">// → Err(NotFound)</span></span>
+        <span class="line"><span class="gutter">4</span>{`}`}</span>
+      </div>
+      <p class="eyebrow">404 · not found</p>
+      <h1>That page doesn't exist.</h1>
       <p class="muted">
-        We could not find the page you were looking for. It might have moved, or the link might be broken.
+        The link might be broken, or the page may have moved. Head back home,
+        or jump straight to the download.
       </p>
       <div class="actions">
         <a class="btn btn-primary btn-lg" href={`${base}/`}>Back to home</a>
-        <a class="btn btn-lg" href={`${base}/download`}>Go to download</a>
+        <a class="btn btn-lg" href={`${base}/download`}>Download Writ</a>
       </div>
     </div>
   </section>
@@ -21,21 +28,57 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 <style>
   .not-found {
-    max-width: 600px;
-    margin: 4rem auto;
+    max-width: 620px;
+    margin: 3rem auto;
     text-align: center;
   }
-  .eyebrow {
+  .mono-block {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin: 0 auto 2rem;
+    padding: 1.1rem 1.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.88rem;
+    text-align: left;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--card-shadow);
+    color: var(--foreground);
+    min-width: 320px;
+  }
+  .line {
+    display: block;
+  }
+  .gutter {
     display: inline-block;
-    margin: 0 0 0.5rem;
-    padding: 0.2rem 0.6rem;
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
+    width: 22px;
+    color: var(--muted-foreground);
+    opacity: 0.6;
+    margin-right: 8px;
+  }
+  .line.is-error {
+    background: color-mix(in oklab, var(--destructive) 12%, transparent);
+    border-radius: var(--radius-sm);
+    padding: 0 4px;
+    margin: 0 -4px;
+  }
+  .t-keyword {
+    color: var(--destructive);
+  }
+  .t-fn {
     color: var(--accent);
-    background: color-mix(in oklab, var(--accent) 15%, transparent);
-    border: 1px solid color-mix(in oklab, var(--accent) 30%, transparent);
-    border-radius: 999px;
+  }
+  .t-var {
+    color: var(--foreground);
+  }
+  .t-type {
+    color: var(--success);
+  }
+  .t-comment {
+    color: var(--muted-foreground);
+    font-style: italic;
   }
   .actions {
     display: flex;

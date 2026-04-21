@@ -1,0 +1,132 @@
+---
+import Base from '../layouts/Base.astro';
+
+const points = [
+  {
+    title: 'No accounts, ever.',
+    body: 'Writ has no sign-in, no user ID, no password. There is nothing to create, link, or recover.',
+  },
+  {
+    title: 'No telemetry from the app.',
+    body: 'The desktop app makes zero outbound network requests. No crash reporting, no usage analytics, no anonymous pings.',
+  },
+  {
+    title: 'Everything is local.',
+    body: 'Your text lives in a single SQLite database in your OS-native app data directory. You own it. You can back it up, move it, or delete it with a file-system action.',
+  },
+  {
+    title: 'Updates are manual.',
+    body: 'Writ does not auto-update. You fetch new releases yourself from GitHub. We never phone home to check for new versions.',
+  },
+  {
+    title: 'This website.',
+    body: 'ibrahemid.github.io/writ is served as static files by GitHub Pages. GitHub may collect visitor IPs in access logs per their privacy policy. We do not run any first-party analytics, cookies, or trackers.',
+  },
+  {
+    title: 'GitHub Releases.',
+    body: 'Download links point at github.com/ibrahemid/writ/releases. When you click one, GitHub sees the download like any other public artifact. No identifiers are added by us.',
+  },
+];
+---
+
+<Base
+  title="Privacy"
+  description="Writ is local-only. No accounts, no telemetry, no cloud. Here's exactly what that means."
+>
+  <section class="section">
+    <div class="container container-narrow">
+      <header class="page-head">
+        <p class="eyebrow">Privacy</p>
+        <h1>What Writ knows about you</h1>
+        <p class="lede">
+          Nothing. That's the short version. The long version is below.
+        </p>
+      </header>
+
+      <ul class="points" role="list">
+        {points.map((p) => (
+          <li class="point">
+            <div class="point-bullet" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </div>
+            <div>
+              <h2>{p.title}</h2>
+              <p>{p.body}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      <aside class="note">
+        <p>
+          If any of this ever changes, the change lands in the
+          <a href={`${import.meta.env.BASE_URL.replace(/\/$/, '')}/changelog`}>changelog</a>
+          and this page gets rewritten before release. You can also verify by reading the source at
+          <a href="https://github.com/ibrahemid/writ" rel="noopener noreferrer">github.com/ibrahemid/writ</a>.
+        </p>
+      </aside>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .page-head {
+    text-align: center;
+    margin: 0 auto 2.5rem;
+  }
+  .points {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .point {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 1rem;
+    padding: 1.25rem 1.4rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--card-shadow);
+  }
+  .point-bullet {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
+    flex: 0 0 auto;
+    margin-top: 2px;
+  }
+  .point h2 {
+    font-size: 1.05rem;
+    margin: 0 0 0.35rem;
+    color: var(--foreground);
+  }
+  .point p {
+    margin: 0;
+    color: var(--muted-foreground);
+    font-size: 0.95rem;
+    line-height: 1.6;
+  }
+  .note {
+    margin-top: 2rem;
+    padding: 1.25rem 1.4rem;
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in oklab, var(--accent) 22%, transparent);
+    border-radius: var(--radius-lg);
+  }
+  .note p {
+    margin: 0;
+    color: var(--foreground);
+    font-size: 0.95rem;
+  }
+</style>
