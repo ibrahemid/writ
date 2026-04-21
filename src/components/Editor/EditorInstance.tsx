@@ -1,5 +1,5 @@
 import { onMount, onCleanup, createEffect, on } from "solid-js";
-import { EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { addCursorUp, addCursorDown } from "../../commands/multicursor";
 import {
   EditorView, keymap, lineNumbers, highlightActiveLine,
@@ -11,6 +11,14 @@ import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, indentOnInp
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import { oneDark } from "@codemirror/theme-one-dark";
+import { javascript } from "@codemirror/lang-javascript";
+import { python } from "@codemirror/lang-python";
+import { rust } from "@codemirror/lang-rust";
+import { json } from "@codemirror/lang-json";
+import { html } from "@codemirror/lang-html";
+import { css } from "@codemirror/lang-css";
+import { markdown } from "@codemirror/lang-markdown";
+import { php } from "@codemirror/lang-php";
 import type { BufferDocument } from "../../types/buffer";
 import { readBufferContent, saveBufferContent } from "../../services/tauri";
 import { debouncedSave, cancelAutosave } from "../../services/autosave";
@@ -20,6 +28,25 @@ import { configStore } from "../../stores/config";
 import { registerCommand } from "../../commands/registry";
 import "./EditorInstance.css";
 
+function languageExtension(lang: string | null): Extension {
+  switch (lang) {
+    case "javascript": return javascript({ jsx: true });
+    case "typescript": return javascript({ jsx: true, typescript: true });
+    case "python": return python();
+    case "rust": return rust();
+    case "json": return json();
+    case "html": return html();
+    case "css": return css();
+    case "markdown": return markdown();
+    case "php": return php();
+    default: return [];
+  }
+}
+
+function nameForDetection(buffer: BufferDocument): string {
+  return /\.\w+$/.test(buffer.title) ? buffer.title : buffer.filename;
+}
+
 interface Props {
   buffer: BufferDocument;
 }
@@ -28,9 +55,12 @@ export default function EditorInstance(props: Props) {
   let containerRef!: HTMLDivElement;
   let view: EditorView | undefined;
   let currentBufferId: string | undefined;
+  let appliedNameForLang = "";
+  const languageCompartment = new Compartment();
 
-  function createExtensions(bufferId: string): Extension[] {
+  function createExtensions(bufferId: string, initialLang: Extension): Extension[] {
     return [
+      languageCompartment.of(initialLang),
       lineNumbers(),
       highlightActiveLine(),
       highlightActiveLineGutter(),
@@ -105,17 +135,33 @@ export default function EditorInstance(props: Props) {
     }
   }
 
+  function applyLanguageFromBuffer(buffer: BufferDocument, content: string) {
+    const name = nameForDetection(buffer);
+    if (name === appliedNameForLang && view) return;
+    appliedNameForLang = name;
+    const lang = detectLanguage(content, name);
+    editorStore.setLanguage(lang);
+    if (view) {
+      view.dispatch({
+        effects: languageCompartment.reconfigure(languageExtension(lang)),
+      });
+    }
+  }
+
   async function loadBuffer(buffer: BufferDocument) {
     await saveCurrentContent();
 
     currentBufferId = buffer.id;
+    appliedNameForLang = "";
 
     let content = "";
     try {
       content = await readBufferContent(buffer.id);
     } catch {}
 
-    const lang = detectLanguage(content, buffer.filename);
+    const name = nameForDetection(buffer);
+    const lang = detectLanguage(content, name);
+    appliedNameForLang = name;
     editorStore.setLanguage(lang);
 
     if (view) {
@@ -124,7 +170,7 @@ export default function EditorInstance(props: Props) {
 
     const state = EditorState.create({
       doc: content,
-      extensions: createExtensions(buffer.id),
+      extensions: createExtensions(buffer.id, languageExtension(lang)),
     });
 
     view = new EditorView({
@@ -164,6 +210,15 @@ export default function EditorInstance(props: Props) {
         loadBuffer(props.buffer);
       }
     }
+  ));
+
+  createEffect(on(
+    () => [props.buffer.title, props.buffer.filename] as const,
+    () => {
+      if (!view) return;
+      applyLanguageFromBuffer(props.buffer, view.state.doc.toString());
+    },
+    { defer: true },
   ));
 
   onCleanup(() => {
