@@ -1,78 +1,153 @@
 ---
+import release from '../data/release.json';
+
 const year = new Date().getFullYear();
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 
 <footer class="site-footer">
   <div class="container footer-inner">
-    <div class="footer-col">
-      <div class="foot-brand">Writ</div>
-      <p class="muted small">Lightweight, always-ready text editor for developers.</p>
+    <div class="footer-brand">
+      <a class="brand" href={`${base}/`}>
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 20h16"></path>
+            <path d="M6 16 14 4l4 4-8 12z"></path>
+          </svg>
+        </span>
+        <span>Writ</span>
+      </a>
+      <p class="footer-tag muted">
+        Lightweight, always-ready text editor for developers.
+        <br /> Local-only. No telemetry. No account.
+      </p>
     </div>
-    <nav aria-label="Footer">
-      <ul>
-        <li><a href={`${base}/`}>Home</a></li>
-        <li><a href={`${base}/download`}>Download</a></li>
-        <li><a href="https://github.com/ibrahemid/writ" rel="noopener noreferrer">GitHub</a></li>
-        <li><a href="https://github.com/ibrahemid/writ/issues" rel="noopener noreferrer">Issues</a></li>
-      </ul>
+
+    <nav class="footer-nav" aria-label="Footer">
+      <div class="footer-col">
+        <h3>Product</h3>
+        <ul>
+          <li><a href={`${base}/#features`}>Features</a></li>
+          <li><a href={`${base}/#shortcuts`}>Shortcuts</a></li>
+          <li><a href={`${base}/#compare`}>Compare</a></li>
+          <li><a href={`${base}/download`}>Download</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h3>Project</h3>
+        <ul>
+          <li><a href="https://github.com/ibrahemid/writ" rel="noopener noreferrer">GitHub</a></li>
+          <li><a href={`${base}/changelog`}>Changelog</a></li>
+          <li><a href="https://github.com/ibrahemid/writ/issues" rel="noopener noreferrer">Issues</a></li>
+          <li><a href={`${base}/privacy`}>Privacy</a></li>
+        </ul>
+      </div>
     </nav>
-    <div class="foot-credit">
-      <p class="small muted">Built with Tauri + SolidJS + Astro.</p>
-      <p class="small muted">&copy; {year} Writ contributors. MIT licensed.</p>
+
+    <div class="footer-meta">
+      <p class="small muted">
+        <strong class="version">v{release.version}</strong>
+        <span>· MIT licensed</span>
+      </p>
+      <p class="small muted">
+        Built with Tauri + SolidJS + CodeMirror.
+      </p>
+      <p class="small muted">&copy; {year} Writ contributors.</p>
     </div>
   </div>
 </footer>
 
 <style>
   .site-footer {
-    margin-top: 4rem;
-    padding: 3rem 0 2rem;
+    margin-top: var(--space-20);
+    padding: var(--space-16) 0 var(--space-10);
     border-top: 1px solid var(--border);
-    background: var(--bg);
+    background: var(--background);
   }
   .footer-inner {
     display: grid;
-    grid-template-columns: 1.4fr 1fr 1.4fr;
-    gap: 2rem;
+    grid-template-columns: 1.4fr 1.4fr 1fr;
+    gap: 2.5rem;
     align-items: start;
   }
-  .foot-brand {
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--foreground);
     font-weight: 600;
-    font-size: 1.05rem;
-    margin-bottom: 0.4rem;
+    margin-bottom: 0.5rem;
   }
-  nav ul {
+  .brand:hover {
+    color: var(--foreground);
+  }
+  .brand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: var(--accent);
+    color: var(--accent-foreground);
+    border-radius: 6px;
+  }
+  .footer-tag {
+    margin: 0.4rem 0 0;
+    font-size: 0.85rem;
+    line-height: 1.55;
+  }
+  .footer-nav {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+  }
+  .footer-col h3 {
+    font-size: 0.7rem;
+    letter-spacing: var(--tracking-caps);
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    margin: 0 0 0.8rem;
+    font-weight: 500;
+  }
+  .footer-col ul {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    gap: 0.45rem;
     margin: 0;
     padding: 0;
     list-style: none;
   }
-  nav a {
-    color: var(--fg-muted);
+  .footer-col a {
+    color: var(--muted-foreground);
     font-size: 0.9rem;
   }
-  nav a:hover {
-    color: var(--fg);
+  .footer-col a:hover {
+    color: var(--foreground);
   }
   .small {
     font-size: 0.85rem;
   }
-  .foot-credit {
-    text-align: right;
+  .footer-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
   }
-  .foot-credit p {
-    margin: 0 0 0.25rem;
+  .footer-meta p {
+    margin: 0;
   }
-  @media (max-width: 720px) {
+  .version {
+    color: var(--foreground);
+    font-weight: 500;
+  }
+  @media (max-width: 820px) {
     .footer-inner {
       grid-template-columns: 1fr;
-      gap: 1.5rem;
+      gap: 2rem;
     }
-    .foot-credit {
-      text-align: left;
+  }
+  @media (max-width: 520px) {
+    .footer-nav {
+      grid-template-columns: 1fr 1fr;
     }
   }
 </style>

@@ -10,7 +10,7 @@ const faqs = [
   },
   {
     q: 'Where is my data stored?',
-    a: 'Everything is stored locally in a single SQLite database in your app data directory. There is no cloud sync, no telemetry, and nothing leaves your machine.',
+    a: 'Everything is stored locally in a single SQLite database in your app data directory. There is no cloud sync, no telemetry, and nothing leaves your machine. You can back it up, move it, or delete it like any other file.',
   },
   {
     q: 'Is Writ free and open source?',
@@ -19,6 +19,10 @@ const faqs = [
   {
     q: 'Which platforms are supported?',
     a: 'macOS (Apple Silicon and Intel), Windows x64, and Linux (.AppImage and .deb). Built on Tauri v2, SolidJS, and CodeMirror 6.',
+  },
+  {
+    q: 'Is it signed and notarized?',
+    a: 'Not yet. On macOS, right-click the app and choose Open on first launch. On Windows, SmartScreen may ask for confirmation. Code signing is on the roadmap for v0.2.',
   },
 ];
 ---
@@ -35,7 +39,7 @@ const faqs = [
           <summary>
             <span>{item.q}</span>
             <span class="chev" aria-hidden="true">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
             </span>
           </summary>
           <p>{item.a}</p>
@@ -46,35 +50,24 @@ const faqs = [
 </section>
 
 <style>
-  .container-narrow {
-    max-width: 760px;
-  }
-  .section-head {
-    text-align: center;
-    margin: 0 auto 2rem;
-  }
-  .eyebrow {
-    display: inline-block;
-    margin: 0 0 0.5rem;
-    padding: 0.2rem 0.6rem;
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--accent);
-    background: color-mix(in oklab, var(--accent) 15%, transparent);
-    border: 1px solid color-mix(in oklab, var(--accent) 30%, transparent);
-    border-radius: 999px;
-  }
   .faq-list {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
   }
   .faq-item {
-    background: var(--bg-elevated);
+    background: var(--card);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--card-shadow);
     overflow: hidden;
+    transition:
+      box-shadow var(--duration-base) var(--ease-out),
+      border-color var(--duration-base) var(--ease-out);
+  }
+  .faq-item[open] {
+    border-color: color-mix(in oklab, var(--accent) 24%, var(--border));
+    box-shadow: var(--card-shadow-hover);
   }
   .faq-item summary {
     display: flex;
@@ -83,7 +76,7 @@ const faqs = [
     gap: 1rem;
     padding: 1rem 1.25rem;
     font-weight: 500;
-    color: var(--fg);
+    color: var(--foreground);
     cursor: pointer;
     list-style: none;
   }
@@ -91,19 +84,21 @@ const faqs = [
     display: none;
   }
   .faq-item summary:hover {
-    background: var(--bg-hover);
+    background: var(--muted);
   }
   .chev {
-    color: var(--fg-muted);
-    transition: transform 0.2s ease;
+    color: var(--muted-foreground);
+    transition: transform 0.2s var(--ease-out);
     display: inline-flex;
   }
   .faq-item[open] .chev {
     transform: rotate(180deg);
+    color: var(--accent);
   }
   .faq-item p {
     margin: 0;
     padding: 0 1.25rem 1.1rem;
     font-size: 0.95rem;
+    color: var(--muted-foreground);
   }
 </style>

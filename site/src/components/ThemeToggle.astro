@@ -1,0 +1,221 @@
+---
+const themes = [
+  { id: 'warm-light', label: 'Warm light', icon: 'sun' },
+  { id: 'cool-light', label: 'Cool light', icon: 'cloud' },
+  { id: 'warm-dark', label: 'Warm dark', icon: 'candle' },
+  { id: 'cool-dark', label: 'Cool dark', icon: 'moon' },
+];
+---
+
+<div class="theme-toggle" data-theme-toggle>
+  <button
+    type="button"
+    class="tt-trigger"
+    aria-haspopup="menu"
+    aria-expanded="false"
+    aria-label="Change theme"
+    data-theme-trigger
+  >
+    <svg class="tt-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="4"></circle>
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+    </svg>
+    <span class="visually-hidden">Change theme</span>
+  </button>
+  <div class="tt-menu" role="menu" data-theme-menu hidden>
+    {themes.map((t) => (
+      <button
+        type="button"
+        role="menuitemradio"
+        class="tt-item"
+        data-theme-value={t.id}
+        aria-checked="false"
+      >
+        <span class="tt-dot" data-theme-swatch={t.id} aria-hidden="true"></span>
+        <span>{t.label}</span>
+        <svg class="tt-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      </button>
+    ))}
+  </div>
+</div>
+
+<style>
+  .theme-toggle {
+    position: relative;
+    display: inline-flex;
+  }
+  .tt-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--muted-foreground);
+    cursor: pointer;
+    transition:
+      background-color var(--duration-fast) var(--ease-out),
+      border-color var(--duration-fast) var(--ease-out),
+      color var(--duration-fast) var(--ease-out);
+  }
+  .tt-trigger:hover {
+    background: var(--muted);
+    color: var(--foreground);
+    border-color: var(--border-strong);
+  }
+  .tt-icon {
+    flex: none;
+  }
+  .tt-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 180px;
+    padding: 6px;
+    background: var(--popover);
+    color: var(--popover-foreground);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--card-shadow-hover);
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .tt-menu[hidden] {
+    display: none;
+  }
+  .tt-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    font-size: 0.88rem;
+    font-family: inherit;
+    color: var(--foreground);
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    text-align: left;
+  }
+  .tt-item:hover {
+    background: var(--muted);
+  }
+  .tt-item[aria-checked='true'] {
+    background: var(--accent-soft);
+    color: var(--foreground);
+  }
+  .tt-check {
+    margin-left: auto;
+    color: var(--accent);
+    opacity: 0;
+  }
+  .tt-item[aria-checked='true'] .tt-check {
+    opacity: 1;
+  }
+  .tt-dot {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+  }
+  .tt-dot[data-theme-swatch='warm-light'] {
+    background: linear-gradient(135deg, #faf8f5 0%, #c0680a 100%);
+  }
+  .tt-dot[data-theme-swatch='cool-light'] {
+    background: linear-gradient(135deg, #f1f5f9 0%, #4f46e5 100%);
+  }
+  .tt-dot[data-theme-swatch='warm-dark'] {
+    background: linear-gradient(135deg, #171310 0%, #f59e0b 100%);
+  }
+  .tt-dot[data-theme-swatch='cool-dark'] {
+    background: linear-gradient(135deg, #0f172a 0%, #22c55e 100%);
+  }
+</style>
+
+<script>
+  const STORAGE_KEY = 'writ-theme';
+  const THEME_COLORS = {
+    'warm-light': '#faf8f5',
+    'cool-light': '#f1f5f9',
+    'warm-dark': '#171310',
+    'cool-dark': '#0f172a',
+  } as const;
+  type Theme = keyof typeof THEME_COLORS;
+
+  function getCurrentTheme(): Theme {
+    const attr = document.documentElement.getAttribute('data-theme') as Theme | null;
+    return attr && attr in THEME_COLORS ? attr : 'warm-light';
+  }
+
+  function setTheme(theme: Theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    try {
+      localStorage.setItem(STORAGE_KEY, theme);
+    } catch {
+      /* ignore */
+    }
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', THEME_COLORS[theme]);
+    syncMenuState();
+  }
+
+  function syncMenuState() {
+    const current = getCurrentTheme();
+    document.querySelectorAll<HTMLButtonElement>('[data-theme-value]').forEach((btn) => {
+      btn.setAttribute('aria-checked', btn.dataset.themeValue === current ? 'true' : 'false');
+    });
+  }
+
+  function initToggle(root: HTMLElement) {
+    const trigger = root.querySelector<HTMLButtonElement>('[data-theme-trigger]');
+    const menu = root.querySelector<HTMLElement>('[data-theme-menu]');
+    if (!trigger || !menu) return;
+
+    const open = () => {
+      menu.hidden = false;
+      trigger.setAttribute('aria-expanded', 'true');
+    };
+    const close = () => {
+      menu.hidden = true;
+      trigger.setAttribute('aria-expanded', 'false');
+    };
+    const toggle = () => (menu.hidden ? open() : close());
+
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggle();
+    });
+
+    menu.querySelectorAll<HTMLButtonElement>('[data-theme-value]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const next = btn.dataset.themeValue as Theme;
+        if (next && next in THEME_COLORS) {
+          setTheme(next);
+          close();
+        }
+      });
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!menu.hidden && !root.contains(e.target as Node)) close();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !menu.hidden) {
+        close();
+        trigger.focus();
+      }
+    });
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-theme-toggle]').forEach(initToggle);
+  syncMenuState();
+</script>
