@@ -1,0 +1,259 @@
+---
+import Base from '../layouts/Base.astro';
+import MotionOnView from '../components/motion/MotionOnView.tsx';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+
+const changelogPath = path.resolve(process.cwd(), '..', 'CHANGELOG.md');
+let raw = '';
+try {
+  raw = await readFile(changelogPath, 'utf-8');
+} catch {
+  raw = '# Changelog\n\nChangelog not yet generated. See GitHub releases.';
+}
+
+type Section = { heading: string; body: string[] };
+type Entry = { version: string; date: string; sections: Section[] };
+
+function parseChangelog(md: string): { intro: string[]; entries: Entry[] } {
+  const lines = md.split('\n');
+  const intro: string[] = [];
+  const entries: Entry[] = [];
+  let current: Entry | null = null;
+  let currentSection: Section | null = null;
+  let inIntro = true;
+
+  for (const line of lines) {
+    const versionMatch = line.match(/^## \[?([^\]]+?)\]?(?: - (.+))?$/);
+    if (versionMatch) {
+      if (current) {
+        if (currentSection) current.sections.push(currentSection);
+        entries.push(current);
+      }
+      current = { version: versionMatch[1] ?? '', date: versionMatch[2] ?? '', sections: [] };
+      currentSection = null;
+      inIntro = false;
+      continue;
+    }
+    if (!current) {
+      if (inIntro && line.startsWith('#')) continue;
+      if (inIntro && line.trim().length > 0) intro.push(line);
+      continue;
+    }
+    const sectionMatch = line.match(/^###\s+(.+)$/);
+    if (sectionMatch) {
+      if (currentSection) current.sections.push(currentSection);
+      currentSection = { heading: sectionMatch[1] ?? '', body: [] };
+      continue;
+    }
+    if (currentSection) {
+      currentSection.body.push(line);
+    } else if (line.trim().length > 0) {
+      if (current.sections.length === 0) {
+        currentSection = { heading: '', body: [line] };
+      }
+    }
+  }
+  if (current) {
+    if (currentSection) current.sections.push(currentSection);
+    entries.push(current);
+  }
+  return { intro, entries };
+}
+
+function slugify(s: string) {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function renderBody(lines: string[]): string {
+  const html: string[] = [];
+  let inList = false;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    if (!line.trim()) {
+      if (inList) {
+        html.push('</ul>');
+        inList = false;
+      }
+      continue;
+    }
+
+    const subheadMatch = line.match(/^####\s+(.+)$/);
+    if (subheadMatch) {
+      if (inList) {
+        html.push('</ul>');
+        inList = false;
+      }
+      html.push(`<h4 class="cl-subhead">${escapeHtml(subheadMatch[1] ?? '')}</h4>`);
+      continue;
+    }
+
+    const bulletMatch = line.match(/^\s*-\s+(.+)$/);
+    if (bulletMatch) {
+      if (!inList) {
+        html.push('<ul class="cl-list">');
+        inList = true;
+      }
+      html.push(`<li>${formatInline(bulletMatch[1] ?? '')}</li>`);
+      continue;
+    }
+
+    if (inList) {
+      html.push('</ul>');
+      inList = false;
+    }
+    html.push(`<p>${formatInline(line)}</p>`);
+  }
+  if (inList) html.push('</ul>');
+  return html.join('\n');
+}
+
+function escapeHtml(s: string) {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function formatInline(s: string): string {
+  let out = escapeHtml(s);
+  out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
+  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" rel="noopener">$1</a>');
+  return out;
+}
+
+const { intro, entries } = parseChangelog(raw);
+---
+
+<Base
+  title="Changelog"
+  description="Every release of Writ, documented. New features, fixes, and internal changes."
+>
+  <section class="section">
+    <div class="container container-narrow">
+      <header class="page-head">
+        <p class="eyebrow">Changelog</p>
+        <h1>What's new in Writ</h1>
+        {intro.length > 0 && (
+          <p class="muted lede">{intro.join(' ').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')}</p>
+        )}
+      </header>
+
+      <div class="cl-entries">
+        {entries.map((entry, i) => {
+          const anchor = slugify(entry.version);
+          return (
+            <MotionOnView client:visible delay={0.04 * i} as="article">
+              <section class="cl-entry" id={anchor}>
+                <header class="cl-entry-head">
+                  <h2>
+                    <a href={`#${anchor}`} aria-label={`Permalink to ${entry.version}`}>
+                      {entry.version}
+                    </a>
+                  </h2>
+                  {entry.date && <span class="cl-date">{entry.date}</span>}
+                </header>
+                {entry.sections.map((s) => (
+                  <div class="cl-section">
+                    {s.heading && <h3 class="cl-heading">{s.heading}</h3>}
+                    <div class="cl-body" set:html={renderBody(s.body)} />
+                  </div>
+                ))}
+              </section>
+            </MotionOnView>
+          );
+        })}
+      </div>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .page-head {
+    text-align: center;
+    margin: 0 auto 2.5rem;
+  }
+  .cl-entries {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .cl-entry {
+    padding: 1.75rem 2rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--card-shadow);
+  }
+  .cl-entry-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-bottom: 0.9rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .cl-entry-head h2 {
+    margin: 0;
+    font-size: 1.5rem;
+  }
+  .cl-entry-head h2 a {
+    color: var(--foreground);
+    text-decoration: none;
+  }
+  .cl-entry-head h2 a:hover {
+    color: var(--accent);
+  }
+  .cl-date {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--muted-foreground);
+  }
+  .cl-section + .cl-section {
+    margin-top: 1rem;
+  }
+  .cl-heading {
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-caps);
+    color: var(--accent);
+    margin: 0 0 0.5rem;
+    font-weight: 600;
+  }
+  .cl-subhead {
+    font-size: 0.95rem;
+    margin: 0.9rem 0 0.4rem;
+    color: var(--foreground);
+    font-weight: 500;
+  }
+  .cl-list {
+    margin: 0;
+    padding: 0 0 0 1.1rem;
+    color: var(--muted-foreground);
+  }
+  .cl-list li {
+    margin: 0.25rem 0;
+    font-size: 0.93rem;
+    line-height: 1.55;
+  }
+  .cl-body p {
+    margin: 0 0 0.6rem;
+    color: var(--muted-foreground);
+    font-size: 0.93rem;
+    line-height: 1.6;
+  }
+  .cl-body code {
+    padding: 0.1em 0.35em;
+    background: var(--background);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.82em;
+  }
+</style>

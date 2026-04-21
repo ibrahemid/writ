@@ -1,0 +1,185 @@
+---
+import MotionOnView from './motion/MotionOnView.tsx';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+const tiles = [
+  {
+    title: 'Summon anywhere',
+    body: 'Cmd+Shift+Space brings Writ forward without stealing focus from your workflow.',
+    asset: `${base}/shots/summon.png`,
+    accentKey: 'Cmd+Shift+Space',
+    span: 'wide',
+  },
+  {
+    title: 'Tabs that feel like code',
+    body: 'Rename inline, reorder, restore on next launch.',
+    asset: `${base}/shots/tabs.png`,
+    accentKey: 'Cmd+T',
+    span: 'narrow',
+  },
+  {
+    title: 'Search across everything',
+    body: 'FTS5 returns matches across every tab and history entry.',
+    asset: `${base}/shots/search.png`,
+    accentKey: 'Cmd+F',
+    span: 'narrow',
+  },
+  {
+    title: 'Command palette',
+    body: 'Double-tap Shift, type what you want to do.',
+    asset: `${base}/shots/palette.png`,
+    accentKey: 'Shift+Shift',
+    span: 'wide',
+  },
+];
+
+function parseKeys(combo: string) {
+  return combo.split('+');
+}
+---
+
+<section class="section proof" id="proof" aria-labelledby="proof-heading">
+  <div class="container">
+    <header class="section-head">
+      <p class="eyebrow">In context</p>
+      <h2 id="proof-heading">Small surface, deep utility</h2>
+      <p class="lede">
+        Every screen is keyboard-first. Every action has a shortcut.
+      </p>
+    </header>
+
+    <div class="proof-grid">
+      {tiles.map((t, i) => (
+        <MotionOnView client:visible delay={0.05 * i} as="article">
+          <div class={`proof-card proof-card--${t.span}`}>
+            <div class="proof-visual">
+              <div class="proof-placeholder" aria-hidden="true">
+                <div class="proof-kbd-row">
+                  {parseKeys(t.accentKey).map((k) => <kbd>{k}</kbd>)}
+                </div>
+                <span class="proof-slot-note">screenshot · {t.accentKey}</span>
+              </div>
+              <img
+                class="proof-img"
+                src={t.asset}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                width="960"
+                height="560"
+                onerror="this.classList.add('is-missing')"
+              />
+            </div>
+            <div class="proof-copy">
+              <h3>{t.title}</h3>
+              <p>{t.body}</p>
+            </div>
+          </div>
+        </MotionOnView>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .proof-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 1rem;
+  }
+  .proof-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--card-shadow);
+    overflow: hidden;
+    transition:
+      transform var(--duration-base) var(--ease-out),
+      box-shadow var(--duration-base) var(--ease-out),
+      border-color var(--duration-base) var(--ease-out);
+  }
+  .proof-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--card-shadow-hover);
+    border-color: color-mix(in oklab, var(--accent) 22%, var(--border));
+  }
+  .proof-card--wide {
+    grid-column: span 4;
+  }
+  .proof-card--narrow {
+    grid-column: span 2;
+  }
+  @media (max-width: 900px) {
+    .proof-card--wide,
+    .proof-card--narrow {
+      grid-column: span 6;
+    }
+  }
+  .proof-visual {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    background:
+      linear-gradient(135deg, var(--accent-soft) 0%, transparent 55%),
+      radial-gradient(circle at 75% 35%, color-mix(in oklab, var(--accent) 8%, transparent), transparent 60%),
+      var(--muted);
+    overflow: hidden;
+    border-bottom: 1px solid var(--border);
+  }
+  .proof-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    letter-spacing: 0.02em;
+    text-align: center;
+    padding: 1rem;
+  }
+  .proof-kbd-row {
+    display: inline-flex;
+    gap: 4px;
+  }
+  .proof-kbd-row kbd {
+    font-size: 0.72rem;
+    padding: 0.15em 0.45em;
+  }
+  .proof-slot-note {
+    color: var(--muted-foreground);
+    opacity: 0.7;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+  }
+  .proof-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    display: block;
+    z-index: 1;
+  }
+  .proof-img.is-missing {
+    display: none;
+  }
+  .proof-copy {
+    padding: 1rem 1.25rem 1.15rem;
+  }
+  .proof-copy h3 {
+    font-size: 1rem;
+    margin: 0 0 0.35rem;
+    color: var(--foreground);
+  }
+  .proof-copy p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--muted-foreground);
+  }
+</style>
