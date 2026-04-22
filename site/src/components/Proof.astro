@@ -5,32 +5,18 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 const tiles = [
   {
-    title: 'Summon anywhere',
-    body: 'Cmd+Shift+Space brings Writ forward without stealing focus from your workflow.',
-    asset: `${base}/shots/summon.png`,
-    accentKey: 'Cmd+Shift+Space',
-    span: 'wide',
+    title: 'Summon anything',
+    body: 'Tabs, scratches, recent history — one sidebar.',
+    asset: `${base}/shots/sidebar-tabs.png`,
+    accentKey: 'Cmd+S+S',
+    span: 'half',
   },
   {
-    title: 'Tabs that feel like code',
-    body: 'Rename inline, reorder, restore on next launch.',
-    asset: `${base}/shots/tabs.png`,
-    accentKey: 'Cmd+T',
-    span: 'narrow',
-  },
-  {
-    title: 'Search across everything',
-    body: 'FTS5 returns matches across every tab and history entry.',
-    asset: `${base}/shots/search.png`,
-    accentKey: 'Cmd+F',
-    span: 'narrow',
-  },
-  {
-    title: 'Command palette',
-    body: 'Double-tap Shift, type what you want to do.',
-    asset: `${base}/shots/palette.png`,
+    title: 'Keyboard-first',
+    body: 'Double-tap Shift, type, go.',
+    asset: `${base}/shots/command-palette.png`,
     accentKey: 'Shift+Shift',
-    span: 'wide',
+    span: 'half',
   },
 ];
 
@@ -66,8 +52,8 @@ function parseKeys(combo: string) {
                 alt=""
                 loading="lazy"
                 decoding="async"
-                width="960"
-                height="560"
+                width="814"
+                height="583"
                 onerror="this.classList.add('is-missing')"
               />
             </div>
@@ -85,7 +71,7 @@ function parseKeys(combo: string) {
 <style>
   .proof-grid {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: 1rem;
   }
   .proof-card {
@@ -106,21 +92,20 @@ function parseKeys(combo: string) {
     box-shadow: var(--card-shadow-hover);
     border-color: color-mix(in oklab, var(--accent) 22%, var(--border));
   }
-  .proof-card--wide {
-    grid-column: span 4;
+  .proof-card--half {
+    grid-column: span 1;
   }
-  .proof-card--narrow {
-    grid-column: span 2;
-  }
-  @media (max-width: 900px) {
-    .proof-card--wide,
-    .proof-card--narrow {
-      grid-column: span 6;
+  @media (max-width: 720px) {
+    .proof-grid {
+      grid-template-columns: 1fr;
+    }
+    .proof-card--half {
+      grid-column: span 1;
     }
   }
   .proof-visual {
     position: relative;
-    aspect-ratio: 16 / 9;
+    aspect-ratio: 814 / 583;
     background:
       linear-gradient(135deg, var(--accent-soft) 0%, transparent 55%),
       radial-gradient(circle at 75% 35%, color-mix(in oklab, var(--accent) 8%, transparent), transparent 60%),

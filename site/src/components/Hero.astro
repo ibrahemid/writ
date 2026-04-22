@@ -1,7 +1,20 @@
 ---
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import DownloadButtons from './DownloadButtons.astro';
 import HeroDemo from './motion/HeroDemo.tsx';
 import release from '../data/release.json';
+
+interface Props {
+  heroAsset?: string;
+}
+
+const { heroAsset = 'shots/code-editor.png' } = Astro.props;
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const assetDiskPath = path.resolve(process.cwd(), 'public', heroAsset);
+const hasAsset = existsSync(assetDiskPath);
+const assetHref = `${base}/${heroAsset}`;
 ---
 
 <section class="hero" aria-labelledby="hero-heading">
@@ -18,9 +31,8 @@ import release from '../data/release.json';
         away.
       </h1>
       <p class="hero-tagline">
-        Writ is a lightweight, always-ready text editor for developers. Global hotkey,
-        autosave to local SQLite, full-text search across every scratch. No account,
-        no telemetry, no cloud.
+        Lightweight. Local-only. No account, no telemetry, no cloud.
+        Hit <kbd>⌘</kbd><kbd>⇧</kbd><kbd>Space</kbd>, write, close.
       </p>
       <div class="hero-cta">
         <DownloadButtons variant="hero" />
@@ -35,8 +47,21 @@ import release from '../data/release.json';
 
     <div class="hero-media">
       <figure class="hero-frame">
-        <HeroDemo client:visible />
-        <figcaption class="visually-hidden">Writ editor preview: typing into a scratchpad file with live syntax highlighting.</figcaption>
+        {hasAsset ? (
+          <img
+            class="hero-img"
+            src={assetHref}
+            alt="Writ editor showing a syntax-highlighted scratch file"
+            width="846"
+            height="646"
+            loading="eager"
+            fetchpriority="high"
+            decoding="sync"
+          />
+        ) : (
+          <HeroDemo client:idle />
+        )}
+        <figcaption class="visually-hidden">Writ editor: scratchpad file with live syntax highlighting.</figcaption>
       </figure>
       <div class="hero-marquee" aria-hidden="true">
         <span class="hmq-item"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>Space</kbd> summon</span>
@@ -107,6 +132,16 @@ import release from '../data/release.json';
     max-width: 58ch;
     color: var(--muted-foreground);
     margin: 0 0 1.75rem;
+  }
+  .hero-tagline kbd {
+    margin: 0 2px;
+    font-size: 0.78em;
+  }
+  .hero-img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 846 / 646;
   }
   .hero-cta {
     margin-bottom: 1.2rem;
