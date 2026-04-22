@@ -1,6 +1,4 @@
 ---
-import MotionOnView from './motion/MotionOnView.tsx';
-
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 const tiles = [
@@ -36,33 +34,31 @@ function parseKeys(combo: string) {
     </header>
 
     <div class="proof-grid">
-      {tiles.map((t, i) => (
-        <MotionOnView client:visible delay={0.05 * i} as="article">
-          <div class={`proof-card proof-card--${t.span}`}>
-            <div class="proof-visual">
-              <div class="proof-placeholder" aria-hidden="true">
-                <div class="proof-kbd-row">
-                  {parseKeys(t.accentKey).map((k) => <kbd>{k}</kbd>)}
-                </div>
-                <span class="proof-slot-note">screenshot · {t.accentKey}</span>
+      {tiles.map((t) => (
+        <article class={`proof-card proof-card--${t.span} reveal`}>
+          <div class="proof-visual">
+            <div class="proof-placeholder" aria-hidden="true">
+              <div class="proof-kbd-row">
+                {parseKeys(t.accentKey).map((k) => <kbd>{k}</kbd>)}
               </div>
-              <img
-                class="proof-img"
-                src={t.asset}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                width="814"
-                height="583"
-                onerror="this.classList.add('is-missing')"
-              />
+              <span class="proof-slot-note">screenshot · {t.accentKey}</span>
             </div>
-            <div class="proof-copy">
-              <h3>{t.title}</h3>
-              <p>{t.body}</p>
-            </div>
+            <img
+              class="proof-img"
+              src={t.asset}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              width="814"
+              height="583"
+              onerror="this.classList.add('is-missing')"
+            />
           </div>
-        </MotionOnView>
+          <div class="proof-copy">
+            <h3>{t.title}</h3>
+            <p>{t.body}</p>
+          </div>
+        </article>
       ))}
     </div>
   </div>

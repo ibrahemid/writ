@@ -1,5 +1,4 @@
 ---
-import MotionOnView from './motion/MotionOnView.tsx';
 
 const rows = [
   { label: 'Opens in', writ: '< 80ms', txt: 'OS-dependent', obs: '1–3s', notion: '2–8s' },
@@ -31,9 +30,8 @@ function mark(v: string) {
       </p>
     </header>
 
-    <MotionOnView client:visible as="div">
-      <div class="cmp-wrap">
-        <table class="cmp-table">
+    <div class="cmp-wrap reveal">
+      <table class="cmp-table">
           <thead>
             <tr>
               <th scope="col"><span class="visually-hidden">Capability</span></th>
@@ -65,7 +63,6 @@ function mark(v: string) {
           </tbody>
         </table>
       </div>
-    </MotionOnView>
 
     <p class="cmp-note muted">
       Snapshot. Obsidian and Notion are great at what they do. Writ does something else:
