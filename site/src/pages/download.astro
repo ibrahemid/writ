@@ -1,7 +1,6 @@
 ---
 import Base from '../layouts/Base.astro';
 import release from '../data/release.json';
-import MotionOnView from '../components/motion/MotionOnView.tsx';
 
 const repoReleases = 'https://github.com/ibrahemid/writ/releases';
 
@@ -95,9 +94,8 @@ const sections = [
       </header>
 
       <div class="os-grid">
-        {sections.map((s, i) => (
-          <MotionOnView client:visible delay={0.05 * i} as="article">
-            <section class={`os-card os-card--${s.os}`} id={`os-${s.os}`} data-os-card={s.os}>
+        {sections.map((s) => (
+          <section class={`os-card os-card--${s.os} reveal`} id={`os-${s.os}`} data-os-card={s.os}>
               <header class="os-head">
                 <h2>{s.title}</h2>
                 <span class="os-badge">{s.badge}</span>
@@ -142,9 +140,8 @@ const sections = [
                 ))}
               </ul>
 
-              <p class="os-notes muted">{s.notes}</p>
-            </section>
-          </MotionOnView>
+            <p class="os-notes muted">{s.notes}</p>
+          </section>
         ))}
       </div>
 

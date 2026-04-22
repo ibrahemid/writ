@@ -1,6 +1,5 @@
 ---
 import Base from '../layouts/Base.astro';
-import MotionOnView from '../components/motion/MotionOnView.tsx';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -146,27 +145,25 @@ const { intro, entries } = parseChangelog(raw);
       </header>
 
       <div class="cl-entries">
-        {entries.map((entry, i) => {
+        {entries.map((entry) => {
           const anchor = slugify(entry.version);
           return (
-            <MotionOnView client:visible delay={0.04 * i} as="article">
-              <section class="cl-entry" id={anchor}>
-                <header class="cl-entry-head">
-                  <h2>
-                    <a href={`#${anchor}`} aria-label={`Permalink to ${entry.version}`}>
-                      {entry.version}
-                    </a>
-                  </h2>
-                  {entry.date && <span class="cl-date">{entry.date}</span>}
-                </header>
-                {entry.sections.map((s) => (
-                  <div class="cl-section">
-                    {s.heading && <h3 class="cl-heading">{s.heading}</h3>}
-                    <div class="cl-body" set:html={renderBody(s.body)} />
-                  </div>
-                ))}
-              </section>
-            </MotionOnView>
+            <section class="cl-entry reveal" id={anchor}>
+              <header class="cl-entry-head">
+                <h2>
+                  <a href={`#${anchor}`} aria-label={`Permalink to ${entry.version}`}>
+                    {entry.version}
+                  </a>
+                </h2>
+                {entry.date && <span class="cl-date">{entry.date}</span>}
+              </header>
+              {entry.sections.map((s) => (
+                <div class="cl-section">
+                  {s.heading && <h3 class="cl-heading">{s.heading}</h3>}
+                  <div class="cl-body" set:html={renderBody(s.body)} />
+                </div>
+              ))}
+            </section>
           );
         })}
       </div>

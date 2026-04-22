@@ -1,6 +1,4 @@
 ---
-import MotionOnView from './motion/MotionOnView.tsx';
-
 const features = [
   {
     title: 'Global hotkey',
@@ -76,17 +74,15 @@ const ICONS: Record<string, string> = {
     </header>
 
     <ul class="feature-grid" role="list">
-      {features.map((f, i) => (
+      {features.map((f) => (
         <li class="feature-card-wrap">
-          <MotionOnView client:visible delay={0.04 * (i % 4)} as="div">
-            <article class="feature-card">
-              <div class="feature-icon" aria-hidden="true">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" set:html={ICONS[f.icon]} />
-              </div>
-              <h3>{f.title}</h3>
-              <p>{f.body}</p>
-            </article>
-          </MotionOnView>
+          <article class="feature-card reveal">
+            <div class="feature-icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" set:html={ICONS[f.icon]} />
+            </div>
+            <h3>{f.title}</h3>
+            <p>{f.body}</p>
+          </article>
         </li>
       ))}
     </ul>

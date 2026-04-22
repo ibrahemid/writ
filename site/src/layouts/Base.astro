@@ -94,5 +94,24 @@ const fullTitle =
       <slot />
     </main>
     <Footer />
+    <script is:inline>
+      (function () {
+        var nodes = document.querySelectorAll('.reveal');
+        if (!nodes.length) return;
+        if (!('IntersectionObserver' in window)) {
+          nodes.forEach(function (n) { n.classList.add('is-in'); });
+          return;
+        }
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('is-in');
+              io.unobserve(entry.target);
+            }
+          });
+        }, { rootMargin: '0px 0px -5% 0px' });
+        nodes.forEach(function (n) { io.observe(n); });
+      })();
+    </script>
   </body>
 </html>
