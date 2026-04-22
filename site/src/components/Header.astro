@@ -15,12 +15,16 @@ const repoUrl = 'https://github.com/ibrahemid/writ';
 <header class="site-header">
   <div class="container header-inner">
     <a class="brand" href={`${base}/`} aria-label="Writ home">
-      <span class="brand-mark" aria-hidden="true">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M4 20h16"></path>
-          <path d="M6 16 14 4l4 4-8 12z"></path>
-        </svg>
-      </span>
+      <img
+        class="brand-mark"
+        src={`${base}/brand/icon-128.png`}
+        srcset={`${base}/brand/icon-128.png 1x, ${base}/brand/icon-256.png 2x`}
+        width="30"
+        height="30"
+        alt=""
+        decoding="sync"
+        fetchpriority="high"
+      />
       <span class="brand-name">Writ</span>
     </a>
     <nav class="site-nav" aria-label="Primary">
@@ -71,15 +75,10 @@ const repoUrl = 'https://github.com/ibrahemid/writ';
     color: var(--foreground);
   }
   .brand-mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    display: block;
     width: 30px;
     height: 30px;
-    background: var(--accent);
-    color: var(--accent-foreground);
-    border-radius: 8px;
-    box-shadow: 0 4px 12px -4px color-mix(in oklab, var(--accent) 55%, transparent);
+    border-radius: 7px;
   }
   .brand-name {
     font-size: 1.05rem;
