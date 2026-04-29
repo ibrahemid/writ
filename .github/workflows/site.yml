@@ -94,7 +94,7 @@ jobs:
           cat src/data/release.json
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-workspace
 
       - name: Build Astro site
         run: pnpm build
