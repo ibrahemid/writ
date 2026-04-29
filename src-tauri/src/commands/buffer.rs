@@ -13,7 +13,10 @@ pub fn create_buffer(
     let store = state.store.lock().map_err(|e| e.to_string())?;
     store.insert(&doc).map_err(|e| e.to_string())?;
     {
-        let mut ignore = state.watcher_ignore.lock().unwrap_or_else(|e| e.into_inner());
+        let mut ignore = state
+            .watcher_ignore
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         ignore.insert(doc.filename.clone());
     }
     store.save_content(&doc.id, "").map_err(|e| e.to_string())?;
@@ -35,7 +38,10 @@ pub fn save_buffer_content(
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(&id).map_err(|e| e.to_string())?;
     {
-        let mut ignore = state.watcher_ignore.lock().unwrap_or_else(|e| e.into_inner());
+        let mut ignore = state
+            .watcher_ignore
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         ignore.insert(doc.filename.clone());
     }
     store.save_content(&id, &content).map_err(|e| e.to_string())

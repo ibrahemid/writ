@@ -64,7 +64,10 @@ fn open_from_path_creates_buffer_and_copies_content() {
 
     let fetched = store.get("open-1").unwrap();
     assert_eq!(fetched.title, "main.rs");
-    assert_eq!(fetched.source_path.as_deref(), Some(source_file.to_str().unwrap()));
+    assert_eq!(
+        fetched.source_path.as_deref(),
+        Some(source_file.to_str().unwrap())
+    );
     assert_eq!(fetched.language.as_deref(), Some("rust"));
 
     let buffer_copy = dir.path().join("buffers").join(&doc.filename);
@@ -77,7 +80,9 @@ fn open_from_path_creates_buffer_and_copies_content() {
 fn open_from_path_indexes_content_for_fts() {
     let (_dir, store) = setup();
     let doc = make_source_doc("fts-open", "main.rs", "/fake/main.rs");
-    store.open_from_path(&doc, "fn search_me_please() {}").unwrap();
+    store
+        .open_from_path(&doc, "fn search_me_please() {}")
+        .unwrap();
 
     let results = store.search("search_me_please").unwrap();
     assert_eq!(results.len(), 1);
@@ -90,7 +95,9 @@ fn find_active_by_source_path_returns_existing_buffer() {
     let doc = make_source_doc("dedup-1", "config.toml", "/home/user/config.toml");
     store.open_from_path(&doc, "key = \"value\"").unwrap();
 
-    let found = store.find_active_by_source_path("/home/user/config.toml").unwrap();
+    let found = store
+        .find_active_by_source_path("/home/user/config.toml")
+        .unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap().id, "dedup-1");
 }
@@ -98,7 +105,9 @@ fn find_active_by_source_path_returns_existing_buffer() {
 #[test]
 fn find_active_by_source_path_returns_none_when_not_found() {
     let (_dir, store) = setup();
-    let found = store.find_active_by_source_path("/nonexistent/path.txt").unwrap();
+    let found = store
+        .find_active_by_source_path("/nonexistent/path.txt")
+        .unwrap();
     assert!(found.is_none());
 }
 
@@ -109,7 +118,9 @@ fn find_active_by_source_path_ignores_history_buffers() {
     store.open_from_path(&doc, "old content").unwrap();
     store.close("hist-1").unwrap();
 
-    let found = store.find_active_by_source_path("/home/user/old.rs").unwrap();
+    let found = store
+        .find_active_by_source_path("/home/user/old.rs")
+        .unwrap();
     assert!(found.is_none());
 }
 
@@ -143,7 +154,9 @@ fn save_to_source_updates_fts_index() {
     let doc = make_source_doc("fts-save", "search.txt", source_file.to_str().unwrap());
     store.open_from_path(&doc, "old content").unwrap();
 
-    store.save_to_source("fts-save", "new unique findable content").unwrap();
+    store
+        .save_to_source("fts-save", "new unique findable content")
+        .unwrap();
 
     let results = store.search("findable").unwrap();
     assert_eq!(results.len(), 1);
@@ -221,7 +234,9 @@ fn find_history_by_source_path_returns_closed_buffer() {
     store.open_from_path(&doc, "fn main() {}").unwrap();
     store.close("hist-find").unwrap();
 
-    let found = store.find_history_by_source_path("/home/user/closed.rs").unwrap();
+    let found = store
+        .find_history_by_source_path("/home/user/closed.rs")
+        .unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap().id, "hist-find");
 }
@@ -232,7 +247,9 @@ fn find_history_by_source_path_returns_none_for_active() {
     let doc = make_source_doc("active-only", "active.rs", "/home/user/active.rs");
     store.open_from_path(&doc, "content").unwrap();
 
-    let found = store.find_history_by_source_path("/home/user/active.rs").unwrap();
+    let found = store
+        .find_history_by_source_path("/home/user/active.rs")
+        .unwrap();
     assert!(found.is_none());
 }
 
@@ -249,7 +266,10 @@ fn reopen_from_history_restores_and_updates_content() {
 
     std::fs::write(&source_file, "# Version 2").unwrap();
 
-    let history_buf = store.find_history_by_source_path(source_file.to_str().unwrap()).unwrap().unwrap();
+    let history_buf = store
+        .find_history_by_source_path(source_file.to_str().unwrap())
+        .unwrap()
+        .unwrap();
     store.restore(&history_buf.id).unwrap();
     store.save_content(&history_buf.id, "# Version 2").unwrap();
 
@@ -263,7 +283,9 @@ fn reopen_from_history_restores_and_updates_content() {
 #[test]
 fn find_history_by_source_path_returns_none_when_not_found() {
     let (_dir, store) = setup();
-    let found = store.find_history_by_source_path("/nonexistent/path.txt").unwrap();
+    let found = store
+        .find_history_by_source_path("/nonexistent/path.txt")
+        .unwrap();
     assert!(found.is_none());
 }
 
@@ -278,13 +300,19 @@ fn reopen_preserves_original_buffer_id() {
     store.open_from_path(&doc, "fn original() {}").unwrap();
     store.close("preserve-1").unwrap();
 
-    let history = store.find_history_by_source_path(source_file.to_str().unwrap()).unwrap().unwrap();
+    let history = store
+        .find_history_by_source_path(source_file.to_str().unwrap())
+        .unwrap()
+        .unwrap();
     assert_eq!(history.id, "preserve-1");
 
     store.restore(&history.id).unwrap();
     let restored = store.get("preserve-1").unwrap();
     assert_eq!(restored.status, BufferStatus::Active);
-    assert_eq!(restored.source_path.as_deref(), Some(source_file.to_str().unwrap()));
+    assert_eq!(
+        restored.source_path.as_deref(),
+        Some(source_file.to_str().unwrap())
+    );
 }
 
 #[test]

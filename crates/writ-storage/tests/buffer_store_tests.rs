@@ -121,7 +121,9 @@ fn save_content_updates_fts_index() {
     let (_dir, store) = setup();
     let doc = make_doc("fts1", "fts-test");
     store.insert(&doc).unwrap();
-    store.save_content("fts1", "searchable content about rust programming").unwrap();
+    store
+        .save_content("fts1", "searchable content about rust programming")
+        .unwrap();
 
     let results = store.search("rust programming").unwrap();
     assert_eq!(results.len(), 1);

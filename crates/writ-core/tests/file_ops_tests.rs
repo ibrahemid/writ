@@ -123,7 +123,11 @@ fn validate_file_rejects_nonexistent_path() {
     let result = validate_file_for_opening(Path::new("/tmp/writ-test-nonexistent-file.txt"));
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("not found"), "error should mention not found: {}", err);
+    assert!(
+        err.contains("not found"),
+        "error should mention not found: {}",
+        err
+    );
 }
 
 #[test]
@@ -132,7 +136,11 @@ fn validate_file_rejects_directory() {
     let result = validate_file_for_opening(dir.path());
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("not a file"), "error should mention not a file: {}", err);
+    assert!(
+        err.contains("not a file"),
+        "error should mention not a file: {}",
+        err
+    );
 }
 
 #[test]
@@ -144,7 +152,11 @@ fn validate_file_rejects_oversized_file() {
     let result = validate_file_for_opening(&path);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("too large"), "error should mention too large: {}", err);
+    assert!(
+        err.contains("too large"),
+        "error should mention too large: {}",
+        err
+    );
 }
 
 #[test]
@@ -156,7 +168,11 @@ fn validate_file_rejects_binary_file() {
     let result = validate_file_for_opening(&path);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("binary"), "error should mention binary: {}", err);
+    assert!(
+        err.contains("binary"),
+        "error should mention binary: {}",
+        err
+    );
 }
 
 #[test]
@@ -185,7 +201,10 @@ fn validate_file_accepts_utf8_with_special_chars() {
 
 #[test]
 fn extract_filename_from_path() {
-    assert_eq!(extract_filename(Path::new("/home/user/notes/todo.md")), "todo.md");
+    assert_eq!(
+        extract_filename(Path::new("/home/user/notes/todo.md")),
+        "todo.md"
+    );
     assert_eq!(extract_filename(Path::new("relative/file.rs")), "file.rs");
     assert_eq!(extract_filename(Path::new("file.txt")), "file.txt");
 }

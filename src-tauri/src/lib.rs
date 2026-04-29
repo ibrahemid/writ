@@ -44,9 +44,7 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .select_all()
         .build()?;
 
-    let window_menu = SubmenuBuilder::new(app, "Window")
-        .minimize()
-        .build()?;
+    let window_menu = SubmenuBuilder::new(app, "Window").minimize().build()?;
 
     let menu = MenuBuilder::new(app)
         .items(&[&file_menu, &edit_menu, &window_menu])
@@ -140,9 +138,12 @@ pub fn run() {
                 tracing::warn!(error = %e, "failed to register global hotkey");
             }
 
-            if let Err(e) =
-                watcher::handler::start_file_watcher(handle, config_path, buffers_dir, watcher_ignore)
-            {
+            if let Err(e) = watcher::handler::start_file_watcher(
+                handle,
+                config_path,
+                buffers_dir,
+                watcher_ignore,
+            ) {
                 tracing::warn!(error = %e, "failed to start file watcher");
             }
 
@@ -159,9 +160,9 @@ pub fn run() {
                 .iter()
                 .filter_map(|url| {
                     if url.scheme() == "file" {
-                        url.to_file_path().ok().and_then(|p| {
-                            p.to_str().map(String::from)
-                        })
+                        url.to_file_path()
+                            .ok()
+                            .and_then(|p| p.to_str().map(String::from))
                     } else {
                         None
                     }
