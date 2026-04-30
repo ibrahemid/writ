@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run all the same checks release.yml runs, locally, before tagging.
+# Catches mac and Linux failures for free; Windows still requires CI or a VM.
+#
+# Usage: scripts/release-preflight.sh
+#
+# Requirements:
+#   - macOS host (for the mac dmg build)
+#   - Rust toolchain (already installed for normal dev)
+#   - pnpm (already installed for normal dev)
+#   - Docker (only required for the act-driven Linux dry run)
+#   - act (https://github.com/nektos/act, optional; install with `brew install act`)
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "${ROOT}"
+
+step() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
+warn() { printf '\033[1;33m!! %s\033[0m\n' "$*"; }
+fail() { printf '\033[1;31mxx %s\033[0m\n' "$*" >&2; exit 1; }
+
+step "1/6 cargo test --workspace"
+cargo test --workspace
+
+step "2/6 cargo clippy --workspace -- -D warnings"
+cargo clippy --workspace -- -D warnings
+
+step "3/6 npx tsc --noEmit"
+npx tsc --noEmit
+
+step "4/6 pnpm --dir site build"
+pnpm --dir site build
+
+step "5/6 cargo tauri build (universal mac dmg, ad-hoc signed)"
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  warn "Skipping mac build: this script is running on $(uname -s), not Darwin."
+else
+  rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null 2>&1 || true
+  APPLE_SIGNING_IDENTITY="-" \
+    npx tauri build \
+      --target universal-apple-darwin \
+      --bundles app,dmg
+  echo
+  echo "Mac artefacts:"
+  find src-tauri/target/universal-apple-darwin/release/bundle -name '*.dmg' -o -name '*.app' 2>/dev/null | sort
+fi
+
+step "6/6 act --dryrun (Linux release leg)"
+if ! command -v act >/dev/null 2>&1; then
+  warn "act not installed; skipping Linux dry run."
+  warn "Install with: brew install act"
+  warn "Then run: act -W .github/workflows/release.yml -j build --matrix os:ubuntu-22.04 --container-architecture linux/amd64"
+elif ! docker info >/dev/null 2>&1; then
+  warn "Docker daemon not running; skipping Linux dry run."
+  warn "Start Docker Desktop, then re-run this script."
+else
+  act -W .github/workflows/release.yml \
+      -j build \
+      --matrix os:ubuntu-22.04 \
+      --container-architecture linux/amd64 \
+      --dryrun
+  echo
+  warn "act --dryrun only validates the workflow shape, not the build itself."
+  warn "For a full Linux build run drop --dryrun. It pulls a ~2 GB image and takes ~15 min."
+fi
+
+echo
+echo "preflight: OK"
+echo "If everything above is green, tag and push:"
+echo "  git tag v\$(jq -r .version site/package.json)"
+echo "  git push origin v\$(jq -r .version site/package.json)"
