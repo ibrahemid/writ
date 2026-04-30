@@ -14,16 +14,17 @@ dist/
 # macOS
 .DS_Store
 
-# Editor / AI tool metadata
+# Editor and tool metadata
 .idea/
 .vscode/
 .claude/
 .serena/
 CLAUDE.md
 
-# Private planning that should not be public
+# Local notes
 docs/launch/
-docs/superpowers/
+docs/metrics/
+drafts/
 
 # Local backups
 .git.backup-*
