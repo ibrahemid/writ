@@ -54,7 +54,7 @@ The post-release workflow expects these artifact names on GitHub Releases. They 
 | Checksums | `SHA256SUMS.txt` |
 | Tauri updater manifest | `latest.json` |
 
-If Group A changes any of these names, update `.github/workflows/packages.yml` and the three bump scripts in `scripts/`.
+If these filenames change, update `.github/workflows/packages.yml` and the three bump scripts in `scripts/`.
 
 ## Post-release bump workflow
 
