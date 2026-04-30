@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="Download Writ for macOS, Windows, or Linux">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#faf8f5"></stop>
+      <stop offset="1" stop-color="#f1ece5"></stop>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.15" cy="0.85" r="0.8">
+      <stop offset="0" stop-color="#c0680a" stop-opacity="0.16"></stop>
+      <stop offset="1" stop-color="#c0680a" stop-opacity="0"></stop>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"></rect>
+  <rect width="1200" height="630" fill="url(#glow)"></rect>
+
+  <image x="88" y="92" width="76" height="76"></image>
+
+  <g font-family="Inter, -apple-system, system-ui, sans-serif">
+    <text x="192" y="142" font-size="32" font-weight="500" fill="#75685a">Writ · Download</text>
+    <text x="88" y="258" font-size="92" font-weight="700" letter-spacing="-3" fill="#1d1a16">Install in one line.</text>
+    <text x="88" y="318" font-size="32" font-weight="500" fill="#423b30">
+      <tspan fill="#c0680a">Homebrew · winget · AUR</tspan>
+      <tspan fill="#75685a">  ·  direct installers for mac, win, linux</tspan>
+    </text>
+  </g>
+
+  <g transform="translate(88 380)" font-family="ui-monospace, SF Mono, Menlo, monospace">
+    <rect width="480" height="64" rx="14" fill="#ffffff" stroke="rgba(29,26,22,0.12)"></rect>
+    <text x="22" y="42" font-size="22" fill="#75685a">$ </text>
+    <text x="48" y="42" font-size="22" fill="#1d1a16">brew install --cask writ</text>
+
+    <rect y="80" width="480" height="64" rx="14" fill="#ffffff" stroke="rgba(29,26,22,0.12)"></rect>
+    <text x="22" y="122" font-size="22" fill="#75685a">&gt; </text>
+    <text x="48" y="122" font-size="22" fill="#1d1a16">winget install Writ.Writ</text>
+
+    <rect y="160" width="480" height="64" rx="14" fill="#ffffff" stroke="rgba(29,26,22,0.12)"></rect>
+    <text x="22" y="202" font-size="22" fill="#75685a">$ </text>
+    <text x="48" y="202" font-size="22" fill="#1d1a16">yay -S writ-bin</text>
+  </g>
+
+  <g transform="translate(700 380)">
+    <rect width="412" height="224" rx="18" fill="#ffffff" stroke="rgba(29,26,22,0.1)"></rect>
+    <g font-family="Inter, system-ui, sans-serif">
+      <text x="24" y="46" font-size="14" fill="#75685a" font-weight="500" letter-spacing="1.5">DIRECT</text>
+      <g transform="translate(24 70)">
+        <rect width="170" height="56" rx="12" fill="#c0680a"></rect>
+        <text x="18" y="34" font-size="15" fill="#ffffff" font-weight="500">macOS · .dmg</text>
+      </g>
+      <g transform="translate(208 70)">
+        <rect width="170" height="56" rx="12" fill="#ffffff" stroke="rgba(29,26,22,0.16)"></rect>
+        <text x="18" y="34" font-size="15" fill="#1d1a16" font-weight="500">Windows · .msi</text>
+      </g>
+      <g transform="translate(24 142)">
+        <rect width="170" height="56" rx="12" fill="#ffffff" stroke="rgba(29,26,22,0.16)"></rect>
+        <text x="18" y="34" font-size="15" fill="#1d1a16" font-weight="500">Linux · AppImage</text>
+      </g>
+      <g transform="translate(208 142)">
+        <rect width="170" height="56" rx="12" fill="#ffffff" stroke="rgba(29,26,22,0.16)"></rect>
+        <text x="18" y="34" font-size="15" fill="#1d1a16" font-weight="500">Linux · .deb</text>
+      </g>
+    </g>
+  </g>
+</svg>

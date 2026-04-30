@@ -1,54 +1,19 @@
 ---
 import Base from '../layouts/Base.astro';
 import Hero from '../components/Hero.astro';
-import FeatureGrid from '../components/FeatureGrid.astro';
-import Proof from '../components/Proof.astro';
-import Comparison from '../components/Comparison.astro';
-import Shortcuts from '../components/Shortcuts.astro';
-import Faq from '../components/Faq.astro';
-import release from '../data/release.json';
+import Claims from '../components/Claims.astro';
+import MissingMiddle from '../components/MissingMiddle.astro';
+import Install from '../components/Install.astro';
 
-const siteUrl = new URL(Astro.url.pathname, Astro.site).toString();
-
-const jsonLd = {
-  '@context': 'https://schema.org',
-  '@type': 'SoftwareApplication',
-  name: 'Writ',
-  description:
-    'Lightweight, always-ready text editor for developers. Global hotkey, autosave, full-text search.',
-  applicationCategory: 'DeveloperApplication',
-  operatingSystem: 'macOS, Windows, Linux',
-  url: siteUrl,
-  softwareVersion: release.version,
-  downloadUrl: 'https://github.com/ibrahemid/writ/releases/latest',
-  license: 'https://opensource.org/licenses/MIT',
-  offers: {
-    '@type': 'Offer',
-    price: '0',
-    priceCurrency: 'USD',
-  },
-  author: {
-    '@type': 'Person',
-    name: 'ibrahemid',
-    url: 'https://github.com/ibrahemid',
-  },
-};
+import '../components/HeroDemo.css';
 ---
-
 <Base
-  title="Writ"
-  description="Lightweight, always-ready text editor for developers. Global hotkey, autosave, full-text search."
+  title="Writ — A scratchpad always one keypress away"
+  description="Writ is a tray-resident text editor for developers. Global hotkey, autosave, full-text search across every buffer. Local only. Open source."
+  path="/"
 >
-  <script
-    slot="head"
-    is:inline
-    type="application/ld+json"
-    set:html={JSON.stringify(jsonLd)}
-  />
   <Hero />
-  <FeatureGrid />
-  <Proof />
-  <Comparison />
-  <Shortcuts />
-  <Faq />
+  <Claims />
+  <MissingMiddle />
+  <Install />
 </Base>

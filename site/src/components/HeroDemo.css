@@ -1,0 +1,102 @@
+.hd {
+  width: 100%;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--syntax-bg);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--card-shadow-hover);
+  font-family: var(--font-mono-display);
+}
+
+.hd-chrome {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: color-mix(in oklab, var(--syntax-bg) 70%, var(--background));
+  border-bottom: 1px solid var(--border);
+}
+.hd-traffic { display: flex; gap: 6px; }
+.hd-traffic span {
+  width: 11px; height: 11px; border-radius: 999px;
+  display: block;
+}
+.hd-tabs { display: flex; gap: 6px; margin-left: 6px; flex: 1; min-width: 0; overflow: hidden; }
+.hd-tab {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  color: var(--syntax-muted);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.hd-tab.is-active {
+  color: var(--syntax-fg);
+  background: var(--background);
+  border-color: var(--border);
+}
+.hd-keys {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+}
+.hd-keys kbd { font-size: 11px; }
+
+.hd-pre {
+  margin: 0;
+  padding: 20px 16px;
+  font-family: var(--font-mono-display);
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--syntax-fg);
+  min-height: 232px;
+}
+.hd-row { display: block; }
+.hd-gutter {
+  display: inline-block;
+  width: 32px;
+  color: var(--syntax-muted);
+  text-align: right;
+  margin-right: 16px;
+  user-select: none;
+  opacity: 0.7;
+}
+.hd-line { white-space: pre; }
+.hd-caret {
+  display: inline-block;
+  width: 8px;
+  height: 16px;
+  margin-left: 1px;
+  vertical-align: -3px;
+  background: var(--syntax-accent);
+  transition: opacity 80ms linear;
+}
+
+.hd-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  border-top: 1px solid var(--border);
+  background: color-mix(in oklab, var(--syntax-bg) 70%, var(--background));
+}
+.hd-dot {
+  width: 7px; height: 7px; border-radius: 999px;
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--success) 22%, transparent);
+}
+.hd-status-right {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.hd-status-right kbd { font-size: 11px; }
+
+@media (max-width: 720px) {
+  .hd-tabs .hd-tab:nth-child(n + 3) { display: none; }
+  .hd-pre { font-size: 12.5px; }
+  .hd-gutter { width: 22px; margin-right: 10px; }
+}

@@ -1,380 +1,112 @@
 ---
-import { existsSync } from 'node:fs';
-import path from 'node:path';
-import DownloadButtons from './DownloadButtons.astro';
-import HeroDemo from './motion/HeroDemo.tsx';
-import release from '../data/release.json';
-
-interface Props {
-  heroAsset?: string;
-}
-
-const { heroAsset = 'shots/code-editor.png' } = Astro.props;
-
-const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-const assetDiskPath = path.resolve(process.cwd(), 'public', heroAsset);
-const hasAsset = existsSync(assetDiskPath);
-const assetHref = `${base}/${heroAsset}`;
+import HeroDemo from './HeroDemo.tsx';
 ---
-
-<section class="hero" aria-labelledby="hero-heading">
-  <div class="hero-bg" aria-hidden="true"></div>
+<section class="hero">
   <div class="container hero-inner">
-    <div class="hero-copy">
-      <span class="badge hero-badge">
-        <span class="hero-badge-dot" aria-hidden="true"></span>
-        <span>v{release.version} preview</span>
-      </span>
-      <h1 id="hero-heading">
-        A scratchpad that's always
-        <span class="hero-accent-word">one keypress</span>
-        away.
-      </h1>
-      <p class="hero-tagline">
-        Lightweight. Local-only. No account, no telemetry, no cloud.
-        Hit <kbd>⌘</kbd><kbd>⇧</kbd><kbd>Space</kbd>, write, close.
-      </p>
-      <div class="hero-cta">
-        <DownloadButtons variant="hero" />
-      </div>
-      <ul class="hero-trust" role="list">
-        <li>MIT licensed</li>
-        <li>Local-only</li>
-        <li>No telemetry</li>
-        <li>macOS · Windows · Linux</li>
-      </ul>
+    <p class="eyebrow">
+      <b>writ</b>
+      <span aria-hidden="true">/rɪt/</span>
+      <span class="sep">·</span>
+      <span>v0.1.0</span>
+    </p>
+
+    <h1 class="hero-h1">
+      <span class="editorial">A scratchpad</span>
+      <span class="hero-h1-line2">always one keypress away.</span>
+    </h1>
+
+    <p class="hero-keys" aria-label="Global hotkey">
+      <span><kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>Space</kbd></span>
+      <span class="hero-keys-os">macOS</span>
+      <span class="hero-keys-sep" aria-hidden="true">·</span>
+      <span><kbd>Ctrl</kbd> <kbd>⇧</kbd> <kbd>Space</kbd></span>
+      <span class="hero-keys-os">Windows · Linux</span>
+    </p>
+
+    <div class="hero-cta">
+      <a class="bracket-link is-primary" href="/writ/download/">download for macOS</a>
+      <a class="bracket-link" href="https://github.com/ibrahemid/writ" rel="noopener" target="_blank">github</a>
+      <span class="hero-cta-meta">no account · no telemetry · MIT</span>
     </div>
 
-    <div class="hero-media">
-      <figure class="hero-frame">
-        {hasAsset ? (
-          <img
-            class="hero-img"
-            src={assetHref}
-            alt="Writ editor showing a syntax-highlighted scratch file"
-            width="846"
-            height="646"
-            loading="eager"
-            fetchpriority="high"
-            decoding="sync"
-          />
-        ) : (
-          <HeroDemo client:idle />
-        )}
-        <figcaption class="visually-hidden">Writ editor: scratchpad file with live syntax highlighting.</figcaption>
-      </figure>
-      <div class="hero-marquee" aria-hidden="true">
-        <span class="hmq-item"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>Space</kbd> summon</span>
-        <span class="hmq-sep"></span>
-        <span class="hmq-item"><kbd>⇧</kbd><kbd>⇧</kbd> command palette</span>
-        <span class="hmq-sep"></span>
-        <span class="hmq-item"><kbd>⌘</kbd><kbd>T</kbd> new tab</span>
-        <span class="hmq-sep"></span>
-        <span class="hmq-item"><kbd>⌘</kbd><kbd>S</kbd><kbd>S</kbd> sidebar</span>
-      </div>
+    <div class="hero-demo">
+      <HeroDemo client:visible />
     </div>
   </div>
 </section>
 
 <style>
   .hero {
-    position: relative;
-    padding: clamp(3rem, 6vw, 5rem) 0 clamp(2.5rem, 5vw, 4rem);
-    overflow: hidden;
-  }
-  .hero-bg {
-    position: absolute;
-    inset: -10% -5% auto -5%;
-    height: 140%;
-    background:
-      radial-gradient(40% 50% at 18% 22%, var(--hero-glow-a), transparent 65%),
-      radial-gradient(36% 44% at 82% 64%, var(--hero-glow-b), transparent 60%);
-    filter: blur(10px);
-    z-index: 0;
-    pointer-events: none;
+    padding: var(--space-16) 0 var(--space-12);
   }
   .hero-inner {
-    position: relative;
-    z-index: 1;
-    display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.15fr);
-    gap: clamp(2rem, 4vw, 3.25rem);
-    align-items: center;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
   }
-  .hero-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    margin-bottom: 1.25rem;
-    color: var(--accent);
-    background: var(--accent-soft);
-    border-color: color-mix(in oklab, var(--accent) 30%, transparent);
+  .eyebrow .sep {
+    color: var(--rule);
+    padding: 0 0.15em;
   }
-  .hero-badge-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
-  }
-  h1 {
+  .hero-h1 {
+    margin: var(--space-2) 0 0;
+    font-family: var(--font-mono-display);
+    font-weight: 500;
     font-size: var(--text-display);
     line-height: 1.05;
-    letter-spacing: -0.035em;
-    margin-bottom: 1.1rem;
-  }
-  .hero-accent-word {
-    color: var(--accent);
-    white-space: nowrap;
-  }
-  .hero-tagline {
-    font-size: var(--text-md);
-    max-width: 58ch;
-    color: var(--muted-foreground);
-    margin: 0 0 1.75rem;
-  }
-  .hero-tagline kbd {
-    margin: 0 2px;
-    font-size: 0.78em;
-  }
-  .hero-img {
-    display: block;
-    width: 100%;
-    height: auto;
-    aspect-ratio: 846 / 646;
-  }
-  .hero-cta {
-    margin-bottom: 1.2rem;
-  }
-  .hero-trust {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1.25rem;
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    font-size: 0.85rem;
-    color: var(--muted-foreground);
-  }
-  .hero-trust li {
-    position: relative;
-    padding-left: 1rem;
-  }
-  .hero-trust li::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 50%;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--success);
-    transform: translateY(-50%);
-  }
-  .hero-media {
-    position: relative;
-  }
-  .hero-frame {
-    margin: 0;
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-    background: var(--card);
-    border: 1px solid var(--border);
-    box-shadow: var(--card-shadow-hover);
-  }
-  .hero-marquee {
-    margin-top: 0.9rem;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.5rem 0.9rem;
-    font-size: 0.78rem;
-    color: var(--muted-foreground);
-    border: 1px solid var(--border);
-    background: var(--card);
-    border-radius: var(--radius-full);
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .hero-marquee::-webkit-scrollbar {
-    display: none;
-  }
-  .hmq-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    white-space: nowrap;
-  }
-  .hmq-sep {
-    width: 1px;
-    height: 14px;
-    background: var(--border-strong);
-    flex: 0 0 auto;
-  }
-
-  :global(.hero-demo) {
-    display: flex;
-    flex-direction: column;
-    background: var(--syntax-bg);
-    color: var(--syntax-fg);
-    font-family: var(--font-mono);
-    font-size: 0.88rem;
-    line-height: 1.55;
-  }
-  :global(.hero-demo-chrome) {
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--border);
-    background: color-mix(in oklab, var(--card) 92%, transparent);
-  }
-  :global(.hero-demo-dots) {
-    display: flex;
-    gap: 6px;
-    flex: 0 0 auto;
-  }
-  :global(.hero-demo-dots span) {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--border-strong);
-  }
-  :global(.hero-demo-dots span:first-child) {
-    background: #ef4444;
-  }
-  :global(.hero-demo-dots span:nth-child(2)) {
-    background: #f59e0b;
-  }
-  :global(.hero-demo-dots span:nth-child(3)) {
-    background: #22c55e;
-  }
-  :global(.hero-demo-tabs) {
-    display: flex;
-    gap: 4px;
-    font-family: var(--font-mono);
-    font-size: 0.74rem;
-    overflow: hidden;
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  :global(.hero-demo-tab) {
-    padding: 4px 10px;
-    border-radius: var(--radius-sm);
-    color: var(--muted-foreground);
-    background: transparent;
-    border: 1px solid transparent;
-    white-space: nowrap;
-  }
-  :global(.hero-demo-tab.is-active) {
+    letter-spacing: -0.025em;
+    max-width: 22ch;
     color: var(--foreground);
-    background: var(--muted);
-    border-color: var(--border);
   }
-  :global(.hero-demo-hotkey) {
-    display: inline-flex;
-    gap: 3px;
-    flex: 0 0 auto;
+  .hero-h1 .editorial {
+    color: var(--accent);
+    font-size: 1.08em;
+    margin-right: 0.18em;
   }
-  :global(.hero-demo-hotkey kbd) {
-    font-size: 0.68rem;
-    padding: 0.1em 0.4em;
-  }
-  :global(.hero-demo-code) {
-    margin: 0;
-    padding: 16px 18px;
-    min-height: 220px;
-    aspect-ratio: 16 / 9;
-    overflow: hidden;
-    background: transparent;
-    border: 0;
-    font-size: 0.88rem;
-  }
-  :global(.hero-demo-code code) {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-  }
-  :global(.hdl) {
-    display: grid;
-    grid-template-columns: 28px 1fr;
-    gap: 10px;
-  }
-  :global(.hdl-gutter) {
-    text-align: right;
-    color: var(--syntax-comment);
-    opacity: 0.55;
-    user-select: none;
-  }
-  :global(.hdl-body) {
-    white-space: pre;
-    color: var(--syntax-fg);
-  }
-  :global(.hdl-caret) {
-    display: inline-block;
-    width: 2px;
-    height: 1em;
-    margin-left: 2px;
-    vertical-align: -0.15em;
-    background: var(--syntax-accent);
-    border-radius: 1px;
-  }
-  :global(.tok-keyword) {
-    color: var(--syntax-keyword);
-  }
-  :global(.tok-string) {
-    color: var(--syntax-string);
-  }
-  :global(.tok-comment) {
-    color: var(--syntax-comment);
-    font-style: italic;
-  }
-  :global(.tok-accent) {
-    color: var(--syntax-accent);
-  }
-  :global(.tok-fn) {
-    color: var(--syntax-keyword);
-    font-weight: 500;
-  }
-  :global(.tok-punct) {
-    color: var(--syntax-muted);
-  }
-  :global(.hero-demo-status) {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 8px 14px;
-    font-family: var(--font-mono);
-    font-size: 0.72rem;
-    color: var(--muted-foreground);
-    border-top: 1px solid var(--border);
-    background: color-mix(in oklab, var(--card) 94%, transparent);
-  }
-  :global(.hero-demo-status-right) {
-    margin-left: auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
-  :global(.hero-demo-status-right kbd) {
-    font-size: 0.68rem;
-    padding: 0.1em 0.4em;
-  }
-  :global(.hds-dot) {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--success);
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--success) 25%, transparent);
+  .hero-h1-line2 {
+    display: block;
   }
 
-  @media (max-width: 900px) {
-    .hero-inner {
-      grid-template-columns: 1fr;
-      gap: 2rem;
-    }
-    :global(.hero-demo-code) {
-      min-height: 200px;
-    }
+  .hero-keys {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+    margin: 0;
+    color: var(--muted-foreground);
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-caps);
+  }
+  .hero-keys kbd { font-size: 0.85em; }
+  .hero-keys-os {
+    color: var(--ink-faint);
+    text-transform: lowercase;
+    letter-spacing: 0;
+    font-size: 0.95em;
+  }
+  .hero-keys-sep { color: var(--rule); }
+
+  .hero-cta {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-4) var(--space-6);
+    margin-top: var(--space-2);
+  }
+  .hero-cta-meta {
+    color: var(--ink-faint);
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-caps);
+  }
+
+  .hero-demo {
+    margin-top: var(--space-8);
+  }
+
+  @media (max-width: 640px) {
+    .hero-h1 { font-size: 2.4rem; }
+    .hero-h1 .editorial { font-size: 1.05em; }
   }
 </style>
