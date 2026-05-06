@@ -78,6 +78,41 @@ const builds = [
       ))}
 
       <hr class="rule-thick" />
+      <section class="firstrun">
+        <h2>First-time install</h2>
+        <div class="firstrun-grid">
+          <article>
+            <h3>macOS</h3>
+            <p>Writ is not notarized through Apple's paid Developer Program. The first time you open it, macOS will block the app. To allow it:</p>
+            <ol>
+              <li>Open the <code>.dmg</code> and drag Writ to Applications.</li>
+              <li>Right-click Writ in Applications, choose <em>Open</em>.</li>
+              <li>Click <em>Open</em> in the dialog.</li>
+            </ol>
+            <p class="muted">The warning only appears once. Auto-update and every later launch behave normally.</p>
+          </article>
+          <article>
+            <h3>Windows</h3>
+            <p>Windows SmartScreen may show <em>Windows protected your PC</em> on first run of the <code>.msi</code>. To install:</p>
+            <ol>
+              <li>Click <em>More info</em>.</li>
+              <li>Click <em>Run anyway</em>.</li>
+            </ol>
+            <p class="muted">SmartScreen reputation builds with downloads, so the warning eases over time.</p>
+          </article>
+          <article>
+            <h3>Linux</h3>
+            <p>No warnings. Two paths:</p>
+            <ol>
+              <li><code>sudo dpkg -i Writ_&lt;version&gt;_amd64.deb</code> for system-wide install.</li>
+              <li><code>chmod +x</code> the AppImage and run it directly for portable use.</li>
+            </ol>
+            <p class="muted">Or use the one-liner above for an automatic AppImage install into <code>~/.local/bin</code>.</p>
+          </article>
+        </div>
+      </section>
+
+      <hr class="rule-thick" />
       <section class="verify">
         <h2>Verify a download</h2>
         <pre class="verify-pre"><code>{`# Compare the SHA256 against SHA256SUMS.txt published with the release.
@@ -150,6 +185,28 @@ shasum -a 256 -c SHA256SUMS.txt`}</code></pre>
     .bld-file-name { font-weight: 500; }
     .bld-file-meta { display: inline-flex; gap: var(--space-2); align-items: center; color: var(--ink-faint); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); }
 
+    .firstrun { padding-top: var(--space-10); display: flex; flex-direction: column; gap: var(--space-6); }
+    .firstrun h2 { margin: 0; font-size: var(--text-lg); letter-spacing: -0.01em; }
+    .firstrun-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--space-8);
+    }
+    .firstrun article { display: flex; flex-direction: column; gap: var(--space-3); }
+    .firstrun h3 { margin: 0; font-size: var(--text-base); letter-spacing: -0.01em; }
+    .firstrun p { margin: 0; color: var(--foreground); }
+    .firstrun ol { margin: 0; padding-left: var(--space-5); display: flex; flex-direction: column; gap: var(--space-1); color: var(--foreground); }
+    .firstrun code {
+      font-family: var(--font-mono);
+      font-size: 0.9em;
+      padding: 0.05em 0.35em;
+      background: var(--accent);
+      border-radius: 3px;
+    }
+    .firstrun .muted { color: var(--muted-foreground); font-size: var(--text-sm); }
+    @media (max-width: 720px) {
+      .firstrun-grid { grid-template-columns: 1fr; }
+    }
     .verify { padding-top: var(--space-10); display: flex; flex-direction: column; gap: var(--space-4); }
     .verify h2 { margin: 0; font-size: var(--text-lg); letter-spacing: -0.01em; }
     .verify-pre {
