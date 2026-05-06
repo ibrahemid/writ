@@ -1,7 +1,6 @@
 declare module '*/release.json' {
   interface ReleaseAssets {
-    'mac-arm64': string;
-    'mac-x64': string;
+    'mac-universal': string;
     'win-x64': string;
     'linux-appimage': string;
     'linux-deb': string;

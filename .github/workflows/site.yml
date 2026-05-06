@@ -62,8 +62,7 @@ jobs:
           VERSION="${TAG#v}"
           PUBLISHED_AT="$(echo "$RELEASE_JSON" | jq -r '.published_at // ""')"
 
-          MAC_ARM64="$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | test("aarch64.*\\.dmg$|arm64.*\\.dmg$"))] | .[0].browser_download_url // ""')"
-          MAC_X64="$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | test("x64.*\\.dmg$|x86_64.*\\.dmg$"))] | .[0].browser_download_url // ""')"
+          MAC_UNIVERSAL="$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | test("universal\\.dmg$"))] | .[0].browser_download_url // ""')"
           WIN_X64="$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | test("\\.msi$"))] | .[0].browser_download_url // ""')"
           LINUX_APPIMAGE="$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | test("\\.AppImage$"))] | .[0].browser_download_url // ""')"
           LINUX_DEB="$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | test("\\.deb$"))] | .[0].browser_download_url // ""')"
@@ -72,8 +71,7 @@ jobs:
             --arg version "$VERSION" \
             --arg tag "$TAG" \
             --arg publishedAt "$PUBLISHED_AT" \
-            --arg macArm "$MAC_ARM64" \
-            --arg macX "$MAC_X64" \
+            --arg mac "$MAC_UNIVERSAL" \
             --arg winX "$WIN_X64" \
             --arg appImage "$LINUX_APPIMAGE" \
             --arg deb "$LINUX_DEB" \
@@ -82,8 +80,7 @@ jobs:
               tag: $tag,
               publishedAt: $publishedAt,
               assets: {
-                "mac-arm64": (if $macArm == "" then "#" else $macArm end),
-                "mac-x64": (if $macX == "" then "#" else $macX end),
+                "mac-universal": (if $mac == "" then "#" else $mac end),
                 "win-x64": (if $winX == "" then "#" else $winX end),
                 "linux-appimage": (if $appImage == "" then "#" else $appImage end),
                 "linux-deb": (if $deb == "" then "#" else $deb end)
