@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rewrite packaging/homebrew/Casks/writ.rb with the release version and DMG SHAs."""
+"""Rewrite packaging/homebrew/Casks/writ.rb with the release version and universal DMG SHA."""
 
 from __future__ import annotations
 
@@ -21,8 +21,7 @@ def get_env(name: str) -> str:
 
 def main() -> None:
     version = get_env("VERSION")
-    sha_arm64 = get_env("SHA_ARM64")
-    sha_intel = get_env("SHA_INTEL")
+    sha_universal = get_env("SHA_UNIVERSAL")
 
     if not CASK_PATH.is_file():
         print(f"Cask file missing: {CASK_PATH}", file=sys.stderr)
@@ -40,20 +39,15 @@ def main() -> None:
         print("Failed to rewrite version field", file=sys.stderr)
         sys.exit(1)
 
-    text, n_arm = re.subn(
-        r"(on_arm do\s+sha256 )\"[^\"]+\"",
-        lambda m: f'{m.group(1)}"{sha_arm64}"',
+    text, n_sha = re.subn(
+        r'(^\s*sha256 )"[^"]+"',
+        lambda m: f'{m.group(1)}"{sha_universal}"',
         text,
         count=1,
+        flags=re.MULTILINE,
     )
-    text, n_intel = re.subn(
-        r"(on_intel do\s+sha256 )\"[^\"]+\"",
-        lambda m: f'{m.group(1)}"{sha_intel}"',
-        text,
-        count=1,
-    )
-    if n_arm != 1 or n_intel != 1:
-        print("Failed to rewrite SHA fields (arm/intel)", file=sys.stderr)
+    if n_sha != 1:
+        print("Failed to rewrite SHA field", file=sys.stderr)
         sys.exit(1)
 
     CASK_PATH.write_text(text)

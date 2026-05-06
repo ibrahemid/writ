@@ -57,8 +57,7 @@ jobs:
           cd artifacts
           gh release download "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --pattern "Writ_${VERSION}_aarch64.dmg" \
-            --pattern "Writ_${VERSION}_x64.dmg" \
+            --pattern "Writ_${VERSION}_universal.dmg" \
             --pattern "Writ_${VERSION}_x64_en-US.msi" \
             --pattern "writ_${VERSION}_amd64.AppImage" \
             --pattern "writ_${VERSION}_amd64.deb" \
@@ -81,14 +80,12 @@ jobs:
             fi
             sha256sum "$file" | awk '{print $1}'
           }
-          SHA_ARM64=$(compute_sha "Writ_${VERSION}_aarch64.dmg")
-          SHA_INTEL=$(compute_sha "Writ_${VERSION}_x64.dmg")
+          SHA_UNIVERSAL=$(compute_sha "Writ_${VERSION}_universal.dmg")
           SHA_MSI=$(compute_sha "Writ_${VERSION}_x64_en-US.msi")
           SHA_APPIMAGE=$(compute_sha "writ_${VERSION}_amd64.AppImage")
           SHA_DEB=$(compute_sha "writ_${VERSION}_amd64.deb")
           {
-            echo "sha_dmg_arm64=${SHA_ARM64}"
-            echo "sha_dmg_intel=${SHA_INTEL}"
+            echo "sha_dmg_universal=${SHA_UNIVERSAL}"
             echo "sha_msi=${SHA_MSI}"
             echo "sha_appimage=${SHA_APPIMAGE}"
             echo "sha_deb=${SHA_DEB}"
@@ -97,8 +94,7 @@ jobs:
       - name: Bump Homebrew cask
         env:
           VERSION: ${{ steps.tag.outputs.version }}
-          SHA_ARM64: ${{ steps.checksums.outputs.sha_dmg_arm64 }}
-          SHA_INTEL: ${{ steps.checksums.outputs.sha_dmg_intel }}
+          SHA_UNIVERSAL: ${{ steps.checksums.outputs.sha_dmg_universal }}
         run: |
           set -euo pipefail
           python3 scripts/packaging_bump_homebrew.py
@@ -134,7 +130,7 @@ jobs:
             Automated bump triggered by release `${{ steps.tag.outputs.tag }}`.
 
             Updated files:
-            - `packaging/homebrew/Casks/writ.rb` (version + SHA256 for both DMGs)
+            - `packaging/homebrew/Casks/writ.rb` (version + SHA256 for the universal DMG)
             - `packaging/winget/manifests/i/ibrahemid/Writ/${{ steps.tag.outputs.version }}/` (copied from previous version, rewritten)
             - `packaging/aur/writ-bin/PKGBUILD` + regenerated `.SRCINFO`
 
