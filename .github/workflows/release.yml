@@ -286,6 +286,22 @@ jobs:
           args: ${{ matrix.tauri_args }} --bundles ${{ matrix.bundles }}
           projectPath: src-tauri
 
+      - name: Normalize Linux bundle filenames to lowercase prefix
+        if: matrix.os == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd src-tauri/target
+          find . -path '*/release/bundle/appimage/Writ_*.AppImage*' -o -path '*/release/bundle/deb/Writ_*.deb' | while read -r f; do
+            d="$(dirname "$f")"
+            b="$(basename "$f")"
+            lc="${b/#Writ_/writ_}"
+            if [ "$b" != "$lc" ]; then
+              mv "$d/$b" "$d/$lc"
+              echo "renamed: $d/$b -> $d/$lc"
+            fi
+          done
+
   finalize:
     name: Finalize release (checksums + updater manifest)
     needs: [create-release, build]
