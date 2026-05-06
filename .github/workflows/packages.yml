@@ -59,8 +59,8 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --pattern "Writ_${VERSION}_universal.dmg" \
             --pattern "Writ_${VERSION}_x64_en-US.msi" \
-            --pattern "writ_${VERSION}_amd64.AppImage" \
-            --pattern "writ_${VERSION}_amd64.deb" \
+            --pattern "Writ_${VERSION}_amd64.AppImage" \
+            --pattern "Writ_${VERSION}_amd64.deb" \
             --pattern "SHA256SUMS.txt" \
             --pattern "latest.json" \
             --clobber
@@ -82,8 +82,8 @@ jobs:
           }
           SHA_UNIVERSAL=$(compute_sha "Writ_${VERSION}_universal.dmg")
           SHA_MSI=$(compute_sha "Writ_${VERSION}_x64_en-US.msi")
-          SHA_APPIMAGE=$(compute_sha "writ_${VERSION}_amd64.AppImage")
-          SHA_DEB=$(compute_sha "writ_${VERSION}_amd64.deb")
+          SHA_APPIMAGE=$(compute_sha "Writ_${VERSION}_amd64.AppImage")
+          SHA_DEB=$(compute_sha "Writ_${VERSION}_amd64.deb")
           {
             echo "sha_dmg_universal=${SHA_UNIVERSAL}"
             echo "sha_msi=${SHA_MSI}"
