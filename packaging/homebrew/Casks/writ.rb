@@ -1,17 +1,9 @@
 cask "writ" do
   version "0.1.0"
+  sha256 "__SHA256_UNIVERSAL__"
 
-  on_arm do
-    sha256 "__SHA256_ARM64__"
-    url "https://github.com/ibrahemid/writ/releases/download/v#{version}/Writ_#{version}_aarch64.dmg",
-        verified: "github.com/ibrahemid/writ/"
-  end
-
-  on_intel do
-    sha256 "__SHA256_INTEL__"
-    url "https://github.com/ibrahemid/writ/releases/download/v#{version}/Writ_#{version}_x64.dmg",
-        verified: "github.com/ibrahemid/writ/"
-  end
+  url "https://github.com/ibrahemid/writ/releases/download/v#{version}/Writ_#{version}_universal.dmg",
+      verified: "github.com/ibrahemid/writ/"
 
   name "Writ"
   desc "Lightweight, always-ready text editor for developers"
@@ -23,7 +15,7 @@ cask "writ" do
   end
 
   auto_updates true
-  depends_on macos: ">= :big_sur"
+  depends_on macos: ">= :monterey"
 
   app "Writ.app"
 
