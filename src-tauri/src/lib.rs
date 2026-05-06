@@ -12,11 +12,21 @@ use tauri::Manager;
 use tauri_plugin_updater::UpdaterExt;
 use tracing::info;
 
-async fn check_for_update(handle: tauri::AppHandle, _user_initiated: bool) {
+async fn check_for_update(handle: tauri::AppHandle, user_initiated: bool) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+
     let updater = match handle.updater() {
         Ok(u) => u,
         Err(e) => {
             tracing::warn!(error = %e, "updater unavailable");
+            if user_initiated {
+                handle
+                    .dialog()
+                    .message("Update check failed.")
+                    .kind(MessageDialogKind::Warning)
+                    .title("Writ")
+                    .blocking_show();
+            }
             return;
         }
     };
@@ -28,13 +38,40 @@ async fn check_for_update(handle: tauri::AppHandle, _user_initiated: bool) {
                 .await
             {
                 tracing::warn!(error = %e, "update install failed");
+                if user_initiated {
+                    handle
+                        .dialog()
+                        .message(format!("Update install failed: {e}"))
+                        .kind(MessageDialogKind::Error)
+                        .title("Writ")
+                        .blocking_show();
+                }
                 return;
             }
             tracing::info!("update installed; relaunching");
             handle.restart();
         }
-        Ok(None) => tracing::debug!("no update available"),
-        Err(e) => tracing::debug!(error = %e, "update check failed"),
+        Ok(None) => {
+            tracing::debug!("no update available");
+            if user_initiated {
+                handle
+                    .dialog()
+                    .message("Writ is up to date.")
+                    .title("Writ")
+                    .blocking_show();
+            }
+        }
+        Err(e) => {
+            tracing::debug!(error = %e, "update check failed");
+            if user_initiated {
+                handle
+                    .dialog()
+                    .message(format!("Could not check for updates: {e}"))
+                    .kind(MessageDialogKind::Warning)
+                    .title("Writ")
+                    .blocking_show();
+            }
+        }
     }
 }
 
