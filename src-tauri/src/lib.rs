@@ -12,7 +12,7 @@ use tauri::Manager;
 use tauri_plugin_updater::UpdaterExt;
 use tracing::info;
 
-async fn check_for_update(handle: tauri::AppHandle) {
+async fn check_for_update(handle: tauri::AppHandle, _user_initiated: bool) {
     let updater = match handle.updater() {
         Ok(u) => u,
         Err(e) => {
@@ -41,6 +41,19 @@ async fn check_for_update(handle: tauri::AppHandle) {
 fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 
+    let check_updates =
+        MenuItemBuilder::with_id("app.check_updates", "Check for Updates…").build(app)?;
+
+    let app_menu = SubmenuBuilder::new(app, "Writ")
+        .items(&[
+            &PredefinedMenuItem::about(app, Some("About Writ"), None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &check_updates,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::quit(app, Some("Quit Writ"))?,
+        ])
+        .build()?;
+
     let open_file = MenuItemBuilder::with_id("file.open", "Open File…")
         .accelerator("CmdOrCtrl+O")
         .build(app)?;
@@ -57,8 +70,6 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             &new_tab,
             &PredefinedMenuItem::separator(app)?,
             &close_tab,
-            &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::quit(app, Some("Quit Writ"))?,
         ])
         .build()?;
 
@@ -75,7 +86,7 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let window_menu = SubmenuBuilder::new(app, "Window").minimize().build()?;
 
     let menu = MenuBuilder::new(app)
-        .items(&[&file_menu, &edit_menu, &window_menu])
+        .items(&[&app_menu, &file_menu, &edit_menu, &window_menu])
         .build()?;
 
     app.set_menu(menu)?;
@@ -83,6 +94,12 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.on_menu_event(move |app_handle, event| {
         let id = event.id().0.as_str();
         match id {
+            "app.check_updates" => {
+                let handle = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    check_for_update(handle, true).await;
+                });
+            }
             "file.open" => {
                 let _ = emit_event(
                     app_handle,
@@ -176,7 +193,7 @@ pub fn run() {
                 tracing::warn!(error = %e, "failed to start file watcher");
             }
 
-            tauri::async_runtime::spawn(check_for_update(handle));
+            tauri::async_runtime::spawn(check_for_update(handle, false));
 
             info!("writ ready");
             Ok(())
