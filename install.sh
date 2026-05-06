@@ -38,7 +38,7 @@ if [ -z "${TAG}" ]; then
 fi
 VERSION="${TAG#v}"
 
-ASSET="writ_${VERSION}_amd64.AppImage"
+ASSET="Writ_${VERSION}_amd64.AppImage"
 URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
 
 TMP="$(mktemp -d 2>/dev/null || mktemp -d -t writ)"
