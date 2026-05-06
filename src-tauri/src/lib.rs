@@ -9,7 +9,34 @@ use events::{emit_event, WritFrontendEvent};
 use state::AppState;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use tauri::Manager;
+use tauri_plugin_updater::UpdaterExt;
 use tracing::info;
+
+async fn check_for_update(handle: tauri::AppHandle) {
+    let updater = match handle.updater() {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::warn!(error = %e, "updater unavailable");
+            return;
+        }
+    };
+    match updater.check().await {
+        Ok(Some(update)) => {
+            tracing::info!(version = %update.version, "update available");
+            if let Err(e) = update
+                .download_and_install(|_chunk, _total| {}, || {})
+                .await
+            {
+                tracing::warn!(error = %e, "update install failed");
+                return;
+            }
+            tracing::info!("update installed; relaunching");
+            handle.restart();
+        }
+        Ok(None) => tracing::debug!("no update available"),
+        Err(e) => tracing::debug!(error = %e, "update check failed"),
+    }
+}
 
 fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
@@ -139,14 +166,17 @@ pub fn run() {
                 tracing::warn!(error = %e, "failed to register global hotkey");
             }
 
+            let watcher_handle = handle.clone();
             if let Err(e) = watcher::handler::start_file_watcher(
-                handle,
+                watcher_handle,
                 config_path,
                 buffers_dir,
                 watcher_ignore,
             ) {
                 tracing::warn!(error = %e, "failed to start file watcher");
             }
+
+            tauri::async_runtime::spawn(check_for_update(handle));
 
             info!("writ ready");
             Ok(())
