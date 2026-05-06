@@ -3,8 +3,7 @@
   "tag": "v0.1.0",
   "publishedAt": "",
   "assets": {
-    "mac-arm64": "#",
-    "mac-x64": "#",
+    "mac-universal": "#",
     "win-x64": "#",
     "linux-appimage": "#",
     "linux-deb": "#"
