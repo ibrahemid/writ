@@ -79,6 +79,22 @@ const builds = [
 
       <hr class="rule-thick" />
       <section class="firstrun">
+        <h2>Updating Writ</h2>
+        <p>
+          Writ checks for updates on launch. When one is available, the app downloads
+          and installs it in place, then relaunches itself. No drag-and-drop, no warnings.
+        </p>
+        <p class="muted">
+          Manual reinstall (downloading a new <code>.dmg</code> and dragging it over)
+          will fail with <em>"the item is in use"</em> because Writ is still running.
+          To force a manual install, quit Writ first: <code>Cmd+Q</code> from the menu
+          bar on macOS, right-click the dock icon and choose <em>Quit</em>, or run
+          <code>pkill -f Writ</code> from a terminal.
+        </p>
+      </section>
+
+      <hr class="rule-thick" />
+      <section class="firstrun">
         <h2>First-time install</h2>
         <div class="firstrun-grid">
           <article>
