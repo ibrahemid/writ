@@ -12,7 +12,7 @@ const builds = [
     artefacts: [
       { label: 'Writ_0.1.0_universal.dmg', size: '—', href: releaseAsset('Writ_0.1.0_universal.dmg') },
     ],
-    one: 'brew install ibrahemid/writ/writ',
+    one: 'brew install --cask ibrahemid/writ/writ',
   },
   {
     os: 'win',
@@ -21,7 +21,7 @@ const builds = [
     artefacts: [
       { label: 'Writ_0.1.0_x64_en-US.msi', size: '—', href: releaseAsset('Writ_0.1.0_x64_en-US.msi') },
     ],
-    one: 'winget install ibrahemid.writ',
+    one: 'winget install --id ibrahemid.Writ -e',
   },
   {
     os: 'linux',

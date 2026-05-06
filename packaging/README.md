@@ -6,10 +6,10 @@ This directory holds everything the Writ project needs to publish releases acros
 
 | Platform | Install command |
 |---|---|
-| macOS | `brew tap ibrahemid/writ && brew install --cask writ` |
-| Windows | `winget install ibrahemid.Writ` |
+| macOS | `brew install --cask ibrahemid/writ/writ` |
+| Windows | `winget install --id ibrahemid.Writ -e` |
 | Arch Linux | `yay -S writ-bin` (or any AUR helper) |
-| Any Linux | Download the AppImage from GitHub Releases |
+| Any Linux | `curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh \| sh` |
 
 ## Layout
 
