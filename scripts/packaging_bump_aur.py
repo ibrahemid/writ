@@ -78,7 +78,7 @@ def write_srcinfo(version: str, sha_appimage: str) -> None:
         "\toptions = !strip\n"
         f"\tsource = writ-{version}.AppImage::"
         f"https://github.com/ibrahemid/writ/releases/download/v{version}/"
-        f"writ_{version}_amd64.AppImage\n"
+        f"Writ_{version}_amd64.AppImage\n"
         f"\tsource = LICENSE-{version}::"
         f"https://github.com/ibrahemid/writ/raw/v{version}/LICENSE\n"
         f"\tnoextract = writ-{version}.AppImage\n"
