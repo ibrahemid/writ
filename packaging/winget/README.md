@@ -3,8 +3,14 @@
 This directory holds the winget manifests for Writ. End users install Writ on Windows via:
 
 ```powershell
-winget install ibrahemid.Writ
+winget install --id ibrahemid.Writ -e
 ```
+
+## Launch state
+
+The first submission of `ibrahemid.Writ` to `microsoft/winget-pkgs` is a **manual PR**, not automated. Until the upstream PR is merged and the public winget source replicates (typically 1-3 days after merge), `winget install --id ibrahemid.Writ -e` returns "No package found matching input criteria." Until then, point Windows users at the direct `Writ_<version>_x64_en-US.msi` download from GitHub Releases.
+
+The `microsoft/winget-pkgs` validation bot also requires the real `ProductCode` GUID extracted from the MSI; the placeholder zero GUID in this directory will fail upstream validation. Extract the GUID manually (or extend `.github/workflows/packages.yml` to pull it via `lessmsi` / `msiexec`) before opening the PR.
 
 ## Layout
 
