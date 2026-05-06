@@ -5,6 +5,17 @@ REPO="ibrahemid/writ"
 INSTALL_DIR="${HOME}/.local/bin"
 BIN_NAME="writ"
 
+need() {
+  command -v "$1" >/dev/null 2>&1 || { echo "writ install: missing required tool '$1'." >&2; exit 1; }
+}
+need uname
+
+OS="$(uname -s)"
+if [ "${OS}" != "Linux" ]; then
+  echo "writ install: this script is for Linux. On macOS use 'brew install --cask ibrahemid/writ/writ', on Windows use 'winget install --id ibrahemid.Writ -e'." >&2
+  exit 1
+fi
+
 ARCH="$(uname -m)"
 case "${ARCH}" in
   x86_64|amd64) ;;
@@ -15,17 +26,7 @@ case "${ARCH}" in
     ;;
 esac
 
-OS="$(uname -s)"
-if [ "${OS}" != "Linux" ]; then
-  echo "writ install: this script is for Linux. On macOS use 'brew install ibrahemid/writ/writ', on Windows use 'winget install ibrahemid.writ'." >&2
-  exit 1
-fi
-
-need() {
-  command -v "$1" >/dev/null 2>&1 || { echo "writ install: missing required tool '$1'." >&2; exit 1; }
-}
 need curl
-need uname
 need install
 
 LATEST_URL="https://api.github.com/repos/${REPO}/releases/latest"
@@ -37,7 +38,7 @@ if [ -z "${TAG}" ]; then
 fi
 VERSION="${TAG#v}"
 
-ASSET="writ_${VERSION}_amd64.AppImage"
+ASSET="Writ_${VERSION}_amd64.AppImage"
 URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
 
 TMP="$(mktemp -d 2>/dev/null || mktemp -d -t writ)"

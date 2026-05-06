@@ -49,8 +49,8 @@ The post-release workflow expects these artifact names on GitHub Releases. They 
 | macOS Apple Silicon DMG | `Writ_<version>_aarch64.dmg` |
 | macOS Intel DMG | `Writ_<version>_x64.dmg` |
 | Windows x64 MSI | `Writ_<version>_x64_en-US.msi` |
-| Linux AppImage | `writ_<version>_amd64.AppImage` |
-| Linux deb | `writ_<version>_amd64.deb` |
+| Linux AppImage | `Writ_<version>_amd64.AppImage` |
+| Linux deb | `Writ_<version>_amd64.deb` |
 | Checksums | `SHA256SUMS.txt` |
 | Tauri updater manifest | `latest.json` |
 
