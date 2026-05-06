@@ -230,7 +230,14 @@ pub fn run() {
                 tracing::warn!(error = %e, "failed to start file watcher");
             }
 
-            tauri::async_runtime::spawn(check_for_update(handle, false));
+            tauri::async_runtime::spawn(async move {
+                tauri::async_runtime::spawn_blocking(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                })
+                .await
+                .ok();
+                check_for_update(handle, false).await;
+            });
 
             info!("writ ready");
             Ok(())
