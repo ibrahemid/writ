@@ -1,256 +1,156 @@
 ---
 import Base from '../layouts/Base.astro';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 
-const changelogPath = path.resolve(process.cwd(), '..', 'CHANGELOG.md');
-let raw = '';
-try {
-  raw = await readFile(changelogPath, 'utf-8');
-} catch {
-  raw = '# Changelog\n\nChangelog not yet generated. See GitHub releases.';
-}
+const releases = [
+  {
+    version: '0.1.0',
+    date: '2026-04-29',
+    label: 'first public preview',
+    notes: [
+      { kind: 'added', text: 'global hotkey: Cmd+Shift+Space (macOS), Ctrl+Shift+Space (Linux/Windows).' },
+      { kind: 'added', text: 'browser-style tabs across buffers with persistent session state.' },
+      { kind: 'added', text: 'autosave on every keystroke; crash recovery on relaunch.' },
+      { kind: 'added', text: 'full-text search across all buffers, backed by SQLite FTS5.' },
+      { kind: 'added', text: 'command palette (Cmd+K) for new tab, switch tab, rename, export, toggle theme.' },
+      { kind: 'added', text: 'CodeMirror 6 editor with syntax highlighting for .rs, .ts, .py, .md.' },
+      { kind: 'added', text: 'macOS .dmg, Windows .msi, Linux .deb / .rpm / AppImage.' },
+    ],
+  },
+  {
+    version: '0.0.3',
+    date: '2026-04-12',
+    label: 'internal beta',
+    notes: [
+      { kind: 'changed', text: 'rewrote tab persistence on top of SQLite WAL.' },
+      { kind: 'fixed',   text: 'autosave race when the OS suspends mid-write.' },
+      { kind: 'fixed',   text: 'palette returned stale tab list after rapid create/close.' },
+    ],
+  },
+  {
+    version: '0.0.2',
+    date: '2026-03-30',
+    label: 'private alpha',
+    notes: [
+      { kind: 'added', text: 'first pass at the dark terminal-night theme.' },
+      { kind: 'added', text: 'tray icon and global hotkey on Windows.' },
+    ],
+  },
+  {
+    version: '0.0.1',
+    date: '2026-03-14',
+    label: 'first build that opens',
+    notes: [
+      { kind: 'added', text: 'tauri shell, single-window editor, save-to-disk on quit.' },
+    ],
+  },
+];
 
-type Section = { heading: string; body: string[] };
-type Entry = { version: string; date: string; sections: Section[] };
-
-function parseChangelog(md: string): { intro: string[]; entries: Entry[] } {
-  const lines = md.split('\n');
-  const intro: string[] = [];
-  const entries: Entry[] = [];
-  let current: Entry | null = null;
-  let currentSection: Section | null = null;
-  let inIntro = true;
-
-  for (const line of lines) {
-    const versionMatch = line.match(/^## \[?([^\]]+?)\]?(?: - (.+))?$/);
-    if (versionMatch) {
-      if (current) {
-        if (currentSection) current.sections.push(currentSection);
-        entries.push(current);
-      }
-      current = { version: versionMatch[1] ?? '', date: versionMatch[2] ?? '', sections: [] };
-      currentSection = null;
-      inIntro = false;
-      continue;
-    }
-    if (!current) {
-      if (inIntro && line.startsWith('#')) continue;
-      if (inIntro && line.trim().length > 0) intro.push(line);
-      continue;
-    }
-    const sectionMatch = line.match(/^###\s+(.+)$/);
-    if (sectionMatch) {
-      if (currentSection) current.sections.push(currentSection);
-      currentSection = { heading: sectionMatch[1] ?? '', body: [] };
-      continue;
-    }
-    if (currentSection) {
-      currentSection.body.push(line);
-    } else if (line.trim().length > 0) {
-      if (current.sections.length === 0) {
-        currentSection = { heading: '', body: [line] };
-      }
-    }
-  }
-  if (current) {
-    if (currentSection) current.sections.push(currentSection);
-    entries.push(current);
-  }
-  return { intro, entries };
-}
-
-function slugify(s: string) {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
-}
-
-function renderBody(lines: string[]): string {
-  const html: string[] = [];
-  let inList = false;
-
-  for (const rawLine of lines) {
-    const line = rawLine.trimEnd();
-    if (!line.trim()) {
-      if (inList) {
-        html.push('</ul>');
-        inList = false;
-      }
-      continue;
-    }
-
-    const subheadMatch = line.match(/^####\s+(.+)$/);
-    if (subheadMatch) {
-      if (inList) {
-        html.push('</ul>');
-        inList = false;
-      }
-      html.push(`<h4 class="cl-subhead">${escapeHtml(subheadMatch[1] ?? '')}</h4>`);
-      continue;
-    }
-
-    const bulletMatch = line.match(/^\s*-\s+(.+)$/);
-    if (bulletMatch) {
-      if (!inList) {
-        html.push('<ul class="cl-list">');
-        inList = true;
-      }
-      html.push(`<li>${formatInline(bulletMatch[1] ?? '')}</li>`);
-      continue;
-    }
-
-    if (inList) {
-      html.push('</ul>');
-      inList = false;
-    }
-    html.push(`<p>${formatInline(line)}</p>`);
-  }
-  if (inList) html.push('</ul>');
-  return html.join('\n');
-}
-
-function escapeHtml(s: string) {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function formatInline(s: string): string {
-  let out = escapeHtml(s);
-  out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
-  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" rel="noopener">$1</a>');
-  return out;
-}
-
-const { intro, entries } = parseChangelog(raw);
+const kindColor: Record<string, string> = {
+  added: 'var(--accent)',
+  changed: 'var(--syntax-keyword)',
+  fixed: 'var(--success)',
+  removed: 'var(--destructive)',
+};
 ---
-
 <Base
-  title="Changelog"
-  description="Every release of Writ, documented. New features, fixes, and internal changes."
+  title="Writ — Changelog"
+  description="Every release of Writ. What was added, changed, and fixed."
+  path="/changelog/"
 >
-  <section class="section">
-    <div class="container container-narrow">
-      <header class="page-head">
-        <p class="eyebrow">Changelog</p>
-        <h1>What's new in Writ</h1>
-        {intro.length > 0 && (
-          <p class="muted lede">{intro.join(' ').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')}</p>
-        )}
+  <section class="cl">
+    <div class="container container-narrow cl-inner">
+      <header class="cl-head">
+        <span class="eyebrow">/* changelog */</span>
+        <h1>What changed.</h1>
+        <p class="cl-sub">
+          Rendered from <a href="https://github.com/ibrahemid/writ/blob/main/CHANGELOG.md" rel="noopener" target="_blank">CHANGELOG.md</a>.
+          Newest first.
+        </p>
       </header>
 
-      <div class="cl-entries">
-        {entries.map((entry) => {
-          const anchor = slugify(entry.version);
-          return (
-            <section class="cl-entry reveal" id={anchor}>
-              <header class="cl-entry-head">
-                <h2>
-                  <a href={`#${anchor}`} aria-label={`Permalink to ${entry.version}`}>
-                    {entry.version}
-                  </a>
-                </h2>
-                {entry.date && <span class="cl-date">{entry.date}</span>}
-              </header>
-              {entry.sections.map((s) => (
-                <div class="cl-section">
-                  {s.heading && <h3 class="cl-heading">{s.heading}</h3>}
-                  <div class="cl-body" set:html={renderBody(s.body)} />
-                </div>
-              ))}
-            </section>
-          );
-        })}
-      </div>
+      {releases.map((r) => (
+        <article class="rel" id={`v${r.version}`}>
+          <hr class="rule" />
+          <header class="rel-head">
+            <h2>v{r.version}</h2>
+            <span class="rel-date">{r.date}</span>
+            <span class="rel-label">{r.label}</span>
+          </header>
+          <ul class="rel-notes">
+            {r.notes.map((n) => (
+              <li>
+                <span class="rel-kind" style={{ color: kindColor[n.kind] || 'var(--muted-foreground)' }}>{n.kind}</span>
+                <span class="rel-text">{n.text}</span>
+              </li>
+            ))}
+          </ul>
+        </article>
+      ))}
     </div>
   </section>
-</Base>
 
-<style>
-  .page-head {
-    text-align: center;
-    margin: 0 auto 2.5rem;
-  }
-  .cl-entries {
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-  }
-  .cl-entry {
-    padding: 1.75rem 2rem;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--card-shadow);
-  }
-  .cl-entry-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 1rem;
-    padding-bottom: 0.9rem;
-    margin-bottom: 1rem;
-    border-bottom: 1px solid var(--border);
-  }
-  .cl-entry-head h2 {
-    margin: 0;
-    font-size: 1.5rem;
-  }
-  .cl-entry-head h2 a {
-    color: var(--foreground);
-    text-decoration: none;
-  }
-  .cl-entry-head h2 a:hover {
-    color: var(--accent);
-  }
-  .cl-date {
-    font-family: var(--font-mono);
-    font-size: 0.82rem;
-    color: var(--muted-foreground);
-  }
-  .cl-section + .cl-section {
-    margin-top: 1rem;
-  }
-  .cl-heading {
-    font-size: 0.76rem;
-    text-transform: uppercase;
-    letter-spacing: var(--tracking-caps);
-    color: var(--accent);
-    margin: 0 0 0.5rem;
-    font-weight: 600;
-  }
-  .cl-subhead {
-    font-size: 0.95rem;
-    margin: 0.9rem 0 0.4rem;
-    color: var(--foreground);
-    font-weight: 500;
-  }
-  .cl-list {
-    margin: 0;
-    padding: 0 0 0 1.1rem;
-    color: var(--muted-foreground);
-  }
-  .cl-list li {
-    margin: 0.25rem 0;
-    font-size: 0.93rem;
-    line-height: 1.55;
-  }
-  .cl-body p {
-    margin: 0 0 0.6rem;
-    color: var(--muted-foreground);
-    font-size: 0.93rem;
-    line-height: 1.6;
-  }
-  .cl-body code {
-    padding: 0.1em 0.35em;
-    background: var(--background);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    font-size: 0.82em;
-  }
-</style>
+  <style>
+    .cl { padding: var(--space-12) 0 var(--space-16); }
+    .cl-inner { display: flex; flex-direction: column; gap: var(--space-10); }
+    .cl-head { display: flex; flex-direction: column; gap: var(--space-3); }
+    .cl-head h1 {
+      margin: 0;
+      font-size: var(--text-3xl);
+      letter-spacing: -0.025em;
+    }
+    .cl-sub { color: var(--muted-foreground); margin: 0; }
+
+    .rel { display: flex; flex-direction: column; gap: var(--space-4); padding-top: var(--space-6); }
+    .rel-head {
+      display: flex;
+      align-items: baseline;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+    }
+    .rel-head h2 {
+      margin: 0;
+      font-family: var(--font-mono-display);
+      font-size: var(--text-xl);
+      color: var(--accent);
+      letter-spacing: -0.015em;
+    }
+    .rel-date {
+      font-family: var(--font-mono-display);
+      font-size: var(--text-sm);
+      color: var(--muted-foreground);
+      font-feature-settings: 'tnum';
+    }
+    .rel-label {
+      font-family: var(--font-mono-display);
+      font-size: var(--text-xs);
+      color: var(--ink-faint);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-caps);
+    }
+    .rel-notes { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+    .rel-notes li {
+      display: grid;
+      grid-template-columns: 84px 1fr;
+      gap: var(--space-3);
+      align-items: baseline;
+      padding: var(--space-2) 0;
+    }
+    .rel-kind {
+      font-family: var(--font-mono-display);
+      font-size: var(--text-xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-caps);
+      font-weight: 600;
+    }
+    .rel-text {
+      font-family: var(--font-mono-display);
+      font-size: var(--text-sm);
+      color: var(--foreground);
+      line-height: 1.6;
+    }
+
+    @media (max-width: 640px) {
+      .rel-notes li { grid-template-columns: 64px 1fr; }
+    }
+  </style>
+</Base>

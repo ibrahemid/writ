@@ -1,132 +1,97 @@
 ---
 import Base from '../layouts/Base.astro';
-
-const points = [
-  {
-    title: 'No accounts, ever.',
-    body: 'Writ has no sign-in, no user ID, no password. There is nothing to create, link, or recover.',
-  },
-  {
-    title: 'No telemetry from the app.',
-    body: 'The desktop app makes zero outbound network requests. No crash reporting, no usage analytics, no anonymous pings.',
-  },
-  {
-    title: 'Everything is local.',
-    body: 'Your text lives in a single SQLite database in your OS-native app data directory. You own it. You can back it up, move it, or delete it with a file-system action.',
-  },
-  {
-    title: 'Updates are manual.',
-    body: 'Writ does not auto-update. You fetch new releases yourself from GitHub. We never phone home to check for new versions.',
-  },
-  {
-    title: 'This website.',
-    body: 'ibrahemid.github.io/writ is served as static files by GitHub Pages. GitHub may collect visitor IPs in access logs per their privacy policy. We do not run any first-party analytics, cookies, or trackers.',
-  },
-  {
-    title: 'GitHub Releases.',
-    body: 'Download links point at github.com/ibrahemid/writ/releases. When you click one, GitHub sees the download like any other public artifact. No identifiers are added by us.',
-  },
-];
 ---
-
 <Base
-  title="Privacy"
-  description="Writ is local-only. No accounts, no telemetry, no cloud. Here's exactly what that means."
+  title="Writ — Privacy"
+  description="Writ stores everything locally. The site uses no analytics. The app makes no network requests except optional update checks."
+  path="/privacy/"
 >
-  <section class="section">
-    <div class="container container-narrow">
-      <header class="page-head">
-        <p class="eyebrow">Privacy</p>
-        <h1>What Writ knows about you</h1>
-        <p class="lede">
-          Nothing. That's the short version. The long version is below.
-        </p>
+  <section class="pr">
+    <div class="container container-narrow pr-inner">
+      <header class="pr-head">
+        <span class="eyebrow">/* privacy */</span>
+        <h1>Local only. No telemetry.</h1>
+        <p class="pr-meta">Last reviewed 2026-04-29.</p>
       </header>
 
-      <ul class="points" role="list">
-        {points.map((p) => (
-          <li class="point">
-            <div class="point-bullet" aria-hidden="true">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
-            </div>
-            <div>
-              <h2>{p.title}</h2>
-              <p>{p.body}</p>
-            </div>
-          </li>
-        ))}
-      </ul>
-
-      <aside class="note">
+      <div class="pr-body">
         <p>
-          If any of this ever changes, the change lands in the
-          <a href={`${import.meta.env.BASE_URL.replace(/\/$/, '')}/changelog`}>changelog</a>
-          and this page gets rewritten before release. You can also verify by reading the source at
-          <a href="https://github.com/ibrahemid/writ" rel="noopener noreferrer">github.com/ibrahemid/writ</a>.
+          Writ stores every keystroke on your disk, in a single SQLite database under your OS user data directory.
+          That is the whole storage model. There is no cloud, no account, no sync server.
         </p>
-      </aside>
+
+        <h2>What the app does on the network</h2>
+        <p>
+          By default the desktop app makes one outbound request: at launch, it asks GitHub whether a newer release exists.
+          That request sends only your platform and the current Writ version. You can disable it in settings;
+          when disabled, Writ makes zero network requests for the rest of the session.
+        </p>
+        <p>
+          Writ does not send crash reports, usage analytics, telemetry, or beacons. There is no opt-out because there is nothing to opt out of.
+        </p>
+
+        <h2>What this site does</h2>
+        <p>
+          This site is a static export served from GitHub Pages. It loads two self-hosted fonts and the brand mark.
+          It runs no analytics scripts, sets no cookies, and does not embed third-party widgets.
+        </p>
+
+        <h2>Data export and deletion</h2>
+        <p>
+          Your buffers are plain rows in a local SQLite file. Copy it to back up; delete it to reset.
+          The path is shown in <code>Settings → Storage</code>.
+        </p>
+
+        <h2>Source of truth</h2>
+        <p>
+          This page describes intent. The source of truth is the code:
+          <a href="https://github.com/ibrahemid/writ" rel="noopener" target="_blank">github.com/ibrahemid/writ</a>.
+          If you find a network call that contradicts the policy above, file an issue and it will be treated as a bug.
+        </p>
+      </div>
     </div>
   </section>
-</Base>
 
-<style>
-  .page-head {
-    text-align: center;
-    margin: 0 auto 2.5rem;
-  }
-  .points {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  .point {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 1rem;
-    padding: 1.25rem 1.4rem;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--card-shadow);
-  }
-  .point-bullet {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    background: var(--accent-soft);
-    color: var(--accent);
-    flex: 0 0 auto;
-    margin-top: 2px;
-  }
-  .point h2 {
-    font-size: 1.05rem;
-    margin: 0 0 0.35rem;
-    color: var(--foreground);
-  }
-  .point p {
-    margin: 0;
-    color: var(--muted-foreground);
-    font-size: 0.95rem;
-    line-height: 1.6;
-  }
-  .note {
-    margin-top: 2rem;
-    padding: 1.25rem 1.4rem;
-    background: var(--accent-soft);
-    border: 1px solid color-mix(in oklab, var(--accent) 22%, transparent);
-    border-radius: var(--radius-lg);
-  }
-  .note p {
-    margin: 0;
-    color: var(--foreground);
-    font-size: 0.95rem;
-  }
-</style>
+  <style>
+    .pr { padding: var(--space-12) 0 var(--space-16); }
+    .pr-inner { display: flex; flex-direction: column; gap: var(--space-10); }
+    .pr-head { display: flex; flex-direction: column; gap: var(--space-3); }
+    .pr-head h1 {
+      margin: 0;
+      font-size: var(--text-3xl);
+      letter-spacing: -0.025em;
+    }
+    .pr-meta {
+      color: var(--ink-faint);
+      font-family: var(--font-mono-display);
+      font-size: var(--text-xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-caps);
+      margin: 0;
+    }
+    .pr-body {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-5);
+      font-family: var(--font-mono-display);
+      font-size: var(--text-base);
+      line-height: 1.7;
+      color: var(--foreground);
+    }
+    .pr-body p { color: var(--foreground); margin: 0; max-width: 64ch; }
+    .pr-body h2 {
+      margin: var(--space-4) 0 0;
+      font-family: var(--font-mono-display);
+      font-size: var(--text-md);
+      color: var(--accent);
+      letter-spacing: -0.005em;
+    }
+    .pr-body code {
+      background: var(--accent-soft);
+      color: var(--foreground);
+      padding: 1px 6px;
+      border-radius: var(--radius-sm);
+      font-size: 0.92em;
+    }
+  </style>
+</Base>

@@ -1,0 +1,117 @@
+---
+const cols = [
+  { key: 'plain', name: 'plain text file' },
+  { key: 'obsidian', name: 'obsidian' },
+  { key: 'notion', name: 'notion' },
+  { key: 'writ', name: 'writ', highlight: true },
+];
+
+type Row = { label: string; values: Record<string, string> };
+const rows: Row[] = [
+  { label: 'global hotkey', values: { plain: 'no', obsidian: 'plugin', notion: 'no', writ: 'built-in' } },
+  { label: 'tabs across buffers', values: { plain: 'no', obsidian: 'yes', notion: 'yes', writ: 'browser-style' } },
+  { label: 'autosave', values: { plain: 'manual', obsidian: 'on idle', notion: 'cloud sync', writ: 'every keystroke' } },
+  { label: 'full-text search', values: { plain: 'grep', obsidian: 'yes', notion: 'yes', writ: 'SQLite FTS5' } },
+  { label: 'storage', values: { plain: 'disk', obsidian: 'disk', notion: 'cloud', writ: 'disk' } },
+  { label: 'tray-resident', values: { plain: 'no', obsidian: 'no', notion: 'no', writ: 'yes' } },
+];
+---
+<section class="middle" id="why">
+  <hr class="rule-thick" />
+  <div class="container middle-inner">
+    <header class="middle-head">
+      <span class="eyebrow">/* the missing middle */</span>
+      <h2>
+        A plain text file has no tabs. Obsidian is overkill for a five-second scratch.
+        <span class="middle-trail">Notion is the cloud. Writ sits in the gap.</span>
+      </h2>
+    </header>
+
+    <div class="cmp" role="table" aria-label="Writ compared to plain text, Obsidian, and Notion">
+      <div class="cmp-row cmp-head" role="row">
+        <div class="cmp-cell cmp-label" role="columnheader">&nbsp;</div>
+        {cols.map((c) => (
+          <div
+            class={`cmp-cell ${c.highlight ? 'is-self' : ''}`}
+            role="columnheader"
+          >{c.name}</div>
+        ))}
+      </div>
+      {rows.map((r) => (
+        <div class="cmp-row" role="row">
+          <div class="cmp-cell cmp-label" role="rowheader">{r.label}</div>
+          {cols.map((c) => (
+            <div
+              class={`cmp-cell ${c.highlight ? 'is-self' : ''}`}
+              role="cell"
+            >{r.values[c.key]}</div>
+          ))}
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .middle { padding: var(--space-16) 0; }
+  .middle-inner { display: flex; flex-direction: column; gap: var(--space-10); padding-top: var(--space-12); }
+  .middle-head { display: flex; flex-direction: column; gap: var(--space-3); max-width: 56ch; }
+  .middle-head h2 {
+    margin: 0;
+    font-size: var(--text-xl);
+    line-height: 1.4;
+    letter-spacing: -0.005em;
+    color: var(--foreground);
+    font-weight: 500;
+    text-wrap: pretty;
+  }
+  .middle-trail { color: var(--muted-foreground); display: block; }
+
+  .cmp {
+    width: 100%;
+    border-top: 1px solid var(--foreground);
+    border-bottom: 1px solid var(--foreground);
+    font-family: var(--font-mono-display);
+    font-size: var(--text-sm);
+  }
+  .cmp-row {
+    display: grid;
+    grid-template-columns: minmax(140px, 1.4fr) repeat(4, minmax(0, 1fr));
+    border-bottom: 1px solid var(--rule);
+  }
+  .cmp-row:last-child { border-bottom: 0; }
+  .cmp-cell {
+    padding: var(--space-3) var(--space-4);
+    color: var(--muted-foreground);
+    border-left: 1px solid var(--rule);
+  }
+  .cmp-cell:first-child { border-left: 0; }
+  .cmp-label {
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    font-size: var(--text-xs);
+    letter-spacing: var(--tracking-caps);
+    align-self: center;
+  }
+  .cmp-head .cmp-cell {
+    background: color-mix(in oklab, var(--foreground) 4%, transparent);
+    color: var(--foreground);
+    font-weight: 600;
+    text-transform: lowercase;
+    letter-spacing: 0;
+  }
+  .cmp-cell.is-self {
+    color: var(--foreground);
+    background: var(--accent-soft);
+  }
+  .cmp-head .cmp-cell.is-self {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  @media (max-width: 720px) {
+    .cmp { font-size: var(--text-xs); }
+    .cmp-row { grid-template-columns: minmax(110px, 1.2fr) repeat(4, minmax(0, 1fr)); }
+    .cmp-cell { padding: var(--space-2) var(--space-3); }
+  }
+</style>
