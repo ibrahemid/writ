@@ -48,10 +48,7 @@ pub fn open_file_from_path(state: &AppState, path: &str) -> Result<BufferDocumen
         .open_external(path.to_string())
         .map_err(|e| e.to_string())?;
 
-    let doc = BufferDocument {
-        language,
-        ..doc
-    };
+    let doc = BufferDocument { language, ..doc };
 
     {
         let mut ignore = state
@@ -75,10 +72,7 @@ pub fn open_file(state: State<'_, AppState>, path: String) -> Result<BufferDocum
 
 #[tauri::command]
 pub fn consume_pending_opens(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let mut pending = state
-        .pending_opens
-        .lock()
-        .map_err(|e| e.to_string())?;
+    let mut pending = state.pending_opens.lock().map_err(|e| e.to_string())?;
     let paths = std::mem::take(&mut *pending);
     Ok(paths)
 }

@@ -151,12 +151,12 @@ impl BufferStore {
     /// the external file.
     pub fn save_to_source(&self, id: &str, content: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
-        let source_path =
-            doc.source_path
-                .as_ref()
-                .ok_or_else(|| StorageError::Consistency {
-                    message: format!("buffer {} has no source_path", id),
-                })?;
+        let source_path = doc
+            .source_path
+            .as_ref()
+            .ok_or_else(|| StorageError::Consistency {
+                message: format!("buffer {} has no source_path", id),
+            })?;
         std::fs::write(source_path, content)?;
         let buffer_file = self.buffers_dir.join(&doc.filename);
         std::fs::write(&buffer_file, content)?;
