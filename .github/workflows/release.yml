@@ -227,9 +227,13 @@ jobs:
         shell: bash
         env:
           HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+          HAS_APPLE_NOTARIZE: ${{ secrets.APPLE_TEAM_ID != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' }}
           HAS_WINDOWS_CERT: ${{ secrets.WINDOWS_CERTIFICATE != '' }}
           APPLE_CERT_VALUE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERT_PW_VALUE: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID_VALUE: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD_VALUE: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID_VALUE: ${{ secrets.APPLE_TEAM_ID }}
           WINDOWS_CERT_VALUE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERT_PW_VALUE: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
@@ -243,6 +247,13 @@ jobs:
               printf '%s' "$APPLE_CERT_PW_VALUE"
               echo
               echo "APPLE_CERT_PW_EOF"
+            } >> "$GITHUB_ENV"
+          fi
+          if [ "$HAS_APPLE_NOTARIZE" = "true" ]; then
+            {
+              echo "APPLE_ID=$APPLE_ID_VALUE"
+              echo "APPLE_PASSWORD=$APPLE_PASSWORD_VALUE"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID_VALUE"
             } >> "$GITHUB_ENV"
           fi
           if [ "$HAS_WINDOWS_CERT" = "true" ]; then
@@ -265,9 +276,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY != '' && secrets.APPLE_SIGNING_IDENTITY || '-' }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           tagName: ${{ needs.create-release.outputs.tag_name }}
