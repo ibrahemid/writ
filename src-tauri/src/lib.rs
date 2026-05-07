@@ -7,6 +7,7 @@ pub mod watcher;
 
 use events::{emit_event, WritFrontendEvent};
 use state::AppState;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 use tauri::Manager;
 use tracing::info;
 
