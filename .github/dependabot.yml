@@ -1,5 +1,6 @@
 version: 2
 updates:
+  # Rust workspace
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
@@ -7,14 +8,20 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "Etc/UTC"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 10
     labels:
       - "dependencies"
       - "rust"
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
+    groups:
+      cargo-patches:
+        update-types: ["patch"]
+      cargo-minors:
+        update-types: ["minor"]
 
+  # Root frontend (Tauri / SolidJS / Vite)
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
@@ -22,14 +29,45 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "Etc/UTC"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 10
     labels:
       - "dependencies"
       - "frontend"
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
+    groups:
+      npm-dev-patches-and-minors:
+        dependency-type: "development"
+        update-types: ["patch", "minor"]
+      npm-runtime-patches:
+        dependency-type: "production"
+        update-types: ["patch"]
 
+  # Marketing site (Astro)
+  - package-ecosystem: "npm"
+    directory: "/site"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "site"
+    commit-message:
+      prefix: "chore(deps)(site)"
+      include: "scope"
+    groups:
+      site-dev-patches-and-minors:
+        dependency-type: "development"
+        update-types: ["patch", "minor"]
+      site-runtime-patches:
+        dependency-type: "production"
+        update-types: ["patch"]
+
+  # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -37,10 +75,14 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "Etc/UTC"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 10
     labels:
       - "dependencies"
       - "ci"
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
+    groups:
+      gha-all:
+        patterns: ["*"]
+        update-types: ["patch", "minor"]
