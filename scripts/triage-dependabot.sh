@@ -63,20 +63,49 @@ cmd_automerge_safe() {
 }
 
 cmd_status() {
-  printf "%-6s %-12s %s\n" "#" "TIER" "TITLE"
+  printf "%-6s %-12s %-8s %s\n" "#" "TIER" "CI" "TITLE"
   list_prs | jq -r '.[] | [.number, .title] | @tsv' | while IFS=$'\t' read -r num title; do
     if is_tier1 "$title"; then tier="1-safe"
     elif is_tier5 "$title"; then tier="5-major"
     else tier="3-review"
     fi
-    printf "%-6s %-12s %s\n" "$num" "$tier" "$title"
+    ci=$(pr_ci_state "$num")
+    printf "%-6s %-12s %-8s %s\n" "$num" "$tier" "$ci" "$title"
+  done
+}
+
+pr_ci_state() {
+  gh pr checks "$1" -R "$REPO" --json state --jq \
+    '[.[].state] | if length == 0 then "NONE"
+                   elif any(. == "FAILURE") then "FAIL"
+                   elif any(. == "PENDING" or . == "IN_PROGRESS" or . == "QUEUED" or . == "EXPECTED") then "PEND"
+                   elif all(. == "SUCCESS" or . == "NEUTRAL" or . == "SKIPPED") then "GREEN"
+                   else "?" end' 2>/dev/null || echo "?"
+}
+
+# Merge ANY dependabot PR whose CI is green, regardless of tier.
+# CI is the gate. If you don't trust CI, fix CI - don't keep PRs open.
+cmd_merge_green() {
+  list_prs | jq -r '.[] | [.number, .title] | @tsv' | while IFS=$'\t' read -r num title; do
+    state=$(pr_ci_state "$num")
+    case "$state" in
+      GREEN)
+        echo "MERGE  #$num  $title"
+        gh pr merge "$num" -R "$REPO" --squash --delete-branch --auto || true
+        ;;
+      FAIL) echo "skip   #$num  CI FAIL  $title" ;;
+      PEND) echo "skip   #$num  CI pending  $title" ;;
+      *)    echo "skip   #$num  CI=$state  $title" ;;
+    esac
   done
 }
 
 case "${1:-status}" in
   rebase) cmd_rebase ;;
   automerge-safe) cmd_automerge_safe ;;
+  merge-green) cmd_merge_green ;;
   status) cmd_status ;;
   all) cmd_rebase; sleep 2; cmd_automerge_safe; cmd_status ;;
-  *) echo "usage: $0 {rebase|automerge-safe|status|all}"; exit 2 ;;
+  weekly) cmd_rebase; sleep 5; cmd_merge_green; cmd_status ;;
+  *) echo "usage: $0 {rebase|automerge-safe|merge-green|status|all|weekly}"; exit 2 ;;
 esac
