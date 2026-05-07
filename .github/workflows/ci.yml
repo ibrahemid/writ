@@ -27,13 +27,7 @@ jobs:
 
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
-    # Skip the expensive macOS (10x) and Windows (2x) jobs on dependabot PRs.
-    # Linux gates dependency bumps; cross-OS proves real changes on push to main
-    # and on human-authored PRs.
-    if: |
-      matrix.cross_only == false
-      || github.event_name == 'push'
-      || github.event.pull_request.user.login != 'dependabot[bot]'
+    if: matrix.cross_only != true || github.actor != 'dependabot[bot]'
 
     steps:
       - uses: actions/checkout@v4
