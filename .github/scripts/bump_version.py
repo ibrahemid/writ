@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Bump the version across Cargo.toml (workspace), tauri.conf.json, and package.json.
+"""Bump the version across Cargo.toml (workspace), tauri.conf.json, package.json, and site/package.json.
 
 Usage: bump_version.py <new_version>
 
-The new_version must be a valid semver without a leading v. All three files must
+The new_version must be a valid semver without a leading v. All four files must
 exist and contain a single canonical version field at the expected key, or the
 script exits non-zero without writing any partial state.
 """
@@ -67,6 +67,7 @@ def main(argv: list[str]) -> int:
         "Cargo.toml": (root / "Cargo.toml", bump_cargo_toml),
         "tauri.conf.json": (root / "src-tauri" / "tauri.conf.json", bump_tauri_conf),
         "package.json": (root / "package.json", bump_package_json),
+        "site/package.json": (root / "site" / "package.json", bump_package_json),
     }
 
     for label, (path, _fn) in targets.items():
