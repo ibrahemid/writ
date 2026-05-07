@@ -27,7 +27,6 @@ jobs:
 
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
-    if: matrix.cross_only != true || github.actor != 'dependabot[bot]'
 
     steps:
       - uses: actions/checkout@v4
