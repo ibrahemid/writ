@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rewrite packaging/homebrew/Casks/writ.rb with the release version and universal DMG SHA."""
+"""Rewrite packaging/homebrew/Casks/writ.rb with the release version and universal PKG SHA."""
 
 from __future__ import annotations
 

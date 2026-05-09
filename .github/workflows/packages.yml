@@ -57,7 +57,7 @@ jobs:
           cd artifacts
           gh release download "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --pattern "Writ_${VERSION}_universal.dmg" \
+            --pattern "Writ_${VERSION}_universal.pkg" \
             --pattern "Writ_${VERSION}_x64_en-US.msi" \
             --pattern "Writ_${VERSION}_amd64.AppImage" \
             --pattern "Writ_${VERSION}_amd64.deb" \
@@ -80,12 +80,12 @@ jobs:
             fi
             sha256sum "$file" | awk '{print $1}'
           }
-          SHA_UNIVERSAL=$(compute_sha "Writ_${VERSION}_universal.dmg")
+          SHA_UNIVERSAL=$(compute_sha "Writ_${VERSION}_universal.pkg")
           SHA_MSI=$(compute_sha "Writ_${VERSION}_x64_en-US.msi")
           SHA_APPIMAGE=$(compute_sha "Writ_${VERSION}_amd64.AppImage")
           SHA_DEB=$(compute_sha "Writ_${VERSION}_amd64.deb")
           {
-            echo "sha_dmg_universal=${SHA_UNIVERSAL}"
+            echo "sha_pkg_universal=${SHA_UNIVERSAL}"
             echo "sha_msi=${SHA_MSI}"
             echo "sha_appimage=${SHA_APPIMAGE}"
             echo "sha_deb=${SHA_DEB}"
@@ -94,7 +94,7 @@ jobs:
       - name: Bump Homebrew cask
         env:
           VERSION: ${{ steps.tag.outputs.version }}
-          SHA_UNIVERSAL: ${{ steps.checksums.outputs.sha_dmg_universal }}
+          SHA_UNIVERSAL: ${{ steps.checksums.outputs.sha_pkg_universal }}
         run: |
           set -euo pipefail
           python3 scripts/packaging_bump_homebrew.py

@@ -108,7 +108,10 @@ The push triggers `.github/workflows/release.yml`.
    conventional-commit prefixes since the previous `v*.*.*` tag.
 2. `build`  runs a matrix build on:
    - `macos-latest`  universal binary (`aarch64` + `x86_64` merged), producing
-     `.dmg`, `.app.tar.gz`, and `.app.tar.gz.sig`.
+     `.pkg` (with quit/relaunch scripts), `.dmg` (drag-to-Applications),
+     `.app.tar.gz`, and `.app.tar.gz.sig`. Both the `.pkg` and `.dmg` ship on
+     every release; the `.pkg` is the default recommendation and the source
+     for the Homebrew cask and the in-app updater.
    - `windows-latest`  x64, producing `.msi`, `.msi.zip`, `.msi.zip.sig`.
    - `ubuntu-22.04`  x64, producing `.deb`, `.AppImage`, `.AppImage.tar.gz`,
      `.AppImage.tar.gz.sig`.
@@ -122,8 +125,11 @@ The push triggers `.github/workflows/release.yml`.
 Download each installer from the draft release and install it on a clean
 machine:
 
-- macOS: open the `.dmg`, drag to Applications, launch, confirm hotkey and
-  autosave work.
+- macOS: double-click the `.pkg`, allow it through Gatekeeper if needed, and
+  install. The installer quits any running Writ, swaps the bundle, and
+  relaunches the new version. Confirm hotkey and autosave still work. As a
+  secondary check, mount the `.dmg`, drag `Writ.app` to `/Applications`, and
+  confirm it launches the same version.
 - Windows: run the `.msi`, launch from Start menu, confirm hotkey and
   autosave work.
 - Linux: install the `.deb` with `sudo dpkg -i`, or run the `.AppImage`
@@ -203,8 +209,8 @@ of failing. Safe to re-run after a failed build.
 
 ### 5.4 `SHA256SUMS.txt` missing some artifacts
 
-The finalize job uses glob patterns covering `.dmg`, `.msi`, `.AppImage`,
-`.deb`, `.rpm`, `.tar.gz`, `.zip`, `.sig`, and `.exe`. Extend
+The finalize job uses glob patterns covering `.pkg`, `.dmg`, `.msi`,
+`.AppImage`, `.deb`, `.rpm`, `.tar.gz`, `.zip`, `.sig`, and `.exe`. Extend
 `.github/workflows/release.yml` if new bundle types are added.
 
 ## 6. Related files

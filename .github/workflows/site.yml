@@ -62,7 +62,7 @@ jobs:
           VERSION="${TAG#v}"
           PUBLISHED_AT="$(echo "$RELEASE_JSON" | jq -r '.published_at // ""')"
 
-          MAC_UNIVERSAL="$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | test("universal\\.dmg$"))] | .[0].browser_download_url // ""')"
+          MAC_UNIVERSAL="$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | test("universal\\.pkg$"))] | .[0].browser_download_url // ""')"
           WIN_X64="$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | test("\\.msi$"))] | .[0].browser_download_url // ""')"
           LINUX_APPIMAGE="$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | test("\\.AppImage$"))] | .[0].browser_download_url // ""')"
           LINUX_DEB="$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | test("\\.deb$"))] | .[0].browser_download_url // ""')"

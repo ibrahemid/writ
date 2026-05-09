@@ -2,7 +2,7 @@ cask "writ" do
   version "0.1.0"
   sha256 "__SHA256_UNIVERSAL__"
 
-  url "https://github.com/ibrahemid/writ/releases/download/v#{version}/Writ_#{version}_universal.dmg",
+  url "https://github.com/ibrahemid/writ/releases/download/v#{version}/Writ_#{version}_universal.pkg",
       verified: "github.com/ibrahemid/writ/"
 
   name "Writ"
@@ -17,9 +17,10 @@ cask "writ" do
   auto_updates true
   depends_on macos: ">= :monterey"
 
-  app "Writ.app"
+  pkg "Writ_#{version}_universal.pkg"
 
-  uninstall quit: "com.writ.editor"
+  uninstall pkgutil: "com.writ.editor",
+            quit: "com.writ.editor"
 
   zap trash: [
     "~/Library/Application Support/com.writ.editor",
