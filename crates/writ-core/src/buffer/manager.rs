@@ -149,7 +149,7 @@ impl BufferManager {
             .values()
             .filter(|doc| doc.status == BufferStatus::History)
             .collect();
-        history.sort_by(|a, b| b.closed_at.cmp(&a.closed_at));
+        history.sort_by_key(|doc| std::cmp::Reverse(doc.closed_at));
         history
     }
 
