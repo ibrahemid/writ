@@ -147,7 +147,7 @@ phase_publish() {
   ASSET_COUNT="$(echo "$RELEASE_INFO" | jq -r '.assets | length')"
 
   note "draft: ${IS_DRAFT}, assets: ${ASSET_COUNT}, prerelease target: ${IS_PRERELEASE}"
-  [ "$ASSET_COUNT" -ge 6 ] || warn "asset count looks low (${ASSET_COUNT}); expected mac dmg, win msi, linux deb+AppImage, SHA256SUMS, latest.json"
+  [ "$ASSET_COUNT" -ge 6 ] || warn "asset count looks low (${ASSET_COUNT}); expected mac pkg, win msi, linux deb+AppImage, SHA256SUMS, latest.json"
 
   note "smoke-test the artefacts on macOS, Windows, Linux BEFORE publishing. publishing makes them the auto-update target."
   confirm

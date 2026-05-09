@@ -46,13 +46,20 @@ The post-release workflow expects these artifact names on GitHub Releases. They 
 
 | Artifact | Name |
 |---|---|
-| macOS Apple Silicon DMG | `Writ_<version>_aarch64.dmg` |
-| macOS Intel DMG | `Writ_<version>_x64.dmg` |
+| macOS Universal PKG | `Writ_<version>_universal.pkg` |
+| macOS Universal DMG | `Writ_<version>_universal.dmg` |
 | Windows x64 MSI | `Writ_<version>_x64_en-US.msi` |
 | Linux AppImage | `Writ_<version>_amd64.AppImage` |
 | Linux deb | `Writ_<version>_amd64.deb` |
+| macOS updater bundle | `Writ_universal.app.tar.gz` (and `.sig`) |
+| Windows updater bundle | `Writ_<version>_x64_en-US.msi.zip` (and `.sig`) |
+| Linux updater bundle | `Writ_<version>_amd64.AppImage.tar.gz` (and `.sig`) |
 | Checksums | `SHA256SUMS.txt` |
 | Tauri updater manifest | `latest.json` |
+
+The `.pkg` is the recommended install path: it ships pre-install and post-install scripts so the installer quits a running Writ, swaps the bundle, and relaunches the new version. No manual quit needed. The Homebrew cask and the in-app updater both consume the `.pkg`.
+
+The `.dmg` is offered alongside for users who prefer drag-to-Applications. It contains the same `Writ.app` bundle as the `.pkg`. Replacing a running `Writ.app` from a mounted dmg requires the user to quit Writ first; that is why the `.pkg` remains the default recommendation.
 
 If these filenames change, update `.github/workflows/packages.yml` and the three bump scripts in `scripts/`.
 

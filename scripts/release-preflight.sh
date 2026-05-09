@@ -7,7 +7,7 @@ set -euo pipefail
 # Usage: scripts/release-preflight.sh
 #
 # Requirements:
-#   - macOS host (for the mac dmg build)
+#   - macOS host (for the mac .app + .pkg build)
 #   - Rust toolchain (already installed for normal dev)
 #   - pnpm (already installed for normal dev)
 #   - Docker (only required for the act-driven Linux dry run)
@@ -67,7 +67,7 @@ npx tsc --noEmit
 step "4/6 pnpm --dir site build"
 pnpm --dir site build
 
-step "5/6 cargo tauri build (universal mac dmg, ad-hoc signed)"
+step "5/6 cargo tauri build (universal mac .app + .dmg + .pkg, ad-hoc signed)"
 if [[ "$(uname -s)" != "Darwin" ]]; then
   warn "Skipping mac build: this script is running on $(uname -s), not Darwin."
 else
@@ -77,9 +77,10 @@ else
     npx tauri build \
       --target universal-apple-darwin \
       --bundles app,dmg
+  bash scripts/build-mac-pkg.sh
   echo
   echo "Mac artefacts:"
-  find target/universal-apple-darwin/release/bundle -type f \( -name '*.dmg' -o -name '*.tar.gz' -o -name '*.sig' \) 2>/dev/null | sort
+  find target/universal-apple-darwin/release/bundle -type f \( -name '*.pkg' -o -name '*.dmg' -o -name '*.tar.gz' -o -name '*.sig' \) 2>/dev/null | sort
 fi
 
 step "6/6 act --dryrun (Linux release leg)"

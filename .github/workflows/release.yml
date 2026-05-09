@@ -286,6 +286,40 @@ jobs:
           args: ${{ matrix.tauri_args }} --bundles ${{ matrix.bundles }}
           projectPath: src-tauri
 
+      - name: Build .pkg installer
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: bash scripts/build-mac-pkg.sh
+
+      - name: Verify mac artifacts exist
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG="$(ls target/universal-apple-darwin/release/bundle/macos/Writ_*_universal.pkg 2>/dev/null || true)"
+          DMG="$(ls target/universal-apple-darwin/release/bundle/dmg/Writ_*_universal.dmg 2>/dev/null || true)"
+          if [ -z "$PKG" ]; then
+            echo "missing .pkg under target/universal-apple-darwin/release/bundle/macos/" >&2
+            exit 1
+          fi
+          if [ -z "$DMG" ]; then
+            echo "missing .dmg under target/universal-apple-darwin/release/bundle/dmg/" >&2
+            exit 1
+          fi
+          echo "pkg: $PKG"
+          echo "dmg: $DMG"
+
+      - name: Upload .pkg to release
+        if: matrix.os == 'macos-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.create-release.outputs.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG="$(ls target/universal-apple-darwin/release/bundle/macos/Writ_*_universal.pkg)"
+          gh release upload "$TAG" "$PKG" --repo "$GITHUB_REPOSITORY" --clobber
+
   finalize:
     name: Finalize release (checksums + updater manifest)
     needs: [create-release, build]
@@ -310,7 +344,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=( *.dmg *.msi *.AppImage *.deb *.rpm *.tar.gz *.zip *.sig *.exe )
+          files=( *.pkg *.dmg *.msi *.AppImage *.deb *.rpm *.tar.gz *.zip *.sig *.exe )
           if [ ${#files[@]} -eq 0 ]; then
             echo "No artifacts found to checksum" >&2
             ls -la
