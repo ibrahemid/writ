@@ -6,7 +6,7 @@
   padding: 0 12px;
   user-select: none;
   -webkit-user-select: none;
-  border-bottom: 1px solid var(--writ-border);
+  border-bottom: 1px solid var(--writ-border-soft);
   flex-shrink: 0;
 }
 

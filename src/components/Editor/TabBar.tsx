@@ -1,6 +1,7 @@
 import { For, createSignal, Show } from "solid-js";
 import { bufferStore } from "../../stores/buffers";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
+import { abbreviateTitle } from "../../lib/buffer-name";
 import "./TabBar.css";
 
 // Singleton state — Writ is single-window, single-instance per component
@@ -48,20 +49,16 @@ export default function TabBar() {
               onClick={() => bufferStore.setActiveTabId(tab.id)}
               onDblClick={() => setEditingTabId(tab.id)}
               onContextMenu={(e) => handleContextMenu(e, tab.id)}
+              title={tab.title}
             >
               <Show when={editingTabId() === tab.id} fallback={
-                <span class="tab-title">{tab.title}</span>
+                <span class="tab-title">{abbreviateTitle(tab.title)}</span>
               }>
                 <input
                   ref={(el) => {
                     requestAnimationFrame(() => {
                       el.focus();
-                      const prefix = "writ-";
-                      if (el.value.startsWith(prefix)) {
-                        el.setSelectionRange(prefix.length, el.value.length);
-                      } else {
-                        el.select();
-                      }
+                      el.select();
                     });
                   }}
                   class="tab-rename-input"

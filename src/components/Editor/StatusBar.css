@@ -3,18 +3,39 @@
   background: var(--writ-bg-statusbar);
   display: flex;
   align-items: center;
-  padding: 0 12px;
+  padding: 0 var(--writ-space-4);
   font-size: var(--writ-font-size-sm);
   color: var(--writ-text-secondary);
-  border-top: 1px solid var(--writ-border);
+  border-top: 1px solid var(--writ-border-soft);
   flex-shrink: 0;
-  gap: 16px;
+}
+
+.statusbar-left,
+.statusbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-3);
 }
 
 .statusbar-spacer {
   flex: 1;
 }
 
-.statusbar-item {
+.statusbar-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--writ-status-dot-ok);
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.statusbar-label {
   white-space: nowrap;
+}
+
+.statusbar-kbd {
+  font-family: var(--writ-font-mono);
+  color: var(--writ-text-muted);
+  letter-spacing: 0.05em;
 }

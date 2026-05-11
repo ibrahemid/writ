@@ -3,6 +3,7 @@ import TitleBar from "./components/TitleBar/TitleBar";
 import EditorArea from "./components/Editor/EditorArea";
 import Sidebar from "./components/Sidebar/Sidebar";
 import CommandPalette, { toggleCommandPalette } from "./components/CommandPalette/CommandPalette";
+import { startRenameActiveTab } from "./components/Editor/TabBar";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
 import ToastContainer, { showToast } from "./components/Notifications/Toast";
 import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
@@ -60,6 +61,7 @@ export default function App() {
     registerCommand({
       id: "buffer.new",
       label: "New Tab",
+      description: "Create a new empty buffer",
       keybinding: "CmdOrCtrl+T",
       scope: "app",
       execute: () => bufferStore.createTab(),
@@ -68,6 +70,7 @@ export default function App() {
     registerCommand({
       id: "file.open",
       label: "Open File",
+      description: "Open a file from disk into a new tab",
       keybinding: "CmdOrCtrl+O",
       scope: "app",
       execute: () => bufferStore.openFileDialog(),
@@ -76,6 +79,7 @@ export default function App() {
     registerCommand({
       id: "buffer.close",
       label: "Close Tab",
+      description: "Close the active tab",
       keybinding: "CmdOrCtrl+W",
       scope: "app",
       execute: () => {
@@ -87,6 +91,7 @@ export default function App() {
     registerCommand({
       id: "buffer.nextTab",
       label: "Next Tab",
+      description: "Cycle to the next open tab",
       keybinding: "CmdOrCtrl+]",
       scope: "app",
       execute: () => {
@@ -102,6 +107,7 @@ export default function App() {
     registerCommand({
       id: "buffer.prevTab",
       label: "Previous Tab",
+      description: "Cycle to the previous open tab",
       keybinding: "CmdOrCtrl+[",
       scope: "app",
       execute: () => {
@@ -117,6 +123,7 @@ export default function App() {
     registerCommand({
       id: "history.restoreLast",
       label: "Reopen Closed Tab",
+      description: "Restore the most recently closed tab",
       keybinding: "CmdOrCtrl+Shift+T",
       scope: "app",
       execute: () => {
@@ -128,6 +135,7 @@ export default function App() {
     registerCommand({
       id: "sidebar.toggle",
       label: "Toggle Sidebar",
+      description: "Show or hide the tabs + history rail",
       keybinding: "CmdOrCtrl+S",
       scope: "app",
       execute: () => sidebarStore.toggle(),
@@ -143,14 +151,26 @@ export default function App() {
     registerCommand({
       id: "palette.open",
       label: "Command Palette",
+      description: "Search and run any command",
       keybinding: "Shift+Shift",
       scope: "app",
       execute: () => toggleCommandPalette(),
     });
 
     registerCommand({
+      id: "tab.rename",
+      label: "Rename Tab",
+      description: "Rename the active tab",
+      keybinding: "CmdOrCtrl+R",
+      keybindingAliases: ["F2", "CmdOrCtrl+Shift+S"],
+      scope: "app",
+      execute: () => startRenameActiveTab(),
+    });
+
+    registerCommand({
       id: "buffer.closeAll",
       label: "Close All Tabs",
+      description: "Move every open tab into history",
       scope: "app",
       execute: () => bufferStore.closeAllTabs(),
     });
@@ -158,6 +178,7 @@ export default function App() {
     registerCommand({
       id: "history.clear",
       label: "Clear History",
+      description: "Permanently remove all history entries",
       scope: "app",
       execute: () => bufferStore.clearAllHistory(),
     });

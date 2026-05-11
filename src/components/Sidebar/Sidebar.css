@@ -4,7 +4,7 @@
   width: 0;
   height: 100%;
   background: var(--writ-bg-sidebar);
-  border-right: 1px solid var(--writ-border);
+  border-right: 1px solid var(--writ-border-soft);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -13,6 +13,7 @@
 
 .sidebar.is-open {
   width: var(--writ-sidebar-width);
+  box-shadow: 4px 0 12px -8px rgba(0, 0, 0, 0.6);
 }
 
 .sidebar-section {

@@ -22,7 +22,7 @@ import { php } from "@codemirror/lang-php";
 import type { BufferDocument } from "../../types/buffer";
 import { readBufferContent, saveBufferContent } from "../../services/tauri";
 import { debouncedSave, cancelAutosave } from "../../services/autosave";
-import { detectLanguage } from "../../services/language-detect";
+import { detectLanguage, detectFromContent } from "../../services/language-detect";
 import { editorStore } from "../../stores/editor";
 import { configStore } from "../../stores/config";
 import { registerCommand } from "../../commands/registry";
@@ -51,12 +51,33 @@ interface Props {
   buffer: BufferDocument;
 }
 
+const CONTENT_DETECT_MIN_LENGTH = 40;
+const CONTENT_DETECT_DELTA = 40;
+
 export default function EditorInstance(props: Props) {
   let containerRef!: HTMLDivElement;
   let view: EditorView | undefined;
   let currentBufferId: string | undefined;
   let appliedNameForLang = "";
+  let lastDetectLen = 0;
   const languageCompartment = new Compartment();
+
+  function applyDetectedLanguage(lang: string) {
+    if (!view) return;
+    editorStore.setLanguage(lang);
+    view.dispatch({
+      effects: languageCompartment.reconfigure(languageExtension(lang)),
+    });
+  }
+
+  function maybeDetectFromContent(content: string, force: boolean) {
+    if (editorStore.language() !== null) return;
+    if (content.length < CONTENT_DETECT_MIN_LENGTH) return;
+    if (!force && content.length - lastDetectLen < CONTENT_DETECT_DELTA) return;
+    lastDetectLen = content.length;
+    const detected = detectFromContent(content);
+    if (detected) applyDetectedLanguage(detected);
+  }
 
   function createExtensions(bufferId: string, initialLang: Extension): Extension[] {
     return [
@@ -94,6 +115,7 @@ export default function EditorInstance(props: Props) {
             configStore.config().editor.autosave_debounce_ms,
           );
           editorStore.setLineCount(update.state.doc.lines);
+          maybeDetectFromContent(content, false);
         }
         const sel = update.state.selection;
         const pos = sel.main.head;
@@ -101,6 +123,15 @@ export default function EditorInstance(props: Props) {
         editorStore.setCursorLine(line.number);
         editorStore.setCursorCol(pos - line.from + 1);
         editorStore.setSelectionCount(sel.ranges.length);
+      }),
+      EditorView.domEventHandlers({
+        paste: () => {
+          queueMicrotask(() => {
+            if (!view) return;
+            maybeDetectFromContent(view.state.doc.toString(), true);
+          });
+          return false;
+        },
       }),
       EditorView.theme({
         "&": {
@@ -153,6 +184,7 @@ export default function EditorInstance(props: Props) {
 
     currentBufferId = buffer.id;
     appliedNameForLang = "";
+    lastDetectLen = 0;
 
     let content = "";
     try {

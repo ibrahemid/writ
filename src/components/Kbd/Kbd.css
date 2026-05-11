@@ -1,0 +1,21 @@
+.kbd {
+  font-family: var(--writ-font-mono);
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-text-secondary);
+  letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--writ-space-3);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-radius-1);
+  white-space: nowrap;
+  min-width: 18px;
+  justify-content: center;
+}
+
+.kbd-muted {
+  color: var(--writ-text-muted);
+  background: transparent;
+  border-color: transparent;
+}

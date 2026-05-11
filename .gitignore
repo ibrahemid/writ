@@ -22,6 +22,7 @@ dist/
 CLAUDE.md
 
 # Local notes
+docs/design/
 docs/launch/
 docs/metrics/
 docs/superpowers/
