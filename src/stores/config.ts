@@ -4,7 +4,7 @@ import * as api from "../services/tauri";
 
 const DEFAULT_CONFIG: WritConfig = {
   hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
-  sidebar: { toggle: "CmdOrCtrl+B", default_visible: false, position: "left" },
+  sidebar: { toggle: "CmdOrCtrl+S", default_visible: false, position: "left", open: false },
   editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300 },
   window: { width: 800, height: 600 },
   keybindings: {},

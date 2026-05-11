@@ -1,12 +1,41 @@
 import { createSignal, createRoot } from "solid-js";
 import { searchBuffers } from "../services/tauri";
+import { configStore } from "./config";
 
 function createSidebarStore() {
-  const [isVisible, setIsVisible] = createSignal(false);
+  const [isOpen, setIsOpen] = createSignal(false);
   const [searchQuery, setSearchQuery] = createSignal("");
   const [searchResultIds, setSearchResultIds] = createSignal<string[]>([]);
 
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function persist() {
+    const current = configStore.config();
+    const next = {
+      ...current,
+      sidebar: { ...current.sidebar, open: isOpen() },
+    };
+    configStore.save(next).catch(() => {});
+  }
+
+  function hydrateFromConfig() {
+    setIsOpen(configStore.config().sidebar.open);
+  }
+
+  function show() {
+    setIsOpen(true);
+    persist();
+  }
+
+  function hide() {
+    setIsOpen(false);
+    persist();
+  }
+
+  function toggle() {
+    setIsOpen(prev => !prev);
+    persist();
+  }
 
   function updateSearchQuery(query: string) {
     setSearchQuery(query);
@@ -28,16 +57,14 @@ function createSidebarStore() {
     }, 200);
   }
 
-  function toggle() {
-    setIsVisible(prev => !prev);
-  }
-
-  function show() { setIsVisible(true); }
-  function hide() { setIsVisible(false); }
-
   return {
-    isVisible, toggle, show, hide,
-    searchQuery, setSearchQuery: updateSearchQuery,
+    isOpen,
+    show,
+    hide,
+    toggle,
+    hydrateFromConfig,
+    searchQuery,
+    setSearchQuery: updateSearchQuery,
     searchResultIds,
   };
 }

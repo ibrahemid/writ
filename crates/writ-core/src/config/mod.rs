@@ -16,7 +16,7 @@ fn default_hotkey_toggle() -> String {
 }
 
 fn default_sidebar_toggle() -> String {
-    "CmdOrCtrl+B".to_string()
+    "CmdOrCtrl+S".to_string()
 }
 
 fn default_sidebar_default_visible() -> bool {
@@ -25,6 +25,10 @@ fn default_sidebar_default_visible() -> bool {
 
 fn default_sidebar_position() -> SidebarPosition {
     SidebarPosition::Left
+}
+
+fn default_sidebar_open() -> bool {
+    false
 }
 
 fn default_font_family() -> String {
@@ -71,7 +75,7 @@ fn default_keybindings() -> HashMap<String, String> {
         "history.restoreLast".to_string(),
         "CmdOrCtrl+Shift+T".to_string(),
     );
-    map.insert("sidebar.toggle".to_string(), "CmdOrCtrl+B".to_string());
+    map.insert("sidebar.toggle".to_string(), "CmdOrCtrl+S".to_string());
     map.insert("palette.open".to_string(), "CmdOrCtrl+Shift+P".to_string());
     map
 }
@@ -108,12 +112,16 @@ pub struct SidebarConfig {
     /// Shortcut that toggles sidebar visibility.
     #[serde(default = "default_sidebar_toggle")]
     pub toggle: String,
-    /// Whether the sidebar is visible at startup.
+    /// Whether the sidebar is visible at startup. Retained for backwards
+    /// compatibility with existing configs; new state lives in `open`.
     #[serde(default = "default_sidebar_default_visible")]
     pub default_visible: bool,
     /// Which side the sidebar is rendered on.
     #[serde(default = "default_sidebar_position")]
     pub position: SidebarPosition,
+    /// Whether the sidebar was open at last save; restored across launches.
+    #[serde(default = "default_sidebar_open")]
+    pub open: bool,
 }
 
 impl Default for SidebarConfig {
@@ -122,6 +130,7 @@ impl Default for SidebarConfig {
             toggle: default_sidebar_toggle(),
             default_visible: default_sidebar_default_visible(),
             position: default_sidebar_position(),
+            open: default_sidebar_open(),
         }
     }
 }

@@ -42,6 +42,7 @@ export default function App() {
 
   onMount(async () => {
     await configStore.load();
+    sidebarStore.hydrateFromConfig();
     await bufferStore.load();
 
     await processPendingOpens();
@@ -126,7 +127,7 @@ export default function App() {
     registerCommand({
       id: "sidebar.toggle",
       label: "Toggle Sidebar",
-      keybinding: "CmdOrCtrl+double+S",
+      keybinding: "CmdOrCtrl+S",
       scope: "app",
       execute: () => sidebarStore.toggle(),
     });
@@ -158,7 +159,6 @@ export default function App() {
 
     const unlisten1 = await onEvent("config:changed", () => {
       configStore.load();
-      showToast("Config reloaded", "info");
     });
     unlisteners.push(unlisten1);
 
@@ -202,7 +202,7 @@ export default function App() {
   });
 
   createEffect(() => {
-    if (sidebarStore.isVisible()) {
+    if (sidebarStore.isOpen()) {
       focusSearchBar();
     } else {
       editorStore.focusEditor();
