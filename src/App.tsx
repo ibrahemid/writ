@@ -11,6 +11,7 @@ import { sidebarStore } from "./stores/sidebar";
 import { editorStore } from "./stores/editor";
 import { configStore } from "./stores/config";
 import { focusSearchBar } from "./components/Sidebar/SearchBar";
+import { openContentSearch } from "./commands/search";
 import { registerCommand, executeCommand } from "./commands/registry";
 import { installKeyboardHandler, rebuildKeyMap } from "./commands/keybindings";
 import { onEvent } from "./services/events";
@@ -130,6 +131,13 @@ export default function App() {
       keybinding: "CmdOrCtrl+S",
       scope: "app",
       execute: () => sidebarStore.toggle(),
+    });
+
+    registerCommand({
+      id: "search.openContent",
+      label: "Search content…",
+      scope: "app",
+      execute: openContentSearch,
     });
 
     registerCommand({

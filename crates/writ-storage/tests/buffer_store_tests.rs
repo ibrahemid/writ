@@ -131,6 +131,54 @@ fn save_content_updates_fts_index() {
 }
 
 #[test]
+fn delete_removes_buffer_from_fts_index() {
+    let (_dir, store) = setup();
+    let doc = make_doc("orphan-1", "untitled");
+    store.insert(&doc).unwrap();
+    store.save_content("orphan-1", "foobar baseline").unwrap();
+    assert_eq!(store.search("foobar").unwrap(), vec!["orphan-1"]);
+
+    store.delete("orphan-1").expect("delete failed");
+
+    assert!(
+        store.search("foobar").unwrap().is_empty(),
+        "deleting a buffer must also drop its FTS row"
+    );
+}
+
+#[test]
+fn search_finds_only_live_buffers_after_reinsert() {
+    let (_dir, store) = setup();
+
+    let first = make_doc("recycle-a", "untitled");
+    store.insert(&first).unwrap();
+    store.save_content("recycle-a", "foobar in first buffer").unwrap();
+    store.delete("recycle-a").unwrap();
+
+    let second = make_doc("recycle-b", "untitled");
+    store.insert(&second).unwrap();
+    store.save_content("recycle-b", "foobar in second buffer").unwrap();
+
+    let hits = store.search("foobar").unwrap();
+    assert_eq!(hits, vec!["recycle-b"]);
+}
+
+#[test]
+fn rebuild_fts_recovers_index_from_buffers() {
+    let (_dir, store) = setup();
+    let doc = make_doc("rebuild-1", "untitled");
+    store.insert(&doc).unwrap();
+    store.save_content("rebuild-1", "lorem ipsum dolor").unwrap();
+
+    store
+        .rebuild_fts()
+        .expect("rebuild_fts must succeed on a healthy store");
+
+    let hits = store.search("ipsum").unwrap();
+    assert_eq!(hits, vec!["rebuild-1"]);
+}
+
+#[test]
 fn rename_buffer_updates_title() {
     let (_dir, store) = setup();
     let doc = make_doc("ren1", "original-title");

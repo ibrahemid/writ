@@ -6,12 +6,18 @@ vi.mock("../../services/tauri", () => ({
   updateConfig: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("../../services/autosave", () => ({
+  flushAutosave: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { sidebarStore } from "../../stores/sidebar";
 import { configStore } from "../../stores/config";
 import { searchBuffers, getConfig, updateConfig } from "../../services/tauri";
+import { flushAutosave } from "../../services/autosave";
 import type { WritConfig } from "../../types/config";
 
 const mockedSearch = vi.mocked(searchBuffers);
+const mockedFlush = vi.mocked(flushAutosave);
 const mockedGetConfig = vi.mocked(getConfig);
 const mockedUpdateConfig = vi.mocked(updateConfig);
 
@@ -143,6 +149,23 @@ describe("sidebarStore", () => {
 
       expect(mockedSearch).toHaveBeenCalledOnce();
       expect(mockedSearch).toHaveBeenCalledWith("final");
+    });
+
+    it("flushes pending autosaves before issuing the search", async () => {
+      const order: string[] = [];
+      mockedFlush.mockImplementationOnce(async () => {
+        order.push("flush");
+      });
+      mockedSearch.mockImplementationOnce(async () => {
+        order.push("search");
+        return [];
+      });
+
+      sidebarStore.setSearchQuery("foobar");
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(mockedFlush).toHaveBeenCalledOnce();
+      expect(order).toEqual(["flush", "search"]);
     });
   });
 });

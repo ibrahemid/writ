@@ -1,5 +1,6 @@
 import { createSignal, createRoot } from "solid-js";
 import { searchBuffers } from "../services/tauri";
+import { flushAutosave } from "../services/autosave";
 import { configStore } from "./config";
 
 function createSidebarStore() {
@@ -49,6 +50,7 @@ function createSidebarStore() {
 
     searchTimer = setTimeout(async () => {
       try {
+        await flushAutosave();
         const ids = await searchBuffers(query);
         setSearchResultIds(ids);
       } catch {

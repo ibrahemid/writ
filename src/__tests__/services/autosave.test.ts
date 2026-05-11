@@ -4,7 +4,12 @@ vi.mock("../../services/tauri", () => ({
   saveBufferContent: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { debouncedSave, cancelAutosave, onAutosaveError } from "../../services/autosave";
+import {
+  debouncedSave,
+  cancelAutosave,
+  onAutosaveError,
+  flushAutosave,
+} from "../../services/autosave";
 import { saveBufferContent } from "../../services/tauri";
 
 const mockedSave = vi.mocked(saveBufferContent);
@@ -95,6 +100,39 @@ describe("autosave", () => {
 
       expect(mockedSave).toHaveBeenCalledOnce();
       expect(mockedSave).toHaveBeenCalledWith("buf-b", "b");
+    });
+  });
+
+  describe("flushAutosave", () => {
+    it("fires a pending save immediately for the given buffer", async () => {
+      debouncedSave("buf-1", "fresh", 300);
+
+      expect(mockedSave).not.toHaveBeenCalled();
+
+      await flushAutosave("buf-1");
+
+      expect(mockedSave).toHaveBeenCalledOnce();
+      expect(mockedSave).toHaveBeenCalledWith("buf-1", "fresh");
+
+      await vi.advanceTimersByTimeAsync(300);
+      expect(mockedSave).toHaveBeenCalledOnce();
+    });
+
+    it("flushes every pending buffer when called without an id", async () => {
+      debouncedSave("buf-a", "a", 300);
+      debouncedSave("buf-b", "b", 300);
+
+      await flushAutosave();
+
+      expect(mockedSave).toHaveBeenCalledTimes(2);
+      expect(mockedSave).toHaveBeenCalledWith("buf-a", "a");
+      expect(mockedSave).toHaveBeenCalledWith("buf-b", "b");
+    });
+
+    it("is a no-op when nothing is pending", async () => {
+      await flushAutosave();
+      await flushAutosave("nobody");
+      expect(mockedSave).not.toHaveBeenCalled();
     });
   });
 });
