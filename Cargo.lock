@@ -5544,6 +5544,7 @@ version = "0.1.0-2"
 dependencies = [
  "serde",
  "serde_json",
+ "thiserror 2.0.18",
  "toml 0.8.2",
  "writ-core",
 ]
@@ -5583,6 +5584,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "writ-core",
+ "writ-plugin",
  "writ-storage",
 ]
 

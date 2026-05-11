@@ -1,7 +1,9 @@
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 use tracing::info;
 use writ_core::config::WritConfig;
+use writ_plugin::transform::builtins::register_builtins;
+use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
@@ -17,6 +19,7 @@ pub struct AppState {
     pub buffers_dir: PathBuf,
     pub watcher_ignore: IgnoreSet,
     pub pending_opens: Mutex<Vec<String>>,
+    pub transforms: RwLock<TransformRegistry>,
 }
 
 impl AppState {
@@ -43,6 +46,10 @@ impl AppState {
         let store = BufferStore::new(conn, buffers_dir.clone());
         let watcher_ignore = crate::watcher::handler::create_ignore_set();
 
+        let mut transforms = TransformRegistry::new();
+        register_builtins(&mut transforms)?;
+        info!(count = transforms.len(), "transform registry initialized");
+
         Ok(Self {
             store: Mutex::new(store),
             config_store,
@@ -51,6 +58,7 @@ impl AppState {
             buffers_dir,
             watcher_ignore,
             pending_opens: Mutex::new(Vec::new()),
+            transforms: RwLock::new(transforms),
         })
     }
 }
