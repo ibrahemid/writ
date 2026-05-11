@@ -1,24 +1,53 @@
 .titlebar {
   height: var(--writ-titlebar-height);
-  background: var(--writ-bg-secondary);
+  background: var(--writ-surface-raised);
   display: flex;
-  align-items: center;
-  padding: 0 12px;
+  align-items: stretch;
   user-select: none;
   -webkit-user-select: none;
   border-bottom: 1px solid var(--writ-border-soft);
   flex-shrink: 0;
 }
 
-.titlebar-controls {
+.titlebar-tabs {
+  flex: 1;
   display: flex;
-  gap: 8px;
-  align-items: center;
+  align-items: stretch;
+  min-width: 0;
+  overflow: hidden;
 }
 
-.titlebar-btn {
-  width: 14px;
-  height: 14px;
+.titlebar-right {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--writ-space-3);
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity 100ms ease;
+}
+
+.titlebar-right:hover {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .titlebar-right {
+    transition: none;
+  }
+}
+
+.titlebar-mac .titlebar-controls-mac {
+  padding-left: 20px;
+  padding-right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.maclight {
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   border: none;
   display: flex;
@@ -26,34 +55,74 @@
   justify-content: center;
   cursor: pointer;
   padding: 0;
-  color: transparent;
-  transition: color 0.15s;
   overflow: hidden;
+  transition: filter 80ms ease;
 }
 
-.titlebar-btn-close {
-  background: #f7768e;
+.maclight svg {
+  width: 12px;
+  height: 12px;
+  opacity: 0;
+  transition: opacity 80ms ease;
 }
 
-.titlebar-btn-minimize {
-  background: #e0af68;
+.maclight-close { background: #ff5f57; }
+.maclight-min   { background: #ffbd2e; }
+.maclight-max   { background: #28c840; }
+
+.titlebar-controls-mac:hover .maclight svg {
+  opacity: 1;
 }
 
-.titlebar-controls:hover .titlebar-btn {
-  color: #0e0e14;
+.titlebar-controls-mac.is-blurred .maclight {
+  background: #4a4a52;
 }
 
-.titlebar-btn:hover {
-  filter: brightness(1.1);
+.titlebar-controls-mac.is-blurred .maclight svg {
+  opacity: 0;
 }
 
-.titlebar-title {
-  font-size: var(--writ-font-size-sm);
-  color: var(--writ-text-secondary);
-  flex: 1;
-  text-align: center;
+.maclight:hover {
+  filter: brightness(1.05);
 }
 
-.titlebar-spacer {
-  width: 36px;
+.titlebar-controls-win {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+
+.winctrl {
+  width: 46px;
+  height: var(--writ-titlebar-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--writ-foreground-muted);
+  cursor: pointer;
+  transition: background 80ms ease, color 80ms ease;
+}
+
+.winctrl:hover {
+  background: var(--writ-surface-hover);
+  color: var(--writ-foreground-default);
+}
+
+.winctrl-close:hover {
+  background: var(--writ-status-error);
+  color: #ffffff;
+}
+
+.titlebar-linux .winctrl {
+  color: var(--writ-foreground-default);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maclight,
+  .maclight svg,
+  .winctrl {
+    transition: none;
+  }
 }

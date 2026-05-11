@@ -11,4 +11,5 @@ export interface WritConfig {
   keybindings: Record<string, string>;
   history: { max_entries: number };
   storage: { path: string };
+  theme: { preset: string; overrides: Record<string, string> };
 }

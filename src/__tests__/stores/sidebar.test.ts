@@ -36,6 +36,7 @@ function buildConfig(overrides: Partial<WritConfig["sidebar"]> = {}): WritConfig
     keybindings: {},
     history: { max_entries: 500 },
     storage: { path: "~/.writ" },
+    theme: { preset: "warp-dark", overrides: {} },
   };
 }
 

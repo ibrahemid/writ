@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatKeybinding } from "../../lib/keybinding-format";
+import { formatKeybinding, keybindingSegments } from "../../lib/keybinding-format";
 
 describe("formatKeybinding", () => {
   it("formats CmdOrCtrl+K to ⌘K on darwin", () => {
@@ -41,5 +41,31 @@ describe("formatKeybinding", () => {
 
   it("preserves single-key bindings unchanged", () => {
     expect(formatKeybinding("Escape", { isMac: true })).toBe("Escape");
+  });
+});
+
+describe("keybindingSegments", () => {
+  it("returns two segments for Shift+Shift on darwin", () => {
+    expect(keybindingSegments("Shift+Shift", { isMac: true })).toEqual(["⇧", "⇧"]);
+  });
+
+  it("returns two segments for Shift+Shift on non-darwin", () => {
+    expect(keybindingSegments("Shift+Shift", { isMac: false })).toEqual(["Shift", "Shift"]);
+  });
+
+  it("splits CmdOrCtrl+K into modifier and key on darwin", () => {
+    expect(keybindingSegments("CmdOrCtrl+K", { isMac: true })).toEqual(["⌘", "K"]);
+  });
+
+  it("splits CmdOrCtrl+Shift+T into three segments on darwin", () => {
+    expect(keybindingSegments("CmdOrCtrl+Shift+T", { isMac: true })).toEqual(["⌘", "⇧", "T"]);
+  });
+
+  it("returns single segment for F2", () => {
+    expect(keybindingSegments("F2", { isMac: true })).toEqual(["F2"]);
+  });
+
+  it("returns empty array for undefined", () => {
+    expect(keybindingSegments(undefined)).toEqual([]);
   });
 });

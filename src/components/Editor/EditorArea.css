@@ -17,6 +17,6 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--writ-text-muted);
+  color: var(--writ-foreground-subtle);
   font-size: 16px;
 }

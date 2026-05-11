@@ -1,5 +1,4 @@
-import { Show, createMemo, Switch, Match, For } from "solid-js";
-import TabBar from "./TabBar";
+import { Show, createMemo } from "solid-js";
 import EditorInstance from "./EditorInstance";
 import StatusBar from "./StatusBar";
 import { bufferStore } from "../../stores/buffers";
@@ -14,7 +13,6 @@ export default function EditorArea() {
 
   return (
     <div class="editor-area">
-      <TabBar />
       <div class="editor-content">
         <Show when={activeBuffer()} fallback={<div class="editor-empty">No buffer open</div>}>
           {(buf) => <EditorInstance buffer={buf()} />}

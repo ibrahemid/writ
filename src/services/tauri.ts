@@ -103,6 +103,37 @@ export async function minimizeWindow(): Promise<void> {
   } catch {}
 }
 
+export async function startDraggingWindow(): Promise<void> {
+  try {
+    const win = getCurrentWindow();
+    await win.startDragging();
+  } catch {}
+}
+
+export async function toggleMaximizeWindow(): Promise<void> {
+  try {
+    const win = getCurrentWindow();
+    const maximized = await win.isMaximized();
+    if (maximized) {
+      await win.unmaximize();
+    } else {
+      await win.maximize();
+    }
+  } catch {}
+}
+
+export async function onWindowFocusChange(
+  handler: (focused: boolean) => void,
+): Promise<() => void> {
+  try {
+    const win = getCurrentWindow();
+    const unlisten = await win.onFocusChanged(({ payload }) => handler(payload));
+    return unlisten;
+  } catch {
+    return () => {};
+  }
+}
+
 export async function onDragDrop(
   handler: (event: DragDropEvent) => void,
 ): Promise<() => void> {

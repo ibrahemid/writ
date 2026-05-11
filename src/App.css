@@ -3,7 +3,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--writ-bg-primary);
+  background: var(--writ-surface-background);
   border-radius: var(--writ-window-radius);
   border: 1px solid var(--writ-border-soft);
 }

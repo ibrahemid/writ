@@ -11,7 +11,7 @@
 .palette {
   width: 560px;
   max-height: 440px;
-  background: var(--writ-bg-secondary);
+  background: var(--writ-surface-raised);
   border: 1px solid var(--writ-border-soft);
   border-radius: var(--writ-radius-3);
   overflow: hidden;
@@ -26,13 +26,13 @@
   padding: 0 var(--writ-space-5);
   font-size: 14px;
   background: transparent;
-  color: var(--writ-text-primary);
+  color: var(--writ-foreground-default);
   border-bottom: 1px solid var(--writ-border-soft);
   letter-spacing: 0.01em;
 }
 
 .palette-input::placeholder {
-  color: var(--writ-text-muted);
+  color: var(--writ-foreground-subtle);
 }
 
 .palette-results {
@@ -48,7 +48,7 @@
   width: 100%;
   padding: var(--writ-space-3) var(--writ-space-4);
   text-align: left;
-  color: var(--writ-text-secondary);
+  color: var(--writ-foreground-muted);
   font-size: var(--writ-font-size);
   border-radius: var(--writ-radius-2);
   background: transparent;
@@ -56,8 +56,8 @@
 }
 
 .palette-item.is-selected {
-  background: var(--writ-bg-hover);
-  color: var(--writ-text-primary);
+  background: var(--writ-surface-hover);
+  color: var(--writ-foreground-default);
 }
 
 .palette-item-text {
@@ -78,7 +78,7 @@
 
 .palette-item-desc {
   font-size: var(--writ-font-size-xs);
-  color: var(--writ-text-muted);
+  color: var(--writ-foreground-subtle);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -91,13 +91,13 @@
 
 .palette-empty-title {
   font-size: 13px;
-  color: var(--writ-text-secondary);
+  color: var(--writ-foreground-muted);
   margin-bottom: var(--writ-space-3);
 }
 
 .palette-empty-hint {
   font-size: var(--writ-font-size-xs);
-  color: var(--writ-text-muted);
+  color: var(--writ-foreground-subtle);
 }
 
 @media (prefers-reduced-motion: reduce) {

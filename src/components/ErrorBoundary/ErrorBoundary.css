@@ -10,15 +10,15 @@
 
 .error-boundary-title {
   font-size: 18px;
-  color: var(--writ-error);
+  color: var(--writ-status-error);
 }
 
 .error-boundary-message {
   padding: 12px;
-  background: var(--writ-bg-secondary);
-  border: 1px solid var(--writ-border);
+  background: var(--writ-surface-raised);
+  border: 1px solid var(--writ-border-default);
   border-radius: 4px;
-  color: var(--writ-text-secondary);
+  color: var(--writ-foreground-muted);
   font-size: var(--writ-font-size-sm);
   max-width: 600px;
   overflow: auto;
@@ -26,8 +26,8 @@
 
 .error-boundary-reset {
   padding: 8px 16px;
-  background: var(--writ-accent);
-  color: var(--writ-bg-primary);
+  background: var(--writ-accent-default);
+  color: var(--writ-surface-background);
   border-radius: 4px;
   font-size: var(--writ-font-size-sm);
 }

@@ -7,10 +7,10 @@ import {
   rectangularSelection, crosshairCursor,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, indentOnInput } from "@codemirror/language";
+import { syntaxHighlighting, bracketMatching, indentOnInput } from "@codemirror/language";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
-import { oneDark } from "@codemirror/theme-one-dark";
+import { writTheme, writHighlight } from "./cm-theme";
 import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
 import { rust } from "@codemirror/lang-rust";
@@ -94,7 +94,7 @@ export default function EditorInstance(props: Props) {
       indentOnInput(),
       history(),
       highlightSelectionMatches(),
-      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      syntaxHighlighting(writHighlight, { fallback: true }),
       keymap.of([
         { key: "Alt-ArrowUp", run: addCursorUp },
         { key: "Alt-ArrowDown", run: addCursorDown },
@@ -104,7 +104,7 @@ export default function EditorInstance(props: Props) {
         ...searchKeymap,
         indentWithTab,
       ]),
-      oneDark,
+      writTheme,
       EditorView.lineWrapping,
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
@@ -131,24 +131,6 @@ export default function EditorInstance(props: Props) {
             maybeDetectFromContent(view.state.doc.toString(), true);
           });
           return false;
-        },
-      }),
-      EditorView.theme({
-        "&": {
-          height: "100%",
-          fontSize: "var(--writ-font-size)",
-          fontFamily: "var(--writ-font-mono)",
-        },
-        ".cm-scroller": {
-          overflow: "auto",
-        },
-        ".cm-content": {
-          padding: "8px 0",
-        },
-        ".cm-gutters": {
-          background: "var(--writ-bg-primary)",
-          border: "none",
-          color: "var(--writ-text-muted)",
         },
       }),
     ];

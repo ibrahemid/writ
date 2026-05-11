@@ -1,0 +1,41 @@
+{
+  "id": "dracula",
+  "name": "Dracula",
+  "surface": {
+    "background": "#282a36",
+    "sunken": "#21222c",
+    "raised": "#2d2f3a",
+    "elevated": "#383a4a",
+    "input": "#2d2f3a",
+    "hover": "#44475a"
+  },
+  "foreground": {
+    "default": "#f8f8f2",
+    "muted": "#b6b8c2",
+    "subtle": "#6272a4"
+  },
+  "border": {
+    "default": "#383a4a",
+    "soft": "#2d2f3a",
+    "focus": "#bd93f9",
+    "pill": "#44475a"
+  },
+  "accent": {
+    "default": "#bd93f9",
+    "hover": "#caa9fa"
+  },
+  "status": {
+    "success": "#50fa7b",
+    "warning": "#f1fa8c",
+    "error": "#ff5555"
+  },
+  "syntax": {
+    "keyword": "#ff79c6",
+    "string": "#f1fa8c",
+    "comment": "#6272a4",
+    "function": "#50fa7b",
+    "number": "#bd93f9",
+    "type": "#8be9fd",
+    "variable": "#f8f8f2"
+  }
+}
