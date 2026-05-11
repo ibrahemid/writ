@@ -19,9 +19,9 @@ export default function CommandPalette() {
 
   const filtered = createMemo(() => {
     const q = query().toLowerCase().trim();
-    const all = getAllCommands();
-    if (!q) return all;
-    return all.filter(cmd =>
+    const visible = getAllCommands().filter(cmd => cmd.scope === "app");
+    if (!q) return visible;
+    return visible.filter(cmd =>
       cmd.label.toLowerCase().includes(q) ||
       cmd.id.toLowerCase().includes(q) ||
       (cmd.description?.toLowerCase().includes(q) ?? false)

@@ -1,0 +1,41 @@
+{
+  "id": "warp-dark",
+  "name": "Warp Dark",
+  "surface": {
+    "background": "#0e0e14",
+    "sunken": "#0a0a10",
+    "raised": "#12121a",
+    "elevated": "#1a1a2e",
+    "input": "#16161e",
+    "hover": "#1e1e2e"
+  },
+  "foreground": {
+    "default": "#e0e0e0",
+    "muted": "#888899",
+    "subtle": "#555566"
+  },
+  "border": {
+    "default": "#1e1e2e",
+    "soft": "#16161f",
+    "focus": "#7aa2f7",
+    "pill": "#232334"
+  },
+  "accent": {
+    "default": "#7aa2f7",
+    "hover": "#89b4fa"
+  },
+  "status": {
+    "success": "#9ece6a",
+    "warning": "#e0af68",
+    "error": "#f7768e"
+  },
+  "syntax": {
+    "keyword": "#bb9af7",
+    "string": "#9ece6a",
+    "comment": "#565f89",
+    "function": "#7aa2f7",
+    "number": "#ff9e64",
+    "type": "#2ac3de",
+    "variable": "#c0caf5"
+  }
+}

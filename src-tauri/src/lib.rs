@@ -4,6 +4,7 @@ pub mod hotkey;
 pub mod logging;
 pub mod state;
 pub mod watcher;
+pub mod window_state;
 
 use events::{emit_event, WritFrontendEvent};
 use state::AppState;

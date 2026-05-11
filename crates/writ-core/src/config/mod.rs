@@ -52,11 +52,11 @@ fn default_autosave_debounce_ms() -> u32 {
 }
 
 fn default_window_width() -> u32 {
-    800
+    1100
 }
 
 fn default_window_height() -> u32 {
-    600
+    720
 }
 
 fn default_max_entries() -> u32 {
@@ -65,6 +65,10 @@ fn default_max_entries() -> u32 {
 
 fn default_storage_path() -> String {
     "~/.writ".to_string()
+}
+
+fn default_theme_preset() -> String {
+    "warp-dark".to_string()
 }
 
 fn default_keybindings() -> HashMap<String, String> {
@@ -204,6 +208,29 @@ impl Default for HistoryConfig {
     }
 }
 
+/// UI theme configuration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThemeConfig {
+    /// Identifier of the active preset theme.
+    #[serde(default = "default_theme_preset")]
+    pub preset: String,
+    /// Per-token color overrides applied on top of the preset.
+    ///
+    /// Keys are dot-separated token paths such as `accent.default` or
+    /// `surface.background`. Values are CSS color strings.
+    #[serde(default)]
+    pub overrides: HashMap<String, String>,
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        Self {
+            preset: default_theme_preset(),
+            overrides: HashMap::new(),
+        }
+    }
+}
+
 /// On-disk storage location configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StorageConfig {
@@ -251,6 +278,9 @@ pub struct WritConfig {
     /// On-disk storage location configuration.
     #[serde(default)]
     pub storage: StorageConfig,
+    /// UI theme configuration.
+    #[serde(default)]
+    pub theme: ThemeConfig,
 }
 
 impl Default for WritConfig {
@@ -263,6 +293,7 @@ impl Default for WritConfig {
             keybindings: default_keybindings(),
             history: HistoryConfig::default(),
             storage: StorageConfig::default(),
+            theme: ThemeConfig::default(),
         }
     }
 }

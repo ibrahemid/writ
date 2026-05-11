@@ -17,8 +17,8 @@ fn default_config_has_expected_values() {
     assert_eq!(config.editor.tab_size, 2);
     assert_eq!(config.editor.autosave_debounce_ms, 300);
 
-    assert_eq!(config.window.width, 800);
-    assert_eq!(config.window.height, 600);
+    assert_eq!(config.window.width, 1100);
+    assert_eq!(config.window.height, 720);
 
     assert_eq!(
         config.keybindings.get("buffer.new").map(String::as_str),
@@ -93,4 +93,41 @@ fn legacy_sidebar_mode_field_is_silently_ignored() {
     let toml_str = "[sidebar]\nmode = \"floating\"\nopen = true\n";
     let parsed: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
     assert!(parsed.sidebar.open);
+}
+
+#[test]
+fn theme_defaults_to_warp_dark() {
+    let config = WritConfig::default();
+    assert_eq!(config.theme.preset, "warp-dark");
+    assert!(config.theme.overrides.is_empty());
+}
+
+#[test]
+fn theme_section_round_trips() {
+    let mut config = WritConfig::default();
+    config.theme.preset = "dracula".to_string();
+    config
+        .theme
+        .overrides
+        .insert("accent.default".to_string(), "#ff7b00".to_string());
+    let toml_str = toml::to_string(&config).expect("serialization failed");
+    let restored: WritConfig = toml::from_str(&toml_str).expect("deserialization failed");
+    assert_eq!(restored.theme.preset, "dracula");
+    assert_eq!(
+        restored.theme.overrides.get("accent.default"),
+        Some(&"#ff7b00".to_string()),
+    );
+}
+
+#[test]
+fn missing_theme_section_uses_defaults() {
+    let toml_str = "[sidebar]\ntoggle = \"CmdOrCtrl+S\"\n";
+    let parsed: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert_eq!(parsed.theme.preset, "warp-dark");
+}
+
+#[test]
+fn config_serialization_emits_theme_section() {
+    let toml_str = toml::to_string(&WritConfig::default()).expect("serialization failed");
+    assert!(toml_str.contains("[theme]"));
 }

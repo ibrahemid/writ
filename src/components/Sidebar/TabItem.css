@@ -4,20 +4,20 @@
   padding: 4px 12px;
   cursor: pointer;
   font-size: var(--writ-font-size-sm);
-  color: var(--writ-text-secondary);
+  color: var(--writ-foreground-muted);
   border-radius: 4px;
   margin: 1px 4px;
   gap: 4px;
 }
 
 .tab-item:hover {
-  background: var(--writ-bg-hover);
-  color: var(--writ-text-primary);
+  background: var(--writ-surface-hover);
+  color: var(--writ-foreground-default);
 }
 
 .tab-item-active {
-  background: var(--writ-bg-tab-active);
-  color: var(--writ-text-accent);
+  background: var(--writ-surface-elevated);
+  color: var(--writ-accent-default);
 }
 
 .tab-item-title {
@@ -28,7 +28,7 @@
 }
 
 .tab-item-secondary {
-  color: var(--writ-text-muted);
+  color: var(--writ-foreground-subtle);
   font-size: 10px;
 }
 
@@ -46,14 +46,14 @@
   padding: 0 3px;
   border-radius: 3px;
   cursor: pointer;
-  color: var(--writ-text-muted);
+  color: var(--writ-foreground-subtle);
 }
 
 .tab-item-action:hover {
-  color: var(--writ-text-primary);
+  color: var(--writ-foreground-default);
   background: rgba(255, 255, 255, 0.1);
 }
 
 .tab-item-close:hover {
-  color: var(--writ-error);
+  color: var(--writ-status-error);
 }

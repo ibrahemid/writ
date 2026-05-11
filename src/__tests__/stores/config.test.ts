@@ -20,6 +20,7 @@ const MOCK_CONFIG: WritConfig = {
   keybindings: {},
   history: { max_entries: 1000 },
   storage: { path: "~/.writ" },
+  theme: { preset: "warp-dark", overrides: {} },
 };
 
 describe("configStore", () => {

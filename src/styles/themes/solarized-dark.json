@@ -1,0 +1,41 @@
+{
+  "id": "solarized-dark",
+  "name": "Solarized Dark",
+  "surface": {
+    "background": "#002b36",
+    "sunken": "#001f27",
+    "raised": "#073642",
+    "elevated": "#0a4655",
+    "input": "#073642",
+    "hover": "#0a4655"
+  },
+  "foreground": {
+    "default": "#eee8d5",
+    "muted": "#93a1a1",
+    "subtle": "#586e75"
+  },
+  "border": {
+    "default": "#073642",
+    "soft": "#053340",
+    "focus": "#268bd2",
+    "pill": "#0a4655"
+  },
+  "accent": {
+    "default": "#268bd2",
+    "hover": "#2aa198"
+  },
+  "status": {
+    "success": "#859900",
+    "warning": "#b58900",
+    "error": "#dc322f"
+  },
+  "syntax": {
+    "keyword": "#859900",
+    "string": "#2aa198",
+    "comment": "#586e75",
+    "function": "#268bd2",
+    "number": "#d33682",
+    "type": "#b58900",
+    "variable": "#eee8d5"
+  }
+}

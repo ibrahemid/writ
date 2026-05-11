@@ -81,7 +81,10 @@ export default function TabBar() {
           )}
         </For>
       </div>
-      <button class="tabbar-new" onClick={() => bufferStore.createTab()}>+</button>
+      <button
+        class="tabbar-new"
+        onClick={() => bufferStore.createTab()}
+      >+</button>
     </div>
   );
 }

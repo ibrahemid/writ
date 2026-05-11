@@ -3,6 +3,7 @@ import TitleBar from "./components/TitleBar/TitleBar";
 import EditorArea from "./components/Editor/EditorArea";
 import Sidebar from "./components/Sidebar/Sidebar";
 import CommandPalette, { toggleCommandPalette } from "./components/CommandPalette/CommandPalette";
+import ThemeEditor, { openThemeEditor } from "./components/ThemeEditor/ThemeEditor";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
 import ToastContainer, { showToast } from "./components/Notifications/Toast";
@@ -11,6 +12,7 @@ import { bufferStore } from "./stores/buffers";
 import { sidebarStore } from "./stores/sidebar";
 import { editorStore } from "./stores/editor";
 import { configStore } from "./stores/config";
+import { themeStore } from "./stores/theme";
 import { focusSearchBar } from "./components/Sidebar/SearchBar";
 import { openContentSearch } from "./commands/search";
 import { registerCommand, executeCommand } from "./commands/registry";
@@ -18,6 +20,7 @@ import { installKeyboardHandler, rebuildKeyMap } from "./commands/keybindings";
 import { onEvent } from "./services/events";
 import { onAutosaveError } from "./services/autosave";
 import { onDragDrop, consumePendingOpens } from "./services/tauri";
+import { restoreWindowSize, installWindowSizePersistence } from "./services/window-size";
 import type { UnlistenFn } from "./services/events";
 import "./styles/global.css";
 import "./App.css";
@@ -43,7 +46,12 @@ export default function App() {
   let pollTimer: ReturnType<typeof setInterval> | null = null;
 
   onMount(async () => {
+    themeStore.applyToRoot();
     await configStore.load();
+    themeStore.loadConfig(configStore.config().theme);
+    await restoreWindowSize();
+    const offWindowResize = await installWindowSizePersistence();
+    unlisteners.push(offWindowResize);
     sidebarStore.hydrateFromConfig();
     await bufferStore.load();
 
@@ -183,6 +191,14 @@ export default function App() {
       execute: () => bufferStore.clearAllHistory(),
     });
 
+    registerCommand({
+      id: "theme.customize",
+      label: "Customize theme…",
+      description: "Switch presets or override individual colors live",
+      scope: "app",
+      execute: () => openThemeEditor(),
+    });
+
     rebuildKeyMap();
     installKeyboardHandler();
 
@@ -247,6 +263,7 @@ export default function App() {
           <EditorArea />
         </div>
         <CommandPalette />
+        <ThemeEditor />
         <ContextMenu />
         <ToastContainer />
       </div>

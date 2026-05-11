@@ -11,11 +11,14 @@
     },
     "app": {
         "withGlobalTauri": false,
+        "macOSPrivateApi": true,
         "windows": [
             {
                 "title": "Writ",
-                "width": 800,
-                "height": 600,
+                "width": 1100,
+                "height": 720,
+                "minWidth": 720,
+                "minHeight": 480,
                 "resizable": true,
                 "decorations": false,
                 "transparent": true,

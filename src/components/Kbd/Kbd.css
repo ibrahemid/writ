@@ -1,7 +1,14 @@
-.kbd {
+.kbd-chord {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--writ-space-1);
+  white-space: nowrap;
+}
+
+.kbd-key {
   font-family: var(--writ-font-mono);
   font-size: var(--writ-font-size-xs);
-  color: var(--writ-text-secondary);
+  color: var(--writ-foreground-muted);
   letter-spacing: 0.04em;
   display: inline-flex;
   align-items: center;
@@ -9,13 +16,18 @@
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--writ-border-soft);
   border-radius: var(--writ-radius-1);
-  white-space: nowrap;
   min-width: 18px;
+  height: 18px;
   justify-content: center;
 }
 
-.kbd-muted {
-  color: var(--writ-text-muted);
+.kbd-chord-muted .kbd-key {
+  color: var(--writ-foreground-subtle);
   background: transparent;
   border-color: transparent;
+}
+
+.kbd-key-empty {
+  font-family: var(--writ-font-mono);
+  color: var(--writ-foreground-subtle);
 }

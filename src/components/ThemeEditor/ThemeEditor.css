@@ -1,0 +1,181 @@
+.theme-editor-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 64px 24px;
+  z-index: 110;
+}
+
+.theme-editor {
+  width: 620px;
+  max-height: calc(100vh - 128px);
+  background: var(--writ-surface-raised);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-radius-3);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.theme-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--writ-space-4);
+  padding: var(--writ-space-4) var(--writ-space-5);
+  border-bottom: 1px solid var(--writ-border-soft);
+}
+
+.theme-editor-title {
+  font-size: 14px;
+  color: var(--writ-foreground-default);
+  letter-spacing: 0.01em;
+}
+
+.theme-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-3);
+}
+
+.theme-editor-preset {
+  background: var(--writ-surface-input);
+  color: var(--writ-foreground-default);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-radius-1);
+  font-size: var(--writ-font-size-sm);
+  font-family: var(--writ-font-mono);
+  padding: var(--writ-space-2) var(--writ-space-3);
+  outline: none;
+  cursor: pointer;
+}
+
+.theme-editor-btn {
+  background: transparent;
+  color: var(--writ-foreground-muted);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-radius-1);
+  font-size: var(--writ-font-size-sm);
+  padding: var(--writ-space-2) var(--writ-space-4);
+  cursor: pointer;
+  transition: color 100ms ease, background 100ms ease, border-color 100ms ease;
+}
+
+.theme-editor-btn:hover {
+  color: var(--writ-foreground-default);
+  background: var(--writ-surface-hover);
+}
+
+.theme-editor-btn-primary {
+  background: var(--writ-accent-default);
+  color: var(--writ-surface-background);
+  border-color: transparent;
+}
+
+.theme-editor-btn-primary:hover {
+  background: var(--writ-accent-hover);
+  color: var(--writ-surface-background);
+}
+
+.theme-editor-close {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--writ-foreground-subtle);
+  cursor: pointer;
+  border-radius: var(--writ-radius-1);
+  margin-left: var(--writ-space-1);
+  transition: color 100ms ease, background 100ms ease;
+}
+
+.theme-editor-close:hover {
+  color: var(--writ-foreground-default);
+  background: var(--writ-surface-hover);
+}
+
+.theme-editor-body {
+  overflow-y: auto;
+  padding: var(--writ-space-4) var(--writ-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-5);
+}
+
+.theme-editor-group-title {
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-foreground-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-bottom: var(--writ-space-3);
+  font-weight: 500;
+}
+
+.theme-editor-tokens {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--writ-space-2) var(--writ-space-4);
+}
+
+.theme-editor-row {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-3);
+  padding: var(--writ-space-2) var(--writ-space-3);
+  border-radius: var(--writ-radius-1);
+  cursor: pointer;
+  transition: background 100ms ease;
+  position: relative;
+}
+
+.theme-editor-row:hover {
+  background: var(--writ-surface-hover);
+}
+
+.theme-editor-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--writ-radius-1);
+  border: 1px solid var(--writ-border-soft);
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.theme-editor-picker {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+}
+
+.theme-editor-name {
+  flex: 1;
+  font-size: var(--writ-font-size-sm);
+  color: var(--writ-foreground-default);
+  font-family: var(--writ-font-mono);
+}
+
+.theme-editor-hex {
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-foreground-subtle);
+  font-family: var(--writ-font-mono);
+  letter-spacing: 0.04em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-editor-row,
+  .theme-editor-btn {
+    transition: none;
+  }
+}

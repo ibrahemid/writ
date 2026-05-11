@@ -1,21 +1,21 @@
 .search-bar {
   padding: 8px;
-  border-bottom: 1px solid var(--writ-border);
+  border-bottom: 1px solid var(--writ-border-default);
   flex-shrink: 0;
 }
 
 .search-input {
   width: 100%;
   padding: 6px 10px;
-  background: var(--writ-bg-input);
-  border: 1px solid var(--writ-border);
+  background: var(--writ-surface-input);
+  border: 1px solid var(--writ-border-default);
   border-radius: 4px;
   font-size: var(--writ-font-size-sm);
-  color: var(--writ-text-primary);
+  color: var(--writ-foreground-default);
 }
 
 .search-input::placeholder {
-  color: var(--writ-text-muted);
+  color: var(--writ-foreground-subtle);
 }
 
 .search-input:focus {

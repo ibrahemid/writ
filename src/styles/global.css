@@ -10,7 +10,7 @@ html, body {
   height: 100%;
   overflow: hidden;
   background: transparent;
-  color: var(--writ-text-primary);
+  color: var(--writ-foreground-default);
   font-family: var(--writ-font-mono);
   font-size: var(--writ-font-size);
   line-height: var(--writ-line-height);
@@ -33,12 +33,12 @@ html, body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--writ-border);
+  background: var(--writ-border-default);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--writ-text-muted);
+  background: var(--writ-foreground-subtle);
 }
 
 ::selection {

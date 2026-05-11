@@ -1,34 +1,36 @@
 :root {
-  --writ-bg-primary: #0e0e14;
-  --writ-bg-secondary: #12121a;
-  --writ-bg-sidebar: #0a0a10;
-  --writ-bg-tab-active: #1a1a2e;
-  --writ-bg-tab-inactive: #12121a;
-  --writ-bg-statusbar: #0a0a10;
-  --writ-bg-input: #16161e;
-  --writ-bg-hover: #1e1e2e;
-  --writ-bg-toast: #1a1a2e;
+  --writ-surface-background: #0e0e14;
+  --writ-surface-sunken:     #0a0a10;
+  --writ-surface-raised:     #12121a;
+  --writ-surface-elevated:   #1a1a2e;
+  --writ-surface-input:      #16161e;
+  --writ-surface-hover:      #1e1e2e;
 
-  --writ-text-primary: #e0e0e0;
-  --writ-text-secondary: #888899;
-  --writ-text-muted: #555566;
-  --writ-text-accent: #7aa2f7;
+  --writ-foreground-default: #e0e0e0;
+  --writ-foreground-muted:   #888899;
+  --writ-foreground-subtle:  #555566;
 
-  --writ-border: #1e1e2e;
-  --writ-border-soft: #16161f;
-  --writ-border-focus: #7aa2f7;
-  --writ-border-pill: #232334;
+  --writ-border-default: #1e1e2e;
+  --writ-border-soft:    #16161f;
+  --writ-border-focus:   #7aa2f7;
+  --writ-border-pill:    #232334;
+
+  --writ-accent-default: #7aa2f7;
+  --writ-accent-hover:   #89b4fa;
+
+  --writ-status-success: #9ece6a;
+  --writ-status-warning: #e0af68;
+  --writ-status-error:   #f7768e;
+
+  --writ-syntax-keyword:  #bb9af7;
+  --writ-syntax-string:   #9ece6a;
+  --writ-syntax-comment:  #565f89;
+  --writ-syntax-function: #7aa2f7;
+  --writ-syntax-number:   #ff9e64;
+  --writ-syntax-type:     #2ac3de;
+  --writ-syntax-variable: #c0caf5;
 
   --writ-bg-tab-pill: transparent;
-  --writ-bg-tab-pill-active: #1f1f33;
-
-  --writ-status-dot-ok: #9ece6a;
-
-  --writ-accent: #7aa2f7;
-  --writ-accent-hover: #89b4fa;
-  --writ-error: #f7768e;
-  --writ-warning: #e0af68;
-  --writ-success: #9ece6a;
 
   --writ-font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", ui-monospace, monospace;
   --writ-font-size: 14px;
@@ -51,6 +53,6 @@
   --writ-sidebar-width: 260px;
   --writ-statusbar-height: 28px;
   --writ-tabbar-height: 36px;
-  --writ-titlebar-height: 32px;
+  --writ-titlebar-height: 36px;
   --writ-tab-pill-height: 28px;
 }

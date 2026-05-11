@@ -3,7 +3,7 @@
   flex-shrink: 0;
   width: 0;
   height: 100%;
-  background: var(--writ-bg-sidebar);
+  background: var(--writ-surface-sunken);
   border-right: 1px solid var(--writ-border-soft);
   display: flex;
   flex-direction: column;
@@ -29,7 +29,7 @@
 .sidebar-section-title {
   padding: 8px 12px 4px;
   font-size: 11px;
-  color: var(--writ-text-muted);
+  color: var(--writ-foreground-subtle);
   text-transform: uppercase;
   letter-spacing: 1px;
   flex-shrink: 0;
@@ -42,7 +42,7 @@
 
 .tab-list-empty {
   padding: 8px 12px;
-  color: var(--writ-text-muted);
+  color: var(--writ-foreground-subtle);
   font-size: var(--writ-font-size-sm);
   font-style: italic;
 }

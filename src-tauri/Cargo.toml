@@ -19,7 +19,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 writ-core = { path = "../crates/writ-core" }
 writ-storage = { path = "../crates/writ-storage", features = ["bundled"] }
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-updater = "2"
