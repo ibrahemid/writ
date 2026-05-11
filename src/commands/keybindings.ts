@@ -40,12 +40,15 @@ export function rebuildKeyMap() {
   const regularBindings: { commandId: string; keybinding: string }[] = [];
 
   for (const cmd of getAllCommands()) {
-    if (!cmd.keybinding) continue;
-
-    if (cmd.keybinding === "Shift+Shift") {
-      shiftCommandId = cmd.id;
-    } else {
-      const doubleTapMatch = cmd.keybinding.match(/^(.+)\+double\+(.+)$/i);
+    const bindings = [cmd.keybinding, ...(cmd.keybindingAliases ?? [])].filter(
+      (b): b is string => Boolean(b),
+    );
+    for (const binding of bindings) {
+      if (binding === "Shift+Shift") {
+        shiftCommandId = cmd.id;
+        continue;
+      }
+      const doubleTapMatch = binding.match(/^(.+)\+double\+(.+)$/i);
       if (doubleTapMatch) {
         doubleTapBindings.push({
           commandId: cmd.id,
@@ -53,7 +56,7 @@ export function rebuildKeyMap() {
           baseKey: doubleTapMatch[2].toUpperCase(),
         });
       } else {
-        regularBindings.push({ commandId: cmd.id, keybinding: cmd.keybinding });
+        regularBindings.push({ commandId: cmd.id, keybinding: binding });
       }
     }
   }

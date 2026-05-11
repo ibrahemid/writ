@@ -1,3 +1,4 @@
+import { abbreviateTitle } from "../../lib/buffer-name";
 import "./TabItem.css";
 
 interface Props {
@@ -14,8 +15,9 @@ export default function TabItem(props: Props) {
     <div
       class={`tab-item ${props.isActive ? "tab-item-active" : ""}`}
       onClick={props.onClick}
+      title={props.title}
     >
-      <span class="tab-item-title">{props.title}</span>
+      <span class="tab-item-title">{abbreviateTitle(props.title)}</span>
       {props.secondary && <span class="tab-item-secondary">{props.secondary}</span>}
       <div class="tab-item-actions">
         {props.onRestore && (

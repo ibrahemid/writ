@@ -9,7 +9,7 @@
 html, body {
   height: 100%;
   overflow: hidden;
-  background: var(--writ-bg-primary);
+  background: transparent;
   color: var(--writ-text-primary);
   font-family: var(--writ-font-mono);
   font-size: var(--writ-font-size);

@@ -1,21 +1,22 @@
-import { editorStore } from "../../stores/editor";
+import { createMemo } from "solid-js";
+import { getCommand } from "../../commands/registry";
+import { formatKeybinding } from "../../lib/keybinding-format";
 import "./StatusBar.css";
 
 export default function StatusBar() {
+  const paletteHint = createMemo(() => formatKeybinding(getCommand("palette.open")?.keybinding));
+
   return (
     <div class="statusbar">
-      <div class="statusbar-item">
-        {editorStore.language() ?? "Plain Text"}
+      <div class="statusbar-left">
+        <span class="statusbar-dot" aria-hidden="true" />
+        <span class="statusbar-label">autosaved</span>
       </div>
       <div class="statusbar-spacer" />
-      <div class="statusbar-item">
-        Ln {editorStore.cursorLine()}, Col {editorStore.cursorCol()}
-        {editorStore.selectionCount() > 1 && ` (${editorStore.selectionCount()} cursors)`}
+      <div class="statusbar-right">
+        <span class="statusbar-kbd">{paletteHint()}</span>
+        <span class="statusbar-label">command palette</span>
       </div>
-      <div class="statusbar-item">
-        {editorStore.lineCount()} lines
-      </div>
-      <div class="statusbar-item">UTF-8</div>
     </div>
   );
 }

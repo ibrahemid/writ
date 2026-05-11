@@ -15,7 +15,14 @@
   --writ-text-accent: #7aa2f7;
 
   --writ-border: #1e1e2e;
+  --writ-border-soft: #16161f;
   --writ-border-focus: #7aa2f7;
+  --writ-border-pill: #232334;
+
+  --writ-bg-tab-pill: transparent;
+  --writ-bg-tab-pill-active: #1f1f33;
+
+  --writ-status-dot-ok: #9ece6a;
 
   --writ-accent: #7aa2f7;
   --writ-accent-hover: #89b4fa;
@@ -26,10 +33,24 @@
   --writ-font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", ui-monospace, monospace;
   --writ-font-size: 14px;
   --writ-font-size-sm: 12px;
+  --writ-font-size-xs: 11px;
   --writ-line-height: 1.6;
+
+  --writ-space-1: 2px;
+  --writ-space-2: 4px;
+  --writ-space-3: 8px;
+  --writ-space-4: 12px;
+  --writ-space-5: 16px;
+  --writ-space-6: 24px;
+
+  --writ-radius-1: 4px;
+  --writ-radius-2: 6px;
+  --writ-radius-3: 10px;
+  --writ-window-radius: 10px;
 
   --writ-sidebar-width: 260px;
   --writ-statusbar-height: 28px;
   --writ-tabbar-height: 36px;
   --writ-titlebar-height: 32px;
+  --writ-tab-pill-height: 28px;
 }

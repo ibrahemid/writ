@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectLanguage } from "../../services/language-detect";
+import { detectLanguage, detectFromContent } from "../../services/language-detect";
 
 describe("detectLanguage", () => {
   describe("extension-based detection", () => {
@@ -100,5 +100,60 @@ describe("detectLanguage", () => {
     it("returns null when filename has no extension", () => {
       expect(detectLanguage("", "Makefile")).toBeNull();
     });
+  });
+});
+
+describe("detectFromContent", () => {
+  it("detects rust from fn + use + struct", () => {
+    const text = `use std::collections::HashMap;\n\nstruct Buffer { id: String, content: String }\n\nfn main() {\n    let mut buf = Buffer { id: String::new(), content: String::new() };\n    println!("{}", buf.id);\n}`;
+    expect(detectFromContent(text)).toBe("rust");
+  });
+
+  it("detects typescript from interface + type annotations", () => {
+    const text = `import { createSignal } from "solid-js";\n\ninterface Buffer {\n  id: string;\n  content: string;\n}\n\nexport function makeBuffer(id: string): Buffer {\n  return { id, content: "" };\n}`;
+    expect(detectFromContent(text)).toBe("typescript");
+  });
+
+  it("detects python from def + from import + class", () => {
+    const text = `from typing import Optional\n\nclass Buffer:\n    def __init__(self, id: str):\n        self.id = id\n        self.content = ""\n\n    def save(self) -> None:\n        print(self.id)`;
+    expect(detectFromContent(text)).toBe("python");
+  });
+
+  it("detects json from a parsable object", () => {
+    const text = `{\n  "name": "writ",\n  "version": "0.1.0",\n  "private": true,\n  "dependencies": {\n    "solid-js": "^1.9.0"\n  }\n}`;
+    expect(detectFromContent(text)).toBe("json");
+  });
+
+  it("detects markdown from headings + lists", () => {
+    const text = `# Writ\n\n## Overview\n\nA lightweight editor.\n\n- Always-ready scratchpad\n- Autosave\n- Full-text search\n\nSee [docs](docs/ARCHITECTURE.md) for details.`;
+    expect(detectFromContent(text)).toBe("markdown");
+  });
+
+  it("returns null for whitespace-only input", () => {
+    expect(detectFromContent("   \n\n  \t")).toBeNull();
+  });
+
+  it("returns null for content shorter than threshold", () => {
+    expect(detectFromContent("fn x()")).toBeNull();
+  });
+
+  it("returns null for ambiguous low-signal text", () => {
+    const text = "this is a plain paragraph of english words with no syntactic anchors at all.";
+    expect(detectFromContent(text)).toBeNull();
+  });
+
+  it("returns null for almost-json (invalid syntax)", () => {
+    const text = `{\n  name: writ,\n  version: 0.1.0\n}`;
+    expect(detectFromContent(text)).toBeNull();
+  });
+
+  it("detects bash from shebang content", () => {
+    const text = `#!/bin/bash\nset -euo pipefail\nfor file in *.txt; do\n  echo "$file"\ndone`;
+    expect(detectFromContent(text)).toBe("shell");
+  });
+
+  it("detects html from doctype", () => {
+    const text = `<!DOCTYPE html>\n<html>\n<head><title>x</title></head>\n<body><div class="x">hi</div></body>\n</html>`;
+    expect(detectFromContent(text)).toBe("html");
   });
 });
