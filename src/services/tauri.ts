@@ -3,6 +3,15 @@ import { getCurrentWindow, type DragDropEvent } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { BufferDocument } from "../types/buffer";
 import type { WritConfig } from "../types/config";
+import type { TransformDescriptor } from "../types/transforms";
+
+export async function listTransforms(): Promise<TransformDescriptor[]> {
+  return invoke("list_transforms");
+}
+
+export async function applyTransform(transformId: string, input: string): Promise<string> {
+  return invoke("apply_transform", { transformId, input });
+}
 
 export async function createBuffer(title?: string): Promise<BufferDocument> {
   return invoke("create_buffer", { title: title ?? null });

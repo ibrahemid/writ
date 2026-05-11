@@ -18,3 +18,5 @@
 pub mod api;
 /// Metadata declared by a Writ plugin on disk.
 pub mod manifest;
+/// Text-transform trait, registry, and built-in transforms.
+pub mod transform;

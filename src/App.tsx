@@ -15,6 +15,7 @@ import { configStore } from "./stores/config";
 import { themeStore } from "./stores/theme";
 import { focusSearchBar } from "./components/Sidebar/SearchBar";
 import { openContentSearch } from "./commands/search";
+import { registerTransformCommands } from "./commands/transforms";
 import { registerCommand, executeCommand } from "./commands/registry";
 import { installKeyboardHandler, rebuildKeyMap } from "./commands/keybindings";
 import { onEvent } from "./services/events";
@@ -198,6 +199,13 @@ export default function App() {
       scope: "app",
       execute: () => openThemeEditor(),
     });
+
+    try {
+      await registerTransformCommands();
+    } catch (error) {
+      showToast("Failed to load transform commands", "error");
+      console.error("registerTransformCommands failed", error);
+    }
 
     rebuildKeyMap();
     installKeyboardHandler();
