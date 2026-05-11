@@ -1,15 +1,18 @@
 .sidebar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: var(--writ-sidebar-width);
+  position: relative;
+  flex-shrink: 0;
+  width: 0;
   height: 100%;
   background: var(--writ-bg-sidebar);
   border-right: 1px solid var(--writ-border);
-  z-index: 10;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: width 180ms ease;
+}
+
+.sidebar.is-open {
+  width: var(--writ-sidebar-width);
 }
 
 .sidebar-section {
@@ -41,4 +44,10 @@
   color: var(--writ-text-muted);
   font-size: var(--writ-font-size-sm);
   font-style: italic;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none;
+  }
 }

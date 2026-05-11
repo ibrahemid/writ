@@ -6,8 +6,9 @@ fn default_config_has_expected_values() {
 
     assert_eq!(config.hotkey.toggle, "CmdOrCtrl+Shift+Space");
 
-    assert_eq!(config.sidebar.toggle, "CmdOrCtrl+B");
+    assert_eq!(config.sidebar.toggle, "CmdOrCtrl+S");
     assert!(!config.sidebar.default_visible);
+    assert!(!config.sidebar.open);
     assert_eq!(config.sidebar.position, SidebarPosition::Left);
 
     assert_eq!(config.editor.font_family, "monospace");
@@ -36,8 +37,9 @@ fn default_config_has_expected_values() {
     );
     assert_eq!(
         config.keybindings.get("sidebar.toggle").map(String::as_str),
-        Some("CmdOrCtrl+B")
+        Some("CmdOrCtrl+S")
     );
+    assert!(!config.keybindings.contains_key("sidebar.cycleMode"));
     assert_eq!(
         config.keybindings.get("palette.open").map(String::as_str),
         Some("CmdOrCtrl+Shift+P")
@@ -68,4 +70,27 @@ fn config_roundtrips_through_toml() {
     let toml_str = toml::to_string(&original).expect("serialization failed");
     let restored: WritConfig = toml::from_str(&toml_str).expect("deserialization failed");
     assert_eq!(original, restored);
+}
+
+#[test]
+fn sidebar_open_defaults_when_missing_from_toml() {
+    let toml_str = "[sidebar]\ntoggle = \"CmdOrCtrl+S\"\n";
+    let parsed: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert!(!parsed.sidebar.open);
+}
+
+#[test]
+fn sidebar_open_serde_roundtrip() {
+    let mut config = WritConfig::default();
+    config.sidebar.open = true;
+    let toml_str = toml::to_string(&config).expect("serialization failed");
+    let restored: WritConfig = toml::from_str(&toml_str).expect("deserialization failed");
+    assert!(restored.sidebar.open);
+}
+
+#[test]
+fn legacy_sidebar_mode_field_is_silently_ignored() {
+    let toml_str = "[sidebar]\nmode = \"floating\"\nopen = true\n";
+    let parsed: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert!(parsed.sidebar.open);
 }
