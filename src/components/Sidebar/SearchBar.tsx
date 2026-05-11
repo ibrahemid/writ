@@ -14,7 +14,7 @@ export default function SearchBar() {
   return (
     <div class="search-bar">
       <input
-        ref={searchInputRef}
+        ref={(el) => (searchInputRef = el)}
         type="text"
         placeholder="Search buffers..."
         value={sidebarStore.searchQuery()}

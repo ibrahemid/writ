@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
+use tracing::warn;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 
 use crate::database::queries;
@@ -48,12 +49,20 @@ impl BufferStore {
         queries::restore_buffer(&self.conn, id)
     }
 
-    /// Deletes the buffer row and its backing content file.
+    /// Deletes the buffer row, its backing content file, and its FTS
+    /// row.
     ///
-    /// The content file is removed first if it exists; the row is then
-    /// deleted regardless.
+    /// The FTS row is removed first while the buffer row still exists
+    /// (the FTS lookup is keyed off `buffers.rowid`), then the content
+    /// file, then the buffer row itself. Failures to remove the FTS row
+    /// or content file are not allowed to block the database deletion:
+    /// the on-disk artifact is best-effort, but losing the buffer row
+    /// without losing the FTS row is what produces orphan hits, so the
+    /// FTS step propagates errors.
     pub fn delete(&self, id: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
+        let fts = crate::fts::FtsIndex::new(&self.conn);
+        fts.delete(id)?;
         let file_path = self.buffers_dir.join(&doc.filename);
         if file_path.exists() {
             std::fs::remove_file(&file_path)?;
@@ -74,15 +83,18 @@ impl BufferStore {
     /// FTS index.
     ///
     /// The `updated_at` column is stamped on every call. FTS update
-    /// failures are swallowed: search may temporarily trail writes but
-    /// never blocks them.
+    /// failures are logged but do not propagate: search may temporarily
+    /// trail writes, never block them. Use [`Self::rebuild_fts`] to
+    /// recover from a damaged index.
     pub fn save_content(&self, id: &str, content: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
         let file_path = self.buffers_dir.join(&doc.filename);
         std::fs::write(&file_path, content)?;
         queries::update_timestamp(&self.conn, id)?;
         let fts = crate::fts::FtsIndex::new(&self.conn);
-        let _ = fts.update(id, &doc.title, content);
+        if let Err(e) = fts.update(id, &doc.title, content) {
+            warn!(buffer_id = id, error = %e, "fts update failed during save_content");
+        }
         Ok(())
     }
 
@@ -140,7 +152,9 @@ impl BufferStore {
         let buffer_file = self.buffers_dir.join(&doc.filename);
         std::fs::write(&buffer_file, content)?;
         let fts = crate::fts::FtsIndex::new(&self.conn);
-        let _ = fts.update(&doc.id, &doc.title, content);
+        if let Err(e) = fts.update(&doc.id, &doc.title, content) {
+            warn!(buffer_id = %doc.id, error = %e, "fts update failed during open_from_path");
+        }
         Ok(())
     }
 
@@ -162,12 +176,38 @@ impl BufferStore {
         std::fs::write(&buffer_file, content)?;
         queries::update_timestamp(&self.conn, id)?;
         let fts = crate::fts::FtsIndex::new(&self.conn);
-        let _ = fts.update(id, &doc.title, content);
+        if let Err(e) = fts.update(id, &doc.title, content) {
+            warn!(buffer_id = id, error = %e, "fts update failed during save_to_source");
+        }
         Ok(())
     }
 
     /// Updates the detected or user-assigned language for a buffer.
     pub fn update_language(&self, id: &str, language: Option<&str>) -> StorageResult<()> {
         queries::update_language(&self.conn, id, language)
+    }
+
+    /// Drops every FTS row and rebuilds the index from the buffers
+    /// table plus on-disk content.
+    ///
+    /// Intended as a recovery escape hatch when the index drifts from
+    /// the buffer set (orphaned rows, missing rows). Currently unwired;
+    /// will be exposed as a debug command.
+    pub fn rebuild_fts(&self) -> StorageResult<()> {
+        self.conn.execute("DELETE FROM buffer_fts", [])?;
+        let fts = crate::fts::FtsIndex::new(&self.conn);
+        for status in [BufferStatus::Active, BufferStatus::History] {
+            let docs = self.list_by_status(status)?;
+            for doc in &docs {
+                let file_path = self.buffers_dir.join(&doc.filename);
+                let content = if file_path.exists() {
+                    std::fs::read_to_string(&file_path).unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                fts.insert(&doc.id, &doc.title, &content)?;
+            }
+        }
+        Ok(())
     }
 }
