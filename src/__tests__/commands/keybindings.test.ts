@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { registerCommand, getAllCommands } from "../../commands/registry";
-import { rebuildKeyMap, handleKeyDown } from "../../commands/keybindings";
+import {
+  rebuildKeyMap,
+  handleKeyDown,
+  setKeybindingOverrides,
+  effectiveBinding,
+  pruneLegacyDefaultOverrides,
+} from "../../commands/keybindings";
 
 function createKeyEvent(overrides: Partial<KeyboardEvent> & { key: string }): KeyboardEvent {
   return {
@@ -97,5 +103,59 @@ describe("keybindings", () => {
 
   it("does not assert getAllCommands count (registry persists across tests)", () => {
     expect(getAllCommands().length).toBeGreaterThan(0);
+  });
+
+  it("applies an override so handleKeyDown routes the new chord", () => {
+    let executed = false;
+    registerCommand({
+      id: "test.override",
+      label: "Test Override",
+      keybinding: "CmdOrCtrl+H",
+      scope: "app",
+      execute: () => { executed = true; },
+    });
+    setKeybindingOverrides({ "test.override": "CmdOrCtrl+J" });
+    rebuildKeyMap();
+
+    const oldChord = handleKeyDown(createKeyEvent({ key: "h", metaKey: true }));
+    const newChord = handleKeyDown(createKeyEvent({ key: "j", metaKey: true }));
+
+    expect(oldChord).toBe(false);
+    expect(newChord).toBe(true);
+    expect(executed).toBe(true);
+
+    setKeybindingOverrides({});
+    rebuildKeyMap();
+  });
+
+  it("treats an empty override as 'no shortcut'", () => {
+    setKeybindingOverrides({ "palette.open": "" });
+    expect(effectiveBinding("palette.open", "Shift+Shift")).toBeUndefined();
+    setKeybindingOverrides({});
+  });
+});
+
+describe("pruneLegacyDefaultOverrides", () => {
+  it("drops entries whose value matches the historical default for that id", () => {
+    const pruned = pruneLegacyDefaultOverrides({
+      "palette.open": "CmdOrCtrl+Shift+P",
+      "buffer.new": "CmdOrCtrl+N",
+      "user.choice": "CmdOrCtrl+Alt+X",
+    });
+    expect(pruned).toEqual({ "user.choice": "CmdOrCtrl+Alt+X" });
+  });
+
+  it("retains entries the user has customized away from the legacy default", () => {
+    const pruned = pruneLegacyDefaultOverrides({
+      "palette.open": "CmdOrCtrl+K",
+    });
+    expect(pruned).toEqual({ "palette.open": "CmdOrCtrl+K" });
+  });
+
+  it("returns an empty object when only legacy defaults are present", () => {
+    const pruned = pruneLegacyDefaultOverrides({
+      "palette.open": "CmdOrCtrl+Shift+P",
+    });
+    expect(pruned).toEqual({});
   });
 });

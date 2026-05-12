@@ -21,6 +21,7 @@ const MOCK_CONFIG: WritConfig = {
   history: { max_entries: 1000 },
   storage: { path: "~/.writ" },
   theme: { preset: "warp-dark", overrides: {} },
+  commands: { usage: {} },
 };
 
 describe("configStore", () => {
@@ -84,7 +85,61 @@ describe("configStore", () => {
       expect(config.hotkey.toggle).toBeTruthy();
       expect(config.editor.autosave_debounce_ms).toBeGreaterThan(0);
       expect(config.history.max_entries).toBeGreaterThan(0);
+      expect(config.commands.usage).toEqual({});
       consoleSpy.mockRestore();
+    });
+
+    it("normalizes a config that is missing the commands section", async () => {
+      const partial = { ...MOCK_CONFIG } as Partial<WritConfig> as WritConfig;
+      delete (partial as { commands?: unknown }).commands;
+      mockedGetConfig.mockResolvedValueOnce(partial);
+
+      await configStore.load();
+
+      expect(configStore.config().commands.usage).toEqual({});
+    });
+  });
+
+  describe("command usage tracking", () => {
+    it("increments count and stamps last_used_ms on recordCommandUse", async () => {
+      await configStore.save(MOCK_CONFIG);
+
+      configStore.recordCommandUse("palette.open", 1_715_000_000_000);
+      configStore.recordCommandUse("palette.open", 1_715_000_001_000);
+
+      const entry = configStore.config().commands.usage["palette.open"];
+      expect(entry.count).toBe(2);
+      expect(entry.last_used_ms).toBe(1_715_000_001_000);
+    });
+
+    it("clears all usage entries via clearCommandUsage", async () => {
+      await configStore.save({
+        ...MOCK_CONFIG,
+        commands: { usage: { "x.y": { count: 4, last_used_ms: 100 } } },
+      });
+
+      await configStore.clearCommandUsage();
+
+      expect(configStore.config().commands.usage).toEqual({});
+      expect(mockedUpdateConfig).toHaveBeenCalled();
+    });
+
+    it("prunes usage entries whose command id is unknown", async () => {
+      await configStore.save({
+        ...MOCK_CONFIG,
+        commands: {
+          usage: {
+            "live.cmd": { count: 1, last_used_ms: 1 },
+            "removed.cmd": { count: 5, last_used_ms: 2 },
+          },
+        },
+      });
+
+      configStore.pruneCommandUsage(new Set(["live.cmd"]));
+
+      expect(configStore.config().commands.usage).toEqual({
+        "live.cmd": { count: 1, last_used_ms: 1 },
+      });
     });
   });
 });

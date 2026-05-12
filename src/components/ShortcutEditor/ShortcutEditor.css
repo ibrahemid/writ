@@ -1,0 +1,198 @@
+.shortcut-editor-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 64px 24px;
+  z-index: 110;
+}
+
+.shortcut-editor {
+  width: 680px;
+  max-height: calc(100vh - 128px);
+  background: var(--writ-surface-raised);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-radius-3);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.shortcut-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--writ-space-4);
+  padding: var(--writ-space-4) var(--writ-space-5);
+  border-bottom: 1px solid var(--writ-border-soft);
+}
+
+.shortcut-editor-title {
+  font-size: 14px;
+  color: var(--writ-foreground-default);
+  letter-spacing: 0.01em;
+}
+
+.shortcut-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-3);
+}
+
+.shortcut-editor-btn {
+  background: transparent;
+  color: var(--writ-foreground-muted);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-radius-1);
+  font-size: var(--writ-font-size-sm);
+  padding: var(--writ-space-1) var(--writ-space-3);
+  cursor: pointer;
+  transition: background 100ms ease, color 100ms ease, border-color 100ms ease;
+}
+
+.shortcut-editor-btn:hover {
+  background: var(--writ-surface-hover);
+  color: var(--writ-foreground-default);
+}
+
+.shortcut-editor-btn:focus-visible {
+  outline: 2px solid var(--writ-accent-default);
+  outline-offset: 2px;
+}
+
+.shortcut-editor-btn-primary {
+  background: var(--writ-accent-default);
+  color: var(--writ-accent-foreground);
+  border-color: var(--writ-accent-default);
+}
+
+.shortcut-editor-btn-primary:hover {
+  background: var(--writ-accent-hover);
+  color: var(--writ-accent-foreground);
+}
+
+.shortcut-editor-close {
+  background: transparent;
+  color: var(--writ-foreground-subtle);
+  border: 0;
+  padding: 4px;
+  border-radius: var(--writ-radius-1);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shortcut-editor-close:hover {
+  background: var(--writ-surface-hover);
+  color: var(--writ-foreground-default);
+}
+
+.shortcut-editor-close:focus-visible {
+  outline: 2px solid var(--writ-accent-default);
+  outline-offset: 2px;
+}
+
+.shortcut-editor-body {
+  overflow-y: auto;
+  padding: var(--writ-space-2) var(--writ-space-3) var(--writ-space-4);
+}
+
+.shortcut-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: var(--writ-space-4);
+  padding: var(--writ-space-3) var(--writ-space-3);
+  border-radius: var(--writ-radius-2);
+}
+
+.shortcut-row + .shortcut-row {
+  border-top: 1px solid var(--writ-border-soft);
+}
+
+.shortcut-row-info {
+  min-width: 0;
+}
+
+.shortcut-row-label {
+  font-size: 13px;
+  color: var(--writ-foreground-default);
+}
+
+.shortcut-row-desc {
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-foreground-subtle);
+  margin-top: 2px;
+}
+
+.shortcut-row-aliases {
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-foreground-subtle);
+  margin-top: 4px;
+  font-style: italic;
+}
+
+.shortcut-row-conflict {
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-warning-foreground, #c98a00);
+  margin-top: 4px;
+}
+
+.shortcut-row-chip {
+  min-width: 120px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.shortcut-row-empty,
+.shortcut-row-listening {
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-foreground-subtle);
+  font-style: italic;
+}
+
+.shortcut-row-listening {
+  color: var(--writ-accent-default);
+  font-style: normal;
+}
+
+.shortcut-row-controls {
+  display: flex;
+  gap: var(--writ-space-2);
+}
+
+.shortcut-row-btn {
+  background: transparent;
+  color: var(--writ-foreground-muted);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-radius-1);
+  font-size: var(--writ-font-size-xs);
+  padding: 2px var(--writ-space-2);
+  cursor: pointer;
+}
+
+.shortcut-row-btn:hover:not(:disabled) {
+  background: var(--writ-surface-hover);
+  color: var(--writ-foreground-default);
+}
+
+.shortcut-row-btn:focus-visible {
+  outline: 2px solid var(--writ-accent-default);
+  outline-offset: 2px;
+}
+
+.shortcut-row-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shortcut-editor-btn,
+  .shortcut-row-btn {
+    transition: none;
+  }
+}

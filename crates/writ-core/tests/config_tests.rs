@@ -1,4 +1,4 @@
-use writ_core::config::{SidebarPosition, WritConfig};
+use writ_core::config::{CommandUsage, SidebarPosition, WritConfig};
 
 #[test]
 fn default_config_has_expected_values() {
@@ -20,30 +20,7 @@ fn default_config_has_expected_values() {
     assert_eq!(config.window.width, 1100);
     assert_eq!(config.window.height, 720);
 
-    assert_eq!(
-        config.keybindings.get("buffer.new").map(String::as_str),
-        Some("CmdOrCtrl+N")
-    );
-    assert_eq!(
-        config.keybindings.get("buffer.close").map(String::as_str),
-        Some("CmdOrCtrl+W")
-    );
-    assert_eq!(
-        config
-            .keybindings
-            .get("history.restoreLast")
-            .map(String::as_str),
-        Some("CmdOrCtrl+Shift+T")
-    );
-    assert_eq!(
-        config.keybindings.get("sidebar.toggle").map(String::as_str),
-        Some("CmdOrCtrl+S")
-    );
-    assert!(!config.keybindings.contains_key("sidebar.cycleMode"));
-    assert_eq!(
-        config.keybindings.get("palette.open").map(String::as_str),
-        Some("CmdOrCtrl+Shift+P")
-    );
+    assert!(config.keybindings.is_empty());
 
     assert_eq!(config.history.max_entries, 500);
 
@@ -130,4 +107,38 @@ fn missing_theme_section_uses_defaults() {
 fn config_serialization_emits_theme_section() {
     let toml_str = toml::to_string(&WritConfig::default()).expect("serialization failed");
     assert!(toml_str.contains("[theme]"));
+}
+
+#[test]
+fn commands_usage_default_is_empty() {
+    let config = WritConfig::default();
+    assert!(config.commands.usage.is_empty());
+}
+
+#[test]
+fn commands_usage_round_trips_through_toml() {
+    let mut config = WritConfig::default();
+    config.commands.usage.insert(
+        "palette.open".to_string(),
+        CommandUsage {
+            count: 17,
+            last_used_ms: 1_715_500_000_000,
+        },
+    );
+    let toml_str = toml::to_string(&config).expect("serialization failed");
+    let restored: WritConfig = toml::from_str(&toml_str).expect("deserialization failed");
+    let entry = restored
+        .commands
+        .usage
+        .get("palette.open")
+        .expect("palette.open usage missing");
+    assert_eq!(entry.count, 17);
+    assert_eq!(entry.last_used_ms, 1_715_500_000_000);
+}
+
+#[test]
+fn partial_config_without_commands_section_deserializes() {
+    let toml_str = "[sidebar]\ntoggle = \"CmdOrCtrl+S\"\n";
+    let parsed: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert!(parsed.commands.usage.is_empty());
 }

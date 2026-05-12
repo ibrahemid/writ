@@ -1,5 +1,5 @@
 import { createSignal, createRoot } from "solid-js";
-import type { WritConfig } from "../types/config";
+import type { WritConfig, CommandUsage } from "../types/config";
 import * as api from "../services/tauri";
 
 const DEFAULT_CONFIG: WritConfig = {
@@ -11,26 +11,112 @@ const DEFAULT_CONFIG: WritConfig = {
   history: { max_entries: 500 },
   storage: { path: "~/.writ" },
   theme: { preset: "warp-dark", overrides: {} },
+  commands: { usage: {} },
 };
+
+const USAGE_FLUSH_DEBOUNCE_MS = 750;
+
+function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
+  return {
+    ...incoming,
+    commands: {
+      usage: incoming.commands?.usage ?? {},
+    },
+  };
+}
+
+function pruneUsage(
+  usage: Record<string, CommandUsage>,
+  knownIds: ReadonlySet<string>,
+): Record<string, CommandUsage> {
+  const next: Record<string, CommandUsage> = {};
+  let changed = false;
+  for (const [id, entry] of Object.entries(usage)) {
+    if (knownIds.has(id)) {
+      next[id] = entry;
+    } else {
+      changed = true;
+    }
+  }
+  return changed ? next : usage;
+}
 
 function createConfigStore() {
   const [config, setConfig] = createSignal<WritConfig>(DEFAULT_CONFIG);
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
   async function load() {
     try {
       const loaded = await api.getConfig();
-      setConfig(loaded);
-    } catch {
+      setConfig(normalizeIncomingConfig(loaded));
+    } catch (err) {
+      console.error("[configStore] failed to load config", err);
       setConfig(DEFAULT_CONFIG);
     }
   }
 
   async function save(updated: WritConfig) {
-    await api.updateConfig(updated);
-    setConfig(updated);
+    const normalized = normalizeIncomingConfig(updated);
+    await api.updateConfig(normalized);
+    setConfig(normalized);
   }
 
-  return { config, load, save };
+  function recordCommandUse(id: string, nowMs: number = Date.now()) {
+    const current = config();
+    const prev = current.commands.usage[id];
+    const next: CommandUsage = {
+      count: (prev?.count ?? 0) + 1,
+      last_used_ms: nowMs,
+    };
+    setConfig({
+      ...current,
+      commands: {
+        ...current.commands,
+        usage: { ...current.commands.usage, [id]: next },
+      },
+    });
+    scheduleUsageFlush();
+  }
+
+  function scheduleUsageFlush() {
+    if (flushTimer) clearTimeout(flushTimer);
+    flushTimer = setTimeout(() => {
+      flushTimer = null;
+      void api.updateConfig(config()).catch((err) => {
+        console.error("[configStore] failed to flush command usage", err);
+      });
+    }, USAGE_FLUSH_DEBOUNCE_MS);
+  }
+
+  async function clearCommandUsage() {
+    const current = config();
+    const updated: WritConfig = {
+      ...current,
+      commands: { ...current.commands, usage: {} },
+    };
+    await save(updated);
+  }
+
+  function pruneCommandUsage(knownIds: ReadonlySet<string>) {
+    const current = config();
+    const pruned = pruneUsage(current.commands.usage, knownIds);
+    if (pruned === current.commands.usage) return;
+    const updated: WritConfig = {
+      ...current,
+      commands: { ...current.commands, usage: pruned },
+    };
+    setConfig(updated);
+    scheduleUsageFlush();
+  }
+
+  return {
+    config,
+    load,
+    save,
+    recordCommandUse,
+    clearCommandUsage,
+    pruneCommandUsage,
+  };
 }
 
 export const configStore = createRoot(createConfigStore);

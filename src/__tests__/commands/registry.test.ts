@@ -1,5 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { registerCommand, getCommand, getAllCommands, executeCommand } from "../../commands/registry";
+import { createRoot, createEffect } from "solid-js";
+import {
+  registerCommand,
+  getCommand,
+  getAllCommands,
+  executeCommand,
+  useCommand,
+  unregisterCommand,
+  registryVersion,
+  setExecuteListener,
+} from "../../commands/registry";
 
 function makeCommand(overrides: Partial<{ id: string; label: string; keybinding: string; execute: () => void }> = {}) {
   return {
@@ -70,6 +80,61 @@ describe("command registry", () => {
 
     it("does nothing for unregistered command", () => {
       expect(() => executeCommand("ghost")).not.toThrow();
+    });
+
+    it("notifies the execute listener with the command id after execute runs", () => {
+      const execute = vi.fn();
+      const listener = vi.fn();
+      registerCommand(makeCommand({ id: "tracked.cmd", execute }));
+      setExecuteListener(listener);
+
+      executeCommand("tracked.cmd");
+
+      expect(execute).toHaveBeenCalledOnce();
+      expect(listener).toHaveBeenCalledWith("tracked.cmd");
+      setExecuteListener(null);
+    });
+
+    it("does not invoke the execute listener for unknown command ids", () => {
+      const listener = vi.fn();
+      setExecuteListener(listener);
+
+      executeCommand("ghost.cmd");
+
+      expect(listener).not.toHaveBeenCalled();
+      setExecuteListener(null);
+    });
+  });
+
+  describe("reactivity", () => {
+    it("bumps registryVersion when a command is registered", () => {
+      const before = registryVersion();
+      registerCommand(makeCommand({ id: "react.register" }));
+      expect(registryVersion()).toBeGreaterThan(before);
+    });
+
+    it("bumps registryVersion when a command is unregistered", () => {
+      registerCommand(makeCommand({ id: "react.remove" }));
+      const before = registryVersion();
+      unregisterCommand("react.remove");
+      expect(registryVersion()).toBeGreaterThan(before);
+    });
+
+    it("useCommand reflects a late registration through a reactive effect", () => {
+      const seen: (string | undefined)[] = [];
+      const dispose = createRoot((d) => {
+        createEffect(() => {
+          seen.push(useCommand("react.late")?.label);
+        });
+        return d;
+      });
+
+      expect(seen[seen.length - 1]).toBeUndefined();
+
+      registerCommand(makeCommand({ id: "react.late", label: "Late" }));
+
+      expect(seen.some((label) => label === "Late")).toBe(true);
+      dispose();
     });
   });
 });
