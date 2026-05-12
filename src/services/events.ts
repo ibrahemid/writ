@@ -8,6 +8,7 @@ type PayloadFor<K extends EventKind> = Extract<WritEvent, { kind: K }>["payload"
 type EventHandler<K extends EventKind> = (payload: PayloadFor<K>) => void;
 
 const EVENT_MAP: Record<EventKind, string> = {
+  "buffer:opened": "writ://buffer-opened",
   "config:changed": "writ://config-changed",
   "buffer:external": "writ://buffer-external",
   "recovery:dirty": "writ://recovery-dirty",

@@ -8,6 +8,17 @@ use std::sync::{Arc, Mutex};
 /// forward them to the frontend without re-encoding.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WritEvent {
+    /// A buffer transitioned to [`crate::buffer::document::BufferStatus::Active`].
+    ///
+    /// Emitted by [`crate::buffer::manager::BufferManager`] for both
+    /// scratch buffers and externally-opened files. The bridge in the
+    /// host adapter translates this into a frontend-visible event.
+    BufferOpened {
+        /// Identifier of the buffer that became active.
+        id: String,
+        /// Human-readable title at the moment of opening.
+        title: String,
+    },
     /// The user's configuration changed. `keys` lists the dotted paths
     /// that changed, so listeners can respond selectively.
     ConfigChanged {
@@ -64,7 +75,13 @@ impl EventBus {
     {
         self.subscribers
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(|poisoned| {
+                tracing::error!(
+                    location = "events::bus::subscribe",
+                    "recovered poisoned mutex"
+                );
+                poisoned.into_inner()
+            })
             .push(Arc::new(handler));
     }
 
@@ -77,7 +94,13 @@ impl EventBus {
         let subscribers = self
             .subscribers
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(|poisoned| {
+                tracing::error!(
+                    location = "events::bus::emit",
+                    "recovered poisoned mutex"
+                );
+                poisoned.into_inner()
+            })
             .clone();
         for subscriber in subscribers {
             subscriber(&event);

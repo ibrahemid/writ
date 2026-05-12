@@ -187,3 +187,47 @@ fn rename_buffer_updates_title() {
     let updated = store.get("ren1").unwrap();
     assert_eq!(updated.title, "new-title");
 }
+
+#[test]
+fn rename_refreshes_fts_title_so_new_title_is_searchable() {
+    let (_dir, store) = setup();
+    let doc = make_doc("ren-fts-a", "alpha");
+    store.insert(&doc).unwrap();
+    store.save_content("ren-fts-a", "body text").unwrap();
+
+    store.rename("ren-fts-a", "beta").unwrap();
+
+    let hits = store.search("beta").unwrap();
+    assert_eq!(hits, vec!["ren-fts-a"]);
+}
+
+#[test]
+fn rename_removes_old_title_from_fts_search_results() {
+    let (_dir, store) = setup();
+    let doc = make_doc("ren-fts-b", "alpha");
+    store.insert(&doc).unwrap();
+    store.save_content("ren-fts-b", "body text").unwrap();
+    assert_eq!(store.search("alpha").unwrap(), vec!["ren-fts-b"]);
+
+    store.rename("ren-fts-b", "beta").unwrap();
+
+    assert!(
+        store.search("alpha").unwrap().is_empty(),
+        "old title must not survive in the FTS index after rename"
+    );
+}
+
+#[test]
+fn rename_preserves_content_searchability() {
+    let (_dir, store) = setup();
+    let doc = make_doc("ren-fts-c", "alpha");
+    store.insert(&doc).unwrap();
+    store
+        .save_content("ren-fts-c", "lorem ipsum dolor sit amet")
+        .unwrap();
+
+    store.rename("ren-fts-c", "beta").unwrap();
+
+    let hits = store.search("ipsum").unwrap();
+    assert_eq!(hits, vec!["ren-fts-c"]);
+}

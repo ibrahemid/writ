@@ -111,9 +111,26 @@ impl BufferStore {
         Ok(content)
     }
 
-    /// Renames a buffer's title and stamps `updated_at`.
+    /// Renames a buffer's title, stamps `updated_at`, and refreshes the
+    /// FTS index so searches against the new title hit immediately.
+    ///
+    /// FTS update failures are logged but do not propagate, matching
+    /// the policy in [`Self::save_content`]: search may temporarily
+    /// trail writes, never block them.
     pub fn rename(&self, id: &str, title: &str) -> StorageResult<()> {
-        queries::rename_buffer(&self.conn, id, title)
+        let doc = queries::get_buffer(&self.conn, id)?;
+        queries::rename_buffer(&self.conn, id, title)?;
+        let file_path = self.buffers_dir.join(&doc.filename);
+        let content = if file_path.exists() {
+            std::fs::read_to_string(&file_path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let fts = crate::fts::FtsIndex::new(&self.conn);
+        if let Err(e) = fts.update(id, title, &content) {
+            warn!(buffer_id = id, error = %e, "fts update failed during rename");
+        }
+        Ok(())
     }
 
     /// Updates the persistent tab order for a buffer.

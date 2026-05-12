@@ -1,3 +1,4 @@
+use crate::poison::recover_poison;
 use crate::state::AppState;
 use tauri::State;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
@@ -8,15 +9,15 @@ pub fn create_buffer(
     state: State<'_, AppState>,
     title: Option<String>,
 ) -> Result<BufferDocument, String> {
-    let mut mgr = BufferManager::new();
+    let mut mgr = BufferManager::new().with_event_bus(state.event_bus.clone());
     let doc = mgr.create_buffer(title).map_err(|e| e.to_string())?;
     let store = state.store.lock().map_err(|e| e.to_string())?;
     store.insert(&doc).map_err(|e| e.to_string())?;
     {
-        let mut ignore = state
-            .watcher_ignore
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut ignore = recover_poison(
+            state.watcher_ignore.lock(),
+            "commands::buffer::create_buffer",
+        );
         ignore.insert(doc.filename.clone());
     }
     store.save_content(&doc.id, "").map_err(|e| e.to_string())?;
@@ -38,10 +39,10 @@ pub fn save_buffer_content(
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(&id).map_err(|e| e.to_string())?;
     {
-        let mut ignore = state
-            .watcher_ignore
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut ignore = recover_poison(
+            state.watcher_ignore.lock(),
+            "commands::buffer::save_buffer_content",
+        );
         ignore.insert(doc.filename.clone());
     }
     store.save_content(&id, &content).map_err(|e| e.to_string())

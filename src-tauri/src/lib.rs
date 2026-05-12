@@ -2,13 +2,14 @@ pub mod commands;
 pub mod events;
 pub mod hotkey;
 pub mod logging;
+pub mod poison;
 pub mod state;
 pub mod watcher;
 pub mod window_state;
 
-use events::{emit_event, WritFrontendEvent};
+use events::{bus_bridge, emit_event, WritFrontendEvent};
+use poison::recover_poison;
 use state::AppState;
-#[cfg(any(target_os = "macos", target_os = "ios"))]
 use tauri::Manager;
 use tauri_plugin_updater::UpdaterExt;
 use tracing::info;
@@ -129,6 +130,8 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     app.set_menu(menu)?;
 
+    // TODO(events-bus): migrate menu-action emission to core::events::bus
+    // once the bridge proves out for BufferOpened. See bus_bridge.rs.
     app.on_menu_event(move |app_handle, event| {
         let id = event.id().0.as_str();
         match id {
@@ -215,6 +218,15 @@ pub fn run() {
         .setup(move |app| {
             let handle = app.handle().clone();
 
+            {
+                let state = app.state::<AppState>();
+                let bridge_handle = handle.clone();
+                bus_bridge::attach_bridge(&state.event_bus, move |frontend_event| {
+                    let _ = emit_event(&bridge_handle, frontend_event);
+                });
+                info!("event bus bridge attached");
+            }
+
             if let Err(e) = build_app_menu(app) {
                 tracing::warn!(error = %e, "failed to build application menu");
             }
@@ -224,13 +236,23 @@ pub fn run() {
             }
 
             let watcher_handle = handle.clone();
-            if let Err(e) = watcher::handler::start_file_watcher(
+            match watcher::handler::start_file_watcher(
                 watcher_handle,
                 config_path,
                 buffers_dir,
                 watcher_ignore,
             ) {
-                tracing::warn!(error = %e, "failed to start file watcher");
+                Ok(handle) => {
+                    let state = app.state::<AppState>();
+                    let mut slot = recover_poison(
+                        state.watcher.lock(),
+                        "lib::setup:watcher_handle_stash",
+                    );
+                    *slot = Some(handle);
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to start file watcher");
+                }
             }
 
             tauri::async_runtime::spawn(async move {
@@ -268,7 +290,11 @@ pub fn run() {
                 info!(count = paths.len(), "files opened from OS");
 
                 let state = app_handle.state::<AppState>();
-                if let Ok(mut pending) = state.pending_opens.lock() {
+                {
+                    let mut pending = recover_poison(
+                        state.pending_opens.lock(),
+                        "lib::run_event:opened_files",
+                    );
                     pending.extend(paths);
                 }
 

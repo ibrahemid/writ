@@ -102,21 +102,27 @@ export async function hideWindow(): Promise<void> {
   try {
     const win = getCurrentWindow();
     await win.hide();
-  } catch {}
+  } catch (err) {
+    console.warn("hideWindow failed:", err);
+  }
 }
 
 export async function minimizeWindow(): Promise<void> {
   try {
     const win = getCurrentWindow();
     await win.minimize();
-  } catch {}
+  } catch (err) {
+    console.warn("minimizeWindow failed:", err);
+  }
 }
 
 export async function startDraggingWindow(): Promise<void> {
   try {
     const win = getCurrentWindow();
     await win.startDragging();
-  } catch {}
+  } catch (err) {
+    console.warn("startDraggingWindow failed:", err);
+  }
 }
 
 export async function toggleMaximizeWindow(): Promise<void> {
@@ -128,7 +134,9 @@ export async function toggleMaximizeWindow(): Promise<void> {
     } else {
       await win.maximize();
     }
-  } catch {}
+  } catch (err) {
+    console.warn("toggleMaximizeWindow failed:", err);
+  }
 }
 
 export async function onWindowFocusChange(
@@ -138,7 +146,8 @@ export async function onWindowFocusChange(
     const win = getCurrentWindow();
     const unlisten = await win.onFocusChanged(({ payload }) => handler(payload));
     return unlisten;
-  } catch {
+  } catch (err) {
+    console.warn("onWindowFocusChange subscription failed:", err);
     return () => {};
   }
 }
