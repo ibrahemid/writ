@@ -1,4 +1,6 @@
+use std::sync::{Arc, Mutex};
 use writ_core::buffer::{BufferManager, BufferStatus};
+use writ_core::events::bus::{EventBus, WritEvent};
 
 #[test]
 fn create_buffer_assigns_uuid_and_timestamp() {
@@ -123,4 +125,59 @@ fn open_external_file_sets_source_path() {
     assert_eq!(buf.source_path, Some(path));
     assert_eq!(buf.title, "todo.md");
     assert_eq!(buf.filename, "todo.md");
+}
+
+#[test]
+fn create_buffer_publishes_buffer_opened_when_bus_attached() {
+    let bus = Arc::new(EventBus::new());
+    let received: Arc<Mutex<Vec<WritEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let received_clone = received.clone();
+    bus.subscribe(move |event| {
+        received_clone.lock().unwrap().push(event.clone());
+    });
+
+    let mut manager = BufferManager::new().with_event_bus(bus.clone());
+    let doc = manager.create_buffer(Some("draft".to_string())).unwrap();
+
+    let events = received.lock().unwrap();
+    assert_eq!(events.len(), 1);
+    match &events[0] {
+        WritEvent::BufferOpened { id, title } => {
+            assert_eq!(id, &doc.id);
+            assert_eq!(title, "draft");
+        }
+        other => panic!("unexpected event: {other:?}"),
+    }
+}
+
+#[test]
+fn open_external_publishes_buffer_opened_when_bus_attached() {
+    let bus = Arc::new(EventBus::new());
+    let received: Arc<Mutex<Vec<WritEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let received_clone = received.clone();
+    bus.subscribe(move |event| {
+        received_clone.lock().unwrap().push(event.clone());
+    });
+
+    let mut manager = BufferManager::new().with_event_bus(bus.clone());
+    let doc = manager
+        .open_external("/tmp/example/notes.md".to_string())
+        .unwrap();
+
+    let events = received.lock().unwrap();
+    assert_eq!(events.len(), 1);
+    match &events[0] {
+        WritEvent::BufferOpened { id, title } => {
+            assert_eq!(id, &doc.id);
+            assert_eq!(title, "notes.md");
+        }
+        other => panic!("unexpected event: {other:?}"),
+    }
+}
+
+#[test]
+fn buffer_manager_without_event_bus_does_not_panic_or_publish() {
+    let mut manager = BufferManager::new();
+    let buf = manager.create_buffer(None).unwrap();
+    assert!(!buf.id.is_empty());
 }

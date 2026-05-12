@@ -1,7 +1,8 @@
 use std::path::PathBuf;
-use std::sync::{Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use tracing::info;
 use writ_core::config::WritConfig;
+use writ_core::events::bus::EventBus;
 use writ_plugin::transform::builtins::register_builtins;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
@@ -9,7 +10,7 @@ use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 
-use crate::watcher::handler::IgnoreSet;
+use crate::watcher::handler::{IgnoreSet, WatcherHandle};
 
 pub struct AppState {
     pub store: Mutex<BufferStore>,
@@ -18,8 +19,10 @@ pub struct AppState {
     pub writ_dir: PathBuf,
     pub buffers_dir: PathBuf,
     pub watcher_ignore: IgnoreSet,
+    pub watcher: Mutex<Option<WatcherHandle>>,
     pub pending_opens: Mutex<Vec<String>>,
     pub transforms: RwLock<TransformRegistry>,
+    pub event_bus: Arc<EventBus>,
 }
 
 impl AppState {
@@ -57,8 +60,10 @@ impl AppState {
             writ_dir,
             buffers_dir,
             watcher_ignore,
+            watcher: Mutex::new(None),
             pending_opens: Mutex::new(Vec::new()),
             transforms: RwLock::new(transforms),
+            event_bus: Arc::new(EventBus::new()),
         })
     }
 }

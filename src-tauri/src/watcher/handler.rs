@@ -1,6 +1,7 @@
 use crate::events::{emit_event, WritFrontendEvent};
-use notify::RecursiveMode;
-use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
+use crate::poison::recover_poison;
+use notify::{RecommendedWatcher, RecursiveMode};
+use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
@@ -14,12 +15,21 @@ pub fn create_ignore_set() -> IgnoreSet {
     Arc::new(Mutex::new(HashSet::new()))
 }
 
+/// Opaque owner of the file watcher's debouncer.
+///
+/// Held by `AppState` so the watcher lives as long as the application.
+/// Dropping this handle drops the inner `Debouncer`, which closes the
+/// event channel and causes the watcher thread to exit cleanly.
+pub struct WatcherHandle {
+    _debouncer: Debouncer<RecommendedWatcher>,
+}
+
 pub fn start_file_watcher(
     app: AppHandle,
     config_path: PathBuf,
     buffers_dir: PathBuf,
     ignore_set: IgnoreSet,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<WatcherHandle, Box<dyn std::error::Error>> {
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
 
     let mut debouncer = new_debouncer(Duration::from_millis(500), tx)?;
@@ -37,11 +47,11 @@ pub fn start_file_watcher(
 
     info!("file watcher started");
 
-    std::mem::forget(debouncer);
-
     let config_path_clone = config_path.clone();
     let buffers_dir_clone = buffers_dir.clone();
 
+    // TODO(events-bus): migrate config:changed and buffer:external emission
+    // to core::events::bus when the bridge proves out. See bus_bridge.rs.
     std::thread::spawn(move || {
         while let Ok(result) = rx.recv() {
             match result {
@@ -68,7 +78,10 @@ pub fn start_file_watcher(
                             }
 
                             let is_internal = {
-                                let mut set = ignore_set.lock().unwrap_or_else(|e| e.into_inner());
+                                let mut set = recover_poison(
+                                    ignore_set.lock(),
+                                    "watcher::handler::event_loop",
+                                );
                                 set.remove(&filename)
                             };
 
@@ -94,7 +107,10 @@ pub fn start_file_watcher(
                 }
             }
         }
+        info!("watcher thread exiting");
     });
 
-    Ok(())
+    Ok(WatcherHandle {
+        _debouncer: debouncer,
+    })
 }

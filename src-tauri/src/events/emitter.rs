@@ -1,9 +1,12 @@
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "payload")]
 pub enum WritFrontendEvent {
+    #[serde(rename = "buffer:opened")]
+    BufferOpened { id: String, title: String },
+
     #[serde(rename = "config:changed")]
     ConfigChanged { keys: Vec<String> },
 
@@ -22,6 +25,7 @@ pub enum WritFrontendEvent {
 
 pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), String> {
     let event_name = match &event {
+        WritFrontendEvent::BufferOpened { .. } => "writ://buffer-opened",
         WritFrontendEvent::ConfigChanged { .. } => "writ://config-changed",
         WritFrontendEvent::BufferExternal { .. } => "writ://buffer-external",
         WritFrontendEvent::RecoveryDirty { .. } => "writ://recovery-dirty",

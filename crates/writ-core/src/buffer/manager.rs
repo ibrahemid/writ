@@ -1,27 +1,48 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use chrono::Utc;
 use uuid::Uuid;
 
 use crate::buffer::document::{BufferDocument, BufferStatus};
 use crate::errors::{WritError, WritResult};
+use crate::events::bus::{EventBus, WritEvent};
 
 /// In-memory collection of buffers with lifecycle operations.
 ///
 /// `BufferManager` is the authoritative view of which buffers exist and
 /// what state each is in. Persistence is performed separately by
 /// `writ-storage`; this type owns only in-memory state.
+///
+/// When constructed with [`Self::with_event_bus`], buffer lifecycle
+/// transitions are published as [`WritEvent`] payloads onto the bus.
+/// A manager without a bus is silent — useful for tests and for any
+/// caller that does not care about lifecycle events.
 pub struct BufferManager {
     buffers: HashMap<String, BufferDocument>,
     next_tab_order: u32,
+    event_bus: Option<Arc<EventBus>>,
 }
 
 impl BufferManager {
-    /// Creates a new, empty manager.
+    /// Creates a new, empty manager with no event bus.
     pub fn new() -> Self {
         Self {
             buffers: HashMap::new(),
             next_tab_order: 0,
+            event_bus: None,
+        }
+    }
+
+    /// Attaches an event bus so lifecycle transitions are published.
+    pub fn with_event_bus(mut self, bus: Arc<EventBus>) -> Self {
+        self.event_bus = Some(bus);
+        self
+    }
+
+    fn publish(&self, event: WritEvent) {
+        if let Some(bus) = &self.event_bus {
+            bus.emit(event);
         }
     }
 
@@ -52,6 +73,10 @@ impl BufferManager {
         };
 
         self.buffers.insert(id, doc.clone());
+        self.publish(WritEvent::BufferOpened {
+            id: doc.id.clone(),
+            title: doc.title.clone(),
+        });
         Ok(doc)
     }
 
@@ -87,6 +112,10 @@ impl BufferManager {
         };
 
         self.buffers.insert(id, doc.clone());
+        self.publish(WritEvent::BufferOpened {
+            id: doc.id.clone(),
+            title: doc.title.clone(),
+        });
         Ok(doc)
     }
 

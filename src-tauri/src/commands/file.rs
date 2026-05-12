@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::poison::recover_poison;
 use crate::state::AppState;
 use tauri::State;
 use writ_core::buffer::document::BufferDocument;
@@ -27,10 +28,10 @@ pub fn open_file_from_path(state: &AppState, path: &str) -> Result<BufferDocumen
         store.restore(&history_buf.id).map_err(|e| e.to_string())?;
         let content = std::fs::read_to_string(file_path).map_err(|e| e.to_string())?;
         {
-            let mut ignore = state
-                .watcher_ignore
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut ignore = recover_poison(
+                state.watcher_ignore.lock(),
+                "commands::file::open_file_from_path:history",
+            );
             ignore.insert(history_buf.filename.clone());
         }
         store
@@ -43,7 +44,7 @@ pub fn open_file_from_path(state: &AppState, path: &str) -> Result<BufferDocumen
 
     let language = file_ops::detect_language_from_path(file_path);
 
-    let mut mgr = BufferManager::new();
+    let mut mgr = BufferManager::new().with_event_bus(state.event_bus.clone());
     let doc = mgr
         .open_external(path.to_string())
         .map_err(|e| e.to_string())?;
@@ -51,10 +52,10 @@ pub fn open_file_from_path(state: &AppState, path: &str) -> Result<BufferDocumen
     let doc = BufferDocument { language, ..doc };
 
     {
-        let mut ignore = state
-            .watcher_ignore
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut ignore = recover_poison(
+            state.watcher_ignore.lock(),
+            "commands::file::open_file_from_path:new",
+        );
         ignore.insert(doc.filename.clone());
     }
 
@@ -87,10 +88,10 @@ pub fn save_to_source(
 
     {
         let doc = store.get(&id).map_err(|e| e.to_string())?;
-        let mut ignore = state
-            .watcher_ignore
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut ignore = recover_poison(
+            state.watcher_ignore.lock(),
+            "commands::file::save_to_source",
+        );
         ignore.insert(doc.filename.clone());
     }
 
