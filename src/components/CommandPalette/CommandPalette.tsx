@@ -1,15 +1,23 @@
 import { createSignal, For, Show, createMemo, createEffect } from "solid-js";
-import { getAllCommands } from "../../commands/registry";
+import { useAllCommands } from "../../commands/registry";
+import { useEffectiveBinding } from "../../commands/keybindings";
+import { partitionEmptyQuery, rankWithQuery } from "../../commands/ranking";
+import { configStore } from "../../stores/config";
 import type { Command } from "../../types/commands";
 import Kbd from "../Kbd/Kbd";
 import "./CommandPalette.css";
 
-// Singleton state — Writ is single-window, single-instance per component
 const [isOpen, setIsOpen] = createSignal(false);
 
 export function openCommandPalette() { setIsOpen(true); }
 export function closeCommandPalette() { setIsOpen(false); }
 export function toggleCommandPalette() { setIsOpen(prev => !prev); }
+
+interface PaletteSection {
+  kind: "recent" | "all" | "results";
+  label: string | null;
+  commands: Command[];
+}
 
 export default function CommandPalette() {
   const [query, setQuery] = createSignal("");
@@ -17,19 +25,33 @@ export default function CommandPalette() {
   let inputRef: HTMLInputElement | undefined;
   let listRef: HTMLDivElement | undefined;
 
-  const filtered = createMemo(() => {
-    const q = query().toLowerCase().trim();
-    const visible = getAllCommands().filter(cmd => cmd.scope === "app");
-    if (!q) return visible;
-    return visible.filter(cmd =>
-      cmd.label.toLowerCase().includes(q) ||
-      cmd.id.toLowerCase().includes(q) ||
-      (cmd.description?.toLowerCase().includes(q) ?? false)
-    );
+  const appCommands = createMemo(() =>
+    useAllCommands().filter((cmd) => cmd.scope === "app"),
+  );
+
+  const sections = createMemo<PaletteSection[]>(() => {
+    const q = query().trim();
+    const usage = configStore.config().commands.usage;
+    const all = appCommands();
+    if (!q) {
+      const { recent, rest } = partitionEmptyQuery(all, usage);
+      const result: PaletteSection[] = [];
+      if (recent.length > 0) {
+        result.push({ kind: "recent", label: "Recent", commands: recent });
+        result.push({ kind: "all", label: "All commands", commands: rest });
+      } else {
+        result.push({ kind: "all", label: null, commands: rest });
+      }
+      return result;
+    }
+    const ranked = rankWithQuery(all, q, usage);
+    return [{ kind: "results", label: null, commands: ranked }];
   });
 
+  const flat = createMemo<Command[]>(() => sections().flatMap((s) => s.commands));
+
   createEffect(() => {
-    filtered();
+    flat();
     setSelectedIndex(0);
   });
 
@@ -46,20 +68,21 @@ export default function CommandPalette() {
 
   function handleSelect(cmd: Command) {
     cmd.execute();
+    configStore.recordCommandUse(cmd.id);
     setIsOpen(false);
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    const list = filtered();
+    const list = flat();
     if (e.key === "Escape") {
       setIsOpen(false);
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSelectedIndex(i => Math.min(i + 1, list.length - 1));
+      setSelectedIndex((i) => Math.min(i + 1, list.length - 1));
       scrollSelectedIntoView();
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setSelectedIndex(i => Math.max(i - 1, 0));
+      setSelectedIndex((i) => Math.max(i - 1, 0));
       scrollSelectedIntoView();
     } else if (e.key === "Enter") {
       e.preventDefault();
@@ -74,6 +97,10 @@ export default function CommandPalette() {
       const el = listRef.querySelector<HTMLElement>(".palette-item.is-selected");
       el?.scrollIntoView({ block: "nearest" });
     });
+  }
+
+  function indexOf(cmd: Command): number {
+    return flat().indexOf(cmd);
   }
 
   return (
@@ -91,7 +118,7 @@ export default function CommandPalette() {
             aria-label="Command search"
           />
           <Show
-            when={filtered().length > 0}
+            when={flat().length > 0}
             fallback={
               <div class="palette-empty">
                 <div class="palette-empty-title">Nothing matches "{query()}"</div>
@@ -100,22 +127,37 @@ export default function CommandPalette() {
             }
           >
             <div class="palette-results" ref={listRef}>
-              <For each={filtered()}>
-                {(cmd, i) => (
-                  <button
-                    type="button"
-                    class={`palette-item ${selectedIndex() === i() ? "is-selected" : ""}`}
-                    onClick={() => handleSelect(cmd)}
-                    onMouseMove={() => setSelectedIndex(i())}
-                  >
-                    <div class="palette-item-text">
-                      <span class="palette-item-label">{cmd.label}</span>
-                      <Show when={cmd.description}>
-                        <span class="palette-item-desc">{cmd.description}</span>
-                      </Show>
-                    </div>
-                    <Kbd binding={cmd.keybinding} muted={!cmd.keybinding} />
-                  </button>
+              <For each={sections()}>
+                {(section) => (
+                  <div class={`palette-section palette-section-${section.kind}`}>
+                    <Show when={section.label}>
+                      <div class="palette-section-label">{section.label}</div>
+                    </Show>
+                    <For each={section.commands}>
+                      {(cmd) => {
+                        const idx = createMemo(() => indexOf(cmd));
+                        return (
+                          <button
+                            type="button"
+                            class={`palette-item ${selectedIndex() === idx() ? "is-selected" : ""}`}
+                            onClick={() => handleSelect(cmd)}
+                            onMouseMove={() => setSelectedIndex(idx())}
+                          >
+                            <div class="palette-item-text">
+                              <span class="palette-item-label">{cmd.label}</span>
+                              <Show when={cmd.description}>
+                                <span class="palette-item-desc">{cmd.description}</span>
+                              </Show>
+                            </div>
+                            <Kbd
+                              binding={useEffectiveBinding(cmd.id, cmd.keybinding)}
+                              muted={!useEffectiveBinding(cmd.id, cmd.keybinding)}
+                            />
+                          </button>
+                        );
+                      }}
+                    </For>
+                  </div>
                 )}
               </For>
             </div>

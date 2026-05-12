@@ -1,3 +1,12 @@
+export interface CommandUsage {
+  count: number;
+  last_used_ms: number;
+}
+
+export interface CommandsConfig {
+  usage: Record<string, CommandUsage>;
+}
+
 export interface WritConfig {
   hotkey: { toggle: string };
   sidebar: {
@@ -12,4 +21,5 @@ export interface WritConfig {
   history: { max_entries: number };
   storage: { path: string };
   theme: { preset: string; overrides: Record<string, string> };
+  commands: CommandsConfig;
 }

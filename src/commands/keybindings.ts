@@ -1,4 +1,49 @@
-import { executeCommand, getAllCommands } from "./registry";
+import {
+  executeCommand,
+  getAllCommands,
+  notifyRegistryChanged,
+  registryVersion,
+} from "./registry";
+
+let keybindingOverrides: Readonly<Record<string, string>> = {};
+
+export function setKeybindingOverrides(overrides: Readonly<Record<string, string>>) {
+  keybindingOverrides = overrides;
+}
+
+export function effectiveBinding(commandId: string, fallback?: string): string | undefined {
+  const override = keybindingOverrides[commandId];
+  if (override !== undefined) return override === "" ? undefined : override;
+  return fallback;
+}
+
+export function useEffectiveBinding(commandId: string, fallback?: string): string | undefined {
+  registryVersion();
+  return effectiveBinding(commandId, fallback);
+}
+
+const LEGACY_DEFAULT_BINDINGS: ReadonlyMap<string, string> = new Map([
+  ["buffer.new", "CmdOrCtrl+N"],
+  ["buffer.close", "CmdOrCtrl+W"],
+  ["history.restoreLast", "CmdOrCtrl+Shift+T"],
+  ["sidebar.toggle", "CmdOrCtrl+S"],
+  ["palette.open", "CmdOrCtrl+Shift+P"],
+]);
+
+export function pruneLegacyDefaultOverrides(
+  loaded: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  let changed = false;
+  for (const [id, binding] of Object.entries(loaded)) {
+    if (LEGACY_DEFAULT_BINDINGS.get(id) === binding) {
+      changed = true;
+      continue;
+    }
+    result[id] = binding;
+  }
+  return changed ? result : { ...loaded };
+}
 
 function normalizeKey(e: KeyboardEvent): string {
   const parts: string[] = [];
@@ -40,7 +85,8 @@ export function rebuildKeyMap() {
   const regularBindings: { commandId: string; keybinding: string }[] = [];
 
   for (const cmd of getAllCommands()) {
-    const bindings = [cmd.keybinding, ...(cmd.keybindingAliases ?? [])].filter(
+    const primary = effectiveBinding(cmd.id, cmd.keybinding);
+    const bindings = [primary, ...(cmd.keybindingAliases ?? [])].filter(
       (b): b is string => Boolean(b),
     );
     for (const binding of bindings) {
@@ -79,6 +125,8 @@ export function rebuildKeyMap() {
       normalizedSingle,
     });
   }
+
+  notifyRegistryChanged();
 }
 
 export function handleKeyDown(e: KeyboardEvent): boolean {

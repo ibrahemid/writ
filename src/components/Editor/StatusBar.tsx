@@ -1,10 +1,13 @@
 import { createMemo } from "solid-js";
-import { getCommand } from "../../commands/registry";
+import { useCommand } from "../../commands/registry";
+import { useEffectiveBinding } from "../../commands/keybindings";
 import Kbd from "../Kbd/Kbd";
 import "./StatusBar.css";
 
 export default function StatusBar() {
-  const paletteBinding = createMemo(() => getCommand("palette.open")?.keybinding);
+  const paletteBinding = createMemo(() =>
+    useEffectiveBinding("palette.open", useCommand("palette.open")?.keybinding),
+  );
 
   return (
     <div class="statusbar">

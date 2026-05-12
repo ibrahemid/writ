@@ -4,6 +4,7 @@ import EditorArea from "./components/Editor/EditorArea";
 import Sidebar from "./components/Sidebar/Sidebar";
 import CommandPalette, { toggleCommandPalette } from "./components/CommandPalette/CommandPalette";
 import ThemeEditor, { openThemeEditor } from "./components/ThemeEditor/ThemeEditor";
+import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/ShortcutEditor";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
 import ToastContainer, { showToast } from "./components/Notifications/Toast";
@@ -16,8 +17,13 @@ import { themeStore } from "./stores/theme";
 import { focusSearchBar } from "./components/Sidebar/SearchBar";
 import { openContentSearch } from "./commands/search";
 import { registerTransformCommands } from "./commands/transforms";
-import { registerCommand, executeCommand } from "./commands/registry";
-import { installKeyboardHandler, rebuildKeyMap } from "./commands/keybindings";
+import { registerCommand, executeCommand, getAllCommands, setExecuteListener } from "./commands/registry";
+import {
+  installKeyboardHandler,
+  rebuildKeyMap,
+  setKeybindingOverrides,
+  pruneLegacyDefaultOverrides,
+} from "./commands/keybindings";
 import { onEvent, emitFrontendReady } from "./services/events";
 import { onAutosaveError } from "./services/autosave";
 import { onDragDrop, reportFirstPaint } from "./services/tauri";
@@ -213,6 +219,27 @@ export default function App() {
       execute: () => openThemeEditor(),
     });
 
+    registerCommand({
+      id: "commands.clearUsage",
+      label: "Clear command usage history",
+      description: "Forget which commands you have used and how often",
+      scope: "app",
+      execute: () => {
+        configStore.clearCommandUsage().then(
+          () => showToast("Command usage cleared", "success"),
+          () => showToast("Failed to clear command usage", "error"),
+        );
+      },
+    });
+
+    registerCommand({
+      id: "shortcuts.customize",
+      label: "Customize shortcuts…",
+      description: "Rebind any command in the palette",
+      scope: "app",
+      execute: () => openShortcutEditor(),
+    });
+
     try {
       await registerTransformCommands();
     } catch (error) {
@@ -220,6 +247,17 @@ export default function App() {
       console.error("registerTransformCommands failed", error);
     }
 
+    setExecuteListener((id) => configStore.recordCommandUse(id));
+    configStore.pruneCommandUsage(new Set(getAllCommands().map((c) => c.id)));
+
+    const loadedKeybindings = configStore.config().keybindings;
+    const liveKeybindings = pruneLegacyDefaultOverrides(loadedKeybindings);
+    if (Object.keys(liveKeybindings).length !== Object.keys(loadedKeybindings).length) {
+      configStore
+        .save({ ...configStore.config(), keybindings: liveKeybindings })
+        .catch(() => {});
+    }
+    setKeybindingOverrides(liveKeybindings);
     rebuildKeyMap();
     installKeyboardHandler();
 
@@ -282,6 +320,7 @@ export default function App() {
         </div>
         <CommandPalette />
         <ThemeEditor />
+        <ShortcutEditor />
         <ContextMenu />
         <ToastContainer />
       </div>

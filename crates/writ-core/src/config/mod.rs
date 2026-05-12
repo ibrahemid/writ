@@ -72,16 +72,7 @@ fn default_theme_preset() -> String {
 }
 
 fn default_keybindings() -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    map.insert("buffer.new".to_string(), "CmdOrCtrl+N".to_string());
-    map.insert("buffer.close".to_string(), "CmdOrCtrl+W".to_string());
-    map.insert(
-        "history.restoreLast".to_string(),
-        "CmdOrCtrl+Shift+T".to_string(),
-    );
-    map.insert("sidebar.toggle".to_string(), "CmdOrCtrl+S".to_string());
-    map.insert("palette.open".to_string(), "CmdOrCtrl+Shift+P".to_string());
-    map
+    HashMap::new()
 }
 
 /// Which side of the window the sidebar is rendered on.
@@ -231,6 +222,26 @@ impl Default for ThemeConfig {
     }
 }
 
+/// Per-command usage statistics used to rank command palette results.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct CommandUsage {
+    /// Total number of times the command has been executed.
+    #[serde(default)]
+    pub count: u32,
+    /// Unix epoch milliseconds at which the command was last executed.
+    /// `0` means the command has never been executed.
+    #[serde(default)]
+    pub last_used_ms: u64,
+}
+
+/// Command palette ranking configuration.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct CommandsConfig {
+    /// Usage stats keyed by Writ command id.
+    #[serde(default)]
+    pub usage: HashMap<String, CommandUsage>,
+}
+
 /// On-disk storage location configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StorageConfig {
@@ -281,6 +292,9 @@ pub struct WritConfig {
     /// UI theme configuration.
     #[serde(default)]
     pub theme: ThemeConfig,
+    /// Command palette ranking state.
+    #[serde(default)]
+    pub commands: CommandsConfig,
 }
 
 impl Default for WritConfig {
@@ -294,6 +308,7 @@ impl Default for WritConfig {
             history: HistoryConfig::default(),
             storage: StorageConfig::default(),
             theme: ThemeConfig::default(),
+            commands: CommandsConfig::default(),
         }
     }
 }
