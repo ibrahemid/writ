@@ -11,14 +11,6 @@ import { syntaxHighlighting, bracketMatching, indentOnInput } from "@codemirror/
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import { writTheme, writHighlight } from "./cm-theme";
-import { javascript } from "@codemirror/lang-javascript";
-import { python } from "@codemirror/lang-python";
-import { rust } from "@codemirror/lang-rust";
-import { json } from "@codemirror/lang-json";
-import { html } from "@codemirror/lang-html";
-import { css } from "@codemirror/lang-css";
-import { markdown } from "@codemirror/lang-markdown";
-import { php } from "@codemirror/lang-php";
 import type { BufferDocument } from "../../types/buffer";
 import { readBufferContent, saveBufferContent } from "../../services/tauri";
 import { debouncedSave, cancelAutosave } from "../../services/autosave";
@@ -26,22 +18,11 @@ import { detectLanguage, detectFromContent } from "../../services/language-detec
 import { editorStore } from "../../stores/editor";
 import { configStore } from "../../stores/config";
 import { registerCommand } from "../../commands/registry";
+import { getExtension as languageExtension } from "../../editor/language-registry";
+import { registerBuiltinLanguages } from "../../editor/builtins";
 import "./EditorInstance.css";
 
-function languageExtension(lang: string | null): Extension {
-  switch (lang) {
-    case "javascript": return javascript({ jsx: true });
-    case "typescript": return javascript({ jsx: true, typescript: true });
-    case "python": return python();
-    case "rust": return rust();
-    case "json": return json();
-    case "html": return html();
-    case "css": return css();
-    case "markdown": return markdown();
-    case "php": return php();
-    default: return [];
-  }
-}
+registerBuiltinLanguages();
 
 function nameForDetection(buffer: BufferDocument): string {
   return /\.\w+$/.test(buffer.title) ? buffer.title : buffer.filename;

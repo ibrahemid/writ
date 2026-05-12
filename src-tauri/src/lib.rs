@@ -10,7 +10,7 @@ pub mod window_state;
 use events::{bus_bridge, emit_event, WritFrontendEvent};
 use poison::recover_poison;
 use state::AppState;
-use tauri::Manager;
+use tauri::{Listener, Manager};
 use tauri_plugin_updater::UpdaterExt;
 use tracing::info;
 
@@ -199,11 +199,11 @@ pub fn run() {
             commands::buffer::read_buffer_content,
             commands::buffer::list_active_buffers,
             commands::buffer::close_buffer,
+            commands::buffer::close_buffers,
             commands::buffer::delete_buffer,
             commands::buffer::update_tab_order,
             commands::buffer::rename_buffer,
             commands::file::open_file,
-            commands::file::consume_pending_opens,
             commands::file::save_to_source,
             commands::history::list_history,
             commands::history::restore_buffer,
@@ -214,6 +214,7 @@ pub fn run() {
             commands::window::toggle_window,
             commands::transforms::list_transforms,
             commands::transforms::apply_transform,
+            commands::perf::report_first_paint,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -225,6 +226,30 @@ pub fn run() {
                     let _ = emit_event(&bridge_handle, frontend_event);
                 });
                 info!("event bus bridge attached");
+            }
+
+            {
+                let ready_handle = handle.clone();
+                app.listen("frontend-ready", move |_event| {
+                    let state = ready_handle.state::<AppState>();
+                    state
+                        .frontend_ready
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                    let drained: Vec<String> = {
+                        let mut pending = recover_poison(
+                            state.pending_opens.lock(),
+                            "lib::setup:frontend_ready_drain",
+                        );
+                        std::mem::take(&mut *pending)
+                    };
+                    info!(count = drained.len(), "frontend-ready: draining pending opens");
+                    if !drained.is_empty() {
+                        let _ = emit_event(
+                            &ready_handle,
+                            WritFrontendEvent::PendingOpens { paths: drained },
+                        );
+                    }
+                });
             }
 
             if let Err(e) = build_app_menu(app) {
@@ -290,7 +315,13 @@ pub fn run() {
                 info!(count = paths.len(), "files opened from OS");
 
                 let state = app_handle.state::<AppState>();
-                {
+                let ready = state
+                    .frontend_ready
+                    .load(std::sync::atomic::Ordering::SeqCst);
+
+                if ready {
+                    let _ = emit_event(app_handle, WritFrontendEvent::PendingOpens { paths });
+                } else {
                     let mut pending = recover_poison(
                         state.pending_opens.lock(),
                         "lib::run_event:opened_files",

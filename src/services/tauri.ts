@@ -37,6 +37,22 @@ export async function closeBuffer(id: string): Promise<void> {
   return invoke("close_buffer", { id });
 }
 
+export async function closeBuffers(ids: string[]): Promise<void> {
+  return invoke("close_buffers", { ids });
+}
+
+export async function reportFirstPaint(
+  elapsedMs: number,
+  mode: "cold" | "warm",
+  rustElapsedUs: number | null = null,
+): Promise<void> {
+  return invoke("report_first_paint", {
+    elapsedMs,
+    mode,
+    rustElapsedUs,
+  });
+}
+
 export async function deleteBuffer(id: string): Promise<void> {
   return invoke("delete_buffer", { id });
 }
@@ -75,10 +91,6 @@ export async function toggleWindow(): Promise<void> {
 
 export async function openFile(path: string): Promise<BufferDocument> {
   return invoke("open_file", { path });
-}
-
-export async function consumePendingOpens(): Promise<string[]> {
-  return invoke("consume_pending_opens");
 }
 
 export async function saveToSource(id: string, content: string): Promise<void> {

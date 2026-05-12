@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 use tracing::info;
 use writ_core::config::WritConfig;
@@ -21,6 +22,7 @@ pub struct AppState {
     pub watcher_ignore: IgnoreSet,
     pub watcher: Mutex<Option<WatcherHandle>>,
     pub pending_opens: Mutex<Vec<String>>,
+    pub frontend_ready: AtomicBool,
     pub transforms: RwLock<TransformRegistry>,
     pub event_bus: Arc<EventBus>,
 }
@@ -62,6 +64,7 @@ impl AppState {
             watcher_ignore,
             watcher: Mutex::new(None),
             pending_opens: Mutex::new(Vec::new()),
+            frontend_ready: AtomicBool::new(false),
             transforms: RwLock::new(transforms),
             event_bus: Arc::new(EventBus::new()),
         })

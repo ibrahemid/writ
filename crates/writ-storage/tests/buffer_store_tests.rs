@@ -218,6 +218,56 @@ fn rename_removes_old_title_from_fts_search_results() {
 }
 
 #[test]
+fn close_many_closes_all_listed_active_buffers() {
+    let (_dir, store) = setup();
+    let a = make_doc("cm-a", "a");
+    let b = make_doc("cm-b", "b");
+    let c = make_doc("cm-c", "c");
+    store.insert(&a).unwrap();
+    store.insert(&b).unwrap();
+    store.insert(&c).unwrap();
+
+    store
+        .close_many(&["cm-a".to_string(), "cm-c".to_string()])
+        .unwrap();
+
+    assert_eq!(store.get("cm-a").unwrap().status, BufferStatus::History);
+    assert_eq!(store.get("cm-b").unwrap().status, BufferStatus::Active);
+    assert_eq!(store.get("cm-c").unwrap().status, BufferStatus::History);
+}
+
+#[test]
+fn close_many_skips_missing_ids_without_error() {
+    let (_dir, store) = setup();
+    let real = make_doc("cm-real", "real");
+    store.insert(&real).unwrap();
+
+    store
+        .close_many(&[
+            "cm-real".to_string(),
+            "cm-ghost-1".to_string(),
+            "cm-ghost-2".to_string(),
+        ])
+        .expect("missing ids must not error");
+
+    assert_eq!(store.get("cm-real").unwrap().status, BufferStatus::History);
+}
+
+#[test]
+fn close_many_is_noop_on_empty_input() {
+    let (_dir, store) = setup();
+    let a = make_doc("cm-empty-a", "a");
+    store.insert(&a).unwrap();
+
+    store.close_many(&[]).expect("empty close_many is a no-op");
+
+    assert_eq!(
+        store.get("cm-empty-a").unwrap().status,
+        BufferStatus::Active
+    );
+}
+
+#[test]
 fn rename_preserves_content_searchability() {
     let (_dir, store) = setup();
     let doc = make_doc("ren-fts-c", "alpha");

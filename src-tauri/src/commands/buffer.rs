@@ -69,6 +69,12 @@ pub fn close_buffer(state: State<'_, AppState>, id: String) -> Result<(), String
 }
 
 #[tauri::command]
+pub fn close_buffers(state: State<'_, AppState>, ids: Vec<String>) -> Result<(), String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store.close_many(&ids).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn delete_buffer(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     store.delete(&id).map_err(|e| e.to_string())

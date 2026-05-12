@@ -1,4 +1,4 @@
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export type { UnlistenFn };
 import type { WritEvent } from "../types/events";
@@ -9,6 +9,8 @@ type EventHandler<K extends EventKind> = (payload: PayloadFor<K>) => void;
 
 const EVENT_MAP: Record<EventKind, string> = {
   "buffer:opened": "writ://buffer-opened",
+  "pending:opens": "writ://pending-opens",
+  "window:shown": "writ://window-shown",
   "config:changed": "writ://config-changed",
   "buffer:external": "writ://buffer-external",
   "recovery:dirty": "writ://recovery-dirty",
@@ -22,4 +24,8 @@ export async function onEvent<K extends EventKind>(
   return listen(EVENT_MAP[kind], (event) => {
     handler(event.payload as PayloadFor<K>);
   });
+}
+
+export async function emitFrontendReady(): Promise<void> {
+  await emit("frontend-ready");
 }

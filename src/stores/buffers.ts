@@ -1,26 +1,31 @@
-import { createSignal, createRoot } from "solid-js";
+import { createSignal, createMemo, createRoot } from "solid-js";
 import type { BufferDocument } from "../types/buffer";
 import * as api from "../services/tauri";
 
 function createBufferStore() {
-  const [activeTabs, setActiveTabs] = createSignal<BufferDocument[]>([]);
-  const [historyList, setHistoryList] = createSignal<BufferDocument[]>([]);
+  const [buffers, setBuffers] = createSignal<BufferDocument[]>([]);
   const [activeTabId, setActiveTabId] = createSignal<string | null>(null);
+
+  const activeTabs = createMemo(() =>
+    buffers().filter((b) => b.status === "active"),
+  );
+  const historyList = createMemo(() =>
+    buffers().filter((b) => b.status === "history"),
+  );
 
   async function load() {
     const [active, history] = await Promise.all([
       api.listActiveBuffers(),
       api.listHistory(),
     ]);
-    setActiveTabs(active);
-    setHistoryList(history);
+    setBuffers([...active, ...history]);
   }
 
   async function loadAndActivate() {
     await load();
     const active = activeTabs();
     const currentId = activeTabId();
-    if (currentId && !active.find(b => b.id === currentId)) {
+    if (currentId && !active.find((b) => b.id === currentId)) {
       setActiveTabId(active.length > 0 ? active[active.length - 1].id : null);
     } else if (!currentId && active.length > 0) {
       setActiveTabId(active[active.length - 1].id);
@@ -29,41 +34,60 @@ function createBufferStore() {
 
   async function createTab(title?: string): Promise<BufferDocument> {
     const doc = await api.createBuffer(title);
-    setActiveTabs(prev => [...prev, doc]);
+    setBuffers((prev) => [...prev, doc]);
     setActiveTabId(doc.id);
     return doc;
   }
 
   async function closeTab(id: string) {
-    const tab = activeTabs().find(b => b.id === id);
     await api.closeBuffer(id);
-    setActiveTabs(prev => prev.filter(b => b.id !== id));
-    if (tab) {
-      setHistoryList(prev => [{ ...tab, status: "history" as const, closed_at: new Date().toISOString() }, ...prev]);
-    }
+    const closedAt = new Date().toISOString();
+    setBuffers((prev) =>
+      prev.map((b) =>
+        b.id === id ? { ...b, status: "history" as const, closed_at: closedAt } : b,
+      ),
+    );
     if (activeTabId() === id) {
-      const remaining = activeTabs().filter(b => b.id !== id);
+      const remaining = activeTabs();
       setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
     }
   }
 
   async function closeOtherTabs(keepId: string) {
-    const toClose = activeTabs().filter(b => b.id !== keepId);
-    for (const tab of toClose) {
-      await api.closeBuffer(tab.id);
-    }
-    setActiveTabs(prev => prev.filter(b => b.id === keepId));
+    const toClose = activeTabs().filter((b) => b.id !== keepId);
+    if (toClose.length === 0) return;
+    const ids = toClose.map((b) => b.id);
+    await api.closeBuffers(ids);
+    const closedAt = new Date().toISOString();
+    const closedIds = new Set(ids);
+    setBuffers((prev) =>
+      prev.map((b) =>
+        closedIds.has(b.id)
+          ? { ...b, status: "history" as const, closed_at: closedAt }
+          : b,
+      ),
+    );
     setActiveTabId(keepId);
-    await load();
   }
 
   async function closeAllTabs() {
-    for (const tab of activeTabs()) {
-      await api.closeBuffer(tab.id);
+    const toClose = activeTabs();
+    if (toClose.length === 0) {
+      setActiveTabId(null);
+      return;
     }
-    setActiveTabs([]);
+    const ids = toClose.map((b) => b.id);
+    await api.closeBuffers(ids);
+    const closedAt = new Date().toISOString();
+    const closedIds = new Set(ids);
+    setBuffers((prev) =>
+      prev.map((b) =>
+        closedIds.has(b.id)
+          ? { ...b, status: "history" as const, closed_at: closedAt }
+          : b,
+      ),
+    );
     setActiveTabId(null);
-    await load();
   }
 
   async function restoreFromHistory(id: string) {
@@ -74,33 +98,32 @@ function createBufferStore() {
 
   async function deleteFromHistory(id: string) {
     await api.deleteBuffer(id);
-    setHistoryList(prev => prev.filter(b => b.id !== id));
+    setBuffers((prev) => prev.filter((b) => b.id !== id));
   }
 
   async function clearAllHistory() {
     await api.clearHistory();
-    setHistoryList([]);
+    setBuffers((prev) => prev.filter((b) => b.status !== "history"));
   }
 
   async function renameTab(id: string, title: string) {
     await api.renameBuffer(id, title);
-    setActiveTabs(prev => prev.map(b => b.id === id ? { ...b, title } : b));
-    setHistoryList(prev => prev.map(b => b.id === id ? { ...b, title } : b));
+    setBuffers((prev) => prev.map((b) => (b.id === id ? { ...b, title } : b)));
   }
 
   async function openFile(path: string): Promise<BufferDocument> {
-    const existing = activeTabs().find(b => b.source_path === path);
+    const existing = activeTabs().find((b) => b.source_path === path);
     if (existing) {
       setActiveTabId(existing.id);
       return existing;
     }
     const doc = await api.openFile(path);
-    const alreadyInTabs = activeTabs().find(b => b.id === doc.id);
-    if (alreadyInTabs) {
-      setActiveTabId(doc.id);
-      return doc;
-    }
-    setActiveTabs(prev => [...prev, doc]);
+    setBuffers((prev) => {
+      if (prev.find((b) => b.id === doc.id)) {
+        return prev.map((b) => (b.id === doc.id ? doc : b));
+      }
+      return [...prev, doc];
+    });
     setActiveTabId(doc.id);
     return doc;
   }
@@ -112,10 +135,22 @@ function createBufferStore() {
   }
 
   return {
-    activeTabs, historyList, activeTabId, setActiveTabId,
-    load, loadAndActivate, createTab, closeTab, closeOtherTabs, closeAllTabs,
-    restoreFromHistory, deleteFromHistory, clearAllHistory, renameTab,
-    openFile, openFileDialog,
+    activeTabs,
+    historyList,
+    activeTabId,
+    setActiveTabId,
+    load,
+    loadAndActivate,
+    createTab,
+    closeTab,
+    closeOtherTabs,
+    closeAllTabs,
+    restoreFromHistory,
+    deleteFromHistory,
+    clearAllHistory,
+    renameTab,
+    openFile,
+    openFileDialog,
   };
 }
 
