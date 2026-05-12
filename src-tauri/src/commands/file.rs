@@ -72,13 +72,6 @@ pub fn open_file(state: State<'_, AppState>, path: String) -> Result<BufferDocum
 }
 
 #[tauri::command]
-pub fn consume_pending_opens(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let mut pending = state.pending_opens.lock().map_err(|e| e.to_string())?;
-    let paths = std::mem::take(&mut *pending);
-    Ok(paths)
-}
-
-#[tauri::command]
 pub fn save_to_source(
     state: State<'_, AppState>,
     id: String,

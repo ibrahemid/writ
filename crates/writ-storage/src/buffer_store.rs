@@ -44,6 +44,24 @@ impl BufferStore {
         queries::close_buffer(&self.conn, id)
     }
 
+    /// Closes every buffer listed in `ids` inside a single transaction.
+    ///
+    /// Missing or already-closed ids are silently no-ops at the SQL
+    /// layer (the UPDATE matches zero rows). Atomicity guarantees that
+    /// a mid-loop failure rolls back every prior close in the batch;
+    /// the user never observes a partial close.
+    pub fn close_many(&self, ids: &[String]) -> StorageResult<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        for id in ids {
+            queries::close_buffer(&tx, id)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Restores a history buffer to active state.
     pub fn restore(&self, id: &str) -> StorageResult<()> {
         queries::restore_buffer(&self.conn, id)

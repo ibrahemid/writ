@@ -7,6 +7,12 @@ pub enum WritFrontendEvent {
     #[serde(rename = "buffer:opened")]
     BufferOpened { id: String, title: String },
 
+    #[serde(rename = "pending:opens")]
+    PendingOpens { paths: Vec<String> },
+
+    #[serde(rename = "window:shown")]
+    WindowShown { rust_elapsed_us: u64 },
+
     #[serde(rename = "config:changed")]
     ConfigChanged { keys: Vec<String> },
 
@@ -26,6 +32,8 @@ pub enum WritFrontendEvent {
 pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), String> {
     let event_name = match &event {
         WritFrontendEvent::BufferOpened { .. } => "writ://buffer-opened",
+        WritFrontendEvent::PendingOpens { .. } => "writ://pending-opens",
+        WritFrontendEvent::WindowShown { .. } => "writ://window-shown",
         WritFrontendEvent::ConfigChanged { .. } => "writ://config-changed",
         WritFrontendEvent::BufferExternal { .. } => "writ://buffer-external",
         WritFrontendEvent::RecoveryDirty { .. } => "writ://recovery-dirty",

@@ -26,6 +26,7 @@ vi.mock("../../services/tauri", () => ({
   listActiveBuffers: vi.fn().mockResolvedValue([]),
   listHistory: vi.fn().mockResolvedValue([]),
   closeBuffer: vi.fn().mockResolvedValue(undefined),
+  closeBuffers: vi.fn().mockResolvedValue(undefined),
   deleteBuffer: vi.fn().mockResolvedValue(undefined),
   restoreBuffer: vi.fn().mockResolvedValue(undefined),
   clearHistory: vi.fn().mockResolvedValue(undefined),
@@ -101,26 +102,30 @@ describe("bufferStore operations", () => {
   });
 
   describe("closeOtherTabs", () => {
-    it("keeps only the specified tab", async () => {
+    it("keeps only the specified tab using a single bulk IPC", async () => {
       const keep = await bufferStore.createTab();
-      await bufferStore.createTab();
-      await bufferStore.createTab();
+      const second = await bufferStore.createTab();
+      const third = await bufferStore.createTab();
 
       await bufferStore.closeOtherTabs(keep.id);
 
-      expect(mockedApi.closeBuffer).toHaveBeenCalledTimes(2);
+      expect(mockedApi.closeBuffers).toHaveBeenCalledOnce();
+      expect(mockedApi.closeBuffers).toHaveBeenCalledWith([second.id, third.id]);
+      expect(mockedApi.closeBuffer).not.toHaveBeenCalled();
       expect(bufferStore.activeTabId()).toBe(keep.id);
     });
   });
 
   describe("closeAllTabs", () => {
-    it("closes every tab and sets activeTabId to null", async () => {
-      await bufferStore.createTab();
-      await bufferStore.createTab();
+    it("closes every tab using a single bulk IPC and clears active id", async () => {
+      const first = await bufferStore.createTab();
+      const second = await bufferStore.createTab();
 
       await bufferStore.closeAllTabs();
 
-      expect(mockedApi.closeBuffer).toHaveBeenCalledTimes(2);
+      expect(mockedApi.closeBuffers).toHaveBeenCalledOnce();
+      expect(mockedApi.closeBuffers).toHaveBeenCalledWith([first.id, second.id]);
+      expect(mockedApi.closeBuffer).not.toHaveBeenCalled();
       expect(bufferStore.activeTabId()).toBeNull();
     });
   });

@@ -18,35 +18,38 @@ import { openContentSearch } from "./commands/search";
 import { registerTransformCommands } from "./commands/transforms";
 import { registerCommand, executeCommand } from "./commands/registry";
 import { installKeyboardHandler, rebuildKeyMap } from "./commands/keybindings";
-import { onEvent } from "./services/events";
+import { onEvent, emitFrontendReady } from "./services/events";
 import { onAutosaveError } from "./services/autosave";
-import { onDragDrop, consumePendingOpens } from "./services/tauri";
+import { onDragDrop, reportFirstPaint } from "./services/tauri";
 import { restoreWindowSize, installWindowSizePersistence } from "./services/window-size";
 import type { UnlistenFn } from "./services/events";
 import "./styles/global.css";
 import "./App.css";
 
-let processingPending = false;
-async function processPendingOpens() {
-  if (processingPending) return;
-  processingPending = true;
-  try {
-    const pending = await consumePendingOpens();
-    for (const path of pending) {
-      try {
-        await bufferStore.openFile(path);
-      } catch {}
-    }
-  } finally {
-    processingPending = false;
+async function openPendingPaths(paths: string[]) {
+  for (const path of paths) {
+    try {
+      await bufferStore.openFile(path);
+    } catch {}
   }
+}
+
+function measureFirstPaint(
+  mode: "cold" | "warm",
+  rustElapsedUs: number | null = null,
+) {
+  const start = performance.now();
+  requestAnimationFrame(() => {
+    const elapsed = performance.now() - start;
+    void reportFirstPaint(elapsed, mode, rustElapsedUs);
+  });
 }
 
 export default function App() {
   let unlisteners: UnlistenFn[] = [];
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
 
   onMount(async () => {
+    measureFirstPaint("cold");
     themeStore.applyToRoot();
     await configStore.load();
     themeStore.loadConfig(configStore.config().theme);
@@ -56,7 +59,17 @@ export default function App() {
     sidebarStore.hydrateFromConfig();
     await bufferStore.load();
 
-    await processPendingOpens();
+    const unlistenPending = await onEvent("pending:opens", (payload) => {
+      void openPendingPaths(payload.paths);
+    });
+    unlisteners.push(unlistenPending);
+
+    const unlistenShown = await onEvent("window:shown", (payload) => {
+      measureFirstPaint("warm", payload.rust_elapsed_us);
+    });
+    unlisteners.push(unlistenShown);
+
+    await emitFrontendReady();
 
     if (bufferStore.activeTabs().length === 0 && !bufferStore.activeTabId()) {
       await bufferStore.createTab();
@@ -239,8 +252,6 @@ export default function App() {
     });
     unlisteners.push(unlisten4);
 
-    pollTimer = setInterval(processPendingOpens, 500);
-
     const offAutosaveError = onAutosaveError((bufferId) => {
       showToast(`Autosave failed for ${bufferId}`, "error");
     });
@@ -248,7 +259,6 @@ export default function App() {
   });
 
   onCleanup(() => {
-    if (pollTimer) clearInterval(pollTimer);
     for (const unlisten of unlisteners) {
       unlisten();
     }
