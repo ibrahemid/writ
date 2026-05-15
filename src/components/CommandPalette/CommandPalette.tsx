@@ -1,8 +1,10 @@
-import { createSignal, For, Show, createMemo, createEffect } from "solid-js";
+import { createSignal, For, Show, createMemo, createEffect, onCleanup } from "solid-js";
 import { useAllCommands } from "../../commands/registry";
 import { useEffectiveBinding } from "../../commands/keybindings";
 import { partitionEmptyQuery, rankWithQuery } from "../../commands/ranking";
 import { configStore } from "../../stores/config";
+import { editorStore } from "../../stores/editor";
+import { installFocusTrap } from "../../lib/focus-trap";
 import type { Command } from "../../types/commands";
 import Kbd from "../Kbd/Kbd";
 import "./CommandPalette.css";
@@ -24,9 +26,12 @@ export default function CommandPalette() {
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   let inputRef: HTMLInputElement | undefined;
   let listRef: HTMLDivElement | undefined;
+  let paletteRef: HTMLDivElement | undefined;
 
   const appCommands = createMemo(() =>
-    useAllCommands().filter((cmd) => cmd.scope === "app"),
+    useAllCommands().filter(
+      (cmd) => cmd.scope === "app" && cmd.id !== "palette.open",
+    ),
   );
 
   const sections = createMemo<PaletteSection[]>(() => {
@@ -64,6 +69,18 @@ export default function CommandPalette() {
       setQuery("");
       setSelectedIndex(0);
     }
+  });
+
+  createEffect(() => {
+    if (!isOpen() || !paletteRef) return;
+    const teardown = installFocusTrap(paletteRef, {
+      onEscape: () => setIsOpen(false),
+      fallbackRestore: () => {
+        editorStore.focusEditor();
+        return null;
+      },
+    });
+    onCleanup(teardown);
   });
 
   function handleSelect(cmd: Command) {
@@ -106,7 +123,14 @@ export default function CommandPalette() {
   return (
     <Show when={isOpen()}>
       <div class="palette-overlay" onClick={() => setIsOpen(false)}>
-        <div class="palette" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Command palette">
+        <div
+          ref={paletteRef}
+          class="palette"
+          onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Command palette"
+        >
           <input
             ref={inputRef}
             type="text"
@@ -142,6 +166,7 @@ export default function CommandPalette() {
                             class={`palette-item ${selectedIndex() === idx() ? "is-selected" : ""}`}
                             onClick={() => handleSelect(cmd)}
                             onMouseMove={() => setSelectedIndex(idx())}
+                            onFocus={() => setSelectedIndex(idx())}
                           >
                             <div class="palette-item-text">
                               <span class="palette-item-label">{cmd.label}</span>

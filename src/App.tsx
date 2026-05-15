@@ -8,6 +8,7 @@ import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/
 import { startRenameActiveTab } from "./components/Editor/TabBar";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
 import ToastContainer, { showToast } from "./components/Notifications/Toast";
+import ConfirmDialog, { requestConfirm } from "./components/ConfirmDialog/ConfirmDialog";
 import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
 import { bufferStore } from "./stores/buffers";
 import { sidebarStore } from "./stores/sidebar";
@@ -200,7 +201,16 @@ export default function App() {
       label: "Close All Tabs",
       description: "Move every open tab into history",
       scope: "app",
-      execute: () => bufferStore.closeAllTabs(),
+      execute: async () => {
+        const tabs = bufferStore.activeTabs();
+        if (tabs.length === 0) return;
+        const confirmed = await requestConfirm({
+          title: "Close all tabs?",
+          message: `All ${tabs.length} open tab${tabs.length === 1 ? "" : "s"} will move to history. You can reopen them from the sidebar.`,
+          confirmLabel: "Close all",
+        });
+        if (confirmed) bufferStore.closeAllTabs();
+      },
     });
 
     registerCommand({
@@ -208,7 +218,17 @@ export default function App() {
       label: "Clear History",
       description: "Permanently remove all history entries",
       scope: "app",
-      execute: () => bufferStore.clearAllHistory(),
+      execute: async () => {
+        const count = bufferStore.historyList().length;
+        if (count === 0) return;
+        const confirmed = await requestConfirm({
+          title: "Clear all history?",
+          message: `This permanently removes ${count} closed tab${count === 1 ? "" : "s"} from history. This cannot be undone.`,
+          confirmLabel: "Clear history",
+          danger: true,
+        });
+        if (confirmed) bufferStore.clearAllHistory();
+      },
     });
 
     registerCommand({
@@ -224,7 +244,13 @@ export default function App() {
       label: "Clear command usage history",
       description: "Forget which commands you have used and how often",
       scope: "app",
-      execute: () => {
+      execute: async () => {
+        const confirmed = await requestConfirm({
+          title: "Clear command usage history?",
+          message: "Recent and frequently-used ordering will reset to default.",
+          confirmLabel: "Clear",
+        });
+        if (!confirmed) return;
         configStore.clearCommandUsage().then(
           () => showToast("Command usage cleared", "success"),
           () => showToast("Failed to clear command usage", "error"),
@@ -322,6 +348,7 @@ export default function App() {
         <ThemeEditor />
         <ShortcutEditor />
         <ContextMenu />
+        <ConfirmDialog />
         <ToastContainer />
       </div>
     </ErrorBoundary>
