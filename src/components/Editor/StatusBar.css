@@ -21,6 +21,20 @@
   flex: 1;
 }
 
+.statusbar-save {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--writ-space-3);
+}
+
+.statusbar-save.is-saved {
+  animation: statusbar-save-fade 1200ms ease forwards;
+}
+
+.statusbar-save.is-failed {
+  color: var(--writ-status-error);
+}
+
 .statusbar-dot {
   width: 6px;
   height: 6px;
@@ -28,6 +42,23 @@
   background: var(--writ-status-success);
   display: inline-block;
   flex-shrink: 0;
+}
+
+.statusbar-save.is-failed .statusbar-dot {
+  background: var(--writ-status-error);
+}
+
+@keyframes statusbar-save-fade {
+  0% { opacity: 0; }
+  8% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statusbar-save.is-saved {
+    animation: none;
+  }
 }
 
 .statusbar-label {
