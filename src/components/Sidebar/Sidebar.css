@@ -40,6 +40,21 @@
   padding: 2px 0;
 }
 
+.history-group + .history-group {
+  margin-top: 4px;
+}
+
+.history-group-title {
+  position: sticky;
+  top: 0;
+  padding: 6px 12px 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--writ-foreground-subtle);
+  background: var(--writ-surface-sunken);
+  z-index: 1;
+}
+
 .tab-list-empty {
   padding: 8px 12px;
   color: var(--writ-foreground-subtle);
