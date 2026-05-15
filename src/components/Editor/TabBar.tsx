@@ -1,4 +1,4 @@
-import { For, createSignal, Show } from "solid-js";
+import { For, createSignal, createEffect, onCleanup, Show } from "solid-js";
 import { bufferStore } from "../../stores/buffers";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
 import { abbreviateTitle } from "../../lib/buffer-name";
@@ -13,6 +13,21 @@ export function startRenameActiveTab() {
 }
 
 export default function TabBar() {
+  const tabEls = new Map<string, HTMLButtonElement>();
+
+  createEffect(() => {
+    const id = bufferStore.activeTabId();
+    if (!id) return;
+    const el = tabEls.get(id);
+    if (!el) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      inline: "nearest",
+      block: "nearest",
+    });
+  });
+
   function handleRenameSubmit(tabId: string, value: string) {
     const trimmed = value.trim();
     if (trimmed) {
@@ -45,6 +60,10 @@ export default function TabBar() {
         <For each={bufferStore.activeTabs()}>
           {(tab) => (
             <button
+              ref={(el) => {
+                tabEls.set(tab.id, el);
+                onCleanup(() => tabEls.delete(tab.id));
+              }}
               class={`tab ${bufferStore.activeTabId() === tab.id ? "tab-active" : ""}`}
               onClick={() => bufferStore.setActiveTabId(tab.id)}
               onDblClick={() => setEditingTabId(tab.id)}
