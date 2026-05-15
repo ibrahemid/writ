@@ -1,9 +1,6 @@
 import { createMemo, Show } from "solid-js";
 import { sidebarStore } from "../../stores/sidebar";
 import { bufferStore } from "../../stores/buffers";
-import { useCommand } from "../../commands/registry";
-import { useEffectiveBinding } from "../../commands/keybindings";
-import Kbd from "../Kbd/Kbd";
 import "./SearchBar.css";
 
 // Singleton state — Writ is single-window, single-instance per component
@@ -16,10 +13,6 @@ export function focusSearchBar() {
 }
 
 export default function SearchBar() {
-  const binding = createMemo(() =>
-    useEffectiveBinding("sidebar.toggle", useCommand("sidebar.toggle")?.keybinding),
-  );
-
   const matchCount = createMemo(() => {
     const query = sidebarStore.searchQuery().toLowerCase().trim();
     if (!query) return null;
@@ -51,10 +44,7 @@ export default function SearchBar() {
           onInput={(e) => sidebarStore.setSearchQuery(e.currentTarget.value)}
           class="search-input"
         />
-        <Show
-          when={matchCount() !== null}
-          fallback={<Kbd binding={binding()} muted />}
-        >
+        <Show when={matchCount() !== null}>
           <span class="search-count">
             {matchCount() === 1 ? "1 result" : `${matchCount()} results`}
           </span>
