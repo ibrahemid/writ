@@ -1,6 +1,8 @@
 import { createSignal, createEffect, onCleanup, For, Show } from "solid-js";
 import { themeStore } from "../../stores/theme";
 import { configStore } from "../../stores/config";
+import { editorStore } from "../../stores/editor";
+import { installFocusTrap } from "../../lib/focus-trap";
 import { TOKEN_GROUPS } from "../../types/theme";
 import type { TokenGroup, Theme, ThemeConfig } from "../../types/theme";
 import { showToast } from "../Notifications/Toast";
@@ -27,6 +29,8 @@ function tokensForGroup(theme: Theme, group: TokenGroup): Record<string, string>
 }
 
 export default function ThemeEditor() {
+  let modalRef: HTMLDivElement | undefined;
+
   function tokenKey(group: TokenGroup, name: string): string {
     return `${group}.${name}`;
   }
@@ -61,22 +65,28 @@ export default function ThemeEditor() {
   }
 
   createEffect(() => {
-    if (!isOpen()) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        closeThemeEditor();
-      }
-    };
-    document.addEventListener("keydown", handler, { capture: true });
-    onCleanup(() => document.removeEventListener("keydown", handler, { capture: true }));
+    if (!isOpen() || !modalRef) return;
+    const teardown = installFocusTrap(modalRef, {
+      onEscape: () => closeThemeEditor(),
+      fallbackRestore: () => {
+        editorStore.focusEditor();
+        return null;
+      },
+    });
+    onCleanup(teardown);
   });
 
   return (
     <Show when={isOpen()}>
       <div class="theme-editor-overlay" onClick={() => closeThemeEditor()}>
-        <div class="theme-editor" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Customize theme">
+        <div
+          ref={modalRef}
+          class="theme-editor"
+          onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Customize theme"
+        >
           <div class="theme-editor-header">
             <div class="theme-editor-title">Customize theme</div>
             <div class="theme-editor-actions">

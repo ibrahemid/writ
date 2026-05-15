@@ -4,6 +4,7 @@ import {
   notifyRegistryChanged,
   registryVersion,
 } from "./registry";
+import { isModalOpen } from "../lib/modal-stack";
 
 let keybindingOverrides: Readonly<Record<string, string>> = {};
 
@@ -130,6 +131,7 @@ export function rebuildKeyMap() {
 }
 
 export function handleKeyDown(e: KeyboardEvent): boolean {
+  if (isModalOpen()) return false;
   if (e.key === "Shift" && shiftCommandId) {
     const now = Date.now();
     if (now - lastShiftTime < 400) {
@@ -187,4 +189,8 @@ export function handleKeyDown(e: KeyboardEvent): boolean {
 
 export function installKeyboardHandler() {
   document.addEventListener("keydown", handleKeyDown, { capture: true });
+}
+
+export function uninstallKeyboardHandler() {
+  document.removeEventListener("keydown", handleKeyDown, { capture: true });
 }

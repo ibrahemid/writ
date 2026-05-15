@@ -8,6 +8,8 @@ import {
 import { ShortcutRecorder, findConflicts } from "./recorder";
 import { keybindingSegments } from "../../lib/keybinding-format";
 import { configStore } from "../../stores/config";
+import { editorStore } from "../../stores/editor";
+import { installFocusTrap } from "../../lib/focus-trap";
 import { showToast } from "../Notifications/Toast";
 import type { Command } from "../../types/commands";
 import "./ShortcutEditor.css";
@@ -37,6 +39,7 @@ export default function ShortcutEditor() {
   const recorder = new ShortcutRecorder();
   const [drafts, setDrafts] = createSignal<Record<string, DraftEntry>>({});
   const [listeningId, setListeningId] = createSignal<string | null>(null);
+  let modalRef: HTMLDivElement | undefined;
 
   const commands = createMemo<Command[]>(() =>
     useAllCommands()
@@ -114,18 +117,16 @@ export default function ShortcutEditor() {
   });
 
   createEffect(() => {
-    if (!isOpen()) return;
-    const onModalEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (listeningId()) return;
-      event.preventDefault();
-      event.stopPropagation();
-      closeShortcutEditor();
-    };
-    document.addEventListener("keydown", onModalEscape, { capture: true });
-    onCleanup(() =>
-      document.removeEventListener("keydown", onModalEscape, { capture: true }),
-    );
+    if (!isOpen() || !modalRef) return;
+    const teardown = installFocusTrap(modalRef, {
+      isActive: () => listeningId() === null,
+      onEscape: () => closeShortcutEditor(),
+      fallbackRestore: () => {
+        editorStore.focusEditor();
+        return null;
+      },
+    });
+    onCleanup(teardown);
   });
 
   function handleReset(id: string) {
@@ -167,9 +168,11 @@ export default function ShortcutEditor() {
     <Show when={isOpen()}>
       <div class="shortcut-editor-overlay" onClick={() => closeShortcutEditor()}>
         <div
+          ref={modalRef}
           class="shortcut-editor"
           onClick={(e) => e.stopPropagation()}
           role="dialog"
+          aria-modal="true"
           aria-label="Customize shortcuts"
         >
           <div class="shortcut-editor-header">

@@ -1,0 +1,33 @@
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--writ-accent-default);
+  outline-offset: 2px;
+  border-radius: var(--writ-radius-1);
+}
+
+.tab:focus-visible,
+.tab-item:focus-visible,
+.palette-item:focus-visible,
+.statusbar-hint:focus-visible,
+.tabbar-new:focus-visible,
+.shortcut-row-btn:focus-visible,
+.theme-editor-btn:focus-visible,
+.theme-editor-close:focus-visible,
+.shortcut-editor-close:focus-visible {
+  outline-offset: 2px;
+}
+
+.search-input:focus-visible,
+.palette-input:focus-visible,
+.tab-rename-input:focus-visible {
+  outline-offset: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :focus-visible {
+    transition: none;
+  }
+}

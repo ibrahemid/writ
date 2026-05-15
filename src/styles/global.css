@@ -1,4 +1,5 @@
 @import "./theme.css";
+@import "./focus.css";
 
 *, *::before, *::after {
   margin: 0;
