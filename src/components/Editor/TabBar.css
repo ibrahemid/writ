@@ -36,8 +36,9 @@
   color: var(--writ-foreground-muted);
   font-size: var(--writ-font-size-sm);
   white-space: nowrap;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
   flex-shrink: 0;
+  min-width: 116px;
 }
 
 .tab:hover {
@@ -46,17 +47,20 @@
 }
 
 .tab-active {
-  background: var(--writ-surface-elevated);
+  background: color-mix(in srgb, var(--writ-accent-default) 16%, var(--writ-surface-elevated));
   border-color: transparent;
   color: var(--writ-foreground-default);
+  font-weight: 500;
+  box-shadow: inset 0 -2px 0 var(--writ-accent-default);
 }
 
 .tab-active:hover {
-  background: var(--writ-surface-elevated);
+  background: color-mix(in srgb, var(--writ-accent-default) 22%, var(--writ-surface-elevated));
+  color: var(--writ-foreground-default);
 }
 
 .tab-title {
-  max-width: 140px;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
