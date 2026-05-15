@@ -1,15 +1,24 @@
 import { saveBufferContent } from "./tauri";
 
 type AutosaveErrorListener = (bufferId: string, error: unknown) => void;
+type AutosaveSuccessListener = (bufferId: string) => void;
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 const pendingContent = new Map<string, string>();
 const errorListeners = new Set<AutosaveErrorListener>();
+const successListeners = new Set<AutosaveSuccessListener>();
 
 export function onAutosaveError(listener: AutosaveErrorListener): () => void {
   errorListeners.add(listener);
   return () => {
     errorListeners.delete(listener);
+  };
+}
+
+export function onAutosaveSuccess(listener: AutosaveSuccessListener): () => void {
+  successListeners.add(listener);
+  return () => {
+    successListeners.delete(listener);
   };
 }
 
@@ -62,6 +71,9 @@ async function runPendingSave(bufferId: string): Promise<void> {
 
   try {
     await saveBufferContent(bufferId, content);
+    for (const listener of successListeners) {
+      listener(bufferId);
+    }
   } catch (error) {
     for (const listener of errorListeners) {
       listener(bufferId, error);
