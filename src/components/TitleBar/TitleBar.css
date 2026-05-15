@@ -17,6 +17,10 @@
   overflow: hidden;
 }
 
+.titlebar-mac .titlebar-tabs {
+  padding-left: 12px;
+}
+
 .titlebar-right {
   display: flex;
   align-items: center;
