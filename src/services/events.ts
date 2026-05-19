@@ -22,7 +22,8 @@ export async function onEvent<K extends EventKind>(
   handler: EventHandler<K>,
 ): Promise<UnlistenFn> {
   return listen(EVENT_MAP[kind], (event) => {
-    handler(event.payload as PayloadFor<K>);
+    const envelope = event.payload as unknown as { payload?: unknown } | null;
+    handler(envelope?.payload as PayloadFor<K>);
   });
 }
 

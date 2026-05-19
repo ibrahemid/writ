@@ -34,10 +34,16 @@ import "./styles/global.css";
 import "./App.css";
 
 async function openPendingPaths(paths: string[]) {
+  if (!Array.isArray(paths)) {
+    console.error("openPendingPaths: expected string[], got", paths);
+    return;
+  }
   for (const path of paths) {
     try {
       await bufferStore.openFile(path);
-    } catch {}
+    } catch (err) {
+      console.error("openPendingPaths: failed to open", path, err);
+    }
   }
 }
 

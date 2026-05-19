@@ -35,7 +35,7 @@ describe("onEvent", () => {
     expect(mockListen).toHaveBeenCalledWith("writ://pending-opens", expect.any(Function));
   });
 
-  it("forwards the payload to the handler", async () => {
+  it("unwraps the adjacently-tagged envelope and forwards the inner payload", async () => {
     let captured: { paths: string[] } | undefined;
     let registered: ((event: { payload: unknown }) => void) | undefined;
     mockListen.mockImplementationOnce(
@@ -49,7 +49,9 @@ describe("onEvent", () => {
       captured = payload;
     });
 
-    registered?.({ payload: { paths: ["/tmp/a.md", "/tmp/b.md"] } });
+    registered?.({
+      payload: { kind: "pending:opens", payload: { paths: ["/tmp/a.md", "/tmp/b.md"] } },
+    });
 
     expect(captured).toEqual({ paths: ["/tmp/a.md", "/tmp/b.md"] });
   });
