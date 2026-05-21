@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
-use tracing::info;
+use tracing::{info, warn};
 use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
 use writ_core::update::UpdatePhase;
@@ -51,6 +51,11 @@ impl AppState {
         info!("config loaded");
 
         let store = BufferStore::new(conn, buffers_dir.clone());
+        match store.reclaim_empty_scratch() {
+            Ok(0) => {}
+            Ok(count) => info!(count, "reclaimed empty scratch buffers at startup"),
+            Err(e) => warn!(error = %e, "failed to reclaim empty scratch buffers"),
+        }
         let watcher_ignore = crate::watcher::handler::create_ignore_set();
 
         let mut transforms = TransformRegistry::new();

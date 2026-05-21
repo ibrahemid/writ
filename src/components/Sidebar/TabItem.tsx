@@ -8,6 +8,7 @@ interface Props {
   onClose?: () => void;
   onRestore?: () => void;
   secondary?: string;
+  trailing?: string;
 }
 
 export default function TabItem(props: Props) {
@@ -19,6 +20,7 @@ export default function TabItem(props: Props) {
     >
       <span class="tab-item-title">{abbreviateTitle(props.title)}</span>
       {props.secondary && <span class="tab-item-secondary">{props.secondary}</span>}
+      {props.trailing && <span class="tab-item-trailing">{props.trailing}</span>}
       <div class="tab-item-actions">
         {props.onRestore && (
           <span

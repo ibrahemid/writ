@@ -1,7 +1,8 @@
 import { Show, createMemo } from "solid-js";
 import { sidebarStore } from "../../stores/sidebar";
 import SearchBar from "./SearchBar";
-import HistoryList from "./HistoryList";
+import ActiveSection from "./ActiveSection";
+import HistorySection from "./HistorySection";
 import SearchResults from "./SearchResults";
 import "./Sidebar.css";
 
@@ -17,9 +18,9 @@ export default function Sidebar() {
       <Show
         when={searching()}
         fallback={
-          <div class="sidebar-section">
-            <div class="sidebar-section-title">History</div>
-            <HistoryList />
+          <div class="sidebar-scroll">
+            <ActiveSection />
+            <HistorySection />
           </div>
         }
       >
