@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use tracing::info;
 use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
+use writ_core::update::UpdatePhase;
 use writ_plugin::transform::builtins::register_builtins;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
@@ -25,6 +26,7 @@ pub struct AppState {
     pub frontend_ready: AtomicBool,
     pub transforms: RwLock<TransformRegistry>,
     pub event_bus: Arc<EventBus>,
+    pub update_phase: Mutex<UpdatePhase>,
 }
 
 impl AppState {
@@ -67,6 +69,7 @@ impl AppState {
             frontend_ready: AtomicBool::new(false),
             transforms: RwLock::new(transforms),
             event_bus: Arc::new(EventBus::new()),
+            update_phase: Mutex::new(UpdatePhase::default()),
         })
     }
 }

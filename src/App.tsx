@@ -10,7 +10,9 @@ import ContextMenu from "./components/ContextMenu/ContextMenu";
 import ToastContainer, { showToast } from "./components/Notifications/Toast";
 import ConfirmDialog, { requestConfirm } from "./components/ConfirmDialog/ConfirmDialog";
 import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
+import UpdateBanner from "./components/UpdateBanner/UpdateBanner";
 import { bufferStore } from "./stores/buffers";
+import { updateStore } from "./stores/update";
 import { sidebarStore } from "./stores/sidebar";
 import { editorStore } from "./stores/editor";
 import { configStore } from "./stores/config";
@@ -272,6 +274,14 @@ export default function App() {
       execute: () => openShortcutEditor(),
     });
 
+    registerCommand({
+      id: "app.check_updates",
+      label: "Check for Updates…",
+      description: "Check whether a newer version of Writ is available",
+      scope: "app",
+      execute: () => updateStore.checkForUpdate(),
+    });
+
     try {
       await registerTransformCommands();
     } catch (error) {
@@ -326,6 +336,9 @@ export default function App() {
       showToast(`Autosave failed for ${bufferId}`, "error");
     });
     unlisteners.push(offAutosaveError);
+
+    const unlistenUpdate = await updateStore.subscribe();
+    unlisteners.push(unlistenUpdate);
   });
 
   onCleanup(() => {
@@ -356,6 +369,7 @@ export default function App() {
         <ContextMenu />
         <ConfirmDialog />
         <ToastContainer />
+        <UpdateBanner />
       </div>
     </ErrorBoundary>
   );

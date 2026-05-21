@@ -20,6 +20,7 @@
 //! - [`events`]: strongly-typed domain events and an in-process event bus.
 //! - [`file_ops`]: pure helpers for file validation and language detection.
 //! - [`history`]: recently-closed buffer history.
+//! - [`update`]: update lifecycle phases and transition policy.
 //! - [`watcher`]: external-change representation and conflict policy.
 //! - [`workspace`]: workspace-level state (reserved).
 
@@ -41,6 +42,8 @@ pub mod events;
 pub mod file_ops;
 /// Recently-closed buffer history types.
 pub mod history;
+/// Update lifecycle phases and transition policy.
+pub mod update;
 /// External-change events and conflict-resolution policy.
 pub mod watcher;
 /// Workspace-level state (reserved for future expansion).

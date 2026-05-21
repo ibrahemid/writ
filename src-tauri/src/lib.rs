@@ -11,71 +11,7 @@ use events::{bus_bridge, emit_event, WritFrontendEvent};
 use poison::recover_poison;
 use state::AppState;
 use tauri::{Listener, Manager};
-use tauri_plugin_updater::UpdaterExt;
 use tracing::info;
-
-async fn check_for_update(handle: tauri::AppHandle, user_initiated: bool) {
-    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
-
-    let updater = match handle.updater() {
-        Ok(u) => u,
-        Err(e) => {
-            tracing::warn!(error = %e, "updater unavailable");
-            if user_initiated {
-                handle
-                    .dialog()
-                    .message("Update check failed.")
-                    .kind(MessageDialogKind::Warning)
-                    .title("Writ")
-                    .blocking_show();
-            }
-            return;
-        }
-    };
-    match updater.check().await {
-        Ok(Some(update)) => {
-            tracing::info!(version = %update.version, "update available");
-            if let Err(e) = update
-                .download_and_install(|_chunk, _total| {}, || {})
-                .await
-            {
-                tracing::warn!(error = %e, "update install failed");
-                if user_initiated {
-                    handle
-                        .dialog()
-                        .message(format!("Update install failed: {e}"))
-                        .kind(MessageDialogKind::Error)
-                        .title("Writ")
-                        .blocking_show();
-                }
-                return;
-            }
-            tracing::info!("update installed; relaunching");
-            handle.restart();
-        }
-        Ok(None) => {
-            tracing::debug!("no update available");
-            if user_initiated {
-                handle
-                    .dialog()
-                    .message("Writ is up to date.")
-                    .title("Writ")
-                    .blocking_show();
-            }
-        }
-        Err(e) => {
-            tracing::debug!(error = %e, "update check failed");
-            if user_initiated {
-                handle
-                    .dialog()
-                    .message(format!("Could not check for updates: {e}"))
-                    .kind(MessageDialogKind::Warning)
-                    .title("Writ")
-                    .blocking_show();
-            }
-        }
-    }
-}
 
 fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
@@ -136,10 +72,12 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         let id = event.id().0.as_str();
         match id {
             "app.check_updates" => {
-                let handle = app_handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    check_for_update(handle, true).await;
-                });
+                let _ = emit_event(
+                    app_handle,
+                    WritFrontendEvent::MenuAction {
+                        action: "app.check_updates".to_string(),
+                    },
+                );
             }
             "file.open" => {
                 let _ = emit_event(
@@ -215,6 +153,10 @@ pub fn run() {
             commands::transforms::list_transforms,
             commands::transforms::apply_transform,
             commands::perf::report_first_paint,
+            commands::update::check_for_update,
+            commands::update::download_and_install_update,
+            commands::update::dismiss_update,
+            commands::update::restart_app,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -286,7 +228,7 @@ pub fn run() {
                 })
                 .await
                 .ok();
-                check_for_update(handle, false).await;
+                commands::update::run_update_check(handle, false).await;
             });
 
             info!("writ ready");

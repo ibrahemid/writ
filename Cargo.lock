@@ -5583,6 +5583,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "url",
  "writ-core",
  "writ-plugin",
  "writ-storage",

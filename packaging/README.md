@@ -57,7 +57,9 @@ The post-release workflow expects these artifact names on GitHub Releases. They 
 | Checksums | `SHA256SUMS.txt` |
 | Tauri updater manifest | `latest.json` |
 
-The `.pkg` is the recommended install path: it ships pre-install and post-install scripts so the installer quits a running Writ, swaps the bundle, and relaunches the new version. No manual quit needed. The Homebrew cask and the in-app updater both consume the `.pkg`.
+The `.pkg` is the recommended *first-install* path: it ships pre-install and post-install scripts so the installer quits a running Writ, swaps the bundle, and relaunches the new version. No manual quit needed. The Homebrew cask consumes the `.pkg`.
+
+The in-app updater does **not** consume the `.pkg`. It consumes the signed `Writ_universal.app.tar.gz` (the "macOS updater bundle" row above), verifies its `.sig` against the embedded minisign public key, and swaps the `.app` in place. The `.pkg` and the `.app.tar.gz` are produced by separate steps in `release.yml` and are not interchangeable.
 
 The `.dmg` is offered alongside for users who prefer drag-to-Applications. It contains the same `Writ.app` bundle as the `.pkg`. Replacing a running `Writ.app` from a mounted dmg requires the user to quit Writ first; that is why the `.pkg` remains the default recommendation.
 

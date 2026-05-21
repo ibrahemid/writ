@@ -15,6 +15,7 @@ const EVENT_MAP: Record<EventKind, string> = {
   "buffer:external": "writ://buffer-external",
   "recovery:dirty": "writ://recovery-dirty",
   "menu:action": "writ://menu-action",
+  "update:status": "writ://update-status",
 };
 
 export async function onEvent<K extends EventKind>(

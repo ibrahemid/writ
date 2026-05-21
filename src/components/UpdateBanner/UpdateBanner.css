@@ -1,0 +1,146 @@
+.update-banner {
+  position: fixed;
+  bottom: calc(var(--writ-statusbar-height, 28px) + 12px);
+  left: 16px;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(440px, calc(100vw - 32px));
+  padding: 10px 14px;
+  background: var(--writ-surface-elevated);
+  border: 1px solid var(--writ-border-default);
+  border-left: 3px solid var(--writ-accent-default);
+  border-radius: 8px;
+  color: var(--writ-foreground-default);
+  font-size: var(--writ-font-size-sm);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.32);
+}
+
+.update-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.update-banner-text strong {
+  font-weight: 600;
+}
+
+.update-banner-error {
+  color: var(--writ-foreground-muted);
+}
+
+.update-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.update-banner-btn {
+  font-size: var(--writ-font-size-sm);
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.update-banner-btn.ghost {
+  background: transparent;
+  border-color: var(--writ-border-soft);
+  color: var(--writ-foreground-muted);
+}
+
+.update-banner-btn.ghost:hover {
+  background: var(--writ-surface-hover);
+  color: var(--writ-foreground-default);
+}
+
+.update-banner-btn.primary {
+  background: var(--writ-accent-default);
+  color: var(--writ-surface-background);
+  font-weight: 600;
+}
+
+.update-banner-btn.primary:hover {
+  background: var(--writ-accent-hover);
+}
+
+.update-banner-btn:focus-visible {
+  outline: 2px solid var(--writ-border-focus);
+  outline-offset: 1px;
+}
+
+.update-banner-progress {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.update-banner-track {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--writ-surface-sunken);
+  overflow: hidden;
+}
+
+.update-banner-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--writ-accent-default);
+  transition: width 120ms linear;
+}
+
+.update-banner-track.indeterminate .update-banner-fill {
+  width: 40%;
+}
+
+.update-banner-spinner {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid var(--writ-border-default);
+  border-top-color: var(--writ-accent-default);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .update-banner {
+    animation: update-banner-in 160ms ease-out;
+  }
+
+  .update-banner-spinner {
+    animation: update-banner-spin 0.7s linear infinite;
+  }
+
+  .update-banner-track.indeterminate .update-banner-fill {
+    animation: update-banner-indeterminate 1.1s ease-in-out infinite;
+  }
+
+  @keyframes update-banner-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes update-banner-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes update-banner-indeterminate {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(350%);
+    }
+  }
+}

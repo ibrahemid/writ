@@ -1,5 +1,6 @@
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
+use writ_core::update::UpdatePhase;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "payload")]
@@ -27,6 +28,9 @@ pub enum WritFrontendEvent {
 
     #[serde(rename = "menu:action")]
     MenuAction { action: String },
+
+    #[serde(rename = "update:status")]
+    UpdateStatus(UpdatePhase),
 }
 
 pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), String> {
@@ -38,6 +42,7 @@ pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), Strin
         WritFrontendEvent::BufferExternal { .. } => "writ://buffer-external",
         WritFrontendEvent::RecoveryDirty { .. } => "writ://recovery-dirty",
         WritFrontendEvent::MenuAction { .. } => "writ://menu-action",
+        WritFrontendEvent::UpdateStatus(..) => "writ://update-status",
     };
     app.emit(event_name, &event).map_err(|e| e.to_string())
 }

@@ -110,6 +110,22 @@ export async function renameBuffer(id: string, title: string): Promise<void> {
   return invoke("rename_buffer", { id, title });
 }
 
+export async function checkForUpdate(): Promise<void> {
+  return invoke("check_for_update");
+}
+
+export async function downloadAndInstallUpdate(): Promise<void> {
+  return invoke("download_and_install_update");
+}
+
+export async function dismissUpdate(): Promise<void> {
+  return invoke("dismiss_update");
+}
+
+export async function restartApp(): Promise<void> {
+  return invoke("restart_app");
+}
+
 export async function hideWindow(): Promise<void> {
   try {
     const win = getCurrentWindow();
