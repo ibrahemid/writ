@@ -3,6 +3,40 @@ use crate::state::AppState;
 use tauri::State;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::buffer::manager::BufferManager;
+use writ_storage::buffer_store::BufferStore;
+
+/// Outcome of resolving a new-buffer request: either an existing empty
+/// scratch buffer to reuse, or a freshly minted (not yet persisted)
+/// buffer to create.
+pub enum CreateDecision {
+    /// Reuse this already-persisted empty scratch buffer; no new row,
+    /// no `updated_at` bump, no event is emitted.
+    Reuse(BufferDocument),
+    /// This buffer was just minted and must be persisted by the caller.
+    Create(BufferDocument),
+}
+
+/// Decides whether a new-buffer request reuses an existing empty scratch
+/// buffer or mints a new one.
+///
+/// An untitled request reuses the first active, never-renamed, zero-byte
+/// scratch buffer if one exists, preventing empty buffers from piling up
+/// when "new tab" is pressed repeatedly. An explicit title always mints.
+/// Callers must flush pending autosave before calling so disk-read
+/// emptiness reflects the live editor.
+pub fn decide_create_buffer(
+    store: &BufferStore,
+    mgr: &mut BufferManager,
+    title: Option<String>,
+) -> Result<CreateDecision, String> {
+    if title.is_none() {
+        if let Some(existing) = store.find_empty_scratch_active().map_err(|e| e.to_string())? {
+            return Ok(CreateDecision::Reuse(existing));
+        }
+    }
+    let doc = mgr.create_buffer(title).map_err(|e| e.to_string())?;
+    Ok(CreateDecision::Create(doc))
+}
 
 #[tauri::command]
 pub fn create_buffer(
@@ -10,18 +44,22 @@ pub fn create_buffer(
     title: Option<String>,
 ) -> Result<BufferDocument, String> {
     let mut mgr = BufferManager::new().with_event_bus(state.event_bus.clone());
-    let doc = mgr.create_buffer(title).map_err(|e| e.to_string())?;
     let store = state.store.lock().map_err(|e| e.to_string())?;
-    store.insert(&doc).map_err(|e| e.to_string())?;
-    {
-        let mut ignore = recover_poison(
-            state.watcher_ignore.lock(),
-            "commands::buffer::create_buffer",
-        );
-        ignore.insert(doc.filename.clone());
+    match decide_create_buffer(&store, &mut mgr, title)? {
+        CreateDecision::Reuse(doc) => Ok(doc),
+        CreateDecision::Create(doc) => {
+            store.insert(&doc).map_err(|e| e.to_string())?;
+            {
+                let mut ignore = recover_poison(
+                    state.watcher_ignore.lock(),
+                    "commands::buffer::create_buffer",
+                );
+                ignore.insert(doc.filename.clone());
+            }
+            store.save_content(&doc.id, "").map_err(|e| e.to_string())?;
+            Ok(doc)
+        }
     }
-    store.save_content(&doc.id, "").map_err(|e| e.to_string())?;
-    Ok(doc)
 }
 
 #[tauri::command]

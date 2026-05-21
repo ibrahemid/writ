@@ -5580,6 +5580,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-updater",
+ "tempfile",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",

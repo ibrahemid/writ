@@ -192,6 +192,24 @@ pub fn find_history_by_source_path(
     Ok(result)
 }
 
+/// Returns every never-renamed scratch buffer (`source_path IS NULL`
+/// and `title = filename`), regardless of status, ordered by tab
+/// position. Callers filter on disk emptiness and status.
+pub fn list_scratch_candidates(conn: &Connection) -> StorageResult<Vec<BufferDocument>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, filename, status, language, source_path,
+                cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at
+         FROM buffers WHERE source_path IS NULL AND title = filename
+         ORDER BY tab_order ASC",
+    )?;
+    let rows = stmt.query_map([], row_to_document)?;
+    let mut docs = Vec::new();
+    for row in rows {
+        docs.push(row?);
+    }
+    Ok(docs)
+}
+
 /// Updates the detected or user-assigned language for a buffer.
 pub fn update_language(conn: &Connection, id: &str, language: Option<&str>) -> StorageResult<()> {
     conn.execute(

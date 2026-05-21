@@ -180,6 +180,48 @@ impl BufferStore {
         queries::find_history_by_source_path(&self.conn, source_path)
     }
 
+    /// Reports whether a buffer's backing content file is empty. A
+    /// missing file counts as empty (a freshly inserted buffer before
+    /// its first content write).
+    fn is_empty_on_disk(&self, doc: &BufferDocument) -> bool {
+        let file_path = self.buffers_dir.join(&doc.filename);
+        match std::fs::metadata(&file_path) {
+            Ok(meta) => meta.len() == 0,
+            Err(_) => true,
+        }
+    }
+
+    /// Finds an active, never-renamed scratch buffer with no content,
+    /// suitable for reuse instead of minting a new empty buffer.
+    ///
+    /// "Empty" is read from disk; callers must flush any pending
+    /// frontend autosave before relying on this, since content lives on
+    /// disk and trails the live editor by the autosave debounce window.
+    pub fn find_empty_scratch_active(&self) -> StorageResult<Option<BufferDocument>> {
+        let candidates = queries::list_scratch_candidates(&self.conn)?;
+        Ok(candidates
+            .into_iter()
+            .find(|doc| doc.status == BufferStatus::Active && self.is_empty_on_disk(doc)))
+    }
+
+    /// Deletes every empty, never-renamed scratch buffer regardless of
+    /// status, removing its row, backing file, and FTS entry. Returns
+    /// the number reclaimed.
+    ///
+    /// Run once at startup to clear accumulated empty scratch rows.
+    /// Safe only when no buffer has unflushed content (true at launch).
+    pub fn reclaim_empty_scratch(&self) -> StorageResult<usize> {
+        let candidates = queries::list_scratch_candidates(&self.conn)?;
+        let mut reclaimed = 0;
+        for doc in candidates {
+            if self.is_empty_on_disk(&doc) {
+                self.delete(&doc.id)?;
+                reclaimed += 1;
+            }
+        }
+        Ok(reclaimed)
+    }
+
     /// Opens a buffer that originated from an external file, inserting
     /// its row and writing its content to disk in one step.
     pub fn open_from_path(&self, doc: &BufferDocument, content: &str) -> StorageResult<()> {

@@ -281,3 +281,128 @@ fn rename_preserves_content_searchability() {
     let hits = store.search("ipsum").unwrap();
     assert_eq!(hits, vec!["ren-fts-c"]);
 }
+
+/// Builds a never-renamed scratch buffer: `title == filename`, active,
+/// no `source_path`. Mirrors what `create_buffer` mints.
+fn make_scratch(id: &str) -> BufferDocument {
+    let mut doc = make_doc(id, "");
+    doc.title = doc.filename.clone();
+    doc
+}
+
+#[test]
+fn find_empty_scratch_active_returns_none_on_empty_store() {
+    let (_dir, store) = setup();
+    assert!(store.find_empty_scratch_active().unwrap().is_none());
+}
+
+#[test]
+fn find_empty_scratch_active_returns_zero_byte_unnamed_scratch() {
+    let (_dir, store) = setup();
+    let doc = make_scratch("scratch-1");
+    store.insert(&doc).unwrap();
+    store.save_content("scratch-1", "").unwrap();
+
+    let found = store.find_empty_scratch_active().unwrap();
+    assert_eq!(found.map(|d| d.id), Some("scratch-1".to_string()));
+}
+
+#[test]
+fn find_empty_scratch_active_skips_buffer_with_content() {
+    let (_dir, store) = setup();
+    let doc = make_scratch("scratch-2");
+    store.insert(&doc).unwrap();
+    store.save_content("scratch-2", "hello").unwrap();
+
+    assert!(store.find_empty_scratch_active().unwrap().is_none());
+}
+
+#[test]
+fn find_empty_scratch_active_skips_renamed_scratch() {
+    let (_dir, store) = setup();
+    let mut doc = make_scratch("scratch-3");
+    doc.title = "My Notes".to_string();
+    store.insert(&doc).unwrap();
+    store.save_content("scratch-3", "").unwrap();
+
+    assert!(store.find_empty_scratch_active().unwrap().is_none());
+}
+
+#[test]
+fn find_empty_scratch_active_skips_buffer_with_source_path() {
+    let (_dir, store) = setup();
+    let mut doc = make_scratch("scratch-4");
+    doc.source_path = Some("/tmp/empty.txt".to_string());
+    store.insert(&doc).unwrap();
+    store.save_content("scratch-4", "").unwrap();
+
+    assert!(store.find_empty_scratch_active().unwrap().is_none());
+}
+
+#[test]
+fn find_empty_scratch_active_skips_history_buffer() {
+    let (_dir, store) = setup();
+    let doc = make_scratch("scratch-5");
+    store.insert(&doc).unwrap();
+    store.save_content("scratch-5", "").unwrap();
+    store.close("scratch-5").unwrap();
+
+    assert!(store.find_empty_scratch_active().unwrap().is_none());
+}
+
+#[test]
+fn reclaim_empty_scratch_deletes_empty_scratch_any_status_and_returns_count() {
+    let (_dir, store) = setup();
+
+    let active_empty = make_scratch("re-active-empty");
+    store.insert(&active_empty).unwrap();
+    store.save_content("re-active-empty", "").unwrap();
+
+    let history_empty = make_scratch("re-history-empty");
+    store.insert(&history_empty).unwrap();
+    store.save_content("re-history-empty", "").unwrap();
+    store.close("re-history-empty").unwrap();
+
+    let with_content = make_scratch("re-content");
+    store.insert(&with_content).unwrap();
+    store.save_content("re-content", "keep me").unwrap();
+
+    let count = store.reclaim_empty_scratch().unwrap();
+    assert_eq!(count, 2);
+    assert!(store.get("re-active-empty").is_err());
+    assert!(store.get("re-history-empty").is_err());
+    assert!(store.get("re-content").is_ok());
+}
+
+#[test]
+fn reclaim_empty_scratch_keeps_named_nonempty_and_sourced_buffers() {
+    let (_dir, store) = setup();
+
+    let named = make_doc("kept-named", "Important");
+    store.insert(&named).unwrap();
+    store.save_content("kept-named", "").unwrap();
+
+    let mut sourced = make_scratch("kept-sourced");
+    sourced.source_path = Some("/tmp/real.txt".to_string());
+    store.insert(&sourced).unwrap();
+    store.save_content("kept-sourced", "").unwrap();
+
+    let count = store.reclaim_empty_scratch().unwrap();
+    assert_eq!(count, 0);
+    assert!(store.get("kept-named").is_ok());
+    assert!(store.get("kept-sourced").is_ok());
+}
+
+#[test]
+fn reclaim_empty_scratch_removes_backing_files() {
+    let (dir, store) = setup();
+    let doc = make_scratch("re-file");
+    store.insert(&doc).unwrap();
+    store.save_content("re-file", "").unwrap();
+    let file_path = dir.path().join("buffers").join(&doc.filename);
+    assert!(file_path.exists());
+
+    store.reclaim_empty_scratch().unwrap();
+
+    assert!(!file_path.exists());
+}

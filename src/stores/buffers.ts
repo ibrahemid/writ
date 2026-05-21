@@ -1,6 +1,7 @@
 import { createSignal, createMemo, createRoot } from "solid-js";
 import type { BufferDocument } from "../types/buffer";
 import * as api from "../services/tauri";
+import { flushAutosave } from "../services/autosave";
 
 function createBufferStore() {
   const [buffers, setBuffers] = createSignal<BufferDocument[]>([]);
@@ -33,8 +34,11 @@ function createBufferStore() {
   }
 
   async function createTab(title?: string): Promise<BufferDocument> {
+    await flushAutosave();
     const doc = await api.createBuffer(title);
-    setBuffers((prev) => [...prev, doc]);
+    setBuffers((prev) =>
+      prev.find((b) => b.id === doc.id) ? prev : [...prev, doc],
+    );
     setActiveTabId(doc.id);
     return doc;
   }
