@@ -6,7 +6,7 @@
 }
 
 .kbd-key {
-  font-family: var(--writ-font-mono);
+  font-family: var(--writ-font-sans);
   font-size: var(--writ-font-size-xs);
   color: var(--writ-foreground-muted);
   letter-spacing: 0.04em;
@@ -28,6 +28,6 @@
 }
 
 .kbd-key-empty {
-  font-family: var(--writ-font-mono);
+  font-family: var(--writ-font-sans);
   color: var(--writ-foreground-subtle);
 }

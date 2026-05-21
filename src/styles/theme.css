@@ -32,6 +32,7 @@
 
   --writ-bg-tab-pill: transparent;
 
+  --writ-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --writ-font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", ui-monospace, monospace;
   --writ-font-size: 14px;
   --writ-font-size-sm: 12px;
