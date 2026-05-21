@@ -116,7 +116,7 @@
   border: 1px solid var(--writ-border-focus);
   border-radius: var(--writ-radius-1);
   font-size: var(--writ-font-size-sm);
-  font-family: var(--writ-font-mono);
+  font-family: var(--writ-font-sans);
   padding: 1px 4px;
   max-width: 160px;
   outline: none;

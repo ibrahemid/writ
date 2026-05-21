@@ -1,3 +1,4 @@
+@import "./fonts.css";
 @import "./theme.css";
 @import "./focus.css";
 
@@ -12,7 +13,7 @@ html, body {
   overflow: hidden;
   background: transparent;
   color: var(--writ-foreground-default);
-  font-family: var(--writ-font-mono);
+  font-family: var(--writ-font-sans);
   font-size: var(--writ-font-size);
   line-height: var(--writ-line-height);
   -webkit-font-smoothing: antialiased;
