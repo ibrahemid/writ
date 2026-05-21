@@ -33,11 +33,9 @@
     },
     "plugins": {
         "updater": {
-            "active": true,
             "endpoints": [
                 "https://github.com/ibrahemid/writ/releases/latest/download/latest.json"
             ],
-            "dialog": true,
             "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU2N0FEMTFEOTZDRTIxRjYKUldUMkljNldIZEY2NXFmOWtBU2RaZDFYWldrVUpiVFpHQ0NFY25ZSzVEbENTRGJLTkVRWC9PSGsK"
         }
     },

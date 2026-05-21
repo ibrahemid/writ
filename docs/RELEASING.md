@@ -47,26 +47,33 @@ Navigate to `Settings` -> `Secrets and variables` -> `Actions` and add:
 | `WINDOWS_CERTIFICATE` | optional | Base64-encoded `.pfx` code-signing cert |
 | `WINDOWS_CERTIFICATE_PASSWORD` | optional | Password for the `.pfx` |
 
-For the initial launch you can ship **unsigned** by leaving the Apple and
-Windows secrets empty. The updater-signing key (`TAURI_SIGNING_PRIVATE_KEY`)
-must be present for auto-update to work, even on unsigned builds.
+The updater-signing key (`TAURI_SIGNING_PRIVATE_KEY`) must be present for
+auto-update to work at all.
 
-### 1.4 Wire the updater plugin in Rust (one-time code change)
+> **macOS notarization is a launch gate for auto-update — not optional.**
+> You can ship a *first install* unsigned (users click through Gatekeeper
+> once). But when the **in-app updater** swaps the `.app` in place, macOS will
+> quarantine or refuse to launch a bundle that is not Developer-ID signed,
+> notarized, and stapled. An un-notarized auto-update will download, install,
+> relaunch, and then be **blocked on the user's machine**. The minisign
+> updater signature does **not** substitute for Apple notarization. Before the
+> first release users will auto-update from, confirm the `APPLE_*` secrets
+> above are populated; otherwise `release.yml` produces an ad-hoc-signed (`-`),
+> un-notarized build. See `docs/adr/007-in-app-updater.md`.
 
-The workflow, config, and dependency are in place, but the updater plugin must
-be registered at runtime in `src-tauri/src/lib.rs` before the client can fetch
-updates:
+### 1.4 Updater plugin wiring (already in place)
 
-```rust
-tauri::Builder::default()
-    .plugin(tauri_plugin_updater::Builder::new().build())
-    // ...existing plugins...
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
-```
+The updater plugin is registered at runtime in `src-tauri/src/lib.rs` and the
+client flow lives in `src-tauri/src/commands/update.rs`:
 
-This change is intentionally out of scope for the release-pipeline PR. Land it
-before the first tagged release so that installed clients can update.
+- A silent **check-only** runs ~5s after launch; it surfaces a banner only when
+  an update genuinely exists and never auto-installs.
+- "Check for Updates…" (app menu) and the `app.check_updates` command run a
+  user-visible check.
+- The `UpdateBanner` component (backed by `src/stores/update.ts`) prompts the
+  user to install, shows download progress, and offers "Restart now".
+
+No further one-time code change is required.
 
 ## 2. Cutting a release
 
@@ -213,7 +220,62 @@ The finalize job uses glob patterns covering `.pkg`, `.dmg`, `.msi`,
 `.AppImage`, `.deb`, `.rpm`, `.tar.gz`, `.zip`, `.sig`, and `.exe`. Extend
 `.github/workflows/release.yml` if new bundle types are added.
 
-## 6. Related files
+## 6. Testing the update flow locally (no release, no CI)
+
+This proves the **mechanics** — minisign verification, download, in-place swap,
+relaunch — against a local server, without tagging or triggering CI. It does
+**not** prove macOS Gatekeeper acceptance: locally built apps are not
+quarantined, so a notarized→notarized swap can only be verified with a real
+signed release. Treat "works locally" accordingly.
+
+The override path (`WRIT_UPDATER_ENDPOINT` / `WRIT_UPDATER_PUBKEY`) is compiled
+in **debug builds only**; a release binary ignores both.
+
+1. Generate a throwaway signing keypair (do not reuse the production key):
+
+   ```bash
+   cargo tauri signer generate -w /tmp/writ-test.key
+   ```
+
+2. Build a "newer" bundle. Bump the version in `Cargo.toml`,
+   `src-tauri/tauri.conf.json`, and `package.json` to a high value
+   (e.g. `0.9.0`), then:
+
+   ```bash
+   TAURI_SIGNING_PRIVATE_KEY="$(cat /tmp/writ-test.key)" \
+     cargo tauri build --bundles app
+   ```
+
+   This produces `Writ_0.9.0_universal.app.tar.gz` and a `.sig` under
+   `target/universal-apple-darwin/release/bundle/macos/` (or the per-arch
+   target dir for a non-universal local build).
+
+3. Serve a manifest + the bundle locally:
+
+   ```bash
+   mkdir -p /tmp/writ-staging && cd /tmp/writ-staging
+   cp /path/to/Writ_0.9.0_universal.app.tar.gz .
+   # latest.json: version 0.9.0; darwin-aarch64 and darwin-x86_64 both point at
+   # http://localhost:8000/Writ_0.9.0_universal.app.tar.gz; signature = the
+   # contents of the .sig file.
+   python3 -m http.server 8000
+   ```
+
+4. Run a lower-version debug build pointed at the local endpoint with the
+   matching test public key (contents of `/tmp/writ-test.key.pub`):
+
+   ```bash
+   WRIT_UPDATER_ENDPOINT="http://localhost:8000/latest.json" \
+   WRIT_UPDATER_PUBKEY="$(cat /tmp/writ-test.key.pub)" \
+     cargo tauri dev
+   ```
+
+5. Trigger "Check for Updates…", click **Install**, watch the progress bar,
+   then **Restart now**. Confirm the app relaunches reporting `0.9.0`.
+
+Revert the version bumps from step 2 before committing.
+
+## 7. Related files
 
 - `.github/workflows/release.yml`         release pipeline
 - `.github/workflows/bump-version.yml`    version bump automation
@@ -223,3 +285,5 @@ The finalize job uses glob patterns covering `.pkg`, `.dmg`, `.msi`,
 - `Cargo.toml`                            workspace version
 - `package.json`                          frontend version
 - `CHANGELOG.md`                          human-curated changelog
+- `docs/adr/007-in-app-updater.md`        updater design, gates, test loop
+- `src-tauri/src/commands/update.rs`      updater IPC + endpoint override
