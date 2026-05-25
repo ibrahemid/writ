@@ -9,3 +9,7 @@
 pub mod change_event;
 /// Conflict-resolution policy for external changes.
 pub mod conflict;
+/// Content-fingerprinted ignore stamps for distinguishing internal writes
+/// from real external edits, even when a debouncer coalesces both into a
+/// single delivered event.
+pub mod ignore;
