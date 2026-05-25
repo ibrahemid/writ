@@ -33,22 +33,26 @@ export default function TabItem(props: Props) {
       {props.trailing && <span class="tab-item-trailing">{props.trailing}</span>}
       <div class="tab-item-actions">
         {props.onRestore && (
-          <span
+          <button
+            type="button"
             class="tab-item-action"
-            onClick={(e) => { e.stopPropagation(); props.onRestore!(); }}
+            aria-label="Restore tab"
             title="Restore"
+            onClick={(e) => { e.stopPropagation(); props.onRestore!(); }}
           >
             ↩
-          </span>
+          </button>
         )}
         {props.onClose && (
-          <span
+          <button
+            type="button"
             class="tab-item-action tab-item-close"
-            onClick={(e) => { e.stopPropagation(); props.onClose!(); }}
+            aria-label="Close tab"
             title="Close"
+            onClick={(e) => { e.stopPropagation(); props.onClose!(); }}
           >
             ×
-          </span>
+          </button>
         )}
       </div>
     </div>
