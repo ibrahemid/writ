@@ -10,8 +10,8 @@ vi.mock("../../services/autosave", () => ({
   flushAutosave: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { sidebarStore } from "../../stores/sidebar";
-import { configStore } from "../../stores/config";
+import { createSidebarStore, type SidebarStore } from "../../stores/window/sidebar-store";
+import { configStore } from "../../stores/global/config";
 import { searchBuffers, getConfig, updateConfig } from "../../services/tauri";
 import { flushAutosave } from "../../services/autosave";
 import type { WritConfig } from "../../types/config";
@@ -41,12 +41,13 @@ function buildConfig(overrides: Partial<WritConfig["sidebar"]> = {}): WritConfig
   };
 }
 
-describe("sidebarStore", () => {
+describe("sidebar-store (per-window factory)", () => {
+  let sidebarStore: SidebarStore;
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
-    sidebarStore.hide();
-    sidebarStore.setSearchQuery("");
+    sidebarStore = createSidebarStore();
   });
 
   afterEach(() => {
@@ -168,6 +169,16 @@ describe("sidebarStore", () => {
 
       expect(mockedFlush).toHaveBeenCalledOnce();
       expect(order).toEqual(["flush", "search"]);
+    });
+  });
+
+  describe("per-window isolation", () => {
+    it("two instances are independent", () => {
+      const a = createSidebarStore();
+      const b = createSidebarStore();
+      a.show();
+      expect(a.isOpen()).toBe(true);
+      expect(b.isOpen()).toBe(false);
     });
   });
 });

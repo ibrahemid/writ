@@ -1,14 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { editorStore } from "../../stores/editor";
+import { createEditorStore, type EditorStore } from "../../stores/window/editor-store";
 
-describe("editorStore", () => {
+describe("editor-store (per-window factory)", () => {
+  let editorStore: EditorStore;
+
   beforeEach(() => {
-    editorStore.setCursorLine(1);
-    editorStore.setCursorCol(1);
-    editorStore.setLineCount(0);
-    editorStore.setLanguage(null);
-    editorStore.setSelectionCount(1);
-    editorStore.registerView(null);
+    editorStore = createEditorStore();
   });
 
   describe("cursor signals", () => {
@@ -80,6 +77,17 @@ describe("editorStore", () => {
       editorStore.focusEditor();
 
       expect(mockView.focus).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("per-window isolation", () => {
+    it("two instances are independent", () => {
+      const a = createEditorStore();
+      const b = createEditorStore();
+      a.setCursorLine(10);
+      b.setCursorLine(99);
+      expect(a.cursorLine()).toBe(10);
+      expect(b.cursorLine()).toBe(99);
     });
   });
 });

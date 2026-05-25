@@ -8,7 +8,7 @@ const fixtures = await vi.hoisted(async () => {
   return { phase, setPhase };
 });
 
-vi.mock("../../stores/update", () => ({
+vi.mock("../../stores/global/update", () => ({
   updateStore: {
     phase: fixtures.phase,
     dismiss: vi.fn(),

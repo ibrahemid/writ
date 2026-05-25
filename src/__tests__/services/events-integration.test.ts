@@ -45,7 +45,8 @@ vi.mock("../../services/tauri", () => ({
   minimizeWindow: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { bufferStore } from "../../stores/buffers";
+import { createTabStore } from "../../stores/window/tab-store";
+import { bufferRegistry } from "../../stores/global/buffer-registry";
 import * as api from "../../services/tauri";
 import { executeCommand, registerCommand } from "../../commands/registry";
 
@@ -56,29 +57,32 @@ describe("OS file association integration", () => {
     vi.clearAllMocks();
     mockedApi.listActiveBuffers.mockResolvedValue([]);
     mockedApi.listHistory.mockResolvedValue([]);
-    await bufferStore.load();
+    await bufferRegistry.load();
   });
 
   it("opens a file via the same path as drag-and-drop", async () => {
-    await bufferStore.openFile("/home/user/readme.md");
+    const tabs = createTabStore({ registry: bufferRegistry });
+    await tabs.openFile("/home/user/readme.md");
 
     expect(mockedApi.openFile).toHaveBeenCalledWith("/home/user/readme.md");
-    expect(bufferStore.activeTabs().some(t => t.source_path === "/home/user/readme.md")).toBe(true);
+    expect(bufferRegistry.activeTabs().some((t) => t.source_path === "/home/user/readme.md")).toBe(true);
   });
 
   it("opens multiple files sequentially", async () => {
-    await bufferStore.openFile("/home/user/a.rs");
-    await bufferStore.openFile("/home/user/b.ts");
+    const tabs = createTabStore({ registry: bufferRegistry });
+    await tabs.openFile("/home/user/a.rs");
+    await tabs.openFile("/home/user/b.ts");
 
     expect(mockedApi.openFile).toHaveBeenCalledTimes(2);
-    expect(bufferStore.activeTabs().length).toBe(2);
+    expect(bufferRegistry.activeTabs().length).toBe(2);
   });
 
   it("activates the last opened file", async () => {
-    await bufferStore.openFile("/home/user/first.rs");
-    const second = await bufferStore.openFile("/home/user/second.ts");
+    const tabs = createTabStore({ registry: bufferRegistry });
+    await tabs.openFile("/home/user/first.rs");
+    const second = await tabs.openFile("/home/user/second.ts");
 
-    expect(bufferStore.activeTabId()).toBe(second.id);
+    expect(tabs.activeTabId()).toBe(second.id);
   });
 });
 
@@ -87,39 +91,42 @@ describe("openFile error handling", () => {
     vi.clearAllMocks();
     mockedApi.listActiveBuffers.mockResolvedValue([]);
     mockedApi.listHistory.mockResolvedValue([]);
-    await bufferStore.load();
+    await bufferRegistry.load();
   });
 
   it("propagates backend errors to caller", async () => {
+    const tabs = createTabStore({ registry: bufferRegistry });
     mockedApi.openFile.mockRejectedValueOnce(new Error("file not found"));
 
-    await expect(bufferStore.openFile("/nonexistent/file.txt")).rejects.toThrow("file not found");
+    await expect(tabs.openFile("/nonexistent/file.txt")).rejects.toThrow("file not found");
   });
 
   it("does not add tab when backend fails", async () => {
+    const tabs = createTabStore({ registry: bufferRegistry });
     mockedApi.openFile.mockRejectedValueOnce(new Error("permission denied"));
 
     try {
-      await bufferStore.openFile("/restricted/file.txt");
+      await tabs.openFile("/restricted/file.txt");
     } catch {}
 
-    expect(bufferStore.activeTabs().find(t => t.source_path === "/restricted/file.txt")).toBeUndefined();
+    expect(bufferRegistry.activeTabs().find((t) => t.source_path === "/restricted/file.txt")).toBeUndefined();
   });
 
   it("does not change activeTabId when backend fails", async () => {
-    const existing = await bufferStore.openFile("/home/user/good.rs");
+    const tabs = createTabStore({ registry: bufferRegistry });
+    const existing = await tabs.openFile("/home/user/good.rs");
     mockedApi.openFile.mockRejectedValueOnce(new Error("bad file"));
 
     try {
-      await bufferStore.openFile("/home/user/bad.txt");
+      await tabs.openFile("/home/user/bad.txt");
     } catch {}
 
-    expect(bufferStore.activeTabId()).toBe(existing.id);
+    expect(tabs.activeTabId()).toBe(existing.id);
   });
 });
 
 describe("loadAndActivate", () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.clearAllMocks();
   });
 
@@ -133,19 +140,21 @@ describe("loadAndActivate", () => {
     mockedApi.listActiveBuffers.mockResolvedValue([tab]);
     mockedApi.listHistory.mockResolvedValue([]);
 
-    await bufferStore.loadAndActivate();
+    const tabs = createTabStore({ registry: bufferRegistry });
+    await tabs.loadAndActivate();
 
-    expect(bufferStore.activeTabId()).toBe("loaded-1");
+    expect(tabs.activeTabId()).toBe("loaded-1");
   });
 
   it("clears activeTabId when previously active tab no longer exists", async () => {
     mockedApi.listActiveBuffers.mockResolvedValue([]);
     mockedApi.listHistory.mockResolvedValue([]);
-    bufferStore.setActiveTabId("removed-tab");
+    const tabs = createTabStore({ registry: bufferRegistry });
+    tabs.setActiveTabId("removed-tab");
 
-    await bufferStore.loadAndActivate();
+    await tabs.loadAndActivate();
 
-    expect(bufferStore.activeTabId()).toBeNull();
+    expect(tabs.activeTabId()).toBeNull();
   });
 
   it("preserves activeTabId when tab still exists", async () => {
@@ -157,11 +166,12 @@ describe("loadAndActivate", () => {
     };
     mockedApi.listActiveBuffers.mockResolvedValue([tab]);
     mockedApi.listHistory.mockResolvedValue([]);
-    bufferStore.setActiveTabId("keep-me");
+    const tabs = createTabStore({ registry: bufferRegistry });
+    tabs.setActiveTabId("keep-me");
 
-    await bufferStore.loadAndActivate();
+    await tabs.loadAndActivate();
 
-    expect(bufferStore.activeTabId()).toBe("keep-me");
+    expect(tabs.activeTabId()).toBe("keep-me");
   });
 });
 

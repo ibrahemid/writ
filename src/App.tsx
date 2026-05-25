@@ -11,12 +11,13 @@ import ToastContainer, { showToast } from "./components/Notifications/Toast";
 import ConfirmDialog, { requestConfirm } from "./components/ConfirmDialog/ConfirmDialog";
 import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
 import UpdateBanner from "./components/UpdateBanner/UpdateBanner";
-import { bufferStore } from "./stores/buffers";
-import { updateStore } from "./stores/update";
-import { sidebarStore } from "./stores/sidebar";
-import { editorStore } from "./stores/editor";
-import { configStore } from "./stores/config";
-import { themeStore } from "./stores/theme";
+import WindowProvider, { useWindow } from "./components/WindowProvider/WindowProvider";
+import { bufferRegistry } from "./stores/global/buffer-registry";
+import { updateStore } from "./stores/global/update";
+import { configStore } from "./stores/global/config";
+import { themeStore } from "./stores/global/theme";
+import { osWindowStore } from "./stores/global/os-window";
+import { windowRegistry } from "./stores/global/window-registry";
 import { focusSearchBar } from "./components/Sidebar/SearchBar";
 import { openContentSearch } from "./commands/search";
 import { registerTransformCommands } from "./commands/transforms";
@@ -31,20 +32,26 @@ import {
 import { onEvent, emitFrontendReady } from "./services/events";
 import { onAutosaveError } from "./services/autosave";
 import { reportFirstPaint } from "./services/tauri";
-import { osWindowStore } from "./stores/os-window";
 import { installCloseFlush } from "./services/window-lifecycle";
 import type { UnlistenFn } from "./services/events";
 import "./styles/global.css";
 import "./App.css";
+
+const MAIN_WINDOW_ID = 1;
 
 async function openPendingPaths(paths: string[]) {
   if (!Array.isArray(paths)) {
     console.error("openPendingPaths: expected string[], got", paths);
     return;
   }
+  const win = windowRegistry.getActive();
+  if (!win) {
+    console.error("openPendingPaths: no active window");
+    return;
+  }
   for (const path of paths) {
     try {
-      await bufferStore.openFile(path);
+      await win.tabs.openFile(path);
     } catch (err) {
       console.error("openPendingPaths: failed to open", path, err);
     }
@@ -63,7 +70,18 @@ function measureFirstPaint(
 }
 
 export default function App() {
-  let unlisteners: UnlistenFn[] = [];
+  return (
+    <ErrorBoundary>
+      <WindowProvider windowId={MAIN_WINDOW_ID}>
+        <AppShell />
+      </WindowProvider>
+    </ErrorBoundary>
+  );
+}
+
+function AppShell() {
+  const win = useWindow();
+  const unlisteners: UnlistenFn[] = [];
 
   onMount(async () => {
     measureFirstPaint("cold");
@@ -71,14 +89,11 @@ export default function App() {
     await configStore.load();
     themeStore.loadConfig(configStore.config().theme);
     await osWindowStore.restoreSize();
-    const offFocusSync = await osWindowStore.installFocusSync();
-    unlisteners.push(offFocusSync);
-    const offWindowResize = await osWindowStore.installSizePersistence();
-    unlisteners.push(offWindowResize);
-    const offCloseFlush = await installCloseFlush();
-    unlisteners.push(offCloseFlush);
-    sidebarStore.hydrateFromConfig();
-    await bufferStore.load();
+    unlisteners.push(await osWindowStore.installFocusSync());
+    unlisteners.push(await osWindowStore.installSizePersistence());
+    unlisteners.push(await installCloseFlush());
+    win.sidebar.hydrateFromConfig();
+    await bufferRegistry.load();
 
     const unlistenPending = await onEvent("pending:opens", (payload) => {
       void openPendingPaths(payload.paths);
@@ -92,12 +107,12 @@ export default function App() {
 
     await emitFrontendReady();
 
-    if (bufferStore.activeTabs().length === 0 && !bufferStore.activeTabId()) {
-      await bufferStore.createTab();
-    } else if (!bufferStore.activeTabId()) {
-      const tabs = bufferStore.activeTabs();
-      if (tabs.length > 0) {
-        bufferStore.setActiveTabId(tabs[tabs.length - 1].id);
+    if (win.tabs.activeTabId() === null) {
+      const active = bufferRegistry.activeTabs();
+      if (active.length === 0) {
+        await win.tabs.createTab();
+      } else {
+        win.tabs.setActiveTabId(active[active.length - 1].id);
       }
     }
 
@@ -107,7 +122,7 @@ export default function App() {
       description: "Create a new empty buffer",
       keybinding: "CmdOrCtrl+T",
       scope: "app",
-      execute: () => bufferStore.createTab(),
+      execute: () => windowRegistry.getActive()?.tabs.createTab(),
     });
 
     registerCommand({
@@ -116,7 +131,7 @@ export default function App() {
       description: "Open a file from disk into a new tab",
       keybinding: "CmdOrCtrl+O",
       scope: "app",
-      execute: () => bufferStore.openFileDialog(),
+      execute: () => windowRegistry.getActive()?.tabs.openFileDialog(),
     });
 
     registerCommand({
@@ -126,8 +141,9 @@ export default function App() {
       keybinding: "CmdOrCtrl+W",
       scope: "app",
       execute: () => {
-        const id = bufferStore.activeTabId();
-        if (id) bufferStore.closeTab(id);
+        const w = windowRegistry.getActive();
+        const id = w?.tabs.activeTabId();
+        if (w && id) void w.tabs.closeTab(id);
       },
     });
 
@@ -138,12 +154,14 @@ export default function App() {
       keybinding: "CmdOrCtrl+]",
       scope: "app",
       execute: () => {
-        const tabs = bufferStore.activeTabs();
-        const currentId = bufferStore.activeTabId();
+        const w = windowRegistry.getActive();
+        if (!w) return;
+        const tabs = bufferRegistry.activeTabs();
+        const currentId = w.tabs.activeTabId();
         if (tabs.length < 2 || !currentId) return;
-        const idx = tabs.findIndex(t => t.id === currentId);
+        const idx = tabs.findIndex((t) => t.id === currentId);
         const nextIdx = (idx + 1) % tabs.length;
-        bufferStore.setActiveTabId(tabs[nextIdx].id);
+        w.tabs.setActiveTabId(tabs[nextIdx].id);
       },
     });
 
@@ -154,12 +172,14 @@ export default function App() {
       keybinding: "CmdOrCtrl+[",
       scope: "app",
       execute: () => {
-        const tabs = bufferStore.activeTabs();
-        const currentId = bufferStore.activeTabId();
+        const w = windowRegistry.getActive();
+        if (!w) return;
+        const tabs = bufferRegistry.activeTabs();
+        const currentId = w.tabs.activeTabId();
         if (tabs.length < 2 || !currentId) return;
-        const idx = tabs.findIndex(t => t.id === currentId);
+        const idx = tabs.findIndex((t) => t.id === currentId);
         const prevIdx = (idx - 1 + tabs.length) % tabs.length;
-        bufferStore.setActiveTabId(tabs[prevIdx].id);
+        w.tabs.setActiveTabId(tabs[prevIdx].id);
       },
     });
 
@@ -170,8 +190,10 @@ export default function App() {
       keybinding: "CmdOrCtrl+Shift+T",
       scope: "app",
       execute: () => {
-        const history = bufferStore.historyList();
-        if (history.length > 0) bufferStore.restoreFromHistory(history[0].id);
+        const w = windowRegistry.getActive();
+        if (!w) return;
+        const history = bufferRegistry.historyList();
+        if (history.length > 0) void w.tabs.restoreFromHistory(history[0].id);
       },
     });
 
@@ -181,7 +203,7 @@ export default function App() {
       description: "Show or hide the tabs + history rail",
       keybinding: "CmdOrCtrl+S",
       scope: "app",
-      execute: () => sidebarStore.toggle(),
+      execute: () => windowRegistry.getActive()?.sidebar.toggle(),
     });
 
     registerCommand({
@@ -216,14 +238,16 @@ export default function App() {
       description: "Move every open tab into history",
       scope: "app",
       execute: async () => {
-        const tabs = bufferStore.activeTabs();
+        const w = windowRegistry.getActive();
+        if (!w) return;
+        const tabs = bufferRegistry.activeTabs();
         if (tabs.length === 0) return;
         const confirmed = await requestConfirm({
           title: "Close all tabs?",
           message: `All ${tabs.length} open tab${tabs.length === 1 ? "" : "s"} will move to history. You can reopen them from the sidebar.`,
           confirmLabel: "Close all",
         });
-        if (confirmed) bufferStore.closeAllTabs();
+        if (confirmed) void w.tabs.closeAllTabs();
       },
     });
 
@@ -233,7 +257,7 @@ export default function App() {
       description: "Permanently remove all history entries",
       scope: "app",
       execute: async () => {
-        const count = bufferStore.historyList().length;
+        const count = bufferRegistry.historyList().length;
         if (count === 0) return;
         const confirmed = await requestConfirm({
           title: "Clear all history?",
@@ -241,7 +265,7 @@ export default function App() {
           confirmLabel: "Clear history",
           danger: true,
         });
-        if (confirmed) bufferStore.clearAllHistory();
+        if (confirmed) void bufferRegistry.clearAllHistory();
       },
     });
 
@@ -319,7 +343,7 @@ export default function App() {
       if (payload.bufferId && payload.change) {
         showToast(`File "${payload.bufferId}" ${payload.change} externally`, "warning");
       }
-      bufferStore.load();
+      bufferRegistry.load();
     });
     unlisteners.push(unlisten2);
 
@@ -349,29 +373,27 @@ export default function App() {
   });
 
   createEffect(() => {
-    if (sidebarStore.isOpen()) {
+    if (win.sidebar.isOpen()) {
       focusSearchBar();
     } else {
-      editorStore.focusEditor();
+      win.editor.focusEditor();
     }
   });
 
   return (
-    <ErrorBoundary>
-      <div class="app-container">
-        <TitleBar />
-        <div class="app-body">
-          <Sidebar />
-          <EditorArea />
-        </div>
-        <CommandPalette />
-        <ThemeEditor />
-        <ShortcutEditor />
-        <ContextMenu />
-        <ConfirmDialog />
-        <ToastContainer />
-        <UpdateBanner />
+    <div class="app-container">
+      <TitleBar />
+      <div class="app-body">
+        <Sidebar />
+        <EditorArea />
       </div>
-    </ErrorBoundary>
+      <CommandPalette />
+      <ThemeEditor />
+      <ShortcutEditor />
+      <ContextMenu />
+      <ConfirmDialog />
+      <ToastContainer />
+      <UpdateBanner />
+    </div>
   );
 }

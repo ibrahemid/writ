@@ -11,7 +11,7 @@ vi.mock("../../services/tauri", () => ({
   onWindowResized: vi.fn(),
 }));
 
-vi.mock("../../stores/config", () => ({
+vi.mock("../../stores/global/config", () => ({
   configStore: {
     config: vi.fn(),
     save: vi.fn().mockResolvedValue(undefined),
@@ -19,8 +19,8 @@ vi.mock("../../stores/config", () => ({
 }));
 
 import * as api from "../../services/tauri";
-import { configStore } from "../../stores/config";
-import { osWindowStore } from "../../stores/os-window";
+import { configStore } from "../../stores/global/config";
+import { osWindowStore } from "../../stores/global/os-window";
 
 const apiMock = api as unknown as Record<string, ReturnType<typeof vi.fn>>;
 const configMock = configStore as unknown as {

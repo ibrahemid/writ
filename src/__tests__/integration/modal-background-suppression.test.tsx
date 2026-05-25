@@ -20,23 +20,33 @@ const h = vi.hoisted(() => ({
   paletteUsage: {} as Record<string, number>,
 }));
 
-vi.mock("../../stores/editor", () => ({
-  editorStore: { focusEditor: h.focusEditor },
+vi.mock("../../components/WindowProvider/WindowProvider", () => ({
+  useWindow: () => ({
+    editor: { focusEditor: h.focusEditor },
+    sidebar: {
+      isOpen: () => h.isSidebarOpen.value,
+      show: h.showSidebar,
+      hide: h.hideSidebar,
+      toggle: vi.fn(),
+      searchQuery: () => "",
+      setSearchQuery: vi.fn(),
+      searchResultIds: () => [],
+    },
+    tabs: {
+      activeTabId: () => null,
+      setActiveTabId: vi.fn(),
+      closeTab: vi.fn(),
+      closeOtherTabs: vi.fn(),
+      closeAllTabs: vi.fn(),
+      createTab: vi.fn(),
+      restoreFromHistory: vi.fn(),
+      openFile: vi.fn(),
+      openFileDialog: vi.fn(),
+    },
+  }),
 }));
 
-vi.mock("../../stores/sidebar", () => ({
-  sidebarStore: {
-    isOpen: () => h.isSidebarOpen.value,
-    show: h.showSidebar,
-    hide: h.hideSidebar,
-    toggle: vi.fn(),
-    searchQuery: () => "",
-    setSearchQuery: vi.fn(),
-    searchResultIds: () => [],
-  },
-}));
-
-vi.mock("../../stores/config", () => ({
+vi.mock("../../stores/global/config", () => ({
   configStore: {
     config: () => ({ commands: { usage: h.paletteUsage }, theme: {}, keybindings: {} }),
     recordCommandUse: h.recordCommandUse,
@@ -44,24 +54,17 @@ vi.mock("../../stores/config", () => ({
   },
 }));
 
-vi.mock("../../stores/buffers", () => ({
-  bufferStore: {
+vi.mock("../../stores/global/buffer-registry", () => ({
+  bufferRegistry: {
     activeTabs: () => [],
     historyList: () => [],
-    activeTabId: () => null,
-    setActiveTabId: vi.fn(),
-    closeTab: vi.fn(),
-    closeOtherTabs: vi.fn(),
-    closeAllTabs: vi.fn(),
-    createTab: vi.fn(),
-    renameTab: vi.fn(),
-    restoreFromHistory: vi.fn(),
+    renameBuffer: vi.fn(),
     deleteFromHistory: vi.fn(),
     clearAllHistory: vi.fn(),
   },
 }));
 
-vi.mock("../../stores/theme", () => ({
+vi.mock("../../stores/global/theme", () => ({
   themeStore: {
     toConfig: () => ({}),
     loadConfig: vi.fn(),

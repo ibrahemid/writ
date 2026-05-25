@@ -1,9 +1,11 @@
-import { createSignal, createRoot } from "solid-js";
-import { searchBuffers } from "../services/tauri";
-import { flushAutosave } from "../services/autosave";
-import { configStore } from "./config";
+import { createSignal } from "solid-js";
+import { searchBuffers } from "../../services/tauri";
+import { flushAutosave } from "../../services/autosave";
+import { configStore } from "../global/config";
 
-function createSidebarStore() {
+export type SidebarStore = ReturnType<typeof createSidebarStore>;
+
+export function createSidebarStore() {
   const [isOpen, setIsOpen] = createSignal(false);
   const [searchQuery, setSearchQuery] = createSignal("");
   const [searchResultIds, setSearchResultIds] = createSignal<string[]>([]);
@@ -34,7 +36,7 @@ function createSidebarStore() {
   }
 
   function toggle() {
-    setIsOpen(prev => !prev);
+    setIsOpen((prev) => !prev);
     persist();
   }
 
@@ -70,5 +72,3 @@ function createSidebarStore() {
     searchResultIds,
   };
 }
-
-export const sidebarStore = createRoot(createSidebarStore);

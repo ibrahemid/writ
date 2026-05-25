@@ -1,9 +1,10 @@
 import { createMemo, Show } from "solid-js";
-import { sidebarStore } from "../../stores/sidebar";
-import { bufferStore } from "../../stores/buffers";
+import { bufferRegistry } from "../../stores/global/buffer-registry";
+import { useWindow } from "../WindowProvider/WindowProvider";
 import "./SearchBar.css";
 
-// Singleton state — Writ is single-window, single-instance per component
+// Singleton — SearchBar mounts only in the main window (detached preview
+// windows have no sidebar). The ref is local UI plumbing for that instance.
 let searchInputRef: HTMLInputElement | undefined;
 
 export function focusSearchBar() {
@@ -13,11 +14,12 @@ export function focusSearchBar() {
 }
 
 export default function SearchBar() {
+  const win = useWindow();
   const matchCount = createMemo(() => {
-    const query = sidebarStore.searchQuery().toLowerCase().trim();
+    const query = win.sidebar.searchQuery().toLowerCase().trim();
     if (!query) return null;
-    const ids = sidebarStore.searchResultIds();
-    const all = [...bufferStore.activeTabs(), ...bufferStore.historyList()];
+    const ids = win.sidebar.searchResultIds();
+    const all = [...bufferRegistry.activeTabs(), ...bufferRegistry.historyList()];
     return all.filter(
       (b) => b.title.toLowerCase().includes(query) || ids.includes(b.id),
     ).length;
@@ -40,8 +42,8 @@ export default function SearchBar() {
           ref={(el) => (searchInputRef = el)}
           type="text"
           placeholder="Search buffers..."
-          value={sidebarStore.searchQuery()}
-          onInput={(e) => sidebarStore.setSearchQuery(e.currentTarget.value)}
+          value={win.sidebar.searchQuery()}
+          onInput={(e) => win.sidebar.setSearchQuery(e.currentTarget.value)}
           class="search-input"
         />
         <Show when={matchCount() !== null}>

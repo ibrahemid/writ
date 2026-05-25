@@ -1,13 +1,13 @@
-import { createSignal, createRoot } from "solid-js";
+import { createSignal } from "solid-js";
 
 export type FocusRegion = "sidebar" | "tabstrip" | "editor" | "statusbar";
 
-function createFocusStore() {
+export type FocusStore = ReturnType<typeof createFocusStore>;
+
+export function createFocusStore() {
   const [activeRegion, setActiveRegion] = createSignal<FocusRegion>("editor");
   return {
     activeRegion,
     setActiveRegion,
   };
 }
-
-export const focusStore = createRoot(createFocusStore);

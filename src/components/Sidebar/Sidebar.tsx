@@ -1,5 +1,5 @@
 import { Show, createMemo } from "solid-js";
-import { sidebarStore } from "../../stores/sidebar";
+import { useWindow } from "../WindowProvider/WindowProvider";
 import SearchBar from "./SearchBar";
 import ActiveSection from "./ActiveSection";
 import HistorySection from "./HistorySection";
@@ -7,12 +7,13 @@ import SearchResults from "./SearchResults";
 import "./Sidebar.css";
 
 export default function Sidebar() {
-  const searching = createMemo(() => sidebarStore.searchQuery().trim().length > 0);
+  const win = useWindow();
+  const searching = createMemo(() => win.sidebar.searchQuery().trim().length > 0);
 
   return (
     <div
       class="sidebar"
-      classList={{ "is-open": sidebarStore.isOpen() }}
+      classList={{ "is-open": win.sidebar.isOpen() }}
     >
       <SearchBar />
       <Show

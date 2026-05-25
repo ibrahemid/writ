@@ -1,4 +1,4 @@
-import { createSignal, createRoot } from "solid-js";
+import { createSignal } from "solid-js";
 import { EditorSelection } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 
@@ -13,7 +13,9 @@ export type ApplyEditResult =
   | { applied: true; usedSelection: boolean; outputLength: number }
   | { applied: false; reason: "no-active-view" | "transform-error"; error?: unknown };
 
-function createEditorStore() {
+export type EditorStore = ReturnType<typeof createEditorStore>;
+
+export function createEditorStore() {
   const [cursorLine, setCursorLine] = createSignal(1);
   const [cursorCol, setCursorCol] = createSignal(1);
   const [lineCount, setLineCount] = createSignal(0);
@@ -47,7 +49,6 @@ function createEditorStore() {
       return { applied: false, reason: "transform-error", error };
     }
 
-    // TODO(v1.1): apply to every selection range, not just the primary one.
     view.dispatch({
       changes: { from, to, insert: output },
       selection: EditorSelection.single(from, from + output.length),
@@ -67,5 +68,3 @@ function createEditorStore() {
     applyEditToActiveBuffer,
   };
 }
-
-export const editorStore = createRoot(createEditorStore);

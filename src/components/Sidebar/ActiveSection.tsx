@@ -1,15 +1,17 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
 import TabItem from "./TabItem";
-import { bufferStore } from "../../stores/buffers";
+import { bufferRegistry } from "../../stores/global/buffer-registry";
+import { useWindow } from "../WindowProvider/WindowProvider";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
 import { groupActiveByDirectory } from "./grouping";
 import "./ActiveSection.css";
 
 export default function ActiveSection() {
+  const win = useWindow();
   const [collapsed, setCollapsed] = createSignal<Set<string>>(new Set());
 
   const groups = createMemo(() =>
-    groupActiveByDirectory(bufferStore.activeTabs(), bufferStore.activeTabId()),
+    groupActiveByDirectory(bufferRegistry.activeTabs(), win.tabs.activeTabId()),
   );
 
   function toggleGroup(key: string) {
@@ -27,10 +29,10 @@ export default function ActiveSection() {
   function handleContextMenu(e: MouseEvent, id: string) {
     e.preventDefault();
     showContextMenu(e.clientX, e.clientY, [
-      { label: "Close", action: () => bufferStore.closeTab(id) },
+      { label: "Close", action: () => void win.tabs.closeTab(id) },
       {
         label: "Close Others",
-        action: () => bufferStore.closeOtherTabs(id),
+        action: () => void win.tabs.closeOtherTabs(id),
       },
     ]);
   }
@@ -65,9 +67,9 @@ export default function ActiveSection() {
                         >
                           <TabItem
                             title={item.title}
-                            isActive={item.id === bufferStore.activeTabId()}
-                            onClick={() => bufferStore.setActiveTabId(item.id)}
-                            onClose={() => bufferStore.closeTab(item.id)}
+                            isActive={item.id === win.tabs.activeTabId()}
+                            onClick={() => win.tabs.setActiveTabId(item.id)}
+                            onClose={() => void win.tabs.closeTab(item.id)}
                           />
                         </div>
                       )}

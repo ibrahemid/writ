@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use tracing::{info, warn};
 use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
+use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
 use writ_plugin::transform::builtins::register_builtins;
 use writ_plugin::transform::TransformRegistry;
@@ -12,6 +13,8 @@ use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 
+use crate::preview::webview_manager::PreviewWebviewManager;
+use crate::preview::window_manager::WindowManager;
 use crate::security::{canonicalize_for_authorization, AuthorizedPaths};
 use crate::watcher::handler::{IgnoreSet, WatcherHandle};
 
@@ -29,6 +32,9 @@ pub struct AppState {
     pub event_bus: Arc<EventBus>,
     pub update_phase: Mutex<UpdatePhase>,
     pub authorized_paths: AuthorizedPaths,
+    pub preview_registry: Arc<RwLock<ContentRendererRegistry>>,
+    pub preview_webviews: Arc<PreviewWebviewManager>,
+    pub window_manager: Arc<WindowManager>,
 }
 
 impl AppState {
@@ -90,6 +96,14 @@ impl AppState {
         register_builtins(&mut transforms)?;
         info!(count = transforms.len(), "transform registry initialized");
 
+        let mut preview_registry = ContentRendererRegistry::new();
+        crate::preview::renderers::register_builtins(&mut preview_registry)
+            .map_err(|e| format!("failed to register preview renderers: {e}"))?;
+        info!(
+            count = preview_registry.len(),
+            "preview renderer registry initialized"
+        );
+
         Ok(Self {
             store: Mutex::new(store),
             config_store,
@@ -104,6 +118,9 @@ impl AppState {
             event_bus: Arc::new(EventBus::new()),
             update_phase: Mutex::new(UpdatePhase::default()),
             authorized_paths,
+            preview_registry: Arc::new(RwLock::new(preview_registry)),
+            preview_webviews: PreviewWebviewManager::new(),
+            window_manager: Arc::new(WindowManager::with_main()),
         })
     }
 }

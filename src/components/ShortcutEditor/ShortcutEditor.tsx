@@ -7,8 +7,8 @@ import {
 } from "../../commands/keybindings";
 import { ShortcutRecorder, findConflicts } from "./recorder";
 import { keybindingSegments } from "../../lib/keybinding-format";
-import { configStore } from "../../stores/config";
-import { editorStore } from "../../stores/editor";
+import { configStore } from "../../stores/global/config";
+import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
 import { showToast } from "../Notifications/Toast";
 import type { Command } from "../../types/commands";
@@ -36,6 +36,7 @@ interface DraftEntry {
 }
 
 export default function ShortcutEditor() {
+  const win = useWindow();
   const recorder = new ShortcutRecorder();
   const [drafts, setDrafts] = createSignal<Record<string, DraftEntry>>({});
   const [listeningId, setListeningId] = createSignal<string | null>(null);
@@ -122,7 +123,7 @@ export default function ShortcutEditor() {
       isActive: () => listeningId() === null,
       onEscape: () => closeShortcutEditor(),
       fallbackRestore: () => {
-        editorStore.focusEditor();
+        win.editor.focusEditor();
         return null;
       },
     });

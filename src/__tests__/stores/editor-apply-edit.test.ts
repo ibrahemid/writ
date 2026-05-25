@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { EditorState, EditorSelection } from "@codemirror/state";
-import { editorStore } from "../../stores/editor";
+import { createEditorStore, type EditorStore } from "../../stores/window/editor-store";
 
 function makeView(initial: string, selection?: { from: number; to: number }) {
   const state = EditorState.create({
@@ -16,8 +16,10 @@ function makeView(initial: string, selection?: { from: number; to: number }) {
 }
 
 describe("editorStore.applyEditToActiveBuffer", () => {
+  let editorStore: EditorStore;
+
   beforeEach(() => {
-    editorStore.registerView(null);
+    editorStore = createEditorStore();
   });
 
   it("returns no-active-view when nothing is registered", async () => {

@@ -13,11 +13,17 @@ const h = vi.hoisted(() => ({
   recordCommandUse: vi.fn(),
 }));
 
-vi.mock("../../stores/config", () => ({
+vi.mock("../../stores/global/config", () => ({
   configStore: {
     config: () => ({ commands: { usage: h.usage } }),
     recordCommandUse: h.recordCommandUse,
   },
+}));
+
+vi.mock("../../components/WindowProvider/WindowProvider", () => ({
+  useWindow: () => ({
+    editor: { focusEditor: vi.fn() },
+  }),
 }));
 
 import CommandPalette, {

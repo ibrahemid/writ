@@ -3,6 +3,7 @@ pub mod config;
 pub mod file;
 pub mod history;
 pub mod perf;
+pub mod preview;
 pub mod transforms;
 pub mod update;
 pub mod window;

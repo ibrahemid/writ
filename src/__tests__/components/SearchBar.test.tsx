@@ -1,10 +1,20 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, cleanup } from "@solidjs/testing-library";
 
-vi.mock("../../stores/sidebar", () => ({
-  sidebarStore: {
-    searchQuery: () => "",
-    setSearchQuery: vi.fn(),
+vi.mock("../../components/WindowProvider/WindowProvider", () => ({
+  useWindow: () => ({
+    sidebar: {
+      searchQuery: () => "",
+      setSearchQuery: vi.fn(),
+      searchResultIds: () => [],
+    },
+  }),
+}));
+
+vi.mock("../../stores/global/buffer-registry", () => ({
+  bufferRegistry: {
+    activeTabs: () => [],
+    historyList: () => [],
   },
 }));
 

@@ -1,6 +1,6 @@
 import { createSignal, Show, createEffect, onCleanup } from "solid-js";
 import { installFocusTrap } from "../../lib/focus-trap";
-import { editorStore } from "../../stores/editor";
+import { useWindow } from "../WindowProvider/WindowProvider";
 import "./ConfirmDialog.css";
 
 export interface ConfirmRequest {
@@ -34,6 +34,7 @@ function settle(confirmed: boolean) {
 }
 
 export default function ConfirmDialog() {
+  const win = useWindow();
   let dialogRef: HTMLDivElement | undefined;
   let confirmRef: HTMLButtonElement | undefined;
 
@@ -43,7 +44,7 @@ export default function ConfirmDialog() {
     const teardown = installFocusTrap(dialogRef, {
       onEscape: () => settle(false),
       fallbackRestore: () => {
-        editorStore.focusEditor();
+        win.editor.focusEditor();
         return null;
       },
     });

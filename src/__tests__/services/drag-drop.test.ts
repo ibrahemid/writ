@@ -48,7 +48,7 @@ vi.mock("../../services/tauri", () => ({
   clearHistory: vi.fn().mockResolvedValue(undefined),
   renameBuffer: vi.fn().mockResolvedValue(undefined),
   openFile: vi.fn().mockImplementation((path: string) =>
-    Promise.resolve(mockSourceBuffer(path))
+    Promise.resolve(mockSourceBuffer(path)),
   ),
   showOpenFileDialog: vi.fn().mockResolvedValue(null),
   saveToSource: vi.fn().mockResolvedValue(undefined),
@@ -56,25 +56,27 @@ vi.mock("../../services/tauri", () => ({
   minimizeWindow: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { bufferStore } from "../../stores/buffers";
+import { createTabStore } from "../../stores/window/tab-store";
+import { bufferRegistry } from "../../stores/global/buffer-registry";
 import * as api from "../../services/tauri";
 
 const mockedApi = vi.mocked(api);
 
-describe("drag-and-drop file handling", () => {
+describe("drag-and-drop file handling (per-window tabStore)", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     tabIdCounter = 0;
     mockedApi.listActiveBuffers.mockResolvedValue([]);
     mockedApi.listHistory.mockResolvedValue([]);
-    await bufferStore.load();
+    await bufferRegistry.load();
   });
 
   it("opening files from drop paths calls openFile for each path", async () => {
+    const tabs = createTabStore({ registry: bufferRegistry });
     const paths = ["/home/user/file1.rs", "/home/user/file2.ts"];
 
     for (const path of paths) {
-      await bufferStore.openFile(path);
+      await tabs.openFile(path);
     }
 
     expect(mockedApi.openFile).toHaveBeenCalledTimes(2);
@@ -83,19 +85,21 @@ describe("drag-and-drop file handling", () => {
   });
 
   it("sets the last dropped file as active tab", async () => {
-    await bufferStore.openFile("/home/user/first.rs");
-    const second = await bufferStore.openFile("/home/user/second.ts");
+    const tabs = createTabStore({ registry: bufferRegistry });
+    await tabs.openFile("/home/user/first.rs");
+    const second = await tabs.openFile("/home/user/second.ts");
 
-    expect(bufferStore.activeTabId()).toBe(second.id);
+    expect(tabs.activeTabId()).toBe(second.id);
   });
 
   it("adds all dropped files to active tabs", async () => {
-    await bufferStore.openFile("/home/user/a.rs");
-    await bufferStore.openFile("/home/user/b.ts");
+    const tabs = createTabStore({ registry: bufferRegistry });
+    await tabs.openFile("/home/user/a.rs");
+    await tabs.openFile("/home/user/b.ts");
 
-    const tabs = bufferStore.activeTabs();
-    expect(tabs.length).toBe(2);
-    expect(tabs.some(t => t.source_path === "/home/user/a.rs")).toBe(true);
-    expect(tabs.some(t => t.source_path === "/home/user/b.ts")).toBe(true);
+    const list = bufferRegistry.activeTabs();
+    expect(list.length).toBe(2);
+    expect(list.some((t) => t.source_path === "/home/user/a.rs")).toBe(true);
+    expect(list.some((t) => t.source_path === "/home/user/b.ts")).toBe(true);
   });
 });

@@ -1,5 +1,8 @@
 import { createSignal, createRoot } from "solid-js";
-import { onAutosaveError, onAutosaveSuccess } from "../services/autosave";
+import { onAutosaveError, onAutosaveSuccess } from "../../services/autosave";
+
+// Singleton — app-global, not window-scoped (ADR-009 E3).
+// Autosave runs once for the whole app; this status mirrors that single pipeline.
 
 export type SaveStatus = "idle" | "saved" | "failed";
 

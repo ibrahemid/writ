@@ -1,5 +1,5 @@
 import { applyTransform, listTransforms } from "../services/tauri";
-import { editorStore } from "../stores/editor";
+import { windowRegistry } from "../stores/global/window-registry";
 import { registerCommand } from "./registry";
 
 export async function registerTransformCommands(): Promise<void> {
@@ -11,7 +11,9 @@ export async function registerTransformCommands(): Promise<void> {
       description: descriptor.metadata.description,
       scope: "app",
       execute: () => {
-        void editorStore.applyEditToActiveBuffer({
+        const win = windowRegistry.getActive();
+        if (!win) return;
+        void win.editor.applyEditToActiveBuffer({
           useSelectionIfPresent: true,
           transform: (input) => applyTransform(descriptor.id, input),
         });

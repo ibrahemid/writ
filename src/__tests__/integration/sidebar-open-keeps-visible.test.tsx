@@ -46,24 +46,26 @@ afterEach(() => {
 
 describe("sidebar: opening a history buffer keeps it visible", () => {
   it("moves the buffer into the Active section instead of dropping it", async () => {
-    const { bufferStore } = await import("../../stores/buffers");
+    const { bufferRegistry } = await import("../../stores/global/buffer-registry");
+    const { windowRegistry } = await import("../../stores/global/window-registry");
+    const WindowProvider = (await import("../../components/WindowProvider/WindowProvider")).default;
     const ActiveSection = (await import("../../components/Sidebar/ActiveSection")).default;
     const HistorySection = (await import("../../components/Sidebar/HistorySection")).default;
 
-    await bufferStore.load();
+    await bufferRegistry.load();
 
     const { container } = render(() => (
-      <>
+      <WindowProvider windowId={9001}>
         <ActiveSection />
         <HistorySection />
-      </>
+      </WindowProvider>
     ));
 
     const historyBefore = container.querySelector<HTMLElement>(".history-section")!;
     expect(within(historyBefore).queryByText("notes.rs")).toBeTruthy();
     expect(container.querySelector(".active-section")).toBeNull();
 
-    await bufferStore.restoreFromHistory("h1");
+    await windowRegistry.getActive()!.tabs.restoreFromHistory("h1");
 
     const activeAfter = container.querySelector<HTMLElement>(".active-section")!;
     expect(activeAfter).toBeTruthy();

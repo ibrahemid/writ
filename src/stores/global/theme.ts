@@ -1,6 +1,9 @@
 import { createSignal, createMemo } from "solid-js";
-import type { Theme, ThemeOverrides, ThemeConfig } from "../types/theme";
-import { PRESETS, getPreset, getDefaultPreset, DEFAULT_PRESET_ID } from "../styles/themes";
+import type { Theme, ThemeOverrides, ThemeConfig } from "../../types/theme";
+import { PRESETS, getPreset, getDefaultPreset, DEFAULT_PRESET_ID } from "../../styles/themes";
+
+// Singleton — app-global, not window-scoped (ADR-009 E3).
+// Theme is shared across every window; CSS custom properties on :root propagate.
 
 const HEX_PATTERN = /^#[0-9a-fA-F]{3,8}$/;
 

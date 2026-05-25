@@ -1,18 +1,19 @@
 import { createRoot, createSignal } from "solid-js";
-import { onEvent, type UnlistenFn } from "../services/events";
+import { onEvent, type UnlistenFn } from "../../services/events";
 import {
   checkForUpdate as checkForUpdateIpc,
   downloadAndInstallUpdate,
   dismissUpdate,
   restartApp,
-} from "../services/tauri";
-import type { UpdatePhase } from "../types/update";
+} from "../../services/tauri";
+import type { UpdatePhase } from "../../types/update";
+
+// Singleton — app-global, not window-scoped (ADR-009 E3).
+// The Rust UpdatePhase is the source of truth; this store mirrors it from
+// writ://update-status events and exposes the user actions that drive transitions.
 
 const UNREACHABLE_MESSAGE = "Couldn't reach the update server.";
 
-// Singleton state — Writ is single-window. The Rust UpdatePhase is the source
-// of truth; this store mirrors it from writ://update-status events and exposes
-// the user actions that drive transitions.
 function createUpdateStore() {
   const [phase, setPhase] = createSignal<UpdatePhase>({ status: "idle" });
 

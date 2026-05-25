@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { themeStore } from "../../stores/theme";
+import { themeStore } from "../../stores/global/theme";
 
 function fakeRoot(): HTMLElement {
   return document.createElement("div");

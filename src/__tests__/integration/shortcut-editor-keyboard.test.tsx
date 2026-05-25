@@ -13,15 +13,17 @@ const h = vi.hoisted(() => ({
   saveConfig: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../../stores/config", () => ({
+vi.mock("../../stores/global/config", () => ({
   configStore: {
     config: () => ({ keybindings: {} }),
     save: h.saveConfig,
   },
 }));
 
-vi.mock("../../stores/editor", () => ({
-  editorStore: { focusEditor: h.focusEditor },
+vi.mock("../../components/WindowProvider/WindowProvider", () => ({
+  useWindow: () => ({
+    editor: { focusEditor: h.focusEditor },
+  }),
 }));
 
 vi.mock("../Notifications/Toast", () => ({

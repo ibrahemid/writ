@@ -14,7 +14,7 @@ const h = vi.hoisted(() => ({
   setOverride: vi.fn(),
 }));
 
-vi.mock("../../stores/theme", () => ({
+vi.mock("../../stores/global/theme", () => ({
   themeStore: {
     toConfig: () => ({ preset: "default", overrides: {} }),
     loadConfig: vi.fn(),
@@ -34,15 +34,17 @@ vi.mock("../../stores/theme", () => ({
   },
 }));
 
-vi.mock("../../stores/config", () => ({
+vi.mock("../../stores/global/config", () => ({
   configStore: {
     config: () => ({ theme: {} }),
     save: h.saveConfig,
   },
 }));
 
-vi.mock("../../stores/editor", () => ({
-  editorStore: { focusEditor: h.focusEditor },
+vi.mock("../../components/WindowProvider/WindowProvider", () => ({
+  useWindow: () => ({
+    editor: { focusEditor: h.focusEditor },
+  }),
 }));
 
 vi.mock("../../types/theme", () => ({

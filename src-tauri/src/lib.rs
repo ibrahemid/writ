@@ -3,6 +3,7 @@ pub mod events;
 pub mod hotkey;
 pub mod logging;
 pub mod poison;
+pub mod preview;
 pub mod security;
 pub mod startup;
 pub mod state;
@@ -188,6 +189,9 @@ pub fn run() {
             commands::update::download_and_install_update,
             commands::update::dismiss_update,
             commands::update::restart_app,
+            commands::preview::preview_list_renderers,
+            commands::preview::preview_open,
+            commands::preview::preview_close,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
