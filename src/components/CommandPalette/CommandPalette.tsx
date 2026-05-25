@@ -2,8 +2,8 @@ import { createSignal, For, Show, createMemo, createEffect, onCleanup } from "so
 import { useAllCommands } from "../../commands/registry";
 import { useEffectiveBinding } from "../../commands/keybindings";
 import { partitionEmptyQuery, rankWithQuery } from "../../commands/ranking";
-import { configStore } from "../../stores/config";
-import { editorStore } from "../../stores/editor";
+import { configStore } from "../../stores/global/config";
+import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
 import type { Command } from "../../types/commands";
 import Kbd from "../Kbd/Kbd";
@@ -22,6 +22,7 @@ interface PaletteSection {
 }
 
 export default function CommandPalette() {
+  const win = useWindow();
   const [query, setQuery] = createSignal("");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   let inputRef: HTMLInputElement | undefined;
@@ -76,7 +77,7 @@ export default function CommandPalette() {
     const teardown = installFocusTrap(paletteRef, {
       onEscape: () => setIsOpen(false),
       fallbackRestore: () => {
-        editorStore.focusEditor();
+        win.editor.focusEditor();
         return null;
       },
     });

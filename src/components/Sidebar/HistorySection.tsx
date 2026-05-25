@@ -1,27 +1,29 @@
 import { For, Show, createMemo } from "solid-js";
 import TabItem from "./TabItem";
-import { bufferStore } from "../../stores/buffers";
+import { bufferRegistry } from "../../stores/global/buffer-registry";
+import { useWindow } from "../WindowProvider/WindowProvider";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
 import { bucketHistoryByTime, relativeTime } from "./grouping";
 import "./HistorySection.css";
 
 export default function HistorySection() {
+  const win = useWindow();
   const buckets = createMemo(() =>
-    bucketHistoryByTime(bufferStore.historyList(), Date.now()),
+    bucketHistoryByTime(bufferRegistry.historyList(), Date.now()),
   );
 
   function handleContextMenu(e: MouseEvent, id: string) {
     e.preventDefault();
     showContextMenu(e.clientX, e.clientY, [
-      { label: "Restore", action: () => bufferStore.restoreFromHistory(id) },
+      { label: "Restore", action: () => void win.tabs.restoreFromHistory(id) },
       {
         label: "Delete",
-        action: () => bufferStore.deleteFromHistory(id),
+        action: () => void bufferRegistry.deleteFromHistory(id),
         danger: true,
       },
       {
         label: "Clear All History",
-        action: () => bufferStore.clearAllHistory(),
+        action: () => void bufferRegistry.clearAllHistory(),
         separator: true,
         danger: true,
       },
@@ -46,9 +48,9 @@ export default function HistorySection() {
                           item.closed_at ?? item.updated_at,
                           Date.now(),
                         )}
-                        onClick={() => bufferStore.restoreFromHistory(item.id)}
-                        onRestore={() => bufferStore.restoreFromHistory(item.id)}
-                        onClose={() => bufferStore.deleteFromHistory(item.id)}
+                        onClick={() => void win.tabs.restoreFromHistory(item.id)}
+                        onRestore={() => void win.tabs.restoreFromHistory(item.id)}
+                        onClose={() => void bufferRegistry.deleteFromHistory(item.id)}
                       />
                     </div>
                   )}

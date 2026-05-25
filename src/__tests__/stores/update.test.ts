@@ -11,7 +11,7 @@ vi.mock("../../services/events", () => ({
   onEvent: vi.fn().mockResolvedValue(() => {}),
 }));
 
-import { updateStore } from "../../stores/update";
+import { updateStore } from "../../stores/global/update";
 import * as api from "../../services/tauri";
 import * as events from "../../services/events";
 

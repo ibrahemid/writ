@@ -5,7 +5,7 @@ vi.mock("../../services/tauri", () => ({
   updateConfig: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { configStore } from "../../stores/config";
+import { configStore } from "../../stores/global/config";
 import { getConfig, updateConfig } from "../../services/tauri";
 import type { WritConfig } from "../../types/config";
 

@@ -1,17 +1,18 @@
 import { For, Show, createMemo } from "solid-js";
 import TabItem from "./TabItem";
-import { bufferStore } from "../../stores/buffers";
-import { sidebarStore } from "../../stores/sidebar";
+import { bufferRegistry } from "../../stores/global/buffer-registry";
+import { useWindow } from "../WindowProvider/WindowProvider";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
 import { matchedBuffers } from "./search-results";
 
 export default function SearchResults() {
+  const win = useWindow();
   const matches = createMemo(() =>
     matchedBuffers(
-      sidebarStore.searchQuery(),
-      sidebarStore.searchResultIds(),
-      bufferStore.activeTabs(),
-      bufferStore.historyList(),
+      win.sidebar.searchQuery(),
+      win.sidebar.searchResultIds(),
+      bufferRegistry.activeTabs(),
+      bufferRegistry.historyList(),
     ),
   );
 
@@ -22,16 +23,16 @@ export default function SearchResults() {
   function activeContextMenu(e: MouseEvent, id: string) {
     e.preventDefault();
     showContextMenu(e.clientX, e.clientY, [
-      { label: "Close Tab", action: () => bufferStore.closeTab(id) },
-      { label: "Close Other Tabs", action: () => bufferStore.closeOtherTabs(id) },
+      { label: "Close Tab", action: () => void win.tabs.closeTab(id) },
+      { label: "Close Other Tabs", action: () => void win.tabs.closeOtherTabs(id) },
     ]);
   }
 
   function historyContextMenu(e: MouseEvent, id: string) {
     e.preventDefault();
     showContextMenu(e.clientX, e.clientY, [
-      { label: "Restore", action: () => bufferStore.restoreFromHistory(id) },
-      { label: "Delete", action: () => bufferStore.deleteFromHistory(id), danger: true },
+      { label: "Restore", action: () => void win.tabs.restoreFromHistory(id) },
+      { label: "Delete", action: () => void bufferRegistry.deleteFromHistory(id), danger: true },
     ]);
   }
 
@@ -49,9 +50,9 @@ export default function SearchResults() {
                 <div onContextMenu={(e) => activeContextMenu(e, b.id)}>
                   <TabItem
                     title={b.title}
-                    isActive={bufferStore.activeTabId() === b.id}
-                    onClick={() => bufferStore.setActiveTabId(b.id)}
-                    onClose={() => bufferStore.closeTab(b.id)}
+                    isActive={win.tabs.activeTabId() === b.id}
+                    onClick={() => win.tabs.setActiveTabId(b.id)}
+                    onClose={() => void win.tabs.closeTab(b.id)}
                   />
                 </div>
               )}
@@ -66,9 +67,9 @@ export default function SearchResults() {
                 <div onContextMenu={(e) => historyContextMenu(e, b.id)}>
                   <TabItem
                     title={b.title}
-                    onClick={() => bufferStore.restoreFromHistory(b.id)}
-                    onRestore={() => bufferStore.restoreFromHistory(b.id)}
-                    onClose={() => bufferStore.deleteFromHistory(b.id)}
+                    onClick={() => void win.tabs.restoreFromHistory(b.id)}
+                    onRestore={() => void win.tabs.restoreFromHistory(b.id)}
+                    onClose={() => void bufferRegistry.deleteFromHistory(b.id)}
                   />
                 </div>
               )}

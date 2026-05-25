@@ -8,8 +8,10 @@ beforeAll(() => {
   }
 });
 
-vi.mock("../../stores/editor", () => ({
-  editorStore: { focusEditor: vi.fn() },
+vi.mock("../../components/WindowProvider/WindowProvider", () => ({
+  useWindow: () => ({
+    editor: { focusEditor: vi.fn() },
+  }),
 }));
 
 import ConfirmDialog, {

@@ -1,5 +1,5 @@
 import { Show } from "solid-js";
-import { osWindowStore } from "../../stores/os-window";
+import { osWindowStore } from "../../stores/global/os-window";
 import type { Platform } from "../../lib/platform";
 
 interface Props {

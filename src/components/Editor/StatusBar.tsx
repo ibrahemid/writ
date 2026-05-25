@@ -1,7 +1,7 @@
 import { createMemo, Show } from "solid-js";
 import { useCommand } from "../../commands/registry";
 import { useEffectiveBinding } from "../../commands/keybindings";
-import { saveStatusStore } from "../../stores/save-status";
+import { saveStatusStore } from "../../stores/global/save-status";
 import Kbd from "../Kbd/Kbd";
 import "./StatusBar.css";
 
