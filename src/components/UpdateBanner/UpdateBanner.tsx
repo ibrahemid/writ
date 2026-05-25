@@ -31,9 +31,10 @@ export default function UpdateBanner() {
   });
 
   return (
-    <Show when={phase().status !== "idle"}>
-      <div class="update-banner" role="status" aria-live="polite">
-        <Switch>
+    <div class="update-banner-live" role="status" aria-live="polite">
+      <Show when={phase().status !== "idle"}>
+        <div class="update-banner">
+          <Switch>
           <Match when={phase().status === "checking"}>
             <span class="update-banner-spinner" aria-hidden="true" />
             <span class="update-banner-text">Checking for updates…</span>
@@ -112,8 +113,9 @@ export default function UpdateBanner() {
               </button>
             </div>
           </Match>
-        </Switch>
-      </div>
-    </Show>
+          </Switch>
+        </div>
+      </Show>
+    </div>
   );
 }
