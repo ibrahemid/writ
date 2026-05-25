@@ -79,6 +79,11 @@
   transition: color 120ms ease, background 120ms ease;
 }
 
+.tab-close:focus-visible {
+  outline: 2px solid var(--writ-accent-default);
+  outline-offset: 1px;
+}
+
 .tab:hover .tab-close {
   color: var(--writ-foreground-muted);
 }
