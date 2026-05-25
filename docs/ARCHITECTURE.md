@@ -23,7 +23,7 @@ framework code, and typed contracts across every layer of the stack.
 │  │  ┌────────▼───────────┐  │   │  │       Stores         │ │  │
 │  │  │   writ-storage     │  │   │  │  (buffer, config,    │ │  │
 │  │  │  SQLite, file I/O  │  │   │  │   session, search)   │ │  │
-│  │  │  TOML, recovery    │  │   │  └──────────┬───────────┘ │  │
+│  │  │  TOML, FTS5        │  │   │  └──────────┬───────────┘ │  │
 │  │  └────────┬───────────┘  │   │             │             │  │
 │  │           │              │   │  ┌──────────▼───────────┐ │  │
 │  │  ┌────────▼───────────┐  │   │  │      Services        │ │  │
@@ -58,7 +58,7 @@ All persistence. Depends on `writ-core` for domain types, but not on Tauri. Cont
 - FTS5 full-text search index over buffer content
 - File I/O: reading and writing files to disk with atomic renames
 - TOML parsing for config files using `toml` crate
-- Crash recovery: incomplete write detection and journal replay
+- Snapshot / dirty-shutdown / consistency-check modules: infrastructure only, not yet wired into the running app. Tracked for resurrection (see `recovery/mod.rs`).
 
 ### writ-plugin
 Defines the extension boundary. Provides a stable API surface that plugins target. Depends on
