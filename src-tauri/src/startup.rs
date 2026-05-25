@@ -1,9 +1,16 @@
 use std::ffi::OsString;
+use std::path::Path;
 use std::sync::Mutex;
 
 use writ_core::file_ops::arg_paths_from_iter;
 
-pub fn push_arg_paths_into_pending<I>(pending: &Mutex<Vec<String>>, args: I) -> usize
+use crate::security::{canonicalize_for_authorization, AuthorizedPaths};
+
+pub fn push_arg_paths_into_pending<I>(
+    pending: &Mutex<Vec<String>>,
+    authorized: &AuthorizedPaths,
+    args: I,
+) -> usize
 where
     I: IntoIterator<Item = OsString>,
 {
@@ -17,7 +24,19 @@ where
         .filter_map(|p| p.to_str().map(String::from))
         .collect();
 
-    let count = strings.len();
+    if strings.is_empty() {
+        return 0;
+    }
+
+    let mut count = 0usize;
+    let mut to_push: Vec<String> = Vec::with_capacity(strings.len());
+    for raw in &strings {
+        if let Ok(canonical) = canonicalize_for_authorization(Path::new(raw)) {
+            authorized.record_for_open(canonical.clone());
+            to_push.push(canonical);
+            count += 1;
+        }
+    }
     if count == 0 {
         return 0;
     }
@@ -26,8 +45,22 @@ where
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),
     };
-    guard.extend(strings);
+    guard.extend(to_push);
     count
+}
+
+pub fn authorize_and_canonicalize(
+    authorized: &AuthorizedPaths,
+    raw_paths: &[String],
+) -> Vec<String> {
+    let mut out = Vec::with_capacity(raw_paths.len());
+    for raw in raw_paths {
+        if let Ok(canonical) = canonicalize_for_authorization(Path::new(raw)) {
+            authorized.record_for_open(canonical.clone());
+            out.push(canonical);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -47,13 +80,15 @@ mod tests {
         std::fs::write(&b, "beta").unwrap();
 
         let pending = Mutex::new(Vec::<String>::new());
+        let authorized = AuthorizedPaths::new();
         let argv = vec![
             os("/usr/local/bin/writ"),
             OsString::from(&a),
             OsString::from(&b),
         ];
 
-        let count = push_arg_paths_into_pending(&pending, argv.into_iter().skip(1));
+        let count =
+            push_arg_paths_into_pending(&pending, &authorized, argv.into_iter().skip(1));
         assert_eq!(count, 2);
 
         let stored = pending.lock().unwrap();
@@ -69,6 +104,7 @@ mod tests {
         std::fs::write(&real, "x").unwrap();
 
         let pending = Mutex::new(Vec::<String>::new());
+        let authorized = AuthorizedPaths::new();
         let argv = vec![
             os("/usr/local/bin/writ"),
             OsString::from(&real),
@@ -77,7 +113,8 @@ mod tests {
             os("-v"),
         ];
 
-        let count = push_arg_paths_into_pending(&pending, argv.into_iter().skip(1));
+        let count =
+            push_arg_paths_into_pending(&pending, &authorized, argv.into_iter().skip(1));
         assert_eq!(count, 1);
 
         let stored = pending.lock().unwrap();
@@ -88,7 +125,12 @@ mod tests {
     #[test]
     fn empty_args_leaves_pending_untouched() {
         let pending = Mutex::new(vec!["preexisting".to_string()]);
-        let count = push_arg_paths_into_pending(&pending, std::iter::empty::<OsString>());
+        let authorized = AuthorizedPaths::new();
+        let count = push_arg_paths_into_pending(
+            &pending,
+            &authorized,
+            std::iter::empty::<OsString>(),
+        );
         assert_eq!(count, 0);
 
         let stored = pending.lock().unwrap();
@@ -103,7 +145,9 @@ mod tests {
         std::fs::write(&f, "x").unwrap();
 
         let pending = Mutex::new(vec!["already-there.txt".to_string()]);
-        let count = push_arg_paths_into_pending(&pending, vec![OsString::from(&f)]);
+        let authorized = AuthorizedPaths::new();
+        let count =
+            push_arg_paths_into_pending(&pending, &authorized, vec![OsString::from(&f)]);
         assert_eq!(count, 1);
 
         let stored = pending.lock().unwrap();
@@ -121,6 +165,7 @@ mod tests {
         std::fs::write(&b, "# hi").unwrap();
 
         let pending = Mutex::new(Vec::<String>::new());
+        let authorized = AuthorizedPaths::new();
 
         let argv: Vec<OsString> = vec![
             os("C:\\Program Files\\Writ\\writ.exe"),
@@ -130,12 +175,37 @@ mod tests {
             os("--foo"),
         ];
 
-        let count = push_arg_paths_into_pending(&pending, argv.into_iter().skip(1));
+        let count =
+            push_arg_paths_into_pending(&pending, &authorized, argv.into_iter().skip(1));
         assert_eq!(count, 2);
 
         let stored = pending.lock().unwrap();
         assert_eq!(stored.len(), 2);
         assert!(stored.iter().any(|p| p.ends_with("file_a.rs")));
         assert!(stored.iter().any(|p| p.ends_with("file_b.md")));
+    }
+
+    #[test]
+    fn push_arg_paths_records_authorization_for_each_pushed_path() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let a = dir.path().join("auth_a.txt");
+        std::fs::write(&a, "x").unwrap();
+
+        let pending = Mutex::new(Vec::<String>::new());
+        let authorized = AuthorizedPaths::new();
+
+        let count = push_arg_paths_into_pending(
+            &pending,
+            &authorized,
+            vec![OsString::from(&a)],
+        );
+        assert_eq!(count, 1);
+
+        let stored = pending.lock().unwrap();
+        let canonical = stored[0].clone();
+        drop(stored);
+
+        assert!(authorized.consume_for_open(&canonical));
+        assert!(!authorized.consume_for_open(&canonical));
     }
 }

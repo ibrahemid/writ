@@ -29,7 +29,7 @@ import {
 } from "./commands/keybindings";
 import { onEvent, emitFrontendReady } from "./services/events";
 import { onAutosaveError } from "./services/autosave";
-import { onDragDrop, reportFirstPaint } from "./services/tauri";
+import { reportFirstPaint } from "./services/tauri";
 import { restoreWindowSize, installWindowSizePersistence } from "./services/window-size";
 import { installCloseFlush } from "./services/window-lifecycle";
 import type { UnlistenFn } from "./services/events";
@@ -324,14 +324,8 @@ export default function App() {
     });
     unlisteners.push(unlisten3);
 
-    const unlisten4 = await onDragDrop((event) => {
-      if (event.type === "drop" && event.paths.length > 0) {
-        for (const path of event.paths) {
-          bufferStore.openFile(path).catch(() => {
-            showToast(`Failed to open ${path}`, "error");
-          });
-        }
-      }
+    const unlisten4 = await onEvent("files:dropped", (payload) => {
+      void openPendingPaths(payload.paths);
     });
     unlisteners.push(unlisten4);
 

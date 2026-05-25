@@ -11,6 +11,9 @@ pub enum WritFrontendEvent {
     #[serde(rename = "pending:opens")]
     PendingOpens { paths: Vec<String> },
 
+    #[serde(rename = "files:dropped")]
+    FilesDropped { paths: Vec<String> },
+
     #[serde(rename = "window:shown")]
     WindowShown { rust_elapsed_us: u64 },
 
@@ -37,6 +40,7 @@ pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), Strin
     let event_name = match &event {
         WritFrontendEvent::BufferOpened { .. } => "writ://buffer-opened",
         WritFrontendEvent::PendingOpens { .. } => "writ://pending-opens",
+        WritFrontendEvent::FilesDropped { .. } => "writ://files-dropped",
         WritFrontendEvent::WindowShown { .. } => "writ://window-shown",
         WritFrontendEvent::ConfigChanged { .. } => "writ://config-changed",
         WritFrontendEvent::BufferExternal { .. } => "writ://buffer-external",

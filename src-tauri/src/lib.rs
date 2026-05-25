@@ -3,6 +3,7 @@ pub mod events;
 pub mod hotkey;
 pub mod logging;
 pub mod poison;
+pub mod security;
 pub mod startup;
 pub mod state;
 pub mod watcher;
@@ -135,26 +136,30 @@ pub fn run() {
                 .map(std::ffi::OsString::from)
                 .collect();
 
-            let paths = writ_core::file_ops::arg_paths_from_iter(args)
+            let raw_paths = writ_core::file_ops::arg_paths_from_iter(args)
                 .into_iter()
                 .filter_map(|p| p.to_str().map(String::from))
                 .collect::<Vec<String>>();
 
-            if !paths.is_empty() {
-                info!(count = paths.len(), "files forwarded from secondary instance");
+            if !raw_paths.is_empty() {
                 let state = app.state::<AppState>();
-                let ready = state
-                    .frontend_ready
-                    .load(std::sync::atomic::Ordering::SeqCst);
+                let paths =
+                    startup::authorize_and_canonicalize(&state.authorized_paths, &raw_paths);
+                if !paths.is_empty() {
+                    info!(count = paths.len(), "files forwarded from secondary instance");
+                    let ready = state
+                        .frontend_ready
+                        .load(std::sync::atomic::Ordering::SeqCst);
 
-                if ready {
-                    let _ = emit_event(app, WritFrontendEvent::PendingOpens { paths });
-                } else {
-                    let mut pending = recover_poison(
-                        state.pending_opens.lock(),
-                        "lib::single_instance:forward",
-                    );
-                    pending.extend(paths);
+                    if ready {
+                        let _ = emit_event(app, WritFrontendEvent::PendingOpens { paths });
+                    } else {
+                        let mut pending = recover_poison(
+                            state.pending_opens.lock(),
+                            "lib::single_instance:forward",
+                        );
+                        pending.extend(paths);
+                    }
                 }
             }
 
@@ -186,6 +191,7 @@ pub fn run() {
             commands::buffer::update_tab_order,
             commands::buffer::rename_buffer,
             commands::file::open_file,
+            commands::file::pick_files_to_open,
             commands::file::save_to_source,
             commands::history::list_history,
             commands::history::restore_buffer,
@@ -218,7 +224,11 @@ pub fn run() {
             {
                 let state = handle.state::<AppState>();
                 let args = std::env::args_os().skip(1);
-                let count = startup::push_arg_paths_into_pending(&state.pending_opens, args);
+                let count = startup::push_arg_paths_into_pending(
+                    &state.pending_opens,
+                    &state.authorized_paths,
+                    args,
+                );
                 if count > 0 {
                     info!(count, "files opened from OS via argv");
                 }
@@ -294,7 +304,7 @@ pub fn run() {
     app.run(|app_handle, event| {
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         if let tauri::RunEvent::Opened { urls } = &event {
-            let paths: Vec<String> = urls
+            let raw_paths: Vec<String> = urls
                 .iter()
                 .filter_map(|url| {
                     if url.scheme() == "file" {
@@ -307,27 +317,62 @@ pub fn run() {
                 })
                 .collect();
 
-            if !paths.is_empty() {
-                info!(count = paths.len(), "files opened from OS");
-
+            if !raw_paths.is_empty() {
                 let state = app_handle.state::<AppState>();
-                let ready = state
-                    .frontend_ready
-                    .load(std::sync::atomic::Ordering::SeqCst);
+                let paths =
+                    startup::authorize_and_canonicalize(&state.authorized_paths, &raw_paths);
+                if !paths.is_empty() {
+                    info!(count = paths.len(), "files opened from OS");
 
-                if ready {
-                    let _ = emit_event(app_handle, WritFrontendEvent::PendingOpens { paths });
-                } else {
-                    let mut pending = recover_poison(
-                        state.pending_opens.lock(),
-                        "lib::run_event:opened_files",
-                    );
-                    pending.extend(paths);
+                    let ready = state
+                        .frontend_ready
+                        .load(std::sync::atomic::Ordering::SeqCst);
+
+                    if ready {
+                        let _ =
+                            emit_event(app_handle, WritFrontendEvent::PendingOpens { paths });
+                    } else {
+                        let mut pending = recover_poison(
+                            state.pending_opens.lock(),
+                            "lib::run_event:opened_files",
+                        );
+                        pending.extend(paths);
+                    }
+
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
                 }
+            }
+        }
 
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+        if let tauri::RunEvent::WindowEvent {
+            event: tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }),
+            ..
+        } = &event
+        {
+            if !paths.is_empty() {
+                let raw_paths: Vec<String> = paths
+                    .iter()
+                    .filter_map(|p| p.to_str().map(String::from))
+                    .collect();
+                let state = app_handle.state::<AppState>();
+                let canonical_paths = startup::authorize_and_canonicalize(
+                    &state.authorized_paths,
+                    &raw_paths,
+                );
+                if !canonical_paths.is_empty() {
+                    info!(
+                        count = canonical_paths.len(),
+                        "files dropped onto window"
+                    );
+                    let _ = emit_event(
+                        app_handle,
+                        WritFrontendEvent::FilesDropped {
+                            paths: canonical_paths,
+                        },
+                    );
                 }
             }
         }
