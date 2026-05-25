@@ -44,6 +44,7 @@ function createBufferStore() {
   }
 
   async function closeTab(id: string) {
+    await flushAutosave(id);
     await api.closeBuffer(id);
     const closedAt = new Date().toISOString();
     setBuffers((prev) =>
@@ -61,6 +62,7 @@ function createBufferStore() {
     const toClose = activeTabs().filter((b) => b.id !== keepId);
     if (toClose.length === 0) return;
     const ids = toClose.map((b) => b.id);
+    await Promise.all(ids.map((id) => flushAutosave(id)));
     await api.closeBuffers(ids);
     const closedAt = new Date().toISOString();
     const closedIds = new Set(ids);
@@ -81,6 +83,7 @@ function createBufferStore() {
       return;
     }
     const ids = toClose.map((b) => b.id);
+    await Promise.all(ids.map((id) => flushAutosave(id)));
     await api.closeBuffers(ids);
     const closedAt = new Date().toISOString();
     const closedIds = new Set(ids);
