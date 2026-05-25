@@ -12,11 +12,11 @@ import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import { writTheme, writHighlight } from "./cm-theme";
 import type { BufferDocument } from "../../types/buffer";
-import { readBufferContent } from "../../services/tauri";
 import { debouncedSave, cancelAutosave, flushAutosave } from "../../services/autosave";
 import { detectLanguage, detectFromContent } from "../../services/language-detect";
 import { editorStore } from "../../stores/editor";
 import { configStore } from "../../stores/config";
+import { bufferStore } from "../../stores/buffers";
 import { registerCommand } from "../../commands/registry";
 import { getExtension as languageExtension } from "../../editor/language-registry";
 import { registerBuiltinLanguages } from "../../editor/builtins";
@@ -147,7 +147,7 @@ export default function EditorInstance(props: Props) {
 
     let content = "";
     try {
-      content = await readBufferContent(buffer.id);
+      content = await bufferStore.readContent(buffer.id);
     } catch {}
 
     const name = nameForDetection(buffer);

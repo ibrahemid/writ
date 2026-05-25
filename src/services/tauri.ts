@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import type { BufferDocument } from "../types/buffer";
 import type { WritConfig } from "../types/config";
 import type { TransformDescriptor } from "../types/transforms";
@@ -178,6 +178,41 @@ export async function onWindowFocusChange(
   }
 }
 
+
+export async function getLogicalWindowSize(): Promise<{ width: number; height: number } | null> {
+  try {
+    const win = getCurrentWindow();
+    const size = await win.outerSize();
+    const scale = await win.scaleFactor();
+    return {
+      width: Math.round(size.width / scale),
+      height: Math.round(size.height / scale),
+    };
+  } catch (err) {
+    console.warn("getLogicalWindowSize failed:", err);
+    return null;
+  }
+}
+
+export async function setLogicalWindowSize(width: number, height: number): Promise<void> {
+  try {
+    const win = getCurrentWindow();
+    await win.setSize(new LogicalSize(width, height));
+  } catch (err) {
+    console.warn("setLogicalWindowSize failed:", err);
+  }
+}
+
+export async function onWindowResized(handler: () => void): Promise<() => void> {
+  try {
+    const win = getCurrentWindow();
+    const unlisten = await win.onResized(() => handler());
+    return unlisten;
+  } catch (err) {
+    console.warn("onWindowResized subscription failed:", err);
+    return () => {};
+  }
+}
 
 export async function onWindowCloseRequested(
   handler: () => Promise<void> | void,

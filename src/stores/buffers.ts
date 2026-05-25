@@ -141,6 +141,10 @@ function createBufferStore() {
     return openFile(path);
   }
 
+  async function readContent(id: string): Promise<string> {
+    return api.readBufferContent(id);
+  }
+
   return {
     activeTabs,
     historyList,
@@ -158,6 +162,7 @@ function createBufferStore() {
     renameTab,
     openFile,
     openFileDialog,
+    readContent,
   };
 }
 

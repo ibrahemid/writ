@@ -31,7 +31,7 @@ import {
 import { onEvent, emitFrontendReady } from "./services/events";
 import { onAutosaveError } from "./services/autosave";
 import { reportFirstPaint } from "./services/tauri";
-import { restoreWindowSize, installWindowSizePersistence } from "./services/window-size";
+import { osWindowStore } from "./stores/os-window";
 import { installCloseFlush } from "./services/window-lifecycle";
 import type { UnlistenFn } from "./services/events";
 import "./styles/global.css";
@@ -70,8 +70,10 @@ export default function App() {
     themeStore.applyToRoot();
     await configStore.load();
     themeStore.loadConfig(configStore.config().theme);
-    await restoreWindowSize();
-    const offWindowResize = await installWindowSizePersistence();
+    await osWindowStore.restoreSize();
+    const offFocusSync = await osWindowStore.installFocusSync();
+    unlisteners.push(offFocusSync);
+    const offWindowResize = await osWindowStore.installSizePersistence();
     unlisteners.push(offWindowResize);
     const offCloseFlush = await installCloseFlush();
     unlisteners.push(offCloseFlush);
