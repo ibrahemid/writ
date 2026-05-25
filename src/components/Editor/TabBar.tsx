@@ -91,8 +91,9 @@ export default function TabBar() {
                 class="tab-close"
                 role="button"
                 tabIndex={0}
+                aria-label={`Close ${tab.title}`}
                 onClick={(e) => { e.stopPropagation(); bufferStore.closeTab(tab.id); }}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); bufferStore.closeTab(tab.id); } }}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); bufferStore.closeTab(tab.id); } }}
               >
                 ×
               </span>
