@@ -217,12 +217,8 @@ export default function EditorInstance(props: Props) {
   ));
 
   onCleanup(() => {
-    if (view && currentBufferId) {
+    if (currentBufferId) {
       cancelAutosave(currentBufferId);
-      const content = view.state.doc.toString();
-      if (content.length > 0) {
-        saveBufferContent(currentBufferId, content).catch(() => {});
-      }
     }
     editorStore.registerView(null);
     view?.destroy();
