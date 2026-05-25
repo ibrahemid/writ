@@ -4,6 +4,7 @@ use rusqlite::Connection;
 use tracing::warn;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 
+use crate::atomic::write_atomic;
 use crate::database::queries;
 use crate::errors::{StorageError, StorageResult};
 
@@ -107,7 +108,7 @@ impl BufferStore {
     pub fn save_content(&self, id: &str, content: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
         let file_path = self.buffers_dir.join(&doc.filename);
-        std::fs::write(&file_path, content)?;
+        write_atomic(&file_path, content.as_bytes())?;
         queries::update_timestamp(&self.conn, id)?;
         let fts = crate::fts::FtsIndex::new(&self.conn);
         if let Err(e) = fts.update(id, &doc.title, content) {
@@ -248,9 +249,9 @@ impl BufferStore {
             .ok_or_else(|| StorageError::Consistency {
                 message: format!("buffer {} has no source_path", id),
             })?;
-        std::fs::write(source_path, content)?;
+        write_atomic(Path::new(source_path), content.as_bytes())?;
         let buffer_file = self.buffers_dir.join(&doc.filename);
-        std::fs::write(&buffer_file, content)?;
+        write_atomic(&buffer_file, content.as_bytes())?;
         queries::update_timestamp(&self.conn, id)?;
         let fts = crate::fts::FtsIndex::new(&self.conn);
         if let Err(e) = fts.update(id, &doc.title, content) {
