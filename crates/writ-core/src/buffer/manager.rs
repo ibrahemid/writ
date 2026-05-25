@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::{Component, Path};
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -7,6 +8,43 @@ use uuid::Uuid;
 use crate::buffer::document::{BufferDocument, BufferStatus};
 use crate::errors::{WritError, WritResult};
 use crate::events::bus::{EventBus, WritEvent};
+
+fn validate_buffer_title(title: &str) -> WritResult<()> {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        return Err(WritError::InvalidTitle {
+            reason: "title must not be empty or whitespace-only".to_string(),
+        });
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        return Err(WritError::InvalidTitle {
+            reason: format!("title must not contain path separators: {title:?}"),
+        });
+    }
+    if trimmed.contains('\0') {
+        return Err(WritError::InvalidTitle {
+            reason: "title must not contain NUL bytes".to_string(),
+        });
+    }
+
+    let mut components = Path::new(trimmed).components();
+    let first = components.next().ok_or_else(|| WritError::InvalidTitle {
+        reason: format!("title yields no path components: {title:?}"),
+    })?;
+    if components.next().is_some() {
+        return Err(WritError::InvalidTitle {
+            reason: format!("title must be a single path component: {title:?}"),
+        });
+    }
+    match first {
+        Component::Normal(_) => Ok(()),
+        Component::ParentDir | Component::CurDir | Component::RootDir | Component::Prefix(_) => {
+            Err(WritError::InvalidTitle {
+                reason: format!("title must be a single Normal component: {title:?}"),
+            })
+        }
+    }
+}
 
 /// In-memory collection of buffers with lifecycle operations.
 ///
@@ -51,16 +89,23 @@ impl BufferManager {
     /// When `title` is `None`, a timestamp-derived title (`writ-<ms>`) is
     /// generated so that buffers created in a tight loop remain distinct.
     pub fn create_buffer(&mut self, title: Option<String>) -> WritResult<BufferDocument> {
+        if let Some(ref t) = title {
+            validate_buffer_title(t)?;
+        }
+
         let now = Utc::now();
         let id = Uuid::new_v4().to_string();
-        let resolved_title = title.unwrap_or_else(|| format!("writ-{}", now.timestamp_millis()));
+        let resolved_title = title
+            .map(|t| t.trim().to_string())
+            .unwrap_or_else(|| format!("writ-{}", now.timestamp_millis()));
+        let filename = format!("{id}.txt");
         let tab_order = self.next_tab_order;
         self.next_tab_order += 1;
 
         let doc = BufferDocument {
             id: id.clone(),
-            title: resolved_title.clone(),
-            filename: resolved_title,
+            title: resolved_title,
+            filename,
             status: BufferStatus::Active,
             language: None,
             source_path: None,

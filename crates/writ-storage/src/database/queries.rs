@@ -192,14 +192,21 @@ pub fn find_history_by_source_path(
     Ok(result)
 }
 
-/// Returns every never-renamed scratch buffer (`source_path IS NULL`
-/// and `title = filename`), regardless of status, ordered by tab
-/// position. Callers filter on disk emptiness and status.
+/// Returns every never-renamed scratch buffer, regardless of status,
+/// ordered by tab position. Callers filter on disk emptiness and status.
+///
+/// A buffer is considered never-renamed when `source_path IS NULL` and
+/// either (a) `title = filename` (legacy rows minted before filename was
+/// decoupled from title) or (b) `title` matches the default scratch
+/// pattern `writ-<digits>` produced by `BufferManager::create_buffer`
+/// when no title is supplied.
 pub fn list_scratch_candidates(conn: &Connection) -> StorageResult<Vec<BufferDocument>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
                 cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at
-         FROM buffers WHERE source_path IS NULL AND title = filename
+         FROM buffers
+         WHERE source_path IS NULL
+           AND (title = filename OR title GLOB 'writ-[0-9]*')
          ORDER BY tab_order ASC",
     )?;
     let rows = stmt.query_map([], row_to_document)?;

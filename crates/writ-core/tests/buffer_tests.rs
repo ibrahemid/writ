@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 use writ_core::buffer::{BufferManager, BufferStatus};
+use writ_core::errors::WritError;
 use writ_core::events::bus::{EventBus, WritEvent};
 
 #[test]
@@ -180,4 +181,91 @@ fn buffer_manager_without_event_bus_does_not_panic_or_publish() {
     let mut manager = BufferManager::new();
     let buf = manager.create_buffer(None).unwrap();
     assert!(!buf.id.is_empty());
+}
+
+fn assert_invalid_title<T: std::fmt::Debug>(result: Result<T, WritError>) {
+    match result {
+        Err(WritError::InvalidTitle { .. }) => {}
+        other => panic!("expected WritError::InvalidTitle, got {other:?}"),
+    }
+}
+
+#[test]
+fn create_buffer_rejects_parent_dir_traversal() {
+    let mut manager = BufferManager::new();
+    assert_invalid_title(manager.create_buffer(Some("..".to_string())));
+    assert_invalid_title(manager.create_buffer(Some("../../../etc/zshrc".to_string())));
+}
+
+#[test]
+fn create_buffer_rejects_absolute_path_unix() {
+    let mut manager = BufferManager::new();
+    assert_invalid_title(manager.create_buffer(Some("/etc/passwd".to_string())));
+    assert_invalid_title(manager.create_buffer(Some("/Users/x/.ssh/id_rsa".to_string())));
+}
+
+#[test]
+fn create_buffer_rejects_path_separators() {
+    let mut manager = BufferManager::new();
+    assert_invalid_title(manager.create_buffer(Some("foo/bar".to_string())));
+    assert_invalid_title(manager.create_buffer(Some("foo\\bar".to_string())));
+    assert_invalid_title(manager.create_buffer(Some("C:\\Windows\\System32".to_string())));
+}
+
+#[test]
+fn create_buffer_rejects_empty_and_whitespace_titles() {
+    let mut manager = BufferManager::new();
+    assert_invalid_title(manager.create_buffer(Some("".to_string())));
+    assert_invalid_title(manager.create_buffer(Some("   ".to_string())));
+    assert_invalid_title(manager.create_buffer(Some("\t\n".to_string())));
+}
+
+#[test]
+fn create_buffer_rejects_cur_dir_title() {
+    let mut manager = BufferManager::new();
+    assert_invalid_title(manager.create_buffer(Some(".".to_string())));
+}
+
+#[test]
+fn create_buffer_rejects_nul_byte_in_title() {
+    let mut manager = BufferManager::new();
+    assert_invalid_title(manager.create_buffer(Some("foo\0bar".to_string())));
+}
+
+#[test]
+fn create_buffer_filename_is_uuid_derived_not_title() {
+    let mut manager = BufferManager::new();
+    let buf = manager
+        .create_buffer(Some("anything-safe".to_string()))
+        .unwrap();
+    assert_eq!(buf.title, "anything-safe");
+    assert_ne!(buf.filename, "anything-safe");
+    assert_eq!(buf.filename, format!("{}.txt", buf.id));
+}
+
+#[test]
+fn create_buffer_default_filename_is_uuid_derived() {
+    let mut manager = BufferManager::new();
+    let buf = manager.create_buffer(None).unwrap();
+    assert_eq!(buf.filename, format!("{}.txt", buf.id));
+    assert!(buf.title.starts_with("writ-"));
+}
+
+#[test]
+fn create_buffer_accepts_unicode_single_component_title() {
+    let mut manager = BufferManager::new();
+    let buf = manager
+        .create_buffer(Some("日本語ノート".to_string()))
+        .unwrap();
+    assert_eq!(buf.title, "日本語ノート");
+    assert_eq!(buf.filename, format!("{}.txt", buf.id));
+}
+
+#[test]
+fn create_buffer_trims_whitespace_around_title() {
+    let mut manager = BufferManager::new();
+    let buf = manager
+        .create_buffer(Some("  draft  ".to_string()))
+        .unwrap();
+    assert_eq!(buf.title, "draft");
 }
