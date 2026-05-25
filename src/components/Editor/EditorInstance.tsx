@@ -12,8 +12,8 @@ import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import { writTheme, writHighlight } from "./cm-theme";
 import type { BufferDocument } from "../../types/buffer";
-import { readBufferContent, saveBufferContent } from "../../services/tauri";
-import { debouncedSave, cancelAutosave } from "../../services/autosave";
+import { readBufferContent } from "../../services/tauri";
+import { debouncedSave, cancelAutosave, flushAutosave } from "../../services/autosave";
 import { detectLanguage, detectFromContent } from "../../services/language-detect";
 import { editorStore } from "../../stores/editor";
 import { configStore } from "../../stores/config";
@@ -118,14 +118,10 @@ export default function EditorInstance(props: Props) {
   }
 
   async function saveCurrentContent() {
-    if (view && currentBufferId) {
-      cancelAutosave(currentBufferId);
-      const content = view.state.doc.toString();
-      if (content.length > 0) {
-        try {
-          await saveBufferContent(currentBufferId, content);
-        } catch {}
-      }
+    if (currentBufferId) {
+      try {
+        await flushAutosave(currentBufferId);
+      } catch {}
     }
   }
 
