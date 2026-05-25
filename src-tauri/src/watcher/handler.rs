@@ -1,12 +1,12 @@
-use crate::events::{emit_event, WritFrontendEvent};
 use crate::poison::recover_poison;
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::AppHandle;
 use tracing::{error, info};
+use writ_core::events::bus::{EventBus, WritEvent};
+use writ_core::watcher::change_event::ExternalChange;
 use writ_core::watcher::ignore::{IgnoreStamps, SuppressDecision, DEFAULT_IGNORE_TTL};
 
 pub type IgnoreSet = Arc<Mutex<IgnoreStamps>>;
@@ -25,7 +25,7 @@ pub struct WatcherHandle {
 }
 
 pub fn start_file_watcher(
-    app: AppHandle,
+    bus: Arc<EventBus>,
     config_path: PathBuf,
     buffers_dir: PathBuf,
     ignore_set: IgnoreSet,
@@ -48,65 +48,20 @@ pub fn start_file_watcher(
 
     info!("file watcher started");
 
-    let config_path_clone = config_path.clone();
-    let buffers_dir_clone = buffers_dir.clone();
-
-    // TODO(events-bus): migrate config:changed and buffer:external emission
-    // to core::events::bus when the bridge proves out. See bus_bridge.rs.
     std::thread::spawn(move || {
         while let Ok(result) = rx.recv() {
             match result {
                 Ok(events) => {
                     for event in events {
-                        let path = &event.path;
-                        if *path == config_path_clone {
-                            info!("config file changed");
-                            emit_event(
-                                &app,
-                                WritFrontendEvent::ConfigChanged {
-                                    keys: vec!["*".to_string()],
-                                },
-                            )
-                            .ok();
-                        } else if path.starts_with(&buffers_dir_clone) {
-                            let filename = path
-                                .file_name()
-                                .map(|s| s.to_string_lossy().to_string())
-                                .unwrap_or_default();
-
-                            if filename.is_empty() {
-                                continue;
-                            }
-
-                            let current_bytes = std::fs::read(path).ok();
-
-                            let decision = {
-                                let mut set = recover_poison(
-                                    ignore_set.lock(),
-                                    "watcher::handler::event_loop",
-                                );
-                                set.decide(
-                                    &filename,
-                                    current_bytes.as_deref(),
-                                    Instant::now(),
-                                    ttl,
-                                )
-                            };
-
-                            if decision == SuppressDecision::Suppress {
-                                continue;
-                            }
-
-                            let change = if path.exists() { "modified" } else { "deleted" };
-                            info!(file = %filename, change = change, "external buffer file change");
-                            emit_event(
-                                &app,
-                                WritFrontendEvent::BufferExternal {
-                                    buffer_id: filename,
-                                    change: change.to_string(),
-                                },
-                            )
-                            .ok();
+                        if let Some(domain_event) = classify_watch_event(
+                            &event.path,
+                            &config_path,
+                            &buffers_dir,
+                            &ignore_set,
+                            ttl,
+                            Instant::now(),
+                        ) {
+                            bus.emit(domain_event);
                         }
                     }
                 }
@@ -121,4 +76,194 @@ pub fn start_file_watcher(
     Ok(WatcherHandle {
         _debouncer: debouncer,
     })
+}
+
+/// Classifies a single file-system event into a domain event, or
+/// suppresses it. Pure aside from a single `fs::read` to fingerprint
+/// the file against the ignore set; callers test it directly with a
+/// tempdir.
+pub fn classify_watch_event(
+    path: &Path,
+    config_path: &Path,
+    buffers_dir: &Path,
+    ignore_set: &IgnoreSet,
+    ttl: Duration,
+    now: Instant,
+) -> Option<WritEvent> {
+    if path == config_path {
+        info!("config file changed");
+        return Some(WritEvent::ConfigChanged {
+            keys: vec!["*".to_string()],
+        });
+    }
+
+    if !path.starts_with(buffers_dir) {
+        return None;
+    }
+
+    let filename = path
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    if filename.is_empty() {
+        return None;
+    }
+
+    let current_bytes = std::fs::read(path).ok();
+
+    let decision = {
+        let mut set = recover_poison(ignore_set.lock(), "watcher::handler::event_loop");
+        set.decide(&filename, current_bytes.as_deref(), now, ttl)
+    };
+
+    if decision == SuppressDecision::Suppress {
+        return None;
+    }
+
+    let change = if path.exists() {
+        ExternalChange::Modified
+    } else {
+        ExternalChange::Deleted
+    };
+    info!(file = %filename, ?change, "external buffer file change");
+    Some(WritEvent::BufferExternal {
+        buffer_id: filename,
+        change,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    fn make_set() -> IgnoreSet {
+        create_ignore_set()
+    }
+
+    #[test]
+    fn classifies_config_path_as_config_changed() {
+        let dir = tempdir().unwrap();
+        let cfg = dir.path().join("config.toml");
+        fs::write(&cfg, b"x").unwrap();
+        let buffers = dir.path().join("buffers");
+        fs::create_dir_all(&buffers).unwrap();
+
+        let event = classify_watch_event(
+            &cfg,
+            &cfg,
+            &buffers,
+            &make_set(),
+            DEFAULT_IGNORE_TTL,
+            Instant::now(),
+        );
+
+        assert!(matches!(event, Some(WritEvent::ConfigChanged { .. })));
+    }
+
+    #[test]
+    fn classifies_modified_buffer_file_as_buffer_external_modified() {
+        let dir = tempdir().unwrap();
+        let cfg = dir.path().join("config.toml");
+        let buffers = dir.path().join("buffers");
+        fs::create_dir_all(&buffers).unwrap();
+        let buf = buffers.join("draft-1.txt");
+        fs::write(&buf, b"hello").unwrap();
+
+        let event = classify_watch_event(
+            &buf,
+            &cfg,
+            &buffers,
+            &make_set(),
+            DEFAULT_IGNORE_TTL,
+            Instant::now(),
+        );
+
+        match event {
+            Some(WritEvent::BufferExternal { buffer_id, change }) => {
+                assert_eq!(buffer_id, "draft-1.txt");
+                assert_eq!(change, ExternalChange::Modified);
+            }
+            other => panic!("expected BufferExternal::Modified, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn classifies_deleted_buffer_file_as_buffer_external_deleted() {
+        let dir = tempdir().unwrap();
+        let cfg = dir.path().join("config.toml");
+        let buffers = dir.path().join("buffers");
+        fs::create_dir_all(&buffers).unwrap();
+        let buf = buffers.join("gone.txt");
+
+        let event = classify_watch_event(
+            &buf,
+            &cfg,
+            &buffers,
+            &make_set(),
+            DEFAULT_IGNORE_TTL,
+            Instant::now(),
+        );
+
+        match event {
+            Some(WritEvent::BufferExternal { buffer_id, change }) => {
+                assert_eq!(buffer_id, "gone.txt");
+                assert_eq!(change, ExternalChange::Deleted);
+            }
+            other => panic!("expected BufferExternal::Deleted, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn suppresses_event_matching_recent_ignore_fingerprint() {
+        let dir = tempdir().unwrap();
+        let cfg = dir.path().join("config.toml");
+        let buffers = dir.path().join("buffers");
+        fs::create_dir_all(&buffers).unwrap();
+        let buf = buffers.join("self.txt");
+        let bytes = b"matching-bytes";
+        fs::write(&buf, bytes).unwrap();
+
+        let set = make_set();
+        let now = Instant::now();
+        {
+            let mut guard = set.lock().unwrap();
+            guard.record("self.txt".to_string(), bytes, now);
+        }
+
+        let event = classify_watch_event(
+            &buf,
+            &cfg,
+            &buffers,
+            &set,
+            DEFAULT_IGNORE_TTL,
+            now,
+        );
+
+        assert!(event.is_none(), "expected internal write to be suppressed");
+    }
+
+    #[test]
+    fn ignores_paths_outside_both_config_and_buffers_dir() {
+        let dir = tempdir().unwrap();
+        let cfg = dir.path().join("config.toml");
+        let buffers = dir.path().join("buffers");
+        fs::create_dir_all(&buffers).unwrap();
+        let unrelated = dir.path().join("unrelated.log");
+        fs::write(&unrelated, b"x").unwrap();
+
+        let event = classify_watch_event(
+            &unrelated,
+            &cfg,
+            &buffers,
+            &make_set(),
+            DEFAULT_IGNORE_TTL,
+            Instant::now(),
+        );
+
+        assert!(event.is_none());
+    }
+
 }

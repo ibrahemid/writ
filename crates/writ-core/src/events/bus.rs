@@ -41,6 +41,14 @@ pub enum WritEvent {
     },
     /// The global toggle hotkey was pressed.
     HotkeyToggle,
+    /// A native menu item was activated. Originates in the host shell;
+    /// routed through the bus so the frontend has a single path to
+    /// observe menu activations.
+    MenuAction {
+        /// Stable identifier of the menu item, matching the
+        /// `command.id` registered in the frontend command palette.
+        action: String,
+    },
     /// A plugin-defined event payload.
     PluginEvent {
         /// Identifier of the plugin that emitted the event.

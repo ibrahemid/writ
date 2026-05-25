@@ -14,6 +14,18 @@ use poison::recover_poison;
 use state::AppState;
 use tauri::{Listener, Manager};
 use tracing::info;
+use writ_core::events::bus::WritEvent;
+
+const MENU_ACTION_IDS: &[&str] = &[
+    "app.check_updates",
+    "file.open",
+    "buffer.new",
+    "buffer.close",
+];
+
+fn menu_action_for_id(id: &str) -> Option<&'static str> {
+    MENU_ACTION_IDS.iter().copied().find(|&allowed| allowed == id)
+}
 
 fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
@@ -68,44 +80,13 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     app.set_menu(menu)?;
 
-    // TODO(events-bus): migrate menu-action emission to core::events::bus
-    // once the bridge proves out for BufferOpened. See bus_bridge.rs.
     app.on_menu_event(move |app_handle, event| {
         let id = event.id().0.as_str();
-        match id {
-            "app.check_updates" => {
-                let _ = emit_event(
-                    app_handle,
-                    WritFrontendEvent::MenuAction {
-                        action: "app.check_updates".to_string(),
-                    },
-                );
-            }
-            "file.open" => {
-                let _ = emit_event(
-                    app_handle,
-                    WritFrontendEvent::MenuAction {
-                        action: "file.open".to_string(),
-                    },
-                );
-            }
-            "buffer.new" => {
-                let _ = emit_event(
-                    app_handle,
-                    WritFrontendEvent::MenuAction {
-                        action: "buffer.new".to_string(),
-                    },
-                );
-            }
-            "buffer.close" => {
-                let _ = emit_event(
-                    app_handle,
-                    WritFrontendEvent::MenuAction {
-                        action: "buffer.close".to_string(),
-                    },
-                );
-            }
-            _ => {}
+        if let Some(action) = menu_action_for_id(id) {
+            let state = app_handle.state::<AppState>();
+            state.event_bus.emit(WritEvent::MenuAction {
+                action: action.to_string(),
+            });
         }
     });
 
@@ -266,9 +247,9 @@ pub fn run() {
                 tracing::warn!(error = %e, "failed to register global hotkey");
             }
 
-            let watcher_handle = handle.clone();
+            let watcher_bus = app.state::<AppState>().event_bus.clone();
             match watcher::handler::start_file_watcher(
-                watcher_handle,
+                watcher_bus,
                 config_path,
                 buffers_dir,
                 watcher_ignore,
@@ -379,4 +360,23 @@ pub fn run() {
 
         let _ = (&app_handle, &event);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn menu_action_for_id_returns_each_whitelisted_id() {
+        for id in MENU_ACTION_IDS {
+            assert_eq!(menu_action_for_id(id), Some(*id));
+        }
+    }
+
+    #[test]
+    fn menu_action_for_id_returns_none_for_unknown_ids() {
+        assert_eq!(menu_action_for_id(""), None);
+        assert_eq!(menu_action_for_id("unknown.command"), None);
+        assert_eq!(menu_action_for_id("file.open "), None);
+    }
 }
