@@ -69,6 +69,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_assignments)]
     fn lifecycle_minimize_then_toggle_then_toggle() {
         // Starts hidden.
         let mut is_minimized = false;
