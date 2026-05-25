@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow, type DragDropEvent } from "@tauri-apps/api/window";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { BufferDocument } from "../types/buffer";
 import type { WritConfig } from "../types/config";
 import type { TransformDescriptor } from "../types/transforms";
@@ -98,11 +97,10 @@ export async function saveToSource(id: string, content: string): Promise<void> {
 }
 
 export async function showOpenFileDialog(): Promise<string | null> {
-  const selected = await openDialog({
-    multiple: false,
-    title: "Open File",
-  });
-  if (typeof selected === "string") return selected;
+  const paths = await invoke<string[]>("pick_files_to_open");
+  if (Array.isArray(paths) && paths.length > 0) {
+    return paths[0];
+  }
   return null;
 }
 
@@ -180,14 +178,6 @@ export async function onWindowFocusChange(
   }
 }
 
-export async function onDragDrop(
-  handler: (event: DragDropEvent) => void,
-): Promise<() => void> {
-  const win = getCurrentWindow();
-  return win.onDragDropEvent((event) => {
-    handler(event.payload);
-  });
-}
 
 export async function onWindowCloseRequested(
   handler: () => Promise<void> | void,

@@ -22,8 +22,6 @@ function mockSourceBuffer(path: string): BufferDocument {
   };
 }
 
-let dragDropHandler: ((event: { type: string; paths?: string[]; position?: { x: number; y: number } }) => void) | null = null;
-
 vi.mock("../../services/tauri", () => ({
   createBuffer: vi.fn().mockImplementation(() => {
     tabIdCounter++;
@@ -54,10 +52,6 @@ vi.mock("../../services/tauri", () => ({
   ),
   showOpenFileDialog: vi.fn().mockResolvedValue(null),
   saveToSource: vi.fn().mockResolvedValue(undefined),
-  onDragDrop: vi.fn().mockImplementation((handler) => {
-    dragDropHandler = handler;
-    return Promise.resolve(() => { dragDropHandler = null; });
-  }),
   hideWindow: vi.fn().mockResolvedValue(undefined),
   minimizeWindow: vi.fn().mockResolvedValue(undefined),
 }));
@@ -71,17 +65,9 @@ describe("drag-and-drop file handling", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     tabIdCounter = 0;
-    dragDropHandler = null;
     mockedApi.listActiveBuffers.mockResolvedValue([]);
     mockedApi.listHistory.mockResolvedValue([]);
     await bufferStore.load();
-  });
-
-  it("onDragDrop registers a handler", async () => {
-    const handler = vi.fn();
-    const unlisten = await api.onDragDrop(handler);
-    expect(mockedApi.onDragDrop).toHaveBeenCalledOnce();
-    expect(typeof unlisten).toBe("function");
   });
 
   it("opening files from drop paths calls openFile for each path", async () => {

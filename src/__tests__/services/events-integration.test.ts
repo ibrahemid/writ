@@ -43,7 +43,6 @@ vi.mock("../../services/tauri", () => ({
   saveToSource: vi.fn().mockResolvedValue(undefined),
   hideWindow: vi.fn().mockResolvedValue(undefined),
   minimizeWindow: vi.fn().mockResolvedValue(undefined),
-  onDragDrop: vi.fn().mockResolvedValue(() => {}),
 }));
 
 import { bufferStore } from "../../stores/buffers";
