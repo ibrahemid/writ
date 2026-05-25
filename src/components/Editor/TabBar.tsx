@@ -101,7 +101,10 @@ export default function TabBar() {
         </For>
       </div>
       <button
+        type="button"
         class="tabbar-new"
+        aria-label="New tab"
+        title="New tab"
         onClick={() => bufferStore.createTab()}
       >+</button>
     </div>
