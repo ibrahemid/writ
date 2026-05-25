@@ -1,6 +1,8 @@
 //! Pure file helpers: validation, language detection, filename extraction.
 
-use std::path::Path;
+use std::collections::HashSet;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 
 use crate::errors::{WritError, WritResult};
 
@@ -122,6 +124,73 @@ pub fn validate_file_for_opening(path: &Path) -> WritResult<()> {
     }
 
     Ok(())
+}
+
+/// Filters a sequence of process arguments down to the set of file paths
+/// that exist on disk and can plausibly be opened as buffers.
+///
+/// Designed to be fed `std::env::args_os().skip(1)` at cold launch, or
+/// the `argv` slice handed to the `tauri-plugin-single-instance` callback
+/// on a warm second launch. The caller is responsible for skipping arg0
+/// (the binary path) — this helper does not.
+///
+/// The helper:
+///
+/// - drops arguments that begin with `-` (flags),
+/// - drops paths that do not exist or are not regular files,
+/// - converts to absolute paths via [`std::fs::canonicalize`], falling back
+///   to the input path when canonicalisation fails (rare but possible on
+///   exotic filesystems),
+/// - de-duplicates while preserving first-seen order.
+///
+/// Canonicalisation also strips Windows `\\?\` UNC prefixes via a final
+/// `PathBuf` reconstruction so paths round-trip cleanly through the
+/// frontend `openFile` IPC call.
+pub fn arg_paths_from_iter<I>(iter: I) -> Vec<PathBuf>
+where
+    I: IntoIterator<Item = OsString>,
+{
+    let mut out: Vec<PathBuf> = Vec::new();
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+
+    for raw in iter {
+        if raw.is_empty() {
+            continue;
+        }
+        if let Some(s) = raw.to_str() {
+            if s.starts_with('-') {
+                continue;
+            }
+        }
+
+        let candidate = PathBuf::from(&raw);
+        if !candidate.is_file() {
+            continue;
+        }
+
+        let canonical = std::fs::canonicalize(&candidate).unwrap_or(candidate);
+        let normalized = strip_unc_prefix(canonical);
+
+        if seen.insert(normalized.clone()) {
+            out.push(normalized);
+        }
+    }
+
+    out
+}
+
+#[cfg(windows)]
+fn strip_unc_prefix(path: PathBuf) -> PathBuf {
+    const UNC: &str = r"\\?\";
+    match path.to_str() {
+        Some(s) if s.starts_with(UNC) => PathBuf::from(&s[UNC.len()..]),
+        _ => path,
+    }
+}
+
+#[cfg(not(windows))]
+fn strip_unc_prefix(path: PathBuf) -> PathBuf {
+    path
 }
 
 /// Returns the file name component of `path` as an owned string, or
