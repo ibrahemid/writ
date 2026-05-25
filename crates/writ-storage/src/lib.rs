@@ -8,6 +8,7 @@
 //!
 //! # Module layout
 //!
+//! - [`atomic`]: temp-file + fsync + rename helper for crash-safe writes.
 //! - [`database`]: raw connection management, migrations, and query
 //!   primitives.
 //! - [`buffer_store`]: high-level buffer CRUD on top of `database`.
@@ -23,6 +24,8 @@
 #![warn(missing_docs)]
 #![warn(rustdoc::broken_intra_doc_links)]
 
+/// Crash-safe file writes via temp-file + fsync + rename.
+pub mod atomic;
 /// High-level buffer CRUD built on top of [`database`].
 pub mod buffer_store;
 /// TOML configuration load and save.
