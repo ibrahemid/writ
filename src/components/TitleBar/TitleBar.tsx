@@ -1,10 +1,10 @@
-import { createSignal, onMount, onCleanup, Show } from "solid-js";
+import { Show } from "solid-js";
 import TabBar from "../Editor/TabBar";
 import TrafficLights from "./TrafficLights";
 import Kbd from "../Kbd/Kbd";
 import { detectPlatform } from "../../lib/platform";
 import { configStore } from "../../stores/config";
-import { onWindowFocusChange, startDraggingWindow, toggleMaximizeWindow } from "../../services/tauri";
+import { osWindowStore } from "../../stores/os-window";
 import "./TitleBar.css";
 
 const PLATFORM = detectPlatform();
@@ -17,27 +17,16 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 }
 
 export default function TitleBar() {
-  const [focused, setFocused] = createSignal(true);
-  let unlisten: (() => void) | undefined;
-
-  onMount(async () => {
-    unlisten = await onWindowFocusChange(setFocused);
-  });
-
-  onCleanup(() => {
-    unlisten?.();
-  });
-
   function handleMouseDown(e: MouseEvent) {
     if (e.button !== 0) return;
     if (isInteractiveTarget(e.target)) return;
     e.preventDefault();
-    startDraggingWindow();
+    osWindowStore.startDragging();
   }
 
   function handleDblClick(e: MouseEvent) {
     if (isInteractiveTarget(e.target)) return;
-    toggleMaximizeWindow();
+    osWindowStore.toggleMaximize();
   }
 
   return (
@@ -47,7 +36,7 @@ export default function TitleBar() {
       onDblClick={handleDblClick}
     >
       <Show when={TRAFFIC_LIGHTS_ON_LEFT}>
-        <TrafficLights platform={PLATFORM} focused={focused()} />
+        <TrafficLights platform={PLATFORM} focused={osWindowStore.focused()} />
       </Show>
       <div class="titlebar-tabs">
         <TabBar />
@@ -56,7 +45,7 @@ export default function TitleBar() {
         <Kbd binding={configStore.config().hotkey.toggle} />
       </div>
       <Show when={!TRAFFIC_LIGHTS_ON_LEFT}>
-        <TrafficLights platform={PLATFORM} focused={focused()} />
+        <TrafficLights platform={PLATFORM} focused={osWindowStore.focused()} />
       </Show>
     </div>
   );

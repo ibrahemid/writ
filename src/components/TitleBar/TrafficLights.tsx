@@ -1,5 +1,5 @@
 import { Show } from "solid-js";
-import { hideWindow, minimizeWindow, toggleMaximizeWindow } from "../../services/tauri";
+import { osWindowStore } from "../../stores/os-window";
 import type { Platform } from "../../lib/platform";
 
 interface Props {
@@ -16,7 +16,7 @@ export default function TrafficLights(props: Props) {
           <button
             type="button"
             class="winctrl winctrl-min"
-            onClick={minimizeWindow}
+            onClick={osWindowStore.minimize}
             title="Minimize"
             aria-label="Minimize window"
           >
@@ -27,7 +27,7 @@ export default function TrafficLights(props: Props) {
           <button
             type="button"
             class="winctrl winctrl-max"
-            onClick={toggleMaximizeWindow}
+            onClick={osWindowStore.toggleMaximize}
             title="Maximize"
             aria-label="Maximize window"
           >
@@ -38,7 +38,7 @@ export default function TrafficLights(props: Props) {
           <button
             type="button"
             class="winctrl winctrl-close"
-            onClick={hideWindow}
+            onClick={osWindowStore.hide}
             title="Close"
             aria-label="Hide window"
           >
@@ -55,7 +55,7 @@ export default function TrafficLights(props: Props) {
         <button
           type="button"
           class="maclight maclight-close"
-          onClick={hideWindow}
+          onClick={osWindowStore.hide}
           title="Hide"
           aria-label="Hide window"
                  >
@@ -66,7 +66,7 @@ export default function TrafficLights(props: Props) {
         <button
           type="button"
           class="maclight maclight-min"
-          onClick={minimizeWindow}
+          onClick={osWindowStore.minimize}
           title="Minimize"
           aria-label="Minimize window"
                  >
@@ -77,7 +77,7 @@ export default function TrafficLights(props: Props) {
         <button
           type="button"
           class="maclight maclight-max"
-          onClick={toggleMaximizeWindow}
+          onClick={osWindowStore.toggleMaximize}
           title="Maximize"
           aria-label="Maximize window"
                  >
