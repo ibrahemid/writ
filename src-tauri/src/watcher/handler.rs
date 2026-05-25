@@ -2,17 +2,17 @@ use crate::events::{emit_event, WritFrontendEvent};
 use crate::poison::recover_poison;
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::AppHandle;
 use tracing::{error, info};
+use writ_core::watcher::ignore::{IgnoreStamps, SuppressDecision, DEFAULT_IGNORE_TTL};
 
-pub type IgnoreSet = Arc<Mutex<HashSet<String>>>;
+pub type IgnoreSet = Arc<Mutex<IgnoreStamps>>;
 
 pub fn create_ignore_set() -> IgnoreSet {
-    Arc::new(Mutex::new(HashSet::new()))
+    Arc::new(Mutex::new(IgnoreStamps::new()))
 }
 
 /// Opaque owner of the file watcher's debouncer.
@@ -30,6 +30,7 @@ pub fn start_file_watcher(
     buffers_dir: PathBuf,
     ignore_set: IgnoreSet,
 ) -> Result<WatcherHandle, Box<dyn std::error::Error>> {
+    let ttl = DEFAULT_IGNORE_TTL;
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
 
     let mut debouncer = new_debouncer(Duration::from_millis(500), tx)?;
@@ -77,15 +78,22 @@ pub fn start_file_watcher(
                                 continue;
                             }
 
-                            let is_internal = {
+                            let current_bytes = std::fs::read(path).ok();
+
+                            let decision = {
                                 let mut set = recover_poison(
                                     ignore_set.lock(),
                                     "watcher::handler::event_loop",
                                 );
-                                set.remove(&filename)
+                                set.decide(
+                                    &filename,
+                                    current_bytes.as_deref(),
+                                    Instant::now(),
+                                    ttl,
+                                )
                             };
 
-                            if is_internal {
+                            if decision == SuppressDecision::Suppress {
                                 continue;
                             }
 
