@@ -3,6 +3,7 @@ pub mod events;
 pub mod hotkey;
 pub mod logging;
 pub mod poison;
+pub mod startup;
 pub mod state;
 pub mod watcher;
 pub mod window_state;
@@ -125,7 +126,50 @@ pub fn run() {
     let buffers_dir = app_state.buffers_dir.clone();
     let watcher_ignore = app_state.watcher_ignore.clone();
 
-    let app = tauri::Builder::default()
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    let builder = tauri::Builder::default().plugin(tauri_plugin_single_instance::init(
+        |app, argv, _cwd| {
+            let args: Vec<std::ffi::OsString> = argv
+                .into_iter()
+                .skip(1)
+                .map(std::ffi::OsString::from)
+                .collect();
+
+            let paths = writ_core::file_ops::arg_paths_from_iter(args)
+                .into_iter()
+                .filter_map(|p| p.to_str().map(String::from))
+                .collect::<Vec<String>>();
+
+            if !paths.is_empty() {
+                info!(count = paths.len(), "files forwarded from secondary instance");
+                let state = app.state::<AppState>();
+                let ready = state
+                    .frontend_ready
+                    .load(std::sync::atomic::Ordering::SeqCst);
+
+                if ready {
+                    let _ = emit_event(app, WritFrontendEvent::PendingOpens { paths });
+                } else {
+                    let mut pending = recover_poison(
+                        state.pending_opens.lock(),
+                        "lib::single_instance:forward",
+                    );
+                    pending.extend(paths);
+                }
+            }
+
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        },
+    ));
+
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    let builder = tauri::Builder::default();
+
+    let app = builder
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -168,6 +212,16 @@ pub fn run() {
                     let _ = emit_event(&bridge_handle, frontend_event);
                 });
                 info!("event bus bridge attached");
+            }
+
+            #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+            {
+                let state = handle.state::<AppState>();
+                let args = std::env::args_os().skip(1);
+                let count = startup::push_arg_paths_into_pending(&state.pending_opens, args);
+                if count > 0 {
+                    info!(count, "files opened from OS via argv");
+                }
             }
 
             {
