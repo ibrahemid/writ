@@ -26,10 +26,13 @@ export function dismissToast(id: number) {
 
 export default function ToastContainer() {
   return (
-    <div class="toast-container">
+    <div class="toast-container" aria-live="polite" aria-atomic="false">
       <For each={toasts()}>
         {(toast) => (
-          <div class={`toast toast-${toast.type}`}>
+          <div
+            class={`toast toast-${toast.type}`}
+            role={toast.type === "error" ? "alert" : "status"}
+          >
             <span class="toast-text">{toast.text}</span>
             <button
               type="button"
