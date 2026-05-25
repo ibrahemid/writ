@@ -12,10 +12,20 @@ interface Props {
 }
 
 export default function TabItem(props: Props) {
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      props.onClick();
+    }
+  }
+
   return (
     <div
       class={`tab-item ${props.isActive ? "tab-item-active" : ""}`}
+      role="button"
+      tabIndex={0}
       onClick={props.onClick}
+      onKeyDown={handleKeyDown}
       title={props.title}
     >
       <span class="tab-item-title">{abbreviateTitle(props.title)}</span>
