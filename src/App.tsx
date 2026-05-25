@@ -23,6 +23,7 @@ import { registerTransformCommands } from "./commands/transforms";
 import { registerCommand, executeCommand, getAllCommands, setExecuteListener } from "./commands/registry";
 import {
   installKeyboardHandler,
+  uninstallKeyboardHandler,
   rebuildKeyMap,
   setKeybindingOverrides,
   pruneLegacyDefaultOverrides,
@@ -305,6 +306,7 @@ export default function App() {
     setKeybindingOverrides(liveKeybindings);
     rebuildKeyMap();
     installKeyboardHandler();
+    unlisteners.push(uninstallKeyboardHandler);
 
     const unlisten1 = await onEvent("config:changed", () => {
       configStore.load();
