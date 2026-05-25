@@ -11,7 +11,9 @@ Writ needs to persist several categories of data locally:
   pinned status, open/close timestamps.
 - **Session state**: which buffers are open, tab order, split layout, active buffer.
 - **Search index**: content of open (and recently opened) buffers for fast across-file search.
-- **Recovery journal**: partially-written file changes for crash recovery.
+- **Snapshot / recovery scaffolding**: structures sufficient to detect a dirty shutdown and
+  restore the previous session. Schema is in place; the runtime is not yet wired (see
+  `crates/writ-storage/src/recovery/mod.rs`).
 
 The simplest approach is a collection of JSON or TOML files, one per buffer or one per category.
 This is zero-dependency (the `serde_json`/`toml` crates are already present) and easy to
@@ -35,8 +37,9 @@ Key factors:
 - **FTS5 full-text search**: SQLite's FTS5 extension provides an inverted index over buffer
   content. Across-file search becomes a single SQL query rather than a sequential scan.
 - **WAL mode crash safety**: WAL mode ensures that a crash mid-write does not corrupt committed
-  data. The recovery journal still exists for in-progress file writes, but session and metadata
-  state is always consistent.
+  data. Session and metadata state is always consistent at the database layer. A separate
+  snapshot / dirty-shutdown layer is scaffolded in `recovery/` for future session restoration
+  but is not yet called by the app.
 - **Schema migrations**: `rusqlite_migration` or hand-rolled migration functions allow the
   schema to evolve across versions without breaking existing installations. Flat files offer no
   equivalent mechanism.

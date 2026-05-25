@@ -19,7 +19,7 @@ All builds come from the same source tree. Pick the installer for your OS on the
 ## Features
 
 - Global hotkey summons the window from anywhere, `Cmd+Shift+Space` on macOS, `Ctrl+Shift+Space` on Linux and Windows
-- Autosave on every keystroke with crash recovery on relaunch
+- Autosave on every keystroke; buffers persist across restarts
 - Full-text search across every buffer, backed by SQLite FTS5
 - CodeMirror 6 editor with language auto-detection for 50+ languages
 - Browser-style tabs with reorder and reopen-closed support
@@ -27,7 +27,7 @@ All builds come from the same source tree. Pick the installer for your OS on the
 
 ## Why Writ?
 
-A plain text file has no tabs, no search across buffers, and no autosave recovery. Obsidian is a knowledge graph for permanent notes, overkill for a five-second scratch. Notion is a cloud workspace, the opposite of instant and offline. Writ is the missing middle: a tray-resident scratchpad that opens on a keypress, saves as you type, and stays out of your way. It is optimized for the throwaway buffer, the paste target between terminals, the half-formed idea you need to capture in two seconds.
+A plain text file has no tabs, no search across buffers, and no persistent autosave. Obsidian is a knowledge graph for permanent notes, overkill for a five-second scratch. Notion is a cloud workspace, the opposite of instant and offline. Writ is the missing middle: a tray-resident scratchpad that opens on a keypress, saves as you type, and stays out of your way. It is optimized for the throwaway buffer, the paste target between terminals, the half-formed idea you need to capture in two seconds.
 
 ## See it in action
 
