@@ -1,8 +1,16 @@
-.update-banner {
+.update-banner-live {
   position: fixed;
   bottom: calc(var(--writ-statusbar-height, 28px) + 12px);
   left: 16px;
   z-index: 150;
+  pointer-events: none;
+}
+
+.update-banner-live > .update-banner {
+  pointer-events: auto;
+}
+
+.update-banner {
   display: flex;
   align-items: center;
   gap: 14px;
