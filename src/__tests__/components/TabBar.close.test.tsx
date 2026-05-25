@@ -29,21 +29,38 @@ const mocks = vi.hoisted(() => ({
   closeTab: vi.fn(),
   closeOtherTabs: vi.fn(),
   closeAllTabs: vi.fn(),
-  renameTab: vi.fn(),
   createTab: vi.fn(),
+  renameBuffer: vi.fn(),
   showContextMenu: vi.fn(),
 }));
 
-vi.mock("../../stores/buffers", () => ({
-  bufferStore: {
+vi.mock("../../components/WindowProvider/WindowProvider", () => ({
+  useWindow: () => ({
+    tabs: {
+      activeTabId: mocks.activeTabId,
+      setActiveTabId: mocks.setActiveTabId,
+      closeTab: mocks.closeTab,
+      closeOtherTabs: mocks.closeOtherTabs,
+      closeAllTabs: mocks.closeAllTabs,
+      createTab: mocks.createTab,
+    },
+  }),
+}));
+
+vi.mock("../../stores/global/buffer-registry", () => ({
+  bufferRegistry: {
     activeTabs: mocks.activeTabs,
-    activeTabId: mocks.activeTabId,
-    setActiveTabId: mocks.setActiveTabId,
-    closeTab: mocks.closeTab,
-    closeOtherTabs: mocks.closeOtherTabs,
-    closeAllTabs: mocks.closeAllTabs,
-    renameTab: mocks.renameTab,
-    createTab: mocks.createTab,
+    renameBuffer: mocks.renameBuffer,
+  },
+}));
+
+vi.mock("../../stores/global/window-registry", () => ({
+  windowRegistry: {
+    getActive: () => ({
+      tabs: {
+        activeTabId: mocks.activeTabId,
+      },
+    }),
   },
 }));
 

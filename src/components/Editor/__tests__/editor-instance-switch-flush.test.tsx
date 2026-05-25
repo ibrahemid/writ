@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import type { BufferDocument } from "../../../types/buffer";
+import WindowProvider from "../../WindowProvider/WindowProvider";
 
 const bufferContent = new Map<string, string>();
 const callLog: string[] = [];
@@ -12,6 +13,12 @@ vi.mock("../../../services/tauri", () => ({
     bufferContent.set(id, content);
     callLog.push(`save:${id}:${content}`);
   }),
+}));
+
+vi.mock("../../../stores/global/buffer-registry", () => ({
+  bufferRegistry: {
+    readContent: vi.fn(async (id: string) => bufferContent.get(id) ?? ""),
+  },
 }));
 
 function mockBuffer(id: string, title = id): BufferDocument {
@@ -54,7 +61,11 @@ describe("EditorInstance: buffer-switch flushes pending autosave (incl. empty)",
     bufferContent.set("B", "");
 
     const [buf, setBuf] = createSignal(mockBuffer("A"));
-    render(() => <EditorInstance buffer={buf()} />);
+    render(() => (
+      <WindowProvider windowId={9001}>
+        <EditorInstance buffer={buf()} />
+      </WindowProvider>
+    ));
 
     await flushMicrotasks(10);
 
@@ -75,7 +86,11 @@ describe("EditorInstance: buffer-switch flushes pending autosave (incl. empty)",
     bufferContent.set("Y", "");
 
     const [buf, setBuf] = createSignal(mockBuffer("X"));
-    render(() => <EditorInstance buffer={buf()} />);
+    render(() => (
+      <WindowProvider windowId={9001}>
+        <EditorInstance buffer={buf()} />
+      </WindowProvider>
+    ));
 
     await flushMicrotasks(10);
 

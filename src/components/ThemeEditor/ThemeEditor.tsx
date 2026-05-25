@@ -1,7 +1,7 @@
 import { createSignal, createEffect, onCleanup, For, Show } from "solid-js";
-import { themeStore } from "../../stores/theme";
-import { configStore } from "../../stores/config";
-import { editorStore } from "../../stores/editor";
+import { themeStore } from "../../stores/global/theme";
+import { configStore } from "../../stores/global/config";
+import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
 import { TOKEN_GROUPS } from "../../types/theme";
 import type { TokenGroup, Theme, ThemeConfig } from "../../types/theme";
@@ -29,6 +29,7 @@ function tokensForGroup(theme: Theme, group: TokenGroup): Record<string, string>
 }
 
 export default function ThemeEditor() {
+  const win = useWindow();
   let modalRef: HTMLDivElement | undefined;
 
   function tokenKey(group: TokenGroup, name: string): string {
@@ -69,7 +70,7 @@ export default function ThemeEditor() {
     const teardown = installFocusTrap(modalRef, {
       onEscape: () => closeThemeEditor(),
       fallbackRestore: () => {
-        editorStore.focusEditor();
+        win.editor.focusEditor();
         return null;
       },
     });

@@ -1,13 +1,12 @@
 import { createSignal, createRoot } from "solid-js";
-import * as api from "../services/tauri";
+import * as api from "../../services/tauri";
 import { configStore } from "./config";
 
 // Singleton — app-global, not window-scoped (ADR-009 E3).
-// OS window chrome (focus, drag, min, max, hide, size) is naturally
-// per-OS-window because each frontend instance resolves
-// getCurrentWindow() to its own window. Under the per-window refactor
-// this file relocates to src/stores/global/os-window.ts with no API
-// change.
+// OS window chrome (focus, drag, min, max, hide, size) is per-OS-window by
+// construction: getCurrentWindow() in each frontend instance resolves to that
+// instance's window. The singleton is correct because each frontend root has
+// exactly one of these.
 
 const PERSIST_DEBOUNCE_MS = 500;
 

@@ -14,9 +14,9 @@ import { writTheme, writHighlight } from "./cm-theme";
 import type { BufferDocument } from "../../types/buffer";
 import { debouncedSave, cancelAutosave, flushAutosave } from "../../services/autosave";
 import { detectLanguage, detectFromContent } from "../../services/language-detect";
-import { editorStore } from "../../stores/editor";
-import { configStore } from "../../stores/config";
-import { bufferStore } from "../../stores/buffers";
+import { configStore } from "../../stores/global/config";
+import { bufferRegistry } from "../../stores/global/buffer-registry";
+import { useWindow } from "../WindowProvider/WindowProvider";
 import { registerCommand } from "../../commands/registry";
 import { getExtension as languageExtension } from "../../editor/language-registry";
 import { registerBuiltinLanguages } from "../../editor/builtins";
@@ -36,6 +36,7 @@ const CONTENT_DETECT_MIN_LENGTH = 40;
 const CONTENT_DETECT_DELTA = 40;
 
 export default function EditorInstance(props: Props) {
+  const win = useWindow();
   let containerRef!: HTMLDivElement;
   let view: EditorView | undefined;
   let currentBufferId: string | undefined;
@@ -45,14 +46,14 @@ export default function EditorInstance(props: Props) {
 
   function applyDetectedLanguage(lang: string) {
     if (!view) return;
-    editorStore.setLanguage(lang);
+    win.editor.setLanguage(lang);
     view.dispatch({
       effects: languageCompartment.reconfigure(languageExtension(lang)),
     });
   }
 
   function maybeDetectFromContent(content: string, force: boolean) {
-    if (editorStore.language() !== null) return;
+    if (win.editor.language() !== null) return;
     if (content.length < CONTENT_DETECT_MIN_LENGTH) return;
     if (!force && content.length - lastDetectLen < CONTENT_DETECT_DELTA) return;
     lastDetectLen = content.length;
@@ -95,15 +96,15 @@ export default function EditorInstance(props: Props) {
             content,
             configStore.config().editor.autosave_debounce_ms,
           );
-          editorStore.setLineCount(update.state.doc.lines);
+          win.editor.setLineCount(update.state.doc.lines);
           maybeDetectFromContent(content, false);
         }
         const sel = update.state.selection;
         const pos = sel.main.head;
         const line = update.state.doc.lineAt(pos);
-        editorStore.setCursorLine(line.number);
-        editorStore.setCursorCol(pos - line.from + 1);
-        editorStore.setSelectionCount(sel.ranges.length);
+        win.editor.setCursorLine(line.number);
+        win.editor.setCursorCol(pos - line.from + 1);
+        win.editor.setSelectionCount(sel.ranges.length);
       }),
       EditorView.domEventHandlers({
         paste: () => {
@@ -130,7 +131,7 @@ export default function EditorInstance(props: Props) {
     if (name === appliedNameForLang && view) return;
     appliedNameForLang = name;
     const lang = detectLanguage(content, name);
-    editorStore.setLanguage(lang);
+    win.editor.setLanguage(lang);
     if (view) {
       view.dispatch({
         effects: languageCompartment.reconfigure(languageExtension(lang)),
@@ -147,13 +148,13 @@ export default function EditorInstance(props: Props) {
 
     let content = "";
     try {
-      content = await bufferStore.readContent(buffer.id);
+      content = await bufferRegistry.readContent(buffer.id);
     } catch {}
 
     const name = nameForDetection(buffer);
     const lang = detectLanguage(content, name);
     appliedNameForLang = name;
-    editorStore.setLanguage(lang);
+    win.editor.setLanguage(lang);
 
     if (view) {
       view.destroy();
@@ -169,8 +170,8 @@ export default function EditorInstance(props: Props) {
       parent: containerRef,
     });
 
-    editorStore.registerView(view);
-    editorStore.setLineCount(view.state.doc.lines);
+    win.editor.registerView(view);
+    win.editor.setLineCount(view.state.doc.lines);
     view.focus();
   }
 
@@ -216,7 +217,7 @@ export default function EditorInstance(props: Props) {
     if (currentBufferId) {
       cancelAutosave(currentBufferId);
     }
-    editorStore.registerView(null);
+    win.editor.registerView(null);
     view?.destroy();
   });
 

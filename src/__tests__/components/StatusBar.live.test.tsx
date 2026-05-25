@@ -7,7 +7,7 @@ const fixtures = await vi.hoisted(async () => {
   return { status, setStatus };
 });
 
-vi.mock("../../stores/save-status", () => ({
+vi.mock("../../stores/global/save-status", () => ({
   saveStatusStore: { status: fixtures.status },
 }));
 

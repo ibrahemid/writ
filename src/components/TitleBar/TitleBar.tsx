@@ -3,8 +3,8 @@ import TabBar from "../Editor/TabBar";
 import TrafficLights from "./TrafficLights";
 import Kbd from "../Kbd/Kbd";
 import { detectPlatform } from "../../lib/platform";
-import { configStore } from "../../stores/config";
-import { osWindowStore } from "../../stores/os-window";
+import { configStore } from "../../stores/global/config";
+import { osWindowStore } from "../../stores/global/os-window";
 import "./TitleBar.css";
 
 const PLATFORM = detectPlatform();

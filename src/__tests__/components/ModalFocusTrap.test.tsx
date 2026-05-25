@@ -5,7 +5,7 @@ const h = vi.hoisted(() => ({
   focusEditor: vi.fn(),
 }));
 
-vi.mock("../../stores/theme", () => ({
+vi.mock("../../stores/global/theme", () => ({
   themeStore: {
     toConfig: () => ({}),
     loadConfig: vi.fn(),
@@ -19,15 +19,17 @@ vi.mock("../../stores/theme", () => ({
   },
 }));
 
-vi.mock("../../stores/config", () => ({
+vi.mock("../../stores/global/config", () => ({
   configStore: {
     config: () => ({ theme: {} }),
     save: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
-vi.mock("../../stores/editor", () => ({
-  editorStore: { focusEditor: h.focusEditor },
+vi.mock("../../components/WindowProvider/WindowProvider", () => ({
+  useWindow: () => ({
+    editor: { focusEditor: h.focusEditor },
+  }),
 }));
 
 vi.mock("../../types/theme", () => ({

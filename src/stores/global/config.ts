@@ -1,6 +1,9 @@
 import { createSignal, createRoot } from "solid-js";
-import type { WritConfig, CommandUsage } from "../types/config";
-import * as api from "../services/tauri";
+import type { WritConfig, CommandUsage } from "../../types/config";
+import * as api from "../../services/tauri";
+
+// Singleton — app-global, not window-scoped (ADR-009 E3).
+// Config is shared by every window; mutations persist to disk for all.
 
 const DEFAULT_CONFIG: WritConfig = {
   hotkey: { toggle: "CmdOrCtrl+Shift+Space" },

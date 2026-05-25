@@ -45,6 +45,8 @@ pub mod file_ops;
 pub mod history;
 /// Platform-neutral hotkey chord representation and parser.
 pub mod hotkey;
+/// Preview surface types and content-type renderer registry — ADR-009.
+pub mod preview;
 /// Update lifecycle phases and transition policy.
 pub mod update;
 /// External-change events and conflict-resolution policy.

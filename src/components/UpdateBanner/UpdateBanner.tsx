@@ -1,5 +1,5 @@
 import { Show, Switch, Match, createEffect, onCleanup } from "solid-js";
-import { updateStore } from "../../stores/update";
+import { updateStore } from "../../stores/global/update";
 import "./UpdateBanner.css";
 
 const UP_TO_DATE_VISIBLE_MS = 2500;

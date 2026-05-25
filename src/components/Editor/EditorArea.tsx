@@ -1,14 +1,16 @@
 import { Show, createMemo } from "solid-js";
 import EditorInstance from "./EditorInstance";
 import StatusBar from "./StatusBar";
-import { bufferStore } from "../../stores/buffers";
+import { bufferRegistry } from "../../stores/global/buffer-registry";
+import { useWindow } from "../WindowProvider/WindowProvider";
 import "./EditorArea.css";
 
 export default function EditorArea() {
+  const win = useWindow();
   const activeBuffer = createMemo(() => {
-    const id = bufferStore.activeTabId();
+    const id = win.tabs.activeTabId();
     if (!id) return null;
-    return bufferStore.activeTabs().find(b => b.id === id) ?? null;
+    return bufferRegistry.activeTabs().find((b) => b.id === id) ?? null;
   });
 
   return (
