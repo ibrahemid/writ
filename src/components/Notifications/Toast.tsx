@@ -31,7 +31,12 @@ export default function ToastContainer() {
         {(toast) => (
           <div class={`toast toast-${toast.type}`}>
             <span class="toast-text">{toast.text}</span>
-            <button class="toast-dismiss" onClick={() => dismissToast(toast.id)}>×</button>
+            <button
+              type="button"
+              class="toast-dismiss"
+              aria-label="Dismiss notification"
+              onClick={() => dismissToast(toast.id)}
+            >×</button>
           </div>
         )}
       </For>
