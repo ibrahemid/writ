@@ -10,6 +10,7 @@ type EventHandler<K extends EventKind> = (payload: PayloadFor<K>) => void;
 const EVENT_MAP: Record<EventKind, string> = {
   "buffer:opened": "writ://buffer-opened",
   "pending:opens": "writ://pending-opens",
+  "files:dropped": "writ://files-dropped",
   "window:shown": "writ://window-shown",
   "config:changed": "writ://config-changed",
   "buffer:external": "writ://buffer-external",
