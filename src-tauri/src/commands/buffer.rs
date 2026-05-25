@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crate::poison::recover_poison;
 use crate::state::AppState;
 use tauri::State;
@@ -54,7 +56,7 @@ pub fn create_buffer(
                     state.watcher_ignore.lock(),
                     "commands::buffer::create_buffer",
                 );
-                ignore.insert(doc.filename.clone());
+                ignore.record(doc.filename.clone(), b"", Instant::now());
             }
             store.save_content(&doc.id, "").map_err(|e| e.to_string())?;
             Ok(doc)
@@ -81,7 +83,7 @@ pub fn save_buffer_content(
             state.watcher_ignore.lock(),
             "commands::buffer::save_buffer_content",
         );
-        ignore.insert(doc.filename.clone());
+        ignore.record(doc.filename.clone(), content.as_bytes(), Instant::now());
     }
     store.save_content(&id, &content).map_err(|e| e.to_string())
 }
@@ -103,6 +105,14 @@ pub fn list_active_buffers(state: State<'_, AppState>) -> Result<Vec<BufferDocum
 #[tauri::command]
 pub fn close_buffer(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
+    let doc = store.get(&id).map_err(|e| e.to_string())?;
+    {
+        let mut ignore = recover_poison(
+            state.watcher_ignore.lock(),
+            "commands::buffer::close_buffer",
+        );
+        ignore.remove(&doc.filename);
+    }
     store.close(&id).map_err(|e| e.to_string())
 }
 
@@ -115,6 +125,14 @@ pub fn close_buffers(state: State<'_, AppState>, ids: Vec<String>) -> Result<(),
 #[tauri::command]
 pub fn delete_buffer(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
+    let doc = store.get(&id).ok();
+    if let Some(doc) = doc.as_ref() {
+        let mut ignore = recover_poison(
+            state.watcher_ignore.lock(),
+            "commands::buffer::delete_buffer",
+        );
+        ignore.remove(&doc.filename);
+    }
     store.delete(&id).map_err(|e| e.to_string())
 }
 

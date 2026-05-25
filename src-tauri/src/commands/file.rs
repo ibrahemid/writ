@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::time::Instant;
 
 use crate::poison::recover_poison;
 use crate::state::AppState;
@@ -32,7 +33,7 @@ pub fn open_file_from_path(state: &AppState, path: &str) -> Result<BufferDocumen
                 state.watcher_ignore.lock(),
                 "commands::file::open_file_from_path:history",
             );
-            ignore.insert(history_buf.filename.clone());
+            ignore.record(history_buf.filename.clone(), content.as_bytes(), Instant::now());
         }
         store
             .save_content(&history_buf.id, &content)
@@ -56,7 +57,7 @@ pub fn open_file_from_path(state: &AppState, path: &str) -> Result<BufferDocumen
             state.watcher_ignore.lock(),
             "commands::file::open_file_from_path:new",
         );
-        ignore.insert(doc.filename.clone());
+        ignore.record(doc.filename.clone(), content.as_bytes(), Instant::now());
     }
 
     store
@@ -85,7 +86,7 @@ pub fn save_to_source(
             state.watcher_ignore.lock(),
             "commands::file::save_to_source",
         );
-        ignore.insert(doc.filename.clone());
+        ignore.record(doc.filename.clone(), content.as_bytes(), Instant::now());
     }
 
     store
