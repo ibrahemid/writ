@@ -351,6 +351,29 @@ fn find_empty_scratch_active_skips_history_buffer() {
 }
 
 #[test]
+fn find_empty_scratch_active_returns_uuid_filename_scratch_with_default_writ_title() {
+    let (_dir, store) = setup();
+    let mut doc = make_doc("scratch-uuid-1", "writ-1700000000000");
+    doc.filename = format!("{}.txt", doc.id);
+    store.insert(&doc).unwrap();
+    store.save_content("scratch-uuid-1", "").unwrap();
+
+    let found = store.find_empty_scratch_active().unwrap();
+    assert_eq!(found.map(|d| d.id), Some("scratch-uuid-1".to_string()));
+}
+
+#[test]
+fn find_empty_scratch_active_skips_uuid_filename_buffer_with_custom_title() {
+    let (_dir, store) = setup();
+    let mut doc = make_doc("scratch-uuid-2", "My Notes");
+    doc.filename = format!("{}.txt", doc.id);
+    store.insert(&doc).unwrap();
+    store.save_content("scratch-uuid-2", "").unwrap();
+
+    assert!(store.find_empty_scratch_active().unwrap().is_none());
+}
+
+#[test]
 fn reclaim_empty_scratch_deletes_empty_scratch_any_status_and_returns_count() {
     let (_dir, store) = setup();
 
