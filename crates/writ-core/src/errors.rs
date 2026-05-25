@@ -29,6 +29,17 @@ pub enum WritError {
         message: String,
     },
 
+    /// A buffer title failed sanitization.
+    ///
+    /// Raised when a title submitted to [`crate::buffer::manager::BufferManager::create_buffer`]
+    /// contains path separators, parent / root / prefix components, or is
+    /// otherwise unsafe to surface to filesystem-adjacent code.
+    #[error("invalid buffer title: {reason}")]
+    InvalidTitle {
+        /// Human-readable description of why the title was rejected.
+        reason: String,
+    },
+
     /// An underlying I/O error propagated from `std::io`.
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
