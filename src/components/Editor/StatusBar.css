@@ -21,6 +21,12 @@
   flex: 1;
 }
 
+.statusbar-live {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1em;
+}
+
 .statusbar-save {
   display: inline-flex;
   align-items: center;

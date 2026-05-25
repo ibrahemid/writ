@@ -13,21 +13,22 @@ export default function StatusBar() {
   return (
     <div class="statusbar">
       <div class="statusbar-left">
-        <Show when={saveStatusStore.status() !== "idle"}>
-          <span
-            class="statusbar-save"
-            classList={{
-              "is-saved": saveStatusStore.status() === "saved",
-              "is-failed": saveStatusStore.status() === "failed",
-            }}
-            role="status"
-          >
-            <span class="statusbar-dot" aria-hidden="true" />
-            <span class="statusbar-label">
-              {saveStatusStore.status() === "failed" ? "save failed" : "saved"}
+        <div class="statusbar-live" role="status" aria-live="polite">
+          <Show when={saveStatusStore.status() !== "idle"}>
+            <span
+              class="statusbar-save"
+              classList={{
+                "is-saved": saveStatusStore.status() === "saved",
+                "is-failed": saveStatusStore.status() === "failed",
+              }}
+            >
+              <span class="statusbar-dot" aria-hidden="true" />
+              <span class="statusbar-label">
+                {saveStatusStore.status() === "failed" ? "save failed" : "saved"}
+              </span>
             </span>
-          </span>
-        </Show>
+          </Show>
+        </div>
       </div>
       <div class="statusbar-spacer" />
       <div class="statusbar-right">
