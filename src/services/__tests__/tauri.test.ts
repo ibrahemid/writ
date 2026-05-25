@@ -8,6 +8,8 @@ const mockWindow = {
   maximize: vi.fn(),
   unmaximize: vi.fn(),
   onFocusChanged: vi.fn(),
+  onCloseRequested: vi.fn(),
+  destroy: vi.fn(),
 };
 
 vi.mock("@tauri-apps/api/window", () => ({
@@ -28,6 +30,7 @@ import {
   startDraggingWindow,
   toggleMaximizeWindow,
   onWindowFocusChange,
+  onWindowCloseRequested,
 } from "../tauri";
 
 let warnSpy: ReturnType<typeof vi.spyOn>;
@@ -118,5 +121,93 @@ describe("onWindowFocusChange", () => {
     listener?.({ payload: true });
     listener?.({ payload: false });
     expect(calls).toEqual([true, false]);
+  });
+});
+
+describe("onWindowCloseRequested", () => {
+  it("preventsDefault, awaits the handler, then destroys the window", async () => {
+    let captured: ((e: { preventDefault: () => void }) => Promise<void>) | undefined;
+    mockWindow.onCloseRequested.mockImplementationOnce((cb: typeof captured) => {
+      captured = cb;
+      return Promise.resolve(() => {});
+    });
+    mockWindow.destroy.mockResolvedValue(undefined);
+
+    const order: string[] = [];
+    await onWindowCloseRequested(async () => {
+      order.push("handler:start");
+      await Promise.resolve();
+      order.push("handler:end");
+    });
+
+    const event = { preventDefault: vi.fn() };
+    await captured!(event);
+
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(order).toEqual(["handler:start", "handler:end"]);
+    expect(mockWindow.destroy).toHaveBeenCalledOnce();
+    const destroyOrder = mockWindow.destroy.mock.invocationCallOrder[0];
+    expect(destroyOrder).toBeGreaterThan(event.preventDefault.mock.invocationCallOrder[0]);
+  });
+
+  it("still destroys the window when the handler throws", async () => {
+    let captured: ((e: { preventDefault: () => void }) => Promise<void>) | undefined;
+    mockWindow.onCloseRequested.mockImplementationOnce((cb: typeof captured) => {
+      captured = cb;
+      return Promise.resolve(() => {});
+    });
+    mockWindow.destroy.mockResolvedValue(undefined);
+
+    await onWindowCloseRequested(async () => {
+      throw new Error("flush failed");
+    });
+
+    const event = { preventDefault: vi.fn() };
+    await captured!(event);
+
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(mockWindow.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("ignores re-entry while a close is already in progress", async () => {
+    let captured: ((e: { preventDefault: () => void }) => Promise<void>) | undefined;
+    mockWindow.onCloseRequested.mockImplementationOnce((cb: typeof captured) => {
+      captured = cb;
+      return Promise.resolve(() => {});
+    });
+    mockWindow.destroy.mockResolvedValue(undefined);
+
+    let releaseFlush: () => void = () => {};
+    const flushBlocked = new Promise<void>((resolve) => {
+      releaseFlush = resolve;
+    });
+
+    await onWindowCloseRequested(async () => {
+      await flushBlocked;
+    });
+
+    const firstEvent = { preventDefault: vi.fn() };
+    const secondEvent = { preventDefault: vi.fn() };
+    const firstCall = captured!(firstEvent);
+    const secondCall = captured!(secondEvent);
+
+    releaseFlush();
+    await firstCall;
+    await secondCall;
+
+    expect(firstEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(secondEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(mockWindow.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("returns a no-op and logs when subscription fails", async () => {
+    mockWindow.onCloseRequested.mockRejectedValueOnce(new Error("no window"));
+    const unlisten = await onWindowCloseRequested(async () => {});
+    expect(warnSpy).toHaveBeenCalledWith(
+      "onWindowCloseRequested subscription failed:",
+      expect.any(Error),
+    );
+    expect(typeof unlisten).toBe("function");
+    expect(() => unlisten()).not.toThrow();
   });
 });

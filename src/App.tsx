@@ -31,6 +31,7 @@ import { onEvent, emitFrontendReady } from "./services/events";
 import { onAutosaveError } from "./services/autosave";
 import { onDragDrop, reportFirstPaint } from "./services/tauri";
 import { restoreWindowSize, installWindowSizePersistence } from "./services/window-size";
+import { installCloseFlush } from "./services/window-lifecycle";
 import type { UnlistenFn } from "./services/events";
 import "./styles/global.css";
 import "./App.css";
@@ -71,6 +72,8 @@ export default function App() {
     await restoreWindowSize();
     const offWindowResize = await installWindowSizePersistence();
     unlisteners.push(offWindowResize);
+    const offCloseFlush = await installCloseFlush();
+    unlisteners.push(offCloseFlush);
     sidebarStore.hydrateFromConfig();
     await bufferStore.load();
 

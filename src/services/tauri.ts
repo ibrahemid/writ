@@ -189,3 +189,32 @@ export async function onDragDrop(
   });
 }
 
+export async function onWindowCloseRequested(
+  handler: () => Promise<void> | void,
+): Promise<() => void> {
+  try {
+    const win = getCurrentWindow();
+    let closing = false;
+    const unlisten = await win.onCloseRequested(async (event) => {
+      event.preventDefault();
+      if (closing) return;
+      closing = true;
+      try {
+        await handler();
+      } catch (err) {
+        console.warn("onWindowCloseRequested handler threw:", err);
+      } finally {
+        try {
+          await win.destroy();
+        } catch (err) {
+          console.warn("onWindowCloseRequested destroy failed:", err);
+        }
+      }
+    });
+    return unlisten;
+  } catch (err) {
+    console.warn("onWindowCloseRequested subscription failed:", err);
+    return () => {};
+  }
+}
+
