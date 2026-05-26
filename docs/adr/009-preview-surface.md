@@ -1,7 +1,21 @@
 # ADR-009: Preview Surface — Content-Type Renderer Registry
 
-**Status:** Proposed
+**Status:** Accepted, lean re-scope 2026-05-26
 **Date:** 2026-05-22
+
+> **Lean re-scope (2026-05-26).** The preview exists to render Writ's own
+> agent/LLM output and prompt results, offline, for readability — not as a
+> safe renderer for hostile web HTML. Network egress is categorically off
+> forever. The substrate, registry, layout system, per-window state model,
+> and fallback stylesheet in this ADR stand. **Cut from this ADR's scope:**
+> the detached preview window (and its keybind/IPC — preview renders in a
+> split pane in the same window; `LayoutMode` drops `Detached`); the export
+> modal (PDF/HTML export); and the standalone PDF, SVG-file, and image-file
+> renderers (inline images/SVG inside HTML still render via the HTML renderer
+> + `data:` URIs). Trust/CSP/pins move to a single fixed document CSP — see
+> the ADR-011 supersede note. Workspace/relative-asset resolution is cut — see
+> the ADR-010 supersede note. Markdown, Mermaid, and KaTeX remain core
+> (agents emit them constantly).
 
 ## Context
 

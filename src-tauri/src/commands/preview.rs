@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
 use writ_core::preview::{
-    ContentTypeId, PreviewPolicy, RenderError, RenderRequest, RendererCapabilities, WindowId,
+    ContentTypeId, RenderError, RenderRequest, RendererCapabilities, WindowId,
 };
 
 use crate::events::{emit_event, WritFrontendEvent};
@@ -178,14 +178,11 @@ fn run_render(
         return PreviewRenderResult::NoRenderer { content_type };
     };
 
-    // Phase 2 renders under the default SAFE policy; per-buffer session
-    // policies arrive with the Phase 3 trust model.
-    let policy = PreviewPolicy::Safe;
+    // Lean scope: one fixed CSP, no per-document policy. The scripts kill
+    // switch is applied at serve time, not here.
     let result = renderer.render(RenderRequest {
         content_type: ctype,
         buffer_text: text,
-        workspace_root: None,
-        policy,
     });
     drop(registry);
 
@@ -195,7 +192,6 @@ fn run_render(
                 buffer_id.clone(),
                 RenderedDoc {
                     html: output.document_html,
-                    policy,
                 },
             );
             let _ = emit_event(

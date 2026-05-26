@@ -179,14 +179,11 @@ fn collect_cheap_warnings(html: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use writ_core::preview::PreviewPolicy;
 
     fn req(text: &str) -> RenderRequest {
         RenderRequest {
             content_type: HtmlRenderer::content_type_id(),
             buffer_text: text.to_string(),
-            workspace_root: None,
-            policy: PreviewPolicy::Safe,
         }
     }
 

@@ -185,8 +185,6 @@ mod tests {
             .render(RenderRequest {
                 content_type: ContentTypeId::new("html"),
                 buffer_text: "hi".to_string(),
-                workspace_root: None,
-                policy: super::super::types::PreviewPolicy::Safe,
             })
             .unwrap();
         assert!(out.document_html.contains("<stub>2</stub>"));
