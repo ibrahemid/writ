@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+import { getCurrentWindow, LogicalSize, LogicalPosition } from "@tauri-apps/api/window";
 import type { BufferDocument } from "../types/buffer";
 import type { WritConfig } from "../types/config";
 import type { TransformDescriptor } from "../types/transforms";
@@ -203,6 +203,52 @@ export async function setLogicalWindowSize(width: number, height: number): Promi
   }
 }
 
+export async function getLogicalWindowPosition(): Promise<{ x: number; y: number } | null> {
+  try {
+    const win = getCurrentWindow();
+    const pos = await win.outerPosition();
+    const scale = await win.scaleFactor();
+    return {
+      x: Math.round(pos.x / scale),
+      y: Math.round(pos.y / scale),
+    };
+  } catch (err) {
+    console.warn("getLogicalWindowPosition failed:", err);
+    return null;
+  }
+}
+
+export async function setLogicalWindowPosition(x: number, y: number): Promise<void> {
+  try {
+    const win = getCurrentWindow();
+    await win.setPosition(new LogicalPosition(x, y));
+  } catch (err) {
+    console.warn("setLogicalWindowPosition failed:", err);
+  }
+}
+
+export async function centerWindow(): Promise<void> {
+  try {
+    await getCurrentWindow().center();
+  } catch (err) {
+    console.warn("centerWindow failed:", err);
+  }
+}
+
+export async function computeWindowPlacement(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): Promise<{ x: number; y: number } | null> {
+  try {
+    return await invoke("compute_window_placement", { x, y, width, height });
+  } catch (err) {
+    console.warn("computeWindowPlacement failed:", err);
+    return null;
+  }
+}
+
 export async function onWindowResized(handler: () => void): Promise<() => void> {
   try {
     const win = getCurrentWindow();
@@ -210,6 +256,17 @@ export async function onWindowResized(handler: () => void): Promise<() => void> 
     return unlisten;
   } catch (err) {
     console.warn("onWindowResized subscription failed:", err);
+    return () => {};
+  }
+}
+
+export async function onWindowMoved(handler: () => void): Promise<() => void> {
+  try {
+    const win = getCurrentWindow();
+    const unlisten = await win.onMoved(() => handler());
+    return unlisten;
+  } catch (err) {
+    console.warn("onWindowMoved subscription failed:", err);
     return () => {};
   }
 }

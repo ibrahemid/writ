@@ -47,4 +47,25 @@ describe("installCloseFlush", () => {
     expect(mockedFlush).toHaveBeenCalledOnce();
     expect(mockedFlush).toHaveBeenCalledWith();
   });
+
+  it("runs extra flushes after autosave, awaiting each before the handler resolves", async () => {
+    let captured: (() => Promise<void> | void) | undefined;
+    mockedOnClose.mockImplementationOnce(async (handler) => {
+      captured = handler;
+      return () => {};
+    });
+    const order: string[] = [];
+    mockedFlush.mockImplementationOnce(async () => {
+      order.push("autosave");
+    });
+    const geometryFlush = vi.fn(async () => {
+      order.push("geometry");
+    });
+
+    await installCloseFlush([geometryFlush]);
+    await captured!();
+
+    expect(order).toEqual(["autosave", "geometry"]);
+    expect(geometryFlush).toHaveBeenCalledOnce();
+  });
 });
