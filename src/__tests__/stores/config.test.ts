@@ -22,6 +22,18 @@ const MOCK_CONFIG: WritConfig = {
   storage: { path: "~/.writ" },
   theme: { preset: "warp-dark", overrides: {} },
   commands: { usage: {} },
+  preview: {
+    default_layout_html: "split",
+    default_layout_markdown: "split",
+    default_layout_pdf: "preview",
+    default_layout_image: "preview",
+    default_layout_svg: "preview",
+    live_render_threshold_mb: 1,
+    render_confirm_threshold_mb: 5,
+    render_refuse_threshold_mb: 50,
+    debounce_ms: 200,
+    detach_on_open: false,
+  },
 };
 
 describe("configStore", () => {

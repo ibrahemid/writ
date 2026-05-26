@@ -1,0 +1,330 @@
+/*
+ * Writ preview fallback stylesheet — ADR-009 §F2.
+ *
+ * Applied only when a document brings no <style> and no
+ * <link rel="stylesheet"> of its own (the HtmlRenderer injects the link
+ * to this file presence-conditionally; author styles win mechanically).
+ *
+ * Self-contained: the --writ-preview-* token layer carries Writ's dark
+ * reading palette as the default. A light palette is defined under
+ * [data-writ-theme="light"] for when app-theme bridging sets the attribute
+ * on the preview document. Both palettes are asserted WCAG AA by
+ * preview-base-contrast.test.ts.
+ *
+ * This is a reading surface for a writer's tool — editorial, quiet,
+ * generous measure — not a browser's default debug view.
+ */
+
+:root {
+  /* Dark palette — mirrors Writ's warp-dark app theme. */
+  --writ-preview-bg: #0e0e14;
+  --writ-preview-bg-sunken: #0a0a10;
+  --writ-preview-fg: #e0e0e0;
+  --writ-preview-muted: #9a9aac;
+  --writ-preview-subtle: #6a6a7c;
+  --writ-preview-accent: #7aa2f7;
+  --writ-preview-accent-hover: #a9c2ff;
+  --writ-preview-border: #232334;
+  --writ-preview-border-soft: #1a1a26;
+  --writ-preview-code-bg: #16161e;
+  --writ-preview-code-fg: #c0caf5;
+  --writ-preview-mark-bg: #3a3220;
+  --writ-preview-mark-fg: #f3e6c4;
+  --writ-preview-selection: rgba(122, 162, 247, 0.28);
+  --writ-preview-rule: #232334;
+  --writ-preview-table-stripe: rgba(255, 255, 255, 0.025);
+
+  /* Syntax tokens for fenced code, reused from the app's highlight set. */
+  --writ-preview-syntax-keyword: #bb9af7;
+  --writ-preview-syntax-string: #9ece6a;
+  --writ-preview-syntax-comment: #565f89;
+  --writ-preview-syntax-function: #7aa2f7;
+  --writ-preview-syntax-number: #ff9e64;
+
+  --writ-preview-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --writ-preview-font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", ui-monospace, monospace;
+
+  /* Modular type scale, major third (1.25). Base 16px. */
+  --writ-preview-fs-base: 1rem;
+  --writ-preview-fs-sm: 0.8rem;
+  --writ-preview-fs-h6: 0.94rem;
+  --writ-preview-fs-h5: 1rem;
+  --writ-preview-fs-h4: 1.25rem;
+  --writ-preview-fs-h3: 1.563rem;
+  --writ-preview-fs-h2: 1.953rem;
+  --writ-preview-fs-h1: 2.441rem;
+
+  --writ-preview-measure: 72ch;
+  --writ-preview-leading: 1.7;
+}
+
+[data-writ-theme="light"] {
+  --writ-preview-bg: #fbfbfd;
+  --writ-preview-bg-sunken: #f2f2f6;
+  --writ-preview-fg: #1a1a22;
+  --writ-preview-muted: #5a5a6a;
+  --writ-preview-subtle: #76768a;
+  --writ-preview-accent: #3b5bdb;
+  --writ-preview-accent-hover: #2843c0;
+  --writ-preview-border: #e2e2ea;
+  --writ-preview-border-soft: #ececf2;
+  --writ-preview-code-bg: #f0f0f4;
+  --writ-preview-code-fg: #2a2a38;
+  --writ-preview-mark-bg: #fdf2c4;
+  --writ-preview-mark-fg: #4a3a08;
+  --writ-preview-selection: rgba(59, 91, 219, 0.18);
+  --writ-preview-rule: #e2e2ea;
+  --writ-preview-table-stripe: rgba(0, 0, 0, 0.02);
+
+  --writ-preview-syntax-keyword: #8839ef;
+  --writ-preview-syntax-string: #40803a;
+  --writ-preview-syntax-comment: #8a8aa0;
+  --writ-preview-syntax-function: #3b5bdb;
+  --writ-preview-syntax-number: #b8500a;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--writ-preview-bg);
+}
+
+body {
+  margin: 0 auto;
+  max-width: var(--writ-preview-measure);
+  padding: clamp(1.5rem, 4vw, 3.5rem) clamp(1.25rem, 5vw, 2.5rem) 6rem;
+  background: var(--writ-preview-bg);
+  color: var(--writ-preview-fg);
+  font-family: var(--writ-preview-font-sans);
+  font-size: var(--writ-preview-fs-base);
+  line-height: var(--writ-preview-leading);
+  font-feature-settings: "kern", "liga", "clig", "calt";
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: var(--writ-preview-selection);
+}
+
+/* Headings — tight leading, deliberate rhythm above, none below. */
+h1, h2, h3, h4, h5, h6 {
+  margin: 2.4em 0 0.6em;
+  font-family: var(--writ-preview-font-sans);
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: -0.012em;
+  color: var(--writ-preview-fg);
+}
+
+h1 { font-size: var(--writ-preview-fs-h1); margin-top: 0; letter-spacing: -0.02em; }
+h2 { font-size: var(--writ-preview-fs-h2); }
+h3 { font-size: var(--writ-preview-fs-h3); }
+h4 { font-size: var(--writ-preview-fs-h4); }
+h5 { font-size: var(--writ-preview-fs-h5); font-weight: 600; }
+h6 {
+  font-size: var(--writ-preview-fs-h6);
+  font-weight: 600;
+  color: var(--writ-preview-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+h2 {
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--writ-preview-border-soft);
+}
+
+p {
+  margin: 0 0 1.15em;
+}
+
+a {
+  color: var(--writ-preview-accent);
+  text-decoration: none;
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 1px;
+  transition: color 120ms ease, text-decoration-color 120ms ease;
+}
+
+a:hover {
+  color: var(--writ-preview-accent-hover);
+  text-decoration: underline;
+}
+
+strong { font-weight: 650; color: var(--writ-preview-fg); }
+em { font-style: italic; }
+small { font-size: var(--writ-preview-fs-sm); color: var(--writ-preview-muted); }
+
+mark {
+  background: var(--writ-preview-mark-bg);
+  color: var(--writ-preview-mark-fg);
+  padding: 0.05em 0.25em;
+  border-radius: 3px;
+}
+
+/* Blockquote — hairline accent rail, recessed tone. */
+blockquote {
+  margin: 1.6em 0;
+  padding: 0.2em 0 0.2em 1.4em;
+  border-left: 3px solid var(--writ-preview-accent);
+  color: var(--writ-preview-muted);
+  font-style: italic;
+}
+
+blockquote p:last-child { margin-bottom: 0; }
+
+hr {
+  margin: 2.6em 0;
+  border: none;
+  border-top: 1px solid var(--writ-preview-rule);
+}
+
+/* Lists — restored rhythm and indentation. */
+ul, ol {
+  margin: 0 0 1.15em;
+  padding-left: 1.5em;
+}
+
+li { margin: 0.3em 0; }
+li > ul, li > ol { margin: 0.3em 0; }
+
+ul { list-style: square; }
+li::marker { color: var(--writ-preview-subtle); }
+
+dl { margin: 0 0 1.15em; }
+dt { font-weight: 650; margin-top: 0.8em; }
+dd { margin: 0.2em 0 0 1.5em; color: var(--writ-preview-muted); }
+
+/* Inline code and code blocks reuse the editor's mono + highlight tokens. */
+code, kbd, samp, pre {
+  font-family: var(--writ-preview-font-mono);
+  font-feature-settings: "liga" 0;
+}
+
+:not(pre) > code {
+  padding: 0.12em 0.38em;
+  font-size: 0.88em;
+  background: var(--writ-preview-code-bg);
+  color: var(--writ-preview-code-fg);
+  border-radius: 4px;
+  border: 1px solid var(--writ-preview-border-soft);
+}
+
+pre {
+  margin: 1.5em 0;
+  padding: 1em 1.15em;
+  background: var(--writ-preview-code-bg);
+  color: var(--writ-preview-code-fg);
+  border: 1px solid var(--writ-preview-border);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 0.875em;
+  line-height: 1.55;
+  tab-size: 2;
+}
+
+pre code {
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: inherit;
+}
+
+/* Highlight-token classes match the app's highlighter output. */
+.tok-keyword, .hljs-keyword { color: var(--writ-preview-syntax-keyword); }
+.tok-string, .hljs-string { color: var(--writ-preview-syntax-string); }
+.tok-comment, .hljs-comment { color: var(--writ-preview-syntax-comment); font-style: italic; }
+.tok-function, .hljs-title { color: var(--writ-preview-syntax-function); }
+.tok-number, .hljs-number { color: var(--writ-preview-syntax-number); }
+
+kbd {
+  padding: 0.1em 0.4em;
+  font-size: 0.82em;
+  background: var(--writ-preview-bg-sunken);
+  border: 1px solid var(--writ-preview-border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+}
+
+/* Tables — banded rows, hairline rules, no heavy chrome. */
+table {
+  width: 100%;
+  margin: 1.6em 0;
+  border-collapse: collapse;
+  font-size: 0.94em;
+}
+
+th, td {
+  padding: 0.5em 0.8em;
+  text-align: left;
+  border-bottom: 1px solid var(--writ-preview-border-soft);
+}
+
+thead th {
+  border-bottom: 2px solid var(--writ-preview-border);
+  font-weight: 650;
+  color: var(--writ-preview-fg);
+}
+
+tbody tr:nth-child(even) {
+  background: var(--writ-preview-table-stripe);
+}
+
+/* Figures and images — captions, contained width. */
+img, video, svg {
+  max-width: 100%;
+  height: auto;
+}
+
+img {
+  border-radius: 6px;
+}
+
+figure {
+  margin: 1.8em 0;
+  text-align: center;
+}
+
+figcaption {
+  margin-top: 0.6em;
+  font-size: var(--writ-preview-fs-sm);
+  color: var(--writ-preview-muted);
+  font-style: italic;
+}
+
+/* Definitions, abbreviations, and small print. */
+abbr[title] {
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+  cursor: help;
+}
+
+sub, sup { font-size: 0.75em; line-height: 0; }
+
+/* Theme-aware scrollbars for code overflow and the document. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--writ-preview-border);
+  border-radius: 5px;
+  border: 2px solid var(--writ-preview-bg);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--writ-preview-subtle); }
+
+/* First-element top margins collapse so prose starts flush. */
+body > :first-child { margin-top: 0; }
+
+/* Honor reduced-motion: kill link transitions for users who ask. */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -34,6 +34,21 @@ pub enum WritFrontendEvent {
 
     #[serde(rename = "update:status")]
     UpdateStatus(UpdatePhase),
+
+    #[serde(rename = "preview:rendered")]
+    PreviewRendered {
+        buffer_id: String,
+        window_id: u64,
+        used_fallback_stylesheet: bool,
+        parser_warnings: Vec<String>,
+    },
+
+    #[serde(rename = "preview:error")]
+    PreviewError {
+        buffer_id: String,
+        window_id: u64,
+        message: String,
+    },
 }
 
 pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), String> {
@@ -47,6 +62,8 @@ pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), Strin
         WritFrontendEvent::RecoveryDirty { .. } => "writ://recovery-dirty",
         WritFrontendEvent::MenuAction { .. } => "writ://menu-action",
         WritFrontendEvent::UpdateStatus(..) => "writ://update-status",
+        WritFrontendEvent::PreviewRendered { .. } => "writ://preview-rendered",
+        WritFrontendEvent::PreviewError { .. } => "writ://preview-error",
     };
     app.emit(event_name, &event).map_err(|e| e.to_string())
 }

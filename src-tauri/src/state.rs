@@ -13,6 +13,7 @@ use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 
+use crate::preview::handler::RenderCache;
 use crate::preview::webview_manager::PreviewWebviewManager;
 use crate::preview::window_manager::WindowManager;
 use crate::security::{canonicalize_for_authorization, AuthorizedPaths};
@@ -35,6 +36,7 @@ pub struct AppState {
     pub preview_registry: Arc<RwLock<ContentRendererRegistry>>,
     pub preview_webviews: Arc<PreviewWebviewManager>,
     pub window_manager: Arc<WindowManager>,
+    pub preview_render_cache: Arc<RenderCache>,
 }
 
 impl AppState {
@@ -121,6 +123,7 @@ impl AppState {
             preview_registry: Arc::new(RwLock::new(preview_registry)),
             preview_webviews: PreviewWebviewManager::new(),
             window_manager: Arc::new(WindowManager::with_main()),
+            preview_render_cache: Arc::new(RenderCache::new()),
         })
     }
 }

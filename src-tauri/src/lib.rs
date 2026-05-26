@@ -160,6 +160,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .register_uri_scheme_protocol("writ-preview", preview::handler::serve)
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             commands::buffer::create_buffer,
@@ -193,6 +194,8 @@ pub fn run() {
             commands::preview::preview_list_renderers,
             commands::preview::preview_open,
             commands::preview::preview_close,
+            commands::preview::preview_render,
+            commands::preview::preview_force_render,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

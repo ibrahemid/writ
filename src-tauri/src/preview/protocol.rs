@@ -319,12 +319,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_double_encoded_traversal() {
-        // First-pass percent decode collapses to literal `%2e%2e`, which
-        // is not a `..` segment after the first decode. This is the
-        // correct behavior: the protocol handler decodes once, and
-        // anything in the document that wants to traverse must do so via
-        // a single-encoded `..`, which is caught above.
+    fn double_encoded_traversal_decodes_once_and_does_not_collapse() {
+        // The handler percent-decodes exactly once. A double-encoded
+        // sequence (`%252e%252e`) decodes to the literal text `%2e%2e`,
+        // which is not a `..` segment, so it passes through as an ordinary
+        // (nonexistent) key rather than being treated as traversal. The
+        // single-encoded form is what an attacker would have to use, and
+        // that IS rejected — see `rejects_percent_encoded_traversal`.
         let req = parse("writ-preview://document/%252e%252e/x").unwrap();
         assert_eq!(req.path, "%2e%2e/x");
     }

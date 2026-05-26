@@ -7,6 +7,10 @@
 
 /// Keybinding conflict reporting types.
 pub mod keybinding;
+/// Preview surface configuration (`[preview]`).
+pub mod preview;
+
+pub use preview::{DefaultLayout, PreviewConfig};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -305,6 +309,9 @@ pub struct WritConfig {
     /// Command palette ranking state.
     #[serde(default)]
     pub commands: CommandsConfig,
+    /// Preview surface configuration.
+    #[serde(default)]
+    pub preview: PreviewConfig,
 }
 
 impl Default for WritConfig {
@@ -319,6 +326,7 @@ impl Default for WritConfig {
             storage: StorageConfig::default(),
             theme: ThemeConfig::default(),
             commands: CommandsConfig::default(),
+            preview: PreviewConfig::default(),
         }
     }
 }
