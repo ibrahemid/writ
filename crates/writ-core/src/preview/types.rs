@@ -1,7 +1,5 @@
 //! Pure-domain preview surface types — ADR-009.
 
-use std::path::PathBuf;
-
 use serde::{Deserialize, Serialize};
 
 /// Stable identifier for a content type understood by the renderer registry.
@@ -132,26 +130,12 @@ pub struct RendererCapabilities {
     pub max_safe_document_bytes: u64,
 }
 
-/// Trust policy applied to a single rendered document — ADR-011.
-///
-/// Phase 1 commits only the four-variant shape so [`ContentRenderer::render`]
-/// is callable in a pure-domain test. Phase 3 populates the per-cell CSP
-/// bytes and the persistence/audit machinery.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PreviewPolicy {
-    /// Default deny: no scripts, no network, no remote subresources.
-    #[default]
-    Safe,
-    /// Author scripts permitted; network blocked.
-    AllowScripts,
-    /// Network (HTTPS) permitted; scripts blocked.
-    AllowNetwork,
-    /// Both scripts and network permitted.
-    AllowBoth,
-}
-
 /// Inputs to a single render invocation.
+///
+/// Lean scope: no per-document trust policy and no workspace root. The
+/// preview renders the user's own offline agent output under one fixed
+/// CSP (the only variable is the app-level scripts kill switch, applied
+/// at serve time, not per render). See the ADR-011/010 supersede notes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RenderRequest {
     /// Content type the renderer was selected for.
@@ -159,11 +143,6 @@ pub struct RenderRequest {
     /// Live buffer text. Renderers operate on in-memory bytes, not on
     /// on-disk content.
     pub buffer_text: String,
-    /// Workspace root, if the buffer belongs to one. Subresource resolution
-    /// is scoped to this root (ADR-010).
-    pub workspace_root: Option<PathBuf>,
-    /// Trust policy under which to render.
-    pub policy: PreviewPolicy,
 }
 
 /// Result of a successful render invocation.
@@ -281,25 +260,6 @@ mod tests {
             let s = serde_json::to_string(&mode).unwrap();
             let back: ViewMode = serde_json::from_str(&s).unwrap();
             assert_eq!(mode, back);
-        }
-    }
-
-    #[test]
-    fn preview_policy_defaults_to_safe() {
-        assert_eq!(PreviewPolicy::default(), PreviewPolicy::Safe);
-    }
-
-    #[test]
-    fn preview_policy_serde_round_trip() {
-        for policy in [
-            PreviewPolicy::Safe,
-            PreviewPolicy::AllowScripts,
-            PreviewPolicy::AllowNetwork,
-            PreviewPolicy::AllowBoth,
-        ] {
-            let s = serde_json::to_string(&policy).unwrap();
-            let back: PreviewPolicy = serde_json::from_str(&s).unwrap();
-            assert_eq!(policy, back);
         }
     }
 

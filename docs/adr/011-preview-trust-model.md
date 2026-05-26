@@ -1,7 +1,22 @@
 # ADR-011: Preview Trust Model — CSP, Pins, Audit, Verification
 
-**Status:** Proposed
+**Status:** Superseded — descoped to offline agent-output preview (2026-05-26)
 **Date:** 2026-05-22
+
+> **Superseded.** The preview renders Writ's own agent/LLM output offline; it
+> is not a safe renderer for hostile web HTML, and network is categorically
+> off forever. With no network there is nothing to exfiltrate to, which
+> dissolves the trust model this ADR built: no pins, no audit log, no
+> content-hash, no per-buffer scripts/network toggles, no trust dashboard.
+> The entire apparatus collapses to **one fixed document CSP** plus a single
+> app-level "run scripts" kill switch (default on) — scripts make interactive
+> agent templates work, `connect-src 'none'` plus image/font/media limited to
+> `data:` and the local host-gated `writ-preview:` scheme make exfil
+> impossible regardless. The locked document CSP and a focused exfil-denial
+> test (remote img/fetch/beacon/websocket/font all blocked) plus the single
+> `writ-preview://` URL-parser fuzz target are what survive; the 15-fixture
+> corpus, the other fuzz targets, pins, audit, and dashboard are **cut** — not
+> deferred. Retained as a record. See the lean re-scope note in ADR-009.
 
 ## Context
 

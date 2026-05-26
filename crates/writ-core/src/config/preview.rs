@@ -1,16 +1,20 @@
-//! `[preview]` configuration section — ADR-009 §"Configuration".
+//! `[preview]` configuration section.
 //!
-//! Per-content-type default layouts plus the size thresholds and debounce
-//! that govern live re-render. Every field has a serde default so existing
-//! configs upgrade cleanly.
+//! Lean scope (see ADR-010/011 supersede notes): the preview renders the
+//! user's own offline agent output. Per-content-type default layouts for
+//! HTML and Markdown, the size thresholds and debounce that govern live
+//! re-render, and the single app-level scripts kill switch. PDF / image /
+//! SVG-file renderers and the detached window are cut, so their config keys
+//! are gone. Every field has a serde default so existing configs upgrade
+//! cleanly.
 
 use serde::{Deserialize, Serialize};
 
 /// Default layout a content type opens in.
 ///
-/// A subset of `LayoutMode`: the configurable surface only exposes the
+/// A subset of `LayoutMode`: the configurable surface exposes only the
 /// non-parameterized choices. `Split` resolves to the 50/50 vertical split
-/// at open time; `Detached` is never a *default* (it is opt-in per buffer).
+/// at open time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DefaultLayout {
@@ -30,18 +34,6 @@ fn default_layout_markdown() -> DefaultLayout {
     DefaultLayout::Split
 }
 
-fn default_layout_pdf() -> DefaultLayout {
-    DefaultLayout::Preview
-}
-
-fn default_layout_image() -> DefaultLayout {
-    DefaultLayout::Preview
-}
-
-fn default_layout_svg() -> DefaultLayout {
-    DefaultLayout::Preview
-}
-
 fn default_live_render_threshold_mb() -> u32 {
     1
 }
@@ -58,8 +50,8 @@ fn default_debounce_ms() -> u32 {
     200
 }
 
-fn default_detach_on_open() -> bool {
-    false
+fn default_run_scripts() -> bool {
+    true
 }
 
 /// Preview surface configuration.
@@ -71,15 +63,6 @@ pub struct PreviewConfig {
     /// Default layout for Markdown documents.
     #[serde(default = "default_layout_markdown")]
     pub default_layout_markdown: DefaultLayout,
-    /// Default layout for PDF documents.
-    #[serde(default = "default_layout_pdf")]
-    pub default_layout_pdf: DefaultLayout,
-    /// Default layout for raster images.
-    #[serde(default = "default_layout_image")]
-    pub default_layout_image: DefaultLayout,
-    /// Default layout for SVG documents.
-    #[serde(default = "default_layout_svg")]
-    pub default_layout_svg: DefaultLayout,
     /// Above this document size (MB) live re-render auto-disables and the
     /// surface offers manual refresh (Cmd+R).
     #[serde(default = "default_live_render_threshold_mb")]
@@ -95,10 +78,14 @@ pub struct PreviewConfig {
     /// re-render.
     #[serde(default = "default_debounce_ms")]
     pub debounce_ms: u32,
-    /// Whether opening a renderable buffer immediately detaches its preview
-    /// to a second window.
-    #[serde(default = "default_detach_on_open")]
-    pub detach_on_open: bool,
+    /// App-level scripts kill switch. When `true` (default) the document CSP
+    /// permits inline + same-origin + `writ-preview:` scripts so interactive
+    /// agent output (sliders, Mermaid, KaTeX) runs; network stays off
+    /// regardless. When `false`, `script-src` is `'none'`. This is the only
+    /// knob over the otherwise-fixed document policy — there is no per-buffer
+    /// trust state.
+    #[serde(default = "default_run_scripts")]
+    pub run_scripts: bool,
 }
 
 impl Default for PreviewConfig {
@@ -106,14 +93,11 @@ impl Default for PreviewConfig {
         Self {
             default_layout_html: default_layout_html(),
             default_layout_markdown: default_layout_markdown(),
-            default_layout_pdf: default_layout_pdf(),
-            default_layout_image: default_layout_image(),
-            default_layout_svg: default_layout_svg(),
             live_render_threshold_mb: default_live_render_threshold_mb(),
             render_confirm_threshold_mb: default_render_confirm_threshold_mb(),
             render_refuse_threshold_mb: default_render_refuse_threshold_mb(),
             debounce_ms: default_debounce_ms(),
-            detach_on_open: default_detach_on_open(),
+            run_scripts: default_run_scripts(),
         }
     }
 }
@@ -123,18 +107,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_match_adr_009() {
+    fn defaults_are_lean() {
         let c = PreviewConfig::default();
         assert_eq!(c.default_layout_html, DefaultLayout::Split);
         assert_eq!(c.default_layout_markdown, DefaultLayout::Split);
-        assert_eq!(c.default_layout_pdf, DefaultLayout::Preview);
-        assert_eq!(c.default_layout_image, DefaultLayout::Preview);
-        assert_eq!(c.default_layout_svg, DefaultLayout::Preview);
         assert_eq!(c.live_render_threshold_mb, 1);
         assert_eq!(c.render_confirm_threshold_mb, 5);
         assert_eq!(c.render_refuse_threshold_mb, 50);
         assert_eq!(c.debounce_ms, 200);
-        assert!(!c.detach_on_open);
+        // Scripts on by default — interactive agent output works out of the box.
+        assert!(c.run_scripts);
     }
 
     #[test]
@@ -145,23 +127,23 @@ mod tests {
 
     #[test]
     fn partial_table_keeps_other_defaults() {
-        let c: PreviewConfig = toml::from_str("default_layout_html = \"source\"\ndebounce_ms = 50").unwrap();
+        let c: PreviewConfig =
+            toml::from_str("default_layout_html = \"source\"\ndebounce_ms = 50").unwrap();
         assert_eq!(c.default_layout_html, DefaultLayout::Source);
         assert_eq!(c.debounce_ms, 50);
-        // Untouched fields keep their defaults.
         assert_eq!(c.default_layout_markdown, DefaultLayout::Split);
-        assert_eq!(c.render_refuse_threshold_mb, 50);
+        assert!(c.run_scripts);
     }
 
     #[test]
-    fn round_trips_through_toml() {
+    fn run_scripts_kill_switch_round_trips() {
         let c = PreviewConfig {
-            default_layout_html: DefaultLayout::Preview,
-            detach_on_open: true,
+            run_scripts: false,
             ..PreviewConfig::default()
         };
         let s = toml::to_string(&c).unwrap();
         let back: PreviewConfig = toml::from_str(&s).unwrap();
         assert_eq!(c, back);
+        assert!(!back.run_scripts);
     }
 }
