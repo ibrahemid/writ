@@ -90,8 +90,8 @@ function AppShell() {
     themeStore.loadConfig(configStore.config().theme);
     await osWindowStore.restoreSize();
     unlisteners.push(await osWindowStore.installFocusSync());
-    unlisteners.push(await osWindowStore.installSizePersistence());
-    unlisteners.push(await installCloseFlush());
+    unlisteners.push(await osWindowStore.installGeometryPersistence());
+    unlisteners.push(await installCloseFlush([() => osWindowStore.flushGeometry()]));
     win.sidebar.hydrateFromConfig();
     await bufferRegistry.load();
 
