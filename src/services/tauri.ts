@@ -300,3 +300,64 @@ export async function onWindowCloseRequested(
   }
 }
 
+// --- Preview surface (ADR-009, lean scope) ---
+
+export interface PreviewRendererInfo {
+  content_type: string;
+  capabilities: {
+    supports_live_render: boolean;
+    supports_print: boolean;
+    max_safe_document_bytes: number;
+  };
+}
+
+export type PreviewRenderResult =
+  | { kind: "rendered"; used_fallback_stylesheet: boolean; parser_warnings: string[] }
+  | { kind: "no_renderer"; content_type: string }
+  | { kind: "failed"; message: string };
+
+export async function previewListRenderers(): Promise<PreviewRendererInfo[]> {
+  return invoke("preview_list_renderers");
+}
+
+export async function previewRender(
+  windowId: number,
+  bufferId: string,
+  contentType: string,
+  text: string,
+): Promise<PreviewRenderResult> {
+  return invoke("preview_render", { windowId, bufferId, contentType, text });
+}
+
+export async function previewForceRender(
+  windowId: number,
+  bufferId: string,
+  contentType: string,
+  text: string,
+): Promise<PreviewRenderResult> {
+  return invoke("preview_force_render", { windowId, bufferId, contentType, text });
+}
+
+export async function previewClose(bufferId: string): Promise<void> {
+  return invoke("preview_close", { bufferId });
+}
+
+export async function previewSetLayout(
+  windowId: number,
+  bufferId: string,
+  path: string | null,
+  layout: string,
+  ratio: number | null,
+): Promise<void> {
+  return invoke("preview_set_layout", { windowId, bufferId, path, layout, ratio });
+}
+
+export interface PersistedLayout {
+  layout: string;
+  ratio: number | null;
+}
+
+export async function previewGetLayout(path: string): Promise<PersistedLayout | null> {
+  return invoke("preview_get_layout", { path });
+}
+

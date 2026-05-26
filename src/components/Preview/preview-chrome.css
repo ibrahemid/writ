@@ -1,0 +1,159 @@
+/*
+ * Preview chrome — the split container, divider handle, and status chip.
+ * Lives in the main app webview and inherits Writ's theme tokens. The
+ * rendered document itself lives in the iframe under the fixed-CSP
+ * writ-preview:// origin (styled by preview-base.css or its own CSS).
+ */
+
+.preview-layout {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.preview-layout.is-horizontal {
+  flex-direction: column;
+}
+
+.preview-editor-slot {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.preview-pane-slot {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.preview-pane {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  background: var(--writ-surface-background);
+}
+
+.preview-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: var(--writ-surface-background);
+}
+
+.preview-pane-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 2rem;
+  text-align: center;
+  color: var(--writ-foreground-muted);
+  font-family: var(--writ-font-sans);
+  font-size: var(--writ-font-size-sm);
+}
+
+/* Divider handle — a hairline that widens its hit target invisibly. */
+.preview-split-handle {
+  position: relative;
+  flex: 0 0 auto;
+  background: var(--writ-border-default);
+  transition: background 120ms ease;
+  touch-action: none;
+}
+
+.preview-split-handle:hover,
+.preview-split-handle:focus-visible {
+  background: var(--writ-accent-default);
+  outline: none;
+}
+
+.preview-split-vertical {
+  width: 1px;
+  cursor: col-resize;
+}
+.preview-split-vertical::after {
+  content: "";
+  position: absolute;
+  inset: 0 -4px;
+}
+
+.preview-split-horizontal {
+  height: 1px;
+  cursor: row-resize;
+}
+.preview-split-horizontal::after {
+  content: "";
+  position: absolute;
+  inset: -4px 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preview-split-handle {
+    transition: none;
+  }
+}
+
+/* Status chip — bottom-right, discreet, theme-aware. */
+.preview-chip {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 9px;
+  border-radius: var(--writ-radius-3);
+  background: var(--writ-surface-elevated);
+  border: 1px solid var(--writ-border-pill);
+  color: var(--writ-foreground-muted);
+  font-family: var(--writ-font-sans);
+  font-size: var(--writ-font-size-xs);
+  line-height: 1.4;
+  pointer-events: auto;
+  user-select: none;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.25);
+}
+
+.preview-chip.is-error {
+  color: var(--writ-status-error);
+  border-color: var(--writ-status-error);
+}
+
+.preview-chip.is-manual {
+  color: var(--writ-status-warning);
+}
+
+.preview-chip-mode {
+  font-weight: 500;
+}
+
+.preview-chip-detail {
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-chip-warn {
+  color: var(--writ-status-warning);
+}
+
+.preview-chip-flag {
+  padding: 0 6px;
+  border-radius: var(--writ-radius-1);
+  background: var(--writ-surface-hover);
+  color: var(--writ-accent-default);
+}
+
+.preview-chip-flag.is-off {
+  color: var(--writ-foreground-subtle);
+}
