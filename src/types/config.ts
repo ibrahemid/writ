@@ -7,6 +7,21 @@ export interface CommandsConfig {
   usage: Record<string, CommandUsage>;
 }
 
+export type DefaultLayout = "source" | "split" | "preview";
+
+export interface PreviewConfig {
+  default_layout_html: DefaultLayout;
+  default_layout_markdown: DefaultLayout;
+  default_layout_pdf: DefaultLayout;
+  default_layout_image: DefaultLayout;
+  default_layout_svg: DefaultLayout;
+  live_render_threshold_mb: number;
+  render_confirm_threshold_mb: number;
+  render_refuse_threshold_mb: number;
+  debounce_ms: number;
+  detach_on_open: boolean;
+}
+
 export interface WritConfig {
   hotkey: { toggle: string };
   sidebar: {
@@ -22,4 +37,5 @@ export interface WritConfig {
   storage: { path: string };
   theme: { preset: string; overrides: Record<string, string> };
   commands: CommandsConfig;
+  preview: PreviewConfig;
 }

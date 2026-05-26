@@ -16,6 +16,7 @@
 //!   HTML, markdown, Mermaid, math, PDF, SVG, raster image.
 
 pub mod csp;
+pub mod handler;
 pub mod protocol;
 pub mod renderers;
 pub mod webview_manager;
