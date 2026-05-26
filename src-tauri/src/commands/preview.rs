@@ -16,9 +16,9 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
-use writ_core::preview::{
-    ContentTypeId, RenderError, RenderRequest, RendererCapabilities, WindowId,
-};
+use writ_core::preview::{ContentTypeId, RenderError, RenderRequest, RendererCapabilities};
+
+use writ_storage::layout_state::LayoutStateRecord;
 
 use crate::events::{emit_event, WritFrontendEvent};
 use crate::preview::handler::RenderedDoc;
@@ -49,91 +49,79 @@ pub fn preview_list_renderers(state: State<'_, AppState>) -> Vec<RendererInfo> {
         .collect()
 }
 
-/// Outcome of [`preview_open`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PreviewOpenOutcome {
-    /// Webview slot id assigned to the (window, buffer) pair.
-    pub slot_id: u64,
-    /// `true` if the slot came from the warm pool (warm spawn path),
-    /// `false` if it was created cold.
-    pub warm: bool,
-}
-
-/// Outcome variants returned to the frontend as discriminated unions.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum PreviewOpenResult {
-    /// Slot assigned successfully.
-    Assigned(PreviewOpenOutcome),
-    /// Requested content type has no registered renderer; the caller
-    /// should fall back to `Source` layout.
-    NoRendererForType {
-        /// Content type id that was requested.
-        content_type: String,
-    },
-}
-
-/// Assign a webview slot to a `(window, buffer)` pair.
+/// Drop the cached render for a buffer when its preview pane closes.
+///
+/// Under the iframe substrate there is no Rust-side webview to tear down —
+/// the iframe is a DOM element the frontend unmounts. The only host-side
+/// resource is the render cache entry, which this releases.
 #[tauri::command]
-pub fn preview_open(
-    state: State<'_, AppState>,
-    window_id: u64,
-    buffer_id: String,
-    content_type: String,
-) -> PreviewOpenResult {
-    let ctype = ContentTypeId::new(content_type.clone());
-
-    let registry = state
-        .preview_registry
-        .read()
-        .expect("preview registry rwlock poisoned");
-    if !registry.has(&ctype) {
-        return PreviewOpenResult::NoRendererForType { content_type };
-    }
-    drop(registry);
-
-    let window_id = WindowId(window_id);
-    let manager = state.preview_webviews.clone();
-
-    match manager.take_warm_for(window_id, &buffer_id, ctype) {
-        Some(slot) => PreviewOpenResult::Assigned(PreviewOpenOutcome {
-            slot_id: slot.0,
-            warm: true,
-        }),
-        None => {
-            // Phase 1 cold-spawn placeholder: record a fresh slot
-            // immediately so the assignment table reflects intent. Phase
-            // 2's real cold-spawn path constructs an actual webview here
-            // and reports the measured time against the cold-spawn
-            // budget.
-            let slot = manager.record_warm_slot();
-            let assigned = manager
-                .take_warm_for(window_id, &buffer_id, ContentTypeId::new(content_type))
-                .expect("just-recorded slot should be takeable");
-            // The slot id we created may differ from the one assigned
-            // (since the assignment path returns whichever slot is at
-            // the top of the pool). We surface the assigned one.
-            let _ = slot;
-            PreviewOpenResult::Assigned(PreviewOpenOutcome {
-                slot_id: assigned.0,
-                warm: false,
-            })
-        }
-    }
-}
-
-/// Release the webview slot assigned to `(window, buffer)` and drop its
-/// cached render.
-#[tauri::command]
-pub fn preview_close(
-    state: State<'_, AppState>,
-    window_id: u64,
-    buffer_id: String,
-) {
-    state
-        .preview_webviews
-        .close(WindowId(window_id), &buffer_id);
+pub fn preview_close(state: State<'_, AppState>, buffer_id: String) {
     state.preview_render_cache.evict(&buffer_id);
+}
+
+/// A buffer's persisted layout, returned to the frontend on open.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedLayout {
+    /// Layout discriminant: `source` | `split` | `preview`.
+    pub layout: String,
+    /// Split ratio, present only for `split`.
+    pub ratio: Option<f32>,
+}
+
+/// Fetch the persisted layout for a source-backed buffer, if any. Scratch
+/// buffers (no path) never persist and always resolve to the content-type
+/// default on the frontend.
+#[tauri::command]
+pub fn preview_get_layout(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Option<PersistedLayout>, String> {
+    let record = state.layout_state.get(&path).map_err(|e| e.to_string())?;
+    Ok(record.map(|r| PersistedLayout {
+        layout: r.layout_mode,
+        ratio: r.split_ratio,
+    }))
+}
+
+/// Persist a buffer's preview layout and broadcast the change.
+///
+/// `path` is the buffer's absolute source path, or `None` for a scratch
+/// buffer. Scratch buffers are not persisted (ADR-009) — they always reopen
+/// in the content-type default — but the `LayoutChanged` event still fires
+/// so other views in the window stay in sync.
+#[tauri::command]
+pub fn preview_set_layout(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    window_id: u64,
+    buffer_id: String,
+    path: Option<String>,
+    layout: String,
+    ratio: Option<f32>,
+) -> Result<(), String> {
+    if let Some(path) = &path {
+        let last_view_mode = if layout == "source" { "source" } else { "preview" };
+        state
+            .layout_state
+            .set(&LayoutStateRecord {
+                path: path.clone(),
+                layout_mode: layout.clone(),
+                split_ratio: ratio,
+                last_view_mode: last_view_mode.to_string(),
+            })
+            .map_err(|e| e.to_string())?;
+    }
+
+    let _ = emit_event(
+        &app,
+        WritFrontendEvent::LayoutChanged {
+            buffer_id,
+            window_id,
+            layout,
+            ratio,
+        },
+    );
+    Ok(())
 }
 
 /// Outcome of a render request.

@@ -17,6 +17,9 @@ const EVENT_MAP: Record<EventKind, string> = {
   "recovery:dirty": "writ://recovery-dirty",
   "menu:action": "writ://menu-action",
   "update:status": "writ://update-status",
+  "preview:rendered": "writ://preview-rendered",
+  "preview:error": "writ://preview-error",
+  "preview:layout_changed": "writ://preview-layout-changed",
 };
 
 export async function onEvent<K extends EventKind>(

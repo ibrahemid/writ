@@ -192,10 +192,11 @@ pub fn run() {
             commands::update::dismiss_update,
             commands::update::restart_app,
             commands::preview::preview_list_renderers,
-            commands::preview::preview_open,
             commands::preview::preview_close,
             commands::preview::preview_render,
             commands::preview::preview_force_render,
+            commands::preview::preview_set_layout,
+            commands::preview::preview_get_layout,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

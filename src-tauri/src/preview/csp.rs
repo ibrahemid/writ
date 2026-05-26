@@ -39,7 +39,11 @@ pub fn build_document_csp(scripts_enabled: bool) -> String {
         "worker-src 'none'",
         "form-action 'none'",
         "base-uri 'none'",
-        "frame-ancestors 'none'",
+        // 'self' (not 'none') so the main app webview can frame the
+        // preview document over writ-preview://. Clickjacking — what
+        // frame-ancestors guards — is a non-threat in a desktop app, and
+        // 'self' still blocks any third-party embedder.
+        "frame-ancestors 'self'",
         "navigate-to 'none'",
     ]
     .join("; ")
@@ -87,7 +91,7 @@ frame-src 'none'; \
 worker-src 'none'; \
 form-action 'none'; \
 base-uri 'none'; \
-frame-ancestors 'none'; \
+frame-ancestors 'self'; \
 navigate-to 'none'";
 
     const DOCUMENT_CSP_SCRIPTS_OFF: &str = "default-src 'none'; \
@@ -102,7 +106,7 @@ frame-src 'none'; \
 worker-src 'none'; \
 form-action 'none'; \
 base-uri 'none'; \
-frame-ancestors 'none'; \
+frame-ancestors 'self'; \
 navigate-to 'none'";
 
     #[test]

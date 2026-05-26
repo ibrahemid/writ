@@ -16,6 +16,22 @@
 > the ADR-011 supersede note. Workspace/relative-asset resolution is cut — see
 > the ADR-010 supersede note. Markdown, Mermaid, and KaTeX remain core
 > (agents emit them constantly).
+>
+> **Substrate revised (A1 → same-window iframe).** The split/swap substrate
+> is no longer a child Tauri webview (option A1). It is a same-window
+> `<iframe src="writ-preview://document/<id>">` in the main app webview. The
+> security boundary is unchanged and is the load-bearing point: it was never
+> the iframe `sandbox` attribute (the basis for A2's original rejection) but
+> the **response-header CSP** the `writ-preview://` protocol handler attaches
+> to every document response — engine-consistent across WebKit/WebKit2GTK/
+> WebView2, and identical whether the document loads in a child webview or an
+> iframe. The iframe path is chosen to avoid Tauri's `unstable` feature
+> (required by `Window::add_child` in 2.10.x) and the cross-platform
+> bounds-sync fragility a positioned child webview needs. Two CSP
+> consequences: the document CSP uses `frame-ancestors 'self'` (so the app
+> may frame the preview; `'self'` still blocks any third-party embedder, and
+> clickjacking is a non-threat in a desktop app), and the main webview CSP
+> gains `frame-src writ-preview:`.
 
 ## Context
 

@@ -1,23 +1,20 @@
-//! Preview substrate — ADR-009.
+//! Preview substrate — ADR-009 (lean re-scope).
 //!
-//! This module owns:
+//! The split/swap preview is a same-window `<iframe>` over `writ-preview://`,
+//! not a child Tauri webview — see the ADR-009 lean amendment. The security
+//! boundary is the response-header CSP the protocol handler attaches, which
+//! is identical for an iframe and a child webview. This module owns:
 //!
 //! - [`protocol`] — `writ-preview://` URL parser, scope routing, refusal
-//!   logic, and the debug-only request recorder hook the Phase-3
-//!   verification suite reads.
-//! - [`csp`] — per-webview CSP construction. Phase 1 emits the default-deny
-//!   baseline; Phase 3 populates the per-cell matrix from ADR-011.
-//! - [`webview_manager`] — [`webview_manager::PreviewWebviewManager`],
-//!   the warm-pool + per-tab webview lifecycle controller.
-//! - [`window_manager`] — [`window_manager::WindowManager`], the
-//!   [`writ_core::preview::WindowId`] ↔ Tauri `WebviewWindow` registry.
+//!   logic, and the debug-only request recorder the exfil-denial suite reads.
+//! - [`csp`] — the fixed document CSP (+ scripts kill switch) and the
+//!   chrome-scope CSP.
+//! - [`handler`] — request resolution, the render cache, and the Tauri
+//!   protocol glue that attaches the CSP header to every response.
 //! - [`renderers`] — registration entry point for first-party content
-//!   renderers. Phase 1 ships an empty registration; later phases plug in
-//!   HTML, markdown, Mermaid, math, PDF, SVG, raster image.
+//!   renderers (HTML now; markdown / Mermaid / KaTeX next).
 
 pub mod csp;
 pub mod handler;
 pub mod protocol;
 pub mod renderers;
-pub mod webview_manager;
-pub mod window_manager;

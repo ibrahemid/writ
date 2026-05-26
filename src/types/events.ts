@@ -9,4 +9,18 @@ export type WritEvent =
   | { kind: "buffer:external"; payload: { bufferId: string; change: "modified" | "deleted" } }
   | { kind: "recovery:dirty"; payload: { snapshotId: string; bufferCount: number } }
   | { kind: "menu:action"; payload: { action: string } }
-  | { kind: "update:status"; payload: UpdatePhase };
+  | { kind: "update:status"; payload: UpdatePhase }
+  | {
+      kind: "preview:rendered";
+      payload: {
+        buffer_id: string;
+        window_id: number;
+        used_fallback_stylesheet: boolean;
+        parser_warnings: string[];
+      };
+    }
+  | { kind: "preview:error"; payload: { buffer_id: string; window_id: number; message: string } }
+  | {
+      kind: "preview:layout_changed";
+      payload: { buffer_id: string; window_id: number; layout: string; ratio: number | null };
+    };

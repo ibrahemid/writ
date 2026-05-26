@@ -238,6 +238,16 @@ pub fn serve<R: Runtime>(
 
     record(record_for(&url, &resolved));
 
+    build_http_response(resolved)
+}
+
+/// Serialize a [`ResolvedResponse`] into the Tauri HTTP response the webview
+/// receives. Factored out of [`serve`] so the header attachment — in
+/// particular that the locked CSP lands on the response object, not just in
+/// `build_document_csp`'s return value — is testable without a running app.
+pub fn build_http_response(
+    resolved: ResolvedResponse,
+) -> tauri::http::Response<Cow<'static, [u8]>> {
     let mut builder = tauri::http::Response::builder().status(resolved.status);
     for (key, value) in &resolved.headers {
         builder = builder.header(*key, value);
@@ -339,6 +349,39 @@ mod tests {
             .find(|(k, _)| *k == "Content-Security-Policy")
             .unwrap();
         assert!(csp.1.contains("script-src 'none'"));
+    }
+
+    #[test]
+    fn locked_csp_is_attached_to_the_http_response_object() {
+        // The L2 requirement: prove the CSP is on the actual response the
+        // webview receives, not merely that build_document_csp returns the
+        // right string. Resolve a document request, build the real
+        // tauri::http::Response, and read the header back off it.
+        use crate::preview::csp::build_document_csp;
+
+        let cache = RenderCache::new();
+        cache.put("buf-1", doc("<h1>x</h1>"));
+
+        for scripts_enabled in [true, false] {
+            let resolved = resolve(
+                "writ-preview://document/buf-1",
+                scripts_enabled,
+                |id| cache.get(id),
+                chrome_asset,
+            );
+            let response = build_http_response(resolved);
+            let header = response
+                .headers()
+                .get("Content-Security-Policy")
+                .expect("CSP header attached to the response")
+                .to_str()
+                .unwrap();
+            assert_eq!(header, build_document_csp(scripts_enabled));
+            assert_eq!(
+                response.headers().get("X-Content-Type-Options").unwrap(),
+                "nosniff"
+            );
+        }
     }
 
     #[test]

@@ -13,9 +13,9 @@ use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 
+use writ_storage::layout_state::LayoutStateStore;
+
 use crate::preview::handler::RenderCache;
-use crate::preview::webview_manager::PreviewWebviewManager;
-use crate::preview::window_manager::WindowManager;
 use crate::security::{canonicalize_for_authorization, AuthorizedPaths};
 use crate::watcher::handler::{IgnoreSet, WatcherHandle};
 
@@ -34,9 +34,10 @@ pub struct AppState {
     pub update_phase: Mutex<UpdatePhase>,
     pub authorized_paths: AuthorizedPaths,
     pub preview_registry: Arc<RwLock<ContentRendererRegistry>>,
-    pub preview_webviews: Arc<PreviewWebviewManager>,
-    pub window_manager: Arc<WindowManager>,
     pub preview_render_cache: Arc<RenderCache>,
+    /// Per-buffer preview layout persistence. Holds its own SQLite
+    /// connection (WAL permits concurrent connections to the same file).
+    pub layout_state: LayoutStateStore,
 }
 
 impl AppState {
@@ -54,6 +55,10 @@ impl AppState {
         let conn = open_database(&db_path)?;
         run_migrations(&conn)?;
         info!(path = %db_path.display(), "database initialized");
+
+        // Second connection for layout-state persistence; migrations have
+        // already created the table on the primary connection above.
+        let layout_state = LayoutStateStore::new(open_database(&db_path)?);
 
         let config_path = writ_dir.join("config.toml");
         let config_store = ConfigStore::new(config_path);
@@ -121,9 +126,8 @@ impl AppState {
             update_phase: Mutex::new(UpdatePhase::default()),
             authorized_paths,
             preview_registry: Arc::new(RwLock::new(preview_registry)),
-            preview_webviews: PreviewWebviewManager::new(),
-            window_manager: Arc::new(WindowManager::with_main()),
             preview_render_cache: Arc::new(RenderCache::new()),
+            layout_state,
         })
     }
 }

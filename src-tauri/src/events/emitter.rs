@@ -49,6 +49,14 @@ pub enum WritFrontendEvent {
         window_id: u64,
         message: String,
     },
+
+    #[serde(rename = "preview:layout_changed")]
+    LayoutChanged {
+        buffer_id: String,
+        window_id: u64,
+        layout: String,
+        ratio: Option<f32>,
+    },
 }
 
 pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), String> {
@@ -64,6 +72,7 @@ pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), Strin
         WritFrontendEvent::UpdateStatus(..) => "writ://update-status",
         WritFrontendEvent::PreviewRendered { .. } => "writ://preview-rendered",
         WritFrontendEvent::PreviewError { .. } => "writ://preview-error",
+        WritFrontendEvent::LayoutChanged { .. } => "writ://preview-layout-changed",
     };
     app.emit(event_name, &event).map_err(|e| e.to_string())
 }
