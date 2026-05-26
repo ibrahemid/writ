@@ -21,6 +21,9 @@ import { windowRegistry } from "./stores/global/window-registry";
 import { focusSearchBar } from "./components/Sidebar/SearchBar";
 import { openContentSearch } from "./commands/search";
 import { registerTransformCommands } from "./commands/transforms";
+import { registerPreviewKeymap } from "./keymap/preview";
+import { rendererRegistry } from "./stores/global/renderer-registry";
+import { previewListRenderers } from "./services/tauri";
 import { registerCommand, executeCommand, getAllCommands, setExecuteListener } from "./commands/registry";
 import {
   installKeyboardHandler,
@@ -318,6 +321,15 @@ function AppShell() {
       showToast("Failed to load transform commands", "error");
       console.error("registerTransformCommands failed", error);
     }
+
+    try {
+      const list = await previewListRenderers();
+      rendererRegistry.setFromIpc(list);
+    } catch (error) {
+      console.error("previewListRenderers failed", error);
+    }
+
+    registerPreviewKeymap();
 
     setExecuteListener((id) => configStore.recordCommandUse(id));
     configStore.pruneCommandUsage(new Set(getAllCommands().map((c) => c.id)));

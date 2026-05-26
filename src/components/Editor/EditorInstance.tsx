@@ -97,6 +97,7 @@ export default function EditorInstance(props: Props) {
             configStore.config().editor.autosave_debounce_ms,
           );
           win.editor.setLineCount(update.state.doc.lines);
+          win.editor.setCurrentText(content);
           maybeDetectFromContent(content, false);
         }
         const sel = update.state.selection;
@@ -172,6 +173,7 @@ export default function EditorInstance(props: Props) {
 
     win.editor.registerView(view);
     win.editor.setLineCount(view.state.doc.lines);
+    win.editor.setCurrentText(view.state.doc.toString());
     view.focus();
   }
 

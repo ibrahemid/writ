@@ -27,7 +27,7 @@ export function createWindowState(opts: CreateWindowStateOptions): WindowState {
     sidebar: createSidebarStore(),
     editor: createEditorStore(),
     tabs: createTabStore({ registry: bufferRegistry }),
-    layout: createLayoutStore(),
-    preview: createPreviewStore(),
+    layout: createLayoutStore({ windowId: opts.windowId }),
+    preview: createPreviewStore({ windowId: opts.windowId }),
   };
 }

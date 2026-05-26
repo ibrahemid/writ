@@ -28,7 +28,7 @@
             }
         ],
         "security": {
-            "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://github.com https://*.githubusercontent.com; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+            "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://github.com https://*.githubusercontent.com; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src writ-preview:; frame-ancestors 'none'"
         }
     },
     "plugins": {

@@ -21,6 +21,9 @@ export function createEditorStore() {
   const [lineCount, setLineCount] = createSignal(0);
   const [language, setLanguage] = createSignal<string | null>(null);
   const [selectionCount, setSelectionCount] = createSignal(1);
+  // Live text of the active editor view, updated on every document change.
+  // The preview pane tracks this and debounces it into a render request.
+  const [currentText, setCurrentText] = createSignal("");
 
   let activeView: EditorView | null = null;
 
@@ -64,6 +67,7 @@ export function createEditorStore() {
     lineCount, setLineCount,
     language, setLanguage,
     selectionCount, setSelectionCount,
+    currentText, setCurrentText,
     registerView, focusEditor,
     applyEditToActiveBuffer,
   };
