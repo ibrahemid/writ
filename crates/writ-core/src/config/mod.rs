@@ -163,15 +163,23 @@ impl Default for EditorConfig {
     }
 }
 
-/// Initial window geometry.
+/// Persisted window geometry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WindowConfig {
-    /// Default window width in pixels.
+    /// Window width in logical pixels.
     #[serde(default = "default_window_width")]
     pub width: u32,
-    /// Default window height in pixels.
+    /// Window height in logical pixels.
     #[serde(default = "default_window_height")]
     pub height: u32,
+    /// Last saved window x position in logical pixels. Signed for monitors
+    /// left of the primary display; `None` until the window has been placed,
+    /// so a fresh install centers on the OS default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<i32>,
+    /// Last saved window y position in logical pixels. `None` until placed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<i32>,
 }
 
 impl Default for WindowConfig {
@@ -179,6 +187,8 @@ impl Default for WindowConfig {
         Self {
             width: default_window_width(),
             height: default_window_height(),
+            x: None,
+            y: None,
         }
     }
 }

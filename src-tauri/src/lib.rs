@@ -182,6 +182,7 @@ pub fn run() {
             commands::config::get_config,
             commands::config::update_config,
             commands::window::toggle_window,
+            commands::window::compute_window_placement,
             commands::transforms::list_transforms,
             commands::transforms::apply_transform,
             commands::perf::report_first_paint,

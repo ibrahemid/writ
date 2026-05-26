@@ -142,3 +142,41 @@ fn partial_config_without_commands_section_deserializes() {
     let parsed: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
     assert!(parsed.commands.usage.is_empty());
 }
+
+#[test]
+fn window_position_defaults_to_none() {
+    let config = WritConfig::default();
+    assert_eq!(config.window.x, None);
+    assert_eq!(config.window.y, None);
+}
+
+#[test]
+fn window_position_missing_from_toml_defaults_to_none() {
+    let toml_str = "[window]\nwidth = 1100\nheight = 720\n";
+    let parsed: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert_eq!(parsed.window.x, None);
+    assert_eq!(parsed.window.y, None);
+}
+
+#[test]
+fn window_position_round_trips_through_toml() {
+    let mut config = WritConfig::default();
+    config.window.x = Some(240);
+    config.window.y = Some(-120);
+    let toml_str = toml::to_string(&config).expect("serialization failed");
+    let restored: WritConfig = toml::from_str(&toml_str).expect("deserialization failed");
+    assert_eq!(restored.window.x, Some(240));
+    assert_eq!(restored.window.y, Some(-120));
+}
+
+#[test]
+fn window_position_omitted_from_toml_when_unset() {
+    let toml_str = toml::to_string(&WritConfig::default()).expect("serialization failed");
+    let window_section = toml_str
+        .split("[window]")
+        .nth(1)
+        .and_then(|rest| rest.split('[').next())
+        .unwrap_or("");
+    assert!(!window_section.contains("x ="));
+    assert!(!window_section.contains("y ="));
+}
