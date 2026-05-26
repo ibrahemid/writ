@@ -1,23 +1,27 @@
-//! Phase 1 preview IPC commands — ADR-009 §"Consequences > src-tauri".
+//! Preview IPC commands — ADR-009 §"Consequences > src-tauri".
 //!
-//! The exposed surface is intentionally small for Phase 1:
+//! - [`preview_list_renderers`] — registered content-type set for the
+//!   frontend's `rendererRegistry` global.
+//! - [`preview_open`] / [`preview_close`] — webview-slot assignment for a
+//!   `(window, buffer)` pair.
+//! - [`preview_render`] / [`preview_force_render`] — run the renderer over
+//!   the live buffer text, cache the HTML for the protocol handler, and
+//!   emit `preview:rendered` / `preview:error`. The frontend debounces
+//!   keystroke-driven renders; `force_render` is the Cmd+R path (identical
+//!   at the IPC boundary — the debounce gate is frontend-side).
 //!
-//! - [`preview_list_renderers`] — returns the registered content-type set
-//!   so the frontend's `rendererRegistry` global can populate at boot.
-//! - [`preview_open`] — assigns a webview slot to a `(window, buffer)`
-//!   pair. Phase 1 does not yet spawn the actual `WebviewWindow`; the
-//!   slot bookkeeping is in place so Phase 2's `<PreviewPane>` mount
-//!   path lights up without a manager rewrite.
-//! - [`preview_close`] — releases the slot for a `(window, buffer)`.
-//!
-//! Phase 2 adds `preview_set_layout`, `preview_render`, `preview_force_render`,
-//! `preview_detach`, `preview_print`, `preview_export` per the ADR.
+//! Phase 2b adds `preview_set_layout`, `preview_detach`, `preview_print`,
+//! `preview_export` alongside the layout surface.
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, State};
 
-use writ_core::preview::{ContentTypeId, RendererCapabilities, WindowId};
+use writ_core::preview::{
+    ContentTypeId, PreviewPolicy, RenderError, RenderRequest, RendererCapabilities, WindowId,
+};
 
+use crate::events::{emit_event, WritFrontendEvent};
+use crate::preview::handler::RenderedDoc;
 use crate::state::AppState;
 
 /// Serialized renderer descriptor surfaced to the frontend.
@@ -118,7 +122,8 @@ pub fn preview_open(
     }
 }
 
-/// Release the webview slot assigned to `(window, buffer)`.
+/// Release the webview slot assigned to `(window, buffer)` and drop its
+/// cached render.
 #[tauri::command]
 pub fn preview_close(
     state: State<'_, AppState>,
@@ -128,4 +133,135 @@ pub fn preview_close(
     state
         .preview_webviews
         .close(WindowId(window_id), &buffer_id);
+    state.preview_render_cache.evict(&buffer_id);
+}
+
+/// Outcome of a render request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PreviewRenderResult {
+    /// Rendered and cached; the webview should reload to pick it up.
+    Rendered {
+        /// Whether the host fallback stylesheet was injected.
+        used_fallback_stylesheet: bool,
+        /// Cheap parser warnings surfaced in the status chip.
+        parser_warnings: Vec<String>,
+    },
+    /// No renderer registered for the content type — caller falls back to
+    /// `Source`.
+    NoRenderer {
+        /// The content type that had no renderer.
+        content_type: String,
+    },
+    /// The renderer refused or failed.
+    Failed {
+        /// Human-readable cause for the inline error card.
+        message: String,
+    },
+}
+
+fn run_render(
+    app: &AppHandle,
+    state: &AppState,
+    window_id: u64,
+    buffer_id: String,
+    content_type: String,
+    text: String,
+) -> PreviewRenderResult {
+    let ctype = ContentTypeId::new(content_type.clone());
+
+    let registry = state
+        .preview_registry
+        .read()
+        .expect("preview registry rwlock poisoned");
+    let Some(renderer) = registry.get(&ctype) else {
+        return PreviewRenderResult::NoRenderer { content_type };
+    };
+
+    // Phase 2 renders under the default SAFE policy; per-buffer session
+    // policies arrive with the Phase 3 trust model.
+    let policy = PreviewPolicy::Safe;
+    let result = renderer.render(RenderRequest {
+        content_type: ctype,
+        buffer_text: text,
+        workspace_root: None,
+        policy,
+    });
+    drop(registry);
+
+    match result {
+        Ok(output) => {
+            state.preview_render_cache.put(
+                buffer_id.clone(),
+                RenderedDoc {
+                    html: output.document_html,
+                    policy,
+                },
+            );
+            let _ = emit_event(
+                app,
+                WritFrontendEvent::PreviewRendered {
+                    buffer_id,
+                    window_id,
+                    used_fallback_stylesheet: output.used_fallback_stylesheet,
+                    parser_warnings: output.parser_warnings.clone(),
+                },
+            );
+            PreviewRenderResult::Rendered {
+                used_fallback_stylesheet: output.used_fallback_stylesheet,
+                parser_warnings: output.parser_warnings,
+            }
+        }
+        Err(err) => {
+            let message = render_error_message(&err);
+            let _ = emit_event(
+                app,
+                WritFrontendEvent::PreviewError {
+                    buffer_id,
+                    window_id,
+                    message: message.clone(),
+                },
+            );
+            PreviewRenderResult::Failed { message }
+        }
+    }
+}
+
+fn render_error_message(err: &RenderError) -> String {
+    match err {
+        RenderError::DocumentTooLarge { bytes, limit } => {
+            format!("document is {bytes} bytes; limit is {limit}")
+        }
+        RenderError::InvalidInput { reason } => reason.clone(),
+        RenderError::Internal { reason } => reason.clone(),
+    }
+}
+
+/// Render the live buffer text and cache the result for the protocol
+/// handler. Invoked by the frontend debouncer after a keystroke.
+#[tauri::command]
+pub fn preview_render(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    window_id: u64,
+    buffer_id: String,
+    content_type: String,
+    text: String,
+) -> PreviewRenderResult {
+    run_render(&app, &state, window_id, buffer_id, content_type, text)
+}
+
+/// Force a render regardless of frontend debounce gating (Cmd+R). Identical
+/// to [`preview_render`] at the IPC boundary; the debounce lives frontend-
+/// side.
+#[tauri::command]
+pub fn preview_force_render(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    window_id: u64,
+    buffer_id: String,
+    content_type: String,
+    text: String,
+) -> PreviewRenderResult {
+    run_render(&app, &state, window_id, buffer_id, content_type, text)
 }

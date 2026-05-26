@@ -68,29 +68,24 @@ describe("store layer boundary", () => {
     ).toEqual([]);
   });
 
-  it("stores/window/ does not import from stores/global/ except its declared singletons", () => {
-    // Window factories may consult global singletons (config, theme, etc.) but
-    // must not cross into other window factories via the global layer.
-    const files = walk(STORES_WINDOW);
-    const offenders: { file: string; spec: string }[] = [];
-    for (const file of files) {
-      for (const spec of extractImports(file)) {
-        const r = resolveSpecifier(file, spec);
-        if (r && isUnder(r, STORES_WINDOW) && r !== file) {
-          // sibling within window/ is fine
-          continue;
-        }
-        if (r && isUnder(r, STORES_GLOBAL)) {
-          // global singletons are allowed as dependencies (read-only collaborators)
-          continue;
-        }
-        if (r && isUnder(r, STORES) && !isUnder(r, STORES_GLOBAL) && !isUnder(r, STORES_WINDOW)) {
-          // a legacy file directly under stores/ (mid-migration). Disallowed once migration is complete;
-          // for now we only flag it if it imports back into window/, handled above.
-        }
-      }
-    }
-    expect(offenders, "window stores have boundary violations").toEqual([]);
+  it("every store lives under global/ or window/ — no stray files directly under stores/", () => {
+    // Post-migration invariant: the two-tier split is exhaustive. A `.ts`
+    // file directly under stores/ is a store that escaped classification —
+    // the exact global-vs-window ambiguity ADR-009 E3's split exists to
+    // forbid. The only permitted direct children of stores/ are the
+    // `global` and `window` directories.
+    const strays = readdirSync(STORES)
+      .filter((entry) => {
+        const full = join(STORES, entry);
+        return (
+          statSync(full).isFile() && (entry.endsWith(".ts") || entry.endsWith(".tsx"))
+        );
+      })
+      .map((entry) => relative(REPO_ROOT, join(STORES, entry)));
+    expect(
+      strays,
+      `stores must live under global/ or window/, not directly under stores/: ${strays.join(", ")}`,
+    ).toEqual([]);
   });
 
   it("components/ do not import directly from stores/window/ (must go through useWindow())", () => {

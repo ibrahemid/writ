@@ -12,6 +12,7 @@ use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_tauri_lib::commands::file::{open_file_from_path, save_to_source_for_test};
+use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::preview::webview_manager::PreviewWebviewManager;
 use writ_tauri_lib::preview::window_manager::WindowManager;
 use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
@@ -48,6 +49,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_webviews: PreviewWebviewManager::new(),
         window_manager: Arc::new(WindowManager::with_main()),
+        preview_render_cache: Arc::new(RenderCache::new()),
     }
 }
 
