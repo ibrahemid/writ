@@ -12,17 +12,19 @@
 //! frontend debounces keystrokes into `preview_render`, which runs the
 //! renderer and stores the HTML in the [`RenderCache`]; the document-scope
 //! response serves from that cache, and the webview reloads to pick up new
-//! HTML (reload is the only push mechanism compatible with the locked-down
-//! `script-src 'none'` document CSP).
+//! HTML (reload is the push mechanism that works with or without scripts).
+//!
+//! The CSP header is computed at serve time, not render time: the document
+//! CSP depends only on the app-level `preview.run_scripts` kill switch
+//! (lean scope — one fixed policy, no per-document trust state).
 
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 use tauri::{Manager, Runtime, UriSchemeContext};
-use writ_core::preview::PreviewPolicy;
 
-use super::csp::build_csp;
+use super::csp::{build_chrome_csp, build_document_csp};
 use super::protocol::{parse, record, Disposition, PreviewScope, RefusalReason, RequestRecord};
 use crate::state::AppState;
 
@@ -31,15 +33,12 @@ use crate::state::AppState;
 pub struct RenderedDoc {
     /// Fully-resolved HTML to serve for the document scope.
     pub html: String,
-    /// Policy the document was rendered under (drives the CSP header).
-    pub policy: PreviewPolicy,
 }
 
 /// Per-buffer cache of the most recently rendered document.
 ///
-/// Keyed by buffer id: the rendered HTML does not differ per window in
-/// Phase 2 (policy is always SAFE until Phase 3). The key widens to
-/// `(WindowId, BufferId)` when per-window session policies land.
+/// Keyed by buffer id: the rendered HTML is identical across windows (one
+/// fixed policy, no per-window trust state in the lean scope).
 #[derive(Default)]
 pub struct RenderCache {
     docs: Mutex<HashMap<String, RenderedDoc>>,
@@ -122,11 +121,13 @@ impl ResolvedResponse {
 
 /// Resolve a request URL into a response.
 ///
-/// `document_lookup` returns the rendered document for a buffer id;
-/// `chrome_asset` returns `(bytes, mime)` for a bundled chrome asset path.
-/// Both are closures so this function stays free of Tauri and `AppState`.
+/// `scripts_enabled` is the app-level kill switch, applied to the document
+/// CSP at serve time. `document_lookup` returns the rendered document for a
+/// buffer id; `chrome_asset` returns `(bytes, mime)` for a bundled chrome
+/// asset path. The closures keep this function free of Tauri and `AppState`.
 pub fn resolve(
     url: &str,
+    scripts_enabled: bool,
     document_lookup: impl Fn(&str) -> Option<RenderedDoc>,
     chrome_asset: impl Fn(&str) -> Option<(&'static [u8], &'static str)>,
 ) -> ResolvedResponse {
@@ -143,10 +144,7 @@ pub fn resolve(
                 headers: vec![
                     ("Content-Type", mime.to_string()),
                     ("X-Content-Type-Options", "nosniff".to_string()),
-                    (
-                        "Content-Security-Policy",
-                        build_csp(PreviewScope::Chrome, PreviewPolicy::Safe),
-                    ),
+                    ("Content-Security-Policy", build_chrome_csp()),
                     ("Cross-Origin-Resource-Policy", "same-origin".to_string()),
                 ],
                 disposition: Disposition::Allowed,
@@ -165,7 +163,7 @@ pub fn resolve(
                         ("X-Content-Type-Options", "nosniff".to_string()),
                         (
                             "Content-Security-Policy",
-                            build_csp(PreviewScope::Document, doc.policy),
+                            build_document_csp(scripts_enabled),
                         ),
                     ],
                     disposition: Disposition::Allowed,
@@ -225,8 +223,15 @@ pub fn serve<R: Runtime>(
     let url = request.uri().to_string();
     let state = ctx.app_handle().state::<AppState>();
 
+    let scripts_enabled = state
+        .config
+        .lock()
+        .map(|c| c.preview.run_scripts)
+        .unwrap_or(true);
+
     let resolved = resolve(
         &url,
+        scripts_enabled,
         |id| state.preview_render_cache.get(id),
         chrome_asset,
     );
@@ -246,11 +251,17 @@ pub fn serve<R: Runtime>(
 mod tests {
     use super::*;
 
+    // Scripts default on in the lean scope; tests pass the flag explicitly.
+    const SCRIPTS_ON: bool = true;
+
     fn doc(html: &str) -> RenderedDoc {
         RenderedDoc {
             html: html.to_string(),
-            policy: PreviewPolicy::Safe,
         }
+    }
+
+    fn no_doc(_: &str) -> Option<RenderedDoc> {
+        None
     }
 
     #[test]
@@ -267,7 +278,8 @@ mod tests {
     fn chrome_stylesheet_is_served_with_css_mime_and_chrome_csp() {
         let r = resolve(
             "writ-preview://chrome/preview-base.css",
-            |_| None,
+            SCRIPTS_ON,
+            no_doc,
             chrome_asset,
         );
         assert_eq!(r.status, 200);
@@ -285,7 +297,7 @@ mod tests {
 
     #[test]
     fn unknown_chrome_asset_is_404() {
-        let r = resolve("writ-preview://chrome/nope.css", |_| None, chrome_asset);
+        let r = resolve("writ-preview://chrome/nope.css", SCRIPTS_ON, no_doc, chrome_asset);
         assert_eq!(r.status, 404);
     }
 
@@ -295,6 +307,7 @@ mod tests {
         cache.put("buf-1", doc("<h1>rendered</h1>"));
         let r = resolve(
             "writ-preview://document/buf-1",
+            SCRIPTS_ON,
             |id| cache.get(id),
             chrome_asset,
         );
@@ -306,7 +319,25 @@ mod tests {
             .iter()
             .find(|(k, _)| *k == "Content-Security-Policy")
             .unwrap();
-        // Document SAFE policy blocks scripts.
+        // Scripts on → the document CSP permits inline + self + writ-preview:.
+        assert!(csp.1.contains("script-src 'unsafe-inline' 'self' writ-preview:"));
+    }
+
+    #[test]
+    fn document_csp_blocks_scripts_when_kill_switch_off() {
+        let cache = RenderCache::new();
+        cache.put("buf-1", doc("<h1>x</h1>"));
+        let r = resolve(
+            "writ-preview://document/buf-1",
+            false,
+            |id| cache.get(id),
+            chrome_asset,
+        );
+        let csp = r
+            .headers
+            .iter()
+            .find(|(k, _)| *k == "Content-Security-Policy")
+            .unwrap();
         assert!(csp.1.contains("script-src 'none'"));
     }
 
@@ -316,6 +347,7 @@ mod tests {
         cache.put("buf-1", doc("<p>x</p>"));
         let r = resolve(
             "writ-preview://document/buf-1/index.html",
+            SCRIPTS_ON,
             |id| cache.get(id),
             chrome_asset,
         );
@@ -324,7 +356,7 @@ mod tests {
 
     #[test]
     fn uncached_document_is_404() {
-        let r = resolve("writ-preview://document/ghost", |_| None, chrome_asset);
+        let r = resolve("writ-preview://document/ghost", SCRIPTS_ON, no_doc, chrome_asset);
         assert_eq!(r.status, 404);
     }
 
@@ -332,7 +364,8 @@ mod tests {
     fn traversal_is_refused_403() {
         let r = resolve(
             "writ-preview://document/../chrome/preview-base.css",
-            |_| None,
+            SCRIPTS_ON,
+            no_doc,
             chrome_asset,
         );
         assert_eq!(r.status, 403);
@@ -344,7 +377,7 @@ mod tests {
 
     #[test]
     fn wrong_scheme_is_refused() {
-        let r = resolve("https://evil/", |_| None, chrome_asset);
+        let r = resolve("https://evil/", SCRIPTS_ON, no_doc, chrome_asset);
         assert_eq!(r.status, 403);
     }
 }

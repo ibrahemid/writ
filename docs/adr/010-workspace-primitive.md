@@ -1,7 +1,18 @@
 # ADR-010: Workspace Primitive — Folder-as-Workspace and the `writ-workspace://` Protocol
 
-**Status:** Proposed
+**Status:** Superseded — descoped to offline agent-output preview (2026-05-26)
 **Date:** 2026-05-23
+
+> **Superseded.** The preview surface was descoped to a single purpose:
+> rendering Writ's own agent/LLM output and prompt results, offline, for
+> readability. It is explicitly **not** a safe renderer for hostile web HTML,
+> and network egress is categorically off forever. That dissolves the reason
+> this ADR existed: there are no sibling-file assets to resolve. Agent HTML is
+> self-contained or uses `data:` URIs; inline images/SVG render via the HTML
+> renderer under the fixed CSP. The `writ-workspace://` protocol, the
+> folder-as-workspace model, the file index, and the workspace switcher are
+> **cut** — not deferred. This document is retained as a record of the
+> considered design. See the lean re-scope note in ADR-009.
 
 ## Context
 
