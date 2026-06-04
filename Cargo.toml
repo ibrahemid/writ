@@ -5,6 +5,10 @@ members = [
     "crates/writ-plugin",
     "src-tauri",
 ]
+# The fuzz crate is its own workspace (needs nightly + libfuzzer); keep it
+# out of the merge-gate build so `cargo build/test --workspace` never pulls
+# in libfuzzer or the nightly toolchain.
+exclude = ["fuzz"]
 resolver = "2"
 
 [workspace.package]
