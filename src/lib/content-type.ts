@@ -12,10 +12,28 @@ const EXT_TO_CONTENT_TYPE: Record<string, string> = {
   mkd: "markdown",
 };
 
-/** The preview content-type id for a buffer, or `null` if not previewable. */
-export function contentTypeForBuffer(buffer: BufferDocument): string | null {
-  const name = buffer.source_path ?? buffer.filename ?? buffer.title ?? "";
+function recognizedExt(name: string | null | undefined): string | null {
+  if (!name) return null;
   const matched = /\.([a-z0-9]+)$/i.exec(name);
   if (!matched) return null;
   return EXT_TO_CONTENT_TYPE[matched[1].toLowerCase()] ?? null;
+}
+
+/**
+ * The preview content-type id for a buffer, or `null` if not previewable.
+ *
+ * - **`source_path` is authoritative when present.** The on-disk path is
+ *   the file's identity; renaming the tab does not change what the file
+ *   IS. A `main.rs` titled `doc.html` is still Rust, not HTML, so we do
+ *   not fall through.
+ * - When there is no `source_path` (scratch buffer), prefer `title` over
+ *   `filename`. The user-chosen title reflects intent (e.g. `test.html`);
+ *   the Rust-generated `<uuid>.txt` filename is an internal artifact that
+ *   carries no semantic information and must not override the title.
+ */
+export function contentTypeForBuffer(buffer: BufferDocument): string | null {
+  if (buffer.source_path) {
+    return recognizedExt(buffer.source_path);
+  }
+  return recognizedExt(buffer.title) ?? recognizedExt(buffer.filename);
 }
