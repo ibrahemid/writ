@@ -20,9 +20,11 @@
 //! at serve time (see the ADR-010/011 supersede notes). [`ContentRenderer`]
 //! mirrors ADR-006's loader-agnostic registry precedent.
 
+pub mod protocol;
 pub mod registry;
 pub mod types;
 
+pub use protocol::{parse as parse_preview_url, ParsedRequest, PreviewScope, RefusalReason};
 pub use registry::{ContentRendererRegistry, RegisterError};
 pub use types::{
     ContentRenderer, ContentTypeId, LayoutMode, RenderError, RenderOutput, RenderRequest,

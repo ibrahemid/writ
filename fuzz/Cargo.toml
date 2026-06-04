@@ -1,0 +1,29 @@
+# cargo-fuzz crate for the writ-preview:// URL parser.
+#
+# Its own workspace (empty [workspace] table) so the main `cargo build
+# --workspace` and the four merge gates never pull in libfuzzer or require
+# the nightly toolchain. Run with: `cargo +nightly fuzz run preview_url_parser`.
+#
+# Depends only on writ-core — the parser is pure domain logic, so the fuzz
+# build does not compile Tauri.
+[package]
+name = "writ-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+writ-core = { path = "../crates/writ-core" }
+
+[[bin]]
+name = "preview_url_parser"
+path = "fuzz_targets/preview_url_parser.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

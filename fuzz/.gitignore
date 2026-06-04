@@ -1,0 +1,5 @@
+# Build artifacts and crash findings — the seed corpus IS committed.
+/target
+/artifacts
+/coverage
+Cargo.lock

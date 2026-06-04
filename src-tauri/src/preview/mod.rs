@@ -15,6 +15,7 @@
 //!   renderers (HTML now; markdown / Mermaid / KaTeX next).
 
 pub mod csp;
+pub mod csp_eval;
 pub mod handler;
 pub mod protocol;
 pub mod renderers;
