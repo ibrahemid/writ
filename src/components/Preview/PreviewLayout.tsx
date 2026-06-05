@@ -64,11 +64,19 @@ export default function PreviewLayout(props: Props) {
     win.layout.set(props.buffer.id, props.buffer.source_path, layout());
   }
 
-  const isSplit = () => layout().kind === "split";
-  const showsPane = () => {
+  const previewIntent = () => {
     const k = layout().kind;
-    return (k === "split" || k === "preview") && renderable();
+    return k === "split" || k === "preview";
   };
+  // The ONLY path that mounts <PreviewPane> (and therefore an iframe): a
+  // preview-intent layout on a buffer with a registered renderer.
+  const showsIframe = () => previewIntent() && renderable();
+  // Recognized content type but no registered renderer: the user reached a
+  // preview layout (e.g. via the cycle keymap, which doesn't renderer-check).
+  // Show a friendly note in the pane slot — never a blank iframe.
+  const showsUnsupportedNote = () =>
+    previewIntent() && !renderable() && contentType() !== null;
+  const isSplit = () => layout().kind === "split";
   const orientation = () => {
     const l = layout();
     return l.kind === "split" ? l.orientation : "vertical";
@@ -76,7 +84,10 @@ export default function PreviewLayout(props: Props) {
 
   const editorStyle = (): JSX.CSSProperties => {
     const l = layout();
-    if (l.kind === "preview" && renderable()) return { display: "none" };
+    // Hide the editor only when a real preview pane is showing. A
+    // preview-intent layout on an unrenderable buffer keeps the editor
+    // visible alongside the "no preview" note.
+    if (l.kind === "preview" && showsIframe()) return { display: "none" };
     if (l.kind === "split") {
       return { "flex-grow": "0", "flex-shrink": "0", "flex-basis": `${l.ratio * 100}%` };
     }
@@ -103,13 +114,15 @@ export default function PreviewLayout(props: Props) {
         />
       </Show>
 
-      <Show when={showsPane()}>
+      <Show when={showsIframe()}>
         <div class="preview-pane-slot">
-          <PreviewPane
-            buffer={props.buffer}
-            contentType={contentType()!}
-            layout={layout().kind}
-          />
+          <PreviewPane buffer={props.buffer} contentType={contentType()!} />
+        </div>
+      </Show>
+
+      <Show when={showsUnsupportedNote()}>
+        <div class="preview-pane-slot preview-unsupported">
+          <span>No preview available for this file type.</span>
         </div>
       </Show>
     </div>

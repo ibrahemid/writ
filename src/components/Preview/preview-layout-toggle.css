@@ -1,0 +1,104 @@
+/* Preview controls in the StatusBar — the layout segmented control and the
+   scripts toggle. Minimal, token-driven, coherent with Writ's chrome. */
+
+.layout-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--writ-surface-sunken);
+}
+
+.layout-toggle-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--writ-foreground-subtle);
+  font-family: var(--writ-font-sans);
+  font-size: var(--writ-font-size-xs);
+  line-height: 1.4;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.layout-toggle-seg:hover {
+  color: var(--writ-foreground-default);
+}
+
+.layout-toggle-seg.is-active {
+  color: var(--writ-accent-default);
+  background: var(--writ-surface-elevated);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+}
+
+.layout-toggle-seg:focus-visible {
+  outline: 1px solid var(--writ-border-focus);
+  outline-offset: 1px;
+}
+
+.layout-toggle-seg svg {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.layout-toggle-label {
+  white-space: nowrap;
+}
+
+/* Scripts kill-switch pill. */
+.scripts-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: none;
+  border-radius: 7px;
+  background: var(--writ-surface-sunken);
+  color: var(--writ-foreground-muted);
+  font-family: var(--writ-font-sans);
+  font-size: var(--writ-font-size-xs);
+  line-height: 1.4;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.scripts-toggle:hover {
+  color: var(--writ-foreground-default);
+  background: var(--writ-surface-hover);
+}
+
+.scripts-toggle:focus-visible {
+  outline: 1px solid var(--writ-border-focus);
+  outline-offset: 1px;
+}
+
+.scripts-toggle-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--writ-accent-default);
+  box-shadow: 0 0 4px var(--writ-accent-default);
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.scripts-toggle.is-off {
+  color: var(--writ-foreground-subtle);
+}
+
+.scripts-toggle.is-off .scripts-toggle-dot {
+  background: var(--writ-foreground-subtle);
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .layout-toggle-seg,
+  .scripts-toggle,
+  .scripts-toggle-dot {
+    transition: none;
+  }
+}

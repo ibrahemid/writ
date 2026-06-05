@@ -23,6 +23,16 @@ vi.mock("../../components/Kbd/Kbd", () => ({
   default: () => null,
 }));
 
+// The preview controls reach into per-window state via useWindow(); this
+// test renders StatusBar without a WindowProvider and is scoped to the
+// save-status live region, so stub them out.
+vi.mock("../../components/Preview/PreviewLayoutToggle", () => ({
+  default: () => null,
+}));
+vi.mock("../../components/Preview/PreviewScriptsToggle", () => ({
+  default: () => null,
+}));
+
 import StatusBar from "../../components/Editor/StatusBar";
 
 describe("StatusBar persistent live region (#50)", () => {

@@ -1,53 +1,56 @@
 import { Show } from "solid-js";
-import type { LayoutKind } from "../../lib/preview-layout";
 
 export type PreviewState = "rendering" | "ok" | "manual" | "too_large" | "error";
 
 interface Props {
   state: PreviewState;
-  layout: LayoutKind;
-  scriptsOn: boolean;
-  usedFallback: boolean;
   warnings: string[];
   message: string;
 }
 
+// A transient status indicator floating in the preview pane's corner. It is
+// silent in the steady state (rendered OK, no warnings) so nothing hovers
+// over the content; it appears only when there is something to say —
+// rendering, a size gate, an error, or parser warnings. Layout and the
+// scripts kill switch are persistent controls and live in the status bar.
+
 const STATE_LABEL: Record<PreviewState, string> = {
   rendering: "rendering…",
-  ok: "preview",
+  ok: "",
   manual: "large — Cmd+R to render",
   too_large: "document too large",
   error: "render error",
 };
 
 export default function PreviewStatusChip(props: Props) {
+  const hasState = () => props.state !== "ok";
+  const visible = () => hasState() || props.warnings.length > 0;
+
   return (
-    <div
-      class="preview-chip"
-      classList={{
-        "is-error": props.state === "error" || props.state === "too_large",
-        "is-manual": props.state === "manual",
-      }}
-      role="region"
-      aria-label="Preview status"
-    >
-      <span class="preview-chip-mode">{STATE_LABEL[props.state]}</span>
-      <Show when={props.state === "error" && props.message}>
-        <span class="preview-chip-detail" title={props.message}>
-          {props.message}
-        </span>
-      </Show>
-      <Show when={props.warnings.length > 0}>
-        <span
-          class="preview-chip-warn"
-          title={props.warnings.join("\n")}
-        >
-          {props.warnings.length} warning{props.warnings.length === 1 ? "" : "s"}
-        </span>
-      </Show>
-      <Show when={props.scriptsOn} fallback={<span class="preview-chip-flag is-off">scripts off</span>}>
-        <span class="preview-chip-flag">scripts</span>
-      </Show>
-    </div>
+    <Show when={visible()}>
+      <div
+        class="preview-chip"
+        classList={{
+          "is-error": props.state === "error" || props.state === "too_large",
+          "is-manual": props.state === "manual",
+        }}
+        role="status"
+        aria-live="polite"
+      >
+        <Show when={hasState()}>
+          <span class="preview-chip-mode">{STATE_LABEL[props.state]}</span>
+        </Show>
+        <Show when={props.state === "error" && props.message}>
+          <span class="preview-chip-detail" title={props.message}>
+            {props.message}
+          </span>
+        </Show>
+        <Show when={props.warnings.length > 0}>
+          <span class="preview-chip-warn" title={props.warnings.join("\n")}>
+            {props.warnings.length} warning{props.warnings.length === 1 ? "" : "s"}
+          </span>
+        </Show>
+      </div>
+    </Show>
   );
 }
