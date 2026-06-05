@@ -7,6 +7,9 @@ const mockWindow = {
   isMaximized: vi.fn(),
   maximize: vi.fn(),
   unmaximize: vi.fn(),
+  isFullscreen: vi.fn(),
+  setFullscreen: vi.fn(),
+  onResized: vi.fn(),
   onFocusChanged: vi.fn(),
   onCloseRequested: vi.fn(),
   destroy: vi.fn(),
@@ -29,6 +32,7 @@ import {
   minimizeWindow,
   startDraggingWindow,
   toggleMaximizeWindow,
+  toggleFullscreenWindow,
   onWindowFocusChange,
   onWindowCloseRequested,
 } from "../tauri";
@@ -46,23 +50,93 @@ afterEach(() => {
 
 describe("hideWindow", () => {
   it("logs a warning when window.hide rejects", async () => {
+    mockWindow.isFullscreen.mockResolvedValueOnce(false);
     mockWindow.hide.mockRejectedValueOnce(new Error("no window"));
     await hideWindow();
     expect(warnSpy).toHaveBeenCalledWith("hideWindow failed:", expect.any(Error));
   });
 
   it("does not log on the happy path", async () => {
+    mockWindow.isFullscreen.mockResolvedValueOnce(false);
     mockWindow.hide.mockResolvedValueOnce(undefined);
     await hideWindow();
     expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("hides directly when not fullscreen", async () => {
+    mockWindow.isFullscreen.mockResolvedValueOnce(false);
+    mockWindow.hide.mockResolvedValueOnce(undefined);
+    await hideWindow();
+    expect(mockWindow.setFullscreen).not.toHaveBeenCalled();
+    expect(mockWindow.hide).toHaveBeenCalledOnce();
+  });
+
+  it("exits fullscreen before hiding when fullscreen", async () => {
+    mockWindow.isFullscreen.mockResolvedValueOnce(true);
+    mockWindow.onResized.mockImplementationOnce((cb: () => void) => {
+      cb();
+      return Promise.resolve(() => {});
+    });
+    mockWindow.setFullscreen.mockResolvedValueOnce(undefined);
+    mockWindow.hide.mockResolvedValueOnce(undefined);
+    await hideWindow();
+    expect(mockWindow.setFullscreen).toHaveBeenCalledWith(false);
+    const exitOrder = mockWindow.setFullscreen.mock.invocationCallOrder[0];
+    const hideOrder = mockWindow.hide.mock.invocationCallOrder[0];
+    expect(hideOrder).toBeGreaterThan(exitOrder);
   });
 });
 
 describe("minimizeWindow", () => {
   it("logs a warning when window.minimize rejects", async () => {
+    mockWindow.isFullscreen.mockResolvedValueOnce(false);
     mockWindow.minimize.mockRejectedValueOnce(new Error("denied"));
     await minimizeWindow();
     expect(warnSpy).toHaveBeenCalledWith("minimizeWindow failed:", expect.any(Error));
+  });
+
+  it("minimizes directly when not fullscreen", async () => {
+    mockWindow.isFullscreen.mockResolvedValueOnce(false);
+    mockWindow.minimize.mockResolvedValueOnce(undefined);
+    await minimizeWindow();
+    expect(mockWindow.setFullscreen).not.toHaveBeenCalled();
+    expect(mockWindow.minimize).toHaveBeenCalledOnce();
+  });
+
+  it("exits fullscreen before minimizing when fullscreen", async () => {
+    mockWindow.isFullscreen.mockResolvedValueOnce(true);
+    mockWindow.onResized.mockImplementationOnce((cb: () => void) => {
+      cb();
+      return Promise.resolve(() => {});
+    });
+    mockWindow.setFullscreen.mockResolvedValueOnce(undefined);
+    mockWindow.minimize.mockResolvedValueOnce(undefined);
+    await minimizeWindow();
+    expect(mockWindow.setFullscreen).toHaveBeenCalledWith(false);
+    const exitOrder = mockWindow.setFullscreen.mock.invocationCallOrder[0];
+    const minOrder = mockWindow.minimize.mock.invocationCallOrder[0];
+    expect(minOrder).toBeGreaterThan(exitOrder);
+  });
+
+  it("waits for the fullscreen-exit transition before minimizing", async () => {
+    mockWindow.isFullscreen.mockResolvedValueOnce(true);
+    let fireResize: () => void = () => {};
+    const unlisten = vi.fn();
+    mockWindow.onResized.mockImplementationOnce((cb: () => void) => {
+      fireResize = cb;
+      return Promise.resolve(unlisten);
+    });
+    mockWindow.setFullscreen.mockResolvedValueOnce(undefined);
+    mockWindow.minimize.mockResolvedValueOnce(undefined);
+
+    const pending = minimizeWindow();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockWindow.minimize).not.toHaveBeenCalled();
+
+    fireResize();
+    await pending;
+    expect(mockWindow.minimize).toHaveBeenCalledOnce();
+    expect(unlisten).toHaveBeenCalledOnce();
   });
 });
 
@@ -95,6 +169,28 @@ describe("toggleMaximizeWindow", () => {
     await toggleMaximizeWindow();
     expect(mockWindow.unmaximize).toHaveBeenCalledOnce();
     expect(mockWindow.maximize).not.toHaveBeenCalled();
+  });
+});
+
+describe("toggleFullscreenWindow", () => {
+  it("logs a warning when isFullscreen rejects", async () => {
+    mockWindow.isFullscreen.mockRejectedValueOnce(new Error("query failed"));
+    await toggleFullscreenWindow();
+    expect(warnSpy).toHaveBeenCalledWith("toggleFullscreenWindow failed:", expect.any(Error));
+  });
+
+  it("enters fullscreen when currently windowed", async () => {
+    mockWindow.isFullscreen.mockResolvedValueOnce(false);
+    mockWindow.setFullscreen.mockResolvedValueOnce(undefined);
+    await toggleFullscreenWindow();
+    expect(mockWindow.setFullscreen).toHaveBeenCalledWith(true);
+  });
+
+  it("exits fullscreen when currently fullscreen", async () => {
+    mockWindow.isFullscreen.mockResolvedValueOnce(true);
+    mockWindow.setFullscreen.mockResolvedValueOnce(undefined);
+    await toggleFullscreenWindow();
+    expect(mockWindow.setFullscreen).toHaveBeenCalledWith(false);
   });
 });
 

@@ -4,6 +4,7 @@ Cargo.lock.bak
 
 # Node / frontend
 node_modules/
+node_modules
 dist/
 
 # Local databases and WAL/shm sidecars

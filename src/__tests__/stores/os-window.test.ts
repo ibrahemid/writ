@@ -4,6 +4,7 @@ vi.mock("../../services/tauri", () => ({
   hideWindow: vi.fn().mockResolvedValue(undefined),
   minimizeWindow: vi.fn().mockResolvedValue(undefined),
   toggleMaximizeWindow: vi.fn().mockResolvedValue(undefined),
+  toggleFullscreenWindow: vi.fn().mockResolvedValue(undefined),
   startDraggingWindow: vi.fn().mockResolvedValue(undefined),
   onWindowFocusChange: vi.fn(),
   getLogicalWindowSize: vi.fn(),
@@ -40,6 +41,7 @@ beforeEach(() => {
   apiMock.hideWindow.mockResolvedValue(undefined);
   apiMock.minimizeWindow.mockResolvedValue(undefined);
   apiMock.toggleMaximizeWindow.mockResolvedValue(undefined);
+  apiMock.toggleFullscreenWindow.mockResolvedValue(undefined);
   apiMock.startDraggingWindow.mockResolvedValue(undefined);
   apiMock.setLogicalWindowSize.mockResolvedValue(undefined);
   apiMock.setLogicalWindowPosition.mockResolvedValue(undefined);
@@ -63,6 +65,11 @@ describe("osWindowStore actions", () => {
   it("toggleMaximize delegates to api.toggleMaximizeWindow exactly once", async () => {
     await osWindowStore.toggleMaximize();
     expect(apiMock.toggleMaximizeWindow).toHaveBeenCalledTimes(1);
+  });
+
+  it("toggleFullscreen delegates to api.toggleFullscreenWindow exactly once", async () => {
+    await osWindowStore.toggleFullscreen();
+    expect(apiMock.toggleFullscreenWindow).toHaveBeenCalledTimes(1);
   });
 
   it("startDragging delegates to api.startDraggingWindow exactly once", async () => {

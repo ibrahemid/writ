@@ -107,6 +107,7 @@ function createOsWindowStore() {
     hide: api.hideWindow,
     minimize: api.minimizeWindow,
     toggleMaximize: api.toggleMaximizeWindow,
+    toggleFullscreen: api.toggleFullscreenWindow,
     startDragging: api.startDraggingWindow,
   };
 }
