@@ -124,9 +124,41 @@ export async function restartApp(): Promise<void> {
   return invoke("restart_app");
 }
 
+const FULLSCREEN_EXIT_TIMEOUT_MS = 700;
+
+// Leave native fullscreen and wait for the OS transition to finish before
+// returning. setFullscreen() resolves when the IPC dispatches, not when the
+// macOS exit animation completes, so a minimize()/hide() issued straight after
+// would land mid-transition and be dropped by AppKit. Settle on the window's
+// first resize after the toggle (the transition's end), with a timeout as a
+// safety net for platforms that report no resize.
+async function exitFullscreen(win: ReturnType<typeof getCurrentWindow>): Promise<void> {
+  let settle: () => void = () => {};
+  const transitioned = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
+  const unlisten = await win.onResized(() => settle());
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await win.setFullscreen(false);
+    await Promise.race([
+      transitioned,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, FULLSCREEN_EXIT_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    unlisten();
+  }
+}
+
 export async function hideWindow(): Promise<void> {
   try {
     const win = getCurrentWindow();
+    if (await win.isFullscreen()) {
+      await exitFullscreen(win);
+    }
     await win.hide();
   } catch (err) {
     console.warn("hideWindow failed:", err);
@@ -136,6 +168,9 @@ export async function hideWindow(): Promise<void> {
 export async function minimizeWindow(): Promise<void> {
   try {
     const win = getCurrentWindow();
+    if (await win.isFullscreen()) {
+      await exitFullscreen(win);
+    }
     await win.minimize();
   } catch (err) {
     console.warn("minimizeWindow failed:", err);
@@ -162,6 +197,16 @@ export async function toggleMaximizeWindow(): Promise<void> {
     }
   } catch (err) {
     console.warn("toggleMaximizeWindow failed:", err);
+  }
+}
+
+export async function toggleFullscreenWindow(): Promise<void> {
+  try {
+    const win = getCurrentWindow();
+    const fullscreen = await win.isFullscreen();
+    await win.setFullscreen(!fullscreen);
+  } catch (err) {
+    console.warn("toggleFullscreenWindow failed:", err);
   }
 }
 

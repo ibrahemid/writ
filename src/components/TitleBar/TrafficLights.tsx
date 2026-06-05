@@ -77,9 +77,9 @@ export default function TrafficLights(props: Props) {
         <button
           type="button"
           class="maclight maclight-max"
-          onClick={osWindowStore.toggleMaximize}
-          title="Maximize"
-          aria-label="Maximize window"
+          onClick={osWindowStore.toggleFullscreen}
+          title="Full Screen"
+          aria-label="Toggle full screen"
                  >
           <svg viewBox="0 0 12 12" aria-hidden="true">
             <path d="M4 4L4 7L7 4ZM8 8L8 5L5 8Z" fill="#003800" />

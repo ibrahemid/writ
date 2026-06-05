@@ -393,6 +393,36 @@ mod tests {
         assert_eq!(menu_action_for_id("file.open "), None);
     }
 
+    #[test]
+    fn capabilities_grant_window_control_actions() {
+        // The frontend drives every window control through getCurrentWindow()
+        // (services/tauri.ts). Tauri v2 gates each call behind a capability
+        // permission; a missing action permission makes the IPC reject and the
+        // try/catch swallows it, so the button silently does nothing. The build
+        // gates do not catch this, so pin the action permissions the chrome
+        // depends on. core:default already covers the read permissions
+        // (is-maximized, is-fullscreen, scale-factor, sizes/positions).
+        let caps = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("capabilities")
+                .join("default.json"),
+        )
+        .expect("read capabilities/default.json");
+        for permission in [
+            "core:window:allow-maximize",
+            "core:window:allow-unmaximize",
+            "core:window:allow-set-fullscreen",
+            "core:window:allow-set-size",
+            "core:window:allow-set-position",
+            "core:window:allow-center",
+        ] {
+            assert!(
+                caps.contains(permission),
+                "capabilities/default.json must grant {permission} or the matching window control is a silent no-op"
+            );
+        }
+    }
+
     // --- #113: drag-drop nil-pasteboard regression guards ---
 
     #[test]
