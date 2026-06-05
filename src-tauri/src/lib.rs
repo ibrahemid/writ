@@ -28,6 +28,22 @@ fn menu_action_for_id(id: &str) -> Option<&'static str> {
     MENU_ACTION_IDS.iter().copied().find(|&allowed| allowed == id)
 }
 
+/// Canonicalize and authorize OS-dropped paths into the set we will open.
+///
+/// Returns an empty vec when nothing survives, which is exactly what a nil or
+/// empty macOS drag pasteboard now yields after the wry nil-safe patch (#113).
+/// This must never panic on empty, non-UTF-8, or non-canonicalizable input.
+fn dropped_paths_to_open(
+    authorized: &security::AuthorizedPaths,
+    paths: &[std::path::PathBuf],
+) -> Vec<String> {
+    let raw_paths: Vec<String> = paths
+        .iter()
+        .filter_map(|p| p.to_str().map(String::from))
+        .collect();
+    startup::authorize_and_canonicalize(authorized, &raw_paths)
+}
+
 fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 
@@ -342,28 +358,16 @@ pub fn run() {
             ..
         } = &event
         {
-            if !paths.is_empty() {
-                let raw_paths: Vec<String> = paths
-                    .iter()
-                    .filter_map(|p| p.to_str().map(String::from))
-                    .collect();
-                let state = app_handle.state::<AppState>();
-                let canonical_paths = startup::authorize_and_canonicalize(
-                    &state.authorized_paths,
-                    &raw_paths,
+            let state = app_handle.state::<AppState>();
+            let canonical_paths = dropped_paths_to_open(&state.authorized_paths, paths);
+            if !canonical_paths.is_empty() {
+                info!(count = canonical_paths.len(), "files dropped onto window");
+                let _ = emit_event(
+                    app_handle,
+                    WritFrontendEvent::FilesDropped {
+                        paths: canonical_paths,
+                    },
                 );
-                if !canonical_paths.is_empty() {
-                    info!(
-                        count = canonical_paths.len(),
-                        "files dropped onto window"
-                    );
-                    let _ = emit_event(
-                        app_handle,
-                        WritFrontendEvent::FilesDropped {
-                            paths: canonical_paths,
-                        },
-                    );
-                }
             }
         }
 
@@ -387,5 +391,73 @@ mod tests {
         assert_eq!(menu_action_for_id(""), None);
         assert_eq!(menu_action_for_id("unknown.command"), None);
         assert_eq!(menu_action_for_id("file.open "), None);
+    }
+
+    // --- #113: drag-drop nil-pasteboard regression guards ---
+
+    #[test]
+    fn dropped_paths_empty_input_yields_nothing() {
+        // A nil/empty macOS pasteboard now reaches us as an empty path slice
+        // (wry nil-safe patch). The handler must produce nothing, not panic.
+        let authorized = security::AuthorizedPaths::new();
+        assert!(dropped_paths_to_open(&authorized, &[]).is_empty());
+    }
+
+    #[test]
+    fn dropped_paths_malformed_input_yields_nothing() {
+        // Garbage / non-existent payloads (the malformed-pasteboard case) must
+        // be dropped silently, never canonicalized, never panic.
+        let authorized = security::AuthorizedPaths::new();
+        let junk = [
+            std::path::PathBuf::from("/no/such/file/anywhere-113"),
+            std::path::PathBuf::from(""),
+            std::path::PathBuf::from("relative/missing"),
+        ];
+        assert!(dropped_paths_to_open(&authorized, &junk).is_empty());
+    }
+
+    #[test]
+    fn dropped_paths_real_file_preserves_open_by_path() {
+        // The fix must not weaken the happy path: a real dropped file still
+        // canonicalizes through to an authorized path to open by path.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("dropped-113.txt");
+        std::fs::write(&file, b"hi").expect("write");
+        let authorized = security::AuthorizedPaths::new();
+        let opened = dropped_paths_to_open(&authorized, &[file]);
+        assert_eq!(opened.len(), 1);
+        assert!(opened[0].ends_with("dropped-113.txt"));
+    }
+
+    #[test]
+    fn wry_dragdrop_patch_is_pinned() {
+        // The actual nil-unwrap panic lives in wry; we fix it via a pinned
+        // [patch.crates-io] fork. If this stanza is ever dropped, cargo silently
+        // falls back to the panicking crates.io wry and #113 regresses. Lock it.
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("Cargo.toml");
+        let toml = std::fs::read_to_string(&manifest).expect("read workspace Cargo.toml");
+        let patch = toml
+            .split_once("[patch.crates-io]")
+            .map(|(_, rest)| rest)
+            .expect("[patch.crates-io] stanza present");
+        assert!(
+            patch.contains("wry") && patch.contains("ibrahemid/wry") && patch.contains("rev"),
+            "wry must stay pinned to the nil-safe fork rev (#113)"
+        );
+
+        // The manifest stanza is moot if the lock silently falls back to the
+        // panicking crates.io wry. Assert the resolved source is the fork.
+        let lock = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("..")
+                .join("Cargo.lock"),
+        )
+        .expect("read workspace Cargo.lock");
+        assert!(
+            lock.contains("git+https://github.com/ibrahemid/wry.git"),
+            "Cargo.lock must resolve wry to the nil-safe fork, not crates.io (#113)"
+        );
     }
 }
