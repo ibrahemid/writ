@@ -20,8 +20,7 @@ use writ_core::preview::{
     RendererCapabilities,
 };
 
-/// `writ-preview://chrome/*` path the fallback stylesheet is served from.
-pub const FALLBACK_STYLESHEET_URL: &str = "writ-preview://chrome/preview-base.css";
+use super::theme;
 
 /// Hard ceiling above which the HTML renderer refuses. Mirrors ADR-009's
 /// 50 MB surface refusal; the surface-level 1 MB / 5 MB thresholds are
@@ -108,23 +107,27 @@ fn has_author_styles(html: &str) -> bool {
     false
 }
 
-/// Inject the fallback stylesheet `<link>` into the document.
+/// Inject the inlined base theme `<style>` into the document.
+///
+/// Inlined rather than linked to the chrome scope: a cross-scope `<link>`
+/// from the document iframe can silently fail to apply (it did, in L4 smoke),
+/// whereas an inline `<style>` is covered by the document CSP's
+/// `style-src 'unsafe-inline'` and needs no second request. See
+/// `renderers::theme`.
 ///
 /// Placement, in priority order: right after `<head>`, else right after
 /// `<html ...>`, else prepended. The webview's permissive parser hoists a
-/// leading `<link>` into the head regardless, so the prepend fallback is
+/// leading `<style>` into the head regardless, so the prepend fallback is
 /// safe; we still prefer the head for well-formed documents.
 fn inject_fallback_stylesheet(html: &str) -> String {
-    let link = format!(
-        "<link rel=\"stylesheet\" href=\"{FALLBACK_STYLESHEET_URL}\">"
-    );
+    let style = theme::style_tag();
     let lower = html.to_ascii_lowercase();
 
     if let Some(idx) = lower.find("<head>") {
         let insert_at = idx + "<head>".len();
-        let mut out = String::with_capacity(html.len() + link.len());
+        let mut out = String::with_capacity(html.len() + style.len());
         out.push_str(&html[..insert_at]);
-        out.push_str(&link);
+        out.push_str(&style);
         out.push_str(&html[insert_at..]);
         return out;
     }
@@ -133,9 +136,9 @@ fn inject_fallback_stylesheet(html: &str) -> String {
         // <head> with attributes: insert after the closing '>'.
         if let Some(gt) = lower[idx..].find('>') {
             let insert_at = idx + gt + 1;
-            let mut out = String::with_capacity(html.len() + link.len());
+            let mut out = String::with_capacity(html.len() + style.len());
             out.push_str(&html[..insert_at]);
-            out.push_str(&link);
+            out.push_str(&style);
             out.push_str(&html[insert_at..]);
             return out;
         }
@@ -144,15 +147,15 @@ fn inject_fallback_stylesheet(html: &str) -> String {
     if let Some(idx) = lower.find("<html") {
         if let Some(gt) = lower[idx..].find('>') {
             let insert_at = idx + gt + 1;
-            let mut out = String::with_capacity(html.len() + link.len());
+            let mut out = String::with_capacity(html.len() + style.len());
             out.push_str(&html[..insert_at]);
-            out.push_str(&link);
+            out.push_str(&style);
             out.push_str(&html[insert_at..]);
             return out;
         }
     }
 
-    format!("{link}{html}")
+    format!("{style}{html}")
 }
 
 /// Cheap, parser-free warnings. Deliberately conservative: only flags
@@ -200,13 +203,18 @@ mod tests {
         assert_eq!(caps.max_safe_document_bytes, MAX_SAFE_BYTES);
     }
 
+    /// The injected fallback theme is identifiable by its tokens.
+    const THEME_MARKER: &str = "--writ-preview-bg";
+
     #[test]
     fn document_without_styles_gets_fallback() {
         let out = HtmlRenderer
             .render(req("<html><head></head><body><p>hi</p></body></html>"))
             .unwrap();
         assert!(out.used_fallback_stylesheet);
-        assert!(out.document_html.contains(FALLBACK_STYLESHEET_URL));
+        // Inlined as a <style>, not linked to the chrome scope.
+        assert!(out.document_html.contains("<style>"));
+        assert!(out.document_html.contains(THEME_MARKER));
     }
 
     #[test]
@@ -215,11 +223,11 @@ mod tests {
             .render(req("<html><head><title>t</title></head><body></body></html>"))
             .unwrap();
         let head_idx = out.document_html.find("<head>").unwrap();
-        let link_idx = out.document_html.find(FALLBACK_STYLESHEET_URL).unwrap();
+        let style_idx = out.document_html.find("<style>").unwrap();
         let title_idx = out.document_html.find("<title>").unwrap();
-        // Link sits between <head> and the rest of the head content.
-        assert!(head_idx < link_idx);
-        assert!(link_idx < title_idx);
+        // The style sits between <head> and the rest of the head content.
+        assert!(head_idx < style_idx);
+        assert!(style_idx < title_idx);
     }
 
     #[test]
@@ -227,7 +235,8 @@ mod tests {
         let html = "<html><head><style>body{color:red}</style></head><body></body></html>";
         let out = HtmlRenderer.render(req(html)).unwrap();
         assert!(!out.used_fallback_stylesheet);
-        assert!(!out.document_html.contains(FALLBACK_STYLESHEET_URL));
+        // The host theme is not injected; the document is unchanged.
+        assert!(!out.document_html.contains(THEME_MARKER));
         assert_eq!(out.document_html, html);
     }
 
@@ -250,7 +259,7 @@ mod tests {
     fn fallback_prepended_when_no_head_or_html() {
         let out = HtmlRenderer.render(req("<p>bare fragment</p>")).unwrap();
         assert!(out.used_fallback_stylesheet);
-        assert!(out.document_html.starts_with("<link"));
+        assert!(out.document_html.starts_with("<style>"));
     }
 
     #[test]

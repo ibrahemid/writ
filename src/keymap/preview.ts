@@ -1,7 +1,7 @@
 import { registerCommand } from "../commands/registry";
 import { bufferRegistry } from "../stores/global/buffer-registry";
-import { configStore } from "../stores/global/config";
 import { windowRegistry } from "../stores/global/window-registry";
+import { toggleRunScripts } from "../lib/preview-actions";
 import {
   DEFAULT_RATIO,
   defaultSplit,
@@ -132,15 +132,7 @@ export function registerPreviewKeymap(): void {
     description:
       "Kill switch: when off, the document CSP becomes script-src 'none'. Network stays off regardless.",
     scope: "app",
-    execute: async () => {
-      const current = configStore.config();
-      const next = {
-        ...current,
-        preview: { ...current.preview, run_scripts: !current.preview.run_scripts },
-      };
-      await configStore.save(next);
-      // Force-reload the active preview so the iframe picks up the new CSP.
-      activeWindow()?.preview.requestForceRefresh();
-    },
+    execute: () =>
+      void toggleRunScripts(() => activeWindow()?.preview.requestForceRefresh()),
   });
 }

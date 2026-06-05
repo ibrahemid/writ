@@ -61,6 +61,20 @@
   font-size: var(--writ-font-size-sm);
 }
 
+/* Recognized content type with no registered renderer — shown instead of a
+   blank iframe when the user reaches a preview layout. */
+.preview-unsupported {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+  color: var(--writ-foreground-muted);
+  font-family: var(--writ-font-sans);
+  font-size: var(--writ-font-size-sm);
+  background: var(--writ-surface-background);
+}
+
 /* Divider handle — a hairline that widens its hit target invisibly. */
 .preview-split-handle {
   position: relative;
@@ -145,15 +159,4 @@
 
 .preview-chip-warn {
   color: var(--writ-status-warning);
-}
-
-.preview-chip-flag {
-  padding: 0 6px;
-  border-radius: var(--writ-radius-1);
-  background: var(--writ-surface-hover);
-  color: var(--writ-accent-default);
-}
-
-.preview-chip-flag.is-off {
-  color: var(--writ-foreground-subtle);
 }

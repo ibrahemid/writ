@@ -2,6 +2,8 @@ import { createMemo, Show } from "solid-js";
 import { useCommand } from "../../commands/registry";
 import { useEffectiveBinding } from "../../commands/keybindings";
 import { saveStatusStore } from "../../stores/global/save-status";
+import PreviewLayoutToggle from "../Preview/PreviewLayoutToggle";
+import PreviewScriptsToggle from "../Preview/PreviewScriptsToggle";
 import Kbd from "../Kbd/Kbd";
 import "./StatusBar.css";
 
@@ -32,6 +34,8 @@ export default function StatusBar() {
       </div>
       <div class="statusbar-spacer" />
       <div class="statusbar-right">
+        <PreviewLayoutToggle />
+        <PreviewScriptsToggle />
         <Kbd binding={paletteBinding()} />
         <span class="statusbar-label">command palette</span>
       </div>
