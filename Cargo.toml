@@ -29,3 +29,16 @@ codegen-units = 1
 lto = true
 strip = true
 panic = "abort"
+
+# wry 0.54.4 panics on macOS: collect_paths() unwraps a nil propertyListForType
+# read that AppKit returns for some drag/trackpad gestures, crashing the app on
+# drop (Writ #113). No 0.54.x release carries the fix and tauri-runtime-wry
+# 2.10.1 pins wry "^0.54.0", so a version bump is impossible without churning
+# tauri itself. This pins a one-commit fork of wry-v0.54.4 whose only change is a
+# nil-safe let-else in src/wkwebview/drag_drop.rs.
+#   fork:   https://github.com/ibrahemid/wry/tree/fix/dragdrop-nil-pasteboard
+#   diff:   wry-v0.54.4..4c8372657c0516b48c01fa7f05b826b9095ce315 (4 lines)
+# DROP THIS PATCH once a tauri/wry bump ships the nil-safe read upstream (wry
+# >= 0.55 carries it); re-pin or delete and run `cargo update -p wry`.
+[patch.crates-io]
+wry = { git = "https://github.com/ibrahemid/wry.git", rev = "4c8372657c0516b48c01fa7f05b826b9095ce315" }
