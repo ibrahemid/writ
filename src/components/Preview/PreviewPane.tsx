@@ -3,13 +3,11 @@ import type { BufferDocument } from "../../types/buffer";
 import { configStore } from "../../stores/global/config";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import PreviewStatusChip, { type PreviewState } from "./PreviewStatusChip";
-import type { LayoutKind } from "../../lib/preview-layout";
 import "./preview-chrome.css";
 
 interface Props {
   buffer: BufferDocument;
   contentType: string;
-  layout: LayoutKind;
 }
 
 const MB = 1024 * 1024;
@@ -21,8 +19,6 @@ export default function PreviewPane(props: Props) {
   const [warnings, setWarnings] = createSignal<string[]>([]);
   const [message, setMessage] = createSignal("");
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
-
-  const scriptsOn = () => configStore.config().preview.run_scripts;
 
   // Cache-busting query param forces the iframe to reload fresh HTML; the
   // protocol parser discards the query, so the handler still keys on the id.
@@ -115,14 +111,7 @@ export default function PreviewPane(props: Props) {
           />
         </Show>
       </Show>
-      <PreviewStatusChip
-        state={state()}
-        layout={props.layout}
-        scriptsOn={scriptsOn()}
-        usedFallback={false}
-        warnings={warnings()}
-        message={message()}
-      />
+      <PreviewStatusChip state={state()} warnings={warnings()} message={message()} />
     </div>
   );
 }
