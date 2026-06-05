@@ -20,10 +20,14 @@ fn list_returns_every_registered_builtin() {
     let descriptors = registry.list();
     let ids: Vec<String> = descriptors.into_iter().map(|d| d.id).collect();
     assert!(ids.contains(&"trim_leading_whitespace".to_string()));
+    assert!(ids.contains(&"trim_trailing_whitespace".to_string()));
     assert!(ids.contains(&"normalize_whitespace".to_string()));
     assert!(ids.contains(&"smart_to_straight_quotes".to_string()));
     assert!(ids.contains(&"dedent".to_string()));
-    assert_eq!(ids.len(), 4);
+    assert!(ids.contains(&"ensure_final_newline".to_string()));
+    assert!(ids.contains(&"fix_punctuation_spacing".to_string()));
+    assert!(ids.contains(&"tidy_whitespace".to_string()));
+    assert_eq!(ids.len(), 8);
 }
 
 #[test]
@@ -31,6 +35,20 @@ fn apply_round_trips_trim_leading_whitespace() {
     let registry = build_registry();
     let out = apply(&registry, "trim_leading_whitespace", "   hello\n\t world").unwrap();
     assert_eq!(out, "hello\nworld");
+}
+
+#[test]
+fn apply_round_trips_trim_trailing_whitespace() {
+    let registry = build_registry();
+    let out = apply(&registry, "trim_trailing_whitespace", "hello  \nworld\t").unwrap();
+    assert_eq!(out, "hello\nworld");
+}
+
+#[test]
+fn apply_round_trips_tidy_whitespace_composite() {
+    let registry = build_registry();
+    let out = apply(&registry, "tidy_whitespace", "    foo   bar   \n    baz\t\n\n\n").unwrap();
+    assert_eq!(out, "foo bar\nbaz\n");
 }
 
 #[test]

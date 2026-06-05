@@ -1,18 +1,23 @@
 use writ_plugin::transform::builtins::{
-    register_builtins, Dedent, NormalizeWhitespace, SmartToStraightQuotes, TrimLeadingWhitespace,
+    register_builtins, tidy_whitespace, Dedent, EnsureFinalNewline, FixPunctuationSpacing,
+    NormalizeWhitespace, SmartToStraightQuotes, TrimLeadingWhitespace, TrimTrailingWhitespace,
 };
 use writ_plugin::transform::{TextTransform, TransformRegistry};
 
 #[test]
-fn register_builtins_registers_all_four_transforms() {
+fn register_builtins_registers_all_eight_transforms() {
     let mut registry = TransformRegistry::new();
     register_builtins(&mut registry).expect("registration must succeed");
-    assert_eq!(registry.len(), 4);
+    assert_eq!(registry.len(), 8);
     let ids: Vec<String> = registry.list().into_iter().map(|d| d.id).collect();
     assert!(ids.contains(&"trim_leading_whitespace".to_string()));
+    assert!(ids.contains(&"trim_trailing_whitespace".to_string()));
     assert!(ids.contains(&"normalize_whitespace".to_string()));
     assert!(ids.contains(&"smart_to_straight_quotes".to_string()));
     assert!(ids.contains(&"dedent".to_string()));
+    assert!(ids.contains(&"ensure_final_newline".to_string()));
+    assert!(ids.contains(&"fix_punctuation_spacing".to_string()));
+    assert!(ids.contains(&"tidy_whitespace".to_string()));
 }
 
 #[test]
@@ -232,6 +237,186 @@ fn dedent_all_blank_lines() {
 fn dedent_is_idempotent_after_first_application() {
     let t = Dedent;
     let once = t.apply("    a\n      b\n    c").unwrap();
+    let twice = t.apply(&once).unwrap();
+    assert_eq!(once, twice);
+}
+
+#[test]
+fn trim_trailing_strips_spaces_and_tabs_from_each_line() {
+    let t = TrimTrailingWhitespace;
+    assert_eq!(t.apply("hello   \nworld\t").unwrap(), "hello\nworld");
+}
+
+#[test]
+fn trim_trailing_preserves_leading_whitespace() {
+    let t = TrimTrailingWhitespace;
+    assert_eq!(t.apply("    hello   ").unwrap(), "    hello");
+}
+
+#[test]
+fn trim_trailing_blanks_whitespace_only_lines() {
+    let t = TrimTrailingWhitespace;
+    assert_eq!(t.apply("a\n   \nb").unwrap(), "a\n\nb");
+}
+
+#[test]
+fn trim_trailing_preserves_crlf_line_endings() {
+    let t = TrimTrailingWhitespace;
+    assert_eq!(t.apply("a  \r\nb\t\r\n").unwrap(), "a\r\nb\r\n");
+}
+
+#[test]
+fn trim_trailing_handles_empty_input() {
+    let t = TrimTrailingWhitespace;
+    assert_eq!(t.apply("").unwrap(), "");
+}
+
+#[test]
+fn trim_trailing_is_idempotent() {
+    let t = TrimTrailingWhitespace;
+    let once = t.apply("a  \nb\t \nc ").unwrap();
+    let twice = t.apply(&once).unwrap();
+    assert_eq!(once, twice);
+}
+
+#[test]
+fn ensure_final_newline_adds_missing_newline() {
+    let t = EnsureFinalNewline;
+    assert_eq!(t.apply("abc").unwrap(), "abc\n");
+}
+
+#[test]
+fn ensure_final_newline_keeps_single_existing_newline() {
+    let t = EnsureFinalNewline;
+    assert_eq!(t.apply("abc\n").unwrap(), "abc\n");
+}
+
+#[test]
+fn ensure_final_newline_collapses_multiple_trailing_newlines() {
+    let t = EnsureFinalNewline;
+    assert_eq!(t.apply("abc\n\n\n").unwrap(), "abc\n");
+}
+
+#[test]
+fn ensure_final_newline_uses_crlf_when_input_is_crlf() {
+    let t = EnsureFinalNewline;
+    assert_eq!(t.apply("a\r\nb").unwrap(), "a\r\nb\r\n");
+    assert_eq!(t.apply("a\r\nb\r\n\r\n").unwrap(), "a\r\nb\r\n");
+}
+
+#[test]
+fn ensure_final_newline_empty_input_stays_empty() {
+    let t = EnsureFinalNewline;
+    assert_eq!(t.apply("").unwrap(), "");
+}
+
+#[test]
+fn ensure_final_newline_only_newlines_collapse_to_empty() {
+    let t = EnsureFinalNewline;
+    assert_eq!(t.apply("\n\n").unwrap(), "");
+}
+
+#[test]
+fn ensure_final_newline_is_idempotent() {
+    let t = EnsureFinalNewline;
+    let once = t.apply("abc\n\n").unwrap();
+    let twice = t.apply(&once).unwrap();
+    assert_eq!(once, twice);
+}
+
+#[test]
+fn fix_punctuation_removes_space_before_comma_and_period() {
+    let t = FixPunctuationSpacing;
+    assert_eq!(t.apply("Hello , world .").unwrap(), "Hello, world.");
+}
+
+#[test]
+fn fix_punctuation_removes_space_before_semicolon_colon_bang_question() {
+    let t = FixPunctuationSpacing;
+    assert_eq!(t.apply("a ; b : c ! d ?").unwrap(), "a; b: c! d?");
+}
+
+#[test]
+fn fix_punctuation_preserves_decimals() {
+    let t = FixPunctuationSpacing;
+    assert_eq!(t.apply("pi is 3.14 today").unwrap(), "pi is 3.14 today");
+}
+
+#[test]
+fn fix_punctuation_preserves_urls() {
+    let t = FixPunctuationSpacing;
+    assert_eq!(
+        t.apply("see http://example.com for more").unwrap(),
+        "see http://example.com for more"
+    );
+}
+
+#[test]
+fn fix_punctuation_collapses_space_before_trailing_url_period() {
+    let t = FixPunctuationSpacing;
+    assert_eq!(
+        t.apply("see http://example.com .").unwrap(),
+        "see http://example.com."
+    );
+}
+
+#[test]
+fn fix_punctuation_does_not_split_ellipsis() {
+    let t = FixPunctuationSpacing;
+    assert_eq!(t.apply("wait ... really").unwrap(), "wait... really");
+    assert_eq!(t.apply("a...b").unwrap(), "a...b");
+}
+
+#[test]
+fn fix_punctuation_leaves_glued_punctuation_untouched() {
+    let t = FixPunctuationSpacing;
+    assert_eq!(t.apply("a ,b").unwrap(), "a ,b");
+}
+
+#[test]
+fn fix_punctuation_preserves_crlf() {
+    let t = FixPunctuationSpacing;
+    assert_eq!(t.apply("a , b\r\nc .\r\n").unwrap(), "a, b\r\nc.\r\n");
+}
+
+#[test]
+fn fix_punctuation_empty_input() {
+    let t = FixPunctuationSpacing;
+    assert_eq!(t.apply("").unwrap(), "");
+}
+
+#[test]
+fn fix_punctuation_is_idempotent() {
+    let t = FixPunctuationSpacing;
+    let once = t.apply("Hello , world . Bye ;").unwrap();
+    let twice = t.apply(&once).unwrap();
+    assert_eq!(once, twice);
+}
+
+#[test]
+fn tidy_whitespace_runs_the_full_pipeline() {
+    let t = tidy_whitespace();
+    assert_eq!(t.id(), "tidy_whitespace");
+    let input = "    foo   bar   \n    baz\t\n\n\n";
+    assert_eq!(t.apply(input).unwrap(), "foo bar\nbaz\n");
+}
+
+#[test]
+fn tidy_whitespace_adds_final_newline() {
+    let t = tidy_whitespace();
+    assert_eq!(t.apply("hello   world").unwrap(), "hello world\n");
+}
+
+#[test]
+fn tidy_whitespace_empty_input_stays_empty() {
+    let t = tidy_whitespace();
+    assert_eq!(t.apply("").unwrap(), "");
+}
+
+#[test]
+fn tidy_whitespace_is_idempotent_after_first_application() {
+    let t = tidy_whitespace();
+    let once = t.apply("    foo   bar   \n    baz\t\n\n").unwrap();
     let twice = t.apply(&once).unwrap();
     assert_eq!(once, twice);
 }
