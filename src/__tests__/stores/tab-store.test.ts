@@ -107,6 +107,46 @@ describe("tabStore (per-window factory)", () => {
 
       expect(tabs.activeTabId()).toBe(first.id);
     });
+
+    // Regression: closing the active tab must reselect the surviving tab
+    // BEFORE flipping the closed buffer to history. The status flip
+    // synchronously re-runs the active-buffer memo; if activeTabId still
+    // pointed at the closed id, the memo resolves to null for one flush,
+    // which disposes and recreates the preview iframe element (a
+    // destroy-then-recreate that hard-freezes the macOS webview) instead of
+    // navigating its src. Proven by the close IPC observing the survivor
+    // already selected.
+    it("reselects the surviving tab before the close IPC fires (preview freeze)", async () => {
+      const tabs = freshTabStore();
+      const first = await tabs.createTab();
+      const second = await tabs.createTab();
+      expect(tabs.activeTabId()).toBe(second.id);
+
+      let activeWhenClosed: string | null = "UNSET" as unknown as string;
+      mockedApi.closeBuffer.mockImplementationOnce(async () => {
+        activeWhenClosed = tabs.activeTabId();
+      });
+
+      await tabs.closeTab(second.id);
+
+      expect(activeWhenClosed).toBe(first.id);
+      expect(tabs.activeTabId()).toBe(first.id);
+    });
+
+    it("closing the only tab reselects null before the close IPC fires", async () => {
+      const tabs = freshTabStore();
+      const only = await tabs.createTab();
+
+      let activeWhenClosed: string | null = "UNSET" as unknown as string;
+      mockedApi.closeBuffer.mockImplementationOnce(async () => {
+        activeWhenClosed = tabs.activeTabId();
+      });
+
+      await tabs.closeTab(only.id);
+
+      expect(activeWhenClosed).toBeNull();
+      expect(tabs.activeTabId()).toBeNull();
+    });
   });
 
   describe("closeOtherTabs", () => {
