@@ -1,5 +1,6 @@
 import { Show, createMemo } from "solid-js";
 import StatusBar from "./StatusBar";
+import FindOverlay from "../Find/FindOverlay";
 import PreviewLayout from "../Preview/PreviewLayout";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { useWindow } from "../WindowProvider/WindowProvider";
@@ -19,6 +20,7 @@ export default function EditorArea() {
         <Show when={activeBuffer()} fallback={<div class="editor-empty">No buffer open</div>}>
           {(buf) => <PreviewLayout buffer={buf()} />}
         </Show>
+        <FindOverlay />
       </div>
       <StatusBar />
     </div>
