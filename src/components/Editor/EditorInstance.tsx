@@ -9,13 +9,14 @@ import {
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { syntaxHighlighting, bracketMatching, indentOnInput } from "@codemirror/language";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
-import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
+import { search, highlightSelectionMatches } from "@codemirror/search";
 import { writTheme, writHighlight } from "./cm-theme";
 import type { BufferDocument } from "../../types/buffer";
 import { debouncedSave, cancelAutosave, flushAutosave } from "../../services/autosave";
 import { detectLanguage, detectFromContent } from "../../services/language-detect";
 import { configStore } from "../../stores/global/config";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
+import { findStore } from "../../stores/global/find-store";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { registerCommand } from "../../commands/registry";
 import { getExtension as languageExtension } from "../../editor/language-registry";
@@ -76,6 +77,7 @@ export default function EditorInstance(props: Props) {
       indentOnInput(),
       history(),
       highlightSelectionMatches(),
+      search({ top: true }),
       syntaxHighlighting(writHighlight, { fallback: true }),
       keymap.of([
         { key: "Alt-ArrowUp", run: addCursorUp },
@@ -83,7 +85,6 @@ export default function EditorInstance(props: Props) {
         ...defaultKeymap,
         ...historyKeymap,
         ...closeBracketsKeymap,
-        ...searchKeymap,
         indentWithTab,
       ]),
       writTheme,
@@ -99,6 +100,7 @@ export default function EditorInstance(props: Props) {
           win.editor.setLineCount(update.state.doc.lines);
           win.editor.setCurrentText(content);
           maybeDetectFromContent(content, false);
+          if (findStore.isOpen()) findStore.refresh();
         }
         const sel = update.state.selection;
         const pos = sel.main.head;
