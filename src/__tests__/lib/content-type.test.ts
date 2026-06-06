@@ -32,6 +32,11 @@ describe("contentTypeForBuffer", () => {
     }
   });
 
+  it(".mmd and .mermaid map to mermaid", () => {
+    expect(contentTypeForBuffer(buf({ filename: "flow.mmd" }))).toBe("mermaid");
+    expect(contentTypeForBuffer(buf({ filename: "flow.MERMAID" }))).toBe("mermaid");
+  });
+
   it("prefers source_path over filename when both end differently", () => {
     expect(
       contentTypeForBuffer(buf({ source_path: "/a/notes.md", filename: "notes" })),

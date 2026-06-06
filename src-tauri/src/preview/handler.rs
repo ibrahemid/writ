@@ -84,8 +84,10 @@ pub type Header = (&'static str, String);
 pub struct ResolvedResponse {
     /// HTTP status code.
     pub status: u16,
-    /// Body bytes.
-    pub body: Vec<u8>,
+    /// Body bytes. Static assets (the chrome / `_assets` runtimes) borrow
+    /// straight from the binary so a multi-MB runtime is served without a
+    /// per-request copy on the live-render path; rendered documents own theirs.
+    pub body: Cow<'static, [u8]>,
     /// Headers, including Content-Type, the CSP, and nosniff.
     pub headers: Vec<Header>,
     /// Disposition recorded for diagnostics / the verification suite.
@@ -96,7 +98,7 @@ impl ResolvedResponse {
     fn refused(reason: RefusalReason) -> Self {
         Self {
             status: 403,
-            body: b"refused".to_vec(),
+            body: Cow::Borrowed(b"refused"),
             headers: vec![
                 ("Content-Type", "text/plain; charset=utf-8".to_string()),
                 ("X-Content-Type-Options", "nosniff".to_string()),
@@ -108,7 +110,7 @@ impl ResolvedResponse {
     fn not_found() -> Self {
         Self {
             status: 404,
-            body: b"not found".to_vec(),
+            body: Cow::Borrowed(b"not found"),
             headers: vec![
                 ("Content-Type", "text/plain; charset=utf-8".to_string()),
                 ("X-Content-Type-Options", "nosniff".to_string()),
@@ -140,7 +142,7 @@ pub fn resolve(
         PreviewScope::Chrome => match chrome_asset(&parsed.path) {
             Some((bytes, mime)) => ResolvedResponse {
                 status: 200,
-                body: bytes.to_vec(),
+                body: Cow::Borrowed(bytes),
                 headers: vec![
                     ("Content-Type", mime.to_string()),
                     ("X-Content-Type-Options", "nosniff".to_string()),
@@ -152,12 +154,37 @@ pub fn resolve(
             None => ResolvedResponse::not_found(),
         },
         PreviewScope::Document => {
+            // Reserved same-origin asset route. The bundled host runtimes
+            // (Mermaid, KaTeX) are served under the document origin so the
+            // preview iframe loads them same-origin — a cross-origin
+            // `writ-preview://chrome` subresource is refused by that scope's
+            // `Cross-Origin-Resource-Policy: same-origin`. The path after
+            // `_assets/` keys the same host-owned chrome-asset table; the URL
+            // parser has already rejected any traversal. Buffer ids are
+            // generated UUIDs and never collide with the `_assets` prefix.
+            if let Some(asset_path) = parsed.path.strip_prefix("_assets/") {
+                return match chrome_asset(asset_path) {
+                    // Same-origin to the document, so no Cross-Origin-Resource-
+                    // Policy header is needed (or wanted) here — its omission is
+                    // intentional, unlike the chrome scope which sets it.
+                    Some((bytes, mime)) => ResolvedResponse {
+                        status: 200,
+                        body: Cow::Borrowed(bytes),
+                        headers: vec![
+                            ("Content-Type", mime.to_string()),
+                            ("X-Content-Type-Options", "nosniff".to_string()),
+                        ],
+                        disposition: Disposition::Allowed,
+                    },
+                    None => ResolvedResponse::not_found(),
+                };
+            }
             // The document path's first segment is the buffer id.
             let buffer_id = parsed.path.split('/').next().unwrap_or("");
             match document_lookup(buffer_id) {
                 Some(doc) => ResolvedResponse {
                     status: 200,
-                    body: doc.html.into_bytes(),
+                    body: Cow::Owned(doc.html.into_bytes()),
                     headers: vec![
                         ("Content-Type", "text/html; charset=utf-8".to_string()),
                         ("X-Content-Type-Options", "nosniff".to_string()),
@@ -198,6 +225,11 @@ pub fn chrome_asset(path: &str) -> Option<(&'static [u8], &'static str)> {
             chrome_mime("preview-base.css"),
         )),
         "blank" | "blank.html" => Some((b"<!doctype html><title>writ</title>", chrome_mime("blank.html"))),
+        // L5 — bundled offline Mermaid runtime (single-file IIFE).
+        "mermaid/mermaid.min.js" => Some((
+            include_bytes!("../../assets/mermaid/mermaid.min.js"),
+            chrome_mime("mermaid.min.js"),
+        )),
         _ => None,
     }
 }
@@ -253,7 +285,7 @@ pub fn build_http_response(
         builder = builder.header(*key, value);
     }
     builder
-        .body(Cow::Owned(resolved.body))
+        .body(resolved.body)
         .expect("preview response is always well-formed")
 }
 
@@ -312,6 +344,85 @@ mod tests {
     }
 
     #[test]
+    fn assets_route_serves_runtime_same_origin_under_document_scope() {
+        // The bundled runtimes are reachable under the document origin so the
+        // preview iframe loads them same-origin (no cross-scope CORP refusal).
+        let r = resolve(
+            "writ-preview://document/_assets/mermaid/mermaid.min.js",
+            SCRIPTS_ON,
+            no_doc,
+            chrome_asset,
+        );
+        assert_eq!(r.status, 200);
+        assert!(!r.body.is_empty());
+        let ct = r.headers.iter().find(|(k, _)| *k == "Content-Type").unwrap();
+        assert!(ct.1.starts_with("application/javascript"));
+        assert!(r
+            .headers
+            .iter()
+            .any(|(k, v)| *k == "X-Content-Type-Options" && v == "nosniff"));
+        assert_eq!(r.disposition, Disposition::Allowed);
+    }
+
+    #[test]
+    fn assets_route_unknown_is_404() {
+        let r = resolve(
+            "writ-preview://document/_assets/nope.js",
+            SCRIPTS_ON,
+            no_doc,
+            chrome_asset,
+        );
+        assert_eq!(r.status, 404);
+    }
+
+    #[test]
+    fn assets_prefix_is_reserved_not_treated_as_a_buffer_id() {
+        // A document request whose first segment is `_assets` must route to
+        // the asset table, never to a buffer lookup. With an unknown asset it
+        // is a 404, but it must not be served as document HTML.
+        let cache = RenderCache::new();
+        cache.put("_assets", doc("<h1>should never serve</h1>"));
+        let r = resolve(
+            "writ-preview://document/_assets/ghost.js",
+            SCRIPTS_ON,
+            |id| cache.get(id),
+            chrome_asset,
+        );
+        assert_eq!(r.status, 404);
+    }
+
+    #[test]
+    fn vendored_mermaid_runtime_requires_no_unsafe_eval() {
+        // The document CSP grants no 'unsafe-eval'. The bundled IIFE must not
+        // depend on eval / the Function constructor; this static pin guards a
+        // future re-vendor from silently reintroducing that dependency. (The
+        // ultimate proof is behavioral — a diagram rendering under the locked
+        // CSP with zero violations — but this is the cheap in-repo guard.)
+        let (bytes, _) = chrome_asset("mermaid/mermaid.min.js").unwrap();
+        let src = std::str::from_utf8(bytes).expect("runtime is valid utf-8");
+
+        assert!(!src.contains("new Function("), "runtime must not use new Function()");
+        assert!(!src.contains("eval("), "runtime must not use eval()");
+
+        // Bare `Function(` calls are allowed only as the standard
+        // `Function("return this")()` global-object idiom, which never runs in
+        // a webview (an earlier `self`/`globalThis` operand short-circuits).
+        // Anything else — a `Function(<code>)` constructor — would need
+        // 'unsafe-eval' and must fail this guard. Method names like
+        // `parseFunction(` are excluded by requiring a non-identifier prefix.
+        for (idx, _) in src.match_indices("Function(") {
+            let prev = src[..idx].chars().next_back().unwrap_or(' ');
+            if prev == '.' || prev == '_' || prev == '$' || prev.is_ascii_alphanumeric() {
+                continue; // part of an identifier, not the bare constructor
+            }
+            assert!(
+                src[idx..].starts_with("Function(\"return this\")"),
+                "unexpected Function constructor at byte {idx}",
+            );
+        }
+    }
+
+    #[test]
     fn document_serves_cached_html_with_document_csp_and_nosniff() {
         let cache = RenderCache::new();
         cache.put("buf-1", doc("<h1>rendered</h1>"));
@@ -322,7 +433,7 @@ mod tests {
             chrome_asset,
         );
         assert_eq!(r.status, 200);
-        assert_eq!(String::from_utf8(r.body).unwrap(), "<h1>rendered</h1>");
+        assert_eq!(String::from_utf8(r.body.into_owned()).unwrap(), "<h1>rendered</h1>");
         assert!(r.headers.iter().any(|(k, v)| *k == "X-Content-Type-Options" && v == "nosniff"));
         let csp = r
             .headers

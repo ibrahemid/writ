@@ -18,13 +18,13 @@
 //! fallback stylesheet always applies (unconditionally, unlike the HTML
 //! renderer's presence-conditional check).
 
-use pulldown_cmark::{html, Options, Parser};
+use pulldown_cmark::{html, CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use writ_core::preview::{
     ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest,
     RendererCapabilities,
 };
 
-use super::theme;
+use super::{mermaid, theme};
 
 /// Hard ceiling, mirroring the HTML renderer and ADR-009's 50 MB refusal.
 const MAX_SAFE_BYTES: u64 = 50 * 1024 * 1024;
@@ -70,14 +70,55 @@ impl ContentRenderer for MarkdownRenderer {
             });
         }
 
+        // Walk the event stream so ```mermaid fences can be rewritten into the
+        // `<pre class="mermaid">` blocks the bundled runtime renders from. All
+        // other events pass through unchanged. A non-mermaid fence stays an
+        // ordinary code block.
         let parser = Parser::new_ext(&request.buffer_text, Self::options());
+        let mut events: Vec<Event> = Vec::new();
+        let mut has_mermaid = false;
+        let mut in_mermaid = false;
+        let mut mermaid_src = String::new();
+        for event in parser {
+            match event {
+                Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(ref info)))
+                    if mermaid::is_mermaid_info(info) =>
+                {
+                    in_mermaid = true;
+                    mermaid_src.clear();
+                }
+                Event::Text(text) if in_mermaid => mermaid_src.push_str(&text),
+                Event::End(TagEnd::CodeBlock) if in_mermaid => {
+                    in_mermaid = false;
+                    // An empty ```mermaid fence carries no diagram: emit
+                    // nothing and inject no runtime for it, so a stray empty
+                    // fence does not render a Mermaid parse error.
+                    if !mermaid_src.trim().is_empty() {
+                        has_mermaid = true;
+                        events.push(Event::Html(mermaid::diagram_block(&mermaid_src).into()));
+                    }
+                }
+                // Defensive: a code block yields only Text events, but never
+                // leak a stray event from inside a captured mermaid fence.
+                _ if in_mermaid => {}
+                other => events.push(other),
+            }
+        }
+
         let mut body = String::with_capacity(request.buffer_text.len() * 3 / 2);
-        html::push_html(&mut body, parser);
+        html::push_html(&mut body, events.into_iter());
 
         // Markdown carries no styling of its own, so the base theme always
         // applies. Wrap in a complete document with the theme inlined as a
-        // <style> (not a cross-scope <link>, which can fail to apply).
-        let document_html = theme::wrap_document(&body);
+        // <style> (not a cross-scope <link>, which can fail to apply). The
+        // Mermaid runtime is injected before </body> only when a diagram is
+        // present, so plain documents pay nothing.
+        let body_end = if has_mermaid {
+            mermaid::runtime_tags()
+        } else {
+            String::new()
+        };
+        let document_html = theme::wrap_document_with("", &body, &body_end);
 
         Ok(RenderOutput {
             document_html,
@@ -157,6 +198,63 @@ mod tests {
         let out = render("```rust\nfn main() {}\n```");
         assert!(out.document_html.contains("<pre><code"));
         assert!(out.document_html.contains("fn main()"));
+    }
+
+    #[test]
+    fn mermaid_fence_becomes_mermaid_pre_and_injects_runtime() {
+        let out = render("```mermaid\ngraph TD; A-->B\n```");
+        // The fence is rewritten to the element Mermaid renders from, not a
+        // language-tagged code block.
+        assert!(out.document_html.contains("<pre class=\"mermaid\">"));
+        assert!(!out.document_html.contains("language-mermaid"));
+        // Diagram source is HTML-escaped so it survives as text content.
+        assert!(out.document_html.contains("graph TD; A--&gt;B"));
+        // The bundled runtime is injected exactly once, same-origin.
+        assert!(out
+            .document_html
+            .contains("writ-preview://document/_assets/mermaid/mermaid.min.js"));
+        assert!(out.document_html.contains("mermaid.run("));
+    }
+
+    #[test]
+    fn non_mermaid_fence_stays_a_code_block_and_injects_no_runtime() {
+        let out = render("```rust\nfn main() {}\n```");
+        assert!(out.document_html.contains("<pre><code"));
+        assert!(!out.document_html.contains("mermaid.min.js"));
+    }
+
+    #[test]
+    fn plain_markdown_injects_no_mermaid_runtime() {
+        let out = render("# title\n\ntext");
+        assert!(!out.document_html.contains("mermaid"));
+    }
+
+    #[test]
+    fn multiple_mermaid_fences_render_each_and_inject_runtime_once() {
+        let md = "```mermaid\nA-->B\n```\n\nprose\n\n```rust\nfn x(){}\n```\n\n```mermaid\nC-->D\n```";
+        let out = render(md);
+        let html = &out.document_html;
+        // Two diagrams, each captured (clear() between fences worked).
+        assert_eq!(html.matches("<pre class=\"mermaid\">").count(), 2);
+        assert!(html.contains("A--&gt;B"));
+        assert!(html.contains("C--&gt;D"));
+        // The interleaved rust fence stays an ordinary code block.
+        assert!(html.contains("<pre><code"));
+        // The runtime is injected exactly once regardless of diagram count.
+        assert_eq!(html.matches("mermaid.min.js").count(), 1);
+    }
+
+    #[test]
+    fn multiline_mermaid_fence_captures_full_body() {
+        let out = render("```mermaid\ngraph TD\n  A-->B\n  B-->C\n```");
+        assert!(out.document_html.contains("graph TD\n  A--&gt;B\n  B--&gt;C"));
+    }
+
+    #[test]
+    fn empty_mermaid_fence_emits_nothing_and_no_runtime() {
+        let out = render("```mermaid\n```");
+        assert!(!out.document_html.contains("<pre class=\"mermaid\">"));
+        assert!(!out.document_html.contains("mermaid.min.js"));
     }
 
     #[test]
