@@ -230,6 +230,10 @@ pub fn chrome_asset(path: &str) -> Option<(&'static [u8], &'static str)> {
             include_bytes!("../../assets/mermaid/mermaid.min.js"),
             chrome_mime("mermaid.min.js"),
         )),
+        // L6 — bundled offline KaTeX runtime (js, css, woff2 fonts). The whole
+        // `katex/` subtree is owned by the renderer module's asset table.
+        p if p.starts_with("katex/") => super::renderers::katex::asset(&p["katex/".len()..])
+            .map(|bytes| (bytes, chrome_mime(p))),
         _ => None,
     }
 }
@@ -362,6 +366,32 @@ mod tests {
             .iter()
             .any(|(k, v)| *k == "X-Content-Type-Options" && v == "nosniff"));
         assert_eq!(r.disposition, Disposition::Allowed);
+    }
+
+    #[test]
+    fn assets_route_serves_katex_css_and_fonts_with_correct_mime() {
+        // The KaTeX stylesheet and its woff2 fonts are reachable same-origin so
+        // the relative `url(fonts/…)` in the CSS resolves under `_assets/katex/`.
+        let css = resolve(
+            "writ-preview://document/_assets/katex/katex.min.css",
+            SCRIPTS_ON,
+            no_doc,
+            chrome_asset,
+        );
+        assert_eq!(css.status, 200);
+        let ct = css.headers.iter().find(|(k, _)| *k == "Content-Type").unwrap();
+        assert!(ct.1.starts_with("text/css"));
+
+        let font = resolve(
+            "writ-preview://document/_assets/katex/fonts/KaTeX_Main-Regular.woff2",
+            SCRIPTS_ON,
+            no_doc,
+            chrome_asset,
+        );
+        assert_eq!(font.status, 200);
+        assert!(!font.body.is_empty());
+        let ct = font.headers.iter().find(|(k, _)| *k == "Content-Type").unwrap();
+        assert_eq!(ct.1, "font/woff2");
     }
 
     #[test]

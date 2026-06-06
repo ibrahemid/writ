@@ -24,7 +24,7 @@ use writ_core::preview::{
     RendererCapabilities,
 };
 
-use super::{mermaid, theme};
+use super::{katex, mermaid, theme};
 
 /// Hard ceiling, mirroring the HTML renderer and ADR-009's 50 MB refusal.
 const MAX_SAFE_BYTES: u64 = 50 * 1024 * 1024;
@@ -40,11 +40,19 @@ impl MarkdownRenderer {
 
     /// The GitHub-flavored extensions agent output relies on. Raw-HTML
     /// passthrough is on by default and is deliberately not disabled.
+    ///
+    /// `ENABLE_MATH` tokenizes `$…$` / `$$…$$` into `InlineMath` / `DisplayMath`
+    /// events carrying the *raw* LaTeX — so a multi-line `$$` block, or content
+    /// with backslash sequences (`\,`, `\int`), reaches the DOM as one intact
+    /// math span instead of being split across nodes or mangled by CommonMark's
+    /// backslash escaping. It is also code-aware: `$` in a code span/fence is
+    /// left as text. The runtime typesets the spans (L6).
     fn options() -> Options {
         Options::ENABLE_TABLES
             | Options::ENABLE_STRIKETHROUGH
             | Options::ENABLE_TASKLISTS
             | Options::ENABLE_FOOTNOTES
+            | Options::ENABLE_MATH
     }
 }
 
@@ -77,6 +85,7 @@ impl ContentRenderer for MarkdownRenderer {
         let parser = Parser::new_ext(&request.buffer_text, Self::options());
         let mut events: Vec<Event> = Vec::new();
         let mut has_mermaid = false;
+        let mut has_math = false;
         let mut in_mermaid = false;
         let mut mermaid_src = String::new();
         for event in parser {
@@ -101,6 +110,12 @@ impl ContentRenderer for MarkdownRenderer {
                 // Defensive: a code block yields only Text events, but never
                 // leak a stray event from inside a captured mermaid fence.
                 _ if in_mermaid => {}
+                // Math events pass through (push_html emits the `math` spans);
+                // seeing one means the KaTeX runtime must be injected.
+                Event::InlineMath(_) | Event::DisplayMath(_) => {
+                    has_math = true;
+                    events.push(event);
+                }
                 other => events.push(other),
             }
         }
@@ -111,14 +126,22 @@ impl ContentRenderer for MarkdownRenderer {
         // Markdown carries no styling of its own, so the base theme always
         // applies. Wrap in a complete document with the theme inlined as a
         // <style> (not a cross-scope <link>, which can fail to apply). The
-        // Mermaid runtime is injected before </body> only when a diagram is
+        // Mermaid and KaTeX runtimes are injected only when their content is
         // present, so plain documents pay nothing.
-        let body_end = if has_mermaid {
-            mermaid::runtime_tags()
+        let head_extra = if has_math {
+            katex::head_tags()
         } else {
             String::new()
         };
-        let document_html = theme::wrap_document_with("", &body, &body_end);
+        let mut body_end = String::new();
+        if has_mermaid {
+            body_end.push_str(&mermaid::runtime_tags());
+            body_end.push('\n');
+        }
+        if has_math {
+            body_end.push_str(&katex::runtime_tags());
+        }
+        let document_html = theme::wrap_document_with(&head_extra, &body, &body_end);
 
         Ok(RenderOutput {
             document_html,
@@ -255,6 +278,61 @@ mod tests {
         let out = render("```mermaid\n```");
         assert!(!out.document_html.contains("<pre class=\"mermaid\">"));
         assert!(!out.document_html.contains("mermaid.min.js"));
+    }
+
+    #[test]
+    fn block_math_emits_display_span_and_injects_runtime() {
+        let out = render("Energy:\n\n$$E = mc^2$$\n");
+        // Math is tokenized into a display-math span carrying the raw content.
+        assert!(out.document_html.contains("math math-display"));
+        assert!(out.document_html.contains("E = mc^2"));
+        // KaTeX CSS + runtime are injected.
+        assert!(out
+            .document_html
+            .contains("writ-preview://document/_assets/katex/katex.min.css"));
+        assert!(out
+            .document_html
+            .contains("writ-preview://document/_assets/katex/katex.min.js"));
+        assert!(out.document_html.contains("katex.render("));
+    }
+
+    #[test]
+    fn inline_math_emits_inline_span_and_injects_runtime() {
+        let out = render("The value $x^2$ is positive.");
+        assert!(out.document_html.contains("math math-inline"));
+        assert!(out.document_html.contains("katex.min.js"));
+    }
+
+    #[test]
+    fn multiline_block_math_keeps_latex_intact_through_the_real_pipeline() {
+        // Regression (smoke L6): a $$ block on its own lines used to reach the
+        // DOM as raw, backslash-mangled text — markdown did not tokenize it, so
+        // the in-browser pass could not match it. With math tokenization it is a
+        // single display-math span with the LaTeX preserved (`\,` not collapsed
+        // to `,`, `\int` intact), which the runtime can typeset.
+        let out = render("$$\n\\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}\n$$");
+        assert!(out.document_html.contains("math math-display"));
+        assert!(out.document_html.contains("\\int_0^\\infty"));
+        assert!(out.document_html.contains("\\,dx"), "thin-space \\, must survive, not collapse to ,");
+        assert!(out.document_html.contains("\\frac{\\sqrt{\\pi}}{2}"));
+        assert!(out.document_html.contains("katex.min.js"));
+    }
+
+    #[test]
+    fn plain_markdown_and_lone_dollar_inject_no_katex() {
+        assert!(!render("# title\n\njust text").document_html.contains("katex"));
+        // A lone currency dollar is not math and must not pull in the runtime.
+        assert!(!render("it costs $5 today").document_html.contains("katex"));
+    }
+
+    #[test]
+    fn document_with_both_diagram_and_math_injects_both_runtimes_in_order() {
+        let out = render("```mermaid\nA-->B\n```\n\n$$x^2$$");
+        let html = &out.document_html;
+        assert!(html.contains("mermaid.min.js"));
+        assert!(html.contains("katex.min.js"));
+        // Mermaid runtime is appended before KaTeX in the body tail.
+        assert!(html.find("mermaid.min.js").unwrap() < html.find("katex.min.js").unwrap());
     }
 
     #[test]

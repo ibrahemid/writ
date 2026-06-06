@@ -3,12 +3,17 @@
 //! Registration order tracks the renderer roster (lean scope):
 //!
 //! 1. `html` (L2)
-//! 2. `markdown` (L4) — also rewrites ```mermaid fences and (L6) math
+//! 2. `markdown` (L4) — also rewrites ```mermaid fences (L5) and math (L6)
 //! 3. `mermaid` (L5 — standalone `.mmd` diagrams)
+//!
+//! `katex` (L6) carries no standalone content type: KaTeX typesets math
+//! expressions, not LaTeX documents, so a `.tex` file is not a renderable
+//! unit. It lives only as Markdown math enhancement + the shared asset table.
 
 use writ_core::preview::{ContentRendererRegistry, RegisterError};
 
 pub mod html;
+pub mod katex;
 pub mod markdown;
 pub mod mermaid;
 pub mod theme;
