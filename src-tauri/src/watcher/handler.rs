@@ -110,6 +110,17 @@ pub fn classify_watch_event(
         return None;
     }
 
+    // write_atomic persists through a NamedTempFile (`.tmp*`) created in the
+    // buffers dir, so every internal save emits a create+delete pair for that
+    // temp path. Buffer content files are `<uuid>.txt` and never start with a
+    // dot, so a dotfile here is always non-buffer noise. Without this guard
+    // the temp delete is classified as a BufferExternal change, the frontend
+    // reloads the buffer registry, and an open preview iframe is torn down and
+    // recreated mid-edit — the macOS webview hard-freeze this fix targets.
+    if filename.starts_with('.') {
+        return None;
+    }
+
     let current_bytes = std::fs::read(path).ok();
 
     let decision = {
@@ -188,6 +199,41 @@ mod tests {
             }
             other => panic!("expected BufferExternal::Modified, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn ignores_atomic_write_temp_files_in_buffers_dir() {
+        // write_atomic's NamedTempFile (`.tmp*`) create/delete must never be
+        // surfaced as an external buffer change; doing so triggered a
+        // frontend reload that recreated an open preview iframe and froze the
+        // macOS webview.
+        let dir = tempdir().unwrap();
+        let cfg = dir.path().join("config.toml");
+        let buffers = dir.path().join("buffers");
+        fs::create_dir_all(&buffers).unwrap();
+        let tmp = buffers.join(".tmpA1b2C3");
+        fs::write(&tmp, b"partial").unwrap();
+
+        let modified = classify_watch_event(
+            &tmp,
+            &cfg,
+            &buffers,
+            &make_set(),
+            DEFAULT_IGNORE_TTL,
+            Instant::now(),
+        );
+        assert!(modified.is_none(), "temp create must not be a buffer event");
+
+        fs::remove_file(&tmp).unwrap();
+        let deleted = classify_watch_event(
+            &tmp,
+            &cfg,
+            &buffers,
+            &make_set(),
+            DEFAULT_IGNORE_TTL,
+            Instant::now(),
+        );
+        assert!(deleted.is_none(), "temp delete must not be a buffer event");
     }
 
     #[test]

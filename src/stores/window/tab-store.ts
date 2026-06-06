@@ -31,18 +31,29 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
   }
 
   async function closeTab(id: string): Promise<void> {
-    await registry.closeBuffer(id);
+    // Move the selection to the surviving tab BEFORE mutating buffer status.
+    // closeBuffer flips the closed buffer to history, which synchronously
+    // re-runs the active-buffer memo; if activeTabId still pointed at the
+    // closed id, that memo would resolve to null for one flush before we
+    // reselect, disposing and recreating the preview iframe element instead
+    // of navigating its src. The destroy-then-recreate of a writ-preview://
+    // iframe hard-freezes the macOS webview. Reselecting first keeps the
+    // transition active->next (src navigation) or active->null only when no
+    // tab survives (a single clean teardown), both safe.
     if (activeTabId() === id) {
-      const remaining = registry.activeTabs();
+      const remaining = registry.activeTabs().filter((b) => b.id !== id);
       setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
     }
+    await registry.closeBuffer(id);
   }
 
   async function closeOtherTabs(keepId: string): Promise<void> {
     const toClose = registry.activeTabs().filter((b) => b.id !== keepId);
     if (toClose.length === 0) return;
-    await registry.closeBuffers(toClose.map((b) => b.id));
+    // Reselect the surviving tab first for the same reason as closeTab: a
+    // transient null active-buffer would recreate the preview iframe.
     setActiveTabId(keepId);
+    await registry.closeBuffers(toClose.map((b) => b.id));
   }
 
   async function closeAllTabs(): Promise<void> {
