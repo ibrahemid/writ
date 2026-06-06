@@ -31,6 +31,10 @@ export function createEditorStore() {
     activeView = view;
   }
 
+  function getView(): EditorView | null {
+    return activeView;
+  }
+
   function focusEditor() {
     activeView?.focus();
   }
@@ -68,7 +72,7 @@ export function createEditorStore() {
     language, setLanguage,
     selectionCount, setSelectionCount,
     currentText, setCurrentText,
-    registerView, focusEditor,
+    registerView, getView, focusEditor,
     applyEditToActiveBuffer,
   };
 }

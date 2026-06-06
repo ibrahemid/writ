@@ -42,9 +42,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn initialize() -> Result<Self, Box<dyn std::error::Error>> {
-        let writ_dir = dirs::home_dir()
-            .ok_or("could not find home directory")?
-            .join(".writ");
+        let writ_dir = resolve_writ_dir(std::env::var("WRIT_DATA_DIR").ok(), dirs::home_dir())?;
 
         std::fs::create_dir_all(&writ_dir)?;
 
@@ -129,5 +127,52 @@ impl AppState {
             preview_render_cache: Arc::new(RenderCache::new()),
             layout_state,
         })
+    }
+}
+
+/// Resolve the base directory for Writ's database, buffers, and config.
+///
+/// `WRIT_DATA_DIR` overrides the default so that several development
+/// instances can run side by side without sharing one SQLite database.
+/// When unset (or blank) the default is `<home>/.writ`.
+fn resolve_writ_dir(
+    custom: Option<String>,
+    home: Option<PathBuf>,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    if let Some(dir) = custom {
+        if !dir.trim().is_empty() {
+            return Ok(PathBuf::from(dir));
+        }
+    }
+    Ok(home.ok_or("could not find home directory")?.join(".writ"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_writ_dir;
+    use std::path::PathBuf;
+
+    #[test]
+    fn defaults_to_home_dot_writ_when_unset() {
+        let dir = resolve_writ_dir(None, Some(PathBuf::from("/home/user"))).unwrap();
+        assert_eq!(dir, PathBuf::from("/home/user/.writ"));
+    }
+
+    #[test]
+    fn blank_override_falls_back_to_home() {
+        let dir = resolve_writ_dir(Some("  ".into()), Some(PathBuf::from("/home/user"))).unwrap();
+        assert_eq!(dir, PathBuf::from("/home/user/.writ"));
+    }
+
+    #[test]
+    fn honours_explicit_override() {
+        let dir = resolve_writ_dir(Some("/tmp/writ-dev-1431".into()), Some(PathBuf::from("/home/user")))
+            .unwrap();
+        assert_eq!(dir, PathBuf::from("/tmp/writ-dev-1431"));
+    }
+
+    #[test]
+    fn errors_when_no_home_and_no_override() {
+        assert!(resolve_writ_dir(None, None).is_err());
     }
 }

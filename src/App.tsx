@@ -20,6 +20,7 @@ import { osWindowStore } from "./stores/global/os-window";
 import { windowRegistry } from "./stores/global/window-registry";
 import { focusSearchBar } from "./components/Sidebar/SearchBar";
 import { openContentSearch } from "./commands/search";
+import { findStore } from "./stores/global/find-store";
 import { registerTransformCommands } from "./commands/transforms";
 import { registerPreviewKeymap } from "./keymap/preview";
 import { rendererRegistry } from "./stores/global/renderer-registry";
@@ -217,6 +218,43 @@ function AppShell() {
     });
 
     registerCommand({
+      id: "editor.find",
+      label: "Find",
+      description: "Find text in the current document",
+      keybinding: "CmdOrCtrl+F",
+      scope: "editor",
+      execute: () => findStore.open(),
+    });
+
+    registerCommand({
+      id: "editor.findNext",
+      label: "Find Next",
+      description: "Move to the next match",
+      keybinding: "CmdOrCtrl+G",
+      scope: "editor",
+      execute: () => findStore.findNextCmd(),
+    });
+
+    registerCommand({
+      id: "editor.findPrevious",
+      label: "Find Previous",
+      description: "Move to the previous match",
+      keybinding: "CmdOrCtrl+Shift+G",
+      scope: "editor",
+      execute: () => findStore.findPrevCmd(),
+    });
+
+    registerCommand({
+      id: "editor.replace",
+      label: "Replace",
+      description: "Find and replace text in the current document",
+      keybinding: "CmdOrCtrl+R",
+      keybindingAliases: ["CmdOrCtrl+Alt+F"],
+      scope: "editor",
+      execute: () => findStore.showReplace(),
+    });
+
+    registerCommand({
       id: "palette.open",
       label: "Command Palette",
       description: "Search and run any command",
@@ -229,8 +267,8 @@ function AppShell() {
       id: "tab.rename",
       label: "Rename Tab",
       description: "Rename the active tab",
-      keybinding: "CmdOrCtrl+R",
-      keybindingAliases: ["F2", "CmdOrCtrl+Shift+S"],
+      keybinding: "F2",
+      keybindingAliases: ["CmdOrCtrl+Shift+S"],
       scope: "app",
       execute: () => startRenameActiveTab(),
     });

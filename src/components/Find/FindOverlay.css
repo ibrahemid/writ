@@ -1,0 +1,195 @@
+.find-overlay {
+  position: absolute;
+  top: 10px;
+  right: 18px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  min-width: 340px;
+  max-width: min(520px, calc(100% - 36px));
+  background: var(--writ-surface-raised);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-radius-3);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.find-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.find-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  background: var(--writ-surface-input);
+  border: 1px solid var(--writ-border-default);
+  border-radius: var(--writ-radius-2);
+  color: var(--writ-foreground-default);
+  font-size: var(--writ-font-size-sm);
+}
+
+.find-input:focus {
+  outline: none;
+  border-color: var(--writ-border-focus);
+}
+
+.find-input::placeholder {
+  color: var(--writ-foreground-subtle);
+}
+
+.find-count {
+  flex-shrink: 0;
+  min-width: 64px;
+  padding: 0 4px;
+  text-align: right;
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-foreground-subtle);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.find-count.is-empty {
+  color: var(--writ-accent-danger, #f7768e);
+}
+
+.find-toggles {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.find-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--writ-radius-1);
+  color: var(--writ-foreground-subtle);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 100ms ease, color 100ms ease, border-color 100ms ease;
+}
+
+.find-toggle:hover {
+  background: var(--writ-surface-hover);
+  color: var(--writ-foreground-default);
+}
+
+.find-toggle.is-on {
+  background: color-mix(in srgb, var(--writ-accent-default) 18%, transparent);
+  border-color: color-mix(in srgb, var(--writ-accent-default) 50%, transparent);
+  color: var(--writ-accent-default);
+}
+
+.find-toggle-word {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.find-nav {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.find-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  border-radius: var(--writ-radius-1);
+  color: var(--writ-foreground-muted);
+  cursor: pointer;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.find-icon-btn:hover:not(:disabled) {
+  background: var(--writ-surface-hover);
+  color: var(--writ-foreground-default);
+}
+
+.find-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.find-replace-toggle.is-on {
+  color: var(--writ-accent-default);
+}
+
+.find-row-replace {
+  padding-right: 52px;
+}
+
+.find-text-btn {
+  flex-shrink: 0;
+  height: 24px;
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid var(--writ-border-default);
+  border-radius: var(--writ-radius-1);
+  color: var(--writ-foreground-muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 100ms ease, color 100ms ease, border-color 100ms ease;
+}
+
+.find-text-btn:hover:not(:disabled) {
+  background: var(--writ-surface-hover);
+  color: var(--writ-foreground-default);
+  border-color: var(--writ-border-focus);
+}
+
+.find-text-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.find-tickmap {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  z-index: 39;
+  pointer-events: none;
+}
+
+.find-tick {
+  position: absolute;
+  right: 3px;
+  width: 6px;
+  height: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--writ-accent-default) 60%, transparent);
+  transform: translateY(-1px);
+}
+
+.find-tick.is-current {
+  width: 9px;
+  right: 1px;
+  height: 3px;
+  background: var(--writ-accent-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .find-toggle,
+  .find-icon-btn,
+  .find-text-btn {
+    transition: none;
+  }
+}
