@@ -29,9 +29,18 @@ pub fn style_tag() -> String {
 /// Wrap an HTML body fragment (e.g. Markdown output) in a complete,
 /// self-contained document with the inlined base theme and a UTF-8 charset.
 pub fn wrap_document(body_fragment: &str) -> String {
+    wrap_document_with("", body_fragment, "")
+}
+
+/// Like [`wrap_document`], but injects extra `<head>` content (e.g. a runtime
+/// stylesheet `<link>`) and extra content immediately before `</body>` (e.g. a
+/// runtime `<script>`). Renderers that enhance the document with a bundled
+/// runtime (Mermaid in L5, KaTeX in L6) use this to load those runtimes from
+/// the same-origin `writ-preview://document/_assets/` route.
+pub fn wrap_document_with(head_extra: &str, body_fragment: &str, body_end_extra: &str) -> String {
     format!(
-        "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n{}\n</head>\n<body>\n{body_fragment}\n</body>\n</html>",
-        style_tag()
+        "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n{style}\n{head_extra}\n</head>\n<body>\n{body_fragment}\n{body_end_extra}\n</body>\n</html>",
+        style = style_tag(),
     )
 }
 

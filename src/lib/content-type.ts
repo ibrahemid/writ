@@ -2,7 +2,8 @@ import type { BufferDocument } from "../types/buffer";
 
 // Maps a buffer's file extension to a preview content-type id. Only types
 // with a registered renderer actually preview; the registry gates that. The
-// lean preview targets agent/LLM output: HTML and (from L4) Markdown.
+// lean preview targets agent/LLM output: HTML, Markdown (L4), and standalone
+// Mermaid diagrams (L5). Markdown also renders embedded ```mermaid fences.
 const EXT_TO_CONTENT_TYPE: Record<string, string> = {
   html: "html",
   htm: "html",
@@ -10,6 +11,8 @@ const EXT_TO_CONTENT_TYPE: Record<string, string> = {
   markdown: "markdown",
   mdown: "markdown",
   mkd: "markdown",
+  mmd: "mermaid",
+  mermaid: "mermaid",
 };
 
 function recognizedExt(name: string | null | undefined): string | null {
