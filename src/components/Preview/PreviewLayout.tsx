@@ -17,19 +17,27 @@ interface Props {
 export default function PreviewLayout(props: Props) {
   const win = useWindow();
   let containerEl: HTMLDivElement | undefined;
-  const initialized = new Set<string>();
+  // id → renderable-at-resolution. Resolve a buffer's layout on first sight
+  // and again only on the non-renderable → renderable transition (#122: a
+  // scratch buffer renamed .txt → .md). A buffer resolved while renderable
+  // is never re-resolved, so a user's manual layout choice is never clobbered.
+  const resolvedRenderable = new Map<string, boolean>();
 
   const contentType = createMemo(() => contentTypeForBuffer(props.buffer));
   const renderable = createMemo(() => rendererRegistry.hasRenderer(contentType()));
   const layout = createMemo<LayoutMode>(() => win.layout.get(props.buffer.id));
 
-  // Resolve a buffer's initial layout once: persisted (source-backed) →
-  // content-type config default (if renderable) → source.
+  // Resolve initial layout: persisted (source-backed) → content-type config
+  // default (if renderable) → source. Re-runs on rename so a buffer that
+  // becomes renderable picks up its content-type default without a reopen.
   createEffect(() => {
     const buf = props.buffer;
-    if (initialized.has(buf.id)) return;
-    initialized.add(buf.id);
-    void initLayout(buf);
+    const canRender = rendererRegistry.hasRenderer(contentTypeForBuffer(buf));
+    const prev = resolvedRenderable.get(buf.id);
+    if (prev === undefined || (prev === false && canRender)) {
+      resolvedRenderable.set(buf.id, canRender);
+      void initLayout(buf);
+    }
   });
 
   async function initLayout(buf: BufferDocument) {
@@ -88,7 +96,10 @@ export default function PreviewLayout(props: Props) {
     // preview-intent layout on an unrenderable buffer keeps the editor
     // visible alongside the "no preview" note.
     if (l.kind === "preview" && showsIframe()) return { display: "none" };
-    if (l.kind === "split") {
+    // Only reserve split width when a preview pane actually shows. A split
+    // layout on an unrenderable buffer (e.g. .md renamed back to .txt) must
+    // give the editor full width, not leave an empty pane gap.
+    if (l.kind === "split" && renderable()) {
       return { "flex-grow": "0", "flex-shrink": "0", "flex-basis": `${l.ratio * 100}%` };
     }
     return { "flex-grow": "1", "flex-basis": "0" };
