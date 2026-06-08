@@ -80,6 +80,19 @@ describe("editor-store (per-window factory)", () => {
     });
   });
 
+  describe("current buffer id (preview render gate, #97)", () => {
+    it("defaults to null", () => {
+      expect(editorStore.currentBufferId()).toBeNull();
+    });
+
+    it("tracks the loaded buffer id and can be cleared", () => {
+      editorStore.setCurrentBufferId("buf-1");
+      expect(editorStore.currentBufferId()).toBe("buf-1");
+      editorStore.setCurrentBufferId(null);
+      expect(editorStore.currentBufferId()).toBeNull();
+    });
+  });
+
   describe("per-window isolation", () => {
     it("two instances are independent", () => {
       const a = createEditorStore();
