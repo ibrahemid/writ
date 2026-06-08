@@ -321,6 +321,30 @@ mod tests {
     }
 
     #[test]
+    fn render_cache_isolates_buffers() {
+        // The frontend keys every render on the buffer id; the cache must keep
+        // those slots strictly independent so one buffer's HTML can never be
+        // served under another's id. This is the host-side invariant the #97
+        // stale-cache flash fix relies on: the misattribution it guards against
+        // is a frontend coordination bug, never the cache conflating ids.
+        let cache = RenderCache::new();
+        cache.put("a", doc("<body>A</body>"));
+        cache.put("b", doc("<body>B</body>"));
+        assert_eq!(cache.get("a").unwrap().html, "<body>A</body>");
+        assert_eq!(cache.get("b").unwrap().html, "<body>B</body>");
+
+        // Re-rendering one slot leaves the other untouched.
+        cache.put("a", doc("<body>A2</body>"));
+        assert_eq!(cache.get("a").unwrap().html, "<body>A2</body>");
+        assert_eq!(cache.get("b").unwrap().html, "<body>B</body>");
+
+        // Evicting one slot (pane close) leaves the other intact.
+        cache.evict("a");
+        assert_eq!(cache.get("a"), None);
+        assert_eq!(cache.get("b").unwrap().html, "<body>B</body>");
+    }
+
+    #[test]
     fn chrome_stylesheet_is_served_with_css_mime_and_chrome_csp() {
         let r = resolve(
             "writ-preview://chrome/preview-base.css",

@@ -176,6 +176,9 @@ export default function EditorInstance(props: Props) {
     win.editor.registerView(view);
     win.editor.setLineCount(view.state.doc.lines);
     win.editor.setCurrentText(view.state.doc.toString());
+    // Publish the loaded id last so it never leads currentText: a preview pane
+    // gating on this id is guaranteed to read the matching buffer's text.
+    win.editor.setCurrentBufferId(buffer.id);
     view.focus();
   }
 
@@ -222,6 +225,7 @@ export default function EditorInstance(props: Props) {
       cancelAutosave(currentBufferId);
     }
     win.editor.registerView(null);
+    win.editor.setCurrentBufferId(null);
     view?.destroy();
   });
 
