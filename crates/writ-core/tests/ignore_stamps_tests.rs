@@ -60,7 +60,10 @@ fn missing_file_on_disk_treated_as_external_and_emits() {
 }
 
 #[test]
-fn suppression_consumes_stamp_so_second_event_emits() {
+fn matching_stamp_is_kept_so_every_event_from_one_write_is_suppressed() {
+    // One atomic save is often delivered as several debounced events; a
+    // stamp must suppress all of them, not just the first, as long as the
+    // disk bytes still match within the TTL window.
     let mut stamps = IgnoreStamps::new();
     let now = Instant::now();
     let content = b"same bytes";
@@ -70,7 +73,7 @@ fn suppression_consumes_stamp_so_second_event_emits() {
     let second = stamps.decide("writ-123", Some(content), now, TTL);
 
     assert_eq!(first, SuppressDecision::Suppress);
-    assert_eq!(second, SuppressDecision::Emit);
+    assert_eq!(second, SuppressDecision::Suppress);
 }
 
 #[test]

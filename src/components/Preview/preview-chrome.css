@@ -33,6 +33,13 @@
   display: flex;
 }
 
+/* The preview pane is kept mounted across buffer/layout changes so its iframe
+   is never torn down (#124); when no preview shows, the slot collapses out of
+   the split via display:none rather than being removed from the DOM. */
+.preview-pane-slot.is-hidden {
+  display: none;
+}
+
 .preview-pane {
   position: relative;
   flex: 1 1 0;
@@ -59,6 +66,22 @@
   color: var(--writ-foreground-muted);
   font-family: var(--writ-font-sans);
   font-size: var(--writ-font-size-sm);
+}
+
+/* Overlaid on the (persistent) iframe for the too-large refusal, so the frame
+   element stays mounted while the message shows. */
+.preview-pane-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+  color: var(--writ-foreground-muted);
+  font-family: var(--writ-font-sans);
+  font-size: var(--writ-font-size-sm);
+  background: var(--writ-surface-background);
 }
 
 /* Recognized content type with no registered renderer — shown instead of a

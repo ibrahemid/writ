@@ -1,4 +1,4 @@
-import { Show, createMemo } from "solid-js";
+import { createMemo } from "solid-js";
 import StatusBar from "./StatusBar";
 import FindOverlay from "../Find/FindOverlay";
 import PreviewLayout from "../Preview/PreviewLayout";
@@ -17,9 +17,9 @@ export default function EditorArea() {
   return (
     <div class="editor-area">
       <div class="editor-content">
-        <Show when={activeBuffer()} fallback={<div class="editor-empty">No buffer open</div>}>
-          {(buf) => <PreviewLayout buffer={buf()} />}
-        </Show>
+        {/* Always mounted, even with no active buffer, so the preview iframe
+            element it owns is never torn down (#124 webview freeze). */}
+        <PreviewLayout buffer={activeBuffer()} />
         <FindOverlay />
       </div>
       <StatusBar />

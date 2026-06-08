@@ -43,6 +43,7 @@ vi.mock("../../services/tauri", () => ({
   saveBufferContent: vi.fn().mockImplementation(async (id: string, content: string) => {
     callLog.push(`saveBufferContent:${id}:${content}`);
   }),
+  previewClose: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { createTabStore } from "../../stores/window/tab-store";

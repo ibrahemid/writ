@@ -55,8 +55,11 @@ pub enum SuppressDecision {
 ///
 /// Insertion is performed by IPC commands immediately before issuing
 /// their write. Lookup is performed by the watcher when an event for a
-/// buffer file is delivered. The lookup also opportunistically evicts
-/// the stamp once it is consumed.
+/// buffer file is delivered. A stamp is retained as long as the file's
+/// on-disk bytes still match it within the TTL window, so every event
+/// produced by a single internal write is suppressed; the stamp is
+/// evicted only when an event proves it stale (TTL exceeded, file gone,
+/// or bytes diverged).
 #[derive(Debug, Default)]
 pub struct IgnoreStamps {
     inner: HashMap<String, IgnoreStamp>,
@@ -97,8 +100,15 @@ impl IgnoreStamps {
     ///
     /// `current_disk_content` is the file's current on-disk bytes as
     /// observed by the watcher, or `None` if the file no longer exists
-    /// (deleted). The decision consumes the stamp on success: a single
-    /// recorded internal write only suppresses one event.
+    /// (deleted).
+    ///
+    /// A matching stamp is KEPT when the decision is [`SuppressDecision::Suppress`]
+    /// (observed bytes equal the recorded fingerprint and the stamp is
+    /// within `ttl`), so every event a single atomic write fans out into
+    /// is suppressed. The stamp is removed only when the decision is
+    /// [`SuppressDecision::Emit`]: the stamp is stale (older than `ttl`),
+    /// the file is gone (`None`), or the observed bytes differ from the
+    /// fingerprint (a genuine external edit).
     pub fn decide(
         &mut self,
         filename: &str,
@@ -120,11 +130,10 @@ impl IgnoreStamps {
             return SuppressDecision::Emit;
         };
 
-        let observed = hash_bytes(bytes);
-        self.inner.remove(filename);
-        if observed == stamp.hash {
+        if hash_bytes(bytes) == stamp.hash {
             SuppressDecision::Suppress
         } else {
+            self.inner.remove(filename);
             SuppressDecision::Emit
         }
     }
@@ -164,4 +173,62 @@ pub fn hash_bytes(content: &[u8]) -> ContentHash {
     let mut out = [0u8; 32];
     out.copy_from_slice(&result);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TTL: Duration = Duration::from_secs(5);
+
+    #[test]
+    fn keeps_stamp_so_repeated_events_from_one_write_are_all_suppressed() {
+        let mut stamps = IgnoreStamps::new();
+        let t0 = Instant::now();
+        let bytes = b"one atomic write";
+
+        stamps.record("draft.txt".to_string(), bytes, t0);
+
+        assert_eq!(
+            stamps.decide("draft.txt", Some(bytes), t0, TTL),
+            SuppressDecision::Suppress
+        );
+        assert_eq!(
+            stamps.decide("draft.txt", Some(bytes), t0, TTL),
+            SuppressDecision::Suppress
+        );
+        assert!(stamps.contains("draft.txt"));
+    }
+
+    #[test]
+    fn external_edit_after_internal_write_emits_and_clears() {
+        let mut stamps = IgnoreStamps::new();
+        let t0 = Instant::now();
+        let bytes_a = b"writ wrote this";
+        let bytes_b = b"someone else wrote this";
+
+        stamps.record("draft.txt".to_string(), bytes_a, t0);
+
+        assert_eq!(
+            stamps.decide("draft.txt", Some(bytes_b), t0, TTL),
+            SuppressDecision::Emit
+        );
+        assert!(!stamps.contains("draft.txt"));
+    }
+
+    #[test]
+    fn stale_matching_stamp_emits_and_clears() {
+        let mut stamps = IgnoreStamps::new();
+        let t0 = Instant::now();
+        let bytes = b"matching but stale";
+
+        stamps.record("draft.txt".to_string(), bytes, t0);
+
+        let later = t0 + TTL + Duration::from_millis(1);
+        assert_eq!(
+            stamps.decide("draft.txt", Some(bytes), later, TTL),
+            SuppressDecision::Emit
+        );
+        assert!(!stamps.contains("draft.txt"));
+    }
 }

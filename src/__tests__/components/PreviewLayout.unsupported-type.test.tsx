@@ -80,7 +80,7 @@ describe("PreviewLayout — recognized but unregistered content type", () => {
 
   afterEach(() => cleanup());
 
-  it("resolves to source layout and never mounts an iframe", async () => {
+  it("resolves to source layout and never shows a live preview", async () => {
     const { container } = render(() => (
       <WindowProvider windowId={7001}>
         <PreviewLayout buffer={recognizedUnregisteredBuffer()} />
@@ -93,8 +93,13 @@ describe("PreviewLayout — recognized but unregistered content type", () => {
       expect(container.querySelector('[data-testid="editor-stub"]')).not.toBeNull();
     });
 
-    // The hard guarantee: no preview iframe is ever in the DOM.
-    expect(container.querySelector("iframe.preview-frame")).toBeNull();
+    // The persistent preview iframe is never torn down (#124), but for an
+    // unrenderable buffer it stays parked on the blank doc inside a hidden slot
+    // — no live document render is shown.
+    const iframe = container.querySelector<HTMLIFrameElement>("iframe.preview-frame");
+    expect(iframe).not.toBeNull();
+    expect(iframe!.src).toMatch(/chrome\/blank$/);
+    expect(container.querySelector(".preview-pane-slot.is-hidden")).not.toBeNull();
     // And the renderer IPC was never invoked for an unrenderable buffer.
     expect(mocks.forceRender).not.toHaveBeenCalled();
   });
@@ -112,11 +117,14 @@ describe("PreviewLayout — recognized but unregistered content type", () => {
     const win = windowRegistry.getActive()!;
     win.layout.setLocal("U1", defaultSplit());
 
-    // Still no iframe — the unsupported note takes the pane slot.
+    // The unsupported note takes the visible pane slot; the persistent iframe
+    // stays parked on the blank doc in its own hidden slot (never torn down).
     await waitFor(() => {
       expect(document.querySelector(".preview-unsupported")).not.toBeNull();
     });
-    expect(document.querySelector("iframe.preview-frame")).toBeNull();
+    const iframe = document.querySelector<HTMLIFrameElement>("iframe.preview-frame");
+    expect(iframe).not.toBeNull();
+    expect(iframe!.src).toMatch(/chrome\/blank$/);
     expect(mocks.forceRender).not.toHaveBeenCalled();
   });
 });

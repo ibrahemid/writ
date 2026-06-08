@@ -6,23 +6,30 @@ import PreviewStatusChip, { type PreviewState } from "./PreviewStatusChip";
 import "./preview-chrome.css";
 
 interface Props {
-  buffer: BufferDocument;
-  contentType: string;
+  buffer: BufferDocument | null;
+  contentType: string | null;
+  // Whether this pane should show a live preview. When false the iframe is
+  // navigated to a blank document but kept mounted — the element is NEVER
+  // removed, because tearing down a loaded writ-preview:// iframe hard-freezes
+  // the macOS webview (#124). Every preview transition is an src navigation.
+  isActive: boolean;
 }
 
 const MB = 1024 * 1024;
+// Same-origin near-empty document the iframe parks on when no preview is
+// active. Parking here instead of unmounting the element is what keeps the
+// teardown freeze from ever being reachable.
+const BLANK_SRC = "writ-preview://chrome/blank";
 
 export default function PreviewPane(props: Props) {
   const win = useWindow();
   const [renderVersion, setRenderVersion] = createSignal(0);
-  // The iframe loads exactly this src. It advances only when a render for
-  // THIS buffer's id succeeds, so it never points at the incoming id before
-  // that id's HTML is cached: a tab switch keeps showing the outgoing buffer
-  // until the incoming one is ready, never a stale/empty/wrong-buffer flash
-  // (#97). It is also never reset to null once set, so the iframe element is
-  // never torn down and recreated — only navigated — which is what keeps the
-  // macOS webview from freezing (#124).
-  const [renderedSrc, setRenderedSrc] = createSignal<string | null>(null);
+  // The iframe always loads this; it is never null, so the element is created
+  // once and only ever navigated. It advances to a document URL only on a
+  // successful, correctly-attributed render (so a tab switch keeps showing the
+  // outgoing buffer until the incoming one is ready — no #97 flash) and falls
+  // back to BLANK_SRC when the pane goes inactive.
+  const [renderedSrc, setRenderedSrc] = createSignal<string>(BLANK_SRC);
   const [state, setState] = createSignal<PreviewState>("rendering");
   const [warnings, setWarnings] = createSignal<string[]>([]);
   const [message, setMessage] = createSignal("");
@@ -30,23 +37,22 @@ export default function PreviewPane(props: Props) {
   let lastRenderedText: string | null = null;
 
   async function doRender(force: boolean) {
+    const buffer = props.buffer;
+    const contentType = props.contentType;
+    if (!props.isActive || !buffer || !contentType) return;
+
     // Coordination guard: never render this pane's buffer id with another
     // buffer's live text. During a tab switch props.buffer.id flips reactively
-    // while the editor is still mid-load on the outgoing buffer; rendering then
-    // would cache the wrong buffer's HTML under this id (#97 cache pollution).
-    // A null loaded id means the editor has not published a buffer yet (or is
-    // stubbed in tests) — allow it; the size/attribution invariant still holds.
+    // while the editor is still mid-load on the outgoing buffer (#97). A null
+    // loaded id means the editor hasn't published a buffer yet (or is stubbed).
     const loadedId = win.editor.currentBufferId();
-    if (loadedId !== null && loadedId !== props.buffer.id) return;
+    if (loadedId !== null && loadedId !== buffer.id) return;
 
-    // Capture the target id once: the pane is persistent, so props.buffer.id
-    // can change under us across the await below. Both the render call and the
-    // resulting src must use this captured id, never a re-read of the prop.
-    const bufferId = props.buffer.id;
+    // Capture the target id once: the pane is persistent, so props.buffer can
+    // change under us across the await below.
+    const bufferId = buffer.id;
     const text = win.editor.currentText();
-    // Skip a debounced re-render that would reproduce the already-cached HTML
-    // (a no-op edit, or the load-induced currentText change right after a
-    // switch already rendered by the buffer-id effect). force always renders.
+    // Skip a debounced re-render that would reproduce the already-cached HTML.
     if (!force && text === lastRenderedText) return;
 
     const cfg = configStore.config().preview;
@@ -63,23 +69,19 @@ export default function PreviewPane(props: Props) {
 
     setState("rendering");
     try {
-      const result = await win.preview.render(bufferId, props.contentType, text);
-      // The active buffer may have switched while this render was in flight.
-      // Discard the result: committing it would point the iframe at this id's
-      // slot under the wrong active buffer (the #97 flash via the completion
-      // race) and poison lastRenderedText. Rust has already cached the HTML
-      // under bufferId, so switching back force-renders from the cache.
-      if (props.buffer.id !== bufferId) return;
+      const result = await win.preview.render(bufferId, contentType, text);
+      // The pane may have gone inactive, or the active buffer switched, while
+      // this render was in flight. Discard: committing would mis-target the
+      // iframe (the #97 flash via the completion race) and poison the dedup.
+      if (!props.isActive || props.buffer?.id !== bufferId) return;
       if (result.kind === "rendered") {
         setWarnings(result.parser_warnings);
         setState("ok");
         lastRenderedText = text;
         setRenderVersion((prev) => prev + 1);
         const v = renderVersion();
-        // Cache-busting query param forces the iframe to reload fresh HTML; the
-        // protocol parser discards the query, so the handler still keys on the
-        // id. Pointing at the id only now (post-success) is what avoids the
-        // version-stale retarget that caused the flash.
+        // Cache-busting query param forces a fresh load; the protocol parser
+        // discards the query, so the handler still keys on the id.
         setRenderedSrc(`writ-preview://document/${bufferId}?v=${v}`);
       } else if (result.kind === "no_renderer") {
         setState("error");
@@ -94,16 +96,36 @@ export default function PreviewPane(props: Props) {
     }
   }
 
-  // Full render whenever the editor publishes this pane's buffer as the loaded
-  // one: the initial mount (once the editor reports a matching id) and every
-  // tab switch back to this buffer. Not deferred so the initial value drives
-  // the first render. force=true bypasses the text-dedup so an identical-text
-  // sibling buffer still renders on switch.
+  // Activate / deactivate. On activate (source->split toggle, or a buffer that
+  // became renderable) render now if the editor already holds this buffer. On
+  // deactivate park on the blank doc — an src navigation, never a teardown.
+  createEffect(
+    on(
+      () => props.isActive,
+      (active) => {
+        if (active) {
+          if (props.buffer && win.editor.currentBufferId() === props.buffer.id) {
+            void doRender(true);
+          }
+        } else {
+          if (debounceTimer) clearTimeout(debounceTimer);
+          lastRenderedText = null;
+          setState("rendering");
+          setRenderedSrc(BLANK_SRC);
+        }
+      },
+      { defer: true },
+    ),
+  );
+
+  // Full render when the editor publishes this pane's buffer as loaded: initial
+  // mount and every tab switch back to this buffer. force bypasses the dedup so
+  // an identical-text sibling still renders on switch.
   createEffect(
     on(
       () => win.editor.currentBufferId(),
       (id) => {
-        if (id === props.buffer.id) void doRender(true);
+        if (props.isActive && props.buffer && id === props.buffer.id) void doRender(true);
       },
     ),
   );
@@ -113,6 +135,7 @@ export default function PreviewPane(props: Props) {
     on(
       () => win.editor.currentText(),
       () => {
+        if (!props.isActive) return;
         if (debounceTimer) clearTimeout(debounceTimer);
         const delay = configStore.config().preview.debounce_ms;
         debounceTimer = setTimeout(() => void doRender(false), delay);
@@ -121,42 +144,33 @@ export default function PreviewPane(props: Props) {
     ),
   );
 
-  // Cmd+R force refresh (bypasses the size-threshold debounce gate).
+  // F5 force refresh (bypasses the size-threshold debounce gate).
   createEffect(
     on(
       () => win.preview.forceRefreshToken(),
-      () => void doRender(true),
+      () => {
+        if (props.isActive) void doRender(true);
+      },
       { defer: true },
     ),
   );
 
   onCleanup(() => {
     if (debounceTimer) clearTimeout(debounceTimer);
-    win.preview.close(props.buffer.id);
+    if (props.buffer) win.preview.close(props.buffer.id);
   });
 
   return (
     <div class="preview-pane">
-      <Show
-        when={state() !== "too_large"}
-        fallback={
-          <div class="preview-pane-empty">
-            document too large to preview — use source view
-          </div>
-        }
-      >
-        <Show
-          when={renderedSrc()}
-          fallback={<div class="preview-pane-empty">rendering…</div>}
-        >
-          {(currentSrc) => (
-            <iframe
-              class="preview-frame"
-              src={currentSrc()}
-              title={`Preview of ${props.buffer.title}`}
-            />
-          )}
-        </Show>
+      <iframe
+        class="preview-frame"
+        src={renderedSrc()}
+        title={props.buffer ? `Preview of ${props.buffer.title}` : "Preview"}
+      />
+      <Show when={state() === "too_large"}>
+        <div class="preview-pane-overlay">
+          document too large to preview — use source view
+        </div>
       </Show>
       <PreviewStatusChip state={state()} warnings={warnings()} message={message()} />
     </div>

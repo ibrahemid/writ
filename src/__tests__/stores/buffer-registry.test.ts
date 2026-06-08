@@ -47,6 +47,7 @@ vi.mock("../../services/tauri", () => ({
   ),
   showOpenFileDialog: vi.fn().mockResolvedValue(null),
   readBufferContent: vi.fn().mockResolvedValue(""),
+  previewClose: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../services/autosave", () => ({
@@ -120,6 +121,12 @@ describe("bufferRegistry (app-global)", () => {
       expect(bufferRegistry.activeTabs().find((t) => t.id === doc.id)).toBeDefined();
       expect(bufferRegistry.historyList().find((h) => h.id === doc.id)).toBeUndefined();
     });
+
+    it("evicts the host preview render cache for the closed buffer", async () => {
+      const doc = await bufferRegistry.createBuffer();
+      await bufferRegistry.closeBuffer(doc.id);
+      expect(mockedApi.previewClose).toHaveBeenCalledWith(doc.id);
+    });
   });
 
   describe("closeBuffers (bulk)", () => {
@@ -132,6 +139,8 @@ describe("bufferRegistry (app-global)", () => {
       expect(mockedApi.closeBuffers).toHaveBeenCalledOnce();
       expect(mockedApi.closeBuffers).toHaveBeenCalledWith([a.id, b.id]);
       expect(mockedApi.closeBuffer).not.toHaveBeenCalled();
+      expect(mockedApi.previewClose).toHaveBeenCalledWith(a.id);
+      expect(mockedApi.previewClose).toHaveBeenCalledWith(b.id);
     });
 
     it("is a no-op for an empty list", async () => {

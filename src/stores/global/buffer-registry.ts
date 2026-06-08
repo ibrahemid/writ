@@ -37,6 +37,11 @@ function createBufferRegistry() {
   async function closeBuffer(id: string): Promise<void> {
     await flushAutosave(id);
     await api.closeBuffer(id);
+    // The preview pane is a window-lifetime singleton (never unmounted, to
+    // avoid the writ-preview:// iframe teardown freeze), so it no longer evicts
+    // the host render cache per buffer. Evict here, at the close that ends the
+    // buffer's session.
+    void api.previewClose(id).catch(() => {});
     const closedAt = new Date().toISOString();
     setBuffers((prev) =>
       prev.map((b) =>
@@ -49,6 +54,7 @@ function createBufferRegistry() {
     if (ids.length === 0) return;
     await Promise.all(ids.map((id) => flushAutosave(id)));
     await api.closeBuffers(ids);
+    for (const id of ids) void api.previewClose(id).catch(() => {});
     const closedAt = new Date().toISOString();
     const closedIds = new Set(ids);
     setBuffers((prev) =>
