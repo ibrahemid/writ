@@ -73,7 +73,7 @@ export default function TabBar() {
               }}
               class={`tab ${win.tabs.activeTabId() === tab.id ? "tab-active" : ""}`}
               onClick={() => win.tabs.setActiveTabId(tab.id)}
-              onDblClick={() => setEditingTabId(tab.id)}
+              onDblClick={(e) => { e.stopPropagation(); setEditingTabId(tab.id); }}
               onContextMenu={(e) => handleContextMenu(e, tab.id)}
               title={tab.title}
             >

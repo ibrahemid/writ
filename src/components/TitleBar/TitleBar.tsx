@@ -11,8 +11,14 @@ const PLATFORM = detectPlatform();
 const TRAFFIC_LIGHTS_ON_LEFT = PLATFORM === "mac";
 const INTERACTIVE_SELECTOR = 'button, input, select, [role="button"], [data-no-drag]';
 
-function isInteractiveTarget(target: EventTarget | null): boolean {
+export function isInteractiveTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
+  // This runs in a delegated ancestor handler, so closest() reads the live tree.
+  // If a descendant handler detached the clicked node earlier in the same event,
+  // closest() can no longer reach its interactive ancestor and would misread it
+  // as the bare titlebar. The bare titlebar is never detached, so treat any
+  // detached target as interactive: do not drag or maximize from it.
+  if (!target.isConnected) return true;
   return Boolean(target.closest(INTERACTIVE_SELECTOR));
 }
 
