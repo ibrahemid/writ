@@ -24,6 +24,14 @@ export function createEditorStore() {
   // Live text of the active editor view, updated on every document change.
   // The preview pane tracks this and debounces it into a render request.
   const [currentText, setCurrentText] = createSignal("");
+  // Id of the buffer whose content is currently loaded into the active view.
+  // Published by EditorInstance.loadBuffer only after the buffer's content is
+  // read in, so it stays consistent with currentText. The preview pane gates
+  // rendering on this matching its own buffer id: during a tab switch
+  // props.buffer.id flips reactively while the editor is still mid-load on the
+  // outgoing buffer, and rendering then would cache the wrong buffer's HTML
+  // under the incoming id (the #97 stale-cache flash).
+  const [currentBufferId, setCurrentBufferId] = createSignal<string | null>(null);
 
   let activeView: EditorView | null = null;
 
@@ -72,6 +80,7 @@ export function createEditorStore() {
     language, setLanguage,
     selectionCount, setSelectionCount,
     currentText, setCurrentText,
+    currentBufferId, setCurrentBufferId,
     registerView, getView, focusEditor,
     applyEditToActiveBuffer,
   };
