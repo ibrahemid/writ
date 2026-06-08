@@ -11,8 +11,13 @@ import { defaultSplit, type LayoutMode } from "../../lib/preview-layout";
 import "./preview-chrome.css";
 
 interface Props {
-  buffer: BufferDocument;
+  // Nullable: the layout is always mounted (so the preview iframe element is
+  // never torn down — see PreviewPane), even between buffers / when none is
+  // open. A null buffer renders the empty state and parks the preview blank.
+  buffer: BufferDocument | null;
 }
+
+const SOURCE_LAYOUT: LayoutMode = { kind: "source" };
 
 export default function PreviewLayout(props: Props) {
   const win = useWindow();
@@ -23,15 +28,23 @@ export default function PreviewLayout(props: Props) {
   // is never re-resolved, so a user's manual layout choice is never clobbered.
   const resolvedRenderable = new Map<string, boolean>();
 
-  const contentType = createMemo(() => contentTypeForBuffer(props.buffer));
-  const renderable = createMemo(() => rendererRegistry.hasRenderer(contentType()));
-  const layout = createMemo<LayoutMode>(() => win.layout.get(props.buffer.id));
+  const contentType = createMemo(() =>
+    props.buffer ? contentTypeForBuffer(props.buffer) : null,
+  );
+  const renderable = createMemo(() => {
+    const ct = contentType();
+    return ct !== null && rendererRegistry.hasRenderer(ct);
+  });
+  const layout = createMemo<LayoutMode>(() =>
+    props.buffer ? win.layout.get(props.buffer.id) : SOURCE_LAYOUT,
+  );
 
   // Resolve initial layout: persisted (source-backed) → content-type config
   // default (if renderable) → source. Re-runs on rename so a buffer that
   // becomes renderable picks up its content-type default without a reopen.
   createEffect(() => {
     const buf = props.buffer;
+    if (!buf) return;
     const canRender = rendererRegistry.hasRenderer(contentTypeForBuffer(buf));
     const prev = resolvedRenderable.get(buf.id);
     if (prev === undefined || (prev === false && canRender)) {
@@ -62,22 +75,25 @@ export default function PreviewLayout(props: Props) {
   }
 
   function setRatioLive(ratio: number) {
+    const buf = props.buffer;
     const current = layout();
-    if (current.kind === "split") {
-      win.layout.setLocal(props.buffer.id, { ...current, ratio });
+    if (buf && current.kind === "split") {
+      win.layout.setLocal(buf.id, { ...current, ratio });
     }
   }
 
   function commitRatio() {
-    win.layout.set(props.buffer.id, props.buffer.source_path, layout());
+    const buf = props.buffer;
+    if (buf) win.layout.set(buf.id, buf.source_path, layout());
   }
 
   const previewIntent = () => {
     const k = layout().kind;
     return k === "split" || k === "preview";
   };
-  // The ONLY path that mounts <PreviewPane> (and therefore an iframe): a
-  // preview-intent layout on a buffer with a registered renderer.
+  // Whether a real preview is shown: a preview-intent layout on a renderable
+  // buffer. Drives the persistent PreviewPane's `active` flag — when false the
+  // iframe parks blank (it is never removed; teardown freezes the webview).
   const showsIframe = () => previewIntent() && renderable();
   // Recognized content type but no registered renderer: the user reached a
   // preview layout (e.g. via the cycle keymap, which doesn't renderer-check).
@@ -112,7 +128,12 @@ export default function PreviewLayout(props: Props) {
       ref={containerEl}
     >
       <div class="preview-editor-slot" style={editorStyle()}>
-        <EditorInstance buffer={props.buffer} />
+        <Show
+          when={props.buffer}
+          fallback={<div class="editor-empty">No buffer open</div>}
+        >
+          {(buf) => <EditorInstance buffer={buf()} />}
+        </Show>
       </div>
 
       <Show when={isSplit() && renderable()}>
@@ -125,11 +146,12 @@ export default function PreviewLayout(props: Props) {
         />
       </Show>
 
-      <Show when={showsIframe()}>
-        <div class="preview-pane-slot">
-          <PreviewPane buffer={props.buffer} contentType={contentType()!} />
-        </div>
-      </Show>
+      {/* The preview pane slot is ALWAYS in the DOM so its iframe is never torn
+          down (writ-preview:// teardown freezes the macOS webview, #124). It is
+          hidden when no preview shows; the pane parks the iframe on a blank doc. */}
+      <div class="preview-pane-slot" classList={{ "is-hidden": !showsIframe() }}>
+        <PreviewPane buffer={props.buffer} contentType={contentType()} isActive={showsIframe()} />
+      </div>
 
       <Show when={showsUnsupportedNote()}>
         <div class="preview-pane-slot preview-unsupported">

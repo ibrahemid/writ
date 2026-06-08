@@ -17,7 +17,7 @@ interface Props {
 const STATE_LABEL: Record<PreviewState, string> = {
   rendering: "rendering…",
   ok: "",
-  manual: "large — Cmd+R to render",
+  manual: "large — F5 to render",
   too_large: "document too large",
   error: "render error",
 };

@@ -81,7 +81,7 @@ describe("PreviewPane — buffer switch (regression #97)", () => {
 
     const { container } = render(() => (
       <WindowProvider windowId={9301}>
-        <PreviewPane buffer={buf()} contentType="html" />
+        <PreviewPane buffer={buf()} contentType="html" isActive={true} />
       </WindowProvider>
     ));
 
@@ -129,7 +129,7 @@ describe("PreviewPane — buffer switch (regression #97)", () => {
 
     const { container } = render(() => (
       <WindowProvider windowId={9302}>
-        <PreviewPane buffer={buf()} contentType="html" />
+        <PreviewPane buffer={buf()} contentType="html" isActive={true} />
       </WindowProvider>
     ));
 
@@ -170,7 +170,7 @@ describe("PreviewPane — buffer switch (regression #97)", () => {
     const [buf, setBuf] = createSignal(buffer("A"));
     const { container } = render(() => (
       <WindowProvider windowId={9303}>
-        <PreviewPane buffer={buf()} contentType="html" />
+        <PreviewPane buffer={buf()} contentType="html" isActive={true} />
       </WindowProvider>
     ));
 

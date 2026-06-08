@@ -8,7 +8,7 @@ import {
 // Per-window preview coordination. Lean scope: the preview is a same-window
 // iframe, so there is no per-pane webview process to pool, idle-pause, or
 // crash-count. This store owns the render/close IPC for the window's preview
-// panes and a force-refresh signal: the Cmd+R keymap bumps it; the active
+// panes and a force-refresh signal: the F5 keymap bumps it; the active
 // PreviewPane watches it and re-renders past the size-threshold debounce gate.
 
 export type PreviewStore = ReturnType<typeof createPreviewStore>;

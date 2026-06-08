@@ -1,4 +1,6 @@
+use crate::poison::recover_poison;
 use crate::state::AppState;
+use std::time::Instant;
 use tauri::State;
 use writ_core::config::WritConfig;
 
@@ -10,10 +12,31 @@ pub fn get_config(state: State<'_, AppState>) -> Result<WritConfig, String> {
 
 #[tauri::command]
 pub fn update_config(state: State<'_, AppState>, config: WritConfig) -> Result<(), String> {
+    let contents = state
+        .config_store
+        .serialize(&config)
+        .map_err(|e| e.to_string())?;
+
+    let filename = state
+        .config_store
+        .path()
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .ok_or_else(|| "config path has no file name".to_string())?;
+
+    {
+        let mut ignore = recover_poison(
+            state.watcher_ignore.lock(),
+            "commands::config::update_config",
+        );
+        ignore.record(filename, contents.as_bytes(), Instant::now());
+    }
+
     state
         .config_store
-        .write(&config)
+        .write_serialized(&contents)
         .map_err(|e| e.to_string())?;
+
     let mut current = state.config.lock().map_err(|e| e.to_string())?;
     *current = config;
     Ok(())
