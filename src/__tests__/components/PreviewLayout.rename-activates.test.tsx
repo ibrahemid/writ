@@ -138,9 +138,12 @@ describe("PreviewLayout — rename to renderable extension activates preview (re
     expect(win).not.toBeNull();
     win!.tabs.setActiveTabId("R1");
 
-    // Not renderable yet — no iframe.
+    // Not renderable yet — the persistent iframe is parked on the blank doc
+    // (never a live render) until the rename makes the buffer renderable.
     await Promise.resolve();
-    expect(container.querySelector("iframe.preview-frame")).toBeNull();
+    expect(
+      container.querySelector<HTMLIFrameElement>("iframe.preview-frame")!.src,
+    ).toMatch(/chrome\/blank$/);
 
     // Rename through the real store handler.
     await bufferRegistry.renameBuffer("R1", "test.md");
@@ -186,14 +189,17 @@ describe("PreviewLayout — rename to renderable extension activates preview (re
     expect(editorSlot).not.toBeNull();
     expect(editorSlot!.style.flexBasis).toMatch(/%$/);
 
-    // Rename to a non-renderable extension: preview drops, editor reclaims
-    // full width (no dangling split gap).
+    // Rename to a non-renderable extension: the live preview drops and the
+    // editor reclaims full width. The iframe is NOT torn down (#124) — it parks
+    // on the blank doc inside a collapsed (hidden) slot.
     await bufferRegistry.renameBuffer("R1", "untitled.txt");
 
     await waitFor(
       () => {
-        expect(container.querySelector("iframe.preview-frame")).toBeNull();
-        expect(container.querySelector(".preview-pane-slot")).toBeNull();
+        const iframe = container.querySelector<HTMLIFrameElement>("iframe.preview-frame");
+        expect(iframe).not.toBeNull();
+        expect(iframe!.src).toMatch(/chrome\/blank$/);
+        expect(container.querySelector(".preview-pane-slot.is-hidden")).not.toBeNull();
         expect(editorSlot!.style.flexBasis).toBe("0px");
       },
       { timeout: 2000 },

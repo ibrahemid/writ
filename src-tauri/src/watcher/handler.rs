@@ -91,6 +91,21 @@ pub fn classify_watch_event(
     now: Instant,
 ) -> Option<WritEvent> {
     if path == config_path {
+        let filename = config_path
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        let current_bytes = std::fs::read(path).ok();
+        let decision = {
+            let mut set = recover_poison(ignore_set.lock(), "watcher::handler::config_event");
+            set.decide(&filename, current_bytes.as_deref(), now, ttl)
+        };
+
+        if decision == SuppressDecision::Suppress {
+            return None;
+        }
+
         info!("config file changed");
         return Some(WritEvent::ConfigChanged {
             keys: vec!["*".to_string()],
@@ -289,6 +304,51 @@ mod tests {
         );
 
         assert!(event.is_none(), "expected internal write to be suppressed");
+    }
+
+    #[test]
+    fn suppresses_internal_config_write() {
+        let dir = tempdir().unwrap();
+        let cfg = dir.path().join("config.toml");
+        let buffers = dir.path().join("buffers");
+        fs::create_dir_all(&buffers).unwrap();
+        let bytes = b"theme = \"dark\"\n";
+        fs::write(&cfg, bytes).unwrap();
+
+        let set = make_set();
+        let now = Instant::now();
+        {
+            let mut guard = set.lock().unwrap();
+            guard.record("config.toml".to_string(), bytes, now);
+        }
+
+        let event = classify_watch_event(&cfg, &cfg, &buffers, &set, DEFAULT_IGNORE_TTL, now);
+
+        assert!(event.is_none(), "internal config write must be suppressed");
+    }
+
+    #[test]
+    fn emits_external_config_change_when_bytes_differ() {
+        let dir = tempdir().unwrap();
+        let cfg = dir.path().join("config.toml");
+        let buffers = dir.path().join("buffers");
+        fs::create_dir_all(&buffers).unwrap();
+
+        let set = make_set();
+        let now = Instant::now();
+        {
+            let mut guard = set.lock().unwrap();
+            guard.record("config.toml".to_string(), b"theme = \"dark\"\n", now);
+        }
+
+        fs::write(&cfg, b"theme = \"light\"\n").unwrap();
+
+        let event = classify_watch_event(&cfg, &cfg, &buffers, &set, DEFAULT_IGNORE_TTL, now);
+
+        assert!(
+            matches!(event, Some(WritEvent::ConfigChanged { .. })),
+            "an external config edit must surface as ConfigChanged"
+        );
     }
 
     #[test]
