@@ -1,8 +1,10 @@
-import { Show, createSignal, createEffect, on, onMount, onCleanup } from "solid-js";
+import { Show, createSignal, createEffect, on, onMount, onCleanup, untrack } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
 import { configStore } from "../../stores/global/config";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { createPreviewBridge } from "../../lib/preview-bridge";
+import { createPreviewSearchController } from "../../editor/search/preview-search-controller";
+import { findStore } from "../../stores/global/find-store";
 import PreviewStatusChip, { type PreviewState } from "./PreviewStatusChip";
 import "./preview-chrome.css";
 
@@ -60,12 +62,22 @@ export default function PreviewPane(props: Props) {
       const el = editorScroller();
       if (el) el.scrollTop = top;
     },
-    postScrollTo: (fraction) => {
-      iframeEl?.contentWindow?.postMessage(
-        { source: "writ-preview", dir: "down", type: "scrollTo", fraction },
-        "*",
-      );
-    },
+    postScrollTo: (fraction) => postToIframe({ type: "scrollTo", fraction }),
+  });
+
+  function postToIframe(payload: Record<string, unknown>): void {
+    iframeEl?.contentWindow?.postMessage(
+      { source: "writ-preview", dir: "down", ...payload },
+      "*",
+    );
+  }
+
+  // In-preview find: posts commands to the iframe runtime and folds its async
+  // results into a snapshot the find overlay reads. Registered as the find
+  // target only while the preview is shown alone (the editor hidden).
+  const search = createPreviewSearchController({
+    post: (command) => postToIframe(command),
+    onUpdate: () => findStore.refresh(),
   });
 
   function onWindowMessage(e: MessageEvent) {
@@ -74,8 +86,16 @@ export default function PreviewPane(props: Props) {
     if (!d || d.source !== "writ-preview" || d.dir !== "up") return;
     if (d.type === "ready") {
       bridge.onIframeMessage({ type: "ready" });
+      search.reapply(); // a reload dropped any highlights — restore them
     } else if (d.type === "scroll" && typeof d.fraction === "number") {
       bridge.onIframeMessage({ type: "scroll", fraction: d.fraction });
+    } else if (d.type === "findResult") {
+      search.applyResult({
+        current: d.current ?? 0,
+        total: d.total ?? 0,
+        capped: d.capped ?? false,
+        ticks: Array.isArray(d.ticks) ? d.ticks : [],
+      });
     }
   }
 
@@ -221,9 +241,27 @@ export default function PreviewPane(props: Props) {
     ),
   );
 
+  // Own find only when the preview is shown alone — in split the editor is
+  // visible and remains the find target. Clear preview highlights when handing
+  // find back to the editor.
+  createEffect(() => {
+    const previewOnly = props.isActive && props.isSplit !== true;
+    if (previewOnly) {
+      win.preview.registerSearch(search);
+    } else {
+      search.clear();
+      win.preview.registerSearch(null);
+    }
+    // If find is open across this flip, seed the now-active surface with the
+    // current query so it highlights and counts immediately. Untracked so this
+    // effect depends only on the layout, not on the find query signals.
+    untrack(() => findStore.retarget());
+  });
+
   onCleanup(() => {
     if (debounceTimer) clearTimeout(debounceTimer);
     window.removeEventListener("message", onWindowMessage);
+    win.preview.registerSearch(null);
     if (props.buffer) win.preview.close(props.buffer.id);
   });
 

@@ -112,6 +112,19 @@ body {
   background: var(--writ-preview-selection);
 }
 
+/* In-preview find highlights, injected by the bridge runtime. All matches get
+   a subtle wash; the current match is accented. Inherit color so wrapping a
+   match never recolors the prose. */
+mark.writ-find {
+  background: var(--writ-preview-selection);
+  color: inherit;
+  border-radius: 2px;
+}
+mark.writ-find-current {
+  background: var(--writ-preview-accent);
+  color: var(--writ-preview-bg);
+}
+
 /* Headings — tight leading, deliberate rhythm above, none below. */
 h1, h2, h3, h4, h5, h6 {
   margin: 2.4em 0 0.6em;

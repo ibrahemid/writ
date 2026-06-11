@@ -2,14 +2,43 @@ import { createSignal, createRoot } from "solid-js";
 import type { EditorView } from "@codemirror/view";
 import { windowRegistry } from "./window-registry";
 import { createCodeMirrorSearchController } from "../../editor/search/codemirror-controller";
-import type { MatchState, MatchTick, SearchTerm } from "../../editor/search/types";
+import type { EditorSearchController, MatchState, MatchTick, SearchTerm } from "../../editor/search/types";
 
 const MAX_TICKS = 200;
 const EMPTY_MATCH: MatchState = { current: 0, total: 0, capped: false };
 
-export function createFindController(getView: () => EditorView | null) {
-  const controller = createCodeMirrorSearchController(getView);
+// A search surface is a search controller plus the bits find needs that differ
+// between the editor and the preview: how to seed a query from the current
+// selection, where to return focus on close, and whether replace is offered.
+export interface SearchSurface extends EditorSearchController {
+  selectionSeed(): string;
+  focus(): void;
+  canReplace(): boolean;
+}
 
+/** Wrap the active CodeMirror view as a search surface. */
+export function createEditorSurface(getView: () => EditorView | null): SearchSurface {
+  const controller = createCodeMirrorSearchController(getView);
+  return {
+    ...controller,
+    selectionSeed() {
+      const view = getView();
+      if (!view) return "";
+      const main = view.state.selection.main;
+      if (main.empty) return "";
+      const text = view.state.doc.sliceString(main.from, main.to);
+      return text.includes("\n") ? "" : text;
+    },
+    focus() {
+      getView()?.focus();
+    },
+    canReplace() {
+      return true;
+    },
+  };
+}
+
+export function createFindController(getSurface: () => SearchSurface | null) {
   const [isOpen, setIsOpen] = createSignal(false);
   const [queryText, setQueryTextSignal] = createSignal("");
   const [replaceText, setReplaceTextSignal] = createSignal("");
@@ -20,6 +49,7 @@ export function createFindController(getView: () => EditorView | null) {
   const [matches, setMatches] = createSignal<MatchState>(EMPTY_MATCH);
   const [ticks, setTicks] = createSignal<MatchTick[]>([]);
   const [focusNonce, setFocusNonce] = createSignal(0);
+  const [canReplaceSignal, setCanReplace] = createSignal(true);
 
   function currentTerm(): SearchTerm {
     return {
@@ -32,12 +62,14 @@ export function createFindController(getView: () => EditorView | null) {
   }
 
   function refresh() {
-    setMatches(controller.matchState());
-    setTicks(controller.matchPositions(MAX_TICKS));
+    const surface = getSurface();
+    setMatches(surface ? surface.matchState() : EMPTY_MATCH);
+    setTicks(surface ? surface.matchPositions(MAX_TICKS) : []);
+    setCanReplace(surface ? surface.canReplace() : true);
   }
 
   function apply() {
-    controller.setQuery(currentTerm());
+    getSurface()?.setQuery(currentTerm());
     refresh();
   }
 
@@ -45,20 +77,11 @@ export function createFindController(getView: () => EditorView | null) {
     return queryText().trim().length > 0;
   }
 
-  function selectionSeed(): string {
-    const view = getView();
-    if (!view) return "";
-    const main = view.state.selection.main;
-    if (main.empty) return "";
-    const text = view.state.doc.sliceString(main.from, main.to);
-    return text.includes("\n") ? "" : text;
-  }
-
   function open() {
     // Seed from the current selection on every invocation, not only the first,
     // so selecting new text and pressing find/replace replaces the query. With
     // no selection the previous query is preserved.
-    const seed = selectionSeed();
+    const seed = getSurface()?.selectionSeed() ?? "";
     if (seed) setQueryTextSignal(seed);
     setIsOpen(true);
     apply();
@@ -68,8 +91,8 @@ export function createFindController(getView: () => EditorView | null) {
   function close() {
     if (!isOpen()) return;
     setIsOpen(false);
-    controller.clear();
-    getView()?.focus();
+    getSurface()?.clear();
+    getSurface()?.focus();
   }
 
   function setQueryText(value: string) {
@@ -107,30 +130,46 @@ export function createFindController(getView: () => EditorView | null) {
 
   function next() {
     if (!hasQuery()) return;
-    controller.setQuery(currentTerm());
-    controller.next();
+    const surface = getSurface();
+    if (!surface) return;
+    surface.setQuery(currentTerm());
+    surface.next();
     refresh();
   }
 
   function previous() {
     if (!hasQuery()) return;
-    controller.setQuery(currentTerm());
-    controller.previous();
+    const surface = getSurface();
+    if (!surface) return;
+    surface.setQuery(currentTerm());
+    surface.previous();
     refresh();
   }
 
   function replaceCurrent() {
     if (!hasQuery()) return;
-    controller.setQuery(currentTerm());
-    controller.replaceCurrent();
+    const surface = getSurface();
+    if (!surface) return;
+    surface.setQuery(currentTerm());
+    surface.replaceCurrent();
     refresh();
   }
 
   function replaceAll() {
     if (!hasQuery()) return;
-    controller.setQuery(currentTerm());
-    controller.replaceAll();
+    const surface = getSurface();
+    if (!surface) return;
+    surface.setQuery(currentTerm());
+    surface.replaceAll();
     refresh();
+  }
+
+  // Re-apply the current query to whatever surface is now active. Called when
+  // the find target changes under an open overlay (e.g. a layout flip into or
+  // out of preview-only) so the newly-active surface highlights and counts
+  // immediately instead of waiting for the next keystroke.
+  function retarget() {
+    if (isOpen()) apply();
   }
 
   function findNextCmd() {
@@ -154,6 +193,7 @@ export function createFindController(getView: () => EditorView | null) {
     matches,
     ticks,
     focusNonce,
+    canReplace: canReplaceSignal,
     open,
     close,
     setQueryText,
@@ -170,13 +210,29 @@ export function createFindController(getView: () => EditorView | null) {
     findNextCmd,
     findPrevCmd,
     refresh,
+    retarget,
   };
 }
 
 export type FindController = ReturnType<typeof createFindController>;
 
-// Singleton state — Writ is single-window; editor find targets the active
-// window's editor view.
+// Singleton state — Writ is single-window. Find targets the preview when a
+// renderable buffer is shown preview-only (the editor is hidden), otherwise the
+// active editor view. The preview pane registers/unregisters its search
+// controller as that condition flips.
 export const findStore = createRoot(() =>
-  createFindController(() => windowRegistry.getActive()?.editor.getView() ?? null),
+  createFindController(() => {
+    const win = windowRegistry.getActive();
+    if (!win) return null;
+    const preview = win.preview.activeSearch();
+    if (preview) {
+      return {
+        ...preview,
+        selectionSeed: () => "",
+        focus: () => {},
+        canReplace: () => false,
+      };
+    }
+    return createEditorSurface(() => win.editor.getView() ?? null);
+  }),
 );

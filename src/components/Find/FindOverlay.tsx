@@ -155,17 +155,19 @@ export default function FindOverlay(props: Props) {
             </button>
           </div>
 
-          <button
-            type="button"
-            class="find-icon-btn find-replace-toggle"
-            classList={{ "is-on": find.replaceOpen() }}
-            title="Toggle replace"
-            aria-label="Toggle replace"
-            aria-expanded={find.replaceOpen()}
-            onClick={() => find.toggleReplace()}
-          >
-            <ChevronRight />
-          </button>
+          <Show when={find.canReplace()}>
+            <button
+              type="button"
+              class="find-icon-btn find-replace-toggle"
+              classList={{ "is-on": find.replaceOpen() }}
+              title="Toggle replace"
+              aria-label="Toggle replace"
+              aria-expanded={find.replaceOpen()}
+              onClick={() => find.toggleReplace()}
+            >
+              <ChevronRight />
+            </button>
+          </Show>
           <button
             type="button"
             class="find-icon-btn"
@@ -177,7 +179,7 @@ export default function FindOverlay(props: Props) {
           </button>
         </div>
 
-        <Show when={find.replaceOpen()}>
+        <Show when={find.replaceOpen() && find.canReplace()}>
           <div class="find-row find-row-replace">
             <input
               class="find-input"
