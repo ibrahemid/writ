@@ -3,7 +3,8 @@ import { createRoot } from "solid-js";
 import { EditorView } from "@codemirror/view";
 import { EditorState, EditorSelection } from "@codemirror/state";
 import { search, searchPanelOpen } from "@codemirror/search";
-import { createFindController } from "../../stores/global/find-store";
+import { createFindController, createEditorSurface, type SearchSurface } from "../../stores/global/find-store";
+import { createPreviewSearchController } from "../../editor/search/preview-search-controller";
 
 function makeView(doc: string, selection?: { from: number; to: number }) {
   const state = EditorState.create({
@@ -18,7 +19,17 @@ function makeView(doc: string, selection?: { from: number; to: number }) {
 
 function withController(view: EditorView | null, fn: (c: ReturnType<typeof createFindController>) => void) {
   createRoot((dispose) => {
-    fn(createFindController(() => view));
+    fn(createFindController(() => createEditorSurface(() => view)));
+    dispose();
+  });
+}
+
+function withSurface(
+  surface: SearchSurface,
+  fn: (c: ReturnType<typeof createFindController>) => void,
+) {
+  createRoot((dispose) => {
+    fn(createFindController(() => surface));
     dispose();
   });
 }
@@ -151,6 +162,77 @@ describe("createFindController", () => {
       expect(find.matches().current).toBe(1);
     });
     view.destroy();
+  });
+
+  it("routes find to a preview surface: async results refresh, replace is hidden", () => {
+    // A preview surface backed by the async controller. The runtime is faked:
+    // posting a find immediately reports a result back through applyResult.
+    const controller = createPreviewSearchController({
+      post: (cmd) => {
+        if (cmd.type === "find" && cmd.query) {
+          controller.applyResult({ current: 1, total: 4, capped: false, ticks: [{ fraction: 0.2 }] });
+        }
+      },
+      onUpdate: () => surfaceFind!.refresh(),
+    });
+    const surface: SearchSurface = {
+      ...controller,
+      selectionSeed: () => "",
+      focus: () => {},
+      canReplace: () => false,
+    };
+    let surfaceFind: ReturnType<typeof createFindController> | undefined;
+    withSurface(surface, (find) => {
+      surfaceFind = find;
+      find.open();
+      find.setQueryText("term");
+      expect(find.matches()).toEqual({ current: 1, total: 4, capped: false });
+      expect(find.ticks()).toEqual([{ fraction: 0.2 }]);
+      expect(find.canReplace()).toBe(false);
+    });
+  });
+
+  it("re-applies the active query to a newly-targeted surface on retarget", () => {
+    // Mimic a layout flip: the active surface changes under an open overlay.
+    const calls: { surface: string; query: string }[] = [];
+    function fakeSurface(name: string): SearchSurface {
+      return {
+        setQuery: (t) => calls.push({ surface: name, query: t.query }),
+        next: () => {}, previous: () => {}, replaceCurrent: () => {}, replaceAll: () => {},
+        matchState: () => ({ current: 0, total: 0, capped: false }),
+        matchPositions: () => [],
+        clear: () => {},
+        selectionSeed: () => "",
+        focus: () => {},
+        canReplace: () => false,
+      };
+    }
+    let active = fakeSurface("editor");
+    createRoot((dispose) => {
+      const find = createFindController(() => active);
+      find.open();
+      find.setQueryText("needle");
+      expect(calls[calls.length - 1]).toEqual({ surface: "editor", query: "needle" });
+      // Flip the active surface to the preview and retarget.
+      active = fakeSurface("preview");
+      find.retarget();
+      expect(calls[calls.length - 1]).toEqual({ surface: "preview", query: "needle" });
+      dispose();
+    });
+  });
+
+  it("does not re-apply on retarget when find is closed", () => {
+    const calls: string[] = [];
+    const surface: SearchSurface = {
+      setQuery: () => calls.push("setQuery"),
+      next: () => {}, previous: () => {}, replaceCurrent: () => {}, replaceAll: () => {},
+      matchState: () => ({ current: 0, total: 0, capped: false }),
+      matchPositions: () => [], clear: () => {}, selectionSeed: () => "", focus: () => {}, canReplace: () => true,
+    };
+    withSurface(surface, (find) => {
+      find.retarget();
+      expect(calls).toEqual([]);
+    });
   });
 
   it("replaces all matches and clears highlights on close", () => {
