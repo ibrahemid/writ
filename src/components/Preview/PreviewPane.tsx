@@ -1,7 +1,8 @@
-import { Show, createSignal, createEffect, on, onCleanup } from "solid-js";
+import { Show, createSignal, createEffect, on, onMount, onCleanup } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
 import { configStore } from "../../stores/global/config";
 import { useWindow } from "../WindowProvider/WindowProvider";
+import { createPreviewBridge } from "../../lib/preview-bridge";
 import PreviewStatusChip, { type PreviewState } from "./PreviewStatusChip";
 import "./preview-chrome.css";
 
@@ -13,6 +14,10 @@ interface Props {
   // removed, because tearing down a loaded writ-preview:// iframe hard-freezes
   // the macOS webview (#124). Every preview transition is an src navigation.
   isActive: boolean;
+  // Whether the editor is shown alongside this pane (split layout on a
+  // renderable buffer). Gates the bidirectional scroll sync — only meaningful
+  // when both surfaces are visible.
+  isSplit?: boolean;
 }
 
 const MB = 1024 * 1024;
@@ -35,6 +40,44 @@ export default function PreviewPane(props: Props) {
   const [message, setMessage] = createSignal("");
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   let lastRenderedText: string | null = null;
+  let iframeEl: HTMLIFrameElement | undefined;
+
+  function editorScroller(): HTMLElement | undefined {
+    return win.editor.getView()?.scrollDOM;
+  }
+
+  // Parent half of the preview bridge: mirrors scroll between the editor and
+  // the cross-origin preview iframe and restores position across reloads. The
+  // iframe runtime is src-tauri/assets/preview/bridge.js.
+  const bridge = createPreviewBridge({
+    isSplit: () => props.isSplit === true,
+    getEditorMetrics: () => {
+      const el = editorScroller();
+      if (!el) return null;
+      return { top: el.scrollTop, range: el.scrollHeight - el.clientHeight };
+    },
+    setEditorScrollTop: (top) => {
+      const el = editorScroller();
+      if (el) el.scrollTop = top;
+    },
+    postScrollTo: (fraction) => {
+      iframeEl?.contentWindow?.postMessage(
+        { source: "writ-preview", dir: "down", type: "scrollTo", fraction },
+        "*",
+      );
+    },
+  });
+
+  function onWindowMessage(e: MessageEvent) {
+    if (e.source !== iframeEl?.contentWindow) return;
+    const d = e.data;
+    if (!d || d.source !== "writ-preview" || d.dir !== "up") return;
+    if (d.type === "ready") {
+      bridge.onIframeMessage({ type: "ready" });
+    } else if (d.type === "scroll" && typeof d.fraction === "number") {
+      bridge.onIframeMessage({ type: "scroll", fraction: d.fraction });
+    }
+  }
 
   async function doRender(force: boolean) {
     const buffer = props.buffer;
@@ -155,14 +198,39 @@ export default function PreviewPane(props: Props) {
     ),
   );
 
+  // Bridge messages arrive on the app window; the source check pins them to
+  // this pane's iframe (the only writ-preview:// frame).
+  onMount(() => {
+    window.addEventListener("message", onWindowMessage);
+  });
+
+  // (Re)bind the editor scroll listener to the live view, and forget any
+  // remembered scroll position, whenever the loaded buffer changes — a tab
+  // switch destroys and recreates the EditorView.
+  createEffect(
+    on(
+      () => win.editor.currentBufferId(),
+      () => {
+        bridge.reset();
+        const el = editorScroller();
+        if (!el) return;
+        const handler = () => bridge.onEditorScroll();
+        el.addEventListener("scroll", handler, { passive: true });
+        onCleanup(() => el.removeEventListener("scroll", handler));
+      },
+    ),
+  );
+
   onCleanup(() => {
     if (debounceTimer) clearTimeout(debounceTimer);
+    window.removeEventListener("message", onWindowMessage);
     if (props.buffer) win.preview.close(props.buffer.id);
   });
 
   return (
     <div class="preview-pane">
       <iframe
+        ref={iframeEl}
         class="preview-frame"
         src={renderedSrc()}
         title={props.buffer ? `Preview of ${props.buffer.title}` : "Preview"}

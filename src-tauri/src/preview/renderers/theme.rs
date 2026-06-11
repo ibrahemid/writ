@@ -26,6 +26,20 @@ pub fn style_tag() -> String {
     format!("<style>{PREVIEW_BASE_CSS}</style>")
 }
 
+/// Same-origin URL of the bundled first-party preview bridge runtime.
+pub const BRIDGE_URL: &str = "writ-preview://document/_assets/preview/bridge.js";
+
+/// The first-party bridge as a `<script>` element loaded same-origin.
+///
+/// The bridge wires scroll-sync and in-preview find between the app shell and
+/// the cross-origin preview iframe over `postMessage`. It is injected into
+/// every rendered document (loaded under the document CSP's
+/// `script-src 'self' writ-preview:`); when the scripts kill switch is off it
+/// is blocked along with all other scripts and the features degrade silently.
+pub fn bridge_script_tag() -> String {
+    format!("<script src=\"{BRIDGE_URL}\"></script>")
+}
+
 /// Wrap an HTML body fragment (e.g. Markdown output) in a complete,
 /// self-contained document with the inlined base theme and a UTF-8 charset.
 pub fn wrap_document(body_fragment: &str) -> String {
@@ -39,8 +53,9 @@ pub fn wrap_document(body_fragment: &str) -> String {
 /// the same-origin `writ-preview://document/_assets/` route.
 pub fn wrap_document_with(head_extra: &str, body_fragment: &str, body_end_extra: &str) -> String {
     format!(
-        "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n{style}\n{head_extra}\n</head>\n<body>\n{body_fragment}\n{body_end_extra}\n</body>\n</html>",
+        "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n{style}\n{head_extra}\n</head>\n<body>\n{body_fragment}\n{body_end_extra}\n{bridge}\n</body>\n</html>",
         style = style_tag(),
+        bridge = bridge_script_tag(),
     )
 }
 
@@ -62,6 +77,18 @@ mod tests {
         assert!(tag.starts_with("<style>"));
         assert!(tag.ends_with("</style>"));
         assert!(tag.contains("--writ-preview-bg"));
+    }
+
+    #[test]
+    fn wrap_document_injects_the_preview_bridge_script_before_body_close() {
+        // Every wrapped document (Markdown, standalone Mermaid) carries the
+        // first-party bridge so scroll-sync / in-preview find work. It is a
+        // same-origin _assets script, injected at the body tail.
+        let doc = wrap_document("<p>x</p>");
+        assert!(doc.contains("writ-preview://document/_assets/preview/bridge.js"));
+        let script_idx = doc.find("/preview/bridge.js").unwrap();
+        let body_close = doc.find("</body>").unwrap();
+        assert!(script_idx < body_close, "bridge script must sit inside <body>");
     }
 
     #[test]
