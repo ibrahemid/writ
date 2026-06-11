@@ -150,7 +150,12 @@ export default function PreviewLayout(props: Props) {
           down (writ-preview:// teardown freezes the macOS webview, #124). It is
           hidden when no preview shows; the pane parks the iframe on a blank doc. */}
       <div class="preview-pane-slot" classList={{ "is-hidden": !showsIframe() }}>
-        <PreviewPane buffer={props.buffer} contentType={contentType()} isActive={showsIframe()} />
+        <PreviewPane
+          buffer={props.buffer}
+          contentType={contentType()}
+          isActive={showsIframe()}
+          isSplit={isSplit() && renderable()}
+        />
       </div>
 
       <Show when={showsUnsupportedNote()}>

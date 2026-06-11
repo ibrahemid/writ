@@ -62,11 +62,15 @@ impl ContentRenderer for HtmlRenderer {
         let has_own_styles = has_author_styles(&request.buffer_text);
         let used_fallback_stylesheet = !has_own_styles;
 
-        let document_html = if used_fallback_stylesheet {
+        let styled = if used_fallback_stylesheet {
             inject_fallback_stylesheet(&request.buffer_text)
         } else {
             request.buffer_text.clone()
         };
+        // The first-party bridge is injected unconditionally — author styling
+        // governs only the stylesheet, never whether the scroll-sync / find
+        // bridge is present.
+        let document_html = inject_bridge(&styled);
 
         Ok(RenderOutput {
             document_html,
@@ -158,6 +162,35 @@ fn inject_fallback_stylesheet(html: &str) -> String {
     format!("{style}{html}")
 }
 
+/// Inject the first-party bridge `<script>` into the served HTML.
+///
+/// Placed immediately before the first `</body>` for a well-formed document
+/// (case-insensitive), else appended at the tail. The webview's permissive
+/// parser keeps a trailing script in the body, so the append fallback runs
+/// the bridge for fragments too. Runs on every live-render keystroke, so the
+/// scan avoids allocating a lowercased copy of the (potentially multi-MB)
+/// document.
+fn inject_bridge(html: &str) -> String {
+    let bridge = theme::bridge_script_tag();
+    if let Some(idx) = find_body_close_ci(html) {
+        let mut out = String::with_capacity(html.len() + bridge.len());
+        out.push_str(&html[..idx]);
+        out.push_str(&bridge);
+        out.push_str(&html[idx..]);
+        return out;
+    }
+    format!("{html}{bridge}")
+}
+
+/// Byte offset of the first case-insensitive `</body>`, scanned in place.
+/// The needle is ASCII, so the byte index is a valid char boundary.
+fn find_body_close_ci(html: &str) -> Option<usize> {
+    const NEEDLE: &[u8] = b"</body>";
+    html.as_bytes()
+        .windows(NEEDLE.len())
+        .position(|w| w.eq_ignore_ascii_case(NEEDLE))
+}
+
 /// Cheap, parser-free warnings. Deliberately conservative: only flags
 /// conditions that are unambiguous without a real parse.
 fn collect_cheap_warnings(html: &str) -> Vec<String> {
@@ -235,9 +268,39 @@ mod tests {
         let html = "<html><head><style>body{color:red}</style></head><body></body></html>";
         let out = HtmlRenderer.render(req(html)).unwrap();
         assert!(!out.used_fallback_stylesheet);
-        // The host theme is not injected; the document is unchanged.
+        // The host theme is not injected; author styling is untouched.
         assert!(!out.document_html.contains(THEME_MARKER));
-        assert_eq!(out.document_html, html);
+        // But the first-party bridge is always injected, even for
+        // author-styled documents (scroll-sync / in-preview find must work).
+        assert!(out.document_html.contains(theme::BRIDGE_URL));
+    }
+
+    #[test]
+    fn bridge_is_injected_before_body_close_when_present() {
+        let out = HtmlRenderer
+            .render(req("<html><body><p>hi</p></body></html>"))
+            .unwrap();
+        let bridge_idx = out.document_html.find(theme::BRIDGE_URL).unwrap();
+        let body_close = out.document_html.find("</body>").unwrap();
+        assert!(bridge_idx < body_close, "bridge must sit inside <body>");
+    }
+
+    #[test]
+    fn bridge_anchors_on_an_uppercase_body_close() {
+        let out = HtmlRenderer
+            .render(req("<HTML><BODY><p>hi</p></BODY></HTML>"))
+            .unwrap();
+        let bridge_idx = out.document_html.find(theme::BRIDGE_URL).unwrap();
+        let body_close = out.document_html.find("</BODY>").unwrap();
+        assert!(bridge_idx < body_close, "bridge must precede the body close");
+    }
+
+    #[test]
+    fn bridge_is_appended_for_a_bare_fragment_without_body() {
+        let out = HtmlRenderer.render(req("<p>bare</p>")).unwrap();
+        assert!(out.document_html.contains(theme::BRIDGE_URL));
+        // No </body> to anchor on: the bridge lands at the document tail.
+        assert!(out.document_html.trim_end().ends_with("</script>"));
     }
 
     #[test]
