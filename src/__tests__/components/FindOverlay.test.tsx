@@ -5,7 +5,7 @@ import { EditorView } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
 import { search } from "@codemirror/search";
 import FindOverlay from "../../components/Find/FindOverlay";
-import { createFindController } from "../../stores/global/find-store";
+import { createFindController, createEditorSurface } from "../../stores/global/find-store";
 
 function makeView(doc: string) {
   const state = EditorState.create({ doc, extensions: [search({ top: true })] });
@@ -17,7 +17,7 @@ function makeView(doc: string) {
 function makeStore(view: EditorView) {
   let store!: ReturnType<typeof createFindController>;
   createRoot(() => {
-    store = createFindController(() => view);
+    store = createFindController(() => createEditorSurface(() => view));
   });
   return store;
 }
