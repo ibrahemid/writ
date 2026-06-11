@@ -201,6 +201,14 @@ mod tests {
     }
 
     #[test]
+    fn every_document_carries_the_preview_bridge() {
+        // Plain Markdown (no diagram, no math) still gets the first-party
+        // bridge so scroll-sync / in-preview find work on ordinary prose.
+        let out = render("# title\n\njust text");
+        assert!(out.document_html.contains(super::theme::BRIDGE_URL));
+    }
+
+    #[test]
     fn renders_gfm_table() {
         let md = "| a | b |\n| - | - |\n| 1 | 2 |";
         let out = render(md);

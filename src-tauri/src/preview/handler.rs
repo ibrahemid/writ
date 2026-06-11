@@ -225,6 +225,12 @@ pub fn chrome_asset(path: &str) -> Option<(&'static [u8], &'static str)> {
             chrome_mime("preview-base.css"),
         )),
         "blank" | "blank.html" => Some((b"<!doctype html><title>writ</title>", chrome_mime("blank.html"))),
+        // First-party scroll-sync / in-preview find bridge, served same-origin
+        // under the document scope (injected into every rendered document).
+        "preview/bridge.js" => Some((
+            include_bytes!("../../assets/preview/bridge.js"),
+            chrome_mime("bridge.js"),
+        )),
         // L5 — bundled offline Mermaid runtime (single-file IIFE).
         "mermaid/mermaid.min.js" => Some((
             include_bytes!("../../assets/mermaid/mermaid.min.js"),
@@ -369,6 +375,39 @@ mod tests {
     fn unknown_chrome_asset_is_404() {
         let r = resolve("writ-preview://chrome/nope.css", SCRIPTS_ON, no_doc, chrome_asset);
         assert_eq!(r.status, 404);
+    }
+
+    #[test]
+    fn assets_route_serves_the_preview_bridge_same_origin_with_js_mime() {
+        // The first-party bridge is served under the document origin so the
+        // preview iframe loads it same-origin (no cross-scope CORP refusal),
+        // exactly like the Mermaid/KaTeX runtimes.
+        let r = resolve(
+            "writ-preview://document/_assets/preview/bridge.js",
+            SCRIPTS_ON,
+            no_doc,
+            chrome_asset,
+        );
+        assert_eq!(r.status, 200);
+        assert!(!r.body.is_empty());
+        let ct = r.headers.iter().find(|(k, _)| *k == "Content-Type").unwrap();
+        assert!(ct.1.starts_with("application/javascript"));
+        assert!(r
+            .headers
+            .iter()
+            .any(|(k, v)| *k == "X-Content-Type-Options" && v == "nosniff"));
+        assert_eq!(r.disposition, Disposition::Allowed);
+    }
+
+    #[test]
+    fn preview_bridge_runtime_requires_no_eval() {
+        // The document CSP grants no 'unsafe-eval'; the bridge must never
+        // depend on eval / the Function constructor. Static pin guarding a
+        // future edit from silently reintroducing that dependency.
+        let (bytes, _) = chrome_asset("preview/bridge.js").unwrap();
+        let src = std::str::from_utf8(bytes).expect("bridge is valid utf-8");
+        assert!(!src.contains("eval("), "bridge must not use eval()");
+        assert!(!src.contains("new Function("), "bridge must not use new Function()");
     }
 
     #[test]
