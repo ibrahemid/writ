@@ -1,7 +1,7 @@
 .theme-editor-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--writ-overlay-scrim);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -18,7 +18,7 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--writ-shadow-modal);
 }
 
 .theme-editor-header {
@@ -72,13 +72,13 @@
 
 .theme-editor-btn-primary {
   background: var(--writ-accent-default);
-  color: var(--writ-surface-background);
+  color: var(--writ-accent-foreground);
   border-color: transparent;
 }
 
 .theme-editor-btn-primary:hover {
   background: var(--writ-accent-hover);
-  color: var(--writ-surface-background);
+  color: var(--writ-accent-foreground);
 }
 
 .theme-editor-close {

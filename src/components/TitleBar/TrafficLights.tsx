@@ -60,7 +60,7 @@ export default function TrafficLights(props: Props) {
           aria-label="Hide window"
                  >
           <svg viewBox="0 0 12 12" aria-hidden="true">
-            <path d="M3 3L9 9M9 3L3 9" stroke="#4d0000" stroke-width="1.25" stroke-linecap="round" />
+            <path d="M3 3L9 9M9 3L3 9" stroke-width="1.25" stroke-linecap="round" />
           </svg>
         </button>
         <button
@@ -71,7 +71,7 @@ export default function TrafficLights(props: Props) {
           aria-label="Minimize window"
                  >
           <svg viewBox="0 0 12 12" aria-hidden="true">
-            <path d="M2.5 6H9.5" stroke="#5a3300" stroke-width="1.25" stroke-linecap="round" />
+            <path d="M2.5 6H9.5" stroke-width="1.25" stroke-linecap="round" />
           </svg>
         </button>
         <button
@@ -82,7 +82,7 @@ export default function TrafficLights(props: Props) {
           aria-label="Toggle full screen"
                  >
           <svg viewBox="0 0 12 12" aria-hidden="true">
-            <path d="M4 4L4 7L7 4ZM8 8L8 5L5 8Z" fill="#003800" />
+            <path d="M4 4L4 7L7 4ZM8 8L8 5L5 8Z" />
           </svg>
         </button>
       </div>
