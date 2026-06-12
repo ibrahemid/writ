@@ -1,12 +1,16 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 use tracing::warn;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
+use writ_core::recovery::RecoveredBuffer;
 
 use crate::atomic::write_atomic;
 use crate::database::queries;
 use crate::errors::{StorageError, StorageResult};
+use crate::recovery::dirty_shutdown::check_dirty_shutdown;
+use crate::recovery::snapshot::SnapshotManager;
 
 /// Persistence facade over buffer metadata and on-disk content.
 ///
@@ -287,5 +291,61 @@ impl BufferStore {
             }
         }
         Ok(())
+    }
+
+    /// Returns `true` when the most recent session snapshot was not written
+    /// with a clean flag, indicating the previous run crashed or was
+    /// force-quit.
+    pub fn is_dirty_shutdown(&self) -> StorageResult<bool> {
+        check_dirty_shutdown(&self.conn)
+    }
+
+    /// Writes a session snapshot containing the given buffer contents.
+    ///
+    /// Snapshots are pruned to the retention limit after each write. Pass
+    /// `is_clean = true` on a graceful shutdown; pass `false` for periodic
+    /// heartbeat snapshots written while the app is running.
+    pub fn write_session_snapshot(
+        &self,
+        buffer_contents: &HashMap<String, String>,
+        is_clean: bool,
+    ) -> StorageResult<()> {
+        let extra = serde_json::Value::Object(serde_json::Map::new());
+        let mgr = SnapshotManager::new(&self.conn);
+        mgr.write_session_snapshot(buffer_contents, &extra, is_clean)
+    }
+
+    /// Resolves which active buffers should be restored from the latest
+    /// dirty snapshot.
+    ///
+    /// Reads current `updated_at` timestamps from the database, then
+    /// delegates to [`SnapshotManager::recover_buffers`].
+    pub fn resolve_recovery(&self) -> StorageResult<Vec<RecoveredBuffer>> {
+        let active = self.list_by_status(BufferStatus::Active)?;
+        let mut updated_at_map: HashMap<String, String> = HashMap::new();
+        for buf in &active {
+            updated_at_map.insert(
+                buf.id.clone(),
+                buf.updated_at.format("%Y-%m-%d %H:%M:%S").to_string(),
+            );
+        }
+        let mgr = SnapshotManager::new(&self.conn);
+        mgr.recover_buffers(&updated_at_map)
+    }
+
+    /// Collects the current on-disk content for every active buffer.
+    ///
+    /// Buffers whose content file is missing are silently skipped; the
+    /// snapshot will simply contain fewer entries.
+    pub fn collect_buffer_contents(&self) -> StorageResult<HashMap<String, String>> {
+        let active = self.list_by_status(BufferStatus::Active)?;
+        let mut map = HashMap::new();
+        for buf in active {
+            let path = self.buffers_dir.join(&buf.filename);
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                map.insert(buf.id, content);
+            }
+        }
+        Ok(map)
     }
 }
