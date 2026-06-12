@@ -14,6 +14,7 @@ import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
 import UpdateBanner from "./components/UpdateBanner/UpdateBanner";
 import WindowProvider, { useWindow } from "./components/WindowProvider/WindowProvider";
 import { bufferRegistry } from "./stores/global/buffer-registry";
+import { workspaceStore } from "./stores/global/workspace";
 import { updateStore } from "./stores/global/update";
 import { configStore } from "./stores/global/config";
 import { themeStore } from "./stores/global/theme";
@@ -101,6 +102,7 @@ function AppShell() {
     unlisteners.push(await installCloseFlush([() => osWindowStore.flushGeometry()]));
     win.sidebar.hydrateFromConfig();
     await bufferRegistry.load();
+    await workspaceStore.hydrate().catch(() => undefined);
 
     const recoveredBuffers = await getRecoveredBuffers().catch(() => []);
     if (recoveredBuffers.length > 0) {
@@ -120,6 +122,11 @@ function AppShell() {
       measureFirstPaint("warm", payload.rust_elapsed_us);
     });
     unlisteners.push(unlistenShown);
+
+    const unlistenWorkspace = await onEvent("workspace:changed", (payload) => {
+      workspaceStore.handleChanged(payload.path, payload.removed);
+    });
+    unlisteners.push(unlistenWorkspace);
 
     await emitFrontendReady();
 
@@ -150,6 +157,29 @@ function AppShell() {
       scope: "app",
       global: true,
       execute: () => windowRegistry.getActive()?.tabs.openFileDialog(),
+    });
+
+    registerCommand({
+      id: "workspace.openFolder",
+      label: "Open Folder…",
+      description: "Open a folder as the workspace",
+      scope: "app",
+      execute: () => {
+        void workspaceStore.openFolder().then((root) => {
+          if (root) {
+            const w = windowRegistry.getActive();
+            if (w && !w.sidebar.isOpen()) w.sidebar.toggle();
+          }
+        });
+      },
+    });
+
+    registerCommand({
+      id: "workspace.closeFolder",
+      label: "Close Folder",
+      description: "Close the open workspace folder",
+      scope: "app",
+      execute: () => void workspaceStore.closeFolder(),
     });
 
     registerCommand({

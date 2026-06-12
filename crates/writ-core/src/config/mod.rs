@@ -283,6 +283,27 @@ impl Default for StorageConfig {
     }
 }
 
+fn default_workspace_root() -> Option<String> {
+    None
+}
+
+/// Workspace folder configuration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceConfig {
+    /// Absolute path to the open workspace root, or `None` if no workspace
+    /// is open.
+    #[serde(default = "default_workspace_root")]
+    pub root: Option<String>,
+}
+
+impl Default for WorkspaceConfig {
+    fn default() -> Self {
+        Self {
+            root: default_workspace_root(),
+        }
+    }
+}
+
 /// Top-level Writ configuration.
 ///
 /// This is the root type deserialized from the user's `config.toml`.
@@ -321,6 +342,9 @@ pub struct WritConfig {
     /// Preview surface configuration.
     #[serde(default)]
     pub preview: PreviewConfig,
+    /// Workspace folder configuration.
+    #[serde(default)]
+    pub workspace: WorkspaceConfig,
 }
 
 impl Default for WritConfig {
@@ -336,6 +360,7 @@ impl Default for WritConfig {
             theme: ThemeConfig::default(),
             commands: CommandsConfig::default(),
             preview: PreviewConfig::default(),
+            workspace: WorkspaceConfig::default(),
         }
     }
 }

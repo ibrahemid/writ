@@ -48,7 +48,48 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
+        recovered_buffers: Mutex::new(Vec::new()),
+        was_dirty_shutdown: false,
+        workspace_root: Mutex::new(None),
+        workspace_watcher: Mutex::new(None),
     }
+}
+
+#[test]
+fn open_file_allows_path_inside_open_workspace() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let ws = TempDir::new().unwrap();
+    let note = ws.path().join("note.md");
+    std::fs::write(&note, "workspace file").unwrap();
+
+    {
+        let mut root = state.workspace_root.lock().unwrap();
+        *root = Some(ws.path().canonicalize().unwrap());
+    }
+
+    let result = open_file_from_path(&state, &note.to_string_lossy());
+    assert!(result.is_ok(), "workspace-contained open must pass: {result:?}");
+}
+
+#[test]
+fn open_file_still_rejects_path_outside_open_workspace() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let ws = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.txt");
+    std::fs::write(&secret, "shhh").unwrap();
+
+    {
+        let mut root = state.workspace_root.lock().unwrap();
+        *root = Some(ws.path().canonicalize().unwrap());
+    }
+
+    let result = open_file_from_path(&state, &secret.to_string_lossy());
+    assert!(result.is_err(), "outside-workspace open must stay rejected");
 }
 
 #[test]

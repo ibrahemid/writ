@@ -9,6 +9,7 @@ export type WritEvent =
   | { kind: "buffer:external"; payload: { bufferId: string; change: "modified" | "deleted" } }
   | { kind: "recovery:dirty"; payload: { snapshotId: string; bufferCount: number } }
   | { kind: "menu:action"; payload: { action: string } }
+  | { kind: "workspace:changed"; payload: { path: string; removed: boolean } }
   | { kind: "update:status"; payload: UpdatePhase }
   | {
       kind: "preview:rendered";

@@ -53,6 +53,12 @@ fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
         WritEvent::MenuAction { action } => Some(WritFrontendEvent::MenuAction {
             action: action.clone(),
         }),
+        WritEvent::WorkspaceChanged { path, removed } => {
+            Some(WritFrontendEvent::WorkspaceChanged {
+                path: path.clone(),
+                removed: *removed,
+            })
+        }
         WritEvent::HotkeyToggle
         | WritEvent::PluginEvent { .. }
         | WritEvent::RecoveryDirty { .. } => None,
@@ -171,6 +177,26 @@ mod tests {
             WritFrontendEvent::MenuAction {
                 action: "file.open".to_string(),
             }
+        );
+    }
+
+    #[test]
+    fn bridge_translates_workspace_changed_to_frontend_event() {
+        let bus = EventBus::new();
+        let received = capture(&bus);
+
+        bus.emit(WritEvent::WorkspaceChanged {
+            path: "/ws/src/main.rs".to_string(),
+            removed: false,
+        });
+
+        let events = received.lock().unwrap();
+        assert_eq!(
+            events.as_slice(),
+            [WritFrontendEvent::WorkspaceChanged {
+                path: "/ws/src/main.rs".to_string(),
+                removed: false,
+            }]
         );
     }
 

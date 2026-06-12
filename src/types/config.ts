@@ -35,4 +35,5 @@ export interface WritConfig {
   theme: { preset: string; overrides: Record<string, string> };
   commands: CommandsConfig;
   preview: PreviewConfig;
+  workspace: { root: string | null };
 }
