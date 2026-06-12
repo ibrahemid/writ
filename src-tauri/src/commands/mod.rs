@@ -5,6 +5,7 @@ pub mod history;
 pub mod perf;
 pub mod preview;
 pub mod prompt;
+pub mod recovery;
 pub mod transforms;
 pub mod update;
 pub mod window;

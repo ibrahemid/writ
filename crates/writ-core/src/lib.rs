@@ -23,6 +23,7 @@
 //! - [`hotkey`]: platform-neutral chord representation and parser.
 //! - [`prompt`]: prompt-document helpers — token estimation, stripping,
 //!   placeholders (ADR-015).
+//! - [`recovery`]: crash-recovery policy types and resolution logic.
 //! - [`update`]: update lifecycle phases and transition policy.
 //! - [`watcher`]: external-change representation and conflict policy.
 //! - [`workspace`]: workspace-level state (reserved).
@@ -51,6 +52,8 @@ pub mod hotkey;
 pub mod prompt;
 /// Preview surface types and content-type renderer registry — ADR-009.
 pub mod preview;
+/// Crash-recovery policy types and resolution logic.
+pub mod recovery;
 /// Update lifecycle phases and transition policy.
 pub mod update;
 /// External-change events and conflict-resolution policy.

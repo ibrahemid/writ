@@ -124,6 +124,15 @@ export async function renameBuffer(id: string, title: string): Promise<void> {
   return invoke("rename_buffer", { id, title });
 }
 
+export interface RecoveredBuffer {
+  id: string;
+  content: string;
+}
+
+export async function getRecoveredBuffers(): Promise<RecoveredBuffer[]> {
+  return invoke("get_recovered_buffers");
+}
+
 export async function checkForUpdate(): Promise<void> {
   return invoke("check_for_update");
 }
