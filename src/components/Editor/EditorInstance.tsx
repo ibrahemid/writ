@@ -10,7 +10,8 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import { syntaxHighlighting, bracketMatching, indentOnInput } from "@codemirror/language";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { search, highlightSelectionMatches } from "@codemirror/search";
-import { writTheme, writHighlight } from "./cm-theme";
+import { editorThemeFor, writHighlight } from "./cm-theme";
+import { themeStore } from "../../stores/global/theme";
 import type { BufferDocument } from "../../types/buffer";
 import { debouncedSave, cancelAutosave, flushAutosave } from "../../services/autosave";
 import { detectLanguage, detectFromContent } from "../../services/language-detect";
@@ -44,6 +45,7 @@ export default function EditorInstance(props: Props) {
   let appliedNameForLang = "";
   let lastDetectLen = 0;
   const languageCompartment = new Compartment();
+  const themeCompartment = new Compartment();
 
   function applyDetectedLanguage(lang: string) {
     if (!view) return;
@@ -87,7 +89,7 @@ export default function EditorInstance(props: Props) {
         ...closeBracketsKeymap,
         indentWithTab,
       ]),
-      writTheme,
+      themeCompartment.of(editorThemeFor(themeStore.polarity())),
       EditorView.lineWrapping,
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
@@ -216,6 +218,16 @@ export default function EditorInstance(props: Props) {
     () => {
       if (!view) return;
       applyLanguageFromBuffer(props.buffer, view.state.doc.toString());
+    },
+    { defer: true },
+  ));
+
+  // Flip the editor's light/dark fallback styling when the app theme polarity
+  // changes, without rebuilding the view.
+  createEffect(on(
+    () => themeStore.polarity(),
+    (pol) => {
+      view?.dispatch({ effects: themeCompartment.reconfigure(editorThemeFor(pol)) });
     },
     { defer: true },
   ));

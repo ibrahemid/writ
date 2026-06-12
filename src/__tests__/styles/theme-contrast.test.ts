@@ -70,6 +70,10 @@ describe("app theme tokens contrast (WCAG AA, all presets)", () => {
         expect(contrast(preset.accent.foreground, preset.accent.hover)).toBeGreaterThanOrEqual(AA_TEXT);
       });
 
+      // status-foreground is the label color for the filled danger control
+      // (the only on-status text in the app: ConfirmDialog .is-danger on the
+      // error fill). success/warning are decorative-only and carry no text, so
+      // a single on-color is asserted against the error fill it actually paints.
       it("status-foreground text meets 4.5:1 on the error fill", () => {
         expect(contrast(preset.status.foreground, preset.status.error)).toBeGreaterThanOrEqual(AA_TEXT);
       });

@@ -261,6 +261,15 @@
     } else if (d.type === "findClear") {
       clearFind();
       findTerm = null;
+    } else if (d.type === "setTheme") {
+      // Live app-theme switch: flip the reading palette in place. New renders
+      // already ship the attribute baked into the served HTML; this covers the
+      // document already loaded when the user changes theme.
+      if (d.theme === "light") {
+        doc.documentElement.setAttribute("data-writ-theme", "light");
+      } else {
+        doc.documentElement.removeAttribute("data-writ-theme");
+      }
     }
   }
 

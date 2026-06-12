@@ -28,5 +28,5 @@ pub use protocol::{parse as parse_preview_url, ParsedRequest, PreviewScope, Refu
 pub use registry::{ContentRendererRegistry, RegisterError};
 pub use types::{
     ContentRenderer, ContentTypeId, LayoutMode, RenderError, RenderOutput, RenderRequest,
-    RendererCapabilities, ViewMode, WindowId,
+    RendererCapabilities, ThemePolarity, ViewMode, WindowId,
 };

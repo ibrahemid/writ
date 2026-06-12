@@ -16,7 +16,9 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
-use writ_core::preview::{ContentTypeId, RenderError, RenderRequest, RendererCapabilities};
+use writ_core::preview::{
+    ContentTypeId, RenderError, RenderRequest, RendererCapabilities, ThemePolarity,
+};
 
 use writ_storage::layout_state::LayoutStateRecord;
 
@@ -155,6 +157,7 @@ fn run_render(
     buffer_id: String,
     content_type: String,
     text: String,
+    theme: ThemePolarity,
 ) -> PreviewRenderResult {
     let ctype = ContentTypeId::new(content_type.clone());
 
@@ -171,6 +174,7 @@ fn run_render(
     let result = renderer.render(RenderRequest {
         content_type: ctype,
         buffer_text: text,
+        theme,
     });
     drop(registry);
 
@@ -231,8 +235,9 @@ pub fn preview_render(
     buffer_id: String,
     content_type: String,
     text: String,
+    theme: ThemePolarity,
 ) -> PreviewRenderResult {
-    run_render(&app, &state, window_id, buffer_id, content_type, text)
+    run_render(&app, &state, window_id, buffer_id, content_type, text, theme)
 }
 
 /// Force a render regardless of frontend debounce gating (Cmd+R). Identical
@@ -246,6 +251,7 @@ pub fn preview_force_render(
     buffer_id: String,
     content_type: String,
     text: String,
+    theme: ThemePolarity,
 ) -> PreviewRenderResult {
-    run_render(&app, &state, window_id, buffer_id, content_type, text)
+    run_render(&app, &state, window_id, buffer_id, content_type, text, theme)
 }

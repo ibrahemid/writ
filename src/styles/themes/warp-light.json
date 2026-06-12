@@ -1,0 +1,44 @@
+{
+  "id": "warp-light",
+  "name": "Warp Light",
+  "polarity": "light",
+  "surface": {
+    "background": "#fbfbfd",
+    "sunken": "#edeef3",
+    "raised": "#ffffff",
+    "elevated": "#eef1f7",
+    "input": "#ffffff",
+    "hover": "#e7e9f1"
+  },
+  "foreground": {
+    "default": "#1a1a22",
+    "muted": "#5a5a6a",
+    "subtle": "#76768a"
+  },
+  "border": {
+    "default": "#e2e2ea",
+    "soft": "#ededf2",
+    "focus": "#3b5bdb",
+    "pill": "#d8d8e2"
+  },
+  "accent": {
+    "default": "#3b5bdb",
+    "hover": "#2843c0",
+    "foreground": "#ffffff"
+  },
+  "status": {
+    "success": "#178035",
+    "warning": "#9a6b00",
+    "error": "#d11a2a",
+    "foreground": "#ffffff"
+  },
+  "syntax": {
+    "keyword": "#8839ef",
+    "string": "#40803a",
+    "comment": "#8a8aa0",
+    "function": "#3b5bdb",
+    "number": "#b8500a",
+    "type": "#1a7a8c",
+    "variable": "#2a2a38"
+  }
+}

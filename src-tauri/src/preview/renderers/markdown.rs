@@ -141,7 +141,7 @@ impl ContentRenderer for MarkdownRenderer {
         if has_math {
             body_end.push_str(&katex::runtime_tags());
         }
-        let document_html = theme::wrap_document_with(&head_extra, &body, &body_end);
+        let document_html = theme::wrap_document_with(&head_extra, &body, &body_end, request.theme);
 
         Ok(RenderOutput {
             document_html,
@@ -159,6 +159,7 @@ mod tests {
         RenderRequest {
             content_type: MarkdownRenderer::content_type_id(),
             buffer_text: text.to_string(),
+            theme: Default::default(),
         }
     }
 

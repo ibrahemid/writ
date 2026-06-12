@@ -95,7 +95,7 @@ describe("PreviewPane — buffer switch (regression #97)", () => {
     await waitFor(() => {
       expect(iframeSrc(container)).toMatch(/writ-preview:\/\/document\/A\?v=[1-9]\d*$/);
     });
-    expect(mocks.forceRender).toHaveBeenCalledWith(9301, "A", "html", "<body>A</body>");
+    expect(mocks.forceRender).toHaveBeenCalledWith(9301, "A", "html", "<body>A</body>", "dark");
     const srcShowingA = iframeSrc(container);
     mocks.forceRender.mockClear();
 
@@ -119,9 +119,9 @@ describe("PreviewPane — buffer switch (regression #97)", () => {
     await waitFor(() => {
       expect(iframeSrc(container)).toMatch(/writ-preview:\/\/document\/B\?v=[1-9]\d*$/);
     });
-    expect(mocks.forceRender).toHaveBeenCalledWith(9301, "B", "html", "<body>B</body>");
+    expect(mocks.forceRender).toHaveBeenCalledWith(9301, "B", "html", "<body>B</body>", "dark");
     // B was never rendered with A's text under either id.
-    expect(mocks.forceRender).not.toHaveBeenCalledWith(9301, "B", "html", "<body>A</body>");
+    expect(mocks.forceRender).not.toHaveBeenCalledWith(9301, "B", "html", "<body>A</body>", "dark");
   });
 
   it("renders the incoming buffer on switch even when both buffers hold identical text", async () => {
@@ -151,7 +151,7 @@ describe("PreviewPane — buffer switch (regression #97)", () => {
     await waitFor(() =>
       expect(iframeSrc(container)).toMatch(/document\/B\?v=[1-9]\d*$/),
     );
-    expect(mocks.forceRender).toHaveBeenCalledWith(9302, "B", "html", "<body>same</body>");
+    expect(mocks.forceRender).toHaveBeenCalledWith(9302, "B", "html", "<body>same</body>", "dark");
   });
 
   it("discards an in-flight render that completes after the buffer switched away", async () => {
@@ -179,7 +179,7 @@ describe("PreviewPane — buffer switch (regression #97)", () => {
     win!.editor.setCurrentBufferId("A");
     await Promise.resolve();
     await Promise.resolve();
-    expect(mocks.forceRender).toHaveBeenCalledWith(9303, "A", "html", "<body>A</body>");
+    expect(mocks.forceRender).toHaveBeenCalledWith(9303, "A", "html", "<body>A</body>", "dark");
 
     // Switch to B while A's render is still pending; B renders to completion.
     setBuf(buffer("B"));
@@ -201,7 +201,7 @@ describe("PreviewPane — buffer switch (regression #97)", () => {
     mocks.forceRender.mockClear();
     win!.editor.setCurrentText("<body>A</body>");
     await waitFor(() =>
-      expect(mocks.forceRender).toHaveBeenCalledWith(9303, "B", "html", "<body>A</body>"),
+      expect(mocks.forceRender).toHaveBeenCalledWith(9303, "B", "html", "<body>A</body>", "dark"),
     );
   });
 });

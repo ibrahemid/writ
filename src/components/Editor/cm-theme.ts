@@ -1,13 +1,13 @@
 import { EditorView } from "@codemirror/view";
 import { HighlightStyle } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
+import type { ThemePolarity } from "../../types/theme";
 
 const SELECTION_ALPHA = "color-mix(in srgb, var(--writ-accent-default) 32%, transparent)";
 const SELECTION_MATCH_ALPHA = "color-mix(in srgb, var(--writ-accent-default) 18%, transparent)";
 const ACTIVE_LINE_ALPHA = "color-mix(in srgb, var(--writ-surface-hover) 55%, transparent)";
 
-export const writTheme = EditorView.theme(
-  {
+const writThemeSpec = {
     "&": {
       color: "var(--writ-foreground-default)",
       backgroundColor: "var(--writ-surface-background)",
@@ -80,9 +80,17 @@ export const writTheme = EditorView.theme(
       border: "1px solid var(--writ-border-soft)",
       color: "var(--writ-foreground-default)",
     },
-  },
-  { dark: true },
-);
+};
+
+// One spec, two polarities. The token values flip via CSS custom properties;
+// the { dark } flag flips CodeMirror's own light/dark fallback styling so a
+// light preset doesn't keep dark-mode caret/selection defaults.
+export const writThemeDark = EditorView.theme(writThemeSpec, { dark: true });
+export const writThemeLight = EditorView.theme(writThemeSpec, { dark: false });
+
+export function editorThemeFor(polarity: ThemePolarity) {
+  return polarity === "light" ? writThemeLight : writThemeDark;
+}
 
 export const writHighlight = HighlightStyle.define([
   { tag: t.keyword, color: "var(--writ-syntax-keyword)" },

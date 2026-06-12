@@ -1,6 +1,7 @@
 import { Show, createSignal, createEffect, on, onMount, onCleanup, untrack } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
 import { configStore } from "../../stores/global/config";
+import { themeStore } from "../../stores/global/theme";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { createPreviewBridge } from "../../lib/preview-bridge";
 import { createPreviewSearchController } from "../../editor/search/preview-search-controller";
@@ -132,7 +133,7 @@ export default function PreviewPane(props: Props) {
 
     setState("rendering");
     try {
-      const result = await win.preview.render(bufferId, contentType, text);
+      const result = await win.preview.render(bufferId, contentType, text, themeStore.polarity());
       // The pane may have gone inactive, or the active buffer switched, while
       // this render was in flight. Discard: committing would mis-target the
       // iframe (the #97 flash via the completion race) and poison the dedup.
@@ -214,6 +215,18 @@ export default function PreviewPane(props: Props) {
       () => {
         if (props.isActive) void doRender(true);
       },
+      { defer: true },
+    ),
+  );
+
+  // Live app-theme switch: flip the already-loaded preview's reading palette in
+  // place via the bridge, no re-render. Fresh renders already bake the matching
+  // data-writ-theme into the served HTML (no load flash); this only covers a
+  // theme change while a document is parked in the frame.
+  createEffect(
+    on(
+      () => themeStore.polarity(),
+      (pol) => postToIframe({ type: "setTheme", theme: pol }),
       { defer: true },
     ),
   );

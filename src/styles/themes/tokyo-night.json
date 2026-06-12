@@ -1,6 +1,7 @@
 {
   "id": "tokyo-night",
   "name": "Tokyo Night",
+  "polarity": "dark",
   "surface": {
     "background": "#1a1b26",
     "sunken": "#16161e",

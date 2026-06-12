@@ -3,6 +3,7 @@ import { getCurrentWindow, LogicalSize, LogicalPosition } from "@tauri-apps/api/
 import type { BufferDocument } from "../types/buffer";
 import type { WritConfig } from "../types/config";
 import type { TransformDescriptor } from "../types/transforms";
+import type { ThemePolarity } from "../types/theme";
 
 export async function listTransforms(): Promise<TransformDescriptor[]> {
   return invoke("list_transforms");
@@ -370,8 +371,9 @@ export async function previewRender(
   bufferId: string,
   contentType: string,
   text: string,
+  theme: ThemePolarity,
 ): Promise<PreviewRenderResult> {
-  return invoke("preview_render", { windowId, bufferId, contentType, text });
+  return invoke("preview_render", { windowId, bufferId, contentType, text, theme });
 }
 
 export async function previewForceRender(
@@ -379,8 +381,9 @@ export async function previewForceRender(
   bufferId: string,
   contentType: string,
   text: string,
+  theme: ThemePolarity,
 ): Promise<PreviewRenderResult> {
-  return invoke("preview_force_render", { windowId, bufferId, contentType, text });
+  return invoke("preview_force_render", { windowId, bufferId, contentType, text, theme });
 }
 
 export async function previewClose(bufferId: string): Promise<void> {

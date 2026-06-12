@@ -185,6 +185,7 @@ mod tests {
             .render(RenderRequest {
                 content_type: ContentTypeId::new("html"),
                 buffer_text: "hi".to_string(),
+                theme: Default::default(),
             })
             .unwrap();
         assert!(out.document_html.contains("<stub>2</stub>"));

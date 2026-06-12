@@ -109,7 +109,7 @@ impl ContentRenderer for MermaidRenderer {
         }
 
         let body = diagram_block(&request.buffer_text);
-        let document_html = theme::wrap_document_with("", &body, &runtime_tags());
+        let document_html = theme::wrap_document_with("", &body, &runtime_tags(), request.theme);
 
         Ok(RenderOutput {
             document_html,
@@ -128,6 +128,7 @@ mod tests {
             .render(RenderRequest {
                 content_type: MermaidRenderer::content_type_id(),
                 buffer_text: text.to_string(),
+                theme: Default::default(),
             })
             .unwrap()
     }
@@ -181,6 +182,7 @@ mod tests {
             .render(RenderRequest {
                 content_type: MermaidRenderer::content_type_id(),
                 buffer_text: big,
+                theme: Default::default(),
             })
             .unwrap_err();
         assert!(matches!(err, RenderError::DocumentTooLarge { .. }));

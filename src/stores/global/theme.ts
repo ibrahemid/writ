@@ -1,5 +1,5 @@
 import { createSignal, createMemo } from "solid-js";
-import type { Theme, ThemeOverrides, ThemeConfig } from "../../types/theme";
+import type { Theme, ThemeOverrides, ThemeConfig, ThemePolarity } from "../../types/theme";
 import { PRESETS, getPreset, getDefaultPreset, DEFAULT_PRESET_ID } from "../../styles/themes";
 
 // Singleton — app-global, not window-scoped (ADR-009 E3).
@@ -7,15 +7,20 @@ import { PRESETS, getPreset, getDefaultPreset, DEFAULT_PRESET_ID } from "../../s
 
 const HEX_PATTERN = /^#[0-9a-fA-F]{3,8}$/;
 
+// Mirror of the resolved CSS variables, read by the inline boot script in
+// index.html to paint the saved theme before the bundle loads (no FOUC).
+const FAST_BOOT_KEY = "writ-theme-vars";
+
 const [presetId, setPresetId] = createSignal<string>(DEFAULT_PRESET_ID);
 const [overrides, setOverridesSignal] = createSignal<ThemeOverrides>({});
 
 const activePreset = createMemo<Theme>(() => getPreset(presetId()) ?? getDefaultPreset());
+const polarity = createMemo<ThemePolarity>(() => activePreset().polarity ?? "dark");
 
 function flattenTheme(theme: Theme): Record<string, string> {
   const flat: Record<string, string> = {};
   for (const [group, tokens] of Object.entries(theme)) {
-    if (group === "id" || group === "name") continue;
+    if (group === "id" || group === "name" || group === "polarity") continue;
     if (typeof tokens !== "object" || tokens === null) continue;
     for (const [key, value] of Object.entries(tokens as Record<string, string>)) {
       flat[`${group}.${key}`] = value;
@@ -36,6 +41,7 @@ export const themeStore = {
   presetId,
   overrides,
   activePreset,
+  polarity,
 
   resolvedTokens: createMemo<Record<string, string>>(() => {
     const base = flattenTheme(activePreset());
@@ -44,8 +50,17 @@ export const themeStore = {
 
   applyToRoot(root: HTMLElement = document.documentElement): void {
     const resolved = this.resolvedTokens();
+    const snapshot: Record<string, string> = {};
     for (const [key, value] of Object.entries(resolved)) {
-      root.style.setProperty(tokenKeyToCssVar(key), value);
+      const cssVar = tokenKeyToCssVar(key);
+      root.style.setProperty(cssVar, value);
+      snapshot[cssVar] = value;
+    }
+    try {
+      localStorage.setItem(FAST_BOOT_KEY, JSON.stringify(snapshot));
+    } catch {
+      // Private-mode / quota failures are non-fatal: the app still themes at
+      // runtime; only the pre-paint fast boot is skipped.
     }
   },
 
