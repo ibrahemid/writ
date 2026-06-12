@@ -1,14 +1,19 @@
 import { Show, createMemo } from "solid-js";
 import { useWindow } from "../WindowProvider/WindowProvider";
+import { bufferRegistry } from "../../stores/global/buffer-registry";
 import SearchBar from "./SearchBar";
 import ActiveSection from "./ActiveSection";
 import HistorySection from "./HistorySection";
 import SearchResults from "./SearchResults";
+import SidebarEmpty from "./SidebarEmpty";
 import "./Sidebar.css";
 
 export default function Sidebar() {
   const win = useWindow();
   const searching = createMemo(() => win.sidebar.searchQuery().trim().length > 0);
+  const hasContent = createMemo(
+    () => bufferRegistry.activeTabs().length > 0 || bufferRegistry.historyList().length > 0,
+  );
 
   return (
     <div
@@ -20,8 +25,10 @@ export default function Sidebar() {
         when={searching()}
         fallback={
           <div class="sidebar-scroll">
-            <ActiveSection />
-            <HistorySection />
+            <Show when={hasContent()} fallback={<SidebarEmpty />}>
+              <ActiveSection />
+              <HistorySection />
+            </Show>
           </div>
         }
       >
