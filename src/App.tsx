@@ -213,6 +213,10 @@ function AppShell() {
       description: "Show or hide the tabs + history rail",
       keybinding: "CmdOrCtrl+S",
       scope: "app",
+      // Global: the editor holds focus almost all the time in a writing app, so
+      // a focus-gated sidebar toggle would be unreachable from the keyboard. It
+      // must fire from the editor and from the sidebar search input alike.
+      global: true,
       execute: () => windowRegistry.getActive()?.sidebar.toggle(),
     });
 
