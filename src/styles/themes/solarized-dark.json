@@ -1,6 +1,7 @@
 {
   "id": "solarized-dark",
   "name": "Solarized Dark",
+  "polarity": "dark",
   "surface": {
     "background": "#002b36",
     "sunken": "#001f27",

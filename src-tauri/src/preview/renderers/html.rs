@@ -220,6 +220,7 @@ mod tests {
         RenderRequest {
             content_type: HtmlRenderer::content_type_id(),
             buffer_text: text.to_string(),
+            theme: Default::default(),
         }
     }
 

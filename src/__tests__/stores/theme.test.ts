@@ -91,6 +91,35 @@ describe("themeStore", () => {
   });
 });
 
+describe("theme polarity and fast boot", () => {
+  beforeEach(() => {
+    themeStore.resetOverrides();
+    themeStore.setPreset("warp-dark");
+  });
+
+  it("reports dark for dark presets and light for the light preset", () => {
+    themeStore.setPreset("warp-dark");
+    expect(themeStore.polarity()).toBe("dark");
+    themeStore.setPreset("warp-light");
+    expect(themeStore.polarity()).toBe("light");
+  });
+
+  it("ships a light preset selectable in the picker", () => {
+    const light = themeStore.presets().find((p) => p.id === "warp-light");
+    expect(light?.polarity).toBe("light");
+  });
+
+  it("persists resolved variables for the pre-paint boot script", () => {
+    themeStore.setPreset("warp-light");
+    themeStore.applyToRoot(fakeRoot());
+    const raw = localStorage.getItem("writ-theme-vars");
+    expect(raw).toBeTruthy();
+    const vars = JSON.parse(raw as string);
+    expect(vars["--writ-surface-background"]).toBe("#fbfbfd");
+    expect(vars["--writ-accent-foreground"]).toBe("#ffffff");
+  });
+});
+
 describe("preset integrity", () => {
   it("every preset declares every required token group", () => {
     for (const preset of themeStore.presets()) {
@@ -100,6 +129,10 @@ describe("preset integrity", () => {
       expect(preset.accent).toBeDefined();
       expect(preset.status).toBeDefined();
       expect(preset.syntax).toBeDefined();
+      // On-fill text tokens and polarity are required for AA + light support.
+      expect(preset.accent.foreground).toBeDefined();
+      expect(preset.status.foreground).toBeDefined();
+      expect(preset.polarity === "light" || preset.polarity === "dark").toBe(true);
     }
   });
 

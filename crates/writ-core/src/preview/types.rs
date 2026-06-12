@@ -143,6 +143,23 @@ pub struct RenderRequest {
     /// Live buffer text. Renderers operate on in-memory bytes, not on
     /// on-disk content.
     pub buffer_text: String,
+    /// App theme polarity at render time. Drives the reading palette baked
+    /// into the served document so the preview opens in the right polarity
+    /// without a load-time flash.
+    #[serde(default)]
+    pub theme: ThemePolarity,
+}
+
+/// Light or dark app theme, threaded to the renderer so the preview document
+/// ships with the matching `data-writ-theme` reading palette.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemePolarity {
+    /// Dark reading palette (the `:root` default in `preview-base.css`).
+    #[default]
+    Dark,
+    /// Light reading palette (`[data-writ-theme="light"]`).
+    Light,
 }
 
 /// Result of a successful render invocation.

@@ -30,7 +30,16 @@ function run(scroller: { scrollHeight: number; clientHeight: number; scrollTop: 
       handlers[type] = fn;
     },
   };
-  const doc = { scrollingElement: scroller, documentElement: scroller };
+  const attrs: Record<string, string> = {};
+  const documentElement = {
+    setAttribute(key: string, value: string) {
+      attrs[key] = value;
+    },
+    removeAttribute(key: string) {
+      delete attrs[key];
+    },
+  };
+  const doc = { scrollingElement: scroller, documentElement };
   const parentWin = {
     postMessage(msg: Posted) {
       posted.push(msg);
@@ -43,6 +52,7 @@ function run(scroller: { scrollHeight: number; clientHeight: number; scrollTop: 
     handlers,
     posted,
     scroller,
+    attrs,
     fireScroll: () => handlers.scroll?.({}),
     sendDown: (msg: Posted) =>
       handlers.message?.({ data: { source: "writ-preview", dir: "down", ...msg } }),
@@ -68,6 +78,17 @@ describe("preview bridge runtime", () => {
   it("scrolls to a parent-driven fraction", () => {
     env.sendDown({ type: "scrollTo", fraction: 0.5 });
     expect(env.scroller.scrollTop).toBe(400); // 0.5 * (1000 - 200)
+  });
+
+  it("flips to the light reading palette on a setTheme message", () => {
+    env.sendDown({ type: "setTheme", theme: "light" } as unknown as Posted);
+    expect(env.attrs["data-writ-theme"]).toBe("light");
+  });
+
+  it("clears the light palette attribute when switched back to dark", () => {
+    env.sendDown({ type: "setTheme", theme: "light" } as unknown as Posted);
+    env.sendDown({ type: "setTheme", theme: "dark" } as unknown as Posted);
+    expect(env.attrs["data-writ-theme"]).toBeUndefined();
   });
 
   it("posts the scroll fraction on a genuine user scroll", () => {
