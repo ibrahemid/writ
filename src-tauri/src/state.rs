@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 use tracing::{info, warn};
 use writ_core::config::WritConfig;
+use writ_core::recovery::RecoveredBuffer;
 use writ_core::events::bus::EventBus;
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
@@ -38,6 +39,11 @@ pub struct AppState {
     /// Per-buffer preview layout persistence. Holds its own SQLite
     /// connection (WAL permits concurrent connections to the same file).
     pub layout_state: LayoutStateStore,
+    /// Buffers restored from the crash snapshot on this launch.
+    /// Consumed by the `get_recovered_buffers` command and cleared.
+    pub recovered_buffers: Mutex<Vec<RecoveredBuffer>>,
+    /// `true` when the previous session ended without a clean snapshot.
+    pub was_dirty_shutdown: bool,
 }
 
 impl AppState {
@@ -64,6 +70,25 @@ impl AppState {
         info!("config loaded");
 
         let store = BufferStore::new(conn, buffers_dir.clone());
+
+        // Recovery must run before reclaim_empty_scratch: a buffer that
+        // crashed before its autosave flushed is empty on disk but has
+        // content in the snapshot; reclaiming first would delete it.
+        let was_dirty_shutdown = store.is_dirty_shutdown().unwrap_or(false);
+        let recovered_buffers = if was_dirty_shutdown {
+            info!("dirty shutdown detected; resolving recovery");
+            let recovered = store.resolve_recovery().unwrap_or_default();
+            info!(count = recovered.len(), "buffers eligible for recovery");
+            for buf in &recovered {
+                if let Err(e) = store.save_content(&buf.id, &buf.content) {
+                    warn!(buffer_id = %buf.id, error = %e, "recovery write failed");
+                }
+            }
+            recovered
+        } else {
+            Vec::new()
+        };
+
         match store.reclaim_empty_scratch() {
             Ok(0) => {}
             Ok(count) => info!(count, "reclaimed empty scratch buffers at startup"),
@@ -126,6 +151,8 @@ impl AppState {
             preview_registry: Arc::new(RwLock::new(preview_registry)),
             preview_render_cache: Arc::new(RenderCache::new()),
             layout_state,
+            recovered_buffers: Mutex::new(recovered_buffers),
+            was_dirty_shutdown,
         })
     }
 }

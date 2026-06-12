@@ -58,7 +58,14 @@ All persistence. Depends on `writ-core` for domain types, but not on Tauri. Cont
 - FTS5 full-text search index over buffer content
 - File I/O: reading and writing files to disk with atomic renames
 - TOML parsing for config files using `toml` crate
-- Snapshot / dirty-shutdown / consistency-check modules: infrastructure only, not yet wired into the running app. Tracked for resurrection (see `recovery/mod.rs`).
+- Crash recovery (wired): `recovery::snapshot` writes periodic session snapshots embedding
+  active-buffer contents, prunes to a bounded count on every write, and resolves which
+  buffers to restore after an unclean launch; `recovery::dirty_shutdown` detects the unclean
+  launch via the `session_snapshots` table. `AppState` runs detection and restore on init
+  (before the watcher starts and before empty-scratch reclaim), a background thread writes
+  an unclean heartbeat snapshot every 30 s, and `ExitRequested` writes a clean snapshot.
+  Retention and resolution policy live in `writ-core::recovery`; mechanism lives here.
+  The consistency-check module remains read-only infrastructure, not yet wired.
 
 ### writ-plugin
 Defines the extension boundary. Provides a stable API surface that plugins target. Depends on

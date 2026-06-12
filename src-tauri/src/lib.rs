@@ -124,6 +124,7 @@ pub fn run() {
     let config_path = app_state.writ_dir.join("config.toml");
     let buffers_dir = app_state.buffers_dir.clone();
     let watcher_ignore = app_state.watcher_ignore.clone();
+    let was_dirty_shutdown = app_state.was_dirty_shutdown;
 
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     let builder = tauri::Builder::default().plugin(tauri_plugin_single_instance::init(
@@ -216,6 +217,7 @@ pub fn run() {
             commands::preview::preview_force_render,
             commands::preview::preview_set_layout,
             commands::preview::preview_get_layout,
+            commands::recovery::get_recovered_buffers,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -295,6 +297,38 @@ pub fn run() {
                 }
             }
 
+            if was_dirty_shutdown {
+                let state = app.state::<AppState>();
+                let recovered = recover_poison(
+                    state.recovered_buffers.lock(),
+                    "lib::setup:recovery_count",
+                )
+                .len() as u32;
+                let _ = emit_event(
+                    &handle,
+                    WritFrontendEvent::RecoveryDirty {
+                        snapshot_id: String::new(),
+                        buffer_count: recovered,
+                    },
+                );
+            }
+
+            let snapshot_handle = handle.clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                let snapshot_error = {
+                    let state = snapshot_handle.state::<AppState>();
+                    state.store.lock().ok().and_then(|store| {
+                        store.collect_buffer_contents().ok().and_then(|contents| {
+                            store.write_session_snapshot(&contents, false).err()
+                        })
+                    })
+                };
+                if let Some(e) = snapshot_error {
+                    tracing::warn!(error = %e, "periodic snapshot failed");
+                }
+            });
+
             tauri::async_runtime::spawn(async move {
                 tauri::async_runtime::spawn_blocking(|| {
                     std::thread::sleep(std::time::Duration::from_secs(5));
@@ -311,6 +345,22 @@ pub fn run() {
         .expect("failed to build writ");
 
     app.run(|app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = &event {
+            let snapshot_result = {
+                let state = app_handle.state::<AppState>();
+                state.store.lock().ok().map(|store| {
+                    store
+                        .collect_buffer_contents()
+                        .and_then(|contents| store.write_session_snapshot(&contents, true))
+                })
+            };
+            match snapshot_result {
+                Some(Ok(())) => info!("clean-shutdown snapshot written"),
+                Some(Err(e)) => tracing::warn!(error = %e, "clean-shutdown snapshot failed"),
+                None => {}
+            }
+        }
+
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         if let tauri::RunEvent::Opened { urls } = &event {
             let raw_paths: Vec<String> = urls

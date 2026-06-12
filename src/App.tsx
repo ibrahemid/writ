@@ -27,7 +27,7 @@ import { registerPromptCommands } from "./commands/prompt";
 import PromptFillModal from "./components/PromptFill/PromptFillModal";
 import { registerPreviewKeymap } from "./keymap/preview";
 import { rendererRegistry } from "./stores/global/renderer-registry";
-import { previewListRenderers } from "./services/tauri";
+import { previewListRenderers, getRecoveredBuffers } from "./services/tauri";
 import { registerCommand, executeCommand, getAllCommands, setExecuteListener } from "./commands/registry";
 import {
   installKeyboardHandler,
@@ -101,6 +101,15 @@ function AppShell() {
     unlisteners.push(await installCloseFlush([() => osWindowStore.flushGeometry()]));
     win.sidebar.hydrateFromConfig();
     await bufferRegistry.load();
+
+    const recoveredBuffers = await getRecoveredBuffers().catch(() => []);
+    if (recoveredBuffers.length > 0) {
+      showToast(
+        `${recoveredBuffers.length} buffer${recoveredBuffers.length === 1 ? "" : "s"} recovered from last session`,
+        "info",
+        6000,
+      );
+    }
 
     const unlistenPending = await onEvent("pending:opens", (payload) => {
       void openPendingPaths(payload.paths);
