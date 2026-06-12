@@ -30,3 +30,10 @@ bundled = ["rusqlite/bundled"]
 [dev-dependencies]
 rusqlite = { version = "0.31", features = ["bundled"] }
 tempfile = "3"
+criterion = { version = "0.5", features = ["html_reports"] }
+writ-core = { path = "../writ-core" }
+chrono = { version = "0.4", features = ["serde"] }
+
+[[bench]]
+name = "storage"
+harness = false
