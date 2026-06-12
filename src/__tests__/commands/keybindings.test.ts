@@ -300,13 +300,19 @@ describe("editor-focus gating", () => {
     } as unknown as KeyboardEvent;
   }
 
-  it("suppresses Cmd+S (sidebar.toggle) while the editor is focused", () => {
+  it("fires Cmd+S (sidebar.toggle) while the editor is focused — it is global", () => {
+    // The editor holds focus almost all the time in a writing app, so a
+    // focus-gated sidebar toggle is unreachable from the keyboard (and once the
+    // sidebar opens, focus moves to its search input, also a gated text entry,
+    // so it can never be closed). sidebar.toggle MUST be registered global; this
+    // mirrors App.tsx and guards against re-gating it.
     let toggled = false;
     registerCommand({
       id: "sidebar.toggle",
       label: "Toggle Sidebar",
       keybinding: "CmdOrCtrl+S",
       scope: "app",
+      global: true,
       execute: () => { toggled = true; },
     });
     rebuildKeyMap();
@@ -315,9 +321,9 @@ describe("editor-focus gating", () => {
     const event = keyEvent({ key: "s", metaKey: true });
     const handled = handleKeyDown(event);
 
-    expect(handled).toBe(false);
-    expect(toggled).toBe(false);
-    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(handled).toBe(true);
+    expect(toggled).toBe(true);
+    expect(event.preventDefault).toHaveBeenCalled();
   });
 
   it("still fires a deliberately-global app command (Cmd+T buffer.new) while typing", () => {
