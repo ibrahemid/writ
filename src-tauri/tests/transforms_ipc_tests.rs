@@ -27,7 +27,8 @@ fn list_returns_every_registered_builtin() {
     assert!(ids.contains(&"ensure_final_newline".to_string()));
     assert!(ids.contains(&"fix_punctuation_spacing".to_string()));
     assert!(ids.contains(&"tidy_whitespace".to_string()));
-    assert_eq!(ids.len(), 8);
+    assert!(ids.contains(&"prepare_prompt".to_string()));
+    assert_eq!(ids.len(), 9);
 }
 
 #[test]
@@ -77,4 +78,16 @@ fn transform_error_renders_to_string_for_ipc() {
         reason: "boom".to_string(),
     };
     assert_eq!(err.to_string(), "transform failed: boom");
+}
+
+#[test]
+fn apply_round_trips_prepare_prompt() {
+    let registry = build_registry();
+    let out = apply(
+        &registry,
+        "prepare_prompt",
+        "---\ntitle: t\n---\n<!-- note -->\nbody  \n",
+    )
+    .unwrap();
+    assert_eq!(out, "\nbody\n");
 }

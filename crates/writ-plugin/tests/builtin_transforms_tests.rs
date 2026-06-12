@@ -1,14 +1,15 @@
 use writ_plugin::transform::builtins::{
     register_builtins, tidy_whitespace, Dedent, EnsureFinalNewline, FixPunctuationSpacing,
-    NormalizeWhitespace, SmartToStraightQuotes, TrimLeadingWhitespace, TrimTrailingWhitespace,
+    NormalizeWhitespace, PreparePrompt, SmartToStraightQuotes, TrimLeadingWhitespace,
+    TrimTrailingWhitespace,
 };
 use writ_plugin::transform::{TextTransform, TransformRegistry};
 
 #[test]
-fn register_builtins_registers_all_eight_transforms() {
+fn register_builtins_registers_all_nine_transforms() {
     let mut registry = TransformRegistry::new();
     register_builtins(&mut registry).expect("registration must succeed");
-    assert_eq!(registry.len(), 8);
+    assert_eq!(registry.len(), 9);
     let ids: Vec<String> = registry.list().into_iter().map(|d| d.id).collect();
     assert!(ids.contains(&"trim_leading_whitespace".to_string()));
     assert!(ids.contains(&"trim_trailing_whitespace".to_string()));
@@ -18,6 +19,7 @@ fn register_builtins_registers_all_eight_transforms() {
     assert!(ids.contains(&"ensure_final_newline".to_string()));
     assert!(ids.contains(&"fix_punctuation_spacing".to_string()));
     assert!(ids.contains(&"tidy_whitespace".to_string()));
+    assert!(ids.contains(&"prepare_prompt".to_string()));
 }
 
 #[test]
@@ -419,4 +421,32 @@ fn tidy_whitespace_is_idempotent_after_first_application() {
     let once = t.apply("    foo   bar   \n    baz\t\n\n").unwrap();
     let twice = t.apply(&once).unwrap();
     assert_eq!(once, twice);
+}
+
+#[test]
+fn prepare_prompt_strips_frontmatter_and_comments() {
+    let t = PreparePrompt;
+    let input = "---\ndraft: true\n---\n<!-- note to self -->\nThe prompt body.  \n\n";
+    assert_eq!(t.apply(input).unwrap(), "\nThe prompt body.\n");
+}
+
+#[test]
+fn prepare_prompt_preserves_comments_inside_fences() {
+    let t = PreparePrompt;
+    let input = "```html\n<!-- keep -->\n```\n";
+    assert_eq!(t.apply(input).unwrap(), "```html\n<!-- keep -->\n```\n");
+}
+
+#[test]
+fn prepare_prompt_does_not_mutate_plain_text_beyond_tail() {
+    let t = PreparePrompt;
+    assert_eq!(t.apply("plain prompt text").unwrap(), "plain prompt text\n");
+}
+
+#[test]
+fn prepare_prompt_metadata_is_palette_ready() {
+    let t = PreparePrompt;
+    assert_eq!(t.id(), "prepare_prompt");
+    assert_eq!(t.metadata().label, "Prepare as Prompt");
+    assert!(!t.metadata().description.is_empty());
 }

@@ -1,0 +1,119 @@
+.placeholders-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--writ-overlay-scrim);
+  z-index: 300;
+}
+
+.placeholders-dialog {
+  width: min(480px, calc(100vw - 48px));
+  max-height: min(600px, calc(100vh - 80px));
+  background: var(--writ-surface-raised);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: 12px;
+  padding: var(--writ-space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-4);
+  box-shadow: var(--writ-shadow-dialog);
+  overflow: hidden;
+}
+
+.placeholders-title {
+  font-size: var(--writ-font-size);
+  font-weight: 600;
+  color: var(--writ-foreground-default);
+  flex-shrink: 0;
+}
+
+.placeholders-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-4);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  flex: 1;
+  min-height: 0;
+  padding-right: var(--writ-space-1);
+}
+
+.placeholders-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-2);
+}
+
+.placeholders-label {
+  font-size: var(--writ-font-size-sm);
+  color: var(--writ-foreground-muted);
+  user-select: none;
+  overflow-wrap: anywhere;
+}
+
+.placeholders-input {
+  width: 100%;
+  padding: 7px 10px;
+  font-size: var(--writ-font-size-sm);
+  background: var(--writ-surface-input);
+  color: var(--writ-foreground-default);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: 7px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.placeholders-input:focus {
+  border-color: var(--writ-border-focus);
+}
+
+.placeholders-empty {
+  font-size: var(--writ-font-size-sm);
+  color: var(--writ-foreground-muted);
+  line-height: 1.5;
+  padding: var(--writ-space-2) 0;
+}
+
+.placeholders-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--writ-space-3);
+  margin-top: var(--writ-space-3);
+  flex-shrink: 0;
+}
+
+.placeholders-button {
+  font-size: var(--writ-font-size-sm);
+  padding: 7px 14px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.placeholders-button:focus-visible {
+  outline: 2px solid var(--writ-border-focus);
+  outline-offset: 2px;
+}
+
+.placeholders-cancel {
+  background: transparent;
+  border-color: var(--writ-border-soft);
+  color: var(--writ-foreground-muted);
+}
+
+.placeholders-cancel:hover {
+  background: var(--writ-surface-hover);
+  color: var(--writ-foreground-default);
+}
+
+.placeholders-confirm {
+  background: var(--writ-accent-default);
+  color: var(--writ-accent-foreground);
+  font-weight: 600;
+}
+
+.placeholders-confirm:hover {
+  background: var(--writ-accent-hover);
+}

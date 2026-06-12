@@ -70,3 +70,9 @@
 .statusbar-label {
   white-space: nowrap;
 }
+
+.statusbar-tokens {
+  white-space: nowrap;
+  color: var(--writ-foreground-subtle);
+  font-variant-numeric: tabular-nums;
+}
