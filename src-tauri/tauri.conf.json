@@ -103,7 +103,12 @@
                 ],
                 "name": "Markdown",
                 "mimeType": "text/markdown",
-                "role": "Editor"
+                "role": "Editor",
+                "contentTypes": ["net.daringfireball.markdown"],
+                "exportedType": {
+                    "identifier": "net.daringfireball.markdown",
+                    "conformsTo": ["public.plain-text"]
+                }
             },
             {
                 "ext": [
@@ -181,7 +186,8 @@
                 ],
                 "name": "HTML",
                 "mimeType": "text/html",
-                "role": "Editor"
+                "role": "Editor",
+                "contentTypes": ["public.html"]
             },
             {
                 "ext": [
