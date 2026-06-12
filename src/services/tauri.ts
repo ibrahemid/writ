@@ -452,3 +452,12 @@ export async function listWorkspaceDir(dirPath: string): Promise<WorkspaceEntry[
 export async function getWorkspaceRoot(): Promise<string | null> {
   return invoke("get_workspace_root");
 }
+
+export interface InstallCliResult {
+  symlink_path: string;
+  manual_command: string;
+}
+
+export async function installCli(): Promise<InstallCliResult> {
+  return invoke("install_cli");
+}

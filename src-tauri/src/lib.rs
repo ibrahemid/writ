@@ -222,6 +222,7 @@ pub fn run() {
             commands::workspace::clear_workspace_root,
             commands::workspace::list_workspace_dir,
             commands::workspace::get_workspace_root,
+            commands::cli::install_cli,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -411,21 +412,39 @@ pub fn run() {
                 let paths =
                     startup::authorize_and_canonicalize(&state.authorized_paths, &raw_paths);
                 if !paths.is_empty() {
-                    info!(count = paths.len(), "files opened from OS");
+                    let (dirs, files): (Vec<String>, Vec<String>) = paths
+                        .into_iter()
+                        .partition(|p| std::path::Path::new(p).is_dir());
 
-                    let ready = state
-                        .frontend_ready
-                        .load(std::sync::atomic::Ordering::SeqCst);
+                    if let Some(dir_path) = dirs.last() {
+                        info!(path = %dir_path, "workspace folder opened from OS");
+                        if let Err(e) = commands::workspace::set_workspace_root_from_path(
+                            &state,
+                            std::path::Path::new(dir_path),
+                        ) {
+                            tracing::warn!(error = %e, "failed to set workspace root from OS open");
+                        }
+                    }
 
-                    if ready {
-                        let _ =
-                            emit_event(app_handle, WritFrontendEvent::PendingOpens { paths });
-                    } else {
-                        let mut pending = recover_poison(
-                            state.pending_opens.lock(),
-                            "lib::run_event:opened_files",
-                        );
-                        pending.extend(paths);
+                    if !files.is_empty() {
+                        info!(count = files.len(), "files opened from OS");
+
+                        let ready = state
+                            .frontend_ready
+                            .load(std::sync::atomic::Ordering::SeqCst);
+
+                        if ready {
+                            let _ = emit_event(
+                                app_handle,
+                                WritFrontendEvent::PendingOpens { paths: files },
+                            );
+                        } else {
+                            let mut pending = recover_poison(
+                                state.pending_opens.lock(),
+                                "lib::run_event:opened_files",
+                            );
+                            pending.extend(files);
+                        }
                     }
 
                     if let Some(window) = app_handle.get_webview_window("main") {

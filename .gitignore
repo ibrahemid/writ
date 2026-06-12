@@ -31,3 +31,6 @@ drafts/
 
 # Local backups
 .git.backup-*
+
+# Sidecar binaries (built by CI before cargo tauri build; not committed)
+src-tauri/binaries/writ-*
