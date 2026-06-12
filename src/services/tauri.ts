@@ -13,6 +13,21 @@ export async function applyTransform(transformId: string, input: string): Promis
   return invoke("apply_transform", { transformId, input });
 }
 
+export async function promptEstimateTokens(text: string): Promise<number> {
+  return invoke("prompt_estimate_tokens", { text });
+}
+
+export async function promptScanPlaceholders(text: string): Promise<string[]> {
+  return invoke("prompt_scan_placeholders", { text });
+}
+
+export async function promptFillPlaceholders(
+  text: string,
+  values: Record<string, string>,
+): Promise<string> {
+  return invoke("prompt_fill_placeholders", { text, values });
+}
+
 export async function createBuffer(title?: string): Promise<BufferDocument> {
   return invoke("create_buffer", { title: title ?? null });
 }

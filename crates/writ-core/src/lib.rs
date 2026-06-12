@@ -21,6 +21,8 @@
 //! - [`file_ops`]: pure helpers for file validation and language detection.
 //! - [`history`]: recently-closed buffer history.
 //! - [`hotkey`]: platform-neutral chord representation and parser.
+//! - [`prompt`]: prompt-document helpers — token estimation, stripping,
+//!   placeholders (ADR-015).
 //! - [`update`]: update lifecycle phases and transition policy.
 //! - [`watcher`]: external-change representation and conflict policy.
 //! - [`workspace`]: workspace-level state (reserved).
@@ -45,6 +47,8 @@ pub mod file_ops;
 pub mod history;
 /// Platform-neutral hotkey chord representation and parser.
 pub mod hotkey;
+/// Prompt-document helpers: token estimation, stripping, placeholders.
+pub mod prompt;
 /// Preview surface types and content-type renderer registry — ADR-009.
 pub mod preview;
 /// Update lifecycle phases and transition policy.
