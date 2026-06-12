@@ -126,6 +126,7 @@ function AppShell() {
       description: "Create a new empty buffer",
       keybinding: "CmdOrCtrl+T",
       scope: "app",
+      global: true,
       execute: () => windowRegistry.getActive()?.tabs.createTab(),
     });
 
@@ -135,6 +136,7 @@ function AppShell() {
       description: "Open a file from disk into a new tab",
       keybinding: "CmdOrCtrl+O",
       scope: "app",
+      global: true,
       execute: () => windowRegistry.getActive()?.tabs.openFileDialog(),
     });
 
@@ -144,6 +146,7 @@ function AppShell() {
       description: "Close the active tab",
       keybinding: "CmdOrCtrl+W",
       scope: "app",
+      global: true,
       execute: () => {
         const w = windowRegistry.getActive();
         const id = w?.tabs.activeTabId();
@@ -157,6 +160,7 @@ function AppShell() {
       description: "Cycle to the next open tab",
       keybinding: "CmdOrCtrl+]",
       scope: "app",
+      global: true,
       execute: () => {
         const w = windowRegistry.getActive();
         if (!w) return;
@@ -175,6 +179,7 @@ function AppShell() {
       description: "Cycle to the previous open tab",
       keybinding: "CmdOrCtrl+[",
       scope: "app",
+      global: true,
       execute: () => {
         const w = windowRegistry.getActive();
         if (!w) return;
@@ -193,6 +198,7 @@ function AppShell() {
       description: "Restore the most recently closed tab",
       keybinding: "CmdOrCtrl+Shift+T",
       scope: "app",
+      global: true,
       execute: () => {
         const w = windowRegistry.getActive();
         if (!w) return;
@@ -260,6 +266,7 @@ function AppShell() {
       description: "Search and run any command",
       keybinding: "Shift+Shift",
       scope: "app",
+      global: true,
       execute: () => toggleCommandPalette(),
     });
 

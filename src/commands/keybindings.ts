@@ -88,30 +88,25 @@ function normalizeKey(e: KeyboardEvent): string {
 
 const keyBindingMap = new Map<string, string>();
 
+/**
+ * Command ids that may fire while focus is inside the editor or a text input:
+ * every `scope: "editor"` command (it is meant for the focused editor) plus any
+ * app command flagged `global`. Other app commands are suppressed while typing
+ * so their chord reaches the editor/input instead.
+ */
+const focusPassthrough = new Set<string>();
+
 let lastShiftTime = 0;
 let shiftCommandId: string | null = null;
 
-interface DoubleTap {
-  commandId: string;
-  singleCommandId: string | null;
-  baseKey: string;
-  modifier: string;
-  normalizedSingle: string;
-}
-
-const doubleTaps: DoubleTap[] = [];
-const pendingTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
 export function rebuildKeyMap() {
   keyBindingMap.clear();
+  focusPassthrough.clear();
   shiftCommandId = null;
-  doubleTaps.length = 0;
-  pendingTimers.clear();
-
-  const doubleTapBindings: { commandId: string; modifier: string; baseKey: string }[] = [];
-  const regularBindings: { commandId: string; keybinding: string }[] = [];
 
   for (const cmd of getAllCommands()) {
+    if (cmd.scope === "editor" || cmd.global) focusPassthrough.add(cmd.id);
+
     const primary = effectiveBinding(cmd.id, cmd.keybinding);
     const bindings = [primary, ...(cmd.keybindingAliases ?? [])].filter(
       (b): b is string => Boolean(b),
@@ -121,36 +116,8 @@ export function rebuildKeyMap() {
         shiftCommandId = cmd.id;
         continue;
       }
-      const doubleTapMatch = binding.match(/^(.+)\+double\+(.+)$/i);
-      if (doubleTapMatch) {
-        doubleTapBindings.push({
-          commandId: cmd.id,
-          modifier: doubleTapMatch[1],
-          baseKey: doubleTapMatch[2].toUpperCase(),
-        });
-      } else {
-        regularBindings.push({ commandId: cmd.id, keybinding: binding });
-      }
+      keyBindingMap.set(binding, cmd.id);
     }
-  }
-
-  for (const reg of regularBindings) {
-    keyBindingMap.set(reg.keybinding, reg.commandId);
-  }
-
-  for (const dt of doubleTapBindings) {
-    const normalizedSingle = `${dt.modifier}+${dt.baseKey}`;
-    const singleCommandId = keyBindingMap.get(normalizedSingle) || null;
-    if (singleCommandId) {
-      keyBindingMap.delete(normalizedSingle);
-    }
-    doubleTaps.push({
-      commandId: dt.commandId,
-      singleCommandId,
-      baseKey: dt.baseKey,
-      modifier: dt.modifier,
-      normalizedSingle,
-    });
   }
 
   if (import.meta.env.DEV) {
@@ -160,6 +127,21 @@ export function rebuildKeyMap() {
   }
 
   notifyRegistryChanged();
+}
+
+/**
+ * True when keyboard focus is inside a CodeMirror editor or any native text
+ * input, where app-scoped chords must yield to the editor unless the matched
+ * command is on the focus allowlist. Lives in `src/commands/` (not a component
+ * or store), so reading `document.activeElement` here is permitted.
+ */
+function isTextEntryFocused(): boolean {
+  const el = document.activeElement;
+  if (!el) return false;
+  if (el.closest(".cm-editor")) return true;
+  const tag = el.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA") return true;
+  return (el as HTMLElement).isContentEditable === true;
 }
 
 export function handleKeyDown(e: KeyboardEvent): boolean {
@@ -181,36 +163,13 @@ export function handleKeyDown(e: KeyboardEvent): boolean {
     lastShiftTime = 0;
   }
 
-  for (const dt of doubleTaps) {
-    const hasModifier =
-      (dt.modifier === "CmdOrCtrl" && (e.metaKey || e.ctrlKey)) ||
-      (dt.modifier === "Shift" && e.shiftKey) ||
-      (dt.modifier === "Alt" && e.altKey);
-
-    if (hasModifier && e.key.toUpperCase() === dt.baseKey) {
-      e.preventDefault();
-      e.stopPropagation();
-
-      const tapKey = dt.normalizedSingle;
-      const pending = pendingTimers.get(tapKey);
-
-      if (pending) {
-        clearTimeout(pending);
-        pendingTimers.delete(tapKey);
-        executeCommand(dt.commandId);
-      } else {
-        const timer = setTimeout(() => {
-          pendingTimers.delete(tapKey);
-        }, 500);
-        pendingTimers.set(tapKey, timer);
-      }
-      return true;
-    }
-  }
-
   const normalized = normalizeKey(e);
   const commandId = keyBindingMap.get(normalized);
   if (commandId) {
+    if (isTextEntryFocused() && !focusPassthrough.has(commandId)) {
+      // Let the keystroke reach the focused editor/input untouched.
+      return false;
+    }
     e.preventDefault();
     e.stopPropagation();
     executeCommand(commandId);
