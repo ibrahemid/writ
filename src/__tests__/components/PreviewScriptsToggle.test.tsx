@@ -43,6 +43,7 @@ function baseConfig(runScripts: boolean): WritConfig {
     storage: { path: "~/.writ" },
     theme: { preset: "warp-dark", overrides: {} },
     commands: { usage: {} },
+  workspace: { root: null },
     preview: {
       default_layout_html: "split",
       default_layout_markdown: "split",

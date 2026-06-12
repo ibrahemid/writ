@@ -42,3 +42,5 @@ pub mod fts;
 pub mod layout_state;
 /// Session snapshots and dirty-shutdown detection.
 pub mod recovery;
+/// Workspace directory listing with traversal safety.
+pub mod workspace_store;

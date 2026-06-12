@@ -16,6 +16,7 @@ const EVENT_MAP: Record<EventKind, string> = {
   "buffer:external": "writ://buffer-external",
   "recovery:dirty": "writ://recovery-dirty",
   "menu:action": "writ://menu-action",
+  "workspace:changed": "writ://workspace-changed",
   "update:status": "writ://update-status",
   "preview:rendered": "writ://preview-rendered",
   "preview:error": "writ://preview-error",

@@ -218,6 +218,10 @@ pub fn run() {
             commands::preview::preview_set_layout,
             commands::preview::preview_get_layout,
             commands::recovery::get_recovered_buffers,
+            commands::workspace::pick_workspace_folder,
+            commands::workspace::clear_workspace_root,
+            commands::workspace::list_workspace_dir,
+            commands::workspace::get_workspace_root,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -294,6 +298,32 @@ pub fn run() {
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "failed to start file watcher");
+                }
+            }
+
+            {
+                let state = app.state::<AppState>();
+                let restored_root = state
+                    .workspace_root
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
+                if let Some(root) = restored_root {
+                    match watcher::handler::start_workspace_watcher(
+                        state.event_bus.clone(),
+                        root,
+                    ) {
+                        Ok(handle) => {
+                            let mut slot = recover_poison(
+                                state.workspace_watcher.lock(),
+                                "lib::setup:workspace_watcher_stash",
+                            );
+                            *slot = Some(handle);
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "failed to start workspace watcher");
+                        }
+                    }
                 }
             }
 

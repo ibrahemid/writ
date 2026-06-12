@@ -44,6 +44,10 @@ pub struct AppState {
     pub recovered_buffers: Mutex<Vec<RecoveredBuffer>>,
     /// `true` when the previous session ended without a clean snapshot.
     pub was_dirty_shutdown: bool,
+    /// Canonical root of the open workspace folder, if any.
+    pub workspace_root: Mutex<Option<PathBuf>>,
+    /// Live workspace directory watcher; replaced when the root changes.
+    pub workspace_watcher: Mutex<Option<WatcherHandle>>,
 }
 
 impl AppState {
@@ -122,6 +126,17 @@ impl AppState {
             );
         }
 
+        let workspace_root = config
+            .workspace
+            .root
+            .as_deref()
+            .map(std::path::PathBuf::from)
+            .and_then(|p| p.canonicalize().ok())
+            .filter(|p| p.is_dir());
+        if let Some(root) = &workspace_root {
+            info!(root = %root.display(), "workspace root restored from config");
+        }
+
         let mut transforms = TransformRegistry::new();
         register_builtins(&mut transforms)?;
         info!(count = transforms.len(), "transform registry initialized");
@@ -153,7 +168,22 @@ impl AppState {
             layout_state,
             recovered_buffers: Mutex::new(recovered_buffers),
             was_dirty_shutdown,
+            workspace_root: Mutex::new(workspace_root),
+            workspace_watcher: Mutex::new(None),
         })
+    }
+
+    /// Returns `true` when `canonical_path` sits inside the open workspace
+    /// folder. Used by the open-file origin gate: choosing a folder through
+    /// the OS dialog expresses user intent for everything under it.
+    pub fn is_within_workspace(&self, canonical_path: &str) -> bool {
+        let guard = self
+            .workspace_root
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard
+            .as_ref()
+            .is_some_and(|root| std::path::Path::new(canonical_path).starts_with(root))
     }
 }
 

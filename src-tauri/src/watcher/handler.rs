@@ -78,6 +78,62 @@ pub fn start_file_watcher(
     })
 }
 
+/// Starts a recursive watcher on the workspace `root`, emitting
+/// [`WritEvent::WorkspaceChanged`] for surfaced paths.
+///
+/// Writ never writes inside workspace directories through this path
+/// (buffer saves land in the buffers dir; save-to-source refreshes are
+/// idempotent listing reloads), so no self-write suppression is needed.
+pub fn start_workspace_watcher(
+    bus: Arc<EventBus>,
+    root: PathBuf,
+) -> Result<WatcherHandle, Box<dyn std::error::Error>> {
+    let (tx, rx) = mpsc::channel::<DebounceEventResult>();
+
+    let mut debouncer = new_debouncer(Duration::from_millis(500), tx)?;
+    debouncer.watcher().watch(&root, RecursiveMode::Recursive)?;
+
+    info!(root = %root.display(), "workspace watcher started");
+
+    std::thread::spawn(move || {
+        while let Ok(result) = rx.recv() {
+            match result {
+                Ok(events) => {
+                    for event in events {
+                        if let Some(domain_event) = classify_workspace_event(&event.path, &root) {
+                            bus.emit(domain_event);
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("workspace watcher error: {:?}", e);
+                }
+            }
+        }
+        info!("workspace watcher thread exiting");
+    });
+
+    Ok(WatcherHandle {
+        _debouncer: debouncer,
+    })
+}
+
+/// Classifies a workspace file-system event into a domain event, or
+/// suppresses it when the path is outside `root` or sits under an
+/// ignored directory.
+pub fn classify_workspace_event(path: &Path, root: &Path) -> Option<WritEvent> {
+    if !path.starts_with(root) {
+        return None;
+    }
+    if writ_core::workspace::path_has_ignored_component(root, path) {
+        return None;
+    }
+    Some(WritEvent::WorkspaceChanged {
+        path: path.to_string_lossy().into_owned(),
+        removed: !path.exists(),
+    })
+}
+
 /// Classifies a single file-system event into a domain event, or
 /// suppresses it. Pure aside from a single `fs::read` to fingerprint
 /// the file against the ignore set; callers test it directly with a
@@ -349,6 +405,44 @@ mod tests {
             matches!(event, Some(WritEvent::ConfigChanged { .. })),
             "an external config edit must surface as ConfigChanged"
         );
+    }
+
+    #[test]
+    fn workspace_event_inside_root_surfaces_with_removed_state() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("notes.md");
+        fs::write(&file, b"x").unwrap();
+
+        match classify_workspace_event(&file, dir.path()) {
+            Some(WritEvent::WorkspaceChanged { path, removed }) => {
+                assert_eq!(path, file.to_string_lossy());
+                assert!(!removed);
+            }
+            other => panic!("expected WorkspaceChanged, got {:?}", other),
+        }
+
+        fs::remove_file(&file).unwrap();
+        match classify_workspace_event(&file, dir.path()) {
+            Some(WritEvent::WorkspaceChanged { removed, .. }) => assert!(removed),
+            other => panic!("expected WorkspaceChanged removed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn workspace_event_under_ignored_dir_is_suppressed() {
+        let dir = tempdir().unwrap();
+        let inside = dir.path().join("node_modules").join("pkg").join("a.js");
+
+        assert!(classify_workspace_event(&inside, dir.path()).is_none());
+    }
+
+    #[test]
+    fn workspace_event_outside_root_is_suppressed() {
+        let dir = tempdir().unwrap();
+        let other = tempdir().unwrap();
+        let outside = other.path().join("a.txt");
+
+        assert!(classify_workspace_event(&outside, dir.path()).is_none());
     }
 
     #[test]

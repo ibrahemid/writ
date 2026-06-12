@@ -16,10 +16,13 @@ const ERR_UNAUTHORIZED_PATH: &str =
 fn authorize_open(state: &AppState, raw_path: &str) -> Result<String, String> {
     let canonical = canonicalize_for_authorization(Path::new(raw_path))
         .map_err(|_| ERR_UNAUTHORIZED_PATH.to_string())?;
-    if !state.authorized_paths.consume_for_open(&canonical) {
-        return Err(ERR_UNAUTHORIZED_PATH.to_string());
+    if state.authorized_paths.consume_for_open(&canonical) {
+        return Ok(canonical);
     }
-    Ok(canonical)
+    if state.is_within_workspace(&canonical) {
+        return Ok(canonical);
+    }
+    Err(ERR_UNAUTHORIZED_PATH.to_string())
 }
 
 pub fn open_file_from_path(state: &AppState, path: &str) -> Result<BufferDocument, String> {
