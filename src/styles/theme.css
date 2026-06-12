@@ -8,19 +8,21 @@
 
   --writ-foreground-default: #e0e0e0;
   --writ-foreground-muted:   #888899;
-  --writ-foreground-subtle:  #555566;
+  --writ-foreground-subtle:  #6d6d7b;
 
   --writ-border-default: #1e1e2e;
   --writ-border-soft:    #16161f;
   --writ-border-focus:   #7aa2f7;
   --writ-border-pill:    #232334;
 
-  --writ-accent-default: #7aa2f7;
-  --writ-accent-hover:   #89b4fa;
+  --writ-accent-default:    #7aa2f7;
+  --writ-accent-hover:      #89b4fa;
+  --writ-accent-foreground: #0a0a10;
 
-  --writ-status-success: #9ece6a;
-  --writ-status-warning: #e0af68;
-  --writ-status-error:   #f7768e;
+  --writ-status-success:    #9ece6a;
+  --writ-status-warning:    #e0af68;
+  --writ-status-error:      #f7768e;
+  --writ-status-foreground: #0a0a10;
 
   --writ-syntax-keyword:  #bb9af7;
   --writ-syntax-string:   #9ece6a;
@@ -31,6 +33,37 @@
   --writ-syntax-variable: #c0caf5;
 
   --writ-bg-tab-pill: transparent;
+
+  /* Derived surface treatments. color-mix against the live foreground/accent
+     tokens, so they invert automatically between dark and light presets. */
+  --writ-overlay-hover:  color-mix(in srgb, var(--writ-foreground-default) 8%, transparent);
+  --writ-overlay-subtle: color-mix(in srgb, var(--writ-foreground-default) 4%, transparent);
+  --writ-selection:      color-mix(in srgb, var(--writ-accent-default) 30%, transparent);
+  --writ-warning-foreground: color-mix(in srgb, var(--writ-status-warning) 68%, var(--writ-foreground-default));
+
+  /* Modal scrim — a wash over the app behind dialogs, dark in either polarity. */
+  --writ-overlay-scrim: rgba(0, 0, 0, 0.5);
+
+  /* Elevation scale. */
+  --writ-shadow-modal:   0 20px 60px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --writ-shadow-overlay: 0 14px 40px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --writ-shadow-dialog:  0 16px 48px rgba(0, 0, 0, 0.4);
+  --writ-shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --writ-shadow-banner:  0 6px 24px rgba(0, 0, 0, 0.32);
+  --writ-shadow-toast:   0 4px 16px rgba(0, 0, 0, 0.3);
+  --writ-shadow-sidebar: 4px 0 12px -8px rgba(0, 0, 0, 0.6);
+  --writ-shadow-chip:    0 2px 8px rgba(0, 0, 0, 0.25);
+  --writ-shadow-xs:      0 1px 2px rgba(0, 0, 0, 0.2);
+
+  /* Window controls mirror native macOS semantics — fixed across app themes. */
+  --writ-traffic-close:          #ff5f57;
+  --writ-traffic-minimize:       #ffbd2e;
+  --writ-traffic-maximize:       #28c840;
+  --writ-traffic-blurred:        #4a4a52;
+  --writ-traffic-close-glyph:    #4d0000;
+  --writ-traffic-minimize-glyph: #5a3300;
+  --writ-traffic-maximize-glyph: #003800;
+  --writ-winctrl-danger-fg:      #ffffff;
 
   --writ-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --writ-font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", ui-monospace, monospace;

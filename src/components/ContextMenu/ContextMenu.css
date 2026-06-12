@@ -6,7 +6,7 @@
   border: 1px solid var(--writ-border-default);
   border-radius: 6px;
   padding: 4px 0;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--writ-shadow-popover);
 }
 
 .context-menu-item {
@@ -27,7 +27,7 @@
 }
 
 .context-menu-danger:hover {
-  background: rgba(247, 118, 142, 0.15);
+  background: color-mix(in srgb, var(--writ-status-error) 15%, transparent);
   color: var(--writ-status-error);
 }
 

@@ -44,7 +44,7 @@ html, body {
 }
 
 ::selection {
-  background: rgba(122, 162, 247, 0.3);
+  background: var(--writ-selection);
 }
 
 button {

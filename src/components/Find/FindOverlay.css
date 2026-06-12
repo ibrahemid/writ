@@ -12,7 +12,7 @@
   background: var(--writ-surface-raised);
   border: 1px solid var(--writ-border-soft);
   border-radius: var(--writ-radius-3);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--writ-shadow-overlay);
 }
 
 .find-row {
@@ -54,7 +54,7 @@
 }
 
 .find-count.is-empty {
-  color: var(--writ-accent-danger, #f7768e);
+  color: var(--writ-status-error);
 }
 
 .find-toggles {

@@ -70,16 +70,20 @@
   transition: opacity 80ms ease;
 }
 
-.maclight-close { background: #ff5f57; }
-.maclight-min   { background: #ffbd2e; }
-.maclight-max   { background: #28c840; }
+.maclight-close { background: var(--writ-traffic-close); }
+.maclight-min   { background: var(--writ-traffic-minimize); }
+.maclight-max   { background: var(--writ-traffic-maximize); }
+
+.maclight-close svg path { stroke: var(--writ-traffic-close-glyph); }
+.maclight-min svg path   { stroke: var(--writ-traffic-minimize-glyph); }
+.maclight-max svg path   { fill: var(--writ-traffic-maximize-glyph); }
 
 .titlebar-controls-mac:hover .maclight svg {
   opacity: 1;
 }
 
 .titlebar-controls-mac.is-blurred .maclight {
-  background: #4a4a52;
+  background: var(--writ-traffic-blurred);
 }
 
 .titlebar-controls-mac.is-blurred .maclight svg {
@@ -116,7 +120,7 @@
 
 .winctrl-close:hover {
   background: var(--writ-status-error);
-  color: #ffffff;
+  color: var(--writ-winctrl-danger-fg);
 }
 
 .titlebar-linux .winctrl {

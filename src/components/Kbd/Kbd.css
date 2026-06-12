@@ -13,7 +13,7 @@
   display: inline-flex;
   align-items: center;
   padding: 2px var(--writ-space-3);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--writ-overlay-subtle);
   border: 1px solid var(--writ-border-soft);
   border-radius: var(--writ-radius-1);
   min-width: 18px;

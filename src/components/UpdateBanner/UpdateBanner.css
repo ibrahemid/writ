@@ -22,7 +22,7 @@
   border-radius: 8px;
   color: var(--writ-foreground-default);
   font-size: var(--writ-font-size-sm);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.32);
+  box-shadow: var(--writ-shadow-banner);
 }
 
 .update-banner-text {
@@ -65,7 +65,7 @@
 
 .update-banner-btn.primary {
   background: var(--writ-accent-default);
-  color: var(--writ-surface-background);
+  color: var(--writ-accent-foreground);
   font-weight: 600;
 }
 
