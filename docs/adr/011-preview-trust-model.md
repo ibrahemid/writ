@@ -342,8 +342,8 @@ tests assert each branch returns the documented byte sequence.
 
 The chrome scope (`writ-preview://chrome/*`) serves bundled trusted
 assets: the fallback stylesheet (ADR-009 F2), the Mermaid runtime
-(ADR-009 D / ADR-013), the KaTeX runtime (ADR-014), the PDF.js
-runtime (ADR-015), and bundled web fonts. **The chrome scope CSP
+(ADR-009 D), the KaTeX runtime, the PDF.js runtime (if PDF preview
+ships), and bundled web fonts. **The chrome scope CSP
 never opens up to user input regardless of the document-scope
 policy state.** Document-scope's `ALLOW_BOTH` does not weaken the
 chrome scope; the chrome webview's CSP is independent of the

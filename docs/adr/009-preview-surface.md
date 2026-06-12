@@ -644,10 +644,10 @@ renderer.
 | Content type | Default layout | Sandbox notes (full detail in ADR-011)                          |
 |--------------|----------------|------------------------------------------------------------------|
 | HTML         | `Split`        | Document HTML served as-is. Author CSS allowed; author scripts and remote subresources default-deny. Inline `<script>` blocked by CSP. |
-| Markdown     | `Split`        | Markdown parsed in Rust (engine choice → ADR-012). Output is HTML rendered under HTML's policy. Code blocks reuse CodeMirror highlight tokens. |
-| Mermaid      | `Split`        | Mermaid runtime served from `writ-preview://chrome/mermaid/*` under a chrome-scoped CSP that permits `'self'` script. Document scripts remain blocked. Engine choice → ADR-013. |
-| LaTeX/math   | `Split`        | KaTeX served from `writ-preview://chrome/katex/*` under chrome-scoped CSP. Math is rendered to spans, not images. Engine choice → ADR-014. |
-| PDF          | `Preview`      | Either OS webview native PDF render (if available on all three platforms; verified per platform in CI) or PDF.js bundled at `writ-preview://chrome/pdfjs/*`. Engine choice → ADR-015. |
+| Markdown     | `Split`        | Markdown parsed in Rust (engine: pulldown-cmark). Output is HTML rendered under HTML's policy. Code blocks reuse CodeMirror highlight tokens. |
+| Mermaid      | `Split`        | Mermaid runtime served from `writ-preview://chrome/mermaid/*` under a chrome-scoped CSP that permits `'self'` script. Document scripts remain blocked. Engine: bundled offline Mermaid runtime. |
+| LaTeX/math   | `Split`        | KaTeX served from `writ-preview://chrome/katex/*` under chrome-scoped CSP. Math is rendered to spans, not images. Engine: bundled offline KaTeX runtime. |
+| PDF          | `Preview`      | Either OS webview native PDF render (if available on all three platforms; verified per platform in CI) or PDF.js bundled at `writ-preview://chrome/pdfjs/*`. Engine choice open; PDF preview has not shipped. |
 | SVG          | `Preview`      | Rendered natively by the webview as XML. `<script>` inside SVG is blocked by CSP (same `script-src 'none'` as HTML default policy). |
 | Raster image | `Preview`      | PNG, JPG, WebP, GIF, AVIF served as binary by the protocol handler with correct MIME. Rendered via `<img>` in a minimal page; EXIF stripped on the protocol-handler side for tracking-pixel hygiene. |
 
@@ -1115,10 +1115,12 @@ customizable; conflicts are flagged at registration time.
   workspace-scoped policy** → **ADR-010**. This ADR depends on it for
   the workspace-aware case of relative subresource resolution; the
   preview surface works in the no-workspace case under default-deny.
-- **Per-renderer engineering choices** → focused follow-up ADRs in
-  the same epic: ADR-012 markdown engine, ADR-013 Mermaid runtime,
-  ADR-014 math runtime, ADR-015 PDF engine. Each ADR is short and
-  decides one engine.
+- **Per-renderer engineering choices** → decided during the epic's
+  implementation rather than in separate ADRs: pulldown-cmark for
+  markdown, a bundled offline Mermaid runtime, and a bundled KaTeX
+  runtime. The PDF engine remains an open choice; PDF preview has
+  not shipped. (ADR numbers originally reserved here were later
+  assigned to unrelated decisions.)
 - **External renderer plugin loading** (WASM, JS, dynlib): separate
   epic. The registry decided here is the integration point and is
   not allowed to break for that future epic.
