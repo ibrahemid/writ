@@ -41,6 +41,9 @@
     },
     "bundle": {
         "active": true,
+        "externalBin": [
+            "binaries/writ"
+        ],
         "targets": [
             "app",
             "dmg",
