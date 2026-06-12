@@ -115,6 +115,8 @@ impl BufferManager {
             created_at: now,
             updated_at: now,
             closed_at: None,
+            read_only: false,
+            size_bytes: 0,
         };
 
         self.buffers.insert(id, doc.clone());
@@ -154,6 +156,8 @@ impl BufferManager {
             created_at: now,
             updated_at: now,
             closed_at: None,
+            read_only: false,
+            size_bytes: 0,
         };
 
         self.buffers.insert(id, doc.clone());

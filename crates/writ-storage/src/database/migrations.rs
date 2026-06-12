@@ -5,6 +5,7 @@ use tracing::info;
 const MIGRATIONS: &[(i32, &str)] = &[
     (1, include_str!("../../migrations/001_initial.sql")),
     (10, include_str!("../../migrations/010_layout_state.sql")),
+    (20, include_str!("../../migrations/020_buffer_open_mode.sql")),
 ];
 
 /// Applies every pending schema migration to `conn`.

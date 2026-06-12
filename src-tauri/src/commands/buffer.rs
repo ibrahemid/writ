@@ -78,6 +78,9 @@ pub fn save_buffer_content(
 ) -> Result<(), String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(&id).map_err(|e| e.to_string())?;
+    if doc.read_only {
+        return Err(format!("buffer {} is read-only", id));
+    }
     {
         let mut ignore = recover_poison(
             state.watcher_ignore.lock(),
@@ -88,10 +91,19 @@ pub fn save_buffer_content(
     store.save_content(&id, &content).map_err(|e| e.to_string())
 }
 
+/// Reads buffer content as raw bytes.
+///
+/// Returns `tauri::ipc::Response` so the browser-side `invoke()` yields an
+/// `ArrayBuffer` directly, bypassing JSON string-escaping. The caller
+/// decodes with `new TextDecoder().decode(bytes)`.
 #[tauri::command]
-pub fn read_buffer_content(state: State<'_, AppState>, id: String) -> Result<String, String> {
+pub fn read_buffer_content(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<tauri::ipc::Response, String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
-    store.read_content(&id).map_err(|e| e.to_string())
+    let content = store.read_content(&id).map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(content.into_bytes()))
 }
 
 #[tauri::command]

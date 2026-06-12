@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use writ_core::file_ops::THRESHOLD_NORMAL_BYTES;
+
 use rusqlite::Connection;
 use tracing::warn;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
@@ -109,14 +111,26 @@ impl BufferStore {
     /// failures are logged but do not propagate: search may temporarily
     /// trail writes, never block them. Use [`Self::rebuild_fts`] to
     /// recover from a damaged index.
+    ///
+    /// Buffers with `size_bytes > THRESHOLD_NORMAL_BYTES` (large-file
+    /// and binary tiers) are excluded from FTS indexing: the cost of
+    /// indexing a 50 MiB log degrades search for all buffers with no
+    /// practical benefit.
     pub fn save_content(&self, id: &str, content: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
+        if doc.read_only {
+            return Err(crate::errors::StorageError::Consistency {
+                message: format!("buffer {} is read-only and cannot be saved", id),
+            });
+        }
         let file_path = self.buffers_dir.join(&doc.filename);
         write_atomic(&file_path, content.as_bytes())?;
         queries::update_timestamp(&self.conn, id)?;
-        let fts = crate::fts::FtsIndex::new(&self.conn);
-        if let Err(e) = fts.update(id, &doc.title, content) {
-            warn!(buffer_id = id, error = %e, "fts update failed during save_content");
+        if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
+            let fts = crate::fts::FtsIndex::new(&self.conn);
+            if let Err(e) = fts.update(id, &doc.title, content) {
+                warn!(buffer_id = id, error = %e, "fts update failed during save_content");
+            }
         }
         Ok(())
     }
@@ -229,13 +243,18 @@ impl BufferStore {
 
     /// Opens a buffer that originated from an external file, inserting
     /// its row and writing its content to disk in one step.
+    ///
+    /// FTS indexing is skipped when `doc.size_bytes > THRESHOLD_NORMAL_BYTES`
+    /// (large-file and binary tiers).
     pub fn open_from_path(&self, doc: &BufferDocument, content: &str) -> StorageResult<()> {
         queries::insert_buffer(&self.conn, doc)?;
         let buffer_file = self.buffers_dir.join(&doc.filename);
         std::fs::write(&buffer_file, content)?;
-        let fts = crate::fts::FtsIndex::new(&self.conn);
-        if let Err(e) = fts.update(&doc.id, &doc.title, content) {
-            warn!(buffer_id = %doc.id, error = %e, "fts update failed during open_from_path");
+        if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
+            let fts = crate::fts::FtsIndex::new(&self.conn);
+            if let Err(e) = fts.update(&doc.id, &doc.title, content) {
+                warn!(buffer_id = %doc.id, error = %e, "fts update failed during open_from_path");
+            }
         }
         Ok(())
     }
@@ -244,9 +263,15 @@ impl BufferStore {
     ///
     /// Both the source file and the mirrored buffer file under
     /// `buffers_dir` are rewritten so Writ's copy remains in sync with
-    /// the external file.
+    /// the external file. Fails when the buffer is read-only (binary
+    /// hex-view buffers must never write back to their source).
     pub fn save_to_source(&self, id: &str, content: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
+        if doc.read_only {
+            return Err(StorageError::Consistency {
+                message: format!("buffer {} is read-only and cannot be saved to source", id),
+            });
+        }
         let source_path = doc
             .source_path
             .as_ref()
@@ -257,9 +282,11 @@ impl BufferStore {
         let buffer_file = self.buffers_dir.join(&doc.filename);
         write_atomic(&buffer_file, content.as_bytes())?;
         queries::update_timestamp(&self.conn, id)?;
-        let fts = crate::fts::FtsIndex::new(&self.conn);
-        if let Err(e) = fts.update(id, &doc.title, content) {
-            warn!(buffer_id = id, error = %e, "fts update failed during save_to_source");
+        if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
+            let fts = crate::fts::FtsIndex::new(&self.conn);
+            if let Err(e) = fts.update(id, &doc.title, content) {
+                warn!(buffer_id = id, error = %e, "fts update failed during save_to_source");
+            }
         }
         Ok(())
     }
@@ -275,12 +302,19 @@ impl BufferStore {
     /// Intended as a recovery escape hatch when the index drifts from
     /// the buffer set (orphaned rows, missing rows). Currently unwired;
     /// will be exposed as a debug command.
+    ///
+    /// Large-file and binary buffers (`size_bytes > THRESHOLD_NORMAL_BYTES`)
+    /// are excluded, consistent with the write-time skip in
+    /// [`Self::save_content`] and [`Self::open_from_path`].
     pub fn rebuild_fts(&self) -> StorageResult<()> {
         self.conn.execute("DELETE FROM buffer_fts", [])?;
         let fts = crate::fts::FtsIndex::new(&self.conn);
         for status in [BufferStatus::Active, BufferStatus::History] {
             let docs = self.list_by_status(status)?;
             for doc in &docs {
+                if doc.size_bytes > THRESHOLD_NORMAL_BYTES {
+                    continue;
+                }
                 let file_path = self.buffers_dir.join(&doc.filename);
                 let content = if file_path.exists() {
                     std::fs::read_to_string(&file_path).unwrap_or_default()
@@ -337,10 +371,18 @@ impl BufferStore {
     ///
     /// Buffers whose content file is missing are silently skipped; the
     /// snapshot will simply contain fewer entries.
+    ///
+    /// Buffers in the large-file or binary tiers (`size_bytes >
+    /// THRESHOLD_NORMAL_BYTES`) are excluded. Reading hundreds of MiB in
+    /// the periodic heartbeat would spike RAM and provide little recovery
+    /// value (the source file still exists on disk).
     pub fn collect_buffer_contents(&self) -> StorageResult<HashMap<String, String>> {
         let active = self.list_by_status(BufferStatus::Active)?;
         let mut map = HashMap::new();
         for buf in active {
+            if buf.size_bytes > THRESHOLD_NORMAL_BYTES {
+                continue;
+            }
             let path = self.buffers_dir.join(&buf.filename);
             if let Ok(content) = std::fs::read_to_string(&path) {
                 map.insert(buf.id, content);

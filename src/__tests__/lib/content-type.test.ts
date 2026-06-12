@@ -16,6 +16,8 @@ function buf(overrides: Partial<BufferDocument>): BufferDocument {
     created_at: "",
     updated_at: "",
     closed_at: null,
+    read_only: false,
+    size_bytes: 0,
     ...overrides,
   };
 }

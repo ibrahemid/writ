@@ -31,6 +31,8 @@ fn make_doc(id: &str, title: &str) -> BufferDocument {
         created_at: now,
         updated_at: now,
         closed_at: None,
+        read_only: false,
+        size_bytes: 0,
     }
 }
 
