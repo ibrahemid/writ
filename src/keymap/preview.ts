@@ -34,6 +34,7 @@ export function registerPreviewKeymap(): void {
     description: "Source → Split → Preview → Source",
     keybinding: "CmdOrCtrl+Shift+V",
     scope: "app",
+    global: true,
     execute: () => {
       const w = activeWindow();
       const id = activeBufferId();
@@ -49,6 +50,7 @@ export function registerPreviewKeymap(): void {
     description: "Force a fresh render of the preview pane",
     keybinding: "F5",
     scope: "app",
+    global: true,
     execute: () => activeWindow()?.preview.requestForceRefresh(),
   });
 
@@ -58,6 +60,7 @@ export function registerPreviewKeymap(): void {
     description: "Show the preview pane only / return to split",
     keybinding: "CmdOrCtrl+Shift+R",
     scope: "app",
+    global: true,
     execute: () => {
       const w = activeWindow();
       const id = activeBufferId();
@@ -78,6 +81,7 @@ export function registerPreviewKeymap(): void {
     description: "Return from fullscreen preview to the prior layout",
     keybinding: "Escape",
     scope: "app",
+    global: true,
     execute: () => {
       const w = activeWindow();
       const id = activeBufferId();
@@ -93,6 +97,7 @@ export function registerPreviewKeymap(): void {
     description: "Toggle vertical / horizontal split",
     keybinding: "CmdOrCtrl+Shift+\\",
     scope: "app",
+    global: true,
     execute: () => {
       const w = activeWindow();
       const id = activeBufferId();
@@ -113,6 +118,7 @@ export function registerPreviewKeymap(): void {
     description: "Reset the split divider to 50/50",
     keybinding: "CmdOrCtrl+0",
     scope: "app",
+    global: true,
     execute: () => {
       const w = activeWindow();
       const id = activeBufferId();
@@ -132,6 +138,7 @@ export function registerPreviewKeymap(): void {
     description:
       "Kill switch: when off, the document CSP becomes script-src 'none'. Network stays off regardless.",
     scope: "app",
+    global: true,
     execute: () =>
       void toggleRunScripts(() => activeWindow()?.preview.requestForceRefresh()),
   });

@@ -43,7 +43,7 @@ Visit the [landing page](https://ibrahemid.github.io/writ) for the full demo and
 | Switch tabs | `Cmd+[` / `Cmd+]` |
 | Reopen closed tab | `Cmd+Shift+T` |
 | Command palette | `Shift+Shift` |
-| Toggle sidebar | `Cmd+SS` (double tap) |
+| Toggle sidebar | `Cmd+S` (when the editor is not focused) |
 | Rename tab | Double-click tab |
 | Search buffers | `Cmd+F` (sidebar) |
 
