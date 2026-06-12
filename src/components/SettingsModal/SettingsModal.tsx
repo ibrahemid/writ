@@ -7,6 +7,7 @@ import { openShortcutEditor } from "../ShortcutEditor/ShortcutEditor";
 import { installFocusTrap } from "../../lib/focus-trap";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showToast } from "../Notifications/Toast";
+import { installCli } from "../../services/tauri";
 import type { DefaultLayout } from "../../types/config";
 import "./SettingsModal.css";
 
@@ -125,10 +126,25 @@ function EditorSection() {
 
 function FilesSection() {
   const cfg = () => configStore.config().editor;
+  const [isInstallingCli, setIsInstallingCli] = createSignal(false);
 
   function onAutosaveChange(raw: string) {
     const value = clamp(parseIntSafe(raw, cfg().autosave_debounce_ms), 0, 10000);
     void patchConfig((prev) => ({ ...prev, editor: { ...prev.editor, autosave_debounce_ms: value } }));
+  }
+
+  async function onInstallCli() {
+    if (isInstallingCli()) return;
+    setIsInstallingCli(true);
+    try {
+      const result = await installCli();
+      showToast(`writ installed at ${result.symlink_path}`, "success");
+    } catch (err) {
+      const detail = typeof err === "string" ? err : String(err);
+      showToast(`Install failed: ${detail}`, "error");
+    } finally {
+      setIsInstallingCli(false);
+    }
   }
 
   return (
@@ -146,6 +162,18 @@ function FilesSection() {
           max={10000}
           onChange={(e) => onAutosaveChange(e.currentTarget.value)}
         />
+      </div>
+      <div class="settings-row">
+        <span class="settings-row-label">Command-line tool</span>
+        <button
+          type="button"
+          class="settings-action-btn"
+          data-action="install-cli"
+          disabled={isInstallingCli()}
+          onClick={() => void onInstallCli()}
+        >
+          {isInstallingCli() ? "Installing…" : "Install `writ` command"}
+        </button>
       </div>
     </div>
   );
