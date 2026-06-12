@@ -20,3 +20,8 @@ thiserror = "2"
 
 [dev-dependencies]
 toml = "0.8"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "transforms"
+harness = false
