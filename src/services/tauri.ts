@@ -461,3 +461,19 @@ export interface InstallCliResult {
 export async function installCli(): Promise<InstallCliResult> {
   return invoke("install_cli");
 }
+
+// --- Default app (macOS only) ---
+
+export type DefaultAppStatus =
+  | { status: "is_default" }
+  | { status: "other_app"; name: string | null }
+  | { status: "no_handler" }
+  | { status: "unsupported" };
+
+export async function getDefaultAppStatus(ext: string): Promise<DefaultAppStatus> {
+  return invoke("get_default_app_status", { ext });
+}
+
+export async function setDefaultApp(ext: string): Promise<void> {
+  return invoke("set_default_app", { ext });
+}
