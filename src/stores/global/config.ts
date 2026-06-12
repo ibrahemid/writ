@@ -25,6 +25,7 @@ const DEFAULT_CONFIG: WritConfig = {
     run_scripts: true,
   },
   workspace: { root: null },
+  inbox: { path: null, focus: true },
 };
 
 const USAGE_FLUSH_DEBOUNCE_MS = 750;
@@ -36,6 +37,10 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
       usage: incoming.commands?.usage ?? {},
     },
     workspace: { root: incoming.workspace?.root ?? null },
+    inbox: {
+      path: incoming.inbox?.path ?? null,
+      focus: incoming.inbox?.focus ?? true,
+    },
   };
 }
 

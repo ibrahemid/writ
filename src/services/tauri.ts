@@ -482,3 +482,30 @@ export async function getDefaultAppStatus(ext: string): Promise<DefaultAppStatus
 export async function setDefaultApp(ext: string): Promise<void> {
   return invoke("set_default_app", { ext });
 }
+
+// --- Watch inbox (ADR-018) ---
+
+export async function pickInboxFolder(): Promise<string | null> {
+  return invoke("pick_inbox_folder");
+}
+
+export async function clearInbox(): Promise<void> {
+  return invoke("clear_inbox");
+}
+
+export async function getInboxPath(): Promise<string | null> {
+  return invoke("get_inbox_path");
+}
+
+export async function showAndFocusWindow(): Promise<void> {
+  try {
+    const win = getCurrentWindow();
+    if (await win.isMinimized()) {
+      await win.unminimize();
+    }
+    await win.show();
+    await win.setFocus();
+  } catch (err) {
+    console.warn("showAndFocusWindow failed:", err);
+  }
+}

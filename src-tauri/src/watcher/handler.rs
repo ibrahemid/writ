@@ -3,7 +3,7 @@ use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tracing::{error, info};
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::watcher::change_event::ExternalChange;
@@ -115,6 +115,84 @@ pub fn start_workspace_watcher(
 
     Ok(WatcherHandle {
         _debouncer: debouncer,
+    })
+}
+
+/// Starts a recursive watcher on the inbox `root`, emitting
+/// [`WritEvent::InboxFileArrived`] for qualifying files created after the
+/// watcher started (ADR-018).
+///
+/// Writ never writes inside inbox directories (buffer saves land in the
+/// buffers dir), so no self-write suppression is needed; a user pointing
+/// the inbox at already-open files is deduplicated downstream by the
+/// open path's canonical source-path lookup.
+pub fn start_inbox_watcher(
+    bus: Arc<EventBus>,
+    root: PathBuf,
+) -> Result<WatcherHandle, Box<dyn std::error::Error>> {
+    let watch_start = SystemTime::now();
+    let (tx, rx) = mpsc::channel::<DebounceEventResult>();
+
+    let mut debouncer = new_debouncer(Duration::from_millis(500), tx)?;
+    debouncer.watcher().watch(&root, RecursiveMode::Recursive)?;
+
+    info!(root = %root.display(), "inbox watcher started");
+
+    std::thread::spawn(move || {
+        while let Ok(result) = rx.recv() {
+            match result {
+                Ok(events) => {
+                    for event in events {
+                        if let Some(domain_event) =
+                            classify_inbox_event(&event.path, &root, watch_start)
+                        {
+                            bus.emit(domain_event);
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("inbox watcher error: {:?}", e);
+                }
+            }
+        }
+        info!("inbox watcher thread exiting");
+    });
+
+    Ok(WatcherHandle {
+        _debouncer: debouncer,
+    })
+}
+
+/// Classifies an inbox file-system event into [`WritEvent::InboxFileArrived`],
+/// or suppresses it.
+///
+/// Mechanism only: reads file metadata, then defers the auto-open decision
+/// to `writ_core::inbox::qualifies_for_auto_open` (containment, ignore set,
+/// created-after-watch-start) and the existing
+/// `file_ops::validate_file_for_opening` text/size gate. The debouncer does
+/// not distinguish create from modify, so the creation-timestamp comparison
+/// is the discriminator: a pre-existing file modified while watched carries
+/// a creation time before `watch_start` and is suppressed. Filesystems
+/// without birth time fall back to mtime (see ADR-018).
+pub fn classify_inbox_event(
+    path: &Path,
+    root: &Path,
+    watch_start: SystemTime,
+) -> Option<WritEvent> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    let created = metadata.created().or_else(|_| metadata.modified()).ok()?;
+    if !writ_core::inbox::qualifies_for_auto_open(root, path, created, watch_start) {
+        return None;
+    }
+    if writ_core::file_ops::validate_file_for_opening(path).is_err() {
+        return None;
+    }
+    info!(file = %path.display(), "inbox file arrived");
+    Some(WritEvent::InboxFileArrived {
+        path: path.to_string_lossy().into_owned(),
     })
 }
 
@@ -466,4 +544,88 @@ mod tests {
         assert!(event.is_none());
     }
 
+    #[test]
+    fn inbox_event_for_file_created_after_watch_start_surfaces() {
+        let dir = tempdir().unwrap();
+        let watch_start = SystemTime::now() - Duration::from_secs(60);
+        let file = dir.path().join("report.md");
+        fs::write(&file, b"# done").unwrap();
+
+        match classify_inbox_event(&file, dir.path(), watch_start) {
+            Some(WritEvent::InboxFileArrived { path }) => {
+                assert_eq!(path, file.to_string_lossy());
+            }
+            other => panic!("expected InboxFileArrived, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn inbox_event_for_preexisting_file_modified_later_is_suppressed() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("old.md");
+        fs::write(&file, b"before").unwrap();
+
+        let watch_start = SystemTime::now() + Duration::from_secs(60);
+        fs::write(&file, b"after").unwrap();
+
+        assert!(
+            classify_inbox_event(&file, dir.path(), watch_start).is_none(),
+            "a file created before watch start must never auto-open"
+        );
+    }
+
+    #[test]
+    fn inbox_event_under_ignored_dir_is_suppressed() {
+        let dir = tempdir().unwrap();
+        let watch_start = SystemTime::now() - Duration::from_secs(60);
+        let nested = dir.path().join("node_modules").join("pkg");
+        fs::create_dir_all(&nested).unwrap();
+        let file = nested.join("readme.md");
+        fs::write(&file, b"x").unwrap();
+
+        assert!(classify_inbox_event(&file, dir.path(), watch_start).is_none());
+    }
+
+    #[test]
+    fn inbox_event_outside_root_is_suppressed() {
+        let dir = tempdir().unwrap();
+        let other = tempdir().unwrap();
+        let watch_start = SystemTime::now() - Duration::from_secs(60);
+        let file = other.path().join("report.md");
+        fs::write(&file, b"x").unwrap();
+
+        assert!(classify_inbox_event(&file, dir.path(), watch_start).is_none());
+    }
+
+    #[test]
+    fn inbox_event_for_binary_file_is_suppressed() {
+        let dir = tempdir().unwrap();
+        let watch_start = SystemTime::now() - Duration::from_secs(60);
+        let file = dir.path().join("dump.bin");
+        fs::write(&file, [0u8, 159, 146, 150]).unwrap();
+
+        assert!(
+            classify_inbox_event(&file, dir.path(), watch_start).is_none(),
+            "non-text files must not auto-open"
+        );
+    }
+
+    #[test]
+    fn inbox_event_for_directory_is_suppressed() {
+        let dir = tempdir().unwrap();
+        let watch_start = SystemTime::now() - Duration::from_secs(60);
+        let sub = dir.path().join("new-dir");
+        fs::create_dir(&sub).unwrap();
+
+        assert!(classify_inbox_event(&sub, dir.path(), watch_start).is_none());
+    }
+
+    #[test]
+    fn inbox_event_for_deleted_path_is_suppressed() {
+        let dir = tempdir().unwrap();
+        let watch_start = SystemTime::now() - Duration::from_secs(60);
+        let file = dir.path().join("gone.md");
+
+        assert!(classify_inbox_event(&file, dir.path(), watch_start).is_none());
+    }
 }

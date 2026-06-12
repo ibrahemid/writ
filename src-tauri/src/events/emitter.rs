@@ -35,6 +35,9 @@ pub enum WritFrontendEvent {
     #[serde(rename = "workspace:changed")]
     WorkspaceChanged { path: String, removed: bool },
 
+    #[serde(rename = "inbox:file-arrived")]
+    InboxFileArrived { path: String },
+
     #[serde(rename = "update:status")]
     UpdateStatus(UpdatePhase),
 
@@ -72,6 +75,7 @@ pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), Strin
         WritFrontendEvent::BufferExternal { .. } => "writ://buffer-external",
         WritFrontendEvent::RecoveryDirty { .. } => "writ://recovery-dirty",
         WritFrontendEvent::MenuAction { .. } => "writ://menu-action",
+        WritFrontendEvent::InboxFileArrived { .. } => "writ://inbox-file-arrived",
         WritFrontendEvent::WorkspaceChanged { .. } => "writ://workspace-changed",
         WritFrontendEvent::UpdateStatus(..) => "writ://update-status",
         WritFrontendEvent::PreviewRendered { .. } => "writ://preview-rendered",

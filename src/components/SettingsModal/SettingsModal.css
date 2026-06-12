@@ -276,6 +276,24 @@
   margin-top: 2px;
 }
 
+.settings-inbox-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-2);
+  min-width: 0;
+}
+
+.settings-inbox-path {
+  color: var(--writ-foreground-muted);
+  font-size: var(--writ-font-size-sm);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .settings-modal {
     animation: none;

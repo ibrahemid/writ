@@ -21,6 +21,7 @@
 //! - [`file_ops`]: pure helpers for file validation and language detection.
 //! - [`history`]: recently-closed buffer history.
 //! - [`hotkey`]: platform-neutral chord representation and parser.
+//! - [`inbox`]: watch-inbox auto-open policy (ADR-018).
 //! - [`prompt`]: prompt-document helpers — token estimation, stripping,
 //!   placeholders (ADR-015).
 //! - [`recovery`]: crash-recovery policy types and resolution logic.
@@ -46,6 +47,8 @@ pub mod events;
 pub mod file_ops;
 /// Recently-closed buffer history types.
 pub mod history;
+/// Watch-inbox auto-open policy — ADR-018.
+pub mod inbox;
 /// Platform-neutral hotkey chord representation and parser.
 pub mod hotkey;
 /// Prompt-document helpers: token estimation, stripping, placeholders.

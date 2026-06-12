@@ -226,6 +226,9 @@ pub fn run() {
             commands::cli::install_cli,
             commands::default_app::get_default_app_status,
             commands::default_app::set_default_app,
+            commands::inbox::pick_inbox_folder,
+            commands::inbox::clear_inbox,
+            commands::inbox::get_inbox_path,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -326,6 +329,32 @@ pub fn run() {
                         }
                         Err(e) => {
                             tracing::warn!(error = %e, "failed to start workspace watcher");
+                        }
+                    }
+                }
+            }
+
+            {
+                let state = app.state::<AppState>();
+                let restored_inbox = state
+                    .inbox_root
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
+                if let Some(root) = restored_inbox {
+                    match watcher::handler::start_inbox_watcher(
+                        state.event_bus.clone(),
+                        root,
+                    ) {
+                        Ok(handle) => {
+                            let mut slot = recover_poison(
+                                state.inbox_watcher.lock(),
+                                "lib::setup:inbox_watcher_stash",
+                            );
+                            *slot = Some(handle);
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "failed to start inbox watcher");
                         }
                     }
                 }

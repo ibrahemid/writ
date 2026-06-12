@@ -1,5 +1,6 @@
 import { createSignal, createEffect, onCleanup, onMount, Show, Switch, Match } from "solid-js";
 import { configStore } from "../../stores/global/config";
+import { inboxStore } from "../../stores/global/inbox";
 import { themeStore } from "../../stores/global/theme";
 import { PRESETS } from "../../styles/themes";
 import { openThemeEditor } from "../ThemeEditor/ThemeEditor";
@@ -222,6 +223,8 @@ function DefaultAppRow(props: DefaultAppRowProps) {
 function FilesSection() {
   const cfg = () => configStore.config().editor;
   const [isInstallingCli, setIsInstallingCli] = createSignal(false);
+  const inboxPath = () => inboxStore.path();
+  const inboxFocus = () => configStore.config().inbox.focus;
 
   function onAutosaveChange(raw: string) {
     const value = clamp(parseIntSafe(raw, cfg().autosave_debounce_ms), 0, 10000);
@@ -240,6 +243,10 @@ function FilesSection() {
     } finally {
       setIsInstallingCli(false);
     }
+  }
+
+  function onInboxFocusToggle() {
+    void patchConfig((prev) => ({ ...prev, inbox: { ...prev.inbox, focus: !prev.inbox.focus } }));
   }
 
   return (
@@ -276,6 +283,58 @@ function FilesSection() {
         label="HTML"
         caution="Links opened in browsers are not affected."
       />
+      <div class="settings-row">
+        <span class="settings-row-label">Watched inbox folder</span>
+        <Show
+          when={inboxPath()}
+          fallback={
+            <button
+              type="button"
+              class="settings-action-btn"
+              data-action="inbox-watch"
+              onClick={() => void inboxStore.watchFolder()}
+            >
+              Watch folder…
+            </button>
+          }
+        >
+          {(path) => (
+            <span class="settings-inbox-controls">
+              <span class="settings-inbox-path" title={path()}>{path()}</span>
+              <button
+                type="button"
+                class="settings-action-btn"
+                data-action="inbox-change"
+                onClick={() => void inboxStore.watchFolder()}
+              >
+                Change…
+              </button>
+              <button
+                type="button"
+                class="settings-action-btn"
+                data-action="inbox-clear"
+                onClick={() => void inboxStore.stopWatching()}
+              >
+                Clear
+              </button>
+            </span>
+          )}
+        </Show>
+      </div>
+      <div class="settings-row">
+        <span class="settings-row-label">Focus window on inbox open</span>
+        <button
+          type="button"
+          class="settings-toggle"
+          classList={{ "settings-toggle-on": inboxFocus() }}
+          data-setting="inbox_focus"
+          role="switch"
+          aria-checked={inboxFocus()}
+          onClick={onInboxFocusToggle}
+        >
+          <span class="settings-toggle-thumb" />
+        </button>
+      </div>
     </div>
   );
 }

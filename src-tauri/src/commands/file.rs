@@ -51,6 +51,9 @@ fn authorize_open(state: &AppState, raw_path: &str) -> Result<String, String> {
     if state.is_within_workspace(&canonical) {
         return Ok(canonical);
     }
+    if state.is_within_inbox(&canonical) {
+        return Ok(canonical);
+    }
     Err(ERR_UNAUTHORIZED_PATH.to_string())
 }
 
