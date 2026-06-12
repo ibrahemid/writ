@@ -12,6 +12,7 @@ import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { search, highlightSelectionMatches } from "@codemirror/search";
 import { editorThemeFor, writHighlight } from "./cm-theme";
 import { themeStore } from "../../stores/global/theme";
+import { markdownTypographyPlugin } from "../../editor/markdown-typography";
 import type { BufferDocument } from "../../types/buffer";
 import { debouncedSave, cancelAutosave, flushAutosave } from "../../services/autosave";
 import { detectLanguage, detectFromContent } from "../../services/language-detect";
@@ -46,12 +47,23 @@ export default function EditorInstance(props: Props) {
   let lastDetectLen = 0;
   const languageCompartment = new Compartment();
   const themeCompartment = new Compartment();
+  const typographyCompartment = new Compartment();
+
+  function typographyExtension(lang: string | null): Extension {
+    if (lang === "markdown" && configStore.config().editor.markdown_typography) {
+      return markdownTypographyPlugin;
+    }
+    return [];
+  }
 
   function applyDetectedLanguage(lang: string) {
     if (!view) return;
     win.editor.setLanguage(lang);
     view.dispatch({
-      effects: languageCompartment.reconfigure(languageExtension(lang)),
+      effects: [
+        languageCompartment.reconfigure(languageExtension(lang)),
+        typographyCompartment.reconfigure(typographyExtension(lang)),
+      ],
     });
   }
 
@@ -64,9 +76,10 @@ export default function EditorInstance(props: Props) {
     if (detected) applyDetectedLanguage(detected);
   }
 
-  function createExtensions(bufferId: string, initialLang: Extension): Extension[] {
+  function createExtensions(bufferId: string, initialLang: Extension, langId: string | null): Extension[] {
     return [
       languageCompartment.of(initialLang),
+      typographyCompartment.of(typographyExtension(langId)),
       lineNumbers(),
       highlightActiveLine(),
       highlightActiveLineGutter(),
@@ -139,7 +152,10 @@ export default function EditorInstance(props: Props) {
     win.editor.setLanguage(lang);
     if (view) {
       view.dispatch({
-        effects: languageCompartment.reconfigure(languageExtension(lang)),
+        effects: [
+          languageCompartment.reconfigure(languageExtension(lang)),
+          typographyCompartment.reconfigure(typographyExtension(lang)),
+        ],
       });
     }
   }
@@ -167,7 +183,7 @@ export default function EditorInstance(props: Props) {
 
     const state = EditorState.create({
       doc: content,
-      extensions: createExtensions(buffer.id, languageExtension(lang)),
+      extensions: createExtensions(buffer.id, languageExtension(lang), lang),
     });
 
     view = new EditorView({
@@ -231,6 +247,18 @@ export default function EditorInstance(props: Props) {
     },
     { defer: true },
   ));
+
+  // Reapply the typography compartment whenever the config flag or detected
+  // language changes at runtime, so the open buffer responds instantly.
+  createEffect(() => {
+    const isEnabled = configStore.config().editor.markdown_typography;
+    const lang = win.editor.language();
+    view?.dispatch({
+      effects: typographyCompartment.reconfigure(
+        lang === "markdown" && isEnabled ? markdownTypographyPlugin : [],
+      ),
+    });
+  });
 
   onCleanup(() => {
     if (currentBufferId) {

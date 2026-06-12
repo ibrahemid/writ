@@ -2,6 +2,7 @@ import { EditorView } from "@codemirror/view";
 import { HighlightStyle } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 import type { ThemePolarity } from "../../types/theme";
+import "./cm-markdown-typography.css";
 
 const SELECTION_ALPHA = "color-mix(in srgb, var(--writ-accent-default) 32%, transparent)";
 const SELECTION_MATCH_ALPHA = "color-mix(in srgb, var(--writ-accent-default) 18%, transparent)";

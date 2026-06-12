@@ -55,6 +55,10 @@ fn default_autosave_debounce_ms() -> u32 {
     300
 }
 
+fn default_markdown_typography() -> bool {
+    true
+}
+
 fn default_window_width() -> u32 {
     1100
 }
@@ -153,6 +157,10 @@ pub struct EditorConfig {
     /// last edit.
     #[serde(default = "default_autosave_debounce_ms")]
     pub autosave_debounce_ms: u32,
+    /// When true, markdown buffers render scaled headings, styled inline
+    /// elements, and dim/hidden syntax markers in the editor itself.
+    #[serde(default = "default_markdown_typography")]
+    pub markdown_typography: bool,
 }
 
 impl Default for EditorConfig {
@@ -163,6 +171,7 @@ impl Default for EditorConfig {
             word_wrap: default_word_wrap(),
             tab_size: default_tab_size(),
             autosave_debounce_ms: default_autosave_debounce_ms(),
+            markdown_typography: default_markdown_typography(),
         }
     }
 }
