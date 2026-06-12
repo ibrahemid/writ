@@ -13,7 +13,7 @@ import { search, highlightSelectionMatches } from "@codemirror/search";
 import { editorThemeFor, writHighlight } from "./cm-theme";
 import { themeStore } from "../../stores/global/theme";
 import { markdownTypographyPlugin } from "../../editor/markdown-typography";
-import type { BufferDocument } from "../../types/buffer";
+import type { BufferDocument, FileOpenMode } from "../../types/buffer";
 import { debouncedSave, cancelAutosave, flushAutosave } from "../../services/autosave";
 import { detectLanguage, detectFromContent } from "../../services/language-detect";
 import { configStore } from "../../stores/global/config";
@@ -27,8 +27,17 @@ import "./EditorInstance.css";
 
 registerBuiltinLanguages();
 
+const THRESHOLD_NORMAL_BYTES = 5 * 1024 * 1024;
+const LARGE_FILE_AUTOSAVE_DEBOUNCE_MS = 2000;
+
 function nameForDetection(buffer: BufferDocument): string {
   return /\.\w+$/.test(buffer.title) ? buffer.title : buffer.filename;
+}
+
+function modeFromBuffer(buffer: BufferDocument): FileOpenMode {
+  if (buffer.read_only) return { kind: "Binary" };
+  if (buffer.size_bytes > THRESHOLD_NORMAL_BYTES) return { kind: "LargeFile" };
+  return { kind: "Normal" };
 }
 
 interface Props {
@@ -48,8 +57,10 @@ export default function EditorInstance(props: Props) {
   const languageCompartment = new Compartment();
   const themeCompartment = new Compartment();
   const typographyCompartment = new Compartment();
+  const readOnlyCompartment = new Compartment();
 
-  function typographyExtension(lang: string | null): Extension {
+  function typographyExtension(lang: string | null, mode: FileOpenMode): Extension {
+    if (mode.kind !== "Normal") return [];
     if (lang === "markdown" && configStore.config().editor.markdown_typography) {
       return markdownTypographyPlugin;
     }
@@ -59,15 +70,18 @@ export default function EditorInstance(props: Props) {
   function applyDetectedLanguage(lang: string) {
     if (!view) return;
     win.editor.setLanguage(lang);
+    const mode = win.editor.largeFileMode() ?? { kind: "Normal" as const };
     view.dispatch({
       effects: [
-        languageCompartment.reconfigure(languageExtension(lang)),
-        typographyCompartment.reconfigure(typographyExtension(lang)),
+        languageCompartment.reconfigure(mode.kind === "Normal" ? languageExtension(lang) : []),
+        typographyCompartment.reconfigure(typographyExtension(lang, mode)),
       ],
     });
   }
 
   function maybeDetectFromContent(content: string, force: boolean) {
+    const mode = win.editor.largeFileMode();
+    if (mode && mode.kind !== "Normal") return;
     if (win.editor.language() !== null) return;
     if (content.length < CONTENT_DETECT_MIN_LENGTH) return;
     if (!force && content.length - lastDetectLen < CONTENT_DETECT_DELTA) return;
@@ -76,10 +90,23 @@ export default function EditorInstance(props: Props) {
     if (detected) applyDetectedLanguage(detected);
   }
 
-  function createExtensions(bufferId: string, initialLang: Extension, langId: string | null): Extension[] {
+  function createExtensions(bufferId: string, initialLang: Extension, langId: string | null, mode: FileOpenMode): Extension[] {
+    const isLarge = mode.kind === "LargeFile" || mode.kind === "LargeFileConfirm";
+    const isBinary = mode.kind === "Binary";
+    const isRestricted = isLarge || isBinary;
+
+    const autosaveDebounce = isRestricted
+      ? LARGE_FILE_AUTOSAVE_DEBOUNCE_MS
+      : configStore.config().editor.autosave_debounce_ms;
+
     return [
-      languageCompartment.of(initialLang),
-      typographyCompartment.of(typographyExtension(langId)),
+      languageCompartment.of(isRestricted ? [] : initialLang),
+      typographyCompartment.of(isRestricted ? [] : typographyExtension(langId, mode)),
+      readOnlyCompartment.of(
+        isBinary
+          ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
+          : [],
+      ),
       lineNumbers(),
       highlightActiveLine(),
       highlightActiveLineGutter(),
@@ -103,15 +130,13 @@ export default function EditorInstance(props: Props) {
         indentWithTab,
       ]),
       themeCompartment.of(editorThemeFor(themeStore.polarity())),
-      EditorView.lineWrapping,
+      ...(isRestricted ? [] : [EditorView.lineWrapping]),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           const content = update.state.doc.toString();
-          debouncedSave(
-            bufferId,
-            content,
-            configStore.config().editor.autosave_debounce_ms,
-          );
+          if (!isBinary) {
+            debouncedSave(bufferId, content, autosaveDebounce);
+          }
           win.editor.setLineCount(update.state.doc.lines);
           win.editor.setCurrentText(content);
           maybeDetectFromContent(content, false);
@@ -145,6 +170,8 @@ export default function EditorInstance(props: Props) {
   }
 
   function applyLanguageFromBuffer(buffer: BufferDocument, content: string) {
+    const mode = modeFromBuffer(buffer);
+    if (mode.kind !== "Normal") return;
     const name = nameForDetection(buffer);
     if (name === appliedNameForLang && view) return;
     appliedNameForLang = name;
@@ -154,7 +181,7 @@ export default function EditorInstance(props: Props) {
       view.dispatch({
         effects: [
           languageCompartment.reconfigure(languageExtension(lang)),
-          typographyCompartment.reconfigure(typographyExtension(lang)),
+          typographyCompartment.reconfigure(typographyExtension(lang, mode)),
         ],
       });
     }
@@ -167,23 +194,30 @@ export default function EditorInstance(props: Props) {
     appliedNameForLang = "";
     lastDetectLen = 0;
 
+    const mode = modeFromBuffer(buffer);
+    win.editor.setLargeFileMode(mode.kind === "Normal" ? null : mode);
+
     let content = "";
     try {
       content = await bufferRegistry.readContent(buffer.id);
     } catch {}
 
     const name = nameForDetection(buffer);
-    const lang = detectLanguage(content, name);
-    appliedNameForLang = name;
+    let lang: string | null = null;
+    if (mode.kind === "Normal") {
+      lang = detectLanguage(content, name);
+      appliedNameForLang = name;
+    }
     win.editor.setLanguage(lang);
 
     if (view) {
       view.destroy();
     }
 
+    const initialLang = lang ? languageExtension(lang) : [];
     const state = EditorState.create({
       doc: content,
-      extensions: createExtensions(buffer.id, languageExtension(lang), lang),
+      extensions: createExtensions(buffer.id, initialLang, lang, mode),
     });
 
     view = new EditorView({
@@ -253,6 +287,8 @@ export default function EditorInstance(props: Props) {
   createEffect(() => {
     const isEnabled = configStore.config().editor.markdown_typography;
     const lang = win.editor.language();
+    const mode = win.editor.largeFileMode();
+    if (mode && mode.kind !== "Normal") return;
     view?.dispatch({
       effects: typographyCompartment.reconfigure(
         lang === "markdown" && isEnabled ? markdownTypographyPlugin : [],
@@ -264,6 +300,7 @@ export default function EditorInstance(props: Props) {
     if (currentBufferId) {
       cancelAutosave(currentBufferId);
     }
+    win.editor.setLargeFileMode(null);
     win.editor.registerView(null);
     win.editor.setCurrentBufferId(null);
     view?.destroy();

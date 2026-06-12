@@ -191,6 +191,7 @@ pub fn run() {
             commands::buffer::update_tab_order,
             commands::buffer::rename_buffer,
             commands::file::open_file,
+            commands::file::open_file_confirmed,
             commands::file::pick_files_to_open,
             commands::file::save_to_source,
             commands::history::list_history,

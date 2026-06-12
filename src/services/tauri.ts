@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize, LogicalPosition } from "@tauri-apps/api/window";
-import type { BufferDocument } from "../types/buffer";
+import type { BufferDocument, FileOpenResult } from "../types/buffer";
 import type { WritConfig } from "../types/config";
 import type { TransformDescriptor } from "../types/transforms";
 import type { ThemePolarity } from "../types/theme";
@@ -41,7 +41,8 @@ export async function saveBufferContent(id: string, content: string): Promise<vo
 }
 
 export async function readBufferContent(id: string): Promise<string> {
-  return invoke("read_buffer_content", { id });
+  const bytes = await invoke<ArrayBuffer>("read_buffer_content", { id });
+  return new TextDecoder().decode(bytes);
 }
 
 export async function listActiveBuffers(): Promise<BufferDocument[]> {
@@ -104,8 +105,12 @@ export async function toggleWindow(): Promise<void> {
   return invoke("toggle_window");
 }
 
-export async function openFile(path: string): Promise<BufferDocument> {
+export async function openFile(path: string): Promise<FileOpenResult> {
   return invoke("open_file", { path });
+}
+
+export async function openFileConfirmed(path: string): Promise<FileOpenResult> {
+  return invoke("open_file_confirmed", { path });
 }
 
 export async function saveToSource(id: string, content: string): Promise<void> {

@@ -35,6 +35,8 @@ function mockBuffer(id: string, title = id): BufferDocument {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     closed_at: null,
+    read_only: false,
+    size_bytes: 0,
   };
 }
 

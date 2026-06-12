@@ -18,6 +18,8 @@ function buf(overrides: Partial<BufferDocument> = {}): BufferDocument {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     closed_at: overrides.closed_at ?? null,
+    read_only: overrides.read_only ?? false,
+    size_bytes: overrides.size_bytes ?? 0,
   };
 }
 

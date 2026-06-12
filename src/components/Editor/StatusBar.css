@@ -76,3 +76,19 @@
   color: var(--writ-foreground-subtle);
   font-variant-numeric: tabular-nums;
 }
+
+.statusbar-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--writ-space-3);
+  border-radius: 3px;
+  font-size: var(--writ-font-size-xs, 11px);
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.statusbar-chip--largefile {
+  background: var(--writ-surface-raised, rgba(128, 128, 128, 0.12));
+  color: var(--writ-foreground-muted);
+  border: 1px solid var(--writ-border-soft);
+}

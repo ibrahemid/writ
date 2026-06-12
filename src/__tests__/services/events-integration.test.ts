@@ -14,6 +14,8 @@ vi.mock("../../services/tauri", () => ({
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     closed_at: null,
+    read_only: false,
+    size_bytes: 0,
   }),
   listActiveBuffers: vi.fn().mockResolvedValue([]),
   listHistory: vi.fn().mockResolvedValue([]),
@@ -24,11 +26,11 @@ vi.mock("../../services/tauri", () => ({
   renameBuffer: vi.fn().mockResolvedValue(undefined),
   openFile: vi.fn().mockImplementation((path: string) => {
     const filename = path.split("/").pop() ?? "untitled";
-    return Promise.resolve({
+    const doc = {
       id: `open-${filename}`,
       title: filename,
       filename,
-      status: "active",
+      status: "active" as const,
       language: "rust",
       source_path: path,
       cursor_pos: 0,
@@ -37,8 +39,12 @@ vi.mock("../../services/tauri", () => ({
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       closed_at: null,
-    });
+      read_only: false,
+      size_bytes: 0,
+    };
+    return Promise.resolve({ doc, mode: { kind: "Normal" }, size_bytes: 0 });
   }),
+  openFileConfirmed: vi.fn().mockResolvedValue(undefined),
   showOpenFileDialog: vi.fn().mockResolvedValue(null),
   saveToSource: vi.fn().mockResolvedValue(undefined),
   hideWindow: vi.fn().mockResolvedValue(undefined),
@@ -135,7 +141,7 @@ describe("loadAndActivate", () => {
       id: "loaded-1", title: "Loaded", filename: "loaded.md",
       status: "active" as const, language: null, source_path: "/path/loaded.md",
       cursor_pos: 0, scroll_pos: 0, tab_order: 0,
-      created_at: new Date().toISOString(), updated_at: new Date().toISOString(), closed_at: null,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(), closed_at: null, read_only: false, size_bytes: 0,
     };
     mockedApi.listActiveBuffers.mockResolvedValue([tab]);
     mockedApi.listHistory.mockResolvedValue([]);
@@ -162,7 +168,7 @@ describe("loadAndActivate", () => {
       id: "keep-me", title: "Keep", filename: "keep.md",
       status: "active" as const, language: null, source_path: null,
       cursor_pos: 0, scroll_pos: 0, tab_order: 0,
-      created_at: new Date().toISOString(), updated_at: new Date().toISOString(), closed_at: null,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(), closed_at: null, read_only: false, size_bytes: 0,
     };
     mockedApi.listActiveBuffers.mockResolvedValue([tab]);
     mockedApi.listHistory.mockResolvedValue([]);

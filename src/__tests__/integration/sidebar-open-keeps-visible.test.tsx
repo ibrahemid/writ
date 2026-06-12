@@ -15,6 +15,8 @@ const histDoc: BufferDocument = {
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
   closed_at: new Date().toISOString(),
+  read_only: false,
+  size_bytes: 0,
 };
 
 let activeRows: BufferDocument[] = [];

@@ -1,7 +1,8 @@
 import { createSignal, createMemo, createRoot } from "solid-js";
-import type { BufferDocument } from "../../types/buffer";
+import type { BufferDocument, FileOpenResult } from "../../types/buffer";
 import * as api from "../../services/tauri";
 import { flushAutosave } from "../../services/autosave";
+import { requestConfirm } from "../../components/ConfirmDialog/ConfirmDialog";
 
 // Singleton — app-global, not window-scoped (ADR-009 E3).
 // The set of buffers is shared across every window; active-tab focus per
@@ -86,17 +87,64 @@ function createBufferRegistry() {
     setBuffers((prev) => prev.map((b) => (b.id === id ? { ...b, title } : b)));
   }
 
-  async function openFile(path: string): Promise<{ doc: BufferDocument; existed: boolean }> {
-    const existing = activeTabs().find((b) => b.source_path === path);
-    if (existing) return { doc: existing, existed: true };
-    const doc = await api.openFile(path);
+  function formatBytes(n: number): string {
+    const GIB = 1024 * 1024 * 1024;
+    const MIB = 1024 * 1024;
+    const KIB = 1024;
+    if (n >= GIB) return `${(n / GIB).toFixed(1)} GiB`;
+    if (n >= MIB) return `${(n / MIB).toFixed(1)} MiB`;
+    if (n >= KIB) return `${Math.round(n / KIB)} KiB`;
+    return `${n} B`;
+  }
+
+  function registerOpenResult(result: FileOpenResult): { doc: BufferDocument; existed: boolean; mode: FileOpenResult["mode"] } {
+    const doc = result.doc;
     setBuffers((prev) => {
       if (prev.find((b) => b.id === doc.id)) {
         return prev.map((b) => (b.id === doc.id ? doc : b));
       }
       return [...prev, doc];
     });
-    return { doc, existed: false };
+    return { doc, existed: false, mode: result.mode };
+  }
+
+  async function openFile(path: string): Promise<{ doc: BufferDocument; existed: boolean; mode: FileOpenResult["mode"] }> {
+    const existing = activeTabs().find((b) => b.source_path === path);
+    if (existing) {
+      const mode = existing.read_only
+        ? { kind: "Binary" as const }
+        : existing.size_bytes > 50 * 1024 * 1024
+        ? { kind: "LargeFile" as const }
+        : existing.size_bytes > 5 * 1024 * 1024
+        ? { kind: "LargeFile" as const }
+        : { kind: "Normal" as const };
+      return { doc: existing, existed: true, mode };
+    }
+
+    let result: FileOpenResult;
+    try {
+      result = await api.openFile(path);
+    } catch (err) {
+      const msg = String(err);
+      if (msg.startsWith("__CONFIRM_REQUIRED__:")) {
+        const parts = msg.split(":");
+        const confirmedPath = parts[1];
+        const sizeBytes = parseInt(parts[2], 10);
+        const sizeStr = formatBytes(sizeBytes);
+        const confirmed = await requestConfirm({
+          title: "Open large file?",
+          message: `This file is ${sizeStr}. Opening it will disable syntax highlighting, typography, and line wrapping. It will also be excluded from search and crash recovery.\n\nContinue?`,
+          confirmLabel: "Open anyway",
+          cancelLabel: "Cancel",
+        });
+        if (!confirmed) throw new Error("cancelled");
+        result = await api.openFileConfirmed(confirmedPath);
+      } else {
+        throw err;
+      }
+    }
+
+    return registerOpenResult(result);
   }
 
   async function showOpenFileDialog(): Promise<string | null> {

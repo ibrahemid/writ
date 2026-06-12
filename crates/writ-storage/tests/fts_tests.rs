@@ -29,6 +29,8 @@ fn insert_test_buffer(conn: &rusqlite::Connection, id: &str, title: &str) {
         created_at: now,
         updated_at: now,
         closed_at: None,
+        read_only: false,
+        size_bytes: 0,
     };
     queries::insert_buffer(conn, &doc).unwrap();
 }

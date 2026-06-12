@@ -113,6 +113,81 @@ the new step here.
 
 ---
 
+---
+
+## writ-storage: large-file open/read round-trip (10 MiB)
+
+**Test file:** `crates/writ-storage/tests/perf_budget.rs`
+
+**What is measured:** median wall time (9-sample) of `read_content` on a
+single buffer whose backing file is just above `THRESHOLD_NORMAL_BYTES`
+(5 MiB + 1 byte). FTS indexing is skipped for this tier.
+
+**Budget: 500 ms median per read**
+
+Rationale:
+
+- A 5 MiB file read on a local SSD completes in under 5ms; the 500ms budget
+  absorbs I/O scheduling overhead and allows for slower hardware without
+  masking regressions. A 10x regression (e.g., accidentally enabling FTS
+  indexing for large files) would push a 5 MiB read well above this bound.
+
+### Re-baselining
+
+Raise `OPEN_10MB_BUDGET_MS` if the backing file format gains a mandatory
+transformation step (e.g., on-disk encryption). Document the step.
+
+---
+
+## writ-storage: large-file open/read round-trip (50 MiB)
+
+**Test file:** `crates/writ-storage/tests/perf_budget.rs`
+
+**What is measured:** median wall time (9-sample) of `read_content` on a
+single buffer at `THRESHOLD_LARGE_BYTES` (50 MiB).
+
+**Budget: 4000 ms median per read**
+
+Rationale:
+
+- 50 MiB on a local SSD is typically 50–200ms; the 4000ms budget gives a 20x
+  margin for virtual filesystems, network mounts, and slow test hardware.
+  A structural regression (e.g., copying the content twice in memory) on a
+  50 MiB read would be visible as a 2× slowdown well below this ceiling, so
+  the budget is a safety net for worst-case hardware rather than a tight
+  correctness check.
+
+### Re-baselining
+
+Raise `OPEN_50MB_BUDGET_MS` only when a new mandatory read step is added and
+its cost is justified. Document the step and the new expected floor.
+
+---
+
+## writ-core: hex dump generation (10 MiB)
+
+**Test file:** `crates/writ-storage/tests/perf_budget.rs`
+
+**What is measured:** median wall time (9-sample) of `generate_hex_dump` on a
+10 MiB input (the `HEX_DUMP_MAX_BYTES` cap).
+
+**Budget: 1000 ms median**
+
+Rationale:
+
+- `generate_hex_dump` is a pure Rust function with a single pass over the
+  input and one `String::with_capacity` pre-allocation. A 10 MiB input
+  produces ~655K rows × ~80 bytes = ~52 MB of output. On a developer laptop
+  this completes in roughly 100–300ms in release mode. The 1000ms budget
+  provides a 3–10× margin for debug builds and slower hardware.
+
+### Re-baselining
+
+Raise `HEX_DUMP_10MB_BUDGET_MS` only if a formatting change (e.g., adding
+colour escape codes, Unicode rendering) legitimately increases output size.
+
+---
+
 ## Fixture determinism guarantee
 
 Both the transform fixture and the storage corpus are fully deterministic:
