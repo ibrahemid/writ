@@ -47,6 +47,18 @@ export function createEditorStore() {
     activeView?.focus();
   }
 
+  function getActiveText(
+    useSelectionIfPresent: boolean,
+  ): { text: string; usedSelection: boolean } | null {
+    const view = activeView;
+    if (!view) return null;
+    const main = view.state.selection.main;
+    const useSelection = useSelectionIfPresent && !main.empty;
+    const from = useSelection ? main.from : 0;
+    const to = useSelection ? main.to : view.state.doc.length;
+    return { text: view.state.doc.sliceString(from, to), usedSelection: useSelection };
+  }
+
   async function applyEditToActiveBuffer(options: ApplyEditOptions): Promise<ApplyEditResult> {
     const view = activeView;
     if (!view) return { applied: false, reason: "no-active-view" };
@@ -82,6 +94,7 @@ export function createEditorStore() {
     currentText, setCurrentText,
     currentBufferId, setCurrentBufferId,
     registerView, getView, focusEditor,
+    getActiveText,
     applyEditToActiveBuffer,
   };
 }

@@ -23,6 +23,8 @@ import { focusSearchBar } from "./components/Sidebar/SearchBar";
 import { openContentSearch } from "./commands/search";
 import { findStore } from "./stores/global/find-store";
 import { registerTransformCommands } from "./commands/transforms";
+import { registerPromptCommands } from "./commands/prompt";
+import PromptFillModal from "./components/PromptFill/PromptFillModal";
 import { registerPreviewKeymap } from "./keymap/preview";
 import { rendererRegistry } from "./stores/global/renderer-registry";
 import { previewListRenderers } from "./services/tauri";
@@ -382,6 +384,8 @@ function AppShell() {
       console.error("registerTransformCommands failed", error);
     }
 
+    registerPromptCommands();
+
     try {
       const list = await previewListRenderers();
       rendererRegistry.setFromIpc(list);
@@ -465,6 +469,7 @@ function AppShell() {
       <ShortcutEditor />
       <ContextMenu />
       <ConfirmDialog />
+      <PromptFillModal />
       <ToastContainer />
       <UpdateBanner />
     </div>

@@ -4,6 +4,7 @@ import { useEffectiveBinding } from "../../commands/keybindings";
 import { saveStatusStore } from "../../stores/global/save-status";
 import PreviewLayoutToggle from "../Preview/PreviewLayoutToggle";
 import PreviewScriptsToggle from "../Preview/PreviewScriptsToggle";
+import TokenEstimate from "./TokenEstimate";
 import Kbd from "../Kbd/Kbd";
 import "./StatusBar.css";
 
@@ -34,6 +35,7 @@ export default function StatusBar() {
       </div>
       <div class="statusbar-spacer" />
       <div class="statusbar-right">
+        <TokenEstimate />
         <PreviewLayoutToggle />
         <PreviewScriptsToggle />
         <Kbd binding={paletteBinding()} />

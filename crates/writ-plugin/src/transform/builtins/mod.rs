@@ -11,6 +11,7 @@ mod dedent;
 mod ensure_final_newline;
 mod fix_punctuation_spacing;
 mod normalize_whitespace;
+mod prepare_prompt;
 mod smart_to_straight_quotes;
 mod tidy_whitespace;
 mod trim_leading_whitespace;
@@ -20,6 +21,7 @@ pub use dedent::Dedent;
 pub use ensure_final_newline::EnsureFinalNewline;
 pub use fix_punctuation_spacing::FixPunctuationSpacing;
 pub use normalize_whitespace::NormalizeWhitespace;
+pub use prepare_prompt::PreparePrompt;
 pub use smart_to_straight_quotes::SmartToStraightQuotes;
 pub use tidy_whitespace::tidy_whitespace;
 pub use trim_leading_whitespace::TrimLeadingWhitespace;
@@ -37,6 +39,7 @@ pub fn register_builtins(registry: &mut TransformRegistry) -> Result<(), Registr
     registry.register(Box::new(Dedent))?;
     registry.register(Box::new(EnsureFinalNewline))?;
     registry.register(Box::new(FixPunctuationSpacing))?;
+    registry.register(Box::new(PreparePrompt))?;
     registry.register(Box::new(tidy_whitespace()))?;
     Ok(())
 }
