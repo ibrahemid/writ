@@ -48,6 +48,12 @@ pub enum WritEvent {
         /// `true` when the entry no longer exists on disk.
         removed: bool,
     },
+    /// A qualifying new file appeared inside the watched inbox folder
+    /// (ADR-018). The frontend opens it through the normal open path.
+    InboxFileArrived {
+        /// Absolute path of the file that arrived.
+        path: String,
+    },
     /// The global toggle hotkey was pressed.
     HotkeyToggle,
     /// A native menu item was activated. Originates in the host shell;

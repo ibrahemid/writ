@@ -17,6 +17,7 @@ const EVENT_MAP: Record<EventKind, string> = {
   "recovery:dirty": "writ://recovery-dirty",
   "menu:action": "writ://menu-action",
   "workspace:changed": "writ://workspace-changed",
+  "inbox:file-arrived": "writ://inbox-file-arrived",
   "update:status": "writ://update-status",
   "preview:rendered": "writ://preview-rendered",
   "preview:error": "writ://preview-error",

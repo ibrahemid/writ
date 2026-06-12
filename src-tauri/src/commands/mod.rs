@@ -4,6 +4,7 @@ pub mod config;
 pub mod default_app;
 pub mod file;
 pub mod history;
+pub mod inbox;
 pub mod perf;
 pub mod preview;
 pub mod prompt;

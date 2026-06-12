@@ -10,6 +10,7 @@ export type WritEvent =
   | { kind: "recovery:dirty"; payload: { snapshotId: string; bufferCount: number } }
   | { kind: "menu:action"; payload: { action: string } }
   | { kind: "workspace:changed"; payload: { path: string; removed: boolean } }
+  | { kind: "inbox:file-arrived"; payload: { path: string } }
   | { kind: "update:status"; payload: UpdatePhase }
   | {
       kind: "preview:rendered";

@@ -304,6 +304,36 @@ impl Default for WorkspaceConfig {
     }
 }
 
+fn default_inbox_path() -> Option<String> {
+    None
+}
+
+fn default_inbox_focus() -> bool {
+    true
+}
+
+/// Watch-inbox configuration (ADR-018).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InboxConfig {
+    /// Absolute path to the watched inbox folder, or `None` when no inbox
+    /// is watched.
+    #[serde(default = "default_inbox_path")]
+    pub path: Option<String>,
+    /// Whether Writ brings its window forward when an inbox file
+    /// auto-opens.
+    #[serde(default = "default_inbox_focus")]
+    pub focus: bool,
+}
+
+impl Default for InboxConfig {
+    fn default() -> Self {
+        Self {
+            path: default_inbox_path(),
+            focus: default_inbox_focus(),
+        }
+    }
+}
+
 /// Top-level Writ configuration.
 ///
 /// This is the root type deserialized from the user's `config.toml`.
@@ -345,6 +375,9 @@ pub struct WritConfig {
     /// Workspace folder configuration.
     #[serde(default)]
     pub workspace: WorkspaceConfig,
+    /// Watch-inbox configuration.
+    #[serde(default)]
+    pub inbox: InboxConfig,
 }
 
 impl Default for WritConfig {
@@ -361,6 +394,38 @@ impl Default for WritConfig {
             commands: CommandsConfig::default(),
             preview: PreviewConfig::default(),
             workspace: WorkspaceConfig::default(),
+            inbox: InboxConfig::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_inbox_section_defaults_to_no_path_and_focus() {
+        let config: WritConfig = toml::from_str("").unwrap();
+        assert_eq!(config.inbox.path, None);
+        assert!(config.inbox.focus);
+    }
+
+    #[test]
+    fn partial_inbox_section_keeps_focus_default() {
+        let config: WritConfig = toml::from_str("[inbox]\npath = \"/tmp/reports\"\n").unwrap();
+        assert_eq!(config.inbox.path.as_deref(), Some("/tmp/reports"));
+        assert!(config.inbox.focus);
+    }
+
+    #[test]
+    fn inbox_section_round_trips_through_toml() {
+        let mut config = WritConfig::default();
+        config.inbox.path = Some("/tmp/inbox".to_string());
+        config.inbox.focus = false;
+
+        let serialized = toml::to_string(&config).unwrap();
+        let parsed: WritConfig = toml::from_str(&serialized).unwrap();
+        assert_eq!(parsed.inbox.path.as_deref(), Some("/tmp/inbox"));
+        assert!(!parsed.inbox.focus);
     }
 }

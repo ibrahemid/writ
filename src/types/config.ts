@@ -19,6 +19,11 @@ export interface PreviewConfig {
   run_scripts: boolean;
 }
 
+export interface InboxConfig {
+  path: string | null;
+  focus: boolean;
+}
+
 export interface WritConfig {
   hotkey: { toggle: string };
   sidebar: {
@@ -36,4 +41,5 @@ export interface WritConfig {
   commands: CommandsConfig;
   preview: PreviewConfig;
   workspace: { root: string | null };
+  inbox: InboxConfig;
 }
