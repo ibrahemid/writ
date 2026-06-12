@@ -2,6 +2,7 @@ import { createMemo, Show } from "solid-js";
 import { useCommand } from "../../commands/registry";
 import { useEffectiveBinding } from "../../commands/keybindings";
 import { saveStatusStore } from "../../stores/global/save-status";
+import { useWindow } from "../WindowProvider/WindowProvider";
 import PreviewLayoutToggle from "../Preview/PreviewLayoutToggle";
 import PreviewScriptsToggle from "../Preview/PreviewScriptsToggle";
 import TokenEstimate from "./TokenEstimate";
@@ -9,9 +10,18 @@ import Kbd from "../Kbd/Kbd";
 import "./StatusBar.css";
 
 export default function StatusBar() {
+  const win = useWindow();
   const paletteBinding = createMemo(() =>
     useEffectiveBinding("palette.open", useCommand("palette.open")?.keybinding),
   );
+
+  const largeFileModeLabel = createMemo(() => {
+    const mode = win.editor.largeFileMode();
+    if (!mode) return null;
+    if (mode.kind === "Binary") return "Binary · read-only";
+    if (mode.kind === "LargeFile" || mode.kind === "LargeFileConfirm") return "Large file · syntax off";
+    return null;
+  });
 
   return (
     <div class="statusbar">
@@ -30,6 +40,13 @@ export default function StatusBar() {
                 {saveStatusStore.status() === "failed" ? "save failed" : "saved"}
               </span>
             </span>
+          </Show>
+          <Show when={largeFileModeLabel()}>
+            {(label) => (
+              <span class="statusbar-chip statusbar-chip--largefile" role="status">
+                {label()}
+              </span>
+            )}
           </Show>
         </div>
       </div>

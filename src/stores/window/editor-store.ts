@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import { EditorSelection } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
+import type { FileOpenMode } from "../../types/buffer";
 
 export type TransformFn = (input: string) => Promise<string>;
 
@@ -21,6 +22,7 @@ export function createEditorStore() {
   const [lineCount, setLineCount] = createSignal(0);
   const [language, setLanguage] = createSignal<string | null>(null);
   const [selectionCount, setSelectionCount] = createSignal(1);
+  const [largeFileMode, setLargeFileMode] = createSignal<FileOpenMode | null>(null);
   // Live text of the active editor view, updated on every document change.
   // The preview pane tracks this and debounces it into a render request.
   const [currentText, setCurrentText] = createSignal("");
@@ -93,6 +95,7 @@ export function createEditorStore() {
     selectionCount, setSelectionCount,
     currentText, setCurrentText,
     currentBufferId, setCurrentBufferId,
+    largeFileMode, setLargeFileMode,
     registerView, getView, focusEditor,
     getActiveText,
     applyEditToActiveBuffer,

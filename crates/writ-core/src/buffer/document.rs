@@ -46,4 +46,14 @@ pub struct BufferDocument {
     pub updated_at: DateTime<Utc>,
     /// Timestamp the buffer was moved to history, if applicable.
     pub closed_at: Option<DateTime<Utc>>,
+    /// When `true` the buffer must never be written back to its source.
+    ///
+    /// Set for binary (hex-view) buffers. Enforced server-side in
+    /// `save_buffer_content` and `save_to_source`.
+    #[serde(default)]
+    pub read_only: bool,
+    /// Size in bytes of the source file at open time. Used to re-derive the
+    /// large-file mode tier on tab-switch without a second `stat` call.
+    #[serde(default)]
+    pub size_bytes: u64,
 }

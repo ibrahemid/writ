@@ -3,6 +3,7 @@ use std::time::Instant;
 use chrono::Utc;
 use tempfile::TempDir;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
+use writ_core::file_ops::{generate_hex_dump, THRESHOLD_LARGE_BYTES, THRESHOLD_NORMAL_BYTES};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
@@ -11,6 +12,9 @@ const CORPUS_SIZE: usize = 500;
 const MEDIAN_SAMPLES: usize = 9;
 const FTS_BUDGET_MS: u128 = 200;
 const ROUND_TRIP_BUDGET_MS: u128 = 50;
+const OPEN_10MB_BUDGET_MS: u128 = 500;
+const OPEN_50MB_BUDGET_MS: u128 = 4000;
+const HEX_DUMP_10MB_BUDGET_MS: u128 = 1000;
 
 fn make_doc(idx: usize) -> BufferDocument {
     let id = format!("buf-{:04}", idx);
@@ -30,6 +34,8 @@ fn make_doc(idx: usize) -> BufferDocument {
         created_at: now,
         updated_at: now,
         closed_at: None,
+        read_only: false,
+        size_bytes: 0,
     }
 }
 
@@ -170,5 +176,119 @@ fn buffer_round_trip_budget() {
         "read_content 4KB median {}ms exceeds budget {}ms",
         load_median,
         ROUND_TRIP_BUDGET_MS,
+    );
+}
+
+fn make_large_doc(id: &str, size_bytes: u64) -> BufferDocument {
+    let now = Utc::now();
+    BufferDocument {
+        id: id.to_string(),
+        title: format!("{}.log", id),
+        filename: format!("{}.txt", id),
+        status: BufferStatus::Active,
+        language: None,
+        source_path: None,
+        cursor_pos: 0,
+        scroll_pos: 0,
+        tab_order: 0,
+        created_at: now,
+        updated_at: now,
+        closed_at: None,
+        read_only: false,
+        size_bytes,
+    }
+}
+
+#[test]
+fn open_read_10mb_budget() {
+    if std::env::var("WRIT_PERF_GATE").is_err() {
+        return;
+    }
+
+    let dir = TempDir::new().expect("tempdir");
+    let db_path = dir.path().join("lg10.db");
+    let conn = open_database(&db_path).expect("open_database");
+    run_migrations(&conn).expect("migrations");
+    let buffers_dir = dir.path().join("buffers");
+    std::fs::create_dir_all(&buffers_dir).expect("create buffers dir");
+    let store = BufferStore::new(conn, buffers_dir);
+
+    let size = (THRESHOLD_NORMAL_BYTES + 1) as usize;
+    let content = make_content(0, size);
+    let doc = make_large_doc("lg10", size as u64);
+    store.insert(&doc).expect("insert");
+    store.save_content(&doc.id, &content).expect("initial save");
+
+    let mut read_samples = Vec::with_capacity(MEDIAN_SAMPLES);
+    for _ in 0..MEDIAN_SAMPLES {
+        let start = Instant::now();
+        store.read_content(&doc.id).expect("read_content");
+        read_samples.push(start.elapsed().as_millis());
+    }
+    let read_median = median_elapsed_ms(read_samples);
+    assert!(
+        read_median < OPEN_10MB_BUDGET_MS,
+        "read_content 10MB median {}ms exceeds budget {}ms",
+        read_median,
+        OPEN_10MB_BUDGET_MS,
+    );
+}
+
+#[test]
+fn open_read_50mb_budget() {
+    if std::env::var("WRIT_PERF_GATE").is_err() {
+        return;
+    }
+
+    let dir = TempDir::new().expect("tempdir");
+    let db_path = dir.path().join("lg50.db");
+    let conn = open_database(&db_path).expect("open_database");
+    run_migrations(&conn).expect("migrations");
+    let buffers_dir = dir.path().join("buffers");
+    std::fs::create_dir_all(&buffers_dir).expect("create buffers dir");
+    let store = BufferStore::new(conn, buffers_dir);
+
+    let size = THRESHOLD_LARGE_BYTES as usize;
+    let content = make_content(0, size);
+    let doc = make_large_doc("lg50", size as u64);
+    store.insert(&doc).expect("insert");
+    store.save_content(&doc.id, &content).expect("initial save");
+
+    let mut read_samples = Vec::with_capacity(MEDIAN_SAMPLES);
+    for _ in 0..MEDIAN_SAMPLES {
+        let start = Instant::now();
+        store.read_content(&doc.id).expect("read_content");
+        read_samples.push(start.elapsed().as_millis());
+    }
+    let read_median = median_elapsed_ms(read_samples);
+    assert!(
+        read_median < OPEN_50MB_BUDGET_MS,
+        "read_content 50MB median {}ms exceeds budget {}ms",
+        read_median,
+        OPEN_50MB_BUDGET_MS,
+    );
+}
+
+#[test]
+fn hex_dump_10mb_budget() {
+    if std::env::var("WRIT_PERF_GATE").is_err() {
+        return;
+    }
+
+    let size = writ_core::file_ops::HEX_DUMP_MAX_BYTES;
+    let data: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
+
+    let mut samples = Vec::with_capacity(MEDIAN_SAMPLES);
+    for _ in 0..MEDIAN_SAMPLES {
+        let start = Instant::now();
+        let _ = generate_hex_dump(&data, size);
+        samples.push(start.elapsed().as_millis());
+    }
+    let median = median_elapsed_ms(samples);
+    assert!(
+        median < HEX_DUMP_10MB_BUDGET_MS,
+        "hex_dump 10MB median {}ms exceeds budget {}ms",
+        median,
+        HEX_DUMP_10MB_BUDGET_MS,
     );
 }

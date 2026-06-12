@@ -35,6 +35,8 @@ fn make_doc(id: &str, title: &str) -> BufferDocument {
         created_at: now,
         updated_at: now,
         closed_at: None,
+        read_only: false,
+        size_bytes: 0,
     }
 }
 
@@ -186,6 +188,8 @@ fn save_to_source_is_atomic_for_external_file() {
         created_at: now,
         updated_at: now,
         closed_at: None,
+        read_only: false,
+        size_bytes: 0,
     };
     store.insert(&doc).expect("insert failed");
 

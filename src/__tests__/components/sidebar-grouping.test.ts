@@ -21,6 +21,8 @@ function mk(over: Partial<BufferDocument>): BufferDocument {
     created_at: over.created_at ?? "2026-05-21T00:00:00.000Z",
     updated_at: over.updated_at ?? "2026-05-21T00:00:00.000Z",
     closed_at: over.closed_at ?? null,
+    read_only: over.read_only ?? false,
+    size_bytes: over.size_bytes ?? 0,
   };
 }
 

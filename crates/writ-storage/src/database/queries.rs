@@ -29,6 +29,8 @@ fn row_to_document(row: &rusqlite::Row) -> rusqlite::Result<BufferDocument> {
     let cursor_pos: i64 = row.get(6)?;
     let scroll_pos: i64 = row.get(7)?;
     let tab_order: i64 = row.get(8)?;
+    let read_only: i64 = row.get(12)?;
+    let size_bytes: i64 = row.get(13)?;
 
     Ok(BufferDocument {
         id: row.get(0)?,
@@ -43,6 +45,8 @@ fn row_to_document(row: &rusqlite::Row) -> rusqlite::Result<BufferDocument> {
         created_at,
         updated_at,
         closed_at,
+        read_only: read_only != 0,
+        size_bytes: size_bytes as u64,
     })
 }
 
@@ -56,8 +60,8 @@ pub fn insert_buffer(conn: &Connection, doc: &BufferDocument) -> StorageResult<(
     conn.execute(
         "INSERT INTO buffers
             (id, title, filename, status, language, source_path, cursor_pos, scroll_pos,
-             tab_order, created_at, updated_at, closed_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             tab_order, created_at, updated_at, closed_at, read_only, size_bytes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             doc.id,
             doc.title,
@@ -71,6 +75,8 @@ pub fn insert_buffer(conn: &Connection, doc: &BufferDocument) -> StorageResult<(
             doc.created_at.to_rfc3339(),
             doc.updated_at.to_rfc3339(),
             closed_at,
+            doc.read_only as i64,
+            doc.size_bytes as i64,
         ],
     )?;
     Ok(())
@@ -81,7 +87,8 @@ pub fn insert_buffer(conn: &Connection, doc: &BufferDocument) -> StorageResult<(
 pub fn get_buffer(conn: &Connection, id: &str) -> StorageResult<BufferDocument> {
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
-                cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at
+                cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at,
+                read_only, size_bytes
          FROM buffers WHERE id = ?1",
     )?;
     let result = stmt
@@ -102,7 +109,8 @@ pub fn list_buffers_by_status(
 ) -> StorageResult<Vec<BufferDocument>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
-                cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at
+                cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at,
+                read_only, size_bytes
          FROM buffers WHERE status = ?1 ORDER BY tab_order ASC",
     )?;
     let rows = stmt.query_map(params![status], row_to_document)?;
@@ -163,7 +171,8 @@ pub fn find_active_by_source_path(
 ) -> StorageResult<Option<BufferDocument>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
-                cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at
+                cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at,
+                read_only, size_bytes
          FROM buffers WHERE source_path = ?1 AND status = 'active' LIMIT 1",
     )?;
     let result = stmt
@@ -181,7 +190,8 @@ pub fn find_history_by_source_path(
 ) -> StorageResult<Option<BufferDocument>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
-                cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at
+                cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at,
+                read_only, size_bytes
          FROM buffers WHERE source_path = ?1 AND status = 'history'
          ORDER BY updated_at DESC LIMIT 1",
     )?;
@@ -203,7 +213,8 @@ pub fn find_history_by_source_path(
 pub fn list_scratch_candidates(conn: &Connection) -> StorageResult<Vec<BufferDocument>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
-                cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at
+                cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at,
+                read_only, size_bytes
          FROM buffers
          WHERE source_path IS NULL
            AND (title = filename OR title GLOB 'writ-[0-9]*')

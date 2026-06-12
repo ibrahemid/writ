@@ -129,8 +129,8 @@ fn open_file_accepts_explicitly_authorized_path() {
     let canonical = canonicalize_for_authorization(&file).unwrap();
     state.authorized_paths.record_for_open(canonical.clone());
 
-    let doc = open_file_from_path(&state, &canonical).expect("authorized open should succeed");
-    assert_eq!(doc.source_path.as_deref(), Some(canonical.as_str()));
+    let result = open_file_from_path(&state, &canonical).expect("authorized open should succeed");
+    assert_eq!(result.doc.source_path.as_deref(), Some(canonical.as_str()));
 }
 
 #[test]
@@ -164,9 +164,9 @@ fn open_file_blesses_source_path_for_subsequent_saves() {
     let canonical = canonicalize_for_authorization(&file).unwrap();
     state.authorized_paths.record_for_open(canonical.clone());
 
-    let doc = open_file_from_path(&state, &canonical).expect("open");
+    let result = open_file_from_path(&state, &canonical).expect("open");
 
-    save_to_source_for_test(&state, doc.id.clone(), "beta".to_string())
+    save_to_source_for_test(&state, result.doc.id.clone(), "beta".to_string())
         .expect("save should succeed for blessed source");
 
     let on_disk = std::fs::read_to_string(&file).unwrap();
@@ -210,7 +210,7 @@ fn open_file_for_active_duplicate_blesses_without_consuming_again() {
 
     state.authorized_paths.record_for_open(canonical.clone());
     let second = open_file_from_path(&state, &canonical).expect("second open returns existing");
-    assert_eq!(first.id, second.id);
+    assert_eq!(first.doc.id, second.doc.id);
 
-    save_to_source_for_test(&state, second.id, "y".to_string()).expect("save");
+    save_to_source_for_test(&state, second.doc.id, "y".to_string()).expect("save");
 }

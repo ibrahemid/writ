@@ -19,6 +19,8 @@ function mockSourceBuffer(path: string): BufferDocument {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     closed_at: null,
+    read_only: false,
+    size_bytes: 0,
   };
 }
 
@@ -38,6 +40,8 @@ vi.mock("../../services/tauri", () => ({
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       closed_at: null,
+    read_only: false,
+    size_bytes: 0,
     });
   }),
   listActiveBuffers: vi.fn().mockResolvedValue([]),
