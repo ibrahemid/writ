@@ -12,7 +12,7 @@
   "foreground": {
     "default": "#c0caf5",
     "muted": "#a9b1d6",
-    "subtle": "#565f89"
+    "subtle": "#747c9e"
   },
   "border": {
     "default": "#292e42",
@@ -22,12 +22,14 @@
   },
   "accent": {
     "default": "#7aa2f7",
-    "hover": "#89b4fa"
+    "hover": "#89b4fa",
+    "foreground": "#16161e"
   },
   "status": {
     "success": "#9ece6a",
     "warning": "#e0af68",
-    "error": "#f7768e"
+    "error": "#f7768e",
+    "foreground": "#16161e"
   },
   "syntax": {
     "keyword": "#bb9af7",

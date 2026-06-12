@@ -11,8 +11,8 @@
   },
   "foreground": {
     "default": "#cdd6f4",
-    "muted": "#a6adc8",
-    "subtle": "#6c7086"
+    "muted": "#b2b8cf",
+    "subtle": "#9799a9"
   },
   "border": {
     "default": "#313244",
@@ -22,12 +22,14 @@
   },
   "accent": {
     "default": "#89b4fa",
-    "hover": "#b4befe"
+    "hover": "#b4befe",
+    "foreground": "#11111b"
   },
   "status": {
     "success": "#a6e3a1",
     "warning": "#f9e2af",
-    "error": "#f38ba8"
+    "error": "#f38ba8",
+    "foreground": "#11111b"
   },
   "syntax": {
     "keyword": "#cba6f7",

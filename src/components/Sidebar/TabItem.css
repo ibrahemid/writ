@@ -18,7 +18,7 @@
 
 .tab-item-active {
   background: var(--writ-surface-elevated);
-  color: var(--writ-accent-default);
+  color: var(--writ-foreground-default);
 }
 
 .tab-item-active::before {
@@ -103,7 +103,7 @@
 
 .tab-item-action:hover {
   color: var(--writ-foreground-default);
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--writ-overlay-hover);
 }
 
 .tab-item-close:hover {

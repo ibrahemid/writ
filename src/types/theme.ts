@@ -21,11 +21,13 @@ export interface ThemeTokens {
   accent: {
     default: string;
     hover: string;
+    foreground: string;
   };
   status: {
     success: string;
     warning: string;
     error: string;
+    foreground: string;
   };
   syntax: {
     keyword: string;
