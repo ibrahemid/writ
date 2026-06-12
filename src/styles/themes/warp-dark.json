@@ -1,6 +1,7 @@
 {
   "id": "warp-dark",
   "name": "Warp Dark",
+  "polarity": "dark",
   "surface": {
     "background": "#0e0e14",
     "sunken": "#0a0a10",

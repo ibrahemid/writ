@@ -4,6 +4,7 @@ import {
   previewForceRender,
   type PreviewRenderResult,
 } from "../../services/tauri";
+import type { ThemePolarity } from "../../types/theme";
 import type { PreviewSearchController } from "../../editor/search/preview-search-controller";
 
 // Per-window preview coordination. Lean scope: the preview is a same-window
@@ -42,8 +43,9 @@ export function createPreviewStore(deps: { windowId: number }) {
     bufferId: string,
     contentType: string,
     text: string,
+    theme: ThemePolarity,
   ): Promise<PreviewRenderResult> {
-    return previewForceRender(windowId, bufferId, contentType, text);
+    return previewForceRender(windowId, bufferId, contentType, text, theme);
   }
 
   /** Drop the host-side render cache entry when a pane unmounts. */

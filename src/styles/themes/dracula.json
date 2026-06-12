@@ -1,6 +1,7 @@
 {
   "id": "dracula",
   "name": "Dracula",
+  "polarity": "dark",
   "surface": {
     "background": "#282a36",
     "sunken": "#21222c",

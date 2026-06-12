@@ -18,6 +18,8 @@
 //! (Mermaid in L5, KaTeX in L6) — those stay external scripts. Only the
 //! small, styling-critical base CSS is inlined.
 
+use writ_core::preview::ThemePolarity;
+
 /// The bundled fallback stylesheet, compiled into the binary.
 pub const PREVIEW_BASE_CSS: &str = include_str!("../../../assets/preview-base.css");
 
@@ -43,7 +45,7 @@ pub fn bridge_script_tag() -> String {
 /// Wrap an HTML body fragment (e.g. Markdown output) in a complete,
 /// self-contained document with the inlined base theme and a UTF-8 charset.
 pub fn wrap_document(body_fragment: &str) -> String {
-    wrap_document_with("", body_fragment, "")
+    wrap_document_with("", body_fragment, "", ThemePolarity::Dark)
 }
 
 /// Like [`wrap_document`], but injects extra `<head>` content (e.g. a runtime
@@ -51,9 +53,18 @@ pub fn wrap_document(body_fragment: &str) -> String {
 /// runtime `<script>`). Renderers that enhance the document with a bundled
 /// runtime (Mermaid in L5, KaTeX in L6) use this to load those runtimes from
 /// the same-origin `writ-preview://document/_assets/` route.
-pub fn wrap_document_with(head_extra: &str, body_fragment: &str, body_end_extra: &str) -> String {
+pub fn wrap_document_with(
+    head_extra: &str,
+    body_fragment: &str,
+    body_end_extra: &str,
+    polarity: ThemePolarity,
+) -> String {
+    let html_open = match polarity {
+        ThemePolarity::Light => "<html data-writ-theme=\"light\">",
+        ThemePolarity::Dark => "<html>",
+    };
     format!(
-        "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n{style}\n{head_extra}\n</head>\n<body>\n{body_fragment}\n{body_end_extra}\n{bridge}\n</body>\n</html>",
+        "<!doctype html>\n{html_open}\n<head>\n<meta charset=\"utf-8\">\n{style}\n{head_extra}\n</head>\n<body>\n{body_fragment}\n{body_end_extra}\n{bridge}\n</body>\n</html>",
         style = style_tag(),
         bridge = bridge_script_tag(),
     )
@@ -89,6 +100,24 @@ mod tests {
         let script_idx = doc.find("/preview/bridge.js").unwrap();
         let body_close = doc.find("</body>").unwrap();
         assert!(script_idx < body_close, "bridge script must sit inside <body>");
+    }
+
+    #[test]
+    fn light_polarity_marks_the_document_for_the_light_reading_palette() {
+        let light = wrap_document_with("", "<p>x</p>", "", ThemePolarity::Light);
+        assert!(
+            light.contains("<html data-writ-theme=\"light\">"),
+            "light render must carry the data-writ-theme attribute so the served \
+             document opens in the light palette without a flash"
+        );
+
+        // Dark is the default and stays attribute-free on the <html> element,
+        // matching the preview-base.css :root palette and keeping existing
+        // output byte-stable. (The inlined stylesheet legitimately mentions the
+        // `[data-writ-theme="light"]` selector, so assert on the open tag form.)
+        let dark = wrap_document_with("", "<p>x</p>", "", ThemePolarity::Dark);
+        assert!(dark.contains("\n<html>\n"));
+        assert!(!dark.contains("data-writ-theme=\"light\">"));
     }
 
     #[test]

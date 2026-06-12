@@ -5,6 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Writ</title>
     <link rel="stylesheet" href="/src/styles/global.css" />
+    <script>
+      // Pre-paint theme restore: apply the last resolved token set before the
+      // module bundle runs so a saved non-default theme never flashes the
+      // default. Mirror written by themeStore.applyToRoot (writ-theme-vars).
+      (function () {
+        try {
+          var raw = localStorage.getItem("writ-theme-vars");
+          if (!raw) return;
+          var vars = JSON.parse(raw);
+          var root = document.documentElement;
+          for (var key in vars) {
+            if (Object.prototype.hasOwnProperty.call(vars, key) && key.indexOf("--writ-") === 0) {
+              root.style.setProperty(key, vars[key]);
+            }
+          }
+        } catch (e) {
+          /* corrupt or unavailable storage: fall back to the stylesheet defaults */
+        }
+      })();
+    </script>
 </head>
 <body>
     <div id="app"></div>

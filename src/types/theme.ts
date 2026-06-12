@@ -40,9 +40,12 @@ export interface ThemeTokens {
   };
 }
 
+export type ThemePolarity = "light" | "dark";
+
 export interface Theme extends ThemeTokens {
   id: string;
   name: string;
+  polarity: ThemePolarity;
 }
 
 export type ThemeOverrides = Record<string, string>;
