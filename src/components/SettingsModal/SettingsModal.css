@@ -1,0 +1,269 @@
+@keyframes settings-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--writ-overlay-scrim);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 64px 24px;
+  z-index: 110;
+}
+
+.settings-modal {
+  width: 680px;
+  max-height: calc(100vh - 128px);
+  background: var(--writ-surface-raised);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-radius-3);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--writ-shadow-modal);
+  animation: settings-in 180ms ease forwards;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--writ-space-4) var(--writ-space-5);
+  border-bottom: 1px solid var(--writ-border-soft);
+  flex-shrink: 0;
+}
+
+.settings-title {
+  font-size: 14px;
+  color: var(--writ-foreground-default);
+  letter-spacing: 0.01em;
+}
+
+.settings-close {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--writ-foreground-subtle);
+  cursor: pointer;
+  border-radius: var(--writ-radius-1);
+  transition: color 100ms ease, background 100ms ease;
+}
+
+.settings-close:hover {
+  color: var(--writ-foreground-default);
+  background: var(--writ-surface-hover);
+}
+
+.settings-close:focus-visible {
+  outline: 2px solid var(--writ-border-focus);
+  outline-offset: 2px;
+}
+
+.settings-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-nav {
+  width: 136px;
+  flex-shrink: 0;
+  background: var(--writ-surface-sunken);
+  border-right: 1px solid var(--writ-border-soft);
+  display: flex;
+  flex-direction: column;
+  padding: var(--writ-space-3) 0;
+  gap: 1px;
+}
+
+.settings-nav-item {
+  display: block;
+  width: 100%;
+  padding: var(--writ-space-2) var(--writ-space-5);
+  text-align: left;
+  font-size: var(--writ-font-size-sm);
+  color: var(--writ-foreground-subtle);
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  transition: color 100ms ease, background 100ms ease, border-color 100ms ease;
+}
+
+.settings-nav-item:hover {
+  color: var(--writ-foreground-muted);
+  background: var(--writ-overlay-hover);
+}
+
+.settings-nav-item-active {
+  color: var(--writ-foreground-default);
+  border-left-color: var(--writ-accent-default);
+  background: var(--writ-overlay-subtle);
+}
+
+.settings-nav-item:focus-visible {
+  outline: 2px solid var(--writ-border-focus);
+  outline-offset: -2px;
+}
+
+.settings-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--writ-space-5) var(--writ-space-6);
+}
+
+.settings-section-label {
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-foreground-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: var(--writ-space-4);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  border-bottom: 1px solid var(--writ-border-soft);
+  gap: var(--writ-space-4);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
+}
+
+.settings-row-label {
+  flex: 1;
+  font-size: var(--writ-font-size-sm);
+  color: var(--writ-foreground-muted);
+}
+
+.settings-input {
+  background: var(--writ-surface-input);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-radius-1);
+  color: var(--writ-foreground-default);
+  font-size: var(--writ-font-size-sm);
+  font-family: var(--writ-font-sans);
+  padding: var(--writ-space-1) var(--writ-space-3);
+  outline: none;
+  transition: border-color 100ms ease, box-shadow 100ms ease;
+}
+
+.settings-input:focus-visible {
+  border-color: var(--writ-border-focus);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--writ-accent-default) 15%, transparent);
+}
+
+.settings-input-number {
+  width: 72px;
+  text-align: right;
+  -moz-appearance: textfield;
+}
+
+.settings-input-number::-webkit-inner-spin-button,
+.settings-input-number::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+}
+
+.settings-select {
+  background: var(--writ-surface-input);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-radius-1);
+  color: var(--writ-foreground-default);
+  font-size: var(--writ-font-size-sm);
+  font-family: var(--writ-font-sans);
+  padding: var(--writ-space-1) var(--writ-space-3);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 100ms ease, box-shadow 100ms ease;
+  min-width: 120px;
+}
+
+.settings-select:focus-visible {
+  border-color: var(--writ-border-focus);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--writ-accent-default) 15%, transparent);
+}
+
+.settings-toggle {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--writ-foreground-subtle);
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background 150ms ease;
+}
+
+.settings-toggle-on {
+  background: var(--writ-accent-default);
+}
+
+.settings-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--writ-accent-foreground);
+  transition: transform 150ms ease;
+}
+
+.settings-toggle-on .settings-toggle-thumb {
+  transform: translateX(14px);
+}
+
+.settings-toggle:focus-visible {
+  outline: 2px solid var(--writ-border-focus);
+  outline-offset: 2px;
+}
+
+.settings-action-btn {
+  background: transparent;
+  color: var(--writ-foreground-muted);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-radius-1);
+  font-size: var(--writ-font-size-sm);
+  font-family: var(--writ-font-sans);
+  padding: var(--writ-space-1) var(--writ-space-3);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 100ms ease, background 100ms ease, border-color 100ms ease;
+}
+
+.settings-action-btn:hover {
+  color: var(--writ-foreground-default);
+  background: var(--writ-surface-hover);
+}
+
+.settings-action-btn:focus-visible {
+  outline: 2px solid var(--writ-border-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-modal {
+    animation: none;
+  }
+
+  .settings-toggle,
+  .settings-toggle-thumb,
+  .settings-input,
+  .settings-select,
+  .settings-nav-item,
+  .settings-action-btn,
+  .settings-close {
+    transition: none;
+  }
+}

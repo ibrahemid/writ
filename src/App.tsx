@@ -5,6 +5,7 @@ import Sidebar from "./components/Sidebar/Sidebar";
 import CommandPalette, { toggleCommandPalette } from "./components/CommandPalette/CommandPalette";
 import ThemeEditor, { openThemeEditor } from "./components/ThemeEditor/ThemeEditor";
 import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/ShortcutEditor";
+import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
 import ToastContainer, { showToast } from "./components/Notifications/Toast";
@@ -357,6 +358,16 @@ function AppShell() {
     });
 
     registerCommand({
+      id: "settings.open",
+      label: "Settings",
+      description: "Open editor settings",
+      keybinding: "CmdOrCtrl+,",
+      scope: "app",
+      global: true,
+      execute: () => openSettings(),
+    });
+
+    registerCommand({
       id: "app.check_updates",
       label: "Check for Updates…",
       description: "Check whether a newer version of Writ is available",
@@ -449,6 +460,7 @@ function AppShell() {
         <EditorArea />
       </div>
       <CommandPalette />
+      <SettingsModal />
       <ThemeEditor />
       <ShortcutEditor />
       <ContextMenu />
