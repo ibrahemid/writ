@@ -58,5 +58,7 @@ pub mod recovery;
 pub mod update;
 /// External-change events and conflict-resolution policy.
 pub mod watcher;
+/// Default-app policy: UTI mapping and handler-status types.
+pub mod default_app;
 /// Workspace-level state (reserved for future expansion).
 pub mod workspace;

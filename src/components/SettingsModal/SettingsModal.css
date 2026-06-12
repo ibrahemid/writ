@@ -252,6 +252,30 @@
   outline-offset: 2px;
 }
 
+.settings-default-app-ctrl {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-3);
+  flex-shrink: 0;
+}
+
+.settings-default-app-status {
+  font-size: var(--writ-font-size-sm);
+  color: var(--writ-foreground-subtle);
+  white-space: nowrap;
+}
+
+.settings-default-app-status-active {
+  color: var(--writ-accent-default);
+}
+
+.settings-row-caution {
+  display: block;
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-foreground-subtle);
+  margin-top: 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .settings-modal {
     animation: none;

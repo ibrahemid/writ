@@ -1,4 +1,4 @@
-import { createSignal, createEffect, onCleanup, Show, Switch, Match } from "solid-js";
+import { createSignal, createEffect, onCleanup, onMount, Show, Switch, Match } from "solid-js";
 import { configStore } from "../../stores/global/config";
 import { themeStore } from "../../stores/global/theme";
 import { PRESETS } from "../../styles/themes";
@@ -7,8 +7,10 @@ import { openShortcutEditor } from "../ShortcutEditor/ShortcutEditor";
 import { installFocusTrap } from "../../lib/focus-trap";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showToast } from "../Notifications/Toast";
-import { installCli } from "../../services/tauri";
+import { installCli } from "../../stores/global/cli";
 import type { DefaultLayout } from "../../types/config";
+import { fetchDefaultAppStatus, claimDefaultApp } from "../../stores/global/default-app";
+import type { DefaultAppStatus } from "../../stores/global/default-app";
 import "./SettingsModal.css";
 
 type Section = "editor" | "files" | "preview" | "appearance" | "shortcuts";
@@ -124,6 +126,99 @@ function EditorSection() {
   );
 }
 
+const REFRESH_DELAY_MS = 800;
+
+interface DefaultAppRowProps {
+  ext: string;
+  label: string;
+  caution?: string;
+}
+
+function DefaultAppRow(props: DefaultAppRowProps) {
+  const [status, setStatus] = createSignal<DefaultAppStatus | null>(null);
+  const [setting, setSetting] = createSignal(false);
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+  async function loadStatus() {
+    try {
+      const s = await fetchDefaultAppStatus(props.ext);
+      setStatus(s);
+    } catch {
+      // Non-macOS or sandboxed; treat as unsupported
+      setStatus({ status: "unsupported" });
+    }
+  }
+
+  onMount(() => {
+    void loadStatus();
+  });
+
+  onCleanup(() => {
+    if (refreshTimer !== undefined) clearTimeout(refreshTimer);
+  });
+
+  async function onMakeDefault() {
+    setSetting(true);
+    try {
+      await claimDefaultApp(props.ext);
+    } catch (err) {
+      showToast(`Failed to set default for .${props.ext}`, "error");
+      setSetting(false);
+      return;
+    }
+    // LS registration is async at the OS level — re-query after a short delay
+    // and reflect the actual registered handler rather than assuming success.
+    refreshTimer = setTimeout(() => {
+      void loadStatus().finally(() => setSetting(false));
+    }, REFRESH_DELAY_MS);
+  }
+
+  const currentStatus = () => status();
+
+  return (
+    <Show when={currentStatus() !== null && currentStatus()!.status !== "unsupported"}>
+      <div class="settings-row">
+        <span class="settings-row-label">
+          Default app for .{props.ext}
+          <Show when={props.caution}>
+            <span class="settings-row-caution">{props.caution}</span>
+          </Show>
+        </span>
+        <div class="settings-default-app-ctrl">
+          <span
+            class="settings-default-app-status"
+            classList={{
+              "settings-default-app-status-active": currentStatus()?.status === "is_default",
+            }}
+            aria-live="polite"
+          >
+            {currentStatus()?.status === "is_default"
+              ? "Writ is the default"
+              : currentStatus()?.status === "other_app"
+                ? (currentStatus() as Extract<DefaultAppStatus, { status: "other_app" }>).name
+                  ? `${(currentStatus() as Extract<DefaultAppStatus, { status: "other_app" }>).name} is the default`
+                  : "Another app is the default"
+                : "No default set"}
+          </span>
+          <Show when={currentStatus()?.status !== "is_default"}>
+            <button
+              type="button"
+              class="settings-action-btn"
+              data-action={`make-default-${props.ext}`}
+              disabled={setting()}
+              aria-busy={setting()}
+              aria-label={`Make Writ the default app for .${props.ext} files`}
+              onClick={() => void onMakeDefault()}
+            >
+              {setting() ? "Setting…" : "Make default"}
+            </button>
+          </Show>
+        </div>
+      </div>
+    </Show>
+  );
+}
+
 function FilesSection() {
   const cfg = () => configStore.config().editor;
   const [isInstallingCli, setIsInstallingCli] = createSignal(false);
@@ -175,6 +270,12 @@ function FilesSection() {
           {isInstallingCli() ? "Installing…" : "Install `writ` command"}
         </button>
       </div>
+      <DefaultAppRow ext="md" label="Markdown" />
+      <DefaultAppRow
+        ext="html"
+        label="HTML"
+        caution="Links opened in browsers are not affected."
+      />
     </div>
   );
 }

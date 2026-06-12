@@ -223,6 +223,8 @@ pub fn run() {
             commands::workspace::list_workspace_dir,
             commands::workspace::get_workspace_root,
             commands::cli::install_cli,
+            commands::default_app::get_default_app_status,
+            commands::default_app::set_default_app,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

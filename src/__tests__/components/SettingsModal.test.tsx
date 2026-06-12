@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   focusEditor: vi.fn(),
   openThemeEditor: vi.fn(),
   openShortcutEditor: vi.fn(),
+  fetchDefaultAppStatus: vi.fn().mockResolvedValue({ status: "unsupported" }),
+  claimDefaultApp: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../services/tauri", () => ({
@@ -17,6 +19,15 @@ vi.mock("../../services/tauri", () => ({
   listActiveBuffers: vi.fn().mockResolvedValue([]),
   listHistory: vi.fn().mockResolvedValue([]),
   searchBuffers: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("../../stores/global/default-app", () => ({
+  fetchDefaultAppStatus: mocks.fetchDefaultAppStatus,
+  claimDefaultApp: mocks.claimDefaultApp,
+}));
+
+vi.mock("../../stores/global/cli", () => ({
+  installCli: vi.fn().mockResolvedValue({ symlink_path: "/usr/local/bin/writ", manual_command: "" }),
 }));
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
@@ -77,6 +88,8 @@ describe("SettingsModal", () => {
     mocks.config.mockReset().mockReturnValue(baseConfig());
     mocks.openThemeEditor.mockReset();
     mocks.openShortcutEditor.mockReset();
+    mocks.fetchDefaultAppStatus.mockReset().mockResolvedValue({ status: "unsupported" });
+    mocks.claimDefaultApp.mockReset().mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -274,5 +287,89 @@ describe("SettingsModal", () => {
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
     const saved = mocks.save.mock.calls[0][0] as WritConfig;
     expect(saved.preview.run_scripts).toBe(false);
+  });
+
+  describe("Files section — default app rows", () => {
+    async function openFilesSection(container: Element) {
+      openSettings();
+      await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
+      const navItems = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
+      const filesNav = Array.from(navItems).find((n) => n.textContent?.toLowerCase().includes("files"));
+      fireEvent.click(filesNav!);
+      await waitFor(() => expect(container.querySelector("[data-section='files']")).not.toBeNull());
+    }
+
+    it("hides default-app rows when status is unsupported", async () => {
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "unsupported" });
+      const { container } = render(() => <SettingsModal />);
+      await openFilesSection(container);
+      // Rows are hidden via <Show> when status is unsupported
+      const makeDefaultBtns = container.querySelectorAll("[data-action^='make-default-']");
+      expect(makeDefaultBtns.length).toBe(0);
+    });
+
+    it("shows 'Writ is the default' and hides Make default button when is_default", async () => {
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "is_default" });
+      const { container } = render(() => <SettingsModal />);
+      await openFilesSection(container);
+      await waitFor(() => {
+        const status = container.querySelector(".settings-default-app-status-active");
+        expect(status).not.toBeNull();
+        expect(status!.textContent).toContain("Writ is the default");
+      });
+      const makeDefaultBtn = container.querySelector("[data-action='make-default-md']");
+      expect(makeDefaultBtn).toBeNull();
+    });
+
+    it("shows other app name and Make default button when other_app with name", async () => {
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "other_app", name: "TextEdit" });
+      const { container } = render(() => <SettingsModal />);
+      await openFilesSection(container);
+      await waitFor(() => {
+        const status = container.querySelector(".settings-default-app-status");
+        expect(status).not.toBeNull();
+        expect(status!.textContent).toContain("TextEdit is the default");
+      });
+      const makeDefaultBtn = container.querySelector("[data-action='make-default-md']");
+      expect(makeDefaultBtn).not.toBeNull();
+    });
+
+    it("shows generic label and Make default button when other_app without name", async () => {
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "other_app", name: null });
+      const { container } = render(() => <SettingsModal />);
+      await openFilesSection(container);
+      await waitFor(() => {
+        const status = container.querySelector(".settings-default-app-status");
+        expect(status).not.toBeNull();
+        expect(status!.textContent).toContain("Another app is the default");
+      });
+    });
+
+    it("shows 'No default set' and Make default button when no_handler", async () => {
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "no_handler" });
+      const { container } = render(() => <SettingsModal />);
+      await openFilesSection(container);
+      await waitFor(() => {
+        const status = container.querySelector(".settings-default-app-status");
+        expect(status).not.toBeNull();
+        expect(status!.textContent).toContain("No default set");
+      });
+      const makeDefaultBtn = container.querySelector("[data-action='make-default-md']");
+      expect(makeDefaultBtn).not.toBeNull();
+    });
+
+    it("calls claimDefaultApp and re-queries status on Make default click", async () => {
+      mocks.fetchDefaultAppStatus
+        .mockResolvedValueOnce({ status: "other_app", name: "TextEdit" })
+        .mockResolvedValueOnce({ status: "other_app", name: "TextEdit" })
+        .mockResolvedValue({ status: "is_default" });
+      mocks.claimDefaultApp.mockResolvedValue(undefined);
+      const { container } = render(() => <SettingsModal />);
+      await openFilesSection(container);
+      await waitFor(() => expect(container.querySelector("[data-action='make-default-md']")).not.toBeNull());
+      const makeDefaultBtn = container.querySelector<HTMLButtonElement>("[data-action='make-default-md']");
+      fireEvent.click(makeDefaultBtn!);
+      await waitFor(() => expect(mocks.claimDefaultApp).toHaveBeenCalledWith("md"));
+    });
   });
 });
