@@ -52,6 +52,8 @@ fn make_state(dir: &TempDir) -> AppState {
         was_dirty_shutdown: false,
         workspace_root: Mutex::new(None),
         workspace_watcher: Mutex::new(None),
+        inbox_root: Mutex::new(None),
+        inbox_watcher: Mutex::new(None),
     }
 }
 

@@ -44,6 +44,7 @@ function baseConfig(runScripts: boolean): WritConfig {
     theme: { preset: "warp-dark", overrides: {} },
     commands: { usage: {} },
   workspace: { root: null },
+  inbox: { path: null, focus: true },
     preview: {
       default_layout_html: "split",
       default_layout_markdown: "split",

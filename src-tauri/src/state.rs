@@ -48,6 +48,10 @@ pub struct AppState {
     pub workspace_root: Mutex<Option<PathBuf>>,
     /// Live workspace directory watcher; replaced when the root changes.
     pub workspace_watcher: Mutex<Option<WatcherHandle>>,
+    /// Canonical root of the watched inbox folder, if any (ADR-018).
+    pub inbox_root: Mutex<Option<PathBuf>>,
+    /// Live inbox watcher; replaced when the inbox path changes.
+    pub inbox_watcher: Mutex<Option<WatcherHandle>>,
 }
 
 impl AppState {
@@ -137,6 +141,17 @@ impl AppState {
             info!(root = %root.display(), "workspace root restored from config");
         }
 
+        let inbox_root = config
+            .inbox
+            .path
+            .as_deref()
+            .map(std::path::PathBuf::from)
+            .and_then(|p| p.canonicalize().ok())
+            .filter(|p| p.is_dir());
+        if let Some(root) = &inbox_root {
+            info!(root = %root.display(), "inbox folder restored from config");
+        }
+
         let mut transforms = TransformRegistry::new();
         register_builtins(&mut transforms)?;
         info!(count = transforms.len(), "transform registry initialized");
@@ -170,6 +185,8 @@ impl AppState {
             was_dirty_shutdown,
             workspace_root: Mutex::new(workspace_root),
             workspace_watcher: Mutex::new(None),
+            inbox_root: Mutex::new(inbox_root),
+            inbox_watcher: Mutex::new(None),
         })
     }
 
@@ -181,6 +198,17 @@ impl AppState {
             .workspace_root
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        guard
+            .as_ref()
+            .is_some_and(|root| std::path::Path::new(canonical_path).starts_with(root))
+    }
+
+    /// Returns `true` when `canonical_path` sits inside the watched inbox
+    /// folder. Same origin-gate reasoning as [`Self::is_within_workspace`]:
+    /// picking the inbox folder through the OS dialog expresses user intent
+    /// for files under it (ADR-018).
+    pub fn is_within_inbox(&self, canonical_path: &str) -> bool {
+        let guard = self.inbox_root.lock().unwrap_or_else(|e| e.into_inner());
         guard
             .as_ref()
             .is_some_and(|root| std::path::Path::new(canonical_path).starts_with(root))

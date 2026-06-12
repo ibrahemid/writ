@@ -15,6 +15,7 @@ import UpdateBanner from "./components/UpdateBanner/UpdateBanner";
 import WindowProvider, { useWindow } from "./components/WindowProvider/WindowProvider";
 import { bufferRegistry } from "./stores/global/buffer-registry";
 import { workspaceStore } from "./stores/global/workspace";
+import { inboxStore } from "./stores/global/inbox";
 import { updateStore } from "./stores/global/update";
 import { configStore } from "./stores/global/config";
 import { themeStore } from "./stores/global/theme";
@@ -103,6 +104,7 @@ function AppShell() {
     win.sidebar.hydrateFromConfig();
     await bufferRegistry.load();
     await workspaceStore.hydrate().catch(() => undefined);
+    await inboxStore.hydrate().catch(() => undefined);
 
     const recoveredBuffers = await getRecoveredBuffers().catch(() => []);
     if (recoveredBuffers.length > 0) {
@@ -127,6 +129,11 @@ function AppShell() {
       workspaceStore.handleChanged(payload.path, payload.removed);
     });
     unlisteners.push(unlistenWorkspace);
+
+    const unlistenInbox = await onEvent("inbox:file-arrived", (payload) => {
+      void inboxStore.handleFileArrived(payload.path);
+    });
+    unlisteners.push(unlistenInbox);
 
     await emitFrontendReady();
 
@@ -180,6 +187,22 @@ function AppShell() {
       description: "Close the open workspace folder",
       scope: "app",
       execute: () => void workspaceStore.closeFolder(),
+    });
+
+    registerCommand({
+      id: "inbox.watchFolder",
+      label: "Watch Folder…",
+      description: "Auto-open new files that appear in a folder",
+      scope: "app",
+      execute: () => void inboxStore.watchFolder(),
+    });
+
+    registerCommand({
+      id: "inbox.stopWatching",
+      label: "Stop Watching Folder",
+      description: "Stop auto-opening files from the watched folder",
+      scope: "app",
+      execute: () => void inboxStore.stopWatching(),
     });
 
     registerCommand({

@@ -59,6 +59,9 @@ fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
                 removed: *removed,
             })
         }
+        WritEvent::InboxFileArrived { path } => Some(WritFrontendEvent::InboxFileArrived {
+            path: path.clone(),
+        }),
         WritEvent::HotkeyToggle
         | WritEvent::PluginEvent { .. }
         | WritEvent::RecoveryDirty { .. } => None,
@@ -196,6 +199,24 @@ mod tests {
             [WritFrontendEvent::WorkspaceChanged {
                 path: "/ws/src/main.rs".to_string(),
                 removed: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn bridge_translates_inbox_file_arrived_to_frontend_event() {
+        let bus = EventBus::new();
+        let received = capture(&bus);
+
+        bus.emit(WritEvent::InboxFileArrived {
+            path: "/inbox/report.md".to_string(),
+        });
+
+        let events = received.lock().unwrap();
+        assert_eq!(
+            events.as_slice(),
+            [WritFrontendEvent::InboxFileArrived {
+                path: "/inbox/report.md".to_string(),
             }]
         );
     }
