@@ -433,3 +433,22 @@ export async function previewGetLayout(path: string): Promise<PersistedLayout | 
   return invoke("preview_get_layout", { path });
 }
 
+
+import type { WorkspaceEntry } from "../types/workspace";
+export type { WorkspaceEntry };
+
+export async function pickWorkspaceFolder(): Promise<string | null> {
+  return invoke("pick_workspace_folder");
+}
+
+export async function clearWorkspaceRoot(): Promise<void> {
+  return invoke("clear_workspace_root");
+}
+
+export async function listWorkspaceDir(dirPath: string): Promise<WorkspaceEntry[]> {
+  return invoke("list_workspace_dir", { dirPath });
+}
+
+export async function getWorkspaceRoot(): Promise<string | null> {
+  return invoke("get_workspace_root");
+}

@@ -39,6 +39,15 @@ pub enum WritEvent {
         /// Number of buffers restored from the snapshot.
         buffer_count: u32,
     },
+    /// A file or directory inside the open workspace folder changed on
+    /// disk. Listeners refresh the affected directory listing; the event
+    /// carries no content.
+    WorkspaceChanged {
+        /// Absolute path of the changed entry.
+        path: String,
+        /// `true` when the entry no longer exists on disk.
+        removed: bool,
+    },
     /// The global toggle hotkey was pressed.
     HotkeyToggle,
     /// A native menu item was activated. Originates in the host shell;

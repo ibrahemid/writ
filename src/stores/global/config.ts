@@ -24,6 +24,7 @@ const DEFAULT_CONFIG: WritConfig = {
     debounce_ms: 200,
     run_scripts: true,
   },
+  workspace: { root: null },
 };
 
 const USAGE_FLUSH_DEBOUNCE_MS = 750;
@@ -34,6 +35,7 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
     commands: {
       usage: incoming.commands?.usage ?? {},
     },
+    workspace: { root: incoming.workspace?.root ?? null },
   };
 }
 

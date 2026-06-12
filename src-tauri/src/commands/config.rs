@@ -10,11 +10,12 @@ pub fn get_config(state: State<'_, AppState>) -> Result<WritConfig, String> {
     Ok(config.clone())
 }
 
-#[tauri::command]
-pub fn update_config(state: State<'_, AppState>, config: WritConfig) -> Result<(), String> {
+/// Serializes and writes `config` to disk, recording the write in the
+/// watcher ignore set so the change is not re-surfaced as external.
+pub(crate) fn persist_config(state: &AppState, config: &WritConfig) -> Result<(), String> {
     let contents = state
         .config_store
-        .serialize(&config)
+        .serialize(config)
         .map_err(|e| e.to_string())?;
 
     let filename = state
@@ -27,7 +28,7 @@ pub fn update_config(state: State<'_, AppState>, config: WritConfig) -> Result<(
     {
         let mut ignore = recover_poison(
             state.watcher_ignore.lock(),
-            "commands::config::update_config",
+            "commands::config::persist_config",
         );
         ignore.record(filename, contents.as_bytes(), Instant::now());
     }
@@ -35,7 +36,12 @@ pub fn update_config(state: State<'_, AppState>, config: WritConfig) -> Result<(
     state
         .config_store
         .write_serialized(&contents)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_config(state: State<'_, AppState>, config: WritConfig) -> Result<(), String> {
+    persist_config(&state, &config)?;
 
     let mut current = state.config.lock().map_err(|e| e.to_string())?;
     *current = config;

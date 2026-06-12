@@ -9,3 +9,4 @@ pub mod recovery;
 pub mod transforms;
 pub mod update;
 pub mod window;
+pub mod workspace;
