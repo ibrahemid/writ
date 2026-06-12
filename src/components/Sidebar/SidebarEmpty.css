@@ -1,0 +1,21 @@
+.sidebar-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--writ-space-3);
+  padding: var(--writ-space-6) var(--writ-space-5);
+  text-align: center;
+}
+
+.sidebar-empty-title {
+  font-size: var(--writ-font-size-sm);
+  color: var(--writ-foreground-muted);
+}
+
+.sidebar-empty-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-2);
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-foreground-subtle);
+}
