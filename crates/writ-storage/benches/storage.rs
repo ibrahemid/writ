@@ -32,6 +32,8 @@ fn make_doc(idx: usize) -> BufferDocument {
         created_at: now,
         updated_at: now,
         closed_at: None,
+        size_bytes: 0,
+        read_only: false,
     }
 }
 
