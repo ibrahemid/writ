@@ -168,9 +168,10 @@ pub fn start_inbox_watcher(
 ///
 /// Mechanism only: reads file metadata, then defers the auto-open decision
 /// to `writ_core::inbox::qualifies_for_auto_open` (containment, ignore set,
-/// created-after-watch-start) and the existing
-/// `file_ops::validate_file_for_opening` text/size gate. The debouncer does
-/// not distinguish create from modify, so the creation-timestamp comparison
+/// created-after-watch-start) and `file_ops::classify_path`. Only files that
+/// classify as [`FileOpenMode::Normal`] auto-open: large-file-mode and binary
+/// (hex) buffers disable the rendered view the inbox exists to show. The
+/// debouncer does not distinguish create from modify, so the creation-timestamp comparison
 /// is the discriminator: a pre-existing file modified while watched carries
 /// a creation time before `watch_start` and is suppressed. Filesystems
 /// without birth time fall back to mtime (see ADR-018).
@@ -187,8 +188,9 @@ pub fn classify_inbox_event(
     if !writ_core::inbox::qualifies_for_auto_open(root, path, created, watch_start) {
         return None;
     }
-    if writ_core::file_ops::validate_file_for_opening(path).is_err() {
-        return None;
+    match writ_core::file_ops::classify_path(path) {
+        Ok(c) if c.mode == writ_core::file_ops::FileOpenMode::Normal => {}
+        _ => return None,
     }
     info!(file = %path.display(), "inbox file arrived");
     Some(WritEvent::InboxFileArrived {
@@ -607,6 +609,23 @@ mod tests {
         assert!(
             classify_inbox_event(&file, dir.path(), watch_start).is_none(),
             "non-text files must not auto-open"
+        );
+    }
+
+    #[test]
+    fn inbox_event_for_large_file_is_suppressed() {
+        let dir = tempdir().unwrap();
+        let watch_start = SystemTime::now() - Duration::from_secs(60);
+        let file = dir.path().join("huge.log");
+        // Above the normal-open threshold the file would open in large-file mode
+        // (syntax and rendered preview disabled), which defeats the inbox's
+        // render-on-arrival purpose, so it must not auto-open.
+        let big = vec![b'a'; (writ_core::file_ops::THRESHOLD_NORMAL_BYTES + 1) as usize];
+        fs::write(&file, &big).unwrap();
+
+        assert!(
+            classify_inbox_event(&file, dir.path(), watch_start).is_none(),
+            "files above the normal-open threshold must not auto-open into the inbox"
         );
     }
 
