@@ -359,18 +359,49 @@ describe("SettingsModal", () => {
       expect(makeDefaultBtn).not.toBeNull();
     });
 
-    it("calls claimDefaultApp and re-queries status on Make default click", async () => {
-      mocks.fetchDefaultAppStatus
-        .mockResolvedValueOnce({ status: "other_app", name: "TextEdit" })
-        .mockResolvedValueOnce({ status: "other_app", name: "TextEdit" })
-        .mockResolvedValue({ status: "is_default" });
+    it("calls claimDefaultApp on Make default click", async () => {
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "other_app", name: "TextEdit" });
       mocks.claimDefaultApp.mockResolvedValue(undefined);
       const { container } = render(() => <SettingsModal />);
       await openFilesSection(container);
       await waitFor(() => expect(container.querySelector("[data-action='make-default-md']")).not.toBeNull());
-      const makeDefaultBtn = container.querySelector<HTMLButtonElement>("[data-action='make-default-md']");
-      fireEvent.click(makeDefaultBtn!);
+      fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='make-default-md']")!);
       await waitFor(() => expect(mocks.claimDefaultApp).toHaveBeenCalledWith("md"));
+    });
+
+    it("re-queries status after 800ms delay and reflects updated handler", async () => {
+      vi.useFakeTimers();
+      // Initial load returns other_app for both rows (md + html each call once on mount).
+      // After "Make default" + 800ms, the md row re-queries and gets is_default.
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "other_app", name: "TextEdit" });
+      mocks.claimDefaultApp.mockResolvedValue(undefined);
+      const { container } = render(() => <SettingsModal />);
+      await openFilesSection(container);
+      await waitFor(() => expect(container.querySelector("[data-action='make-default-md']")).not.toBeNull());
+
+      // Record call count after initial mount (2 rows × 1 call each = 2)
+      const callsBeforeClick = mocks.fetchDefaultAppStatus.mock.calls.length;
+
+      // Queue is_default for the next call (the re-query after 800ms)
+      mocks.fetchDefaultAppStatus.mockResolvedValueOnce({ status: "is_default" });
+
+      fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='make-default-md']")!);
+      await waitFor(() => expect(mocks.claimDefaultApp).toHaveBeenCalledWith("md"));
+
+      // Timer has not fired yet — no additional fetch calls
+      expect(mocks.fetchDefaultAppStatus).toHaveBeenCalledTimes(callsBeforeClick);
+
+      await vi.runAllTimersAsync();
+
+      // After the timer fires, fetchDefaultAppStatus is called once more and the
+      // row should flip to "Writ is the default" with the Make default button gone.
+      await waitFor(() => {
+        expect(mocks.fetchDefaultAppStatus).toHaveBeenCalledTimes(callsBeforeClick + 1);
+        expect(container.querySelector(".settings-default-app-status-active")).not.toBeNull();
+        expect(container.querySelector("[data-action='make-default-md']")).toBeNull();
+      });
+
+      vi.useRealTimers();
     });
   });
 });
