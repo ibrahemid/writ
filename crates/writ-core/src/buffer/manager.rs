@@ -130,9 +130,12 @@ impl BufferManager {
     /// Opens an external file as a new active buffer.
     ///
     /// The buffer's `source_path` is set to `path` so later saves write
-    /// back to the origin file. The title is derived from the file name.
+    /// back to the origin file. The `title` is the human-facing basename;
+    /// the on-disk mirror `filename` is derived from the buffer UUID
+    /// (`{id}.txt`) so two files sharing a basename never collide on a
+    /// single backing file (audit blocker #53.7).
     pub fn open_external(&mut self, path: String) -> WritResult<BufferDocument> {
-        let filename = std::path::Path::new(&path)
+        let title = std::path::Path::new(&path)
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or(&path)
@@ -140,12 +143,13 @@ impl BufferManager {
 
         let now = Utc::now();
         let id = Uuid::new_v4().to_string();
+        let filename = format!("{id}.txt");
         let tab_order = self.next_tab_order;
         self.next_tab_order += 1;
 
         let doc = BufferDocument {
             id: id.clone(),
-            title: filename.clone(),
+            title,
             filename,
             status: BufferStatus::Active,
             language: None,

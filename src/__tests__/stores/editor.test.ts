@@ -44,6 +44,25 @@ describe("editor-store (per-window factory)", () => {
     });
   });
 
+  describe("external reload request (#53.4)", () => {
+    it("defaults to no pending reload", () => {
+      expect(editorStore.externalReload()).toBeNull();
+    });
+
+    it("publishes the buffer id to reload", () => {
+      editorStore.requestExternalReload("buf-7");
+      expect(editorStore.externalReload()?.id).toBe("buf-7");
+    });
+
+    it("re-fires for repeated external edits to the same buffer via an incrementing seq", () => {
+      editorStore.requestExternalReload("buf-7");
+      const first = editorStore.externalReload()!.seq;
+      editorStore.requestExternalReload("buf-7");
+      const second = editorStore.externalReload()!.seq;
+      expect(second).toBeGreaterThan(first);
+    });
+  });
+
   describe("selection count", () => {
     it("defaults to 1", () => {
       expect(editorStore.selectionCount()).toBe(1);

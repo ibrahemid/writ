@@ -1,5 +1,5 @@
 import { onMount, onCleanup, createEffect, on } from "solid-js";
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
+import { Annotation, Compartment, EditorState, type Extension } from "@codemirror/state";
 import { addCursorUp, addCursorDown } from "../../commands/multicursor";
 import {
   EditorView, keymap, lineNumbers, highlightActiveLine,
@@ -43,6 +43,12 @@ function modeFromBuffer(buffer: BufferDocument): FileOpenMode {
 interface Props {
   buffer: BufferDocument;
 }
+
+// Marks a transaction as a programmatic reload from disk so the update
+// listener replaces the live text without scheduling an autosave of it (the
+// content already equals disk; re-saving would defeat a prior cancelAutosave
+// and bump updated_at for nothing).
+const ExternalReloadTxn = Annotation.define<boolean>();
 
 const CONTENT_DETECT_MIN_LENGTH = 40;
 const CONTENT_DETECT_DELTA = 40;
@@ -134,7 +140,10 @@ export default function EditorInstance(props: Props) {
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           const content = update.state.doc.toString();
-          if (!isBinary) {
+          const isExternalReload = update.transactions.some(
+            (t) => t.annotation(ExternalReloadTxn) === true,
+          );
+          if (!isBinary && !isExternalReload) {
             debouncedSave(bufferId, content, autosaveDebounce);
           }
           win.editor.setLineCount(update.state.doc.lines);
@@ -234,6 +243,28 @@ export default function EditorInstance(props: Props) {
     view.focus();
   }
 
+  // Resets the live view to the buffer's on-disk content without first
+  // saving (a save would clobber the external change) and without
+  // remounting the view. Only acts on the buffer currently loaded; an
+  // external edit to a background buffer is picked up by loadBuffer when the
+  // user switches to it (audit blocker #53.4).
+  async function reloadFromDisk(id: string) {
+    if (!view || currentBufferId !== id) return;
+    let content: string;
+    try {
+      content = await bufferRegistry.readContent(id);
+    } catch {
+      return;
+    }
+    if (!view || currentBufferId !== id) return;
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: content },
+      annotations: ExternalReloadTxn.of(true),
+    });
+    win.editor.setCurrentText(content);
+    win.editor.setLineCount(view.state.doc.lines);
+  }
+
   onMount(() => {
     registerCommand({
       id: "editor.addCursorUp",
@@ -261,6 +292,16 @@ export default function EditorInstance(props: Props) {
         loadBuffer(props.buffer);
       }
     }
+  ));
+
+  createEffect(on(
+    () => win.editor.externalReload(),
+    (req) => {
+      if (req && req.id === currentBufferId) {
+        void reloadFromDisk(req.id);
+      }
+    },
+    { defer: true },
   ));
 
   createEffect(on(

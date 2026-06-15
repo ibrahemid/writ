@@ -39,7 +39,8 @@ import {
   pruneLegacyDefaultOverrides,
 } from "./commands/keybindings";
 import { onEvent, emitFrontendReady } from "./services/events";
-import { onAutosaveError } from "./services/autosave";
+import { onAutosaveError, hasPendingAutosave, cancelAutosave } from "./services/autosave";
+import { handleExternalEdit } from "./services/external-edit";
 import { reportFirstPaint } from "./services/tauri";
 import { installCloseFlush } from "./services/window-lifecycle";
 import type { UnlistenFn } from "./services/events";
@@ -478,10 +479,29 @@ function AppShell() {
     unlisteners.push(unlisten1);
 
     const unlisten2 = await onEvent("buffer:external", (payload) => {
-      if (payload.bufferId && payload.change) {
-        showToast(`File "${payload.bufferId}" ${payload.change} externally`, "warning");
+      if (!payload.bufferId || (payload.change !== "modified" && payload.change !== "deleted")) {
+        return;
       }
-      bufferRegistry.load();
+      void handleExternalEdit(
+        { bufferId: payload.bufferId, change: payload.change },
+        {
+          findBuffer: (key) =>
+            bufferRegistry
+              .buffers()
+              .find((b) => b.filename === key || b.id === key),
+          hasUnsaved: (id) => hasPendingAutosave(id),
+          reload: (id) => win.editor.requestExternalReload(id),
+          cancelAutosave: (id) => cancelAutosave(id),
+          toast: (message, level) => showToast(message, level),
+          confirmReload: (title) =>
+            requestConfirm({
+              title: "File changed on disk",
+              message: `"${title}" was modified outside Writ. Reload from disk and discard your unsaved changes?`,
+              confirmLabel: "Reload from disk",
+              cancelLabel: "Keep my changes",
+            }),
+        },
+      );
     });
     unlisteners.push(unlisten2);
 

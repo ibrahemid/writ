@@ -34,6 +34,18 @@ export function createEditorStore() {
   // outgoing buffer, and rendering then would cache the wrong buffer's HTML
   // under the incoming id (the #97 stale-cache flash).
   const [currentBufferId, setCurrentBufferId] = createSignal<string | null>(null);
+  // A monotonically-keyed request to reload the active buffer's content from
+  // disk, raised when the file changed externally (audit blocker #53.4).
+  // EditorInstance consumes it; the seq makes repeated external edits to the
+  // same buffer each fire a fresh reload.
+  const [externalReload, setExternalReload] =
+    createSignal<{ id: string; seq: number } | null>(null);
+  let reloadSeq = 0;
+
+  function requestExternalReload(bufferId: string) {
+    reloadSeq += 1;
+    setExternalReload({ id: bufferId, seq: reloadSeq });
+  }
 
   let activeView: EditorView | null = null;
 
@@ -95,6 +107,7 @@ export function createEditorStore() {
     selectionCount, setSelectionCount,
     currentText, setCurrentText,
     currentBufferId, setCurrentBufferId,
+    externalReload, requestExternalReload,
     largeFileMode, setLargeFileMode,
     registerView, getView, focusEditor,
     getActiveText,
