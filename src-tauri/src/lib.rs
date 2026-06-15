@@ -15,8 +15,8 @@ use poison::recover_poison;
 use state::AppState;
 use tauri::{Listener, Manager};
 use tracing::info;
-use writ_core::events::bus::WritEvent;
 
+#[cfg(target_os = "macos")]
 const MENU_ACTION_IDS: &[&str] = &[
     "app.check_updates",
     "file.open",
@@ -24,6 +24,7 @@ const MENU_ACTION_IDS: &[&str] = &[
     "buffer.close",
 ];
 
+#[cfg(target_os = "macos")]
 fn menu_action_for_id(id: &str) -> Option<&'static str> {
     MENU_ACTION_IDS.iter().copied().find(|&allowed| allowed == id)
 }
@@ -44,8 +45,20 @@ fn dropped_paths_to_open(
     startup::authorize_and_canonicalize(authorized, &raw_paths)
 }
 
+/// Builds the native macOS menu bar.
+///
+/// macOS-only by design: it hosts the system menu bar that macOS apps are
+/// expected to provide, and its `CmdOrCtrl+O/T/W` accelerators are correct
+/// there. On Windows/Linux the window runs with `decorations: false`, so this
+/// menu would be invisible chrome while its accelerators collide with the
+/// platform translator. Every action it exposes (`app.check_updates`,
+/// `file.open`, `buffer.new`, `buffer.close`) is also registered as a command
+/// palette entry and keyboard shortcut in the frontend, so gating it off those
+/// platforms removes dead chrome without removing any reachable action.
+#[cfg(target_os = "macos")]
 fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+    use writ_core::events::bus::WritEvent;
 
     let check_updates =
         MenuItemBuilder::with_id("app.check_updates", "Check for Updates…").build(app)?;
@@ -280,6 +293,7 @@ pub fn run() {
                 });
             }
 
+            #[cfg(target_os = "macos")]
             if let Err(e) = build_app_menu(app) {
                 tracing::warn!(error = %e, "failed to build application menu");
             }
@@ -513,6 +527,7 @@ pub fn run() {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn menu_action_for_id_returns_each_whitelisted_id() {
         for id in MENU_ACTION_IDS {
@@ -520,6 +535,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn menu_action_for_id_returns_none_for_unknown_ids() {
         assert_eq!(menu_action_for_id(""), None);

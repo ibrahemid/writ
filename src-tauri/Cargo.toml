@@ -24,7 +24,7 @@ tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-updater = "2"
-notify = { version = "7", default-features = false, features = ["macos_fsevent"] }
+notify = "7"
 notify-debouncer-mini = "0.5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

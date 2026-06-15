@@ -306,6 +306,48 @@ mod tests {
     }
 
     #[test]
+    fn notify_keeps_default_backends() {
+        // #55: pinning notify to `default-features = false, features =
+        // ["macos_fsevent"]` drops the inotify / ReadDirectoryChangesW backends
+        // the moment a transitive consumer stops unifying them back in, silently
+        // downgrading Linux/Windows watching to PollWatcher. Lock the dependency
+        // to notify's default backend set. `recommended_watcher_resolves_to_native_backend`
+        // is the runtime complement; this is the cheap manifest guard that fails
+        // on macOS the instant the mac-only feature pin returns.
+        let manifest = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"),
+        )
+        .expect("read src-tauri/Cargo.toml");
+        let notify_line = manifest
+            .lines()
+            .find(|l| {
+                let t = l.trim_start();
+                t.starts_with("notify ") || t.starts_with("notify=")
+            })
+            .expect("notify dependency declared in src-tauri/Cargo.toml");
+        assert!(
+            !notify_line.contains("default-features = false"),
+            "notify must keep default features so every target's native watcher backend compiles in (#55): {notify_line}"
+        );
+    }
+
+    #[test]
+    fn recommended_watcher_resolves_to_native_backend() {
+        // notify's RecommendedWatcher is a per-platform type alias that only
+        // resolves to the native backend (FSEvents/inotify/ReadDirectoryChangesW)
+        // when that backend's cargo feature is compiled in. Pin notify to a
+        // mac-only feature set and it silently falls back to PollWatcher on
+        // Linux/Windows — cross-platform watching degrades to polling with no
+        // build error. Assert the resolved backend is never the poll fallback.
+        use notify::{Watcher, WatcherKind};
+        assert_ne!(
+            <RecommendedWatcher as Watcher>::kind(),
+            WatcherKind::PollWatcher,
+            "notify resolved to PollWatcher: a native filesystem backend is missing for this target"
+        );
+    }
+
+    #[test]
     fn classifies_config_path_as_config_changed() {
         let dir = tempdir().unwrap();
         let cfg = dir.path().join("config.toml");
