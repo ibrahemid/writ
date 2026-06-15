@@ -22,7 +22,7 @@ Package name: `writ-bin`. The `-bin` suffix follows AUR convention for packages 
 The PKGBUILD pulls the official AppImage from GitHub Releases:
 
 ```
-https://github.com/ibrahemid/writ/releases/download/v<version>/writ_<version>_amd64.AppImage
+https://github.com/ibrahemid/writ/releases/download/v<version>/Writ_<version>_amd64.AppImage
 ```
 
 It then extracts the AppImage under `/opt/writ/` and symlinks `/usr/bin/writ` to the `AppRun` entrypoint. The AppImage is not executed at install time, only unpacked, so no FUSE runtime is required for `pacman -S writ-bin` to succeed. `fuse2` is still listed as a runtime dependency because the app launcher re-executes `AppRun`, which many Tauri AppImages expect to run under a FUSE loopback.
