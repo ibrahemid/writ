@@ -135,4 +135,45 @@ describe("autosave", () => {
       expect(mockedSave).not.toHaveBeenCalled();
     });
   });
+
+  describe("lazy content source", () => {
+    it("materializes the getter at fire time, not at schedule time", async () => {
+      let live = "v1";
+      const getter = vi.fn(() => live);
+      debouncedSave("buf-1", getter, 300);
+
+      // Not yet read: scheduling must not force a materialization.
+      expect(getter).not.toHaveBeenCalled();
+
+      live = "v2";
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(getter).toHaveBeenCalledOnce();
+      expect(mockedSave).toHaveBeenCalledWith("buf-1", "v2");
+    });
+
+    it("flush reads the latest value from the getter", async () => {
+      let live = "first";
+      debouncedSave("buf-1", () => live, 300);
+      live = "latest";
+
+      await flushAutosave("buf-1");
+
+      expect(mockedSave).toHaveBeenCalledWith("buf-1", "latest");
+    });
+
+    it("a throwing getter notifies error listeners and saves nothing", async () => {
+      const listener = vi.fn();
+      const unsubscribe = onAutosaveError(listener);
+      debouncedSave("buf-1", () => {
+        throw new Error("view destroyed");
+      }, 50);
+
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(mockedSave).not.toHaveBeenCalled();
+      expect(listener).toHaveBeenCalledWith("buf-1", expect.any(Error));
+      unsubscribe();
+    });
+  });
 });

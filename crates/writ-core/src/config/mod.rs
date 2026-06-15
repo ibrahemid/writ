@@ -334,6 +334,30 @@ impl Default for InboxConfig {
     }
 }
 
+fn default_updater_auto_check() -> bool {
+    true
+}
+
+/// Auto-update configuration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdaterConfig {
+    /// Whether Writ silently checks for an update shortly after launch. When
+    /// `false`, updates are only checked when the user picks "Check for
+    /// Updates…" from the menu. The last silent-check time is tracked outside
+    /// `config.toml` so checking at most once per interval never rewrites the
+    /// user's editable config and never races the frontend's config writes.
+    #[serde(default = "default_updater_auto_check")]
+    pub auto_check: bool,
+}
+
+impl Default for UpdaterConfig {
+    fn default() -> Self {
+        Self {
+            auto_check: default_updater_auto_check(),
+        }
+    }
+}
+
 /// Top-level Writ configuration.
 ///
 /// This is the root type deserialized from the user's `config.toml`.
@@ -378,6 +402,9 @@ pub struct WritConfig {
     /// Watch-inbox configuration.
     #[serde(default)]
     pub inbox: InboxConfig,
+    /// Auto-update configuration.
+    #[serde(default)]
+    pub updater: UpdaterConfig,
 }
 
 impl Default for WritConfig {
@@ -395,6 +422,7 @@ impl Default for WritConfig {
             preview: PreviewConfig::default(),
             workspace: WorkspaceConfig::default(),
             inbox: InboxConfig::default(),
+            updater: UpdaterConfig::default(),
         }
     }
 }
@@ -408,6 +436,21 @@ mod tests {
         let config: WritConfig = toml::from_str("").unwrap();
         assert_eq!(config.inbox.path, None);
         assert!(config.inbox.focus);
+    }
+
+    #[test]
+    fn missing_updater_section_defaults_to_auto_check_on() {
+        let config: WritConfig = toml::from_str("").unwrap();
+        assert!(config.updater.auto_check);
+    }
+
+    #[test]
+    fn updater_auto_check_can_be_disabled_and_round_trips() {
+        let config: WritConfig = toml::from_str("[updater]\nauto_check = false\n").unwrap();
+        assert!(!config.updater.auto_check);
+        let serialized = toml::to_string(&config).unwrap();
+        let parsed: WritConfig = toml::from_str(&serialized).unwrap();
+        assert!(!parsed.updater.auto_check);
     }
 
     #[test]

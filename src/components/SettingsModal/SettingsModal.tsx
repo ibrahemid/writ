@@ -2,6 +2,7 @@ import { createSignal, createEffect, onCleanup, onMount, Show, Switch, Match } f
 import { configStore } from "../../stores/global/config";
 import { inboxStore } from "../../stores/global/inbox";
 import { themeStore } from "../../stores/global/theme";
+import { updateStore } from "../../stores/global/update";
 import { PRESETS } from "../../styles/themes";
 import { openThemeEditor } from "../ThemeEditor/ThemeEditor";
 import { openShortcutEditor } from "../ShortcutEditor/ShortcutEditor";
@@ -14,7 +15,7 @@ import { fetchDefaultAppStatus, claimDefaultApp } from "../../stores/global/defa
 import type { DefaultAppStatus } from "../../stores/global/default-app";
 import "./SettingsModal.css";
 
-type Section = "editor" | "files" | "preview" | "appearance" | "shortcuts";
+type Section = "editor" | "files" | "preview" | "appearance" | "shortcuts" | "updates";
 
 // Singleton state — Writ is single-window
 const [isOpen, setIsOpen] = createSignal(false);
@@ -38,6 +39,7 @@ const NAV_ITEMS: { id: Section; label: string }[] = [
   { id: "files", label: "Files" },
   { id: "preview", label: "Preview" },
   { id: "appearance", label: "Appearance" },
+  { id: "updates", label: "Updates" },
   { id: "shortcuts", label: "Shortcuts" },
 ];
 
@@ -443,6 +445,48 @@ function PreviewSection() {
   );
 }
 
+function UpdatesSection() {
+  const autoCheck = () => configStore.config().updater.auto_check;
+
+  function onAutoCheckToggle() {
+    void patchConfig((prev) => ({
+      ...prev,
+      updater: { ...prev.updater, auto_check: !prev.updater.auto_check },
+    }));
+  }
+
+  return (
+    <div data-section="updates">
+      <div class="settings-section-label">Updates</div>
+      <div class="settings-row">
+        <span class="settings-row-label">Check for updates automatically</span>
+        <button
+          type="button"
+          class="settings-toggle"
+          classList={{ "settings-toggle-on": autoCheck() }}
+          data-setting="updater_auto_check"
+          role="switch"
+          aria-checked={autoCheck()}
+          onClick={onAutoCheckToggle}
+        >
+          <span class="settings-toggle-thumb" />
+        </button>
+      </div>
+      <div class="settings-row">
+        <span class="settings-row-label">Check for updates now</span>
+        <button
+          type="button"
+          class="settings-action-btn"
+          data-action="check-updates-now"
+          onClick={() => void updateStore.checkForUpdate()}
+        >
+          Check now
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AppearanceSection() {
   const currentPreset = () => configStore.config().theme.preset;
 
@@ -584,6 +628,9 @@ export default function SettingsModal() {
                 </Match>
                 <Match when={activeSection() === "appearance"}>
                   <AppearanceSection />
+                </Match>
+                <Match when={activeSection() === "updates"}>
+                  <UpdatesSection />
                 </Match>
                 <Match when={activeSection() === "shortcuts"}>
                   <ShortcutsSection />

@@ -16,6 +16,7 @@ use writ_storage::database::migrations::run_migrations;
 
 use writ_storage::layout_state::LayoutStateStore;
 
+use crate::fts_scheduler::FtsScheduler;
 use crate::preview::handler::RenderCache;
 use crate::security::{canonicalize_for_authorization, AuthorizedPaths};
 use crate::watcher::handler::{IgnoreSet, WatcherHandle};
@@ -52,6 +53,8 @@ pub struct AppState {
     pub inbox_root: Mutex<Option<PathBuf>>,
     /// Live inbox watcher; replaced when the inbox path changes.
     pub inbox_watcher: Mutex<Option<WatcherHandle>>,
+    /// Coalesces deferred FTS reindexes off the autosave path (ADR-020).
+    pub fts_scheduler: FtsScheduler,
 }
 
 impl AppState {
@@ -205,6 +208,7 @@ impl AppState {
             workspace_watcher: Mutex::new(None),
             inbox_root: Mutex::new(inbox_root),
             inbox_watcher: Mutex::new(None),
+            fts_scheduler: FtsScheduler::new(),
         })
     }
 

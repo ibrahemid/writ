@@ -52,6 +52,16 @@ const ExternalReloadTxn = Annotation.define<boolean>();
 
 const CONTENT_DETECT_MIN_LENGTH = 40;
 const CONTENT_DETECT_DELTA = 40;
+// Above this size, language is taken from the filename only. Re-scoring a
+// quarter-megabyte-plus buffer on every edit burst is pure jank for a buffer
+// that, if it had a detectable language, would carry a recognizable extension.
+const CONTENT_DETECT_MAX_LENGTH = 256 * 1024;
+// In large-file / binary mode, materializing the whole document into a string
+// on every keystroke to publish `currentText` is the measured jank
+// (1.4 ms @ 5 MB, 2.9 ms @ 9 MB). Preview is disabled in that mode, so the
+// publish only feeds a heuristic token count that can lag; coalesce it onto
+// this idle interval instead of running per keystroke.
+const RESTRICTED_CONTENT_PUBLISH_MS = 400;
 
 export default function EditorInstance(props: Props) {
   const win = useWindow();
@@ -60,6 +70,7 @@ export default function EditorInstance(props: Props) {
   let currentBufferId: string | undefined;
   let appliedNameForLang = "";
   let lastDetectLen = 0;
+  let restrictedPublishTimer: ReturnType<typeof setTimeout> | null = null;
   const languageCompartment = new Compartment();
   const themeCompartment = new Compartment();
   const typographyCompartment = new Compartment();
@@ -90,10 +101,32 @@ export default function EditorInstance(props: Props) {
     if (mode && mode.kind !== "Normal") return;
     if (win.editor.language() !== null) return;
     if (content.length < CONTENT_DETECT_MIN_LENGTH) return;
+    if (content.length > CONTENT_DETECT_MAX_LENGTH) return;
     if (!force && content.length - lastDetectLen < CONTENT_DETECT_DELTA) return;
     lastDetectLen = content.length;
     const detected = detectFromContent(content);
     if (detected) applyDetectedLanguage(detected);
+  }
+
+  // Coalesced publish of the document text for restricted (large/binary)
+  // buffers. Reads the live view, so a fire after a buffer switch is harmless
+  // only if cleared on load — see loadBuffer / onCleanup.
+  function scheduleRestrictedContentPublish() {
+    if (restrictedPublishTimer) clearTimeout(restrictedPublishTimer);
+    restrictedPublishTimer = setTimeout(() => {
+      restrictedPublishTimer = null;
+      if (!view) return;
+      const content = view.state.doc.toString();
+      win.editor.setCurrentText(content);
+      if (findStore.isOpen()) findStore.refresh();
+    }, RESTRICTED_CONTENT_PUBLISH_MS);
+  }
+
+  function clearRestrictedContentPublish() {
+    if (restrictedPublishTimer) {
+      clearTimeout(restrictedPublishTimer);
+      restrictedPublishTimer = null;
+    }
   }
 
   function createExtensions(bufferId: string, initialLang: Extension, langId: string | null, mode: FileOpenMode): Extension[] {
@@ -139,17 +172,32 @@ export default function EditorInstance(props: Props) {
       ...(isRestricted ? [] : [EditorView.lineWrapping]),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
-          const content = update.state.doc.toString();
+          // A reload-from-disk must never trigger a save-back (it would rewrite
+          // the file with the content we just pulled from it). Live editor
+          // state (line count, currentText) still updates so the view reflects
+          // the reloaded content.
           const isExternalReload = update.transactions.some(
             (t) => t.annotation(ExternalReloadTxn) === true,
           );
-          if (!isBinary && !isExternalReload) {
-            debouncedSave(bufferId, content, autosaveDebounce);
-          }
+          // Line count is cheap (no materialization) — keep it live.
           win.editor.setLineCount(update.state.doc.lines);
-          win.editor.setCurrentText(content);
-          maybeDetectFromContent(content, false);
-          if (findStore.isOpen()) findStore.refresh();
+          if (isRestricted) {
+            // Defer the full-document materialization off the keystroke loop.
+            // Autosave gets a lazy getter so its flush reads the live document
+            // rather than a value captured keystrokes ago (ADR-020).
+            if (!isBinary && !isExternalReload) {
+              debouncedSave(bufferId, () => view?.state.doc.toString() ?? "", autosaveDebounce);
+            }
+            scheduleRestrictedContentPublish();
+          } else {
+            const content = update.state.doc.toString();
+            if (!isExternalReload) {
+              debouncedSave(bufferId, content, autosaveDebounce);
+            }
+            win.editor.setCurrentText(content);
+            maybeDetectFromContent(content, false);
+            if (findStore.isOpen()) findStore.refresh();
+          }
         }
         const sel = update.state.selection;
         const pos = sel.main.head;
@@ -198,6 +246,9 @@ export default function EditorInstance(props: Props) {
 
   async function loadBuffer(buffer: BufferDocument) {
     await saveCurrentContent();
+    // A pending publish belongs to the outgoing buffer; a late fire after the
+    // swap would push stale text into the shared currentText signal.
+    clearRestrictedContentPublish();
 
     currentBufferId = buffer.id;
     appliedNameForLang = "";
@@ -341,6 +392,7 @@ export default function EditorInstance(props: Props) {
     if (currentBufferId) {
       cancelAutosave(currentBufferId);
     }
+    clearRestrictedContentPublish();
     win.editor.setLargeFileMode(null);
     win.editor.registerView(null);
     win.editor.setCurrentBufferId(null);
