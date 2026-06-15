@@ -125,7 +125,31 @@ fn open_external_file_sets_source_path() {
 
     assert_eq!(buf.source_path, Some(path));
     assert_eq!(buf.title, "todo.md");
-    assert_eq!(buf.filename, "todo.md");
+    // Audit blocker #53.7: the mirror filename is derived from the buffer
+    // UUID, never the basename, so the human label and the on-disk file
+    // name are decoupled.
+    assert_eq!(buf.filename, format!("{}.txt", buf.id));
+}
+
+#[test]
+fn open_external_mints_unique_filenames_for_same_basename() {
+    // Audit blocker #53.7: two files with the same basename opened from
+    // different directories must not collide on a single mirror file.
+    // Deriving the filename from the per-buffer UUID guarantees that two
+    // opens of `notes.md` write to distinct backing files.
+    let mut manager = BufferManager::new();
+    let a = manager
+        .open_external("/projects/alpha/notes.md".to_string())
+        .unwrap();
+    let b = manager
+        .open_external("/projects/beta/notes.md".to_string())
+        .unwrap();
+
+    assert_eq!(a.title, "notes.md");
+    assert_eq!(b.title, "notes.md");
+    assert_ne!(a.filename, b.filename);
+    assert_eq!(a.filename, format!("{}.txt", a.id));
+    assert_eq!(b.filename, format!("{}.txt", b.id));
 }
 
 #[test]

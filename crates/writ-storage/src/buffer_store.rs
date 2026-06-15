@@ -36,9 +36,24 @@ impl BufferStore {
         &self.buffers_dir
     }
 
-    /// Inserts a new buffer row into the database.
+    /// Inserts a new buffer row into the database and seeds its FTS entry.
+    ///
+    /// Seeding an (empty-content) FTS row at insert time makes the
+    /// FTS-vs-buffers parity invariant structural rather than dependent on
+    /// every caller remembering to follow up with a content write: an
+    /// indexed-eligible buffer is in the index from the moment it exists,
+    /// so [`Self::verify_and_repair_fts`] never sees a freshly inserted row
+    /// as drift. Large-file and binary buffers (`size_bytes >
+    /// THRESHOLD_NORMAL_BYTES`) are excluded, matching every other write
+    /// site.
     pub fn insert(&self, doc: &BufferDocument) -> StorageResult<()> {
-        queries::insert_buffer(&self.conn, doc)
+        let tx = self.conn.unchecked_transaction()?;
+        queries::insert_buffer(&tx, doc)?;
+        if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
+            crate::fts::FtsIndex::new(&tx).insert(&doc.id, &doc.title, "")?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// Reads a buffer row by id.
@@ -107,10 +122,13 @@ impl BufferStore {
     /// Writes `content` to the buffer's backing file and refreshes the
     /// FTS index.
     ///
-    /// The `updated_at` column is stamped on every call. FTS update
-    /// failures are logged but do not propagate: search may temporarily
-    /// trail writes, never block them. Use [`Self::rebuild_fts`] to
-    /// recover from a damaged index.
+    /// The content file is written atomically first. The `updated_at`
+    /// stamp and the FTS row are then updated inside a single transaction
+    /// (audit blocker #53.5): either both land or neither does, so the
+    /// timestamp can never advance past a stale index. FTS errors
+    /// propagate rather than being swallowed; a crash that still slips the
+    /// index out of sync is healed at the next boot by
+    /// [`Self::verify_and_repair_fts`].
     ///
     /// Buffers with `size_bytes > THRESHOLD_NORMAL_BYTES` (large-file
     /// and binary tiers) are excluded from FTS indexing: the cost of
@@ -125,13 +143,13 @@ impl BufferStore {
         }
         let file_path = self.buffers_dir.join(&doc.filename);
         write_atomic(&file_path, content.as_bytes())?;
-        queries::update_timestamp(&self.conn, id)?;
+
+        let tx = self.conn.unchecked_transaction()?;
+        queries::update_timestamp(&tx, id)?;
         if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
-            let fts = crate::fts::FtsIndex::new(&self.conn);
-            if let Err(e) = fts.update(id, &doc.title, content) {
-                warn!(buffer_id = id, error = %e, "fts update failed during save_content");
-            }
+            crate::fts::FtsIndex::new(&tx).update(id, &doc.title, content)?;
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -151,22 +169,24 @@ impl BufferStore {
     /// Renames a buffer's title, stamps `updated_at`, and refreshes the
     /// FTS index so searches against the new title hit immediately.
     ///
-    /// FTS update failures are logged but do not propagate, matching
-    /// the policy in [`Self::save_content`]: search may temporarily
-    /// trail writes, never block them.
+    /// The rename and the FTS refresh run in a single transaction and FTS
+    /// errors propagate, matching [`Self::save_content`]: the title and
+    /// the index never diverge.
     pub fn rename(&self, id: &str, title: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
-        queries::rename_buffer(&self.conn, id, title)?;
         let file_path = self.buffers_dir.join(&doc.filename);
         let content = if file_path.exists() {
             std::fs::read_to_string(&file_path).unwrap_or_default()
         } else {
             String::new()
         };
-        let fts = crate::fts::FtsIndex::new(&self.conn);
-        if let Err(e) = fts.update(id, title, &content) {
-            warn!(buffer_id = id, error = %e, "fts update failed during rename");
+
+        let tx = self.conn.unchecked_transaction()?;
+        queries::rename_buffer(&tx, id, title)?;
+        if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
+            crate::fts::FtsIndex::new(&tx).update(id, title, &content)?;
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -247,15 +267,15 @@ impl BufferStore {
     /// FTS indexing is skipped when `doc.size_bytes > THRESHOLD_NORMAL_BYTES`
     /// (large-file and binary tiers).
     pub fn open_from_path(&self, doc: &BufferDocument, content: &str) -> StorageResult<()> {
-        queries::insert_buffer(&self.conn, doc)?;
         let buffer_file = self.buffers_dir.join(&doc.filename);
         std::fs::write(&buffer_file, content)?;
+
+        let tx = self.conn.unchecked_transaction()?;
+        queries::insert_buffer(&tx, doc)?;
         if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
-            let fts = crate::fts::FtsIndex::new(&self.conn);
-            if let Err(e) = fts.update(&doc.id, &doc.title, content) {
-                warn!(buffer_id = %doc.id, error = %e, "fts update failed during open_from_path");
-            }
+            crate::fts::FtsIndex::new(&tx).insert(&doc.id, &doc.title, content)?;
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -281,13 +301,13 @@ impl BufferStore {
         write_atomic(Path::new(source_path), content.as_bytes())?;
         let buffer_file = self.buffers_dir.join(&doc.filename);
         write_atomic(&buffer_file, content.as_bytes())?;
-        queries::update_timestamp(&self.conn, id)?;
+
+        let tx = self.conn.unchecked_transaction()?;
+        queries::update_timestamp(&tx, id)?;
         if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
-            let fts = crate::fts::FtsIndex::new(&self.conn);
-            if let Err(e) = fts.update(id, &doc.title, content) {
-                warn!(buffer_id = id, error = %e, "fts update failed during save_to_source");
-            }
+            crate::fts::FtsIndex::new(&tx).update(id, &doc.title, content)?;
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -325,6 +345,101 @@ impl BufferStore {
             }
         }
         Ok(())
+    }
+
+    /// Reconciles the FTS index against the buffer set and rebuilds it on
+    /// any drift, returning `true` when a rebuild was performed.
+    ///
+    /// The transactional writes in [`Self::save_content`] keep the index in
+    /// step during normal operation, but a crash between the content-file
+    /// write and the commit, or a damaged index file, can still leave the
+    /// two out of sync. Run once at boot (audit blocker #53.5): the set of
+    /// indexed-eligible buffers (`size_bytes <= THRESHOLD_NORMAL_BYTES`,
+    /// either status) must match exactly the set of ids present in the FTS
+    /// table; otherwise the whole index is rebuilt from buffers + disk.
+    pub fn verify_and_repair_fts(&self) -> StorageResult<bool> {
+        let mut expected: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for status in [BufferStatus::Active, BufferStatus::History] {
+            for doc in self.list_by_status(status)? {
+                if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
+                    expected.insert(doc.id);
+                }
+            }
+        }
+
+        let indexed: std::collections::HashSet<String> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT b.id FROM buffer_fts f JOIN buffers b ON b.rowid = f.rowid",
+            )?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            let mut set = std::collections::HashSet::new();
+            for row in rows {
+                set.insert(row?);
+            }
+            set
+        };
+
+        if expected == indexed {
+            return Ok(false);
+        }
+        warn!(
+            expected = expected.len(),
+            indexed = indexed.len(),
+            "fts index drift detected; rebuilding"
+        );
+        self.rebuild_fts()?;
+        Ok(true)
+    }
+
+    /// Normalizes every buffer's mirror `filename` to `{id}.txt` and then
+    /// installs a `UNIQUE` index on `buffers(filename)`.
+    ///
+    /// Legacy rows minted before audit blocker #53.7 derived their mirror
+    /// filename from the file's basename, so two files sharing a basename
+    /// could overwrite each other's backing content. This one-time, idempotent
+    /// reconciliation renames each legacy backing file to its UUID-derived
+    /// name, rewrites the row, and only then creates the uniqueness index —
+    /// uniqueness cannot be a SQL migration because the index must be built
+    /// *after* the on-disk files are moved, which SQL cannot do.
+    ///
+    /// A missing backing file is tolerated (the original collision may have
+    /// already consumed it); the row is still normalized so no future write
+    /// targets the colliding name. Returns the number of rows reconciled.
+    pub fn reconcile_buffer_filenames(&self) -> StorageResult<usize> {
+        let mut docs = self.list_by_status(BufferStatus::Active)?;
+        docs.extend(self.list_by_status(BufferStatus::History)?);
+
+        let mut reconciled = 0;
+        for doc in &docs {
+            let target = format!("{}.txt", doc.id);
+            if doc.filename == target {
+                continue;
+            }
+            let old_path = self.buffers_dir.join(&doc.filename);
+            let new_path = self.buffers_dir.join(&target);
+            if old_path.exists() && !new_path.exists() {
+                std::fs::rename(&old_path, &new_path)?;
+            } else if !new_path.exists() {
+                // No backing file to move: a prior collision (two rows sharing
+                // one mirror filename) already consumed it. Normalize the row
+                // anyway so no future write targets the colliding name, but
+                // surface the silent content loss.
+                warn!(
+                    buffer_id = %doc.id,
+                    filename = %doc.filename,
+                    "reconcile: legacy buffer has no backing file (lost to a prior filename collision)"
+                );
+            }
+            queries::update_filename(&self.conn, &doc.id, &target)?;
+            reconciled += 1;
+        }
+
+        self.conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_buffers_filename ON buffers(filename)",
+            [],
+        )?;
+
+        Ok(reconciled)
     }
 
     /// Returns `true` when the most recent session snapshot was not written

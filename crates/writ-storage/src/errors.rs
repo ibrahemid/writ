@@ -42,6 +42,22 @@ pub enum StorageError {
         /// Human-readable description of the inconsistency.
         message: String,
     },
+
+    /// The on-disk database was written by a newer build of Writ whose
+    /// schema this binary does not understand.
+    ///
+    /// Opening it anyway would read newer rows through an older column
+    /// layout and silently corrupt data, so the store refuses to proceed.
+    #[error(
+        "database schema version {db_version} is newer than this build supports ({binary_version}); \
+         upgrade Writ to open it"
+    )]
+    SchemaTooNew {
+        /// Highest `schema_version` recorded in the database file.
+        db_version: i32,
+        /// Highest migration version embedded in this binary.
+        binary_version: i32,
+    },
 }
 
 /// Shorthand for a result whose error arm is [`StorageError`].

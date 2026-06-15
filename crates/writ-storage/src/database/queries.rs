@@ -10,35 +10,43 @@ fn parse_rfc3339(s: &str) -> rusqlite::Result<DateTime<Utc>> {
         .map_err(|_| rusqlite::Error::InvalidColumnName(format!("invalid datetime: {}", s)))
 }
 
+/// Maps a buffers row into a [`BufferDocument`], reading every field by
+/// column name rather than position.
+///
+/// By-name access (audit blocker #53.8) decouples the mapper from the
+/// order columns appear in a `SELECT`: a future migration that adds or
+/// reorders columns can no longer silently shift a value into the wrong
+/// field. Every `SELECT` feeding this mapper must therefore alias the
+/// columns it needs by their schema names.
 fn row_to_document(row: &rusqlite::Row) -> rusqlite::Result<BufferDocument> {
-    let status_str: String = row.get(3)?;
+    let status_str: String = row.get("status")?;
     let status = match status_str.as_str() {
         "active" => BufferStatus::Active,
         "history" => BufferStatus::History,
         _ => return Err(rusqlite::Error::InvalidColumnName(status_str)),
     };
 
-    let created_str: String = row.get(9)?;
-    let updated_str: String = row.get(10)?;
-    let closed_str: Option<String> = row.get(11)?;
+    let created_str: String = row.get("created_at")?;
+    let updated_str: String = row.get("updated_at")?;
+    let closed_str: Option<String> = row.get("closed_at")?;
 
     let created_at = parse_rfc3339(&created_str)?;
     let updated_at = parse_rfc3339(&updated_str)?;
     let closed_at = closed_str.map(|s| parse_rfc3339(&s)).transpose()?;
 
-    let cursor_pos: i64 = row.get(6)?;
-    let scroll_pos: i64 = row.get(7)?;
-    let tab_order: i64 = row.get(8)?;
-    let read_only: i64 = row.get(12)?;
-    let size_bytes: i64 = row.get(13)?;
+    let cursor_pos: i64 = row.get("cursor_pos")?;
+    let scroll_pos: i64 = row.get("scroll_pos")?;
+    let tab_order: i64 = row.get("tab_order")?;
+    let read_only: i64 = row.get("read_only")?;
+    let size_bytes: i64 = row.get("size_bytes")?;
 
     Ok(BufferDocument {
-        id: row.get(0)?,
-        title: row.get(1)?,
-        filename: row.get(2)?,
+        id: row.get("id")?,
+        title: row.get("title")?,
+        filename: row.get("filename")?,
         status,
-        language: row.get(4)?,
-        source_path: row.get(5)?,
+        language: row.get("language")?,
+        source_path: row.get("source_path")?,
         cursor_pos: cursor_pos as u64,
         scroll_pos: scroll_pos as u64,
         tab_order: tab_order as u32,
@@ -237,6 +245,17 @@ pub fn update_language(conn: &Connection, id: &str, language: Option<&str>) -> S
     Ok(())
 }
 
+/// Rewrites a buffer's on-disk mirror `filename` without touching any
+/// other field, including `updated_at` (filename normalization is an
+/// internal repair, not a user edit).
+pub fn update_filename(conn: &Connection, id: &str, filename: &str) -> StorageResult<()> {
+    conn.execute(
+        "UPDATE buffers SET filename = ?1 WHERE id = ?2",
+        params![filename, id],
+    )?;
+    Ok(())
+}
+
 /// Stamps a buffer's `updated_at` to now without changing any other
 /// fields.
 pub fn update_timestamp(conn: &Connection, id: &str) -> StorageResult<()> {
@@ -245,4 +264,68 @@ pub fn update_timestamp(conn: &Connection, id: &str) -> StorageResult<()> {
         params![Utc::now().to_rfc3339(), id],
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::migrations::run_migrations;
+    use writ_core::buffer::document::BufferDocument;
+
+    fn doc_fixture() -> BufferDocument {
+        let now = Utc::now();
+        BufferDocument {
+            id: "buf-1".to_string(),
+            title: "Title".to_string(),
+            filename: "buf-1.txt".to_string(),
+            status: BufferStatus::History,
+            language: Some("rust".to_string()),
+            source_path: Some("/tmp/x.rs".to_string()),
+            cursor_pos: 7,
+            scroll_pos: 42,
+            tab_order: 3,
+            created_at: now,
+            updated_at: now,
+            closed_at: Some(now),
+            read_only: true,
+            size_bytes: 99,
+        }
+    }
+
+    #[test]
+    fn row_to_document_reads_by_name_not_position() {
+        // Audit blocker #53.8: row_to_document must bind fields by column
+        // name so a SELECT whose columns are in a different order than the
+        // table definition still maps every value to the correct field. A
+        // deliberately scrambled column order would silently corrupt
+        // positional access; by-name access survives it.
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        let doc = doc_fixture();
+        insert_buffer(&conn, &doc).unwrap();
+
+        let scrambled = conn
+            .query_row(
+                "SELECT size_bytes, closed_at, id, read_only, language, status,
+                        scroll_pos, title, source_path, updated_at, filename,
+                        cursor_pos, created_at, tab_order
+                 FROM buffers WHERE id = ?1",
+                params![doc.id],
+                row_to_document,
+            )
+            .unwrap();
+
+        assert_eq!(scrambled.id, doc.id);
+        assert_eq!(scrambled.title, doc.title);
+        assert_eq!(scrambled.filename, doc.filename);
+        assert_eq!(scrambled.status, BufferStatus::History);
+        assert_eq!(scrambled.language.as_deref(), Some("rust"));
+        assert_eq!(scrambled.source_path.as_deref(), Some("/tmp/x.rs"));
+        assert_eq!(scrambled.cursor_pos, 7);
+        assert_eq!(scrambled.scroll_pos, 42);
+        assert_eq!(scrambled.tab_order, 3);
+        assert!(scrambled.read_only);
+        assert_eq!(scrambled.size_bytes, 99);
+        assert!(scrambled.closed_at.is_some());
+    }
 }

@@ -44,9 +44,10 @@ vi.mock("../../services/tauri", () => ({
   restoreBuffer: vi.fn().mockResolvedValue(undefined),
   clearHistory: vi.fn().mockResolvedValue(undefined),
   renameBuffer: vi.fn().mockResolvedValue(undefined),
-  openFile: vi.fn().mockImplementation((path: string) =>
-    Promise.resolve(mockSourceBuffer(path)),
-  ),
+  openFile: vi.fn().mockImplementation((path: string) => {
+    const doc = mockSourceBuffer(path);
+    return Promise.resolve({ doc, mode: { kind: "Normal" }, size_bytes: doc.size_bytes });
+  }),
   showOpenFileDialog: vi.fn().mockResolvedValue(null),
   readBufferContent: vi.fn().mockResolvedValue(""),
   previewClose: vi.fn().mockResolvedValue(undefined),
@@ -58,8 +59,10 @@ vi.mock("../../services/autosave", () => ({
 
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import * as api from "../../services/tauri";
+import { flushAutosave } from "../../services/autosave";
 
 const mockedApi = vi.mocked(api);
+const mockedFlush = vi.mocked(flushAutosave);
 
 describe("bufferRegistry (app-global)", () => {
   beforeEach(async () => {
@@ -129,6 +132,21 @@ describe("bufferRegistry (app-global)", () => {
       await bufferRegistry.closeBuffer(doc.id);
       expect(mockedApi.previewClose).toHaveBeenCalledWith(doc.id);
     });
+
+    it("flushes the pending autosave before closing (no lost last edit)", async () => {
+      // Audit blocker #53.1: closing a tab must persist the in-flight
+      // autosave first, or the last keystrokes before close are lost.
+      const doc = await bufferRegistry.createBuffer();
+      mockedFlush.mockClear();
+      mockedApi.closeBuffer.mockClear();
+
+      await bufferRegistry.closeBuffer(doc.id);
+
+      expect(mockedFlush).toHaveBeenCalledWith(doc.id);
+      expect(mockedFlush.mock.invocationCallOrder[0]).toBeLessThan(
+        mockedApi.closeBuffer.mock.invocationCallOrder[0],
+      );
+    });
   });
 
   describe("closeBuffers (bulk)", () => {
@@ -148,6 +166,22 @@ describe("bufferRegistry (app-global)", () => {
     it("is a no-op for an empty list", async () => {
       await bufferRegistry.closeBuffers([]);
       expect(mockedApi.closeBuffers).not.toHaveBeenCalled();
+    });
+
+    it("flushes every buffer's pending autosave before the bulk close", async () => {
+      // Audit blocker #53.1, bulk path: each buffer's in-flight autosave
+      // must persist before the close IPC fires.
+      const a = await bufferRegistry.createBuffer();
+      const b = await bufferRegistry.createBuffer();
+      mockedFlush.mockClear();
+      mockedApi.closeBuffers.mockClear();
+
+      await bufferRegistry.closeBuffers([a.id, b.id]);
+
+      expect(mockedFlush).toHaveBeenCalledWith(a.id);
+      expect(mockedFlush).toHaveBeenCalledWith(b.id);
+      const lastFlush = Math.max(...mockedFlush.mock.invocationCallOrder);
+      expect(lastFlush).toBeLessThan(mockedApi.closeBuffers.mock.invocationCallOrder[0]);
     });
   });
 

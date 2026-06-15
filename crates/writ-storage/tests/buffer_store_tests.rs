@@ -431,3 +431,176 @@ fn reclaim_empty_scratch_removes_backing_files() {
 
     assert!(!file_path.exists());
 }
+
+// Custom doc with a caller-chosen filename, to exercise legacy rows whose
+// mirror filename predates the UUID-derived naming (audit blocker #53.7).
+fn make_doc_with_filename(id: &str, title: &str, filename: &str) -> BufferDocument {
+    let mut doc = make_doc(id, title);
+    doc.title = title.to_string();
+    doc.filename = filename.to_string();
+    doc
+}
+
+#[test]
+fn reconcile_renames_legacy_basename_filename_to_uuid() {
+    let (dir, store) = setup();
+    let buffers = dir.path().join("buffers");
+    let doc = make_doc_with_filename("legacy-1", "notes.md", "notes.md");
+    store.insert(&doc).unwrap();
+    std::fs::write(buffers.join("notes.md"), "legacy content").unwrap();
+
+    let count = store.reconcile_buffer_filenames().unwrap();
+    assert_eq!(count, 1);
+
+    let fetched = store.get("legacy-1").unwrap();
+    assert_eq!(fetched.filename, "legacy-1.txt");
+    assert_eq!(fetched.title, "notes.md");
+    assert!(buffers.join("legacy-1.txt").exists());
+    assert!(!buffers.join("notes.md").exists());
+    assert_eq!(store.read_content("legacy-1").unwrap(), "legacy content");
+}
+
+#[test]
+fn reconcile_is_idempotent() {
+    let (dir, store) = setup();
+    let buffers = dir.path().join("buffers");
+    let doc = make_doc_with_filename("legacy-2", "todo.md", "todo.md");
+    store.insert(&doc).unwrap();
+    std::fs::write(buffers.join("todo.md"), "x").unwrap();
+
+    assert_eq!(store.reconcile_buffer_filenames().unwrap(), 1);
+    assert_eq!(store.reconcile_buffer_filenames().unwrap(), 0);
+}
+
+#[test]
+fn reconcile_tolerates_missing_backing_file() {
+    // The original collision left two rows pointing at one physical file;
+    // after the first is renamed the second's source is already gone.
+    // Reconciliation must still normalize the row, not panic.
+    let (_dir, store) = setup();
+    let doc = make_doc_with_filename("legacy-3", "gone.md", "gone.md");
+    store.insert(&doc).unwrap();
+
+    let count = store.reconcile_buffer_filenames().unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(store.get("legacy-3").unwrap().filename, "legacy-3.txt");
+}
+
+#[test]
+fn reconcile_establishes_unique_filename_index() {
+    let (_dir, store) = setup();
+    store.reconcile_buffer_filenames().unwrap();
+
+    let a = make_doc_with_filename("uniq-a", "a", "dup.txt");
+    let b = make_doc_with_filename("uniq-b", "b", "dup.txt");
+    store.insert(&a).unwrap();
+    assert!(
+        store.insert(&b).is_err(),
+        "the UNIQUE(filename) index must reject a duplicate mirror filename"
+    );
+}
+
+// Opens a second connection to the same database file as `store`, used to
+// corrupt the FTS index out from under the store and exercise the
+// transactional-save and parity-repair paths (audit blocker #53.5).
+fn second_conn(dir: &TempDir) -> rusqlite::Connection {
+    open_database(&dir.path().join("test.db")).unwrap()
+}
+
+#[test]
+fn save_content_propagates_fts_error_and_rolls_back_timestamp() {
+    let (dir, store) = setup();
+    let doc = make_doc("tx-1", "Title");
+    store.insert(&doc).unwrap();
+    store.save_content("tx-1", "first").unwrap();
+    let before = store.get("tx-1").unwrap().updated_at;
+
+    // Drop the FTS table so the next save's fts step fails; the timestamp
+    // update must roll back with it, never leaving the row advanced while
+    // the index is stale.
+    second_conn(&dir)
+        .execute("DROP TABLE buffer_fts", [])
+        .unwrap();
+
+    let result = store.save_content("tx-1", "second");
+    assert!(result.is_err(), "a failing FTS update must propagate");
+
+    let after = store.get("tx-1").unwrap().updated_at;
+    assert_eq!(before, after, "timestamp must roll back when FTS fails");
+}
+
+#[test]
+fn verify_and_repair_fts_rebuilds_after_drift() {
+    let (dir, store) = setup();
+    for (id, title) in [("p-1", "alpha"), ("p-2", "beta")] {
+        let doc = make_doc(id, title);
+        store.insert(&doc).unwrap();
+        store.save_content(id, "needle haystack").unwrap();
+    }
+    // Corrupt the index: drop one buffer's FTS row directly.
+    second_conn(&dir)
+        .execute(
+            "DELETE FROM buffer_fts WHERE rowid = (SELECT rowid FROM buffers WHERE id = 'p-1')",
+            [],
+        )
+        .unwrap();
+    assert!(!store.search("needle").unwrap().contains(&"p-1".to_string()));
+
+    let repaired = store.verify_and_repair_fts().unwrap();
+    assert!(repaired, "drift must trigger a rebuild");
+    assert!(store.search("needle").unwrap().contains(&"p-1".to_string()));
+}
+
+#[test]
+fn verify_and_repair_fts_is_noop_on_healthy_index() {
+    let (_dir, store) = setup();
+    let doc = make_doc("h-1", "Title");
+    store.insert(&doc).unwrap();
+    store.save_content("h-1", "content").unwrap();
+
+    assert!(
+        !store.verify_and_repair_fts().unwrap(),
+        "a consistent index must not be rebuilt"
+    );
+}
+
+#[test]
+fn reconcile_resolves_two_rows_sharing_one_backing_file() {
+    // The exact corruption the fix exists for: two legacy rows that minted
+    // the same mirror filename and overwrote one physical file. Both must
+    // end at distinct UUID-derived names with no panic and a successful
+    // UNIQUE index build.
+    let (dir, store) = setup();
+    let buffers = dir.path().join("buffers");
+    let a = make_doc_with_filename("collide-a", "notes.md", "notes.md");
+    let b = make_doc_with_filename("collide-b", "notes.md", "notes.md");
+    store.insert(&a).unwrap();
+    store.insert(&b).unwrap();
+    std::fs::write(buffers.join("notes.md"), "shared").unwrap();
+
+    let count = store.reconcile_buffer_filenames().unwrap();
+    assert_eq!(count, 2);
+
+    assert_eq!(store.get("collide-a").unwrap().filename, "collide-a.txt");
+    assert_eq!(store.get("collide-b").unwrap().filename, "collide-b.txt");
+    // The surviving file went to whichever row reconciled first; the other
+    // row is normalized but backing-file-less. Neither name collides now.
+    let c = make_doc_with_filename("collide-c", "x", "collide-a.txt");
+    assert!(
+        store.insert(&c).is_err(),
+        "UNIQUE(filename) must hold after a collision reconcile"
+    );
+}
+
+#[test]
+fn insert_seeds_fts_so_a_fresh_buffer_is_not_seen_as_drift() {
+    // Audit blocker #53.5 hardening: an indexed-eligible buffer is in the
+    // FTS index from insert, so the boot parity check never rebuilds for a
+    // freshly inserted (never-content-saved) buffer.
+    let (_dir, store) = setup();
+    store.insert(&make_doc("seed-1", "Title")).unwrap();
+    assert!(
+        !store.verify_and_repair_fts().unwrap(),
+        "a freshly inserted buffer must already be indexed"
+    );
+}

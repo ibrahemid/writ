@@ -8,6 +8,11 @@ const MIGRATIONS: &[(i32, &str)] = &[
     (20, include_str!("../../migrations/020_buffer_open_mode.sql")),
 ];
 
+/// Highest migration version embedded in this binary.
+fn binary_schema_version() -> i32 {
+    MIGRATIONS.iter().map(|(v, _)| *v).max().unwrap_or(0)
+}
+
 /// Applies every pending schema migration to `conn`.
 ///
 /// Migrations are embedded at compile time and tracked in a
@@ -15,6 +20,12 @@ const MIGRATIONS: &[(i32, &str)] = &[
 /// strictly greater than the highest previously applied version. The
 /// function is idempotent: calling it on an up-to-date database is a
 /// no-op.
+///
+/// Before applying anything, the runner enforces a downgrade guard: if
+/// the database records a `schema_version` strictly greater than the
+/// highest version this binary embeds, it was written by a newer build
+/// and is refused with [`StorageError::SchemaTooNew`] rather than read
+/// through a stale column layout (audit blocker #53.8).
 pub fn run_migrations(conn: &Connection) -> StorageResult<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_version (
@@ -30,6 +41,14 @@ pub fn run_migrations(conn: &Connection) -> StorageResult<()> {
             |row| row.get(0),
         )
         .unwrap_or(0);
+
+    let binary_version = binary_schema_version();
+    if current_version > binary_version {
+        return Err(StorageError::SchemaTooNew {
+            db_version: current_version,
+            binary_version,
+        });
+    }
 
     for (version, sql) in MIGRATIONS {
         if *version > current_version {

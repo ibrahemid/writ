@@ -1,6 +1,7 @@
 use tempfile::TempDir;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
+use writ_storage::errors::StorageError;
 
 fn setup_temp_db() -> (TempDir, rusqlite::Connection) {
     let dir = TempDir::new().expect("failed to create temp dir");
@@ -73,4 +74,42 @@ fn schema_version_is_tracked() {
         .expect("failed to query schema_version");
 
     assert!(max_version >= 1);
+}
+
+#[test]
+fn refuses_to_open_database_newer_than_binary() {
+    // Blocker #53.8: an older binary opening a DB written by a newer
+    // binary must refuse rather than run on a schema it does not
+    // understand and silently corrupt data through positional column
+    // access. We simulate the future DB by stamping a schema_version row
+    // far ahead of any embedded migration.
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("baseline migrations failed");
+    conn.execute(
+        "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+        [9999],
+    )
+    .expect("failed to stamp future schema version");
+
+    let result = run_migrations(&conn);
+
+    match result {
+        Err(StorageError::SchemaTooNew {
+            db_version,
+            binary_version,
+        }) => {
+            assert_eq!(db_version, 9999);
+            assert!(binary_version < db_version);
+        }
+        other => panic!("expected SchemaTooNew, got {:?}", other),
+    }
+}
+
+#[test]
+fn opens_database_at_exactly_the_binary_schema_version() {
+    // The guard refuses only when the DB is strictly ahead; a DB at the
+    // binary's own max version must open cleanly and idempotently.
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("first run failed");
+    run_migrations(&conn).expect("equal-version reopen must succeed");
 }
