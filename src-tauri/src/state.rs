@@ -79,6 +79,15 @@ impl AppState {
 
         let store = BufferStore::new(conn, buffers_dir.clone());
 
+        // Normalize legacy mirror filenames to `{id}.txt` and install the
+        // UNIQUE(filename) index before any other store operation reads or
+        // writes a backing file (audit blocker #53.7).
+        match store.reconcile_buffer_filenames() {
+            Ok(0) => {}
+            Ok(count) => info!(count, "reconciled legacy buffer filenames at startup"),
+            Err(e) => warn!(error = %e, "failed to reconcile buffer filenames"),
+        }
+
         // Recovery must run before reclaim_empty_scratch: a buffer that
         // crashed before its autosave flushed is empty on disk but has
         // content in the snapshot; reclaiming first would delete it.
@@ -101,6 +110,15 @@ impl AppState {
             Ok(0) => {}
             Ok(count) => info!(count, "reclaimed empty scratch buffers at startup"),
             Err(e) => warn!(error = %e, "failed to reclaim empty scratch buffers"),
+        }
+
+        // Heal any FTS drift left by a crash mid-save or a damaged index
+        // (audit blocker #53.5). Runs after reclaim so deleted scratch rows
+        // never count as drift.
+        match store.verify_and_repair_fts() {
+            Ok(false) => {}
+            Ok(true) => info!("rebuilt drifted FTS index at startup"),
+            Err(e) => warn!(error = %e, "failed to verify FTS index"),
         }
         let watcher_ignore = crate::watcher::handler::create_ignore_set();
 

@@ -38,9 +38,10 @@ vi.mock("../../services/tauri", () => ({
   restoreBuffer: vi.fn().mockResolvedValue(undefined),
   clearHistory: vi.fn().mockResolvedValue(undefined),
   renameBuffer: vi.fn().mockResolvedValue(undefined),
-  openFile: vi.fn().mockImplementation((path: string) =>
-    Promise.resolve(mockBuffer({ source_path: path, filename: path.split("/").pop() ?? "untitled" })),
-  ),
+  openFile: vi.fn().mockImplementation((path: string) => {
+    const doc = mockBuffer({ source_path: path, filename: path.split("/").pop() ?? "untitled" });
+    return Promise.resolve({ doc, mode: { kind: "Normal" }, size_bytes: doc.size_bytes });
+  }),
   showOpenFileDialog: vi.fn().mockResolvedValue(null),
   saveBufferContent: vi.fn().mockImplementation(async (id: string, content: string) => {
     callLog.push(`saveBufferContent:${id}:${content}`);

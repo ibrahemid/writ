@@ -23,9 +23,16 @@ vi.mock("../../components/Kbd/Kbd", () => ({
   default: () => null,
 }));
 
-// The preview controls reach into per-window state via useWindow(); this
-// test renders StatusBar without a WindowProvider and is scoped to the
-// save-status live region, so stub them out.
+// StatusBar and its preview controls reach into per-window state via
+// useWindow(); this test renders StatusBar without a WindowProvider and is
+// scoped to the save-status live region, so stub the window context and the
+// window-bound widgets out.
+vi.mock("../../components/WindowProvider/WindowProvider", () => ({
+  useWindow: () => ({ editor: { largeFileMode: () => null } }),
+}));
+vi.mock("../../components/Editor/TokenEstimate", () => ({
+  default: () => null,
+}));
 vi.mock("../../components/Preview/PreviewLayoutToggle", () => ({
   default: () => null,
 }));

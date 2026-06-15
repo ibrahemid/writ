@@ -36,6 +36,10 @@ export function debouncedSave(bufferId: string, content: string, delayMs: number
   timers.set(bufferId, timer);
 }
 
+export function hasPendingAutosave(bufferId: string): boolean {
+  return pendingContent.has(bufferId) || timers.has(bufferId);
+}
+
 export function cancelAutosave(bufferId: string) {
   const existing = timers.get(bufferId);
   if (existing) {
