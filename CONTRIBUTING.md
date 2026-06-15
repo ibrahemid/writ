@@ -38,9 +38,9 @@ Run all three before submitting a pull request. CI runs the same checks.
 writ/
 ├── crates/
 │   ├── writ-core/       # Pure Rust business logic — no I/O, no Tauri
-│   ├── writ-storage/    # SQLite persistence, FTS5, migrations, file watching
+│   ├── writ-storage/    # SQLite persistence, FTS5, migrations
 │   └── writ-plugin/     # Plugin API boundary types and trait definitions
-├── src-tauri/           # Tauri adapter — IPC commands, app lifecycle, tray
+├── src-tauri/           # Tauri adapter — IPC commands, app lifecycle, file watcher
 └── src/                 # SolidJS frontend — components, stores, services
 ```
 

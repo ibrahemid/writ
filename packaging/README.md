@@ -95,8 +95,7 @@ Local dry run example:
 
 ```sh
 VERSION=0.1.0 \
-SHA_ARM64=0000000000000000000000000000000000000000000000000000000000000000 \
-SHA_INTEL=0000000000000000000000000000000000000000000000000000000000000000 \
+SHA_UNIVERSAL=0000000000000000000000000000000000000000000000000000000000000000 \
 python3 scripts/packaging_bump_homebrew.py
 ```
 
@@ -106,7 +105,7 @@ Each manifest ships with placeholders rather than real SHAs so the files are rea
 
 | File | Placeholder | Replaced by |
 |---|---|---|
-| `packaging/homebrew/Casks/writ.rb` | `__SHA256_ARM64__`, `__SHA256_INTEL__` | `packages.yml` |
+| `packaging/homebrew/Casks/writ.rb` | `__SHA256_UNIVERSAL__` | `packages.yml` |
 | `packaging/winget/.../installer.yaml` | `__SHA256_MSI__` | `packages.yml` |
 | `packaging/aur/writ-bin/PKGBUILD` | `__SHA256_APPIMAGE__` | `packages.yml` |
 

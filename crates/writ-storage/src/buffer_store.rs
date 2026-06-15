@@ -110,6 +110,42 @@ impl BufferStore {
         queries::delete_buffer(&self.conn, id)
     }
 
+    /// Deletes every buffer listed in `ids` — rows, FTS entries, and backing
+    /// content files — as a single all-or-nothing operation.
+    ///
+    /// Filenames are resolved before the transaction opens, so an unknown id
+    /// aborts the whole batch before any row is touched. A mid-batch SQL
+    /// failure rolls back every prior delete; the caller never observes a
+    /// partially cleared set. Content files are removed only after the commit
+    /// succeeds — filesystem deletes cannot enlist in the transaction — so a
+    /// file-removal failure can orphan a file but never leaves a half-deleted
+    /// database.
+    pub fn delete_many(&self, ids: &[String]) -> StorageResult<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let mut files = Vec::with_capacity(ids.len());
+        for id in ids {
+            let doc = queries::get_buffer(&self.conn, id)?;
+            files.push(self.buffers_dir.join(&doc.filename));
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let fts = crate::fts::FtsIndex::new(&tx);
+            for id in ids {
+                fts.delete(id)?;
+                queries::delete_buffer(&tx, id)?;
+            }
+        }
+        tx.commit()?;
+        for file_path in &files {
+            if file_path.exists() {
+                let _ = std::fs::remove_file(file_path);
+            }
+        }
+        Ok(())
+    }
+
     /// Returns every buffer in the given status, ordered by tab position.
     pub fn list_by_status(&self, status: BufferStatus) -> StorageResult<Vec<BufferDocument>> {
         let status_str = match status {

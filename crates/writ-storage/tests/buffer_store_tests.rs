@@ -270,6 +270,180 @@ fn close_many_is_noop_on_empty_input() {
 }
 
 #[test]
+fn delete_many_removes_rows_files_and_fts() {
+    let (dir, store) = setup();
+    for id in ["dm-a", "dm-b", "dm-c"] {
+        let doc = make_doc(id, id);
+        store.insert(&doc).unwrap();
+        store.save_content(id, "shared needle text").unwrap();
+    }
+
+    store
+        .delete_many(&["dm-a".to_string(), "dm-c".to_string()])
+        .expect("delete_many of valid ids must succeed");
+
+    assert!(store.get("dm-a").is_err(), "dm-a row must be gone");
+    assert!(store.get("dm-c").is_err(), "dm-c row must be gone");
+    assert!(store.get("dm-b").is_ok(), "dm-b must be untouched");
+    let buffers = dir.path().join("buffers");
+    assert!(
+        !buffers.join("dm-a.txt").exists() && !buffers.join("dm-c.txt").exists(),
+        "backing files of deleted buffers must be removed after commit"
+    );
+    assert!(
+        buffers.join("dm-b.txt").exists(),
+        "the surviving buffer's backing file must remain"
+    );
+    assert_eq!(
+        store.search("needle").unwrap(),
+        vec!["dm-b"],
+        "FTS rows of deleted buffers must be removed"
+    );
+}
+
+#[test]
+fn delete_many_rolls_back_every_row_when_a_delete_fails_mid_transaction() {
+    let (dir, store) = setup();
+    for id in ["dm-tx-1", "dm-tx-2"] {
+        let doc = make_doc(id, id);
+        store.insert(&doc).unwrap();
+        store.save_content(id, "in transaction").unwrap();
+    }
+
+    // Drop the FTS table so the first in-transaction `fts.delete` fails. The
+    // failure must roll the whole transaction back, leaving both rows intact
+    // rather than deleting the first before the second errors.
+    second_conn(&dir)
+        .execute("DROP TABLE buffer_fts", [])
+        .unwrap();
+
+    let result = store.delete_many(&["dm-tx-1".to_string(), "dm-tx-2".to_string()]);
+
+    assert!(result.is_err(), "a mid-transaction failure must propagate");
+    assert!(
+        store.get("dm-tx-1").is_ok() && store.get("dm-tx-2").is_ok(),
+        "a mid-transaction failure must roll back every row in the batch"
+    );
+}
+
+#[test]
+fn delete_many_is_all_or_nothing_when_an_id_is_unknown() {
+    let (_dir, store) = setup();
+    for id in ["dm-keep-1", "dm-keep-2"] {
+        let doc = make_doc(id, id);
+        store.insert(&doc).unwrap();
+        store.save_content(id, "persist me").unwrap();
+    }
+
+    let result = store.delete_many(&[
+        "dm-keep-1".to_string(),
+        "dm-ghost".to_string(),
+        "dm-keep-2".to_string(),
+    ]);
+
+    assert!(result.is_err(), "an unknown id must abort the batch");
+    assert!(
+        store.get("dm-keep-1").is_ok(),
+        "no buffer may be deleted when the batch aborts"
+    );
+    assert!(
+        store.get("dm-keep-2").is_ok(),
+        "no buffer may be deleted when the batch aborts"
+    );
+    assert_eq!(
+        store.search("persist").unwrap().len(),
+        2,
+        "FTS must be untouched when the batch aborts"
+    );
+}
+
+#[test]
+fn delete_many_is_noop_on_empty_input() {
+    let (_dir, store) = setup();
+    let doc = make_doc("dm-solo", "solo");
+    store.insert(&doc).unwrap();
+
+    store.delete_many(&[]).expect("empty delete_many is a no-op");
+
+    assert!(store.get("dm-solo").is_ok());
+}
+
+#[test]
+fn rebuild_fts_indexes_both_active_and_history_buffers() {
+    let (_dir, store) = setup();
+    let active = make_doc("rf-active", "rf-active");
+    let history = make_doc("rf-history", "rf-history");
+    store.insert(&active).unwrap();
+    store.insert(&history).unwrap();
+    store.save_content("rf-active", "alpha sentinel").unwrap();
+    store.save_content("rf-history", "beta sentinel").unwrap();
+    store.close("rf-history").unwrap();
+
+    store.rebuild_fts().expect("rebuild_fts must succeed");
+
+    assert_eq!(store.search("alpha").unwrap(), vec!["rf-active"]);
+    assert_eq!(
+        store.search("beta").unwrap(),
+        vec!["rf-history"],
+        "history buffers must be reindexed, not just active ones"
+    );
+}
+
+#[test]
+fn rebuild_fts_tolerates_a_missing_backing_file() {
+    let (_dir, store) = setup();
+    let present = make_doc("rf-present", "rf-present");
+    let orphan = make_doc("rf-orphan", "rf-orphan");
+    store.insert(&present).unwrap();
+    store.insert(&orphan).unwrap();
+    store.save_content("rf-present", "findable body").unwrap();
+    store.save_content("rf-orphan", "doomed body").unwrap();
+
+    // Simulate a row whose content file vanished out from under the store.
+    std::fs::remove_file(_dir.path().join("buffers").join("rf-orphan.txt")).unwrap();
+
+    store
+        .rebuild_fts()
+        .expect("a missing backing file must not abort the rebuild");
+
+    assert_eq!(store.search("findable").unwrap(), vec!["rf-present"]);
+    assert!(
+        store.search("doomed").unwrap().is_empty(),
+        "the orphan's old body must not survive once its file is gone"
+    );
+}
+
+#[test]
+fn rebuild_fts_drops_stale_rows_for_deleted_buffers() {
+    let (dir, store) = setup();
+    let doc = make_doc("rf-stale", "rf-stale");
+    store.insert(&doc).unwrap();
+    store.save_content("rf-stale", "ghost token").unwrap();
+
+    // Delete the buffer row directly, leaving its FTS row orphaned. The
+    // orphan is invisible to `search` (which inner-joins on `buffers.rowid`),
+    // so assert against the raw FTS row count instead.
+    let probe = second_conn(&dir);
+    probe
+        .execute("DELETE FROM buffers WHERE id = 'rf-stale'", [])
+        .unwrap();
+    let stale: i64 = probe
+        .query_row("SELECT count(*) FROM buffer_fts", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(stale, 1, "precondition: an orphan FTS row exists");
+
+    store.rebuild_fts().expect("rebuild_fts must succeed");
+
+    let after: i64 = probe
+        .query_row("SELECT count(*) FROM buffer_fts", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(
+        after, 0,
+        "rebuild_fts must purge FTS rows whose buffer no longer exists"
+    );
+}
+
+#[test]
 fn rename_preserves_content_searchability() {
     let (_dir, store) = setup();
     let doc = make_doc("ren-fts-c", "alpha");

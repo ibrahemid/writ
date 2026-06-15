@@ -59,6 +59,30 @@ fn delete_buffer_removes_it() {
 }
 
 #[test]
+fn delete_buffer_unknown_id_returns_buffer_not_found() {
+    let mut manager = BufferManager::new();
+
+    let err = manager.delete_buffer("no-such-id").unwrap_err();
+
+    assert!(
+        matches!(err, WritError::BufferNotFound { ref id } if id == "no-such-id"),
+        "expected BufferNotFound, got {err:?}"
+    );
+}
+
+#[test]
+fn restore_buffer_unknown_id_returns_buffer_not_found() {
+    let mut manager = BufferManager::new();
+
+    let err = manager.restore_buffer("no-such-id").unwrap_err();
+
+    assert!(
+        matches!(err, WritError::BufferNotFound { ref id } if id == "no-such-id"),
+        "expected BufferNotFound, got {err:?}"
+    );
+}
+
+#[test]
 fn list_active_buffers_excludes_history() {
     let mut manager = BufferManager::new();
     let a = manager.create_buffer(Some("a".to_string())).unwrap();
