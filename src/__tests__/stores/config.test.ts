@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("../../services/tauri", () => ({
   getConfig: vi.fn(),
@@ -112,6 +112,17 @@ describe("configStore", () => {
   });
 
   describe("command usage tracking", () => {
+    // recordCommandUse/pruneCommandUsage schedule a debounced flush on the
+    // shared singleton; fake timers here keep those timers from leaking real
+    // pending callbacks into the other test files.
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    });
+
     it("increments count and stamps last_used_ms on recordCommandUse", async () => {
       await configStore.save(MOCK_CONFIG);
 
@@ -151,6 +162,20 @@ describe("configStore", () => {
       expect(configStore.config().commands.usage).toEqual({
         "live.cmd": { count: 1, last_used_ms: 1 },
       });
+    });
+
+    it("debounces the usage flush so rapid records coalesce into one updateConfig", async () => {
+      await configStore.save(MOCK_CONFIG);
+      mockedUpdateConfig.mockClear();
+
+      configStore.recordCommandUse("palette.open", 1_715_000_000_000);
+      configStore.recordCommandUse("palette.open", 1_715_000_000_500);
+
+      await vi.advanceTimersByTimeAsync(749);
+      expect(mockedUpdateConfig).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mockedUpdateConfig).toHaveBeenCalledTimes(1);
     });
   });
 });

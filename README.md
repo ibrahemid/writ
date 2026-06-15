@@ -12,17 +12,17 @@ A lightweight, always-ready text editor for developers.
 
 ## Download
 
-[**Download for macOS**](https://github.com/ibrahemid/writ/releases/latest) · [**Download for Windows**](https://github.com/ibrahemid/writ/releases/latest) · [**Download for Linux**](https://github.com/ibrahemid/writ/releases/latest)
+Writ is pre-release; no installer has been published yet, so the release links 404 until the first tagged build ships. Until then, [build from source](#build-from-source).
 
-All builds come from the same source tree. Pick the installer for your OS on the [latest release page](https://github.com/ibrahemid/writ/releases/latest).
+Once `v0.1.0` is published, per-OS installers will live on the [latest release page](https://github.com/ibrahemid/writ/releases/latest), all from the same source tree.
 
 ## Features
 
 - Global hotkey summons the window from anywhere, `Cmd+Shift+Space` on macOS, `Ctrl+Shift+Space` on Linux and Windows
 - Autosave on every keystroke; buffers persist across restarts
 - Full-text search across every buffer, backed by SQLite FTS5
-- CodeMirror 6 editor with language auto-detection for 50+ languages
-- Browser-style tabs with reorder and reopen-closed support
+- CodeMirror 6 editor with syntax highlighting and auto-detection for 9 languages (JavaScript, TypeScript, Python, Rust, JSON, HTML, CSS, Markdown, PHP)
+- Browser-style tabs with reopen-closed support
 - Local-only storage, no network, no telemetry, no account
 
 ## Why Writ?
@@ -45,7 +45,7 @@ Visit the [landing page](https://ibrahemid.github.io/writ) for the full demo and
 | Command palette | `Shift+Shift` |
 | Toggle sidebar | `Cmd+S` |
 | Rename tab | Double-click tab |
-| Search buffers | `Cmd+F` (sidebar) |
+| Find in document | `Cmd+F` |
 
 Buffers are stored in a local SQLite database under your OS's standard application data directory.
 

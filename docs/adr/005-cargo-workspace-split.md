@@ -26,8 +26,8 @@ Structure the project as a Cargo workspace with four crates, each with explicit 
 limited dependencies:
 
 ```
-writ-core       — no framework deps; serde, thiserror only
-writ-storage    — depends on writ-core; adds rusqlite, toml, tokio
+writ-core       — no framework deps; serde, serde_json, uuid, chrono, tracing, thiserror, sha2
+writ-storage    — depends on writ-core; adds rusqlite, toml
 writ-plugin     — depends on writ-core; defines extension boundary
 src-tauri       — depends on all three; the only crate that lists tauri as a dependency
 ```
@@ -56,7 +56,7 @@ that `writ-core` does not re-export Tauri types.
   `writ-core`. Changes to `writ-core` do not trigger re-linking of Tauri.
 
 **Negative / risks:**
-- **More `Cargo.toml` files to maintain**: Shared dependencies (serde version, tokio version)
+- **More `Cargo.toml` files to maintain**: Shared dependencies (serde version, chrono version)
   must be kept in sync across crates. Mitigated by using `[workspace.dependencies]` to declare
   versions once and inherit them in member crates with `serde = { workspace = true }`.
 - **Cross-crate refactoring is noisier**: Moving a type from `writ-storage` to `writ-core`

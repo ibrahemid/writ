@@ -22,10 +22,8 @@ pub fn clear_history(state: State<'_, AppState>) -> Result<(), String> {
     let history = store
         .list_by_status(BufferStatus::History)
         .map_err(|e| e.to_string())?;
-    for buf in &history {
-        store.delete(&buf.id).map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    let ids: Vec<String> = history.into_iter().map(|buf| buf.id).collect();
+    store.delete_many(&ids).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
