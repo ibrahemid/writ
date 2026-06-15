@@ -195,6 +195,19 @@ export async function hideWindow(): Promise<void> {
   }
 }
 
+// The window is created hidden to avoid the cold-start flash; the frontend
+// reveals it after its first paint (App onMount). Geometry is already restored
+// in Rust setup, so this only shows and focuses.
+export async function showWindow(): Promise<void> {
+  try {
+    const win = getCurrentWindow();
+    await win.show();
+    await win.setFocus();
+  } catch (err) {
+    console.warn("showWindow failed:", err);
+  }
+}
+
 export async function minimizeWindow(): Promise<void> {
   try {
     const win = getCurrentWindow();

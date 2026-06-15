@@ -24,6 +24,10 @@ export interface InboxConfig {
   focus: boolean;
 }
 
+export interface UpdaterConfig {
+  auto_check: boolean;
+}
+
 export interface WritConfig {
   hotkey: { toggle: string };
   sidebar: {
@@ -42,4 +46,5 @@ export interface WritConfig {
   preview: PreviewConfig;
   workspace: { root: string | null };
   inbox: InboxConfig;
+  updater: UpdaterConfig;
 }

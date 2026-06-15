@@ -133,6 +133,65 @@ fn save_content_updates_fts_index() {
 }
 
 #[test]
+fn save_content_without_index_persists_bytes_but_skips_fts() {
+    // ADR-020 deferred path: the write is durable immediately, but the FTS
+    // index is not touched, so the term is not yet searchable.
+    let (_dir, store) = setup();
+    store.insert(&make_doc("deferred-1", "deferred")).unwrap();
+    store
+        .save_content_without_index("deferred-1", "uniqueterm pending reindex")
+        .expect("save_content_without_index failed");
+
+    assert_eq!(
+        store.read_content("deferred-1").unwrap(),
+        "uniqueterm pending reindex",
+        "bytes must be on disk immediately",
+    );
+    assert!(
+        store.search("uniqueterm").unwrap().is_empty(),
+        "deferred write must not be searchable before reindex",
+    );
+}
+
+#[test]
+fn reindex_buffer_makes_a_deferred_write_searchable() {
+    let (_dir, store) = setup();
+    store.insert(&make_doc("deferred-2", "deferred")).unwrap();
+    store
+        .save_content_without_index("deferred-2", "alpha beta gamma")
+        .unwrap();
+    assert!(store.search("beta").unwrap().is_empty());
+
+    store.reindex_buffer("deferred-2").expect("reindex failed");
+    assert_eq!(store.search("beta").unwrap(), vec!["deferred-2".to_string()]);
+}
+
+#[test]
+fn reindex_buffer_reflects_latest_disk_content_after_coalesced_writes() {
+    // Two deferred writes then a single reindex (the coalescing case): the
+    // index must reflect only the latest bytes, never a stale intermediate.
+    let (_dir, store) = setup();
+    store.insert(&make_doc("deferred-3", "deferred")).unwrap();
+    store
+        .save_content_without_index("deferred-3", "staleword first version")
+        .unwrap();
+    store
+        .save_content_without_index("deferred-3", "freshword second version")
+        .unwrap();
+
+    store.reindex_buffer("deferred-3").expect("reindex failed");
+
+    assert!(
+        store.search("staleword").unwrap().is_empty(),
+        "reindex must not surface a superseded intermediate",
+    );
+    assert_eq!(
+        store.search("freshword").unwrap(),
+        vec!["deferred-3".to_string()],
+    );
+}
+
+#[test]
 fn delete_removes_buffer_from_fts_index() {
     let (_dir, store) = setup();
     let doc = make_doc("orphan-1", "untitled");

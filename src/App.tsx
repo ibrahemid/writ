@@ -98,7 +98,6 @@ function AppShell() {
     themeStore.applyToRoot();
     await configStore.load();
     themeStore.loadConfig(configStore.config().theme);
-    await osWindowStore.restoreSize();
     unlisteners.push(await osWindowStore.installFocusSync());
     unlisteners.push(await osWindowStore.installGeometryPersistence());
     unlisteners.push(await installCloseFlush([() => osWindowStore.flushGeometry()]));
@@ -146,6 +145,13 @@ function AppShell() {
         win.tabs.setActiveTabId(active[active.length - 1].id);
       }
     }
+
+    // The window was created hidden to avoid a cold-start flash; reveal it now
+    // that content and the active tab are in place. Showing directly (not via
+    // requestAnimationFrame, which a browser may throttle for a hidden
+    // document) makes the window appear promptly without waiting on the Rust
+    // fallback; the webview paints the already-built DOM as it becomes visible.
+    void osWindowStore.reveal();
 
     registerCommand({
       id: "buffer.new",

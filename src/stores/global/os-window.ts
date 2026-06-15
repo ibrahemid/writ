@@ -18,30 +18,6 @@ function createOsWindowStore() {
     return api.onWindowFocusChange(setFocused);
   }
 
-  async function restoreSize(): Promise<void> {
-    const cfg = configStore.config().window;
-    if (!cfg) return;
-
-    if (cfg.width > 0 && cfg.height > 0) {
-      const current = await api.getLogicalWindowSize();
-      if (!current || current.width !== cfg.width || current.height !== cfg.height) {
-        await api.setLogicalWindowSize(cfg.width, cfg.height);
-      }
-    }
-
-    if (typeof cfg.x === "number" && typeof cfg.y === "number") {
-      const placement = await api.computeWindowPlacement(cfg.x, cfg.y, cfg.width, cfg.height);
-      if (placement) {
-        const pos = await api.getLogicalWindowPosition();
-        if (!pos || pos.x !== placement.x || pos.y !== placement.y) {
-          await api.setLogicalWindowPosition(placement.x, placement.y);
-        }
-      } else {
-        await api.centerWindow();
-      }
-    }
-  }
-
   async function persistGeometryNow(): Promise<void> {
     const size = await api.getLogicalWindowSize();
     if (!size) return;
@@ -101,9 +77,9 @@ function createOsWindowStore() {
   return {
     focused,
     installFocusSync,
-    restoreSize,
     installGeometryPersistence,
     flushGeometry,
+    reveal: api.showWindow,
     hide: api.hideWindow,
     minimize: api.minimizeWindow,
     toggleMaximize: api.toggleMaximizeWindow,

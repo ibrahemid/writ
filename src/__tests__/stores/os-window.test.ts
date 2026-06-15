@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../../services/tauri", () => ({
+  showWindow: vi.fn().mockResolvedValue(undefined),
   hideWindow: vi.fn().mockResolvedValue(undefined),
   minimizeWindow: vi.fn().mockResolvedValue(undefined),
   toggleMaximizeWindow: vi.fn().mockResolvedValue(undefined),
@@ -38,6 +39,7 @@ beforeEach(() => {
   for (const fn of Object.values(apiMock)) {
     if (typeof fn?.mockReset === "function") fn.mockReset();
   }
+  apiMock.showWindow.mockResolvedValue(undefined);
   apiMock.hideWindow.mockResolvedValue(undefined);
   apiMock.minimizeWindow.mockResolvedValue(undefined);
   apiMock.toggleMaximizeWindow.mockResolvedValue(undefined);
@@ -104,67 +106,14 @@ describe("osWindowStore focus sync", () => {
   });
 });
 
-describe("osWindowStore restoreSize", () => {
-  it("no-ops when config has no window entry", async () => {
-    configMock.config.mockReturnValue({ window: null });
-    await osWindowStore.restoreSize();
-    expect(apiMock.getLogicalWindowSize).not.toHaveBeenCalled();
-    expect(apiMock.setLogicalWindowSize).not.toHaveBeenCalled();
-  });
-
-  it("no-ops when config dimensions are non-positive", async () => {
-    configMock.config.mockReturnValue({ window: { width: 0, height: 600 } });
-    await osWindowStore.restoreSize();
-    expect(apiMock.setLogicalWindowSize).not.toHaveBeenCalled();
-  });
-
-  it("no-ops when current size already matches config", async () => {
-    configMock.config.mockReturnValue({ window: { width: 800, height: 600 } });
-    apiMock.getLogicalWindowSize.mockResolvedValue({ width: 800, height: 600 });
-    await osWindowStore.restoreSize();
-    expect(apiMock.setLogicalWindowSize).not.toHaveBeenCalled();
-  });
-
-  it("calls setLogicalWindowSize when current differs from config", async () => {
-    configMock.config.mockReturnValue({ window: { width: 800, height: 600 } });
-    apiMock.getLogicalWindowSize.mockResolvedValue({ width: 1024, height: 768 });
-    await osWindowStore.restoreSize();
-    expect(apiMock.setLogicalWindowSize).toHaveBeenCalledWith(800, 600);
-  });
-
-  it("restores a clamped saved position via setLogicalWindowPosition", async () => {
-    configMock.config.mockReturnValue({ window: { width: 800, height: 600, x: 200, y: 150 } });
-    apiMock.getLogicalWindowSize.mockResolvedValue({ width: 800, height: 600 });
-    apiMock.computeWindowPlacement.mockResolvedValue({ x: 200, y: 150 });
-    apiMock.getLogicalWindowPosition.mockResolvedValue({ x: 0, y: 0 });
-
-    await osWindowStore.restoreSize();
-
-    expect(apiMock.computeWindowPlacement).toHaveBeenCalledWith(200, 150, 800, 600);
-    expect(apiMock.setLogicalWindowPosition).toHaveBeenCalledWith(200, 150);
-    expect(apiMock.centerWindow).not.toHaveBeenCalled();
-  });
-
-  it("centers when the saved position is off-screen (placement is null)", async () => {
-    configMock.config.mockReturnValue({ window: { width: 800, height: 600, x: 9000, y: 9000 } });
-    apiMock.getLogicalWindowSize.mockResolvedValue({ width: 800, height: 600 });
-    apiMock.computeWindowPlacement.mockResolvedValue(null);
-
-    await osWindowStore.restoreSize();
-
-    expect(apiMock.setLogicalWindowPosition).not.toHaveBeenCalled();
-    expect(apiMock.centerWindow).toHaveBeenCalledTimes(1);
-  });
-
-  it("skips reposition when the current position already matches the clamp", async () => {
-    configMock.config.mockReturnValue({ window: { width: 800, height: 600, x: 200, y: 150 } });
-    apiMock.getLogicalWindowSize.mockResolvedValue({ width: 800, height: 600 });
-    apiMock.computeWindowPlacement.mockResolvedValue({ x: 200, y: 150 });
-    apiMock.getLogicalWindowPosition.mockResolvedValue({ x: 200, y: 150 });
-
-    await osWindowStore.restoreSize();
-
-    expect(apiMock.setLogicalWindowPosition).not.toHaveBeenCalled();
+// Window-geometry restore moved to Rust (`restore_main_window_geometry` /
+// `window_state::place_window`, covered by window_state unit tests) so the
+// window is sized while still hidden and the frontend never round-trips IPC to
+// resize on the cold path. The store no longer owns restoreSize.
+describe("osWindowStore reveal", () => {
+  it("delegates to api.showWindow exactly once", async () => {
+    await osWindowStore.reveal();
+    expect(apiMock.showWindow).toHaveBeenCalledTimes(1);
   });
 });
 

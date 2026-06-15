@@ -38,6 +38,13 @@ const MIN_CONTENT_LENGTH = 30;
 const SCORE_THRESHOLD = 3;
 const WINNER_MARGIN = 2;
 
+// Content-based detection scores the whole input through a stack of regexes,
+// and `scoreJson` does a full `JSON.parse`. On a multi-megabyte buffer that is
+// tens of milliseconds per call, fired every few keystrokes. The language of a
+// file is determined by its opening structure (shebang, imports, headings,
+// the first `{`), so scoring only the head is both faster and just as accurate.
+export const MAX_DETECT_BYTES = 64 * 1024;
+
 function scoreRust(text: string): number {
   let s = 0;
   if (/\bfn\s+\w+\s*\(/.test(text)) s += 3;
@@ -135,17 +142,19 @@ function scoreShell(text: string): number {
 }
 
 export function detectFromContent(text: string): string | null {
-  if (!text || text.trim().length < MIN_CONTENT_LENGTH) return null;
+  if (!text) return null;
+  const head = text.length > MAX_DETECT_BYTES ? text.slice(0, MAX_DETECT_BYTES) : text;
+  if (head.trim().length < MIN_CONTENT_LENGTH) return null;
 
   const scores: Array<[string, number]> = [
-    ["json", scoreJson(text)],
-    ["rust", scoreRust(text)],
-    ["typescript", scoreTypescript(text)],
-    ["python", scorePython(text)],
-    ["markdown", scoreMarkdown(text)],
-    ["html", scoreHtml(text)],
-    ["shell", scoreShell(text)],
-    ["javascript", scoreJavascript(text)],
+    ["json", scoreJson(head)],
+    ["rust", scoreRust(head)],
+    ["typescript", scoreTypescript(head)],
+    ["python", scorePython(head)],
+    ["markdown", scoreMarkdown(head)],
+    ["html", scoreHtml(head)],
+    ["shell", scoreShell(head)],
+    ["javascript", scoreJavascript(head)],
   ];
 
   scores.sort((a, b) => b[1] - a[1]);

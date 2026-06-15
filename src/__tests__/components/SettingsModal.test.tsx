@@ -71,6 +71,7 @@ function baseConfig(): WritConfig {
     commands: { usage: {} },
   workspace: { root: null },
   inbox: { path: null, focus: true },
+  updater: { auto_check: true },
     preview: {
       default_layout_html: "split",
       default_layout_markdown: "split",
@@ -138,12 +139,12 @@ describe("SettingsModal", () => {
     await waitFor(() => expect(container.querySelector("[role='dialog']")).toBeNull());
   });
 
-  it("shows all 5 section nav items", async () => {
+  it("shows all 6 section nav items", async () => {
     const { container } = render(() => <SettingsModal />);
     openSettings();
     await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
     const navItems = container.querySelectorAll(".settings-nav-item");
-    expect(navItems.length).toBe(5);
+    expect(navItems.length).toBe(6);
   });
 
   it("shows Editor section by default", async () => {
