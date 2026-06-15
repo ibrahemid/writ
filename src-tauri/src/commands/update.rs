@@ -6,11 +6,42 @@
 //! phase machine and mirrored to the frontend as a `writ://update-status`
 //! event carrying the full [`UpdatePhase`].
 
-use std::time::{Duration, Instant};
+use std::path::Path;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Manager};
 use tauri_plugin_updater::UpdaterExt;
 use writ_core::update::{UpdateEvent, UpdatePhase};
+
+/// File under the Writ data dir holding the epoch-ms of the last silent
+/// update check. Kept out of `config.toml` so interval bookkeeping never
+/// rewrites the user's editable config or races the frontend's config writes.
+const LAST_CHECK_FILE: &str = ".update_check";
+
+/// Current time as epoch milliseconds, or `0` if the clock is before the Unix
+/// epoch (which makes the gate treat the check as due rather than panicking).
+pub fn now_epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Reads the last silent-check timestamp, or `None` if it has never run or
+/// the marker is missing/unparseable.
+pub fn read_last_check_ms(writ_dir: &Path) -> Option<u64> {
+    std::fs::read_to_string(writ_dir.join(LAST_CHECK_FILE))
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+}
+
+/// Records the silent-check timestamp. Best-effort: a write failure only means
+/// the next launch may check again, so it is logged, not propagated.
+pub fn write_last_check_ms(writ_dir: &Path, ms: u64) {
+    if let Err(e) = std::fs::write(writ_dir.join(LAST_CHECK_FILE), ms.to_string()) {
+        tracing::debug!(error = %e, "failed to record last update-check time");
+    }
+}
 
 use crate::events::{emit_event, WritFrontendEvent};
 use crate::poison::recover_poison;

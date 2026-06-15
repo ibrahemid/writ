@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod events;
+pub mod fts_scheduler;
 pub mod hotkey;
 pub mod logging;
 pub mod poison;
@@ -121,6 +122,52 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     Ok(())
+}
+
+/// Applies the saved window geometry to the (hidden) main window before it is
+/// first shown, so the frontend never has to await IPC to resize on the cold
+/// path. Sizing always applies; positioning runs the saved rect through
+/// [`window_state::place_window`] against the live monitor layout so a window
+/// saved on a now-disconnected display re-centers instead of opening
+/// off-screen.
+fn restore_main_window_geometry(
+    window: &tauri::WebviewWindow,
+    cfg: &writ_core::config::WindowConfig,
+) {
+    if cfg.width > 0 && cfg.height > 0 {
+        let _ = window.set_size(tauri::LogicalSize::new(
+            f64::from(cfg.width),
+            f64::from(cfg.height),
+        ));
+    }
+
+    if let (Some(x), Some(y)) = (cfg.x, cfg.y) {
+        let monitors: Vec<window_state::Rect> = window
+            .available_monitors()
+            .unwrap_or_default()
+            .iter()
+            .map(|m| {
+                let p = m.position();
+                let s = m.size();
+                window_state::logical_rect(p.x, p.y, s.width, s.height, m.scale_factor())
+            })
+            .collect();
+        let saved = window_state::Rect {
+            x,
+            y,
+            width: cfg.width,
+            height: cfg.height,
+        };
+        match window_state::place_window(saved, &monitors) {
+            window_state::WindowPlacement::At { x, y } => {
+                let _ = window
+                    .set_position(tauri::LogicalPosition::new(f64::from(x), f64::from(y)));
+            }
+            window_state::WindowPlacement::Center => {
+                let _ = window.center();
+            }
+        }
+    }
 }
 
 pub fn run() {
@@ -254,6 +301,39 @@ pub fn run() {
                 });
                 info!("event bus bridge attached");
             }
+
+            // The window is created hidden (tauri.conf `visible: false`) to kill
+            // the cold-start flash. Restore its saved geometry from the cached
+            // config here, while still hidden, so the frontend never has to
+            // round-trip IPC just to resize; the frontend calls show() after its
+            // first paint, and the fallback below guarantees it appears even if
+            // the frontend never signals.
+            {
+                let cfg_window = {
+                    let state = app.state::<AppState>();
+                    let cfg = recover_poison(state.config.lock(), "lib::setup:window_geometry");
+                    cfg.window.clone()
+                };
+                if let Some(window) = app.get_webview_window("main") {
+                    restore_main_window_geometry(&window, &cfg_window);
+                }
+            }
+
+            let fallback_handle = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                tauri::async_runtime::spawn_blocking(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                })
+                .await
+                .ok();
+                if let Some(window) = fallback_handle.get_webview_window("main") {
+                    if !window.is_visible().unwrap_or(true) {
+                        tracing::warn!("frontend did not signal first paint; showing window via fallback");
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            });
 
             #[cfg(not(any(target_os = "macos", target_os = "ios")))]
             {
@@ -406,13 +486,36 @@ pub fn run() {
                 }
             });
 
+            let updater_auto_check = {
+                let state = app.state::<AppState>();
+                let cfg = recover_poison(state.config.lock(), "lib::setup:updater_auto_check");
+                cfg.updater.auto_check
+            };
+            let update_writ_dir = app.state::<AppState>().writ_dir.clone();
             tauri::async_runtime::spawn(async move {
                 tauri::async_runtime::spawn_blocking(|| {
                     std::thread::sleep(std::time::Duration::from_secs(5));
                 })
                 .await
                 .ok();
-                commands::update::run_update_check(handle, false).await;
+                // Gate the silent check: only when the user has auto-check on
+                // and the last silent check is older than the interval, so a
+                // quick launch-and-quit no longer phones the release endpoint.
+                let now_ms = commands::update::now_epoch_ms();
+                let last_ms = commands::update::read_last_check_ms(&update_writ_dir);
+                if writ_core::update::auto_check::should_auto_check(
+                    updater_auto_check,
+                    last_ms,
+                    now_ms,
+                    writ_core::update::auto_check::MIN_CHECK_INTERVAL_MS,
+                ) {
+                    commands::update::write_last_check_ms(&update_writ_dir, now_ms);
+                    commands::update::run_update_check(handle, false).await;
+                } else {
+                    tracing::debug!(
+                        "silent update check skipped (auto_check off or within interval)"
+                    );
+                }
             });
 
             info!("writ ready");
@@ -423,6 +526,22 @@ pub fn run() {
 
     app.run(|app_handle, event| {
         if let tauri::RunEvent::ExitRequested { .. } = &event {
+            // Flush deferred FTS reindexes before exit: a reindex still inside
+            // its debounce window would otherwise be lost, leaving search stale
+            // (the startup consistency check only removes orphan rows, it never
+            // adds missing content). ADR-020.
+            let state = app_handle.state::<AppState>();
+            let pending = state.fts_scheduler.drain_pending();
+            if !pending.is_empty() {
+                if let Ok(store) = state.store.lock() {
+                    for id in pending {
+                        if let Err(e) = store.reindex_buffer(&id) {
+                            tracing::debug!(buffer_id = %id, error = %e, "shutdown fts reindex failed");
+                        }
+                    }
+                }
+            }
+
             let snapshot_result = {
                 let state = app_handle.state::<AppState>();
                 state.store.lock().ok().map(|store| {

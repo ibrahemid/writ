@@ -6,6 +6,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
     (1, include_str!("../../migrations/001_initial.sql")),
     (10, include_str!("../../migrations/010_layout_state.sql")),
     (20, include_str!("../../migrations/020_buffer_open_mode.sql")),
+    (30, include_str!("../../migrations/030_fts_prefix.sql")),
 ];
 
 /// Highest migration version embedded in this binary.
@@ -52,14 +53,28 @@ pub fn run_migrations(conn: &Connection) -> StorageResult<()> {
 
     for (version, sql) in MIGRATIONS {
         if *version > current_version {
-            conn.execute_batch(sql)
+            // Apply the migration body and stamp its version in one transaction
+            // so a mid-batch failure rolls back completely. Without this a
+            // multi-statement migration (e.g. the FTS rebuild in v30: create,
+            // copy, drop, rename) could partially apply, leave the version
+            // unrecorded, and brick the next launch when it re-creates an
+            // already-existing object. SQLite FTS5 DDL is transaction-safe.
+            let tx = conn
+                .unchecked_transaction()
+                .map_err(|e| StorageError::Migration {
+                    message: format!("migration v{} begin failed: {}", version, e),
+                })?;
+            tx.execute_batch(sql)
                 .map_err(|e| StorageError::Migration {
                     message: format!("migration v{} failed: {}", version, e),
                 })?;
-            conn.execute(
+            tx.execute(
                 "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
                 [version],
             )?;
+            tx.commit().map_err(|e| StorageError::Migration {
+                message: format!("migration v{} commit failed: {}", version, e),
+            })?;
             info!(version = version, "applied migration");
         }
     }

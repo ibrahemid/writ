@@ -14,6 +14,9 @@
 use serde::Serialize;
 use thiserror::Error;
 
+/// Silent-startup-check gating policy (interval + opt-out).
+pub mod auto_check;
+
 /// A phase in the update lifecycle.
 ///
 /// Serializes with an internal `status` tag, e.g.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectLanguage, detectFromContent } from "../../services/language-detect";
+import { detectLanguage, detectFromContent, MAX_DETECT_BYTES } from "../../services/language-detect";
 
 describe("detectLanguage", () => {
   describe("extension-based detection", () => {
@@ -155,5 +155,34 @@ describe("detectFromContent", () => {
   it("detects html from doctype", () => {
     const text = `<!DOCTYPE html>\n<html>\n<head><title>x</title></head>\n<body><div class="x">hi</div></body>\n</html>`;
     expect(detectFromContent(text)).toBe("html");
+  });
+
+  describe("input cap (perf)", () => {
+    it("detects from anchors inside the first 64 KiB even when the doc is huge", () => {
+      const header = `use std::collections::HashMap;\n\nstruct Buffer { id: String }\n\nfn main() {\n    let buf = Buffer { id: String::new() };\n}`;
+      const huge = header + "\n" + "x".repeat(MAX_DETECT_BYTES * 2);
+      expect(detectFromContent(huge)).toBe("rust");
+    });
+
+    it("does not parse a multi-megabyte JSON body whole (truncated tail fails the structural check)", () => {
+      // A JSON object whose closing brace sits past the 64 KiB cap: the cheap
+      // first/last-char structural check sees a non-`}` tail and bails before
+      // any JSON.parse, so a giant doc is never fully parsed for detection.
+      const big = "{\n" + '  "k": "' + "v".repeat(MAX_DETECT_BYTES * 2) + '"\n}';
+      const start = performance.now();
+      const result = detectFromContent(big);
+      const elapsedMs = performance.now() - start;
+      expect(result).not.toBe("json");
+      expect(elapsedMs).toBeLessThan(16);
+    });
+
+    it("only ever scores at most MAX_DETECT_BYTES of input", () => {
+      // Anchors planted only beyond the cap must not be found: proves scoring
+      // never reaches past the head slice.
+      const tailOnly = "plain text preamble.\n".repeat(Math.ceil(MAX_DETECT_BYTES / 10)) +
+        "\ninterface Late { id: string; }\ntype X = number;\n";
+      expect(tailOnly.length).toBeGreaterThan(MAX_DETECT_BYTES);
+      expect(detectFromContent(tailOnly)).toBeNull();
+    });
   });
 });

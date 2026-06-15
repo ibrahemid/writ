@@ -189,6 +189,52 @@ impl BufferStore {
         Ok(())
     }
 
+    /// Writes `content` to the buffer's backing file and stamps `updated_at`,
+    /// **without** touching the FTS index.
+    ///
+    /// This is the write half of the deferred-reindex path (ADR-020): the IPC
+    /// autosave command writes immediately through this method, then schedules
+    /// a coalesced [`Self::reindex_buffer`] a short time later so the FTS cost
+    /// leaves the keystroke loop. Durability of the bytes on disk is identical
+    /// to [`Self::save_content`]; only the index is deferred. Callers that need
+    /// search to reflect the write immediately must use [`Self::save_content`].
+    pub fn save_content_without_index(&self, id: &str, content: &str) -> StorageResult<()> {
+        let doc = queries::get_buffer(&self.conn, id)?;
+        if doc.read_only {
+            return Err(crate::errors::StorageError::Consistency {
+                message: format!("buffer {} is read-only and cannot be saved", id),
+            });
+        }
+        let file_path = self.buffers_dir.join(&doc.filename);
+        write_atomic(&file_path, content.as_bytes())?;
+        queries::update_timestamp(&self.conn, id)?;
+        Ok(())
+    }
+
+    /// Rebuilds the FTS row for a single buffer from its current title and
+    /// on-disk content (the reindex half of the deferred path, ADR-020).
+    ///
+    /// Reading content from disk rather than from a captured string means a
+    /// coalesced reindex always reflects the latest persisted bytes, so
+    /// collapsing several edits into one reindex can never index a stale
+    /// intermediate. Large-file and binary buffers
+    /// (`size_bytes > THRESHOLD_NORMAL_BYTES`) are skipped, matching the
+    /// write-time policy in [`Self::save_content`].
+    pub fn reindex_buffer(&self, id: &str) -> StorageResult<()> {
+        let doc = queries::get_buffer(&self.conn, id)?;
+        if doc.size_bytes > THRESHOLD_NORMAL_BYTES {
+            return Ok(());
+        }
+        let file_path = self.buffers_dir.join(&doc.filename);
+        let content = if file_path.exists() {
+            std::fs::read_to_string(&file_path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let fts = crate::fts::FtsIndex::new(&self.conn);
+        fts.update(id, &doc.title, &content)
+    }
+
     /// Reads the textual content of a buffer from its backing file.
     pub fn read_content(&self, id: &str) -> StorageResult<String> {
         let doc = queries::get_buffer(&self.conn, id)?;

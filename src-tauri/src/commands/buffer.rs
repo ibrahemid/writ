@@ -1,8 +1,9 @@
 use std::time::Instant;
 
+use crate::fts_scheduler::{PollOutcome, FTS_REINDEX_DEBOUNCE};
 use crate::poison::recover_poison;
 use crate::state::AppState;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::buffer::manager::BufferManager;
 use writ_storage::buffer_store::BufferStore;
@@ -72,23 +73,66 @@ pub fn get_buffer(state: State<'_, AppState>, id: String) -> Result<BufferDocume
 
 #[tauri::command]
 pub fn save_buffer_content(
+    app: AppHandle,
     state: State<'_, AppState>,
     id: String,
     content: String,
 ) -> Result<(), String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    let doc = store.get(&id).map_err(|e| e.to_string())?;
-    if doc.read_only {
-        return Err(format!("buffer {} is read-only", id));
-    }
     {
-        let mut ignore = recover_poison(
-            state.watcher_ignore.lock(),
-            "commands::buffer::save_buffer_content",
-        );
-        ignore.record(doc.filename.clone(), content.as_bytes(), Instant::now());
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        let doc = store.get(&id).map_err(|e| e.to_string())?;
+        if doc.read_only {
+            return Err(format!("buffer {} is read-only", id));
+        }
+        {
+            let mut ignore = recover_poison(
+                state.watcher_ignore.lock(),
+                "commands::buffer::save_buffer_content",
+            );
+            ignore.record(doc.filename.clone(), content.as_bytes(), Instant::now());
+        }
+        // Write and stamp immediately; defer the FTS reindex off the keystroke
+        // loop (ADR-020). The disk bytes are durable on return; only search
+        // freshness is deferred, bounded by the debounce and the shutdown flush.
+        store
+            .save_content_without_index(&id, &content)
+            .map_err(|e| e.to_string())?;
     }
-    store.save_content(&id, &content).map_err(|e| e.to_string())
+    if let Some(generation) = state.fts_scheduler.on_edit(&id) {
+        spawn_deferred_reindex(app, id, generation);
+    }
+    Ok(())
+}
+
+/// Spawns the worker that reindexes a buffer once its edits settle. The worker
+/// waits one debounce window, and either reindexes (the buffer stopped
+/// changing) or waits again (a newer edit arrived), so an edit burst collapses
+/// to a single reindex of the latest on-disk content (ADR-020).
+fn spawn_deferred_reindex(app: AppHandle, id: String, first_generation: u64) {
+    tauri::async_runtime::spawn(async move {
+        let mut seen = first_generation;
+        loop {
+            let _ = tauri::async_runtime::spawn_blocking(|| {
+                std::thread::sleep(FTS_REINDEX_DEBOUNCE);
+            })
+            .await;
+            let state = app.state::<AppState>();
+            match state.fts_scheduler.poll(&id, seen) {
+                PollOutcome::Wait(generation) => seen = generation,
+                PollOutcome::Reindex => {
+                    match state.store.lock() {
+                        Ok(store) => {
+                            if let Err(e) = store.reindex_buffer(&id) {
+                                tracing::debug!(buffer_id = %id, error = %e, "deferred fts reindex failed");
+                            }
+                        }
+                        Err(_) => tracing::debug!(buffer_id = %id, "store poisoned; skipping deferred reindex"),
+                    }
+                    break;
+                }
+            }
+        }
+    });
 }
 
 /// Reads buffer content as raw bytes.

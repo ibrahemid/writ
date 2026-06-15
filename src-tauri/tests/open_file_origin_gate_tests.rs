@@ -54,6 +54,7 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
+        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
     }
 }
 

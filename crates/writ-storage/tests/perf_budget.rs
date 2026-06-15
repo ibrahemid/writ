@@ -11,6 +11,7 @@ use writ_storage::database::migrations::run_migrations;
 const CORPUS_SIZE: usize = 500;
 const MEDIAN_SAMPLES: usize = 9;
 const FTS_BUDGET_MS: u128 = 200;
+const FTS_PREFIX_BUDGET_MS: u128 = 50;
 const ROUND_TRIP_BUDGET_MS: u128 = 50;
 const OPEN_10MB_BUDGET_MS: u128 = 500;
 const OPEN_50MB_BUDGET_MS: u128 = 4000;
@@ -126,6 +127,51 @@ fn fts_search_budget() {
             query,
             median,
             FTS_BUDGET_MS,
+            CORPUS_SIZE,
+        );
+    }
+}
+
+#[test]
+fn fts_prefix_search_budget() {
+    if std::env::var("WRIT_PERF_GATE").is_err() {
+        return;
+    }
+
+    let (_dir, store) = build_corpus();
+    // The real search-as-you-type path issues quoted prefix terms built by
+    // `writ_core::search::to_prefix_match`. Exercise that exact query shape so
+    // the gate fails if the prefix index (migration 030) is dropped or the
+    // prefix query stops resolving. Each prefix hits many corpus rows.
+    let queries = [
+        writ_core::search::to_prefix_match("rus").expect("query"),
+        writ_core::search::to_prefix_match("edit").expect("query"),
+        writ_core::search::to_prefix_match("buf").expect("query"),
+        writ_core::search::to_prefix_match("sea").expect("query"),
+    ];
+
+    for query in &queries {
+        // Sanity: the prefix query must actually match rows, or a budget pass
+        // would be meaningless.
+        assert!(
+            !store.search(query).expect("search must not fail").is_empty(),
+            "prefix query '{}' matched nothing; corpus or index is wrong",
+            query,
+        );
+
+        let mut samples = Vec::with_capacity(MEDIAN_SAMPLES);
+        for _ in 0..MEDIAN_SAMPLES {
+            let start = Instant::now();
+            store.search(query).expect("search must not fail");
+            samples.push(start.elapsed().as_millis());
+        }
+        let median = median_elapsed_ms(samples);
+        assert!(
+            median < FTS_PREFIX_BUDGET_MS,
+            "fts prefix search '{}' median {}ms exceeds budget {}ms over {} buffers",
+            query,
+            median,
+            FTS_PREFIX_BUDGET_MS,
             CORPUS_SIZE,
         );
     }

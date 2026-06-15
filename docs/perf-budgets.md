@@ -86,6 +86,41 @@ numbers and rationale.
 
 ---
 
+## writ-storage: FTS prefix-search latency
+
+**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`fts_prefix_search_budget`)
+
+**What is measured:** median wall time (9-sample) of `BufferStore::search`
+over the same 500-buffer corpus, using the quoted prefix queries the live
+search-as-you-type path actually issues (`writ_core::search::to_prefix_match`,
+e.g. `"rus"*`). Each query is asserted to match at least one row before
+timing, so a silently-broken index cannot pass by matching nothing.
+
+**Budget: 50 ms median per prefix query over 500 buffers**
+
+Rationale:
+
+- The prefix index (`prefix='2 3 4'`, migration 030) turns a 2–4 character
+  prefix term from a full term-list scan into a seek. The 2026-05-22 audit
+  measured the *unindexed* scan at 14 ms median over 10k buffers; with the
+  index the same query is sub-millisecond. The 50 ms budget is tighter than
+  the exact-match `FTS_BUDGET_MS` (200 ms) on purpose: it is the regression
+  guard that fails if the prefix index is dropped, the migration is reordered,
+  or the prefix query stops resolving. At 500 buffers a correctly indexed
+  prefix query sits far under 50 ms, while a structural regression is visible
+  well below the bound.
+- The end-to-end 14 ms → sub-millisecond win is at the 10k scale of the audit
+  bench; this gate proves the prefix path stays correct and fast at the
+  realistic 500-buffer corpus rather than re-measuring the audit's 10k number
+  on every CI run.
+
+### Re-baselining
+
+Raise `FTS_PREFIX_BUDGET_MS` only if the prefix configuration or tokenizer
+changes in a way that legitimately raises latency, and document the change.
+
+---
+
 ## writ-storage: buffer save/load round-trip
 
 **Test file:** `crates/writ-storage/tests/perf_budget.rs`

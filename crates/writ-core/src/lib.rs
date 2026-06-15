@@ -57,6 +57,8 @@ pub mod prompt;
 pub mod preview;
 /// Crash-recovery policy types and resolution logic.
 pub mod recovery;
+/// Full-text search query policy: prefix-match construction and sanitization.
+pub mod search;
 /// Update lifecycle phases and transition policy.
 pub mod update;
 /// External-change events and conflict-resolution policy.

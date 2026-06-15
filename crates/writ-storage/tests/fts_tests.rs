@@ -69,6 +69,66 @@ fn delete_removes_from_index() {
 }
 
 #[test]
+fn migrations_are_idempotent_after_fts_rebuild() {
+    // The v30 FTS rebuild creates/drops/renames tables. Re-running migrations
+    // on an already-migrated database must be a clean no-op, never failing on
+    // an already-existing object — the symptom a non-atomic migration would
+    // leave behind on a partial-failure retry.
+    let (_dir, conn) = setup();
+    run_migrations(&conn).expect("second migration run must be a no-op");
+    run_migrations(&conn).expect("third migration run must be a no-op");
+
+    // The prefix index still functions after repeated runs.
+    let fts = FtsIndex::new(&conn);
+    insert_test_buffer(&conn, "idem", "Tokenizer");
+    fts.insert("idem", "Tokenizer", "token streams")
+        .expect("fts insert failed");
+    assert_eq!(
+        fts.search("\"tok\"*").expect("prefix search failed"),
+        vec!["idem".to_string()],
+    );
+}
+
+#[test]
+fn prefix_query_matches_longer_tokens() {
+    // The prefix index (migration 030) is what makes search-as-you-type work:
+    // a 3-character prefix term must hit longer tokens that share the prefix.
+    let (_dir, conn) = setup();
+    let fts = FtsIndex::new(&conn);
+
+    insert_test_buffer(&conn, "buf-tok", "Tokenizer notes");
+    insert_test_buffer(&conn, "buf-other", "Unrelated");
+    fts.insert("buf-tok", "Tokenizer notes", "the token stream is tokenized")
+        .expect("fts insert failed");
+    fts.insert("buf-other", "Unrelated", "nothing in common")
+        .expect("fts insert failed");
+
+    let results = fts.search("\"tok\"*").expect("prefix search failed");
+    assert_eq!(results, vec!["buf-tok".to_string()]);
+}
+
+#[test]
+fn diacritics_are_folded_for_search() {
+    // The unicode61 remove_diacritics=2 tokenizer (migration 030) folds
+    // accents, so an ASCII query finds an accented term and vice versa.
+    let (_dir, conn) = setup();
+    let fts = FtsIndex::new(&conn);
+
+    insert_test_buffer(&conn, "buf-cafe", "Café notes");
+    fts.insert("buf-cafe", "Café notes", "résumé of the meeting")
+        .expect("fts insert failed");
+
+    assert_eq!(
+        fts.search("resume").expect("search failed"),
+        vec!["buf-cafe".to_string()],
+    );
+    assert_eq!(
+        fts.search("cafe").expect("search failed"),
+        vec!["buf-cafe".to_string()],
+    );
+}
+
+#[test]
 fn update_replaces_content() {
     let (_dir, conn) = setup();
     let fts = FtsIndex::new(&conn);

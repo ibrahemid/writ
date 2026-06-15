@@ -45,6 +45,7 @@ function baseConfig(runScripts: boolean): WritConfig {
     commands: { usage: {} },
   workspace: { root: null },
   inbox: { path: null, focus: true },
+  updater: { auto_check: true },
     preview: {
       default_layout_html: "split",
       default_layout_markdown: "split",
