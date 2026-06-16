@@ -23,12 +23,6 @@ pub enum WritFrontendEvent {
     #[serde(rename = "buffer:external")]
     BufferExternal { buffer_id: String, change: String },
 
-    #[serde(rename = "recovery:dirty")]
-    RecoveryDirty {
-        snapshot_id: String,
-        buffer_count: u32,
-    },
-
     #[serde(rename = "menu:action")]
     MenuAction { action: String },
 
@@ -73,7 +67,6 @@ pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), Strin
         WritFrontendEvent::WindowShown { .. } => "writ://window-shown",
         WritFrontendEvent::ConfigChanged { .. } => "writ://config-changed",
         WritFrontendEvent::BufferExternal { .. } => "writ://buffer-external",
-        WritFrontendEvent::RecoveryDirty { .. } => "writ://recovery-dirty",
         WritFrontendEvent::MenuAction { .. } => "writ://menu-action",
         WritFrontendEvent::InboxFileArrived { .. } => "writ://inbox-file-arrived",
         WritFrontendEvent::WorkspaceChanged { .. } => "writ://workspace-changed",

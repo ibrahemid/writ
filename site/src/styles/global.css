@@ -4,33 +4,13 @@
    v2 additions are flagged with /* v2 *\/ comments.
    ============================================================ */
 
-/* ---------- Self-hosted fonts (woff2, font-display: swap) ---------- */
-/* JetBrains Mono — variable, weights 400/500/600/700 */
-@font-face {
-  font-family: 'JetBrains Mono';
-  src: url('/writ/fonts/JetBrainsMono[wght].woff2') format('woff2-variations');
-  font-weight: 400 700;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'JetBrains Mono';
-  src: url('/writ/fonts/JetBrainsMono-Italic[wght].woff2') format('woff2-variations');
-  font-weight: 400 700;
-  font-style: italic;
-  font-display: swap;
-}
-/* Newsreader — variable, italic only (used as a single editorial gesture in the hero) */
-@font-face {
-  font-family: 'Newsreader';
-  src: url('/writ/fonts/Newsreader-Italic[opsz,wght].woff2') format('woff2-variations');
-  font-weight: 400 700;
-  font-style: italic;
-  font-display: swap;
-}
+/* ---------- Type ----------
+   No self-hosted woff2 are bundled: the font stacks below resolve to the
+   first installed family or the system fallback. Self-hosting returns with
+   the v3 site rebuild, which owns the real woff2 + preload pipeline. */
 
 :root {
-  /* v2: mono-first, with one editorial italic */
+  /* mono-first, with one editorial italic */
   --font-mono-display: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
   --font-serif-italic: 'Newsreader', Georgia, 'Times New Roman', serif;
   --font-mono: var(--font-mono-display);

@@ -5,6 +5,7 @@ use writ_core::buffer::document::BufferStatus;
 use writ_core::buffer::manager::BufferManager;
 use writ_core::recovery::{RecoveryResolution, resolve_recovery};
 use writ_storage::buffer_store::BufferStore;
+use writ_storage::consistency::ConsistencyChecker;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::recovery::dirty_shutdown::check_dirty_shutdown;
@@ -171,6 +172,39 @@ fn recover_buffers_clean_snapshot_returns_empty() {
         .expect("write clean");
     let recovered = store.resolve_recovery().expect("recover");
     assert!(recovered.is_empty(), "clean snapshot should not trigger recovery");
+}
+
+/// Boot-path contract (#71): `AppState::initialize` runs dirty-shutdown
+/// detection, recovery resolution, and the consistency check against the
+/// SAME store instance, in that order. This is only possible because
+/// `ConsistencyChecker` borrows the store rather than consuming it; a
+/// regression to owning would break this sequence at compile time. The test
+/// stands in for the unwired contract test deleted in this change.
+#[test]
+fn boot_sequence_runs_recovery_then_consistency_on_one_store() {
+    let (_dir, store) = setup_store();
+    let mut contents = HashMap::new();
+    contents.insert("buf-crash".to_string(), "unsaved work".to_string());
+    store
+        .write_session_snapshot(&contents, false)
+        .expect("write unclean snapshot");
+
+    // 1. detection
+    assert!(
+        store.is_dirty_shutdown().expect("dirty check"),
+        "an unclean snapshot must read back as a dirty shutdown"
+    );
+    // 2. recovery resolution (same store)
+    let _ = store.resolve_recovery().expect("resolve recovery");
+    // 3. consistency check (same store, borrowed)
+    let report = ConsistencyChecker::new(&store)
+        .check()
+        .expect("consistency check");
+    assert!(
+        report.missing_files.is_empty(),
+        "freshly written buffers must not report as missing: {:?}",
+        report.missing_files
+    );
 }
 
 // --- integration: simulate unclean shutdown ---
