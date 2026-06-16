@@ -32,13 +32,6 @@ pub enum WritEvent {
         /// Nature of the external change.
         change: ExternalChange,
     },
-    /// A dirty shutdown was detected and session state was recovered.
-    RecoveryDirty {
-        /// Identifier of the recovered session snapshot.
-        snapshot_id: String,
-        /// Number of buffers restored from the snapshot.
-        buffer_count: u32,
-    },
     /// A file or directory inside the open workspace folder changed on
     /// disk. Listeners refresh the affected directory listing; the event
     /// carries no content.

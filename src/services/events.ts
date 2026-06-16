@@ -14,7 +14,6 @@ const EVENT_MAP: Record<EventKind, string> = {
   "window:shown": "writ://window-shown",
   "config:changed": "writ://config-changed",
   "buffer:external": "writ://buffer-external",
-  "recovery:dirty": "writ://recovery-dirty",
   "menu:action": "writ://menu-action",
   "workspace:changed": "writ://workspace-changed",
   "inbox:file-arrived": "writ://inbox-file-arrived",

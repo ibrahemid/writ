@@ -161,12 +161,31 @@ pub fn restart_app(app: AppHandle) {
     app.restart();
 }
 
+/// The outcome a check reaches, for the visibility decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CheckOutcome {
+    Started,
+    UpdateFound,
+    NoUpdate,
+    Errored,
+}
+
+/// Whether a check outcome is surfaced to the user. A user-initiated check
+/// surfaces every phase; the silent startup check stays invisible unless a
+/// genuine update is found — otherwise a quick launch-and-quit would spam a
+/// toast on every boot (the release endpoint 404s pre-launch). This is the
+/// single source of the visibility policy, shared by `run_update_check` and
+/// `finish_check_failure`.
+fn surfaces_to_user(user_initiated: bool, outcome: CheckOutcome) -> bool {
+    user_initiated || outcome == CheckOutcome::UpdateFound
+}
+
 /// Runs a check, advancing the phase machine and emitting status per the
 /// `user_initiated` visibility policy. Shared by the IPC command and the
 /// silent startup check in `lib.rs`.
 pub async fn run_update_check(app: AppHandle, user_initiated: bool) {
     let checking = advance(&app, UpdateEvent::CheckStarted);
-    if user_initiated {
+    if surfaces_to_user(user_initiated, CheckOutcome::Started) {
         emit_phase(&app, &checking);
     }
 
@@ -187,12 +206,14 @@ pub async fn run_update_check(app: AppHandle, user_initiated: bool) {
                     version: update.version,
                 },
             );
-            emit_phase(&app, &phase);
+            if surfaces_to_user(user_initiated, CheckOutcome::UpdateFound) {
+                emit_phase(&app, &phase);
+            }
         }
         Ok(None) => {
             tracing::debug!("no update available");
             let phase = advance(&app, UpdateEvent::NoUpdate);
-            if user_initiated {
+            if surfaces_to_user(user_initiated, CheckOutcome::NoUpdate) {
                 emit_phase(&app, &phase);
             } else {
                 advance(&app, UpdateEvent::Dismissed);
@@ -205,7 +226,7 @@ pub async fn run_update_check(app: AppHandle, user_initiated: bool) {
 fn finish_check_failure(app: &AppHandle, user_initiated: bool, raw: &str) {
     let message = sanitize_update_error(raw);
     let phase = advance(app, UpdateEvent::Errored { message });
-    if user_initiated {
+    if surfaces_to_user(user_initiated, CheckOutcome::Errored) {
         emit_phase(app, &phase);
         tracing::warn!("update check failed");
     } else {
@@ -330,5 +351,38 @@ mod tests {
     fn whitespace_only_becomes_generic() {
         let out = sanitize_update_error("   \n  ");
         assert_eq!(out, "Update failed.");
+    }
+
+    #[test]
+    fn visibility_policy_covers_every_outcome() {
+        use CheckOutcome::*;
+        // (user_initiated, outcome, expected surfaced)
+        let cases = [
+            (true, Started, true),
+            (true, UpdateFound, true),
+            (true, NoUpdate, true),
+            (true, Errored, true),
+            (false, Started, false),
+            (false, UpdateFound, true),
+            (false, NoUpdate, false),
+            (false, Errored, false),
+        ];
+        for (user_initiated, outcome, expected) in cases {
+            assert_eq!(
+                surfaces_to_user(user_initiated, outcome),
+                expected,
+                "user_initiated={user_initiated}, outcome={outcome:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn silent_check_only_surfaces_an_available_update() {
+        // The whole reason the silent path exists: nothing user-visible unless
+        // there is a real update to show.
+        assert!(!surfaces_to_user(false, CheckOutcome::Started));
+        assert!(!surfaces_to_user(false, CheckOutcome::NoUpdate));
+        assert!(!surfaces_to_user(false, CheckOutcome::Errored));
+        assert!(surfaces_to_user(false, CheckOutcome::UpdateFound));
     }
 }

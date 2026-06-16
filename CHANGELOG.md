@@ -11,7 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Cargo workspace split into three library crates plus the Tauri shell: `writ-core`, `writ-storage`, `writ-plugin`, `src-tauri`.
 - `writ-core`: buffer model with create, update, delete, and reorder operations; workspace and tab ordering; command registry for palette-driven actions; history module for undo/redo and closed-tab recovery; file watcher integration; typed error hierarchy.
 - `writ-storage`: SQLite backend in WAL mode with connection pooling, schema migrations, and FTS5 full-text search.
-- `writ-storage`: `BufferStore` and `ConfigStore` repositories. Snapshot, dirty-shutdown, and consistency-check infrastructure is scaffolded in the crate but is not yet wired into the running app.
+- `writ-storage`: `BufferStore` and `ConfigStore` repositories with session snapshots, dirty-shutdown detection, and a startup consistency check wired into app boot: a dirty relaunch recovers buffers from the latest snapshot and the consistency pass logs orphaned or missing backing files.
 - TOML configuration loading with hot reload.
 - Tauri v2 shell with a global hotkey (`Cmd+Shift+Space` / `Ctrl+Shift+Space`) toggling the main window, structured logging with contextual fields, and an event bridge from backend to frontend.
 - IPC command surface for buffer CRUD, file open, config reads and writes, history access, and window management.

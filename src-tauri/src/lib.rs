@@ -184,7 +184,6 @@ pub fn run() {
     let config_path = app_state.writ_dir.join("config.toml");
     let buffers_dir = app_state.buffers_dir.clone();
     let watcher_ignore = app_state.watcher_ignore.clone();
-    let was_dirty_shutdown = app_state.was_dirty_shutdown;
 
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     let builder = tauri::Builder::default().plugin(tauri_plugin_single_instance::init(
@@ -452,22 +451,6 @@ pub fn run() {
                         }
                     }
                 }
-            }
-
-            if was_dirty_shutdown {
-                let state = app.state::<AppState>();
-                let recovered = recover_poison(
-                    state.recovered_buffers.lock(),
-                    "lib::setup:recovery_count",
-                )
-                .len() as u32;
-                let _ = emit_event(
-                    &handle,
-                    WritFrontendEvent::RecoveryDirty {
-                        snapshot_id: String::new(),
-                        buffer_count: recovered,
-                    },
-                );
             }
 
             let snapshot_handle = handle.clone();

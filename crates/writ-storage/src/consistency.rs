@@ -20,13 +20,14 @@ pub struct ConsistencyReport {
 /// This is used at startup to detect corruption from partial writes,
 /// manual file edits, or interrupted migrations. The check is read-only;
 /// callers decide how to repair.
-pub struct ConsistencyChecker {
-    store: BufferStore,
+pub struct ConsistencyChecker<'a> {
+    store: &'a BufferStore,
 }
 
-impl ConsistencyChecker {
-    /// Wraps an existing [`BufferStore`] for inspection.
-    pub fn new(store: BufferStore) -> Self {
+impl<'a> ConsistencyChecker<'a> {
+    /// Borrows an existing [`BufferStore`] for inspection. Borrowing (rather
+    /// than owning) lets the boot path run the check and keep using the store.
+    pub fn new(store: &'a BufferStore) -> Self {
         Self { store }
     }
 

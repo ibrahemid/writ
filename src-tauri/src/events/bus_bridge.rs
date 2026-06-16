@@ -13,9 +13,6 @@
 //! Variants without a frontend mapping are intentionally dropped:
 //! [`WritEvent::HotkeyToggle`] and [`WritEvent::PluginEvent`] are
 //! domain-only signals with no current frontend consumer.
-//! [`WritEvent::RecoveryDirty`] has a frontend counterpart but no
-//! producer yet (see audit blocker #6); it is wired here only when
-//! the recovery path is connected.
 
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::watcher::change_event::ExternalChange;
@@ -62,9 +59,7 @@ fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
         WritEvent::InboxFileArrived { path } => Some(WritFrontendEvent::InboxFileArrived {
             path: path.clone(),
         }),
-        WritEvent::HotkeyToggle
-        | WritEvent::PluginEvent { .. }
-        | WritEvent::RecoveryDirty { .. } => None,
+        WritEvent::HotkeyToggle | WritEvent::PluginEvent { .. } => None,
     }
 }
 
@@ -230,10 +225,6 @@ mod tests {
         bus.emit(WritEvent::PluginEvent {
             plugin_id: "plg".to_string(),
             data: serde_json::Value::Null,
-        });
-        bus.emit(WritEvent::RecoveryDirty {
-            snapshot_id: "snap".to_string(),
-            buffer_count: 3,
         });
 
         assert!(captured.lock().unwrap().is_empty());

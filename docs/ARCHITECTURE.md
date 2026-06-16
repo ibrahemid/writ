@@ -65,7 +65,8 @@ All persistence. Depends on `writ-core` for domain types, but not on Tauri. Cont
   (before the watcher starts and before empty-scratch reclaim), a background thread writes
   an unclean heartbeat snapshot every 30 s, and `ExitRequested` writes a clean snapshot.
   Retention and resolution policy live in `writ-core::recovery`; mechanism lives here.
-  The consistency-check module remains read-only infrastructure, not yet wired.
+  `AppState::initialize` also runs the read-only `ConsistencyChecker` on boot, logging
+  orphaned backing files and rows whose content file is missing (repair policy is deferred).
 
 ### writ-plugin
 Defines the extension boundary. Provides a stable API surface that plugins target. Depends on
