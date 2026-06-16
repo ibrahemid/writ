@@ -11,6 +11,7 @@ use writ_plugin::transform::builtins::register_builtins;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::config_store::ConfigStore;
+use writ_storage::consistency::ConsistencyChecker;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 
@@ -44,6 +45,8 @@ pub struct AppState {
     /// Consumed by the `get_recovered_buffers` command and cleared.
     pub recovered_buffers: Mutex<Vec<RecoveredBuffer>>,
     /// `true` when the previous session ended without a clean snapshot.
+    /// Recovery itself is pull-based via `recovered_buffers`; this flag
+    /// records the detection for diagnostics and test assertions.
     pub was_dirty_shutdown: bool,
     /// Canonical root of the open workspace folder, if any.
     pub workspace_root: Mutex<Option<PathBuf>>,
@@ -122,6 +125,22 @@ impl AppState {
             Ok(false) => {}
             Ok(true) => info!("rebuilt drifted FTS index at startup"),
             Err(e) => warn!(error = %e, "failed to verify FTS index"),
+        }
+
+        // Read-only consistency pass: surface backing files with no matching
+        // row and rows whose content file vanished. Repair policy is a
+        // separate ADR; for now this only logs (recovery #71).
+        match ConsistencyChecker::new(&store).check() {
+            Ok(report) => {
+                if !report.orphan_files.is_empty() || !report.missing_files.is_empty() {
+                    warn!(
+                        orphan_files = report.orphan_files.len(),
+                        missing_files = report.missing_files.len(),
+                        "storage consistency check found discrepancies at startup"
+                    );
+                }
+            }
+            Err(e) => warn!(error = %e, "storage consistency check failed"),
         }
         let watcher_ignore = crate::watcher::handler::create_ignore_set();
 

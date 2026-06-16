@@ -329,6 +329,38 @@ fn close_many_is_noop_on_empty_input() {
 }
 
 #[test]
+fn close_many_rolls_back_every_buffer_when_a_close_fails_mid_transaction() {
+    let (dir, store) = setup();
+    for id in ["cm-tx-keep", "cm-tx-trap"] {
+        let doc = make_doc(id, id);
+        store.insert(&doc).unwrap();
+    }
+
+    // Trap the second close: a trigger raises on any UPDATE to `cm-tx-trap`,
+    // so the in-transaction `close_buffer` for it aborts. The whole
+    // transaction must roll back, leaving the first buffer Active rather than
+    // closing it before the second errors. The trigger is created on a second
+    // connection (committed to the shared db file) so the store's connection
+    // sees it.
+    second_conn(&dir)
+        .execute_batch(
+            "CREATE TRIGGER cm_trap BEFORE UPDATE ON buffers \
+             WHEN NEW.id = 'cm-tx-trap' \
+             BEGIN SELECT RAISE(ABORT, 'trapped'); END;",
+        )
+        .unwrap();
+
+    let result = store.close_many(&["cm-tx-keep".to_string(), "cm-tx-trap".to_string()]);
+
+    assert!(result.is_err(), "a mid-transaction failure must propagate");
+    assert_eq!(
+        store.get("cm-tx-keep").unwrap().status,
+        BufferStatus::Active,
+        "a mid-transaction failure must roll back every close in the batch"
+    );
+}
+
+#[test]
 fn delete_many_removes_rows_files_and_fts() {
     let (dir, store) = setup();
     for id in ["dm-a", "dm-b", "dm-c"] {

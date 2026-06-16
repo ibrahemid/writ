@@ -93,7 +93,7 @@ fn orphan_file_detected() {
     let (_dir, store) = setup_with_store();
     let orphan_path = store.buffers_dir().join("orphan_extra.txt");
     std::fs::write(&orphan_path, "orphan content").expect("failed to write orphan file");
-    let checker = ConsistencyChecker::new(store);
+    let checker = ConsistencyChecker::new(&store);
     let report = checker.check().expect("check failed");
     assert!(
         report
@@ -109,7 +109,7 @@ fn missing_file_detected() {
     let (_dir, store) = setup_with_store();
     let doc = make_doc("missing-buf");
     store.insert(&doc).expect("insert failed");
-    let checker = ConsistencyChecker::new(store);
+    let checker = ConsistencyChecker::new(&store);
     let report = checker.check().expect("check failed");
     assert!(
         report.missing_files.contains(&"missing-buf".to_string()),

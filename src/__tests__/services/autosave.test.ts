@@ -8,6 +8,7 @@ import {
   debouncedSave,
   cancelAutosave,
   onAutosaveError,
+  onAutosaveSuccess,
   flushAutosave,
 } from "../../services/autosave";
 import { saveBufferContent } from "../../services/tauri";
@@ -72,6 +73,43 @@ describe("autosave", () => {
 
       expect(listener).toHaveBeenCalledWith("buf-1", expect.any(Error));
       unsubscribe();
+    });
+  });
+
+  describe("onAutosaveSuccess", () => {
+    it("notifies success listeners with the buffer id after a save lands", async () => {
+      const listener = vi.fn();
+      const unsubscribe = onAutosaveSuccess(listener);
+
+      debouncedSave("buf-ok", "content", 50);
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(listener).toHaveBeenCalledOnce();
+      expect(listener).toHaveBeenCalledWith("buf-ok");
+      unsubscribe();
+    });
+
+    it("does not notify success listeners when the save fails", async () => {
+      mockedSave.mockRejectedValueOnce(new Error("disk full"));
+      const success = vi.fn();
+      const unsubscribe = onAutosaveSuccess(success);
+
+      debouncedSave("buf-fail", "content", 50);
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(success).not.toHaveBeenCalled();
+      unsubscribe();
+    });
+
+    it("stops notifying after unsubscribe", async () => {
+      const listener = vi.fn();
+      const unsubscribe = onAutosaveSuccess(listener);
+      unsubscribe();
+
+      debouncedSave("buf-gone", "content", 50);
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(listener).not.toHaveBeenCalled();
     });
   });
 
