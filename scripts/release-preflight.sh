@@ -73,6 +73,13 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 else
   load_signing_secrets
   rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null 2>&1 || true
+  cargo build -p writ-cli --release --target aarch64-apple-darwin
+  cargo build -p writ-cli --release --target x86_64-apple-darwin
+  mkdir -p src-tauri/binaries
+  lipo -create \
+    target/aarch64-apple-darwin/release/writ \
+    target/x86_64-apple-darwin/release/writ \
+    -output src-tauri/binaries/writ-universal-apple-darwin
   APPLE_SIGNING_IDENTITY="-" \
     npx tauri build \
       --target universal-apple-darwin \
