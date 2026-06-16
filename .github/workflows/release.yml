@@ -269,6 +269,35 @@ jobs:
             } >> "$GITHUB_ENV"
           fi
 
+      - name: Build CLI sidecar
+        shell: bash
+        env:
+          RUST_TARGETS: ${{ matrix.rust_targets }}
+          MATRIX_OS: ${{ matrix.os }}
+        run: |
+          set -euo pipefail
+          mkdir -p src-tauri/binaries
+          IFS=',' read -ra TRIPLES <<< "$RUST_TARGETS"
+          for t in "${TRIPLES[@]}"; do
+            cargo build -p writ-cli --release --target "$t"
+          done
+          case "$MATRIX_OS" in
+            macos-latest)
+              lipo -create \
+                target/aarch64-apple-darwin/release/writ \
+                target/x86_64-apple-darwin/release/writ \
+                -output src-tauri/binaries/writ-universal-apple-darwin
+              ;;
+            windows-latest)
+              cp target/x86_64-pc-windows-msvc/release/writ.exe \
+                src-tauri/binaries/writ-x86_64-pc-windows-msvc.exe
+              ;;
+            ubuntu-22.04)
+              cp target/x86_64-unknown-linux-gnu/release/writ \
+                src-tauri/binaries/writ-x86_64-unknown-linux-gnu
+              ;;
+          esac
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
