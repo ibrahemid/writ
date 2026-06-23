@@ -8,7 +8,7 @@ const { focusSearchBarMock, showSidebar } = vi.hoisted(() => ({
 let sidebarOpen = false;
 
 vi.mock("../../services/tauri", () => ({
-  searchBuffers: vi.fn().mockResolvedValue([]),
+  searchBuffers: vi.fn().mockResolvedValue({ hits: [], total: 0 }),
   getConfig: vi.fn(),
   updateConfig: vi.fn().mockResolvedValue(undefined),
 }));

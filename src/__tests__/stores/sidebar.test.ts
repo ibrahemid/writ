@@ -1,10 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("../../services/tauri", () => ({
-  searchBuffers: vi.fn().mockResolvedValue([]),
+  searchBuffers: vi.fn().mockResolvedValue({ hits: [], total: 0 }),
   getConfig: vi.fn(),
   updateConfig: vi.fn().mockResolvedValue(undefined),
 }));
+
+function hit(id: string) {
+  return { buffer_id: id, title: id, line: 1, snippet: [{ text: id, matched: true }] };
+}
 
 vi.mock("../../services/autosave", () => ({
   flushAutosave: vi.fn().mockResolvedValue(undefined),
@@ -121,18 +125,20 @@ describe("sidebar-store (per-window factory)", () => {
 
     it("clears search results when query is empty", () => {
       sidebarStore.setSearchQuery("");
-      expect(sidebarStore.searchResultIds()).toEqual([]);
+      expect(sidebarStore.searchHits()).toEqual([]);
+      expect(sidebarStore.searchTotal()).toBe(0);
+      expect(sidebarStore.searchMs()).toBeNull();
       expect(mockedSearch).not.toHaveBeenCalled();
     });
 
     it("clears search results when query is whitespace", () => {
       sidebarStore.setSearchQuery("   ");
-      expect(sidebarStore.searchResultIds()).toEqual([]);
+      expect(sidebarStore.searchHits()).toEqual([]);
       expect(mockedSearch).not.toHaveBeenCalled();
     });
 
-    it("debounces search calls", async () => {
-      mockedSearch.mockResolvedValueOnce(["id-1", "id-2"]);
+    it("debounces search calls and stores hits, total, and timing", async () => {
+      mockedSearch.mockResolvedValueOnce({ hits: [hit("id-1"), hit("id-2")], total: 7 });
 
       sidebarStore.setSearchQuery("test");
 
@@ -142,7 +148,9 @@ describe("sidebar-store (per-window factory)", () => {
 
       expect(mockedSearch).toHaveBeenCalledOnce();
       expect(mockedSearch).toHaveBeenCalledWith("test");
-      expect(sidebarStore.searchResultIds()).toEqual(["id-1", "id-2"]);
+      expect(sidebarStore.searchHits().map((h) => h.buffer_id)).toEqual(["id-1", "id-2"]);
+      expect(sidebarStore.searchTotal()).toBe(7);
+      expect(sidebarStore.searchMs()).not.toBeNull();
     });
 
     it("resets results on search failure", async () => {
@@ -151,19 +159,41 @@ describe("sidebar-store (per-window factory)", () => {
       sidebarStore.setSearchQuery("fail");
       await vi.advanceTimersByTimeAsync(200);
 
-      expect(sidebarStore.searchResultIds()).toEqual([]);
+      expect(sidebarStore.searchHits()).toEqual([]);
+      expect(sidebarStore.searchTotal()).toBe(0);
+      expect(sidebarStore.searchMs()).toBeNull();
     });
 
     it("cancels previous search when query changes rapidly", async () => {
       sidebarStore.setSearchQuery("fir");
       await vi.advanceTimersByTimeAsync(100);
 
-      mockedSearch.mockResolvedValueOnce(["final-result"]);
+      mockedSearch.mockResolvedValueOnce({ hits: [hit("final-result")], total: 1 });
       sidebarStore.setSearchQuery("final");
       await vi.advanceTimersByTimeAsync(200);
 
       expect(mockedSearch).toHaveBeenCalledOnce();
       expect(mockedSearch).toHaveBeenCalledWith("final");
+    });
+
+    it("ignores a stale resolved response after the query changed", async () => {
+      let resolveFirst: (v: { hits: never[]; total: number }) => void = () => {};
+      mockedSearch.mockReturnValueOnce(
+        new Promise((r) => (resolveFirst = r)) as ReturnType<typeof mockedSearch>,
+      );
+      sidebarStore.setSearchQuery("stale");
+      await vi.advanceTimersByTimeAsync(200);
+
+      // A newer query supersedes the in-flight one before it resolves.
+      mockedSearch.mockResolvedValueOnce({ hits: [hit("fresh")], total: 1 });
+      sidebarStore.setSearchQuery("fresh");
+      await vi.advanceTimersByTimeAsync(200);
+
+      resolveFirst({ hits: [], total: 99 });
+      await Promise.resolve();
+
+      expect(sidebarStore.searchHits().map((h) => h.buffer_id)).toEqual(["fresh"]);
+      expect(sidebarStore.searchTotal()).toBe(1);
     });
 
     it("flushes pending autosaves before issuing the search", async () => {
@@ -173,7 +203,7 @@ describe("sidebar-store (per-window factory)", () => {
       });
       mockedSearch.mockImplementationOnce(async () => {
         order.push("search");
-        return [];
+        return { hits: [], total: 0 };
       });
 
       sidebarStore.setSearchQuery("foobar");

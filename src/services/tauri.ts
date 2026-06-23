@@ -89,7 +89,10 @@ export async function clearHistory(): Promise<void> {
   return invoke("clear_history");
 }
 
-export async function searchBuffers(query: string): Promise<string[]> {
+import type { SearchResults } from "../types/search";
+export type { SnippetSegment, SearchHit, SearchResults } from "../types/search";
+
+export async function searchBuffers(query: string): Promise<SearchResults> {
   return invoke("search_buffers", { query });
 }
 

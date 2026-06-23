@@ -30,7 +30,9 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       toggle: vi.fn(),
       searchQuery: () => "",
       setSearchQuery: vi.fn(),
-      searchResultIds: () => [],
+      searchHits: () => [],
+      searchTotal: () => 0,
+      searchMs: () => null,
     },
     tabs: {
       activeTabId: () => null,

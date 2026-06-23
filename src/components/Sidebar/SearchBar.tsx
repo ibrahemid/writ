@@ -1,7 +1,7 @@
 import { createMemo, Show } from "solid-js";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { useWindow } from "../WindowProvider/WindowProvider";
-import { matchedBuffers } from "./search-results";
+import { buildSearchRows } from "./search-results";
 import "./SearchBar.css";
 
 // Singleton — SearchBar mounts only in the main window (detached preview
@@ -19,13 +19,12 @@ export default function SearchBar() {
   const matchCount = createMemo(() => {
     const query = win.sidebar.searchQuery().trim();
     if (!query) return null;
-    const { active, history } = matchedBuffers(
+    return buildSearchRows(
+      win.sidebar.searchHits(),
       query,
-      win.sidebar.searchResultIds(),
       bufferRegistry.activeTabs(),
       bufferRegistry.historyList(),
-    );
-    return active.length + history.length;
+    ).length;
   });
 
   return (

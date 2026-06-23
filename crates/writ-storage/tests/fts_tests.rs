@@ -54,6 +54,44 @@ fn insert_and_search() {
 }
 
 #[test]
+fn search_hits_return_line_number_and_highlighted_snippet() {
+    let (_dir, conn) = setup();
+    let fts = FtsIndex::new(&conn);
+
+    insert_test_buffer(&conn, "buf-a", "notes.md");
+    fts.insert("buf-a", "notes.md", "first line\nthe rerank ceiling here\ntail")
+        .expect("fts insert failed");
+
+    let terms = vec!["rerank".to_string()];
+    let hits = fts.search_hits("\"rerank\"*", &terms, 50).expect("search failed");
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].buffer_id, "buf-a");
+    assert_eq!(hits[0].title, "notes.md");
+    assert_eq!(hits[0].line, Some(2));
+    let snippet: String = hits[0].snippet.iter().map(|s| s.text.as_str()).collect();
+    assert_eq!(snippet, "the rerank ceiling here");
+    assert!(hits[0].snippet.iter().any(|s| s.matched && s.text == "rerank"));
+}
+
+#[test]
+fn count_reports_total_matches_independent_of_limit() {
+    let (_dir, conn) = setup();
+    let fts = FtsIndex::new(&conn);
+
+    for i in 0..5 {
+        let id = format!("buf-{i}");
+        insert_test_buffer(&conn, &id, "doc");
+        fts.insert(&id, "doc", "shared keyword body").expect("insert failed");
+    }
+
+    let terms = vec!["keyword".to_string()];
+    let hits = fts.search_hits("\"keyword\"*", &terms, 2).expect("search failed");
+    assert_eq!(hits.len(), 2, "limit caps returned hits");
+    assert_eq!(fts.count("\"keyword\"*").expect("count failed"), 5);
+}
+
+#[test]
 fn delete_removes_from_index() {
     let (_dir, conn) = setup();
     let fts = FtsIndex::new(&conn);

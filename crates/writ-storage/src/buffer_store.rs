@@ -7,6 +7,7 @@ use rusqlite::Connection;
 use tracing::warn;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::recovery::RecoveredBuffer;
+use writ_core::search::SearchHit;
 
 use crate::atomic::write_atomic;
 use crate::database::queries;
@@ -282,6 +283,24 @@ impl BufferStore {
     pub fn search(&self, query: &str) -> StorageResult<Vec<String>> {
         let fts = crate::fts::FtsIndex::new(&self.conn);
         fts.search(query)
+    }
+
+    /// Runs a full-text search and returns up to `limit` display hits (title,
+    /// matching line, highlighted snippet) in relevance order.
+    pub fn search_hits(
+        &self,
+        query: &str,
+        terms: &[String],
+        limit: usize,
+    ) -> StorageResult<Vec<SearchHit>> {
+        let fts = crate::fts::FtsIndex::new(&self.conn);
+        fts.search_hits(query, terms, limit)
+    }
+
+    /// Returns the total number of buffers matching `query`, ignoring any limit.
+    pub fn search_count(&self, query: &str) -> StorageResult<usize> {
+        let fts = crate::fts::FtsIndex::new(&self.conn);
+        fts.count(query)
     }
 
     /// Finds the active buffer whose `source_path` matches, if any.
