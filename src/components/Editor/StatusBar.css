@@ -92,3 +92,12 @@
   color: var(--writ-foreground-muted);
   border: 1px solid var(--writ-border-soft);
 }
+
+.statusbar-field {
+  white-space: nowrap;
+  color: var(--writ-foreground-subtle);
+}
+
+.statusbar-field--cursor {
+  font-variant-numeric: tabular-nums;
+}

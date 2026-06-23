@@ -28,7 +28,14 @@ vi.mock("../../components/Kbd/Kbd", () => ({
 // scoped to the save-status live region, so stub the window context and the
 // window-bound widgets out.
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
-  useWindow: () => ({ editor: { largeFileMode: () => null } }),
+  useWindow: () => ({
+    editor: {
+      largeFileMode: () => null,
+      cursorLine: () => 1,
+      cursorCol: () => 1,
+      language: () => null,
+    },
+  }),
 }));
 vi.mock("../../components/Editor/TokenEstimate", () => ({
   default: () => null,
