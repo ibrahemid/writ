@@ -10,7 +10,25 @@
 use std::path::Path;
 use std::time::SystemTime;
 
+use serde::{Deserialize, Serialize};
+
 use crate::workspace::path_has_ignored_component;
+
+/// A regular file listed in the watched inbox folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InboxFile {
+    /// File name (not a full path).
+    pub name: String,
+    /// Absolute path to the file, used to open it.
+    pub path: String,
+    /// File size in bytes.
+    pub size_bytes: u64,
+}
+
+/// Sorts inbox files in-place, case-insensitively by name.
+pub fn sort_inbox_files(files: &mut [InboxFile]) {
+    files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+}
 
 /// Returns `true` when a file at `path` should auto-open from the inbox.
 ///
@@ -40,6 +58,22 @@ pub fn qualifies_for_auto_open(
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    fn file(name: &str) -> InboxFile {
+        InboxFile {
+            name: name.to_string(),
+            path: format!("/inbox/{name}"),
+            size_bytes: 0,
+        }
+    }
+
+    #[test]
+    fn sort_inbox_files_orders_case_insensitively_by_name() {
+        let mut files = vec![file("Zebra.md"), file("apple.md"), file("Banana.md")];
+        sort_inbox_files(&mut files);
+        let names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, vec!["apple.md", "Banana.md", "Zebra.md"]);
+    }
 
     #[test]
     fn file_created_after_watch_start_qualifies() {

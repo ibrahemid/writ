@@ -510,6 +510,16 @@ export async function getInboxPath(): Promise<string | null> {
   return invoke("get_inbox_path");
 }
 
+export interface InboxFile {
+  name: string;
+  path: string;
+  size_bytes: number;
+}
+
+export async function listInboxFiles(): Promise<InboxFile[]> {
+  return invoke("list_inbox_files");
+}
+
 export async function showAndFocusWindow(): Promise<void> {
   try {
     const win = getCurrentWindow();

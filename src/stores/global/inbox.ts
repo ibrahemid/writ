@@ -12,20 +12,35 @@ const BURST_WINDOW_MS = 2000;
 const OVERFLOW_TOAST_DEBOUNCE_MS = 600;
 
 const [path, setPath] = createSignal<string | null>(null);
+const [files, setFiles] = createSignal<tauri.InboxFile[]>([]);
 
 let openTimestamps: number[] = [];
 let overflowCount = 0;
 let overflowTimer: ReturnType<typeof setTimeout> | null = null;
 
+async function refreshFiles(): Promise<void> {
+  if (path() === null) {
+    setFiles([]);
+    return;
+  }
+  try {
+    setFiles(await tauri.listInboxFiles());
+  } catch {
+    setFiles([]);
+  }
+}
+
 async function hydrate(): Promise<void> {
   const current = await tauri.getInboxPath();
   setPath(current);
+  await refreshFiles();
 }
 
 async function watchFolder(): Promise<string | null> {
   const picked = await tauri.pickInboxFolder();
   if (picked !== null) {
     setPath(picked);
+    await refreshFiles();
   }
   return picked;
 }
@@ -33,6 +48,7 @@ async function watchFolder(): Promise<string | null> {
 async function stopWatching(): Promise<void> {
   await tauri.clearInbox();
   setPath(null);
+  setFiles([]);
 }
 
 async function handleFileArrived(filePath: string, nowMs: number = Date.now()): Promise<void> {
@@ -58,6 +74,7 @@ async function handleFileArrived(filePath: string, nowMs: number = Date.now()): 
   if (configStore.config().inbox.focus) {
     await tauri.showAndFocusWindow();
   }
+  await refreshFiles();
 }
 
 function scheduleOverflowToast(): void {
@@ -74,6 +91,8 @@ function scheduleOverflowToast(): void {
 
 export const inboxStore = {
   path,
+  files,
+  refreshFiles,
   hydrate,
   watchFolder,
   stopWatching,

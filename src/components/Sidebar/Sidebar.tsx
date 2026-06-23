@@ -2,9 +2,11 @@ import { Show, createMemo } from "solid-js";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { workspaceStore } from "../../stores/global/workspace";
+import { inboxStore } from "../../stores/global/inbox";
 import SearchBar from "./SearchBar";
 import ActiveSection from "./ActiveSection";
 import FilesSection from "./FilesSection";
+import InboxSection from "./InboxSection";
 import HistorySection from "./HistorySection";
 import SearchResults from "./SearchResults";
 import SidebarEmpty from "./SidebarEmpty";
@@ -17,7 +19,8 @@ export default function Sidebar() {
     () =>
       bufferRegistry.activeTabs().length > 0 ||
       bufferRegistry.historyList().length > 0 ||
-      workspaceStore.root() !== null,
+      workspaceStore.root() !== null ||
+      inboxStore.path() !== null,
   );
 
   return (
@@ -33,6 +36,7 @@ export default function Sidebar() {
             <Show when={hasContent()} fallback={<SidebarEmpty />}>
               <ActiveSection />
               <FilesSection />
+              <InboxSection />
               <HistorySection />
             </Show>
           </div>
