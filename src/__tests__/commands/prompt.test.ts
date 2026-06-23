@@ -114,7 +114,7 @@ describe("registerPromptCommands", () => {
       await flush();
 
       expect(mockedApi.promptScanPlaceholders).toHaveBeenCalledWith("hi {{name}}");
-      expect(mockedFill).toHaveBeenCalledWith(["name"]);
+      expect(mockedFill).toHaveBeenCalledWith(["name"], "hi {{name}}");
       expect(mockedApi.promptFillPlaceholders).toHaveBeenCalledWith("hi {{name}}", { name: "Writ" });
       expect(mockedClipboard.writeClipboardText).toHaveBeenCalledWith("hi Writ");
       expect(editorMock.applyEditToActiveBuffer).not.toHaveBeenCalled();

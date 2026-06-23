@@ -51,7 +51,7 @@ async function fillPlaceholders(): Promise<void> {
   if (!read) return;
   try {
     const names = await promptScanPlaceholders(read.text);
-    const values = await requestPlaceholderFill(names);
+    const values = await requestPlaceholderFill(names, read.text);
     if (values === null) return;
     const filled = await promptFillPlaceholders(read.text, values);
     await writeClipboardText(filled);
