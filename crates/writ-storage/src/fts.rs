@@ -1,4 +1,5 @@
 use rusqlite::{params, Connection};
+use writ_core::search::{build_hit, SearchHit};
 
 use crate::errors::StorageResult;
 
@@ -55,5 +56,47 @@ impl<'a> FtsIndex<'a> {
             .query_map(params![query], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(ids)
+    }
+
+    /// Returns the total number of buffers matching `query`, independent of any
+    /// result-limit, so the UI can report "N of M" honestly.
+    pub fn count(&self, query: &str) -> StorageResult<usize> {
+        let total: i64 = self.conn.query_row(
+            "SELECT count(*) FROM buffer_fts WHERE buffer_fts MATCH ?1",
+            params![query],
+            |row| row.get(0),
+        )?;
+        Ok(total as usize)
+    }
+
+    /// Runs an FTS5 `MATCH` query and returns up to `limit` display hits sorted
+    /// by rank. Each hit carries the buffer title, the matching line number, and
+    /// a highlighted snippet built by [`build_hit`] from the indexed content.
+    pub fn search_hits(
+        &self,
+        query: &str,
+        terms: &[String],
+        limit: usize,
+    ) -> StorageResult<Vec<SearchHit>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT b.id, f.title, f.content FROM buffer_fts f
+             JOIN buffers b ON b.rowid = f.rowid
+             WHERE buffer_fts MATCH ?1
+             ORDER BY rank
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![query, limit as i64], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        let mut hits = Vec::new();
+        for row in rows {
+            let (id, title, content) = row?;
+            hits.push(build_hit(&id, &title, &content, terms));
+        }
+        Ok(hits)
     }
 }

@@ -27,6 +27,27 @@ describe("editor-store (per-window factory)", () => {
     });
   });
 
+  describe("reveal requests", () => {
+    it("carries the buffer id and line, with a fresh seq each time", () => {
+      expect(editorStore.pendingReveal()).toBeNull();
+
+      editorStore.requestReveal("buf-1", 12);
+      const first = editorStore.pendingReveal();
+      expect(first).toMatchObject({ bufferId: "buf-1", line: 12 });
+
+      editorStore.requestReveal("buf-1", 12);
+      const second = editorStore.pendingReveal();
+      expect(second!.seq).toBeGreaterThan(first!.seq);
+    });
+
+    it("clearReveal drops the pending request after it is applied", () => {
+      editorStore.requestReveal("buf-1", 3);
+      expect(editorStore.pendingReveal()).not.toBeNull();
+      editorStore.clearReveal();
+      expect(editorStore.pendingReveal()).toBeNull();
+    });
+  });
+
   describe("language", () => {
     it("defaults to null", () => {
       expect(editorStore.language()).toBeNull();

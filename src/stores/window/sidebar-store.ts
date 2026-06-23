@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { searchBuffers } from "../../services/tauri";
+import { searchBuffers, type SearchHit } from "../../services/tauri";
 import { flushAutosave } from "../../services/autosave";
 import { configStore } from "../global/config";
 
@@ -8,9 +8,12 @@ export type SidebarStore = ReturnType<typeof createSidebarStore>;
 export function createSidebarStore() {
   const [isOpen, setIsOpen] = createSignal(false);
   const [searchQuery, setSearchQuery] = createSignal("");
-  const [searchResultIds, setSearchResultIds] = createSignal<string[]>([]);
+  const [searchHits, setSearchHits] = createSignal<SearchHit[]>([]);
+  const [searchTotal, setSearchTotal] = createSignal(0);
+  const [searchMs, setSearchMs] = createSignal<number | null>(null);
 
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  let searchGeneration = 0;
 
   function persist() {
     const current = configStore.config();
@@ -40,23 +43,35 @@ export function createSidebarStore() {
     persist();
   }
 
+  function clearResults() {
+    setSearchHits([]);
+    setSearchTotal(0);
+    setSearchMs(null);
+  }
+
   function updateSearchQuery(query: string) {
     setSearchQuery(query);
 
     if (searchTimer) clearTimeout(searchTimer);
+    const requested = ++searchGeneration;
 
     if (!query.trim()) {
-      setSearchResultIds([]);
+      clearResults();
       return;
     }
 
     searchTimer = setTimeout(async () => {
+      const started = performance.now();
       try {
         await flushAutosave();
-        const ids = await searchBuffers(query);
-        setSearchResultIds(ids);
+        const results = await searchBuffers(query);
+        if (requested !== searchGeneration) return;
+        setSearchHits(results.hits);
+        setSearchTotal(results.total);
+        setSearchMs(Math.round(performance.now() - started));
       } catch {
-        setSearchResultIds([]);
+        if (requested !== searchGeneration) return;
+        clearResults();
       }
     }, 200);
   }
@@ -69,6 +84,8 @@ export function createSidebarStore() {
     hydrateFromConfig,
     searchQuery,
     setSearchQuery: updateSearchQuery,
-    searchResultIds,
+    searchHits,
+    searchTotal,
+    searchMs,
   };
 }

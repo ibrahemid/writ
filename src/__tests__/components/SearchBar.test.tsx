@@ -6,7 +6,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
     sidebar: {
       searchQuery: () => "",
       setSearchQuery: vi.fn(),
-      searchResultIds: () => [],
+      searchHits: () => [],
     },
   }),
 }));
