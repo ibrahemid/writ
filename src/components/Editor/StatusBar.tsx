@@ -6,6 +6,7 @@ import { useWindow } from "../WindowProvider/WindowProvider";
 import PreviewLayoutToggle from "../Preview/PreviewLayoutToggle";
 import PreviewScriptsToggle from "../Preview/PreviewScriptsToggle";
 import TokenEstimate from "./TokenEstimate";
+import { languageLabel } from "./language-label";
 import Kbd from "../Kbd/Kbd";
 import "./StatusBar.css";
 
@@ -13,6 +14,11 @@ export default function StatusBar() {
   const win = useWindow();
   const paletteBinding = createMemo(() =>
     useEffectiveBinding("palette.open", useCommand("palette.open")?.keybinding),
+  );
+
+  const language = createMemo(() => languageLabel(win.editor.language()));
+  const cursorPosition = createMemo(
+    () => `Ln ${win.editor.cursorLine()}, Col ${win.editor.cursorCol()}`,
   );
 
   const largeFileModeLabel = createMemo(() => {
@@ -52,6 +58,9 @@ export default function StatusBar() {
       </div>
       <div class="statusbar-spacer" />
       <div class="statusbar-right">
+        <span class="statusbar-field statusbar-field--cursor">{cursorPosition()}</span>
+        <span class="statusbar-field">{language()}</span>
+        <span class="statusbar-field">UTF-8</span>
         <TokenEstimate />
         <PreviewLayoutToggle />
         <PreviewScriptsToggle />
