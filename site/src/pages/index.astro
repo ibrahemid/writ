@@ -1,19 +1,20 @@
 ---
 import Base from '../layouts/Base.astro';
 import Hero from '../components/Hero.astro';
-import Claims from '../components/Claims.astro';
-import MissingMiddle from '../components/MissingMiddle.astro';
-import Install from '../components/Install.astro';
-
-import '../components/HeroDemo.css';
+import Compare from '../components/Compare.astro';
+import Download from '../components/Download.astro';
+import Deck from '../islands/Deck';
 ---
 <Base
-  title="Writ — A scratchpad always one keypress away"
-  description="Writ is a tray-resident text editor for developers. Global hotkey, autosave, full-text search across every buffer. Local only. Open source."
+  title="Writ · read what your agent wrote"
+  description="Writ is the render surface for agent output. Renders Markdown, HTML, Mermaid and KaTeX offline. Autosaves every keystroke. Full-text search. No account, no telemetry."
   path="/"
 >
   <Hero />
-  <Claims />
-  <MissingMiddle />
-  <Install />
+
+  <Deck client:visible />
+
+  <Compare />
+
+  <Download />
 </Base>

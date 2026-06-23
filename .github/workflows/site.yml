@@ -43,6 +43,17 @@ jobs:
           cache: pnpm
           cache-dependency-path: site/pnpm-lock.yaml
 
+      - name: Setup Rust + wasm-pack
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Install wasm-opt
+        run: npm install -g wasm-opt
+
       - name: Sync latest release data
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -62,30 +73,30 @@ jobs:
           VERSION="${TAG#v}"
           PUBLISHED_AT="$(echo "$RELEASE_JSON" | jq -r '.published_at // ""')"
 
-          MAC_UNIVERSAL="$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | test("universal\\.pkg$"))] | .[0].browser_download_url // ""')"
-          WIN_X64="$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | test("\\.msi$"))] | .[0].browser_download_url // ""')"
-          LINUX_APPIMAGE="$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | test("\\.AppImage$"))] | .[0].browser_download_url // ""')"
-          LINUX_DEB="$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | test("\\.deb$"))] | .[0].browser_download_url // ""')"
-
-          jq -n \
-            --arg version "$VERSION" \
-            --arg tag "$TAG" \
-            --arg publishedAt "$PUBLISHED_AT" \
-            --arg mac "$MAC_UNIVERSAL" \
-            --arg winX "$WIN_X64" \
-            --arg appImage "$LINUX_APPIMAGE" \
-            --arg deb "$LINUX_DEB" \
-            '{
-              version: $version,
-              tag: $tag,
-              publishedAt: $publishedAt,
-              assets: {
-                "mac-universal": (if $mac == "" then "#" else $mac end),
-                "win-x64": (if $winX == "" then "#" else $winX end),
-                "linux-appimage": (if $appImage == "" then "#" else $appImage end),
-                "linux-deb": (if $deb == "" then "#" else $deb end)
-              }
-            }' > src/data/release.json
+          # checksums: SHA256SUMS.txt has "<sha>  <filename>" lines
+          SUMS_URL="$(echo "$RELEASE_JSON" | jq -r '[.assets[]|select(.name=="SHA256SUMS.txt")]|.[0].browser_download_url // ""')"
+          SUMS=""; [ -n "$SUMS_URL" ] && SUMS="$(curl -fsSL "$SUMS_URL" || echo '')"
+          sha_for(){ echo "$SUMS" | awk -v f="$1" '$2==f{print $1}' | head -1; }
+          url_for(){ echo "$RELEASE_JSON" | jq -r --arg re "$1" '[.assets[]|select(.name|test($re))]|.[0].browser_download_url // ""'; }
+          name_for(){ echo "$RELEASE_JSON" | jq -r --arg re "$1" '[.assets[]|select(.name|test($re))]|.[0].name // ""'; }
+          DMG=$(url_for 'universal\.dmg$'); PKG=$(url_for 'universal\.pkg$')
+          MSI=$(url_for '\.msi$'); DEB=$(url_for '\.deb$'); APP=$(url_for '\.AppImage$')
+          NOTARIZED=false; [ -n "$DMG" ] && NOTARIZED=true
+          PUBLISHED=false; [ -n "$DMG$MSI$DEB" ] && PUBLISHED=true
+          jq -n --arg version "$VERSION" --arg tag "$TAG" --arg publishedAt "$PUBLISHED_AT" \
+            --argjson published "$PUBLISHED" --argjson notarized "$NOTARIZED" \
+            --arg dmg "$DMG" --arg pkg "$PKG" --arg msi "$MSI" --arg deb "$DEB" --arg app "$APP" \
+            --arg sdmg "$(sha_for "$(name_for 'universal\.dmg$')")" \
+            --arg spkg "$(sha_for "$(name_for 'universal\.pkg$')")" \
+            --arg smsi "$(sha_for "$(name_for '\.msi$')")" \
+            --arg sdeb "$(sha_for "$(name_for '\.deb$')")" \
+            --arg sapp "$(sha_for "$(name_for '\.AppImage$')")" \
+            '{version:$version,tag:$tag,publishedAt:$publishedAt,published:$published,notarized:$notarized,
+              platforms:{
+                mac:{dmg:(if $dmg==""then"#"else $dmg end),pkg:(if $pkg==""then"#"else $pkg end),sha256_dmg:$sdmg,sha256_pkg:$spkg},
+                win:{msi:(if $msi==""then"#"else $msi end),sha256_msi:$smsi},
+                linux:{deb:(if $deb==""then"#"else $deb end),appImage:(if $app==""then"#"else $app end),sha256_deb:$sdeb,sha256_appImage:$sapp}
+              }}' > src/data/release.json
 
           echo "Wrote release.json:"
           cat src/data/release.json

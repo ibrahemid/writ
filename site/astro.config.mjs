@@ -13,7 +13,7 @@ export default defineConfig({
   compressHTML: true,
   vite: {
     ssr: {
-      noExternal: ['framer-motion'],
+      noExternal: ['motion'],
     },
   },
 });

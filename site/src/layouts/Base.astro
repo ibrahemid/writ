@@ -1,4 +1,5 @@
 ---
+import '../styles/fonts.css';
 import '../styles/global.css';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
@@ -12,13 +13,15 @@ interface Props {
 
 const {
   title,
-  description = 'Writ — a scratchpad always one keypress away. Local only. Open source.',
+  description = 'Writ renders agent output offline: Markdown, HTML, Mermaid and KaTeX. Keeps every scratch searchable. Local only, no account, no telemetry.',
   path = '/',
-  ogImage = '/writ/brand/og-image.svg',
+  ogImage = '/brand/og-image.svg',
 } = Astro.props;
 
-const SITE_URL = 'https://ibrahemid.github.io/writ';
-const canonical = SITE_URL + (path === '/' ? '/' : path);
+const SITE_URL = 'https://ibrahemid.github.io';
+const BASE = '/writ';
+const canonical = SITE_URL + BASE + (path === '/' ? '/' : path);
+const ogImageAbsolute = SITE_URL + BASE + ogImage;
 ---
 <!doctype html>
 <html lang="en" data-theme="light">
@@ -30,19 +33,23 @@ const canonical = SITE_URL + (path === '/' ? '/' : path);
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
 
-    <link rel="icon" type="image/png" sizes="32x32" href="/writ/brand/icon-32.png" />
-    <link rel="icon" type="image/png" sizes="128x128" href="/writ/brand/icon-128.png" />
-    <link rel="apple-touch-icon" sizes="256x256" href="/writ/brand/icon-256.png" />
+    <link rel="preload" as="font" type="font/woff2" crossorigin href={`${import.meta.env.BASE_URL}fonts/bricolage-grotesque-latin-opsz.woff2`} />
+    <link rel="preload" as="font" type="font/woff2" crossorigin href={`${import.meta.env.BASE_URL}fonts/inter-latin-variable.woff2`} />
+    <link rel="preload" as="font" type="font/woff2" crossorigin href={`${import.meta.env.BASE_URL}fonts/jetbrains-mono-latin-400.woff2`} />
+
+    <link rel="icon" type="image/png" sizes="32x32" href={`${import.meta.env.BASE_URL}brand/icon-32.png`} />
+    <link rel="icon" type="image/png" sizes="128x128" href={`${import.meta.env.BASE_URL}brand/icon-128.png`} />
+    <link rel="apple-touch-icon" sizes="256x256" href={`${import.meta.env.BASE_URL}brand/icon-256.png`} />
 
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonical} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
-    <meta property="og:image" content={SITE_URL + ogImage.replace('/writ', '')} />
+    <meta property="og:image" content={ogImageAbsolute} />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
-    <meta name="twitter:image" content={SITE_URL + ogImage.replace('/writ', '')} />
+    <meta name="twitter:image" content={ogImageAbsolute} />
 
     <script is:inline>
       (function () {

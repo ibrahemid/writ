@@ -1,0 +1,311 @@
+---
+import release from '../data/release.json';
+
+const { published, notarized, version, platforms } = release;
+const { mac, win, linux } = platforms;
+---
+
+<section class="get" id="get">
+  <div class="wrap">
+    <h2 class="disp">Put your agent's output one keypress away.</h2>
+    <p>Free core: render, scratchpad, editor. A one-time Pro later for the prompt workbench and recipes. No subscription.</p>
+
+    <div class="dl-grid" id="dlGrid" role="group" aria-label="Download Writ">
+
+      <!-- macOS card -->
+      <div class="dl-card dl-mac" data-platform="mac" data-order="0">
+        <div class="dl-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.4 12.9c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9s-1.8-.8-3-.8c-1.5 0-2.9.9-3.7 2.3-1.6 2.7-.4 6.8 1.1 9 .7 1.1 1.6 2.3 2.8 2.3 1.1 0 1.5-.7 2.9-.7s1.7.7 2.9.7 2-1.1 2.7-2.1c.8-1.2 1.2-2.4 1.2-2.4s-2.3-.9-2.3-3.6Z"/></svg>
+        </div>
+        <div class="dl-meta">
+          <div class="dl-os">macOS</div>
+          <div class="dl-sub">Apple Silicon &amp; Intel</div>
+          {published && <div class="dl-ver">v{version}</div>}
+        </div>
+        <div class="dl-actions">
+          {published ? (
+            <>
+              {mac.dmg && mac.dmg !== '#' ? (
+                <a class="dl-btn dl-primary" href={mac.dmg} download aria-label={`Download Writ ${version} .dmg for macOS`}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M3 20h18"/></svg>
+                  Download .dmg
+                </a>
+              ) : (
+                <span class="dl-btn dl-disabled" aria-disabled="true">Available at launch</span>
+              )}
+              {mac.pkg && mac.pkg !== '#' ? (
+                <a class="dl-btn dl-ghost" href={mac.pkg} download aria-label={`Download Writ ${version} .pkg for macOS`}>.pkg installer</a>
+              ) : (
+                <span class="dl-btn dl-disabled" aria-disabled="true">.pkg — available at launch</span>
+              )}
+            </>
+          ) : (
+            <span class="dl-btn dl-disabled" aria-disabled="true">Available at launch</span>
+          )}
+        </div>
+        {published && mac.sha256_dmg && mac.dmg !== '#' && (
+          <div class="dl-sum">
+            <span class="dl-sum-label">SHA-256</span>
+            <code class="dl-sum-val">{mac.sha256_dmg.slice(0, 16)}&hellip;</code>
+          </div>
+        )}
+        {published && notarized && (
+          <div class="dl-trust">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3 5 6v6c0 4 3 7 7 8 4-1 7-4 7-8V6Z"/></svg>
+            Notarized by Apple
+          </div>
+        )}
+      </div>
+
+      <!-- Windows card -->
+      <div class="dl-card dl-win" data-platform="win" data-order="1">
+        <div class="dl-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.6 10.8 4.5v7.3H3zM11.7 4.4 21 3v8.8h-9.3zM3 12.2h7.8v7.3L3 18.4zM11.7 12.2H21v8.8l-9.3-1.4z"/></svg>
+        </div>
+        <div class="dl-meta">
+          <div class="dl-os">Windows</div>
+          <div class="dl-sub">64-bit installer</div>
+          {published && <div class="dl-ver">v{version}</div>}
+        </div>
+        <div class="dl-actions">
+          {published && win.msi && win.msi !== '#' ? (
+            <a class="dl-btn dl-primary" href={win.msi} download aria-label={`Download Writ ${version} .msi for Windows`}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M3 20h18"/></svg>
+              Download .msi
+            </a>
+          ) : (
+            <span class="dl-btn dl-disabled" aria-disabled="true">Available at launch</span>
+          )}
+        </div>
+        {published && win.sha256_msi && win.msi !== '#' && (
+          <div class="dl-sum">
+            <span class="dl-sum-label">SHA-256</span>
+            <code class="dl-sum-val">{win.sha256_msi.slice(0, 16)}&hellip;</code>
+          </div>
+        )}
+      </div>
+
+      <!-- Linux card -->
+      <div class="dl-card dl-linux" data-platform="linux" data-order="2">
+        <div class="dl-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/><circle cx="8.5" cy="5.5" r="1"/><circle cx="15.5" cy="5.5" r="1"/><path d="M8.5 13c-.28 0-.5.22-.5.5v1c0 .28.22.5.5.5s.5-.22.5-.5v-1c0-.28-.22-.5-.5-.5zm7 0c-.28 0-.5.22-.5.5v1c0 .28.22.5.5.5s.5-.22.5-.5v-1c0-.28-.22-.5-.5-.5z"/></svg>
+        </div>
+        <div class="dl-meta">
+          <div class="dl-os">Linux</div>
+          <div class="dl-sub">.deb &amp; .AppImage</div>
+          {published && <div class="dl-ver">v{version}</div>}
+        </div>
+        <div class="dl-actions">
+          {published ? (
+            <>
+              {linux.deb && linux.deb !== '#' ? (
+                <a class="dl-btn dl-primary" href={linux.deb} download aria-label={`Download Writ ${version} .deb for Linux`}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M3 20h18"/></svg>
+                  Download .deb
+                </a>
+              ) : (
+                <span class="dl-btn dl-disabled" aria-disabled="true">Available at launch</span>
+              )}
+              {linux.appImage && linux.appImage !== '#' ? (
+                <a class="dl-btn dl-ghost" href={linux.appImage} download aria-label={`Download Writ ${version} .AppImage for Linux`}>.AppImage</a>
+              ) : (
+                <span class="dl-btn dl-disabled" aria-disabled="true">.AppImage — available at launch</span>
+              )}
+            </>
+          ) : (
+            <span class="dl-btn dl-disabled" aria-disabled="true">Available at launch</span>
+          )}
+        </div>
+        {published && linux.sha256_deb && linux.deb !== '#' && (
+          <div class="dl-sum">
+            <span class="dl-sum-label">SHA-256</span>
+            <code class="dl-sum-val">{linux.sha256_deb.slice(0, 16)}&hellip;</code>
+          </div>
+        )}
+      </div>
+
+    </div><!-- /dl-grid -->
+  </div>
+</section>
+
+<style>
+  .get {
+    padding: 5rem 0 6rem;
+  }
+  .get .wrap {
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 0 2rem;
+  }
+  .get h2 {
+    margin-bottom: 0.75rem;
+  }
+  .get > .wrap > p {
+    color: var(--muted);
+    margin-bottom: 3rem;
+    max-width: 52ch;
+  }
+
+  .dl-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+  }
+  @media (max-width: 860px) {
+    .dl-grid {
+      grid-template-columns: 1fr;
+      max-width: 28rem;
+    }
+  }
+
+  .dl-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1.75rem 1.5rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    background: var(--raised);
+    transition: border-color 0.15s;
+  }
+  .dl-card:hover {
+    border-color: var(--accent);
+  }
+
+  /* Promoted (detected) card gets lead styling */
+  .dl-card.dl-lead {
+    border-color: var(--accent);
+    order: -1;
+  }
+  .dl-card.dl-lead .dl-os::after {
+    content: " · detected";
+    font-size: 0.7em;
+    opacity: 0.6;
+    font-family: var(--mono);
+    letter-spacing: 0;
+  }
+
+  .dl-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    color: var(--ink);
+  }
+  .dl-icon svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  .dl-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .dl-os {
+    font-family: var(--disp);
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .dl-sub {
+    font-size: 0.8rem;
+    color: var(--subtle);
+    font-family: var(--mono);
+  }
+  .dl-ver {
+    font-size: 0.75rem;
+    color: var(--subtle);
+    font-family: var(--mono);
+    margin-top: 0.25rem;
+  }
+
+  .dl-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .dl-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    border-radius: 7px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    border: none;
+    transition: background 0.12s, color 0.12s;
+    font-family: var(--sans);
+    line-height: 1;
+  }
+  .dl-btn svg {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+  }
+  .dl-primary {
+    background: var(--accent);
+    color: #fff;
+  }
+  .dl-primary:hover {
+    background: var(--accent-hover, var(--accent));
+    opacity: 0.9;
+  }
+  .dl-ghost {
+    background: var(--elevated);
+    color: var(--muted);
+  }
+  .dl-ghost:hover {
+    color: var(--ink);
+    background: var(--hover);
+  }
+  .dl-disabled {
+    background: var(--elevated);
+    color: var(--subtle);
+    cursor: default;
+    opacity: 0.65;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .dl-sum {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.7rem;
+    color: var(--subtle);
+  }
+  .dl-sum-label {
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.7;
+  }
+  .dl-sum-val {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    word-break: break-all;
+  }
+
+  .dl-trust {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    color: var(--subtle);
+    font-family: var(--mono);
+  }
+  .dl-trust svg {
+    width: 0.85rem;
+    height: 0.85rem;
+    flex-shrink: 0;
+    color: var(--accent);
+  }
+</style>
+
+<script>
+  import { detectPlatform, promoteCard } from '../scripts/os-detect.js';
+  promoteCard(document, detectPlatform());
+</script>
