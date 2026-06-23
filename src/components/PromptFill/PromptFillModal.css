@@ -29,6 +29,21 @@
   flex-shrink: 0;
 }
 
+.placeholders-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-2);
+  margin-top: calc(-1 * var(--writ-space-2));
+  font-size: var(--writ-font-size-sm);
+  color: var(--writ-foreground-subtle);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.placeholders-meta-sep {
+  opacity: 0.6;
+}
+
 .placeholders-fields {
   display: flex;
   flex-direction: column;
