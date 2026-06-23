@@ -2,10 +2,24 @@
   "version": "0.1.0",
   "tag": "v0.1.0",
   "publishedAt": "",
-  "assets": {
-    "mac-universal": "#",
-    "win-x64": "#",
-    "linux-appimage": "#",
-    "linux-deb": "#"
+  "published": false,
+  "notarized": false,
+  "platforms": {
+    "mac": {
+      "dmg": "#",
+      "pkg": "#",
+      "sha256_dmg": "",
+      "sha256_pkg": ""
+    },
+    "win": {
+      "msi": "#",
+      "sha256_msi": ""
+    },
+    "linux": {
+      "deb": "#",
+      "appImage": "#",
+      "sha256_deb": "",
+      "sha256_appImage": ""
+    }
   }
 }

@@ -18,6 +18,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 writ-core = { path = "../crates/writ-core" }
+writ-render = { path = "../crates/writ-render" }
 writ-storage = { path = "../crates/writ-storage", features = ["bundled"] }
 writ-plugin = { path = "../crates/writ-plugin" }
 tauri = { version = "2", features = ["macos-private-api"] }

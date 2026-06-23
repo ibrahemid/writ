@@ -7,6 +7,9 @@ node_modules/
 node_modules
 dist/
 
+# Generated WASM artifact (built by site/scripts/build-wasm.mjs)
+site/src/wasm/
+
 # Local databases and WAL/shm sidecars
 *.db
 *.db-wal

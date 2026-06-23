@@ -1,38 +1,9 @@
 ---
-const year = new Date().getFullYear();
 ---
-<footer class="ftr">
-  <hr class="rule" />
-  <div class="container ftr-inner">
-    <span class="ftr-line">
-      writ <span class="dot">·</span> mit
-      <span class="dot">·</span>
-      <a href="https://github.com/ibrahemid/writ" rel="noopener" target="_blank">github</a>
-      <span class="dot">·</span>
-      <a href="/writ/changelog/">changelog</a>
-      <span class="dot">·</span>
-      <a href="/writ/privacy/">privacy</a>
-    </span>
-    <span class="ftr-meta">© {year} · MIT</span>
+<footer>
+  <div class="wrap">
+    <span class="b">Writ</span>
+    <span class="meta">the render surface for everything around the code</span>
+    <nav><a href={`${import.meta.env.BASE_URL}changelog/`}>Changelog</a><a href={`${import.meta.env.BASE_URL}privacy/`}>Privacy</a><a href="https://github.com/ibrahemid/writ" rel="noopener noreferrer" target="_blank">GitHub</a></nav>
   </div>
 </footer>
-
-<style>
-  .ftr { margin-top: var(--space-20); }
-  .ftr-inner {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-4);
-    padding-top: var(--space-6);
-    padding-bottom: var(--space-12);
-    font-family: var(--font-mono-display);
-    font-size: var(--text-xs);
-    color: var(--ink-faint);
-    flex-wrap: wrap;
-  }
-  .ftr-line a { color: var(--muted-foreground); }
-  .ftr-line a:hover { color: var(--accent); }
-  .dot { color: var(--rule); padding: 0 0.35em; }
-  .ftr-meta { color: var(--ink-faint); }
-</style>

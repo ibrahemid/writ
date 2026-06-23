@@ -1,0 +1,40 @@
+[package]
+name = "writ-render"
+description = "Pure markdown-to-HTML-fragment core shared by the Writ app and site."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[features]
+wasm = ["dep:wasm-bindgen", "dep:serde", "dep:serde-wasm-bindgen"]
+
+[dependencies]
+pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
+
+[dependencies.wasm-bindgen]
+version = "0.2"
+optional = true
+
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+optional = true
+
+[dependencies.serde-wasm-bindgen]
+version = "0.6"
+optional = true
+
+[package.metadata.wasm-pack.profile.release]
+# Disable wasm-pack's bundled wasm-opt (old; bulk-memory compat issues).
+# build-wasm.mjs runs wasm-opt directly after wasm-pack.
+wasm-opt = false

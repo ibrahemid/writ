@@ -18,7 +18,6 @@
 //! fallback stylesheet always applies (unconditionally, unlike the HTML
 //! renderer's presence-conditional check).
 
-use pulldown_cmark::{html, CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use writ_core::preview::{
     ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest,
     RendererCapabilities,
@@ -36,23 +35,6 @@ impl MarkdownRenderer {
     /// Content-type id this renderer registers under.
     pub fn content_type_id() -> ContentTypeId {
         ContentTypeId::new("markdown")
-    }
-
-    /// The GitHub-flavored extensions agent output relies on. Raw-HTML
-    /// passthrough is on by default and is deliberately not disabled.
-    ///
-    /// `ENABLE_MATH` tokenizes `$…$` / `$$…$$` into `InlineMath` / `DisplayMath`
-    /// events carrying the *raw* LaTeX — so a multi-line `$$` block, or content
-    /// with backslash sequences (`\,`, `\int`), reaches the DOM as one intact
-    /// math span instead of being split across nodes or mangled by CommonMark's
-    /// backslash escaping. It is also code-aware: `$` in a code span/fence is
-    /// left as text. The runtime typesets the spans (L6).
-    fn options() -> Options {
-        Options::ENABLE_TABLES
-            | Options::ENABLE_STRIKETHROUGH
-            | Options::ENABLE_TASKLISTS
-            | Options::ENABLE_FOOTNOTES
-            | Options::ENABLE_MATH
     }
 }
 
@@ -72,78 +54,25 @@ impl ContentRenderer for MarkdownRenderer {
     fn render(&self, request: RenderRequest) -> Result<RenderOutput, RenderError> {
         let bytes = request.buffer_text.len() as u64;
         if bytes > MAX_SAFE_BYTES {
-            return Err(RenderError::DocumentTooLarge {
-                bytes,
-                limit: MAX_SAFE_BYTES,
-            });
+            return Err(RenderError::DocumentTooLarge { bytes, limit: MAX_SAFE_BYTES });
         }
-
-        // Walk the event stream so ```mermaid fences can be rewritten into the
-        // `<pre class="mermaid">` blocks the bundled runtime renders from. All
-        // other events pass through unchanged. A non-mermaid fence stays an
-        // ordinary code block.
-        let parser = Parser::new_ext(&request.buffer_text, Self::options());
-        let mut events: Vec<Event> = Vec::new();
-        let mut has_mermaid = false;
-        let mut has_math = false;
-        let mut in_mermaid = false;
-        let mut mermaid_src = String::new();
-        for event in parser {
-            match event {
-                Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(ref info)))
-                    if mermaid::is_mermaid_info(info) =>
-                {
-                    in_mermaid = true;
-                    mermaid_src.clear();
-                }
-                Event::Text(text) if in_mermaid => mermaid_src.push_str(&text),
-                Event::End(TagEnd::CodeBlock) if in_mermaid => {
-                    in_mermaid = false;
-                    // An empty ```mermaid fence carries no diagram: emit
-                    // nothing and inject no runtime for it, so a stray empty
-                    // fence does not render a Mermaid parse error.
-                    if !mermaid_src.trim().is_empty() {
-                        has_mermaid = true;
-                        events.push(Event::Html(mermaid::diagram_block(&mermaid_src).into()));
-                    }
-                }
-                // Defensive: a code block yields only Text events, but never
-                // leak a stray event from inside a captured mermaid fence.
-                _ if in_mermaid => {}
-                // Math events pass through (push_html emits the `math` spans);
-                // seeing one means the KaTeX runtime must be injected.
-                Event::InlineMath(_) | Event::DisplayMath(_) => {
-                    has_math = true;
-                    events.push(event);
-                }
-                other => events.push(other),
-            }
-        }
-
-        let mut body = String::with_capacity(request.buffer_text.len() * 3 / 2);
-        html::push_html(&mut body, events.into_iter());
-
-        // Markdown carries no styling of its own, so the base theme always
-        // applies. Wrap in a complete document with the theme inlined as a
-        // <style> (not a cross-scope <link>, which can fail to apply). The
-        // Mermaid and KaTeX runtimes are injected only when their content is
-        // present, so plain documents pay nothing.
-        let head_extra = if has_math {
-            katex::head_tags()
-        } else {
-            String::new()
-        };
+        let fragment = writ_render::render_markdown_fragment(&request.buffer_text);
+        let head_extra = if fragment.has_math { katex::head_tags() } else { String::new() };
         let mut body_end = String::new();
-        if has_mermaid {
+        if fragment.has_mermaid {
             body_end.push_str(&mermaid::runtime_tags());
             body_end.push('\n');
         }
-        if has_math {
+        if fragment.has_math {
             body_end.push_str(&katex::runtime_tags());
         }
-        let document_html =
-            theme::wrap_document_with(&head_extra, &body, &body_end, request.theme, request.zoom);
-
+        let document_html = theme::wrap_document_with(
+            &head_extra,
+            &fragment.html,
+            &body_end,
+            request.theme,
+            request.zoom,
+        );
         Ok(RenderOutput {
             document_html,
             used_fallback_stylesheet: true,

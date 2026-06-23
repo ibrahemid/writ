@@ -45,35 +45,7 @@ pub fn runtime_tags() -> String {
     )
 }
 
-/// True when a fenced-code info string selects the Mermaid renderer: the first
-/// whitespace-delimited token equals `mermaid` (case-insensitive), matching
-/// how agents tag fences (```mermaid).
-pub fn is_mermaid_info(info: &str) -> bool {
-    info.split_whitespace()
-        .next()
-        .is_some_and(|tok| tok.eq_ignore_ascii_case("mermaid"))
-}
-
-/// Wrap raw diagram source as a `<pre class="mermaid">` block, HTML-escaping
-/// the source so it survives as element text. Mermaid reads `textContent`,
-/// which decodes the entities back to the original diagram text.
-pub fn diagram_block(source: &str) -> String {
-    format!("<pre class=\"mermaid\">{}</pre>", escape_text(source))
-}
-
-/// Minimal HTML text escaping for `<pre>` content: `&`, `<`, `>`.
-pub fn escape_text(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
+pub use writ_render::{diagram_block, escape_text, is_mermaid_info};
 
 /// Standalone renderer for `.mmd` / `.mermaid` buffers: the entire buffer is a
 /// single diagram.
