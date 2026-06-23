@@ -4,6 +4,7 @@ vi.mock("../../services/tauri", () => ({
   pickInboxFolder: vi.fn(),
   clearInbox: vi.fn().mockResolvedValue(undefined),
   getInboxPath: vi.fn(),
+  listInboxFiles: vi.fn().mockResolvedValue([]),
   showAndFocusWindow: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -24,6 +25,7 @@ import {
   pickInboxFolder,
   clearInbox,
   getInboxPath,
+  listInboxFiles,
   showAndFocusWindow,
 } from "../../services/tauri";
 import { windowRegistry } from "../../stores/global/window-registry";
@@ -34,6 +36,7 @@ import type { WritConfig } from "../../types/config";
 const mockedPick = vi.mocked(pickInboxFolder);
 const mockedClear = vi.mocked(clearInbox);
 const mockedGetPath = vi.mocked(getInboxPath);
+const mockedListFiles = vi.mocked(listInboxFiles);
 const mockedFocus = vi.mocked(showAndFocusWindow);
 const mockedGetActive = vi.mocked(windowRegistry.getActive);
 const mockedConfig = vi.mocked(configStore.config);
@@ -54,6 +57,7 @@ describe("inboxStore", () => {
     vi.useFakeTimers();
     mockedClear.mockResolvedValue(undefined);
     mockedFocus.mockResolvedValue(undefined);
+    mockedListFiles.mockResolvedValue([]);
     mockedConfig.mockReturnValue(configWithFocus(true));
     await inboxStore.stopWatching();
   });
@@ -189,5 +193,54 @@ describe("inboxStore", () => {
 
     expect(openFile).toHaveBeenCalledTimes(4);
     expect(openFile).toHaveBeenLastCalledWith("/inbox/late.md");
+  });
+
+  it("hydrate populates the watched folder's file listing", async () => {
+    mockedGetPath.mockResolvedValue("/inbox");
+    mockedListFiles.mockResolvedValue([
+      { name: "a.md", path: "/inbox/a.md", size_bytes: 10 },
+    ]);
+
+    await inboxStore.hydrate();
+
+    expect(inboxStore.files()).toEqual([
+      { name: "a.md", path: "/inbox/a.md", size_bytes: 10 },
+    ]);
+  });
+
+  it("does not list files when no folder is watched", async () => {
+    mockedGetPath.mockResolvedValue(null);
+    await inboxStore.hydrate();
+    expect(mockedListFiles).not.toHaveBeenCalled();
+    expect(inboxStore.files()).toEqual([]);
+  });
+
+  it("stopWatching clears the file listing", async () => {
+    mockedGetPath.mockResolvedValue("/inbox");
+    mockedListFiles.mockResolvedValue([
+      { name: "a.md", path: "/inbox/a.md", size_bytes: 1 },
+    ]);
+    await inboxStore.hydrate();
+    expect(inboxStore.files()).toHaveLength(1);
+
+    await inboxStore.stopWatching();
+    expect(inboxStore.files()).toEqual([]);
+  });
+
+  it("refreshes the file listing after an arrival opens a file", async () => {
+    const { win } = fakeWindow();
+    mockedGetActive.mockReturnValue(win);
+    mockedGetPath.mockResolvedValue("/inbox");
+    mockedListFiles.mockResolvedValue([]);
+    await inboxStore.hydrate();
+
+    mockedListFiles.mockResolvedValue([
+      { name: "report.md", path: "/inbox/report.md", size_bytes: 42 },
+    ]);
+    await inboxStore.handleFileArrived("/inbox/report.md", 40_000_000);
+
+    expect(inboxStore.files()).toEqual([
+      { name: "report.md", path: "/inbox/report.md", size_bytes: 42 },
+    ]);
   });
 });
