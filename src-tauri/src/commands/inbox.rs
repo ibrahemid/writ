@@ -2,6 +2,8 @@ use std::path::Path;
 
 use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
+use writ_core::inbox::InboxFile;
+use writ_storage::inbox_store;
 
 use crate::commands::config::persist_config;
 use crate::state::AppState;
@@ -86,4 +88,13 @@ pub fn clear_inbox(state: State<'_, AppState>) -> Result<(), String> {
 pub fn get_inbox_path(state: State<'_, AppState>) -> Result<Option<String>, String> {
     let root = state.inbox_root.lock().map_err(|e| e.to_string())?;
     Ok(root.as_ref().map(|p| p.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub fn list_inbox_files(state: State<'_, AppState>) -> Result<Vec<InboxFile>, String> {
+    let root = state.inbox_root.lock().map_err(|e| e.to_string())?.clone();
+    match root {
+        Some(root) => inbox_store::list_files(&root).map_err(|e| e.to_string()),
+        None => Ok(Vec::new()),
+    }
 }

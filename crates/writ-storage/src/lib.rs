@@ -38,6 +38,8 @@ pub mod database;
 pub mod errors;
 /// FTS5 indexing and search over buffer content.
 pub mod fts;
+/// Watched-inbox file listing.
+pub mod inbox_store;
 /// Per-buffer preview layout persistence (ADR-009).
 pub mod layout_state;
 /// Session snapshots and dirty-shutdown detection.
