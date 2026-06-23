@@ -31,7 +31,9 @@ function run(scroller: { scrollHeight: number; clientHeight: number; scrollTop: 
     },
   };
   const attrs: Record<string, string> = {};
+  const style: Record<string, string> = {};
   const documentElement = {
+    style,
     setAttribute(key: string, value: string) {
       attrs[key] = value;
     },
@@ -53,7 +55,18 @@ function run(scroller: { scrollHeight: number; clientHeight: number; scrollTop: 
     posted,
     scroller,
     attrs,
+    style,
     fireScroll: () => handlers.scroll?.({}),
+    fireKey: (ev: Record<string, unknown>) => {
+      let prevented = false;
+      handlers.keydown?.({ ...ev, preventDefault: () => { prevented = true; } });
+      return prevented;
+    },
+    fireWheel: (ev: Record<string, unknown>) => {
+      let prevented = false;
+      handlers.wheel?.({ ...ev, preventDefault: () => { prevented = true; } });
+      return prevented;
+    },
     sendDown: (msg: Posted) =>
       handlers.message?.({ data: { source: "writ-preview", dir: "down", ...msg } }),
   };
@@ -140,5 +153,53 @@ describe("preview bridge runtime", () => {
     env.scroller.scrollTop = 0;
     env.handlers.message?.({ data: { type: "scrollTo", fraction: 0.9 } });
     expect(env.scroller.scrollTop).toBe(0);
+  });
+
+  it("applies a parent-driven zoom factor to the document root", () => {
+    env.sendDown({ type: "setZoom", factor: 2 } as unknown as Posted);
+    expect(env.style.zoom).toBe("2");
+  });
+
+  it("ignores a non-positive or non-finite zoom factor", () => {
+    env.sendDown({ type: "setZoom", factor: 1.5 } as unknown as Posted);
+    env.sendDown({ type: "setZoom", factor: 0 } as unknown as Posted);
+    env.sendDown({ type: "setZoom", factor: Number.NaN } as unknown as Posted);
+    env.sendDown({ type: "setZoom", factor: -3 } as unknown as Posted);
+    expect(env.style.zoom).toBe("1.5"); // last valid value held
+  });
+
+  it("forwards Cmd+= / Cmd+- / Cmd+0 over the preview as zoom intents", () => {
+    expect(env.fireKey({ key: "=", metaKey: true })).toBe(true);
+    expect(env.fireKey({ key: "-", metaKey: true })).toBe(true);
+    expect(env.fireKey({ key: "0", metaKey: true })).toBe(true);
+    const intents = env.posted.filter(
+      (m) => m.type === "zoomStep" || m.type === "zoomReset",
+    );
+    expect(intents).toEqual([
+      { source: "writ-preview", dir: "up", type: "zoomStep", direction: 1 },
+      { source: "writ-preview", dir: "up", type: "zoomStep", direction: -1 },
+      { source: "writ-preview", dir: "up", type: "zoomReset" },
+    ]);
+  });
+
+  it("leaves an unmodified keystroke alone so typing in the preview is untouched", () => {
+    const before = env.posted.length;
+    expect(env.fireKey({ key: "=", metaKey: false })).toBe(false);
+    expect(env.posted.length).toBe(before);
+  });
+
+  it("forwards Cmd/Ctrl + wheel as a zoom-wheel intent and swallows the scroll", () => {
+    expect(env.fireWheel({ deltaY: -120, ctrlKey: true })).toBe(true);
+    const wheel = env.posted.filter((m) => m.type === "zoomWheel");
+    expect(wheel).toEqual([
+      { source: "writ-preview", dir: "up", type: "zoomWheel", deltaY: -120 },
+    ]);
+  });
+
+  it("leaves a plain wheel event to scroll the preview normally", () => {
+    const before = env.posted.length;
+    expect(env.fireWheel({ deltaY: 120 })).toBe(false);
+    expect(env.posted.some((m) => m.type === "zoomWheel")).toBe(false);
+    expect(env.posted.length).toBe(before);
   });
 });

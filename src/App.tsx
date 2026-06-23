@@ -30,6 +30,7 @@ import PromptFillModal from "./components/PromptFill/PromptFillModal";
 import { registerPreviewKeymap } from "./keymap/preview";
 import { rendererRegistry } from "./stores/global/renderer-registry";
 import { previewListRenderers, getRecoveredBuffers } from "./services/tauri";
+import { editorZoom } from "./stores/global/editor-zoom";
 import { registerCommand, executeCommand, getAllCommands, setExecuteListener } from "./commands/registry";
 import {
   installKeyboardHandler,
@@ -334,6 +335,39 @@ function AppShell() {
       keybindingAliases: ["CmdOrCtrl+Alt+F"],
       scope: "editor",
       execute: () => findStore.showReplace(),
+    });
+
+    registerCommand({
+      id: "editor.zoomIn",
+      label: "Increase Editor Font Size",
+      description: "Make the editor text larger",
+      keybinding: "CmdOrCtrl+=",
+      keybindingAliases: ["CmdOrCtrl+Shift++"],
+      scope: "app",
+      // Global: the editor holds focus almost always, so a focus-gated zoom
+      // chord would never reach the handler from where it is used.
+      global: true,
+      execute: () => editorZoom.zoomIn(),
+    });
+
+    registerCommand({
+      id: "editor.zoomOut",
+      label: "Decrease Editor Font Size",
+      description: "Make the editor text smaller",
+      keybinding: "CmdOrCtrl+-",
+      scope: "app",
+      global: true,
+      execute: () => editorZoom.zoomOut(),
+    });
+
+    registerCommand({
+      id: "editor.zoomReset",
+      label: "Reset Editor Font Size",
+      description: "Restore the editor text to its default size",
+      keybinding: "CmdOrCtrl+0",
+      scope: "app",
+      global: true,
+      execute: () => editorZoom.reset(),
     });
 
     registerCommand({
