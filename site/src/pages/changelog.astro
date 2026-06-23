@@ -19,7 +19,7 @@ const releases = [
   {
     version: '0.0.3',
     date: '2026-04-12',
-    label: 'internal beta',
+    label: 'pre-release',
     notes: [
       { kind: 'changed', text: 'rewrote tab persistence on top of SQLite WAL.' },
       { kind: 'fixed',   text: 'autosave race when the OS suspends mid-write.' },
@@ -29,7 +29,7 @@ const releases = [
   {
     version: '0.0.2',
     date: '2026-03-30',
-    label: 'private alpha',
+    label: 'pre-release',
     notes: [
       { kind: 'added', text: 'first pass at the dark terminal-night theme.' },
       { kind: 'added', text: 'tray icon and global hotkey on Windows.' },
@@ -38,7 +38,7 @@ const releases = [
   {
     version: '0.0.1',
     date: '2026-03-14',
-    label: 'first build that opens',
+    label: 'first build',
     notes: [
       { kind: 'added', text: 'tauri shell, single-window editor, save-to-disk on quit.' },
     ],
@@ -46,10 +46,10 @@ const releases = [
 ];
 
 const kindColor: Record<string, string> = {
-  added: 'var(--accent)',
-  changed: 'var(--syntax-keyword)',
-  fixed: 'var(--success)',
-  removed: 'var(--destructive)',
+  added:   'var(--accent)',
+  changed: 'var(--warn)',
+  fixed:   'var(--ok)',
+  removed: 'var(--err)',
 };
 ---
 <Base
@@ -58,19 +58,15 @@ const kindColor: Record<string, string> = {
   path="/changelog/"
 >
   <section class="cl">
-    <div class="container container-narrow cl-inner">
+    <div class="cl-wrap">
       <header class="cl-head">
-        <span class="eyebrow">/* changelog */</span>
-        <h1>What changed.</h1>
-        <p class="cl-sub">
-          Rendered from <a href="https://github.com/ibrahemid/writ/blob/main/CHANGELOG.md" rel="noopener" target="_blank">CHANGELOG.md</a>.
-          Newest first.
-        </p>
+        <h1>Changelog</h1>
+        <p class="cl-sub">Newest first.</p>
       </header>
 
       {releases.map((r) => (
         <article class="rel" id={`v${r.version}`}>
-          <hr class="rule" />
+          <hr class="rel-rule" />
           <header class="rel-head">
             <h2>v{r.version}</h2>
             <span class="rel-date">{r.date}</span>
@@ -79,7 +75,7 @@ const kindColor: Record<string, string> = {
           <ul class="rel-notes">
             {r.notes.map((n) => (
               <li>
-                <span class="rel-kind" style={{ color: kindColor[n.kind] || 'var(--muted-foreground)' }}>{n.kind}</span>
+                <span class="rel-kind" style={{ color: kindColor[n.kind] || 'var(--muted)' }}>{n.kind}</span>
                 <span class="rel-text">{n.text}</span>
               </li>
             ))}
@@ -90,67 +86,72 @@ const kindColor: Record<string, string> = {
   </section>
 
   <style>
-    .cl { padding: var(--space-12) 0 var(--space-16); }
-    .cl-inner { display: flex; flex-direction: column; gap: var(--space-10); }
-    .cl-head { display: flex; flex-direction: column; gap: var(--space-3); }
+    .cl { padding: 6rem 0 8rem; }
+    .cl-wrap { width: min(720px, 100% - 48px); margin: 0 auto; display: flex; flex-direction: column; gap: 3rem; }
+    .cl-head { display: flex; flex-direction: column; gap: 0.5rem; }
     .cl-head h1 {
+      font-family: var(--disp);
+      font-size: clamp(28px, 4vw, 46px);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--ink);
       margin: 0;
-      font-size: var(--text-3xl);
-      letter-spacing: -0.025em;
     }
-    .cl-sub { color: var(--muted-foreground); margin: 0; }
+    .cl-sub { color: var(--muted); margin: 0; font-family: var(--mono); font-size: 13px; }
 
-    .rel { display: flex; flex-direction: column; gap: var(--space-4); padding-top: var(--space-6); }
+    .rel { display: flex; flex-direction: column; gap: 1rem; }
+    .rel-rule { border: none; border-top: 1px solid var(--line); margin: 0; }
     .rel-head {
       display: flex;
       align-items: baseline;
-      gap: var(--space-4);
+      gap: 1rem;
       flex-wrap: wrap;
+      padding-top: 1.25rem;
     }
     .rel-head h2 {
       margin: 0;
-      font-family: var(--font-mono-display);
-      font-size: var(--text-xl);
+      font-family: var(--mono);
+      font-size: 1.1rem;
       color: var(--accent);
-      letter-spacing: -0.015em;
+      letter-spacing: -0.01em;
     }
     .rel-date {
-      font-family: var(--font-mono-display);
-      font-size: var(--text-sm);
-      color: var(--muted-foreground);
-      font-feature-settings: 'tnum';
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
     }
     .rel-label {
-      font-family: var(--font-mono-display);
-      font-size: var(--text-xs);
-      color: var(--ink-faint);
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--subtle);
       text-transform: uppercase;
-      letter-spacing: var(--tracking-caps);
+      letter-spacing: 0.08em;
     }
-    .rel-notes { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+    .rel-notes { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.25rem; }
     .rel-notes li {
       display: grid;
-      grid-template-columns: 84px 1fr;
-      gap: var(--space-3);
+      grid-template-columns: 72px 1fr;
+      gap: 0.75rem;
       align-items: baseline;
-      padding: var(--space-2) 0;
+      padding: 0.35rem 0;
     }
     .rel-kind {
-      font-family: var(--font-mono-display);
-      font-size: var(--text-xs);
+      font-family: var(--mono);
+      font-size: 11px;
       text-transform: uppercase;
-      letter-spacing: var(--tracking-caps);
+      letter-spacing: 0.08em;
       font-weight: 600;
     }
     .rel-text {
-      font-family: var(--font-mono-display);
-      font-size: var(--text-sm);
-      color: var(--foreground);
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--muted);
       line-height: 1.6;
     }
 
     @media (max-width: 640px) {
-      .rel-notes li { grid-template-columns: 64px 1fr; }
+      .rel-notes li { grid-template-columns: 56px 1fr; }
     }
   </style>
 </Base>

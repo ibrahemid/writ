@@ -7,11 +7,10 @@ import Base from '../layouts/Base.astro';
   path="/privacy/"
 >
   <section class="pr">
-    <div class="container container-narrow pr-inner">
+    <div class="pr-wrap">
       <header class="pr-head">
-        <span class="eyebrow">/* privacy */</span>
         <h1>Local only. No telemetry.</h1>
-        <p class="pr-meta">Last reviewed 2026-04-29.</p>
+        <p class="pr-meta">Last reviewed 2026-06-24.</p>
       </header>
 
       <div class="pr-body">
@@ -23,8 +22,12 @@ import Base from '../layouts/Base.astro';
         <h2>What the app does on the network</h2>
         <p>
           By default the desktop app makes one outbound request: at launch, it asks GitHub whether a newer release exists.
-          That request sends only your platform and the current Writ version. You can disable it in settings;
+          That request sends only your platform and the current Writ version. You can disable it in Settings;
           when disabled, Writ makes zero network requests for the rest of the session.
+        </p>
+        <p>
+          The preview pane runs under a fixed content-security-policy (<code>default-src 'none'</code>) in an isolated origin.
+          Rendered HTML makes no network calls.
         </p>
         <p>
           Writ does not send crash reports, usage analytics, telemetry, or beacons. There is no opt-out because there is nothing to opt out of.
@@ -32,14 +35,14 @@ import Base from '../layouts/Base.astro';
 
         <h2>What this site does</h2>
         <p>
-          This site is a static export served from GitHub Pages. It loads the brand mark and uses your system fonts.
+          This site is a static export served from GitHub Pages. It self-hosts its fonts.
           It runs no analytics scripts, sets no cookies, and does not embed third-party widgets.
         </p>
 
         <h2>Data export and deletion</h2>
         <p>
           Your buffers are plain rows in a local SQLite file. Copy it to back up; delete it to reset.
-          The path is shown in <code>Settings → Storage</code>.
+          The path is shown in <code>Settings &rarr; Storage</code>.
         </p>
 
         <h2>Source of truth</h2>
@@ -53,45 +56,51 @@ import Base from '../layouts/Base.astro';
   </section>
 
   <style>
-    .pr { padding: var(--space-12) 0 var(--space-16); }
-    .pr-inner { display: flex; flex-direction: column; gap: var(--space-10); }
-    .pr-head { display: flex; flex-direction: column; gap: var(--space-3); }
+    .pr { padding: 6rem 0 8rem; }
+    .pr-wrap { width: min(720px, 100% - 48px); margin: 0 auto; display: flex; flex-direction: column; gap: 2.5rem; }
+    .pr-head { display: flex; flex-direction: column; gap: 0.5rem; }
     .pr-head h1 {
+      font-family: var(--disp);
+      font-size: clamp(28px, 4vw, 46px);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--ink);
       margin: 0;
-      font-size: var(--text-3xl);
-      letter-spacing: -0.025em;
     }
     .pr-meta {
-      color: var(--ink-faint);
-      font-family: var(--font-mono-display);
-      font-size: var(--text-xs);
+      color: var(--subtle);
+      font-family: var(--mono);
+      font-size: 11px;
       text-transform: uppercase;
-      letter-spacing: var(--tracking-caps);
+      letter-spacing: 0.08em;
       margin: 0;
     }
     .pr-body {
       display: flex;
       flex-direction: column;
-      gap: var(--space-5);
-      font-family: var(--font-mono-display);
-      font-size: var(--text-base);
+      gap: 1.25rem;
+      font-size: 15px;
       line-height: 1.7;
-      color: var(--foreground);
+      color: var(--ink);
     }
-    .pr-body p { color: var(--foreground); margin: 0; max-width: 64ch; }
+    .pr-body p { color: var(--muted); margin: 0; max-width: 64ch; }
     .pr-body h2 {
-      margin: var(--space-4) 0 0;
-      font-family: var(--font-mono-display);
-      font-size: var(--text-md);
-      color: var(--accent);
-      letter-spacing: -0.005em;
+      margin: 0.5rem 0 0;
+      font-family: var(--disp);
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--ink);
+      letter-spacing: -0.01em;
     }
     .pr-body code {
-      background: var(--accent-soft);
-      color: var(--foreground);
+      font-family: var(--mono);
+      background: var(--elevated);
+      color: var(--ink);
       padding: 1px 6px;
-      border-radius: var(--radius-sm);
-      font-size: 0.92em;
+      border-radius: 4px;
+      font-size: 0.88em;
     }
+    .pr-body a { color: var(--accent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+    .pr-body a:hover { text-decoration-color: var(--accent); }
   </style>
 </Base>

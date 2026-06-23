@@ -1,5 +1,6 @@
 ---
 import Base from '../layouts/Base.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 <Base
   title="404 — this page wasn't autosaved"
@@ -42,7 +43,7 @@ try one of:
           <span class="nf-dot" aria-hidden="true"></span>
           <span>not found · 404</span>
           <span class="nf-status-right">
-            <a href="/writ/" class="bracket-link">go home</a>
+            <a href={`${base}/`} class="bracket-link">go home</a>
           </span>
         </div>
       </div>
@@ -50,23 +51,23 @@ try one of:
   </section>
 
   <style>
-    .nf { padding: var(--space-16) 0; }
+    .nf { padding: 6rem 0; }
     .nf-inner { max-width: 720px; margin: 0 auto; }
     .nf-frame {
-      border-radius: var(--radius-lg);
+      border-radius: 12px;
       overflow: hidden;
-      background: var(--syntax-bg);
-      border: 1px solid var(--border-strong);
-      box-shadow: var(--card-shadow-hover);
-      font-family: var(--font-mono-display);
+      background: var(--elevated);
+      border: 1px solid var(--line);
+      box-shadow: var(--win-shadow);
+      font-family: var(--mono);
     }
     .nf-chrome {
       display: flex;
       align-items: center;
       gap: 12px;
       padding: 10px 14px;
-      background: color-mix(in oklab, var(--syntax-bg) 70%, var(--background));
-      border-bottom: 1px solid var(--border);
+      background: color-mix(in oklab, var(--elevated) 70%, var(--paper));
+      border-bottom: 1px solid var(--line);
     }
     .nf-traffic { display: flex; gap: 6px; }
     .nf-traffic span { width: 11px; height: 11px; border-radius: 999px; display: block; }
@@ -75,20 +76,20 @@ try one of:
       font-size: 12px;
       padding: 4px 10px;
       border-radius: 6px;
-      color: var(--syntax-fg);
-      background: var(--background);
-      border: 1px solid var(--border);
+      color: var(--ink);
+      background: var(--paper);
+      border: 1px solid var(--line);
     }
     .nf-keys { margin-left: auto; display: inline-flex; gap: 4px; }
     .nf-keys kbd { font-size: 11px; }
 
     .nf-pre {
       margin: 0;
-      padding: var(--space-6);
-      font-family: var(--font-mono-display);
-      font-size: var(--text-sm);
+      padding: 1.5rem;
+      font-family: var(--mono);
+      font-size: 13px;
       line-height: 1.75;
-      color: var(--syntax-fg);
+      color: var(--ink);
       white-space: pre;
       overflow-x: auto;
     }
@@ -99,14 +100,14 @@ try one of:
       gap: 10px;
       padding: 8px 14px;
       font-size: 12px;
-      color: var(--muted-foreground);
-      border-top: 1px solid var(--border);
-      background: color-mix(in oklab, var(--syntax-bg) 70%, var(--background));
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      background: color-mix(in oklab, var(--elevated) 70%, var(--paper));
     }
     .nf-dot {
       width: 7px; height: 7px; border-radius: 999px;
-      background: var(--destructive);
-      box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive) 22%, transparent);
+      background: var(--err);
+      box-shadow: 0 0 0 3px color-mix(in oklab, var(--err) 22%, transparent);
     }
     .nf-status-right { margin-left: auto; }
   </style>

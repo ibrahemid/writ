@@ -40,5 +40,22 @@
     "number": "#ff9e64",
     "type": "#2ac3de",
     "variable": "#c0caf5"
+  },
+  "site": {
+    "paper": "#0b0b11",
+    "paper2": "#101019",
+    "seam": "rgba(255,255,255,.06)",
+    "winShadow": "0 2px 8px rgba(0,0,0,.5),0 30px 66px -22px rgba(0,0,0,.72),0 60px 110px -54px rgba(138,166,255,.13)",
+    "panelShadow": "0 2px 6px rgba(0,0,0,.45),0 18px 44px -18px rgba(0,0,0,.7)",
+    "traffic": {
+      "close": "#ff5f57",
+      "min": "#febc2e",
+      "max": "#28c840"
+    },
+    "subtle": "#9a9bb0",
+    "accent": "#8aa6ff",
+    "accentHover": "#a3bbff",
+    "ease": "cubic-bezier(.33,1,.68,1)",
+    "spring": "cubic-bezier(.22,1,.36,1)"
   }
 }

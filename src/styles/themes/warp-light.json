@@ -40,5 +40,20 @@
     "number": "#b8500a",
     "type": "#1a7a8c",
     "variable": "#2a2a38"
+  },
+  "site": {
+    "paper": "#f6f4ef",
+    "paper2": "#efece4",
+    "seam": "rgba(255,255,255,.92)",
+    "winShadow": "0 1px 1px rgba(26,26,34,.04),0 2px 8px rgba(26,26,34,.06),0 28px 56px -18px rgba(26,26,34,.24),0 60px 110px -54px rgba(59,91,219,.18)",
+    "panelShadow": "0 1px 2px rgba(26,26,34,.05),0 18px 44px -18px rgba(26,26,34,.30)",
+    "traffic": {
+      "close": "#ff5f57",
+      "min": "#febc2e",
+      "max": "#28c840"
+    },
+    "subtle": "#69697e",
+    "ease": "cubic-bezier(.33,1,.68,1)",
+    "spring": "cubic-bezier(.22,1,.36,1)"
   }
 }

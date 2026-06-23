@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/writ-core",
+    "crates/writ-render",
     "crates/writ-storage",
     "crates/writ-plugin",
     "crates/writ-cli",
