@@ -136,6 +136,7 @@ describe("PreviewLayout — scratch buffer with renderable title (regression for
       "html",
       expect.any(String),
       "dark",
+      1,
     );
   });
 
@@ -166,7 +167,7 @@ describe("PreviewLayout — scratch buffer with renderable title (regression for
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(mocks.forceRender).toHaveBeenCalledWith(9002, "B2", "html", "<h1>hi</h1>", "dark");
+      expect(mocks.forceRender).toHaveBeenCalledWith(9002, "B2", "html", "<h1>hi</h1>", "dark", 1);
     } finally {
       vi.useRealTimers();
     }

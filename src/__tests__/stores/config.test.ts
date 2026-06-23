@@ -179,4 +179,71 @@ describe("configStore", () => {
       expect(mockedUpdateConfig).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("editor font size", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    });
+
+    it("applies a new font size optimistically to the live config", async () => {
+      await configStore.save(MOCK_CONFIG);
+
+      configStore.setEditorFontSize(22);
+
+      expect(configStore.config().editor.font_size).toBe(22);
+    });
+
+    it("clamps below the minimum and above the maximum", async () => {
+      await configStore.save(MOCK_CONFIG);
+
+      configStore.setEditorFontSize(2);
+      expect(configStore.config().editor.font_size).toBe(8);
+
+      configStore.setEditorFontSize(999);
+      expect(configStore.config().editor.font_size).toBe(72);
+    });
+
+    it("rounds fractional sizes and ignores non-finite input", async () => {
+      await configStore.save(MOCK_CONFIG);
+
+      configStore.setEditorFontSize(18.6);
+      expect(configStore.config().editor.font_size).toBe(19);
+
+      configStore.setEditorFontSize(Number.NaN);
+      expect(configStore.config().editor.font_size).toBe(14);
+    });
+
+    it("debounces persistence so a fast zoom coalesces into one updateConfig", async () => {
+      await configStore.save(MOCK_CONFIG);
+      mockedUpdateConfig.mockClear();
+
+      configStore.setEditorFontSize(17);
+      configStore.setEditorFontSize(18);
+      configStore.setEditorFontSize(19);
+
+      await vi.advanceTimersByTimeAsync(749);
+      expect(mockedUpdateConfig).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mockedUpdateConfig).toHaveBeenCalledTimes(1);
+      expect(mockedUpdateConfig.mock.calls[0][0].editor.font_size).toBe(19);
+    });
+
+    it("does not schedule a write when the size is unchanged", async () => {
+      await configStore.save({
+        ...MOCK_CONFIG,
+        editor: { ...MOCK_CONFIG.editor, font_size: 20 },
+      });
+      mockedUpdateConfig.mockClear();
+
+      configStore.setEditorFontSize(20);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(mockedUpdateConfig).not.toHaveBeenCalled();
+    });
+  });
 });

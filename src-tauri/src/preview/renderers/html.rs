@@ -71,6 +71,13 @@ impl ContentRenderer for HtmlRenderer {
         // governs only the stylesheet, never whether the scroll-sync / find
         // bridge is present.
         let document_html = inject_bridge(&styled);
+        // Bake a non-native zoom onto the root so a re-render opens already
+        // scaled (no 1x pop), mirroring how wrapped renderers carry it on the
+        // <html> tag. Native zoom skips the work and leaves the bytes untouched.
+        let document_html = match theme::css_zoom(request.zoom) {
+            Some(z) => insert_into_head(&document_html, &format!("<style>:root{{zoom:{z}}}</style>")),
+            None => document_html,
+        };
 
         Ok(RenderOutput {
             document_html,
@@ -124,42 +131,36 @@ fn has_author_styles(html: &str) -> bool {
 /// leading `<style>` into the head regardless, so the prepend fallback is
 /// safe; we still prefer the head for well-formed documents.
 fn inject_fallback_stylesheet(html: &str) -> String {
-    let style = theme::style_tag();
+    insert_into_head(html, &theme::style_tag())
+}
+
+/// Insert `snippet` into the document head: right after `<head>`, else after a
+/// `<head ...>` open tag, else after the `<html ...>` open tag, else prepended.
+/// The webview's permissive parser hoists a leading element into the head, so
+/// the prepend fallback is safe for fragments; well-formed documents still get
+/// it inside the head.
+fn insert_into_head(html: &str, snippet: &str) -> String {
     let lower = html.to_ascii_lowercase();
+    let insert_at = if let Some(idx) = lower.find("<head>") {
+        Some(idx + "<head>".len())
+    } else if let Some(idx) = lower.find("<head") {
+        lower[idx..].find('>').map(|gt| idx + gt + 1)
+    } else if let Some(idx) = lower.find("<html") {
+        lower[idx..].find('>').map(|gt| idx + gt + 1)
+    } else {
+        None
+    };
 
-    if let Some(idx) = lower.find("<head>") {
-        let insert_at = idx + "<head>".len();
-        let mut out = String::with_capacity(html.len() + style.len());
-        out.push_str(&html[..insert_at]);
-        out.push_str(&style);
-        out.push_str(&html[insert_at..]);
-        return out;
-    }
-
-    if let Some(idx) = lower.find("<head") {
-        // <head> with attributes: insert after the closing '>'.
-        if let Some(gt) = lower[idx..].find('>') {
-            let insert_at = idx + gt + 1;
-            let mut out = String::with_capacity(html.len() + style.len());
-            out.push_str(&html[..insert_at]);
-            out.push_str(&style);
-            out.push_str(&html[insert_at..]);
-            return out;
+    match insert_at {
+        Some(at) => {
+            let mut out = String::with_capacity(html.len() + snippet.len());
+            out.push_str(&html[..at]);
+            out.push_str(snippet);
+            out.push_str(&html[at..]);
+            out
         }
+        None => format!("{snippet}{html}"),
     }
-
-    if let Some(idx) = lower.find("<html") {
-        if let Some(gt) = lower[idx..].find('>') {
-            let insert_at = idx + gt + 1;
-            let mut out = String::with_capacity(html.len() + style.len());
-            out.push_str(&html[..insert_at]);
-            out.push_str(&style);
-            out.push_str(&html[insert_at..]);
-            return out;
-        }
-    }
-
-    format!("{style}{html}")
 }
 
 /// Inject the first-party bridge `<script>` into the served HTML.
@@ -221,7 +222,43 @@ mod tests {
             content_type: HtmlRenderer::content_type_id(),
             buffer_text: text.to_string(),
             theme: Default::default(),
+            zoom: 1.0,
         }
+    }
+
+    fn req_zoomed(text: &str, zoom: f64) -> RenderRequest {
+        RenderRequest {
+            content_type: HtmlRenderer::content_type_id(),
+            buffer_text: text.to_string(),
+            theme: Default::default(),
+            zoom,
+        }
+    }
+
+    #[test]
+    fn non_native_zoom_is_baked_into_the_author_document_head() {
+        let out = HtmlRenderer
+            .render(req_zoomed(
+                "<html><head></head><body><p>hi</p></body></html>",
+                2.0,
+            ))
+            .unwrap();
+        assert!(
+            out.document_html.contains("<style>:root{zoom:2}</style>"),
+            "got: {}",
+            out.document_html
+        );
+        let head_idx = out.document_html.find("<head>").unwrap();
+        let zoom_idx = out.document_html.find("zoom:2").unwrap();
+        assert!(zoom_idx > head_idx, "zoom style must sit inside the head");
+    }
+
+    #[test]
+    fn native_zoom_leaves_the_author_document_unzoomed() {
+        let out = HtmlRenderer
+            .render(req("<html><head></head><body><p>hi</p></body></html>"))
+            .unwrap();
+        assert!(!out.document_html.contains("zoom:"));
     }
 
     #[test]

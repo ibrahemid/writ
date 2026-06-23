@@ -13,7 +13,7 @@ const writThemeSpec = {
       color: "var(--writ-foreground-default)",
       backgroundColor: "var(--writ-surface-background)",
       height: "100%",
-      fontSize: "var(--writ-font-size)",
+      fontSize: "var(--writ-editor-font-size, var(--writ-font-size))",
       fontFamily: "var(--writ-font-mono)",
     },
     ".cm-scroller": {

@@ -186,6 +186,7 @@ mod tests {
                 content_type: ContentTypeId::new("html"),
                 buffer_text: "hi".to_string(),
                 theme: Default::default(),
+                zoom: 1.0,
             })
             .unwrap();
         assert!(out.document_html.contains("<stub>2</stub>"));

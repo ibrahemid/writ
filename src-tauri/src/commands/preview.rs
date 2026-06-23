@@ -150,6 +150,7 @@ pub enum PreviewRenderResult {
     },
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_render(
     app: &AppHandle,
     state: &AppState,
@@ -158,6 +159,7 @@ fn run_render(
     content_type: String,
     text: String,
     theme: ThemePolarity,
+    zoom: f64,
 ) -> PreviewRenderResult {
     let ctype = ContentTypeId::new(content_type.clone());
 
@@ -175,6 +177,7 @@ fn run_render(
         content_type: ctype,
         buffer_text: text,
         theme,
+        zoom,
     });
     drop(registry);
 
@@ -228,6 +231,7 @@ fn render_error_message(err: &RenderError) -> String {
 /// Render the live buffer text and cache the result for the protocol
 /// handler. Invoked by the frontend debouncer after a keystroke.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn preview_render(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -236,14 +240,16 @@ pub fn preview_render(
     content_type: String,
     text: String,
     theme: ThemePolarity,
+    zoom: f64,
 ) -> PreviewRenderResult {
-    run_render(&app, &state, window_id, buffer_id, content_type, text, theme)
+    run_render(&app, &state, window_id, buffer_id, content_type, text, theme, zoom)
 }
 
 /// Force a render regardless of frontend debounce gating (Cmd+R). Identical
 /// to [`preview_render`] at the IPC boundary; the debounce lives frontend-
 /// side.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn preview_force_render(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -252,6 +258,7 @@ pub fn preview_force_render(
     content_type: String,
     text: String,
     theme: ThemePolarity,
+    zoom: f64,
 ) -> PreviewRenderResult {
-    run_render(&app, &state, window_id, buffer_id, content_type, text, theme)
+    run_render(&app, &state, window_id, buffer_id, content_type, text, theme, zoom)
 }

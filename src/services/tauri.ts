@@ -417,8 +417,9 @@ export async function previewRender(
   contentType: string,
   text: string,
   theme: ThemePolarity,
+  zoom: number,
 ): Promise<PreviewRenderResult> {
-  return invoke("preview_render", { windowId, bufferId, contentType, text, theme });
+  return invoke("preview_render", { windowId, bufferId, contentType, text, theme, zoom });
 }
 
 export async function previewForceRender(
@@ -427,8 +428,9 @@ export async function previewForceRender(
   contentType: string,
   text: string,
   theme: ThemePolarity,
+  zoom: number,
 ): Promise<PreviewRenderResult> {
-  return invoke("preview_force_render", { windowId, bufferId, contentType, text, theme });
+  return invoke("preview_force_render", { windowId, bufferId, contentType, text, theme, zoom });
 }
 
 export async function previewClose(bufferId: string): Promise<void> {
