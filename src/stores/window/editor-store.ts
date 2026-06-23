@@ -47,6 +47,27 @@ export function createEditorStore() {
     setExternalReload({ id: bufferId, seq: reloadSeq });
   }
 
+  // A request to move the cursor to a line and scroll it into view, raised when
+  // a search result is opened. EditorInstance consumes it once the matching
+  // buffer is loaded (gating on currentBufferId), so a reveal fired before an
+  // async tab switch finishes still lands on the right line. The seq makes
+  // repeated reveals of the same buffer/line each fire.
+  const [pendingReveal, setPendingReveal] =
+    createSignal<{ bufferId: string; line: number; seq: number } | null>(null);
+  let revealSeq = 0;
+
+  function requestReveal(bufferId: string, line: number) {
+    revealSeq += 1;
+    setPendingReveal({ bufferId, line, seq: revealSeq });
+  }
+
+  // Cleared by EditorInstance once a reveal has been applied, so a later
+  // republish of currentBufferId for an already-loaded buffer can never re-yank
+  // the cursor to a stale search line.
+  function clearReveal() {
+    setPendingReveal(null);
+  }
+
   let activeView: EditorView | null = null;
 
   function registerView(view: EditorView | null) {
@@ -108,6 +129,7 @@ export function createEditorStore() {
     currentText, setCurrentText,
     currentBufferId, setCurrentBufferId,
     externalReload, requestExternalReload,
+    pendingReveal, requestReveal, clearReveal,
     largeFileMode, setLargeFileMode,
     registerView, getView, focusEditor,
     getActiveText,

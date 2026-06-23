@@ -355,6 +355,24 @@ export default function EditorInstance(props: Props) {
     { defer: true },
   ));
 
+  // Reveal a line requested by a search result. Tracks both the request and the
+  // loaded-buffer id so a reveal raised before an async tab switch finishes
+  // fires once the matching buffer's content is in the view (loadBuffer
+  // publishes currentBufferId last), landing on the right line either way.
+  createEffect(on(
+    () => [win.editor.pendingReveal(), win.editor.currentBufferId()] as const,
+    ([req]) => {
+      if (!req || !view || req.bufferId !== currentBufferId) return;
+      const total = view.state.doc.lines;
+      const target = Math.min(Math.max(req.line, 1), total);
+      const line = view.state.doc.line(target);
+      view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
+      view.focus();
+      win.editor.clearReveal();
+    },
+    { defer: true },
+  ));
+
   createEffect(on(
     () => [props.buffer.title, props.buffer.filename] as const,
     () => {
