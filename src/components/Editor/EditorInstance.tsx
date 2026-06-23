@@ -17,6 +17,7 @@ import type { BufferDocument, FileOpenMode } from "../../types/buffer";
 import { debouncedSave, cancelAutosave, flushAutosave } from "../../services/autosave";
 import { detectLanguage, detectFromContent } from "../../services/language-detect";
 import { configStore } from "../../stores/global/config";
+import { editorZoom } from "../../stores/global/editor-zoom";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { findStore } from "../../stores/global/find-store";
 import { useWindow } from "../WindowProvider/WindowProvider";
@@ -316,7 +317,18 @@ export default function EditorInstance(props: Props) {
     win.editor.setLineCount(view.state.doc.lines);
   }
 
+  // Cmd/Ctrl + wheel (and trackpad pinch, which the OS reports as ctrl+wheel)
+  // zooms the editor font. Attached non-passive so preventDefault can suppress
+  // the webview's own page-zoom; plain scroll (no modifier) is left untouched.
+  function onWheelZoom(event: WheelEvent) {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    editorZoom.handleWheel(event.deltaY, event.timeStamp);
+  }
+
   onMount(() => {
+    containerRef.addEventListener("wheel", onWheelZoom, { passive: false });
+
     registerCommand({
       id: "editor.addCursorUp",
       label: "Add Cursor Above",
@@ -407,6 +419,7 @@ export default function EditorInstance(props: Props) {
   });
 
   onCleanup(() => {
+    containerRef.removeEventListener("wheel", onWheelZoom);
     if (currentBufferId) {
       cancelAutosave(currentBufferId);
     }

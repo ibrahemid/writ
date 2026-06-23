@@ -1,5 +1,5 @@
 import { createSignal, createEffect, onCleanup, onMount, Show, Switch, Match } from "solid-js";
-import { configStore } from "../../stores/global/config";
+import { configStore, EDITOR_FONT_MIN, EDITOR_FONT_MAX } from "../../stores/global/config";
 import { inboxStore } from "../../stores/global/inbox";
 import { themeStore } from "../../stores/global/theme";
 import { updateStore } from "../../stores/global/update";
@@ -69,7 +69,7 @@ function EditorSection() {
   const cfg = () => configStore.config().editor;
 
   function onFontSizeChange(raw: string) {
-    const value = clamp(parseIntSafe(raw, cfg().font_size), 8, 72);
+    const value = clamp(parseIntSafe(raw, cfg().font_size), EDITOR_FONT_MIN, EDITOR_FONT_MAX);
     void patchConfig((prev) => ({ ...prev, editor: { ...prev.editor, font_size: value } }));
   }
 
@@ -93,8 +93,8 @@ function EditorSection() {
           class="settings-input settings-input-number"
           data-setting="font_size"
           value={cfg().font_size}
-          min={8}
-          max={72}
+          min={EDITOR_FONT_MIN}
+          max={EDITOR_FONT_MAX}
           onChange={(e) => onFontSizeChange(e.currentTarget.value)}
         />
       </div>

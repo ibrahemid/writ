@@ -72,7 +72,7 @@ export function pruneLegacyDefaultOverrides(
   return changed ? result : { ...loaded };
 }
 
-function normalizeKey(e: KeyboardEvent): string {
+export function normalizeKey(e: KeyboardEvent): string {
   const parts: string[] = [];
   if (e.metaKey || e.ctrlKey) parts.push("CmdOrCtrl");
   if (e.shiftKey && e.key !== "Shift") parts.push("Shift");

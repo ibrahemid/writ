@@ -47,6 +47,37 @@
     scroller.scrollTop = target;
   }
 
+  // ---- zoom ------------------------------------------------------------
+  // The editor zoom factor (1 = native) is applied to the document root as a
+  // live override of the factor baked into the served HTML. Cmd+=/-/0 and
+  // Cmd/Ctrl+wheel over the preview are forwarded up as intents, since the host
+  // never sees keys or wheel events delivered to this cross-origin frame.
+  function applyZoom(factor) {
+    if (typeof factor !== "number" || !isFinite(factor) || factor <= 0) return;
+    doc.documentElement.style.zoom = String(factor);
+  }
+
+  function onZoomKey(ev) {
+    if (!ev.ctrlKey && !ev.metaKey) return;
+    var key = ev.key;
+    if (key === "=" || key === "+") {
+      ev.preventDefault();
+      post({ type: "zoomStep", direction: 1 });
+    } else if (key === "-" || key === "_") {
+      ev.preventDefault();
+      post({ type: "zoomStep", direction: -1 });
+    } else if (key === "0") {
+      ev.preventDefault();
+      post({ type: "zoomReset" });
+    }
+  }
+
+  function onZoomWheel(ev) {
+    if (!ev.ctrlKey && !ev.metaKey) return;
+    ev.preventDefault();
+    post({ type: "zoomWheel", deltaY: ev.deltaY });
+  }
+
   // ---- find ------------------------------------------------------------
   // In-preview find. Matches are located over the document's concatenated text
   // (so a query spanning inline elements is found) and painted by wrapping each
@@ -270,10 +301,14 @@
       } else {
         doc.documentElement.removeAttribute("data-writ-theme");
       }
+    } else if (d.type === "setZoom") {
+      applyZoom(d.factor);
     }
   }
 
   win.addEventListener("scroll", onScroll, { passive: true });
   win.addEventListener("message", onMessage);
+  win.addEventListener("keydown", onZoomKey);
+  win.addEventListener("wheel", onZoomWheel, { passive: false });
   post({ type: "ready" });
 })(window, document, parent);

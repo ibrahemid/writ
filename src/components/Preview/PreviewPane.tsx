@@ -1,6 +1,7 @@
 import { Show, createSignal, createEffect, on, onMount, onCleanup, untrack } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
-import { configStore } from "../../stores/global/config";
+import { configStore, EDITOR_FONT_DEFAULT } from "../../stores/global/config";
+import { editorZoom } from "../../stores/global/editor-zoom";
 import { themeStore } from "../../stores/global/theme";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { createPreviewBridge } from "../../lib/preview-bridge";
@@ -49,6 +50,15 @@ export default function PreviewPane(props: Props) {
     return win.editor.getView()?.scrollDOM;
   }
 
+  // The editor zoom expressed as a scale factor (1 = the document's native
+  // size). One shared level drives both surfaces, so a Cmd+= grows the editor
+  // font and the rendered preview together. Rounded to four decimals so the
+  // factor baked at render time (Rust formats to four) and the one applied
+  // live over the bridge are identical — keeping the ready re-post a true no-op.
+  function zoomFactor(): number {
+    return Math.round((editorZoom.fontSize() / EDITOR_FONT_DEFAULT) * 1e4) / 1e4;
+  }
+
   // Parent half of the preview bridge: mirrors scroll between the editor and
   // the cross-origin preview iframe and restores position across reloads. The
   // iframe runtime is src-tauri/assets/preview/bridge.js.
@@ -88,6 +98,19 @@ export default function PreviewPane(props: Props) {
     if (d.type === "ready") {
       bridge.onIframeMessage({ type: "ready" });
       search.reapply(); // a reload dropped any highlights — restore them
+      // Belt-and-suspenders for the render baked the factor: if zoom changed
+      // while this render was in flight, re-assert the current factor on the
+      // freshly loaded document. A no-op when the baked value already matches.
+      postToIframe({ type: "setZoom", factor: untrack(zoomFactor) });
+    } else if (d.type === "zoomStep" && (d.direction === 1 || d.direction === -1)) {
+      // Cmd+= / Cmd+- captured over the preview (the host never sees keys typed
+      // into the cross-origin iframe). Routed through the one zoom store.
+      if (d.direction === 1) editorZoom.zoomIn();
+      else editorZoom.zoomOut();
+    } else if (d.type === "zoomReset") {
+      editorZoom.reset();
+    } else if (d.type === "zoomWheel" && typeof d.deltaY === "number" && Number.isFinite(d.deltaY)) {
+      editorZoom.handleWheel(d.deltaY, performance.now());
     } else if (d.type === "scroll" && typeof d.fraction === "number") {
       bridge.onIframeMessage({ type: "scroll", fraction: d.fraction });
     } else if (d.type === "findResult") {
@@ -133,7 +156,16 @@ export default function PreviewPane(props: Props) {
 
     setState("rendering");
     try {
-      const result = await win.preview.render(bufferId, contentType, text, themeStore.polarity());
+      // Zoom is read untracked: a zoom change must apply over the bridge to the
+      // loaded document (no re-render), and only ride the next text/theme-driven
+      // render as a baked factor — never trigger a render itself.
+      const result = await win.preview.render(
+        bufferId,
+        contentType,
+        text,
+        themeStore.polarity(),
+        untrack(zoomFactor),
+      );
       // The pane may have gone inactive, or the active buffer switched, while
       // this render was in flight. Discard: committing would mis-target the
       // iframe (the #97 flash via the completion race) and poison the dedup.
@@ -227,6 +259,17 @@ export default function PreviewPane(props: Props) {
     on(
       () => themeStore.polarity(),
       (pol) => postToIframe({ type: "setTheme", theme: pol }),
+      { defer: true },
+    ),
+  );
+
+  // Live editor-zoom change: scale the already-loaded preview in place via the
+  // bridge, no re-render. The next text/theme-driven render bakes the same
+  // factor onto the root, so this only covers the interval between them.
+  createEffect(
+    on(
+      () => zoomFactor(),
+      (factor) => postToIframe({ type: "setZoom", factor }),
       { defer: true },
     ),
   );

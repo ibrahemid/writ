@@ -7,6 +7,7 @@ import {
   effectiveBinding,
   findKeybindingConflicts,
   pruneLegacyDefaultOverrides,
+  normalizeKey,
 } from "../../commands/keybindings";
 import type { Command } from "../../types/commands";
 
@@ -195,6 +196,78 @@ describe("editor.replace vs tab.rename chord", () => {
 
     unregisterCommand("editor.replace");
     unregisterCommand("tab.rename");
+    rebuildKeyMap();
+  });
+});
+
+describe("editor zoom chords", () => {
+  // The zoom commands are bound to literal chord strings; assert the normalizer
+  // actually produces those strings from the real key events rather than
+  // trusting the derivation by eye.
+  it("normalizes the zoom-in, zoom-out, and reset chords", () => {
+    expect(normalizeKey(createKeyEvent({ key: "=", metaKey: true }))).toBe("CmdOrCtrl+=");
+    expect(normalizeKey(createKeyEvent({ key: "+", metaKey: true, shiftKey: true }))).toBe(
+      "CmdOrCtrl+Shift++",
+    );
+    expect(normalizeKey(createKeyEvent({ key: "-", metaKey: true }))).toBe("CmdOrCtrl+-");
+    expect(normalizeKey(createKeyEvent({ key: "0", metaKey: true }))).toBe("CmdOrCtrl+0");
+  });
+
+  it("routes every zoom chord to its command from editor focus, even alongside the preview reset", () => {
+    const fired: string[] = [];
+    registerCommand({
+      id: "editor.zoomIn",
+      label: "Increase Editor Font Size",
+      keybinding: "CmdOrCtrl+=",
+      keybindingAliases: ["CmdOrCtrl+Shift++"],
+      scope: "app",
+      global: true,
+      execute: () => { fired.push("in"); },
+    });
+    registerCommand({
+      id: "editor.zoomOut",
+      label: "Decrease Editor Font Size",
+      keybinding: "CmdOrCtrl+-",
+      scope: "app",
+      global: true,
+      execute: () => { fired.push("out"); },
+    });
+    registerCommand({
+      id: "editor.zoomReset",
+      label: "Reset Editor Font Size",
+      keybinding: "CmdOrCtrl+0",
+      scope: "app",
+      global: true,
+      execute: () => { fired.push("reset"); },
+    });
+    // The preview reset ratio command must not shadow Cmd+0 — it shares the
+    // global app scope, so a chord collision would silently steal the reset.
+    registerCommand({
+      id: "preview.resetRatio",
+      label: "Preview: Reset Split Ratio",
+      keybinding: "CmdOrCtrl+Shift+0",
+      scope: "app",
+      global: true,
+      execute: () => { fired.push("preview"); },
+    });
+    rebuildKeyMap();
+
+    expect(
+      findKeybindingConflicts(getAllCommands()).has("CmdOrCtrl+0"),
+    ).toBe(false);
+
+    expect(handleKeyDown(createKeyEvent({ key: "=", metaKey: true }))).toBe(true);
+    expect(handleKeyDown(createKeyEvent({ key: "+", metaKey: true, shiftKey: true }))).toBe(true);
+    expect(handleKeyDown(createKeyEvent({ key: "-", metaKey: true }))).toBe(true);
+    expect(handleKeyDown(createKeyEvent({ key: "0", metaKey: true }))).toBe(true);
+    expect(handleKeyDown(createKeyEvent({ key: "0", metaKey: true, shiftKey: true }))).toBe(true);
+
+    expect(fired).toEqual(["in", "in", "out", "reset", "preview"]);
+
+    unregisterCommand("editor.zoomIn");
+    unregisterCommand("editor.zoomOut");
+    unregisterCommand("editor.zoomReset");
+    unregisterCommand("preview.resetRatio");
     rebuildKeyMap();
   });
 });

@@ -44,8 +44,9 @@ export function createPreviewStore(deps: { windowId: number }) {
     contentType: string,
     text: string,
     theme: ThemePolarity,
+    zoom: number,
   ): Promise<PreviewRenderResult> {
-    return previewForceRender(windowId, bufferId, contentType, text, theme);
+    return previewForceRender(windowId, bufferId, contentType, text, theme, zoom);
   }
 
   /** Drop the host-side render cache entry when a pane unmounts. */

@@ -148,6 +148,18 @@ pub struct RenderRequest {
     /// without a load-time flash.
     #[serde(default)]
     pub theme: ThemePolarity,
+    /// Editor zoom factor at render time (1.0 = the document's native size).
+    /// Baked onto the document root so a re-render of a zoomed preview opens
+    /// already-scaled instead of popping from 1× — the same no-flash reason
+    /// the polarity is baked. Live zoom changes to an already-loaded document
+    /// are applied over the bridge, not by re-rendering.
+    #[serde(default = "default_zoom")]
+    pub zoom: f64,
+}
+
+/// Default render zoom: native size.
+pub fn default_zoom() -> f64 {
+    1.0
 }
 
 /// Light or dark app theme, threaded to the renderer so the preview document

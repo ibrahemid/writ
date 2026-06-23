@@ -5,10 +5,21 @@ import * as api from "../../services/tauri";
 // Singleton — app-global, not window-scoped (ADR-009 E3).
 // Config is shared by every window; mutations persist to disk for all.
 
+// Editor font bounds. The single source of truth for both the Settings input
+// and the editor zoom commands — neither hardcodes its own range.
+export const EDITOR_FONT_MIN = 8;
+export const EDITOR_FONT_MAX = 72;
+export const EDITOR_FONT_DEFAULT = 14;
+
+export function clampEditorFontSize(size: number): number {
+  if (!Number.isFinite(size)) return EDITOR_FONT_DEFAULT;
+  return Math.min(EDITOR_FONT_MAX, Math.max(EDITOR_FONT_MIN, Math.round(size)));
+}
+
 const DEFAULT_CONFIG: WritConfig = {
   hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
   sidebar: { toggle: "CmdOrCtrl+S", default_visible: false, position: "left", open: false },
-  editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true },
+  editor: { font_family: "monospace", font_size: EDITOR_FONT_DEFAULT, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true },
   window: { width: 1100, height: 720 },
   keybindings: {},
   history: { max_entries: 500 },
@@ -29,7 +40,7 @@ const DEFAULT_CONFIG: WritConfig = {
   updater: { auto_check: true },
 };
 
-const USAGE_FLUSH_DEBOUNCE_MS = 750;
+const PERSIST_DEBOUNCE_MS = 750;
 
 function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
   return {
@@ -98,17 +109,32 @@ function createConfigStore() {
         usage: { ...current.commands.usage, [id]: next },
       },
     });
-    scheduleUsageFlush();
+    schedulePersist();
   }
 
-  function scheduleUsageFlush() {
+  // Optimistically apply a new editor font size and persist it through the
+  // same config layer the Settings input uses (single source of truth). The
+  // write is debounced so a fast zoom (Cmd+scroll, key repeat) coalesces into
+  // one disk write while the editor reflows instantly off the live signal.
+  function setEditorFontSize(size: number) {
+    const clamped = clampEditorFontSize(size);
+    const current = config();
+    if (current.editor.font_size === clamped) return;
+    setConfig({
+      ...current,
+      editor: { ...current.editor, font_size: clamped },
+    });
+    schedulePersist();
+  }
+
+  function schedulePersist() {
     if (flushTimer) clearTimeout(flushTimer);
     flushTimer = setTimeout(() => {
       flushTimer = null;
       void api.updateConfig(config()).catch((err) => {
-        console.error("[configStore] failed to flush command usage", err);
+        console.error("[configStore] failed to persist config", err);
       });
-    }, USAGE_FLUSH_DEBOUNCE_MS);
+    }, PERSIST_DEBOUNCE_MS);
   }
 
   async function clearCommandUsage() {
@@ -129,7 +155,7 @@ function createConfigStore() {
       commands: { ...current.commands, usage: pruned },
     };
     setConfig(updated);
-    scheduleUsageFlush();
+    schedulePersist();
   }
 
   return {
@@ -137,6 +163,7 @@ function createConfigStore() {
     load,
     save,
     recordCommandUse,
+    setEditorFontSize,
     clearCommandUsage,
     pruneCommandUsage,
   };

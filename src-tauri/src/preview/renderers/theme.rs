@@ -42,10 +42,30 @@ pub fn bridge_script_tag() -> String {
     format!("<script src=\"{BRIDGE_URL}\"></script>")
 }
 
+/// Editor zoom within this tolerance of native size is treated as "no zoom",
+/// so a default-zoom render stays byte-identical to the pre-zoom output.
+const ZOOM_EPSILON: f64 = 1e-4;
+
+/// A CSS `zoom` value for the document root, or `None` when the factor is
+/// effectively native (1.0) or invalid. Clamped to a sane range and trimmed
+/// of trailing zeros so `2.0` serializes as `2`, not `2.0000`.
+pub fn css_zoom(zoom: f64) -> Option<String> {
+    if !zoom.is_finite() || zoom <= 0.0 {
+        return None;
+    }
+    let clamped = zoom.clamp(0.1, 10.0);
+    if (clamped - 1.0).abs() < ZOOM_EPSILON {
+        return None;
+    }
+    let formatted = format!("{clamped:.4}");
+    let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
+    Some(trimmed.to_string())
+}
+
 /// Wrap an HTML body fragment (e.g. Markdown output) in a complete,
 /// self-contained document with the inlined base theme and a UTF-8 charset.
 pub fn wrap_document(body_fragment: &str) -> String {
-    wrap_document_with("", body_fragment, "", ThemePolarity::Dark)
+    wrap_document_with("", body_fragment, "", ThemePolarity::Dark, 1.0)
 }
 
 /// Like [`wrap_document`], but injects extra `<head>` content (e.g. a runtime
@@ -58,11 +78,16 @@ pub fn wrap_document_with(
     body_fragment: &str,
     body_end_extra: &str,
     polarity: ThemePolarity,
+    zoom: f64,
 ) -> String {
-    let html_open = match polarity {
-        ThemePolarity::Light => "<html data-writ-theme=\"light\">",
-        ThemePolarity::Dark => "<html>",
-    };
+    let mut attrs = String::new();
+    if let ThemePolarity::Light = polarity {
+        attrs.push_str(" data-writ-theme=\"light\"");
+    }
+    if let Some(z) = css_zoom(zoom) {
+        attrs.push_str(&format!(" style=\"zoom:{z}\""));
+    }
+    let html_open = format!("<html{attrs}>");
     format!(
         "<!doctype html>\n{html_open}\n<head>\n<meta charset=\"utf-8\">\n{style}\n{head_extra}\n</head>\n<body>\n{body_fragment}\n{body_end_extra}\n{bridge}\n</body>\n</html>",
         style = style_tag(),
@@ -104,7 +129,7 @@ mod tests {
 
     #[test]
     fn light_polarity_marks_the_document_for_the_light_reading_palette() {
-        let light = wrap_document_with("", "<p>x</p>", "", ThemePolarity::Light);
+        let light = wrap_document_with("", "<p>x</p>", "", ThemePolarity::Light, 1.0);
         assert!(
             light.contains("<html data-writ-theme=\"light\">"),
             "light render must carry the data-writ-theme attribute so the served \
@@ -115,9 +140,41 @@ mod tests {
         // matching the preview-base.css :root palette and keeping existing
         // output byte-stable. (The inlined stylesheet legitimately mentions the
         // `[data-writ-theme="light"]` selector, so assert on the open tag form.)
-        let dark = wrap_document_with("", "<p>x</p>", "", ThemePolarity::Dark);
+        let dark = wrap_document_with("", "<p>x</p>", "", ThemePolarity::Dark, 1.0);
         assert!(dark.contains("\n<html>\n"));
         assert!(!dark.contains("data-writ-theme=\"light\">"));
+    }
+
+    #[test]
+    fn non_native_zoom_is_baked_onto_the_document_root() {
+        // A re-render of a zoomed preview must open already-scaled, so the
+        // factor rides on the <html> root as an inline zoom (no 1x pop).
+        let doc = wrap_document_with("", "<p>x</p>", "", ThemePolarity::Dark, 2.0);
+        assert!(doc.contains("<html style=\"zoom:2\">"), "got: {doc}");
+
+        // It composes with the light palette on the same root element.
+        let light = wrap_document_with("", "<p>x</p>", "", ThemePolarity::Light, 1.5);
+        assert!(
+            light.contains("<html data-writ-theme=\"light\" style=\"zoom:1.5\">"),
+            "got: {light}"
+        );
+    }
+
+    #[test]
+    fn native_zoom_leaves_the_root_byte_stable() {
+        // Default zoom must not perturb the served bytes (dedup + existing
+        // snapshots depend on it), and invalid factors fall back to native.
+        let native = wrap_document_with("", "<p>x</p>", "", ThemePolarity::Dark, 1.0);
+        assert!(native.contains("\n<html>\n"));
+        assert!(!native.contains("style=\"zoom"));
+        assert_eq!(css_zoom(1.0), None);
+        assert_eq!(css_zoom(f64::NAN), None);
+        assert_eq!(css_zoom(0.0), None);
+        assert_eq!(css_zoom(-2.0), None);
+        assert_eq!(css_zoom(2.0).as_deref(), Some("2"));
+        assert_eq!(css_zoom(0.5).as_deref(), Some("0.5"));
+        // Clamped to the sane ceiling.
+        assert_eq!(css_zoom(1000.0).as_deref(), Some("10"));
     }
 
     #[test]

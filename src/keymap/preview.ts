@@ -116,7 +116,9 @@ export function registerPreviewKeymap(): void {
     id: "preview.resetRatio",
     label: "Preview: Reset Split Ratio",
     description: "Reset the split divider to 50/50",
-    keybinding: "CmdOrCtrl+0",
+    // Cmd+0 is the conventional "reset zoom" chord (editor.zoomReset owns it);
+    // this stays on the preview family's Cmd+Shift+… prefix like its siblings.
+    keybinding: "CmdOrCtrl+Shift+0",
     scope: "app",
     global: true,
     execute: () => {
