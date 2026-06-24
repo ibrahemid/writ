@@ -429,12 +429,15 @@ function MotionDeck() {
 // data-theme directly, so the deck recolors automatically via CSS — no JS
 // listener or re-render needed.
 // ---------------------------------------------------------------------------
-type DeckMode = 'static' | 'motion' | null;
+type DeckMode = 'static' | 'motion';
 
 export default function Deck() {
   // useReducedMotion is safe to call unconditionally (subscribes to media-query)
   const prefersReduced = useReducedMotion();
-  const [mode, setMode] = useState<DeckMode>(null);
+  // SSR renders the static stacked deck so the section is always present and
+  // usable with JS off; the effect upgrades to the motion path on hydrate when
+  // the viewport is wide and reduced-motion is off.
+  const [mode, setMode] = useState<DeckMode>('static');
 
   useEffect(() => {
     const narrowMq = window.matchMedia('(max-width: 880px)');
@@ -454,9 +457,6 @@ export default function Deck() {
       narrowMq.removeEventListener('change', evaluate);
     };
   }, [prefersReduced]);
-
-  // null = SSR / pre-hydration: render nothing
-  if (mode === null) return null;
 
   if (mode === 'static') {
     return (
