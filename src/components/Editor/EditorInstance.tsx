@@ -24,21 +24,15 @@ import { useWindow } from "../WindowProvider/WindowProvider";
 import { registerCommand } from "../../commands/registry";
 import { getExtension as languageExtension } from "../../editor/language-registry";
 import { registerBuiltinLanguages } from "../../editor/builtins";
+import { editorModeForContent } from "../../editor/large-file";
 import "./EditorInstance.css";
 
 registerBuiltinLanguages();
 
-const THRESHOLD_NORMAL_BYTES = 5 * 1024 * 1024;
 const LARGE_FILE_AUTOSAVE_DEBOUNCE_MS = 2000;
 
 function nameForDetection(buffer: BufferDocument): string {
   return /\.\w+$/.test(buffer.title) ? buffer.title : buffer.filename;
-}
-
-function modeFromBuffer(buffer: BufferDocument): FileOpenMode {
-  if (buffer.read_only) return { kind: "Binary" };
-  if (buffer.size_bytes > THRESHOLD_NORMAL_BYTES) return { kind: "LargeFile" };
-  return { kind: "Normal" };
 }
 
 interface Props {
@@ -131,7 +125,8 @@ export default function EditorInstance(props: Props) {
   }
 
   function createExtensions(bufferId: string, initialLang: Extension, langId: string | null, mode: FileOpenMode): Extension[] {
-    const isLarge = mode.kind === "LargeFile" || mode.kind === "LargeFileConfirm";
+    const isLarge =
+      mode.kind === "LargeFile" || mode.kind === "LargeFileConfirm" || mode.kind === "LongLines";
     const isBinary = mode.kind === "Binary";
     const isRestricted = isLarge || isBinary;
 
@@ -228,7 +223,7 @@ export default function EditorInstance(props: Props) {
   }
 
   function applyLanguageFromBuffer(buffer: BufferDocument, content: string) {
-    const mode = modeFromBuffer(buffer);
+    const mode = editorModeForContent(buffer, content);
     if (mode.kind !== "Normal") return;
     const name = nameForDetection(buffer);
     if (name === appliedNameForLang && view) return;
@@ -255,13 +250,16 @@ export default function EditorInstance(props: Props) {
     appliedNameForLang = "";
     lastDetectLen = 0;
 
-    const mode = modeFromBuffer(buffer);
-    win.editor.setLargeFileMode(mode.kind === "Normal" ? null : mode);
-
     let content = "";
     try {
       content = await bufferRegistry.readContent(buffer.id);
     } catch {}
+
+    // Mode is content-aware: byte size drives the large-file tiers, but a
+    // small file with pathologically long lines is also restricted so the
+    // view thread does not stall mounting it (see editor/large-file.ts).
+    const mode = editorModeForContent(buffer, content);
+    win.editor.setLargeFileMode(mode.kind === "Normal" ? null : mode);
 
     const name = nameForDetection(buffer);
     let lang: string | null = null;
@@ -288,6 +286,9 @@ export default function EditorInstance(props: Props) {
 
     win.editor.registerView(view);
     win.editor.setLineCount(view.state.doc.lines);
+    // One bounded materialization on open keeps currentText consistent with the
+    // id published below; the per-keystroke materialization (the real jank for
+    // restricted buffers) is what's deferred, on the update path.
     win.editor.setCurrentText(view.state.doc.toString());
     // Publish the loaded id last so it never leads currentText: a preview pane
     // gating on this id is guaranteed to read the matching buffer's text.
