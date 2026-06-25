@@ -1,0 +1,125 @@
+---
+import release from '../../data/release.json';
+
+const repo = 'https://github.com/ibrahemid/writ';
+const releasesUrl = repo + '/releases';
+const published = release.published === true;
+
+const platforms = [
+  {
+    name: 'macOS',
+    note: 'Apple silicon & Intel',
+    href: published ? release.platforms.mac.dmg : releasesUrl,
+    featured: true,
+  },
+  {
+    name: 'Windows',
+    note: 'x64',
+    href: published ? release.platforms.win.msi : releasesUrl,
+    featured: false,
+  },
+  {
+    name: 'Linux',
+    note: 'AppImage & .deb',
+    href: published ? release.platforms.linux.appImage : releasesUrl,
+    featured: false,
+  },
+];
+---
+<!-- WHY -->
+<div class="gut-col" style="padding:64px 12px 0 0">##</div>
+<div style="padding:58px 0 0 30px">
+  <div style="font-family:var(--font-mono); font-size:12px; color:var(--accent); margin-bottom:14px">why-writ</div>
+  <p style="font-family:var(--font-display); font-weight:600; font-size:clamp(20px,2.6vw,28px); line-height:1.26; letter-spacing:-.02em; color:var(--foreground); max-width:24ch">Raw Markdown is just text. Writ renders it — and keeps what you dump.</p>
+</div>
+
+<!-- RENDERS -->
+<div class="gut-col" style="padding:60px 12px 0 0">##</div>
+<div id="render" style="padding:54px 0 0 30px; scroll-margin-top:64px">
+  <div style="font-family:var(--font-mono); font-size:12px; color:var(--accent); margin-bottom:12px">renders</div>
+  <h2 style="font-family:var(--font-display); font-weight:700; font-size:clamp(21px,2.6vw,30px); letter-spacing:-.03em; color:var(--foreground); max-width:20ch">Four formats, drawn live.</h2>
+  <p style="max-width:52ch; margin-top:11px; font-size:15.5px; color:var(--muted)">Source · Split · Preview. Load one into the window:</p>
+  <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:18px">
+    <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="md"><span style="color:var(--accent)">#</span> Markdown</button>
+    <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="html"><span style="color:var(--accent)">&lt;/&gt;</span> HTML</button>
+    <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="mermaid"><span style="color:var(--accent)">A→B</span> Mermaid</button>
+    <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="math"><span style="color:var(--accent)">∑</span> KaTeX</button>
+  </div>
+</div>
+
+<!-- OPENS / TOKENS / SEARCH -->
+<div class="gut-col" style="padding:60px 12px 0 0">##</div>
+<div id="search" style="padding:54px 0 0 30px; scroll-margin-top:64px">
+  <div style="font-family:var(--font-mono); font-size:12px; color:var(--accent); margin-bottom:12px">opens · counts · finds</div>
+  <h2 style="font-family:var(--font-display); font-weight:700; font-size:clamp(21px,2.6vw,30px); letter-spacing:-.03em; color:var(--foreground); max-width:22ch">More than a renderer. A place to keep the work.</h2>
+  <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin-top:22px">
+    <div style="padding:22px; border:1px solid var(--line); border-radius:13px; background:var(--card)">
+      <div style="font-family:var(--font-mono); font-size:11.5px; color:var(--accent)">opens anything</div>
+      <h3 style="margin-top:9px; font-weight:650; font-size:17px; color:var(--foreground)">Every file, one window</h3>
+      <p style="margin-top:6px; font-size:14px; color:var(--muted); line-height:1.5">Code with syntax highlighting. Configs and logs as plain text. Binaries as hex. Large files without choking.</p>
+      <button class="gtrig" type="button" data-cmd="open" data-arg="icon-256.png" style="margin-top:14px; font-size:12px">View a binary as hex →</button>
+    </div>
+    <div style="padding:22px; border:1px solid var(--line); border-radius:13px; background:var(--card)">
+      <div style="font-family:var(--font-mono); font-size:11.5px; color:var(--accent)">counts tokens</div>
+      <h3 style="margin-top:9px; font-weight:650; font-size:17px; color:var(--foreground)">Know the cost before you paste</h3>
+      <p style="margin-top:6px; font-size:14px; color:var(--muted); line-height:1.5">A running token estimate in the status bar. Stay under the context window.</p>
+      <button class="gtrig" type="button" data-cmd="open" data-arg="gateway-week.log" style="margin-top:14px; font-size:12px">Open a large log →</button>
+    </div>
+    <div style="padding:22px; border:1px solid var(--line); border-radius:13px; background:var(--card)">
+      <div style="font-family:var(--font-mono); font-size:11.5px; color:var(--accent)">stays findable</div>
+      <h3 style="margin-top:9px; font-weight:650; font-size:17px; color:var(--foreground)">Nothing you dump gets lost</h3>
+      <p style="margin-top:6px; font-size:14px; color:var(--muted); line-height:1.5">Full-text index on disk. Search lands the matching line.</p>
+      <button class="gtrig" type="button" data-cmd="search" data-arg="settle" style="margin-top:14px; font-size:12px">Search “settle” →</button>
+    </div>
+  </div>
+</div>
+
+<!-- DOWNLOAD -->
+<div class="gut-col" style="padding:64px 12px 0 0">##</div>
+<div id="download" style="padding:58px 0 0 30px; scroll-margin-top:64px">
+  <div style="font-family:var(--font-mono); font-size:12px; color:var(--accent); margin-bottom:14px">download</div>
+  <h2 style="font-family:var(--font-display); font-weight:800; font-variation-settings:'opsz' 72; font-size:clamp(26px,3.4vw,40px); letter-spacing:-.035em; line-height:1.05; color:var(--foreground); max-width:18ch">Put your agent’s output one keypress away.</h2>
+  <p style="max-width:48ch; margin-top:14px; font-size:16px; color:var(--muted)">Free, local-first, no account. Pick your platform:</p>
+
+  {published ? (
+    <div class="dl-grid" style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:13px; margin-top:24px; max-width:680px">
+      {platforms.map((p) => (
+        <a
+          href={p.href}
+          class="dlbtn"
+          style={p.featured ? 'border-color:var(--accent); background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 8%,var(--card)),var(--card))' : ''}
+        >
+          <span style="font-weight:650; font-size:16px; color:var(--foreground)">{p.name}</span>
+          <span style="font-family:var(--font-mono); font-size:11px; color:var(--subtle)">{p.note}</span>
+        </a>
+      ))}
+    </div>
+  ) : (
+    <div style="margin-top:24px; max-width:680px">
+      <div class="dl-grid" style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:13px">
+        {platforms.map((p) => (
+          <div class="dlbtn" aria-disabled="true" style="opacity:.62; cursor:default">
+            <span style="font-weight:650; font-size:16px; color:var(--foreground)">{p.name}</span>
+            <span style="font-family:var(--font-mono); font-size:11px; color:var(--subtle)">{p.note}</span>
+          </div>
+        ))}
+      </div>
+      <p style="margin-top:14px; font-family:var(--font-mono); font-size:12.5px; color:var(--muted)">
+        Builds land with the first release.
+        <a href={releasesUrl} rel="noopener noreferrer" target="_blank" style="color:var(--accent); text-decoration:underline; text-underline-offset:2px">Track releases on GitHub →</a>
+      </p>
+    </div>
+  )}
+</div>
+
+<!-- FOOTER -->
+<div class="gut-col" style="padding:46px 12px 40px 0"></div>
+<div style="padding:40px 0 56px 30px">
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px; padding-top:22px; border-top:1px solid var(--line-soft)">
+    <a href="#top" style="display:inline-flex; align-items:baseline; font-family:var(--font-display); font-weight:800; font-size:19px; letter-spacing:-.045em; color:var(--foreground)">Writ<span style="color:var(--accent)">.</span></a>
+    <div style="display:flex; align-items:center; gap:16px">
+      <a href={repo} rel="noopener noreferrer" target="_blank" style="font-family:var(--font-mono); font-size:12.5px; color:var(--muted)">GitHub</a>
+      <div style="font-size:13px; color:var(--subtle)">Renders what your agent writes.</div>
+    </div>
+  </div>
+</div>

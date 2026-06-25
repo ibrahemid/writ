@@ -1,0 +1,100 @@
+---
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const repo = 'https://github.com/ibrahemid/writ';
+---
+<header class="v2-header">
+  <div class="ticker" data-collapsed="false" aria-hidden="true">
+    <div class="track">
+      <span class="ti lv"><i class="dd"></i> rendering <b>report.md</b> · md · mermaid · katex</span>
+      <span class="ti"><i class="dd"></i> opens <b>.md</b> · .html · logs · binaries</span>
+      <span class="ti"><i class="dd"></i> <b>full-text</b> search</span>
+      <span class="ti"><i class="dd"></i> tokens counted <b>live</b></span>
+      <span class="ti"><i class="dd"></i> renders <b>offline</b></span>
+      <span class="ti"><i class="dd"></i> <b>⌘K</b> command palette</span>
+      <span class="ti lv"><i class="dd"></i> rendering <b>report.md</b> · md · mermaid · katex</span>
+      <span class="ti"><i class="dd"></i> opens <b>.md</b> · .html · logs · binaries</span>
+      <span class="ti"><i class="dd"></i> <b>full-text</b> search</span>
+      <span class="ti"><i class="dd"></i> tokens counted <b>live</b></span>
+      <span class="ti"><i class="dd"></i> renders <b>offline</b></span>
+      <span class="ti"><i class="dd"></i> <b>⌘K</b> command palette</span>
+    </div>
+  </div>
+  <div style="max-width:1100px; margin:0 auto; padding:0 22px; height:54px; display:flex; align-items:center; gap:16px">
+    <a href="#top" style="display:inline-flex; align-items:baseline; font-family:var(--font-display); font-weight:800; font-size:19px; letter-spacing:-.045em; color:var(--foreground); flex:none">Writ<span style="color:var(--accent)">.</span></a>
+    <nav class="topnav hide-sm" style="display:flex; gap:2px; margin-left:4px">
+      <a href="#editor" style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Editor</a>
+      <a href="#render" style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Render</a>
+      <a href="#search" style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Search</a>
+      <a href="#download" style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Download</a>
+    </nav>
+    <div style="margin-left:auto; display:flex; align-items:center; gap:9px; flex:none">
+      <div class="hide-sm" role="group" aria-label="Visual style" data-switch="variant" style="display:flex; gap:2px; padding:3px; background:var(--sunken); border:1px solid var(--line); border-radius:9px">
+        <button class="seg" type="button" data-variant="paper" aria-pressed="false">Paper</button>
+        <button class="seg" type="button" data-variant="grid" aria-pressed="false">Grid</button>
+        <button class="seg" type="button" data-variant="flat" aria-pressed="true">Flat</button>
+      </div>
+      <div role="group" aria-label="Theme" data-switch="theme" style="display:flex; gap:2px; padding:3px; background:var(--sunken); border:1px solid var(--line); border-radius:9px">
+        <button class="seg" type="button" data-set-theme="light" aria-pressed="true">Light</button>
+        <button class="seg" type="button" data-set-theme="dark" aria-pressed="false">Dark</button>
+      </div>
+      <a href="#download" class="hide-sm v2-btn-primary" style="display:inline-flex; align-items:center; height:34px; padding:0 15px; border-radius:9px; background:var(--accent); color:var(--accent-foreground); font-weight:600; font-size:13.5px">Download</a>
+    </div>
+  </div>
+</header>
+
+<div class="float-pill" data-show="false" aria-hidden="true"><span class="dd"></span> rendering <b>report.md</b></div>
+
+<script>
+  (function () {
+    const root = document.documentElement;
+
+    function syncVariant() {
+      const v = root.getAttribute('data-variant') || 'flat';
+      document.querySelectorAll('[data-switch="variant"] button').forEach((b) => {
+        b.setAttribute('aria-pressed', String(b.getAttribute('data-variant') === v));
+      });
+    }
+    function syncTheme() {
+      const t = root.getAttribute('data-theme') || 'light';
+      document.querySelectorAll('[data-switch="theme"] button').forEach((b) => {
+        b.setAttribute('aria-pressed', String(b.getAttribute('data-set-theme') === t));
+      });
+    }
+
+    document.querySelectorAll('[data-switch="variant"] button').forEach((b) => {
+      b.addEventListener('click', () => {
+        const v = b.getAttribute('data-variant');
+        if (!v) return;
+        root.setAttribute('data-variant', v);
+        try { localStorage.setItem('writ:v2:variant', v); } catch (_) {}
+        syncVariant();
+      });
+    });
+    document.querySelectorAll('[data-switch="theme"] button').forEach((b) => {
+      b.addEventListener('click', () => {
+        const t = b.getAttribute('data-set-theme');
+        if (!t) return;
+        root.setAttribute('data-theme', t);
+        try { localStorage.setItem('writ:theme', t); } catch (_) {}
+        syncTheme();
+        document.dispatchEvent(new CustomEvent('writ:theme', { detail: { theme: t } }));
+      });
+    });
+    syncVariant();
+    syncTheme();
+
+    const ticker = document.querySelector('.ticker');
+    const pill = document.querySelector('.float-pill');
+    let collapsed = false;
+    const onScroll = () => {
+      const y = window.scrollY || window.pageYOffset || 0;
+      const next = y > 72;
+      if (next === collapsed) return;
+      collapsed = next;
+      if (ticker) ticker.setAttribute('data-collapsed', String(next));
+      if (pill) pill.setAttribute('data-show', String(next));
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+  })();
+</script>

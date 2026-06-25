@@ -1,0 +1,28 @@
+---
+import V2 from '../layouts/V2.astro';
+import TopHeader from '../components/v2/TopHeader.astro';
+import Hero from '../components/v2/Hero.astro';
+import WindowRow from '../components/v2/WindowRow.astro';
+import Sections from '../components/v2/Sections.astro';
+---
+<V2 title="Writ — render what your agent writes" path="/v2">
+  <TopHeader />
+  <main id="top" class="v2-grid">
+    <Hero />
+    <WindowRow />
+    <Sections />
+  </main>
+</V2>
+
+<script>
+  (function () {
+    document.querySelectorAll('[data-cmd]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const action = el.getAttribute('data-cmd');
+        const arg = el.getAttribute('data-arg') || undefined;
+        if (!action) return;
+        document.dispatchEvent(new CustomEvent('writ:cmd', { detail: { action, arg } }));
+      });
+    });
+  })();
+</script>
