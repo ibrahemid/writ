@@ -46,6 +46,19 @@ fn dropped_paths_to_open(
     startup::authorize_and_canonicalize(authorized, &raw_paths)
 }
 
+/// Hands a non-file URL the OS routed to Writ off to the system default app for its
+/// scheme (browser for `http(s)`, mail client for `mailto`, …).
+///
+/// `open <url>` resolves the real default handler by scheme. Writ registers no URL
+/// scheme (only file associations), so this can never loop back to Writ itself.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn forward_url_to_default_app(url: &str) {
+    match std::process::Command::new("open").arg(url).spawn() {
+        Ok(_) => info!(url = %url, "handed non-file URL to OS default app"),
+        Err(e) => tracing::warn!(error = %e, url = %url, "failed to hand off URL"),
+    }
+}
+
 /// Builds the native macOS menu bar.
 ///
 /// macOS-only by design: it hosts the system menu bar that macOS apps are
@@ -543,18 +556,34 @@ pub fn run() {
 
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         if let tauri::RunEvent::Opened { urls } = &event {
-            let raw_paths: Vec<String> = urls
-                .iter()
-                .filter_map(|url| {
-                    if url.scheme() == "file" {
-                        url.to_file_path()
-                            .ok()
-                            .and_then(|p| p.to_str().map(String::from))
-                    } else {
-                        None
+            use writ_core::default_app::{classify_open_scheme, OpenDisposition};
+
+            let mut raw_paths: Vec<String> = Vec::new();
+            for url in urls {
+                match classify_open_scheme(url.scheme()) {
+                    OpenDisposition::OpenFile => {
+                        if let Some(path) =
+                            url.to_file_path().ok().and_then(|p| p.to_str().map(String::from))
+                        {
+                            raw_paths.push(path);
+                        }
                     }
-                })
-                .collect();
+                    OpenDisposition::HandoffToDefaultApp => {
+                        tracing::warn!(
+                            scheme = %url.scheme(),
+                            url = %url,
+                            "non-file URL routed to writ; handing off to OS default app"
+                        );
+                        forward_url_to_default_app(url.as_str());
+                    }
+                    OpenDisposition::Ignore => {
+                        tracing::debug!(
+                            scheme = %url.scheme(),
+                            "ignoring OS open URL with unsupported scheme"
+                        );
+                    }
+                }
+            }
 
             if !raw_paths.is_empty() {
                 let state = app_handle.state::<AppState>();

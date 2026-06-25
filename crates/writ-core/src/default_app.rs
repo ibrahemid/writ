@@ -26,6 +26,36 @@ pub fn ext_to_uti(ext: &str) -> Option<(&'static str, KnownExt)> {
     }
 }
 
+/// What to do with a URL delivered by the OS open event (macOS `RunEvent::Opened`).
+///
+/// Writ registers as an *editor* for local source files, so the OS hands it
+/// `file://` URLs to open. But when Writ is the chosen handler for a content type
+/// such as `public.html`, the OS can also route non-file links here. Those must be
+/// handed to the real default app for their scheme (browser for `http(s)`, mail
+/// client for `mailto`, …) instead of being dropped — otherwise the user sees Writ
+/// take focus with nothing opened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenDisposition {
+    /// A `file://` URL: resolve to a path and open it in the editor.
+    OpenFile,
+    /// A non-file URL (http, https, mailto, …): hand off to the OS default app.
+    HandoffToDefaultApp,
+    /// Empty scheme or Writ's own internal scheme: never open, never forward.
+    Ignore,
+}
+
+/// Classifies an OS-delivered open URL by its scheme. See [`OpenDisposition`].
+///
+/// Comparison is case-insensitive. Writ's internal `writ-preview` scheme is never
+/// handed off; an empty scheme is ignored defensively.
+pub fn classify_open_scheme(scheme: &str) -> OpenDisposition {
+    match scheme.to_ascii_lowercase().as_str() {
+        "file" => OpenDisposition::OpenFile,
+        "" | "writ-preview" => OpenDisposition::Ignore,
+        _ => OpenDisposition::HandoffToDefaultApp,
+    }
+}
+
 /// Whether Writ is the registered default handler for a given UTI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -65,6 +95,36 @@ impl DefaultAppStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn classify_open_scheme_opens_file_urls() {
+        assert_eq!(classify_open_scheme("file"), OpenDisposition::OpenFile);
+        assert_eq!(classify_open_scheme("FILE"), OpenDisposition::OpenFile);
+    }
+
+    #[test]
+    fn classify_open_scheme_hands_non_file_urls_to_default_app() {
+        for scheme in ["http", "https", "HTTPS", "mailto", "tel", "ftp"] {
+            assert_eq!(
+                classify_open_scheme(scheme),
+                OpenDisposition::HandoffToDefaultApp,
+                "scheme={scheme}"
+            );
+        }
+    }
+
+    #[test]
+    fn classify_open_scheme_ignores_empty_and_internal_schemes() {
+        assert_eq!(classify_open_scheme(""), OpenDisposition::Ignore);
+        assert_eq!(
+            classify_open_scheme("writ-preview"),
+            OpenDisposition::Ignore
+        );
+        assert_eq!(
+            classify_open_scheme("WRIT-PREVIEW"),
+            OpenDisposition::Ignore
+        );
+    }
 
     #[test]
     fn ext_to_uti_maps_md() {
