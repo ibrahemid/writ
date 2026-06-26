@@ -632,6 +632,21 @@
 .ftab:focus-visible,
 .ftab .x:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+/* Header controls, CTAs and section triggers — visible keyboard focus. */
+.seg:focus-visible,
+.topnav a:focus-visible,
+.v2-btn-primary:focus-visible,
+.v2-btn-ghost:focus-visible,
+.gtrig:focus-visible,
+.dlbtn:focus-visible,
+.ww-kbtn:focus-visible,
+.ww-newtab:focus-visible,
+.stog:focus-visible,
+.srow:focus-visible,
+.pcmd:focus-visible,
+.ww-search-input:focus-visible,
+.ww-palette-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+
 /* ─── Reduced motion ─────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   .ticker .track { animation: none; transform: none; }

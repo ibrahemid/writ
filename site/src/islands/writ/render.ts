@@ -9,6 +9,12 @@ function escapeAttr(s: string): string {
   return escapeHtml(s).replace(/"/g, '&quot;');
 }
 
+// Drop hrefs that carry an executable scheme. The editable surface is Markdown,
+// so a [label](javascript:…) link would otherwise stay clickable in the preview.
+function isSafeUrl(url: string): boolean {
+  return !/^\s*(javascript|data|vbscript|file):/i.test(url);
+}
+
 const PH_OPEN = String.fromCharCode(0);
 const PH_CLOSE = String.fromCharCode(1);
 
@@ -26,7 +32,9 @@ export function renderInline(text: string): string {
   t = t.replace(
     /\[([^\]]+)\]\(([^)]+)\)/g,
     (_m, label: string, url: string) =>
-      '<a href="' + escapeAttr(url) + '" target="_blank" rel="noopener noreferrer">' + label + '</a>',
+      isSafeUrl(url)
+        ? '<a href="' + escapeAttr(url) + '" target="_blank" rel="noopener noreferrer">' + label + '</a>'
+        : label,
   );
   t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   t = t.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');

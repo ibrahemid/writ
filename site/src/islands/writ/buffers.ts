@@ -165,7 +165,7 @@ const releaseHtml = join([
   '<section style="font-family:system-ui; max-width:540px">',
   '  <h1 style="margin:0 0 8px">Writ 1.0 is here</h1>',
   '  <p style="color:#5a5a6a; line-height:1.5">Render Markdown, HTML, Mermaid and KaTeX the',
-  '  instant your agent writes it — fully offline, with every scratch searchable.</p>',
+  '  moment you open a file — fully offline, with every scratch searchable.</p>',
   '  <p><a href="#" style="color:#3b5bdb">Get it for macOS, Windows or Linux →</a></p>',
   '</section>',
 ]);
@@ -197,7 +197,7 @@ const writ4471 = join([
 const writ3182 = join([
   '# scratch — gradient step',
   '',
-  'The update rule the agent derived:',
+  'The update rule:',
   '',
   '$$\\theta_{t+1} = \\theta_t - \\eta\\,\\nabla_\\theta J(\\theta_t)$$',
   '',

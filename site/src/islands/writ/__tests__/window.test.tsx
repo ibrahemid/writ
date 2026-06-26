@@ -18,15 +18,32 @@ describe('WritWindow', () => {
     }
   });
 
-  it('opens the command palette from a ⌘K button', () => {
+  it('opens the command palette from a ⇧⇧ button', () => {
     render(<WritWindow />);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Open command palette' })[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open command palette (Shift Shift)' })[0]!);
     expect(screen.getByPlaceholderText('Type a command…')).toBeTruthy();
+  });
+
+  it('opens the command palette on a double-tap of Shift when focused', () => {
+    render(<WritWindow />);
+    const input = screen.getByPlaceholderText('Search buffers…') as HTMLInputElement;
+    input.focus();
+    fireEvent.keyDown(document, { key: 'Shift' });
+    fireEvent.keyDown(document, { key: 'Shift' });
+    expect(screen.getByPlaceholderText('Type a command…')).toBeTruthy();
+  });
+
+  it('does not open the palette on a single Shift', () => {
+    render(<WritWindow />);
+    const input = screen.getByPlaceholderText('Search buffers…') as HTMLInputElement;
+    input.focus();
+    fireEvent.keyDown(document, { key: 'Shift' });
+    expect(screen.queryByPlaceholderText('Type a command…')).toBeNull();
   });
 
   it('runs a transform from the palette and marks the buffer edited', () => {
     render(<WritWindow />);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Open command palette' })[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open command palette (Shift Shift)' })[0]!);
     fireEvent.click(screen.getByText('Trim Leading Whitespace'));
     expect(screen.getByText('Edited')).toBeTruthy();
   });

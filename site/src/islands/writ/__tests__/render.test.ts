@@ -71,6 +71,16 @@ describe('renderInline', () => {
     expect(link).toContain('rel="noopener noreferrer"');
     expect(link).toContain('target="_blank"');
   });
+
+  it('drops the href on script-scheme links but keeps the label', () => {
+    for (const scheme of ['javascript:alert', 'JAVASCRIPT:alert', 'data:text/html,x', 'vbscript:msgbox']) {
+      const out = renderInline(`[click](${scheme})`);
+      expect(out).toContain('click');
+      expect(out).not.toContain('<a');
+      expect(out).not.toContain('href');
+      expect(out.toLowerCase()).not.toContain('script:');
+    }
+  });
 });
 
 describe('tokens', () => {

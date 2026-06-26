@@ -59,6 +59,7 @@ export default function WritWindow() {
   const dynamicBuffers = useRef<Record<string, BufferMeta>>({});
   const newCount = useRef(0);
   const hover = useRef(false);
+  const lastShift = useRef(0);
   const lastMermaid = useRef('');
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -368,13 +369,23 @@ export default function WritWindow() {
 
     const onKey = (e: KeyboardEvent) => {
       const k = e.key;
-      if ((e.metaKey || e.ctrlKey) && (k === 'k' || k === 'K')) {
-        const focusWithin = rootRef.current?.contains(document.activeElement);
-        if (hover.current || focusWithin || paletteOpen) {
-          e.preventDefault();
-          togglePalette();
+      // Command palette opens on a double-tap of Shift (matches the app's Shift+Shift binding).
+      if (k === 'Shift' && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const now = performance.now();
+        const within = now - lastShift.current < 400;
+        lastShift.current = now;
+        if (within) {
+          const focusWithin = rootRef.current?.contains(document.activeElement);
+          if (hover.current || focusWithin || paletteOpen) {
+            e.preventDefault();
+            lastShift.current = 0;
+            togglePalette();
+          }
         }
-      } else if (k === 'Escape' && paletteOpen) {
+        return;
+      }
+      lastShift.current = 0;
+      if (k === 'Escape' && paletteOpen) {
         setPaletteOpen(false);
       }
     };
@@ -563,8 +574,8 @@ export default function WritWindow() {
               +
             </button>
           </div>
-          <button className="ww-kbtn hide-sm" onClick={openPalette} aria-label="Open command palette" type="button">
-            ⌘K
+          <button className="ww-kbtn hide-sm" onClick={openPalette} aria-label="Open command palette (Shift Shift)" type="button">
+            ⇧⇧
           </button>
         </div>
 
@@ -683,7 +694,7 @@ export default function WritWindow() {
             <div className="ww-palette-scrim" onClick={() => setPaletteOpen(false)}>
               <div className="ww-palette" onClick={(e) => e.stopPropagation()}>
                 <div className="ww-palette-head">
-                  <span className="ww-palette-glyph">⌘K</span>
+                  <span className="ww-palette-glyph">⇧⇧</span>
                   <input
                     ref={paletteRef}
                     value={paletteQuery}
@@ -757,14 +768,14 @@ export default function WritWindow() {
               </button>
             </div>
           )}
-          <button className="stog" onClick={openPalette} aria-label="Open command palette" style={{ color: 'var(--foreground)' }}>
-            ⌘K
+          <button className="stog" onClick={openPalette} aria-label="Open command palette (Shift Shift)" style={{ color: 'var(--foreground)' }}>
+            ⇧⇧
           </button>
         </div>
       </div>
       <p className="ww-caption">
-        Live window. Switch tabs, edit <span className="ww-mono">report.md</span>, press{' '}
-        <span className="ww-mono">⌘K</span>, search.
+        Live window. Switch tabs, edit <span className="ww-mono">report.md</span>, double-tap{' '}
+        <span className="ww-mono">⇧</span>, search.
       </p>
     </div>
   );
