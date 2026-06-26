@@ -1,5 +1,4 @@
 ---
-const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const repo = 'https://github.com/ibrahemid/writ';
 ---
 <header class="v2-header">
@@ -27,74 +26,91 @@ const repo = 'https://github.com/ibrahemid/writ';
       <a href="#search" style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Search</a>
       <a href="#download" style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Download</a>
     </nav>
-    <div style="margin-left:auto; display:flex; align-items:center; gap:9px; flex:none">
-      <div class="hide-sm" role="group" aria-label="Visual style" data-switch="variant" style="display:flex; gap:2px; padding:3px; background:var(--sunken); border:1px solid var(--line); border-radius:9px">
-        <button class="seg" type="button" data-variant="paper" aria-pressed="false">Paper</button>
-        <button class="seg" type="button" data-variant="grid" aria-pressed="false">Grid</button>
-        <button class="seg" type="button" data-variant="flat" aria-pressed="true">Flat</button>
-      </div>
-      <div role="group" aria-label="Theme" data-switch="theme" style="display:flex; gap:2px; padding:3px; background:var(--sunken); border:1px solid var(--line); border-radius:9px">
-        <button class="seg" type="button" data-set-theme="light" aria-pressed="true">Light</button>
-        <button class="seg" type="button" data-set-theme="dark" aria-pressed="false">Dark</button>
-      </div>
+    <div style="margin-left:auto; display:flex; align-items:center; gap:10px; flex:none">
+      <button class="theme-toggle" type="button" data-toggle-theme aria-label="Switch color theme">
+        <svg class="ic ic-sun" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+        </svg>
+        <svg class="ic ic-moon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+      </button>
       <a href="#download" class="hide-sm v2-btn-primary" style="display:inline-flex; align-items:center; height:34px; padding:0 15px; border-radius:9px; background:var(--accent); color:var(--accent-foreground); font-weight:600; font-size:13.5px">Download</a>
     </div>
   </div>
 </header>
 
-<div class="float-pill" data-show="false" aria-hidden="true"><span class="dd"></span> <b>report.md</b> open</div>
+<div class="float-pill" data-show="false" aria-hidden="true">
+  <span class="fp-dot" data-state="saved" aria-hidden="true"></span>
+  <b class="fp-name">report.md</b>
+  <span class="fp-meta">Markdown</span>
+</div>
 
 <script>
   (function () {
     const root = document.documentElement;
+    const toggle = document.querySelector('[data-toggle-theme]');
 
-    function syncVariant() {
-      const v = root.getAttribute('data-variant') || 'flat';
-      document.querySelectorAll('[data-switch="variant"] button').forEach((b) => {
-        b.setAttribute('aria-pressed', String(b.getAttribute('data-variant') === v));
-      });
-    }
     function syncTheme() {
-      const t = root.getAttribute('data-theme') || 'light';
-      document.querySelectorAll('[data-switch="theme"] button').forEach((b) => {
-        b.setAttribute('aria-pressed', String(b.getAttribute('data-set-theme') === t));
+      const t = root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+      if (toggle) {
+        toggle.setAttribute(
+          'aria-label',
+          t === 'dark' ? 'Switch to light theme' : 'Switch to dark theme',
+        );
+      }
+    }
+    if (toggle) {
+      toggle.addEventListener('click', () => {
+        const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        root.setAttribute('data-theme', next);
+        try { localStorage.setItem('writ:theme', next); } catch (_) {}
+        syncTheme();
+        document.dispatchEvent(new CustomEvent('writ:theme', { detail: { theme: next } }));
       });
     }
-
-    document.querySelectorAll('[data-switch="variant"] button').forEach((b) => {
-      b.addEventListener('click', () => {
-        const v = b.getAttribute('data-variant');
-        if (!v) return;
-        root.setAttribute('data-variant', v);
-        try { localStorage.setItem('writ:v2:variant', v); } catch (_) {}
-        syncVariant();
-      });
-    });
-    document.querySelectorAll('[data-switch="theme"] button').forEach((b) => {
-      b.addEventListener('click', () => {
-        const t = b.getAttribute('data-set-theme');
-        if (!t) return;
-        root.setAttribute('data-theme', t);
-        try { localStorage.setItem('writ:theme', t); } catch (_) {}
-        syncTheme();
-        document.dispatchEvent(new CustomEvent('writ:theme', { detail: { theme: t } }));
-      });
-    });
-    syncVariant();
     syncTheme();
 
+    // Ticker collapses on first scroll for a cleaner header.
     const ticker = document.querySelector('.ticker');
-    const pill = document.querySelector('.float-pill');
     let collapsed = false;
     const onScroll = () => {
-      const y = window.scrollY || window.pageYOffset || 0;
-      const next = y > 72;
+      const next = (window.scrollY || window.pageYOffset || 0) > 56;
       if (next === collapsed) return;
       collapsed = next;
       if (ticker) ticker.setAttribute('data-collapsed', String(next));
-      if (pill) pill.setAttribute('data-show', String(next));
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     onScroll();
+
+    // The pill is a quiet mirror of the window's status bar. It only appears
+    // once the editor itself has scrolled out of view, and tracks the active file.
+    const pill = document.querySelector('.float-pill');
+    const pillName = pill && pill.querySelector('.fp-name');
+    const pillMeta = pill && pill.querySelector('.fp-meta');
+    const pillDot = pill && pill.querySelector('.fp-dot');
+    const editor = document.getElementById('editor');
+
+    document.addEventListener('writ:status', (e) => {
+      const d = (e && e.detail) || {};
+      if (pillName && d.name) pillName.textContent = d.name;
+      if (pillMeta) pillMeta.textContent = d.meta || '';
+      if (pillDot) pillDot.setAttribute('data-state', d.edited ? 'edited' : 'saved');
+    });
+
+    if (pill && editor && 'IntersectionObserver' in window) {
+      const io = new IntersectionObserver(
+        (entries) => {
+          const en = entries[0];
+          if (!en) return;
+          const past = !en.isIntersecting && en.boundingClientRect.top < 0;
+          pill.setAttribute('data-show', String(past));
+          pill.setAttribute('aria-hidden', String(!past));
+        },
+        { threshold: 0, rootMargin: '-64px 0px 0px 0px' },
+      );
+      io.observe(editor);
+    }
   })();
 </script>

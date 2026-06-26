@@ -51,11 +51,7 @@ const ogImage = SITE_URL + BASE + '/brand/og-v2.png';
       (function () {
         try {
           var t = localStorage.getItem('writ:theme');
-          var theme = t === 'dark' || t === 'light' ? t : 'light';
-          document.documentElement.setAttribute('data-theme', theme);
-          var v = localStorage.getItem('writ:v2:variant');
-          var variant = v === 'paper' || v === 'grid' || v === 'flat' ? v : 'flat';
-          document.documentElement.setAttribute('data-variant', variant);
+          document.documentElement.setAttribute('data-theme', t === 'dark' ? 'dark' : 'light');
         } catch (_) {}
       })();
     </script>

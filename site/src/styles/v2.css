@@ -286,8 +286,44 @@
   transition: opacity 0.4s var(--ease), transform 0.5s var(--spring);
 }
 .float-pill[data-show='true'] { opacity: 1; transform: translate(-50%, 0) scale(1); pointer-events: auto; }
-.float-pill b { color: var(--foreground); font-weight: 500; }
-.float-pill .dd { width: 7px; height: 7px; border-radius: 50%; background: var(--success); animation: writ-pulse 2s var(--ease) infinite; }
+.float-pill b { color: var(--foreground); font-weight: 500; transition: color 0.2s var(--ease); }
+.fp-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--success);
+  transition: background 0.25s var(--ease);
+}
+.fp-dot[data-state='saved'] { animation: writ-pulse 2.4s var(--ease) infinite; }
+.fp-dot[data-state='edited'] { background: var(--warn); animation: none; }
+.fp-meta {
+  padding-left: 9px;
+  margin-left: 2px;
+  border-left: 1px solid var(--line);
+  color: var(--subtle);
+  font-size: 11px;
+}
+.fp-meta:empty { display: none; }
+
+/* ─── Theme toggle ───────────────────────────────────────────────────────── */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--sunken);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s var(--ease), background 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.theme-toggle:hover { color: var(--foreground); background: var(--hover); border-color: var(--border-strong); }
+.theme-toggle .ic { display: none; }
+[data-theme='light'] .theme-toggle .ic-moon { display: block; }
+[data-theme='dark'] .theme-toggle .ic-sun { display: block; }
 .topnav a { transition: color 0.15s var(--ease), background 0.15s var(--ease); }
 .topnav a:hover { color: var(--foreground); background: var(--hover); }
 
@@ -587,6 +623,10 @@
   -webkit-backdrop-filter: blur(14px);
   background: color-mix(in srgb, var(--background) 82%, transparent);
   border-bottom: 1px solid var(--line-soft);
+  /* Promote to its own compositor layer so the blur stays stable during scroll
+     (avoids the backdrop-filter repaint flicker over the page beneath it). */
+  transform: translateZ(0);
+  will-change: transform;
 }
 .v2-grid {
   position: relative;
@@ -651,6 +691,6 @@
 @media (prefers-reduced-motion: reduce) {
   .ticker .track { animation: none; transform: none; }
   .float-pill { transition: opacity 0.2s linear; transform: translate(-50%, 0) scale(1); }
-  .float-pill .dd, .ww-watch-dot { animation: none; }
+  .fp-dot, .ww-watch-dot { animation: none; }
   .gtrig:hover, .dlbtn:hover, .float-pill[data-show='true'], .v2-btn-primary:hover { transform: none; }
 }

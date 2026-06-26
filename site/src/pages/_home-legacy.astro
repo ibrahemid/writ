@@ -1,0 +1,20 @@
+---
+import Base from '../layouts/Base.astro';
+import Hero from '../components/Hero.astro';
+import Compare from '../components/Compare.astro';
+import Download from '../components/Download.astro';
+import Deck from '../islands/Deck';
+---
+<Base
+  title="Writ · read what your agent wrote"
+  description="Writ is the render surface for agent output. Renders Markdown, HTML, Mermaid and KaTeX offline. Autosaves every keystroke. Full-text search. No account, no telemetry."
+  path="/"
+>
+  <Hero />
+
+  <Deck client:visible />
+
+  <Compare />
+
+  <Download />
+</Base>
