@@ -3,6 +3,13 @@ import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 import { configStore } from "../../stores/global/config";
 import type { WritConfig } from "../../types/config";
 
+const TEST_CLAIMABLE_TYPE = {
+  id: "markdown",
+  label: "Markdown",
+  exts: ["md", "markdown"],
+  utis: ["net.daringfireball.markdown"],
+};
+
 const mocks = vi.hoisted(() => ({
   save: vi.fn().mockResolvedValue(undefined),
   config: vi.fn(),
@@ -11,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   openShortcutEditor: vi.fn(),
   fetchDefaultAppStatus: vi.fn().mockResolvedValue({ status: "unsupported" }),
   claimDefaultApp: vi.fn().mockResolvedValue(undefined),
+  fetchDefaultAppTypes: vi.fn(),
+  fetchCliStatus: vi.fn().mockResolvedValue({ installed: false }),
 }));
 
 vi.mock("../../services/tauri", () => ({
@@ -24,10 +33,12 @@ vi.mock("../../services/tauri", () => ({
 vi.mock("../../stores/global/default-app", () => ({
   fetchDefaultAppStatus: mocks.fetchDefaultAppStatus,
   claimDefaultApp: mocks.claimDefaultApp,
+  fetchDefaultAppTypes: mocks.fetchDefaultAppTypes,
 }));
 
 vi.mock("../../stores/global/cli", () => ({
   installCli: vi.fn().mockResolvedValue({ symlink_path: "/usr/local/bin/writ", manual_command: "" }),
+  fetchCliStatus: mocks.fetchCliStatus,
 }));
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
@@ -57,6 +68,8 @@ vi.spyOn(configStore, "save").mockImplementation(mocks.save);
 vi.spyOn(configStore, "config").mockImplementation(mocks.config);
 
 import SettingsModal, { openSettings, closeSettings } from "../../components/SettingsModal/SettingsModal";
+import { SETTINGS_INDEX, SECTION_ORDER } from "../../settings";
+import { clearDefaultAppSupport, probeDefaultAppSupport } from "../../stores/global/default-app-support";
 
 function baseConfig(): WritConfig {
   return {
@@ -92,6 +105,9 @@ describe("SettingsModal", () => {
     mocks.openShortcutEditor.mockReset();
     mocks.fetchDefaultAppStatus.mockReset().mockResolvedValue({ status: "unsupported" });
     mocks.claimDefaultApp.mockReset().mockResolvedValue(undefined);
+    mocks.fetchDefaultAppTypes.mockReset().mockResolvedValue([TEST_CLAIMABLE_TYPE]);
+    mocks.fetchCliStatus.mockReset().mockResolvedValue({ installed: false });
+    clearDefaultAppSupport();
   });
 
   afterEach(() => {
@@ -319,7 +335,7 @@ describe("SettingsModal", () => {
         expect(status).not.toBeNull();
         expect(status!.textContent).toContain("Writ is the default");
       });
-      const makeDefaultBtn = container.querySelector("[data-action='make-default-md']");
+      const makeDefaultBtn = container.querySelector("[data-action='make-default-markdown']");
       expect(makeDefaultBtn).toBeNull();
     });
 
@@ -332,7 +348,7 @@ describe("SettingsModal", () => {
         expect(status).not.toBeNull();
         expect(status!.textContent).toContain("TextEdit is the default");
       });
-      const makeDefaultBtn = container.querySelector("[data-action='make-default-md']");
+      const makeDefaultBtn = container.querySelector("[data-action='make-default-markdown']");
       expect(makeDefaultBtn).not.toBeNull();
     });
 
@@ -356,7 +372,7 @@ describe("SettingsModal", () => {
         expect(status).not.toBeNull();
         expect(status!.textContent).toContain("No default set");
       });
-      const makeDefaultBtn = container.querySelector("[data-action='make-default-md']");
+      const makeDefaultBtn = container.querySelector("[data-action='make-default-markdown']");
       expect(makeDefaultBtn).not.toBeNull();
     });
 
@@ -365,9 +381,9 @@ describe("SettingsModal", () => {
       mocks.claimDefaultApp.mockResolvedValue(undefined);
       const { container } = render(() => <SettingsModal />);
       await openFilesSection(container);
-      await waitFor(() => expect(container.querySelector("[data-action='make-default-md']")).not.toBeNull());
-      fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='make-default-md']")!);
-      await waitFor(() => expect(mocks.claimDefaultApp).toHaveBeenCalledWith("md"));
+      await waitFor(() => expect(container.querySelector("[data-action='make-default-markdown']")).not.toBeNull());
+      fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='make-default-markdown']")!);
+      await waitFor(() => expect(mocks.claimDefaultApp).toHaveBeenCalledWith("markdown"));
     });
 
     it("re-queries status after 800ms delay and reflects updated handler", async () => {
@@ -378,7 +394,7 @@ describe("SettingsModal", () => {
       mocks.claimDefaultApp.mockResolvedValue(undefined);
       const { container } = render(() => <SettingsModal />);
       await openFilesSection(container);
-      await waitFor(() => expect(container.querySelector("[data-action='make-default-md']")).not.toBeNull());
+      await waitFor(() => expect(container.querySelector("[data-action='make-default-markdown']")).not.toBeNull());
 
       // Record call count after initial mount (2 rows × 1 call each = 2)
       const callsBeforeClick = mocks.fetchDefaultAppStatus.mock.calls.length;
@@ -386,8 +402,8 @@ describe("SettingsModal", () => {
       // Queue is_default for the next call (the re-query after 800ms)
       mocks.fetchDefaultAppStatus.mockResolvedValueOnce({ status: "is_default" });
 
-      fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='make-default-md']")!);
-      await waitFor(() => expect(mocks.claimDefaultApp).toHaveBeenCalledWith("md"));
+      fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='make-default-markdown']")!);
+      await waitFor(() => expect(mocks.claimDefaultApp).toHaveBeenCalledWith("markdown"));
 
       // Timer has not fired yet — no additional fetch calls
       expect(mocks.fetchDefaultAppStatus).toHaveBeenCalledTimes(callsBeforeClick);
@@ -399,10 +415,148 @@ describe("SettingsModal", () => {
       await waitFor(() => {
         expect(mocks.fetchDefaultAppStatus).toHaveBeenCalledTimes(callsBeforeClick + 1);
         expect(container.querySelector(".settings-default-app-status-active")).not.toBeNull();
-        expect(container.querySelector("[data-action='make-default-md']")).toBeNull();
+        expect(container.querySelector("[data-action='make-default-markdown']")).toBeNull();
       });
 
       vi.useRealTimers();
+    });
+  });
+
+  describe("search", () => {
+    async function openAndSearch(container: Element, term: string) {
+      openSettings();
+      await waitFor(() => expect(container.querySelector(".settings-search-input")).not.toBeNull());
+      const input = container.querySelector<HTMLInputElement>(".settings-search-input")!;
+      fireEvent.input(input, { target: { value: term } });
+      return input;
+    }
+
+    it("hides the section nav while searching", async () => {
+      const { container } = render(() => <SettingsModal />);
+      await openAndSearch(container, "font");
+      await waitFor(() => expect(container.querySelector(".settings-nav")).toBeNull());
+    });
+
+    it("shows only rows matching the query across sections", async () => {
+      const { container } = render(() => <SettingsModal />);
+      await openAndSearch(container, "font");
+      await waitFor(() => {
+        const rows = container.querySelectorAll("[data-setting-id]");
+        expect(rows.length).toBe(1);
+        expect(rows[0].getAttribute("data-setting-id")).toBe("editor.font_size");
+      });
+    });
+
+    it("surfaces a setting from a non-default section by keyword", async () => {
+      const { container } = render(() => <SettingsModal />);
+      await openAndSearch(container, "cli");
+      await waitFor(() => {
+        expect(container.querySelector("[data-setting-id='files.cli']")).not.toBeNull();
+        expect(container.querySelector("[data-setting-id='editor.font_size']")).toBeNull();
+      });
+    });
+
+    it("shows an empty state when nothing matches", async () => {
+      const { container } = render(() => <SettingsModal />);
+      await openAndSearch(container, "zzzzz");
+      await waitFor(() => {
+        expect(container.querySelector(".settings-empty")).not.toBeNull();
+        expect(container.querySelectorAll("[data-setting-id]").length).toBe(0);
+      });
+    });
+
+    it("surfaces a default-app row for a gated-only query once support is known", async () => {
+      // Regression: a query matching only platform-gated default-app rows must
+      // not show a permanent false empty-state. Support resolved at startup
+      // (not as a render side-effect) breaks the bootstrapping deadlock.
+      mocks.fetchDefaultAppTypes.mockResolvedValue([
+        { id: "config-data", label: "Config & data", exts: ["json"], utis: ["public.json"] },
+      ]);
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "no_handler" });
+      await probeDefaultAppSupport();
+
+      const { container } = render(() => <SettingsModal />);
+      await openAndSearch(container, "json");
+      await waitFor(() => {
+        expect(container.querySelector(".settings-empty")).toBeNull();
+        expect(
+          container.querySelector("[data-setting-id='files.default_app.config-data']"),
+        ).not.toBeNull();
+      });
+    });
+
+    it("shows the empty state for a gated-only query when the platform lacks support", async () => {
+      mocks.fetchDefaultAppTypes.mockResolvedValue([
+        { id: "config-data", label: "Config & data", exts: ["json"], utis: ["public.json"] },
+      ]);
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "unsupported" });
+      await probeDefaultAppSupport();
+
+      const { container } = render(() => <SettingsModal />);
+      await openAndSearch(container, "json");
+      await waitFor(() => expect(container.querySelector(".settings-empty")).not.toBeNull());
+    });
+
+    it("restores the nav when the query is cleared", async () => {
+      const { container } = render(() => <SettingsModal />);
+      const input = await openAndSearch(container, "font");
+      await waitFor(() => expect(container.querySelector(".settings-nav")).toBeNull());
+      fireEvent.input(input, { target: { value: "" } });
+      await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
+    });
+  });
+
+  describe("deep link", () => {
+    it("opens the target section and highlights the row", async () => {
+      const { container } = render(() => <SettingsModal />);
+      openSettings("preview", "preview.run_scripts");
+      await waitFor(() => {
+        const row = container.querySelector("[data-setting-id='preview.run_scripts']");
+        expect(row).not.toBeNull();
+        expect(row!.classList.contains("settings-row-highlight")).toBe(true);
+      });
+      expect(container.querySelector("[data-section='editor']")).toBeNull();
+    });
+  });
+
+  describe("index parity", () => {
+    it("every rendered setting row has an index entry and every entry renders", async () => {
+      // Render every claimable group the index knows about, all supported, so
+      // the dynamic default-app rows are present for the parity comparison.
+      mocks.fetchDefaultAppTypes.mockResolvedValue(
+        ["plain-text", "markdown", "config-data", "source-code"].map((id) => ({
+          id,
+          label: id,
+          exts: [id],
+          utis: [`public.${id}`],
+        })),
+      );
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "is_default" });
+      const { container } = render(() => <SettingsModal />);
+      openSettings();
+      await waitFor(() => expect(container.querySelector(".settings-search-input")).not.toBeNull());
+      // A query that matches every section label is impossible; instead drive
+      // each section through the nav and collect the rows it renders.
+      const rendered = new Set<string>();
+      const navItems = Array.from(
+        container.querySelectorAll<HTMLButtonElement>(".settings-nav-item"),
+      );
+      for (let i = 0; i < navItems.length; i++) {
+        const sectionId = SECTION_ORDER[i];
+        const expected = SETTINGS_INDEX.filter((e) => e.section === sectionId).length;
+        fireEvent.click(navItems[i]);
+        // Default-app rows load asynchronously; wait until every row this
+        // section indexes has rendered before collecting.
+        await waitFor(() =>
+          expect(container.querySelectorAll("[data-setting-id]").length).toBe(expected),
+        );
+        for (const row of container.querySelectorAll("[data-setting-id]")) {
+          const id = row.getAttribute("data-setting-id");
+          if (id) rendered.add(id);
+        }
+      }
+      const indexed = new Set(SETTINGS_INDEX.map((e) => e.id));
+      expect([...rendered].sort()).toEqual([...indexed].sort());
     });
   });
 });

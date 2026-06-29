@@ -29,6 +29,7 @@ import { registerPromptCommands } from "./commands/prompt";
 import PromptFillModal from "./components/PromptFill/PromptFillModal";
 import { registerPreviewKeymap } from "./keymap/preview";
 import { rendererRegistry } from "./stores/global/renderer-registry";
+import { probeDefaultAppSupport } from "./stores/global/default-app-support";
 import { previewListRenderers, getRecoveredBuffers } from "./services/tauri";
 import { editorZoom } from "./stores/global/editor-zoom";
 import { registerCommand, executeCommand, getAllCommands, setExecuteListener } from "./commands/registry";
@@ -500,6 +501,10 @@ function AppShell() {
 
     setExecuteListener((id) => configStore.recordCommandUse(id));
     configStore.pruneCommandUsage(new Set(getAllCommands().map((c) => c.id)));
+
+    // Resolve default-app platform support up front so settings search and the
+    // command palette can offer those rows before the Settings modal mounts.
+    void probeDefaultAppSupport();
 
     const loadedKeybindings = configStore.config().keybindings;
     const liveKeybindings = pruneLegacyDefaultOverrides(loadedKeybindings);
