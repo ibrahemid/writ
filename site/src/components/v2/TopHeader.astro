@@ -41,12 +41,6 @@ const repo = 'https://github.com/ibrahemid/writ';
   </div>
 </header>
 
-<div class="float-pill" data-show="false" aria-hidden="true">
-  <span class="fp-dot" data-state="saved" aria-hidden="true"></span>
-  <b class="fp-name">report.md</b>
-  <span class="fp-meta">Markdown</span>
-</div>
-
 <script>
   (function () {
     const root = document.documentElement;
@@ -83,34 +77,5 @@ const repo = 'https://github.com/ibrahemid/writ';
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     onScroll();
-
-    // The pill is a quiet mirror of the window's status bar. It only appears
-    // once the editor itself has scrolled out of view, and tracks the active file.
-    const pill = document.querySelector('.float-pill');
-    const pillName = pill && pill.querySelector('.fp-name');
-    const pillMeta = pill && pill.querySelector('.fp-meta');
-    const pillDot = pill && pill.querySelector('.fp-dot');
-    const editor = document.getElementById('editor');
-
-    document.addEventListener('writ:status', (e) => {
-      const d = (e && e.detail) || {};
-      if (pillName && d.name) pillName.textContent = d.name;
-      if (pillMeta) pillMeta.textContent = d.meta || '';
-      if (pillDot) pillDot.setAttribute('data-state', d.edited ? 'edited' : 'saved');
-    });
-
-    if (pill && editor && 'IntersectionObserver' in window) {
-      const io = new IntersectionObserver(
-        (entries) => {
-          const en = entries[0];
-          if (!en) return;
-          const past = !en.isIntersecting && en.boundingClientRect.top < 0;
-          pill.setAttribute('data-show', String(past));
-          pill.setAttribute('aria-hidden', String(!past));
-        },
-        { threshold: 0, rootMargin: '-64px 0px 0px 0px' },
-      );
-      io.observe(editor);
-    }
   })();
 </script>

@@ -261,51 +261,6 @@
 .ticker .ti b { color: var(--foreground); font-weight: 500; }
 .ticker .ti .dd { width: 4px; height: 4px; border-radius: 50%; background: var(--border-strong); }
 .ticker .ti.lv .dd { background: var(--success); }
-.float-pill {
-  position: fixed;
-  top: 13px;
-  left: 50%;
-  z-index: 60;
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  padding: 7px 15px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--card) 86%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--line);
-  box-shadow: var(--panel-shadow);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--muted);
-  white-space: nowrap;
-  opacity: 0;
-  transform: translate(-50%, -16px) scale(0.95);
-  pointer-events: none;
-  transition: opacity 0.4s var(--ease), transform 0.5s var(--spring);
-}
-.float-pill[data-show='true'] { opacity: 1; transform: translate(-50%, 0) scale(1); pointer-events: auto; }
-.float-pill b { color: var(--foreground); font-weight: 500; transition: color 0.2s var(--ease); }
-.fp-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex: none;
-  background: var(--success);
-  transition: background 0.25s var(--ease);
-}
-.fp-dot[data-state='saved'] { animation: writ-pulse 2.4s var(--ease) infinite; }
-.fp-dot[data-state='edited'] { background: var(--warn); animation: none; }
-.fp-meta {
-  padding-left: 9px;
-  margin-left: 2px;
-  border-left: 1px solid var(--line);
-  color: var(--subtle);
-  font-size: 11px;
-}
-.fp-meta:empty { display: none; }
-
 /* ─── Theme toggle ───────────────────────────────────────────────────────── */
 .theme-toggle {
   display: inline-flex;
@@ -690,7 +645,6 @@
 /* ─── Reduced motion ─────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   .ticker .track { animation: none; transform: none; }
-  .float-pill { transition: opacity 0.2s linear; transform: translate(-50%, 0) scale(1); }
-  .fp-dot, .ww-watch-dot { animation: none; }
-  .gtrig:hover, .dlbtn:hover, .float-pill[data-show='true'], .v2-btn-primary:hover { transform: none; }
+  .ww-watch-dot { animation: none; }
+  .gtrig:hover, .dlbtn:hover, .v2-btn-primary:hover { transform: none; }
 }

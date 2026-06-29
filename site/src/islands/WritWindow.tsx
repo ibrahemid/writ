@@ -486,16 +486,6 @@ export default function WritWindow() {
     };
   }, [contents, activeId, viewMode]);
 
-  // Mirror the active buffer to the floating status pill in the header.
-  useEffect(() => {
-    const m = meta(activeId);
-    document.dispatchEvent(
-      new CustomEvent('writ:status', {
-        detail: { name: nameOf(activeId), meta: m.badge || m.label, edited },
-      }),
-    );
-  }, [activeId, edited, names, meta, nameOf]);
-
   const b = meta(activeId);
   const lang = b.lang;
   const content = contents[activeId] || '';
