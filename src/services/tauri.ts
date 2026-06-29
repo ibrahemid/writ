@@ -481,6 +481,15 @@ export interface InstallCliResult {
   manual_command: string;
 }
 
+export interface CliStatus {
+  installed: boolean;
+  path: string;
+}
+
+export async function cliStatus(): Promise<CliStatus> {
+  return invoke("cli_status");
+}
+
 export async function installCli(): Promise<InstallCliResult> {
   return invoke("install_cli");
 }
@@ -493,12 +502,23 @@ export type DefaultAppStatus =
   | { status: "no_handler" }
   | { status: "unsupported" };
 
-export async function getDefaultAppStatus(ext: string): Promise<DefaultAppStatus> {
-  return invoke("get_default_app_status", { ext });
+export interface ClaimableType {
+  id: string;
+  label: string;
+  exts: string[];
+  utis: string[];
 }
 
-export async function setDefaultApp(ext: string): Promise<void> {
-  return invoke("set_default_app", { ext });
+export async function listDefaultAppTypes(): Promise<ClaimableType[]> {
+  return invoke("list_default_app_types");
+}
+
+export async function getDefaultAppStatus(id: string): Promise<DefaultAppStatus> {
+  return invoke("get_default_app_status", { id });
+}
+
+export async function setDefaultApp(id: string): Promise<void> {
+  return invoke("set_default_app", { id });
 }
 
 // --- Watch inbox (ADR-018) ---

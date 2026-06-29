@@ -1,5 +1,7 @@
 use tauri::State;
-use writ_core::default_app::{ext_to_uti, DefaultAppStatus};
+use writ_core::default_app::{
+    aggregate_status, claimable_type, claimable_types, ClaimableType, DefaultAppStatus,
+};
 
 use crate::state::AppState;
 
@@ -8,46 +10,58 @@ fn our_bundle_id() -> &'static str {
     "com.writ.editor"
 }
 
-/// IPC: query whether Writ is the macOS default handler for `ext`.
+/// IPC: the file-type groups the settings UI can offer to make Writ the default for.
+#[tauri::command]
+pub fn list_default_app_types() -> Vec<ClaimableType> {
+    claimable_types().to_vec()
+}
+
+/// IPC: query whether Writ is the macOS default handler for every UTI in group `id`.
 ///
 /// Returns `DefaultAppStatus::Unsupported` on every platform except macOS.
 #[tauri::command]
 pub fn get_default_app_status(
     _state: State<'_, AppState>,
-    ext: String,
+    id: String,
 ) -> Result<DefaultAppStatus, String> {
-    let (uti, _kind) = ext_to_uti(&ext).ok_or_else(|| format!("unsupported extension: {ext}"))?;
+    let group = claimable_type(&id).ok_or_else(|| format!("unknown type group: {id}"))?;
 
     #[cfg(target_os = "macos")]
     {
-        let handler_id = macos::query_default_handler(uti).map_err(|e| e.to_string())?;
-        let status = DefaultAppStatus::from_handler_id(handler_id.as_deref(), our_bundle_id());
-        let status = enrich_with_display_name(status, handler_id.as_deref());
-        Ok(status)
+        let mut statuses = Vec::with_capacity(group.utis.len());
+        for uti in group.utis {
+            let handler_id = macos::query_default_handler(uti).map_err(|e| e.to_string())?;
+            let status = DefaultAppStatus::from_handler_id(handler_id.as_deref(), our_bundle_id());
+            statuses.push(enrich_with_display_name(status, handler_id.as_deref()));
+        }
+        Ok(aggregate_status(&statuses))
     }
 
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = uti;
+        let _ = group;
         Ok(DefaultAppStatus::Unsupported)
     }
 }
 
-/// IPC: register Writ as the macOS default handler for `ext`.
+/// IPC: register Writ as the macOS default handler for every UTI in group `id`.
 ///
 /// Returns `DefaultAppStatus::Unsupported` on every platform except macOS.
 #[tauri::command]
-pub fn set_default_app(_state: State<'_, AppState>, ext: String) -> Result<(), String> {
-    let (uti, _kind) = ext_to_uti(&ext).ok_or_else(|| format!("unsupported extension: {ext}"))?;
+pub fn set_default_app(_state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let group = claimable_type(&id).ok_or_else(|| format!("unknown type group: {id}"))?;
 
     #[cfg(target_os = "macos")]
     {
-        macos::set_default_handler(uti, our_bundle_id()).map_err(|e| e.to_string())
+        for uti in group.utis {
+            macos::set_default_handler(uti, our_bundle_id()).map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = uti;
+        let _ = group;
         Ok(())
     }
 }
@@ -198,13 +212,53 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ext_to_uti_rejects_unknown_extension() {
-        // Verifies the command guard rejects unsupported extensions at the boundary,
-        // not in LS. This path executes on all platforms.
-        let result: Result<DefaultAppStatus, String> =
-            ext_to_uti("txt").ok_or_else(|| "unsupported extension: txt".to_string())
-                .map(|(_, _)| DefaultAppStatus::Unsupported);
-        assert!(result.is_err());
+    fn unknown_group_is_rejected_at_the_boundary() {
+        // The command guard rejects unknown type-group ids before any LS call.
+        // This path executes on all platforms.
+        assert!(claimable_type("not-a-group").is_none());
+        assert!(claimable_type("source-code").is_some());
+    }
+
+    #[test]
+    fn list_default_app_types_returns_the_table() {
+        let types = list_default_app_types();
+        assert!(types.iter().any(|t| t.id == "source-code"));
+        assert!(types.iter().all(|t| !t.exts.contains(&"html")));
+    }
+
+    // Every UTI the settings UI can claim must be declared as a handled type in
+    // the bundle (a `contentTypes` entry or an `exportedType.identifier`), or
+    // Launch Services accepts the set call but Finder never routes opens to Writ
+    // and the row can never read as default. This guards the claimable table
+    // against the tauri.conf.json declarations so the two cannot drift.
+    #[test]
+    fn every_claimable_uti_is_declared_in_the_bundle() {
+        let raw = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"))
+            .expect("read tauri.conf.json");
+        let conf: serde_json::Value = serde_json::from_str(&raw).expect("parse tauri.conf.json");
+        let assocs = conf["bundle"]["fileAssociations"]
+            .as_array()
+            .expect("fileAssociations array");
+
+        let mut declared = std::collections::HashSet::new();
+        for a in assocs {
+            if let Some(cts) = a["contentTypes"].as_array() {
+                declared.extend(cts.iter().filter_map(|v| v.as_str().map(str::to_owned)));
+            }
+            if let Some(id) = a["exportedType"]["identifier"].as_str() {
+                declared.insert(id.to_owned());
+            }
+        }
+
+        for group in claimable_types() {
+            for uti in group.utis {
+                assert!(
+                    declared.contains(*uti),
+                    "claimable UTI `{uti}` (group `{}`) is not declared in tauri.conf.json",
+                    group.id
+                );
+            }
+        }
     }
 
     #[test]
