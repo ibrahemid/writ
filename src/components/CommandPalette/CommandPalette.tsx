@@ -6,8 +6,17 @@ import { configStore } from "../../stores/global/config";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
 import type { Command } from "../../types/commands";
+import { rankSettings, SECTION_LABELS } from "../../settings";
+import { isSettingAvailable } from "../../settings/availability";
+import { openSettings } from "../SettingsModal/SettingsModal";
 import Kbd from "../Kbd/Kbd";
 import "./CommandPalette.css";
+
+const SETTING_RESULT_PREFIX = "setting:";
+
+function isSettingResult(cmd: Command): boolean {
+  return cmd.id.startsWith(SETTING_RESULT_PREFIX);
+}
 
 const [isOpen, setIsOpen] = createSignal(false);
 
@@ -16,7 +25,7 @@ export function closeCommandPalette() { setIsOpen(false); }
 export function toggleCommandPalette() { setIsOpen(prev => !prev); }
 
 interface PaletteSection {
-  kind: "recent" | "all" | "results";
+  kind: "recent" | "all" | "results" | "settings";
   label: string | null;
   commands: Command[];
 }
@@ -35,13 +44,27 @@ export default function CommandPalette() {
     ),
   );
 
+  const settingResults = createMemo<Command[]>(() => {
+    const q = query().trim();
+    if (!q) return [];
+    return rankSettings(q)
+      .filter((entry) => isSettingAvailable(entry.id))
+      .map((entry) => ({
+      id: `${SETTING_RESULT_PREFIX}${entry.id}`,
+      label: entry.title,
+      description: `${SECTION_LABELS[entry.section]} settings`,
+      scope: "app" as const,
+      execute: () => openSettings(entry.section, entry.id),
+    }));
+  });
+
   const sections = createMemo<PaletteSection[]>(() => {
     const q = query().trim();
     const usage = configStore.config().commands.usage;
     const all = appCommands();
+    const result: PaletteSection[] = [];
     if (!q) {
       const { recent, rest } = partitionEmptyQuery(all, usage);
-      const result: PaletteSection[] = [];
       if (recent.length > 0) {
         result.push({ kind: "recent", label: "Recent", commands: recent });
         result.push({ kind: "all", label: "All commands", commands: rest });
@@ -51,7 +74,14 @@ export default function CommandPalette() {
       return result;
     }
     const ranked = rankWithQuery(all, q, usage);
-    return [{ kind: "results", label: null, commands: ranked }];
+    if (ranked.length > 0) {
+      result.push({ kind: "results", label: null, commands: ranked });
+    }
+    const settings = settingResults();
+    if (settings.length > 0) {
+      result.push({ kind: "settings", label: "Settings", commands: settings });
+    }
+    return result;
   });
 
   const flat = createMemo<Command[]>(() => sections().flatMap((s) => s.commands));
@@ -86,7 +116,7 @@ export default function CommandPalette() {
 
   function handleSelect(cmd: Command) {
     cmd.execute();
-    configStore.recordCommandUse(cmd.id);
+    if (!isSettingResult(cmd)) configStore.recordCommandUse(cmd.id);
     setIsOpen(false);
   }
 

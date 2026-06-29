@@ -1,4 +1,16 @@
-import { createSignal, createEffect, onCleanup, onMount, For, Show, Switch, Match } from "solid-js";
+import {
+  createSignal,
+  createEffect,
+  createContext,
+  useContext,
+  onCleanup,
+  onMount,
+  For,
+  Show,
+  Switch,
+  Match,
+  type JSX,
+} from "solid-js";
 import { configStore, EDITOR_FONT_MIN, EDITOR_FONT_MAX } from "../../stores/global/config";
 import { inboxStore } from "../../stores/global/inbox";
 import { themeStore } from "../../stores/global/theme";
@@ -17,35 +29,61 @@ import {
   claimDefaultApp,
 } from "../../stores/global/default-app";
 import type { ClaimableType, DefaultAppStatus } from "../../stores/global/default-app";
+import { markDefaultAppTypeSupported } from "../../stores/global/default-app-support";
+import {
+  SECTION_LABELS,
+  SECTION_ORDER,
+  defaultAppSettingId,
+  matchedSettingIds,
+  rankSettings,
+  type SettingsSection,
+} from "../../settings";
+import { isSettingAvailable } from "../../settings/availability";
 import "./SettingsModal.css";
-
-type Section = "editor" | "files" | "preview" | "appearance" | "shortcuts" | "updates";
 
 // Singleton state — Writ is single-window
 const [isOpen, setIsOpen] = createSignal(false);
-const [activeSection, setActiveSection] = createSignal<Section>("editor");
+const [activeSection, setActiveSection] = createSignal<SettingsSection>("editor");
+const [query, setQuery] = createSignal("");
+const [highlightId, setHighlightId] = createSignal<string | null>(null);
 
-export function openSettings() {
-  setActiveSection("editor");
+export function openSettings(section?: SettingsSection, settingId?: string) {
+  setQuery("");
+  setActiveSection(section ?? "editor");
+  setHighlightId(settingId ?? null);
   setIsOpen(true);
 }
 
 export function closeSettings() {
+  setHighlightId(null);
   setIsOpen(false);
 }
 
 export function toggleSettings() {
-  setIsOpen((prev) => !prev);
+  if (isOpen()) closeSettings();
+  else openSettings();
 }
 
-const NAV_ITEMS: { id: Section; label: string }[] = [
-  { id: "editor", label: "Editor" },
-  { id: "files", label: "Files" },
-  { id: "preview", label: "Preview" },
-  { id: "appearance", label: "Appearance" },
-  { id: "updates", label: "Updates" },
-  { id: "shortcuts", label: "Shortcuts" },
-];
+const isSearching = () => query().trim().length > 0;
+
+interface SearchContextValue {
+  rowVisible: (id: string) => boolean;
+  sectionVisible: (section: SettingsSection) => boolean;
+  highlighted: (id: string) => boolean;
+}
+
+const SearchContext = createContext<SearchContextValue>();
+
+function useSearch(): SearchContextValue {
+  const ctx = useContext(SearchContext);
+  if (!ctx) throw new Error("SettingsRow used outside SettingsModal");
+  return ctx;
+}
+
+const NAV_ITEMS: { id: SettingsSection; label: string }[] = SECTION_ORDER.map((id) => ({
+  id,
+  label: SECTION_LABELS[id],
+}));
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -69,6 +107,53 @@ async function patchConfig(patch: (prev: ReturnType<typeof configStore.config>) 
   }
 }
 
+interface SettingsRowProps {
+  id: string;
+  label: string;
+  labelFor?: string;
+  caution?: string;
+  children: JSX.Element;
+}
+
+function SettingsRow(props: SettingsRowProps) {
+  const search = useSearch();
+  return (
+    <Show when={search.rowVisible(props.id)}>
+      <div
+        class="settings-row"
+        classList={{ "settings-row-highlight": search.highlighted(props.id) }}
+        data-setting-id={props.id}
+      >
+        <Show
+          when={props.labelFor}
+          fallback={
+            <span class="settings-row-label">
+              {props.label}
+              <Show when={props.caution}>
+                <span class="settings-row-caution">{props.caution}</span>
+              </Show>
+            </span>
+          }
+        >
+          <label class="settings-row-label" for={props.labelFor}>
+            {props.label}
+          </label>
+        </Show>
+        {props.children}
+      </div>
+    </Show>
+  );
+}
+
+function SectionLabel(props: { section: SettingsSection }) {
+  const search = useSearch();
+  return (
+    <Show when={search.sectionVisible(props.section)}>
+      <div class="settings-section-label">{SECTION_LABELS[props.section]}</div>
+    </Show>
+  );
+}
+
 function EditorSection() {
   const cfg = () => configStore.config().editor;
 
@@ -88,9 +173,8 @@ function EditorSection() {
 
   return (
     <div data-section="editor">
-      <div class="settings-section-label">Editor</div>
-      <div class="settings-row">
-        <label class="settings-row-label" for="setting-font-size">Font size</label>
+      <SectionLabel section="editor" />
+      <SettingsRow id="editor.font_size" label="Font size" labelFor="setting-font-size">
         <input
           id="setting-font-size"
           type="number"
@@ -101,9 +185,8 @@ function EditorSection() {
           max={EDITOR_FONT_MAX}
           onChange={(e) => onFontSizeChange(e.currentTarget.value)}
         />
-      </div>
-      <div class="settings-row">
-        <label class="settings-row-label" for="setting-tab-size">Tab size</label>
+      </SettingsRow>
+      <SettingsRow id="editor.tab_size" label="Tab size" labelFor="setting-tab-size">
         <input
           id="setting-tab-size"
           type="number"
@@ -114,9 +197,8 @@ function EditorSection() {
           max={16}
           onChange={(e) => onTabSizeChange(e.currentTarget.value)}
         />
-      </div>
-      <div class="settings-row">
-        <span class="settings-row-label">Word wrap</span>
+      </SettingsRow>
+      <SettingsRow id="editor.word_wrap" label="Word wrap">
         <button
           type="button"
           class="settings-toggle"
@@ -124,11 +206,12 @@ function EditorSection() {
           data-setting="word_wrap"
           role="switch"
           aria-checked={cfg().word_wrap}
+          aria-label="Word wrap"
           onClick={onWordWrapToggle}
         >
           <span class="settings-toggle-thumb" />
         </button>
-      </div>
+      </SettingsRow>
     </div>
   );
 }
@@ -144,6 +227,7 @@ function DefaultAppRow(props: DefaultAppRowProps) {
   const [setting, setSetting] = createSignal(false);
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
+  const settingId = () => defaultAppSettingId(props.type.id);
   const extList = () => props.type.exts.map((e) => `.${e}`).join(", ");
 
   async function loadStatus() {
@@ -158,6 +242,15 @@ function DefaultAppRow(props: DefaultAppRowProps) {
 
   onMount(() => {
     void loadStatus();
+  });
+
+  // Keep the shared support registry fresh as this row resolves (covers a
+  // post-startup change, e.g. after "Make default"), so search headers and the
+  // command palette never offer a row that will not render on this platform.
+  createEffect(() => {
+    const s = status();
+    if (s === null) return;
+    markDefaultAppTypeSupported(props.type.id, s.status !== "unsupported");
   });
 
   onCleanup(() => {
@@ -186,11 +279,7 @@ function DefaultAppRow(props: DefaultAppRowProps) {
 
   return (
     <Show when={currentStatus() !== null && currentStatus()!.status !== "unsupported"}>
-      <div class="settings-row">
-        <span class="settings-row-label">
-          {props.type.label}
-          <span class="settings-row-caution">{extList()}</span>
-        </span>
+      <SettingsRow id={settingId()} label={props.type.label} caution={extList()}>
         <div class="settings-default-app-ctrl">
           <span
             class="settings-default-app-status"
@@ -221,7 +310,7 @@ function DefaultAppRow(props: DefaultAppRowProps) {
             </button>
           </Show>
         </div>
-      </div>
+      </SettingsRow>
     </Show>
   );
 }
@@ -274,9 +363,8 @@ function FilesSection() {
 
   return (
     <div data-section="files">
-      <div class="settings-section-label">Files</div>
-      <div class="settings-row">
-        <label class="settings-row-label" for="setting-autosave">Autosave delay (ms)</label>
+      <SectionLabel section="files" />
+      <SettingsRow id="files.autosave" label="Autosave delay (ms)" labelFor="setting-autosave">
         <input
           id="setting-autosave"
           type="number"
@@ -287,9 +375,8 @@ function FilesSection() {
           max={10000}
           onChange={(e) => onAutosaveChange(e.currentTarget.value)}
         />
-      </div>
-      <div class="settings-row">
-        <span class="settings-row-label">Command-line tool</span>
+      </SettingsRow>
+      <SettingsRow id="files.cli" label="Command-line tool">
         <Show
           when={!cliInstalled()}
           fallback={
@@ -308,10 +395,9 @@ function FilesSection() {
             {isInstallingCli() ? "Installing…" : "Install `writ` command"}
           </button>
         </Show>
-      </div>
+      </SettingsRow>
       <For each={defaultAppTypes()}>{(t) => <DefaultAppRow type={t} />}</For>
-      <div class="settings-row">
-        <span class="settings-row-label">Watched inbox folder</span>
+      <SettingsRow id="files.inbox_folder" label="Watched inbox folder">
         <Show
           when={inboxPath()}
           fallback={
@@ -347,9 +433,8 @@ function FilesSection() {
             </span>
           )}
         </Show>
-      </div>
-      <div class="settings-row">
-        <span class="settings-row-label">Focus window on inbox open</span>
+      </SettingsRow>
+      <SettingsRow id="files.inbox_focus" label="Focus window on inbox open">
         <button
           type="button"
           class="settings-toggle"
@@ -357,11 +442,12 @@ function FilesSection() {
           data-setting="inbox_focus"
           role="switch"
           aria-checked={inboxFocus()}
+          aria-label="Focus window on inbox open"
           onClick={onInboxFocusToggle}
         >
           <span class="settings-toggle-thumb" />
         </button>
-      </div>
+      </SettingsRow>
     </div>
   );
 }
@@ -395,9 +481,8 @@ function PreviewSection() {
 
   return (
     <div data-section="preview">
-      <div class="settings-section-label">Preview</div>
-      <div class="settings-row">
-        <label class="settings-row-label" for="setting-live-threshold">Live render threshold (MB)</label>
+      <SectionLabel section="preview" />
+      <SettingsRow id="preview.live_threshold" label="Live render threshold (MB)" labelFor="setting-live-threshold">
         <input
           id="setting-live-threshold"
           type="number"
@@ -409,9 +494,8 @@ function PreviewSection() {
           step={0.5}
           onChange={(e) => onLiveThresholdChange(e.currentTarget.value)}
         />
-      </div>
-      <div class="settings-row">
-        <label class="settings-row-label" for="setting-refuse-threshold">Refuse render threshold (MB)</label>
+      </SettingsRow>
+      <SettingsRow id="preview.refuse_threshold" label="Refuse render threshold (MB)" labelFor="setting-refuse-threshold">
         <input
           id="setting-refuse-threshold"
           type="number"
@@ -423,9 +507,8 @@ function PreviewSection() {
           step={1}
           onChange={(e) => onRefuseThresholdChange(e.currentTarget.value)}
         />
-      </div>
-      <div class="settings-row">
-        <span class="settings-row-label">Run scripts by default</span>
+      </SettingsRow>
+      <SettingsRow id="preview.run_scripts" label="Run scripts by default">
         <button
           type="button"
           class="settings-toggle"
@@ -433,13 +516,13 @@ function PreviewSection() {
           data-setting="run_scripts"
           role="switch"
           aria-checked={cfg().run_scripts}
+          aria-label="Run scripts by default"
           onClick={onRunScriptsToggle}
         >
           <span class="settings-toggle-thumb" />
         </button>
-      </div>
-      <div class="settings-row">
-        <label class="settings-row-label" for="setting-layout-html">HTML default layout</label>
+      </SettingsRow>
+      <SettingsRow id="preview.layout_html" label="HTML default layout" labelFor="setting-layout-html">
         <select
           id="setting-layout-html"
           class="settings-select"
@@ -451,9 +534,8 @@ function PreviewSection() {
           <option value="split">Split</option>
           <option value="preview">Preview only</option>
         </select>
-      </div>
-      <div class="settings-row">
-        <label class="settings-row-label" for="setting-layout-md">Markdown default layout</label>
+      </SettingsRow>
+      <SettingsRow id="preview.layout_md" label="Markdown default layout" labelFor="setting-layout-md">
         <select
           id="setting-layout-md"
           class="settings-select"
@@ -465,7 +547,7 @@ function PreviewSection() {
           <option value="split">Split</option>
           <option value="preview">Preview only</option>
         </select>
-      </div>
+      </SettingsRow>
     </div>
   );
 }
@@ -482,9 +564,8 @@ function UpdatesSection() {
 
   return (
     <div data-section="updates">
-      <div class="settings-section-label">Updates</div>
-      <div class="settings-row">
-        <span class="settings-row-label">Check for updates automatically</span>
+      <SectionLabel section="updates" />
+      <SettingsRow id="updates.auto_check" label="Check for updates automatically">
         <button
           type="button"
           class="settings-toggle"
@@ -492,13 +573,13 @@ function UpdatesSection() {
           data-setting="updater_auto_check"
           role="switch"
           aria-checked={autoCheck()}
+          aria-label="Check for updates automatically"
           onClick={onAutoCheckToggle}
         >
           <span class="settings-toggle-thumb" />
         </button>
-      </div>
-      <div class="settings-row">
-        <span class="settings-row-label">Check for updates now</span>
+      </SettingsRow>
+      <SettingsRow id="updates.check_now" label="Check for updates now">
         <button
           type="button"
           class="settings-action-btn"
@@ -507,7 +588,7 @@ function UpdatesSection() {
         >
           Check now
         </button>
-      </div>
+      </SettingsRow>
     </div>
   );
 }
@@ -522,9 +603,8 @@ function AppearanceSection() {
 
   return (
     <div data-section="appearance">
-      <div class="settings-section-label">Appearance</div>
-      <div class="settings-row">
-        <label class="settings-row-label" for="setting-theme-preset">Theme</label>
+      <SectionLabel section="appearance" />
+      <SettingsRow id="appearance.theme" label="Theme" labelFor="setting-theme-preset">
         <select
           id="setting-theme-preset"
           class="settings-select"
@@ -536,9 +616,8 @@ function AppearanceSection() {
             <option value={p.id}>{p.name}</option>
           ))}
         </select>
-      </div>
-      <div class="settings-row">
-        <span class="settings-row-label">Custom colors</span>
+      </SettingsRow>
+      <SettingsRow id="appearance.custom_colors" label="Custom colors">
         <button
           type="button"
           class="settings-action-btn"
@@ -550,7 +629,7 @@ function AppearanceSection() {
         >
           Edit theme…
         </button>
-      </div>
+      </SettingsRow>
     </div>
   );
 }
@@ -558,9 +637,8 @@ function AppearanceSection() {
 function ShortcutsSection() {
   return (
     <div data-section="shortcuts">
-      <div class="settings-section-label">Shortcuts</div>
-      <div class="settings-row">
-        <span class="settings-row-label">Keyboard shortcuts</span>
+      <SectionLabel section="shortcuts" />
+      <SettingsRow id="shortcuts.edit" label="Keyboard shortcuts">
         <button
           type="button"
           class="settings-action-btn"
@@ -572,15 +650,51 @@ function ShortcutsSection() {
         >
           Edit shortcuts…
         </button>
-      </div>
+      </SettingsRow>
     </div>
+  );
+}
+
+function AllSections() {
+  return (
+    <>
+      <EditorSection />
+      <FilesSection />
+      <PreviewSection />
+      <AppearanceSection />
+      <UpdatesSection />
+      <ShortcutsSection />
+    </>
   );
 }
 
 export default function SettingsModal() {
   const win = useWindow();
   let modalRef: HTMLDivElement | undefined;
+  let contentRef: HTMLDivElement | undefined;
+  let searchRef: HTMLInputElement | undefined;
   const titleId = "settings-modal-title";
+
+  const matched = () => matchedSettingIds(query());
+
+  // Sections that have at least one currently-renderable matching row.
+  const matchedSections = () => {
+    const result = new Set<SettingsSection>();
+    if (!isSearching()) return result;
+    for (const entry of rankSettings(query())) {
+      if (isSettingAvailable(entry.id)) result.add(entry.section);
+    }
+    return result;
+  };
+
+  const searchContext: SearchContextValue = {
+    rowVisible: (id) => !isSearching() || (matched().has(id) && isSettingAvailable(id)),
+    sectionVisible: (section) => !isSearching() || matchedSections().has(section),
+    highlighted: (id) => highlightId() === id,
+  };
+
+  const noMatches = () =>
+    isSearching() && rankSettings(query()).every((entry) => !isSettingAvailable(entry.id));
 
   createEffect(() => {
     if (!isOpen() || !modalRef) return;
@@ -594,77 +708,142 @@ export default function SettingsModal() {
     onCleanup(teardown);
   });
 
+  createEffect(() => {
+    if (isOpen() && searchRef) {
+      requestAnimationFrame(() => searchRef!.focus());
+    }
+  });
+
+  createEffect(() => {
+    const id = highlightId();
+    if (!isOpen() || !id || !contentRef) return;
+    const target = contentRef;
+    requestAnimationFrame(() => {
+      const el = target.querySelector<HTMLElement>(`[data-setting-id="${id}"]`);
+      if (el && typeof el.scrollIntoView === "function") {
+        el.scrollIntoView({ block: "center" });
+      }
+    });
+    const timer = setTimeout(() => setHighlightId(null), 1200);
+    onCleanup(() => clearTimeout(timer));
+  });
+
   return (
     <Show when={isOpen()}>
-      <div class="settings-overlay" onClick={() => closeSettings()}>
-        <div
-          ref={modalRef}
-          class="settings-modal"
-          onClick={(e) => e.stopPropagation()}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
-        >
-          <div class="settings-header">
-            <span id={titleId} class="settings-title">Settings</span>
-            <button
-              type="button"
-              class="settings-close"
-              onClick={closeSettings}
-              aria-label="Close settings"
-              title="Close"
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-                <path
-                  d="M2 2L10 10M10 2L2 10"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                />
-              </svg>
-            </button>
-          </div>
+      <SearchContext.Provider value={searchContext}>
+        <div class="settings-overlay" onClick={() => closeSettings()}>
+          <div
+            ref={modalRef}
+            class="settings-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+          >
+            <div class="settings-header">
+              <span id={titleId} class="settings-title">Settings</span>
+              <button
+                type="button"
+                class="settings-close"
+                onClick={closeSettings}
+                aria-label="Close settings"
+                title="Close"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+                  <path
+                    d="M2 2L10 10M10 2L2 10"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </button>
+            </div>
 
-          <div class="settings-body">
-            <nav class="settings-nav" aria-label="Settings sections">
-              {NAV_ITEMS.map((item) => (
+            <div class="settings-search-bar">
+              <svg class="settings-search-icon" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                <circle cx="6" cy="6" r="4.25" fill="none" stroke="currentColor" stroke-width="1.4" />
+                <path d="M9.2 9.2L12 12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+              <input
+                ref={searchRef}
+                type="text"
+                class="settings-search-input"
+                placeholder="Search settings"
+                value={query()}
+                onInput={(e) => setQuery(e.currentTarget.value)}
+                aria-label="Search settings"
+              />
+              <Show when={isSearching()}>
                 <button
                   type="button"
-                  class="settings-nav-item"
-                  classList={{ "settings-nav-item-active": activeSection() === item.id }}
-                  onClick={() => setActiveSection(item.id)}
-                  aria-current={activeSection() === item.id ? "page" : undefined}
+                  class="settings-search-clear"
+                  onClick={() => {
+                    setQuery("");
+                    searchRef?.focus();
+                  }}
+                  aria-label="Clear search"
+                  title="Clear search"
                 >
-                  {item.label}
+                  <svg width="10" height="10" viewBox="0 0 12 12" aria-hidden="true">
+                    <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  </svg>
                 </button>
-              ))}
-            </nav>
+              </Show>
+            </div>
 
-            <div class="settings-content">
-              <Switch>
-                <Match when={activeSection() === "editor"}>
-                  <EditorSection />
-                </Match>
-                <Match when={activeSection() === "files"}>
-                  <FilesSection />
-                </Match>
-                <Match when={activeSection() === "preview"}>
-                  <PreviewSection />
-                </Match>
-                <Match when={activeSection() === "appearance"}>
-                  <AppearanceSection />
-                </Match>
-                <Match when={activeSection() === "updates"}>
-                  <UpdatesSection />
-                </Match>
-                <Match when={activeSection() === "shortcuts"}>
-                  <ShortcutsSection />
-                </Match>
-              </Switch>
+            <div class="settings-body">
+              <Show when={!isSearching()}>
+                <nav class="settings-nav" aria-label="Settings sections">
+                  {NAV_ITEMS.map((item) => (
+                    <button
+                      type="button"
+                      class="settings-nav-item"
+                      classList={{ "settings-nav-item-active": activeSection() === item.id }}
+                      onClick={() => setActiveSection(item.id)}
+                      aria-current={activeSection() === item.id ? "page" : undefined}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </nav>
+              </Show>
+
+              <div
+                ref={contentRef}
+                class="settings-content"
+                classList={{ "settings-content-search": isSearching() }}
+              >
+                <Show
+                  when={isSearching()}
+                  fallback={
+                    <Switch>
+                      <Match when={activeSection() === "editor"}><EditorSection /></Match>
+                      <Match when={activeSection() === "files"}><FilesSection /></Match>
+                      <Match when={activeSection() === "preview"}><PreviewSection /></Match>
+                      <Match when={activeSection() === "appearance"}><AppearanceSection /></Match>
+                      <Match when={activeSection() === "updates"}><UpdatesSection /></Match>
+                      <Match when={activeSection() === "shortcuts"}><ShortcutsSection /></Match>
+                    </Switch>
+                  }
+                >
+                  <Show
+                    when={!noMatches()}
+                    fallback={
+                      <div class="settings-empty">
+                        <div class="settings-empty-title">No settings match "{query()}"</div>
+                        <div class="settings-empty-hint">Try a different word, or clear the search.</div>
+                      </div>
+                    }
+                  >
+                    <AllSections />
+                  </Show>
+                </Show>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </SearchContext.Provider>
     </Show>
   );
 }
