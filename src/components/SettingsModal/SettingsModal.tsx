@@ -170,7 +170,9 @@ function DefaultAppRow(props: DefaultAppRowProps) {
       await claimDefaultApp(props.type.id);
     } catch (err) {
       showToast(`Failed to set default for ${props.type.label}`, "error");
-      setSetting(false);
+      // A group spans several UTIs; a mid-loop failure may have claimed some.
+      // Re-query so the row reflects the real partial state, not a stale one.
+      void loadStatus().finally(() => setSetting(false));
       return;
     }
     // LS registration is async at the OS level — re-query after a short delay

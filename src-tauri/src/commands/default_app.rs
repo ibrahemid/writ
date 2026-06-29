@@ -226,6 +226,41 @@ mod tests {
         assert!(types.iter().all(|t| !t.exts.contains(&"html")));
     }
 
+    // Every UTI the settings UI can claim must be declared as a handled type in
+    // the bundle (a `contentTypes` entry or an `exportedType.identifier`), or
+    // Launch Services accepts the set call but Finder never routes opens to Writ
+    // and the row can never read as default. This guards the claimable table
+    // against the tauri.conf.json declarations so the two cannot drift.
+    #[test]
+    fn every_claimable_uti_is_declared_in_the_bundle() {
+        let raw = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"))
+            .expect("read tauri.conf.json");
+        let conf: serde_json::Value = serde_json::from_str(&raw).expect("parse tauri.conf.json");
+        let assocs = conf["bundle"]["fileAssociations"]
+            .as_array()
+            .expect("fileAssociations array");
+
+        let mut declared = std::collections::HashSet::new();
+        for a in assocs {
+            if let Some(cts) = a["contentTypes"].as_array() {
+                declared.extend(cts.iter().filter_map(|v| v.as_str().map(str::to_owned)));
+            }
+            if let Some(id) = a["exportedType"]["identifier"].as_str() {
+                declared.insert(id.to_owned());
+            }
+        }
+
+        for group in claimable_types() {
+            for uti in group.utis {
+                assert!(
+                    declared.contains(*uti),
+                    "claimable UTI `{uti}` (group `{}`) is not declared in tauri.conf.json",
+                    group.id
+                );
+            }
+        }
+    }
+
     #[test]
     fn unsupported_platform_returns_unsupported_status() {
         // Exercises the non-macOS branch of get_default_app_status via the policy
