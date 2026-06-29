@@ -1,0 +1,89 @@
+---
+import '../../design-system/colors_and_type.css';
+import '../styles/site.css';
+import TopHeader from '../components/site/TopHeader.astro';
+import SiteFooter from '../components/site/SiteFooter.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+  path?: string;
+}
+
+const {
+  title,
+  description = 'A fast, keyboard-first scratchpad and viewer that sits between a plain text editor and a full IDE. Open any file instantly, render Markdown, HTML, Mermaid and KaTeX live, and keep every scratch searchable. Offline, no account.',
+  path = '/',
+} = Astro.props;
+
+const SITE_URL = 'https://ibrahemid.github.io';
+const BASE = '/writ';
+const canonical = SITE_URL + BASE + path;
+const ogImage = SITE_URL + BASE + '/brand/og-v2.png';
+---
+<!doctype html>
+<html lang="en" data-theme="light" data-variant="flat">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f6f4ef" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b0b11" media="(prefers-color-scheme: dark)" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+
+    <link rel="icon" type="image/png" sizes="32x32" href={`${import.meta.env.BASE_URL}brand/icon-32.png`} />
+    <link rel="icon" type="image/png" sizes="128x128" href={`${import.meta.env.BASE_URL}brand/icon-128.png`} />
+    <link rel="apple-touch-icon" sizes="256x256" href={`${import.meta.env.BASE_URL}brand/icon-256.png`} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <script is:inline>
+      (function () {
+        try {
+          var t = localStorage.getItem('writ:theme');
+          document.documentElement.setAttribute('data-theme', t === 'dark' ? 'dark' : 'light');
+        } catch (_) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <a href="#content" class="skip-link">Skip to content</a>
+    <div class="v2-page">
+      <div class="hero-glow" aria-hidden="true"></div>
+      <div class="bg-field" aria-hidden="true"></div>
+      <TopHeader />
+      <div id="content" tabindex="-1">
+        <slot />
+      </div>
+      <SiteFooter />
+    </div>
+  </body>
+</html>
+
+<style is:global>
+  .skip-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    z-index: 100;
+    padding: 10px 16px;
+    background: var(--accent);
+    color: var(--accent-foreground);
+    border-radius: 0 0 8px 0;
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .skip-link:focus { left: 0; }
+</style>
