@@ -1,8 +1,8 @@
 ---
-import Base from '../layouts/Base.astro';
+import Site from "../layouts/Site.astro";
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
-<Base
+<Site
   title="404 — this page wasn't autosaved"
   description="The page you asked for does not exist."
   path="/404/"
@@ -12,9 +12,9 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       <div class="nf-frame" role="img" aria-label="A simulated Writ buffer titled 404.md">
         <div class="nf-chrome">
           <div class="nf-traffic" aria-hidden="true">
-            <span style="background: var(--traffic-close)"></span>
-            <span style="background: var(--traffic-min)"></span>
-            <span style="background: var(--traffic-max)"></span>
+            <span style="background: #ff5f57"></span>
+            <span style="background: #febc2e"></span>
+            <span style="background: #28c840"></span>
           </div>
           <div class="nf-tabs" aria-hidden="true">
             <span class="nf-tab is-active">404.md</span>
@@ -58,8 +58,8 @@ try one of:
       overflow: hidden;
       background: var(--elevated);
       border: 1px solid var(--line);
-      box-shadow: var(--win-shadow);
-      font-family: var(--mono);
+      box-shadow: var(--panel-shadow);
+      font-family: var(--font-mono);
     }
     .nf-chrome {
       display: flex;
@@ -76,7 +76,7 @@ try one of:
       font-size: 12px;
       padding: 4px 10px;
       border-radius: 6px;
-      color: var(--ink);
+      color: var(--foreground);
       background: var(--paper);
       border: 1px solid var(--line);
     }
@@ -86,10 +86,10 @@ try one of:
     .nf-pre {
       margin: 0;
       padding: 1.5rem;
-      font-family: var(--mono);
+      font-family: var(--font-mono);
       font-size: 13px;
       line-height: 1.75;
-      color: var(--ink);
+      color: var(--foreground);
       white-space: pre;
       overflow-x: auto;
     }
@@ -111,4 +111,4 @@ try one of:
     }
     .nf-status-right { margin-left: auto; }
   </style>
-</Base>
+</Site>

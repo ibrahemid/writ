@@ -1,20 +1,26 @@
 ---
-import Base from '../layouts/Base.astro';
-import Hero from '../components/Hero.astro';
-import Compare from '../components/Compare.astro';
-import Download from '../components/Download.astro';
-import Deck from '../islands/Deck';
+import Site from '../layouts/Site.astro';
+import Hero from '../components/site/Hero.astro';
+import WindowRow from '../components/site/WindowRow.astro';
+import Sections from '../components/site/Sections.astro';
 ---
-<Base
-  title="Writ · read what your agent wrote"
-  description="Writ is the render surface for agent output. Renders Markdown, HTML, Mermaid and KaTeX offline. Autosaves every keystroke. Full-text search. No account, no telemetry."
-  path="/"
->
-  <Hero />
+<Site title="Writ — a fast scratchpad for everything you open" path="/">
+  <main id="top" class="v2-grid">
+    <Hero />
+    <WindowRow />
+    <Sections />
+  </main>
+</Site>
 
-  <Deck client:visible />
-
-  <Compare />
-
-  <Download />
-</Base>
+<script>
+  (function () {
+    document.querySelectorAll('[data-cmd]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const action = el.getAttribute('data-cmd');
+        const arg = el.getAttribute('data-arg') || undefined;
+        if (!action) return;
+        document.dispatchEvent(new CustomEvent('writ:cmd', { detail: { action, arg } }));
+      });
+    });
+  })();
+</script>

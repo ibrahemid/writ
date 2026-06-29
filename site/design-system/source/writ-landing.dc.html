@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/writ-design-system-019dd857-de36-7988-81a6-0722e8818928/colors_and_type.css">
+  <script src="_ds/writ-design-system-019dd857-de36-7988-81a6-0722e8818928/_ds_bundle.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs';
+    window.mermaid = mermaid;
+  </script>
+  <style>
+    @keyframes writ-pulse { 0%,100%{ opacity:1 } 50%{ opacity:.32 } }
+    @keyframes writ-blink { 0%,46%{ opacity:1 } 54%,100%{ opacity:0 } }
+    .writ-prose { font-family:var(--font-sans); color:var(--foreground); font-size:14.5px; line-height:1.7; word-wrap:break-word }
+    .writ-prose > * + * { margin-top:12px }
+    .writ-prose h1 { font-family:var(--font-display); font-weight:800; font-size:27px; letter-spacing:-.03em; line-height:1.08; font-variation-settings:'opsz' 60; margin-top:2px }
+    .writ-prose h2 { font-family:var(--font-display); font-weight:700; font-size:20px; letter-spacing:-.02em; margin-top:22px; padding-bottom:5px; border-bottom:1px solid var(--line-soft) }
+    .writ-prose h3 { font-weight:650; font-size:16px; margin-top:16px }
+    .writ-prose a { color:var(--accent); text-decoration:underline; text-underline-offset:2px }
+    .writ-prose strong { font-weight:700 }
+    .writ-prose em { font-style:italic }
+    .writ-prose code { font-family:var(--font-mono); font-size:.84em; background:var(--accent-soft); color:var(--accent); padding:1px 5px; border-radius:5px }
+    .writ-prose pre { background:var(--sunken); border:1px solid var(--line); border-radius:9px; padding:13px 15px; overflow:auto }
+    .writ-prose pre code { background:none; color:var(--foreground); padding:0; font-size:12.5px; line-height:1.55 }
+    .writ-prose blockquote { border-left:3px solid var(--accent); padding:2px 0 2px 14px; color:var(--muted); font-style:italic }
+    .writ-prose ul, .writ-prose ol { padding-left:21px }
+    .writ-prose li { margin-top:4px }
+    .writ-prose li.task { list-style:none; margin-left:-21px; display:flex; gap:9px; align-items:flex-start }
+    .writ-prose .ck { flex:none; width:17px; height:17px; border-radius:5px; border:1.5px solid var(--border-strong); display:inline-flex; align-items:center; justify-content:center; font-size:10px; color:#fff; margin-top:2px }
+    .writ-prose .ck.on { background:var(--accent); border-color:var(--accent) }
+    .writ-prose table { border-collapse:collapse; font-size:13px }
+    .writ-prose th, .writ-prose td { border:1px solid var(--line); padding:6px 11px; text-align:left }
+    .writ-prose th { background:var(--sunken); font-weight:650 }
+    .writ-prose hr { border:none; border-top:1px solid var(--line) }
+    .writ-prose .mermaid { display:flex; justify-content:center; background:var(--card); border:1px solid var(--line); border-radius:9px; padding:16px 10px }
+    .writ-prose .mermaid svg { max-width:100% }
+    .writ-prose .katex-display { margin:14px 0; overflow-x:auto; overflow-y:hidden }
+    .wmark { background:var(--accent-soft); color:var(--accent); border-radius:3px; padding:0 1px; font-weight:600 }
+    .seg { cursor:pointer; border:none; background:transparent; font-family:var(--font-mono); font-size:11.5px; color:var(--muted); padding:4px 10px; border-radius:7px; transition:all .16s var(--ease) }
+    .seg[aria-pressed="true"] { background:var(--card); color:var(--foreground); box-shadow:0 1px 2px rgba(0,0,0,.08) }
+    .stog { cursor:pointer; border:none; background:transparent; font-family:var(--font-mono); font-size:11px; color:var(--muted); padding:2px 8px; border-radius:6px; transition:all .15s var(--ease) }
+    .stog[aria-pressed="true"] { color:var(--accent) }
+    .stog:hover { color:var(--foreground) }
+    .ftab { display:flex; align-items:center; gap:8px; cursor:pointer; padding:0 10px; height:33px; border-radius:8px; font-family:var(--font-mono); font-size:12px; color:var(--muted); white-space:nowrap; transition:background .14s var(--ease), color .14s var(--ease); border:1px solid transparent }
+    .ftab:hover { color:var(--foreground); background:var(--hover) }
+    .ftab[data-active="true"] { color:var(--foreground); background:var(--card); border-color:var(--line) }
+    .ftab .x { opacity:0; font-size:14px; line-height:1; width:14px; text-align:center; border-radius:4px; transition:opacity .14s }
+    .ftab:hover .x { opacity:.55 }
+    .ftab .x:hover { opacity:1; background:var(--hover) }
+    .srow { display:block; width:100%; text-align:left; cursor:pointer; border:none; background:transparent; padding:7px 10px; border-radius:8px; transition:background .13s var(--ease) }
+    .srow:hover { background:var(--hover) }
+    .srow[data-active="true"] { background:var(--accent-soft) }
+    .pcmd { display:flex; align-items:center; justify-content:space-between; gap:14px; width:100%; text-align:left; cursor:pointer; border:none; background:transparent; padding:9px 16px; transition:background .12s var(--ease) }
+    .pcmd:hover { background:var(--accent-soft) }
+    .gtrig { cursor:pointer; border:1px solid var(--line); background:var(--card); border-radius:9px; padding:9px 13px; font-family:var(--font-mono); font-size:12.5px; color:var(--foreground); transition:all .16s var(--ease); display:inline-flex; align-items:center; gap:8px }
+    .gtrig:hover { border-color:var(--accent); color:var(--accent); transform:translateY(-1px) }
+    .codescroll::-webkit-scrollbar, .writ-prose::-webkit-scrollbar, .sidescroll::-webkit-scrollbar { width:9px; height:9px }
+    .codescroll::-webkit-scrollbar-thumb, .writ-prose::-webkit-scrollbar-thumb, .sidescroll::-webkit-scrollbar-thumb { background:var(--border-strong); border-radius:6px }
+    .codescroll::-webkit-scrollbar-track, .sidescroll::-webkit-scrollbar-track { background:transparent }
+    .dlbtn { display:flex; flex-direction:column; align-items:flex-start; gap:3px; padding:16px 18px; border-radius:12px; border:1px solid var(--border-strong); background:var(--card); transition:transform .15s var(--ease), border-color .15s var(--ease) }
+    .dlbtn:hover { transform:translateY(-2px); border-color:var(--accent) }
+    @keyframes writ-march { to { transform:translateX(-50%) } }
+    .ticker { overflow:hidden; height:30px; border-bottom:1px solid var(--line-soft); background:color-mix(in srgb,var(--background) 55%,transparent); transition:height .42s var(--ease), opacity .35s var(--ease), border-color .42s var(--ease) }
+    .ticker[data-collapsed="true"] { height:0; opacity:0; border-color:transparent }
+    .ticker .track { display:flex; width:max-content; align-items:center; height:30px; animation:writ-march 46s linear infinite; will-change:transform }
+    .ticker:hover .track { animation-play-state:paused }
+    .ticker .ti { display:inline-flex; align-items:center; gap:9px; padding:0 19px; font-family:var(--font-mono); font-size:11px; letter-spacing:.03em; color:var(--muted); white-space:nowrap }
+    .ticker .ti b { color:var(--foreground); font-weight:500 }
+    .ticker .ti .dd { width:4px; height:4px; border-radius:50%; background:var(--border-strong) }
+    .ticker .ti.lv .dd { background:var(--success) }
+    .float-pill { position:fixed; top:13px; left:50%; z-index:60; display:inline-flex; align-items:center; gap:9px; padding:7px 15px; border-radius:999px; background:color-mix(in srgb,var(--card) 86%,transparent); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border:1px solid var(--line); box-shadow:var(--panel-shadow); font-family:var(--font-mono); font-size:11.5px; color:var(--muted); white-space:nowrap; opacity:0; transform:translate(-50%,-16px) scale(.95); pointer-events:none; transition:opacity .4s var(--ease), transform .5s var(--spring) }
+    .float-pill[data-show="true"] { opacity:1; transform:translate(-50%,0) scale(1); pointer-events:auto }
+    .float-pill b { color:var(--foreground); font-weight:500 }
+    .float-pill .dd { width:7px; height:7px; border-radius:50%; background:var(--success); animation:writ-pulse 2s var(--ease) infinite }
+    .topnav a { transition:color .15s var(--ease), background .15s var(--ease) }
+    .topnav a:hover { color:var(--foreground); background:var(--hover) }
+    .bg-field { position:fixed; inset:0; z-index:0; pointer-events:none; background-image:linear-gradient(var(--grid-line,rgba(26,26,34,.05)) 1px,transparent 1px),linear-gradient(90deg,var(--grid-line,rgba(26,26,34,.05)) 1px,transparent 1px); background-size:54px 54px; -webkit-mask-image:radial-gradient(125% 85% at 62% 0%,#000,transparent 78%); mask-image:radial-gradient(125% 85% at 62% 0%,#000,transparent 78%) }
+    [data-theme='dark'] .bg-field { --grid-line:rgba(224,224,224,.05) }
+    @media (max-width:880px){ .gut-col{ display:none!important } .pagegrid{ grid-template-columns:1fr!important } .win-side{ display:none!important } .win-body{ grid-template-columns:1fr!important } }
+    @media (max-width:560px){ .hide-sm{ display:none!important } .dl-grid{ grid-template-columns:1fr!important } }
+  </style>
+</helmet>
+
+<div id="top" style="position:relative; min-height:100vh; background:var(--background); overflow-x:clip">
+
+  <!-- ░ HEADER (ticker + nav) ░ -->
+  <header style="position:sticky; top:0; z-index:50; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); background:color-mix(in srgb, var(--background) 82%, transparent); border-bottom:1px solid var(--line-soft)">
+    <div class="ticker" data-collapsed="{{ scrolled }}" aria-hidden="true">
+      <div class="track">
+        <span class="ti lv"><i class="dd"></i> rendering <b>report.md</b> · md · mermaid · katex</span>
+        <span class="ti"><i class="dd"></i> opens <b>.md</b> · .html · logs · binaries</span>
+        <span class="ti"><i class="dd"></i> <b>full-text</b> search</span>
+        <span class="ti"><i class="dd"></i> tokens counted <b>live</b></span>
+        <span class="ti"><i class="dd"></i> renders <b>offline</b></span>
+        <span class="ti"><i class="dd"></i> <b>&#8984;K</b> command palette</span>
+        <span class="ti lv"><i class="dd"></i> rendering <b>report.md</b> · md · mermaid · katex</span>
+        <span class="ti"><i class="dd"></i> opens <b>.md</b> · .html · logs · binaries</span>
+        <span class="ti"><i class="dd"></i> <b>full-text</b> search</span>
+        <span class="ti"><i class="dd"></i> tokens counted <b>live</b></span>
+        <span class="ti"><i class="dd"></i> renders <b>offline</b></span>
+        <span class="ti"><i class="dd"></i> <b>&#8984;K</b> command palette</span>
+      </div>
+    </div>
+    <div style="max-width:1100px; margin:0 auto; padding:0 22px; height:54px; display:flex; align-items:center; gap:16px">
+      <a href="#top" style="display:inline-flex; align-items:baseline; font-family:var(--font-display); font-weight:800; font-size:19px; letter-spacing:-.045em; color:var(--foreground); flex:none">Writ<span style="color:var(--accent)">.</span></a>
+      <nav class="topnav hide-sm" style="display:flex; gap:2px; margin-left:4px">
+        <a href="#editor" style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Editor</a>
+        <a href="#render" style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Render</a>
+        <a href="#search" style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Search</a>
+        <a href="#download" style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Download</a>
+      </nav>
+      <div style="margin-left:auto; display:flex; align-items:center; gap:9px; flex:none">
+        <div class="hide-sm" role="group" aria-label="Style" style="display:flex; gap:2px; padding:3px; background:var(--sunken); border:1px solid var(--line); border-radius:9px">
+          <button class="seg" aria-pressed="{{ isPaper }}" onClick="{{ vPaper }}">Paper</button>
+          <button class="seg" aria-pressed="{{ isGrid }}" onClick="{{ vGrid }}">Grid</button>
+          <button class="seg" aria-pressed="{{ isFlat }}" onClick="{{ vFlat }}">Flat</button>
+        </div>
+        <div role="group" aria-label="Theme" style="display:flex; gap:2px; padding:3px; background:var(--sunken); border:1px solid var(--line); border-radius:9px">
+          <button class="seg" aria-pressed="{{ isLight }}" onClick="{{ setLight }}">Light</button>
+          <button class="seg" aria-pressed="{{ isDark }}" onClick="{{ setDark }}">Dark</button>
+        </div>
+        <a href="#download" class="hide-sm" style="display:inline-flex; align-items:center; height:34px; padding:0 15px; border-radius:9px; background:var(--accent); color:var(--accent-foreground); font-weight:600; font-size:13.5px; transition:background .15s var(--ease)" style-hover="background:var(--accent-hover)">Download</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="float-pill" data-show="{{ scrolled }}" aria-hidden="true"><span class="dd"></span> rendering <b>report.md</b></div>
+
+  <sc-if value="{{ showGlow }}" hint-placeholder-val="{{ true }}">
+    <div aria-hidden="true" style="position:fixed; inset:0 0 auto 0; height:820px; z-index:0; pointer-events:none; background:radial-gradient(60% 70% at 30% 4%, var(--hero-glow-a), transparent 70%), radial-gradient(36% 50% at 92% 10%, var(--hero-glow-b), transparent 72%)"></div>
+  </sc-if>
+  <sc-if value="{{ showGrid }}" hint-placeholder-val="{{ false }}">
+    <div class="bg-field" aria-hidden="true"></div>
+  </sc-if>
+
+  <!-- ░ MANUSCRIPT GRID ░ -->
+  <main class="pagegrid" style="position:relative; z-index:1; display:grid; grid-template-columns:56px minmax(0,1fr); max-width:1100px; margin:0 auto; padding:0 22px">
+
+    <!-- HERO -->
+    <div class="gut-col" style="border-right:1px solid var(--line); padding:54px 12px 0 0; text-align:right; font-family:var(--font-mono); font-size:13px; color:var(--accent)">#</div>
+    <div style="padding:48px 0 26px 30px">
+      <div style="font-family:var(--font-mono); font-size:12px; color:var(--accent); margin-bottom:16px; letter-spacing:.02em">writ / render.md</div>
+      <h1 style="font-family:var(--font-display); font-weight:800; font-variation-settings:'opsz' 72; font-size:clamp(34px,5vw,56px); letter-spacing:-.04em; line-height:1.02; color:var(--foreground); max-width:15ch">Render what your agent writes<span style="color:var(--accent)">.</span></h1>
+      <p style="max-width:50ch; margin-top:18px; font-size:clamp(15.5px,1.6vw,18px); line-height:1.55; color:var(--muted)">Your agent streams Markdown. Writ opens and renders it &mdash; Mermaid, KaTeX, HTML. Every scratch you keep stays searchable.</p>
+      <div style="display:flex; flex-wrap:wrap; gap:11px; margin-top:26px">
+        <a href="#download" style="display:inline-flex; align-items:center; gap:9px; height:48px; padding:0 24px; border-radius:11px; background:var(--accent); color:var(--accent-foreground); font-weight:600; font-size:15.5px; box-shadow:0 8px 24px -8px var(--glow); transition:transform .15s var(--ease), background .15s var(--ease)" style-hover="transform:translateY(-2px); background:var(--accent-hover)">Download Writ</a>
+        <button onClick="{{ demoRender }}" style="display:inline-flex; align-items:center; gap:8px; height:48px; padding:0 20px; border-radius:11px; cursor:pointer; background:transparent; color:var(--foreground); border:1px solid var(--border); font-weight:550; font-size:15.5px; transition:background .15s var(--ease)" style-hover="background:var(--hover)">
+          <span style="font-family:var(--font-mono); font-size:12px; color:var(--accent)">&#9656;</span> Run it below
+        </button>
+      </div>
+    </div>
+
+    <!-- THE WINDOW -->
+    <div class="gut-col" style="border-right:1px solid var(--line); padding:34px 12px 0 0; text-align:right; font-family:var(--font-mono); font-size:12px; color:var(--subtle)">&#9656;</div>
+    <div ref="{{ setWin }}" style="padding:26px 0 20px 30px; min-width:0">
+
+      <div onMouseEnter="{{ winEnter }}" onMouseLeave="{{ winLeave }}" style="position:relative; border-radius:13px; background:var(--card); border:1px solid var(--line); box-shadow:var(--win-shadow); overflow:hidden">
+
+        <!-- topbar: traffic lights + tabs -->
+        <div style="display:flex; align-items:center; gap:10px; padding:9px 11px 8px; background:color-mix(in srgb, var(--sunken) 55%, var(--card)); border-bottom:1px solid var(--line-soft)">
+          <div style="display:flex; gap:7px; padding:0 5px 0 3px; flex:none">
+            <span style="width:11px; height:11px; border-radius:50%; background:#ff5f57"></span>
+            <span style="width:11px; height:11px; border-radius:50%; background:#febc2e"></span>
+            <span style="width:11px; height:11px; border-radius:50%; background:#28c840"></span>
+          </div>
+          <div class="sidescroll" style="display:flex; align-items:center; gap:3px; flex:1; min-width:0; overflow-x:auto">
+            <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+              <div class="ftab" data-active="{{ t.active }}" onClick="{{ t.open }}" title="{{ t.name }}">
+                <span style="width:6px; height:6px; border-radius:50%; background:{{ t.dotColor }}; flex:none"></span>
+                <sc-if value="{{ t.renaming }}" hint-placeholder-val="{{ false }}">
+                  <input ref="{{ t.setRenameRef }}" value="{{ t.tempName }}" onInput="{{ t.onRename }}" onKeyDown="{{ t.onRenameKey }}" onBlur="{{ t.commitRename }}" onClick="{{ stop }}" style="width:84px; border:none; outline:none; background:var(--card); border-radius:4px; font-family:var(--font-mono); font-size:12px; color:var(--foreground); padding:1px 4px" />
+                </sc-if>
+                <sc-if value="{{ t.notRenaming }}" hint-placeholder-val="{{ true }}">
+                  <span>{{ t.name }}</span>
+                </sc-if>
+                <span class="x" onClick="{{ t.close }}">&times;</span>
+              </div>
+            </sc-for>
+            <button onClick="{{ cmdNewTab }}" title="New tab" style="flex:none; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:7px; border:1px solid transparent; color:var(--subtle); font-size:16px; line-height:1; background:transparent; transition:all .14s var(--ease)" style-hover="background:var(--hover); color:var(--foreground)">+</button>
+          </div>
+          <button class="hide-sm" onClick="{{ openPalette }}" style="flex:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:0 10px; height:28px; border-radius:7px; border:1px solid var(--line); background:var(--card); color:var(--muted); font-family:var(--font-mono); font-size:11px; transition:all .14s var(--ease)" style-hover="border-color:var(--accent); color:var(--accent)">&#8984;K</button>
+        </div>
+
+        <!-- body -->
+        <div class="win-body" style="position:relative; display:grid; grid-template-columns:{{ bodyCols }}; height:min(60vh,540px); min-height:420px">
+
+          <sc-if value="{{ sidebarOpen }}" hint-placeholder-val="{{ true }}">
+            <aside class="win-side" style="display:flex; flex-direction:column; border-right:1px solid var(--line-soft); background:color-mix(in srgb, var(--sunken) 32%, var(--card)); min-height:0">
+              <div style="padding:11px 11px 8px">
+                <div style="display:flex; align-items:center; gap:8px; padding:7px 10px; background:var(--card); border:1px solid var(--line); border-radius:9px">
+                  <span style="color:var(--subtle); font-size:13px">&#9906;</span>
+                  <input ref="{{ setSearchInput }}" value="{{ query }}" onInput="{{ onSearch }}" placeholder="Search buffers&hellip;" style="flex:1; min-width:0; border:none; outline:none; background:transparent; font-family:var(--font-sans); font-size:13px; color:var(--foreground)" />
+                  <span style="font-family:var(--font-mono); font-size:10.5px; color:var(--accent); white-space:nowrap">{{ searchCountLabel }}</span>
+                </div>
+              </div>
+              <div class="sidescroll" style="flex:1; overflow-y:auto; padding:2px 8px 12px; min-height:0">
+                <sc-if value="{{ showResults }}" hint-placeholder-val="{{ false }}">
+                  <div>
+                    <div style="font-family:var(--font-mono); font-size:10px; font-weight:600; letter-spacing:.09em; color:var(--muted); padding:8px 6px 6px">RESULTS</div>
+                    <sc-for list="{{ results }}" as="r" hint-placeholder-count="4">
+                      <button class="srow" data-active="{{ r.active }}" onClick="{{ r.open }}">
+                        <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px">
+                          <span style="font-family:var(--font-mono); font-size:12px; color:var(--foreground); font-weight:500">{{ r.name }}</span>
+                          <span style="font-family:var(--font-mono); font-size:10px; color:var(--subtle); flex:none">{{ r.loc }}</span>
+                        </div>
+                        <div style="margin-top:3px; font-family:var(--font-mono); font-size:11px; color:var(--muted); line-height:1.4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ r.lineNode }}</div>
+                      </button>
+                    </sc-for>
+                    <div style="font-family:var(--font-mono); font-size:10.5px; color:var(--subtle); padding:10px 6px 4px">{{ resultsFooter }}</div>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ showBrowse }}" hint-placeholder-val="{{ true }}">
+                  <div>
+                    <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 6px 6px">
+                      <span style="font-family:var(--font-mono); font-size:10px; font-weight:600; letter-spacing:.09em; color:var(--muted)">OPEN</span>
+                      <sc-if value="{{ watching }}" hint-placeholder-val="{{ false }}">
+                        <span style="display:inline-flex; align-items:center; gap:5px; font-family:var(--font-mono); font-size:9.5px; color:var(--success)"><span style="width:6px; height:6px; border-radius:50%; background:var(--success); animation:writ-pulse 1.6s var(--ease) infinite"></span>watching inbox</span>
+                      </sc-if>
+                    </div>
+                    <sc-for list="{{ openFiles }}" as="f" hint-placeholder-count="4">
+                      <button class="srow" data-active="{{ f.active }}" onClick="{{ f.open }}">
+                        <span style="font-family:var(--font-mono); font-size:12.5px; color:{{ f.color }}">{{ f.name }}</span>
+                      </button>
+                    </sc-for>
+                    <div style="font-family:var(--font-mono); font-size:10px; font-weight:600; letter-spacing:.09em; color:var(--muted); padding:16px 6px 6px">HISTORY · TODAY</div>
+                    <sc-for list="{{ historyFiles }}" as="h" hint-placeholder-count="6">
+                      <button class="srow" data-active="{{ h.active }}" onClick="{{ h.open }}" style="display:flex; align-items:center; justify-content:space-between; gap:8px">
+                        <span style="font-family:var(--font-mono); font-size:12.5px; color:var(--foreground); overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ h.name }}</span>
+                        <span style="font-family:var(--font-mono); font-size:10.5px; color:var(--subtle); flex:none">{{ h.when }}</span>
+                      </button>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </div>
+            </aside>
+          </sc-if>
+
+          <div style="position:relative; min-width:0; min-height:0; display:flex; flex-direction:column">
+            {{ mainView }}
+          </div>
+
+          <sc-if value="{{ paletteOpen }}" hint-placeholder-val="{{ false }}">
+            <div onClick="{{ closePalette }}" style="position:absolute; inset:0; z-index:30; background:var(--scrim); display:flex; justify-content:center; align-items:flex-start; padding-top:52px">
+              <div onClick="{{ stop }}" style="width:min(580px,90%); background:var(--card); border:1px solid var(--border-strong); border-radius:13px; box-shadow:var(--win-shadow); overflow:hidden">
+                <div style="display:flex; align-items:center; gap:10px; padding:13px 16px; border-bottom:1px solid var(--line)">
+                  <span style="color:var(--subtle); font-family:var(--font-mono); font-size:13px">&#8984;K</span>
+                  <input ref="{{ setPaletteInput }}" value="{{ paletteQuery }}" onInput="{{ onPaletteInput }}" onKeyDown="{{ onPaletteKey }}" placeholder="Type a command&hellip;" style="flex:1; border:none; outline:none; background:transparent; font-family:var(--font-sans); font-size:15px; color:var(--foreground)" />
+                </div>
+                <div class="sidescroll" style="max-height:320px; overflow-y:auto; padding:6px 0">
+                  <sc-for list="{{ paletteItems }}" as="it" hint-placeholder-count="8">
+                    <sc-if value="{{ it.isHeader }}" hint-placeholder-val="{{ false }}">
+                      <div style="font-family:var(--font-mono); font-size:10px; font-weight:600; letter-spacing:.1em; color:var(--muted); padding:11px 16px 5px">{{ it.label }}</div>
+                    </sc-if>
+                    <sc-if value="{{ it.isCmd }}" hint-placeholder-val="{{ true }}">
+                      <button class="pcmd" onClick="{{ it.run }}">
+                        <span style="min-width:0">
+                          <span style="display:block; font-size:14px; color:var(--foreground); font-weight:500">{{ it.name }}</span>
+                          <span style="display:block; margin-top:1px; font-size:12px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ it.desc }}</span>
+                        </span>
+                        <span style="font-family:var(--font-mono); font-size:11px; color:var(--subtle); flex:none">{{ it.kbd }}</span>
+                      </button>
+                    </sc-if>
+                  </sc-for>
+                  <sc-if value="{{ paletteEmpty }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding:18px; text-align:center; font-size:13px; color:var(--subtle)">No matching command.</div>
+                  </sc-if>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+
+        <!-- status bar -->
+        <div style="display:flex; align-items:center; gap:13px; padding:0 13px; height:32px; border-top:1px solid var(--line-soft); background:color-mix(in srgb, var(--sunken) 55%, var(--card)); font-family:var(--font-mono); font-size:11px; color:var(--muted)">
+          <span style="color:{{ savedColor }}">{{ savedLabel }}</span>
+          <span style="color:var(--subtle)">Ln {{ caretLn }}, Col {{ caretCol }}</span>
+          <sc-if value="{{ hasBadge }}" hint-placeholder-val="{{ false }}">
+            <span style="color:var(--warn)">{{ statusBadge }}</span>
+          </sc-if>
+          <span class="hide-sm">{{ langLabel }}</span>
+          <span class="hide-sm" style="color:var(--subtle)">UTF-8</span>
+          <span style="color:var(--accent)">&asymp; {{ tokenLabel }} tok</span>
+          <sc-if value="{{ zoomed }}" hint-placeholder-val="{{ false }}">
+            <span style="color:var(--subtle)">{{ zoomLabel }}</span>
+          </sc-if>
+          <div style="flex:1"></div>
+          <sc-if value="{{ hasPreview }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex; align-items:center; gap:1px; margin-right:2px">
+              <button class="stog" aria-pressed="{{ isSource }}" onClick="{{ vSource }}">Source</button>
+              <button class="stog" aria-pressed="{{ isSplit }}" onClick="{{ vSplit }}">Split</button>
+              <button class="stog" aria-pressed="{{ isPreview }}" onClick="{{ vPreview }}">Preview</button>
+            </div>
+          </sc-if>
+          <button class="stog" onClick="{{ openPalette }}" style="color:var(--foreground)">&#8984;K</button>
+        </div>
+      </div>
+      <p style="margin-top:13px; font-size:13px; color:var(--subtle)">Live window. Switch tabs, edit <span style="font-family:var(--font-mono); color:var(--muted)">report.md</span>, press <span style="font-family:var(--font-mono); color:var(--muted)">&#8984;K</span>, search.</p>
+    </div>
+
+    <!-- WHY -->
+    <div class="gut-col" style="border-right:1px solid var(--line); padding:64px 12px 0 0; text-align:right; font-family:var(--font-mono); font-size:12px; color:var(--accent)">##</div>
+    <div style="padding:58px 0 0 30px">
+      <div style="font-family:var(--font-mono); font-size:12px; color:var(--accent); margin-bottom:14px">why-writ</div>
+      <p style="font-family:var(--font-display); font-weight:600; font-size:clamp(20px,2.6vw,28px); line-height:1.26; letter-spacing:-.02em; color:var(--foreground); max-width:24ch">Raw Markdown is just text. Writ renders it &mdash; and keeps what you dump.</p>
+    </div>
+
+    <!-- RENDERS -->
+    <div class="gut-col" style="border-right:1px solid var(--line); padding:60px 12px 0 0; text-align:right; font-family:var(--font-mono); font-size:12px; color:var(--accent)">##</div>
+    <div style="padding:54px 0 0 30px">
+      <div style="font-family:var(--font-mono); font-size:12px; color:var(--accent); margin-bottom:12px">renders</div>
+      <h2 style="font-family:var(--font-display); font-weight:700; font-size:clamp(21px,2.6vw,30px); letter-spacing:-.03em; color:var(--foreground); max-width:20ch">Four formats, drawn live.</h2>
+      <p style="max-width:52ch; margin-top:11px; font-size:15.5px; color:var(--muted)">Source · Split · Preview. Load one into the window:</p>
+      <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:18px">
+        <button class="gtrig" onClick="{{ loadMd }}"><span style="color:var(--accent)">#</span> Markdown</button>
+        <button class="gtrig" onClick="{{ loadHtml }}"><span style="color:var(--accent)">&lt;/&gt;</span> HTML</button>
+        <button class="gtrig" onClick="{{ loadMermaid }}"><span style="color:var(--accent)">A&rarr;B</span> Mermaid</button>
+        <button class="gtrig" onClick="{{ loadMath }}"><span style="color:var(--accent)">&sum;</span> KaTeX</button>
+      </div>
+    </div>
+
+    <!-- OPENS / TOKENS / SEARCH -->
+    <div class="gut-col" style="border-right:1px solid var(--line); padding:60px 12px 0 0; text-align:right; font-family:var(--font-mono); font-size:12px; color:var(--accent)">##</div>
+    <div style="padding:54px 0 0 30px">
+      <div style="font-family:var(--font-mono); font-size:12px; color:var(--accent); margin-bottom:12px">opens · counts · finds</div>
+      <h2 style="font-family:var(--font-display); font-weight:700; font-size:clamp(21px,2.6vw,30px); letter-spacing:-.03em; color:var(--foreground); max-width:22ch">More than a renderer. A place to keep the work.</h2>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin-top:22px">
+        <div style="padding:22px; border:1px solid var(--line); border-radius:13px; background:var(--card)">
+          <div style="font-family:var(--font-mono); font-size:11.5px; color:var(--accent)">opens anything</div>
+          <h3 style="margin-top:9px; font-weight:650; font-size:17px; color:var(--foreground)">Every file, one window</h3>
+          <p style="margin-top:6px; font-size:14px; color:var(--muted); line-height:1.5">Syntax-highlighted code, logs, configs. Binaries as hex. Large files without choking.</p>
+          <button class="gtrig" onClick="{{ demoHex }}" style="margin-top:14px; font-size:12px">View a binary as hex &rarr;</button>
+        </div>
+        <div style="padding:22px; border:1px solid var(--line); border-radius:13px; background:var(--card)">
+          <div style="font-family:var(--font-mono); font-size:11.5px; color:var(--accent)">counts tokens</div>
+          <h3 style="margin-top:9px; font-weight:650; font-size:17px; color:var(--foreground)">Know the cost before you paste</h3>
+          <p style="margin-top:6px; font-size:14px; color:var(--muted); line-height:1.5">A running token estimate in the status bar. Stay under the context window.</p>
+          <button class="gtrig" onClick="{{ demoTokens }}" style="margin-top:14px; font-size:12px">Open a large log &rarr;</button>
+        </div>
+        <div style="padding:22px; border:1px solid var(--line); border-radius:13px; background:var(--card)">
+          <div style="font-family:var(--font-mono); font-size:11.5px; color:var(--accent)">stays findable</div>
+          <h3 style="margin-top:9px; font-weight:650; font-size:17px; color:var(--foreground)">Nothing you dump gets lost</h3>
+          <p style="margin-top:6px; font-size:14px; color:var(--muted); line-height:1.5">Full-text index on disk. Search lands the matching line.</p>
+          <button class="gtrig" onClick="{{ demoSearch }}" style="margin-top:14px; font-size:12px">Search &ldquo;settle&rdquo; &rarr;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- DOWNLOAD -->
+    <div class="gut-col" style="border-right:1px solid var(--line); padding:64px 12px 0 0; text-align:right; font-family:var(--font-mono); font-size:12px; color:var(--accent)">##</div>
+    <div id="download" style="padding:58px 0 0 30px">
+      <div style="font-family:var(--font-mono); font-size:12px; color:var(--accent); margin-bottom:14px">download</div>
+      <h2 style="font-family:var(--font-display); font-weight:800; font-variation-settings:'opsz' 72; font-size:clamp(26px,3.4vw,40px); letter-spacing:-.035em; line-height:1.05; color:var(--foreground); max-width:18ch">Put your agent&rsquo;s output one keypress away.</h2>
+      <p style="max-width:48ch; margin-top:14px; font-size:16px; color:var(--muted)">Free, offline, local-first. Pick your platform:</p>
+      <div class="dl-grid" style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:13px; margin-top:24px; max-width:680px">
+        <a href="#top" class="dlbtn" style="border-color:var(--accent); background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 8%,var(--card)),var(--card))">
+          <span style="font-weight:650; font-size:16px; color:var(--foreground)">macOS</span>
+          <span style="font-family:var(--font-mono); font-size:11px; color:var(--subtle)">Apple silicon &amp; Intel</span>
+        </a>
+        <a href="#top" class="dlbtn">
+          <span style="font-weight:650; font-size:16px; color:var(--foreground)">Windows</span>
+          <span style="font-family:var(--font-mono); font-size:11px; color:var(--subtle)">x64</span>
+        </a>
+        <a href="#top" class="dlbtn">
+          <span style="font-weight:650; font-size:16px; color:var(--foreground)">Linux</span>
+          <span style="font-family:var(--font-mono); font-size:11px; color:var(--subtle)">AppImage &amp; .deb</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="gut-col" style="border-right:1px solid var(--line); padding:46px 12px 40px 0"></div>
+    <div style="padding:40px 0 56px 30px">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px; padding-top:22px; border-top:1px solid var(--line-soft)">
+        <a href="#top" style="display:inline-flex; align-items:baseline; font-family:var(--font-display); font-weight:800; font-size:19px; letter-spacing:-.045em; color:var(--foreground)">Writ<span style="color:var(--accent)">.</span></a>
+        <div style="font-size:13px; color:var(--subtle)">Renders what your agent writes.</div>
+      </div>
+    </div>
+
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;typeOnLoad&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;typingSpeed&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:40,&quot;min&quot;:12,&quot;max&quot;:120,&quot;tsType&quot;:&quot;number&quot;},&quot;startTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;startVariant&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;paper&quot;,&quot;grid&quot;,&quot;flat&quot;],&quot;default&quot;:&quot;paper&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const J = (a) => a.join('\n');
+
+    const reportMd = J([
+      '# Payments service — migration analysis',
+      '',
+      'Generated for `svc-payments` at commit `a3f91c2`. Scope: move the settlement path off the legacy queue and onto the new event bus without dropping idempotency guarantees.',
+      '',
+      '## Summary',
+      '',
+      'The settlement worker is the only consumer still bound to the legacy `rabbit:settle` queue. Everything else already reads from the bus. Cutting it over removes the last broker dependency and lets us delete the dual-write shim in `ledger/append.ts`.',
+      '',
+      '## Settlement flow today',
+      '',
+      '```mermaid',
+      'flowchart LR',
+      '  A[Checkout] -->|charge.authorized| B(Event bus)',
+      '  B --> C[Settlement worker]',
+      '  C -->|legacy| D[(rabbit:settle)]',
+      '  C --> E[Ledger append]',
+      '  E --> F[(Postgres)]',
+      '```',
+      '',
+      'Once the worker consumes settlement events directly from the bus, node `D` disappears.',
+      '',
+      '## Idempotency',
+      '',
+      'Each settlement is keyed by `(account_id, charge_id)`. The dedup window $w$ must cover the worst-case redelivery interval:',
+      '',
+      '$$w \\;\\ge\\; \\max_i\\, r_i \\,+\\, \\Delta_{clock}$$',
+      '',
+      '- [x] Move the idempotency key into the message body',
+      '- [x] Read settlements from the bus',
+      '- [ ] Delete the dual-write shim',
+      '',
+      '> With the bus we expect at-least-once delivery, so the worker must stay safe under replay.'
+    ]);
+
+    const settleTs = J([
+      '// settlement worker — reads the bus, dedups on the row, appends to the ledger',
+      'import { bus } from "./transport/bus";',
+      'import { ledger } from "./ledger/append";',
+      'import { logger } from "./obs/log";',
+      '',
+      'export type SettleEvent = {',
+      '  accountId: string;',
+      '  chargeId: string;',
+      '  amountMinor: number;',
+      '  currency: "usd" | "eur" | "gbp";',
+      '  idempotencyKey: string;',
+      '};',
+      '',
+      'const DEDUP_HORIZON_MS = 5 * 60_000;',
+      'const seen = new Map<string, number>();',
+      '',
+      'function settleKey(e: SettleEvent): string {',
+      '  return `${e.accountId}:${e.chargeId}`;',
+      '}',
+      '',
+      'function isDuplicate(key: string, now: number): boolean {',
+      '  const at = seen.get(key);',
+      '  if (at !== undefined && now - at < DEDUP_HORIZON_MS) return true;',
+      '  seen.set(key, now);',
+      '  return false;',
+      '}',
+      '',
+      'export async function handleSettlement(e: SettleEvent, now = Date.now()): Promise<void> {',
+      '  const key = settleKey(e);',
+      '  if (isDuplicate(key, now)) {',
+      '    logger.debug("skip duplicate settlement", { key });',
+      '    return;',
+      '  }',
+      '  switch (e.currency) {',
+      '    case "usd":',
+      '    case "eur":',
+      '    case "gbp":',
+      '      await ledger.append({ ...e, key });',
+      '      logger.info("settled", { key, amount: e.amountMinor });',
+      '      break;',
+      '    default:',
+      '      logger.warn("unknown currency", { currency: e.currency });',
+      '  }',
+      '}'
+    ]);
+
+    const schemaSql = J([
+      '-- settlement schema — svc-payments',
+      'create table settlements (',
+      '  account_id   text        not null,',
+      '  charge_id    text        not null,',
+      '  amount_minor bigint      not null,',
+      "  currency     text        not null check (currency in ('usd','eur','gbp')),",
+      '  settled_at   timestamptz not null default now(),',
+      '  primary key (account_id, charge_id)',
+      ');',
+      '',
+      'create index settlements_settled_at_idx',
+      '  on settlements (settled_at desc);',
+      '',
+      '-- backfill from the legacy ledger',
+      'insert into settlements (account_id, charge_id, amount_minor, currency)',
+      'select account_id, charge_id, amount_minor, currency',
+      'from legacy.ledger_entries',
+      "where kind = 'settlement'",
+      'on conflict (account_id, charge_id) do nothing;'
+    ]);
+
+    const gatewayLog = J([
+      '2026-06-25T14:02:11Z INFO  bus connected partition=3 lag=0',
+      '2026-06-25T14:02:11Z INFO  req settled account=acct_8842 charge=ch_91f amount=4200 status=ok',
+      '2026-06-25T14:02:12Z WARN  redelivery seen key=acct_8842:ch_91f within horizon',
+      '2026-06-25T14:02:12Z INFO  req settled account=acct_2210 charge=ch_77a amount=1599 status=ok',
+      '2026-06-25T14:02:13Z ERROR append failed table=settlements code=23505 duplicate_key',
+      '2026-06-25T14:02:13Z INFO  retry scheduled key=acct_2210:ch_77a in=200ms',
+      '2026-06-25T14:02:13Z INFO  req settled account=acct_5531 charge=ch_3a2 amount=8800 status=ok',
+      '2026-06-25T14:02:14Z DEBUG dedup map size=1284 horizon_ms=300000',
+      '2026-06-25T14:02:14Z INFO  req settled account=acct_9001 charge=ch_b40 amount=300 status=ok',
+      '2026-06-25T14:02:15Z WARN  unknown currency currency=chf dropped=true',
+      '2026-06-25T14:02:15Z INFO  bus lag=0 throughput=512/s'
+    ]);
+
+    const stagingEnv = J([
+      '# svc-payments — staging',
+      'DATABASE_URL=postgres://localhost:5432/payments',
+      'BUS_BROKERS=localhost:9092',
+      'FEATURE_SETTLEMENT_BUS=true',
+      'DEDUP_HORIZON_MS=300000',
+      'LOG_LEVEL=debug'
+    ]);
+
+    const configYaml = J([
+      'service: svc-payments',
+      'settlement:',
+      '  transport: bus',
+      '  dedup_horizon_ms: 300000',
+      '  currencies: [usd, eur, gbp]',
+      'observability:',
+      '  level: info',
+      '  exporter: otlp'
+    ]);
+
+    const releaseHtml = J([
+      '<section style="font-family:system-ui; max-width:540px">',
+      '  <h1 style="margin:0 0 8px">Writ 1.0 is here</h1>',
+      '  <p style="color:#5a5a6a; line-height:1.5">Render Markdown, HTML, Mermaid and KaTeX the',
+      '  instant your agent writes it — fully offline, with every scratch searchable.</p>',
+      '  <p><a href="#" style="color:#3b5bdb">Get it for macOS, Windows or Linux →</a></p>',
+      '</section>'
+    ]);
+
+    const writ1559 = J([
+      '# scratch — retry policy',
+      '',
+      'Agent proposed the backoff for `handleSettlement`:',
+      '',
+      '- max attempts: **5**',
+      '- backoff: exponential, base `200ms`',
+      '- jitter: full',
+      '',
+      '> paste back into the worker once confirmed'
+    ]);
+
+    const writ4471 = J([
+      '# scratch — auth flow',
+      '',
+      '```mermaid',
+      'sequenceDiagram',
+      '  Client->>Gateway: POST /token',
+      '  Gateway->>Auth: validate',
+      '  Auth-->>Gateway: access + refresh',
+      '  Gateway-->>Client: 200 (access, refresh)',
+      '```'
+    ]);
+
+    const writ3182 = J([
+      '# scratch — gradient step',
+      '',
+      'The update rule the agent derived:',
+      '',
+      '$$\\theta_{t+1} = \\theta_t - \\eta\\,\\nabla_\\theta J(\\theta_t)$$',
+      '',
+      'with learning rate $\\eta = 0.01$ and batch size $n = 32$.'
+    ]);
+
+    const mdFmt = reportMd;
+    const htmlFmt = releaseHtml;
+    const mermaidFmt = writ4471;
+    const mathFmt = writ3182;
+
+    const bigLines = [];
+    const accts = ['acct_8842', 'acct_2210', 'acct_5531', 'acct_9001', 'acct_4417', 'acct_7780'];
+    const chs = ['ch_91f', 'ch_77a', 'ch_3a2', 'ch_b40', 'ch_0d1', 'ch_e52'];
+    for (let i = 0; i < 1400; i++) {
+      const s = 11 + (i % 47);
+      const a = accts[i % accts.length], c = chs[i % chs.length], amt = 100 + (i * 37) % 9000;
+      bigLines.push('2026-06-25T14:' + String(2 + (i % 57)).padStart(2, '0') + ':' + String(s).padStart(2, '0') + 'Z INFO  req settled account=' + a + ' charge=' + c + ' amount=' + amt + ' status=ok');
+    }
+    const bigLog = bigLines.join('\n');
+
+    this.BUFFERS = {
+      'report.md':          { name: 'report.md', lang: 'md', label: 'Markdown', dot: 'var(--accent)' },
+      'settle.ts':          { name: 'settle.ts', lang: 'ts', label: 'TypeScript', dot: 'var(--sx-fn)' },
+      'schema.sql':         { name: 'schema.sql', lang: 'sql', label: 'SQL', dot: 'var(--sx-type)' },
+      'gateway.log':        { name: 'gateway.log', lang: 'log', label: 'Plain Text', dot: 'var(--muted)' },
+      'icon-256.png':       { name: 'icon-256.png', lang: 'binary', label: 'Binary', dot: 'var(--warn)', badge: 'Binary · read-only', tok: '—' },
+      'gateway-week.log':   { name: 'gateway-week.log', lang: 'huge', label: 'Plain Text', dot: 'var(--muted)', badge: 'Large file · syntax off' },
+      'staging.env':        { name: 'staging.env', lang: 'env', label: 'Plain Text', dot: 'var(--sx-num)' },
+      'release-email.html': { name: 'release-email.html', lang: 'html', label: 'HTML', dot: 'var(--sx-kw)' },
+      'config.yaml':        { name: 'config.yaml', lang: 'yaml', label: 'YAML', dot: 'var(--sx-type)' },
+      'writ-1559':          { name: 'writ-1559', lang: 'md', label: 'Markdown', dot: 'var(--accent)' },
+      'writ-4471':          { name: 'writ-4471', lang: 'md', label: 'Markdown', dot: 'var(--accent)' },
+      'writ-3182':          { name: 'writ-3182', lang: 'md', label: 'Markdown', dot: 'var(--accent)' }
+    };
+    this.DEFAULT = {
+      'report.md': reportMd, 'settle.ts': settleTs, 'schema.sql': schemaSql, 'gateway.log': gatewayLog,
+      'icon-256.png': '', 'gateway-week.log': bigLog, 'staging.env': stagingEnv,
+      'release-email.html': releaseHtml, 'config.yaml': configYaml,
+      'writ-1559': writ1559, 'writ-4471': writ4471, 'writ-3182': writ3182
+    };
+    this.FMT = { md: 'report.md', html: 'release-email.html', mermaid: 'writ-4471', math: 'writ-3182' };
+
+    this.OPEN_FILES = ['report.md', 'settle.ts', 'schema.sql', 'gateway.log'];
+    this.HISTORY = [
+      { id: 'staging.env', when: '1m' }, { id: 'release-email.html', when: '2m' },
+      { id: 'config.yaml', when: '6m' }, { id: 'writ-1559', when: '9m' },
+      { id: 'writ-4471', when: '12m' }, { id: 'writ-3182', when: '14m' }
+    ];
+
+    this.GROUPS = [
+      { label: 'TRANSFORM', cmds: [
+        { id: 'trim', name: 'Trim Leading Whitespace', desc: 'Remove leading spaces and tabs from each line.' },
+        { id: 'dedent', name: 'Dedent', desc: 'Remove shared leading indentation.' },
+        { id: 'finalnl', name: 'Ensure Final Newline', desc: 'End with exactly one trailing newline.' },
+        { id: 'prompt', name: 'Prepare as Prompt', desc: 'Strip frontmatter and comments outside code fences.' },
+        { id: 'tidy', name: 'Tidy Whitespace', desc: 'Trim, dedent, collapse blank runs, final newline.' },
+        { id: 'normalize', name: 'Normalize Whitespace', desc: 'Collapse repeated spaces and tabs to one.' },
+        { id: 'punct', name: 'Fix Punctuation Spacing', desc: 'Remove stray spaces before punctuation.' },
+        { id: 'quotes', name: 'Smart → Straight Quotes', desc: 'Replace curly quotes with ASCII quotes.' }
+      ] },
+      { label: 'TABS & FILES', cmds: [
+        { id: 'newtab', name: 'New Tab', desc: 'Open a fresh scratch buffer.', kbd: '⌘T' },
+        { id: 'closetab', name: 'Close Tab', desc: 'Close the active buffer.', kbd: '⌘W' },
+        { id: 'switchtab', name: 'Switch Tab', desc: 'Jump to the next open buffer.', kbd: '⌃⇥' },
+        { id: 'renametab', name: 'Rename Tab', desc: 'Rename the active buffer inline.' }
+      ] },
+      { label: 'VIEW', cmds: [
+        { id: 'togglesidebar', name: 'Toggle Sidebar', desc: 'Show or hide the buffer list.', kbd: '⌘B' },
+        { id: 'find', name: 'Find', desc: 'Focus the search field.', kbd: '⌘F' },
+        { id: 'zoomin', name: 'Zoom In', desc: 'Increase editor scale.', kbd: '⌘+' },
+        { id: 'zoomout', name: 'Zoom Out', desc: 'Decrease editor scale.', kbd: '⌘−' },
+        { id: 'zoomreset', name: 'Reset Zoom', desc: 'Return to 100%.', kbd: '⌘0' }
+      ] },
+      { label: 'ACTIONS', cmds: [
+        { id: 'search', name: 'Search', desc: 'Full-text search across every buffer.' },
+        { id: 'watchinbox', name: 'Watch Inbox', desc: 'Auto-open files dropped into the inbox folder.' },
+        { id: 'copyprompt', name: 'Copy as Prompt', desc: 'Copy the buffer, cleaned, to the clipboard.', kbd: '⌘⇧C' }
+      ] }
+    ];
+
+    this._newCount = 0;
+    this.state = {
+      theme: 'light',
+      contents: Object.assign({}, this.DEFAULT),
+      names: {},
+      activeId: 'report.md',
+      tabs: this.OPEN_FILES.slice(),
+      viewMode: 'split',
+      query: '', searchMs: 0,
+      paletteOpen: false, paletteQuery: '',
+      sidebarOpen: true, zoom: 1, watching: false,
+      edited: false, caret: { ln: 1, col: 1 }, renamingId: null, renameTemp: '',
+      typed: true, narrow: false,
+      scrolled: false, variant: (props && props.startVariant) || 'paper'
+    };
+
+    this.previewEl = null; this.gutterEl = null; this.heroEl = null; this.winEl = null;
+    this.searchInputEl = null; this.paletteInputEl = null; this.renameInputEl = null;
+    this._lastMermaid = ''; this._hover = false;
+  }
+
+  componentDidMount() {
+    let t = null;
+    try { t = localStorage.getItem('writ-theme'); } catch (e) {}
+    if (!t) t = this.props.startTheme || 'light';
+    this.applyTheme(t);
+
+    this._onKey = (e) => {
+      const k = e.key;
+      if ((e.metaKey || e.ctrlKey) && (k === 'k' || k === 'K')) { if (this._hover || this.state.paletteOpen) { e.preventDefault(); this.togglePalette(); } }
+      else if (k === 'Escape' && this.state.paletteOpen) { this.setState({ paletteOpen: false }); }
+    };
+    document.addEventListener('keydown', this._onKey);
+    this._onResize = () => { const n = window.innerWidth < 720; if (n !== this.state.narrow) this.setState({ narrow: n }); };
+    window.addEventListener('resize', this._onResize);
+    this._onResize();
+    this.applyVariant(this.state.variant);
+    this._onScroll = () => { const y = window.scrollY || window.pageYOffset || (document.scrollingElement ? document.scrollingElement.scrollTop : 0); const s = y > 72; if (s !== this.state.scrolled) this.setState({ scrolled: s }); };
+    window.addEventListener('scroll', this._onScroll, { passive: true });
+    this._scrollPoll = setInterval(this._onScroll, 150);
+    this._onScroll();
+    this.renderLibs();
+    if (this.props.typeOnLoad === true) this.startTyping('report.md');
+  }
+  componentWillUnmount() {
+    clearInterval(this._typer); clearTimeout(this._mtimer); clearTimeout(this._saveT);
+    document.removeEventListener('keydown', this._onKey); window.removeEventListener('resize', this._onResize);
+    if (this._onScroll) window.removeEventListener('scroll', this._onScroll);
+    clearInterval(this._scrollPoll);
+  }
+
+  startTyping(id) {
+    const target = this.DEFAULT[id];
+    const interval = this.props.typingSpeed || 40;
+    const step = Math.max(5, Math.ceil(target.length / 42));
+    let i = 0; clearInterval(this._typer);
+    const c = Object.assign({}, this.state.contents); c[id] = '';
+    this.setState({ contents: c, typed: false });
+    this._typer = setInterval(() => {
+      i += step + Math.floor(Math.random() * step);
+      const cc = Object.assign({}, this.state.contents);
+      if (i >= target.length) { cc[id] = target; clearInterval(this._typer); this.setState({ contents: cc, typed: true }); return; }
+      cc[id] = target.slice(0, i); this.setState({ contents: cc });
+    }, interval);
+  }
+
+  applyTheme(t) { try { document.documentElement.setAttribute('data-theme', t); } catch (e) {} this._lastMermaid = ''; this.setState({ theme: t }); }
+  setLight = () => { try { localStorage.setItem('writ-theme', 'light'); } catch (e) {} this.applyTheme('light'); };
+  setDark = () => { try { localStorage.setItem('writ-theme', 'dark'); } catch (e) {} this.applyTheme('dark'); };
+  applyVariant = (v) => { try { document.documentElement.setAttribute('data-variant', v); } catch (e) {} this.setState({ variant: v }); };
+  vPaper = () => this.applyVariant('paper'); vGrid = () => this.applyVariant('grid'); vFlat = () => this.applyVariant('flat');
+
+  nameOf(id) { return this.state.names[id] || (this.BUFFERS[id] && this.BUFFERS[id].name) || id; }
+  defaultView(id) { const l = this.BUFFERS[id].lang; return (l === 'md' || l === 'html') ? 'split' : 'source'; }
+
+  open = (id) => {
+    clearInterval(this._typer);
+    const tabs = this.state.tabs.slice(); if (tabs.indexOf(id) < 0) tabs.push(id);
+    this.setState({ activeId: id, tabs, viewMode: this.defaultView(id), typed: true, edited: false, caret: { ln: 1, col: 1 } });
+  };
+  closeTab = (id, e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    let tabs = this.state.tabs.filter((x) => x !== id); if (tabs.length === 0) tabs = ['report.md'];
+    let active = this.state.activeId; if (active === id) active = tabs[tabs.length - 1];
+    this.setState({ tabs, activeId: active, viewMode: this.defaultView(active) });
+  };
+  scrollWin() { if (this.winEl) { const y = this.winEl.getBoundingClientRect().top + window.scrollY - 64; window.scrollTo({ top: y, behavior: 'smooth' }); } }
+
+  setView = (v) => this.setState({ viewMode: v });
+  vSource = () => this.setView('source'); vSplit = () => this.setView('split'); vPreview = () => this.setView('preview');
+
+  onEdit = (e) => {
+    clearInterval(this._typer);
+    const c = Object.assign({}, this.state.contents); c[this.state.activeId] = e.target.value;
+    this.updateCaret(e.target);
+    this.setState({ contents: c, typed: true, edited: true });
+    clearTimeout(this._saveT); this._saveT = setTimeout(() => this.setState({ edited: false }), 1000);
+  };
+  updateCaret(ta) { try { const p = ta.selectionStart || 0; const before = ta.value.slice(0, p); const ln = before.split('\n').length; const col = p - before.lastIndexOf('\n'); this.setState({ caret: { ln, col } }); } catch (e) {} }
+  onCaret = (e) => this.updateCaret(e.target);
+  onEdScroll = (e) => { if (this.gutterEl) this.gutterEl.scrollTop = e.target.scrollTop; };
+
+  onSearch = (e) => {
+    const q = e.target.value;
+    const t0 = (performance && performance.now) ? performance.now() : Date.now();
+    this.computeResults(q);
+    const t1 = (performance && performance.now) ? performance.now() : Date.now();
+    this.setState({ query: q, searchMs: Math.max(0.1, Math.round((t1 - t0) * 10) / 10) });
+  };
+  computeResults(q) {
+    const query = (q == null ? this.state.query : q).trim(); if (!query) return [];
+    const lc = query.toLowerCase(); const res = [];
+    for (const id of Object.keys(this.BUFFERS)) {
+      const b = this.BUFFERS[id]; if (b.lang === 'binary') continue;
+      const lines = (this.state.contents[id] || '').split('\n');
+      for (let i = 0; i < lines.length; i++) { if (lines[i].toLowerCase().indexOf(lc) >= 0) { res.push({ id, line: i + 1, text: lines[i] }); break; } }
+    }
+    return res;
+  }
+
+  // palette
+  winEnter = () => { this._hover = true; };
+  winLeave = () => { this._hover = false; };
+  togglePalette = () => { const o = !this.state.paletteOpen; this.setState({ paletteOpen: o, paletteQuery: '' }); if (o) setTimeout(() => { if (this.paletteInputEl) this.paletteInputEl.focus(); }, 30); };
+  openPalette = () => { this.setState({ paletteOpen: true, paletteQuery: '' }); this.scrollWin(); setTimeout(() => { if (this.paletteInputEl) this.paletteInputEl.focus(); }, 40); };
+  closePalette = () => this.setState({ paletteOpen: false });
+  onPaletteInput = (e) => this.setState({ paletteQuery: e.target.value });
+  onPaletteKey = (e) => { if (e.key === 'Enter') { const items = this.currentPaletteCmds(); if (items.length) { e.preventDefault(); this.runCmd(items[0].id); } } };
+  stop = (e) => { if (e && e.stopPropagation) e.stopPropagation(); };
+  currentPaletteCmds() { const pq = this.state.paletteQuery.trim().toLowerCase(); const out = []; this.GROUPS.forEach((g) => g.cmds.forEach((c) => { if (!pq || (c.name + ' ' + c.desc).toLowerCase().includes(pq)) out.push(c); })); return out; }
+
+  runCmd = (id) => {
+    const T = { trim: 1, dedent: 1, finalnl: 1, prompt: 1, tidy: 1, normalize: 1, punct: 1, quotes: 1 };
+    if (T[id]) {
+      const cur = this.state.contents[this.state.activeId] || '';
+      const out = this.applyTransform(id, cur);
+      const c = Object.assign({}, this.state.contents); c[this.state.activeId] = out;
+      this.setState({ contents: c, paletteOpen: false, typed: true, edited: true });
+      clearTimeout(this._saveT); this._saveT = setTimeout(() => this.setState({ edited: false }), 1000);
+      return;
+    }
+    if (id === 'newtab') return this.cmdNewTab();
+    if (id === 'closetab') { this.setState({ paletteOpen: false }); return this.closeTab(this.state.activeId); }
+    if (id === 'switchtab') { const t = this.state.tabs; const i = t.indexOf(this.state.activeId); const nx = t[(i + 1) % t.length]; this.setState({ paletteOpen: false }); return this.open(nx); }
+    if (id === 'renametab') { const aid = this.state.activeId; this.setState({ paletteOpen: false, renamingId: aid, renameTemp: this.nameOf(aid) }); setTimeout(() => { if (this.renameInputEl) { this.renameInputEl.focus(); this.renameInputEl.select(); } }, 40); return; }
+    if (id === 'togglesidebar') return this.setState({ sidebarOpen: !this.state.sidebarOpen, paletteOpen: false });
+    if (id === 'find' || id === 'search') { this.setState({ sidebarOpen: true, paletteOpen: false }); setTimeout(() => { if (this.searchInputEl) this.searchInputEl.focus(); }, 50); return; }
+    if (id === 'zoomin') return this.setState({ zoom: Math.min(1.6, Math.round((this.state.zoom + 0.1) * 10) / 10), paletteOpen: false });
+    if (id === 'zoomout') return this.setState({ zoom: Math.max(0.7, Math.round((this.state.zoom - 0.1) * 10) / 10), paletteOpen: false });
+    if (id === 'zoomreset') return this.setState({ zoom: 1, paletteOpen: false });
+    if (id === 'watchinbox') return this.setState({ watching: !this.state.watching, sidebarOpen: true, paletteOpen: false });
+    if (id === 'copyprompt') {
+      const out = this.applyTransform('prompt', this.state.contents[this.state.activeId] || '');
+      try { if (navigator.clipboard) navigator.clipboard.writeText(out); } catch (e) {}
+      this.setState({ edited: false, paletteOpen: false });
+      return;
+    }
+  };
+
+  cmdNewTab = () => {
+    this._newCount += 1; const id = 'scratch-' + this._newCount;
+    this.BUFFERS[id] = { name: 'untitled-' + this._newCount + '.md', lang: 'md', label: 'Markdown', dot: 'var(--accent)' };
+    const c = Object.assign({}, this.state.contents); c[id] = '';
+    const tabs = this.state.tabs.slice(); tabs.push(id);
+    this.setState({ contents: c, tabs, activeId: id, viewMode: 'split', paletteOpen: false, typed: true, edited: false, caret: { ln: 1, col: 1 } });
+  };
+
+  // rename
+  onRename = (e) => this.setState({ renameTemp: e.target.value });
+  onRenameKey = (e) => { if (e.key === 'Enter') this.commitRename(); else if (e.key === 'Escape') this.setState({ renamingId: null }); };
+  commitRename = () => { const id = this.state.renamingId; if (!id) return; const nm = (this.state.renameTemp || '').trim() || this.nameOf(id); const names = Object.assign({}, this.state.names); names[id] = nm; this.setState({ names, renamingId: null }); };
+
+  applyTransform(id, s) {
+    const lines = () => s.split('\n');
+    if (id === 'trim') return lines().map((l) => l.replace(/^[ \t]+/, '')).join('\n');
+    if (id === 'finalnl') return s.replace(/\s*$/, '') + '\n';
+    if (id === 'normalize') return lines().map((l) => { const m = l.match(/^([ \t]*)(.*)$/); return m[1] + m[2].replace(/[ \t]{2,}/g, ' '); }).join('\n');
+    if (id === 'punct') return s.replace(/[ \t]+([,.;:!?])/g, '$1');
+    if (id === 'quotes') return s.replace(/[\u201C\u201D\u201E\u2033]/g, '"').replace(/[\u2018\u2019\u201A\u2032]/g, "'").replace(/[\u2013\u2014]/g, '-');
+    if (id === 'dedent') return this.dedent(s);
+    if (id === 'tidy') { let r = this.dedent(s); r = r.split('\n').map((l) => l.replace(/[ \t]+$/, '')).join('\n'); r = r.replace(/\n{3,}/g, '\n\n'); return r.replace(/\s*$/, '') + '\n'; }
+    if (id === 'prompt') { let r = s.replace(/^---\n[\s\S]*?\n---\n?/, ''); const parts = r.split(/(```[\s\S]*?```)/); r = parts.map((p) => p.indexOf('```') === 0 ? p : p.replace(/<!--[\s\S]*?-->/g, '')).join(''); r = r.split('\n').map((l) => l.replace(/[ \t]+$/, '')).join('\n'); return r.replace(/\n{3,}/g, '\n\n').replace(/\s*$/, '') + '\n'; }
+    return s;
+  }
+  dedent(s) { const ls = s.split('\n'); let min = Infinity; for (const l of ls) { if (l.trim() === '') continue; const m = l.match(/^[ \t]*/)[0].length; if (m < min) min = m; } if (!isFinite(min) || min === 0) return s; return ls.map((l) => l.slice(min)).join('\n'); }
+
+  // refs
+  setHero = (n) => { this.heroEl = n; }; setWin = (n) => { this.winEl = n; };
+  setSearchInput = (n) => { this.searchInputEl = n; }; setPaletteInput = (n) => { this.paletteInputEl = n; };
+  setRenameRef = (n) => { this.renameInputEl = n; };
+
+  // feature drivers
+  loadFmt(k) { this.open(this.FMT[k]); this.setState({ viewMode: this.defaultView(this.FMT[k]) }); this.scrollWin(); }
+  loadMd = () => this.loadFmt('md'); loadHtml = () => this.loadFmt('html'); loadMermaid = () => this.loadFmt('mermaid'); loadMath = () => this.loadFmt('math');
+  demoRender = () => { this.open('report.md'); this.setState({ viewMode: 'split', query: '' }); this.scrollWin(); };
+  demoTokens = () => { this.open('gateway-week.log'); this.scrollWin(); };
+  demoHex = () => { this.open('icon-256.png'); this.scrollWin(); };
+  demoSearch = () => { this.setState({ sidebarOpen: true }); const q = 'settle'; const t0 = (performance && performance.now) ? performance.now() : Date.now(); this.computeResults(q); const t1 = (performance && performance.now) ? performance.now() : Date.now(); this.setState({ query: q, searchMs: Math.max(0.1, Math.round((t1 - t0) * 10) / 10) }); this.scrollWin(); setTimeout(() => { if (this.searchInputEl) this.searchInputEl.focus(); }, 60); };
+
+  componentDidUpdate() { this.renderLibs(); }
+  renderLibs() {
+    const el = this.previewEl; if (!el || !this.state.typed) return;
+    if (window.renderMathInElement) { try { window.renderMathInElement(el, { delimiters: [{ left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false }], throwOnError: false }); } catch (e) {} }
+    const nodes = el.querySelectorAll('.mermaid');
+    if (nodes.length && window.mermaid) {
+      const sig = this.state.theme + '|' + Array.prototype.map.call(nodes, (n) => n.getAttribute('data-src') || '').join('~~');
+      if (sig === this._lastMermaid) return; this._lastMermaid = sig;
+      try {
+        window.mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', theme: this.state.theme === 'dark' ? 'dark' : 'neutral', fontFamily: 'JetBrains Mono, monospace' });
+        nodes.forEach((n) => { n.removeAttribute('data-processed'); n.innerHTML = n.getAttribute('data-src') || n.textContent; });
+        window.mermaid.run({ nodes: Array.prototype.slice.call(nodes), suppressErrors: true });
+      } catch (e) {}
+    }
+  }
+
+  esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  escAttr(s) { return this.esc(s).replace(/"/g, '&quot;'); }
+  inline(t) {
+    const store = []; const put = (h) => { store.push(h); return '\u0000' + (store.length - 1) + '\u0001'; };
+    t = t.replace(/`([^`]+)`/g, (m, c) => put('<code>' + this.esc(c) + '</code>'));
+    t = t.replace(/\$\$([^$]+)\$\$/g, (m) => put(this.esc(m)));
+    t = t.replace(/\$([^$\n]+)\$/g, (m) => put(this.esc(m)));
+    t = this.esc(t);
+    t = t.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, x, u) => '<a href="' + this.escAttr(u) + '" target="_blank" rel="noopener">' + x + '</a>');
+    t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    t = t.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+    t = t.replace(/\u0000(\d+)\u0001/g, (m, i) => store[+i]);
+    return t;
+  }
+  mdToHtml(src) {
+    const lines = String(src).replace(/\r\n/g, '\n').split('\n'); const out = []; let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      const fm = line.match(/^```\s*([\w-]+)?\s*$/);
+      if (fm) { const lang = fm[1] || ''; i++; const code = []; while (i < lines.length && !/^```\s*$/.test(lines[i])) { code.push(lines[i]); i++; } i++;
+        if (lang === 'mermaid') out.push('<div class="mermaid" data-src="' + this.escAttr(code.join('\n')) + '">' + this.esc(code.join('\n')) + '</div>');
+        else out.push('<pre><code>' + this.esc(code.join('\n')) + '</code></pre>'); continue; }
+      const hm = line.match(/^(#{1,6})\s+(.*)$/);
+      if (hm) { const lv = hm[1].length; out.push('<h' + lv + '>' + this.inline(hm[2]) + '</h' + lv + '>'); i++; continue; }
+      if (/^(-{3,}|\*{3,})\s*$/.test(line)) { out.push('<hr>'); i++; continue; }
+      if (/^>\s?/.test(line)) { const bq = []; while (i < lines.length && /^>\s?/.test(lines[i])) { bq.push(lines[i].replace(/^>\s?/, '')); i++; } out.push('<blockquote>' + this.inline(bq.join(' ')) + '</blockquote>'); continue; }
+      if (line.includes('|') && i + 1 < lines.length && /^\s*\|?[\s:\-|]+\|?\s*$/.test(lines[i + 1]) && lines[i + 1].includes('-')) {
+        const pr = (r) => r.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim());
+        const heads = pr(line); i += 2; const rows = []; while (i < lines.length && lines[i].includes('|') && lines[i].trim() !== '') { rows.push(pr(lines[i])); i++; }
+        out.push('<table><thead><tr>' + heads.map((h) => '<th>' + this.inline(h) + '</th>').join('') + '</tr></thead><tbody>' + rows.map((r) => '<tr>' + r.map((c) => '<td>' + this.inline(c) + '</td>').join('') + '</tr>').join('') + '</tbody></table>'); continue;
+      }
+      if (/^\s*[-*+]\s+/.test(line)) { const items = []; while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) { const it = lines[i].replace(/^\s*[-*+]\s+/, ''); const tm = it.match(/^\[([ xX])\]\s+(.*)$/); if (tm) { const ck = tm[1].toLowerCase() === 'x'; items.push('<li class="task"><span class="ck ' + (ck ? 'on' : '') + '">' + (ck ? '\u2713' : '') + '</span><span>' + this.inline(tm[2]) + '</span></li>'); } else items.push('<li>' + this.inline(it) + '</li>'); i++; } out.push('<ul>' + items.join('') + '</ul>'); continue; }
+      if (/^\s*\d+\.\s+/.test(line)) { const items = []; while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) { items.push('<li>' + this.inline(lines[i].replace(/^\s*\d+\.\s+/, '')) + '</li>'); i++; } out.push('<ol>' + items.join('') + '</ol>'); continue; }
+      if (line.trim() === '') { i++; continue; }
+      const buf = []; while (i < lines.length && lines[i].trim() !== '' && !/^(#{1,6})\s|^```|^>\s?|^\s*[-*+]\s+|^\s*\d+\.\s+/.test(lines[i]) && !/^(-{3,}|\*{3,})\s*$/.test(lines[i])) { buf.push(lines[i]); i++; }
+      if (buf.length) out.push('<p>' + this.inline(buf.join(' ')) + '</p>');
+    }
+    return out.join('\n');
+  }
+
+  span(cls, text) { return '<span style="color:var(--sx-' + cls + ')">' + this.esc(text) + '</span>'; }
+  hlCode(lang, src) { if (lang === 'ts') return this.hlTS(src); if (lang === 'sql') return this.hlSQL(src); if (lang === 'log') return this.hlLog(src); if (lang === 'env') return this.hlEnv(src); if (lang === 'yaml') return this.hlYaml(src); if (lang === 'html') return this.hlHtml(src); return this.esc(src); }
+  hlTS(src) {
+    const kw = new Set(['import', 'from', 'export', 'const', 'let', 'var', 'function', 'return', 'type', 'interface', 'if', 'else', 'switch', 'case', 'break', 'default', 'async', 'await', 'new', 'class', 'extends', 'for', 'while', 'of', 'in', 'typeof', 'void', 'public', 'private', 'readonly']);
+    const lit = new Set(['true', 'false', 'null', 'undefined', 'this']); const isId = (c) => /[A-Za-z0-9_$]/.test(c);
+    let out = '', i = 0; const n = src.length;
+    while (i < n) { const c = src[i];
+      if (c === '/' && src[i + 1] === '/') { let j = i; while (j < n && src[j] !== '\n') j++; out += this.span('com', src.slice(i, j)); i = j; continue; }
+      if (c === '/' && src[i + 1] === '*') { let j = i + 2; while (j < n && !(src[j] === '*' && src[j + 1] === '/')) j++; j = Math.min(n, j + 2); out += this.span('com', src.slice(i, j)); i = j; continue; }
+      if (c === '"' || c === "'" || c === '`') { const q = c; let j = i + 1; while (j < n && src[j] !== q) { if (src[j] === '\\') j++; j++; } j = Math.min(n, j + 1); out += this.span('str', src.slice(i, j)); i = j; continue; }
+      if (/[0-9]/.test(c)) { let j = i; while (j < n && /[0-9_.exa-fA-F]/.test(src[j])) j++; out += this.span('num', src.slice(i, j)); i = j; continue; }
+      if (isId(c)) { let j = i; while (j < n && isId(src[j])) j++; const w = src.slice(i, j); let k = j; while (k < n && /\s/.test(src[k])) k++; const call = src[k] === '(';
+        if (kw.has(w)) out += this.span('kw', w); else if (lit.has(w)) out += this.span('num', w); else if (/^[A-Z]/.test(w)) out += this.span('type', w); else if (call) out += this.span('fn', w); else out += this.esc(w); i = j; continue; }
+      out += this.esc(c); i++; }
+    return out;
+  }
+  hlSQL(src) {
+    const kw = new Set(['create', 'table', 'index', 'on', 'not', 'null', 'default', 'primary', 'key', 'check', 'in', 'insert', 'into', 'select', 'from', 'where', 'conflict', 'do', 'nothing', 'desc', 'and', 'or', 'text', 'bigint', 'timestamptz', 'now']);
+    const isId = (c) => /[A-Za-z0-9_.]/.test(c); let out = '', i = 0; const n = src.length;
+    while (i < n) { const c = src[i];
+      if (c === '-' && src[i + 1] === '-') { let j = i; while (j < n && src[j] !== '\n') j++; out += this.span('com', src.slice(i, j)); i = j; continue; }
+      if (c === "'") { let j = i + 1; while (j < n && src[j] !== "'") j++; j = Math.min(n, j + 1); out += this.span('str', src.slice(i, j)); i = j; continue; }
+      if (/[0-9]/.test(c)) { let j = i; while (j < n && /[0-9_.]/.test(src[j])) j++; out += this.span('num', src.slice(i, j)); i = j; continue; }
+      if (/[A-Za-z_]/.test(c)) { let j = i; while (j < n && isId(src[j])) j++; const w = src.slice(i, j); if (kw.has(w.toLowerCase())) out += this.span('kw', w); else out += this.esc(w); i = j; continue; }
+      out += this.esc(c); i++; }
+    return out;
+  }
+  hlLog(src) { return src.split('\n').map((l) => { let h = this.esc(l); h = h.replace(/^(\S+T\S+Z)/, '<span style="color:var(--sx-com)">$1</span>'); h = h.replace(/\b(ERROR)\b/g, '<span style="color:var(--err)">$1</span>'); h = h.replace(/\b(WARN)\b/g, '<span style="color:var(--warn)">$1</span>'); h = h.replace(/\b(INFO)\b/g, '<span style="color:var(--sx-fn)">$1</span>'); h = h.replace(/\b(DEBUG)\b/g, '<span style="color:var(--subtle)">$1</span>'); h = h.replace(/([a-z_]+)=/g, '<span style="color:var(--muted)">$1</span>='); return h; }).join('\n'); }
+  hlEnv(src) { return src.split('\n').map((l) => { if (/^\s*#/.test(l)) return this.span('com', l); const m = l.match(/^([A-Z0-9_]+)(=)(.*)$/); if (m) return this.span('type', m[1]) + this.esc('=') + this.span('str', m[3]); return this.esc(l); }).join('\n'); }
+  hlYaml(src) { return src.split('\n').map((l) => { if (/^\s*#/.test(l)) return this.span('com', l); const m = l.match(/^(\s*)([A-Za-z0-9_]+)(:)(.*)$/); if (m) return m[1] + this.span('fn', m[2]) + this.esc(':') + this.esc(m[4]); return this.esc(l); }).join('\n'); }
+  hlHtml(src) { let out = '', i = 0; const n = src.length; while (i < n) { const c = src[i]; if (c === '<') { let j = i + 1; while (j < n && src[j] !== '>') j++; j = Math.min(n, j + 1); let h = this.esc(src.slice(i, j)); h = h.replace(/^(&lt;\/?)([a-zA-Z0-9]+)/, '$1<span style="color:var(--sx-kw)">$2</span>'); h = h.replace(/([a-zA-Z-]+)(=)(&quot;)/g, '<span style="color:var(--sx-type)">$1</span>$2$3'); out += h; i = j; continue; } let j = i; while (j < n && src[j] !== '<') j++; out += this.esc(src.slice(i, j)); i = j; } return out; }
+
+  fmtTok(n) { return n >= 1000 ? Math.round(n / 1000) + 'k' : '' + n; }
+  highlight(text, q) { q = (q || '').trim(); if (!q) return text; const idx = text.toLowerCase().indexOf(q.toLowerCase()); if (idx < 0) return text.length > 60 ? text.slice(0, 60) + '…' : text; let pre = text.slice(0, idx), mid = text.slice(idx, idx + q.length), post = text.slice(idx + q.length); if (pre.length > 16) pre = '…' + pre.slice(-16); if (post.length > 38) post = post.slice(0, 38) + '…'; return React.createElement(React.Fragment, null, pre, React.createElement('span', { className: 'wmark' }, mid), post); }
+
+  genHex() {
+    const sig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52];
+    const bytes = sig.slice(); let s = 0x4a3f;
+    for (let i = 16; i < 16 * 28; i++) { s = (s * 1103515245 + 12345) & 0x7fffffff; bytes.push((s >> 13) & 0xff); }
+    const rows = [];
+    for (let off = 0; off < bytes.length; off += 16) { const r = bytes.slice(off, off + 16); const hex = r.map((b) => b.toString(16).padStart(2, '0')); const left = hex.slice(0, 8).join(' '), right = hex.slice(8).join(' '); const ascii = r.map((b) => (b >= 32 && b < 127) ? String.fromCharCode(b) : '.').join(''); rows.push({ off: off.toString(16).padStart(8, '0'), left, right, ascii }); }
+    return rows;
+  }
+
+  buildMain() {
+    const R = React.createElement;
+    const id = this.state.activeId; const b = this.BUFFERS[id];
+    const content = this.state.contents[id] || ''; const lang = b.lang;
+    const wrapZoom = (node) => R('div', { style: { zoom: this.state.zoom, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', flex: 1 } }, node);
+
+    if (lang === 'binary') {
+      const rows = this.genHex();
+      return wrapZoom(R('div', { className: 'codescroll', key: 'hex', style: { flex: 1, minHeight: 0, overflow: 'auto', background: 'var(--sunken)', fontFamily: 'var(--font-mono)', fontSize: '12.5px', lineHeight: '21px', padding: '16px 0' } },
+        R('div', { style: { minWidth: 'min-content', paddingRight: '18px' } }, rows.map((r, k) => R('div', { key: k, style: { display: 'flex', gap: '20px', padding: '0 18px', whiteSpace: 'pre' } },
+          R('span', { style: { color: 'var(--subtle)' } }, r.off),
+          R('span', { style: { color: 'var(--foreground)' } }, r.left + '  ' + r.right),
+          R('span', { style: { color: 'var(--muted)' } }, '|' + r.ascii + '|'))))));
+    }
+    if (lang === 'huge') {
+      const lines = content.split('\n'); const nums = lines.map((_, k) => k + 1).join('\n');
+      return wrapZoom(R('div', { className: 'codescroll', key: 'huge', style: { flex: 1, minHeight: 0, overflow: 'auto', background: 'var(--sunken)' } },
+        R('div', { style: { display: 'flex', minHeight: '100%', minWidth: 'min-content' } },
+          R('pre', { style: { position: 'sticky', left: 0, margin: 0, padding: '16px 12px 16px 16px', textAlign: 'right', color: 'var(--subtle)', font: '12.5px/21px var(--font-mono)', background: 'var(--sunken)', userSelect: 'none' } }, nums),
+          R('pre', { style: { margin: 0, padding: '16px 18px', font: '12.5px/21px var(--font-mono)', color: 'var(--muted)', whiteSpace: 'pre' } }, content))));
+    }
+
+    const hasPrev = (lang === 'md' || lang === 'html'); const vm = hasPrev ? this.state.viewMode : 'source';
+    const showEditor = !hasPrev || vm === 'source' || vm === 'split'; const showPrev = hasPrev && (vm === 'preview' || vm === 'split');
+    const showEdHere = showEditor && !(this.state.narrow && vm === 'split');
+    const lines = content.split('\n'); const nums = lines.map((_, k) => k + 1).join('\n'); const editable = (lang === 'md');
+
+    let editorPane;
+    if (editable) {
+      editorPane = R('div', { key: 'ed', style: { display: 'flex', height: '100%', minHeight: 0, overflow: 'hidden', background: 'var(--sunken)', flex: 1 } },
+        R('pre', { ref: (n) => { this.gutterEl = n; }, 'aria-hidden': 'true', style: { width: '44px', flex: 'none', margin: 0, padding: '16px 0', textAlign: 'right', color: 'var(--subtle)', font: '12.5px/21px var(--font-mono)', overflow: 'hidden', userSelect: 'none', background: 'color-mix(in srgb,var(--sunken) 55%, var(--card))', borderRight: '1px solid var(--line-soft)' } }, nums),
+        R('textarea', { value: content, onChange: this.onEdit, onScroll: this.onEdScroll, onKeyUp: this.onCaret, onClick: this.onCaret, spellCheck: false, style: { flex: 1, minWidth: 0, resize: 'none', border: 'none', outline: 'none', background: 'transparent', font: '12.5px/21px var(--font-mono)', color: 'var(--foreground)', padding: '16px', tabSize: 2, caretColor: 'var(--accent)', whiteSpace: 'pre', overflow: 'auto' } }));
+    } else {
+      const codeHtml = this.hlCode(lang, content);
+      editorPane = R('div', { className: 'codescroll', key: 'ro', style: { flex: 1, minHeight: 0, overflow: 'auto', background: 'var(--sunken)' } },
+        R('div', { style: { display: 'flex', minHeight: '100%', minWidth: 'min-content' } },
+          R('pre', { style: { position: 'sticky', left: 0, margin: 0, padding: '16px 12px 16px 16px', textAlign: 'right', color: 'var(--subtle)', font: '12.5px/21px var(--font-mono)', background: 'var(--sunken)', userSelect: 'none', borderRight: '1px solid var(--line-soft)' } }, nums),
+          R('pre', { style: { margin: 0, padding: '16px 18px', font: '12.5px/21px var(--font-mono)', color: 'var(--foreground)', whiteSpace: 'pre' }, dangerouslySetInnerHTML: { __html: codeHtml } })));
+    }
+    let prevPane = null;
+    if (showPrev) { const prose = (lang === 'html') ? content : this.mdToHtml(content); prevPane = R('div', { key: 'pv', className: 'writ-prose', ref: (n) => { this.previewEl = n; }, style: { flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', padding: '22px 24px', background: 'var(--card)' }, dangerouslySetInnerHTML: { __html: prose } }); }
+
+    if (showPrev && showEdHere) return wrapZoom(R('div', { key: 'split', style: { flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 1fr' } }, R('div', { style: { borderRight: '1px solid var(--line-soft)', minWidth: 0, display: 'flex' } }, editorPane), prevPane));
+    if (showPrev) return wrapZoom(prevPane);
+    return wrapZoom(editorPane);
+  }
+  _safeMain() { try { return this.buildMain(); } catch (err) { return React.createElement('div', { style: { padding: 20, color: 'var(--muted)', font: '12px var(--font-mono)' } }, 'rendering…'); } }
+
+  renderVals() {
+    const id = this.state.activeId; const b = this.BUFFERS[id]; const lang = b.lang;
+    const hasPreview = (lang === 'md' || lang === 'html'); const content = this.state.contents[id] || '';
+    const tokenLabel = b.tok ? b.tok : this.fmtTok(Math.max(1, Math.round(content.length / 4)));
+
+    const tabs = this.state.tabs.map((tid) => ({
+      name: this.nameOf(tid), dotColor: this.BUFFERS[tid].dot, active: tid === id,
+      renaming: this.state.renamingId === tid, notRenaming: this.state.renamingId !== tid,
+      tempName: this.state.renameTemp, setRenameRef: this.setRenameRef, onRename: this.onRename, onRenameKey: this.onRenameKey, commitRename: this.commitRename,
+      open: () => this.open(tid), close: (e) => this.closeTab(tid, e)
+    }));
+    const openFiles = this.OPEN_FILES.map((fid) => ({ name: this.nameOf(fid), color: fid === id ? 'var(--accent)' : 'var(--foreground)', active: fid === id, open: () => this.open(fid) }));
+    const historyFiles = this.HISTORY.map((h) => ({ name: this.nameOf(h.id), when: h.when, active: h.id === id, open: () => this.open(h.id) }));
+
+    const q = this.state.query.trim(); const showResults = q.length > 0; const resList = this.computeResults(q);
+    const results = resList.map((r) => ({ name: this.nameOf(r.id), loc: 'L' + r.line, active: r.id === id, lineNode: this.highlight(r.text.trim(), q), open: () => this.open(r.id) }));
+    const searchCountLabel = showResults ? (resList.length + (resList.length === 1 ? ' hit' : ' hits')) : '';
+    const resultsFooter = resList.length + ' file' + (resList.length === 1 ? '' : 's') + ' · ' + this.state.searchMs + ' ms';
+
+    const pq = this.state.paletteQuery.trim().toLowerCase(); const items = [];
+    this.GROUPS.forEach((g) => { const matched = g.cmds.filter((c) => !pq || (c.name + ' ' + c.desc).toLowerCase().includes(pq)); if (matched.length) { items.push({ isHeader: true, isCmd: false, label: g.label, key: 'h-' + g.label }); matched.forEach((c) => items.push({ isHeader: false, isCmd: true, name: c.name, desc: c.desc, kbd: c.kbd || '', key: c.id, run: () => this.runCmd(c.id) })); } });
+
+    return {
+      isLight: this.state.theme === 'light', isDark: this.state.theme === 'dark', setLight: this.setLight, setDark: this.setDark,
+      scrolled: this.state.scrolled,
+      isPaper: this.state.variant === 'paper', isGrid: this.state.variant === 'grid', isFlat: this.state.variant === 'flat',
+      vPaper: this.vPaper, vGrid: this.vGrid, vFlat: this.vFlat,
+      showGlow: this.state.variant === 'paper', showGrid: this.state.variant === 'grid',
+      setHero: this.setHero, setWin: this.setWin, setSearchInput: this.setSearchInput, setPaletteInput: this.setPaletteInput,
+      winEnter: this.winEnter, winLeave: this.winLeave, stop: this.stop,
+      tabs, cmdNewTab: this.cmdNewTab,
+      sidebarOpen: this.state.sidebarOpen, bodyCols: this.state.sidebarOpen ? '232px minmax(0,1fr)' : 'minmax(0,1fr)',
+      openFiles, historyFiles, watching: this.state.watching,
+      query: this.state.query, onSearch: this.onSearch, showResults, showBrowse: !showResults, results, searchCountLabel, resultsFooter,
+      mainView: this._safeMain(),
+      hasPreview, isSource: this.state.viewMode === 'source', isSplit: this.state.viewMode === 'split', isPreview: this.state.viewMode === 'preview',
+      vSource: this.vSource, vSplit: this.vSplit, vPreview: this.vPreview,
+      langLabel: b.label, tokenLabel, hasBadge: !!b.badge, statusBadge: b.badge || '',
+      savedLabel: this.state.edited ? 'Edited' : 'Saved', savedColor: this.state.edited ? 'var(--warn)' : 'var(--success)',
+      caretLn: this.state.caret.ln, caretCol: this.state.caret.col,
+      zoomed: this.state.zoom !== 1, zoomLabel: Math.round(this.state.zoom * 100) + '%',
+      paletteOpen: this.state.paletteOpen, paletteQuery: this.state.paletteQuery, onPaletteInput: this.onPaletteInput, onPaletteKey: this.onPaletteKey,
+      paletteItems: items, paletteEmpty: items.length === 0, openPalette: this.openPalette, closePalette: this.closePalette,
+      demoRender: this.demoRender, demoTokens: this.demoTokens, demoHex: this.demoHex, demoSearch: this.demoSearch,
+      loadMd: this.loadMd, loadHtml: this.loadHtml, loadMermaid: this.loadMermaid, loadMath: this.loadMath
+    };
+  }
+}
+</script>
+</body>
+</html>

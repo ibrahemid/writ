@@ -1,0 +1,143 @@
+/* Writ Design System — card.css
+ * Shared card stylesheet for all preview cards.
+ */
+
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500 800;
+  src: url('fonts/bricolage-grotesque-latin-opsz.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('fonts/inter-latin-variable.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('fonts/jetbrains-mono-latin-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('fonts/jetbrains-mono-latin-500.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('fonts/jetbrains-mono-latin-600.woff2') format('woff2');
+}
+
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --paper:   #f6f4ef;
+  --ink:     #1a1a22;
+  --raised:  #ffffff;
+  --muted:   #5a5a6a;
+  --border:  #e2e2ea;
+  --accent:  #3b5bdb;
+  --mono:    'JetBrains Mono', ui-monospace, monospace;
+  --sans:    'Inter', -apple-system, system-ui, sans-serif;
+  --disp:    'Bricolage Grotesque', -apple-system, system-ui, sans-serif;
+}
+
+html { background: var(--paper); }
+
+body {
+  font-family: var(--sans);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  background: var(--paper);
+  padding: 24px;
+}
+
+/* Card layout primitives */
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* Individual swatch figure */
+.fig {
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  min-width: 120px;
+  flex: 1;
+}
+
+.swatch {
+  height: 72px;
+  width: 100%;
+}
+
+.name {
+  padding: 8px 10px 2px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+
+.value {
+  padding: 0 10px 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* Section label */
+.label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 4px 0 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+/* Generic demo box */
+.box {
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+}
+
+h2.section {
+  font-family: var(--disp);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.03em;
+  margin-bottom: 16px;
+}
