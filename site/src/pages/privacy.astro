@@ -1,7 +1,7 @@
 ---
-import Base from '../layouts/Base.astro';
+import Site from "../layouts/Site.astro";
 ---
-<Base
+<Site
   title="Writ — Privacy"
   description="Writ stores everything locally. The site uses no analytics. The app makes no network requests except optional update checks."
   path="/privacy/"
@@ -60,16 +60,16 @@ import Base from '../layouts/Base.astro';
     .pr-wrap { width: min(720px, 100% - 48px); margin: 0 auto; display: flex; flex-direction: column; gap: 2.5rem; }
     .pr-head { display: flex; flex-direction: column; gap: 0.5rem; }
     .pr-head h1 {
-      font-family: var(--disp);
+      font-family: var(--font-display);
       font-size: clamp(28px, 4vw, 46px);
       font-weight: 800;
       letter-spacing: -0.03em;
-      color: var(--ink);
+      color: var(--foreground);
       margin: 0;
     }
     .pr-meta {
       color: var(--subtle);
-      font-family: var(--mono);
+      font-family: var(--font-mono);
       font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
@@ -81,21 +81,21 @@ import Base from '../layouts/Base.astro';
       gap: 1.25rem;
       font-size: 15px;
       line-height: 1.7;
-      color: var(--ink);
+      color: var(--foreground);
     }
     .pr-body p { color: var(--muted); margin: 0; max-width: 64ch; }
     .pr-body h2 {
       margin: 0.5rem 0 0;
-      font-family: var(--disp);
+      font-family: var(--font-display);
       font-size: 1.05rem;
       font-weight: 700;
-      color: var(--ink);
+      color: var(--foreground);
       letter-spacing: -0.01em;
     }
     .pr-body code {
-      font-family: var(--mono);
+      font-family: var(--font-mono);
       background: var(--elevated);
-      color: var(--ink);
+      color: var(--foreground);
       padding: 1px 6px;
       border-radius: 4px;
       font-size: 0.88em;
@@ -103,4 +103,4 @@ import Base from '../layouts/Base.astro';
     .pr-body a { color: var(--accent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); }
     .pr-body a:hover { text-decoration-color: var(--accent); }
   </style>
-</Base>
+</Site>

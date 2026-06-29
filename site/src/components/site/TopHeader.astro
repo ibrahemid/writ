@@ -1,5 +1,5 @@
 ---
-const repo = 'https://github.com/ibrahemid/writ';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 <header class="v2-header">
   <div class="ticker" data-collapsed="false" aria-hidden="true">
@@ -19,12 +19,12 @@ const repo = 'https://github.com/ibrahemid/writ';
     </div>
   </div>
   <div style="max-width:1100px; margin:0 auto; padding:0 22px; height:54px; display:flex; align-items:center; gap:16px">
-    <a href="#top" style="display:inline-flex; align-items:baseline; font-family:var(--font-display); font-weight:800; font-size:19px; letter-spacing:-.045em; color:var(--foreground); flex:none">Writ<span style="color:var(--accent)">.</span></a>
+    <a href={`${base}/`} style="display:inline-flex; align-items:baseline; font-family:var(--font-display); font-weight:800; font-size:19px; letter-spacing:-.045em; color:var(--foreground); flex:none">Writ<span style="color:var(--accent)">.</span></a>
     <nav class="topnav hide-sm" style="display:flex; gap:2px; margin-left:4px">
-      <a href="#editor" style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Editor</a>
-      <a href="#render" style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Render</a>
-      <a href="#search" style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Search</a>
-      <a href="#download" style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Download</a>
+      <a href={`${base}/#editor`} style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Editor</a>
+      <a href={`${base}/#render`} style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Render</a>
+      <a href={`${base}/#search`} style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Search</a>
+      <a href={`${base}/#download`} style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:7px 9px; border-radius:7px">Download</a>
     </nav>
     <div style="margin-left:auto; display:flex; align-items:center; gap:10px; flex:none">
       <button class="theme-toggle" type="button" data-toggle-theme aria-label="Switch color theme">
@@ -36,7 +36,7 @@ const repo = 'https://github.com/ibrahemid/writ';
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
         </svg>
       </button>
-      <a href="#download" class="hide-sm v2-btn-primary" style="display:inline-flex; align-items:center; height:34px; padding:0 15px; border-radius:9px; background:var(--accent); color:var(--accent-foreground); font-weight:600; font-size:13.5px">Download</a>
+      <a href={`${base}/#download`} class="hide-sm v2-btn-primary" style="display:inline-flex; align-items:center; height:34px; padding:0 15px; border-radius:9px; background:var(--accent); color:var(--accent-foreground); font-weight:600; font-size:13.5px">Download</a>
     </div>
   </div>
 </header>

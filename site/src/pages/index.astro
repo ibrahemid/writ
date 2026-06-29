@@ -1,18 +1,16 @@
 ---
-import V2 from '../layouts/V2.astro';
-import TopHeader from '../components/v2/TopHeader.astro';
-import Hero from '../components/v2/Hero.astro';
-import WindowRow from '../components/v2/WindowRow.astro';
-import Sections from '../components/v2/Sections.astro';
+import Site from '../layouts/Site.astro';
+import Hero from '../components/site/Hero.astro';
+import WindowRow from '../components/site/WindowRow.astro';
+import Sections from '../components/site/Sections.astro';
 ---
-<V2 title="Writ — a fast scratchpad for everything you open" path="/">
-  <TopHeader />
+<Site title="Writ — a fast scratchpad for everything you open" path="/">
   <main id="top" class="v2-grid">
     <Hero />
     <WindowRow />
     <Sections />
   </main>
-</V2>
+</Site>
 
 <script>
   (function () {

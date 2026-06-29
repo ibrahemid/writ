@@ -1,6 +1,8 @@
 ---
 import '../../design-system/colors_and_type.css';
-import '../styles/v2.css';
+import '../styles/site.css';
+import TopHeader from '../components/site/TopHeader.astro';
+import SiteFooter from '../components/site/SiteFooter.astro';
 
 interface Props {
   title: string;
@@ -11,7 +13,7 @@ interface Props {
 const {
   title,
   description = 'A fast, keyboard-first scratchpad and viewer that sits between a plain text editor and a full IDE. Open any file instantly, render Markdown, HTML, Mermaid and KaTeX live, and keep every scratch searchable. Offline, no account.',
-  path = '/v2',
+  path = '/',
 } = Astro.props;
 
 const SITE_URL = 'https://ibrahemid.github.io';
@@ -57,11 +59,15 @@ const ogImage = SITE_URL + BASE + '/brand/og-v2.png';
     </script>
   </head>
   <body>
-    <a href="#top" class="skip-link">Skip to content</a>
+    <a href="#content" class="skip-link">Skip to content</a>
     <div class="v2-page">
       <div class="hero-glow" aria-hidden="true"></div>
       <div class="bg-field" aria-hidden="true"></div>
-      <slot />
+      <TopHeader />
+      <div id="content" tabindex="-1">
+        <slot />
+      </div>
+      <SiteFooter />
     </div>
   </body>
 </html>
