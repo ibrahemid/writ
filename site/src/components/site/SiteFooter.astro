@@ -1,0 +1,64 @@
+---
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const repo = 'https://github.com/ibrahemid/writ';
+---
+<footer class="site-footer">
+  <div class="site-footer-inner">
+    <a href={`${base}/`} class="ft-logo">Writ<span>.</span></a>
+    <nav class="ft-links" aria-label="Footer">
+      <a href={`${base}/#download`}>Download</a>
+      <a href={`${base}/changelog`}>Changelog</a>
+      <a href={`${base}/privacy`}>Privacy</a>
+      <a href={repo} rel="noopener noreferrer" target="_blank">GitHub</a>
+    </nav>
+    <div class="ft-tag">A fast scratchpad for everything you open.</div>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    position: relative;
+    z-index: 1;
+    border-top: 1px solid var(--line-soft);
+    margin-top: 40px;
+  }
+  .site-footer-inner {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 26px 22px 40px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 14px 22px;
+  }
+  .ft-logo {
+    display: inline-flex;
+    align-items: baseline;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 19px;
+    letter-spacing: -0.045em;
+    color: var(--foreground);
+  }
+  .ft-logo span { color: var(--accent); }
+  .ft-links {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .ft-links a {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--muted);
+    transition: color 0.15s var(--ease);
+  }
+  .ft-links a:hover { color: var(--foreground); }
+  .ft-tag {
+    margin-left: auto;
+    font-size: 13px;
+    color: var(--subtle);
+  }
+  @media (max-width: 560px) {
+    .ft-tag { margin-left: 0; width: 100%; }
+  }
+</style>
