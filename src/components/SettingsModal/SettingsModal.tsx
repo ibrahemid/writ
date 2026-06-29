@@ -9,7 +9,7 @@ import { openShortcutEditor } from "../ShortcutEditor/ShortcutEditor";
 import { installFocusTrap } from "../../lib/focus-trap";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showToast } from "../Notifications/Toast";
-import { installCli } from "../../stores/global/cli";
+import { fetchCliStatus, installCli } from "../../stores/global/cli";
 import type { DefaultLayout } from "../../types/config";
 import {
   fetchDefaultAppTypes,
@@ -229,11 +229,19 @@ function DefaultAppRow(props: DefaultAppRowProps) {
 function FilesSection() {
   const cfg = () => configStore.config().editor;
   const [isInstallingCli, setIsInstallingCli] = createSignal(false);
+  const [cliInstalled, setCliInstalled] = createSignal(false);
   const inboxPath = () => inboxStore.path();
   const inboxFocus = () => configStore.config().inbox.focus;
   const [defaultAppTypes, setDefaultAppTypes] = createSignal<ClaimableType[]>([]);
 
+  function refreshCliStatus() {
+    void fetchCliStatus()
+      .then((s) => setCliInstalled(s.installed))
+      .catch(() => setCliInstalled(false));
+  }
+
   onMount(() => {
+    refreshCliStatus();
     void fetchDefaultAppTypes()
       .then(setDefaultAppTypes)
       .catch(() => setDefaultAppTypes([]));
@@ -249,10 +257,12 @@ function FilesSection() {
     setIsInstallingCli(true);
     try {
       const result = await installCli();
+      setCliInstalled(true);
       showToast(`writ installed at ${result.symlink_path}`, "success");
     } catch (err) {
       const detail = typeof err === "string" ? err : String(err);
-      showToast(`Install failed: ${detail}`, "error");
+      showToast(detail, "error");
+      refreshCliStatus();
     } finally {
       setIsInstallingCli(false);
     }
@@ -280,15 +290,24 @@ function FilesSection() {
       </div>
       <div class="settings-row">
         <span class="settings-row-label">Command-line tool</span>
-        <button
-          type="button"
-          class="settings-action-btn"
-          data-action="install-cli"
-          disabled={isInstallingCli()}
-          onClick={() => void onInstallCli()}
+        <Show
+          when={!cliInstalled()}
+          fallback={
+            <span class="settings-default-app-status settings-default-app-status-active">
+              writ command installed
+            </span>
+          }
         >
-          {isInstallingCli() ? "Installing…" : "Install `writ` command"}
-        </button>
+          <button
+            type="button"
+            class="settings-action-btn"
+            data-action="install-cli"
+            disabled={isInstallingCli()}
+            onClick={() => void onInstallCli()}
+          >
+            {isInstallingCli() ? "Installing…" : "Install `writ` command"}
+          </button>
+        </Show>
       </div>
       <For each={defaultAppTypes()}>{(t) => <DefaultAppRow type={t} />}</For>
       <div class="settings-row">

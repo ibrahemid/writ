@@ -282,6 +282,7 @@ pub fn run() {
             commands::workspace::clear_workspace_root,
             commands::workspace::list_workspace_dir,
             commands::workspace::get_workspace_root,
+            commands::cli::cli_status,
             commands::cli::install_cli,
             commands::default_app::list_default_app_types,
             commands::default_app::get_default_app_status,

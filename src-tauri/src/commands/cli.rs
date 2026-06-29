@@ -6,6 +6,30 @@ pub struct InstallCliResult {
     pub manual_command: String,
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct CliStatus {
+    pub installed: bool,
+    pub path: String,
+}
+
+/// Whether the `writ` command is present at the install target.
+///
+/// Uses `symlink_metadata` so a symlink counts as installed even when its own
+/// target is momentarily unreachable.
+fn is_installed(target: &Path) -> bool {
+    target.symlink_metadata().is_ok()
+}
+
+/// IPC: report whether the `writ` command is already installed.
+#[tauri::command]
+pub fn cli_status() -> CliStatus {
+    let target = std::path::PathBuf::from(INSTALL_TARGET);
+    CliStatus {
+        installed: is_installed(&target),
+        path: INSTALL_TARGET.to_string(),
+    }
+}
+
 const SIDECAR_NOT_FOUND: &str = "The writ command line tool could not be located.";
 const INSTALL_TARGET: &str = "/usr/local/bin/writ";
 
@@ -168,6 +192,15 @@ mod tests {
         assert!(script.contains("/Applications/Writ.app/Contents/MacOS/writ"));
         assert!(script.contains("'/usr/local/bin/writ'"));
         assert!(script.contains("mkdir -p '/usr/local/bin'"));
+    }
+
+    #[test]
+    fn is_installed_reflects_presence() {
+        let dir = tempfile::tempdir().unwrap();
+        let present = dir.path().join("writ");
+        std::fs::write(&present, "").unwrap();
+        assert!(is_installed(&present));
+        assert!(!is_installed(&dir.path().join("absent")));
     }
 
     #[test]

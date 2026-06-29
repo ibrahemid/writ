@@ -481,6 +481,15 @@ export interface InstallCliResult {
   manual_command: string;
 }
 
+export interface CliStatus {
+  installed: boolean;
+  path: string;
+}
+
+export async function cliStatus(): Promise<CliStatus> {
+  return invoke("cli_status");
+}
+
 export async function installCli(): Promise<InstallCliResult> {
   return invoke("install_cli");
 }
