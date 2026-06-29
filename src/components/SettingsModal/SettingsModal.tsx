@@ -280,11 +280,6 @@ function FilesSection() {
         </button>
       </div>
       <DefaultAppRow ext="md" label="Markdown" />
-      <DefaultAppRow
-        ext="html"
-        label="HTML"
-        caution="Links opened in browsers are not affected."
-      />
       <div class="settings-row">
         <span class="settings-row-label">Watched inbox folder</span>
         <Show

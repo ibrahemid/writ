@@ -5,54 +5,25 @@
 use serde::{Deserialize, Serialize};
 
 /// Well-known file extensions Writ exposes "Make default" for.
+///
+/// HTML is deliberately absent: Writ declares it can open `.html` (so it appears
+/// in "Open With" and handles explicit opens) but must never register itself as
+/// the default handler for `public.html`, which is what put it in the OS web-link
+/// path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum KnownExt {
     /// Markdown (`.md`, `.markdown`).
     Md,
-    /// HTML (`.html`, `.htm`).
-    Html,
 }
 
 /// Maps a known extension to its canonical UTI.
 ///
 /// Both `md` and `markdown` surface as `net.daringfireball.markdown`.
-/// `html`/`htm` resolve to `public.html`.
 pub fn ext_to_uti(ext: &str) -> Option<(&'static str, KnownExt)> {
     match ext.to_ascii_lowercase().trim_start_matches('.') {
         "md" | "markdown" => Some(("net.daringfireball.markdown", KnownExt::Md)),
-        "html" | "htm" => Some(("public.html", KnownExt::Html)),
         _ => None,
-    }
-}
-
-/// What to do with a URL delivered by the OS open event (macOS `RunEvent::Opened`).
-///
-/// Writ registers as an *editor* for local source files, so the OS hands it
-/// `file://` URLs to open. But when Writ is the chosen handler for a content type
-/// such as `public.html`, the OS can also route non-file links here. Those must be
-/// handed to the real default app for their scheme (browser for `http(s)`, mail
-/// client for `mailto`, …) instead of being dropped — otherwise the user sees Writ
-/// take focus with nothing opened.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OpenDisposition {
-    /// A `file://` URL: resolve to a path and open it in the editor.
-    OpenFile,
-    /// A non-file URL (http, https, mailto, …): hand off to the OS default app.
-    HandoffToDefaultApp,
-    /// Empty scheme or Writ's own internal scheme: never open, never forward.
-    Ignore,
-}
-
-/// Classifies an OS-delivered open URL by its scheme. See [`OpenDisposition`].
-///
-/// Comparison is case-insensitive. Writ's internal `writ-preview` scheme is never
-/// handed off; an empty scheme is ignored defensively.
-pub fn classify_open_scheme(scheme: &str) -> OpenDisposition {
-    match scheme.to_ascii_lowercase().as_str() {
-        "file" => OpenDisposition::OpenFile,
-        "" | "writ-preview" => OpenDisposition::Ignore,
-        _ => OpenDisposition::HandoffToDefaultApp,
     }
 }
 
@@ -97,36 +68,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn classify_open_scheme_opens_file_urls() {
-        assert_eq!(classify_open_scheme("file"), OpenDisposition::OpenFile);
-        assert_eq!(classify_open_scheme("FILE"), OpenDisposition::OpenFile);
-    }
-
-    #[test]
-    fn classify_open_scheme_hands_non_file_urls_to_default_app() {
-        for scheme in ["http", "https", "HTTPS", "mailto", "tel", "ftp"] {
-            assert_eq!(
-                classify_open_scheme(scheme),
-                OpenDisposition::HandoffToDefaultApp,
-                "scheme={scheme}"
-            );
-        }
-    }
-
-    #[test]
-    fn classify_open_scheme_ignores_empty_and_internal_schemes() {
-        assert_eq!(classify_open_scheme(""), OpenDisposition::Ignore);
-        assert_eq!(
-            classify_open_scheme("writ-preview"),
-            OpenDisposition::Ignore
-        );
-        assert_eq!(
-            classify_open_scheme("WRIT-PREVIEW"),
-            OpenDisposition::Ignore
-        );
-    }
-
-    #[test]
     fn ext_to_uti_maps_md() {
         let (uti, kind) = ext_to_uti("md").unwrap();
         assert_eq!(uti, "net.daringfireball.markdown");
@@ -141,29 +82,23 @@ mod tests {
     }
 
     #[test]
-    fn ext_to_uti_maps_html() {
-        let (uti, kind) = ext_to_uti("html").unwrap();
-        assert_eq!(uti, "public.html");
-        assert_eq!(kind, KnownExt::Html);
-    }
-
-    #[test]
-    fn ext_to_uti_maps_htm_alias() {
-        let (uti, kind) = ext_to_uti("htm").unwrap();
-        assert_eq!(uti, "public.html");
-        assert_eq!(kind, KnownExt::Html);
+    fn ext_to_uti_does_not_map_html() {
+        // Writ keeps the document-type declaration for HTML but must never be a
+        // settable default handler for it.
+        assert!(ext_to_uti("html").is_none());
+        assert!(ext_to_uti("htm").is_none());
     }
 
     #[test]
     fn ext_to_uti_strips_leading_dot() {
         assert!(ext_to_uti(".md").is_some());
-        assert!(ext_to_uti(".html").is_some());
+        assert!(ext_to_uti(".markdown").is_some());
     }
 
     #[test]
     fn ext_to_uti_is_case_insensitive() {
         assert!(ext_to_uti("MD").is_some());
-        assert!(ext_to_uti("HTML").is_some());
+        assert!(ext_to_uti("Markdown").is_some());
     }
 
     #[test]
