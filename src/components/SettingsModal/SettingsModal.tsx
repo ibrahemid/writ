@@ -1,4 +1,4 @@
-import { createSignal, createEffect, onCleanup, onMount, Show, Switch, Match } from "solid-js";
+import { createSignal, createEffect, onCleanup, onMount, For, Show, Switch, Match } from "solid-js";
 import { configStore, EDITOR_FONT_MIN, EDITOR_FONT_MAX } from "../../stores/global/config";
 import { inboxStore } from "../../stores/global/inbox";
 import { themeStore } from "../../stores/global/theme";
@@ -11,8 +11,12 @@ import { useWindow } from "../WindowProvider/WindowProvider";
 import { showToast } from "../Notifications/Toast";
 import { installCli } from "../../stores/global/cli";
 import type { DefaultLayout } from "../../types/config";
-import { fetchDefaultAppStatus, claimDefaultApp } from "../../stores/global/default-app";
-import type { DefaultAppStatus } from "../../stores/global/default-app";
+import {
+  fetchDefaultAppTypes,
+  fetchDefaultAppStatus,
+  claimDefaultApp,
+} from "../../stores/global/default-app";
+import type { ClaimableType, DefaultAppStatus } from "../../stores/global/default-app";
 import "./SettingsModal.css";
 
 type Section = "editor" | "files" | "preview" | "appearance" | "shortcuts" | "updates";
@@ -132,9 +136,7 @@ function EditorSection() {
 const REFRESH_DELAY_MS = 800;
 
 interface DefaultAppRowProps {
-  ext: string;
-  label: string;
-  caution?: string;
+  type: ClaimableType;
 }
 
 function DefaultAppRow(props: DefaultAppRowProps) {
@@ -142,9 +144,11 @@ function DefaultAppRow(props: DefaultAppRowProps) {
   const [setting, setSetting] = createSignal(false);
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
+  const extList = () => props.type.exts.map((e) => `.${e}`).join(", ");
+
   async function loadStatus() {
     try {
-      const s = await fetchDefaultAppStatus(props.ext);
+      const s = await fetchDefaultAppStatus(props.type.id);
       setStatus(s);
     } catch {
       // Non-macOS or sandboxed; treat as unsupported
@@ -163,9 +167,9 @@ function DefaultAppRow(props: DefaultAppRowProps) {
   async function onMakeDefault() {
     setSetting(true);
     try {
-      await claimDefaultApp(props.ext);
+      await claimDefaultApp(props.type.id);
     } catch (err) {
-      showToast(`Failed to set default for .${props.ext}`, "error");
+      showToast(`Failed to set default for ${props.type.label}`, "error");
       setSetting(false);
       return;
     }
@@ -182,10 +186,8 @@ function DefaultAppRow(props: DefaultAppRowProps) {
     <Show when={currentStatus() !== null && currentStatus()!.status !== "unsupported"}>
       <div class="settings-row">
         <span class="settings-row-label">
-          Default app for .{props.ext}
-          <Show when={props.caution}>
-            <span class="settings-row-caution">{props.caution}</span>
-          </Show>
+          {props.type.label}
+          <span class="settings-row-caution">{extList()}</span>
         </span>
         <div class="settings-default-app-ctrl">
           <span
@@ -207,10 +209,10 @@ function DefaultAppRow(props: DefaultAppRowProps) {
             <button
               type="button"
               class="settings-action-btn"
-              data-action={`make-default-${props.ext}`}
+              data-action={`make-default-${props.type.id}`}
               disabled={setting()}
               aria-busy={setting()}
-              aria-label={`Make Writ the default app for .${props.ext} files`}
+              aria-label={`Make Writ the default app for ${props.type.label}`}
               onClick={() => void onMakeDefault()}
             >
               {setting() ? "Setting…" : "Make default"}
@@ -227,6 +229,13 @@ function FilesSection() {
   const [isInstallingCli, setIsInstallingCli] = createSignal(false);
   const inboxPath = () => inboxStore.path();
   const inboxFocus = () => configStore.config().inbox.focus;
+  const [defaultAppTypes, setDefaultAppTypes] = createSignal<ClaimableType[]>([]);
+
+  onMount(() => {
+    void fetchDefaultAppTypes()
+      .then(setDefaultAppTypes)
+      .catch(() => setDefaultAppTypes([]));
+  });
 
   function onAutosaveChange(raw: string) {
     const value = clamp(parseIntSafe(raw, cfg().autosave_debounce_ms), 0, 10000);
@@ -279,7 +288,7 @@ function FilesSection() {
           {isInstallingCli() ? "Installing…" : "Install `writ` command"}
         </button>
       </div>
-      <DefaultAppRow ext="md" label="Markdown" />
+      <For each={defaultAppTypes()}>{(t) => <DefaultAppRow type={t} />}</For>
       <div class="settings-row">
         <span class="settings-row-label">Watched inbox folder</span>
         <Show

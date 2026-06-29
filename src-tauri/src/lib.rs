@@ -283,6 +283,7 @@ pub fn run() {
             commands::workspace::list_workspace_dir,
             commands::workspace::get_workspace_root,
             commands::cli::install_cli,
+            commands::default_app::list_default_app_types,
             commands::default_app::get_default_app_status,
             commands::default_app::set_default_app,
             commands::inbox::pick_inbox_folder,
