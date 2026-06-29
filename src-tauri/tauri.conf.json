@@ -94,7 +94,12 @@
                 ],
                 "name": "Plain Text",
                 "mimeType": "text/plain",
-                "role": "Editor"
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "public.plain-text",
+                    "com.apple.log"
+                ]
             },
             {
                 "ext": [
@@ -103,11 +108,16 @@
                 ],
                 "name": "Markdown",
                 "mimeType": "text/markdown",
+                "rank": "Alternate",
                 "role": "Editor",
-                "contentTypes": ["net.daringfireball.markdown"],
+                "contentTypes": [
+                    "net.daringfireball.markdown"
+                ],
                 "exportedType": {
                     "identifier": "net.daringfireball.markdown",
-                    "conformsTo": ["public.plain-text"]
+                    "conformsTo": [
+                        "public.plain-text"
+                    ]
                 }
             },
             {
@@ -116,7 +126,11 @@
                 ],
                 "name": "JSON",
                 "mimeType": "application/json",
-                "role": "Editor"
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "public.json"
+                ]
             },
             {
                 "ext": [
@@ -125,15 +139,24 @@
                 ],
                 "name": "YAML",
                 "mimeType": "text/yaml",
-                "role": "Editor"
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "public.yaml"
+                ]
             },
             {
                 "ext": [
-                    "toml"
+                    "toml",
+                    "cfg"
                 ],
                 "name": "TOML",
                 "mimeType": "text/x-toml",
-                "role": "Editor"
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "public.toml"
+                ]
             },
             {
                 "ext": [
@@ -141,17 +164,50 @@
                 ],
                 "name": "Rust",
                 "mimeType": "text/x-rust",
-                "role": "Editor"
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "com.writ.rust-source"
+                ],
+                "exportedType": {
+                    "identifier": "com.writ.rust-source",
+                    "conformsTo": [
+                        "public.source-code",
+                        "public.plain-text"
+                    ]
+                }
             },
             {
                 "ext": [
                     "js",
-                    "jsx",
                     "mjs"
                 ],
                 "name": "JavaScript",
                 "mimeType": "text/javascript",
-                "role": "Editor"
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "com.netscape.javascript-source"
+                ]
+            },
+            {
+                "ext": [
+                    "jsx"
+                ],
+                "name": "JSX",
+                "mimeType": "text/jsx",
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "com.writ.jsx-source"
+                ],
+                "exportedType": {
+                    "identifier": "com.writ.jsx-source",
+                    "conformsTo": [
+                        "public.source-code",
+                        "public.plain-text"
+                    ]
+                }
             },
             {
                 "ext": [
@@ -161,7 +217,18 @@
                 ],
                 "name": "TypeScript",
                 "mimeType": "text/typescript",
-                "role": "Editor"
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "com.writ.typescript-source"
+                ],
+                "exportedType": {
+                    "identifier": "com.writ.typescript-source",
+                    "conformsTo": [
+                        "public.source-code",
+                        "public.plain-text"
+                    ]
+                }
             },
             {
                 "ext": [
@@ -169,7 +236,11 @@
                 ],
                 "name": "Python",
                 "mimeType": "text/x-python",
-                "role": "Editor"
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "public.python-script"
+                ]
             },
             {
                 "ext": [
@@ -177,7 +248,18 @@
                 ],
                 "name": "Go",
                 "mimeType": "text/x-go",
-                "role": "Editor"
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "com.writ.go-source"
+                ],
+                "exportedType": {
+                    "identifier": "com.writ.go-source",
+                    "conformsTo": [
+                        "public.source-code",
+                        "public.plain-text"
+                    ]
+                }
             },
             {
                 "ext": [
@@ -186,8 +268,11 @@
                 ],
                 "name": "HTML",
                 "mimeType": "text/html",
+                "rank": "Alternate",
                 "role": "Editor",
-                "contentTypes": ["public.html"]
+                "contentTypes": [
+                    "public.html"
+                ]
             },
             {
                 "ext": [
@@ -197,6 +282,7 @@
                 ],
                 "name": "CSS",
                 "mimeType": "text/css",
+                "rank": "Alternate",
                 "role": "Editor"
             },
             {
@@ -206,7 +292,11 @@
                 ],
                 "name": "XML",
                 "mimeType": "text/xml",
-                "role": "Editor"
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "public.xml"
+                ]
             },
             {
                 "ext": [
@@ -214,6 +304,7 @@
                 ],
                 "name": "SQL",
                 "mimeType": "application/sql",
+                "rank": "Alternate",
                 "role": "Editor"
             },
             {
@@ -224,7 +315,11 @@
                 ],
                 "name": "Shell Script",
                 "mimeType": "text/x-shellscript",
-                "role": "Editor"
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "public.shell-script"
+                ]
             },
             {
                 "ext": [
@@ -234,6 +329,7 @@
                 ],
                 "name": "Java/Kotlin",
                 "mimeType": "text/x-java-source",
+                "rank": "Alternate",
                 "role": "Editor"
             },
             {
@@ -246,7 +342,13 @@
                 ],
                 "name": "C/C++",
                 "mimeType": "text/x-c",
-                "role": "Editor"
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "public.c-source",
+                    "public.c-header",
+                    "public.c-plus-plus-source"
+                ]
             },
             {
                 "ext": [
@@ -254,7 +356,11 @@
                 ],
                 "name": "Swift",
                 "mimeType": "text/x-swift",
-                "role": "Editor"
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "public.swift-source"
+                ]
             },
             {
                 "ext": [
@@ -262,6 +368,7 @@
                 ],
                 "name": "Ruby",
                 "mimeType": "text/x-ruby",
+                "rank": "Alternate",
                 "role": "Editor"
             },
             {
@@ -269,19 +376,40 @@
                     "php"
                 ],
                 "name": "PHP",
-                "mimeType": "text/x-php",
+                "mimeType": "application/x-php",
+                "rank": "Alternate",
                 "role": "Editor"
             },
             {
                 "ext": [
-                    "ini",
-                    "cfg",
+                    "ini"
+                ],
+                "name": "INI",
+                "mimeType": "text/plain",
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "com.microsoft.ini"
+                ]
+            },
+            {
+                "ext": [
                     "conf",
                     "env"
                 ],
-                "name": "Config",
+                "name": "Environment",
                 "mimeType": "text/plain",
-                "role": "Editor"
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "com.writ.config-text"
+                ],
+                "exportedType": {
+                    "identifier": "com.writ.config-text",
+                    "conformsTo": [
+                        "public.plain-text"
+                    ]
+                }
             },
             {
                 "ext": [
@@ -289,7 +417,11 @@
                 ],
                 "name": "CSV",
                 "mimeType": "text/csv",
-                "role": "Editor"
+                "rank": "Alternate",
+                "role": "Editor",
+                "contentTypes": [
+                    "public.comma-separated-values-text"
+                ]
             },
             {
                 "ext": [
@@ -298,6 +430,7 @@
                 ],
                 "name": "GraphQL",
                 "mimeType": "application/graphql",
+                "rank": "Alternate",
                 "role": "Editor"
             },
             {
@@ -305,7 +438,8 @@
                     "dockerfile"
                 ],
                 "name": "Dockerfile",
-                "mimeType": "text/x-dockerfile",
+                "mimeType": "text/plain",
+                "rank": "Alternate",
                 "role": "Editor"
             }
         ]
