@@ -68,6 +68,10 @@ pub fn claimable_types() -> &'static [ClaimableType] {
             exts: &[
                 "rs", "go", "jsx", "ts", "tsx", "py", "sh", "js", "c", "cpp", "h", "swift",
             ],
+            // Concrete UTIs only. `public.source-code` is intentionally absent:
+            // default handlers don't cascade through it, so claiming it would
+            // never route a real file yet would block this group from ever
+            // reading as "default" (every listed UTI must be ours to qualify).
             utis: &[
                 "com.writ.rust-source",
                 "com.writ.go-source",
@@ -80,7 +84,6 @@ pub fn claimable_types() -> &'static [ClaimableType] {
                 "public.c-plus-plus-source",
                 "public.c-header",
                 "public.swift-source",
-                "public.source-code",
             ],
         },
     ];
@@ -183,11 +186,18 @@ mod tests {
     }
 
     #[test]
-    fn no_group_claims_public_text() {
+    fn no_group_claims_non_routing_ancestors() {
         // public.text is the broad parent of plain-text/rtf/source; claiming it
-        // would make Writ the fallback for nearly all text content.
+        // would make Writ the fallback for nearly all text content. public.source-code
+        // never routes a concrete file (defaults don't cascade) and, as a member of
+        // an all-must-match group, would only keep the row from ever reading default.
         for t in claimable_types() {
             assert!(!t.utis.contains(&"public.text"), "{} claims public.text", t.id);
+            assert!(
+                !t.utis.contains(&"public.source-code"),
+                "{} claims public.source-code",
+                t.id
+            );
         }
     }
 
