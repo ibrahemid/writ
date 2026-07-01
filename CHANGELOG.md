@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Cargo workspace of five library crates plus the Tauri shell: `writ-core`, `writ-storage`, `writ-plugin`, `writ-render`, `writ-cli`, and `src-tauri`.
+- Cargo workspace of four library crates (`writ-core`, `writ-storage`, `writ-plugin`, `writ-render`), the `writ-cli` binary, and the `src-tauri` Tauri shell.
 - `writ-core`: buffer model with create, update, delete, and reorder operations; workspace and tab ordering; command registry for palette actions; history module for undo/redo and closed-tab recovery; file-watcher integration; full-text search query policy; typed error hierarchy.
 - `writ-storage`: SQLite in WAL mode with connection pooling, schema migrations, and FTS5 full-text search; `BufferStore` and `ConfigStore` repositories with session snapshots, dirty-shutdown detection, and a startup consistency check. A dirty relaunch recovers buffers from the latest snapshot and the consistency pass logs orphaned or missing backing files.
 - Global hotkey (`Cmd+Shift+Space` / `Ctrl+Shift+Space`) toggles the main window; window position persists across quit.
@@ -26,7 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Watched-folder inbox: new files in a watched folder list in the sidebar and open as they arrive.
 - File-size policy with a large-file mode and a binary hex view.
 - `writ` command-line tool, installed as a sidecar, for opening files from the terminal.
-- Make Writ the default app for `.md` and `.html` on macOS.
+- Make Writ the default app on macOS for Markdown, plain text and logs, config and data files, and source files.
 - App-wide light and dark themes routed through design tokens at WCAG AA contrast.
 - Autosave on every keystroke; buffers persist across restarts; crash recovery restores the last session.
 - TOML configuration with hot reload.
