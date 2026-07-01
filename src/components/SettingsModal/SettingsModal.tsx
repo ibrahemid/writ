@@ -22,9 +22,8 @@ import { installFocusTrap } from "../../lib/focus-trap";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showToast } from "../Notifications/Toast";
 import { fetchCliStatus, installCli } from "../../stores/global/cli";
-import { fetchStorageInfo, revealStoragePath } from "../../stores/global/storage";
+import { copyStoragePath, fetchStorageInfo, revealStoragePath } from "../../stores/global/storage";
 import type { StorageInfo } from "../../stores/global/storage";
-import { writeClipboardText } from "../../services/clipboard";
 import type { DefaultLayout } from "../../types/config";
 import {
   fetchDefaultAppTypes,
@@ -476,7 +475,7 @@ function StorageSection() {
     const path = info()?.db_path;
     if (!path) return;
     try {
-      await writeClipboardText(path);
+      await copyStoragePath(path);
       showToast("Path copied", "success");
     } catch {
       showToast("Could not copy the path", "error");

@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   fetchCliStatus: vi.fn().mockResolvedValue({ installed: false }),
   fetchStorageInfo: vi.fn().mockResolvedValue({ db_path: "/home/user/.writ/writ.db", dir: "/home/user/.writ" }),
   revealStoragePath: vi.fn().mockResolvedValue(undefined),
+  copyStoragePath: vi.fn().mockResolvedValue(undefined),
   writeClipboardText: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -47,6 +48,7 @@ vi.mock("../../stores/global/cli", () => ({
 vi.mock("../../stores/global/storage", () => ({
   fetchStorageInfo: mocks.fetchStorageInfo,
   revealStoragePath: mocks.revealStoragePath,
+  copyStoragePath: mocks.copyStoragePath,
 }));
 
 vi.mock("../../services/clipboard", () => ({
@@ -121,6 +123,7 @@ describe("SettingsModal", () => {
     mocks.fetchCliStatus.mockReset().mockResolvedValue({ installed: false });
     mocks.fetchStorageInfo.mockReset().mockResolvedValue({ db_path: "/home/user/.writ/writ.db", dir: "/home/user/.writ" });
     mocks.revealStoragePath.mockReset().mockResolvedValue(undefined);
+    mocks.copyStoragePath.mockReset().mockResolvedValue(undefined);
     mocks.writeClipboardText.mockReset().mockResolvedValue(undefined);
     clearDefaultAppSupport();
   });
@@ -466,7 +469,7 @@ describe("SettingsModal", () => {
       );
       fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='storage-copy']")!);
       await waitFor(() =>
-        expect(mocks.writeClipboardText).toHaveBeenCalledWith("/home/user/.writ/writ.db"),
+        expect(mocks.copyStoragePath).toHaveBeenCalledWith("/home/user/.writ/writ.db"),
       );
     });
 
