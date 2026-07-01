@@ -1,48 +1,19 @@
 ---
 import Site from "../layouts/Site.astro";
+import release from "../data/release.json";
 
-const releases = [
-  {
-    version: '0.1.0',
-    date: '2026-04-29',
-    label: 'first public preview',
-    notes: [
-      { kind: 'added', text: 'global hotkey: Cmd+Shift+Space (macOS), Ctrl+Shift+Space (Linux/Windows).' },
-      { kind: 'added', text: 'browser-style tabs across buffers with persistent session state.' },
-      { kind: 'added', text: 'autosave on every keystroke; buffers persist across restarts.' },
-      { kind: 'added', text: 'full-text search across all buffers, backed by SQLite FTS5.' },
-      { kind: 'added', text: 'command palette (tap Shift twice) for new tab, switch tab, rename, toggle theme, open settings.' },
-      { kind: 'added', text: 'CodeMirror 6 editor with syntax highlighting for .rs, .ts, .py, .md.' },
-      { kind: 'added', text: 'macOS .dmg, Windows .msi, Linux .deb / AppImage.' },
-    ],
-  },
-  {
-    version: '0.0.3',
-    date: '2026-04-12',
-    label: 'pre-release',
-    notes: [
-      { kind: 'changed', text: 'rewrote tab persistence on top of SQLite WAL.' },
-      { kind: 'fixed',   text: 'autosave race when the OS suspends mid-write.' },
-      { kind: 'fixed',   text: 'palette returned stale tab list after rapid create/close.' },
-    ],
-  },
-  {
-    version: '0.0.2',
-    date: '2026-03-30',
-    label: 'pre-release',
-    notes: [
-      { kind: 'added', text: 'first pass at the dark terminal-night theme.' },
-      { kind: 'added', text: 'tray icon and global hotkey on Windows.' },
-    ],
-  },
-  {
-    version: '0.0.1',
-    date: '2026-03-14',
-    label: 'first build',
-    notes: [
-      { kind: 'added', text: 'tauri shell, single-window editor, save-to-disk on quit.' },
-    ],
-  },
+const isPublished = release.published === true && release.publishedAt !== '';
+const releaseDate = isPublished ? release.publishedAt : 'unreleased';
+
+const notes = [
+  { kind: 'added', text: 'global hotkey brings the window up over anything: Cmd+Shift+Space on macOS, Ctrl+Shift+Space on Linux and Windows.' },
+  { kind: 'added', text: 'tabs across buffers, with reopen-closed recovery from history.' },
+  { kind: 'added', text: 'autosave on every keystroke, no manual save; buffers persist across restarts.' },
+  { kind: 'added', text: 'full-text search across every buffer, backed by SQLite FTS5.' },
+  { kind: 'added', text: 'command palette on double-tap Shift.' },
+  { kind: 'added', text: 'CodeMirror 6 editor with language detection by extension and file content.' },
+  { kind: 'added', text: 'TOML configuration with hot reload.' },
+  { kind: 'added', text: 'builds for macOS, Windows, and Linux: .dmg, .msi, .deb, and AppImage.' },
 ];
 
 const kindColor: Record<string, string> = {
@@ -54,7 +25,7 @@ const kindColor: Record<string, string> = {
 ---
 <Site
   title="Writ — Changelog"
-  description="Every release of Writ. What was added, changed, and fixed."
+  description="What ships in each release of Writ."
   path="/changelog/"
 >
   <section class="cl">
@@ -64,24 +35,22 @@ const kindColor: Record<string, string> = {
         <p class="cl-sub">Newest first.</p>
       </header>
 
-      {releases.map((r) => (
-        <article class="rel" id={`v${r.version}`}>
-          <hr class="rel-rule" />
-          <header class="rel-head">
-            <h2>v{r.version}</h2>
-            <span class="rel-date">{r.date}</span>
-            <span class="rel-label">{r.label}</span>
-          </header>
-          <ul class="rel-notes">
-            {r.notes.map((n) => (
-              <li>
-                <span class="rel-kind" style={{ color: kindColor[n.kind] || 'var(--muted)' }}>{n.kind}</span>
-                <span class="rel-text">{n.text}</span>
-              </li>
-            ))}
-          </ul>
-        </article>
-      ))}
+      <article class="rel" id={`v${release.version}`}>
+        <hr class="rel-rule" />
+        <header class="rel-head">
+          <h2>v{release.version}</h2>
+          <span class="rel-date">{releaseDate}</span>
+          <span class="rel-label">first release</span>
+        </header>
+        <ul class="rel-notes">
+          {notes.map((n) => (
+            <li>
+              <span class="rel-kind" style={{ color: kindColor[n.kind] || 'var(--muted)' }}>{n.kind}</span>
+              <span class="rel-text">{n.text}</span>
+            </li>
+          ))}
+        </ul>
+      </article>
     </div>
   </section>
 
