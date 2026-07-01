@@ -8,7 +8,7 @@ type AutosaveSuccessListener = (bufferId: string) => void;
 // never forces a full `doc.toString()` on every keystroke just to feed the
 // debounce, and flush stays correct because the getter reads the live document
 // at flush time rather than a value captured keystrokes earlier (ADR-020).
-type ContentSource = string | (() => string);
+export type ContentSource = string | (() => string);
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 const pendingContent = new Map<string, ContentSource>();
