@@ -43,17 +43,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: site/pnpm-lock.yaml
 
-      - name: Setup Rust + wasm-pack
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-      - name: Install wasm-opt
-        run: npm install -g wasm-opt
-
       - name: Sync latest release data
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
