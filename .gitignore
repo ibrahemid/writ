@@ -1,5 +1,7 @@
 # Rust
 /target
+/debug
+.rustc_info.json
 Cargo.lock.bak
 
 # Node / frontend
@@ -37,3 +39,4 @@ drafts/
 
 # Sidecar binaries (built by CI before cargo tauri build; not committed)
 src-tauri/binaries/writ-*
+.design-sync/ds-refresh/
