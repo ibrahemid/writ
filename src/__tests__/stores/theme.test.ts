@@ -136,14 +136,45 @@ describe("preset integrity", () => {
     }
   });
 
+  // A handful of site tokens are composite CSS values by design (an rgba seam,
+  // multi-layer box-shadows, easing curves), not single colors. They are
+  // checked for presence, not for hex. Every other token must be a hex color;
+  // nested groups (e.g. site.traffic) have their leaf colors hex-checked.
+  const COMPOSITE_TOKENS = new Set([
+    "site.seam",
+    "site.winShadow",
+    "site.panelShadow",
+    "site.ease",
+    "site.spring",
+  ]);
+
   it("every preset color parses as valid hex", () => {
     const hex = /^#[0-9a-fA-F]{3,8}$/;
     for (const preset of themeStore.presets()) {
-      const flat = themeStore.resolvedTokens.bind(themeStore);
       themeStore.setPreset(preset.id);
-      const tokens = flat();
-      for (const [key, value] of Object.entries(tokens)) {
-        expect(hex.test(value), `${preset.id}.${key} = ${value}`).toBe(true);
+      const tokens = themeStore.resolvedTokens();
+      for (const [key, rawValue] of Object.entries(tokens)) {
+        const value: unknown = rawValue;
+        if (COMPOSITE_TOKENS.has(key)) {
+          expect(
+            typeof value === "string" && value.trim().length > 0,
+            `${preset.id}.${key} = ${String(value)}`,
+          ).toBe(true);
+          continue;
+        }
+        if (value !== null && typeof value === "object") {
+          for (const [subKey, subValue] of Object.entries(value as Record<string, unknown>)) {
+            expect(
+              typeof subValue === "string" && hex.test(subValue),
+              `${preset.id}.${key}.${subKey} = ${String(subValue)}`,
+            ).toBe(true);
+          }
+          continue;
+        }
+        expect(
+          typeof value === "string" && hex.test(value),
+          `${preset.id}.${key} = ${String(value)}`,
+        ).toBe(true);
       }
     }
   });
