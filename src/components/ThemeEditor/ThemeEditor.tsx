@@ -8,6 +8,7 @@ import type { TokenGroup, Theme, ThemeConfig } from "../../types/theme";
 import { showToast } from "../Notifications/Toast";
 import "./ThemeEditor.css";
 
+// Singleton state — Writ is single-window
 const [isOpen, setIsOpen] = createSignal(false);
 let openSnapshot: ThemeConfig | null = null;
 
