@@ -79,20 +79,45 @@ fn link_directly(sidecar: &Path, target: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// The AppleScript that creates the link with an admin prompt. Paths are
-/// single-quoted for the inner shell; app-bundle paths never contain a single
-/// quote, so no further escaping is needed.
+/// Wrap `s` as a single POSIX shell word: enclose in single quotes and escape
+/// any embedded single quote via the `'\''` idiom. Safe for arbitrary paths,
+/// including install locations that contain an apostrophe.
+#[cfg(target_os = "macos")]
+fn shell_single_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// Escape `s` for inclusion in an AppleScript double-quoted string literal:
+/// backslash and double quote are the only metacharacters. Backslash is
+/// escaped first so the double-quote replacement's backslash is not re-escaped.
+#[cfg(target_os = "macos")]
+fn applescript_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// The AppleScript that creates the link with an admin prompt.
+///
+/// Two escaping layers apply: the paths are single-quoted for the inner shell
+/// (`shell_single_quote`), then the whole shell command is embedded in an
+/// AppleScript double-quoted literal (`applescript_escape`). The sidecar path
+/// comes from `current_exe()`, so it can carry an apostrophe when the app is
+/// installed under such a directory; both layers keep that from breaking out
+/// of the quoting.
 #[cfg(target_os = "macos")]
 fn privileged_link_script(sidecar: &Path, target: &Path) -> String {
     let parent = target
         .parent()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
+    let shell_cmd = format!(
+        "mkdir -p {} && ln -sf {} {}",
+        shell_single_quote(&parent),
+        shell_single_quote(&sidecar.to_string_lossy()),
+        shell_single_quote(&target.to_string_lossy()),
+    );
     format!(
-        "do shell script \"mkdir -p '{}' && ln -sf '{}' '{}'\" with administrator privileges",
-        parent,
-        sidecar.display(),
-        target.display()
+        "do shell script \"{}\" with administrator privileges",
+        applescript_escape(&shell_cmd)
     )
 }
 
@@ -192,6 +217,43 @@ mod tests {
         assert!(script.contains("/Applications/Writ.app/Contents/MacOS/writ"));
         assert!(script.contains("'/usr/local/bin/writ'"));
         assert!(script.contains("mkdir -p '/usr/local/bin'"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn privileged_script_quotes_apostrophe_install_path() {
+        // The sidecar path comes from current_exe(); an app installed under a
+        // directory containing an apostrophe must not break out of the shell
+        // single-quoting inside the root `do shell script`.
+        let sidecar = Path::new("/Users/o'brien/Apps/Writ.app/Contents/MacOS/writ");
+        let target = Path::new("/usr/local/bin/writ");
+        let script = privileged_link_script(sidecar, target);
+
+        let expected = applescript_escape(&shell_single_quote(&sidecar.to_string_lossy()));
+        assert!(
+            script.contains(&expected),
+            "sidecar path is not fully escaped: {script}"
+        );
+        // The raw path (quote immediately followed by `brien`) would mean the
+        // apostrophe closed the quoting early — it must never appear.
+        assert!(
+            !script.contains("'/Users/o'brien/Apps"),
+            "apostrophe broke out of shell quoting: {script}"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn shell_single_quote_escapes_embedded_apostrophe() {
+        assert_eq!(shell_single_quote("/a/b"), "'/a/b'");
+        assert_eq!(shell_single_quote("/o'brien"), "'/o'\\''brien'");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn applescript_escape_escapes_backslash_and_quote() {
+        assert_eq!(applescript_escape("a\\b"), "a\\\\b");
+        assert_eq!(applescript_escape("say \"hi\""), "say \\\"hi\\\"");
     }
 
     #[test]
