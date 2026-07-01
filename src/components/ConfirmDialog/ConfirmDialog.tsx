@@ -15,6 +15,7 @@ interface PendingConfirm extends ConfirmRequest {
   resolve: (confirmed: boolean) => void;
 }
 
+// Singleton state — Writ is single-window
 const [pending, setPending] = createSignal<PendingConfirm | null>(null);
 
 export function requestConfirm(request: ConfirmRequest): Promise<boolean> {
