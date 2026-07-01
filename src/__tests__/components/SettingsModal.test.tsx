@@ -20,6 +20,9 @@ const mocks = vi.hoisted(() => ({
   claimDefaultApp: vi.fn().mockResolvedValue(undefined),
   fetchDefaultAppTypes: vi.fn(),
   fetchCliStatus: vi.fn().mockResolvedValue({ installed: false }),
+  fetchStorageInfo: vi.fn().mockResolvedValue({ db_path: "/home/user/.writ/writ.db", dir: "/home/user/.writ" }),
+  revealStoragePath: vi.fn().mockResolvedValue(undefined),
+  writeClipboardText: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../services/tauri", () => ({
@@ -39,6 +42,15 @@ vi.mock("../../stores/global/default-app", () => ({
 vi.mock("../../stores/global/cli", () => ({
   installCli: vi.fn().mockResolvedValue({ symlink_path: "/usr/local/bin/writ", manual_command: "" }),
   fetchCliStatus: mocks.fetchCliStatus,
+}));
+
+vi.mock("../../stores/global/storage", () => ({
+  fetchStorageInfo: mocks.fetchStorageInfo,
+  revealStoragePath: mocks.revealStoragePath,
+}));
+
+vi.mock("../../services/clipboard", () => ({
+  writeClipboardText: mocks.writeClipboardText,
 }));
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
@@ -107,6 +119,9 @@ describe("SettingsModal", () => {
     mocks.claimDefaultApp.mockReset().mockResolvedValue(undefined);
     mocks.fetchDefaultAppTypes.mockReset().mockResolvedValue([TEST_CLAIMABLE_TYPE]);
     mocks.fetchCliStatus.mockReset().mockResolvedValue({ installed: false });
+    mocks.fetchStorageInfo.mockReset().mockResolvedValue({ db_path: "/home/user/.writ/writ.db", dir: "/home/user/.writ" });
+    mocks.revealStoragePath.mockReset().mockResolvedValue(undefined);
+    mocks.writeClipboardText.mockReset().mockResolvedValue(undefined);
     clearDefaultAppSupport();
   });
 
@@ -155,12 +170,12 @@ describe("SettingsModal", () => {
     await waitFor(() => expect(container.querySelector("[role='dialog']")).toBeNull());
   });
 
-  it("shows all 6 section nav items", async () => {
+  it("shows all 7 section nav items", async () => {
     const { container } = render(() => <SettingsModal />);
     openSettings();
     await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
     const navItems = container.querySelectorAll(".settings-nav-item");
-    expect(navItems.length).toBe(6);
+    expect(navItems.length).toBe(7);
   });
 
   it("shows Editor section by default", async () => {
@@ -419,6 +434,61 @@ describe("SettingsModal", () => {
       });
 
       vi.useRealTimers();
+    });
+  });
+
+  describe("Storage section", () => {
+    async function openStorageSection(container: Element) {
+      openSettings();
+      await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
+      const navItems = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
+      const storageNav = Array.from(navItems).find((n) => n.textContent?.toLowerCase().includes("storage"));
+      expect(storageNav).toBeTruthy();
+      fireEvent.click(storageNav!);
+      await waitFor(() => expect(container.querySelector("[data-section='storage']")).not.toBeNull());
+    }
+
+    it("shows the database path", async () => {
+      const { container } = render(() => <SettingsModal />);
+      await openStorageSection(container);
+      await waitFor(() => {
+        const path = container.querySelector("[data-storage-path]");
+        expect(path).not.toBeNull();
+        expect(path!.textContent).toContain("/home/user/.writ/writ.db");
+      });
+    });
+
+    it("copies the path on Copy click", async () => {
+      const { container } = render(() => <SettingsModal />);
+      await openStorageSection(container);
+      await waitFor(() =>
+        expect(container.querySelector("[data-storage-path]")!.textContent).toContain("writ.db"),
+      );
+      fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='storage-copy']")!);
+      await waitFor(() =>
+        expect(mocks.writeClipboardText).toHaveBeenCalledWith("/home/user/.writ/writ.db"),
+      );
+    });
+
+    it("reveals the path on Reveal click", async () => {
+      const { container } = render(() => <SettingsModal />);
+      await openStorageSection(container);
+      await waitFor(() =>
+        expect(container.querySelector("[data-action='storage-reveal']")).not.toBeNull(),
+      );
+      fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='storage-reveal']")!);
+      await waitFor(() => expect(mocks.revealStoragePath).toHaveBeenCalledTimes(1));
+    });
+
+    it("surfaces the storage location in search by keyword", async () => {
+      const { container } = render(() => <SettingsModal />);
+      openSettings();
+      await waitFor(() => expect(container.querySelector(".settings-search-input")).not.toBeNull());
+      const input = container.querySelector<HTMLInputElement>(".settings-search-input")!;
+      fireEvent.input(input, { target: { value: "database" } });
+      await waitFor(() => {
+        expect(container.querySelector("[data-setting-id='storage.location']")).not.toBeNull();
+      });
     });
   });
 

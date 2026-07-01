@@ -545,6 +545,21 @@ export async function listInboxFiles(): Promise<InboxFile[]> {
   return invoke("list_inbox_files");
 }
 
+// --- Storage location ---
+
+export interface StorageInfo {
+  db_path: string;
+  dir: string;
+}
+
+export async function getStorageInfo(): Promise<StorageInfo> {
+  return invoke("get_storage_info");
+}
+
+export async function revealStoragePath(): Promise<void> {
+  return invoke("reveal_storage_path");
+}
+
 export async function showAndFocusWindow(): Promise<void> {
   try {
     const win = getCurrentWindow();

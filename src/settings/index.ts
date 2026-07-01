@@ -1,6 +1,7 @@
 export type SettingsSection =
   | "editor"
   | "files"
+  | "storage"
   | "preview"
   | "appearance"
   | "updates"
@@ -19,6 +20,7 @@ export interface SettingEntry {
 export const SECTION_LABELS: Record<SettingsSection, string> = {
   editor: "Editor",
   files: "Files",
+  storage: "Storage",
   preview: "Preview",
   appearance: "Appearance",
   updates: "Updates",
@@ -28,6 +30,7 @@ export const SECTION_LABELS: Record<SettingsSection, string> = {
 export const SECTION_ORDER: SettingsSection[] = [
   "editor",
   "files",
+  "storage",
   "preview",
   "appearance",
   "updates",
@@ -46,6 +49,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "files.default_app.source-code", section: "files", title: "Default app for source code", keywords: ["default", "open with", "file association", "source", "code", "rust", "typescript", "python"] },
   { id: "files.inbox_folder", section: "files", title: "Watched inbox folder", keywords: ["inbox", "watch", "folder", "auto-open"] },
   { id: "files.inbox_focus", section: "files", title: "Focus window on inbox open", keywords: ["inbox", "focus", "window"] },
+  { id: "storage.location", section: "storage", title: "Storage location", keywords: ["storage", "database", "sqlite", "db", "path", "location", "folder", "directory", "reveal", "copy", "backup", "data"] },
   { id: "preview.live_threshold", section: "preview", title: "Live render threshold", keywords: ["preview", "live", "render", "threshold", "size", "mb"] },
   { id: "preview.refuse_threshold", section: "preview", title: "Refuse render threshold", keywords: ["preview", "render", "refuse", "threshold", "limit", "mb"] },
   { id: "preview.run_scripts", section: "preview", title: "Run scripts by default", keywords: ["scripts", "javascript", "preview", "run"] },
