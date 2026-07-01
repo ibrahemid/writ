@@ -40,7 +40,9 @@ function createOsWindowStore() {
     }
     try {
       await configStore.save({ ...configStore.config(), window: next });
-    } catch {}
+    } catch (err) {
+      console.error("[osWindowStore] failed to persist window geometry", err);
+    }
   }
 
   function scheduleGeometryPersist(): void {
