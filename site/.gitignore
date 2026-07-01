@@ -2,7 +2,6 @@
 dist/
 .astro/
 .mockups/
-src/styles/tokens.css
 
 # Dependencies
 node_modules/
