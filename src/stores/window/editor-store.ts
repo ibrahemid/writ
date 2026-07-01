@@ -2,6 +2,16 @@ import { createSignal } from "solid-js";
 import { EditorSelection } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import type { FileOpenMode } from "../../types/buffer";
+import {
+  debouncedSave,
+  cancelAutosave as cancelAutosaveService,
+  flushAutosave as flushAutosaveService,
+  type ContentSource,
+} from "../../services/autosave";
+import {
+  detectLanguage as detectLanguageService,
+  detectFromContent as detectFromContentService,
+} from "../../services/language-detect";
 
 export type TransformFn = (input: string) => Promise<string>;
 
@@ -120,6 +130,28 @@ export function createEditorStore() {
     return { applied: true, usedSelection: useSelection, outputLength: output.length };
   }
 
+  // Autosave and language detection are services; the editor component routes
+  // through these so it only ever talks to its store (layering rule).
+  function scheduleAutosave(bufferId: string, content: ContentSource, delayMs: number) {
+    debouncedSave(bufferId, content, delayMs);
+  }
+
+  function cancelAutosave(bufferId: string) {
+    cancelAutosaveService(bufferId);
+  }
+
+  function flushAutosave(bufferId?: string): Promise<void> {
+    return flushAutosaveService(bufferId);
+  }
+
+  function detectLanguage(content: string, filename?: string): string | null {
+    return detectLanguageService(content, filename);
+  }
+
+  function detectFromContent(content: string): string | null {
+    return detectFromContentService(content);
+  }
+
   return {
     cursorLine, setCursorLine,
     cursorCol, setCursorCol,
@@ -134,5 +166,7 @@ export function createEditorStore() {
     registerView, getView, focusEditor,
     getActiveText,
     applyEditToActiveBuffer,
+    scheduleAutosave, cancelAutosave, flushAutosave,
+    detectLanguage, detectFromContent,
   };
 }

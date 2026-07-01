@@ -14,8 +14,6 @@ import { editorThemeFor, writHighlight } from "./cm-theme";
 import { themeStore } from "../../stores/global/theme";
 import { markdownTypographyPlugin } from "../../editor/markdown-typography";
 import type { BufferDocument, FileOpenMode } from "../../types/buffer";
-import { debouncedSave, cancelAutosave, flushAutosave } from "../../services/autosave";
-import { detectLanguage, detectFromContent } from "../../services/language-detect";
 import { configStore } from "../../stores/global/config";
 import { editorZoom } from "../../stores/global/editor-zoom";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
@@ -105,7 +103,7 @@ export default function EditorInstance(props: Props) {
     if (content.length > CONTENT_DETECT_MAX_LENGTH) return;
     if (!force && content.length - lastDetectLen < CONTENT_DETECT_DELTA) return;
     lastDetectLen = content.length;
-    const detected = detectFromContent(content);
+    const detected = win.editor.detectFromContent(content);
     if (detected) applyDetectedLanguage(detected);
   }
 
@@ -187,13 +185,13 @@ export default function EditorInstance(props: Props) {
             // Autosave gets a lazy getter so its flush reads the live document
             // rather than a value captured keystrokes ago (ADR-020).
             if (!isBinary && !isExternalReload) {
-              debouncedSave(bufferId, () => view?.state.doc.toString() ?? "", autosaveDebounce);
+              win.editor.scheduleAutosave(bufferId, () => view?.state.doc.toString() ?? "", autosaveDebounce);
             }
             scheduleRestrictedContentPublish();
           } else {
             const content = update.state.doc.toString();
             if (!isExternalReload) {
-              debouncedSave(bufferId, content, autosaveDebounce);
+              win.editor.scheduleAutosave(bufferId, content, autosaveDebounce);
             }
             win.editor.setCurrentText(content);
             maybeDetectFromContent(content, false);
@@ -222,7 +220,7 @@ export default function EditorInstance(props: Props) {
   async function saveCurrentContent() {
     if (currentBufferId) {
       try {
-        await flushAutosave(currentBufferId);
+        await win.editor.flushAutosave(currentBufferId);
       } catch {}
     }
   }
@@ -233,7 +231,7 @@ export default function EditorInstance(props: Props) {
     const name = nameForDetection(buffer);
     if (name === appliedNameForLang && view) return;
     appliedNameForLang = name;
-    const lang = detectLanguage(content, name);
+    const lang = win.editor.detectLanguage(content, name);
     win.editor.setLanguage(lang);
     if (view) {
       view.dispatch({
@@ -266,7 +264,7 @@ export default function EditorInstance(props: Props) {
     const name = nameForDetection(buffer);
     let lang: string | null = null;
     if (mode.kind === "Normal") {
-      lang = detectLanguage(content, name);
+      lang = win.editor.detectLanguage(content, name);
       appliedNameForLang = name;
     }
     win.editor.setLanguage(lang);
@@ -421,7 +419,7 @@ export default function EditorInstance(props: Props) {
   onCleanup(() => {
     containerRef.removeEventListener("wheel", onWheelZoom);
     if (currentBufferId) {
-      cancelAutosave(currentBufferId);
+      win.editor.cancelAutosave(currentBufferId);
     }
     clearRestrictedContentPublish();
     win.editor.setLargeFileMode(null);

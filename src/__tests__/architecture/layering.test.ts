@@ -58,23 +58,27 @@ describe("frontend layering", () => {
     ).toEqual([]);
   });
 
-  it("no file under src/components/ imports from src/services/tauri", () => {
+  // Components call stores; stores call services. A component may not import
+  // any services/* module directly. Modules that are a deliberate exception go
+  // in the allowlist (as a path relative to src/services/, without extension).
+  const COMPONENT_SERVICES_ALLOWLIST: string[] = [];
+
+  it("no file under src/components/ imports from src/services/ outside the allowlist", () => {
     const files = walk(COMPONENTS_DIR);
-    const tauriPath = resolve(SRC, "services/tauri");
     const offenders: { file: string; spec: string }[] = [];
     for (const file of files) {
       for (const spec of extractImports(file)) {
         const resolved = resolveSpecifier(file, spec);
         if (!resolved) continue;
-        const normalized = resolved.replace(/\.(ts|tsx)$/, "");
-        if (normalized === tauriPath) {
-          offenders.push({ file: relative(REPO_ROOT, file), spec });
-        }
+        if (resolved !== SERVICES_DIR && !resolved.startsWith(SERVICES_DIR + "/")) continue;
+        const rel = relative(SERVICES_DIR, resolved).replace(/\.(ts|tsx)$/, "");
+        if (COMPONENT_SERVICES_ALLOWLIST.includes(rel)) continue;
+        offenders.push({ file: relative(REPO_ROOT, file), spec });
       }
     }
     expect(
       offenders,
-      `components must go through stores: ${offenders
+      `components must go through stores (allowlist: [${COMPONENT_SERVICES_ALLOWLIST.join(", ")}]): ${offenders
         .map((o) => `${o.file} -> ${o.spec}`)
         .join("; ")}`,
     ).toEqual([]);
