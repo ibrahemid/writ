@@ -461,13 +461,13 @@ pub fn run() {
                 std::thread::sleep(std::time::Duration::from_secs(30));
                 let snapshot_error = {
                     let state = snapshot_handle.state::<AppState>();
-                    state.store.lock().ok().and_then(|store| {
-                        store.collect_buffer_contents().ok().and_then(|contents| {
-                            store.write_session_snapshot(&contents, false).err()
-                        })
+                    state.store.lock().ok().map(|store| {
+                        store
+                            .collect_buffer_contents()
+                            .and_then(|contents| store.write_session_snapshot(&contents, false))
                     })
                 };
-                if let Some(e) = snapshot_error {
+                if let Some(Err(e)) = snapshot_error {
                     tracing::warn!(error = %e, "periodic snapshot failed");
                 }
             });
