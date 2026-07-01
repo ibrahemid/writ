@@ -26,6 +26,7 @@ use tauri::{Manager, Runtime, UriSchemeContext};
 
 use super::csp::{build_chrome_csp, build_document_csp};
 use super::protocol::{parse, record, Disposition, PreviewScope, RefusalReason, RequestRecord};
+use crate::poison::recover_poison;
 use crate::state::AppState;
 
 /// A document rendered and ready to serve.
@@ -52,27 +53,19 @@ impl RenderCache {
 
     /// Store (or replace) the rendered document for `buffer_id`.
     pub fn put(&self, buffer_id: impl Into<String>, doc: RenderedDoc) {
-        self.docs
-            .lock()
-            .expect("render cache mutex poisoned")
-            .insert(buffer_id.into(), doc);
+        recover_poison(self.docs.lock(), "preview::render_cache::put").insert(buffer_id.into(), doc);
     }
 
     /// Fetch the rendered document for `buffer_id`.
     pub fn get(&self, buffer_id: &str) -> Option<RenderedDoc> {
-        self.docs
-            .lock()
-            .expect("render cache mutex poisoned")
+        recover_poison(self.docs.lock(), "preview::render_cache::get")
             .get(buffer_id)
             .cloned()
     }
 
     /// Drop the cached document for `buffer_id` (on preview close).
     pub fn evict(&self, buffer_id: &str) {
-        self.docs
-            .lock()
-            .expect("render cache mutex poisoned")
-            .remove(buffer_id);
+        recover_poison(self.docs.lock(), "preview::render_cache::evict").remove(buffer_id);
     }
 }
 
