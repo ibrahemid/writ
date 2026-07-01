@@ -22,6 +22,9 @@ import { installFocusTrap } from "../../lib/focus-trap";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showToast } from "../Notifications/Toast";
 import { fetchCliStatus, installCli } from "../../stores/global/cli";
+import { fetchStorageInfo, revealStoragePath } from "../../stores/global/storage";
+import type { StorageInfo } from "../../stores/global/storage";
+import { writeClipboardText } from "../../services/clipboard";
 import type { DefaultLayout } from "../../types/config";
 import {
   fetchDefaultAppTypes,
@@ -452,6 +455,64 @@ function FilesSection() {
   );
 }
 
+function StorageSection() {
+  const [info, setInfo] = createSignal<StorageInfo | null>(null);
+
+  onMount(() => {
+    void fetchStorageInfo()
+      .then(setInfo)
+      .catch(() => setInfo(null));
+  });
+
+  async function onReveal() {
+    try {
+      await revealStoragePath();
+    } catch {
+      showToast("Could not open the file manager", "error");
+    }
+  }
+
+  async function onCopy() {
+    const path = info()?.db_path;
+    if (!path) return;
+    try {
+      await writeClipboardText(path);
+      showToast("Path copied", "success");
+    } catch {
+      showToast("Could not copy the path", "error");
+    }
+  }
+
+  return (
+    <div data-section="storage">
+      <SectionLabel section="storage" />
+      <SettingsRow id="storage.location" label="Storage location">
+        <span class="settings-inbox-controls">
+          <span class="settings-inbox-path" data-storage-path title={info()?.db_path ?? ""}>
+            {info()?.db_path ?? "…"}
+          </span>
+          <button
+            type="button"
+            class="settings-action-btn"
+            data-action="storage-reveal"
+            onClick={() => void onReveal()}
+          >
+            Reveal
+          </button>
+          <button
+            type="button"
+            class="settings-action-btn"
+            data-action="storage-copy"
+            onClick={() => void onCopy()}
+          >
+            Copy
+          </button>
+        </span>
+      </SettingsRow>
+    </div>
+  );
+}
+
 function PreviewSection() {
   const cfg = () => configStore.config().preview;
 
@@ -660,6 +721,7 @@ function AllSections() {
     <>
       <EditorSection />
       <FilesSection />
+      <StorageSection />
       <PreviewSection />
       <AppearanceSection />
       <UpdatesSection />
@@ -820,6 +882,7 @@ export default function SettingsModal() {
                     <Switch>
                       <Match when={activeSection() === "editor"}><EditorSection /></Match>
                       <Match when={activeSection() === "files"}><FilesSection /></Match>
+                      <Match when={activeSection() === "storage"}><StorageSection /></Match>
                       <Match when={activeSection() === "preview"}><PreviewSection /></Match>
                       <Match when={activeSection() === "appearance"}><AppearanceSection /></Match>
                       <Match when={activeSection() === "updates"}><UpdatesSection /></Match>
