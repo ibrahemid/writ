@@ -9,11 +9,23 @@
 //! stays free of the `writ_core::preview::LayoutMode` enum shape. The
 //! `src-tauri` adapter maps the enum to and from these strings.
 
-use std::sync::Mutex;
+use std::sync::{LockResult, Mutex, MutexGuard};
 
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::errors::StorageResult;
+
+/// Recover a poisoned connection guard rather than cascading the panic,
+/// logging so the condition stays visible in reports.
+///
+/// Mirrors the app-side `recover_poison`, kept local so `writ-storage` stays
+/// free of the `src-tauri` dependency (crate-boundary rule).
+fn recover_conn(result: LockResult<MutexGuard<'_, Connection>>) -> MutexGuard<'_, Connection> {
+    result.unwrap_or_else(|poisoned| {
+        tracing::error!(location = "layout_state", "recovered poisoned mutex");
+        poisoned.into_inner()
+    })
+}
 
 /// A persisted layout-state row.
 #[derive(Debug, Clone, PartialEq)]
@@ -43,7 +55,7 @@ impl LayoutStateStore {
 
     /// Fetch the persisted layout for `path`, if any.
     pub fn get(&self, path: &str) -> StorageResult<Option<LayoutStateRecord>> {
-        let conn = self.conn.lock().expect("layout_state mutex poisoned");
+        let conn = recover_conn(self.conn.lock());
         let row = conn
             .query_row(
                 "SELECT path, layout_mode, split_ratio, last_view_mode
@@ -64,7 +76,7 @@ impl LayoutStateStore {
 
     /// Upsert the layout for `path`.
     pub fn set(&self, record: &LayoutStateRecord) -> StorageResult<()> {
-        let conn = self.conn.lock().expect("layout_state mutex poisoned");
+        let conn = recover_conn(self.conn.lock());
         conn.execute(
             "INSERT INTO layout_state (path, layout_mode, split_ratio, last_view_mode, updated_at)
              VALUES (?1, ?2, ?3, ?4, datetime('now'))
@@ -85,7 +97,7 @@ impl LayoutStateStore {
 
     /// Remove the persisted layout for `path` (e.g. on buffer delete).
     pub fn remove(&self, path: &str) -> StorageResult<()> {
-        let conn = self.conn.lock().expect("layout_state mutex poisoned");
+        let conn = recover_conn(self.conn.lock());
         conn.execute("DELETE FROM layout_state WHERE path = ?1", [path])?;
         Ok(())
     }
