@@ -6,13 +6,20 @@ const isPublished = release.published === true && release.publishedAt !== '';
 const releaseDate = isPublished ? release.publishedAt : 'unreleased';
 
 const notes = [
+  { kind: 'added', text: 'split-pane live preview renders Markdown, HTML, Mermaid diagrams, and KaTeX math from bundled offline runtimes, with source and preview scroll in sync and find inside the preview.' },
   { kind: 'added', text: 'global hotkey brings the window up over anything: Cmd+Shift+Space on macOS, Ctrl+Shift+Space on Linux and Windows.' },
-  { kind: 'added', text: 'tabs across buffers, with reopen-closed recovery from history.' },
-  { kind: 'added', text: 'autosave on every keystroke, no manual save; buffers persist across restarts.' },
-  { kind: 'added', text: 'full-text search across every buffer, backed by SQLite FTS5.' },
+  { kind: 'added', text: 'tabbed CodeMirror 6 editor with language detection by extension and file content, live Markdown typography, and reopen-closed recovery.' },
+  { kind: 'added', text: 'find and replace overlay with a live match count.' },
+  { kind: 'added', text: 'full-text search across every buffer, with a results panel showing snippets and line numbers, backed by SQLite FTS5.' },
   { kind: 'added', text: 'command palette on double-tap Shift.' },
-  { kind: 'added', text: 'CodeMirror 6 editor with language detection by extension and file content.' },
-  { kind: 'added', text: 'TOML configuration with hot reload.' },
+  { kind: 'added', text: 'settings window on Cmd+, with searchable settings and configurable shortcuts.' },
+  { kind: 'added', text: 'editor and preview font zoom.' },
+  { kind: 'added', text: 'status bar with language, encoding, and cursor position.' },
+  { kind: 'added', text: 'prompt fill modal with placeholder variables, a live token estimate, and copy as prompt.' },
+  { kind: 'added', text: 'text transforms: Tidy Whitespace and composable trailing-trim, final-newline, and punctuation-spacing passes.' },
+  { kind: 'added', text: 'open a folder as a workspace with a sidebar file tree; a watched folder lists new files and opens them as they arrive.' },
+  { kind: 'added', text: 'writ command-line tool for opening files from the terminal; set Writ as the default app for .md and .html on macOS.' },
+  { kind: 'added', text: 'app-wide light and dark themes, autosave with crash recovery, and self-update with signed manifests.' },
   { kind: 'added', text: 'builds for macOS, Windows, and Linux: .dmg, .msi, .deb, and AppImage.' },
 ];
 
