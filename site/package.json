@@ -5,9 +5,9 @@
   "private": true,
   "description": "Landing page for Writ",
   "scripts": {
-    "dev": "node scripts/build-wasm.mjs && node scripts/emit-tokens.mjs && astro dev",
+    "dev": "astro dev",
     "start": "astro dev",
-    "build": "node scripts/build-wasm.mjs && node scripts/emit-tokens.mjs && astro build",
+    "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
     "check": "astro check"
