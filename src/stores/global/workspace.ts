@@ -2,15 +2,11 @@
 import { createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import * as tauri from "../../services/tauri";
+import { dirname } from "../../lib/path";
 import type { WorkspaceEntry } from "../../types/workspace";
 
 const [root, setRoot] = createSignal<string | null>(null);
 const [dirs, setDirs] = createStore<Record<string, WorkspaceEntry[] | undefined>>({});
-
-function parentOf(path: string): string {
-  const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  return cut > 0 ? path.slice(0, cut) : path;
-}
 
 async function hydrate(): Promise<void> {
   const current = await tauri.getWorkspaceRoot();
@@ -53,7 +49,7 @@ function handleChanged(path: string, removed: boolean): void {
     setDirs(path, undefined);
   }
 
-  const parent = path === currentRoot ? currentRoot : parentOf(path);
+  const parent = path === currentRoot ? currentRoot : dirname(path);
   if (dirs[parent] !== undefined) {
     void loadDir(parent);
   }

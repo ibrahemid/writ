@@ -1,7 +1,7 @@
 import { For, Show, createMemo } from "solid-js";
-import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { rendererRegistry } from "../../stores/global/renderer-registry";
 import { useWindow } from "../WindowProvider/WindowProvider";
+import { useActiveBuffer } from "../../lib/use-active-buffer";
 import { contentTypeForBuffer } from "../../lib/content-type";
 import { defaultSplit, type LayoutKind, type LayoutMode } from "../../lib/preview-layout";
 import "./preview-layout-toggle.css";
@@ -50,12 +50,7 @@ function SegmentIcon(props: { kind: LayoutKind }) {
 
 export default function PreviewLayoutToggle() {
   const win = useWindow();
-
-  const activeBuffer = createMemo(() => {
-    const id = win.tabs.activeTabId();
-    if (!id) return null;
-    return bufferRegistry.activeTabs().find((b) => b.id === id) ?? null;
-  });
+  const activeBuffer = useActiveBuffer();
 
   const renderable = createMemo(() => {
     const buf = activeBuffer();
