@@ -21,8 +21,9 @@ import Site from "../layouts/Site.astro";
 
         <h2>What the app does on the network</h2>
         <p>
-          By default the desktop app makes one outbound request: at launch, it asks GitHub whether a newer release exists.
-          That request sends only your platform and the current Writ version. You can disable it in Settings;
+          By default the desktop app makes one outbound request: at launch, it fetches a static release manifest from GitHub.
+          The request carries nothing about you beyond what any HTTP request carries; Writ downloads the manifest and
+          compares your platform and version on your machine. You can disable it in Settings;
           when disabled, Writ makes zero network requests for the rest of the session.
         </p>
         <p>
