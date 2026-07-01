@@ -1,8 +1,8 @@
 import { Show, createMemo } from "solid-js";
-import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { rendererRegistry } from "../../stores/global/renderer-registry";
 import { configStore } from "../../stores/global/config";
 import { useWindow } from "../WindowProvider/WindowProvider";
+import { useActiveBuffer } from "../../lib/use-active-buffer";
 import { contentTypeForBuffer } from "../../lib/content-type";
 import { toggleRunScripts } from "../../lib/preview-actions";
 import { showToast } from "../Notifications/Toast";
@@ -15,12 +15,7 @@ import "./preview-layout-toggle.css";
 
 export default function PreviewScriptsToggle() {
   const win = useWindow();
-
-  const activeBuffer = createMemo(() => {
-    const id = win.tabs.activeTabId();
-    if (!id) return null;
-    return bufferRegistry.activeTabs().find((b) => b.id === id) ?? null;
-  });
+  const activeBuffer = useActiveBuffer();
 
   const visible = createMemo(() => {
     const buf = activeBuffer();

@@ -18,6 +18,7 @@ function isSettingResult(cmd: Command): boolean {
   return cmd.id.startsWith(SETTING_RESULT_PREFIX);
 }
 
+// Singleton state — Writ is single-window
 const [isOpen, setIsOpen] = createSignal(false);
 
 export function openCommandPalette() { setIsOpen(true); }

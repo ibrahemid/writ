@@ -14,6 +14,7 @@ import { showToast } from "../Notifications/Toast";
 import type { Command } from "../../types/commands";
 import "./ShortcutEditor.css";
 
+// Singleton state — Writ is single-window
 const [isOpen, setIsOpen] = createSignal(false);
 let openSnapshot: Record<string, string> | null = null;
 

@@ -2,12 +2,8 @@ import { For, Show } from "solid-js";
 import { inboxStore } from "../../stores/global/inbox";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { formatBytes } from "../../lib/format-bytes";
+import { basename } from "../../lib/path";
 import "./InboxSection.css";
-
-function folderName(root: string): string {
-  const cut = Math.max(root.lastIndexOf("/"), root.lastIndexOf("\\"));
-  return cut >= 0 ? root.slice(cut + 1) || root : root;
-}
 
 export default function InboxSection() {
   const win = useWindow();
@@ -18,7 +14,7 @@ export default function InboxSection() {
         <div class="sidebar-section inbox-section">
           <div class="inbox-section-head">
             <div class="sidebar-section-title" title={root()}>
-              Inbox · {folderName(root())}
+              Inbox · {basename(root())}
             </div>
             <button
               type="button"
