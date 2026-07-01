@@ -76,7 +76,10 @@ pub fn reveal_storage_path(state: State<'_, AppState>) -> Result<(), String> {
         .args(&args)
         .spawn()
         .map(|_| ())
-        .map_err(|_| "Could not open the file manager.".to_string())
+        .map_err(|e| {
+            tracing::warn!(error = %e, program, "reveal in file manager failed");
+            "Could not open the file manager.".to_string()
+        })
 }
 
 #[cfg(test)]
