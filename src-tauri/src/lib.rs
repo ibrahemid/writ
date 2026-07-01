@@ -291,6 +291,8 @@ pub fn run() {
             commands::inbox::clear_inbox,
             commands::inbox::get_inbox_path,
             commands::inbox::list_inbox_files,
+            commands::storage::get_storage_info,
+            commands::storage::reveal_storage_path,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
