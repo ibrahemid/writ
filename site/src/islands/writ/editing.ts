@@ -23,21 +23,23 @@ function lineBounds(text: string, pos: number): { start: number; end: number } {
 // Enter inside a list/quote line: continue the marker, or terminate an empty item.
 // Returns null to let the caller insert a plain newline.
 export function continueListOnEnter(text: string, pos: number): ContinueResult | null {
-  const { start } = lineBounds(text, pos);
-  const line = text.slice(start, pos);
+  const { start, end } = lineBounds(text, pos);
+  // Emptiness and the marker are judged on the whole item (marker to line end), so
+  // Enter mid-content splits the item while an empty item terminates the list.
+  const line = text.slice(start, end);
 
   const task = line.match(TASK);
   if (task) {
     const indent = task[1] ?? '';
     const glyph = task[2] ?? '-';
-    if ((task[4] ?? '').trim() === '') return terminate(text, start, pos);
+    if ((task[4] ?? '').trim() === '') return terminate(text, start, end);
     return continueWith(text, pos, `${indent}${glyph} [ ] `);
   }
 
   const ordered = line.match(ORDERED);
   if (ordered) {
     const indent = ordered[1] ?? '';
-    if ((ordered[4] ?? '').trim() === '') return terminate(text, start, pos);
+    if ((ordered[4] ?? '').trim() === '') return terminate(text, start, end);
     const next = Number(ordered[2] ?? '0') + 1;
     return continueOrdered(text, pos, `${indent}${next}. `, indent, next);
   }
@@ -46,14 +48,14 @@ export function continueListOnEnter(text: string, pos: number): ContinueResult |
   if (bullet) {
     const indent = bullet[1] ?? '';
     const glyph = bullet[2] ?? '-';
-    if ((bullet[3] ?? '').trim() === '') return terminate(text, start, pos);
+    if ((bullet[3] ?? '').trim() === '') return terminate(text, start, end);
     return continueWith(text, pos, `${indent}${glyph} `);
   }
 
   const quote = line.match(QUOTE);
   if (quote) {
     const indent = quote[1] ?? '';
-    if ((quote[2] ?? '').trim() === '') return terminate(text, start, pos);
+    if ((quote[2] ?? '').trim() === '') return terminate(text, start, end);
     return continueWith(text, pos, `${indent}> `);
   }
 
@@ -88,8 +90,8 @@ function continueOrdered(
 }
 
 // Remove the marker on an empty item, leaving a bare line where the caret was.
-function terminate(text: string, start: number, pos: number): ContinueResult {
-  const nextText = text.slice(0, start) + text.slice(pos);
+function terminate(text: string, start: number, end: number): ContinueResult {
+  const nextText = text.slice(0, start) + text.slice(end);
   return { nextText, nextPos: start };
 }
 

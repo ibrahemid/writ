@@ -82,6 +82,37 @@ describe('continueListOnEnter', () => {
     const r = continueListOnEnter(text, 5)!; // between "one" and "two"
     expect(r.nextText).toBe('- one\n- two');
   });
+
+  it('splits a bullet when the caret sits directly after the marker', () => {
+    const text = '- two';
+    const r = continueListOnEnter(text, 2)!; // caret right after "- "
+    expect(r.nextText).toBe('- \n- two');
+    expect(r.nextPos).toBe('- \n- '.length);
+  });
+
+  it('splits a task when the caret sits directly after the marker', () => {
+    const text = '- [ ] task';
+    const r = continueListOnEnter(text, 6)!; // caret right after "- [ ] "
+    expect(r.nextText).toBe('- [ ] \n- [ ] task');
+  });
+
+  it('splits a checked task mid-content and resets the new box', () => {
+    const text = '- [x] done';
+    const r = continueListOnEnter(text, 8)!; // between "do" and "ne"
+    expect(r.nextText).toBe('- [x] do\n- [ ] ne');
+  });
+
+  it('splits an ordered item when the caret sits directly after the marker', () => {
+    const text = '1. item';
+    const r = continueListOnEnter(text, 3)!; // caret right after "1. "
+    expect(r.nextText).toBe('1. \n2. item');
+  });
+
+  it('splits a quote when the caret sits directly after the marker', () => {
+    const text = '> quote';
+    const r = continueListOnEnter(text, 2)!; // caret right after "> "
+    expect(r.nextText).toBe('> \n> quote');
+  });
 });
 
 describe('wrapSelection', () => {
