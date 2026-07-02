@@ -7,6 +7,7 @@ import {
   buildMarkdownDecorations,
   markdownTypographyPlugin,
   toggleTaskAt,
+  handleTaskMousedown,
   type DecorationSpec,
 } from "../../editor/markdown-typography";
 
@@ -360,6 +361,18 @@ describe("toggleTaskAt", () => {
     const view = viewFor("plain text\n");
     expect(toggleTaskAt(view, 2)).toBe(false);
     expect(view.state.doc.toString()).toBe("plain text\n");
+    view.destroy();
+  });
+
+  it("ignores non-primary mouse buttons", () => {
+    const view = viewFor("- [ ] open\n");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.className = "cm-md-task-checkbox";
+    const event = new MouseEvent("mousedown", { button: 2 });
+    Object.defineProperty(event, "target", { value: box });
+    expect(handleTaskMousedown(event, view)).toBe(false);
+    expect(view.state.doc.toString()).toBe("- [ ] open\n");
     view.destroy();
   });
 });

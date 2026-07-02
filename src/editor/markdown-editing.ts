@@ -18,6 +18,7 @@ export const markdownEditingKeymap: readonly KeyBinding[] = [
 ];
 
 const markerWrapOnType = EditorView.inputHandler.of((view, _from, _to, text) => {
+  if (view.composing) return false;
   const spec = wrapOnType(view.state, text);
   if (!spec) return false;
   view.dispatch(spec);

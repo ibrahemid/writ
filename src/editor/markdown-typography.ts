@@ -93,6 +93,8 @@ class HorizontalRuleWidget extends WidgetType {
 
 const bulletReplace = Decoration.replace({ widget: new BulletWidget() });
 const hrReplace = Decoration.replace({ widget: new HorizontalRuleWidget() });
+const taskCheckedReplace = Decoration.replace({ widget: new TaskCheckboxWidget(true) });
+const taskUncheckedReplace = Decoration.replace({ widget: new TaskCheckboxWidget(false) });
 
 // The marker prefix of a task-list line: indentation, a bullet or ordered
 // marker, whitespace, then the checkbox brackets.
@@ -257,7 +259,7 @@ export function buildMarkdownDecorations(
       const active = isActiveLine(from);
       if (active !== false) return;
       const checked = /[xX]/.test(docSlice(from, to));
-      addReplace(from, to, Decoration.replace({ widget: new TaskCheckboxWidget(checked) }));
+      addReplace(from, to, checked ? taskCheckedReplace : taskUncheckedReplace);
       return;
     }
 
@@ -402,20 +404,27 @@ export function toggleTaskAt(view: EditorView, pos: number): boolean {
   return true;
 }
 
+/**
+ * Handles a mousedown on a rendered task checkbox. Exported for tests; wired
+ * through EditorView.domEventHandlers below.
+ */
+export function handleTaskMousedown(event: MouseEvent, view: EditorView): boolean {
+  if (event.button !== 0) return false;
+  const target = event.target;
+  if (
+    !(target instanceof HTMLInputElement) ||
+    !target.classList.contains("cm-md-task-checkbox")
+  ) {
+    return false;
+  }
+  // Keep the selection where it is: moving the cursor onto the line would
+  // make it active and dissolve the widget under the pointer.
+  event.preventDefault();
+  return toggleTaskAt(view, view.posAtDOM(target));
+}
+
 const taskClickHandler = EditorView.domEventHandlers({
-  mousedown: (event, view) => {
-    const target = event.target;
-    if (
-      !(target instanceof HTMLInputElement) ||
-      !target.classList.contains("cm-md-task-checkbox")
-    ) {
-      return false;
-    }
-    // Keep the selection where it is: moving the cursor onto the line would
-    // make it active and dissolve the widget under the pointer.
-    event.preventDefault();
-    return toggleTaskAt(view, view.posAtDOM(target));
-  },
+  mousedown: handleTaskMousedown,
 });
 
 export const markdownTypographyPlugin: Extension = [

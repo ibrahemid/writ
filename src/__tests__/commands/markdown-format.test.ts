@@ -67,6 +67,19 @@ describe("toggleBold", () => {
     expect(next.doc.toString()).toBe("hello world");
   });
 
+  it("unwraps once when two cursors sit in the same strong span", () => {
+    const state = EditorState.create({
+      doc: "**hello** world",
+      selection: EditorSelection.create(
+        [EditorSelection.cursor(3), EditorSelection.cursor(5)],
+        0,
+      ),
+      extensions: [EditorState.allowMultipleSelections.of(true), markdown({ base: markdownLanguage })],
+    });
+    const next = apply(state, toggleBold);
+    expect(next.doc.toString()).toBe("hello world");
+  });
+
   it("does not strip markers from a selection spanning two bold spans", () => {
     const next = apply(stateWith("**a** **b**", 0, 11), toggleBold);
     expect(next.doc.toString()).toBe("****a** **b****");
