@@ -13,13 +13,22 @@ import { search, highlightSelectionMatches } from "@codemirror/search";
 import { editorThemeFor, writHighlight } from "./cm-theme";
 import { themeStore } from "../../stores/global/theme";
 import { markdownTypographyPlugin } from "../../editor/markdown-typography";
+import { markdownEditingExtension } from "../../editor/markdown-editing";
+import {
+  toggleBold,
+  toggleItalic,
+  toggleStrikethrough,
+  toggleInlineCode,
+  insertLink,
+} from "../../commands/markdown-format";
 import type { BufferDocument, FileOpenMode } from "../../types/buffer";
 import { configStore } from "../../stores/global/config";
 import { editorZoom } from "../../stores/global/editor-zoom";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { findStore } from "../../stores/global/find-store";
 import { useWindow } from "../WindowProvider/WindowProvider";
-import { registerCommand } from "../../commands/registry";
+import { registerCommand, unregisterCommand } from "../../commands/registry";
+import { rebuildKeyMap } from "../../commands/keybindings";
 import { getExtension as languageExtension } from "../../editor/language-registry";
 import { registerBuiltinLanguages } from "../../editor/builtins";
 import { editorModeForContent } from "../../editor/large-file";
@@ -67,12 +76,21 @@ export default function EditorInstance(props: Props) {
   const languageCompartment = new Compartment();
   const themeCompartment = new Compartment();
   const typographyCompartment = new Compartment();
+  const editingCompartment = new Compartment();
   const readOnlyCompartment = new Compartment();
 
   function typographyExtension(lang: string | null, mode: FileOpenMode): Extension {
     if (mode.kind !== "Normal") return [];
     if (lang === "markdown" && configStore.config().editor.markdown_typography) {
       return markdownTypographyPlugin;
+    }
+    return [];
+  }
+
+  function editingExtension(lang: string | null, mode: FileOpenMode): Extension {
+    if (mode.kind !== "Normal") return [];
+    if (lang === "markdown" && configStore.config().editor.markdown_editing) {
+      return markdownEditingExtension;
     }
     return [];
   }
@@ -85,6 +103,7 @@ export default function EditorInstance(props: Props) {
       effects: [
         languageCompartment.reconfigure(mode.kind === "Normal" ? languageExtension(lang) : []),
         typographyCompartment.reconfigure(typographyExtension(lang, mode)),
+        editingCompartment.reconfigure(editingExtension(lang, mode)),
       ],
     });
   }
@@ -135,6 +154,7 @@ export default function EditorInstance(props: Props) {
     return [
       languageCompartment.of(isRestricted ? [] : initialLang),
       typographyCompartment.of(isRestricted ? [] : typographyExtension(langId, mode)),
+      editingCompartment.of(isRestricted ? [] : editingExtension(langId, mode)),
       readOnlyCompartment.of(
         isBinary
           ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
@@ -233,6 +253,7 @@ export default function EditorInstance(props: Props) {
         effects: [
           languageCompartment.reconfigure(languageExtension(lang)),
           typographyCompartment.reconfigure(typographyExtension(lang, mode)),
+          editingCompartment.reconfigure(editingExtension(lang, mode)),
         ],
       });
     }
@@ -403,22 +424,65 @@ export default function EditorInstance(props: Props) {
     { defer: true },
   ));
 
-  // Reapply the typography compartment whenever the config flag or detected
-  // language changes at runtime, so the open buffer responds instantly.
+  // Reapply the typography and editing compartments whenever the config flags
+  // or detected language change at runtime, so the open buffer responds
+  // instantly.
   createEffect(() => {
-    const isEnabled = configStore.config().editor.markdown_typography;
+    const typographyEnabled = configStore.config().editor.markdown_typography;
+    const editingEnabled = configStore.config().editor.markdown_editing;
     const lang = win.editor.language();
     const mode = win.editor.largeFileMode();
     if (mode && mode.kind !== "Normal") return;
     view?.dispatch({
-      effects: typographyCompartment.reconfigure(
-        lang === "markdown" && isEnabled ? markdownTypographyPlugin : [],
-      ),
+      effects: [
+        typographyCompartment.reconfigure(
+          lang === "markdown" && typographyEnabled ? markdownTypographyPlugin : [],
+        ),
+        editingCompartment.reconfigure(
+          lang === "markdown" && editingEnabled ? markdownEditingExtension : [],
+        ),
+      ],
     });
+  });
+
+  // The formatting commands exist in the palette and key map only while a
+  // markdown buffer is active with editing helpers enabled, so Cmd+B in a
+  // rust file stays a plain keystroke and the palette never offers a no-op.
+  const formatCommands = [
+    { id: "editor.toggleBold", label: "Toggle Bold", keybinding: "CmdOrCtrl+B", run: toggleBold },
+    { id: "editor.toggleItalic", label: "Toggle Italic", keybinding: "CmdOrCtrl+I", run: toggleItalic },
+    { id: "editor.toggleStrikethrough", label: "Toggle Strikethrough", keybinding: "CmdOrCtrl+Shift+X", run: toggleStrikethrough },
+    { id: "editor.toggleInlineCode", label: "Toggle Inline Code", keybinding: "CmdOrCtrl+E", run: toggleInlineCode },
+    { id: "editor.insertLink", label: "Insert Link", keybinding: "CmdOrCtrl+K", run: insertLink },
+  ] as const;
+
+  createEffect(() => {
+    const active =
+      win.editor.language() === "markdown" &&
+      configStore.config().editor.markdown_editing &&
+      !(win.editor.largeFileMode() && win.editor.largeFileMode()!.kind !== "Normal");
+    if (active) {
+      for (const cmd of formatCommands) {
+        registerCommand({
+          id: cmd.id,
+          label: cmd.label,
+          keybinding: cmd.keybinding,
+          scope: "editor",
+          execute: () => {
+            if (view) cmd.run(view);
+          },
+        });
+      }
+    } else {
+      for (const cmd of formatCommands) unregisterCommand(cmd.id);
+    }
+    rebuildKeyMap();
   });
 
   onCleanup(() => {
     containerRef.removeEventListener("wheel", onWheelZoom);
+    for (const cmd of formatCommands) unregisterCommand(cmd.id);
+    rebuildKeyMap();
     if (currentBufferId) {
       win.editor.cancelAutosave(currentBufferId);
     }

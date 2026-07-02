@@ -19,7 +19,7 @@ export function clampEditorFontSize(size: number): number {
 const DEFAULT_CONFIG: WritConfig = {
   hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
   sidebar: { toggle: "CmdOrCtrl+S", default_visible: false, position: "left", open: false },
-  editor: { font_family: "monospace", font_size: EDITOR_FONT_DEFAULT, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true },
+  editor: { font_family: "monospace", font_size: EDITOR_FONT_DEFAULT, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true },
   window: { width: 1100, height: 720 },
   keybindings: {},
   history: { max_entries: 500 },
