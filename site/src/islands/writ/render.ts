@@ -38,6 +38,7 @@ export function renderInline(text: string): string {
   );
   t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   t = t.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+  t = t.replace(/~~([^~]+)~~/g, '<del>$1</del>');
   t = t.replace(
     new RegExp(PH_OPEN + '(\\d+)' + PH_CLOSE, 'g'),
     (_m, i: string) => store[+i] ?? '',
@@ -50,6 +51,7 @@ export function mdToHtml(src: string): string {
   const at = (k: number): string => lines[k] ?? '';
   const out: string[] = [];
   let i = 0;
+  let taskIndex = 0;
   while (i < lines.length) {
     const line = at(i);
 
@@ -136,15 +138,22 @@ export function mdToHtml(src: string): string {
         const task = item.match(/^\[([ xX])\]\s+(.*)$/);
         if (task) {
           const checked = (task[1] ?? '').toLowerCase() === 'x';
+          // data-task carries the source-order index (a number we control, never
+          // user text); the click delegate flips the matching line in the buffer.
           items.push(
-            '<li class="task"><span class="ck ' +
-              (checked ? 'on' : '') +
+            '<li class="task"><button type="button" class="ck' +
+              (checked ? ' on' : '') +
+              '" data-task="' +
+              taskIndex +
+              '" role="checkbox" aria-checked="' +
+              (checked ? 'true' : 'false') +
               '">' +
               (checked ? '✓' : '') +
-              '</span><span>' +
+              '</button><span>' +
               renderInline(task[2] ?? '') +
               '</span></li>',
           );
+          taskIndex += 1;
         } else {
           items.push('<li>' + renderInline(item) + '</li>');
         }
