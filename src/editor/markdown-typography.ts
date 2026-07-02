@@ -4,6 +4,7 @@ import {
   ViewPlugin,
   ViewUpdate,
   Decoration,
+  WidgetType,
   type DecorationSet,
   type PluginValue,
 } from "@codemirror/view";
@@ -21,6 +22,7 @@ interface SyntaxNodeRef {
 interface SyntaxNodeFull extends SyntaxNodeRef {
   readonly firstChild: SyntaxNodeFull | null;
   readonly nextSibling: SyntaxNodeFull | null;
+  readonly parent: SyntaxNodeFull | null;
 }
 
 // ─── Decoration factories ──────────────────────────────────────────────────
@@ -45,6 +47,60 @@ const markerReplace  = Decoration.replace({});
 const urlDimMark     = Decoration.mark({ class: "cm-md-url-dim" });
 const linkTextMark   = Decoration.mark({ class: "cm-md-link-text" });
 const blockquoteMark = Decoration.mark({ class: "cm-md-blockquote" });
+const listNumMark    = Decoration.mark({ class: "cm-md-list-num" });
+
+// ─── Widgets ───────────────────────────────────────────────────────────────
+
+class TaskCheckboxWidget extends WidgetType {
+  constructor(readonly checked: boolean) {
+    super();
+  }
+
+  override eq(other: TaskCheckboxWidget): boolean {
+    return other.checked === this.checked;
+  }
+
+  toDOM(): HTMLElement {
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.className = "cm-md-task-checkbox";
+    box.checked = this.checked;
+    box.setAttribute("aria-label", this.checked ? "Completed task" : "Open task");
+    return box;
+  }
+
+  override ignoreEvent(): boolean {
+    return false;
+  }
+}
+
+class BulletWidget extends WidgetType {
+  toDOM(): HTMLElement {
+    const dot = document.createElement("span");
+    dot.className = "cm-md-bullet";
+    dot.textContent = "•";
+    return dot;
+  }
+}
+
+class HorizontalRuleWidget extends WidgetType {
+  toDOM(): HTMLElement {
+    const rule = document.createElement("span");
+    rule.className = "cm-md-hr";
+    return rule;
+  }
+}
+
+const bulletReplace = Decoration.replace({ widget: new BulletWidget() });
+const hrReplace = Decoration.replace({ widget: new HorizontalRuleWidget() });
+const taskCheckedReplace = Decoration.replace({ widget: new TaskCheckboxWidget(true) });
+const taskUncheckedReplace = Decoration.replace({ widget: new TaskCheckboxWidget(false) });
+
+// The marker prefix of a task-list line: indentation, a bullet or ordered
+// marker, whitespace, then the checkbox brackets.
+const TASK_LINE_PREFIX = /^(\s*(?:[-+*]|\d+[.)])\s+\[)([ xX])\]/;
+// The remainder of a list line that makes its marker a task item's marker.
+const TASK_AFTER_MARK = /^\s+\[[ xX]\]/;
 
 // Syntax marker node names — characters like '#', '**', '_', '`', '>', '[', ']',
 // '(', ')' that we dim/replace on inactive lines.
@@ -74,6 +130,7 @@ export interface DecorationSpec {
  *
  * @param iterateTree  Calls the callback for each node in [from, to).
  * @param docLineAt    Returns the line at a document position.
+ * @param docSlice     Returns the document text in [from, to).
  * @param cursorPositions  Set of cursor head positions; markers on lines
  *                         containing any cursor are revealed (not replaced).
  * @param visibleFrom  Start of the visible range.
@@ -82,6 +139,7 @@ export interface DecorationSpec {
 export function buildMarkdownDecorations(
   iterateTree: (from: number, to: number, cb: (node: SyntaxNodeRef) => boolean | void) => void,
   docLineAt: (pos: number) => { from: number; to: number; number: number },
+  docSlice: (from: number, to: number) => string,
   cursorPositions: ReadonlySet<number>,
   visibleFrom: number,
   visibleTo: number,
@@ -107,11 +165,19 @@ export function buildMarkdownDecorations(
     return false;
   }
 
-  function addReplace(from: number, to: number) {
+  function addReplace(from: number, to: number, decoration: Decoration = markerReplace) {
     if (from >= to) return;
     if (wouldOverlap(from, to)) return;
     replacedRanges.push([from, to]);
-    specs.push({ from, to, decoration: markerReplace });
+    specs.push({ from, to, decoration });
+  }
+
+  function isActiveLine(pos: number): boolean | null {
+    try {
+      return activeLineFroms.has(docLineAt(pos).from);
+    } catch {
+      return null;
+    }
   }
 
   function addMark(from: number, to: number, dec: Decoration) {
@@ -188,15 +254,63 @@ export function buildMarkdownDecorations(
       return;
     }
 
+    // ── Task checkboxes: widget on inactive lines, raw on active ──────────
+    if (name === "TaskMarker") {
+      const active = isActiveLine(from);
+      if (active !== false) return;
+      const checked = /[xX]/.test(docSlice(from, to));
+      addReplace(from, to, checked ? taskCheckedReplace : taskUncheckedReplace);
+      return;
+    }
+
+    // ── List marks: bullet dot / hidden task dash / muted numbers ─────────
+    if (name === "ListMark") {
+      const text = docSlice(from, to);
+      if (/^[-+*]$/.test(text)) {
+        const active = isActiveLine(from);
+        if (active !== false) return;
+        let lineTo: number;
+        try {
+          lineTo = docLineAt(from).to;
+        } catch {
+          return;
+        }
+        // A task item shows only its checkbox; a plain item shows a dot.
+        const rest = docSlice(to, lineTo);
+        const taskRest = TASK_AFTER_MARK.exec(rest);
+        if (taskRest) {
+          // Swallow the gap up to the checkbox so no stray indent remains.
+          addReplace(from, to + taskRest[0].indexOf("["));
+        } else {
+          addReplace(from, to, bulletReplace);
+        }
+      } else if (/\d/.test(text)) {
+        addMark(from, to, listNumMark);
+      }
+      return;
+    }
+
+    // ── Horizontal rules: drawn as a rule on inactive lines ───────────────
+    if (name === "HorizontalRule") {
+      const active = isActiveLine(from);
+      if (active !== false) return;
+      addReplace(from, to, hrReplace);
+      return;
+    }
+
+    // ── Autolinks: bare urls read as links. URLs inside a Link or Image are
+    // handled by the Link branch above (label styling + dimming). ──────────
+    if (name === "URL") {
+      const parent = nodeRef.node.parent;
+      if (parent && (parent.name === "Link" || parent.name === "Image")) return;
+      addMark(from, to, linkTextMark);
+      return;
+    }
+
     // ── Syntax markers: replace on inactive lines, reveal on active ───────
     if (MARKER_NAMES.has(name)) {
-      let lineFr: number;
-      try {
-        lineFr = docLineAt(from).from;
-      } catch {
-        return;
-      }
-      if (activeLineFroms.has(lineFr)) return;
+      const active = isActiveLine(from);
+      if (active !== false) return;
       addReplace(from, to);
     }
   });
@@ -229,6 +343,7 @@ function buildDecorationSet(view: EditorView): DecorationSet {
     const rangeSpecs = buildMarkdownDecorations(
       (vf, vt, cb) => tree.iterate({ from: vf, to: vt, enter: cb }),
       (pos) => state.doc.lineAt(pos),
+      (sliceFrom, sliceTo) => state.doc.sliceString(sliceFrom, sliceTo),
       cursorPositions,
       from,
       to,
@@ -268,7 +383,51 @@ class MarkdownTypographyPlugin implements PluginValue {
   }
 }
 
-export const markdownTypographyPlugin: Extension = ViewPlugin.fromClass(
-  MarkdownTypographyPlugin,
-  { decorations: (v) => v.decorations },
-);
+/**
+ * Flips the task checkbox on the line at `pos` between `[ ]` and `[x]`.
+ * The document is the only state; the widget re-renders from the new text.
+ */
+export function toggleTaskAt(view: EditorView, pos: number): boolean {
+  let line: { from: number; text: string };
+  try {
+    line = view.state.doc.lineAt(pos);
+  } catch {
+    return false;
+  }
+  const match = TASK_LINE_PREFIX.exec(line.text);
+  if (!match) return false;
+  const boxPos = line.from + match[1].length;
+  view.dispatch({
+    changes: { from: boxPos, to: boxPos + 1, insert: match[2] === " " ? "x" : " " },
+    userEvent: "input",
+  });
+  return true;
+}
+
+/**
+ * Handles a mousedown on a rendered task checkbox. Exported for tests; wired
+ * through EditorView.domEventHandlers below.
+ */
+export function handleTaskMousedown(event: MouseEvent, view: EditorView): boolean {
+  if (event.button !== 0) return false;
+  const target = event.target;
+  if (
+    !(target instanceof HTMLInputElement) ||
+    !target.classList.contains("cm-md-task-checkbox")
+  ) {
+    return false;
+  }
+  // Keep the selection where it is: moving the cursor onto the line would
+  // make it active and dissolve the widget under the pointer.
+  event.preventDefault();
+  return toggleTaskAt(view, view.posAtDOM(target));
+}
+
+const taskClickHandler = EditorView.domEventHandlers({
+  mousedown: handleTaskMousedown,
+});
+
+export const markdownTypographyPlugin: Extension = [
+  ViewPlugin.fromClass(MarkdownTypographyPlugin, { decorations: (v) => v.decorations }),
+  taskClickHandler,
+];

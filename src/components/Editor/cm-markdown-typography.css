@@ -53,3 +53,34 @@
   color: var(--writ-foreground-subtle);
   opacity: 0.45;
 }
+
+/* Task checkbox widget — replaces the [ ]/[x] marker on inactive lines.
+   Sized to the text so the swap does not change line height. */
+.cm-editor .cm-md-task-checkbox {
+  appearance: auto;
+  accent-color: var(--writ-accent-default);
+  width: 0.95em;
+  height: 0.95em;
+  margin: 0 0.15em;
+  vertical-align: -0.1em;
+  cursor: pointer;
+}
+
+/* Bullet dot — replaces -, + and * list marks on inactive lines. */
+.cm-editor .cm-md-bullet {
+  color: var(--writ-foreground-muted);
+}
+
+/* Ordered list numbers stay as text, slightly muted. */
+.cm-editor .cm-md-list-num {
+  color: var(--writ-foreground-muted);
+}
+
+/* Thematic break — replaces --- on inactive lines with a drawn rule. */
+.cm-editor .cm-md-hr {
+  display: inline-block;
+  width: 100%;
+  height: 0;
+  border-top: 1px solid var(--writ-border-default);
+  vertical-align: middle;
+}

@@ -59,6 +59,10 @@ fn default_markdown_typography() -> bool {
     true
 }
 
+fn default_markdown_editing() -> bool {
+    true
+}
+
 fn default_window_width() -> u32 {
     1100
 }
@@ -161,6 +165,11 @@ pub struct EditorConfig {
     /// elements, and dim/hidden syntax markers in the editor itself.
     #[serde(default = "default_markdown_typography")]
     pub markdown_typography: bool,
+    /// When true, markdown buffers get formatting shortcuts (bold, italic,
+    /// strikethrough, inline code, link) and marker wrap-on-type over a
+    /// selection.
+    #[serde(default = "default_markdown_editing")]
+    pub markdown_editing: bool,
 }
 
 impl Default for EditorConfig {
@@ -172,6 +181,7 @@ impl Default for EditorConfig {
             tab_size: default_tab_size(),
             autosave_debounce_ms: default_autosave_debounce_ms(),
             markdown_typography: default_markdown_typography(),
+            markdown_editing: default_markdown_editing(),
         }
     }
 }
