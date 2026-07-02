@@ -6,6 +6,114 @@
   to { transform: translateX(-50%); }
 }
 
+/* ─── Hero intro: source types, then renders ─────────────────────────────────
+   Plays only when the inline pre-paint script sets [data-writ-intro='play']
+   (JS on, no reduced-motion). Default markup is the final static state. */
+@keyframes hero-typing {
+  to { width: 40ch; }
+}
+@keyframes hero-caret-blink {
+  0%, 55% { opacity: 1; }
+  56%, 100% { opacity: 0; }
+}
+@keyframes hero-src-exit {
+  to { opacity: 0; transform: translateY(-7px); }
+}
+@keyframes hero-word-in {
+  to { opacity: 1; filter: blur(0); transform: none; }
+}
+@keyframes hero-fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes hero-window-rise {
+  from { opacity: 0; transform: translateY(26px); }
+  to { opacity: 1; transform: none; }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.hero-src {
+  display: none;
+  align-items: center;
+  height: 21px;
+  margin-bottom: 16px;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+.hero-caret {
+  width: 7px;
+  height: 16px;
+  margin-left: 2px;
+  border-radius: 1.5px;
+  background: var(--accent);
+}
+[data-writ-intro='play'] .hero-src {
+  display: inline-flex;
+  animation: hero-src-exit 0.3s var(--ease) 1.12s forwards;
+}
+[data-writ-intro='play'] .hero-type {
+  overflow: hidden;
+  white-space: nowrap;
+  width: 0;
+  animation: hero-typing 0.88s steps(40, end) 0.12s forwards;
+}
+[data-writ-intro='play'] .hero-caret {
+  animation: hero-caret-blink 0.9s step-end infinite;
+}
+[data-writ-intro='play'] .hero-gut {
+  opacity: 0;
+  animation: hero-word-in 0.4s var(--ease) 1.16s forwards;
+}
+[data-writ-intro='play'] .hw {
+  display: inline-block;
+  opacity: 0;
+  filter: blur(3px);
+  transform: translateY(7px);
+  animation: hero-word-in 0.3s var(--spring) forwards;
+}
+[data-writ-intro='play'] .hw:nth-child(1) { animation-delay: 1.16s; }
+[data-writ-intro='play'] .hw:nth-child(2) { animation-delay: 1.2s; }
+[data-writ-intro='play'] .hw:nth-child(3) { animation-delay: 1.24s; }
+[data-writ-intro='play'] .hw:nth-child(4) { animation-delay: 1.28s; }
+[data-writ-intro='play'] .hw:nth-child(5) { animation-delay: 1.32s; }
+[data-writ-intro='play'] .hw:nth-child(6) { animation-delay: 1.36s; }
+[data-writ-intro='play'] .hero-sub {
+  opacity: 0;
+  animation: hero-fade-up 0.5s var(--ease) 1.38s forwards;
+}
+[data-writ-intro='play'] .hero-ctas {
+  opacity: 0;
+  animation: hero-fade-up 0.5s var(--ease) 1.48s forwards;
+}
+[data-writ-intro='play'] .win-rise {
+  opacity: 0;
+  animation: hero-window-rise 0.65s var(--spring) 1.52s forwards;
+}
+
+/* ─── Scroll reveals (IntersectionObserver adds .in) ─────────────────────── */
+[data-writ-intro='play'] .rv {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.55s var(--ease), transform 0.55s var(--spring);
+}
+[data-writ-intro='play'] .rv.in {
+  opacity: 1;
+  transform: none;
+}
+
 /* ─── Prose (preview pane) ───────────────────────────────────────────────── */
 .writ-prose {
   font-family: var(--font-sans);
@@ -618,6 +726,8 @@
 @media (max-width: 560px) {
   .hide-sm { display: none !important; }
   .dl-grid { grid-template-columns: 1fr !important; }
+  .hero-src { font-size: 11.5px; }
+  .hero-caret { height: 13px; }
 }
 
 /* ─── Hero / header CTAs ─────────────────────────────────────────────────── */
@@ -654,4 +764,12 @@
   .ticker .track { animation: none; transform: none; }
   .ww-watch-dot { animation: none; }
   .gtrig:hover, .dlbtn:hover, .v2-btn-primary:hover { transform: none; }
+  .hero-src { display: none !important; }
+  .hero-gut, .hw, .hero-sub, .hero-ctas, .win-rise, .rv {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+  }
 }
