@@ -3,7 +3,12 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { syntaxTree } from "@codemirror/language";
-import { buildMarkdownDecorations, markdownTypographyPlugin, type DecorationSpec } from "../../editor/markdown-typography";
+import {
+  buildMarkdownDecorations,
+  markdownTypographyPlugin,
+  toggleTaskAt,
+  type DecorationSpec,
+} from "../../editor/markdown-typography";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -11,15 +16,22 @@ function buildForDoc(
   doc: string,
   cursorPositions: number[] = [],
 ): DecorationSpec[] {
-  const state = EditorState.create({ doc, extensions: [markdown()] });
+  const state = EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage })] });
   const tree = syntaxTree(state);
   const cursors = new ReadonlySet(cursorPositions);
   return buildMarkdownDecorations(
     (from, to, cb) => tree.iterate({ from, to, enter: cb }),
     (pos) => state.doc.lineAt(pos),
+    (from, to) => state.doc.sliceString(from, to),
     cursors,
     0,
     doc.length,
+  );
+}
+
+function widgetSpecs(specs: DecorationSpec[]): DecorationSpec[] {
+  return specs.filter(
+    (s) => (s.decoration as unknown as { spec: { widget?: unknown } }).spec?.widget !== undefined,
   );
 }
 
@@ -164,6 +176,7 @@ describe("inline mark decorations", () => {
     const specs = buildMarkdownDecorations(
       (from, to, cb) => tree.iterate({ from, to, enter: cb }),
       (pos) => state.doc.lineAt(pos),
+      (from, to) => state.doc.sliceString(from, to),
       new ReadonlySet([]),
       0,
       doc.length,
@@ -229,6 +242,7 @@ describe("visible range scoping", () => {
     const specs = buildMarkdownDecorations(
       (from, to, cb) => tree.iterate({ from, to, enter: cb }),
       (pos) => state.doc.lineAt(pos),
+      (from, to) => state.doc.sliceString(from, to),
       new ReadonlySet([]),
       0,
       line1End,
@@ -261,6 +275,154 @@ describe("blockquote decoration", () => {
 // ─── ViewPlugin smoke tests ───────────────────────────────────────────────
 // Exercises the runtime path (ViewPlugin + Decoration.set) that pure-function
 // tests cannot reach. jsdom is sufficient — CM needs no real layout.
+
+// ─── Task checkboxes ──────────────────────────────────────────────────────
+
+describe("task checkbox decorations", () => {
+  it("replaces the task marker with a checkbox widget on inactive lines", () => {
+    const doc = "- [ ] open\n- [x] done\ncursor here\n";
+    const state = EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage })] });
+    const specs = buildForDoc(doc, [state.doc.line(3).from]);
+    const widgets = widgetSpecs(specs).filter(
+      (s) => (s.decoration as unknown as { spec: { widget: { checked?: boolean } } }).spec.widget.checked !== undefined,
+    );
+    expect(widgets).toHaveLength(2);
+    const checkedStates = widgets.map(
+      (s) => (s.decoration as unknown as { spec: { widget: { checked: boolean } } }).spec.widget.checked,
+    );
+    expect(checkedStates).toEqual([false, true]);
+  });
+
+  it("reveals the raw task marker on the active line", () => {
+    const doc = "- [ ] open\n";
+    const specs = buildForDoc(doc, [3]);
+    const widgets = widgetSpecs(specs).filter(
+      (s) => (s.decoration as unknown as { spec: { widget: { checked?: boolean } } }).spec.widget.checked !== undefined,
+    );
+    expect(widgets).toHaveLength(0);
+  });
+
+  it("hides the list bullet of a task item so only the checkbox shows", () => {
+    const doc = "- [ ] open\ncursor\n";
+    const state = EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage })] });
+    const specs = buildForDoc(doc, [state.doc.line(2).from]);
+    // The ListMark "-" at position 0..1 must be a plain replace (hidden), not a bullet widget.
+    const dashReplace = specs.find(
+      (s) =>
+        s.from === 0 &&
+        s.to === 1 &&
+        (s.decoration as unknown as { spec: { widget?: unknown; class?: string } }).spec.widget === undefined &&
+        (s.decoration as unknown as { spec: { class?: string } }).spec.class === undefined,
+    );
+    expect(dashReplace).toBeDefined();
+  });
+});
+
+describe("toggleTaskAt", () => {
+  function viewFor(doc: string): EditorView {
+    const state = EditorState.create({
+      doc,
+      extensions: [markdown({ base: markdownLanguage }), markdownTypographyPlugin],
+    });
+    return new EditorView({ state });
+  }
+
+  it("checks an unchecked task", () => {
+    const view = viewFor("- [ ] open\n");
+    expect(toggleTaskAt(view, 2)).toBe(true);
+    expect(view.state.doc.toString()).toBe("- [x] open\n");
+    view.destroy();
+  });
+
+  it("unchecks a checked task", () => {
+    const view = viewFor("- [X] done\n");
+    expect(toggleTaskAt(view, 2)).toBe(true);
+    expect(view.state.doc.toString()).toBe("- [ ] done\n");
+    view.destroy();
+  });
+
+  it("toggles a task in an ordered list", () => {
+    const view = viewFor("1. [ ] step\n");
+    expect(toggleTaskAt(view, 4)).toBe(true);
+    expect(view.state.doc.toString()).toBe("1. [x] step\n");
+    view.destroy();
+  });
+
+  it("toggles an indented task", () => {
+    const view = viewFor("  - [ ] nested\n");
+    expect(toggleTaskAt(view, 5)).toBe(true);
+    expect(view.state.doc.toString()).toBe("  - [x] nested\n");
+    view.destroy();
+  });
+
+  it("returns false on a non-task line", () => {
+    const view = viewFor("plain text\n");
+    expect(toggleTaskAt(view, 2)).toBe(false);
+    expect(view.state.doc.toString()).toBe("plain text\n");
+    view.destroy();
+  });
+});
+
+// ─── Bullets ──────────────────────────────────────────────────────────────
+
+describe("bullet decorations", () => {
+  it("replaces a bullet list mark with a widget on inactive lines", () => {
+    const doc = "- item\ncursor\n";
+    const state = EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage })] });
+    const specs = buildForDoc(doc, [state.doc.line(2).from]);
+    const bullets = widgetSpecs(specs);
+    expect(bullets.some((s) => s.from === 0 && s.to === 1)).toBe(true);
+  });
+
+  it("keeps the raw bullet on the active line", () => {
+    const specs = buildForDoc("- item\n", [3]);
+    expect(widgetSpecs(specs)).toHaveLength(0);
+  });
+
+  it("marks ordered list numbers with a class instead of a widget", () => {
+    const doc = "1. first\ncursor\n";
+    const state = EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage })] });
+    const specs = buildForDoc(doc, [state.doc.line(2).from]);
+    const numMark = specs.find(
+      (s) => (s.decoration as unknown as { spec: { class?: string } }).spec?.class === "cm-md-list-num",
+    );
+    expect(numMark).toBeDefined();
+    expect(widgetSpecs(specs)).toHaveLength(0);
+  });
+});
+
+// ─── Horizontal rules ─────────────────────────────────────────────────────
+
+describe("horizontal rule decorations", () => {
+  it("replaces the rule text with a widget on inactive lines", () => {
+    const doc = "above\n\n---\n\nbelow\n";
+    const specs = buildForDoc(doc, [0]);
+    const rules = widgetSpecs(specs).filter((s) => s.to - s.from === 3);
+    expect(rules).toHaveLength(1);
+  });
+
+  it("reveals the raw rule on the active line", () => {
+    const doc = "above\n\n---\n\nbelow\n";
+    const rulePos = doc.indexOf("---");
+    const specs = buildForDoc(doc, [rulePos + 1]);
+    const rules = widgetSpecs(specs).filter((s) => s.to - s.from === 3);
+    expect(rules).toHaveLength(0);
+  });
+});
+
+// ─── Autolinks ────────────────────────────────────────────────────────────
+
+describe("autolink decorations", () => {
+  it("styles a bare url with the link text class", () => {
+    const doc = "visit https://writ.dev today\n";
+    const specs = buildForDoc(doc);
+    const link = specs.find(
+      (s) => (s.decoration as unknown as { spec: { class?: string } }).spec?.class === "cm-md-link-text",
+    );
+    expect(link).toBeDefined();
+    expect(link!.from).toBe(doc.indexOf("https://"));
+  });
+});
 
 describe("markdownTypographyPlugin runtime", () => {
   it("constructs without throwing on a markdown document", () => {
