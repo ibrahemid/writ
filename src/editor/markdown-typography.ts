@@ -274,8 +274,11 @@ export function buildMarkdownDecorations(
           return;
         }
         // A task item shows only its checkbox; a plain item shows a dot.
-        if (TASK_AFTER_MARK.test(docSlice(to, lineTo))) {
-          addReplace(from, to);
+        const rest = docSlice(to, lineTo);
+        const taskRest = TASK_AFTER_MARK.exec(rest);
+        if (taskRest) {
+          // Swallow the gap up to the checkbox so no stray indent remains.
+          addReplace(from, to + taskRest[0].indexOf("["));
         } else {
           addReplace(from, to, bulletReplace);
         }

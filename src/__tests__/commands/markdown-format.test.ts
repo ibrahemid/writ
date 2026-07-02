@@ -67,6 +67,11 @@ describe("toggleBold", () => {
     expect(next.doc.toString()).toBe("hello world");
   });
 
+  it("does not strip markers from a selection spanning two bold spans", () => {
+    const next = apply(stateWith("**a** **b**", 0, 11), toggleBold);
+    expect(next.doc.toString()).toBe("****a** **b****");
+  });
+
   it("wraps every range of a multiple selection", () => {
     const state = EditorState.create({
       doc: "one two",
@@ -140,6 +145,13 @@ describe("insertLink", () => {
     const next = apply(stateWith("see ", 4), insertLink);
     expect(next.doc.toString()).toBe("see []()");
     expect(next.selection.main.head).toBe(5);
+  });
+
+  it("parks the cursor in the empty url slot of a link without a url", () => {
+    const next = apply(stateWith("a [label]() b", 4), insertLink);
+    expect(next.doc.toString()).toBe("a [label]() b");
+    expect(next.selection.main.head).toBe(10);
+    expect(next.selection.main.empty).toBe(true);
   });
 
   it("selects the url of the link under the cursor instead of nesting", () => {

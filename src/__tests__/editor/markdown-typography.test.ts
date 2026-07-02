@@ -302,15 +302,16 @@ describe("task checkbox decorations", () => {
     expect(widgets).toHaveLength(0);
   });
 
-  it("hides the list bullet of a task item so only the checkbox shows", () => {
+  it("hides the list bullet of a task item and the gap so only the checkbox shows", () => {
     const doc = "- [ ] open\ncursor\n";
     const state = EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage })] });
     const specs = buildForDoc(doc, [state.doc.line(2).from]);
-    // The ListMark "-" at position 0..1 must be a plain replace (hidden), not a bullet widget.
+    // The ListMark "-" and the space before the checkbox (0..2) must be one
+    // plain replace (hidden), not a bullet widget.
     const dashReplace = specs.find(
       (s) =>
         s.from === 0 &&
-        s.to === 1 &&
+        s.to === 2 &&
         (s.decoration as unknown as { spec: { widget?: unknown; class?: string } }).spec.widget === undefined &&
         (s.decoration as unknown as { spec: { class?: string } }).spec.class === undefined,
     );

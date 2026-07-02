@@ -41,13 +41,14 @@ function findEnclosing(
   return null;
 }
 
-// True when the text is wrapped by exactly this marker: `**x**` matches for
-// `**` but its inner text must not lead/trail with the marker character, so
-// `**x**` never reads as a single-`*` wrap.
+// True when the text is one span wrapped by exactly this marker. The inner
+// text must not contain the marker at all: `**x**` never reads as a
+// single-`*` wrap, and `**a** **b**` (two spans) never reads as one.
 function exactWrapped(text: string, marker: string): boolean {
   if (text.length < marker.length * 2) return false;
   if (!text.startsWith(marker) || !text.endsWith(marker)) return false;
   const inner = text.slice(marker.length, text.length - marker.length);
+  if (inner.includes(marker)) return false;
   return !inner.startsWith(marker[0]) && !inner.endsWith(marker[0]);
 }
 
@@ -149,6 +150,12 @@ function linkRange(state: EditorState, range: SelectionRange): RangeResult {
   if (link) {
     const url = link.getChild("URL");
     if (url) return { range: EditorSelection.range(url.from, url.to) };
+    // No URL parsed — an empty () slot. Park the cursor inside it.
+    const marks = link.getChildren("LinkMark");
+    const closeParen = marks.length > 0 ? marks[marks.length - 1] : null;
+    if (closeParen && state.sliceDoc(closeParen.from, closeParen.to) === ")") {
+      return { range: EditorSelection.cursor(closeParen.from) };
+    }
     return { range };
   }
 
