@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -20,6 +21,12 @@ import { escapeHtml, estimateTokens, formatTokens, mdToHtml } from './writ/rende
 import { highlightCode } from './writ/highlight';
 import { genHex } from './writ/hex';
 import { applyTransform, type TransformId } from './writ/transforms';
+import { continueListOnEnter, insertLink, wrapSelection } from './writ/editing';
+
+// Matches a task-list line, capturing (prefix)(state char)(rest). Kept in step with
+// render.ts: both require whitespace after the bracket, so click index and source
+// order agree.
+const TASK_LINE = /^(\s*[-*+]\s+\[)([ xX])(\]\s.*)$/;
 
 interface Caret {
   ln: number;
@@ -69,6 +76,8 @@ export default function WritWindow() {
   const searchRef = useRef<HTMLInputElement>(null);
   const paletteRef = useRef<HTMLInputElement>(null);
   const renameRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const pendingSel = useRef<{ start: number; end: number; focus: boolean } | null>(null);
 
   const [contents, setContents] = useState<Record<string, string>>(() => ({ ...DEFAULT_CONTENTS }));
   const [names, setNames] = useState<Record<string, string>>({});
@@ -168,6 +177,119 @@ export default function WritWindow() {
     [activeId, markEdited, updateCaret],
   );
 
+  // Write new text and remember where the caret should land once React re-renders
+  // the controlled textarea (a plain value swap would otherwise jump it to the end).
+  const applyEdit = useCallback(
+    (nextText: string, start: number, end: number, focus = false) => {
+      pendingSel.current = { start, end, focus };
+      setContents((prev) => ({ ...prev, [activeId]: nextText }));
+      markEdited();
+    },
+    [activeId, markEdited],
+  );
+
+  useLayoutEffect(() => {
+    const p = pendingSel.current;
+    if (!p) return;
+    pendingSel.current = null;
+    const ta = editorRef.current;
+    if (!ta) return;
+    if (p.focus) ta.focus();
+    ta.selectionStart = p.start;
+    ta.selectionEnd = p.end;
+    updateCaret(ta);
+  }, [contents, updateCaret]);
+
+  const onEditorKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      const ta = e.currentTarget;
+      const text = ta.value;
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const mod = e.metaKey || e.ctrlKey;
+
+      if (mod && !e.altKey) {
+        const key = e.key.toLowerCase();
+        if (e.shiftKey && key === 'x') {
+          e.preventDefault();
+          const r = wrapSelection(text, start, end, '~~');
+          return applyEdit(r.nextText, r.selStart, r.selEnd);
+        }
+        if (!e.shiftKey && key === 'b') {
+          e.preventDefault();
+          const r = wrapSelection(text, start, end, '**');
+          return applyEdit(r.nextText, r.selStart, r.selEnd);
+        }
+        if (!e.shiftKey && key === 'i') {
+          e.preventDefault();
+          const r = wrapSelection(text, start, end, '*');
+          return applyEdit(r.nextText, r.selStart, r.selEnd);
+        }
+        if (!e.shiftKey && key === 'e') {
+          e.preventDefault();
+          const r = wrapSelection(text, start, end, '`');
+          return applyEdit(r.nextText, r.selStart, r.selEnd);
+        }
+        if (!e.shiftKey && key === 'k') {
+          e.preventDefault();
+          const r = insertLink(text, start, end);
+          return applyEdit(r.nextText, r.selStart, r.selEnd);
+        }
+        return;
+      }
+
+      if (e.key === 'Enter' && !e.shiftKey && !e.altKey && start === end) {
+        const r = continueListOnEnter(text, start);
+        if (r) {
+          e.preventDefault();
+          applyEdit(r.nextText, r.nextPos, r.nextPos);
+        }
+        return;
+      }
+
+      if (start !== end && (e.key === '*' || e.key === '_' || e.key === '~' || e.key === '`')) {
+        e.preventDefault();
+        const r = wrapSelection(text, start, end, e.key);
+        applyEdit(r.nextText, r.selStart, r.selEnd);
+      }
+    },
+    [applyEdit],
+  );
+
+  const toggleTask = useCallback(
+    (index: number) => {
+      setContents((prev) => {
+        const src = prev[activeId] || '';
+        const lines = src.split('\n');
+        let n = 0;
+        for (let li = 0; li < lines.length; li++) {
+          const m = (lines[li] ?? '').match(TASK_LINE);
+          if (!m) continue;
+          if (n === index) {
+            const nextChar = m[2]?.toLowerCase() === 'x' ? ' ' : 'x';
+            lines[li] = m[1] + nextChar + m[3];
+            return { ...prev, [activeId]: lines.join('\n') };
+          }
+          n += 1;
+        }
+        return prev;
+      });
+      markEdited();
+    },
+    [activeId, markEdited],
+  );
+
+  const onPreviewClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const hit = (e.target as HTMLElement).closest('[data-task]');
+      if (!hit) return;
+      const index = Number(hit.getAttribute('data-task'));
+      if (Number.isNaN(index)) return;
+      toggleTask(index);
+    },
+    [toggleTask],
+  );
+
   const computeResults = useCallback(
     (q: string): SearchHit[] => {
       const query = q.trim();
@@ -223,6 +345,32 @@ export default function WritWindow() {
 
   const runCmd = useCallback(
     (id: string) => {
+      if (id.startsWith('fmt-')) {
+        setPaletteOpen(false);
+        if (meta(activeId).lang !== 'md') return;
+        const ta = editorRef.current;
+        if (!ta) return;
+        const text = contents[activeId] || '';
+        const start = ta.selectionStart;
+        const end = ta.selectionEnd;
+        const r =
+          id === 'fmt-link'
+            ? insertLink(text, start, end)
+            : wrapSelection(
+                text,
+                start,
+                end,
+                id === 'fmt-bold'
+                  ? '**'
+                  : id === 'fmt-strike'
+                    ? '~~'
+                    : id === 'fmt-code'
+                      ? '`'
+                      : '*',
+              );
+        applyEdit(r.nextText, r.selStart, r.selEnd, true);
+        return;
+      }
       if (TRANSFORM_IDS.includes(id as TransformId)) {
         setContents((prev) => ({
           ...prev,
@@ -296,7 +444,7 @@ export default function WritWindow() {
         return;
       }
     },
-    [activeId, tabs, contents, nameOf, cmdNewTab, closeTab, open, markEdited],
+    [activeId, tabs, contents, nameOf, cmdNewTab, closeTab, open, markEdited, meta, applyEdit],
   );
 
   const commitRename = useCallback(() => {
@@ -326,10 +474,13 @@ export default function WritWindow() {
     });
   }, []);
 
+  const editableMd = meta(activeId).lang === 'md';
+
   const currentPaletteCmds = useMemo(() => {
     const pq = paletteQuery.trim().toLowerCase();
     const out: { id: string; name: string; desc: string; kbd: string }[] = [];
     for (const g of GROUPS) {
+      if (g.label === 'FORMAT' && !editableMd) continue;
       for (const c of g.cmds) {
         if (!pq || (c.name + ' ' + c.desc).toLowerCase().includes(pq)) {
           out.push({ id: c.id, name: c.name, desc: c.desc, kbd: c.kbd || '' });
@@ -337,12 +488,13 @@ export default function WritWindow() {
       }
     }
     return out;
-  }, [paletteQuery]);
+  }, [paletteQuery, editableMd]);
 
   const paletteItems = useMemo(() => {
     const pq = paletteQuery.trim().toLowerCase();
     const items: { kind: 'header' | 'cmd'; key: string; label?: string; cmd?: typeof GROUPS[number]['cmds'][number] }[] = [];
     for (const g of GROUPS) {
+      if (g.label === 'FORMAT' && !editableMd) continue;
       const matched = g.cmds.filter(
         (c) => !pq || (c.name + ' ' + c.desc).toLowerCase().includes(pq),
       );
@@ -352,7 +504,7 @@ export default function WritWindow() {
       }
     }
     return items;
-  }, [paletteQuery]);
+  }, [paletteQuery, editableMd]);
 
   const loadFmt = useCallback(
     (k: 'md' | 'html' | 'mermaid' | 'math') => {
@@ -682,7 +834,10 @@ export default function WritWindow() {
               zoom={zoom}
               gutterRef={gutterRef}
               previewRef={previewRef}
+              editorRef={editorRef}
               onEdit={onEdit}
+              onEditorKeyDown={onEditorKeyDown}
+              onPreviewClick={onPreviewClick}
               onCaret={(e) => updateCaret(e.currentTarget)}
               onGutterSync={(e) => {
                 if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop;
@@ -802,7 +957,10 @@ interface MainPaneProps {
   zoom: number;
   gutterRef: React.RefObject<HTMLPreElement>;
   previewRef: React.RefObject<HTMLDivElement>;
+  editorRef: React.RefObject<HTMLTextAreaElement>;
   onEdit: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onEditorKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onPreviewClick: (e: React.MouseEvent<HTMLDivElement>) => void;
   onCaret: (e: React.SyntheticEvent<HTMLTextAreaElement>) => void;
   onGutterSync: (e: React.UIEvent<HTMLTextAreaElement>) => void;
 }
@@ -869,8 +1027,10 @@ function MainPane(props: MainPaneProps): ReactNode {
           {nums}
         </pre>
         <textarea
+          ref={props.editorRef}
           value={content}
           onChange={props.onEdit}
+          onKeyDown={props.onEditorKeyDown}
           onScroll={props.onGutterSync}
           onKeyUp={props.onCaret}
           onClick={props.onCaret}
@@ -901,6 +1061,7 @@ function MainPane(props: MainPaneProps): ReactNode {
       <div
         ref={previewRef}
         className="writ-prose ww-preview"
+        onClick={props.onPreviewClick}
         dangerouslySetInnerHTML={{ __html: html }}
       />
     );
