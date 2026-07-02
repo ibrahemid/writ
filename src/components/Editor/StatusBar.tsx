@@ -25,6 +25,7 @@ export default function StatusBar() {
     const mode = win.editor.largeFileMode();
     if (!mode) return null;
     if (mode.kind === "Binary") return "Binary · read-only";
+    if (mode.kind === "LongLines") return "Long lines · syntax off";
     if (mode.kind === "LargeFile" || mode.kind === "LargeFileConfirm") return "Large file · syntax off";
     return null;
   });

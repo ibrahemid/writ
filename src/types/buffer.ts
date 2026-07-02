@@ -19,6 +19,10 @@ export type FileOpenMode =
   | { kind: "Normal" }
   | { kind: "LargeFile" }
   | { kind: "LargeFileConfirm" }
+  // Frontend-only: a sub-threshold file whose line shape (a single very long
+  // line, as in minified JS/JSON/CSS) would freeze the editor under the full
+  // extension set. The backend never emits this; it is derived from content.
+  | { kind: "LongLines" }
   | { kind: "Binary" }
   | { kind: "Refused"; reason: string };
 
