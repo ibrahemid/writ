@@ -83,11 +83,18 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  font-family: inherit;
   font-size: 10px;
   color: #fff;
   margin-top: 2px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
 }
 .writ-prose .ck.on { background: var(--accent); border-color: var(--accent); }
+.writ-prose .ck:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .writ-prose table { border-collapse: collapse; font-size: 13px; }
 .writ-prose th, .writ-prose td { border: 1px solid var(--line); padding: 6px 11px; text-align: left; }
 .writ-prose th { background: var(--sunken); font-weight: 650; }

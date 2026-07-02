@@ -32,6 +32,12 @@ const reportMd = join([
   '',
   'The settlement worker is the only consumer still bound to the legacy `rabbit:settle` queue. Everything else already reads from the bus. Cutting it over removes the last broker dependency and lets us delete the dual-write shim in `ledger/append.ts`.',
   '',
+  '## Cutover checklist',
+  '',
+  '- [x] Freeze the legacy queue for new settlements',
+  '- [ ] Point the worker at the bus',
+  '- [ ] Delete the dual-write shim',
+  '',
   '## Settlement flow today',
   '',
   '```mermaid',
@@ -297,6 +303,16 @@ export const HISTORY: { id: string; when: string }[] = [
 ];
 
 export const GROUPS: PaletteGroup[] = [
+  {
+    label: 'FORMAT',
+    cmds: [
+      { id: 'fmt-bold', name: 'Bold', desc: 'Wrap the selection in **.', kbd: '⌘B' },
+      { id: 'fmt-italic', name: 'Italic', desc: 'Wrap the selection in *.', kbd: '⌘I' },
+      { id: 'fmt-strike', name: 'Strikethrough', desc: 'Wrap the selection in ~~.', kbd: '⌘⇧X' },
+      { id: 'fmt-code', name: 'Inline code', desc: 'Wrap the selection in backticks.', kbd: '⌘E' },
+      { id: 'fmt-link', name: 'Link', desc: 'Turn the selection into a Markdown link.', kbd: '⌘K' },
+    ],
+  },
   {
     label: 'TRANSFORM',
     cmds: [

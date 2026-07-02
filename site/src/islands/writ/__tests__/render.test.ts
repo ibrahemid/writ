@@ -22,12 +22,29 @@ describe('mdToHtml', () => {
     expect(mdToHtml('# Title')).toBe('<h1>Title</h1>');
   });
 
-  it('renders a task list with check spans', () => {
+  it('renders a task list as indexed checkbox controls', () => {
     const html = mdToHtml('- [x] done\n- [ ] todo');
+    expect(html).toContain('role="checkbox"');
+    expect(html).toContain('data-task="0"');
+    expect(html).toContain('data-task="1"');
+    expect(html).toContain('aria-checked="true"');
+    expect(html).toContain('aria-checked="false"');
     expect(html).toContain('class="ck on"');
-    expect(html).toContain('class="ck "');
     expect(html).toContain('done');
     expect(html).toContain('todo');
+  });
+
+  it('numbers task checkboxes in source order across lists', () => {
+    const html = mdToHtml('- [ ] a\n\ntext\n\n- [x] b');
+    expect(html).toContain('data-task="0"');
+    expect(html).toContain('data-task="1"');
+  });
+
+  it('does not count a bullet with no space after the bracket as a task', () => {
+    const html = mdToHtml('- [x]nope\n- [ ] real');
+    // the malformed line stays a plain bullet; the real task keeps index 0
+    expect(html).toContain('data-task="0"');
+    expect(html).not.toContain('data-task="1"');
   });
 
   it('emits a mermaid pre with data-src', () => {
@@ -66,6 +83,7 @@ describe('renderInline', () => {
   it('renders bold, em, code, and safe links', () => {
     expect(renderInline('**b**')).toBe('<strong>b</strong>');
     expect(renderInline('*i*')).toBe('<em>i</em>');
+    expect(renderInline('~~s~~')).toBe('<del>s</del>');
     expect(renderInline('`c`')).toBe('<code>c</code>');
     const link = renderInline('[x](https://e.com)');
     expect(link).toContain('rel="noopener noreferrer"');
