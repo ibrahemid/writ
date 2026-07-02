@@ -203,3 +203,26 @@ fn markdown_typography_missing_from_toml_uses_default() {
     let config: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
     assert!(config.editor.markdown_typography);
 }
+
+#[test]
+fn markdown_editing_defaults_to_true() {
+    let config = WritConfig::default();
+    assert!(config.editor.markdown_editing);
+}
+
+#[test]
+fn markdown_editing_false_roundtrips_through_toml() {
+    let toml_str = "[editor]\nmarkdown_editing = false\n";
+    let config: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert!(!config.editor.markdown_editing);
+    let serialized = toml::to_string(&config).expect("serialization failed");
+    let restored: WritConfig = toml::from_str(&serialized).expect("deserialization failed");
+    assert!(!restored.editor.markdown_editing);
+}
+
+#[test]
+fn markdown_editing_missing_from_toml_uses_default() {
+    let toml_str = "[editor]\nfont_size = 16\n";
+    let config: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert!(config.editor.markdown_editing);
+}

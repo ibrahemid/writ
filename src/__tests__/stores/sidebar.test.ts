@@ -35,7 +35,7 @@ function buildConfig(overrides: Partial<WritConfig["sidebar"]> = {}): WritConfig
       open: false,
       ...overrides,
     },
-    editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true },
+    editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true },
     window: { width: 800, height: 600 },
     keybindings: {},
     history: { max_entries: 500 },

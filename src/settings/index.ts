@@ -41,6 +41,8 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "editor.font_size", section: "editor", title: "Font size", keywords: ["font", "size", "text", "zoom"] },
   { id: "editor.tab_size", section: "editor", title: "Tab size", keywords: ["tab", "indent", "spaces", "width"] },
   { id: "editor.word_wrap", section: "editor", title: "Word wrap", keywords: ["wrap", "word", "line", "soft wrap"] },
+  { id: "editor.markdown_typography", section: "editor", title: "Markdown typography", keywords: ["markdown", "typography", "headings", "bold", "italic", "syntax", "markers"] },
+  { id: "editor.markdown_editing", section: "editor", title: "Markdown editing helpers", keywords: ["markdown", "editing", "bold", "italic", "strikethrough", "link", "shortcuts", "checkbox", "list"] },
   { id: "files.autosave", section: "files", title: "Autosave delay", keywords: ["autosave", "save", "delay", "debounce"] },
   { id: "files.cli", section: "files", title: "Command-line tool", keywords: ["cli", "writ command", "terminal", "command line", "install"] },
   { id: "files.default_app.plain-text", section: "files", title: "Default app for plain text & logs", keywords: ["default", "open with", "file association", "txt", "text", "log"] },

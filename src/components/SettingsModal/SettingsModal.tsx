@@ -173,6 +173,20 @@ function EditorSection() {
     void patchConfig((prev) => ({ ...prev, editor: { ...prev.editor, tab_size: value } }));
   }
 
+  function onMarkdownTypographyToggle() {
+    void patchConfig((prev) => ({
+      ...prev,
+      editor: { ...prev.editor, markdown_typography: !prev.editor.markdown_typography },
+    }));
+  }
+
+  function onMarkdownEditingToggle() {
+    void patchConfig((prev) => ({
+      ...prev,
+      editor: { ...prev.editor, markdown_editing: !prev.editor.markdown_editing },
+    }));
+  }
+
   return (
     <div data-section="editor">
       <SectionLabel section="editor" />
@@ -210,6 +224,34 @@ function EditorSection() {
           aria-checked={cfg().word_wrap}
           aria-label="Word wrap"
           onClick={onWordWrapToggle}
+        >
+          <span class="settings-toggle-thumb" />
+        </button>
+      </SettingsRow>
+      <SettingsRow id="editor.markdown_typography" label="Markdown typography">
+        <button
+          type="button"
+          class="settings-toggle"
+          classList={{ "settings-toggle-on": cfg().markdown_typography }}
+          data-setting="markdown_typography"
+          role="switch"
+          aria-checked={cfg().markdown_typography}
+          aria-label="Markdown typography"
+          onClick={onMarkdownTypographyToggle}
+        >
+          <span class="settings-toggle-thumb" />
+        </button>
+      </SettingsRow>
+      <SettingsRow id="editor.markdown_editing" label="Markdown editing helpers">
+        <button
+          type="button"
+          class="settings-toggle"
+          classList={{ "settings-toggle-on": cfg().markdown_editing }}
+          data-setting="markdown_editing"
+          role="switch"
+          aria-checked={cfg().markdown_editing}
+          aria-label="Markdown editing helpers"
+          onClick={onMarkdownEditingToggle}
         >
           <span class="settings-toggle-thumb" />
         </button>
