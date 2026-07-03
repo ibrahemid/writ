@@ -1,4 +1,4 @@
-# PAUSED 2026-04-30: see feedback_ci_cost memory. Re-enable per-ecosystem after launch.
+# PAUSED 2026-04-30 to limit CI usage pre-release. Re-enable per-ecosystem after launch.
 version: 2
 updates:
 #   # Rust workspace

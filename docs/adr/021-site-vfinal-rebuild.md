@@ -16,7 +16,7 @@ must not survive this rebuild:
 3. A React `HeroDemo.tsx` that bears no relation to the approved design.
 
 The approved design is `site/.mockups/vfinal/index.html`, locked on 2026-06-18
-(`.status/writ-vfinal-final-audit-2026-06-18.md`). It is design-final and is
+after a final design audit. It is design-final and is
 not to be redesigned. 0% of it is implemented in the real site today; this is a
 full rebuild, not a refactor.
 
