@@ -12,18 +12,54 @@ A lightweight, always-ready text editor for developers.
 
 Installers for macOS, Windows, and Linux are on the [latest release page](https://github.com/ibrahemid/writ/releases/latest). Or [build from source](#build-from-source).
 
+## Why I built this
+
+Most of what I open in a day is not code. It is prompts, specs, plans, agent output, knowledge files, the occasional config. Markdown everywhere, half of it written by a machine, and all of it needs a quick look or a quick edit before I move on.
+
+Nothing I tried fits. Notepad++ is not my taste. Sublime is fast, but closing a pile of scratch tabs means a save dialog for every one of them. VS Code drags an IDE's worth of noise into a single markdown file. Obsidian is for people whose life is in their vault. Typora got one thing right: it treats a document the way a browser treats a page. You open it to read it, not to manage it.
+
+Writ extends that to how I work: resident and summoned, not launched. One hotkey and the window is there, holding everything I dumped into it before. Buffers persist on their own, search reaches all of them, and files render in place, offline. Read, change, dismiss.
+
 ## Features
 
-- Global hotkey summons the window from anywhere, `Cmd+Shift+Space` on macOS, `Ctrl+Shift+Space` on Linux and Windows
-- Autosave on every keystroke; buffers persist across restarts
+- Global hotkey summons the window from anywhere: `Cmd+Shift+Space` on macOS, `Ctrl+Shift+Space` on Windows and Linux
+- Autosave on every keystroke; buffers persist across restarts; crash recovery restores the last session
 - Full-text search across every buffer, backed by SQLite FTS5
-- CodeMirror 6 editor with syntax highlighting and auto-detection for 9 languages (JavaScript, TypeScript, Python, Rust, JSON, HTML, CSS, Markdown, PHP)
-- Browser-style tabs with reopen-closed support
-- Local-only storage, no network, no telemetry, no account
+- Split-pane live preview: Markdown, HTML, Mermaid diagrams, and KaTeX math, rendered fully offline with scroll sync
+- Command palette on double-tap `Shift`; settings and every command are searchable from it
+- CodeMirror 6 editor with language auto-detection, live Markdown typography, and formatting shortcuts
+- Prompt fill: placeholder variables, a live token estimate, copy as prompt
+- Text transforms such as Tidy Whitespace, built from small composable passes
+- Workspace folders with a file tree, plus a watched inbox that opens new files as they arrive
+- `writ` CLI for opening files from the terminal; register Writ as the default app for text, config, and source files on macOS
+- Browser-style tabs with reopen-closed, light and dark themes, editor and preview font zoom
+- Local-only storage, no account, no telemetry; self-updates verify a signed manifest and can be turned off
 
-## Why Writ?
+## Design decisions
 
-A plain text file has no tabs, no search across buffers, and no persistent autosave. Obsidian is a knowledge graph for permanent notes, overkill for a five-second scratch. Notion is a cloud workspace, the opposite of instant and offline. Writ is the missing middle: a tray-resident scratchpad that opens on a keypress, saves as you type, and stays out of your way. It is optimized for the throwaway buffer, the paste target between terminals, the half-formed idea you need to capture in two seconds.
+Each of these is recorded in [docs/adr/](docs/adr/); the short version:
+
+- **Buffers live in SQLite, not loose files.** That is what makes autosave-per-keystroke, restart persistence, and instant full-text search possible. Files on disk still open and save normally; the database is the scratch layer where most text starts and much of it ends.
+- **Resident, not launched.** The app starts hidden and keeps running in the background, so the hotkey shows a window instead of booting a program. Cold start time stops mattering because it happens once.
+- **Keyboard first.** Every command, setting, and buffer is reachable from the palette. The mouse is optional.
+- **The preview trusts nothing.** Markdown, HTML, Mermaid, and KaTeX render from runtimes bundled into the app, and the preview blocks all network access.
+- **The core does not know Tauri exists.** `writ-core`, `writ-storage`, `writ-render`, and `writ-plugin` are plain Rust crates with no Tauri dependency; the shell is a thin adapter. The boundary is enforced by the build, not by convention.
+- **Built to catch what other tools produce.** The CLI, the watched inbox, and default-app registration all serve the same case: something else made a file, and Writ is where it opens, rendered and searchable.
+
+```mermaid
+flowchart LR
+    H[global hotkey] --> T
+    CLI[writ CLI] --> T
+    W[watched inbox] --> T
+    subgraph ui [Frontend · SolidJS]
+        C[components] --> S[stores] --> V[services]
+    end
+    V -- IPC --> T[src-tauri shell]
+    T -. events .-> V
+    T --> core[writ-core]
+    core --> storage[writ-storage] --> DB[(SQLite · WAL + FTS5)]
+    core --> render[writ-render] --> P[offline preview]
+```
 
 ## See it in action
 
@@ -72,7 +108,7 @@ The installer or app bundle is written to `src-tauri/target/release/bundle/`.
 | Frontend | SolidJS + Vite |
 | Editor | CodeMirror 6 |
 | Storage | SQLite (WAL mode, FTS5) |
-| Core logic | Rust: `writ-core`, `writ-storage`, `writ-plugin` |
+| Core logic | Rust: `writ-core`, `writ-storage`, `writ-render`, `writ-plugin` |
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system design and [docs/adr/](docs/adr/) for architecture decision records.
 
