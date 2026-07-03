@@ -7,7 +7,7 @@
 
 Every autosave fires `save_buffer_content`, which writes the buffer file, stamps `updated_at`, and rebuilds the buffer's FTS row with a `DELETE` + `INSERT` over the full content. On a large or rapidly edited buffer the reindex is the dominant cost on the write path, and it runs on the same cadence as the disk write (every autosave debounce window). Search does not need to be that fresh: a buffer's index trailing the file on disk by a couple of seconds is invisible to a user who searches, while a full reindex inside the typing loop is felt as jank.
 
-The existing rule (`.claude/rules/rust.md`) is "`save_content()` MUST update the FTS index after writing." This ADR introduces a deliberate, bounded exception for the IPC autosave path only, and records the consistency guarantees that keep it safe.
+The existing storage rule is "`save_content()` MUST update the FTS index after writing." This ADR introduces a deliberate, bounded exception for the IPC autosave path only, and records the consistency guarantees that keep it safe.
 
 ## Decisions
 

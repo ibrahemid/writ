@@ -1,4 +1,4 @@
-# ADR-021: vfinal Site Rebuild
+# ADR-021: Site Rebuild
 
 **Status:** Proposed
 **Date:** 2026-06-23
@@ -15,8 +15,8 @@ must not survive this rebuild:
    sh` one-liner). None of these distribution channels exist.
 3. A React `HeroDemo.tsx` that bears no relation to the approved design.
 
-The approved design is `site/.mockups/vfinal/index.html`, locked on 2026-06-18
-after a final design audit. It is design-final and is
+The approved design is a locked, self-contained HTML mockup (design-final on
+2026-06-18, kept outside the repo). It is design-final and is
 not to be redesigned. 0% of it is implemented in the real site today; this is a
 full rebuild, not a refactor.
 
@@ -328,7 +328,7 @@ early.
 
 ### Claims reconciliation
 
-Every claim reconciled against the shipped app per the audit. The vfinal mockup
+Every claim reconciled against the shipped app. The approved mockup
 already bakes most fixes (island says "no account · no telemetry"; cold-start
 says "target <200 ms"; deck scene 1 uses `writ ~/agent-out`, not the
 non-existent `--watch`). This rebuild preserves the honest wording and does not
@@ -346,7 +346,7 @@ The mockup is single-page. The existing site has `index`, `download`,
 `changelog`, `privacy`, `404`, and the footer links Changelog / Privacy /
 GitHub.
 
-Decision: `index` becomes the vfinal single page, including the tri-platform
+Decision: `index` becomes the final single page, including the tri-platform
 download surface at the `#get` anchor (Decision 5). Keep `privacy`, `changelog`,
 and `404` as real routes (footer links to the first two). Fold the standalone
 `download` route into the `#get` anchor and redirect `/download` there so
@@ -390,7 +390,7 @@ demo; it makes no outbound calls.
 
 ## Open questions deferred to follow-up
 
-1. **(Needs operator sign-off, not a later ADR.)** Decision 2 expands this epic
+1. **(Needs a maintainer decision, not a later ADR.)** Decision 2 expands this epic
    into the Rust workspace (new crate + `src-tauri` refactor) and into the
    deploy pipeline (Rust toolchain in the Pages workflow). This is the right
    architecture and the only way to honor "no claim unless true," but it is a
