@@ -1002,8 +1002,8 @@ defined here — same pattern as ADR-006.
   the `useWindow()` hook. The test runs as part of `pnpm test`,
   which is added to the merge-gate set in the PR that creates the
   directories. If `pnpm test` is not already in the CI gate chain
-  for `dev`-targeted PRs (the four gates in CLAUDE.local.md list it
-  as a project-level standard but not as a merge gate), the same PR
+  for `dev`-targeted PRs (the project quality gates list it as a
+  standard but not as a merge gate), the same PR
   adds it.
 
 ### Styling
