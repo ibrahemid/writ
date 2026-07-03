@@ -8,13 +8,9 @@ A lightweight, always-ready text editor for developers.
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)](https://github.com/ibrahemid/writ/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/ibrahemid/writ/total)](https://github.com/ibrahemid/writ/releases)
 
-![Writ demo](docs/assets/hero.gif)
-
 ## Download
 
-Writ is pre-release; no installer has been published yet, so the release links 404 until the first tagged build ships. Until then, [build from source](#build-from-source).
-
-Once `v0.1.0` is published, per-OS installers will live on the [latest release page](https://github.com/ibrahemid/writ/releases/latest), all from the same source tree.
+Installers for macOS, Windows, and Linux are on the [latest release page](https://github.com/ibrahemid/writ/releases/latest). Or [build from source](#build-from-source).
 
 ## Features
 
@@ -31,7 +27,7 @@ A plain text file has no tabs, no search across buffers, and no persistent autos
 
 ## See it in action
 
-Visit the [landing page](https://ibrahemid.github.io/writ) for the full demo and feature tour. Static screenshots live in [docs/assets/](docs/assets/).
+Visit the [landing page](https://ibrahemid.github.io/writ) for the full demo and feature tour.
 
 ## Keyboard shortcuts
 
@@ -87,9 +83,3 @@ Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the developmen
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
-## Star history
-
-[![Star History](https://api.star-history.com/svg?repos=ibrahemid/writ&type=Date)](https://star-history.com/#ibrahemid/writ&Date)
-
-Made with Tauri and SolidJS.
