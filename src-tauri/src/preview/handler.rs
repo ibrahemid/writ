@@ -53,7 +53,8 @@ impl RenderCache {
 
     /// Store (or replace) the rendered document for `buffer_id`.
     pub fn put(&self, buffer_id: impl Into<String>, doc: RenderedDoc) {
-        recover_poison(self.docs.lock(), "preview::render_cache::put").insert(buffer_id.into(), doc);
+        recover_poison(self.docs.lock(), "preview::render_cache::put")
+            .insert(buffer_id.into(), doc);
     }
 
     /// Fetch the rendered document for `buffer_id`.
@@ -217,7 +218,10 @@ pub fn chrome_asset(path: &str) -> Option<(&'static [u8], &'static str)> {
             include_bytes!("../../assets/preview-base.css"),
             chrome_mime("preview-base.css"),
         )),
-        "blank" | "blank.html" => Some((b"<!doctype html><title>writ</title>", chrome_mime("blank.html"))),
+        "blank" | "blank.html" => Some((
+            b"<!doctype html><title>writ</title>",
+            chrome_mime("blank.html"),
+        )),
         // First-party scroll-sync / in-preview find bridge, served same-origin
         // under the document scope (injected into every rendered document).
         "preview/bridge.js" => Some((
@@ -353,7 +357,11 @@ mod tests {
         );
         assert_eq!(r.status, 200);
         assert!(!r.body.is_empty());
-        let ct = r.headers.iter().find(|(k, _)| *k == "Content-Type").unwrap();
+        let ct = r
+            .headers
+            .iter()
+            .find(|(k, _)| *k == "Content-Type")
+            .unwrap();
         assert!(ct.1.starts_with("text/css"));
         let csp = r
             .headers
@@ -361,12 +369,20 @@ mod tests {
             .find(|(k, _)| *k == "Content-Security-Policy")
             .unwrap();
         assert!(csp.1.contains("script-src 'self'"));
-        assert!(r.headers.iter().any(|(k, v)| *k == "X-Content-Type-Options" && v == "nosniff"));
+        assert!(r
+            .headers
+            .iter()
+            .any(|(k, v)| *k == "X-Content-Type-Options" && v == "nosniff"));
     }
 
     #[test]
     fn unknown_chrome_asset_is_404() {
-        let r = resolve("writ-preview://chrome/nope.css", SCRIPTS_ON, no_doc, chrome_asset);
+        let r = resolve(
+            "writ-preview://chrome/nope.css",
+            SCRIPTS_ON,
+            no_doc,
+            chrome_asset,
+        );
         assert_eq!(r.status, 404);
     }
 
@@ -383,7 +399,11 @@ mod tests {
         );
         assert_eq!(r.status, 200);
         assert!(!r.body.is_empty());
-        let ct = r.headers.iter().find(|(k, _)| *k == "Content-Type").unwrap();
+        let ct = r
+            .headers
+            .iter()
+            .find(|(k, _)| *k == "Content-Type")
+            .unwrap();
         assert!(ct.1.starts_with("application/javascript"));
         assert!(r
             .headers
@@ -400,7 +420,10 @@ mod tests {
         let (bytes, _) = chrome_asset("preview/bridge.js").unwrap();
         let src = std::str::from_utf8(bytes).expect("bridge is valid utf-8");
         assert!(!src.contains("eval("), "bridge must not use eval()");
-        assert!(!src.contains("new Function("), "bridge must not use new Function()");
+        assert!(
+            !src.contains("new Function("),
+            "bridge must not use new Function()"
+        );
     }
 
     #[test]
@@ -415,7 +438,11 @@ mod tests {
         );
         assert_eq!(r.status, 200);
         assert!(!r.body.is_empty());
-        let ct = r.headers.iter().find(|(k, _)| *k == "Content-Type").unwrap();
+        let ct = r
+            .headers
+            .iter()
+            .find(|(k, _)| *k == "Content-Type")
+            .unwrap();
         assert!(ct.1.starts_with("application/javascript"));
         assert!(r
             .headers
@@ -435,7 +462,11 @@ mod tests {
             chrome_asset,
         );
         assert_eq!(css.status, 200);
-        let ct = css.headers.iter().find(|(k, _)| *k == "Content-Type").unwrap();
+        let ct = css
+            .headers
+            .iter()
+            .find(|(k, _)| *k == "Content-Type")
+            .unwrap();
         assert!(ct.1.starts_with("text/css"));
 
         let font = resolve(
@@ -446,7 +477,11 @@ mod tests {
         );
         assert_eq!(font.status, 200);
         assert!(!font.body.is_empty());
-        let ct = font.headers.iter().find(|(k, _)| *k == "Content-Type").unwrap();
+        let ct = font
+            .headers
+            .iter()
+            .find(|(k, _)| *k == "Content-Type")
+            .unwrap();
         assert_eq!(ct.1, "font/woff2");
     }
 
@@ -487,7 +522,10 @@ mod tests {
         let (bytes, _) = chrome_asset("mermaid/mermaid.min.js").unwrap();
         let src = std::str::from_utf8(bytes).expect("runtime is valid utf-8");
 
-        assert!(!src.contains("new Function("), "runtime must not use new Function()");
+        assert!(
+            !src.contains("new Function("),
+            "runtime must not use new Function()"
+        );
         assert!(!src.contains("eval("), "runtime must not use eval()");
 
         // Bare `Function(` calls are allowed only as the standard
@@ -519,15 +557,23 @@ mod tests {
             chrome_asset,
         );
         assert_eq!(r.status, 200);
-        assert_eq!(String::from_utf8(r.body.into_owned()).unwrap(), "<h1>rendered</h1>");
-        assert!(r.headers.iter().any(|(k, v)| *k == "X-Content-Type-Options" && v == "nosniff"));
+        assert_eq!(
+            String::from_utf8(r.body.into_owned()).unwrap(),
+            "<h1>rendered</h1>"
+        );
+        assert!(r
+            .headers
+            .iter()
+            .any(|(k, v)| *k == "X-Content-Type-Options" && v == "nosniff"));
         let csp = r
             .headers
             .iter()
             .find(|(k, _)| *k == "Content-Security-Policy")
             .unwrap();
         // Scripts on → the document CSP permits inline + self + writ-preview:.
-        assert!(csp.1.contains("script-src 'unsafe-inline' 'self' writ-preview:"));
+        assert!(csp
+            .1
+            .contains("script-src 'unsafe-inline' 'self' writ-preview:"));
     }
 
     #[test]
@@ -596,7 +642,12 @@ mod tests {
 
     #[test]
     fn uncached_document_is_404() {
-        let r = resolve("writ-preview://document/ghost", SCRIPTS_ON, no_doc, chrome_asset);
+        let r = resolve(
+            "writ-preview://document/ghost",
+            SCRIPTS_ON,
+            no_doc,
+            chrome_asset,
+        );
         assert_eq!(r.status, 404);
     }
 

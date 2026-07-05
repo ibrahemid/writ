@@ -18,7 +18,10 @@ impl std::fmt::Display for ArgError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ArgError::MixedFilesAndWorkspace => {
-                write!(f, "cannot mix files and a workspace directory in one invocation")
+                write!(
+                    f,
+                    "cannot mix files and a workspace directory in one invocation"
+                )
             }
             ArgError::MultipleWorkspaces => {
                 write!(f, "only one workspace directory may be opened at a time")
@@ -152,7 +155,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("note.md");
         std::fs::write(&file, "x").unwrap();
-        let result = resolve_targets(&[OsString::from(file.as_os_str())], dir.path(), None).unwrap();
+        let result =
+            resolve_targets(&[OsString::from(file.as_os_str())], dir.path(), None).unwrap();
         assert_eq!(result, OpenTarget::Files(vec![file]));
     }
 
@@ -219,10 +223,7 @@ mod tests {
         std::fs::write(&a, "").unwrap();
         std::fs::write(&b, "").unwrap();
         let result = resolve_targets(
-            &[
-                OsString::from(a.as_os_str()),
-                OsString::from(b.as_os_str()),
-            ],
+            &[OsString::from(a.as_os_str()), OsString::from(b.as_os_str())],
             dir.path(),
             None,
         )

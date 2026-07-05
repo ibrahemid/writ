@@ -1,8 +1,6 @@
 use std::sync::OnceLock;
 
-use crate::transform::{
-    TextTransform, TransformCategory, TransformError, TransformMetadata,
-};
+use crate::transform::{TextTransform, TransformCategory, TransformError, TransformMetadata};
 
 /// Removes the longest common leading-whitespace prefix shared by all
 /// non-blank lines.

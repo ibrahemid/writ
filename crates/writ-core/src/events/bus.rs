@@ -111,10 +111,7 @@ impl EventBus {
             .subscribers
             .lock()
             .unwrap_or_else(|poisoned| {
-                tracing::error!(
-                    location = "events::bus::emit",
-                    "recovered poisoned mutex"
-                );
+                tracing::error!(location = "events::bus::emit", "recovered poisoned mutex");
                 poisoned.into_inner()
             })
             .clone();

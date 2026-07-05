@@ -87,8 +87,7 @@ mod tests {
             OsString::from(&b),
         ];
 
-        let count =
-            push_arg_paths_into_pending(&pending, &authorized, argv.into_iter().skip(1));
+        let count = push_arg_paths_into_pending(&pending, &authorized, argv.into_iter().skip(1));
         assert_eq!(count, 2);
 
         let stored = pending.lock().unwrap();
@@ -113,8 +112,7 @@ mod tests {
             os("-v"),
         ];
 
-        let count =
-            push_arg_paths_into_pending(&pending, &authorized, argv.into_iter().skip(1));
+        let count = push_arg_paths_into_pending(&pending, &authorized, argv.into_iter().skip(1));
         assert_eq!(count, 1);
 
         let stored = pending.lock().unwrap();
@@ -126,11 +124,8 @@ mod tests {
     fn empty_args_leaves_pending_untouched() {
         let pending = Mutex::new(vec!["preexisting".to_string()]);
         let authorized = AuthorizedPaths::new();
-        let count = push_arg_paths_into_pending(
-            &pending,
-            &authorized,
-            std::iter::empty::<OsString>(),
-        );
+        let count =
+            push_arg_paths_into_pending(&pending, &authorized, std::iter::empty::<OsString>());
         assert_eq!(count, 0);
 
         let stored = pending.lock().unwrap();
@@ -146,8 +141,7 @@ mod tests {
 
         let pending = Mutex::new(vec!["already-there.txt".to_string()]);
         let authorized = AuthorizedPaths::new();
-        let count =
-            push_arg_paths_into_pending(&pending, &authorized, vec![OsString::from(&f)]);
+        let count = push_arg_paths_into_pending(&pending, &authorized, vec![OsString::from(&f)]);
         assert_eq!(count, 1);
 
         let stored = pending.lock().unwrap();
@@ -175,8 +169,7 @@ mod tests {
             os("--foo"),
         ];
 
-        let count =
-            push_arg_paths_into_pending(&pending, &authorized, argv.into_iter().skip(1));
+        let count = push_arg_paths_into_pending(&pending, &authorized, argv.into_iter().skip(1));
         assert_eq!(count, 2);
 
         let stored = pending.lock().unwrap();
@@ -194,11 +187,7 @@ mod tests {
         let pending = Mutex::new(Vec::<String>::new());
         let authorized = AuthorizedPaths::new();
 
-        let count = push_arg_paths_into_pending(
-            &pending,
-            &authorized,
-            vec![OsString::from(&a)],
-        );
+        let count = push_arg_paths_into_pending(&pending, &authorized, vec![OsString::from(&a)]);
         assert_eq!(count, 1);
 
         let stored = pending.lock().unwrap();

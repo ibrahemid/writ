@@ -48,7 +48,12 @@ fn apply_round_trips_trim_trailing_whitespace() {
 #[test]
 fn apply_round_trips_tidy_whitespace_composite() {
     let registry = build_registry();
-    let out = apply(&registry, "tidy_whitespace", "    foo   bar   \n    baz\t\n\n\n").unwrap();
+    let out = apply(
+        &registry,
+        "tidy_whitespace",
+        "    foo   bar   \n    baz\t\n\n\n",
+    )
+    .unwrap();
     assert_eq!(out, "foo bar\nbaz\n");
 }
 

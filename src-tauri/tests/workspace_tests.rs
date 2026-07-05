@@ -95,7 +95,9 @@ fn set_root_rejects_missing_path() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
 
-    assert!(set_workspace_root_from_path(&state, std::path::Path::new("/nonexistent/writ-ws")).is_err());
+    assert!(
+        set_workspace_root_from_path(&state, std::path::Path::new("/nonexistent/writ-ws")).is_err()
+    );
 }
 
 #[test]

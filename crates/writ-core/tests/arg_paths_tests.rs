@@ -83,7 +83,11 @@ fn absolute_inputs_remain_absolute() {
     let paths = arg_paths_from_iter(iter);
 
     assert_eq!(paths.len(), 1);
-    assert!(paths[0].is_absolute(), "expected absolute, got {:?}", paths[0]);
+    assert!(
+        paths[0].is_absolute(),
+        "expected absolute, got {:?}",
+        paths[0]
+    );
     assert!(paths[0].ends_with("file.txt"));
 }
 
@@ -97,11 +101,7 @@ fn preserves_order() {
     std::fs::write(&b, "2").unwrap();
     std::fs::write(&c, "3").unwrap();
 
-    let iter = vec![
-        OsString::from(&b),
-        OsString::from(&a),
-        OsString::from(&c),
-    ];
+    let iter = vec![OsString::from(&b), OsString::from(&a), OsString::from(&c)];
     let paths = arg_paths_from_iter(iter);
 
     assert_eq!(paths.len(), 3);
@@ -116,11 +116,7 @@ fn deduplicates_repeated_paths() {
     let a = dir.path().join("a.txt");
     std::fs::write(&a, "1").unwrap();
 
-    let iter = vec![
-        OsString::from(&a),
-        OsString::from(&a),
-        OsString::from(&a),
-    ];
+    let iter = vec![OsString::from(&a), OsString::from(&a), OsString::from(&a)];
     let paths = arg_paths_from_iter(iter);
 
     assert_eq!(paths.len(), 1);

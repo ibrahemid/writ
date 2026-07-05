@@ -224,12 +224,18 @@ mod tests {
     #[test]
     fn rejects_wrong_scheme() {
         assert_eq!(parse("https://chrome/x"), Err(RefusalReason::WrongScheme));
-        assert_eq!(parse("writ-workspace://chrome/x"), Err(RefusalReason::WrongScheme));
+        assert_eq!(
+            parse("writ-workspace://chrome/x"),
+            Err(RefusalReason::WrongScheme)
+        );
     }
 
     #[test]
     fn rejects_unknown_scope() {
-        assert_eq!(parse("writ-preview://attacker/x"), Err(RefusalReason::UnknownScope));
+        assert_eq!(
+            parse("writ-preview://attacker/x"),
+            Err(RefusalReason::UnknownScope)
+        );
         assert_eq!(parse("writ-preview:///x"), Err(RefusalReason::UnknownScope));
     }
 
@@ -240,7 +246,11 @@ mod tests {
             "writ-preview://document/buf-1/../../chrome/base.css",
             "writ-preview://chrome/../document/x",
         ] {
-            assert_eq!(parse(url), Err(RefusalReason::TraversalAttempt), "url={url}");
+            assert_eq!(
+                parse(url),
+                Err(RefusalReason::TraversalAttempt),
+                "url={url}"
+            );
         }
     }
 
@@ -251,7 +261,11 @@ mod tests {
             "writ-preview://document/%2E%2E/chrome/base.css",
             "writ-preview://document/foo/%2e%2e/bar",
         ] {
-            assert_eq!(parse(url), Err(RefusalReason::TraversalAttempt), "url={url}");
+            assert_eq!(
+                parse(url),
+                Err(RefusalReason::TraversalAttempt),
+                "url={url}"
+            );
         }
     }
 

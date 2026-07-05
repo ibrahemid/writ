@@ -92,13 +92,14 @@ fn save_content_does_not_truncate_destination_on_temp_failure() {
 
     let read_only_dir = dir.path().join("readonly-buffers");
     fs::create_dir_all(&read_only_dir).expect("mkdir readonly failed");
-    let mut perms = fs::metadata(&read_only_dir).expect("metadata").permissions();
+    let mut perms = fs::metadata(&read_only_dir)
+        .expect("metadata")
+        .permissions();
     perms.set_readonly(true);
     fs::set_permissions(&read_only_dir, perms).expect("chmod readonly failed");
 
     let nested_target = read_only_dir.join("nope.txt");
-    let attempt =
-        writ_storage::atomic::write_atomic(&nested_target, b"this should never land");
+    let attempt = writ_storage::atomic::write_atomic(&nested_target, b"this should never land");
     assert!(
         attempt.is_err(),
         "writing into a read-only directory must fail"
@@ -108,7 +109,9 @@ fn save_content_does_not_truncate_destination_on_temp_failure() {
         "no destination file should be created when the write fails"
     );
 
-    let mut perms = fs::metadata(&read_only_dir).expect("metadata").permissions();
+    let mut perms = fs::metadata(&read_only_dir)
+        .expect("metadata")
+        .permissions();
     #[allow(clippy::permissions_set_readonly_false)]
     perms.set_readonly(false);
     fs::set_permissions(&read_only_dir, perms).expect("restore perms failed");
@@ -205,11 +208,7 @@ fn save_to_source_is_atomic_for_external_file() {
     let leftover_tmp = fs::read_dir(source_dir)
         .expect("read_dir")
         .filter_map(|e| e.ok())
-        .any(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .contains(".tmp")
-        });
+        .any(|e| e.file_name().to_string_lossy().contains(".tmp"));
     assert!(
         !leftover_tmp,
         "no .tmp sibling files should remain next to the source file after a successful save"

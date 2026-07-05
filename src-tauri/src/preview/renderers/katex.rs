@@ -199,7 +199,10 @@ mod tests {
         // (non-identifier prefix) would fail.
         let src = std::str::from_utf8(asset("katex.min.js").unwrap()).unwrap();
         assert!(!src.contains("eval("), "katex must not use eval()");
-        assert!(!src.contains("new Function("), "katex must not use new Function()");
+        assert!(
+            !src.contains("new Function("),
+            "katex must not use new Function()"
+        );
         for (idx, _) in src.match_indices("Function(") {
             let prev = src[..idx].chars().next_back().unwrap_or(' ');
             assert!(

@@ -192,7 +192,11 @@ mod tests {
         // never routes a concrete file (defaults don't cascade) and, as a member of
         // an all-must-match group, would only keep the row from ever reading default.
         for t in claimable_types() {
-            assert!(!t.utis.contains(&"public.text"), "{} claims public.text", t.id);
+            assert!(
+                !t.utis.contains(&"public.text"),
+                "{} claims public.text",
+                t.id
+            );
             assert!(
                 !t.utis.contains(&"public.source-code"),
                 "{} claims public.source-code",

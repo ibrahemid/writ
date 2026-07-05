@@ -71,7 +71,10 @@ pub fn set_default_app(_state: State<'_, AppState>, id: String) -> Result<(), St
 /// If resolution fails (sandboxed environment, app not installed), the status is
 /// returned unchanged; the caller must tolerate `OtherApp { name: None }`.
 #[cfg(target_os = "macos")]
-fn enrich_with_display_name(status: DefaultAppStatus, handler_id: Option<&str>) -> DefaultAppStatus {
+fn enrich_with_display_name(
+    status: DefaultAppStatus,
+    handler_id: Option<&str>,
+) -> DefaultAppStatus {
     use writ_core::default_app::DefaultAppStatus::OtherApp;
     if let OtherApp { name: None } = &status {
         if let Some(id) = handler_id {
@@ -186,9 +189,7 @@ mod macos {
         let path = url.to_path()?;
 
         // Use the filename stem (e.g. "TextEdit" from "TextEdit.app").
-        path.file_stem()
-            .and_then(|s| s.to_str())
-            .map(str::to_owned)
+        path.file_stem().and_then(|s| s.to_str()).map(str::to_owned)
     }
 
     #[derive(Debug)]
@@ -274,8 +275,7 @@ mod tests {
 
     #[test]
     fn bundle_id_comparison_is_case_insensitive() {
-        let status =
-            DefaultAppStatus::from_handler_id(Some("COM.WRIT.EDITOR"), our_bundle_id());
+        let status = DefaultAppStatus::from_handler_id(Some("COM.WRIT.EDITOR"), our_bundle_id());
         assert_eq!(status, DefaultAppStatus::IsDefault);
     }
 }

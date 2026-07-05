@@ -18,7 +18,9 @@ impl TextTransform for PreparePrompt {
         static META: OnceLock<TransformMetadata> = OnceLock::new();
         META.get_or_init(|| TransformMetadata {
             label: "Prepare as Prompt".to_string(),
-            description: "Strip frontmatter and HTML comments outside code fences; tidy trailing whitespace.".to_string(),
+            description:
+                "Strip frontmatter and HTML comments outside code fences; tidy trailing whitespace."
+                    .to_string(),
             category: TransformCategory::Other,
         })
     }

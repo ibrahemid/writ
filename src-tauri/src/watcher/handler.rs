@@ -472,14 +472,7 @@ mod tests {
             guard.record("self.txt".to_string(), bytes, now);
         }
 
-        let event = classify_watch_event(
-            &buf,
-            &cfg,
-            &buffers,
-            &set,
-            DEFAULT_IGNORE_TTL,
-            now,
-        );
+        let event = classify_watch_event(&buf, &cfg, &buffers, &set, DEFAULT_IGNORE_TTL, now);
 
         assert!(event.is_none(), "expected internal write to be suppressed");
     }

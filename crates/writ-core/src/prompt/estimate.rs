@@ -19,7 +19,7 @@ pub fn estimate_tokens(text: &str) -> usize {
     }
     let chars = text.chars().count() as f64;
     let words = text.split_whitespace().count() as f64;
-    let blended = CHAR_RULE_WEIGHT * (chars / CHARS_PER_TOKEN)
-        + WORD_RULE_WEIGHT * (words * TOKENS_PER_WORD);
+    let blended =
+        CHAR_RULE_WEIGHT * (chars / CHARS_PER_TOKEN) + WORD_RULE_WEIGHT * (words * TOKENS_PER_WORD);
     (blended.round() as usize).max(1)
 }

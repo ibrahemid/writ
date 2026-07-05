@@ -45,7 +45,13 @@ fn strip_comments_outside_fences(input: &str) -> String {
             if let Some(pos) = line.find("-->") {
                 in_comment = false;
                 let resume = pos + 3;
-                scan_text_segment(&line[resume..], line_start + resume, input, &mut out, &mut in_comment);
+                scan_text_segment(
+                    &line[resume..],
+                    line_start + resume,
+                    input,
+                    &mut out,
+                    &mut in_comment,
+                );
             }
             continue;
         }

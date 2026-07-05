@@ -118,18 +118,12 @@ mod tests {
 
     #[test]
     fn minimized_window_unminimizes() {
-        assert_eq!(
-            decide_toggle(true, true, false),
-            ToggleAction::Unminimize,
-        );
+        assert_eq!(decide_toggle(true, true, false), ToggleAction::Unminimize,);
     }
 
     #[test]
     fn minimized_overrides_focus_state() {
-        assert_eq!(
-            decide_toggle(true, true, true),
-            ToggleAction::Unminimize,
-        );
+        assert_eq!(decide_toggle(true, true, true), ToggleAction::Unminimize,);
     }
 
     #[test]
@@ -149,21 +143,49 @@ mod tests {
 
     #[test]
     fn place_window_centers_when_no_monitors() {
-        let saved = Rect { x: 100, y: 100, width: 800, height: 600 };
+        let saved = Rect {
+            x: 100,
+            y: 100,
+            width: 800,
+            height: 600,
+        };
         assert_eq!(place_window(saved, &[]), WindowPlacement::Center);
     }
 
     #[test]
     fn place_window_keeps_fully_visible_position() {
-        let mon = Rect { x: 0, y: 0, width: 1920, height: 1080 };
-        let saved = Rect { x: 200, y: 150, width: 800, height: 600 };
-        assert_eq!(place_window(saved, &[mon]), WindowPlacement::At { x: 200, y: 150 });
+        let mon = Rect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let saved = Rect {
+            x: 200,
+            y: 150,
+            width: 800,
+            height: 600,
+        };
+        assert_eq!(
+            place_window(saved, &[mon]),
+            WindowPlacement::At { x: 200, y: 150 }
+        );
     }
 
     #[test]
     fn place_window_clamps_partially_offscreen_window_onto_monitor() {
-        let mon = Rect { x: 0, y: 0, width: 1920, height: 1080 };
-        let saved = Rect { x: 1600, y: 900, width: 800, height: 600 };
+        let mon = Rect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let saved = Rect {
+            x: 1600,
+            y: 900,
+            width: 800,
+            height: 600,
+        };
         assert_eq!(
             place_window(saved, &[mon]),
             WindowPlacement::At { x: 1120, y: 480 },
@@ -172,23 +194,61 @@ mod tests {
 
     #[test]
     fn place_window_centers_when_saved_on_disconnected_monitor() {
-        let mon = Rect { x: 0, y: 0, width: 1920, height: 1080 };
-        let saved = Rect { x: 3000, y: 200, width: 800, height: 600 };
+        let mon = Rect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let saved = Rect {
+            x: 3000,
+            y: 200,
+            width: 800,
+            height: 600,
+        };
         assert_eq!(place_window(saved, &[mon]), WindowPlacement::Center);
     }
 
     #[test]
     fn place_window_pins_oversized_window_to_monitor_origin() {
-        let mon = Rect { x: 0, y: 0, width: 1280, height: 800 };
-        let saved = Rect { x: -50, y: -50, width: 1600, height: 1000 };
-        assert_eq!(place_window(saved, &[mon]), WindowPlacement::At { x: 0, y: 0 });
+        let mon = Rect {
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 800,
+        };
+        let saved = Rect {
+            x: -50,
+            y: -50,
+            width: 1600,
+            height: 1000,
+        };
+        assert_eq!(
+            place_window(saved, &[mon]),
+            WindowPlacement::At { x: 0, y: 0 }
+        );
     }
 
     #[test]
     fn place_window_picks_monitor_with_greatest_overlap() {
-        let left = Rect { x: 0, y: 0, width: 1440, height: 900 };
-        let right = Rect { x: 1440, y: 0, width: 1920, height: 1080 };
-        let saved = Rect { x: 1500, y: 100, width: 800, height: 600 };
+        let left = Rect {
+            x: 0,
+            y: 0,
+            width: 1440,
+            height: 900,
+        };
+        let right = Rect {
+            x: 1440,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let saved = Rect {
+            x: 1500,
+            y: 100,
+            width: 800,
+            height: 600,
+        };
         assert_eq!(
             place_window(saved, &[left, right]),
             WindowPlacement::At { x: 1500, y: 100 },
@@ -198,7 +258,15 @@ mod tests {
     #[test]
     fn logical_rect_converts_physical_using_scale() {
         let r = logical_rect(2880, 0, 3840, 2160, 2.0);
-        assert_eq!(r, Rect { x: 1440, y: 0, width: 1920, height: 1080 });
+        assert_eq!(
+            r,
+            Rect {
+                x: 1440,
+                y: 0,
+                width: 1920,
+                height: 1080
+            }
+        );
     }
 
     #[test]
