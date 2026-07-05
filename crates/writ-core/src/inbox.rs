@@ -1,14 +1,15 @@
-//! Watch-inbox policy for Writ (ADR-018).
+//! Watch-inbox policy for Writ (ADR-018, arrival rule revised by ADR-024).
 //!
 //! Pure rules deciding whether a file that appeared inside the watched
 //! inbox folder should auto-open. The adapter supplies the filesystem
-//! facts (creation timestamp, watch-start instant); this module owns the
-//! decision: containment under the inbox root, the shared default ignore
-//! set, and the created-after-watch-start rule that keeps pre-existing
-//! backlogs and mere modifications from opening tabs.
+//! facts (the snapshot of paths that already existed when watching
+//! began); this module owns the decision: containment under the inbox
+//! root, the shared default ignore set, and the not-in-snapshot rule
+//! that keeps pre-existing backlogs and mere modifications from opening
+//! tabs.
 
-use std::path::Path;
-use std::time::SystemTime;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -37,27 +38,27 @@ pub fn sort_inbox_files(files: &mut [InboxFile]) {
 /// - sit inside `root`,
 /// - have no default-ignored component (`node_modules`, `.git`, …)
 ///   between `root` and the file, and
-/// - were created at or after `watch_start`, so pre-existing files —
-///   including pre-existing files later modified — never auto-open.
-pub fn qualifies_for_auto_open(
-    root: &Path,
-    path: &Path,
-    created: SystemTime,
-    watch_start: SystemTime,
-) -> bool {
+/// - are absent from `preexisting`, the snapshot of paths taken when
+///   watching began, so pre-existing files (including pre-existing files
+///   later modified) never auto-open.
+///
+/// Snapshot membership replaces the original creation-timestamp
+/// comparison: filesystem birth times carry coarse granularity on some
+/// systems, which silently suppressed genuinely new files created within
+/// the same clock tick as watch start (ADR-024).
+pub fn qualifies_for_auto_open(root: &Path, path: &Path, preexisting: &HashSet<PathBuf>) -> bool {
     if !path.starts_with(root) {
         return false;
     }
     if path_has_ignored_component(root, path) {
         return false;
     }
-    created >= watch_start
+    !preexisting.contains(path)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     fn file(name: &str) -> InboxFile {
         InboxFile {
@@ -65,6 +66,10 @@ mod tests {
             path: format!("/inbox/{name}"),
             size_bytes: 0,
         }
+    }
+
+    fn snapshot(paths: &[&str]) -> HashSet<PathBuf> {
+        paths.iter().map(PathBuf::from).collect()
     }
 
     #[test]
@@ -76,65 +81,52 @@ mod tests {
     }
 
     #[test]
-    fn file_created_after_watch_start_qualifies() {
-        let start = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
-        let created = start + Duration::from_secs(1);
+    fn file_absent_from_snapshot_qualifies() {
         assert!(qualifies_for_auto_open(
             Path::new("/inbox"),
             Path::new("/inbox/report.md"),
-            created,
-            start,
+            &snapshot(&["/inbox/old-report.md"]),
         ));
     }
 
     #[test]
-    fn file_created_exactly_at_watch_start_qualifies() {
-        let start = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
+    fn file_qualifies_against_an_empty_snapshot() {
         assert!(qualifies_for_auto_open(
             Path::new("/inbox"),
             Path::new("/inbox/report.md"),
-            start,
-            start,
+            &snapshot(&[]),
         ));
     }
 
     #[test]
-    fn backlog_file_created_before_watch_start_is_excluded() {
-        let start = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
-        let created = start - Duration::from_secs(1);
+    fn backlog_file_in_snapshot_is_excluded() {
         assert!(!qualifies_for_auto_open(
             Path::new("/inbox"),
             Path::new("/inbox/old-report.md"),
-            created,
-            start,
+            &snapshot(&["/inbox/old-report.md"]),
         ));
     }
 
     #[test]
     fn path_outside_root_is_excluded() {
-        let start = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
         assert!(!qualifies_for_auto_open(
             Path::new("/inbox"),
             Path::new("/elsewhere/report.md"),
-            start + Duration::from_secs(1),
-            start,
+            &snapshot(&[]),
         ));
     }
 
     #[test]
     fn path_under_ignored_component_is_excluded() {
-        let start = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
         assert!(!qualifies_for_auto_open(
             Path::new("/inbox"),
             Path::new("/inbox/node_modules/pkg/readme.md"),
-            start + Duration::from_secs(1),
-            start,
+            &snapshot(&[]),
         ));
         assert!(!qualifies_for_auto_open(
             Path::new("/inbox"),
             Path::new("/inbox/.git/COMMIT_EDITMSG"),
-            start + Duration::from_secs(1),
-            start,
+            &snapshot(&[]),
         ));
     }
 }

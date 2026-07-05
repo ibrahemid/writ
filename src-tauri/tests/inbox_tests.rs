@@ -166,7 +166,6 @@ fn inbox_watcher_never_emits_for_preexisting_backlog() {
 
     let backlog = inbox.path().join("old-report.md");
     std::fs::write(&backlog, "stale").unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(50));
 
     let received = collect_arrivals(&state);
     set_inbox_path_from_path(&state, inbox.path()).expect("set inbox");
