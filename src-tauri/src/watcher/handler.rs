@@ -3,7 +3,7 @@ use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use tracing::{error, info};
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::watcher::change_event::ExternalChange;
@@ -130,13 +130,17 @@ pub fn start_inbox_watcher(
     bus: Arc<EventBus>,
     root: PathBuf,
 ) -> Result<WatcherHandle, Box<dyn std::error::Error>> {
-    let watch_start = SystemTime::now();
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
 
     let mut debouncer = new_debouncer(Duration::from_millis(500), tx)?;
     debouncer.watcher().watch(&root, RecursiveMode::Recursive)?;
 
-    info!(root = %root.display(), "inbox watcher started");
+    // Snapshot AFTER the watch is registered: a file landing during the scan
+    // is suppressed (it is in the snapshot) rather than double-reported, and
+    // nothing created after the scan can be missed.
+    let preexisting = snapshot_files(&root);
+
+    info!(root = %root.display(), preexisting = preexisting.len(), "inbox watcher started");
 
     std::thread::spawn(move || {
         while let Ok(result) = rx.recv() {
@@ -144,7 +148,7 @@ pub fn start_inbox_watcher(
                 Ok(events) => {
                     for event in events {
                         if let Some(domain_event) =
-                            classify_inbox_event(&event.path, &root, watch_start)
+                            classify_inbox_event(&event.path, &root, &preexisting)
                         {
                             bus.emit(domain_event);
                         }
@@ -163,29 +167,51 @@ pub fn start_inbox_watcher(
     })
 }
 
+/// Collects every regular file under `root`, recursively. The snapshot is
+/// the arrival discriminator (ADR-024): events for paths in this set are
+/// pre-existing backlog or modifications, never arrivals.
+fn snapshot_files(root: &Path) -> std::collections::HashSet<PathBuf> {
+    let mut files = std::collections::HashSet::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            match entry.file_type() {
+                Ok(t) if t.is_dir() => stack.push(path),
+                Ok(t) if t.is_file() => {
+                    files.insert(path);
+                }
+                _ => {}
+            }
+        }
+    }
+    files
+}
+
 /// Classifies an inbox file-system event into [`WritEvent::InboxFileArrived`],
 /// or suppresses it.
 ///
 /// Mechanism only: reads file metadata, then defers the auto-open decision
 /// to `writ_core::inbox::qualifies_for_auto_open` (containment, ignore set,
-/// created-after-watch-start) and `file_ops::classify_path`. Only files that
+/// snapshot membership) and `file_ops::classify_path`. Only files that
 /// classify as [`FileOpenMode::Normal`] auto-open: large-file-mode and binary
 /// (hex) buffers disable the rendered view the inbox exists to show. The
-/// debouncer does not distinguish create from modify, so the creation-timestamp comparison
-/// is the discriminator: a pre-existing file modified while watched carries
-/// a creation time before `watch_start` and is suppressed. Filesystems
-/// without birth time fall back to mtime (see ADR-018).
+/// debouncer does not distinguish create from modify, so the snapshot taken
+/// at watch start is the discriminator: an event for a path in the snapshot
+/// is a pre-existing file (possibly modified) and is suppressed (ADR-024).
 pub fn classify_inbox_event(
     path: &Path,
     root: &Path,
-    watch_start: SystemTime,
+    preexisting: &std::collections::HashSet<PathBuf>,
 ) -> Option<WritEvent> {
     let metadata = std::fs::metadata(path).ok()?;
     if !metadata.is_file() {
         return None;
     }
-    let created = metadata.created().or_else(|_| metadata.modified()).ok()?;
-    if !writ_core::inbox::qualifies_for_auto_open(root, path, created, watch_start) {
+    if !writ_core::inbox::qualifies_for_auto_open(root, path, preexisting) {
         return None;
     }
     match writ_core::file_ops::classify_path(path) {
@@ -582,13 +608,13 @@ mod tests {
     }
 
     #[test]
-    fn inbox_event_for_file_created_after_watch_start_surfaces() {
+    fn inbox_event_for_file_absent_from_snapshot_surfaces() {
         let dir = tempdir().unwrap();
-        let watch_start = SystemTime::now() - Duration::from_secs(60);
+        let preexisting = std::collections::HashSet::new();
         let file = dir.path().join("report.md");
         fs::write(&file, b"# done").unwrap();
 
-        match classify_inbox_event(&file, dir.path(), watch_start) {
+        match classify_inbox_event(&file, dir.path(), &preexisting) {
             Some(WritEvent::InboxFileArrived { path }) => {
                 assert_eq!(path, file.to_string_lossy());
             }
@@ -602,47 +628,47 @@ mod tests {
         let file = dir.path().join("old.md");
         fs::write(&file, b"before").unwrap();
 
-        let watch_start = SystemTime::now() + Duration::from_secs(60);
+        let preexisting: std::collections::HashSet<_> = [file.clone()].into_iter().collect();
         fs::write(&file, b"after").unwrap();
 
         assert!(
-            classify_inbox_event(&file, dir.path(), watch_start).is_none(),
-            "a file created before watch start must never auto-open"
+            classify_inbox_event(&file, dir.path(), &preexisting).is_none(),
+            "a file present at watch start must never auto-open"
         );
     }
 
     #[test]
     fn inbox_event_under_ignored_dir_is_suppressed() {
         let dir = tempdir().unwrap();
-        let watch_start = SystemTime::now() - Duration::from_secs(60);
+        let preexisting = std::collections::HashSet::new();
         let nested = dir.path().join("node_modules").join("pkg");
         fs::create_dir_all(&nested).unwrap();
         let file = nested.join("readme.md");
         fs::write(&file, b"x").unwrap();
 
-        assert!(classify_inbox_event(&file, dir.path(), watch_start).is_none());
+        assert!(classify_inbox_event(&file, dir.path(), &preexisting).is_none());
     }
 
     #[test]
     fn inbox_event_outside_root_is_suppressed() {
         let dir = tempdir().unwrap();
         let other = tempdir().unwrap();
-        let watch_start = SystemTime::now() - Duration::from_secs(60);
+        let preexisting = std::collections::HashSet::new();
         let file = other.path().join("report.md");
         fs::write(&file, b"x").unwrap();
 
-        assert!(classify_inbox_event(&file, dir.path(), watch_start).is_none());
+        assert!(classify_inbox_event(&file, dir.path(), &preexisting).is_none());
     }
 
     #[test]
     fn inbox_event_for_binary_file_is_suppressed() {
         let dir = tempdir().unwrap();
-        let watch_start = SystemTime::now() - Duration::from_secs(60);
+        let preexisting = std::collections::HashSet::new();
         let file = dir.path().join("dump.bin");
         fs::write(&file, [0u8, 159, 146, 150]).unwrap();
 
         assert!(
-            classify_inbox_event(&file, dir.path(), watch_start).is_none(),
+            classify_inbox_event(&file, dir.path(), &preexisting).is_none(),
             "non-text files must not auto-open"
         );
     }
@@ -650,7 +676,7 @@ mod tests {
     #[test]
     fn inbox_event_for_large_file_is_suppressed() {
         let dir = tempdir().unwrap();
-        let watch_start = SystemTime::now() - Duration::from_secs(60);
+        let preexisting = std::collections::HashSet::new();
         let file = dir.path().join("huge.log");
         // Above the normal-open threshold the file would open in large-file mode
         // (syntax and rendered preview disabled), which defeats the inbox's
@@ -659,7 +685,7 @@ mod tests {
         fs::write(&file, &big).unwrap();
 
         assert!(
-            classify_inbox_event(&file, dir.path(), watch_start).is_none(),
+            classify_inbox_event(&file, dir.path(), &preexisting).is_none(),
             "files above the normal-open threshold must not auto-open into the inbox"
         );
     }
@@ -667,19 +693,19 @@ mod tests {
     #[test]
     fn inbox_event_for_directory_is_suppressed() {
         let dir = tempdir().unwrap();
-        let watch_start = SystemTime::now() - Duration::from_secs(60);
+        let preexisting = std::collections::HashSet::new();
         let sub = dir.path().join("new-dir");
         fs::create_dir(&sub).unwrap();
 
-        assert!(classify_inbox_event(&sub, dir.path(), watch_start).is_none());
+        assert!(classify_inbox_event(&sub, dir.path(), &preexisting).is_none());
     }
 
     #[test]
     fn inbox_event_for_deleted_path_is_suppressed() {
         let dir = tempdir().unwrap();
-        let watch_start = SystemTime::now() - Duration::from_secs(60);
+        let preexisting = std::collections::HashSet::new();
         let file = dir.path().join("gone.md");
 
-        assert!(classify_inbox_event(&file, dir.path(), watch_start).is_none());
+        assert!(classify_inbox_event(&file, dir.path(), &preexisting).is_none());
     }
 }
