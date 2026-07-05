@@ -19,7 +19,7 @@ use writ_storage::layout_state::LayoutStateStore;
 
 use crate::fts_scheduler::FtsScheduler;
 use crate::preview::handler::RenderCache;
-use crate::security::{canonicalize_for_authorization, AuthorizedPaths};
+use crate::security::{canonicalize_for_authorization, canonicalize_root, AuthorizedPaths};
 use crate::watcher::handler::{IgnoreSet, WatcherHandle};
 
 pub struct AppState {
@@ -175,7 +175,7 @@ impl AppState {
             .root
             .as_deref()
             .map(std::path::PathBuf::from)
-            .and_then(|p| p.canonicalize().ok())
+            .and_then(|p| canonicalize_root(&p).ok())
             .filter(|p| p.is_dir());
         if let Some(root) = &workspace_root {
             info!(root = %root.display(), "workspace root restored from config");
@@ -186,7 +186,7 @@ impl AppState {
             .path
             .as_deref()
             .map(std::path::PathBuf::from)
-            .and_then(|p| p.canonicalize().ok())
+            .and_then(|p| canonicalize_root(&p).ok())
             .filter(|p| p.is_dir());
         if let Some(root) = &inbox_root {
             info!(root = %root.display(), "inbox folder restored from config");
