@@ -70,6 +70,16 @@ pub fn canonicalize_for_authorization(path: &Path) -> std::io::Result<String> {
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "non-utf8 path"))
 }
 
+/// Canonicalize a containment root (workspace or inbox folder) to the same
+/// form `canonicalize_for_authorization` produces for candidate paths.
+///
+/// Both sides of the `starts_with` containment check must agree: on Windows,
+/// `std::fs::canonicalize` prefixes `\\?\`, and a root stored with the prefix
+/// never matches a candidate stripped of it.
+pub fn canonicalize_root(path: &Path) -> std::io::Result<PathBuf> {
+    Ok(strip_unc_prefix(std::fs::canonicalize(path)?))
+}
+
 #[cfg(windows)]
 fn strip_unc_prefix(path: PathBuf) -> PathBuf {
     const UNC: &str = r"\\?\";
@@ -145,6 +155,26 @@ mod tests {
 
         let canonical = canonicalize_for_authorization(&p).unwrap();
         assert!(std::path::Path::new(&canonical).is_absolute());
+    }
+
+    #[test]
+    fn root_and_candidate_canonical_forms_agree_for_containment() {
+        // A root canonicalized via canonicalize_root must be a starts_with
+        // prefix of any contained candidate canonicalized via
+        // canonicalize_for_authorization (on Windows both sides strip \\?\).
+        let dir = TempDir::new().unwrap();
+        let sub = dir.path().join("inbox");
+        std::fs::create_dir(&sub).unwrap();
+        let file = sub.join("note.md");
+        std::fs::write(&file, "x").unwrap();
+
+        let root = canonicalize_root(&sub).unwrap();
+        let candidate = canonicalize_for_authorization(&file).unwrap();
+        assert!(
+            std::path::Path::new(&candidate).starts_with(&root),
+            "candidate {candidate} must sit under root {}",
+            root.display()
+        );
     }
 
     #[test]
