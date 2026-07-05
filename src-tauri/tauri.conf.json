@@ -63,7 +63,7 @@
         "shortDescription": "Lightweight text editor for developers",
         "longDescription": "Writ is a distraction-free, always-ready scratchpad editor for developers. Global hotkey summon, autosave, full-text search, CodeMirror 6 with language detection. Local-only, zero telemetry.",
         "publisher": "Ibrahem ID",
-        "copyright": "Copyright (c) 2026 Ibrahem ID",
+        "copyright": "Copyright (c) 2026 Writ Contributors",
         "macOS": {
             "minimumSystemVersion": "10.15"
         },
