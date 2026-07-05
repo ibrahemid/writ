@@ -82,6 +82,10 @@ else
   cargo build -p writ-cli --release --target aarch64-apple-darwin
   cargo build -p writ-cli --release --target x86_64-apple-darwin
   mkdir -p src-tauri/binaries
+  # The universal target builds each arch separately; every pass resolves the
+  # sidecar by its own triple, so all three names must exist.
+  cp "${TARGET_DIR}/aarch64-apple-darwin/release/writ" src-tauri/binaries/writ-aarch64-apple-darwin
+  cp "${TARGET_DIR}/x86_64-apple-darwin/release/writ" src-tauri/binaries/writ-x86_64-apple-darwin
   lipo -create \
     "${TARGET_DIR}/aarch64-apple-darwin/release/writ" \
     "${TARGET_DIR}/x86_64-apple-darwin/release/writ" \
