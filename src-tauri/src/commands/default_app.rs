@@ -1,11 +1,13 @@
 use tauri::State;
-use writ_core::default_app::{
-    aggregate_status, claimable_type, claimable_types, ClaimableType, DefaultAppStatus,
-};
+#[cfg(target_os = "macos")]
+use writ_core::default_app::aggregate_status;
+use writ_core::default_app::{claimable_type, claimable_types, ClaimableType, DefaultAppStatus};
 
 use crate::state::AppState;
 
 // The bundle id is stable for the lifetime of the process — look it up once.
+// Consumed by the macOS handler paths and the platform-independent tests.
+#[cfg(any(test, target_os = "macos"))]
 fn our_bundle_id() -> &'static str {
     "com.writ.editor"
 }
