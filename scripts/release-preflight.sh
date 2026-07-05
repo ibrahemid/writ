@@ -76,12 +76,15 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 else
   load_signing_secrets
   rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null 2>&1 || true
+  # Resolve the real target dir: a local .cargo/config.toml or CARGO_TARGET_DIR
+  # override moves it away from ./target.
+  TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
   cargo build -p writ-cli --release --target aarch64-apple-darwin
   cargo build -p writ-cli --release --target x86_64-apple-darwin
   mkdir -p src-tauri/binaries
   lipo -create \
-    target/aarch64-apple-darwin/release/writ \
-    target/x86_64-apple-darwin/release/writ \
+    "${TARGET_DIR}/aarch64-apple-darwin/release/writ" \
+    "${TARGET_DIR}/x86_64-apple-darwin/release/writ" \
     -output src-tauri/binaries/writ-universal-apple-darwin
   APPLE_SIGNING_IDENTITY="-" \
     npx tauri build \
@@ -90,7 +93,7 @@ else
   bash scripts/build-mac-pkg.sh
   echo
   echo "Mac artefacts:"
-  find target/universal-apple-darwin/release/bundle -type f \( -name '*.pkg' -o -name '*.dmg' -o -name '*.tar.gz' -o -name '*.sig' \) 2>/dev/null | sort
+  find "${TARGET_DIR}/universal-apple-darwin/release/bundle" -type f \( -name '*.pkg' -o -name '*.dmg' -o -name '*.tar.gz' -o -name '*.sig' \) 2>/dev/null | sort
 fi
 
 step "7/7 act --dryrun (Linux release leg)"

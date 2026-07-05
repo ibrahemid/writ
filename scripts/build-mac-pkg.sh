@@ -22,10 +22,14 @@ cd "$ROOT"
 VERSION="$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' Cargo.toml)"
 [ -n "$VERSION" ] || { echo "could not read version from Cargo.toml" >&2; exit 1; }
 
-APP_PATH="target/universal-apple-darwin/release/bundle/macos/Writ.app"
+# Resolve the real target dir: a local .cargo/config.toml or CARGO_TARGET_DIR
+# override moves it away from ./target.
+TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+
+APP_PATH="${TARGET_DIR}/universal-apple-darwin/release/bundle/macos/Writ.app"
 [ -d "$APP_PATH" ] || { echo "no .app at $APP_PATH; run cargo tauri build first" >&2; exit 1; }
 
-OUT_DIR="target/universal-apple-darwin/release/bundle/macos"
+OUT_DIR="${TARGET_DIR}/universal-apple-darwin/release/bundle/macos"
 OUT="${OUT_DIR}/Writ_${VERSION}_universal.pkg"
 
 WORK="$(mktemp -d -t writ-pkg.XXXXXX)"
