@@ -78,7 +78,12 @@ fn set_inbox_canonicalizes_persists_and_starts_watcher() {
 
     let root = set_inbox_path_from_path(&state, inbox.path()).expect("set inbox");
 
-    assert_eq!(root, inbox.path().canonicalize().unwrap().to_string_lossy());
+    assert_eq!(
+        root,
+        writ_tauri_lib::security::canonicalize_root(inbox.path())
+            .unwrap()
+            .to_string_lossy()
+    );
     assert!(state.inbox_watcher.lock().unwrap().is_some());
     assert_eq!(
         state.config.lock().unwrap().inbox.path.as_deref(),

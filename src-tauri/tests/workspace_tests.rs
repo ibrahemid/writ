@@ -68,7 +68,12 @@ fn set_root_canonicalizes_persists_and_starts_watcher() {
 
     let root = set_workspace_root_from_path(&state, ws.path()).expect("set root");
 
-    assert_eq!(root, ws.path().canonicalize().unwrap().to_string_lossy());
+    assert_eq!(
+        root,
+        writ_tauri_lib::security::canonicalize_root(ws.path())
+            .unwrap()
+            .to_string_lossy()
+    );
     assert!(state.workspace_watcher.lock().unwrap().is_some());
     assert_eq!(
         state.config.lock().unwrap().workspace.root.as_deref(),
