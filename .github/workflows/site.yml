@@ -70,7 +70,7 @@ jobs:
           name_for(){ echo "$RELEASE_JSON" | jq -r --arg re "$1" '[.assets[]|select(.name|test($re))]|.[0].name // ""'; }
           DMG=$(url_for 'universal\.dmg$'); PKG=$(url_for 'universal\.pkg$')
           MSI=$(url_for '\.msi$'); DEB=$(url_for '\.deb$'); APP=$(url_for '\.AppImage$')
-          NOTARIZED=false; [ -n "$DMG" ] && NOTARIZED=true
+          NOTARIZED="${{ secrets.APPLE_TEAM_ID != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' }}"
           PUBLISHED=false; [ -n "$DMG$MSI$DEB" ] && PUBLISHED=true
           jq -n --arg version "$VERSION" --arg tag "$TAG" --arg publishedAt "$PUBLISHED_AT" \
             --argjson published "$PUBLISHED" --argjson notarized "$NOTARIZED" \
