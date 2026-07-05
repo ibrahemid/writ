@@ -1,8 +1,6 @@
 use std::sync::OnceLock;
 
-use crate::transform::{
-    TextTransform, TransformCategory, TransformError, TransformMetadata,
-};
+use crate::transform::{TextTransform, TransformCategory, TransformError, TransformMetadata};
 
 /// Strips trailing spaces and tabs from every line, preserving line
 /// endings (including CRLF) and leading whitespace.

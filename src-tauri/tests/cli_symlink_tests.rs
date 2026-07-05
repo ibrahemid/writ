@@ -43,5 +43,8 @@ fn symlink_replace_removes_existing_first() {
     std::os::unix::fs::symlink(&new_target, &symlink_path).unwrap();
 
     let target = std::fs::read_link(&symlink_path).unwrap();
-    assert_eq!(target, new_target, "symlink should point to new target after replace");
+    assert_eq!(
+        target, new_target,
+        "symlink should point to new target after replace"
+    );
 }

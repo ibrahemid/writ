@@ -198,46 +198,79 @@ mod tests {
     #[test]
     fn oracle_scheme_source_allows_matching_scheme() {
         let csp = Csp::parse("img-src https:");
-        assert_eq!(csp.evaluate(Directive::Img, &Resource::remote("https")), Verdict::Allow);
+        assert_eq!(
+            csp.evaluate(Directive::Img, &Resource::remote("https")),
+            Verdict::Allow
+        );
     }
 
     #[test]
     fn oracle_scheme_source_denies_other_schemes() {
         let csp = Csp::parse("img-src https:");
-        assert_eq!(csp.evaluate(Directive::Img, &Resource::remote("data")), Verdict::Deny);
-        assert_eq!(csp.evaluate(Directive::Img, &Resource::remote("http")), Verdict::Deny);
+        assert_eq!(
+            csp.evaluate(Directive::Img, &Resource::remote("data")),
+            Verdict::Deny
+        );
+        assert_eq!(
+            csp.evaluate(Directive::Img, &Resource::remote("http")),
+            Verdict::Deny
+        );
     }
 
     #[test]
     fn oracle_none_denies_everything() {
         let csp = Csp::parse("img-src 'none'");
-        assert_eq!(csp.evaluate(Directive::Img, &Resource::remote("https")), Verdict::Deny);
-        assert_eq!(csp.evaluate(Directive::Img, &Resource::same_origin("writ-preview")), Verdict::Deny);
+        assert_eq!(
+            csp.evaluate(Directive::Img, &Resource::remote("https")),
+            Verdict::Deny
+        );
+        assert_eq!(
+            csp.evaluate(Directive::Img, &Resource::same_origin("writ-preview")),
+            Verdict::Deny
+        );
     }
 
     #[test]
     fn oracle_self_allows_same_origin_denies_cross_origin() {
         let csp = Csp::parse("img-src 'self'");
-        assert_eq!(csp.evaluate(Directive::Img, &Resource::same_origin("writ-preview")), Verdict::Allow);
-        assert_eq!(csp.evaluate(Directive::Img, &Resource::remote("https")), Verdict::Deny);
+        assert_eq!(
+            csp.evaluate(Directive::Img, &Resource::same_origin("writ-preview")),
+            Verdict::Allow
+        );
+        assert_eq!(
+            csp.evaluate(Directive::Img, &Resource::remote("https")),
+            Verdict::Deny
+        );
     }
 
     #[test]
     fn oracle_default_src_is_the_fallback() {
         // img-src absent → falls back to default-src.
         let deny = Csp::parse("default-src 'none'");
-        assert_eq!(deny.evaluate(Directive::Img, &Resource::remote("https")), Verdict::Deny);
+        assert_eq!(
+            deny.evaluate(Directive::Img, &Resource::remote("https")),
+            Verdict::Deny
+        );
 
         let allow = Csp::parse("default-src https:");
-        assert_eq!(allow.evaluate(Directive::Img, &Resource::remote("https")), Verdict::Allow);
-        assert_eq!(allow.evaluate(Directive::Img, &Resource::remote("data")), Verdict::Deny);
+        assert_eq!(
+            allow.evaluate(Directive::Img, &Resource::remote("https")),
+            Verdict::Allow
+        );
+        assert_eq!(
+            allow.evaluate(Directive::Img, &Resource::remote("data")),
+            Verdict::Deny
+        );
     }
 
     #[test]
     fn oracle_no_directive_and_no_default_is_unrestricted() {
         // Neither img-src nor default-src present → CSP imposes nothing.
         let csp = Csp::parse("script-src 'none'");
-        assert_eq!(csp.evaluate(Directive::Img, &Resource::remote("https")), Verdict::Allow);
+        assert_eq!(
+            csp.evaluate(Directive::Img, &Resource::remote("https")),
+            Verdict::Allow
+        );
     }
 
     #[test]
@@ -267,13 +300,19 @@ mod tests {
     #[test]
     fn oracle_scheme_match_is_case_insensitive() {
         let csp = Csp::parse("img-src HTTPS:");
-        assert_eq!(csp.evaluate(Directive::Img, &Resource::remote("https")), Verdict::Allow);
+        assert_eq!(
+            csp.evaluate(Directive::Img, &Resource::remote("https")),
+            Verdict::Allow
+        );
     }
 
     #[test]
     fn oracle_keyword_source_never_matches_a_url() {
         // 'unsafe-inline' permits inline content, never a URL fetch.
         let csp = Csp::parse("img-src 'unsafe-inline'");
-        assert_eq!(csp.evaluate(Directive::Img, &Resource::remote("https")), Verdict::Deny);
+        assert_eq!(
+            csp.evaluate(Directive::Img, &Resource::remote("https")),
+            Verdict::Deny
+        );
     }
 }

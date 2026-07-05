@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rusqlite::{params, Connection};
 use uuid::Uuid;
-use writ_core::recovery::{RecoveredBuffer, RecoveryResolution, MAX_SNAPSHOTS, resolve_recovery};
+use writ_core::recovery::{resolve_recovery, RecoveredBuffer, RecoveryResolution, MAX_SNAPSHOTS};
 
 use crate::errors::StorageResult;
 

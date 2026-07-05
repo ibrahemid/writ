@@ -42,9 +42,12 @@ fn assert_invariants(url: &str) {
 fn committed_seed_corpus_upholds_the_invariants() {
     // The fuzz seed corpus is the documented malicious-fixture set; run the
     // stable property test over the same bytes so the two stay in lockstep.
-    let corpus = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fuzz/corpus/preview_url_parser");
-    assert!(corpus.is_dir(), "fuzz corpus dir missing: {}", corpus.display());
+    let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/corpus/preview_url_parser");
+    assert!(
+        corpus.is_dir(),
+        "fuzz corpus dir missing: {}",
+        corpus.display()
+    );
 
     let mut count = 0;
     for entry in fs::read_dir(&corpus).expect("read corpus dir") {
@@ -59,20 +62,48 @@ fn committed_seed_corpus_upholds_the_invariants() {
             count += 1;
         }
     }
-    assert!(count >= 20, "expected the full seed corpus, saw {count} files");
+    assert!(
+        count >= 20,
+        "expected the full seed corpus, saw {count} files"
+    );
 }
 
 #[test]
 fn generated_adversarial_inputs_uphold_the_invariants() {
     // Structured fuzzing on stable: cross-product of schemes, scopes, and
     // hostile path fragments, plus raw control/encoding noise.
-    let schemes = ["writ-preview", "WRIT-PREVIEW", "https", "writ-workspace", "", "x"];
+    let schemes = [
+        "writ-preview",
+        "WRIT-PREVIEW",
+        "https",
+        "writ-workspace",
+        "",
+        "x",
+    ];
     let scopes = ["chrome", "document", "attacker", "", "Chrome"];
     let fragments = [
-        "", "/", "//", "/x", "/../x", "/..%2f", "/%2e%2e/", "/%2E%2E/",
-        "/%252e%252e/", "/..\\x", "/foo%00bar", "/foo%2", "/foo%xx",
-        "/C:%2Fwindows", "/a/b/c", "/./././", "/...", "/a%2fb", "/\u{202e}x",
-        "/üñîçødé", "/x?q=1#h", "/x?../../y",
+        "",
+        "/",
+        "//",
+        "/x",
+        "/../x",
+        "/..%2f",
+        "/%2e%2e/",
+        "/%2E%2E/",
+        "/%252e%252e/",
+        "/..\\x",
+        "/foo%00bar",
+        "/foo%2",
+        "/foo%xx",
+        "/C:%2Fwindows",
+        "/a/b/c",
+        "/./././",
+        "/...",
+        "/a%2fb",
+        "/\u{202e}x",
+        "/üñîçødé",
+        "/x?q=1#h",
+        "/x?../../y",
     ];
 
     for scheme in schemes {
@@ -86,9 +117,18 @@ fn generated_adversarial_inputs_uphold_the_invariants() {
     // Raw byte-ish noise rendered as strings the webview could conceivably
     // hand us.
     for raw in [
-        "\u{0}", "%", "%%", "%0", "%g0", "://", "writ-preview:",
-        "writ-preview:/", "writ-preview://", "writ-preview://chrome",
-        ":////", "writ-preview://document/".repeat(1000).as_str(),
+        "\u{0}",
+        "%",
+        "%%",
+        "%0",
+        "%g0",
+        "://",
+        "writ-preview:",
+        "writ-preview:/",
+        "writ-preview://",
+        "writ-preview://chrome",
+        ":////",
+        "writ-preview://document/".repeat(1000).as_str(),
     ] {
         assert_invariants(raw);
     }

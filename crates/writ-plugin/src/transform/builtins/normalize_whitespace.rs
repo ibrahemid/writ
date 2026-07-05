@@ -1,8 +1,6 @@
 use std::sync::OnceLock;
 
-use crate::transform::{
-    TextTransform, TransformCategory, TransformError, TransformMetadata,
-};
+use crate::transform::{TextTransform, TransformCategory, TransformError, TransformMetadata};
 
 /// Collapses runs of two or more spaces or tabs inside each line down
 /// to a single space. Leading whitespace, blank lines, and line endings
@@ -19,8 +17,7 @@ impl TextTransform for NormalizeWhitespace {
         static META: OnceLock<TransformMetadata> = OnceLock::new();
         META.get_or_init(|| TransformMetadata {
             label: "Normalize Whitespace".to_string(),
-            description: "Collapse multiple spaces/tabs inside each line to one space."
-                .to_string(),
+            description: "Collapse multiple spaces/tabs inside each line to one space.".to_string(),
             category: TransformCategory::Whitespace,
         })
     }

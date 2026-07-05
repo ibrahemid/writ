@@ -3,9 +3,9 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 use tracing::{info, warn};
 use writ_core::config::WritConfig;
-use writ_core::recovery::RecoveredBuffer;
 use writ_core::events::bus::EventBus;
 use writ_core::preview::ContentRendererRegistry;
+use writ_core::recovery::RecoveredBuffer;
 use writ_core::update::UpdatePhase;
 use writ_plugin::transform::builtins::register_builtins;
 use writ_plugin::transform::TransformRegistry;
@@ -292,8 +292,11 @@ mod tests {
 
     #[test]
     fn honours_explicit_override() {
-        let dir = resolve_writ_dir(Some("/tmp/writ-dev-1431".into()), Some(PathBuf::from("/home/user")))
-            .unwrap();
+        let dir = resolve_writ_dir(
+            Some("/tmp/writ-dev-1431".into()),
+            Some(PathBuf::from("/home/user")),
+        )
+        .unwrap();
         assert_eq!(dir, PathBuf::from("/tmp/writ-dev-1431"));
     }
 

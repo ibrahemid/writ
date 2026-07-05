@@ -37,16 +37,18 @@ fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
             id: id.clone(),
             title: title.clone(),
         }),
-        WritEvent::ConfigChanged { keys } => Some(WritFrontendEvent::ConfigChanged {
-            keys: keys.clone(),
-        }),
-        WritEvent::BufferExternal { buffer_id, change } => Some(WritFrontendEvent::BufferExternal {
-            buffer_id: buffer_id.clone(),
-            change: match change {
-                ExternalChange::Modified => "modified".to_string(),
-                ExternalChange::Deleted => "deleted".to_string(),
-            },
-        }),
+        WritEvent::ConfigChanged { keys } => {
+            Some(WritFrontendEvent::ConfigChanged { keys: keys.clone() })
+        }
+        WritEvent::BufferExternal { buffer_id, change } => {
+            Some(WritFrontendEvent::BufferExternal {
+                buffer_id: buffer_id.clone(),
+                change: match change {
+                    ExternalChange::Modified => "modified".to_string(),
+                    ExternalChange::Deleted => "deleted".to_string(),
+                },
+            })
+        }
         WritEvent::MenuAction { action } => Some(WritFrontendEvent::MenuAction {
             action: action.clone(),
         }),
@@ -56,9 +58,9 @@ fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
                 removed: *removed,
             })
         }
-        WritEvent::InboxFileArrived { path } => Some(WritFrontendEvent::InboxFileArrived {
-            path: path.clone(),
-        }),
+        WritEvent::InboxFileArrived { path } => {
+            Some(WritFrontendEvent::InboxFileArrived { path: path.clone() })
+        }
         WritEvent::HotkeyToggle | WritEvent::PluginEvent { .. } => None,
     }
 }

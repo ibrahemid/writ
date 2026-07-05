@@ -16,8 +16,7 @@
 //! rendered-event channel.
 
 use writ_core::preview::{
-    ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest,
-    RendererCapabilities,
+    ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest, RendererCapabilities,
 };
 
 use super::theme;
@@ -75,7 +74,9 @@ impl ContentRenderer for HtmlRenderer {
         // scaled (no 1x pop), mirroring how wrapped renderers carry it on the
         // <html> tag. Native zoom skips the work and leaves the bytes untouched.
         let document_html = match theme::css_zoom(request.zoom) {
-            Some(z) => insert_into_head(&document_html, &format!("<style>:root{{zoom:{z}}}</style>")),
+            Some(z) => {
+                insert_into_head(&document_html, &format!("<style>:root{{zoom:{z}}}</style>"))
+            }
             None => document_html,
         };
 
@@ -291,7 +292,9 @@ mod tests {
     #[test]
     fn fallback_is_injected_after_head() {
         let out = HtmlRenderer
-            .render(req("<html><head><title>t</title></head><body></body></html>"))
+            .render(req(
+                "<html><head><title>t</title></head><body></body></html>",
+            ))
             .unwrap();
         let head_idx = out.document_html.find("<head>").unwrap();
         let style_idx = out.document_html.find("<style>").unwrap();
@@ -330,7 +333,10 @@ mod tests {
             .unwrap();
         let bridge_idx = out.document_html.find(theme::BRIDGE_URL).unwrap();
         let body_close = out.document_html.find("</BODY>").unwrap();
-        assert!(bridge_idx < body_close, "bridge must precede the body close");
+        assert!(
+            bridge_idx < body_close,
+            "bridge must precede the body close"
+        );
     }
 
     #[test]

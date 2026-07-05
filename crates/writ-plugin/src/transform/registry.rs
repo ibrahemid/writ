@@ -43,10 +43,7 @@ impl TransformRegistry {
 
     /// Registers a transform. Returns [`RegistryError::DuplicateId`] if
     /// a transform with the same id is already registered.
-    pub fn register(
-        &mut self,
-        transform: Box<dyn TextTransform>,
-    ) -> Result<(), RegistryError> {
+    pub fn register(&mut self, transform: Box<dyn TextTransform>) -> Result<(), RegistryError> {
         let id = transform.id().to_string();
         if self.transforms.contains_key(&id) {
             return Err(RegistryError::DuplicateId { id });

@@ -34,15 +34,11 @@ fn bench_transforms(c: &mut Criterion) {
     for descriptor in registry.list() {
         let id = descriptor.id.clone();
         let transform = registry.get(&id).expect("registered");
-        group.bench_with_input(
-            BenchmarkId::new("apply", &id),
-            &input,
-            |b, inp| {
-                b.iter(|| {
-                    transform.apply(inp).expect("transform must not fail");
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("apply", &id), &input, |b, inp| {
+            b.iter(|| {
+                transform.apply(inp).expect("transform must not fail");
+            });
+        });
     }
     group.finish();
 }

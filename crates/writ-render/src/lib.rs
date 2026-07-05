@@ -90,7 +90,11 @@ pub fn render_markdown_fragment(text: &str) -> MarkdownFragment {
     }
     let mut html_out = String::with_capacity(text.len() * 3 / 2);
     html::push_html(&mut html_out, events.into_iter());
-    MarkdownFragment { html: html_out, has_mermaid, has_math }
+    MarkdownFragment {
+        html: html_out,
+        has_mermaid,
+        has_math,
+    }
 }
 
 #[cfg(test)]
