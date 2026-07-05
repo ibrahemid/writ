@@ -69,7 +69,7 @@ fn open_file_allows_path_inside_open_workspace() {
 
     {
         let mut root = state.workspace_root.lock().unwrap();
-        *root = Some(ws.path().canonicalize().unwrap());
+        *root = Some(writ_tauri_lib::security::canonicalize_root(ws.path()).unwrap());
     }
 
     let result = open_file_from_path(&state, &note.to_string_lossy());
@@ -91,7 +91,7 @@ fn open_file_still_rejects_path_outside_open_workspace() {
 
     {
         let mut root = state.workspace_root.lock().unwrap();
-        *root = Some(ws.path().canonicalize().unwrap());
+        *root = Some(writ_tauri_lib::security::canonicalize_root(ws.path()).unwrap());
     }
 
     let result = open_file_from_path(&state, &secret.to_string_lossy());
