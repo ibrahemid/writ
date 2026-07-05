@@ -27,7 +27,7 @@ pub struct InboxFile {
 
 /// Sorts inbox files in-place, case-insensitively by name.
 pub fn sort_inbox_files(files: &mut [InboxFile]) {
-    files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    files.sort_by_key(|f| f.name.to_lowercase());
 }
 
 /// Returns `true` when a file at `path` should auto-open from the inbox.
