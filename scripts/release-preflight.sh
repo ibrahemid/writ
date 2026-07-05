@@ -55,19 +55,22 @@ load_signing_secrets() {
   fi
 }
 
-step "1/6 cargo test --workspace"
+step "1/7 cargo fmt --all --check"
+cargo fmt --all --check
+
+step "2/7 cargo test --workspace"
 cargo test --workspace
 
-step "2/6 cargo clippy --workspace -- -D warnings"
+step "3/7 cargo clippy --workspace -- -D warnings"
 cargo clippy --workspace -- -D warnings
 
-step "3/6 npx tsc --noEmit"
+step "4/7 npx tsc --noEmit"
 npx tsc --noEmit
 
-step "4/6 pnpm --dir site build"
+step "5/7 pnpm --dir site build"
 pnpm --dir site build
 
-step "5/6 cargo tauri build (universal mac .app + .dmg + .pkg, ad-hoc signed)"
+step "6/7 cargo tauri build (universal mac .app + .dmg + .pkg, ad-hoc signed)"
 if [[ "$(uname -s)" != "Darwin" ]]; then
   warn "Skipping mac build: this script is running on $(uname -s), not Darwin."
 else
@@ -90,7 +93,7 @@ else
   find target/universal-apple-darwin/release/bundle -type f \( -name '*.pkg' -o -name '*.dmg' -o -name '*.tar.gz' -o -name '*.sig' \) 2>/dev/null | sort
 fi
 
-step "6/6 act --dryrun (Linux release leg)"
+step "7/7 act --dryrun (Linux release leg)"
 if ! command -v act >/dev/null 2>&1; then
   warn "act not installed; skipping Linux dry run."
   warn "Install with: brew install act"
