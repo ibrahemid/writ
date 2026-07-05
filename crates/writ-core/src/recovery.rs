@@ -32,10 +32,7 @@ pub enum RecoveryResolution {
 ///
 /// `snapshot_created_at` and `buffer_updated_at` are ISO 8601 strings as
 /// produced by SQLite's `datetime('now')`.
-pub fn resolve_recovery(
-    snapshot_created_at: &str,
-    buffer_updated_at: &str,
-) -> RecoveryResolution {
+pub fn resolve_recovery(snapshot_created_at: &str, buffer_updated_at: &str) -> RecoveryResolution {
     if snapshot_created_at > buffer_updated_at {
         RecoveryResolution::Restore
     } else {

@@ -69,11 +69,14 @@ fn open_file_allows_path_inside_open_workspace() {
 
     {
         let mut root = state.workspace_root.lock().unwrap();
-        *root = Some(ws.path().canonicalize().unwrap());
+        *root = Some(writ_tauri_lib::security::canonicalize_root(ws.path()).unwrap());
     }
 
     let result = open_file_from_path(&state, &note.to_string_lossy());
-    assert!(result.is_ok(), "workspace-contained open must pass: {result:?}");
+    assert!(
+        result.is_ok(),
+        "workspace-contained open must pass: {result:?}"
+    );
 }
 
 #[test]
@@ -88,7 +91,7 @@ fn open_file_still_rejects_path_outside_open_workspace() {
 
     {
         let mut root = state.workspace_root.lock().unwrap();
-        *root = Some(ws.path().canonicalize().unwrap());
+        *root = Some(writ_tauri_lib::security::canonicalize_root(ws.path()).unwrap());
     }
 
     let result = open_file_from_path(&state, &secret.to_string_lossy());
@@ -192,7 +195,10 @@ fn save_to_source_rejects_unblessed_source_path() {
     drop(store);
 
     let result = save_to_source_for_test(&state, doc.id, "hijacked".to_string());
-    assert!(result.is_err(), "unblessed source path must not be writable");
+    assert!(
+        result.is_err(),
+        "unblessed source path must not be writable"
+    );
     assert!(result.unwrap_err().contains("not authorized"));
 
     let on_disk = std::fs::read_to_string(&file).unwrap();

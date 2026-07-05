@@ -11,6 +11,7 @@
 //! of the verification suite (`tests/preview_security.rs`). It is compiled
 //! out of release builds.
 
+#[cfg(any(test, debug_assertions))]
 use std::cell::RefCell;
 
 pub use writ_core::preview::protocol::{parse, ParsedRequest, PreviewScope, RefusalReason};

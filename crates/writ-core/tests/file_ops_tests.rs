@@ -181,7 +181,11 @@ fn classify_path_rejects_nonexistent() {
     let result = classify_path(Path::new("/tmp/writ-test-nonexistent-file.txt"));
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
-    assert!(msg.contains("not found"), "expected 'not found' in: {}", msg);
+    assert!(
+        msg.contains("not found"),
+        "expected 'not found' in: {}",
+        msg
+    );
 }
 
 #[test]
@@ -341,9 +345,17 @@ fn hex_dump_16_bytes_single_row() {
     let out = generate_hex_dump(&data, 16);
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(lines.len(), 1, "expected 1 row for 16 bytes");
-    assert!(lines[0].starts_with("00000000"), "offset wrong: {}", lines[0]);
+    assert!(
+        lines[0].starts_with("00000000"),
+        "offset wrong: {}",
+        lines[0]
+    );
     // All 16 ASCII chars present in gutter.
-    assert!(lines[0].contains("|ABCDEFGHIJKLMNOP|"), "gutter wrong: {}", lines[0]);
+    assert!(
+        lines[0].contains("|ABCDEFGHIJKLMNOP|"),
+        "gutter wrong: {}",
+        lines[0]
+    );
 }
 
 #[test]
@@ -352,7 +364,11 @@ fn hex_dump_17_bytes_two_rows() {
     let out = generate_hex_dump(&data, 17);
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(lines.len(), 2, "expected 2 rows for 17 bytes");
-    assert!(lines[1].starts_with("00000010"), "second offset wrong: {}", lines[1]);
+    assert!(
+        lines[1].starts_with("00000010"),
+        "second offset wrong: {}",
+        lines[1]
+    );
 }
 
 #[test]

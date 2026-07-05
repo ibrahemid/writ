@@ -283,6 +283,13 @@ jobs:
           done
           case "$MATRIX_OS" in
             macos-latest)
+              # The universal target builds each arch separately; every pass
+              # resolves the sidecar by its own triple, so all three names
+              # must exist.
+              cp target/aarch64-apple-darwin/release/writ \
+                src-tauri/binaries/writ-aarch64-apple-darwin
+              cp target/x86_64-apple-darwin/release/writ \
+                src-tauri/binaries/writ-x86_64-apple-darwin
               lipo -create \
                 target/aarch64-apple-darwin/release/writ \
                 target/x86_64-apple-darwin/release/writ \

@@ -50,7 +50,7 @@ Navigate to `Settings` -> `Secrets and variables` -> `Actions` and add:
 The updater-signing key (`TAURI_SIGNING_PRIVATE_KEY`) must be present for
 auto-update to work at all.
 
-> **macOS notarization is a launch gate for auto-update — not optional.**
+> **macOS notarization is a launch gate for auto-update, not optional.**
 > You can ship a *first install* unsigned (users click through Gatekeeper
 > once). But when the **in-app updater** swaps the `.app` in place, macOS will
 > quarantine or refuse to launch a bundle that is not Developer-ID signed,
@@ -222,8 +222,8 @@ The finalize job uses glob patterns covering `.pkg`, `.dmg`, `.msi`,
 
 ## 6. Testing the update flow locally (no release, no CI)
 
-This proves the **mechanics** — minisign verification, download, in-place swap,
-relaunch — against a local server, without tagging or triggering CI. It does
+This proves the **mechanics** (minisign verification, download, in-place swap,
+relaunch) against a local server, without tagging or triggering CI. It does
 **not** prove macOS Gatekeeper acceptance: locally built apps are not
 quarantined, so a notarized→notarized swap can only be verified with a real
 signed release. Treat "works locally" accordingly.

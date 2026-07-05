@@ -1,7 +1,7 @@
 {
   "name": "writ-site",
   "type": "module",
-  "version": "0.1.0-2",
+  "version": "0.1.0",
   "private": true,
   "description": "Landing page for Writ",
   "scripts": {

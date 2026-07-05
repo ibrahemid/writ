@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tempfile::TempDir;
 use writ_core::buffer::document::BufferStatus;
 use writ_core::buffer::manager::BufferManager;
-use writ_core::recovery::{RecoveryResolution, resolve_recovery};
+use writ_core::recovery::{resolve_recovery, RecoveryResolution};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::consistency::ConsistencyChecker;
 use writ_storage::database::connection::open_database;
@@ -43,11 +43,10 @@ fn snapshot_write_and_read_roundtrip() {
         .expect("write");
     let snap = mgr.latest_snapshot().expect("latest").expect("some");
     assert!(!snap.is_clean);
-    let buffers = snap.state_json["buffers"].as_object().expect("buffers object");
-    assert_eq!(
-        buffers["buf-1"].as_str().expect("string"),
-        "hello world"
-    );
+    let buffers = snap.state_json["buffers"]
+        .as_object()
+        .expect("buffers object");
+    assert_eq!(buffers["buf-1"].as_str().expect("string"), "hello world");
 }
 
 #[test]
@@ -76,11 +75,9 @@ fn snapshot_prune_keeps_bounded_count() {
     }
 
     let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM session_snapshots",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT COUNT(*) FROM session_snapshots", [], |row| {
+            row.get(0)
+        })
         .expect("count");
     assert_eq!(count, 5, "should have pruned to MAX_SNAPSHOTS");
 }
@@ -128,28 +125,19 @@ fn clean_snapshot_clears_dirty_flag() {
 
 #[test]
 fn resolve_recovery_snapshot_newer_returns_restore() {
-    let resolution = resolve_recovery(
-        "2024-01-01 12:00:01",
-        "2024-01-01 12:00:00",
-    );
+    let resolution = resolve_recovery("2024-01-01 12:00:01", "2024-01-01 12:00:00");
     assert_eq!(resolution, RecoveryResolution::Restore);
 }
 
 #[test]
 fn resolve_recovery_snapshot_older_returns_ignore() {
-    let resolution = resolve_recovery(
-        "2024-01-01 11:59:59",
-        "2024-01-01 12:00:00",
-    );
+    let resolution = resolve_recovery("2024-01-01 11:59:59", "2024-01-01 12:00:00");
     assert_eq!(resolution, RecoveryResolution::Ignore);
 }
 
 #[test]
 fn resolve_recovery_same_timestamp_returns_ignore() {
-    let resolution = resolve_recovery(
-        "2024-01-01 12:00:00",
-        "2024-01-01 12:00:00",
-    );
+    let resolution = resolve_recovery("2024-01-01 12:00:00", "2024-01-01 12:00:00");
     assert_eq!(resolution, RecoveryResolution::Ignore);
 }
 
@@ -171,7 +159,10 @@ fn recover_buffers_clean_snapshot_returns_empty() {
         .write_session_snapshot(&contents, true)
         .expect("write clean");
     let recovered = store.resolve_recovery().expect("recover");
-    assert!(recovered.is_empty(), "clean snapshot should not trigger recovery");
+    assert!(
+        recovered.is_empty(),
+        "clean snapshot should not trigger recovery"
+    );
 }
 
 /// Boot-path contract (#71): `AppState::initialize` runs dirty-shutdown
@@ -213,9 +204,13 @@ fn boot_sequence_runs_recovery_then_consistency_on_one_store() {
 fn unclean_shutdown_recovers_newer_snapshot_content() {
     let (_dir, store) = setup_store();
     let mut mgr = BufferManager::new();
-    let doc = mgr.create_buffer(Some("test-recovery".into())).expect("create");
+    let doc = mgr
+        .create_buffer(Some("test-recovery".into()))
+        .expect("create");
     store.insert(&doc).expect("insert");
-    store.save_content(&doc.id, "version at save time").expect("save");
+    store
+        .save_content(&doc.id, "version at save time")
+        .expect("save");
 
     // Simulate: snapshot was taken after the last DB write
     // We need the snapshot timestamp to be strictly newer.
@@ -277,10 +272,17 @@ fn unclean_shutdown_recovers_newer_snapshot_content() {
 fn collect_buffer_contents_reads_active_files() {
     let (_dir, store) = setup_store();
     let mut mgr = BufferManager::new();
-    let doc = mgr.create_buffer(Some("collect-test".into())).expect("create");
+    let doc = mgr
+        .create_buffer(Some("collect-test".into()))
+        .expect("create");
     store.insert(&doc).expect("insert");
-    store.save_content(&doc.id, "buffer text content").expect("save");
+    store
+        .save_content(&doc.id, "buffer text content")
+        .expect("save");
 
     let contents = store.collect_buffer_contents().expect("collect");
-    assert_eq!(contents.get(&doc.id).map(String::as_str), Some("buffer text content"));
+    assert_eq!(
+        contents.get(&doc.id).map(String::as_str),
+        Some("buffer text content")
+    );
 }

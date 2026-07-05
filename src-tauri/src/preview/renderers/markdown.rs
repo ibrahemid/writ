@@ -19,8 +19,7 @@
 //! renderer's presence-conditional check).
 
 use writ_core::preview::{
-    ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest,
-    RendererCapabilities,
+    ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest, RendererCapabilities,
 };
 
 use super::{katex, mermaid, theme};
@@ -54,10 +53,17 @@ impl ContentRenderer for MarkdownRenderer {
     fn render(&self, request: RenderRequest) -> Result<RenderOutput, RenderError> {
         let bytes = request.buffer_text.len() as u64;
         if bytes > MAX_SAFE_BYTES {
-            return Err(RenderError::DocumentTooLarge { bytes, limit: MAX_SAFE_BYTES });
+            return Err(RenderError::DocumentTooLarge {
+                bytes,
+                limit: MAX_SAFE_BYTES,
+            });
         }
         let fragment = writ_render::render_markdown_fragment(&request.buffer_text);
-        let head_extra = if fragment.has_math { katex::head_tags() } else { String::new() };
+        let head_extra = if fragment.has_math {
+            katex::head_tags()
+        } else {
+            String::new()
+        };
         let mut body_end = String::new();
         if fragment.has_mermaid {
             body_end.push_str(&mermaid::runtime_tags());
@@ -194,7 +200,8 @@ mod tests {
 
     #[test]
     fn multiple_mermaid_fences_render_each_and_inject_runtime_once() {
-        let md = "```mermaid\nA-->B\n```\n\nprose\n\n```rust\nfn x(){}\n```\n\n```mermaid\nC-->D\n```";
+        let md =
+            "```mermaid\nA-->B\n```\n\nprose\n\n```rust\nfn x(){}\n```\n\n```mermaid\nC-->D\n```";
         let out = render(md);
         let html = &out.document_html;
         // Two diagrams, each captured (clear() between fences worked).
@@ -210,7 +217,9 @@ mod tests {
     #[test]
     fn multiline_mermaid_fence_captures_full_body() {
         let out = render("```mermaid\ngraph TD\n  A-->B\n  B-->C\n```");
-        assert!(out.document_html.contains("graph TD\n  A--&gt;B\n  B--&gt;C"));
+        assert!(out
+            .document_html
+            .contains("graph TD\n  A--&gt;B\n  B--&gt;C"));
     }
 
     #[test]
@@ -253,14 +262,19 @@ mod tests {
         let out = render("$$\n\\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}\n$$");
         assert!(out.document_html.contains("math math-display"));
         assert!(out.document_html.contains("\\int_0^\\infty"));
-        assert!(out.document_html.contains("\\,dx"), "thin-space \\, must survive, not collapse to ,");
+        assert!(
+            out.document_html.contains("\\,dx"),
+            "thin-space \\, must survive, not collapse to ,"
+        );
         assert!(out.document_html.contains("\\frac{\\sqrt{\\pi}}{2}"));
         assert!(out.document_html.contains("katex.min.js"));
     }
 
     #[test]
     fn plain_markdown_and_lone_dollar_inject_no_katex() {
-        assert!(!render("# title\n\njust text").document_html.contains("katex"));
+        assert!(!render("# title\n\njust text")
+            .document_html
+            .contains("katex"));
         // A lone currency dollar is not math and must not pull in the runtime.
         assert!(!render("it costs $5 today").document_html.contains("katex"));
     }
@@ -280,7 +294,9 @@ mod tests {
         // The CSP is the boundary — the renderer must NOT strip embedded
         // HTML. A block-level raw HTML element survives verbatim.
         let out = render("Before\n\n<div class=\"callout\">raw <b>html</b></div>\n\nAfter");
-        assert!(out.document_html.contains("<div class=\"callout\">raw <b>html</b></div>"));
+        assert!(out
+            .document_html
+            .contains("<div class=\"callout\">raw <b>html</b></div>"));
     }
 
     #[test]
@@ -296,7 +312,9 @@ mod tests {
     #[test]
     fn inline_raw_html_passes_through() {
         let out = render("a paragraph with <span style=\"color:red\">inline</span> html");
-        assert!(out.document_html.contains("<span style=\"color:red\">inline</span>"));
+        assert!(out
+            .document_html
+            .contains("<span style=\"color:red\">inline</span>"));
     }
 
     #[test]

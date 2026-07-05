@@ -60,6 +60,8 @@ pub fn search_buffers(state: State<'_, AppState>, query: String) -> Result<Searc
     let hits = store
         .search_hits(&match_query, &terms, SEARCH_RESULT_LIMIT)
         .map_err(|e| e.to_string())?;
-    let total = store.search_count(&match_query).map_err(|e| e.to_string())?;
+    let total = store
+        .search_count(&match_query)
+        .map_err(|e| e.to_string())?;
     Ok(SearchResults { hits, total })
 }

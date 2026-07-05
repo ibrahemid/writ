@@ -16,7 +16,9 @@ struct BenchDb {
 
 fn make_doc(idx: usize) -> BufferDocument {
     let id = format!("buf-{:04}", idx);
-    let words = ["rust", "editor", "buffer", "text", "search", "index", "file"];
+    let words = [
+        "rust", "editor", "buffer", "text", "search", "index", "file",
+    ];
     let title = format!("{} note {}", words[idx % words.len()], idx);
     let now = Utc::now();
     BufferDocument {
@@ -79,15 +81,11 @@ fn bench_fts_search(c: &mut Criterion) {
     let queries = ["rust", "editor buffer", "search index", "text file"];
     let mut group = c.benchmark_group("fts_search");
     for query in queries {
-        group.bench_with_input(
-            BenchmarkId::new("search", query),
-            query,
-            |b, q| {
-                b.iter(|| {
-                    db.store.search(q).expect("search must not fail");
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("search", query), query, |b, q| {
+            b.iter(|| {
+                db.store.search(q).expect("search must not fail");
+            });
+        });
     }
     group.finish();
 }
@@ -129,10 +127,7 @@ fn bench_fts_update(c: &mut Criterion) {
 
     let doc = make_doc(0);
     {
-        let store = BufferStore::new(
-            open_database(&db_path).expect("open"),
-            buffers_dir.clone(),
-        );
+        let store = BufferStore::new(open_database(&db_path).expect("open"), buffers_dir.clone());
         store.insert(&doc).expect("insert");
     }
 
@@ -148,5 +143,10 @@ fn bench_fts_update(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_fts_search, bench_buffer_round_trip, bench_fts_update);
+criterion_group!(
+    benches,
+    bench_fts_search,
+    bench_buffer_round_trip,
+    bench_fts_update
+);
 criterion_main!(benches);

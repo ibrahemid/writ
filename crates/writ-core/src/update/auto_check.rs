@@ -57,7 +57,12 @@ mod tests {
     #[test]
     fn recent_check_is_skipped() {
         // Half a day since the last check: too soon.
-        assert!(!should_auto_check(true, Some(10 * DAY), 10 * DAY + DAY / 2, DAY));
+        assert!(!should_auto_check(
+            true,
+            Some(10 * DAY),
+            10 * DAY + DAY / 2,
+            DAY
+        ));
     }
 
     #[test]

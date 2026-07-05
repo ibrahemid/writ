@@ -469,9 +469,9 @@ impl BufferStore {
         }
 
         let indexed: std::collections::HashSet<String> = {
-            let mut stmt = self.conn.prepare(
-                "SELECT b.id FROM buffer_fts f JOIN buffers b ON b.rowid = f.rowid",
-            )?;
+            let mut stmt = self
+                .conn
+                .prepare("SELECT b.id FROM buffer_fts f JOIN buffers b ON b.rowid = f.rowid")?;
             let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
             let mut set = std::collections::HashSet::new();
             for row in rows {

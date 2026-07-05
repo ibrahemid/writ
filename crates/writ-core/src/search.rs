@@ -309,7 +309,10 @@ mod tests {
         let content = format!("{prefix} token tail");
         let hit = build_hit("b", "t", &content, &terms("token"));
         let text = snippet_text(&hit);
-        assert!(text.starts_with('…'), "windowed snippet should lead with an ellipsis");
+        assert!(
+            text.starts_with('…'),
+            "windowed snippet should lead with an ellipsis"
+        );
         assert!(text.contains("token"));
         assert!(text.chars().count() <= SNIPPET_MAX_CHARS + 2);
         assert_eq!(matched_text(&hit), vec!["token"]);

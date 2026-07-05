@@ -90,7 +90,10 @@ mod tests {
     fn macos_reveal_selects_the_file() {
         let (program, args) = reveal_command(RevealOs::Macos, Path::new("/home/u/.writ/writ.db"));
         assert_eq!(program, "open");
-        assert_eq!(args, vec!["-R".to_string(), "/home/u/.writ/writ.db".to_string()]);
+        assert_eq!(
+            args,
+            vec!["-R".to_string(), "/home/u/.writ/writ.db".to_string()]
+        );
     }
 
     #[test]
@@ -98,7 +101,10 @@ mod tests {
         let (program, args) =
             reveal_command(RevealOs::Windows, Path::new("C:\\Users\\u\\.writ\\writ.db"));
         assert_eq!(program, "explorer");
-        assert_eq!(args, vec!["/select,C:\\Users\\u\\.writ\\writ.db".to_string()]);
+        assert_eq!(
+            args,
+            vec!["/select,C:\\Users\\u\\.writ\\writ.db".to_string()]
+        );
     }
 
     #[test]

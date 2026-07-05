@@ -124,7 +124,10 @@ mod tests {
         assert!(doc.contains("writ-preview://document/_assets/preview/bridge.js"));
         let script_idx = doc.find("/preview/bridge.js").unwrap();
         let body_close = doc.find("</body>").unwrap();
-        assert!(script_idx < body_close, "bridge script must sit inside <body>");
+        assert!(
+            script_idx < body_close,
+            "bridge script must sit inside <body>"
+        );
     }
 
     #[test]
