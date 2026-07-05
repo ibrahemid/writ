@@ -55,30 +55,40 @@ load_signing_secrets() {
   fi
 }
 
-step "1/6 cargo test --workspace"
+step "1/7 cargo fmt --all --check"
+cargo fmt --all --check
+
+step "2/7 cargo test --workspace"
 cargo test --workspace
 
-step "2/6 cargo clippy --workspace -- -D warnings"
+step "3/7 cargo clippy --workspace -- -D warnings"
 cargo clippy --workspace -- -D warnings
 
-step "3/6 npx tsc --noEmit"
+step "4/7 npx tsc --noEmit"
 npx tsc --noEmit
 
-step "4/6 pnpm --dir site build"
+step "5/7 pnpm --dir site build"
 pnpm --dir site build
 
-step "5/6 cargo tauri build (universal mac .app + .dmg + .pkg, ad-hoc signed)"
+step "6/7 cargo tauri build (universal mac .app + .dmg + .pkg, ad-hoc signed)"
 if [[ "$(uname -s)" != "Darwin" ]]; then
   warn "Skipping mac build: this script is running on $(uname -s), not Darwin."
 else
   load_signing_secrets
   rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null 2>&1 || true
+  # Resolve the real target dir: a local .cargo/config.toml or CARGO_TARGET_DIR
+  # override moves it away from ./target.
+  TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
   cargo build -p writ-cli --release --target aarch64-apple-darwin
   cargo build -p writ-cli --release --target x86_64-apple-darwin
   mkdir -p src-tauri/binaries
+  # The universal target builds each arch separately; every pass resolves the
+  # sidecar by its own triple, so all three names must exist.
+  cp "${TARGET_DIR}/aarch64-apple-darwin/release/writ" src-tauri/binaries/writ-aarch64-apple-darwin
+  cp "${TARGET_DIR}/x86_64-apple-darwin/release/writ" src-tauri/binaries/writ-x86_64-apple-darwin
   lipo -create \
-    target/aarch64-apple-darwin/release/writ \
-    target/x86_64-apple-darwin/release/writ \
+    "${TARGET_DIR}/aarch64-apple-darwin/release/writ" \
+    "${TARGET_DIR}/x86_64-apple-darwin/release/writ" \
     -output src-tauri/binaries/writ-universal-apple-darwin
   APPLE_SIGNING_IDENTITY="-" \
     npx tauri build \
@@ -87,10 +97,10 @@ else
   bash scripts/build-mac-pkg.sh
   echo
   echo "Mac artefacts:"
-  find target/universal-apple-darwin/release/bundle -type f \( -name '*.pkg' -o -name '*.dmg' -o -name '*.tar.gz' -o -name '*.sig' \) 2>/dev/null | sort
+  find "${TARGET_DIR}/universal-apple-darwin/release/bundle" -type f \( -name '*.pkg' -o -name '*.dmg' -o -name '*.tar.gz' -o -name '*.sig' \) 2>/dev/null | sort
 fi
 
-step "6/6 act --dryrun (Linux release leg)"
+step "7/7 act --dryrun (Linux release leg)"
 if ! command -v act >/dev/null 2>&1; then
   warn "act not installed; skipping Linux dry run."
   warn "Install with: brew install act"

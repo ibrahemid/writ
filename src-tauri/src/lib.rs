@@ -27,7 +27,10 @@ const MENU_ACTION_IDS: &[&str] = &[
 
 #[cfg(target_os = "macos")]
 fn menu_action_for_id(id: &str) -> Option<&'static str> {
-    MENU_ACTION_IDS.iter().copied().find(|&allowed| allowed == id)
+    MENU_ACTION_IDS
+        .iter()
+        .copied()
+        .find(|&allowed| allowed == id)
 }
 
 /// Canonicalize and authorize OS-dropped paths into the set we will open.
@@ -160,8 +163,8 @@ fn restore_main_window_geometry(
         };
         match window_state::place_window(saved, &monitors) {
             window_state::WindowPlacement::At { x, y } => {
-                let _ = window
-                    .set_position(tauri::LogicalPosition::new(f64::from(x), f64::from(y)));
+                let _ =
+                    window.set_position(tauri::LogicalPosition::new(f64::from(x), f64::from(y)));
             }
             window_state::WindowPlacement::Center => {
                 let _ = window.center();
@@ -186,8 +189,8 @@ pub fn run() {
     let watcher_ignore = app_state.watcher_ignore.clone();
 
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
-    let builder = tauri::Builder::default().plugin(tauri_plugin_single_instance::init(
-        |app, argv, _cwd| {
+    let builder =
+        tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             let args: Vec<std::ffi::OsString> = argv
                 .into_iter()
                 .skip(1)
@@ -204,7 +207,10 @@ pub fn run() {
                 let paths =
                     startup::authorize_and_canonicalize(&state.authorized_paths, &raw_paths);
                 if !paths.is_empty() {
-                    info!(count = paths.len(), "files forwarded from secondary instance");
+                    info!(
+                        count = paths.len(),
+                        "files forwarded from secondary instance"
+                    );
                     let ready = state
                         .frontend_ready
                         .load(std::sync::atomic::Ordering::SeqCst);
@@ -226,8 +232,7 @@ pub fn run() {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
-        },
-    ));
+        }));
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     let builder = tauri::Builder::default();
@@ -332,7 +337,9 @@ pub fn run() {
                 .ok();
                 if let Some(window) = fallback_handle.get_webview_window("main") {
                     if !window.is_visible().unwrap_or(true) {
-                        tracing::warn!("frontend did not signal first paint; showing window via fallback");
+                        tracing::warn!(
+                            "frontend did not signal first paint; showing window via fallback"
+                        );
                         let _ = window.show();
                         let _ = window.set_focus();
                     }
@@ -367,7 +374,10 @@ pub fn run() {
                         );
                         std::mem::take(&mut *pending)
                     };
-                    info!(count = drained.len(), "frontend-ready: draining pending opens");
+                    info!(
+                        count = drained.len(),
+                        "frontend-ready: draining pending opens"
+                    );
                     if !drained.is_empty() {
                         let _ = emit_event(
                             &ready_handle,
@@ -395,10 +405,8 @@ pub fn run() {
             ) {
                 Ok(handle) => {
                     let state = app.state::<AppState>();
-                    let mut slot = recover_poison(
-                        state.watcher.lock(),
-                        "lib::setup:watcher_handle_stash",
-                    );
+                    let mut slot =
+                        recover_poison(state.watcher.lock(), "lib::setup:watcher_handle_stash");
                     *slot = Some(handle);
                 }
                 Err(e) => {
@@ -414,10 +422,7 @@ pub fn run() {
                     .unwrap_or_else(|e| e.into_inner())
                     .clone();
                 if let Some(root) = restored_root {
-                    match watcher::handler::start_workspace_watcher(
-                        state.event_bus.clone(),
-                        root,
-                    ) {
+                    match watcher::handler::start_workspace_watcher(state.event_bus.clone(), root) {
                         Ok(handle) => {
                             let mut slot = recover_poison(
                                 state.workspace_watcher.lock(),
@@ -440,10 +445,7 @@ pub fn run() {
                     .unwrap_or_else(|e| e.into_inner())
                     .clone();
                 if let Some(root) = restored_inbox {
-                    match watcher::handler::start_inbox_watcher(
-                        state.event_bus.clone(),
-                        root,
-                    ) {
+                    match watcher::handler::start_inbox_watcher(state.event_bus.clone(), root) {
                         Ok(handle) => {
                             let mut slot = recover_poison(
                                 state.inbox_watcher.lock(),

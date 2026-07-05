@@ -1,8 +1,6 @@
 use std::sync::OnceLock;
 
-use crate::transform::{
-    TextTransform, TransformCategory, TransformError, TransformMetadata,
-};
+use crate::transform::{TextTransform, TransformCategory, TransformError, TransformMetadata};
 
 const PUNCTUATION: [char; 6] = [',', '.', ';', ':', '!', '?'];
 

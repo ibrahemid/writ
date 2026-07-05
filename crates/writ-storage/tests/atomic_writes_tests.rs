@@ -90,28 +90,22 @@ fn save_content_does_not_truncate_destination_on_temp_failure() {
     let original_bytes = fs::read(&dest).expect("read dest failed");
     assert_eq!(original_bytes, original.as_bytes());
 
-    let read_only_dir = dir.path().join("readonly-buffers");
-    fs::create_dir_all(&read_only_dir).expect("mkdir readonly failed");
-    let mut perms = fs::metadata(&read_only_dir).expect("metadata").permissions();
-    perms.set_readonly(true);
-    fs::set_permissions(&read_only_dir, perms).expect("chmod readonly failed");
+    // A regular file where the target's parent directory should be makes the
+    // temp-file creation fail on every platform. (A read-only directory does
+    // not block file creation on Windows, so the chmod trick is not portable.)
+    let blocker = dir.path().join("not-a-dir");
+    fs::write(&blocker, b"file, not a directory").expect("write blocker failed");
 
-    let nested_target = read_only_dir.join("nope.txt");
-    let attempt =
-        writ_storage::atomic::write_atomic(&nested_target, b"this should never land");
+    let nested_target = blocker.join("nope.txt");
+    let attempt = writ_storage::atomic::write_atomic(&nested_target, b"this should never land");
     assert!(
         attempt.is_err(),
-        "writing into a read-only directory must fail"
+        "writing under a non-directory parent must fail"
     );
     assert!(
         !nested_target.exists(),
         "no destination file should be created when the write fails"
     );
-
-    let mut perms = fs::metadata(&read_only_dir).expect("metadata").permissions();
-    #[allow(clippy::permissions_set_readonly_false)]
-    perms.set_readonly(false);
-    fs::set_permissions(&read_only_dir, perms).expect("restore perms failed");
 
     let surviving = fs::read(&dest).expect("read dest again failed");
     assert_eq!(
@@ -205,11 +199,7 @@ fn save_to_source_is_atomic_for_external_file() {
     let leftover_tmp = fs::read_dir(source_dir)
         .expect("read_dir")
         .filter_map(|e| e.ok())
-        .any(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .contains(".tmp")
-        });
+        .any(|e| e.file_name().to_string_lossy().contains(".tmp"));
     assert!(
         !leftover_tmp,
         "no .tmp sibling files should remain next to the source file after a successful save"

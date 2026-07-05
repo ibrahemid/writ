@@ -44,10 +44,7 @@ impl ContentRendererRegistry {
 
     /// Register a renderer. Errors if a renderer is already registered under
     /// the same content type id — there is no implicit replacement.
-    pub fn register(
-        &mut self,
-        renderer: Box<dyn ContentRenderer>,
-    ) -> Result<(), RegisterError> {
+    pub fn register(&mut self, renderer: Box<dyn ContentRenderer>) -> Result<(), RegisterError> {
         let id = renderer.content_type();
         if self.renderers.contains_key(&id) {
             return Err(RegisterError::Duplicate(id));

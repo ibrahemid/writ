@@ -1,8 +1,6 @@
 use std::sync::OnceLock;
 
-use crate::transform::{
-    TextTransform, TransformCategory, TransformError, TransformMetadata,
-};
+use crate::transform::{TextTransform, TransformCategory, TransformError, TransformMetadata};
 
 /// Guarantees the text ends with exactly one trailing line ending,
 /// collapsing any run of trailing newlines. Empty input (or input made up

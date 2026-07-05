@@ -1,7 +1,9 @@
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
-use crate::window_state::{decide_toggle, logical_rect, place_window, Rect, ToggleAction, WindowPlacement};
+use crate::window_state::{
+    decide_toggle, logical_rect, place_window, Rect, ToggleAction, WindowPlacement,
+};
 
 /// A window top-left position in logical pixels, returned to the frontend.
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -67,7 +69,12 @@ pub fn compute_window_placement(
         })
         .collect();
 
-    let saved = Rect { x, y, width, height };
+    let saved = Rect {
+        x,
+        y,
+        width,
+        height,
+    };
     Ok(match place_window(saved, &rects) {
         WindowPlacement::At { x, y } => Some(LogicalWindowPosition { x, y }),
         WindowPlacement::Center => None,

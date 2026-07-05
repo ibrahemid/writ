@@ -21,8 +21,8 @@
 //! seeds the `writ-preview://` URL-parser fuzz target and grounds the
 //! threat model (`docs/security/html-preview.md`).
 
-use writ_tauri_lib::preview::csp_eval::{Csp, Directive, Resource, Verdict};
 use writ_tauri_lib::preview::csp::build_document_csp;
+use writ_tauri_lib::preview::csp_eval::{Csp, Directive, Resource, Verdict};
 use writ_tauri_lib::preview::handler::{chrome_asset, resolve, RenderedDoc};
 use writ_tauri_lib::preview::protocol::{clear_records, drain_records, Disposition, RefusalReason};
 
@@ -111,9 +111,18 @@ fn http_is_denied_too_not_just_https() {
     // Network is categorically off — plaintext http is no more permitted
     // than https. (Belt-and-suspenders: the policy lists neither.)
     let csp = Csp::parse(&build_document_csp(true));
-    assert_eq!(csp.evaluate(Directive::Img, &Resource::remote("http")), Verdict::Deny);
-    assert_eq!(csp.evaluate(Directive::Connect, &Resource::remote("http")), Verdict::Deny);
-    assert_eq!(csp.evaluate(Directive::Connect, &Resource::remote("ws")), Verdict::Deny);
+    assert_eq!(
+        csp.evaluate(Directive::Img, &Resource::remote("http")),
+        Verdict::Deny
+    );
+    assert_eq!(
+        csp.evaluate(Directive::Connect, &Resource::remote("http")),
+        Verdict::Deny
+    );
+    assert_eq!(
+        csp.evaluate(Directive::Connect, &Resource::remote("ws")),
+        Verdict::Deny
+    );
 }
 
 // --- Allow class: the policy's *permitted* sources are permitted ---------
@@ -125,26 +134,53 @@ fn locked_csp_allows_its_permitted_local_sources() {
     let csp = Csp::parse(&build_document_csp(true));
 
     // Inline images via data: and local images via writ-preview:.
-    assert_eq!(csp.evaluate(Directive::Img, &Resource::remote("data")), Verdict::Allow);
-    assert_eq!(csp.evaluate(Directive::Img, &Resource::remote("writ-preview")), Verdict::Allow);
+    assert_eq!(
+        csp.evaluate(Directive::Img, &Resource::remote("data")),
+        Verdict::Allow
+    );
+    assert_eq!(
+        csp.evaluate(Directive::Img, &Resource::remote("writ-preview")),
+        Verdict::Allow
+    );
 
     // Fonts: data: and writ-preview:.
-    assert_eq!(csp.evaluate(Directive::Font, &Resource::remote("data")), Verdict::Allow);
-    assert_eq!(csp.evaluate(Directive::Font, &Resource::remote("writ-preview")), Verdict::Allow);
+    assert_eq!(
+        csp.evaluate(Directive::Font, &Resource::remote("data")),
+        Verdict::Allow
+    );
+    assert_eq!(
+        csp.evaluate(Directive::Font, &Resource::remote("writ-preview")),
+        Verdict::Allow
+    );
 
     // Author inline styles render (that's the whole point of preview).
-    assert_eq!(csp.evaluate(Directive::Style, &Resource::Inline), Verdict::Allow);
+    assert_eq!(
+        csp.evaluate(Directive::Style, &Resource::Inline),
+        Verdict::Allow
+    );
 }
 
 #[test]
 fn scripts_on_allows_inline_script_scripts_off_denies_it() {
     let on = Csp::parse(&build_document_csp(true));
-    assert_eq!(on.evaluate(Directive::Script, &Resource::Inline), Verdict::Allow);
-    assert_eq!(on.evaluate(Directive::Script, &Resource::remote("writ-preview")), Verdict::Allow);
+    assert_eq!(
+        on.evaluate(Directive::Script, &Resource::Inline),
+        Verdict::Allow
+    );
+    assert_eq!(
+        on.evaluate(Directive::Script, &Resource::remote("writ-preview")),
+        Verdict::Allow
+    );
 
     let off = Csp::parse(&build_document_csp(false));
-    assert_eq!(off.evaluate(Directive::Script, &Resource::Inline), Verdict::Deny);
-    assert_eq!(off.evaluate(Directive::Script, &Resource::remote("writ-preview")), Verdict::Deny);
+    assert_eq!(
+        off.evaluate(Directive::Script, &Resource::Inline),
+        Verdict::Deny
+    );
+    assert_eq!(
+        off.evaluate(Directive::Script, &Resource::remote("writ-preview")),
+        Verdict::Deny
+    );
 }
 
 #[test]
@@ -152,8 +188,14 @@ fn even_with_scripts_on_the_network_stays_shut() {
     // The defining property of the lean model: scripts run, but they have
     // no egress. A script that calls fetch() hits connect-src 'none'.
     let csp = Csp::parse(&build_document_csp(true));
-    assert_eq!(csp.evaluate(Directive::Script, &Resource::Inline), Verdict::Allow);
-    assert_eq!(csp.evaluate(Directive::Connect, &Resource::remote("https")), Verdict::Deny);
+    assert_eq!(
+        csp.evaluate(Directive::Script, &Resource::Inline),
+        Verdict::Allow
+    );
+    assert_eq!(
+        csp.evaluate(Directive::Connect, &Resource::remote("https")),
+        Verdict::Deny
+    );
 }
 
 // --- 2. Scope/traversal boundary: what the recorder observes -------------
@@ -176,7 +218,11 @@ fn disposition_of(url: &str) -> Disposition {
         disposition: resolved.disposition.clone(),
     });
     let mut records = drain_records();
-    assert_eq!(records.len(), 1, "exactly one disposition recorded for {url}");
+    assert_eq!(
+        records.len(),
+        1,
+        "exactly one disposition recorded for {url}"
+    );
     records.remove(0).disposition
 }
 

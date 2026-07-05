@@ -102,7 +102,11 @@ pub fn preview_set_layout(
     ratio: Option<f32>,
 ) -> Result<(), String> {
     if let Some(path) = &path {
-        let last_view_mode = if layout == "source" { "source" } else { "preview" };
+        let last_view_mode = if layout == "source" {
+            "source"
+        } else {
+            "preview"
+        };
         state
             .layout_state
             .set(&LayoutStateRecord {
@@ -242,7 +246,16 @@ pub fn preview_render(
     theme: ThemePolarity,
     zoom: f64,
 ) -> PreviewRenderResult {
-    run_render(&app, &state, window_id, buffer_id, content_type, text, theme, zoom)
+    run_render(
+        &app,
+        &state,
+        window_id,
+        buffer_id,
+        content_type,
+        text,
+        theme,
+        zoom,
+    )
 }
 
 /// Force a render regardless of frontend debounce gating (Cmd+R). Identical
@@ -260,5 +273,14 @@ pub fn preview_force_render(
     theme: ThemePolarity,
     zoom: f64,
 ) -> PreviewRenderResult {
-    run_render(&app, &state, window_id, buffer_id, content_type, text, theme, zoom)
+    run_render(
+        &app,
+        &state,
+        window_id,
+        buffer_id,
+        content_type,
+        text,
+        theme,
+        zoom,
+    )
 }

@@ -12,7 +12,7 @@ need uname
 
 OS="$(uname -s)"
 if [ "${OS}" != "Linux" ]; then
-  echo "writ install: this script is for Linux. On macOS use 'brew install --cask ibrahemid/writ/writ', on Windows use 'winget install --id ibrahemid.Writ -e'." >&2
+  echo "writ install: this script is for Linux. For macOS and Windows, download the installer from https://github.com/${REPO}/releases/latest." >&2
   exit 1
 fi
 

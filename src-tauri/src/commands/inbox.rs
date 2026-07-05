@@ -10,8 +10,7 @@ use crate::state::AppState;
 use crate::watcher::handler::start_inbox_watcher;
 
 pub fn set_inbox_path_from_path(state: &AppState, raw: &Path) -> Result<String, String> {
-    let canonical = raw
-        .canonicalize()
+    let canonical = crate::security::canonicalize_root(raw)
         .map_err(|e| format!("folder not accessible: {e}"))?;
     if !canonical.is_dir() {
         return Err(format!("not a directory: {}", canonical.display()));

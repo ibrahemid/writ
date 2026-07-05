@@ -2,14 +2,22 @@
 
 This directory holds everything the Writ project needs to publish releases across platform-specific package managers.
 
-## One-liner for users
+## Install paths
+
+Live today:
+
+| Platform | Install |
+|---|---|
+| macOS, Windows | Download from [GitHub Releases](https://github.com/ibrahemid/writ/releases/latest) |
+| Any Linux | `curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh \| sh` |
+
+One-liners that activate as each channel publishes (see the status table below):
 
 | Platform | Install command |
 |---|---|
 | macOS | `brew install --cask ibrahemid/writ/writ` |
 | Windows | `winget install --id ibrahemid.Writ -e` |
 | Arch Linux | `yay -S writ-bin` (or any AUR helper) |
-| Any Linux | `curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh \| sh` |
 
 ## Layout
 

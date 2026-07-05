@@ -34,10 +34,7 @@ pub fn write_atomic(target: &Path, bytes: &[u8]) -> io::Result<()> {
     let dir = target.parent().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!(
-                "target path has no parent directory: {}",
-                target.display()
-            ),
+            format!("target path has no parent directory: {}", target.display()),
         )
     })?;
 

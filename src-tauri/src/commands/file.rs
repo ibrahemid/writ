@@ -79,7 +79,12 @@ pub fn open_file_from_path(state: &AppState, path: &str) -> Result<FileOpenResul
         _ => {}
     }
 
-    open_file_classified(state, &canonical, classification.mode, classification.size_bytes)
+    open_file_classified(
+        state,
+        &canonical,
+        classification.mode,
+        classification.size_bytes,
+    )
 }
 
 /// Performs the actual open after the frontend has confirmed.
@@ -126,9 +131,7 @@ fn open_file_classified(
         .find_history_by_source_path(canonical)
         .map_err(|e| e.to_string())?
     {
-        store
-            .restore(&history_buf.id)
-            .map_err(|e| e.to_string())?;
+        store.restore(&history_buf.id).map_err(|e| e.to_string())?;
         {
             let mut ignore = recover_poison(
                 state.watcher_ignore.lock(),
@@ -146,10 +149,12 @@ fn open_file_classified(
         state
             .authorized_paths
             .record_blessed_source(canonical.to_string());
-        let doc = store
-            .get(&history_buf.id)
-            .map_err(|e| e.to_string())?;
-        return Ok(FileOpenResult { mode, size_bytes, doc });
+        let doc = store.get(&history_buf.id).map_err(|e| e.to_string())?;
+        return Ok(FileOpenResult {
+            mode,
+            size_bytes,
+            doc,
+        });
     }
 
     let language = file_ops::detect_language_from_path(file_path);
@@ -181,7 +186,11 @@ fn open_file_classified(
     state
         .authorized_paths
         .record_blessed_source(canonical.to_string());
-    Ok(FileOpenResult { mode, size_bytes, doc: new_doc })
+    Ok(FileOpenResult {
+        mode,
+        size_bytes,
+        doc: new_doc,
+    })
 }
 
 #[tauri::command]
