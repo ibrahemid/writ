@@ -19,7 +19,9 @@ const HEX_DUMP_10MB_BUDGET_MS: u128 = 1000;
 
 fn make_doc(idx: usize) -> BufferDocument {
     let id = format!("buf-{:04}", idx);
-    let words = ["rust", "editor", "buffer", "text", "search", "index", "file"];
+    let words = [
+        "rust", "editor", "buffer", "text", "search", "index", "file",
+    ];
     let title = format!("{} note {}", words[idx % words.len()], idx);
     let now = Utc::now();
     BufferDocument {
@@ -84,9 +86,7 @@ fn median_elapsed_ms(mut samples: Vec<u128>) -> u128 {
 #[test]
 fn corpus_fixture_deterministic_size() {
     let (_dir_a, store_a) = build_corpus();
-    let active_a = store_a
-        .list_by_status(BufferStatus::Active)
-        .expect("list");
+    let active_a = store_a.list_by_status(BufferStatus::Active).expect("list");
     assert_eq!(
         active_a.len(),
         CORPUS_SIZE,
@@ -95,10 +95,12 @@ fn corpus_fixture_deterministic_size() {
     );
 
     let (_dir_b, store_b) = build_corpus();
-    let active_b = store_b
-        .list_by_status(BufferStatus::Active)
-        .expect("list");
-    assert_eq!(active_a.len(), active_b.len(), "corpus size must be deterministic");
+    let active_b = store_b.list_by_status(BufferStatus::Active).expect("list");
+    assert_eq!(
+        active_a.len(),
+        active_b.len(),
+        "corpus size must be deterministic"
+    );
     for (a, b) in active_a.iter().zip(active_b.iter()) {
         assert_eq!(a.id, b.id, "corpus ids must be deterministic");
     }
@@ -154,7 +156,10 @@ fn fts_prefix_search_budget() {
         // Sanity: the prefix query must actually match rows, or a budget pass
         // would be meaningless.
         assert!(
-            !store.search(query).expect("search must not fail").is_empty(),
+            !store
+                .search(query)
+                .expect("search must not fail")
+                .is_empty(),
             "prefix query '{}' matched nothing; corpus or index is wrong",
             query,
         );

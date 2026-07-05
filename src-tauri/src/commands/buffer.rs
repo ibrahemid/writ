@@ -33,7 +33,10 @@ pub fn decide_create_buffer(
     title: Option<String>,
 ) -> Result<CreateDecision, String> {
     if title.is_none() {
-        if let Some(existing) = store.find_empty_scratch_active().map_err(|e| e.to_string())? {
+        if let Some(existing) = store
+            .find_empty_scratch_active()
+            .map_err(|e| e.to_string())?
+        {
             return Ok(CreateDecision::Reuse(existing));
         }
     }
@@ -126,7 +129,9 @@ fn spawn_deferred_reindex(app: AppHandle, id: String, first_generation: u64) {
                                 tracing::debug!(buffer_id = %id, error = %e, "deferred fts reindex failed");
                             }
                         }
-                        Err(_) => tracing::debug!(buffer_id = %id, "store poisoned; skipping deferred reindex"),
+                        Err(_) => {
+                            tracing::debug!(buffer_id = %id, "store poisoned; skipping deferred reindex")
+                        }
                     }
                     break;
                 }

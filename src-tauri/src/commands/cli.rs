@@ -148,11 +148,7 @@ fn link_with_privileges(sidecar: &Path, target: &Path) -> Result<(), String> {
 pub fn install_cli() -> Result<InstallCliResult, String> {
     let target = std::path::PathBuf::from(INSTALL_TARGET);
     let sidecar = resolve_sidecar_path().ok_or_else(|| SIDECAR_NOT_FOUND.to_string())?;
-    let manual = format!(
-        "ln -sf \"{}\" \"{}\"",
-        sidecar.display(),
-        target.display()
-    );
+    let manual = format!("ln -sf \"{}\" \"{}\"", sidecar.display(), target.display());
 
     match link_directly(&sidecar, &target) {
         Ok(()) => {}
@@ -201,7 +197,10 @@ mod tests {
         for msg in [SIDECAR_NOT_FOUND, "Installation was cancelled."] {
             let lower = msg.to_ascii_lowercase();
             for token in ["cargo", "build", "tauri", "bundle", "sidecar", "symlink"] {
-                assert!(!lower.contains(token), "user message leaks `{token}`: {msg}");
+                assert!(
+                    !lower.contains(token),
+                    "user message leaks `{token}`: {msg}"
+                );
             }
         }
     }

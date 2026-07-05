@@ -143,13 +143,19 @@ fn only_frontmatter_yields_empty() {
 #[test]
 fn unterminated_frontmatter_is_preserved() {
     let input = "---\ntitle: Test\nBody keeps going\n";
-    assert_eq!(strip_for_prompt(input), "---\ntitle: Test\nBody keeps going\n");
+    assert_eq!(
+        strip_for_prompt(input),
+        "---\ntitle: Test\nBody keeps going\n"
+    );
 }
 
 #[test]
 fn frontmatter_only_recognized_on_first_line() {
     let input = "intro\n---\nnot frontmatter\n---\nrest\n";
-    assert_eq!(strip_for_prompt(input), "intro\n---\nnot frontmatter\n---\nrest\n");
+    assert_eq!(
+        strip_for_prompt(input),
+        "intro\n---\nnot frontmatter\n---\nrest\n"
+    );
 }
 
 #[test]
@@ -160,7 +166,10 @@ fn frontmatter_with_crlf_is_stripped() {
 
 #[test]
 fn html_comment_is_stripped() {
-    assert_eq!(strip_for_prompt("before <!-- note --> after"), "before  after\n");
+    assert_eq!(
+        strip_for_prompt("before <!-- note --> after"),
+        "before  after\n"
+    );
 }
 
 #[test]
@@ -190,7 +199,10 @@ fn comment_outside_fence_stripped_while_inside_kept() {
 #[test]
 fn unterminated_comment_is_preserved() {
     let input = "text <!-- never closed\nmore text\n";
-    assert_eq!(strip_for_prompt(input), "text <!-- never closed\nmore text\n");
+    assert_eq!(
+        strip_for_prompt(input),
+        "text <!-- never closed\nmore text\n"
+    );
 }
 
 #[test]
@@ -229,7 +241,10 @@ fn scan_dedupes_preserving_first_occurrence_order() {
 
 #[test]
 fn scan_ignores_escaped_openers() {
-    assert_eq!(scan_placeholders(r"\{{literal}} and {{real}}"), vec!["real"]);
+    assert_eq!(
+        scan_placeholders(r"\{{literal}} and {{real}}"),
+        vec!["real"]
+    );
 }
 
 #[test]
@@ -244,7 +259,10 @@ fn scan_ignores_invalid_identifiers() {
 
 #[test]
 fn scan_accepts_underscore_and_digits_after_first() {
-    assert_eq!(scan_placeholders("{{_private}} {{v2_final}}"), vec!["_private", "v2_final"]);
+    assert_eq!(
+        scan_placeholders("{{_private}} {{v2_final}}"),
+        vec!["_private", "v2_final"]
+    );
 }
 
 #[test]

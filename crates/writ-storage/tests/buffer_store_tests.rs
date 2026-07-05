@@ -163,7 +163,10 @@ fn reindex_buffer_makes_a_deferred_write_searchable() {
     assert!(store.search("beta").unwrap().is_empty());
 
     store.reindex_buffer("deferred-2").expect("reindex failed");
-    assert_eq!(store.search("beta").unwrap(), vec!["deferred-2".to_string()]);
+    assert_eq!(
+        store.search("beta").unwrap(),
+        vec!["deferred-2".to_string()]
+    );
 }
 
 #[test]
@@ -213,12 +216,16 @@ fn search_finds_only_live_buffers_after_reinsert() {
 
     let first = make_doc("recycle-a", "untitled");
     store.insert(&first).unwrap();
-    store.save_content("recycle-a", "foobar in first buffer").unwrap();
+    store
+        .save_content("recycle-a", "foobar in first buffer")
+        .unwrap();
     store.delete("recycle-a").unwrap();
 
     let second = make_doc("recycle-b", "untitled");
     store.insert(&second).unwrap();
-    store.save_content("recycle-b", "foobar in second buffer").unwrap();
+    store
+        .save_content("recycle-b", "foobar in second buffer")
+        .unwrap();
 
     let hits = store.search("foobar").unwrap();
     assert_eq!(hits, vec!["recycle-b"]);
@@ -229,7 +236,9 @@ fn rebuild_fts_recovers_index_from_buffers() {
     let (_dir, store) = setup();
     let doc = make_doc("rebuild-1", "untitled");
     store.insert(&doc).unwrap();
-    store.save_content("rebuild-1", "lorem ipsum dolor").unwrap();
+    store
+        .save_content("rebuild-1", "lorem ipsum dolor")
+        .unwrap();
 
     store
         .rebuild_fts()
@@ -454,7 +463,9 @@ fn delete_many_is_noop_on_empty_input() {
     let doc = make_doc("dm-solo", "solo");
     store.insert(&doc).unwrap();
 
-    store.delete_many(&[]).expect("empty delete_many is a no-op");
+    store
+        .delete_many(&[])
+        .expect("empty delete_many is a no-op");
 
     assert!(store.get("dm-solo").is_ok());
 }

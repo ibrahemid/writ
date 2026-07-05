@@ -167,10 +167,7 @@ impl HotkeyChord {
                 deduped.push(m);
             }
         }
-        Self {
-            mods: deduped,
-            key,
-        }
+        Self { mods: deduped, key }
     }
 
     /// Borrow the modifier list in the order originally parsed.

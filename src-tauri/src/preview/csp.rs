@@ -123,7 +123,10 @@ navigate-to 'none'";
     fn document_csp_never_permits_network() {
         for enabled in [true, false] {
             let csp = build_document_csp(enabled);
-            assert!(csp.contains("connect-src 'none'"), "connect-src must be none");
+            assert!(
+                csp.contains("connect-src 'none'"),
+                "connect-src must be none"
+            );
             // No remote scheme appears anywhere — only data: and the local
             // host-gated writ-preview:.
             assert!(!csp.contains("https:"));

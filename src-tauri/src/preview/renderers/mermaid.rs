@@ -19,8 +19,7 @@
 //! each `<pre class="mermaid">` shows its raw diagram source as a code block.
 
 use writ_core::preview::{
-    ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest,
-    RendererCapabilities,
+    ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest, RendererCapabilities,
 };
 
 use super::theme;
@@ -138,7 +137,9 @@ mod tests {
     fn standalone_render_wraps_whole_buffer_and_injects_runtime() {
         let out = render("graph TD; A-->B");
         assert!(out.document_html.contains("<!doctype html>"));
-        assert!(out.document_html.contains("<pre class=\"mermaid\">graph TD; A--&gt;B</pre>"));
+        assert!(out
+            .document_html
+            .contains("<pre class=\"mermaid\">graph TD; A--&gt;B</pre>"));
         assert!(out.document_html.contains(RUNTIME_URL));
         assert!(out.document_html.contains("mermaid.run("));
         assert!(out.used_fallback_stylesheet);
