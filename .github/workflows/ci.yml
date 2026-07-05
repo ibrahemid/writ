@@ -76,6 +76,19 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
 
+      # Compiling writ-tauri (clippy, tests, check) runs the Tauri build
+      # script, which requires the CLI sidecar to exist for the host triple.
+      - name: Build CLI sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          HOST_TRIPLE="$(rustc -vV | sed -n 's/host: //p')"
+          cargo build -p writ-cli
+          mkdir -p src-tauri/binaries
+          EXT=""
+          case "$HOST_TRIPLE" in *windows*) EXT=".exe";; esac
+          cp "target/debug/writ${EXT}" "src-tauri/binaries/writ-${HOST_TRIPLE}${EXT}"
+
       - name: Clippy
         run: cargo clippy --workspace -- -D warnings
 
