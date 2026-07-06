@@ -2,6 +2,11 @@
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 <header class="v2-header">
+  <div class="lens" aria-hidden="true">
+    <div class="lens-inner">
+      <div class="lens-track"></div>
+    </div>
+  </div>
   <div class="ticker" data-collapsed="false" aria-hidden="true">
     <div class="track">
       <span class="ti lv"><i class="dd"></i> <b>writ notes.md</b> opens from your terminal</span>
@@ -77,5 +82,63 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     onScroll();
+  })();
+</script>
+
+<script>
+  (function () {
+    const ticker = document.querySelector<HTMLElement>('.ticker');
+    const track = ticker?.querySelector<HTMLElement>('.track');
+    const lens = document.querySelector<HTMLElement>('.lens');
+    const lensTrack = document.querySelector<HTMLElement>('.lens-track');
+    if (!ticker || !track || !lens || !lensTrack) return;
+    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const SCALE = 1.5;
+    const LENS_W = 150;
+    let raf = 0;
+    let mouseX = 0;
+    let lensX = 0;
+    let velocity = 0;
+    let active = false;
+
+    const frame = () => {
+      const tickerRect = ticker.getBoundingClientRect();
+      const target = mouseX - tickerRect.left - LENS_W / 2;
+      const prev = lensX;
+      lensX += (target - lensX) * 0.38;
+      velocity = velocity * 0.82 + (lensX - prev) * 0.18;
+      const squish = Math.min(1 + Math.abs(velocity) * 0.01, 1.12);
+      lens.style.transform = `translate(${lensX}px, -50%) scaleX(${squish}) scaleY(${2 - squish})`;
+
+      const m = new DOMMatrixReadOnly(getComputedStyle(track).transform);
+      const contentX = mouseX - tickerRect.left - m.m41;
+      lensTrack.style.transform = `translateX(${LENS_W / 2 - SCALE * contentX}px) scale(${SCALE})`;
+      if (active) raf = requestAnimationFrame(frame);
+    };
+
+    ticker.addEventListener('pointerenter', (e) => {
+      if (ticker.getAttribute('data-collapsed') === 'true') return;
+      if (!lensTrack.childNodes.length) lensTrack.innerHTML = track.innerHTML;
+      mouseX = e.clientX;
+      lensX = mouseX - ticker.getBoundingClientRect().left - LENS_W / 2;
+      active = true;
+      lens.classList.add('on');
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(frame);
+    });
+    ticker.addEventListener('pointermove', (e) => {
+      mouseX = e.clientX;
+    });
+    const stop = () => {
+      active = false;
+      lens.classList.remove('on');
+      cancelAnimationFrame(raf);
+    };
+    ticker.addEventListener('pointerleave', stop);
+    window.addEventListener('scroll', () => {
+      if (ticker.getAttribute('data-collapsed') === 'true') stop();
+    }, { passive: true });
   })();
 </script>
