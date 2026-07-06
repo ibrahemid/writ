@@ -22,10 +22,17 @@ import sys
 
 
 def match_one(patterns: list[str], root: pathlib.Path) -> pathlib.Path | None:
+    """First file matching a pattern that also has a `.sig` beside it.
+
+    The signature requirement is what distinguishes an updater artifact:
+    Tauri v2 signs the platform installer directly (`.msi`, `.AppImage`)
+    instead of wrapping it (`.msi.zip`, `.AppImage.tar.gz`), so extension
+    alone no longer identifies the updater payload.
+    """
     for pattern in patterns:
         rx = re.compile(pattern)
         for entry in sorted(root.iterdir()):
-            if entry.is_file() and rx.search(entry.name):
+            if entry.is_file() and rx.search(entry.name) and read_sig(entry):
                 return entry
     return None
 
@@ -57,7 +64,14 @@ def main() -> int:
         platforms["darwin-x86_64"] = {"signature": signature, "url": url}
 
     windows_asset = match_one(
-        [r"_x64-setup\.nsis\.zip$", r"_x64-setup\.exe\.zip$", r"_en-US\.msi\.zip$", r"\.msi\.zip$"],
+        [
+            r"_x64-setup\.nsis\.zip$",
+            r"_x64-setup\.exe\.zip$",
+            r"_en-US\.msi\.zip$",
+            r"\.msi\.zip$",
+            r"_en-US\.msi$",
+            r"\.msi$",
+        ],
         root,
     )
     if windows_asset:
@@ -66,7 +80,7 @@ def main() -> int:
             "url": f"https://github.com/{repo}/releases/download/{tag}/{windows_asset.name}",
         }
 
-    linux_asset = match_one([r"\.AppImage\.tar\.gz$"], root)
+    linux_asset = match_one([r"\.AppImage\.tar\.gz$", r"\.AppImage$"], root)
     if linux_asset:
         platforms["linux-x86_64"] = {
             "signature": read_sig(linux_asset),
@@ -84,12 +98,15 @@ def main() -> int:
     output.write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps(manifest, indent=2))
 
-    if not platforms:
+    required = {"darwin-aarch64", "darwin-x86_64", "windows-x86_64", "linux-x86_64"}
+    missing = required - platforms.keys()
+    if missing:
         print(
-            "WARNING: no updater platforms matched any asset. "
-            "latest.json was written with an empty platforms object.",
+            f"ERROR: updater manifest is missing platforms: {sorted(missing)}. "
+            "A partial latest.json breaks auto-update on the missing platforms.",
             file=sys.stderr,
         )
+        return 1
     return 0
 
 
