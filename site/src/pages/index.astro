@@ -6,6 +6,7 @@ import Sections from '../components/site/Sections.astro';
 ---
 <Site title="Writ — a fast scratchpad for everything you open" path="/">
   <main id="top" class="v2-grid">
+    <div class="spine" aria-hidden="true"></div>
     <Hero />
     <WindowRow />
     <Sections />
@@ -22,5 +23,93 @@ import Sections from '../components/site/Sections.astro';
         document.dispatchEvent(new CustomEvent('writ:cmd', { detail: { action, arg } }));
       });
     });
+
+    const root = document.documentElement;
+    const sections = Array.from(document.querySelectorAll<HTMLElement>('.rv'));
+    const winGut = document.querySelector<HTMLElement>('[data-rv-win]');
+    const revealSection = (el: HTMLElement) => {
+      el.classList.add('in');
+      const gut = el.previousElementSibling;
+      if (gut && gut.classList.contains('rv-g')) gut.classList.add('in');
+    };
+    const revealAll = () => {
+      sections.forEach(revealSection);
+      if (winGut) winGut.classList.add('in');
+    };
+    if (root.getAttribute('data-writ-intro') !== 'play') {
+      revealAll();
+      return;
+    }
+
+    const mobile = window.matchMedia('(max-width: 880px)').matches;
+    const winAt = mobile ? 0.8 : 2.05;
+    const sectionAt = mobile ? [2.0, 2.2, 2.4, 2.6] : [3.3, 3.65, 4.0, 4.35];
+    const timers: number[] = [];
+
+    const spine = document.querySelector<HTMLElement>('.spine');
+    const main = document.getElementById('top');
+    let currentAnim: Animation | null = null;
+    let currentScale = 0;
+    const fractionOf = (el: HTMLElement | null): number => {
+      if (!main) return 1;
+      const height = main.scrollHeight;
+      if (!el) return 1;
+      const mainTop = main.getBoundingClientRect().top;
+      return Math.min(Math.max((el.getBoundingClientRect().top - mainTop) / height, 0), 1);
+    };
+    const growTo = (fraction: number, seconds: number) => {
+      if (!spine || mobile) return;
+      try {
+        if (currentAnim) currentAnim.commitStyles();
+      } catch (_) {}
+      if (currentAnim) currentAnim.cancel();
+      currentAnim = spine.animate(
+        [{ transform: `scaleY(${currentScale})` }, { transform: `scaleY(${fraction})` }],
+        { duration: Math.max(seconds, 0.01) * 1000, easing: 'linear', fill: 'forwards' },
+      );
+      currentScale = fraction;
+    };
+
+    interface Step {
+      at: number;
+      run: () => void;
+    }
+    const steps: Step[] = [];
+    const win = document.querySelector<HTMLElement>('.win-rise');
+    steps.push({
+      at: 0.15,
+      run: () => growTo(fractionOf(win), winAt - 0.15),
+    });
+    steps.push({
+      at: winAt,
+      run: () => {
+        if (winGut) winGut.classList.add('in');
+        const next = sections[0] ?? null;
+        growTo(fractionOf(next), (sectionAt[0] ?? winAt) - winAt);
+      },
+    });
+    sections.forEach((el, i) => {
+      const at = sectionAt[Math.min(i, sectionAt.length - 1)] ?? 4.35;
+      const nextAt = sectionAt[i + 1] ?? at + 0.3;
+      steps.push({
+        at,
+        run: () => {
+          revealSection(el);
+          const next = sections[i + 1] ?? null;
+          growTo(fractionOf(next), nextAt - at);
+        },
+      });
+    });
+    steps.forEach((step) => timers.push(window.setTimeout(step.run, step.at * 1000)));
+
+    const observer = new MutationObserver(() => {
+      if (root.getAttribute('data-writ-intro') !== 'done') return;
+      timers.forEach((t) => clearTimeout(t));
+      revealAll();
+      if (currentAnim) currentAnim.cancel();
+      if (spine) spine.style.transform = 'none';
+      observer.disconnect();
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ['data-writ-intro'] });
   })();
 </script>

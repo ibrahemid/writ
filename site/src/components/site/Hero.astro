@@ -1,12 +1,524 @@
-<div class="gut-col" style="padding:54px 12px 0 0">#</div>
-<div style="padding:48px 0 26px 30px">
-  <div style="font-family:var(--font-mono); font-size:12px; color:var(--accent); margin-bottom:16px; letter-spacing:.02em">writ / scratch.md</div>
-  <h1 style="font-family:var(--font-display); font-weight:800; font-variation-settings:'opsz' 72; font-size:clamp(34px,5vw,56px); letter-spacing:-.04em; line-height:1.02; color:var(--foreground); max-width:15ch">A fast scratchpad that opens anything<span style="color:var(--accent)">.</span></h1>
-  <p style="max-width:52ch; margin-top:18px; font-size:clamp(15.5px,1.6vw,18px); line-height:1.55; color:var(--muted)">Writ sits between a plain text editor and a full IDE. Open any file the instant you need it, scan code, fix a config, jot a note. Markdown, HTML, Mermaid and KaTeX render live, and every scratch stays searchable. Offline, keyboard-driven.</p>
-  <div style="display:flex; flex-wrap:wrap; gap:11px; margin-top:26px">
-    <a href="#download" class="v2-btn-primary" style="display:inline-flex; align-items:center; gap:9px; height:48px; padding:0 24px; border-radius:11px; background:var(--accent); color:var(--accent-foreground); font-weight:600; font-size:15.5px; box-shadow:0 8px 24px -8px var(--glow)">Download Writ</a>
-    <button type="button" data-cmd="demoRender" class="v2-btn-ghost" style="display:inline-flex; align-items:center; gap:8px; height:48px; padding:0 20px; border-radius:11px; cursor:pointer; background:transparent; color:var(--foreground); border:1px solid var(--border); font-weight:550; font-size:15.5px">
-      <span style="font-family:var(--font-mono); font-size:12px; color:var(--accent)">▸</span> Try the window
-    </button>
+<script is:inline>
+  (function () {
+    try {
+      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        var root = document.documentElement;
+        root.setAttribute('data-writ-intro', 'play');
+        var skip = function () {
+          if (root.getAttribute('data-writ-intro') === 'play') {
+            root.setAttribute('data-writ-intro', 'done');
+          }
+        };
+        ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(function (ev) {
+          window.addEventListener(ev, skip, { once: true, passive: true });
+        });
+      }
+    } catch (_) {}
+  })();
+</script>
+<div class="hero-sheet">
+  <div class="hs-body">
+    <div class="hs-src" aria-hidden="true">
+      <div class="hs-line"><span class="ln">1</span><span class="lt lt-h lt-type" data-line="1"># A fast scratchpad that opens anything.</span><span class="hs-caret hs-c1"></span></div>
+      <div class="hs-line"><span class="ln">2</span></div>
+      <div class="hs-line"><span class="ln">3</span><span class="lt lt-paste lt-p1" data-line="3">Writ sits between a text editor and an IDE.</span></div>
+      <div class="hs-line"><span class="ln">4</span><span class="lt lt-paste lt-p2" data-line="4">Markdown, HTML, Mermaid and KaTeX render live,</span></div>
+      <div class="hs-line"><span class="ln">5</span><span class="lt lt-paste lt-p3" data-line="5">and every scratch stays searchable.</span></div>
+      <div class="hs-line"><span class="ln">6</span><span class="lt lt-paste lt-p4" data-line="6">Offline, keyboard-driven.</span></div>
+      <div class="hs-line"><span class="ln">7</span></div>
+      <div class="hs-line"><span class="ln">8</span><span class="lt lt-paste lt-p5" data-line="8"><span class="lk">[Download Writ]</span><span class="lu">(#download)</span> <span class="lk">[Try the window]</span><span class="lu">(#editor)</span></span><span class="hs-caret hs-c2"></span></div>
+      <span class="hs-fix-caret" aria-hidden="true">
+        <span class="hs-fc-flame"></span>
+        <span class="hs-fc-core">
+          <svg class="hs-fc-face" viewBox="0 0 10 6" fill="none"><path d="M1.4 1.9 4 3.7M8.6 1.9 6 3.7" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </span>
+      </span>
+    </div>
+    <div class="hs-render">
+      <h1 class="hr-h1"><span class="hr-h1-text">A fast scratchpad that opens anything</span><span class="hr-dot" style="color:var(--accent)">.</span></h1>
+      <p class="hr-sub">Writ sits between a text editor and an IDE. Markdown, HTML, Mermaid and KaTeX render live, and every scratch stays searchable. Offline, keyboard-driven.</p>
+      <div class="hr-ctas">
+        <a href="#download" class="v2-btn-primary hr-cta1" style="display:inline-flex; align-items:center; gap:9px; height:48px; padding:0 24px; border-radius:11px; background:var(--accent); color:var(--accent-foreground); font-weight:600; font-size:15.5px; box-shadow:0 8px 24px -8px var(--glow)">Download Writ</a>
+        <button type="button" data-cmd="demoRender" class="v2-btn-ghost hr-cta2" style="display:inline-flex; align-items:center; gap:8px; height:48px; padding:0 20px; border-radius:11px; cursor:pointer; background:transparent; color:var(--foreground); border:1px solid var(--border); font-weight:550; font-size:15.5px">
+          <span style="font-family:var(--font-mono); font-size:12px; color:var(--accent)">▸</span> <span class="hr-cta2-label">Try the window</span>
+        </button>
+      </div>
+    </div>
+  </div>
+  <div class="hs-status" aria-hidden="true">
+    <span class="hs-file">writ / scratch.md</span>
+    <span class="hs-meta">markdown · split</span>
+    <span class="hs-pos"></span>
+    <span class="hs-tok"></span>
+    <span class="hs-save"><i class="hs-save-dot"></i>saved</span>
   </div>
 </div>
+
+<script>
+  (function () {
+    const CANON: Record<number, string> = {
+      1: '# A fast scratchpad that opens anything.',
+      3: 'Writ sits between a text editor and an IDE.',
+      4: 'Markdown, HTML, Mermaid and KaTeX render live,',
+      5: 'and every scratch stays searchable.',
+      6: 'Offline, keyboard-driven.',
+      8: '[Download Writ](#download) [Try the window](#editor)',
+    };
+    const EDIT_LINES = [1, 3, 4, 5, 6, 8];
+    const MAX_LINE = 56;
+    const MAX_LINK_LINE = 64;
+    const MAX_H1 = 48;
+    const SUB_WRAP = 46;
+    const CANON_CHARS = Object.values(CANON).join('').length;
+
+    /* The caret's temper. Edits add heat (removals and interrupting an active
+       restore add more), time cools it down. One scalar drives everything:
+       restore cadence in JS and the visual ramp in CSS via --anger. */
+    const HEAT_EDIT = 0.05;
+    const HEAT_REMOVAL = 0.09;
+    const HEAT_INTERRUPT = 0.16;
+    const COOL_PER_SEC = 0.14;
+    const COOL_TICK_MS = 125;
+    const CALM = {
+      idleMs: 3000,
+      noticeMs: 380,
+      backMs: 30,
+      backJitter: 14,
+      typeMs: 34,
+      typeJitter: 20,
+      pauseChance: 0.06,
+      betweenLinesMs: 240,
+    };
+    const FURIOUS = {
+      idleMs: 450,
+      noticeMs: 60,
+      backMs: 6,
+      backJitter: 3,
+      typeMs: 7,
+      typeJitter: 4,
+      pauseChance: 0,
+      betweenLinesMs: 60,
+    };
+
+    const root = document.documentElement;
+    const src = document.querySelector<HTMLElement>('.hs-src');
+    const lineEls = new Map<number, HTMLElement>();
+    document.querySelectorAll<HTMLElement>('.lt[data-line]').forEach((el) => {
+      lineEls.set(Number(el.dataset.line), el);
+    });
+    const h1Text = document.querySelector<HTMLElement>('.hr-h1-text');
+    const h1Dot = document.querySelector<HTMLElement>('.hr-dot');
+    const sub = document.querySelector<HTMLElement>('.hr-sub');
+    const cta1 = document.querySelector<HTMLAnchorElement>('.hr-cta1');
+    const cta2Label = document.querySelector<HTMLElement>('.hr-cta2-label');
+    const ctas = document.querySelector<HTMLElement>('.hr-ctas');
+    const posEl = document.querySelector<HTMLElement>('.hs-pos');
+    const tokEl = document.querySelector<HTMLElement>('.hs-tok');
+    const saveDot = document.querySelector<HTMLElement>('.hs-save-dot');
+    const restCaret = document.querySelector<HTMLElement>('.hs-c2');
+    const fixCaret = document.querySelector<HTMLElement>('.hs-fix-caret');
+    if (!src || lineEls.size !== 6 || !h1Text || !sub || !fixCaret) return;
+
+    const sheet = document.querySelector<HTMLElement>('.hero-sheet');
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let statusLive = false;
+    let restoring = false;
+    let restoreToken = 0;
+    let idleTimer = 0;
+    let syncing = false;
+    let anger = 0;
+    let coolTimer = 0;
+    let lastCharCount = CANON_CHARS;
+    let lastContent = Object.values(CANON).join('\n');
+
+    const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+    const tempo = () => ({
+      idleMs: lerp(CALM.idleMs, FURIOUS.idleMs, anger),
+      noticeMs: lerp(CALM.noticeMs, FURIOUS.noticeMs, anger),
+      backMs: lerp(CALM.backMs, FURIOUS.backMs, anger),
+      backJitter: lerp(CALM.backJitter, FURIOUS.backJitter, anger),
+      typeMs: lerp(CALM.typeMs, FURIOUS.typeMs, anger),
+      typeJitter: lerp(CALM.typeJitter, FURIOUS.typeJitter, anger),
+      pauseChance: lerp(CALM.pauseChance, FURIOUS.pauseChance, anger),
+      betweenLinesMs: lerp(CALM.betweenLinesMs, FURIOUS.betweenLinesMs, anger),
+      burst: 1 + Math.floor(anger * 2.2),
+    });
+    const applyAnger = () => {
+      sheet?.style.setProperty('--anger', anger.toFixed(3));
+    };
+    const coolDown = () => {
+      anger = Math.max(0, anger - (COOL_PER_SEC * COOL_TICK_MS) / 1000);
+      applyAnger();
+      if (anger === 0) {
+        window.clearInterval(coolTimer);
+        coolTimer = 0;
+      }
+    };
+    const heatUp = (amount: number) => {
+      anger = Math.min(1, anger + amount);
+      applyAnger();
+      if (!coolTimer) coolTimer = window.setInterval(coolDown, COOL_TICK_MS);
+    };
+
+    const lineText = (n: number): string => lineEls.get(n)?.textContent ?? '';
+    const setLineText = (n: number, text: string) => {
+      const el = lineEls.get(n);
+      if (el) el.textContent = text;
+    };
+
+    const highlightLinkLine = () => {
+      const el = lineEls.get(8);
+      if (!el) return;
+      const t = el.textContent ?? '';
+      const m = t.match(/^(\[[^\]]*\])(\([^)]*\))( ?)(\[[^\]]*\])(\([^)]*\))$/);
+      if (!m) return;
+      el.textContent = '';
+      const mk = (cls: string, text: string) => {
+        const s = document.createElement('span');
+        s.className = cls;
+        s.textContent = text;
+        el.appendChild(s);
+      };
+      mk('lk', m[1] ?? '');
+      mk('lu', m[2] ?? '');
+      if (m[3]) el.appendChild(document.createTextNode(m[3]));
+      mk('lk', m[4] ?? '');
+      mk('lu', m[5] ?? '');
+    };
+
+    const goLiveStatus = () => {
+      if (statusLive) return;
+      statusLive = true;
+      [posEl, tokEl].forEach((el) => {
+        el?.getAnimations().forEach((a) => a.cancel());
+        if (el) el.style.opacity = '1';
+      });
+    };
+    const setPos = (line: number, col: number) => {
+      goLiveStatus();
+      posEl?.style.setProperty('--lnc', String(line));
+      posEl?.style.setProperty('--colc', String(col));
+    };
+    const setTokens = () => {
+      goLiveStatus();
+      const chars = EDIT_LINES.reduce((n, ln) => n + lineText(ln).length, 0);
+      tokEl?.style.setProperty('--tok', String(Math.max(0, Math.round((chars * 62) / CANON_CHARS))));
+    };
+
+    const syncRendered = () => {
+      syncing = true;
+      const l1 = lineText(1).replace(/^#\s?/, '');
+      const trimmed = l1.endsWith('.') ? l1.slice(0, -1) : l1;
+      if (h1Text.textContent !== trimmed) h1Text.textContent = trimmed;
+      if (h1Dot) h1Dot.style.display = l1.endsWith('.') ? '' : 'none';
+      const joined = [3, 4, 5, 6].map(lineText).filter(Boolean).join(' ');
+      if (sub.textContent !== joined) sub.textContent = joined;
+      const pairs = [...lineText(8).matchAll(/\[([^\]]*)\]\(([^)]*)\)/g)].map((p) => ({
+        label: (p[1] ?? '').slice(0, 26),
+        href: p[2] ?? '',
+      }));
+      const first = pairs[0];
+      const second = pairs[1];
+      if (first && cta1) {
+        if (cta1.textContent !== first.label) cta1.textContent = first.label;
+        if (/^#[\w-]+$/.test(first.href) && cta1.getAttribute('href') !== first.href) {
+          cta1.setAttribute('href', first.href);
+        }
+      }
+      if (second && cta2Label && cta2Label.textContent !== second.label) {
+        cta2Label.textContent = second.label;
+      }
+      ctas?.classList.toggle('hr-ctas-broken', pairs.length < 2);
+      syncing = false;
+    };
+
+    const wrapSubToSource = () => {
+      syncing = true;
+      const words = (sub.textContent ?? '').split(/\s+/).filter(Boolean);
+      const lines: string[] = [];
+      let cur = '';
+      for (const w of words) {
+        if (lines.length === 3) {
+          cur = cur ? `${cur} ${w}` : w;
+          continue;
+        }
+        if (cur && cur.length + 1 + w.length > SUB_WRAP) {
+          lines.push(cur);
+          cur = w;
+        } else {
+          cur = cur ? `${cur} ${w}` : w;
+        }
+      }
+      if (cur) lines.push(cur.slice(0, MAX_LINE));
+      [3, 4, 5, 6].forEach((ln, i) => setLineText(ln, lines[i] ?? ''));
+      syncing = false;
+    };
+
+    const caretXY = (line: number, col: number): { x: number; y: number } | null => {
+      const el = lineEls.get(line);
+      if (!el || !src) return null;
+      const srcRect = src.getBoundingClientRect();
+      const row = el.parentElement as HTMLElement;
+      const y = row.getBoundingClientRect().top - srcRect.top + row.offsetHeight / 2 - 7.5;
+      let node: Node | null = el.firstChild;
+      let remaining = col;
+      while (node) {
+        const len = node.textContent?.length ?? 0;
+        if (node.nodeType === Node.TEXT_NODE && remaining <= len) {
+          const range = document.createRange();
+          range.setStart(node, Math.max(0, Math.min(remaining, len)));
+          range.collapse(true);
+          const r = range.getBoundingClientRect();
+          if (r.left || r.top) return { x: r.left - srcRect.left, y };
+          break;
+        }
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const inner = (node.textContent ?? '').length;
+          if (remaining <= inner) {
+            node = node.firstChild;
+            continue;
+          }
+          remaining -= inner;
+          node = node.nextSibling;
+          continue;
+        }
+        remaining -= len;
+        node = node.nextSibling;
+      }
+      const r = el.getBoundingClientRect();
+      return { x: r.right - srcRect.left, y };
+    };
+
+    const moveFixCaret = (line: number, col: number) => {
+      const p = caretXY(line, col);
+      if (!p) return;
+      fixCaret.style.transform = `translate(${p.x}px, ${p.y}px)`;
+    };
+
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const jitter = (base: number, spread: number) => base + (Math.random() * 2 - 1) * spread;
+
+    const firstDiff = (a: string, b: string): number => {
+      let i = 0;
+      while (i < a.length && i < b.length && a[i] === b[i]) i++;
+      return i;
+    };
+
+    const fixLine = async (ln: number, token: number): Promise<boolean> => {
+      const want = CANON[ln] ?? '';
+      let cur = lineText(ln);
+      if (cur === want) return true;
+      const from = firstDiff(cur, want);
+      moveFixCaret(ln, cur.length);
+      setPos(ln, cur.length + 1);
+      await sleep(jitter(tempo().noticeMs, tempo().noticeMs * 0.3));
+      if (token !== restoreToken) return false;
+
+      const excess = cur.length - from;
+      if (excess > 24) {
+        const el = lineEls.get(ln);
+        el?.classList.add('lt-wiping');
+        await sleep(150);
+        if (token !== restoreToken) {
+          el?.classList.remove('lt-wiping');
+          return false;
+        }
+        setLineText(ln, cur.slice(0, from));
+        el?.classList.remove('lt-wiping');
+        moveFixCaret(ln, from);
+        setPos(ln, from + 1);
+        setTokens();
+        syncRendered();
+        await sleep(jitter(200, 60));
+      } else {
+        let i = cur.length;
+        while (i > from) {
+          if (token !== restoreToken) return false;
+          const t = tempo();
+          i = Math.max(from, i - t.burst);
+          setLineText(ln, cur.slice(0, i));
+          moveFixCaret(ln, i);
+          setPos(ln, i + 1);
+          setTokens();
+          syncRendered();
+          await sleep(jitter(t.backMs, t.backJitter));
+        }
+      }
+      let i = from;
+      while (i < want.length) {
+        if (token !== restoreToken) return false;
+        const t = tempo();
+        i = Math.min(want.length, i + t.burst);
+        setLineText(ln, want.slice(0, i));
+        moveFixCaret(ln, i);
+        setPos(ln, i + 1);
+        setTokens();
+        syncRendered();
+        if (Math.random() < t.pauseChance) await sleep(jitter(190, 70));
+        else await sleep(jitter(t.typeMs, t.typeJitter));
+      }
+      return true;
+    };
+
+    const startRestore = async () => {
+      const damaged = EDIT_LINES.filter((ln) => lineText(ln) !== CANON[ln]);
+      if (!damaged.length) {
+        saveDot?.classList.remove('editing');
+        if (restCaret) restCaret.style.opacity = '';
+        return;
+      }
+      const token = ++restoreToken;
+      restoring = true;
+      (document.activeElement as HTMLElement | null)?.blur();
+      if (restCaret) restCaret.style.opacity = '0';
+      fixCaret.classList.add('on');
+      saveDot?.classList.add('editing');
+
+      if (reduced) {
+        EDIT_LINES.forEach((ln) => setLineText(ln, CANON[ln] ?? ''));
+      } else {
+        for (const ln of damaged) {
+          const ok = await fixLine(ln, token);
+          if (!ok) return;
+          const t = tempo();
+          await sleep(jitter(t.betweenLinesMs, t.betweenLinesMs * 0.35));
+          if (token !== restoreToken) return;
+        }
+      }
+      highlightLinkLine();
+      syncRendered();
+      setTokens();
+      lastCharCount = EDIT_LINES.reduce((n, ln) => n + lineText(ln).length, 0);
+      lastContent = EDIT_LINES.map(lineText).join('\n');
+      moveFixCaret(8, CANON[8]?.length ?? 0);
+      setPos(8, (CANON[8]?.length ?? 0) + 1);
+      await sleep(500);
+      if (token !== restoreToken) return;
+      fixCaret.classList.remove('on');
+      if (restCaret) restCaret.style.opacity = '';
+      saveDot?.classList.remove('editing');
+      restoring = false;
+    };
+
+    const noteEdit = () => {
+      if (syncing) return;
+      const chars = EDIT_LINES.reduce((n, ln) => n + lineText(ln).length, 0);
+      const content = EDIT_LINES.map(lineText).join('\n');
+      if (restoring) {
+        restoreToken++;
+        restoring = false;
+        fixCaret.classList.remove('on');
+        heatUp(HEAT_INTERRUPT);
+      } else if (chars < lastCharCount) {
+        heatUp(HEAT_REMOVAL);
+      } else if (content !== lastContent) {
+        heatUp(HEAT_EDIT);
+      }
+      lastCharCount = chars;
+      lastContent = content;
+      saveDot?.classList.add('editing');
+      if (restCaret) restCaret.style.opacity = '0';
+      setTokens();
+      window.clearTimeout(idleTimer);
+      idleTimer = window.setTimeout(startRestore, tempo().idleMs);
+    };
+
+    const clampLine = (el: HTMLElement, max: number) => {
+      const t = el.textContent ?? '';
+      if (t.length > max) {
+        el.textContent = t.slice(0, max);
+        placeCaretEnd(el);
+      }
+    };
+    const placeCaretEnd = (el: HTMLElement) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    };
+
+    const enableEditing = () => {
+      lineEls.forEach((el, ln) => {
+        el.setAttribute('contenteditable', 'plaintext-only');
+        el.setAttribute('spellcheck', 'false');
+        el.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') e.preventDefault();
+        });
+        el.addEventListener('paste', (e) => {
+          e.preventDefault();
+          const text = e.clipboardData?.getData('text/plain').replace(/\s+/g, ' ') ?? '';
+          document.execCommand('insertText', false, text);
+        });
+        el.addEventListener('input', () => {
+          clampLine(el, ln === 8 ? MAX_LINK_LINE : MAX_LINE);
+          syncRendered();
+          noteEdit();
+        });
+        el.addEventListener('focus', () => noteEdit());
+      });
+      [h1Text, sub].forEach((el) => {
+        el.setAttribute('contenteditable', 'plaintext-only');
+        el.setAttribute('spellcheck', 'false');
+        el.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') e.preventDefault();
+        });
+        el.addEventListener('paste', (e) => {
+          e.preventDefault();
+          const text = e.clipboardData?.getData('text/plain').replace(/\s+/g, ' ') ?? '';
+          document.execCommand('insertText', false, text);
+        });
+      });
+      h1Text.addEventListener('input', () => {
+        clampLine(h1Text, MAX_H1);
+        syncing = true;
+        setLineText(1, `# ${h1Text.textContent ?? ''}${h1Dot && h1Dot.style.display !== 'none' ? '.' : ''}`);
+        syncing = false;
+        noteEdit();
+      });
+      sub.addEventListener('input', () => {
+        clampLine(sub, SUB_WRAP * 4 + 20);
+        wrapSubToSource();
+        noteEdit();
+      });
+
+      document.addEventListener('selectionchange', () => {
+        if (restoring) return;
+        const sel = window.getSelection();
+        const node = sel?.anchorNode;
+        if (!node) return;
+        const host = (node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element))?.closest?.('.lt[data-line]') as HTMLElement | null;
+        if (!host) return;
+        const ln = Number(host.dataset.line);
+        const range = sel?.getRangeAt(0).cloneRange();
+        if (!range) return;
+        range.setStart(host, 0);
+        setPos(ln, range.toString().length + 1);
+      });
+      src.classList.add('hs-editable');
+    };
+
+    const armWhenSettled = () => {
+      const mode = root.getAttribute('data-writ-intro');
+      if (mode === 'play') {
+        let armed = false;
+        const arm = () => {
+          if (armed) return;
+          armed = true;
+          enableEditing();
+        };
+        window.setTimeout(arm, 3400);
+        new MutationObserver((_, obs) => {
+          if (root.getAttribute('data-writ-intro') === 'done') {
+            arm();
+            obs.disconnect();
+          }
+        }).observe(root, { attributes: true, attributeFilter: ['data-writ-intro'] });
+      } else {
+        enableEditing();
+      }
+    };
+    armWhenSettled();
+  })();
+</script>
