@@ -356,6 +356,32 @@ jobs:
           PKG="$(ls target/universal-apple-darwin/release/bundle/macos/Writ_*_universal.pkg)"
           gh release upload "$TAG" "$PKG" --repo "$GITHUB_REPOSITORY" --clobber
 
+      # Tauri notarizes the .app; the dmg wrapper needs its own ticket so
+      # Gatekeeper accepts the download without an online round trip.
+      - name: Notarize and staple the dmg
+        if: matrix.os == 'macos-latest'
+        env:
+          HAS_APPLE_NOTARIZE: ${{ secrets.APPLE_TEAM_ID != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.create-release.outputs.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$HAS_APPLE_NOTARIZE" != "true" ]; then
+            echo "notarization secrets absent; dmg ships unnotarized"
+            exit 0
+          fi
+          DMG="$(ls target/universal-apple-darwin/release/bundle/dmg/Writ_*_universal.dmg)"
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+          gh release upload "$TAG" "$DMG" --repo "$GITHUB_REPOSITORY" --clobber
+
   finalize:
     name: Finalize release (checksums + updater manifest)
     needs: [create-release, build]
