@@ -124,6 +124,9 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: packages/bump-${{ steps.tag.outputs.version }}
           base: main
+          # Only the manifests. The downloaded release binaries in ./artifacts
+          # must never be committed.
+          add-paths: packaging/
           commit-message: "chore(packaging): bump to ${{ steps.tag.outputs.tag }}"
           title: "chore(packaging): bump distribution manifests to ${{ steps.tag.outputs.tag }}"
           body: |
