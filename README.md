@@ -1,3 +1,7 @@
+<div align="center">
+
+<img src="site/public/brand/icon-128.png" width="72" alt="">
+
 # Writ
 
 A lightweight, always-ready text editor for developers.
@@ -8,9 +12,14 @@ A lightweight, always-ready text editor for developers.
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)](https://github.com/ibrahemid/writ/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/ibrahemid/writ/total)](https://github.com/ibrahemid/writ/releases)
 
-## Download
+[**Download**](https://github.com/ibrahemid/writ/releases/latest) · [**Website**](https://ibrahemid.github.io/writ) · [**Build from source**](#build-from-source)
 
-Installers for macOS, Windows, and Linux are on the [latest release page](https://github.com/ibrahemid/writ/releases/latest). Or [build from source](#build-from-source).
+</div>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/hero-dark.gif">
+  <img src="docs/media/hero-light.gif" alt="Markdown typed in Writ's split pane, rendered live as it is written" width="100%">
+</picture>
 
 ## Why I built this
 
@@ -48,22 +57,59 @@ Each of these is recorded in [docs/adr/](docs/adr/); the short version:
 
 ```mermaid
 flowchart LR
-    H[global hotkey] --> T
-    CLI[writ CLI] --> T
-    W[watched inbox] --> T
-    subgraph ui [Frontend · SolidJS]
-        C[components] --> S[stores] --> V[services]
+    classDef entry fill:#4f46e5,color:#fff,stroke:none
+    classDef data fill:#312e81,color:#e0e7ff,stroke:none
+    classDef crate fill:#eef2ff,color:#1e1b4b,stroke:#c7d2fe
+    classDef zone fill:none,stroke:#818cf8,stroke-dasharray:3 3
+
+    HK([global hotkey]):::entry
+    CLI([writ CLI]):::entry
+    INBOX([watched inbox]):::entry
+    ASSOC([default app for .md, .log, .toml]):::entry
+
+    subgraph FRONT [frontend · SolidJS]
+        direction LR
+        UI[components] --> ST[stores] --> SV[services]
     end
-    V -- IPC --> T[src-tauri shell]
-    T -. events .-> V
-    T --> core[writ-core]
-    core --> storage[writ-storage] --> DB[(SQLite · WAL + FTS5)]
-    core --> render[writ-render] --> P[offline preview]
+
+    subgraph SHELL [src-tauri · thin adapter]
+        direction LR
+        CMD[IPC commands]
+        EVT[event emitter]
+        FSW[file watcher]
+    end
+
+    subgraph CORE [pure Rust · no Tauri imports]
+        direction LR
+        WC[writ-core<br>policy]:::crate
+        WR[writ-render<br>markdown · mermaid · katex]:::crate
+        WS[writ-storage<br>persistence]:::crate
+    end
+
+    HK & CLI & INBOX & ASSOC --> SHELL
+    SV -- invoke --> CMD
+    EVT -. events .-> SV
+    FSW -. fs changes .-> EVT
+    CMD --> WC
+    WC --> WR --> PV[offline preview<br>network blocked]
+    WC --> WS
+    WS --> DB[(SQLite<br>WAL + FTS5)]:::data
+    WS --> FS[(files on disk)]:::data
+
+    class FRONT,SHELL,CORE zone
 ```
 
 ## See it in action
 
-Visit the [landing page](https://ibrahemid.github.io/writ) for the full demo and feature tour.
+<table>
+  <tr>
+    <td><img src="docs/media/html-split.png" alt="HTML file in split view, scripts on, the preview rendering the page offline"></td>
+    <td><img src="docs/media/search-all-buffers.png" alt="Full-text search matching across every open and historical buffer"></td>
+    <td><img src="docs/media/command-palette.png" alt="Command palette with recent commands and shortcuts"></td>
+  </tr>
+</table>
+
+The [landing page](https://ibrahemid.github.io/writ) has a live editor you can try in the browser.
 
 ## Keyboard shortcuts
 

@@ -39,4 +39,7 @@ drafts/
 
 # Sidecar binaries (built by CI before cargo tauri build; not committed)
 src-tauri/binaries/writ-*
-.design-sync/ds-refresh/
+
+# Local working dirs (status boards, design sync)
+.design-sync/
+.status/
