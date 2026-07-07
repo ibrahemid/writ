@@ -11,12 +11,12 @@ InstallModes:
   - silent
   - silentWithProgress
 UpgradeBehavior: install
-ReleaseDate: 2026-04-18
+ReleaseDate: 2026-07-07
 Installers:
   - Architecture: x64
     InstallerType: wix
     InstallerUrl: https://github.com/ibrahemid/writ/releases/download/v0.1.0/Writ_0.1.0_x64_en-US.msi
-    InstallerSha256: __SHA256_MSI__
+    InstallerSha256: 23aee5190c4cac6c280bd3c7562bf89297f7469d8cc5ac66f6a91c9bc0b788ab
     InstallerSwitches:
       Silent: /quiet
       SilentWithProgress: /passive
