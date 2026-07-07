@@ -1,3 +1,7 @@
+<div align="center">
+
+<img src="site/public/brand/icon-128.png" width="72" alt="">
+
 # Writ
 
 A lightweight, always-ready text editor for developers.
@@ -8,9 +12,14 @@ A lightweight, always-ready text editor for developers.
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)](https://github.com/ibrahemid/writ/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/ibrahemid/writ/total)](https://github.com/ibrahemid/writ/releases)
 
-## Download
+[**Download**](https://github.com/ibrahemid/writ/releases/latest) · [**Website**](https://ibrahemid.github.io/writ) · [**Build from source**](#build-from-source)
 
-Installers for macOS, Windows, and Linux are on the [latest release page](https://github.com/ibrahemid/writ/releases/latest). Or [build from source](#build-from-source).
+</div>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/hero-dark.gif">
+  <img src="docs/media/hero-light.gif" alt="Markdown typed in Writ's split pane, rendered live as it is written" width="100%">
+</picture>
 
 ## Why I built this
 
@@ -63,7 +72,15 @@ flowchart LR
 
 ## See it in action
 
-Visit the [landing page](https://ibrahemid.github.io/writ) for the full demo and feature tour.
+<table>
+  <tr>
+    <td><img src="site/public/shots/command-palette.png" alt="Command palette listing commands with their shortcuts"></td>
+    <td><img src="site/public/shots/sidebar-tabs.png" alt="Buffer search across open tabs and history"></td>
+    <td><img src="site/public/shots/code-editor.png" alt="Find and replace in a Rust file"></td>
+  </tr>
+</table>
+
+The [landing page](https://ibrahemid.github.io/writ) has a live editor you can try in the browser.
 
 ## Keyboard shortcuts
 
