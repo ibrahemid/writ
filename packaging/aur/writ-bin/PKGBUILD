@@ -15,7 +15,7 @@ options=('!strip')
 source=("${_pkgname}-${pkgver}.AppImage::${url}/releases/download/v${pkgver}/Writ_${pkgver}_amd64.AppImage"
         "LICENSE-${pkgver}::${url}/raw/v${pkgver}/LICENSE")
 noextract=("${_pkgname}-${pkgver}.AppImage")
-sha256sums=('__SHA256_APPIMAGE__'
+sha256sums=('d358709cda1ac38c43a467ae15c833f5f54549cd41bf391fe94d1afde9c1fcfe'
             'SKIP')
 
 prepare() {
