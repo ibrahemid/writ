@@ -57,26 +57,55 @@ Each of these is recorded in [docs/adr/](docs/adr/); the short version:
 
 ```mermaid
 flowchart LR
-    H[global hotkey] --> T
-    CLI[writ CLI] --> T
-    W[watched inbox] --> T
-    subgraph ui [Frontend · SolidJS]
-        C[components] --> S[stores] --> V[services]
+    classDef entry fill:#4f46e5,color:#fff,stroke:none
+    classDef data fill:#312e81,color:#e0e7ff,stroke:none
+    classDef crate fill:#eef2ff,color:#1e1b4b,stroke:#c7d2fe
+    classDef zone fill:none,stroke:#818cf8,stroke-dasharray:3 3
+
+    HK([global hotkey]):::entry
+    CLI([writ CLI]):::entry
+    INBOX([watched inbox]):::entry
+    ASSOC([default app for .md, .log, .toml]):::entry
+
+    subgraph FRONT [frontend · SolidJS]
+        direction LR
+        UI[components] --> ST[stores] --> SV[services]
     end
-    V -- IPC --> T[src-tauri shell]
-    T -. events .-> V
-    T --> core[writ-core]
-    core --> storage[writ-storage] --> DB[(SQLite · WAL + FTS5)]
-    core --> render[writ-render] --> P[offline preview]
+
+    subgraph SHELL [src-tauri · thin adapter]
+        direction LR
+        CMD[IPC commands]
+        EVT[event emitter]
+        FSW[file watcher]
+    end
+
+    subgraph CORE [pure Rust · no Tauri imports]
+        direction LR
+        WC[writ-core<br>policy]:::crate
+        WR[writ-render<br>markdown · mermaid · katex]:::crate
+        WS[writ-storage<br>persistence]:::crate
+    end
+
+    HK & CLI & INBOX & ASSOC --> SHELL
+    SV -- invoke --> CMD
+    EVT -. events .-> SV
+    FSW -. fs changes .-> EVT
+    CMD --> WC
+    WC --> WR --> PV[offline preview<br>network blocked]
+    WC --> WS
+    WS --> DB[(SQLite<br>WAL + FTS5)]:::data
+    WS --> FS[(files on disk)]:::data
+
+    class FRONT,SHELL,CORE zone
 ```
 
 ## See it in action
 
 <table>
   <tr>
-    <td><img src="site/public/shots/command-palette.png" alt="Command palette listing commands with their shortcuts"></td>
-    <td><img src="site/public/shots/sidebar-tabs.png" alt="Buffer search across open tabs and history"></td>
-    <td><img src="site/public/shots/code-editor.png" alt="Find and replace in a Rust file"></td>
+    <td><img src="docs/media/html-split.png" alt="HTML file in split view, scripts on, the preview rendering the page offline"></td>
+    <td><img src="docs/media/search-all-buffers.png" alt="Full-text search matching across every open and historical buffer"></td>
+    <td><img src="docs/media/command-palette.png" alt="Command palette with recent commands and shortcuts"></td>
   </tr>
 </table>
 
