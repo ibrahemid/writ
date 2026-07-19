@@ -12,7 +12,7 @@ A lightweight, always-ready text editor for developers.
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)](https://github.com/ibrahemid/writ/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/ibrahemid/writ/total)](https://github.com/ibrahemid/writ/releases)
 
-[**Download**](https://github.com/ibrahemid/writ/releases/latest) · [**Website**](https://ibrahemid.github.io/writ) · [**Build from source**](#build-from-source)
+[**Download**](https://github.com/ibrahemid/writ/releases/latest) · [**Website**](https://writ.ibrahemid.com) · [**Build from source**](#build-from-source)
 
 </div>
 
@@ -109,7 +109,7 @@ flowchart LR
   </tr>
 </table>
 
-The [landing page](https://ibrahemid.github.io/writ) has a live editor you can try in the browser.
+The [landing page](https://writ.ibrahemid.com) has a live editor you can try in the browser.
 
 ## Keyboard shortcuts
 

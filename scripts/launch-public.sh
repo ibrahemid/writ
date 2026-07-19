@@ -226,9 +226,9 @@ phase_postflip() {
 phase_verify() {
   step "verify: post-launch site sanity"
 
-  note "site home"; curl -fsSI "https://ibrahemid.github.io/writ/" | head -1
-  note "site /download"; curl -fsSI "https://ibrahemid.github.io/writ/download/" | head -1
-  note "site /changelog"; curl -fsSI "https://ibrahemid.github.io/writ/changelog/" | head -1
+  note "site home"; curl -fsSI "https://writ.ibrahemid.com/" | head -1
+  note "site /download"; curl -fsSI "https://writ.ibrahemid.com/download/" | head -1
+  note "site /changelog"; curl -fsSI "https://writ.ibrahemid.com/changelog/" | head -1
   note "release /latest"; curl -fsSI "https://github.com/${REPO}/releases/latest" | head -1
 }
 
