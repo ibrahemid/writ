@@ -2,26 +2,26 @@
   "name": "Writ",
   "short_name": "Writ",
   "description": "Lightweight, always-ready text editor for developers. Global hotkey, autosave, full-text search.",
-  "start_url": "/writ/",
-  "scope": "/writ/",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#faf8f5",
   "theme_color": "#faf8f5",
   "icons": [
     {
-      "src": "/writ/brand/icon-32.png",
+      "src": "/brand/icon-32.png",
       "sizes": "32x32",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/writ/brand/icon-128.png",
+      "src": "/brand/icon-128.png",
       "sizes": "128x128",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/writ/brand/icon-256.png",
+      "src": "/brand/icon-256.png",
       "sizes": "256x256",
       "type": "image/png",
       "purpose": "any maskable"
