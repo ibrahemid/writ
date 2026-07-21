@@ -5,11 +5,11 @@ updates:
     directory: "/"
     target-branch: "dev"
     schedule:
-      interval: "monthly"
+      interval: "quarterly"
       day: "monday"
       time: "06:00"
       timezone: "Etc/UTC"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
     labels:
       - "dependencies"
       - "rust"
@@ -17,21 +17,19 @@ updates:
       prefix: "chore(deps)"
       include: "scope"
     groups:
-      cargo-patches:
-        update-types: ["patch"]
-      cargo-minors:
-        update-types: ["minor"]
+      cargo-all:
+        patterns: ["*"]
 
   # Root frontend (Tauri / SolidJS / Vite)
   - package-ecosystem: "npm"
     directory: "/"
     target-branch: "dev"
     schedule:
-      interval: "monthly"
+      interval: "quarterly"
       day: "monday"
       time: "06:00"
       timezone: "Etc/UTC"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
     labels:
       - "dependencies"
       - "frontend"
@@ -39,23 +37,19 @@ updates:
       prefix: "chore(deps)"
       include: "scope"
     groups:
-      npm-dev-patches-and-minors:
-        dependency-type: "development"
-        update-types: ["patch", "minor"]
-      npm-runtime-patches:
-        dependency-type: "production"
-        update-types: ["patch"]
+      npm-all:
+        patterns: ["*"]
 
   # Site (Astro)
   - package-ecosystem: "npm"
     directory: "/site"
     target-branch: "dev"
     schedule:
-      interval: "monthly"
+      interval: "quarterly"
       day: "monday"
       time: "06:00"
       timezone: "Etc/UTC"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
     labels:
       - "dependencies"
       - "site"
@@ -63,23 +57,19 @@ updates:
       prefix: "chore(deps)(site)"
       include: "scope"
     groups:
-      site-dev-patches-and-minors:
-        dependency-type: "development"
-        update-types: ["patch", "minor"]
-      site-runtime-patches:
-        dependency-type: "production"
-        update-types: ["patch"]
+      site-all:
+        patterns: ["*"]
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     target-branch: "dev"
     schedule:
-      interval: "monthly"
+      interval: "quarterly"
       day: "monday"
       time: "06:00"
       timezone: "Etc/UTC"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
     labels:
       - "dependencies"
       - "ci"
@@ -89,4 +79,3 @@ updates:
     groups:
       gha-all:
         patterns: ["*"]
-        update-types: ["patch", "minor"]
