@@ -127,6 +127,16 @@ The [landing page](https://writ.ibrahemid.com) has a live editor you can try in 
 
 Buffers are stored in a local SQLite database under your OS's standard application data directory.
 
+## Install
+
+```sh
+brew install --cask ibrahemid/writ/writ                              # macOS
+winget install -e --id ibrahemid.Writ                                # Windows
+curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh # Linux
+```
+
+Or grab a `.pkg`, `.dmg`, `.msi`, `.AppImage`, or `.deb` from [Releases](https://github.com/ibrahemid/writ/releases/latest).
+
 ## Build from source
 
 Prerequisites: Rust 1.77+, Node.js 20+, pnpm 9+, and the [Tauri v2 platform prerequisites](https://tauri.app/start/prerequisites/) for your OS.
