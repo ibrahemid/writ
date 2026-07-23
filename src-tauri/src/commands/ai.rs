@@ -31,10 +31,6 @@ use crate::events::{emit_event, WritFrontendEvent};
 use crate::poison::recover_poison;
 use crate::state::AppState;
 
-/// Keychain service name under which provider keys are stored. The account is
-/// the preset id, so switching presets keeps independent keys.
-const KEYCHAIN_SERVICE: &str = "com.writ.ai";
-
 /// Connect timeout: a local Ollama that is not running should fail fast.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// Overall request budget for a single rewrite.
@@ -68,8 +64,11 @@ pub struct AiKeyState {
 /// steers callers to the in-memory fallback.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod keychain {
-    use super::KEYCHAIN_SERVICE;
     use keyring::{Entry, Error};
+
+    /// Keychain service name under which provider keys are stored. The account
+    /// is the preset id, so switching presets keeps independent keys.
+    const KEYCHAIN_SERVICE: &str = "com.writ.ai";
 
     fn entry(account: &str) -> Result<Entry, String> {
         Entry::new(KEYCHAIN_SERVICE, account).map_err(|e| e.to_string())
