@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-24
+
+### Added
+
+- Local spell check for text buffers: likely misspellings get a wavy underline while code, URLs, and links stay clear, with a status-bar item carrying the on/off switch, fix-all, and a per-word preview. Off by default and fully offline.
+- Opt-in rewrite of selected text: proofread, rephrase, polish, or a custom instruction, streamed into a side-by-side original/result view before applying. Runs on a local model by default; hosted providers use a key stored in the OS keychain, and text is sent only when a rewrite is run.
+- Line operations with editor-scoped shortcuts: duplicate, delete, move, and join lines, select line, insert a line above or below, select next occurrence, and add a cursor above or below.
+
+### Changed
+
+- Text transforms renamed to plain labels with descriptions of what each one does.
+- The landing site's interactive window now runs the app's actual editor engine, sharing the editor modules, command tables, and theme tokens with the app. The site adds shortcut, terminal, and theme sections generated from the same sources, and the download section lists the Homebrew, winget, and curl installs.
+
+### Fixed
+
+- The AUR package installs the desktop entry and icons.
+- The CLI install status no longer reports a dangling `writ` link as installed.
+
 ## [0.1.0] - 2026-07-05
 
 ### Added
