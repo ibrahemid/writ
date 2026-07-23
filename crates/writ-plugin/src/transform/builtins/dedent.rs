@@ -15,8 +15,8 @@ impl TextTransform for Dedent {
     fn metadata(&self) -> &TransformMetadata {
         static META: OnceLock<TransformMetadata> = OnceLock::new();
         META.get_or_init(|| TransformMetadata {
-            label: "Dedent".to_string(),
-            description: "Remove shared leading indentation across non-blank lines.".to_string(),
+            label: "Remove shared indentation".to_string(),
+            description: "Remove the indentation shared by every non-blank line.".to_string(),
             category: TransformCategory::Indentation,
         })
     }
