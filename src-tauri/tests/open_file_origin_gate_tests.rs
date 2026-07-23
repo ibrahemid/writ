@@ -55,6 +55,10 @@ fn make_state(dir: &TempDir) -> AppState {
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
         fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        workspace_index: Arc::new(RwLock::new(
+            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+        )),
+        search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
     }
 }
 

@@ -44,5 +44,9 @@ pub mod inbox_store;
 pub mod layout_state;
 /// Session snapshots and dirty-shutdown detection.
 pub mod recovery;
+/// On-demand content grep over the workspace folder (ADR-026).
+pub mod workspace_grep;
+/// Workspace file-name index walk and the shared search ignore policy.
+pub mod workspace_search;
 /// Workspace directory listing with traversal safety.
 pub mod workspace_store;
