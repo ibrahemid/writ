@@ -450,6 +450,13 @@
   line-height: 1.4;
 }
 
+.settings-model-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-2);
+  align-items: stretch;
+}
+
 .settings-ai-connection {
   display: flex;
   align-items: center;

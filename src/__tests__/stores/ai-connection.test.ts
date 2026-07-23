@@ -21,7 +21,7 @@ vi.mock("../../stores/global/config", () => ({
 
 import { aiConnectionStore, connectionDisplay } from "../../stores/global/ai-connection";
 
-const OK = { reachable: true, model_listed: true, kind: "ok", detail: "" };
+const OK = { reachable: true, model_listed: true, kind: "ok", detail: "", models: ["llama3"] };
 
 describe("ai connection store", () => {
   beforeEach(() => {
@@ -73,25 +73,27 @@ describe("connectionDisplay", () => {
 
   it("maps every state to a line and tone", () => {
     expect(connectionDisplay(null, "llama3")).toEqual({ text: "Not checked", tone: "idle" });
-    expect(connectionDisplay({ reachable: true, model_listed: true, kind: "ok", detail: "" }, "llama3")).toEqual({
-      text: "Connected",
-      tone: "ok",
-    });
+    expect(
+      connectionDisplay({ reachable: true, model_listed: true, kind: "ok", detail: "", models: [] }, "llama3"),
+    ).toEqual({ text: "Connected", tone: "ok" });
 
     const missing = connectionDisplay(
-      { reachable: true, model_listed: false, kind: "model_missing", detail: "llama3" },
+      { reachable: true, model_listed: false, kind: "model_missing", detail: "llama3", models: [] },
       "llama3",
     );
     expect(missing.tone).toBe("warn");
     expect(missing.text).toContain("llama3");
 
-    const auth = connectionDisplay({ reachable: true, model_listed: null, kind: "unauthorized", detail: "401" }, "");
+    const auth = connectionDisplay(
+      { reachable: true, model_listed: null, kind: "unauthorized", detail: "401", models: [] },
+      "",
+    );
     expect(auth.tone).toBe("error");
     expect(auth.text).toContain("401");
 
     hoisted.ai.base_url = "http://localhost:11434/v1";
     const refusedLocal = connectionDisplay(
-      { reachable: false, model_listed: null, kind: "refused", detail: "127.0.0.1:11434" },
+      { reachable: false, model_listed: null, kind: "refused", detail: "127.0.0.1:11434", models: [] },
       "",
     );
     expect(refusedLocal.tone).toBe("error");
@@ -99,7 +101,7 @@ describe("connectionDisplay", () => {
 
     hoisted.ai.base_url = "https://api.groq.com/openai/v1";
     const refusedHosted = connectionDisplay(
-      { reachable: false, model_listed: null, kind: "refused", detail: "api.groq.com" },
+      { reachable: false, model_listed: null, kind: "refused", detail: "api.groq.com", models: [] },
       "",
     );
     expect(refusedHosted.text.toLowerCase()).not.toContain("ollama");

@@ -603,6 +603,7 @@ export interface AiConnectionStatus {
   model_listed: boolean | null;
   kind: string;
   detail: string;
+  models: string[];
 }
 
 export async function aiCheckConnection(): Promise<AiConnectionStatus> {

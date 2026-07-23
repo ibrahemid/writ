@@ -63,7 +63,7 @@ function createAiConnectionStore() {
     try {
       setStatus(await aiCheckConnection());
     } catch {
-      setStatus({ reachable: false, model_listed: null, kind: "error", detail: "" });
+      setStatus({ reachable: false, model_listed: null, kind: "error", detail: "", models: [] });
     } finally {
       setChecking(false);
     }

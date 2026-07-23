@@ -247,7 +247,7 @@ fn prepare_request(
     }
 
     if cfg.model.trim().is_empty() {
-        return Err("Set a model id first.".to_string());
+        return Err("Choose a model in AI settings.".to_string());
     }
 
     let hosted = polish::is_hosted(host);
@@ -559,6 +559,10 @@ pub fn ai_cancel(ai: State<'_, AiState>, request_id: String) {
 /// Timeout for the connection probe (connect and overall).
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
+/// Upper bound on model ids returned to the UI, so a provider with a huge
+/// catalogue never floods the picker.
+const MODEL_LIST_CAP: usize = 200;
+
 /// Outcome of probing the configured endpoint's `/models`. `kind` is a machine
 /// category the frontend maps to a message; `detail` is a sanitized fragment
 /// (host:port or a status code), never a response body.
@@ -575,6 +579,10 @@ pub struct AiConnectionStatus {
     pub kind: String,
     /// Sanitized fragment: host:port, a status code, or empty.
     pub detail: String,
+    /// Model ids the endpoint advertises (sorted, deduped, capped). Empty unless
+    /// a 2xx `/models` response was parsed. These are ids only — no other body
+    /// content is read.
+    pub models: Vec<String>,
 }
 
 impl AiConnectionStatus {
@@ -584,32 +592,42 @@ impl AiConnectionStatus {
             model_listed,
             kind: kind.to_string(),
             detail,
+            models: Vec::new(),
         }
+    }
+
+    fn with_models(mut self, models: Vec<String>) -> Self {
+        self.models = models;
+        self
     }
 }
 
-/// Reports whether `model` appears among the ids in an OpenAI-compatible
-/// `/models` body. `None` when `model` is empty or the body carries no ids.
-fn model_listed_in(body: &str, model: &str) -> Option<bool> {
-    if model.trim().is_empty() {
+/// Extracts model ids from an OpenAI-compatible `/models` body: sorted,
+/// deduped, and capped. Empty when the body has no `data[].id` entries.
+fn parse_model_ids(body: &str) -> Vec<String> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
+        return Vec::new();
+    };
+    let Some(data) = value.get("data").and_then(|d| d.as_array()) else {
+        return Vec::new();
+    };
+    let mut ids: Vec<String> = data
+        .iter()
+        .filter_map(|item| item.get("id").and_then(|v| v.as_str()).map(String::from))
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids.truncate(MODEL_LIST_CAP);
+    ids
+}
+
+/// Whether `model` is among `ids`. `None` when `model` is empty or `ids` is
+/// empty (the list is unusable for the decision).
+fn model_listed_among(ids: &[String], model: &str) -> Option<bool> {
+    if model.trim().is_empty() || ids.is_empty() {
         return None;
     }
-    let value: serde_json::Value = serde_json::from_str(body).ok()?;
-    let data = value.get("data")?.as_array()?;
-    let mut any = false;
-    for item in data {
-        if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
-            any = true;
-            if id == model {
-                return Some(true);
-            }
-        }
-    }
-    if any {
-        Some(false)
-    } else {
-        None
-    }
+    Some(ids.iter().any(|id| id == model))
 }
 
 /// Builds the probe client (3s connect + overall, redirects refused).
@@ -664,13 +682,15 @@ async fn run_connection_check(
     }
 
     let body = response.text().await.unwrap_or_default();
-    match model_listed_in(&body, model) {
+    let ids = parse_model_ids(&body);
+    let status = match model_listed_among(&ids, model) {
         Some(true) => AiConnectionStatus::new(true, Some(true), "ok", String::new()),
         Some(false) => {
             AiConnectionStatus::new(true, Some(false), "model_missing", model.to_string())
         }
         None => AiConnectionStatus::new(true, None, "ok", String::new()),
-    }
+    };
+    status.with_models(ids)
 }
 
 /// Probes the configured endpoint's `/models` so the UI can show connection
@@ -1050,6 +1070,11 @@ mod tests {
         assert!(status.reachable);
         assert_eq!(status.model_listed, Some(true));
         assert_eq!(status.kind, "ok");
+        // Sorted, and the full list is exposed for the picker.
+        assert_eq!(
+            status.models,
+            vec!["llama3".to_string(), "mistral".to_string()]
+        );
     }
 
     #[test]
@@ -1093,18 +1118,22 @@ mod tests {
     }
 
     #[test]
-    fn model_listed_in_handles_empty_and_missing() {
-        assert_eq!(model_listed_in("{\"data\":[{\"id\":\"a\"}]}", ""), None);
-        assert_eq!(model_listed_in("not json", "a"), None);
-        assert_eq!(model_listed_in("{\"data\":[]}", "a"), None);
+    fn parse_model_ids_sorts_dedups_and_handles_junk() {
+        assert_eq!(parse_model_ids("not json"), Vec::<String>::new());
+        assert_eq!(parse_model_ids("{\"data\":[]}"), Vec::<String>::new());
         assert_eq!(
-            model_listed_in("{\"data\":[{\"id\":\"a\"}]}", "a"),
-            Some(true)
+            parse_model_ids("{\"data\":[{\"id\":\"b\"},{\"id\":\"a\"},{\"id\":\"a\"}]}"),
+            vec!["a".to_string(), "b".to_string()]
         );
-        assert_eq!(
-            model_listed_in("{\"data\":[{\"id\":\"b\"}]}", "a"),
-            Some(false)
-        );
+    }
+
+    #[test]
+    fn model_listed_among_handles_empty_and_missing() {
+        let ids = vec!["a".to_string()];
+        assert_eq!(model_listed_among(&ids, ""), None);
+        assert_eq!(model_listed_among(&[], "a"), None);
+        assert_eq!(model_listed_among(&ids, "a"), Some(true));
+        assert_eq!(model_listed_among(&ids, "b"), Some(false));
     }
 
     #[test]

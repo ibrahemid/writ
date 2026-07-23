@@ -24,6 +24,7 @@ import { showToast } from "../Notifications/Toast";
 import { fetchCliStatus, installCli } from "../../stores/global/cli";
 import { aiRewriteStore, type AiKeyState } from "../../stores/global/ai-rewrite";
 import { aiConnectionStore, connectionDisplay } from "../../stores/global/ai-connection";
+import { modelOptions, defaultModelFor, resolveAutoModel } from "../../stores/global/ai-models";
 import { copyStoragePath, fetchStorageInfo, revealStoragePath } from "../../stores/global/storage";
 import type { StorageInfo } from "../../stores/global/storage";
 import type { DefaultLayout } from "../../types/config";
@@ -764,6 +765,12 @@ function AiSection() {
   const [keyState, setKeyState] = createSignal<AiKeyState | null>(null);
   const [keyInput, setKeyInput] = createSignal("");
   const [keyBusy, setKeyBusy] = createSignal(false);
+  // The user has picked (or typed) the current model this session; guards the
+  // Ollama auto-select from replacing a deliberate choice.
+  const [userSelected, setUserSelected] = createSignal(false);
+  // Free-text model entry is showing (chose "Custom…", or the model is not in
+  // the offered list).
+  const [customMode, setCustomMode] = createSignal(false);
 
   // Only read key state once the feature is on, so a keychain access prompt is
   // never triggered while the feature is off.
@@ -796,6 +803,31 @@ function AiSection() {
 
   const connection = () => connectionDisplay(aiConnectionStore.status(), cfg().model);
 
+  const liveModels = () => aiConnectionStore.status()?.models ?? [];
+  const modelOptionList = () => modelOptions(cfg().preset, liveModels());
+  const usingCurated = () => liveModels().length === 0;
+  const modelSelectValue = () => {
+    if (customMode()) return "__custom__";
+    return modelOptionList().includes(cfg().model) ? cfg().model : "__custom__";
+  };
+  const showModelInput = () => customMode() || !modelOptionList().includes(cfg().model);
+  const modelOptionLabel = (id: string) => (usingCurated() ? `${id} (suggested)` : id);
+
+  // Keep a working model without a setup decision: fill an empty one, and for a
+  // local server that has just listed its models, switch off a not-installed id.
+  createEffect(() => {
+    if (!cfg().enabled) return;
+    const auto = resolveAutoModel({
+      preset: cfg().preset,
+      model: cfg().model,
+      live: liveModels(),
+      userSelected: userSelected(),
+    });
+    if (auto && auto !== cfg().model) {
+      void patchConfig((prev) => ({ ...prev, ai: { ...prev.ai, model: auto } }));
+    }
+  });
+
   // The effective host is hosted (non-local) and not yet consented to — shown
   // for a preset switch or a hand-edited base URL alike.
   const hostedUnconsented = () => {
@@ -811,12 +843,17 @@ function AiSection() {
 
   function onPresetChange(raw: string) {
     const base = AI_PRESET_BASE_URLS[raw];
+    // A new provider is a fresh context: reset the selection guard and seed the
+    // default model (custom keeps its free-text value).
+    setUserSelected(false);
+    setCustomMode(raw === "custom");
     void patchConfig((prev) => ({
       ...prev,
       ai: {
         ...prev.ai,
         preset: raw as typeof prev.ai.preset,
         base_url: raw === "custom" ? prev.ai.base_url : base,
+        model: raw === "custom" ? prev.ai.model : defaultModelFor(raw),
       },
     }));
   }
@@ -825,8 +862,19 @@ function AiSection() {
     void patchConfig((prev) => ({ ...prev, ai: { ...prev.ai, base_url: raw.trim() } }));
   }
 
-  function onModelChange(raw: string) {
+  function onModelText(raw: string) {
+    setUserSelected(true);
     void patchConfig((prev) => ({ ...prev, ai: { ...prev.ai, model: raw.trim() } }));
+  }
+
+  function onSelectModel(value: string) {
+    if (value === "__custom__") {
+      setCustomMode(true);
+      return;
+    }
+    setCustomMode(false);
+    setUserSelected(true);
+    void patchConfig((prev) => ({ ...prev, ai: { ...prev.ai, model: value } }));
   }
 
   function onConsent() {
@@ -918,17 +966,49 @@ function AiSection() {
         </SettingsRow>
 
         <SettingsRow id="ai.model" label="Model" labelFor="setting-ai-model">
-          <input
-            id="setting-ai-model"
-            type="text"
-            class="settings-input"
-            data-setting="ai_model"
-            spellcheck={false}
-            autocomplete="off"
-            placeholder="e.g. llama3.1"
-            value={cfg().model}
-            onChange={(e) => onModelChange(e.currentTarget.value)}
-          />
+          <Show
+            when={cfg().preset !== "custom"}
+            fallback={
+              <input
+                id="setting-ai-model"
+                type="text"
+                class="settings-input"
+                data-setting="ai_model"
+                spellcheck={false}
+                autocomplete="off"
+                placeholder="Model id"
+                value={cfg().model}
+                onChange={(e) => onModelText(e.currentTarget.value)}
+              />
+            }
+          >
+            <div class="settings-model-picker">
+              <select
+                id="setting-ai-model"
+                class="settings-select"
+                data-setting="ai_model"
+                value={modelSelectValue()}
+                onChange={(e) => onSelectModel(e.currentTarget.value)}
+              >
+                <For each={modelOptionList()}>
+                  {(id) => <option value={id}>{modelOptionLabel(id)}</option>}
+                </For>
+                <option value="__custom__">Custom…</option>
+              </select>
+              <Show when={showModelInput()}>
+                <input
+                  type="text"
+                  class="settings-input"
+                  data-setting="ai_model_custom"
+                  spellcheck={false}
+                  autocomplete="off"
+                  placeholder="Model id"
+                  value={cfg().model}
+                  onChange={(e) => onModelText(e.currentTarget.value)}
+                />
+              </Show>
+            </div>
+          </Show>
         </SettingsRow>
 
         <SettingsRow id="ai.api_key" label="API key">
