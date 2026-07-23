@@ -53,6 +53,8 @@ pub mod history;
 pub mod hotkey;
 /// Watch-inbox auto-open policy — ADR-018.
 pub mod inbox;
+/// Prompt construction and endpoint policy for opt-in text rewriting.
+pub mod polish;
 /// Preview surface types and content-type renderer registry — ADR-009.
 pub mod preview;
 /// Prompt-document helpers: token estimation, stripping, placeholders.

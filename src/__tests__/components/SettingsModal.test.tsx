@@ -32,6 +32,9 @@ vi.mock("../../services/tauri", () => ({
   listActiveBuffers: vi.fn().mockResolvedValue([]),
   listHistory: vi.fn().mockResolvedValue([]),
   searchBuffers: vi.fn().mockResolvedValue([]),
+  aiHasApiKey: vi.fn().mockResolvedValue({ is_set: false, memory_only: false }),
+  aiSetApiKey: vi.fn().mockResolvedValue({ is_set: true, memory_only: false }),
+  aiClearApiKey: vi.fn().mockResolvedValue({ is_set: false, memory_only: false }),
 }));
 
 vi.mock("../../stores/global/default-app", () => ({
@@ -99,6 +102,7 @@ function baseConfig(): WritConfig {
   workspace: { root: null },
   inbox: { path: null, focus: true },
   updater: { auto_check: true },
+  ai: { enabled: false, preset: "ollama", base_url: "http://localhost:11434/v1", model: "", consented_hosted: false },
     preview: {
       default_layout_html: "split",
       default_layout_markdown: "split",
@@ -173,12 +177,12 @@ describe("SettingsModal", () => {
     await waitFor(() => expect(container.querySelector("[role='dialog']")).toBeNull());
   });
 
-  it("shows all 7 section nav items", async () => {
+  it("shows all 8 section nav items", async () => {
     const { container } = render(() => <SettingsModal />);
     openSettings();
     await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
     const navItems = container.querySelectorAll(".settings-nav-item");
-    expect(navItems.length).toBe(7);
+    expect(navItems.length).toBe(8);
   });
 
   it("shows Editor section by default", async () => {

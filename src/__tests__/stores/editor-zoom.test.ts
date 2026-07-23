@@ -22,6 +22,7 @@ const MOCK_CONFIG: WritConfig = {
   workspace: { root: null },
   inbox: { path: null, focus: true },
   updater: { auto_check: true },
+  ai: { enabled: false, preset: "ollama", base_url: "http://localhost:11434/v1", model: "", consented_hosted: false },
   preview: {
     default_layout_html: "split",
     default_layout_markdown: "split",

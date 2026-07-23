@@ -3,6 +3,7 @@ export type SettingsSection =
   | "files"
   | "storage"
   | "preview"
+  | "ai"
   | "appearance"
   | "updates"
   | "shortcuts";
@@ -22,6 +23,7 @@ export const SECTION_LABELS: Record<SettingsSection, string> = {
   files: "Files",
   storage: "Storage",
   preview: "Preview",
+  ai: "Rewrite",
   appearance: "Appearance",
   updates: "Updates",
   shortcuts: "Shortcuts",
@@ -32,6 +34,7 @@ export const SECTION_ORDER: SettingsSection[] = [
   "files",
   "storage",
   "preview",
+  "ai",
   "appearance",
   "updates",
   "shortcuts",
@@ -57,6 +60,11 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "preview.run_scripts", section: "preview", title: "Run scripts by default", keywords: ["scripts", "javascript", "preview", "run"] },
   { id: "preview.layout_html", section: "preview", title: "HTML default layout", keywords: ["layout", "html", "split", "source", "preview"] },
   { id: "preview.layout_md", section: "preview", title: "Markdown default layout", keywords: ["layout", "markdown", "md", "split", "source", "preview"] },
+  { id: "ai.enabled", section: "ai", title: "Rewrite selected text", keywords: ["ai", "rewrite", "proofread", "rephrase", "polish", "model", "llm", "ollama", "enable"] },
+  { id: "ai.preset", section: "ai", title: "Provider", keywords: ["ai", "provider", "preset", "ollama", "groq", "gemini", "deepseek", "openrouter", "custom"] },
+  { id: "ai.base_url", section: "ai", title: "Base URL", keywords: ["ai", "base url", "endpoint", "host", "server"] },
+  { id: "ai.model", section: "ai", title: "Model", keywords: ["ai", "model", "id"] },
+  { id: "ai.api_key", section: "ai", title: "API key", keywords: ["ai", "api key", "token", "secret", "credential"] },
   { id: "appearance.theme", section: "appearance", title: "Theme", keywords: ["theme", "color", "appearance", "preset", "dark", "light"] },
   { id: "appearance.custom_colors", section: "appearance", title: "Custom colors", keywords: ["theme", "colors", "custom", "palette"] },
   { id: "updates.auto_check", section: "updates", title: "Check for updates automatically", keywords: ["update", "auto", "check", "version"] },

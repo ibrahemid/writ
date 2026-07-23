@@ -26,6 +26,9 @@ import { openContentSearch } from "./commands/search";
 import { findStore } from "./stores/global/find-store";
 import { registerTransformCommands } from "./commands/transforms";
 import { registerPromptCommands } from "./commands/prompt";
+import { registerAiCommands, unregisterAiCommands } from "./commands/ai";
+import { aiRewriteStore } from "./stores/global/ai-rewrite";
+import AiRewriteOverlay from "./components/AiRewrite/AiRewriteOverlay";
 import PromptFillModal from "./components/PromptFill/PromptFillModal";
 import { registerPreviewKeymap } from "./keymap/preview";
 import { rendererRegistry } from "./stores/global/renderer-registry";
@@ -567,6 +570,11 @@ function AppShell() {
 
     const unlistenUpdate = await updateStore.subscribe();
     unlisteners.push(unlistenUpdate);
+
+    const unlistenAi = await onEvent("ai:rewrite", (payload) => {
+      aiRewriteStore.handleStreamEvent(payload);
+    });
+    unlisteners.push(unlistenAi);
   });
 
   onCleanup(() => {
@@ -583,6 +591,12 @@ function AppShell() {
     }
   });
 
+  // Rewrite commands exist in the palette only while the feature is on.
+  createEffect(() => {
+    if (configStore.config().ai.enabled) registerAiCommands();
+    else unregisterAiCommands();
+  });
+
   return (
     <div class="app-container">
       <TitleBar />
@@ -597,6 +611,7 @@ function AppShell() {
       <ContextMenu />
       <ConfirmDialog />
       <PromptFillModal />
+      <AiRewriteOverlay />
       <ToastContainer />
       <UpdateBanner />
     </div>
