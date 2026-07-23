@@ -1,4 +1,4 @@
-import { createSignal, createEffect, Show, For, onMount, onCleanup } from "solid-js";
+import { createSignal, createEffect, Show, For, onCleanup } from "solid-js";
 import "./ContextMenu.css";
 
 interface MenuItem {
@@ -126,11 +126,24 @@ export default function ContextMenu() {
     requestAnimationFrame(() => buttons[index]?.focus());
   });
 
-  onMount(() => {
-    document.addEventListener("click", handleClickOutside);
+  // Register the outside-click dismisser only while the menu is open, and only
+  // after the opening event has finished propagating. Solid delegates clicks at
+  // the document, so a chip's onClick opens the menu during the same click that
+  // a document-level listener would then read as "outside" and close instantly.
+  // Deferring registration past the current event loop tick lets the opening
+  // click complete first; the next click (a genuine outside click) dismisses.
+  createEffect(() => {
+    if (!menu()) return;
+    let registered = false;
+    const timer = setTimeout(() => {
+      document.addEventListener("click", handleClickOutside);
+      registered = true;
+    }, 0);
+    onCleanup(() => {
+      clearTimeout(timer);
+      if (registered) document.removeEventListener("click", handleClickOutside);
+    });
   });
-
-  onCleanup(() => document.removeEventListener("click", handleClickOutside));
 
   function positionStyle(m: ContextMenuState): Record<string, string> {
     if (m.anchor) {

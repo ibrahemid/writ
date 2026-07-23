@@ -25,8 +25,10 @@
 
 use harper_core::linting::{LintGroup, Linter, Suggestion};
 use harper_core::spell::FstDictionary;
-use harper_core::{Dialect, Document};
+use harper_core::Document;
 use serde::{Deserialize, Serialize};
+
+pub use harper_core::Dialect;
 
 /// Configuration for a single [`check`] call.
 #[derive(Debug, Clone)]
@@ -144,9 +146,10 @@ pub fn check(text: &str, config: &LintConfig) -> Vec<LintResult> {
             }
         }
 
-        // Spelling counts as confident only when it offers a fix (guaranteed
-        // by the drop above); mechanical rules are always confident.
-        let confident = !is_spelling || !suggestions.is_empty();
+        // Every lint that reaches here carries a suggestion (empties were
+        // dropped above), so spelling-with-a-fix and mechanical rules are all
+        // confident.
+        let confident = true;
 
         out.push(LintResult {
             from_utf16: utf16_prefix[start],

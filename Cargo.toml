@@ -17,7 +17,7 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.89"
 license = "MIT"
 repository = "https://github.com/ibrahemid/writ"
 homepage = "https://github.com/ibrahemid/writ"
