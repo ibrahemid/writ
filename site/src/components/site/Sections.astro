@@ -74,6 +74,51 @@ const platforms = [
   </div>
 </div>
 
+<!-- CLEANS UP / SPELLING / REWRITE -->
+<div class="gut-col rv-g" style="padding:60px 12px 0 0">##</div>
+<div id="text" class="rv" style="padding:54px 0 0 30px; scroll-margin-top:64px">
+  <div style="font-family:var(--font-mono); font-size:12px; color:var(--accent); margin-bottom:12px">spelling · rewrite</div>
+  <h2 style="font-family:var(--font-display); font-weight:700; font-size:clamp(21px,2.6vw,30px); letter-spacing:-.03em; color:var(--foreground); max-width:22ch">Clean up the text, on your machine.</h2>
+  <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; margin-top:22px">
+
+    <div style="padding:22px; border:1px solid var(--line); border-radius:13px; background:var(--card)">
+      <div style="font-family:var(--font-mono); font-size:11.5px; color:var(--accent)">spell check</div>
+      <h3 style="margin-top:9px; font-weight:650; font-size:17px; color:var(--foreground)">Checks spelling locally</h3>
+      <p style="margin-top:6px; font-size:14px; color:var(--muted); line-height:1.5">Nothing leaves your machine. Likely misspellings get a wavy underline; code, URLs, and links stay clear. Fix them all at once or ignore a word. Off by default.</p>
+
+      <div style="margin-top:15px; border:1px solid var(--line); border-radius:10px; background:var(--background); overflow:hidden; font-family:var(--font-mono); font-size:12.5px">
+        <div style="padding:13px 14px; line-height:1.7; color:var(--foreground)">
+          the <span style="text-decoration:underline wavy var(--err); text-decoration-skip-ink:none; text-underline-offset:3px">settlment</span> worker reads<br />
+          the bus and never <span style="text-decoration:underline wavy var(--err); text-decoration-skip-ink:none; text-underline-offset:3px">recieves</span> a <code style="color:var(--muted)">dup</code>
+        </div>
+        <div style="position:relative; display:flex; align-items:center; gap:8px; padding:7px 12px; border-top:1px solid var(--line); background:var(--card); color:var(--subtle); font-size:11px">
+          <span>Ln 4, Col 12</span>
+          <div style="flex:1"></div>
+          <span style="padding:2px 8px; border-radius:20px; border:1px solid var(--err); color:var(--err); font-weight:600">2 spelling</span>
+          <div style="position:absolute; right:10px; bottom:calc(100% + 6px); min-width:150px; border:1px solid var(--line); border-radius:9px; background:var(--card); box-shadow:0 8px 24px rgba(0,0,0,.22); padding:5px; display:flex; flex-direction:column; gap:1px; text-align:left">
+            <span style="padding:6px 9px; border-radius:6px; color:var(--foreground); background:color-mix(in srgb,var(--accent) 12%,transparent)">Fix all (2)</span>
+            <span style="padding:6px 9px; border-radius:6px; color:var(--foreground)">Preview…</span>
+            <span style="padding:6px 9px; border-radius:6px; color:var(--foreground)">Turn off spelling</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:22px; border:1px solid var(--line); border-radius:13px; background:var(--card)">
+      <div style="font-family:var(--font-mono); font-size:11.5px; color:var(--accent)">rewrite</div>
+      <h3 style="margin-top:9px; font-weight:650; font-size:17px; color:var(--foreground)">Rewrite a selection, if you want it</h3>
+      <p style="margin-top:6px; font-size:14px; color:var(--muted); line-height:1.5">Proofread, rephrase, or polish selected text. Runs on a local model by default; bring your own key for a hosted provider and it stays in the OS keychain. Off until you turn it on, and text is sent only when you run a rewrite.</p>
+      <div style="margin-top:15px; display:flex; flex-wrap:wrap; gap:7px; font-family:var(--font-mono); font-size:11.5px; color:var(--muted)">
+        <span style="padding:4px 10px; border:1px solid var(--line); border-radius:20px">Proofread</span>
+        <span style="padding:4px 10px; border:1px solid var(--line); border-radius:20px">Rephrase</span>
+        <span style="padding:4px 10px; border:1px solid var(--line); border-radius:20px">Polish</span>
+      </div>
+      <p style="margin-top:12px; font-family:var(--font-mono); font-size:11.5px; color:var(--subtle); line-height:1.6">Ollama local, or Groq · Gemini · DeepSeek · OpenRouter with your key</p>
+    </div>
+
+  </div>
+</div>
+
 <!-- DOWNLOAD -->
 <div class="gut-col rv-g" style="padding:64px 12px 0 0">##</div>
 <div id="download" class="rv" style="padding:58px 0 0 30px; scroll-margin-top:64px">
