@@ -29,6 +29,7 @@ import { configStore } from "../../stores/global/config";
 import { editorZoom } from "../../stores/global/editor-zoom";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { findStore } from "../../stores/global/find-store";
+import { aiRewriteStore } from "../../stores/global/ai-rewrite";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { registerCommand, unregisterCommand } from "../../commands/registry";
 import { rebuildKeyMap } from "../../commands/keybindings";
@@ -260,6 +261,9 @@ export default function EditorInstance(props: Props) {
             }
             if (findStore.isOpen()) findStore.refresh();
           }
+          // Keep any live rewrite preview's anchored range in sync, and abort it
+          // if this edit lands inside that range.
+          aiRewriteStore.onDocChanged(bufferId, update.changes);
         }
         const sel = update.state.selection;
         const pos = sel.main.head;

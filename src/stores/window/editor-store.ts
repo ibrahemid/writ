@@ -104,6 +104,38 @@ export function createEditorStore() {
     return { text: view.state.doc.sliceString(from, to), usedSelection: useSelection };
   }
 
+  // Reads the range a rewrite would act on: the selection when one is present,
+  // otherwise the whole document. Returns the char offsets so the range can be
+  // anchored and mapped through later edits.
+  function getSelectionRange(
+    useSelectionIfPresent: boolean,
+  ): { from: number; to: number; text: string; usedSelection: boolean } | null {
+    const view = activeView;
+    if (!view) return null;
+    const main = view.state.selection.main;
+    const usedSelection = useSelectionIfPresent && !main.empty;
+    const from = usedSelection ? main.from : 0;
+    const to = usedSelection ? main.to : view.state.doc.length;
+    return { from, to, text: view.state.doc.sliceString(from, to), usedSelection };
+  }
+
+  // Replaces an anchored range in a single dispatch (one undo step), selects
+  // the inserted text, and refocuses. Offsets are clamped so a stale anchor can
+  // never dispatch out of bounds.
+  function replaceRange(from: number, to: number, insert: string): boolean {
+    const view = activeView;
+    if (!view) return false;
+    const docLen = view.state.doc.length;
+    const clampedFrom = Math.max(0, Math.min(from, docLen));
+    const clampedTo = Math.max(clampedFrom, Math.min(to, docLen));
+    view.dispatch({
+      changes: { from: clampedFrom, to: clampedTo, insert },
+      selection: EditorSelection.single(clampedFrom, clampedFrom + insert.length),
+    });
+    view.focus();
+    return true;
+  }
+
   async function applyEditToActiveBuffer(options: ApplyEditOptions): Promise<ApplyEditResult> {
     const view = activeView;
     if (!view) return { applied: false, reason: "no-active-view" };
@@ -165,6 +197,8 @@ export function createEditorStore() {
     largeFileMode, setLargeFileMode,
     registerView, getView, focusEditor,
     getActiveText,
+    getSelectionRange,
+    replaceRange,
     applyEditToActiveBuffer,
     scheduleAutosave, cancelAutosave, flushAutosave,
     detectLanguage, detectFromContent,
