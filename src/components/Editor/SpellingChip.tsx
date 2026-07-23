@@ -5,40 +5,73 @@ import { showAnchoredMenu } from "../ContextMenu/ContextMenu";
 import { openSettings } from "../SettingsModal/SettingsModal";
 import { openSpellingPreview } from "./SpellingPreview";
 
-// Status-bar chip showing the live spell-check count. Hidden at zero and when
-// the feature is off. Clicking opens a menu anchored to the chip.
+// Status-bar spell-check item and switch. Shown for any eligible buffer
+// (Normal mode, under the size cap), hidden otherwise. Three states: off
+// (muted), on with no issues (plain label), on with issues (the count).
+// Clicking always opens a menu that carries the on/off switch.
+
+interface MenuEntry {
+  label: string;
+  action: () => void;
+  separator?: boolean;
+}
 
 export default function SpellingChip() {
   let ref: HTMLButtonElement | undefined;
 
-  const visible = createMemo(
-    () => configStore.config().spelling.enabled && spellingStore.count() > 0,
-  );
+  const eligible = () => spellingStore.eligible();
+  const enabled = () => configStore.config().spelling.enabled;
+  const count = () => spellingStore.count();
+
+  const label = createMemo(() => {
+    if (!enabled()) return "Spelling off";
+    const n = count();
+    return n > 0 ? `${n} spelling` : "Spelling";
+  });
+
+  function setEnabled(next: boolean) {
+    const current = configStore.config();
+    void configStore.save({
+      ...current,
+      spelling: { ...current.spelling, enabled: next },
+    });
+  }
+
+  function menuItems(): MenuEntry[] {
+    const settings: MenuEntry = {
+      label: "Spelling settings",
+      action: () => openSettings("editor", "editor.spelling"),
+      separator: true,
+    };
+    if (!enabled()) {
+      return [{ label: "Turn on spelling", action: () => setEnabled(true) }, settings];
+    }
+    const items: MenuEntry[] = [{ label: "Turn off spelling", action: () => setEnabled(false) }];
+    if (count() > 0) {
+      items.push({ label: `Fix all (${count()})`, action: () => spellingStore.fixAll() });
+      items.push({ label: "Preview…", action: () => openSpellingPreview() });
+    }
+    items.push(settings);
+    return items;
+  }
 
   function openMenu() {
     if (!ref) return;
-    const count = spellingStore.count();
-    showAnchoredMenu(
-      ref.getBoundingClientRect(),
-      [
-        { label: `Fix all (${count})`, action: () => spellingStore.fixAll() },
-        { label: "Preview…", action: () => openSpellingPreview() },
-        { label: "Spelling settings", action: () => openSettings("editor", "editor.spelling"), separator: true },
-      ],
-      ref,
-    );
+    showAnchoredMenu(ref.getBoundingClientRect(), menuItems(), ref);
   }
 
   return (
-    <Show when={visible()}>
+    <Show when={eligible()}>
       <button
         ref={ref}
         type="button"
         class="statusbar-chip spelling-chip"
+        classList={{ "spelling-chip--off": !enabled() }}
         onClick={openMenu}
         title="Spelling"
+        aria-label={label()}
       >
-        {spellingStore.count()} spelling
+        {label()}
       </button>
     </Show>
   );
