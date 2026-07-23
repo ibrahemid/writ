@@ -3,13 +3,41 @@ import Site from '../layouts/Site.astro';
 import Hero from '../components/site/Hero.astro';
 import WindowRow from '../components/site/WindowRow.astro';
 import Sections from '../components/site/Sections.astro';
+import { EDITOR_COMMAND_KEYS } from '../../../src/editor/editor-command-keys';
+import { keybindingSegments } from '../../../src/lib/keybinding-format';
+import warpLight from '../../../src/styles/themes/warp-light.json';
+import warpDark from '../../../src/styles/themes/warp-dark.json';
+import tokyoNight from '../../../src/styles/themes/tokyo-night.json';
+import dracula from '../../../src/styles/themes/dracula.json';
+import solarizedDark from '../../../src/styles/themes/solarized-dark.json';
+import catppuccinMocha from '../../../src/styles/themes/catppuccin-mocha.json';
+
+const presets = [warpLight, warpDark, tokyoNight, dracula, solarizedDark, catppuccinMocha];
+
+// Keycaps use the app's own segmenter so the sheet matches the window exactly.
+// isMac is forced: navigator is undefined at build time and would default to non-mac.
+const seg = (binding: string) => keybindingSegments(binding, { isMac: true });
+const appShortcuts = [
+  { label: 'Toggle window', bindings: ['CmdOrCtrl+Shift+Space'] },
+  { label: 'Command palette', bindings: ['Shift+Shift'] },
+  { label: 'New tab', bindings: ['CmdOrCtrl+T'] },
+  { label: 'Close tab', bindings: ['CmdOrCtrl+W'] },
+  { label: 'Switch tabs', bindings: ['CmdOrCtrl+[', 'CmdOrCtrl+]'] },
+  { label: 'Toggle sidebar', bindings: ['CmdOrCtrl+S'] },
+  { label: 'Find in document', bindings: ['CmdOrCtrl+F'] },
+  { label: 'Bold / italic / link', bindings: ['CmdOrCtrl+B', 'CmdOrCtrl+I', 'CmdOrCtrl+K'] },
+];
+const kcCols = [
+  { h: 'window & tabs', rows: appShortcuts.map((r) => ({ label: r.label, groups: r.bindings.map(seg) })) },
+  { h: 'editing', rows: EDITOR_COMMAND_KEYS.map((c) => ({ label: c.label, groups: [seg(c.keybinding)] })) },
+];
 ---
 <Site title="Writ — a fast scratchpad for everything you open" path="/">
   <main id="top" class="v2-grid">
     <div class="spine" aria-hidden="true"></div>
     <Hero />
     <WindowRow />
-    <Sections />
+    <Sections kcCols={kcCols} presets={presets} />
   </main>
 </Site>
 
@@ -43,7 +71,11 @@ import Sections from '../components/site/Sections.astro';
 
     const mobile = window.matchMedia('(max-width: 880px)').matches;
     const winAt = mobile ? 0.8 : 2.05;
-    const sectionAt = mobile ? [2.0, 2.2, 2.4, 2.6] : [3.3, 3.65, 4.0, 4.35];
+    // Section timings derive from document order so the cascade scales to any
+    // number of sections instead of collapsing onto a fixed final slot.
+    const firstAt = mobile ? 2.0 : 3.3;
+    const step = mobile ? 0.2 : 0.32;
+    const atOf = (i: number) => firstAt + i * step;
     const timers: number[] = [];
 
     const spine = document.querySelector<HTMLElement>('.spine');
@@ -85,12 +117,12 @@ import Sections from '../components/site/Sections.astro';
       run: () => {
         if (winGut) winGut.classList.add('in');
         const next = sections[0] ?? null;
-        growTo(fractionOf(next), (sectionAt[0] ?? winAt) - winAt);
+        growTo(fractionOf(next), atOf(0) - winAt);
       },
     });
     sections.forEach((el, i) => {
-      const at = sectionAt[Math.min(i, sectionAt.length - 1)] ?? 4.35;
-      const nextAt = sectionAt[i + 1] ?? at + 0.3;
+      const at = atOf(i);
+      const nextAt = atOf(i + 1);
       steps.push({
         at,
         run: () => {
@@ -111,5 +143,45 @@ import Sections from '../components/site/Sections.astro';
       observer.disconnect();
     });
     observer.observe(root, { attributes: true, attributeFilter: ['data-writ-intro'] });
+  })();
+</script>
+
+<script>
+  (function () {
+    interface NavUAD {
+      userAgentData?: { platform?: string };
+    }
+    const detectPlatform = (): 'mac' | 'win' | 'linux' => {
+      const uad = (navigator as unknown as NavUAD).userAgentData;
+      const p = (uad?.platform || navigator.userAgent || '').toLowerCase();
+      if (p.includes('win')) return 'win';
+      if (p.includes('linux') && !p.includes('android')) return 'linux';
+      return 'mac';
+    };
+    const plat = detectPlatform();
+
+    // The hero CTA label is owned by Hero.astro (it drives the source line too);
+    // here we only feature the visitor's download card.
+    document.querySelectorAll<HTMLElement>('.plat-card').forEach((card) => {
+      card.classList.toggle('featured', card.dataset.plat === plat);
+    });
+
+    const oneliners = document.querySelector<HTMLElement>('.oneliners');
+    oneliners?.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement | null)?.closest<HTMLElement>('.copybtn');
+      if (!btn) return;
+      const text = btn.dataset.copy;
+      const labelEl = btn.querySelector('span');
+      if (!text || !labelEl) return;
+      navigator.clipboard?.writeText(text).then(() => {
+        const prev = labelEl.textContent;
+        labelEl.textContent = 'copied';
+        btn.classList.add('copied');
+        window.setTimeout(() => {
+          labelEl.textContent = prev;
+          btn.classList.remove('copied');
+        }, 1400);
+      }).catch(() => {});
+    });
   })();
 </script>

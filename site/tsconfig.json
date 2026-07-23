@@ -6,6 +6,18 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "allowJs": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@app/*": ["../src/*"],
+      "@codemirror/state": ["./node_modules/@codemirror/state"],
+      "@codemirror/view": ["./node_modules/@codemirror/view"],
+      "@codemirror/language": ["./node_modules/@codemirror/language"],
+      "@codemirror/commands": ["./node_modules/@codemirror/commands"],
+      "@codemirror/search": ["./node_modules/@codemirror/search"],
+      "@codemirror/autocomplete": ["./node_modules/@codemirror/autocomplete"],
+      "@lezer/highlight": ["./node_modules/@lezer/highlight"],
+      "@lezer/common": ["./node_modules/@lezer/common"]
+    }
   }
 }
