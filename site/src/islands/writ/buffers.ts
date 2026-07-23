@@ -1,24 +1,27 @@
+import type { TransformId } from './transforms';
+
 export type BufferLang = 'md' | 'ts' | 'html' | 'plain' | 'binary' | 'huge';
 
 export interface BufferMeta {
   name: string;
   lang: BufferLang;
-  label: string;
-  dot: string;
   badge?: string;
   tok?: string;
 }
 
-export interface PaletteCommand {
-  id: string;
-  name: string;
-  desc: string;
-  kbd?: string;
-}
-
-export interface PaletteGroup {
-  label: string;
-  cmds: PaletteCommand[];
+// Maps a demo buffer's language tag to the app's registry language id (null =
+// plain text). Binary and huge buffers carry no grammar in the app either.
+export function cmLangId(lang: BufferLang): string | null {
+  switch (lang) {
+    case 'md':
+      return 'markdown';
+    case 'ts':
+      return 'typescript';
+    case 'html':
+      return 'html';
+    default:
+      return null;
+  }
 }
 
 const join = (lines: string[]): string => lines.join('\n');
@@ -176,6 +179,16 @@ const releaseHtml = join([
   '</section>',
 ]);
 
+const notesMd = join([
+  '# scratch — review notes',
+  '',
+  'Quick pass over teh settlement worker before we cut over.',
+  '',
+  '- recieve events from the bus, not the queue',
+  '- keep the dedup horizon seperate from the retry policy',
+  '- double-check the enviroment flags in staging',
+]);
+
 const writ1559 = join([
   '# scratch — retry policy',
   '',
@@ -237,36 +250,28 @@ function buildBigLog(): string {
 }
 
 export const BUFFERS: Record<string, BufferMeta> = {
-  'report.md': { name: 'report.md', lang: 'md', label: 'Markdown', dot: 'var(--accent)' },
-  'settle.ts': { name: 'settle.ts', lang: 'ts', label: 'TypeScript', dot: 'var(--sx-fn)' },
-  'schema.sql': { name: 'schema.sql', lang: 'plain', label: 'Plain Text', dot: 'var(--sx-type)' },
-  'gateway.log': { name: 'gateway.log', lang: 'plain', label: 'Plain Text', dot: 'var(--muted)' },
+  'report.md': { name: 'report.md', lang: 'md' },
+  'settle.ts': { name: 'settle.ts', lang: 'ts' },
+  'schema.sql': { name: 'schema.sql', lang: 'plain' },
+  'gateway.log': { name: 'gateway.log', lang: 'plain' },
   'icon-256.png': {
     name: 'icon-256.png',
     lang: 'binary',
-    label: 'Binary',
-    dot: 'var(--warn)',
     badge: 'Binary · read-only',
     tok: '—',
   },
   'gateway-week.log': {
     name: 'gateway-week.log',
     lang: 'huge',
-    label: 'Plain Text',
-    dot: 'var(--muted)',
     badge: 'Large file · syntax off',
   },
-  'staging.env': { name: 'staging.env', lang: 'plain', label: 'Plain Text', dot: 'var(--sx-num)' },
-  'release-email.html': {
-    name: 'release-email.html',
-    lang: 'html',
-    label: 'HTML',
-    dot: 'var(--sx-kw)',
-  },
-  'config.yaml': { name: 'config.yaml', lang: 'plain', label: 'Plain Text', dot: 'var(--sx-type)' },
-  'writ-1559': { name: 'writ-1559', lang: 'md', label: 'Markdown', dot: 'var(--accent)' },
-  'writ-4471': { name: 'writ-4471', lang: 'md', label: 'Markdown', dot: 'var(--accent)' },
-  'writ-3182': { name: 'writ-3182', lang: 'md', label: 'Markdown', dot: 'var(--accent)' },
+  'staging.env': { name: 'staging.env', lang: 'plain' },
+  'release-email.html': { name: 'release-email.html', lang: 'html' },
+  'config.yaml': { name: 'config.yaml', lang: 'plain' },
+  'notes.md': { name: 'notes.md', lang: 'md' },
+  'writ-1559': { name: 'writ-1559', lang: 'md' },
+  'writ-4471': { name: 'writ-4471', lang: 'md' },
+  'writ-3182': { name: 'writ-3182', lang: 'md' },
 };
 
 export const DEFAULT_CONTENTS: Record<string, string> = {
@@ -279,6 +284,7 @@ export const DEFAULT_CONTENTS: Record<string, string> = {
   'staging.env': stagingEnv,
   'release-email.html': releaseHtml,
   'config.yaml': configYaml,
+  'notes.md': notesMd,
   'writ-1559': writ1559,
   'writ-4471': writ4471,
   'writ-3182': writ3182,
@@ -294,63 +300,25 @@ export const FMT: Record<'md' | 'html' | 'mermaid' | 'math', string> = {
 export const OPEN_FILES = ['report.md', 'settle.ts', 'schema.sql', 'gateway.log'];
 
 export const HISTORY: { id: string; when: string }[] = [
-  { id: 'staging.env', when: '1m' },
-  { id: 'release-email.html', when: '2m' },
-  { id: 'config.yaml', when: '6m' },
-  { id: 'writ-1559', when: '9m' },
-  { id: 'writ-4471', when: '12m' },
-  { id: 'writ-3182', when: '14m' },
+  { id: 'notes.md', when: '1m' },
+  { id: 'staging.env', when: '3m' },
+  { id: 'release-email.html', when: '5m' },
+  { id: 'config.yaml', when: '9m' },
+  { id: 'writ-1559', when: '12m' },
+  { id: 'writ-4471', when: '15m' },
+  { id: 'writ-3182', when: '18m' },
 ];
 
-export const GROUPS: PaletteGroup[] = [
-  {
-    label: 'FORMAT',
-    cmds: [
-      { id: 'fmt-bold', name: 'Bold', desc: 'Wrap the selection in **.', kbd: '⌘B' },
-      { id: 'fmt-italic', name: 'Italic', desc: 'Wrap the selection in *.', kbd: '⌘I' },
-      { id: 'fmt-strike', name: 'Strikethrough', desc: 'Wrap the selection in ~~.', kbd: '⌘⇧X' },
-      { id: 'fmt-code', name: 'Inline code', desc: 'Wrap the selection in backticks.', kbd: '⌘E' },
-      { id: 'fmt-link', name: 'Link', desc: 'Turn the selection into a Markdown link.', kbd: '⌘K' },
-    ],
-  },
-  {
-    label: 'TEXT',
-    cmds: [
-      { id: 'trim', name: 'Trim leading spaces', desc: 'Remove spaces and tabs from the start of each line.' },
-      { id: 'dedent', name: 'Remove shared indentation', desc: 'Remove the indentation shared by every non-blank line.' },
-      { id: 'finalnl', name: 'End with one newline', desc: 'End the text with exactly one trailing newline.' },
-      { id: 'prompt', name: 'Prepare as prompt', desc: 'Remove frontmatter and HTML comments outside code, then trim trailing whitespace.' },
-      { id: 'tidy', name: 'Tidy whitespace', desc: 'Trim trailing spaces, remove shared indentation, collapse repeated spaces, and end with one newline.' },
-      { id: 'normalize', name: 'Collapse repeated spaces', desc: 'Collapse repeated spaces and tabs inside a line down to one space.' },
-      { id: 'punct', name: 'Fix spacing before punctuation', desc: 'Remove stray spaces before commas, periods, and other punctuation.' },
-      { id: 'quotes', name: 'Straighten quotes', desc: 'Replace curly quotes with straight ones.' },
-    ],
-  },
-  {
-    label: 'TABS & FILES',
-    cmds: [
-      { id: 'newtab', name: 'New Tab', desc: 'Open a fresh scratch buffer.', kbd: '⌘T' },
-      { id: 'closetab', name: 'Close Tab', desc: 'Close the active buffer.', kbd: '⌘W' },
-      { id: 'switchtab', name: 'Switch Tab', desc: 'Jump to the next open buffer.', kbd: '⌘]' },
-      { id: 'renametab', name: 'Rename Tab', desc: 'Rename the active buffer inline.' },
-    ],
-  },
-  {
-    label: 'VIEW',
-    cmds: [
-      { id: 'togglesidebar', name: 'Toggle Sidebar', desc: 'Show or hide the buffer list.', kbd: '⌘S' },
-      { id: 'find', name: 'Find', desc: 'Focus the search field.', kbd: '⌘F' },
-      { id: 'zoomin', name: 'Zoom In', desc: 'Increase editor scale.', kbd: '⌘+' },
-      { id: 'zoomout', name: 'Zoom Out', desc: 'Decrease editor scale.', kbd: '⌘−' },
-      { id: 'zoomreset', name: 'Reset Zoom', desc: 'Return to 100%.', kbd: '⌘0' },
-    ],
-  },
-  {
-    label: 'ACTIONS',
-    cmds: [
-      { id: 'search', name: 'Search', desc: 'Full-text search across every buffer.' },
-      { id: 'watchinbox', name: 'Watch Inbox', desc: 'Auto-open files dropped into the inbox folder.' },
-      { id: 'copyprompt', name: 'Copy as Prompt', desc: 'Copy the buffer, cleaned, to the clipboard.' },
-    ],
-  },
+// The nine text transforms, with the app's plain labels and descriptions and in
+// the app's palette order (kept in step with the transforms the app registers).
+export const TEXT_TRANSFORMS: { id: TransformId; name: string; desc: string }[] = [
+  { id: 'trim', name: 'Trim leading spaces', desc: 'Remove spaces and tabs from the start of each line.' },
+  { id: 'trimtrailing', name: 'Trim trailing spaces', desc: 'Remove spaces and tabs from the end of each line.' },
+  { id: 'normalize', name: 'Collapse repeated spaces', desc: 'Collapse repeated spaces and tabs inside a line down to one space.' },
+  { id: 'quotes', name: 'Straighten quotes', desc: 'Replace curly quotes with straight ones.' },
+  { id: 'dedent', name: 'Remove shared indentation', desc: 'Remove the indentation shared by every non-blank line.' },
+  { id: 'finalnl', name: 'End with one newline', desc: 'End the text with exactly one trailing newline.' },
+  { id: 'punct', name: 'Fix spacing before punctuation', desc: 'Remove stray spaces before commas, periods, and other punctuation.' },
+  { id: 'prompt', name: 'Prepare as prompt', desc: 'Remove frontmatter and HTML comments outside code, then trim trailing whitespace.' },
+  { id: 'tidy', name: 'Tidy whitespace', desc: 'Trim trailing spaces, remove shared indentation, collapse repeated spaces, and end with one newline.' },
 ];

@@ -1,165 +1,263 @@
 ---
+import Section from './Section.astro';
 import release from '../../data/release.json';
+
+interface KcCol {
+  h: string;
+  rows: { label: string; groups: string[][] }[];
+}
+interface PresetChip {
+  name: string;
+  polarity: string;
+  surface: { background: string };
+  foreground: { default: string };
+  accent: { default: string };
+  syntax: {
+    keyword: string;
+    string: string;
+    comment: string;
+    function: string;
+    number: string;
+    type: string;
+    variable: string;
+  };
+}
+interface Props {
+  kcCols: readonly KcCol[];
+  presets: readonly PresetChip[];
+}
+const { kcCols, presets } = Astro.props;
 
 const repo = 'https://github.com/ibrahemid/writ';
 const releasesUrl = repo + '/releases';
 const published = release.published === true;
+const notarized = release.notarized === true;
+const sumsUrl = `${repo}/releases/download/${release.tag}/SHA256SUMS.txt`;
 
-const platforms = [
-  {
-    name: 'macOS',
-    note: 'Apple silicon & Intel',
-    href: published ? release.platforms.mac.dmg : releasesUrl,
-    featured: true,
-  },
-  {
-    name: 'Windows',
-    note: 'x64',
-    href: published ? release.platforms.win.msi : releasesUrl,
-    featured: false,
-  },
-  {
-    name: 'Linux',
-    note: 'AppImage & .deb',
-    href: published ? release.platforms.linux.appImage : releasesUrl,
-    featured: false,
-  },
+const oneliners = [
+  { os: 'macOS', cmd: 'brew install --cask ibrahemid/writ/writ' },
+  { os: 'Windows', cmd: 'winget install -e --id ibrahemid.Writ' },
+  { os: 'Linux', cmd: 'curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh' },
 ];
 ---
 <!-- WHY -->
-<div class="gut-col rv-g" style="padding:64px 12px 0 0">##</div>
-<div class="rv" style="padding:58px 0 0 30px">
-  <div style="font-family:var(--font-mono); font-size:12px; color:var(--accent); margin-bottom:14px">why-writ</div>
-  <p style="font-family:var(--font-display); font-weight:600; font-size:clamp(20px,2.6vw,28px); line-height:1.26; letter-spacing:-.02em; color:var(--foreground); max-width:26ch">A text editor opens fast but shows raw text. An IDE renders everything but is slow to reach for. Writ is the fast middle.</p>
-</div>
+<Section slug="why-writ">
+  <p class="sec-lead">A text editor opens fast but shows raw text. An IDE renders everything but is slow to reach for. Writ is the fast middle.</p>
+</Section>
 
 <!-- RENDERS -->
-<div class="gut-col rv-g" style="padding:60px 12px 0 0">##</div>
-<div id="render" class="rv" style="padding:54px 0 0 30px; scroll-margin-top:64px">
-  <div style="font-family:var(--font-mono); font-size:12px; color:var(--accent); margin-bottom:12px">renders</div>
-  <h2 style="font-family:var(--font-display); font-weight:700; font-size:clamp(21px,2.6vw,30px); letter-spacing:-.03em; color:var(--foreground); max-width:20ch">Four formats, drawn live.</h2>
-  <p style="max-width:52ch; margin-top:11px; font-size:15.5px; color:var(--muted)">Source · Split · Preview. In Markdown, lists continue on Enter and checkboxes toggle when clicked. Load one into the window:</p>
-  <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:18px">
-    <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="md"><span style="color:var(--accent)">#</span> Markdown</button>
-    <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="html"><span style="color:var(--accent)">&lt;/&gt;</span> HTML</button>
-    <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="mermaid"><span style="color:var(--accent)">A→B</span> Mermaid</button>
-    <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="math"><span style="color:var(--accent)">∑</span> KaTeX</button>
+<Section slug="renders" id="render">
+  <h2 class="sec-h2">Four formats, drawn live.</h2>
+  <p class="sec-p">Source, split, preview. In Markdown, lists continue on Enter and checkboxes toggle when clicked. Load one into the window:</p>
+  <div class="trig-row">
+    <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="md"><span class="trig-g">#</span> Markdown</button>
+    <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="html"><span class="trig-g">&lt;/&gt;</span> HTML</button>
+    <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="mermaid"><span class="trig-g">A→B</span> Mermaid</button>
+    <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="math"><span class="trig-g">∑</span> KaTeX</button>
   </div>
-</div>
+</Section>
 
-<!-- OPENS / TOKENS / SEARCH -->
-<div class="gut-col rv-g" style="padding:60px 12px 0 0">##</div>
-<div id="search" class="rv" style="padding:54px 0 0 30px; scroll-margin-top:64px">
-  <div style="font-family:var(--font-mono); font-size:12px; color:var(--accent); margin-bottom:12px">opens · counts · finds</div>
-  <h2 style="font-family:var(--font-display); font-weight:700; font-size:clamp(21px,2.6vw,30px); letter-spacing:-.03em; color:var(--foreground); max-width:22ch">Open anything. Keep what matters.</h2>
-  <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin-top:22px">
-    <div style="padding:22px; border:1px solid var(--line); border-radius:13px; background:var(--card)">
-      <div style="font-family:var(--font-mono); font-size:11.5px; color:var(--accent)">opens anything</div>
-      <h3 style="margin-top:9px; font-weight:650; font-size:17px; color:var(--foreground)">Every file, one window</h3>
-      <p style="margin-top:6px; font-size:14px; color:var(--muted); line-height:1.5">Code with syntax highlighting. Configs and logs as plain text. Binaries as hex. Large files without choking.</p>
-      <button class="gtrig" type="button" data-cmd="open" data-arg="icon-256.png" style="margin-top:14px; font-size:12px">View a binary as hex →</button>
+<!-- OPENS / COUNTS / FINDS -->
+<Section slug="search" id="search">
+  <h2 class="sec-h2">Open anything. Keep what matters.</h2>
+  <div class="card-grid">
+    <div class="card">
+      <div class="card-k">opens anything</div>
+      <h3 class="card-h">Every file, one window</h3>
+      <p class="card-p">Code with syntax highlighting. Configs and logs as plain text. Binaries as hex. Large files without choking.</p>
+      <button class="gtrig gtrig-sm" type="button" data-cmd="open" data-arg="icon-256.png">View a binary as hex →</button>
     </div>
-    <div style="padding:22px; border:1px solid var(--line); border-radius:13px; background:var(--card)">
-      <div style="font-family:var(--font-mono); font-size:11.5px; color:var(--accent)">counts tokens</div>
-      <h3 style="margin-top:9px; font-weight:650; font-size:17px; color:var(--foreground)">Know the cost before you paste</h3>
-      <p style="margin-top:6px; font-size:14px; color:var(--muted); line-height:1.5">A running token estimate in the status bar. Stay under the context window.</p>
-      <button class="gtrig" type="button" data-cmd="open" data-arg="gateway-week.log" style="margin-top:14px; font-size:12px">Open a large log →</button>
+    <div class="card">
+      <div class="card-k">counts tokens</div>
+      <h3 class="card-h">Know the cost before you paste</h3>
+      <p class="card-p">A running token estimate in the status bar. Stay under the context window.</p>
+      <button class="gtrig gtrig-sm" type="button" data-cmd="open" data-arg="gateway-week.log">Open a large log →</button>
     </div>
-    <div style="padding:22px; border:1px solid var(--line); border-radius:13px; background:var(--card)">
-      <div style="font-family:var(--font-mono); font-size:11.5px; color:var(--accent)">stays findable</div>
-      <h3 style="margin-top:9px; font-weight:650; font-size:17px; color:var(--foreground)">Nothing you dump gets lost</h3>
-      <p style="margin-top:6px; font-size:14px; color:var(--muted); line-height:1.5">Full-text index on disk. Search lands the matching line.</p>
-      <button class="gtrig" type="button" data-cmd="search" data-arg="settle" style="margin-top:14px; font-size:12px">Search “settle” →</button>
+    <div class="card">
+      <div class="card-k">stays findable</div>
+      <h3 class="card-h">Nothing you dump gets lost</h3>
+      <p class="card-p">Full-text index on disk. Search lands the matching line.</p>
+      <button class="gtrig gtrig-sm" type="button" data-cmd="search" data-arg="settle">Search “settle” →</button>
     </div>
   </div>
-</div>
+</Section>
 
-<!-- CLEANS UP / SPELLING / REWRITE -->
-<div class="gut-col rv-g" style="padding:60px 12px 0 0">##</div>
-<div id="text" class="rv" style="padding:54px 0 0 30px; scroll-margin-top:64px">
-  <div style="font-family:var(--font-mono); font-size:12px; color:var(--accent); margin-bottom:12px">spelling · rewrite</div>
-  <h2 style="font-family:var(--font-display); font-weight:700; font-size:clamp(21px,2.6vw,30px); letter-spacing:-.03em; color:var(--foreground); max-width:22ch">Clean up the text, on your machine.</h2>
-  <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; margin-top:22px">
-
-    <div style="padding:22px; border:1px solid var(--line); border-radius:13px; background:var(--card)">
-      <div style="font-family:var(--font-mono); font-size:11.5px; color:var(--accent)">spell check</div>
-      <h3 style="margin-top:9px; font-weight:650; font-size:17px; color:var(--foreground)">Checks spelling locally</h3>
-      <p style="margin-top:6px; font-size:14px; color:var(--muted); line-height:1.5">Nothing leaves your machine. Likely misspellings get a wavy underline; code, URLs, and links stay clear. Fix them all at once or ignore a word. Off by default.</p>
-
-      <div style="margin-top:15px; border:1px solid var(--line); border-radius:10px; background:var(--background); overflow:hidden; font-family:var(--font-mono); font-size:12.5px">
-        <div style="padding:13px 14px; line-height:1.7; color:var(--foreground)">
-          the <span style="text-decoration:underline wavy var(--err); text-decoration-skip-ink:none; text-underline-offset:3px">settlment</span> worker reads<br />
-          the bus and never <span style="text-decoration:underline wavy var(--err); text-decoration-skip-ink:none; text-underline-offset:3px">recieves</span> a <code style="color:var(--muted)">dup</code>
-        </div>
-        <div style="position:relative; display:flex; align-items:center; gap:8px; padding:7px 12px; border-top:1px solid var(--line); background:var(--card); color:var(--subtle); font-size:11px">
-          <span>Ln 4, Col 12</span>
-          <div style="flex:1"></div>
-          <span style="padding:2px 8px; border-radius:20px; border:1px solid var(--err); color:var(--err); font-weight:600">2 spelling</span>
-          <div style="position:absolute; right:10px; bottom:calc(100% + 6px); min-width:150px; border:1px solid var(--line); border-radius:9px; background:var(--card); box-shadow:0 8px 24px rgba(0,0,0,.22); padding:5px; display:flex; flex-direction:column; gap:1px; text-align:left">
-            <span style="padding:6px 9px; border-radius:6px; color:var(--foreground); background:color-mix(in srgb,var(--accent) 12%,transparent)">Fix all (2)</span>
-            <span style="padding:6px 9px; border-radius:6px; color:var(--foreground)">Preview…</span>
-            <span style="padding:6px 9px; border-radius:6px; color:var(--foreground)">Turn off spelling</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div style="padding:22px; border:1px solid var(--line); border-radius:13px; background:var(--card)">
-      <div style="font-family:var(--font-mono); font-size:11.5px; color:var(--accent)">rewrite</div>
-      <h3 style="margin-top:9px; font-weight:650; font-size:17px; color:var(--foreground)">Rewrite a selection, if you want it</h3>
-      <p style="margin-top:6px; font-size:14px; color:var(--muted); line-height:1.5">Proofread, rephrase, or polish selected text. Runs on a local model by default; bring your own key for a hosted provider and it stays in the OS keychain. Off until you turn it on, and text is sent only when you run a rewrite.</p>
-      <div style="margin-top:15px; display:flex; flex-wrap:wrap; gap:7px; font-family:var(--font-mono); font-size:11.5px; color:var(--muted)">
-        <span style="padding:4px 10px; border:1px solid var(--line); border-radius:20px">Proofread</span>
-        <span style="padding:4px 10px; border:1px solid var(--line); border-radius:20px">Rephrase</span>
-        <span style="padding:4px 10px; border:1px solid var(--line); border-radius:20px">Polish</span>
-      </div>
-      <p style="margin-top:12px; font-family:var(--font-mono); font-size:11.5px; color:var(--subtle); line-height:1.6">Ollama local, or Groq · Gemini · DeepSeek · OpenRouter with your key</p>
-    </div>
-
-  </div>
-</div>
-
-<!-- DOWNLOAD -->
-<div class="gut-col rv-g" style="padding:64px 12px 0 0">##</div>
-<div id="download" class="rv" style="padding:58px 0 0 30px; scroll-margin-top:64px">
-  <div style="font-family:var(--font-mono); font-size:12px; color:var(--accent); margin-bottom:14px">download</div>
-  <h2 style="font-family:var(--font-display); font-weight:800; font-variation-settings:'opsz' 72; font-size:clamp(26px,3.4vw,40px); letter-spacing:-.035em; line-height:1.05; color:var(--foreground); max-width:18ch">Always a keypress away.</h2>
-  <p style="max-width:48ch; margin-top:14px; font-size:16px; color:var(--muted)">A global hotkey brings Writ up over anything you're doing. Free, local-first, no account. Pick your platform:</p>
-
-  {published ? (
-    <>
-    <div class="dl-grid" style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:13px; margin-top:24px; max-width:680px">
-      {platforms.map((p) => (
-        <a
-          href={p.href}
-          class="dlbtn"
-          style={p.featured ? 'border-color:var(--accent); background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 8%,var(--card)),var(--card))' : ''}
-        >
-          <span style="font-weight:650; font-size:16px; color:var(--foreground)">{p.name}</span>
-          <span style="font-family:var(--font-mono); font-size:11px; color:var(--subtle)">{p.note}</span>
-        </a>
-      ))}
-    </div>
-    <div style="margin-top:20px; max-width:680px; display:grid; gap:7px; font-family:var(--font-mono); font-size:12.5px; color:var(--muted)">
-      <div><span style="color:var(--subtle)">macOS</span> brew install --cask ibrahemid/writ/writ</div>
-      <div><span style="color:var(--subtle)">Windows</span> winget install -e --id ibrahemid.Writ</div>
-      <div><span style="color:var(--subtle)">Linux</span> curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh</div>
-    </div>
-    </>
-  ) : (
-    <div style="margin-top:24px; max-width:680px">
-      <div class="dl-grid" style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:13px">
-        {platforms.map((p) => (
-          <div class="dlbtn" aria-disabled="true" style="opacity:.62; cursor:default">
-            <span style="font-weight:650; font-size:16px; color:var(--foreground)">{p.name}</span>
-            <span style="font-family:var(--font-mono); font-size:11px; color:var(--subtle)">{p.note}</span>
+<!-- SHORTCUTS -->
+<Section slug="shortcuts" id="shortcuts">
+  <h2 class="sec-h2">Reach any command from the keyboard.</h2>
+  <p class="sec-p">Double Shift opens the palette to search them all. These have a key of their own.</p>
+  <div class="kc-cols">
+    {kcCols.map((col) => (
+      <div class="kc-col">
+        <div class="kc-col-h">{col.h}</div>
+        {col.rows.map((row) => (
+          <div class="kc-row">
+            <span class="kc-label">{row.label}</span>
+            <span class="kc-keys">
+              {row.groups.map((g, gi) => (
+                <Fragment>
+                  {gi > 0 && <span class="kc-sep">/</span>}
+                  {g.map((k) => <kbd class="kc">{k}</kbd>)}
+                </Fragment>
+              ))}
+            </span>
           </div>
         ))}
       </div>
-      <p style="margin-top:14px; font-family:var(--font-mono); font-size:12.5px; color:var(--muted)">
-        Builds land with the first release.
-        <a href={releasesUrl} rel="noopener noreferrer" target="_blank" style="color:var(--accent); text-decoration:underline; text-underline-offset:2px">Track releases on GitHub →</a>
-      </p>
+    ))}
+  </div>
+  <p class="sec-note">Try them in the <a href="#editor">window above</a>.</p>
+</Section>
+
+<!-- SPELLING / REWRITE -->
+<Section slug="text" id="text">
+  <h2 class="sec-h2">Clean up the text, on your machine.</h2>
+  <div class="card-grid card-grid-wide">
+    <div class="card">
+      <div class="card-k">spell check</div>
+      <h3 class="card-h">Checks spelling locally</h3>
+      <p class="card-p">Nothing leaves your machine. Likely misspellings get a wavy underline; code, URLs, and links stay clear. Fix them all at once or ignore a word. Off by default.</p>
+      <div class="spell-demo">
+        <div class="spell-body">
+          the <span class="spell-err">settlment</span> worker reads<br />
+          the bus and never <span class="spell-err">recieves</span> a <code class="spell-code">dup</code>
+        </div>
+        <div class="spell-status">
+          <span>Ln 4, Col 12</span>
+          <div class="spell-spacer"></div>
+          <span class="spell-count">2 spelling</span>
+          <div class="spell-menu">
+            <span class="spell-mi spell-mi-on">Fix all (2)</span>
+            <span class="spell-mi">Preview…</span>
+            <span class="spell-mi">Turn off spelling</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-k">rewrite</div>
+      <h3 class="card-h">Rewrite a selection, if you want it</h3>
+      <p class="card-p">Proofread, rephrase, or polish selected text. Runs on a local model by default; bring your own key for a hosted provider and it stays in the OS keychain. Off until you turn it on, and text is sent only when you run a rewrite.</p>
+      <div class="pill-row">
+        <span class="pill">Proofread</span>
+        <span class="pill">Rephrase</span>
+        <span class="pill">Polish</span>
+      </div>
+      <p class="card-foot">Ollama local, or Groq · Gemini · DeepSeek · OpenRouter with your key</p>
+    </div>
+  </div>
+</Section>
+
+<!-- FROM A TERMINAL -->
+<Section slug="terminal" id="terminal">
+  <h2 class="sec-h2">When something else makes the file.</h2>
+  <p class="sec-p">An agent writes a note, a script drops a log. Writ is where it opens, rendered and searchable.</p>
+  <div class="term-grid">
+    <div class="term">
+      <div class="term-line"><span class="term-p">$</span> <span class="term-c">writ notes.md</span></div>
+      <div class="term-line"><span class="term-p">$</span> <span class="term-c">pytest -q | writ --title run</span></div>
+      <div class="term-line"><span class="term-cm"># already running in the background</span></div>
+    </div>
+    <div class="cap-list">
+      <div class="cap">
+        <div class="cap-h">Default opener</div>
+        <p class="cap-p">Set Writ as the app for <code>.md</code>, <code>.log</code>, <code>.toml</code> and other text.</p>
+      </div>
+      <div class="cap">
+        <div class="cap-h">Watched inbox</div>
+        <p class="cap-p">New files in a folder list in the sidebar and open as they arrive.</p>
+      </div>
+      <div class="cap">
+        <div class="cap-h">Copy as Prompt</div>
+        <p class="cap-p">Grab a whole buffer to paste into a model.</p>
+      </div>
+      <div class="cap">
+        <div class="cap-h">Fill <code>{'{{placeholders}}'}</code></div>
+        <p class="cap-p">Prompt variables fill inline before you copy.</p>
+      </div>
+    </div>
+  </div>
+</Section>
+
+<!-- THEMES -->
+<Section slug="themes" id="themes">
+  <h2 class="sec-h2">Six themes to start.</h2>
+  <div class="theme-grid">
+    {presets.map((p) => (
+      <div class="theme-card">
+        <div class="theme-chip" style={`background:${p.surface.background}; color:${p.foreground.default}`}>
+          <div class="tchip-line"><span style={`color:${p.syntax.keyword}`}>theme</span> = <span style={`color:${p.syntax.string}`}>"{p.polarity}"</span><span class="tchip-caret" style={`background:${p.accent.default}`}></span></div>
+          <div class="tchip-line"><span style={`color:${p.syntax.function}`}>font</span> = <span style={`color:${p.syntax.number}`}>14</span> <span style={`color:${p.syntax.comment}`}># px</span></div>
+        </div>
+        <div class="tchip-name">{p.name}</div>
+      </div>
+    ))}
+  </div>
+  <p class="sec-note">Change any color, and rebind any shortcut.</p>
+</Section>
+
+<!-- DOWNLOAD -->
+<Section slug="install" id="download" lead>
+  <h2 class="sec-h2-lg">Always a keypress away.</h2>
+  <p class="sec-p sec-p-lg">A global hotkey brings Writ up over whatever you're in. Free, open source, no account.</p>
+
+  {published ? (
+    <div class="plat-grid">
+      <div class="plat-card featured" data-plat="mac">
+        <div class="plat-top">
+          <span class="plat-name">macOS</span>
+          {notarized && <span class="plat-badge">notarized</span>}
+        </div>
+        <a class="plat-dl" href={release.platforms.mac.pkg}>Download .pkg</a>
+        <a class="plat-alt" href={release.platforms.mac.dmg}>or .dmg</a>
+        <span class="plat-note">Apple silicon & Intel</span>
+      </div>
+      <div class="plat-card" data-plat="win">
+        <div class="plat-top"><span class="plat-name">Windows</span></div>
+        <a class="plat-dl" href={release.platforms.win.msi}>Download .msi</a>
+        <span class="plat-note">x64</span>
+      </div>
+      <div class="plat-card" data-plat="linux">
+        <div class="plat-top"><span class="plat-name">Linux</span></div>
+        <a class="plat-dl" href={release.platforms.linux.appImage}>Download .AppImage</a>
+        <a class="plat-alt" href={release.platforms.linux.deb}>or .deb</a>
+      </div>
+    </div>
+  ) : (
+    <div class="plat-grid">
+      <div class="plat-card featured" data-plat="mac" aria-disabled="true">
+        <div class="plat-top"><span class="plat-name">macOS</span></div>
+        <span class="plat-note">Apple silicon & Intel</span>
+      </div>
+      <div class="plat-card" data-plat="win" aria-disabled="true">
+        <div class="plat-top"><span class="plat-name">Windows</span></div>
+        <span class="plat-note">x64</span>
+      </div>
+      <div class="plat-card" data-plat="linux" aria-disabled="true">
+        <div class="plat-top"><span class="plat-name">Linux</span></div>
+        <span class="plat-note">AppImage & .deb</span>
+      </div>
     </div>
   )}
-</div>
+
+  <div class="oneliners">
+    {oneliners.map((o) => (
+      <div class="ol-row">
+        <span class="ol-os">{o.os}</span>
+        <code class="ol-cmd">{o.cmd}</code>
+        <button class="copybtn" type="button" data-copy={o.cmd} aria-label={`Copy the ${o.os} install command`}><span>Copy</span></button>
+      </div>
+    ))}
+  </div>
+
+  {published ? (
+    <p class="dl-foot">
+      v{release.version} · updates itself · <a href={sumsUrl} rel="noopener noreferrer" target="_blank">checksums</a> · <a href={releasesUrl} rel="noopener noreferrer" target="_blank">Releases on GitHub</a>
+    </p>
+  ) : (
+    <p class="dl-foot">
+      Direct downloads are on <a href={releasesUrl} rel="noopener noreferrer" target="_blank">GitHub Releases</a>.
+    </p>
+  )}
+</Section>
