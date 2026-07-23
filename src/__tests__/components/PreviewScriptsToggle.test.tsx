@@ -46,6 +46,7 @@ function baseConfig(runScripts: boolean): WritConfig {
   workspace: { root: null },
   inbox: { path: null, focus: true },
   updater: { auto_check: true },
+  spelling: { enabled: false, dialect: "american", ignored_words: [] },
     preview: {
       default_layout_html: "split",
       default_layout_markdown: "split",

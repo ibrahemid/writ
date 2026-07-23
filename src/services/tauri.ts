@@ -28,6 +28,17 @@ export async function promptFillPlaceholders(
   return invoke("prompt_fill_placeholders", { text, values });
 }
 
+import type { SpellingLint } from "../types/spelling";
+export type { SpellingLint };
+
+export async function checkSpelling(text: string): Promise<SpellingLint[]> {
+  return invoke("check_spelling", { text });
+}
+
+export async function spellingAddIgnoredWord(word: string): Promise<void> {
+  return invoke("spelling_add_ignored_word", { word });
+}
+
 export async function createBuffer(title?: string): Promise<BufferDocument> {
   return invoke("create_buffer", { title: title ?? null });
 }

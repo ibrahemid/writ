@@ -28,6 +28,14 @@ export interface UpdaterConfig {
   auto_check: boolean;
 }
 
+export type SpellingDialect = "american" | "british" | "canadian" | "australian";
+
+export interface SpellingConfig {
+  enabled: boolean;
+  dialect: string;
+  ignored_words: string[];
+}
+
 export interface WritConfig {
   hotkey: { toggle: string };
   sidebar: {
@@ -47,4 +55,5 @@ export interface WritConfig {
   workspace: { root: string | null };
   inbox: InboxConfig;
   updater: UpdaterConfig;
+  spelling: SpellingConfig;
 }

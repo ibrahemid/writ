@@ -1,0 +1,8 @@
+/* Spell-check underline. Scoped to .cm-editor so it never bleeds outside a
+   CodeMirror instance. The colour is an existing --writ-* token so it inverts
+   automatically between the dark and light presets. */
+.cm-editor .cm-spelling-error {
+  text-decoration: underline wavy var(--writ-status-error);
+  text-decoration-skip-ink: none;
+  text-underline-offset: 2px;
+}
