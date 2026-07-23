@@ -10,6 +10,7 @@ pub mod startup;
 pub mod state;
 pub mod watcher;
 pub mod window_state;
+pub mod workspace_index;
 
 use events::{bus_bridge, emit_event, WritFrontendEvent};
 use poison::recover_poison;
@@ -290,6 +291,9 @@ pub fn run() {
             commands::workspace::clear_workspace_root,
             commands::workspace::list_workspace_dir,
             commands::workspace::get_workspace_root,
+            commands::workspace::search_workspace_files,
+            commands::workspace::workspace_index_status,
+            commands::workspace::search_workspace_content,
             commands::cli::cli_status,
             commands::cli::install_cli,
             commands::default_app::list_default_app_types,
@@ -318,6 +322,20 @@ pub fn run() {
                     let _ = emit_event(&bridge_handle, frontend_event);
                 });
                 info!("event bus bridge attached");
+            }
+
+            // Maintain the workspace file-name index from watcher events
+            // (ADR-026). A separate subscriber from the frontend bridge, so
+            // both observe every WorkspaceChanged.
+            {
+                use writ_core::events::bus::WritEvent;
+                let state = app.state::<AppState>();
+                let index = state.workspace_index.clone();
+                state.event_bus.subscribe(move |event| {
+                    if let WritEvent::WorkspaceChanged { path, removed } = event {
+                        workspace_index::on_workspace_changed(&index, path, *removed);
+                    }
+                });
             }
 
             // The window is created hidden (tauri.conf `visible: false`) to kill
@@ -431,6 +449,8 @@ pub fn run() {
                     .unwrap_or_else(|e| e.into_inner())
                     .clone();
                 if let Some(root) = restored_root {
+                    // Build the file-name index for the restored root (ADR-026).
+                    workspace_index::spawn_rebuild(state.workspace_index.clone());
                     match watcher::handler::start_workspace_watcher(state.event_bus.clone(), root) {
                         Ok(handle) => {
                             let mut slot = recover_poison(

@@ -28,6 +28,10 @@ pub enum StorageError {
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
 
+    /// A workspace search matcher could not be built from the query.
+    #[error("search error: {0}")]
+    Search(String),
+
     /// A schema migration could not be applied.
     #[error("migration failed: {message}")]
     Migration {
