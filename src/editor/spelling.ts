@@ -80,6 +80,18 @@ export const spellingField = StateField.define<DecorationSet>({
   update(deco, tr) {
     // Map first so surviving decorations track edits, then apply effects.
     deco = deco.map(tr.changes);
+    // Drop any decoration whose text was touched by this edit: a corrected
+    // word must not keep its underline (nor its count) until the next re-lint.
+    // Untouched ranges elsewhere in the document are left mapped.
+    if (tr.docChanged) {
+      const changed: Array<[number, number]> = [];
+      tr.changes.iterChangedRanges((_fromA, _toA, fromB, toB) => changed.push([fromB, toB]));
+      if (changed.length > 0) {
+        deco = deco.update({
+          filter: (from, to) => !changed.some(([a, b]) => from < b && to > a),
+        });
+      }
+    }
     for (const effect of tr.effects) {
       if (effect.is(setSpellingLints)) {
         deco = buildDecorations(tr.state, effect.value);

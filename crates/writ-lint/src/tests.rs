@@ -110,22 +110,24 @@ fn fenced_code_block_is_masked_and_not_linted() {
 }
 
 #[test]
-fn url_is_not_linted() {
+fn autolink_url_is_not_linted() {
     let text = "See <http://recieve.example.com/definately> please.";
+    let (from, _) = utf16_range_of(text, "recieve");
     let results = check(text, &LintConfig::default());
-    // The URL's internal tokens must never surface as spelling lints.
     assert!(
-        results.iter().all(|r| r.kind != "Spelling"
-            || !text[..].contains("recieve.example")
-            || r.from_utf16 >= text.encode_utf16().count()),
-        "url tokens should not be linted: {results:?}"
+        !results.iter().any(|r| r.from_utf16 == from),
+        "autolink url host must not be flagged: {results:?}"
     );
+}
+
+#[test]
+fn bare_url_is_not_linted() {
+    let text = "Visit http://recieve.example.com/definately today.";
+    let (from, _) = utf16_range_of(text, "recieve");
+    let results = check(text, &LintConfig::default());
     assert!(
-        !results.iter().any(|r| {
-            let (from, _) = utf16_range_of(text, "recieve");
-            r.from_utf16 == from
-        }),
-        "url host must not be flagged: {results:?}"
+        !results.iter().any(|r| r.from_utf16 == from),
+        "bare url host must not be flagged: {results:?}"
     );
 }
 

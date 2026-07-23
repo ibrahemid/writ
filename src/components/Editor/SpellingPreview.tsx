@@ -133,9 +133,11 @@ export default function SpellingPreview() {
                     aria-label={`Fix ${entry.word}`}
                   />
                   <span class="spelling-preview-word">{entry.word}</span>
-                  <Show when={entry.suggestions[0]}>
+                  <Show when={entry.suggestions.length > 0}>
                     <span class="spelling-preview-arrow" aria-hidden="true">→</span>
-                    <span class="spelling-preview-fix">{entry.suggestions[0]}</span>
+                    <span class="spelling-preview-fix">
+                      {entry.suggestions[0] === "" ? "(remove)" : entry.suggestions[0]}
+                    </span>
                   </Show>
                   <Show when={entry.kind === "Spelling"}>
                     <button
