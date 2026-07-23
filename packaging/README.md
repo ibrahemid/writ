@@ -8,15 +8,14 @@ Live today:
 
 | Platform | Install |
 |---|---|
-| macOS, Windows | Download from [GitHub Releases](https://github.com/ibrahemid/writ/releases/latest) |
+| macOS | `brew install --cask ibrahemid/writ/writ` |
+| Windows | `winget install -e --id ibrahemid.Writ` |
 | Any Linux | `curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh \| sh` |
 
-One-liners that activate as each channel publishes (see the status table below):
+Not published yet (see the status table below):
 
 | Platform | Install command |
 |---|---|
-| macOS | `brew install --cask ibrahemid/writ/writ` |
-| Windows | `winget install --id ibrahemid.Writ -e` |
 | Arch Linux | `yay -S writ-bin` (or any AUR helper) |
 
 ## Layout
@@ -41,9 +40,9 @@ Each subdirectory has its own README covering the channel-specific submission pr
 
 | Channel | Status | Notes |
 |---|---|---|
-| Homebrew (self-hosted tap) | Ready to publish | Tap lives at `github.com/ibrahemid/homebrew-writ`. First publish is a manual copy-and-push; subsequent publishes are triggered by the post-release workflow. |
+| Homebrew (self-hosted tap) | Live | Tap at `github.com/ibrahemid/homebrew-writ` serves 0.1.0. Each release still needs the cask copied over after the bump PR merges. |
 | Homebrew upstream | Deferred | Eligible after v0.2.0+ stability window and after macOS notarization is live. |
-| winget | Pending upstream submission | Manifests produced in this repo. The first PR into `microsoft/winget-pkgs` is manual. |
+| winget | Live | `ibrahemid.Writ` 0.1.0 merged into `microsoft/winget-pkgs` (PR 399097). Each new version needs another upstream PR. |
 | AUR `writ-bin` | Pending first push | Requires a one-time SSH key upload to aur.archlinux.org and initial `git push` to the AUR remote. |
 | Flatpak | Deferred to v0.2.0+ | Flathub submission requires a stable release line and a Flatpak manifest (`org.writ.Writ.yaml`) tracked separately. Revisit once Linux distribution feedback justifies the maintenance cost. |
 | Snap | Deferred to v0.2.0+ | Snap requires a `snapcraft.yaml` and a Snapcraft store account. Lower priority than Flatpak because most Arch and Debian users prefer AUR and AppImage respectively. |

@@ -82,6 +82,7 @@ const platforms = [
   <p style="max-width:48ch; margin-top:14px; font-size:16px; color:var(--muted)">A global hotkey brings Writ up over anything you're doing. Free, local-first, no account. Pick your platform:</p>
 
   {published ? (
+    <>
     <div class="dl-grid" style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:13px; margin-top:24px; max-width:680px">
       {platforms.map((p) => (
         <a
@@ -94,6 +95,12 @@ const platforms = [
         </a>
       ))}
     </div>
+    <div style="margin-top:20px; max-width:680px; display:grid; gap:7px; font-family:var(--font-mono); font-size:12.5px; color:var(--muted)">
+      <div><span style="color:var(--subtle)">macOS</span> brew install --cask ibrahemid/writ/writ</div>
+      <div><span style="color:var(--subtle)">Windows</span> winget install -e --id ibrahemid.Writ</div>
+      <div><span style="color:var(--subtle)">Linux</span> curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh</div>
+    </div>
+    </>
   ) : (
     <div style="margin-top:24px; max-width:680px">
       <div class="dl-grid" style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:13px">
