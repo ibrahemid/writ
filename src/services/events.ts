@@ -18,6 +18,7 @@ const EVENT_MAP: Record<EventKind, string> = {
   "workspace:changed": "writ://workspace-changed",
   "inbox:file-arrived": "writ://inbox-file-arrived",
   "update:status": "writ://update-status",
+  "ai:rewrite": "writ://ai-rewrite",
   "preview:rendered": "writ://preview-rendered",
   "preview:error": "writ://preview-error",
   "preview:layout_changed": "writ://preview-layout-changed",

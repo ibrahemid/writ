@@ -22,6 +22,9 @@ import { installFocusTrap } from "../../lib/focus-trap";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showToast } from "../Notifications/Toast";
 import { fetchCliStatus, installCli } from "../../stores/global/cli";
+import { aiRewriteStore, type AiKeyState } from "../../stores/global/ai-rewrite";
+import { aiConnectionStore, connectionDisplay } from "../../stores/global/ai-connection";
+import { modelOptions, defaultModelFor, resolveAutoModel } from "../../stores/global/ai-models";
 import { copyStoragePath, fetchStorageInfo, revealStoragePath } from "../../stores/global/storage";
 import type { StorageInfo } from "../../stores/global/storage";
 import type { DefaultLayout } from "../../types/config";
@@ -736,6 +739,351 @@ function UpdatesSection() {
   );
 }
 
+const AI_PRESET_BASE_URLS: Record<string, string> = {
+  ollama: "http://localhost:11434/v1",
+  groq: "https://api.groq.com/openai/v1",
+  gemini: "https://generativelanguage.googleapis.com/v1beta/openai",
+  deepseek: "https://api.deepseek.com/v1",
+  openrouter: "https://openrouter.ai/api/v1",
+  custom: "",
+};
+
+function urlHost(raw: string): string | null {
+  try {
+    return new URL(raw).hostname;
+  } catch {
+    return null;
+  }
+}
+
+function isLocalHost(host: string): boolean {
+  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+}
+
+function AiSection() {
+  const cfg = () => configStore.config().ai;
+  const [keyState, setKeyState] = createSignal<AiKeyState | null>(null);
+  const [keyInput, setKeyInput] = createSignal("");
+  const [keyBusy, setKeyBusy] = createSignal(false);
+  // The user has picked (or typed) the current model this session; guards the
+  // Ollama auto-select from replacing a deliberate choice.
+  const [userSelected, setUserSelected] = createSignal(false);
+  // Free-text model entry is showing (chose "Custom…", or the model is not in
+  // the offered list).
+  const [customMode, setCustomMode] = createSignal(false);
+
+  // Only read key state once the feature is on, so a keychain access prompt is
+  // never triggered while the feature is off.
+  createEffect(() => {
+    if (!cfg().enabled) {
+      setKeyState(null);
+      return;
+    }
+    const preset = cfg().preset;
+    void aiRewriteStore
+      .hasApiKey(preset)
+      .then(setKeyState)
+      .catch(() => setKeyState(null));
+  });
+
+  // Probe the endpoint when the section opens and whenever the target changes,
+  // debounced so typing a URL does not fire a request per keystroke.
+  createEffect(() => {
+    const c = cfg();
+    if (!c.enabled) {
+      aiConnectionStore.reset();
+      return;
+    }
+    // Track the fields that define the target.
+    void c.preset;
+    void c.base_url;
+    void c.model;
+    aiConnectionStore.scheduleCheck();
+  });
+
+  const connection = () => connectionDisplay(aiConnectionStore.status(), cfg().model);
+
+  const liveModels = () => aiConnectionStore.status()?.models ?? [];
+  const modelOptionList = () => modelOptions(cfg().preset, liveModels());
+  const usingCurated = () => liveModels().length === 0;
+  const modelSelectValue = () => {
+    if (customMode()) return "__custom__";
+    return modelOptionList().includes(cfg().model) ? cfg().model : "__custom__";
+  };
+  const showModelInput = () => customMode() || !modelOptionList().includes(cfg().model);
+  const modelOptionLabel = (id: string) => (usingCurated() ? `${id} (suggested)` : id);
+
+  // Keep a working model without a setup decision: fill an empty one, and for a
+  // local server that has just listed its models, switch off a not-installed id.
+  createEffect(() => {
+    if (!cfg().enabled) return;
+    const auto = resolveAutoModel({
+      preset: cfg().preset,
+      model: cfg().model,
+      live: liveModels(),
+      userSelected: userSelected(),
+    });
+    if (auto && auto !== cfg().model) {
+      void patchConfig((prev) => ({ ...prev, ai: { ...prev.ai, model: auto } }));
+    }
+  });
+
+  // The effective host is hosted (non-local) and not yet consented to — shown
+  // for a preset switch or a hand-edited base URL alike.
+  const hostedUnconsented = () => {
+    if (!cfg().enabled) return false;
+    const host = urlHost(cfg().base_url);
+    if (!host || isLocalHost(host)) return false;
+    return !cfg().consented_hosts.includes(host);
+  };
+
+  function onEnableToggle() {
+    void patchConfig((prev) => ({ ...prev, ai: { ...prev.ai, enabled: !prev.ai.enabled } }));
+  }
+
+  function onPresetChange(raw: string) {
+    const base = AI_PRESET_BASE_URLS[raw];
+    // A new provider is a fresh context: reset the selection guard and seed the
+    // default model (custom keeps its free-text value).
+    setUserSelected(false);
+    setCustomMode(raw === "custom");
+    void patchConfig((prev) => ({
+      ...prev,
+      ai: {
+        ...prev.ai,
+        preset: raw as typeof prev.ai.preset,
+        base_url: raw === "custom" ? prev.ai.base_url : base,
+        model: raw === "custom" ? prev.ai.model : defaultModelFor(raw),
+      },
+    }));
+  }
+
+  function onBaseUrlChange(raw: string) {
+    void patchConfig((prev) => ({ ...prev, ai: { ...prev.ai, base_url: raw.trim() } }));
+  }
+
+  function onModelText(raw: string) {
+    setUserSelected(true);
+    void patchConfig((prev) => ({ ...prev, ai: { ...prev.ai, model: raw.trim() } }));
+  }
+
+  function onSelectModel(value: string) {
+    if (value === "__custom__") {
+      setCustomMode(true);
+      return;
+    }
+    setCustomMode(false);
+    setUserSelected(true);
+    void patchConfig((prev) => ({ ...prev, ai: { ...prev.ai, model: value } }));
+  }
+
+  function onConsent() {
+    const host = urlHost(cfg().base_url);
+    if (!host || isLocalHost(host)) return;
+    void patchConfig((prev) => {
+      const hosts = Array.from(new Set([...prev.ai.consented_hosts, host])).sort();
+      return { ...prev, ai: { ...prev.ai, consented_hosts: hosts } };
+    });
+  }
+
+  async function onSetKey() {
+    const key = keyInput();
+    if (!key || keyBusy()) return;
+    setKeyBusy(true);
+    try {
+      const state = await aiRewriteStore.setApiKey(cfg().preset, key);
+      setKeyState(state);
+      setKeyInput("");
+      if (state.memory_only) {
+        showToast("Key held in memory this session; the keychain was unavailable", "info");
+      }
+    } catch {
+      showToast("Could not save the API key", "error");
+    } finally {
+      setKeyBusy(false);
+    }
+  }
+
+  async function onClearKey() {
+    if (keyBusy()) return;
+    setKeyBusy(true);
+    try {
+      const state = await aiRewriteStore.clearApiKey(cfg().preset);
+      setKeyState(state);
+    } catch {
+      showToast("Could not clear the API key", "error");
+    } finally {
+      setKeyBusy(false);
+    }
+  }
+
+  return (
+    <div data-section="ai">
+      <SectionLabel section="ai" />
+      <SettingsRow id="ai.enabled" label="Rewrite selected text">
+        <button
+          type="button"
+          class="settings-toggle"
+          classList={{ "settings-toggle-on": cfg().enabled }}
+          data-setting="ai_enabled"
+          role="switch"
+          aria-checked={cfg().enabled}
+          aria-label="Rewrite selected text"
+          onClick={onEnableToggle}
+        >
+          <span class="settings-toggle-thumb" />
+        </button>
+      </SettingsRow>
+
+      <SettingsRow id="ai.preset" label="Provider" labelFor="setting-ai-preset">
+          <select
+            id="setting-ai-preset"
+            class="settings-select"
+            data-setting="ai_preset"
+            value={cfg().preset}
+            onChange={(e) => onPresetChange(e.currentTarget.value)}
+          >
+            <option value="ollama">Ollama (local)</option>
+            <option value="groq">Groq</option>
+            <option value="gemini">Gemini</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="custom">Custom</option>
+          </select>
+        </SettingsRow>
+
+        <SettingsRow id="ai.base_url" label="Base URL" labelFor="setting-ai-base-url">
+          <input
+            id="setting-ai-base-url"
+            type="text"
+            class="settings-input"
+            data-setting="ai_base_url"
+            spellcheck={false}
+            autocomplete="off"
+            value={cfg().base_url}
+            onChange={(e) => onBaseUrlChange(e.currentTarget.value)}
+          />
+        </SettingsRow>
+
+        <SettingsRow id="ai.model" label="Model" labelFor="setting-ai-model">
+          <Show
+            when={cfg().preset !== "custom"}
+            fallback={
+              <input
+                id="setting-ai-model"
+                type="text"
+                class="settings-input"
+                data-setting="ai_model"
+                spellcheck={false}
+                autocomplete="off"
+                placeholder="Model id"
+                value={cfg().model}
+                onChange={(e) => onModelText(e.currentTarget.value)}
+              />
+            }
+          >
+            <div class="settings-model-picker">
+              <select
+                id="setting-ai-model"
+                class="settings-select"
+                data-setting="ai_model"
+                value={modelSelectValue()}
+                onChange={(e) => onSelectModel(e.currentTarget.value)}
+              >
+                <For each={modelOptionList()}>
+                  {(id) => <option value={id}>{modelOptionLabel(id)}</option>}
+                </For>
+                <option value="__custom__">Custom…</option>
+              </select>
+              <Show when={showModelInput()}>
+                <input
+                  type="text"
+                  class="settings-input"
+                  data-setting="ai_model_custom"
+                  spellcheck={false}
+                  autocomplete="off"
+                  placeholder="Model id"
+                  value={cfg().model}
+                  onChange={(e) => onModelText(e.currentTarget.value)}
+                />
+              </Show>
+            </div>
+          </Show>
+        </SettingsRow>
+
+        <SettingsRow id="ai.api_key" label="API key">
+          <span class="settings-inbox-controls">
+            <input
+              type="password"
+              class="settings-input"
+              data-setting="ai_api_key"
+              spellcheck={false}
+              autocomplete="off"
+              placeholder={keyState()?.is_set ? "Key set" : "Not set"}
+              value={keyInput()}
+              onInput={(e) => setKeyInput(e.currentTarget.value)}
+            />
+            <button
+              type="button"
+              class="settings-action-btn"
+              data-action="ai-set-key"
+              disabled={keyBusy() || keyInput().length === 0}
+              onClick={() => void onSetKey()}
+            >
+              Save
+            </button>
+            <Show when={keyState()?.is_set}>
+              <button
+                type="button"
+                class="settings-action-btn"
+                data-action="ai-clear-key"
+                disabled={keyBusy()}
+                onClick={() => void onClearKey()}
+              >
+                Clear
+              </button>
+            </Show>
+          </span>
+        </SettingsRow>
+        <Show when={keyState()?.is_set && keyState()?.memory_only}>
+          <div class="settings-ai-note">Key held in memory this session; it will be gone on restart.</div>
+        </Show>
+
+        <div class="settings-ai-connection">
+          <span class="settings-ai-connection-status" data-tone={connection().tone} aria-live="polite">
+            {connection().text}
+          </span>
+          <button
+            type="button"
+            class="settings-action-btn"
+            data-action="ai-recheck"
+            disabled={aiConnectionStore.checking()}
+            onClick={() => void aiConnectionStore.check()}
+          >
+            {aiConnectionStore.checking() ? "Checking…" : "Re-check"}
+          </button>
+        </div>
+
+        <Show when={hostedUnconsented()}>
+          <div class="settings-ai-consent" role="note">
+            <p class="settings-ai-consent-text">
+              Selected text is sent to this provider when you run a rewrite. Nothing is sent
+              otherwise.
+            </p>
+            <button
+              type="button"
+              class="settings-action-btn"
+              data-action="ai-consent"
+              onClick={onConsent}
+            >
+              I understand
+            </button>
+          </div>
+        </Show>
+    </div>
+  );
+}
+
 function AppearanceSection() {
   const currentPreset = () => configStore.config().theme.preset;
 
@@ -805,6 +1153,7 @@ function AllSections() {
       <FilesSection />
       <StorageSection />
       <PreviewSection />
+      <AiSection />
       <AppearanceSection />
       <UpdatesSection />
       <ShortcutsSection />
@@ -966,6 +1315,7 @@ export default function SettingsModal() {
                       <Match when={activeSection() === "files"}><FilesSection /></Match>
                       <Match when={activeSection() === "storage"}><StorageSection /></Match>
                       <Match when={activeSection() === "preview"}><PreviewSection /></Match>
+                      <Match when={activeSection() === "ai"}><AiSection /></Match>
                       <Match when={activeSection() === "appearance"}><AppearanceSection /></Match>
                       <Match when={activeSection() === "updates"}><UpdatesSection /></Match>
                       <Match when={activeSection() === "shortcuts"}><ShortcutsSection /></Match>

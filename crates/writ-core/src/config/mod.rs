@@ -5,6 +5,8 @@
 //! configs remain valid and new fields can be introduced without
 //! breaking existing user files.
 
+/// Opt-in rewrite configuration (`[ai]`).
+pub mod ai;
 /// Keybinding conflict reporting types.
 pub mod keybinding;
 /// Preview surface configuration (`[preview]`).
@@ -12,6 +14,7 @@ pub mod preview;
 /// Spell-check configuration (`[spelling]`).
 pub mod spelling;
 
+pub use ai::AiConfig;
 pub use preview::{DefaultLayout, PreviewConfig};
 pub use spelling::SpellingConfig;
 
@@ -418,6 +421,9 @@ pub struct WritConfig {
     /// Auto-update configuration.
     #[serde(default)]
     pub updater: UpdaterConfig,
+    /// Opt-in rewrite configuration.
+    #[serde(default)]
+    pub ai: AiConfig,
     /// Spell-check configuration.
     #[serde(default)]
     pub spelling: SpellingConfig,
@@ -439,6 +445,7 @@ impl Default for WritConfig {
             workspace: WorkspaceConfig::default(),
             inbox: InboxConfig::default(),
             updater: UpdaterConfig::default(),
+            ai: AiConfig::default(),
             spelling: SpellingConfig::default(),
         }
     }
@@ -475,6 +482,28 @@ mod tests {
         let config: WritConfig = toml::from_str("[inbox]\npath = \"/tmp/reports\"\n").unwrap();
         assert_eq!(config.inbox.path.as_deref(), Some("/tmp/reports"));
         assert!(config.inbox.focus);
+    }
+
+    #[test]
+    fn missing_ai_section_defaults_to_off() {
+        let config: WritConfig = toml::from_str("").unwrap();
+        assert!(!config.ai.enabled);
+        assert_eq!(config.ai.preset, "ollama");
+        assert!(config.ai.consented_hosts.is_empty());
+    }
+
+    #[test]
+    fn ai_section_round_trips_through_toml() {
+        let mut config = WritConfig::default();
+        config.ai.enabled = true;
+        config.ai.preset = "deepseek".to_string();
+        config.ai.base_url = "https://api.deepseek.com/v1".to_string();
+        config.ai.model = "deepseek-chat".to_string();
+        config.ai.consented_hosts = vec!["api.deepseek.com".to_string()];
+
+        let serialized = toml::to_string(&config).unwrap();
+        let parsed: WritConfig = toml::from_str(&serialized).unwrap();
+        assert_eq!(parsed.ai, config.ai);
     }
 
     #[test]

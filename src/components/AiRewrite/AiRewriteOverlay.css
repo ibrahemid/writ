@@ -1,0 +1,197 @@
+.ai-overlay {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-2);
+  width: min(760px, calc(100% - 48px));
+  max-height: 52vh;
+  padding: var(--writ-space-3);
+  background: var(--writ-surface-raised);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-radius-3);
+  box-shadow: var(--writ-shadow-modal);
+}
+
+.ai-overlay-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--writ-space-2);
+}
+
+.ai-overlay-action {
+  font-size: var(--writ-font-size-sm);
+  font-weight: 600;
+  color: var(--writ-foreground-default);
+}
+
+.ai-overlay-status {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-foreground-subtle);
+}
+
+.ai-overlay-status[data-status="error"] {
+  color: var(--writ-status-error);
+}
+
+.ai-overlay-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--writ-radius-1);
+  color: var(--writ-foreground-subtle);
+  cursor: pointer;
+}
+
+.ai-overlay-close:hover {
+  background: var(--writ-surface-hover);
+  color: var(--writ-foreground-default);
+}
+
+.ai-overlay-instruction {
+  display: flex;
+}
+
+.ai-overlay-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  background: var(--writ-surface-input);
+  border: 1px solid var(--writ-border-default);
+  border-radius: var(--writ-radius-2);
+  color: var(--writ-foreground-default);
+  font-size: var(--writ-font-size-sm);
+}
+
+.ai-overlay-input:focus {
+  outline: none;
+  border-color: var(--writ-border-focus);
+}
+
+.ai-overlay-input::placeholder {
+  color: var(--writ-foreground-subtle);
+}
+
+.ai-overlay-panes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--writ-space-2);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ai-overlay-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-1);
+  min-height: 0;
+}
+
+.ai-overlay-pane-label {
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-foreground-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ai-overlay-pane-body {
+  flex: 1;
+  min-height: 3.5rem;
+  max-height: 34vh;
+  overflow-y: auto;
+  padding: var(--writ-space-2);
+  background: var(--writ-surface-sunken);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-radius-2);
+  font-family: var(--writ-font-sans);
+  font-size: var(--writ-font-size-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--writ-foreground-muted);
+}
+
+.ai-overlay-result {
+  color: var(--writ-foreground-default);
+}
+
+.ai-overlay-result.is-streaming::after {
+  content: "";
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--writ-accent-default);
+  animation: ai-overlay-caret 1s steps(2, start) infinite;
+}
+
+@keyframes ai-overlay-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-overlay-result.is-streaming::after {
+    animation: none;
+  }
+}
+
+.ai-overlay-error {
+  color: var(--writ-status-error);
+}
+
+.ai-overlay-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--writ-space-2);
+}
+
+.ai-overlay-btn {
+  height: 28px;
+  padding: 0 12px;
+  background: var(--writ-surface-input);
+  border: 1px solid var(--writ-border-default);
+  border-radius: var(--writ-radius-2);
+  color: var(--writ-foreground-default);
+  font-size: var(--writ-font-size-sm);
+  cursor: pointer;
+}
+
+.ai-overlay-btn:hover:not(:disabled) {
+  background: var(--writ-surface-hover);
+}
+
+.ai-overlay-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ai-overlay-btn-primary {
+  background: var(--writ-accent-default);
+  border-color: var(--writ-accent-default);
+  color: var(--writ-accent-foreground);
+}
+
+.ai-overlay-btn-primary:hover:not(:disabled) {
+  background: var(--writ-accent-hover);
+  border-color: var(--writ-accent-hover);
+}
+
+@media (max-width: 640px) {
+  .ai-overlay-panes {
+    grid-template-columns: 1fr;
+  }
+}
