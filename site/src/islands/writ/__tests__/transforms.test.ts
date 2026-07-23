@@ -6,6 +6,10 @@ describe('applyTransform', () => {
     expect(applyTransform('trim', '  a\n\tb')).toBe('a\nb');
   });
 
+  it('trimtrailing removes trailing whitespace per line', () => {
+    expect(applyTransform('trimtrailing', 'a  \nb\t')).toBe('a\nb');
+  });
+
   it('dedent removes shared indentation', () => {
     expect(applyTransform('dedent', '  a\n    b')).toBe('a\n  b');
   });
