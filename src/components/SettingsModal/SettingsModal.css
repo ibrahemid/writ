@@ -449,3 +449,28 @@
   color: var(--writ-foreground-muted);
   line-height: 1.4;
 }
+
+.settings-ai-connection {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-3);
+  padding: 4px 0 0;
+}
+
+.settings-ai-connection-status {
+  flex: 1;
+  font-size: var(--writ-font-size-sm);
+  color: var(--writ-foreground-muted);
+}
+
+.settings-ai-connection-status[data-tone="ok"] {
+  color: var(--writ-status-success, var(--writ-foreground-default));
+}
+
+.settings-ai-connection-status[data-tone="warn"] {
+  color: var(--writ-status-warning, var(--writ-foreground-default));
+}
+
+.settings-ai-connection-status[data-tone="error"] {
+  color: var(--writ-status-error);
+}

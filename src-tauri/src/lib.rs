@@ -303,6 +303,7 @@ pub fn run() {
             commands::storage::reveal_storage_path,
             commands::ai::ai_rewrite,
             commands::ai::ai_cancel,
+            commands::ai::ai_check_connection,
             commands::ai::ai_set_api_key,
             commands::ai::ai_clear_api_key,
             commands::ai::ai_has_api_key,

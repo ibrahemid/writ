@@ -598,6 +598,17 @@ export async function aiCancel(requestId: string): Promise<void> {
   return invoke("ai_cancel", { requestId });
 }
 
+export interface AiConnectionStatus {
+  reachable: boolean;
+  model_listed: boolean | null;
+  kind: string;
+  detail: string;
+}
+
+export async function aiCheckConnection(): Promise<AiConnectionStatus> {
+  return invoke("ai_check_connection");
+}
+
 export async function aiSetApiKey(preset: string, key: string): Promise<AiKeyState> {
   return invoke("ai_set_api_key", { preset, key });
 }

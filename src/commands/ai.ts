@@ -5,9 +5,13 @@ import { showToast } from "../components/Notifications/Toast";
 import { aiRewriteStore } from "../stores/global/ai-rewrite";
 import type { AiAction } from "../services/tauri";
 
+export type { AiAction };
+
 const AI_COMMAND_IDS = ["ai.proofread", "ai.rephrase", "ai.polish", "ai.custom"] as const;
 
-async function runAction(action: AiAction) {
+/** Runs a rewrite action from any entry point (palette command or status-bar
+ * menu), acting on the active editor's selection. */
+export async function runRewriteAction(action: AiAction) {
   const win = windowRegistry.getActive();
   if (!win) return;
   const bufferId = win.editor.currentBufferId();
@@ -42,29 +46,29 @@ export function registerAiCommands() {
     id: "ai.proofread",
     label: "Proofread selection",
     description: "Fix spelling, grammar, and punctuation with the configured model",
-    scope: "editor",
-    execute: () => void runAction("proofread"),
+    scope: "app",
+    execute: () => void runRewriteAction("proofread"),
   });
   registerCommand({
     id: "ai.rephrase",
     label: "Rephrase selection",
     description: "Restate the same meaning in different wording",
-    scope: "editor",
-    execute: () => void runAction("rephrase"),
+    scope: "app",
+    execute: () => void runRewriteAction("rephrase"),
   });
   registerCommand({
     id: "ai.polish",
     label: "Polish selection",
     description: "Tighten and smooth while keeping the meaning and voice",
-    scope: "editor",
-    execute: () => void runAction("polish"),
+    scope: "app",
+    execute: () => void runRewriteAction("polish"),
   });
   registerCommand({
     id: "ai.custom",
     label: "Custom rewrite…",
     description: "Rewrite the selection with your own instruction",
-    scope: "editor",
-    execute: () => void runAction("custom"),
+    scope: "app",
+    execute: () => void runRewriteAction("custom"),
   });
 }
 

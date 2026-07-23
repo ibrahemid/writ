@@ -23,6 +23,7 @@ import { useWindow } from "../WindowProvider/WindowProvider";
 import { showToast } from "../Notifications/Toast";
 import { fetchCliStatus, installCli } from "../../stores/global/cli";
 import { aiRewriteStore, type AiKeyState } from "../../stores/global/ai-rewrite";
+import { aiConnectionStore, connectionDisplay } from "../../stores/global/ai-connection";
 import { copyStoragePath, fetchStorageInfo, revealStoragePath } from "../../stores/global/storage";
 import type { StorageInfo } from "../../stores/global/storage";
 import type { DefaultLayout } from "../../types/config";
@@ -778,6 +779,23 @@ function AiSection() {
       .catch(() => setKeyState(null));
   });
 
+  // Probe the endpoint when the section opens and whenever the target changes,
+  // debounced so typing a URL does not fire a request per keystroke.
+  createEffect(() => {
+    const c = cfg();
+    if (!c.enabled) {
+      aiConnectionStore.reset();
+      return;
+    }
+    // Track the fields that define the target.
+    void c.preset;
+    void c.base_url;
+    void c.model;
+    aiConnectionStore.scheduleCheck();
+  });
+
+  const connection = () => connectionDisplay(aiConnectionStore.status(), cfg().model);
+
   // The effective host is hosted (non-local) and not yet consented to — shown
   // for a preset switch or a hand-edited base URL alike.
   const hostedUnconsented = () => {
@@ -950,6 +968,21 @@ function AiSection() {
         <Show when={keyState()?.is_set && keyState()?.memory_only}>
           <div class="settings-ai-note">Key held in memory this session; it will be gone on restart.</div>
         </Show>
+
+        <div class="settings-ai-connection">
+          <span class="settings-ai-connection-status" data-tone={connection().tone} aria-live="polite">
+            {connection().text}
+          </span>
+          <button
+            type="button"
+            class="settings-action-btn"
+            data-action="ai-recheck"
+            disabled={aiConnectionStore.checking()}
+            onClick={() => void aiConnectionStore.check()}
+          >
+            {aiConnectionStore.checking() ? "Checking…" : "Re-check"}
+          </button>
+        </div>
 
         <Show when={hostedUnconsented()}>
           <div class="settings-ai-consent" role="note">

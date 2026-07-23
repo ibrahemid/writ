@@ -556,6 +556,192 @@ pub fn ai_cancel(ai: State<'_, AiState>, request_id: String) {
     }
 }
 
+/// Timeout for the connection probe (connect and overall).
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Outcome of probing the configured endpoint's `/models`. `kind` is a machine
+/// category the frontend maps to a message; `detail` is a sanitized fragment
+/// (host:port or a status code), never a response body.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AiConnectionStatus {
+    /// An HTTP response was received (any status).
+    pub reachable: bool,
+    /// Whether the configured model appears in the server's model list; `None`
+    /// when that list is unavailable (auth/non-2xx/unparsable) or no model is
+    /// configured.
+    pub model_listed: Option<bool>,
+    /// One of `ok`, `model_missing`, `unauthorized`, `server_error`, `refused`,
+    /// `timeout`, `invalid_url`, `error`.
+    pub kind: String,
+    /// Sanitized fragment: host:port, a status code, or empty.
+    pub detail: String,
+}
+
+impl AiConnectionStatus {
+    fn new(reachable: bool, model_listed: Option<bool>, kind: &str, detail: String) -> Self {
+        Self {
+            reachable,
+            model_listed,
+            kind: kind.to_string(),
+            detail,
+        }
+    }
+}
+
+/// Reports whether `model` appears among the ids in an OpenAI-compatible
+/// `/models` body. `None` when `model` is empty or the body carries no ids.
+fn model_listed_in(body: &str, model: &str) -> Option<bool> {
+    if model.trim().is_empty() {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    let data = value.get("data")?.as_array()?;
+    let mut any = false;
+    for item in data {
+        if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+            any = true;
+            if id == model {
+                return Some(true);
+            }
+        }
+    }
+    if any {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+/// Builds the probe client (3s connect + overall, redirects refused).
+fn build_probe_client() -> Result<reqwest::Client, String> {
+    ensure_crypto_provider();
+    reqwest::Client::builder()
+        .connect_timeout(PROBE_TIMEOUT)
+        .timeout(PROBE_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| sanitize_ai_error(&e.to_string()))
+}
+
+/// Performs the probe and classifies the outcome. Only model ids are read from
+/// the body; nothing else is logged or returned.
+async fn run_connection_check(
+    client: &reqwest::Client,
+    endpoint: &str,
+    api_key: Option<&str>,
+    model: &str,
+    host_port: &str,
+) -> AiConnectionStatus {
+    let mut req = client.get(endpoint);
+    if let Some(key) = api_key {
+        req = req.bearer_auth(key);
+    }
+
+    let response = match req.send().await {
+        Ok(resp) => resp,
+        Err(err) => {
+            if err.is_timeout() {
+                return AiConnectionStatus::new(false, None, "timeout", host_port.to_string());
+            }
+            if err.is_connect() {
+                return AiConnectionStatus::new(false, None, "refused", host_port.to_string());
+            }
+            return AiConnectionStatus::new(
+                false,
+                None,
+                "error",
+                sanitize_ai_error(&err.to_string()),
+            );
+        }
+    };
+
+    let status = response.status();
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        return AiConnectionStatus::new(true, None, "unauthorized", status.as_u16().to_string());
+    }
+    if !status.is_success() {
+        return AiConnectionStatus::new(true, None, "server_error", status.as_u16().to_string());
+    }
+
+    let body = response.text().await.unwrap_or_default();
+    match model_listed_in(&body, model) {
+        Some(true) => AiConnectionStatus::new(true, Some(true), "ok", String::new()),
+        Some(false) => {
+            AiConnectionStatus::new(true, Some(false), "model_missing", model.to_string())
+        }
+        None => AiConnectionStatus::new(true, None, "ok", String::new()),
+    }
+}
+
+/// Probes the configured endpoint's `/models` so the UI can show connection
+/// state before a rewrite is attempted. No key is sent to a local endpoint; a
+/// hosted one gets the stored key. Response bodies are read only for model ids.
+#[tauri::command]
+pub async fn ai_check_connection(app: AppHandle) -> Result<AiConnectionStatus, String> {
+    let cfg = {
+        let state = app.state::<AppState>();
+        let guard = recover_poison(state.config.lock(), "commands::ai::ai_check_connection");
+        guard.ai.clone()
+    };
+
+    let url = match url::Url::parse(cfg.base_url.trim()) {
+        Ok(u) => u,
+        Err(_) => {
+            return Ok(AiConnectionStatus::new(
+                false,
+                None,
+                "invalid_url",
+                String::new(),
+            ))
+        }
+    };
+    let scheme = url.scheme();
+    let Some(host) = url.host_str() else {
+        return Ok(AiConnectionStatus::new(
+            false,
+            None,
+            "invalid_url",
+            String::new(),
+        ));
+    };
+    if !polish::is_endpoint_allowed(scheme, host) {
+        return Ok(AiConnectionStatus::new(
+            false,
+            None,
+            "invalid_url",
+            String::new(),
+        ));
+    }
+
+    let host_port = match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    };
+    let api_key = if polish::is_hosted(host) {
+        let ai = app.state::<AiState>();
+        let memory = recover_poison(ai.keys.lock(), "commands::ai::ai_check_connection");
+        resolve_key(&memory, &cfg.preset)
+    } else {
+        None
+    };
+
+    let base = cfg.base_url.trim().trim_end_matches('/');
+    let endpoint = format!("{base}/models");
+    let client = match build_probe_client() {
+        Ok(c) => c,
+        Err(detail) => return Ok(AiConnectionStatus::new(false, None, "error", detail)),
+    };
+
+    Ok(run_connection_check(
+        &client,
+        &endpoint,
+        api_key.as_deref(),
+        cfg.model.trim(),
+        &host_port,
+    )
+    .await)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -842,6 +1028,82 @@ mod tests {
         assert!(
             events[0].contains("307"),
             "expected a 307 error, got: {events:?}"
+        );
+    }
+
+    fn check_against(base_url: &str, model: &str) -> AiConnectionStatus {
+        let endpoint = format!("{}/models", base_url.trim_end_matches('/'));
+        tauri::async_runtime::block_on(async move {
+            let client = build_probe_client().unwrap();
+            run_connection_check(&client, &endpoint, None, model, "127.0.0.1:0").await
+        })
+    }
+
+    #[test]
+    fn connection_reachable_lists_model() {
+        let base = spawn_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: application/json\r\nConnection: close\r\n",
+            "{\"data\":[{\"id\":\"llama3\"},{\"id\":\"mistral\"}]}",
+        );
+        let status = check_against(&base, "llama3");
+        assert!(status.reachable);
+        assert_eq!(status.model_listed, Some(true));
+        assert_eq!(status.kind, "ok");
+    }
+
+    #[test]
+    fn connection_reachable_model_missing() {
+        let base = spawn_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: application/json\r\nConnection: close\r\n",
+            "{\"data\":[{\"id\":\"mistral\"}]}",
+        );
+        let status = check_against(&base, "llama3");
+        assert!(status.reachable);
+        assert_eq!(status.model_listed, Some(false));
+        assert_eq!(status.kind, "model_missing");
+        assert_eq!(status.detail, "llama3");
+    }
+
+    #[test]
+    fn connection_unauthorized() {
+        let base = spawn_mock(
+            "HTTP/1.1 401 Unauthorized",
+            "Content-Length: 0\r\nConnection: close\r\n",
+            "",
+        );
+        let status = check_against(&base, "llama3");
+        assert!(status.reachable);
+        assert_eq!(status.model_listed, None);
+        assert_eq!(status.kind, "unauthorized");
+        assert_eq!(status.detail, "401");
+    }
+
+    #[test]
+    fn connection_refused_when_nothing_listens() {
+        // Bind then drop to obtain a port with no listener.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let base = format!("http://127.0.0.1:{port}/v1");
+        let status = check_against(&base, "llama3");
+        assert!(!status.reachable);
+        assert_eq!(status.kind, "refused");
+    }
+
+    #[test]
+    fn model_listed_in_handles_empty_and_missing() {
+        assert_eq!(model_listed_in("{\"data\":[{\"id\":\"a\"}]}", ""), None);
+        assert_eq!(model_listed_in("not json", "a"), None);
+        assert_eq!(model_listed_in("{\"data\":[]}", "a"), None);
+        assert_eq!(
+            model_listed_in("{\"data\":[{\"id\":\"a\"}]}", "a"),
+            Some(true)
+        );
+        assert_eq!(
+            model_listed_in("{\"data\":[{\"id\":\"b\"}]}", "a"),
+            Some(false)
         );
     }
 
