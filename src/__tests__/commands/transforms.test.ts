@@ -34,7 +34,7 @@ describe("registerTransformCommands", () => {
     clearRegistry();
   });
 
-  it("registers one transform.<id> command per descriptor with the 'Transform: ' prefix", async () => {
+  it("registers one transform.<id> command per descriptor with the 'Text: ' prefix", async () => {
     mockedApi.listTransforms.mockResolvedValue([
       {
         id: "trim_leading_whitespace",
@@ -60,11 +60,11 @@ describe("registerTransformCommands", () => {
     const dedent = getCommand("transform.dedent");
 
     expect(trim).toBeDefined();
-    expect(trim!.label).toBe("Transform: Trim Leading Whitespace");
+    expect(trim!.label).toBe("Text: Trim Leading Whitespace");
     expect(trim!.scope).toBe("app");
 
     expect(dedent).toBeDefined();
-    expect(dedent!.label).toBe("Transform: Dedent");
+    expect(dedent!.label).toBe("Text: Dedent");
     expect(dedent!.scope).toBe("app");
   });
 

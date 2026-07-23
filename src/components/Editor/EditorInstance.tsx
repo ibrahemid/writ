@@ -87,20 +87,26 @@ export default function EditorInstance(props: Props) {
   const readOnlyCompartment = new Compartment();
   const spellingCompartment = new Compartment();
 
-  function spellingIsActive(): boolean {
+  // A buffer can be checked when it is in Normal mode and under the size cap,
+  // independent of whether the feature is switched on. This drives the
+  // status-bar item's visibility so the switch is reachable from the bar.
+  function spellingIsEligible(): boolean {
     if (!view) return false;
     const mode = win.editor.largeFileMode();
     if (mode && mode.kind !== "Normal") return false;
-    if (!configStore.config().spelling.enabled) return false;
     if (view.state.doc.length > SPELLING_MAX_CHARS) return false;
     return true;
   }
 
-  // Reconfigures the spelling compartment, attaches the store to the live view,
-  // and kicks a first lint — or tears all of that down when inactive.
+  // Publishes eligibility, then reconfigures the spelling compartment: when the
+  // buffer is eligible and the feature is on, attach the store and kick a first
+  // lint; otherwise clear decorations while keeping eligibility so the item
+  // stays visible in its "off" state.
   function applySpelling() {
+    const eligible = spellingIsEligible();
+    spellingStore.setEligible(eligible);
     if (!view) return;
-    const active = spellingIsActive();
+    const active = eligible && configStore.config().spelling.enabled;
     view.dispatch({
       effects: spellingCompartment.reconfigure(
         active ? spellingExtension((n) => spellingStore.publishCount(n)) : [],
@@ -110,7 +116,7 @@ export default function EditorInstance(props: Props) {
       spellingStore.attach(view);
       spellingStore.requestCheck(view.state.doc.toString());
     } else {
-      spellingStore.detach();
+      spellingStore.deactivate();
     }
   }
 

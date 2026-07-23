@@ -91,4 +91,19 @@ describe("spellingStore", () => {
     // Dispatches an empty result set to clear decorations.
     expect(view.dispatch).toHaveBeenCalledTimes(1);
   });
+
+  it("tracks eligibility and keeps it across deactivate but not detach", () => {
+    spellingStore.setEligible(true);
+    expect(spellingStore.eligible()).toBe(true);
+    spellingStore.publishCount(3);
+    expect(spellingStore.count()).toBe(3);
+    // Switching the feature off (deactivate) clears the count but leaves the
+    // item visible for the eligible buffer.
+    spellingStore.deactivate();
+    expect(spellingStore.count()).toBe(0);
+    expect(spellingStore.eligible()).toBe(true);
+    // A buffer switch / teardown (detach) marks it ineligible.
+    spellingStore.detach();
+    expect(spellingStore.eligible()).toBe(false);
+  });
 });
