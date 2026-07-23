@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createEffect, on } from "solid-js";
+import { onMount, onCleanup, createEffect, createMemo, on } from "solid-js";
 import { Annotation, Compartment, EditorState, type Extension } from "@codemirror/state";
 import { addCursorUp, addCursorDown } from "../../commands/multicursor";
 import {
@@ -14,6 +14,9 @@ import { editorThemeFor, writHighlight } from "./cm-theme";
 import { themeStore } from "../../stores/global/theme";
 import { markdownTypographyPlugin } from "../../editor/markdown-typography";
 import { markdownEditingExtension } from "../../editor/markdown-editing";
+import { spellingExtension } from "../../editor/spelling";
+import { spellingStore } from "../../stores/global/spelling";
+import { openSpellingPreview } from "./SpellingPreview";
 import {
   toggleBold,
   toggleItalic,
@@ -65,6 +68,9 @@ const CONTENT_DETECT_MAX_LENGTH = 256 * 1024;
 // publish only feeds a heuristic token count that can lag; coalesce it onto
 // this idle interval instead of running per keystroke.
 const RESTRICTED_CONTENT_PUBLISH_MS = 400;
+// Spell check is skipped above this document size (UTF-16 code units ≈ 1MB of
+// text): a full re-lint of a megabyte on every edit burst is not worth it.
+const SPELLING_MAX_CHARS = 1_000_000;
 
 export default function EditorInstance(props: Props) {
   const win = useWindow();
@@ -79,6 +85,34 @@ export default function EditorInstance(props: Props) {
   const typographyCompartment = new Compartment();
   const editingCompartment = new Compartment();
   const readOnlyCompartment = new Compartment();
+  const spellingCompartment = new Compartment();
+
+  function spellingIsActive(): boolean {
+    if (!view) return false;
+    const mode = win.editor.largeFileMode();
+    if (mode && mode.kind !== "Normal") return false;
+    if (!configStore.config().spelling.enabled) return false;
+    if (view.state.doc.length > SPELLING_MAX_CHARS) return false;
+    return true;
+  }
+
+  // Reconfigures the spelling compartment, attaches the store to the live view,
+  // and kicks a first lint — or tears all of that down when inactive.
+  function applySpelling() {
+    if (!view) return;
+    const active = spellingIsActive();
+    view.dispatch({
+      effects: spellingCompartment.reconfigure(
+        active ? spellingExtension((n) => spellingStore.publishCount(n)) : [],
+      ),
+    });
+    if (active) {
+      spellingStore.attach(view);
+      spellingStore.requestCheck(view.state.doc.toString());
+    } else {
+      spellingStore.detach();
+    }
+  }
 
   function typographyExtension(lang: string | null, mode: FileOpenMode): Extension {
     if (mode.kind !== "Normal") return [];
@@ -156,6 +190,8 @@ export default function EditorInstance(props: Props) {
       languageCompartment.of(isRestricted ? [] : initialLang),
       typographyCompartment.of(isRestricted ? [] : typographyExtension(langId, mode)),
       editingCompartment.of(isRestricted ? [] : editingExtension(langId, mode)),
+      // Configured by applySpelling() after the view mounts.
+      spellingCompartment.of([]),
       readOnlyCompartment.of(
         isBinary
           ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
@@ -211,6 +247,12 @@ export default function EditorInstance(props: Props) {
             }
             win.editor.setCurrentText(content);
             maybeDetectFromContent(content, false);
+            if (
+              configStore.config().spelling.enabled &&
+              update.state.doc.length <= SPELLING_MAX_CHARS
+            ) {
+              spellingStore.requestCheck(content);
+            }
             if (findStore.isOpen()) findStore.refresh();
           }
           // Keep any live rewrite preview's anchored range in sync, and abort it
@@ -268,6 +310,9 @@ export default function EditorInstance(props: Props) {
     // A pending publish belongs to the outgoing buffer; a late fire after the
     // swap would push stale text into the shared currentText signal.
     clearRestrictedContentPublish();
+    // Drop the outgoing buffer's spell-check state so an in-flight result can
+    // never land on the incoming buffer's view.
+    spellingStore.detach();
 
     currentBufferId = buffer.id;
     appliedNameForLang = "";
@@ -316,6 +361,7 @@ export default function EditorInstance(props: Props) {
     // Publish the loaded id last so it never leads currentText: a preview pane
     // gating on this id is guaranteed to read the matching buffer's text.
     win.editor.setCurrentBufferId(buffer.id);
+    applySpelling();
     view.focus();
   }
 
@@ -367,6 +413,19 @@ export default function EditorInstance(props: Props) {
       keybinding: "Alt+ArrowDown",
       scope: "editor",
       execute: () => { if (view) addCursorDown(view); },
+    });
+
+    registerCommand({
+      id: "spelling.toggle",
+      label: "Toggle Spell Check",
+      scope: "app",
+      execute: () => {
+        const cur = configStore.config();
+        void configStore.save({
+          ...cur,
+          spelling: { ...cur.spelling, enabled: !cur.spelling.enabled },
+        });
+      },
     });
 
     loadBuffer(props.buffer);
@@ -449,6 +508,42 @@ export default function EditorInstance(props: Props) {
     });
   });
 
+  // Re-apply spell check when the master switch or dialect changes. Buffer
+  // switches and file-mode changes are handled in loadBuffer.
+  createEffect(on(
+    () => [
+      configStore.config().spelling.enabled,
+      configStore.config().spelling.dialect,
+    ] as const,
+    () => applySpelling(),
+    { defer: true },
+  ));
+
+  // Fix-all / preview commands exist only while the active buffer has flagged
+  // words, so the palette never offers a no-op.
+  const spellingCommandsActive = createMemo(
+    () => configStore.config().spelling.enabled && spellingStore.count() > 0,
+  );
+  createEffect(on(spellingCommandsActive, (active) => {
+    if (active) {
+      registerCommand({
+        id: "spelling.fixAll",
+        label: "Fix All Spelling",
+        scope: "editor",
+        execute: () => { spellingStore.fixAll(); },
+      });
+      registerCommand({
+        id: "spelling.preview",
+        label: "Preview Spelling Fixes",
+        scope: "editor",
+        execute: () => openSpellingPreview(),
+      });
+    } else {
+      unregisterCommand("spelling.fixAll");
+      unregisterCommand("spelling.preview");
+    }
+  }));
+
   // The formatting commands exist in the palette and key map only while a
   // markdown buffer is active with editing helpers enabled, so Cmd+B in a
   // rust file stays a plain keystroke and the palette never offers a no-op.
@@ -486,6 +581,10 @@ export default function EditorInstance(props: Props) {
   onCleanup(() => {
     containerRef.removeEventListener("wheel", onWheelZoom);
     for (const cmd of formatCommands) unregisterCommand(cmd.id);
+    unregisterCommand("spelling.toggle");
+    unregisterCommand("spelling.fixAll");
+    unregisterCommand("spelling.preview");
+    spellingStore.detach();
     rebuildKeyMap();
     if (currentBufferId) {
       win.editor.cancelAutosave(currentBufferId);

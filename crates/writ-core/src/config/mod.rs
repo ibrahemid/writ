@@ -11,9 +11,12 @@ pub mod ai;
 pub mod keybinding;
 /// Preview surface configuration (`[preview]`).
 pub mod preview;
+/// Spell-check configuration (`[spelling]`).
+pub mod spelling;
 
 pub use ai::AiConfig;
 pub use preview::{DefaultLayout, PreviewConfig};
+pub use spelling::SpellingConfig;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -421,6 +424,9 @@ pub struct WritConfig {
     /// Opt-in rewrite configuration.
     #[serde(default)]
     pub ai: AiConfig,
+    /// Spell-check configuration.
+    #[serde(default)]
+    pub spelling: SpellingConfig,
 }
 
 impl Default for WritConfig {
@@ -440,6 +446,7 @@ impl Default for WritConfig {
             inbox: InboxConfig::default(),
             updater: UpdaterConfig::default(),
             ai: AiConfig::default(),
+            spelling: SpellingConfig::default(),
         }
     }
 }
@@ -497,6 +504,31 @@ mod tests {
         let serialized = toml::to_string(&config).unwrap();
         let parsed: WritConfig = toml::from_str(&serialized).unwrap();
         assert_eq!(parsed.ai, config.ai);
+    }
+
+    #[test]
+    fn missing_spelling_section_defaults_to_off() {
+        let config: WritConfig = toml::from_str("").unwrap();
+        assert!(!config.spelling.enabled);
+        assert_eq!(config.spelling.dialect, "american");
+        assert!(config.spelling.ignored_words.is_empty());
+    }
+
+    #[test]
+    fn spelling_section_round_trips_through_toml() {
+        let mut config = WritConfig::default();
+        config.spelling.enabled = true;
+        config.spelling.dialect = "british".to_string();
+        config.spelling.ignored_words = vec!["tauri".to_string(), "writ".to_string()];
+
+        let serialized = toml::to_string(&config).unwrap();
+        let parsed: WritConfig = toml::from_str(&serialized).unwrap();
+        assert!(parsed.spelling.enabled);
+        assert_eq!(parsed.spelling.dialect, "british");
+        assert_eq!(
+            parsed.spelling.ignored_words,
+            vec!["tauri".to_string(), "writ".to_string()]
+        );
     }
 
     #[test]

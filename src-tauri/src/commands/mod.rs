@@ -10,6 +10,7 @@ pub mod perf;
 pub mod preview;
 pub mod prompt;
 pub mod recovery;
+pub mod spelling;
 pub mod storage;
 pub mod transforms;
 pub mod update;

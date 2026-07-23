@@ -45,6 +45,7 @@ const DEFAULT_CONFIG: WritConfig = {
     model: "",
     consented_hosts: [],
   },
+  spelling: { enabled: false, dialect: "american", ignored_words: [] },
 };
 
 const PERSIST_DEBOUNCE_MS = 750;
@@ -69,6 +70,11 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
       base_url: incoming.ai?.base_url ?? "http://localhost:11434/v1",
       model: incoming.ai?.model ?? "",
       consented_hosts: incoming.ai?.consented_hosts ?? [],
+    },
+    spelling: {
+      enabled: incoming.spelling?.enabled ?? false,
+      dialect: incoming.spelling?.dialect ?? "american",
+      ignored_words: incoming.spelling?.ignored_words ?? [],
     },
   };
 }

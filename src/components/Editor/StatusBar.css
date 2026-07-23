@@ -93,6 +93,19 @@
   border: 1px solid var(--writ-border-soft);
 }
 
+.spelling-chip {
+  border: 1px solid var(--writ-border-soft);
+  background: none;
+  color: var(--writ-foreground-muted);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.spelling-chip:hover {
+  background: var(--writ-surface-hover);
+  color: var(--writ-foreground-default);
+}
+
 .statusbar-field {
   white-space: nowrap;
   color: var(--writ-foreground-subtle);

@@ -188,6 +188,19 @@ function EditorSection() {
     }));
   }
 
+  const spelling = () => configStore.config().spelling;
+
+  function onSpellingToggle() {
+    void patchConfig((prev) => ({
+      ...prev,
+      spelling: { ...prev.spelling, enabled: !prev.spelling.enabled },
+    }));
+  }
+
+  function onSpellingDialectChange(raw: string) {
+    void patchConfig((prev) => ({ ...prev, spelling: { ...prev.spelling, dialect: raw } }));
+  }
+
   return (
     <div data-section="editor">
       <SectionLabel section="editor" />
@@ -256,6 +269,34 @@ function EditorSection() {
         >
           <span class="settings-toggle-thumb" />
         </button>
+      </SettingsRow>
+      <SettingsRow id="editor.spelling" label="Spell check">
+        <button
+          type="button"
+          class="settings-toggle"
+          classList={{ "settings-toggle-on": spelling().enabled }}
+          data-setting="spelling_enabled"
+          role="switch"
+          aria-checked={spelling().enabled}
+          aria-label="Spell check"
+          onClick={onSpellingToggle}
+        >
+          <span class="settings-toggle-thumb" />
+        </button>
+      </SettingsRow>
+      <SettingsRow id="editor.spelling_dialect" label="Spelling dialect" labelFor="setting-spelling-dialect">
+        <select
+          id="setting-spelling-dialect"
+          class="settings-select"
+          data-setting="spelling_dialect"
+          value={spelling().dialect}
+          onChange={(e) => onSpellingDialectChange(e.currentTarget.value)}
+        >
+          <option value="american">American</option>
+          <option value="british">British</option>
+          <option value="canadian">Canadian</option>
+          <option value="australian">Australian</option>
+        </select>
       </SettingsRow>
     </div>
   );

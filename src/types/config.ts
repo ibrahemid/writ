@@ -38,6 +38,14 @@ export interface AiConfig {
   consented_hosts: string[];
 }
 
+export type SpellingDialect = "american" | "british" | "canadian" | "australian";
+
+export interface SpellingConfig {
+  enabled: boolean;
+  dialect: string;
+  ignored_words: string[];
+}
+
 export interface WritConfig {
   hotkey: { toggle: string };
   sidebar: {
@@ -58,4 +66,5 @@ export interface WritConfig {
   inbox: InboxConfig;
   updater: UpdaterConfig;
   ai: AiConfig;
+  spelling: SpellingConfig;
 }
