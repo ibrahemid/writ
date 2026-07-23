@@ -44,7 +44,7 @@ describe('WritWindow', () => {
   it('runs a transform from the palette and marks the buffer edited', () => {
     render(<WritWindow />);
     fireEvent.click(screen.getAllByRole('button', { name: 'Open command palette (Shift Shift)' })[0]!);
-    fireEvent.click(screen.getByText('Trim Leading Whitespace'));
+    fireEvent.click(screen.getByText('Trim leading spaces'));
     expect(screen.getByText('Edited')).toBeTruthy();
   });
 
