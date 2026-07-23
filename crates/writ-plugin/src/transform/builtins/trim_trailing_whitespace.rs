@@ -15,8 +15,8 @@ impl TextTransform for TrimTrailingWhitespace {
     fn metadata(&self) -> &TransformMetadata {
         static META: OnceLock<TransformMetadata> = OnceLock::new();
         META.get_or_init(|| TransformMetadata {
-            label: "Trim Trailing Whitespace".to_string(),
-            description: "Remove trailing spaces and tabs from each line.".to_string(),
+            label: "Trim trailing spaces".to_string(),
+            description: "Remove spaces and tabs from the end of each line.".to_string(),
             category: TransformCategory::Whitespace,
         })
     }

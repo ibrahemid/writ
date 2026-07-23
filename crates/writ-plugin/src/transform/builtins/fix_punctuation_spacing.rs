@@ -21,7 +21,7 @@ impl TextTransform for FixPunctuationSpacing {
     fn metadata(&self) -> &TransformMetadata {
         static META: OnceLock<TransformMetadata> = OnceLock::new();
         META.get_or_init(|| TransformMetadata {
-            label: "Fix Punctuation Spacing".to_string(),
+            label: "Fix spacing before punctuation".to_string(),
             description: "Remove stray spaces before commas, periods, and other punctuation."
                 .to_string(),
             category: TransformCategory::Punctuation,

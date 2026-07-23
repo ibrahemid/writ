@@ -11,9 +11,9 @@ pub fn tidy_whitespace() -> CompositeTransform {
     CompositeTransform::new(
         "tidy_whitespace".to_string(),
         TransformMetadata {
-            label: "Tidy Whitespace".to_string(),
+            label: "Tidy whitespace".to_string(),
             description:
-                "Trim trailing whitespace, dedent, collapse runs, and end with a single newline."
+                "Trim trailing spaces, remove shared indentation, collapse repeated spaces, and end with one newline."
                     .to_string(),
             category: TransformCategory::Whitespace,
         },
