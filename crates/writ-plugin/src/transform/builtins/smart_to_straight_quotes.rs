@@ -15,8 +15,8 @@ impl TextTransform for SmartToStraightQuotes {
     fn metadata(&self) -> &TransformMetadata {
         static META: OnceLock<TransformMetadata> = OnceLock::new();
         META.get_or_init(|| TransformMetadata {
-            label: "Smart → Straight Quotes".to_string(),
-            description: "Replace curly quotes with straight ASCII quotes.".to_string(),
+            label: "Straighten quotes".to_string(),
+            description: "Replace curly quotes with straight ones.".to_string(),
             category: TransformCategory::Punctuation,
         })
     }

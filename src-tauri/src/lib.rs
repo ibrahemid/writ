@@ -243,6 +243,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .register_uri_scheme_protocol("writ-preview", preview::handler::serve)
         .manage(app_state)
+        .manage(commands::ai::AiState::default())
         .invoke_handler(tauri::generate_handler![
             commands::buffer::create_buffer,
             commands::buffer::get_buffer,
@@ -271,6 +272,8 @@ pub fn run() {
             commands::prompt::prompt_estimate_tokens,
             commands::prompt::prompt_scan_placeholders,
             commands::prompt::prompt_fill_placeholders,
+            commands::spelling::check_spelling,
+            commands::spelling::spelling_add_ignored_word,
             commands::perf::report_first_paint,
             commands::update::check_for_update,
             commands::update::download_and_install_update,
@@ -298,6 +301,12 @@ pub fn run() {
             commands::inbox::list_inbox_files,
             commands::storage::get_storage_info,
             commands::storage::reveal_storage_path,
+            commands::ai::ai_rewrite,
+            commands::ai::ai_cancel,
+            commands::ai::ai_check_connection,
+            commands::ai::ai_set_api_key,
+            commands::ai::ai_clear_api_key,
+            commands::ai::ai_has_api_key,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

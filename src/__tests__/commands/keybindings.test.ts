@@ -166,6 +166,13 @@ describe("editor.replace vs tab.rename chord", () => {
     // Neutralize the Cmd+R owner registered by the alias test above.
     unregisterCommand("test.alias");
 
+    // The editor-scoped command only fires with focus inside a CodeMirror
+    // editor, so the chord test needs a real .cm-editor to focus.
+    const editor = document.createElement("div");
+    editor.className = "cm-editor";
+    editor.tabIndex = -1;
+    document.body.appendChild(editor);
+
     let replaced = 0;
     let renamed = 0;
     registerCommand({
@@ -186,14 +193,17 @@ describe("editor.replace vs tab.rename chord", () => {
     });
     rebuildKeyMap();
 
+    editor.focus();
     expect(handleKeyDown(createKeyEvent({ key: "r", metaKey: true }))).toBe(true);
     expect(replaced).toBe(1);
     expect(renamed).toBe(0);
 
-    // Rename still reachable via its own chords.
+    // Rename still reachable via its own chord when focus is not in an editor.
+    editor.blur();
     handleKeyDown(createKeyEvent({ key: "F2" }));
     expect(renamed).toBe(1);
 
+    editor.remove();
     unregisterCommand("editor.replace");
     unregisterCommand("tab.rename");
     rebuildKeyMap();

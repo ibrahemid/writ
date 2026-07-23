@@ -15,8 +15,8 @@ impl TextTransform for TrimLeadingWhitespace {
     fn metadata(&self) -> &TransformMetadata {
         static META: OnceLock<TransformMetadata> = OnceLock::new();
         META.get_or_init(|| TransformMetadata {
-            label: "Trim Leading Whitespace".to_string(),
-            description: "Remove leading spaces and tabs from each line.".to_string(),
+            label: "Trim leading spaces".to_string(),
+            description: "Remove spaces and tabs from the start of each line.".to_string(),
             category: TransformCategory::Whitespace,
         })
     }

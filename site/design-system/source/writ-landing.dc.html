@@ -620,15 +620,15 @@ class Component extends DCLogic {
     ];
 
     this.GROUPS = [
-      { label: 'TRANSFORM', cmds: [
-        { id: 'trim', name: 'Trim Leading Whitespace', desc: 'Remove leading spaces and tabs from each line.' },
-        { id: 'dedent', name: 'Dedent', desc: 'Remove shared leading indentation.' },
-        { id: 'finalnl', name: 'Ensure Final Newline', desc: 'End with exactly one trailing newline.' },
-        { id: 'prompt', name: 'Prepare as Prompt', desc: 'Strip frontmatter and comments outside code fences.' },
-        { id: 'tidy', name: 'Tidy Whitespace', desc: 'Trim, dedent, collapse blank runs, final newline.' },
-        { id: 'normalize', name: 'Normalize Whitespace', desc: 'Collapse repeated spaces and tabs to one.' },
-        { id: 'punct', name: 'Fix Punctuation Spacing', desc: 'Remove stray spaces before punctuation.' },
-        { id: 'quotes', name: 'Smart → Straight Quotes', desc: 'Replace curly quotes with ASCII quotes.' }
+      { label: 'TEXT', cmds: [
+        { id: 'trim', name: 'Trim leading spaces', desc: 'Remove spaces and tabs from the start of each line.' },
+        { id: 'dedent', name: 'Remove shared indentation', desc: 'Remove the indentation shared by every non-blank line.' },
+        { id: 'finalnl', name: 'End with one newline', desc: 'End the text with exactly one trailing newline.' },
+        { id: 'prompt', name: 'Prepare as prompt', desc: 'Remove frontmatter and HTML comments outside code, then trim trailing whitespace.' },
+        { id: 'tidy', name: 'Tidy whitespace', desc: 'Trim trailing spaces, remove shared indentation, collapse repeated spaces, and end with one newline.' },
+        { id: 'normalize', name: 'Collapse repeated spaces', desc: 'Collapse repeated spaces and tabs inside a line down to one space.' },
+        { id: 'punct', name: 'Fix spacing before punctuation', desc: 'Remove stray spaces before commas, periods, and other punctuation.' },
+        { id: 'quotes', name: 'Straighten quotes', desc: 'Replace curly quotes with straight ones.' }
       ] },
       { label: 'TABS & FILES', cmds: [
         { id: 'newtab', name: 'New Tab', desc: 'Open a fresh scratch buffer.', kbd: '⌘T' },

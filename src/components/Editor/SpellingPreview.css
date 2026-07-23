@@ -1,0 +1,129 @@
+.spelling-preview {
+  position: fixed;
+  top: var(--writ-space-4);
+  right: var(--writ-space-4);
+  z-index: 210;
+  width: 320px;
+  max-width: calc(100vw - 2 * var(--writ-space-4));
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--writ-surface-raised);
+  border: 1px solid var(--writ-border-default);
+  border-radius: 8px;
+  box-shadow: var(--writ-shadow-popover);
+  font-size: var(--writ-font-size-sm);
+  color: var(--writ-foreground-default);
+  overflow: hidden;
+}
+
+.spelling-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--writ-space-3);
+  padding: var(--writ-space-3) var(--writ-space-4);
+  border-bottom: 1px solid var(--writ-border-soft);
+}
+
+.spelling-preview-all {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--writ-space-3);
+  color: var(--writ-foreground-muted);
+  cursor: pointer;
+}
+
+.spelling-preview-actions {
+  display: inline-flex;
+  gap: var(--writ-space-2);
+}
+
+.spelling-preview-btn {
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--writ-border-soft);
+  background: none;
+  color: var(--writ-foreground-muted);
+  cursor: pointer;
+  font-size: var(--writ-font-size-sm);
+}
+
+.spelling-preview-btn:hover {
+  background: var(--writ-surface-hover);
+  color: var(--writ-foreground-default);
+}
+
+.spelling-preview-apply {
+  border-color: var(--writ-accent-default);
+  color: var(--writ-accent-default);
+}
+
+.spelling-preview-apply:disabled {
+  opacity: 0.5;
+  cursor: default;
+  border-color: var(--writ-border-soft);
+  color: var(--writ-foreground-subtle);
+}
+
+.spelling-preview-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--writ-space-2) 0;
+  overflow-y: auto;
+}
+
+.spelling-preview-row {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-3);
+  padding: 4px var(--writ-space-4);
+  cursor: pointer;
+}
+
+.spelling-preview-row:hover {
+  background: var(--writ-surface-hover);
+}
+
+.spelling-preview-check {
+  accent-color: var(--writ-accent-default);
+  flex-shrink: 0;
+}
+
+.spelling-preview-word {
+  color: var(--writ-status-error);
+  white-space: nowrap;
+}
+
+.spelling-preview-arrow {
+  color: var(--writ-foreground-subtle);
+}
+
+.spelling-preview-fix {
+  color: var(--writ-foreground-default);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spelling-preview-ignore {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: none;
+  background: none;
+  color: var(--writ-foreground-subtle);
+  cursor: pointer;
+  font-size: var(--writ-font-size-xs, 11px);
+}
+
+.spelling-preview-ignore:hover {
+  background: var(--writ-surface-hover);
+  color: var(--writ-foreground-default);
+}
+
+.spelling-preview-empty {
+  padding: var(--writ-space-4);
+  color: var(--writ-foreground-subtle);
+  text-align: center;
+}

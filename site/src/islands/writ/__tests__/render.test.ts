@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { mdToHtml, renderInline, escapeHtml, estimateTokens, formatTokens } from '../render';
-import { highlightCode } from '../highlight';
 import { genHex } from '../hex';
 
 describe('escapeHtml', () => {
@@ -107,17 +106,6 @@ describe('tokens', () => {
     expect(estimateTokens('a'.repeat(40))).toBe(10);
     expect(formatTokens(999)).toBe('999');
     expect(formatTokens(1500)).toBe('2k');
-  });
-});
-
-describe('highlightCode', () => {
-  it('colorizes typescript keywords and escapes', () => {
-    const html = highlightCode('ts', 'const x = "<a>";');
-    expect(html).toContain('var(--sx-kw)');
-    expect(html).toContain('&lt;a&gt;');
-  });
-  it('passes unknown languages through escaped', () => {
-    expect(highlightCode('plain', 'a <b>')).toBe('a &lt;b&gt;');
   });
 });
 

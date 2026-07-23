@@ -35,6 +35,14 @@ pub enum WritFrontendEvent {
     #[serde(rename = "update:status")]
     UpdateStatus(UpdatePhase),
 
+    #[serde(rename = "ai:rewrite")]
+    AiRewrite {
+        request_id: String,
+        kind: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+    },
+
     #[serde(rename = "preview:rendered")]
     PreviewRendered {
         buffer_id: String,
@@ -71,6 +79,7 @@ pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), Strin
         WritFrontendEvent::InboxFileArrived { .. } => "writ://inbox-file-arrived",
         WritFrontendEvent::WorkspaceChanged { .. } => "writ://workspace-changed",
         WritFrontendEvent::UpdateStatus(..) => "writ://update-status",
+        WritFrontendEvent::AiRewrite { .. } => "writ://ai-rewrite",
         WritFrontendEvent::PreviewRendered { .. } => "writ://preview-rendered",
         WritFrontendEvent::PreviewError { .. } => "writ://preview-error",
         WritFrontendEvent::LayoutChanged { .. } => "writ://preview-layout-changed",

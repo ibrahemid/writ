@@ -1,6 +1,8 @@
 ---
+import release from '../../data/release.json';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const repo = 'https://github.com/ibrahemid/writ';
+const published = release.published === true;
 ---
 <footer class="site-footer">
   <div class="site-footer-inner">
@@ -10,6 +12,7 @@ const repo = 'https://github.com/ibrahemid/writ';
       <a href={`${base}/changelog`}>Changelog</a>
       <a href={`${base}/privacy`}>Privacy</a>
       <a href={repo} rel="noopener noreferrer" target="_blank">GitHub</a>
+      {published && <span class="ft-ver">v{release.version}</span>}
     </nav>
     <div class="ft-tag">A fast scratchpad for everything you open.</div>
   </div>
@@ -53,6 +56,12 @@ const repo = 'https://github.com/ibrahemid/writ';
     transition: color 0.15s var(--ease);
   }
   .ft-links a:hover { color: var(--foreground); }
+  .ft-ver {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--subtle);
+    font-variant-numeric: tabular-nums;
+  }
   .ft-tag {
     margin-left: auto;
     font-size: 13px;

@@ -1,5 +1,6 @@
 import StatusBar from "./StatusBar";
 import FindOverlay from "../Find/FindOverlay";
+import SpellingPreview from "./SpellingPreview";
 import PreviewLayout from "../Preview/PreviewLayout";
 import { useActiveBuffer } from "../../lib/use-active-buffer";
 import "./EditorArea.css";
@@ -14,6 +15,7 @@ export default function EditorArea() {
             element it owns is never torn down (#124 webview freeze). */}
         <PreviewLayout buffer={activeBuffer()} />
         <FindOverlay />
+        <SpellingPreview />
       </div>
       <StatusBar />
     </div>

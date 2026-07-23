@@ -1,9 +1,10 @@
 {
     "name": "writ",
     "private": true,
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "A lightweight, always-ready text editor for developers.",
     "license": "MIT",
+    "packageManager": "pnpm@10.13.1",
     "repository": {
         "type": "git",
         "url": "git+https://github.com/ibrahemid/writ.git"

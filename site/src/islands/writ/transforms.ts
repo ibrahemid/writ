@@ -1,5 +1,6 @@
 export type TransformId =
   | 'trim'
+  | 'trimtrailing'
   | 'dedent'
   | 'finalnl'
   | 'prompt'
@@ -23,6 +24,7 @@ function dedent(s: string): string {
 export function applyTransform(id: TransformId, s: string): string {
   const lines = (): string[] => s.split('\n');
   if (id === 'trim') return lines().map((l) => l.replace(/^[ \t]+/, '')).join('\n');
+  if (id === 'trimtrailing') return lines().map((l) => l.replace(/[ \t]+$/, '')).join('\n');
   if (id === 'finalnl') return s.replace(/\s*$/, '') + '\n';
   if (id === 'normalize') {
     return lines()

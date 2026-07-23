@@ -1,0 +1,758 @@
+/* Demo-window tokens + chrome. The window renders the app's real CodeMirror
+   editor, so it defines the full --writ-* token set the editor, markdown
+   typography, and spelling CSS consume. Polarity-dependent values are the
+   Warp Light / Warp Dark presets (src/styles/themes/*.json); everything else
+   mirrors src/styles/theme.css. Scoped to .ww-window so it never leaks into the
+   surrounding site. */
+
+.ww-window {
+  --writ-font-sans: 'Inter', -apple-system, system-ui, sans-serif;
+  --writ-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --writ-font-size: 13px;
+  --writ-editor-font-size: 13px;
+  --writ-font-size-sm: 12px;
+  --writ-font-size-xs: 11px;
+  --writ-line-height: 1.6;
+
+  --writ-space-1: 2px;
+  --writ-space-2: 4px;
+  --writ-space-3: 8px;
+  --writ-space-4: 12px;
+  --writ-space-5: 16px;
+  --writ-space-6: 24px;
+
+  --writ-radius-1: 4px;
+  --writ-radius-2: 6px;
+  --writ-radius-3: 10px;
+
+  --writ-bg-tab-pill: transparent;
+
+  /* Derived treatments — color-mix against the live polarity tokens. */
+  --writ-overlay-hover: color-mix(in srgb, var(--writ-foreground-default) 8%, transparent);
+  --writ-overlay-subtle: color-mix(in srgb, var(--writ-foreground-default) 4%, transparent);
+  --writ-selection: color-mix(in srgb, var(--writ-accent-default) 30%, transparent);
+  --writ-warning-foreground: color-mix(in srgb, var(--writ-status-warning) 68%, var(--writ-foreground-default));
+  --writ-overlay-scrim: rgba(0, 0, 0, 0.5);
+
+  /* Window controls mirror native macOS semantics — fixed across themes. */
+  --writ-traffic-close: #ff5f57;
+  --writ-traffic-minimize: #ffbd2e;
+  --writ-traffic-maximize: #28c840;
+
+  color: var(--writ-foreground-default);
+  font-family: var(--writ-font-sans);
+}
+
+[data-theme='light'] .ww-window {
+  --writ-surface-background: #fbfbfd;
+  --writ-surface-sunken: #edeef3;
+  --writ-surface-raised: #ffffff;
+  --writ-surface-elevated: #eef1f7;
+  --writ-surface-input: #ffffff;
+  --writ-surface-hover: #e7e9f1;
+
+  --writ-foreground-default: #1a1a22;
+  --writ-foreground-muted: #5a5a6a;
+  --writ-foreground-subtle: #76768a;
+
+  --writ-border-default: #e2e2ea;
+  --writ-border-soft: #ededf2;
+  --writ-border-focus: #3b5bdb;
+  --writ-border-pill: #d8d8e2;
+
+  --writ-accent-default: #3b5bdb;
+  --writ-accent-hover: #2843c0;
+  --writ-accent-foreground: #ffffff;
+
+  --writ-status-success: #178035;
+  --writ-status-warning: #9a6b00;
+  --writ-status-error: #d11a2a;
+  --writ-status-foreground: #ffffff;
+
+  --writ-syntax-keyword: #8839ef;
+  --writ-syntax-string: #40803a;
+  --writ-syntax-comment: #8a8aa0;
+  --writ-syntax-function: #3b5bdb;
+  --writ-syntax-number: #b8500a;
+  --writ-syntax-type: #1a7a8c;
+  --writ-syntax-variable: #2a2a38;
+}
+
+[data-theme='dark'] .ww-window {
+  --writ-surface-background: #0e0e14;
+  --writ-surface-sunken: #0a0a10;
+  --writ-surface-raised: #12121a;
+  --writ-surface-elevated: #1a1a2e;
+  --writ-surface-input: #16161e;
+  --writ-surface-hover: #1e1e2e;
+
+  --writ-foreground-default: #e0e0e0;
+  --writ-foreground-muted: #888899;
+  --writ-foreground-subtle: #6d6d7b;
+
+  --writ-border-default: #1e1e2e;
+  --writ-border-soft: #16161f;
+  --writ-border-focus: #7aa2f7;
+  --writ-border-pill: #232334;
+
+  --writ-accent-default: #7aa2f7;
+  --writ-accent-hover: #89b4fa;
+  --writ-accent-foreground: #0a0a10;
+
+  --writ-status-success: #9ece6a;
+  --writ-status-warning: #e0af68;
+  --writ-status-error: #f7768e;
+  --writ-status-foreground: #0a0a10;
+
+  --writ-syntax-keyword: #bb9af7;
+  --writ-syntax-string: #9ece6a;
+  --writ-syntax-comment: #565f89;
+  --writ-syntax-function: #7aa2f7;
+  --writ-syntax-number: #ff9e64;
+  --writ-syntax-type: #2ac3de;
+  --writ-syntax-variable: #c0caf5;
+}
+
+/* ─── Title bar ──────────────────────────────────────────────────────────── */
+.wwx-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 11px;
+  height: 40px;
+  background: color-mix(in srgb, var(--writ-surface-sunken) 55%, var(--writ-surface-raised));
+  border-bottom: 1px solid var(--writ-border-soft);
+}
+.wwx-lights {
+  display: flex;
+  gap: 7px;
+  padding: 0 5px 0 3px;
+  flex: none;
+}
+.wwx-lights span {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+}
+.wwx-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+.wwx-tab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 8px 0 11px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--writ-foreground-muted);
+  font-family: var(--writ-font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+.wwx-tab:hover {
+  background: var(--writ-overlay-hover);
+  color: var(--writ-foreground-default);
+}
+.wwx-tab[data-active='true'] {
+  background: color-mix(in srgb, var(--writ-accent-default) 12%, var(--writ-surface-raised));
+  border-color: color-mix(in srgb, var(--writ-accent-default) 40%, transparent);
+  color: var(--writ-accent-default);
+}
+.wwx-tab-title {
+  white-space: nowrap;
+}
+.wwx-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  color: var(--writ-foreground-subtle);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.wwx-tab-close:hover {
+  background: var(--writ-overlay-hover);
+  color: var(--writ-foreground-default);
+}
+.wwx-tab-rename {
+  width: 96px;
+  border: none;
+  outline: none;
+  background: var(--writ-surface-input);
+  border-radius: 4px;
+  font-family: var(--writ-font-mono);
+  font-size: 12px;
+  color: var(--writ-foreground-default);
+  padding: 1px 4px;
+}
+.wwx-newtab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--writ-foreground-subtle);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.wwx-newtab:hover {
+  background: var(--writ-overlay-hover);
+  color: var(--writ-foreground-default);
+}
+.wwx-chord {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ─── Keycaps (mirrors the app's Kbd component) ──────────────────────────── */
+.wwx-keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.wwx-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 5px;
+  border: 1px solid var(--writ-border-default);
+  background: var(--writ-surface-raised);
+  color: var(--writ-foreground-muted);
+  font-family: var(--writ-font-mono);
+  font-size: 11px;
+  line-height: 1;
+}
+.wwx-keys-muted .wwx-key-empty {
+  border-color: transparent;
+  background: transparent;
+  color: var(--writ-foreground-subtle);
+  opacity: 0.6;
+}
+
+/* ─── Body ───────────────────────────────────────────────────────────────── */
+.wwx-body {
+  position: relative;
+  display: grid;
+  height: min(60vh, 540px);
+  min-height: 420px;
+  background: var(--writ-surface-background);
+}
+.wwx-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--writ-border-soft);
+  background: color-mix(in srgb, var(--writ-surface-sunken) 32%, var(--writ-surface-raised));
+}
+.wwx-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 11px 11px 8px;
+  padding: 7px 10px;
+  background: var(--writ-surface-input);
+  border: 1px solid var(--writ-border-default);
+  border-radius: 9px;
+}
+.wwx-search-icon {
+  color: var(--writ-foreground-subtle);
+  flex: none;
+}
+.wwx-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--writ-font-sans);
+  font-size: 13px;
+  color: var(--writ-foreground-default);
+}
+.wwx-search-count {
+  flex: none;
+  font-family: var(--writ-font-mono);
+  font-size: 10.5px;
+  color: var(--writ-accent-default);
+  white-space: nowrap;
+}
+.wwx-side-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2px 8px 12px;
+  min-height: 0;
+}
+.wwx-section {
+  margin-top: 6px;
+}
+.wwx-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 6px;
+}
+.wwx-section-title {
+  padding: 8px 6px 6px;
+  font-family: var(--writ-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--writ-foreground-muted);
+}
+.wwx-watch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--writ-font-mono);
+  font-size: 9.5px;
+  color: var(--writ-status-success);
+}
+.wwx-watch-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--writ-status-success);
+  animation: writ-pulse 1.6s ease infinite;
+}
+.wwx-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--writ-foreground-default);
+  font-family: var(--writ-font-mono);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.wwx-row:hover {
+  background: var(--writ-overlay-hover);
+}
+.wwx-row[data-active='true'] {
+  color: var(--writ-accent-default);
+  background: var(--writ-overlay-subtle);
+}
+.wwx-row-hist {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wwx-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wwx-row-when {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--writ-foreground-subtle);
+}
+.wwx-srow {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.wwx-srow:hover {
+  background: var(--writ-overlay-hover);
+}
+.wwx-srow[data-active='true'] {
+  background: var(--writ-overlay-subtle);
+}
+.wwx-srow-name {
+  display: block;
+  font-family: var(--writ-font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--writ-foreground-default);
+}
+.wwx-srow-line {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--writ-font-mono);
+  font-size: 11px;
+  color: var(--writ-foreground-muted);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wwx-srow-loc {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--writ-font-mono);
+  font-size: 10px;
+  color: var(--writ-foreground-subtle);
+}
+.wwx-mark {
+  color: var(--writ-accent-default);
+  font-weight: 600;
+}
+.wwx-foot {
+  padding: 10px 6px 4px;
+  font-family: var(--writ-font-mono);
+  font-size: 10.5px;
+  color: var(--writ-foreground-subtle);
+}
+
+/* ─── Main / editor / preview ────────────────────────────────────────────── */
+.wwx-main {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.wwx-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.wwx-editor-host {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  background: var(--writ-surface-background);
+}
+.wwx-editor-host .cm-editor {
+  flex: 1;
+  min-width: 0;
+}
+.wwx-editor-host .cm-editor.cm-focused {
+  outline: none;
+}
+.wwx-preview {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: none;
+  overflow: auto;
+  padding: 22px 24px;
+  background: var(--writ-surface-raised);
+}
+.wwx-html-frame {
+  border: none;
+  width: 100%;
+  height: 100%;
+  background: #ffffff;
+  padding: 0;
+}
+.wwx-main[data-view='split'] .wwx-preview {
+  display: block;
+  border-left: 1px solid var(--writ-border-soft);
+}
+.wwx-main[data-view='preview'] .wwx-preview {
+  display: block;
+}
+.wwx-main[data-view='preview'] .wwx-editor-host,
+.wwx-main[data-binary='true'] .wwx-editor-host,
+.wwx-main[data-narrow='true'][data-view='split'] .wwx-editor-host {
+  display: none;
+}
+.wwx-html-frame.wwx-preview {
+  padding: 0;
+}
+
+.wwx-hex {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--writ-surface-sunken);
+  font-family: var(--writ-font-mono);
+  font-size: 12.5px;
+  line-height: 21px;
+  padding: 16px 0;
+}
+.wwx-hex-inner {
+  min-width: min-content;
+  padding-right: 18px;
+}
+.wwx-hex-row {
+  display: flex;
+  gap: 20px;
+  padding: 0 18px;
+  white-space: pre;
+}
+.wwx-hex-off {
+  color: var(--writ-foreground-subtle);
+}
+.wwx-hex-bytes {
+  color: var(--writ-foreground-default);
+}
+.wwx-hex-ascii {
+  color: var(--writ-foreground-muted);
+}
+
+/* ─── Command palette ────────────────────────────────────────────────────── */
+.wwx-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  background: var(--writ-overlay-scrim);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 52px;
+}
+.wwx-palette {
+  width: min(560px, 90%);
+  background: var(--writ-surface-elevated);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+.wwx-palette-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--writ-border-soft);
+  font-family: var(--writ-font-sans);
+  font-size: 15px;
+  color: var(--writ-foreground-default);
+}
+.wwx-palette-input::placeholder {
+  color: var(--writ-foreground-subtle);
+}
+.wwx-palette-list {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+}
+.wwx-palette-label {
+  padding: 10px 10px 5px;
+  font-family: var(--writ-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--writ-foreground-muted);
+}
+.wwx-pcmd {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.wwx-pcmd[data-selected='true'] {
+  background: var(--writ-overlay-hover);
+}
+.wwx-pcmd-text {
+  flex: 1;
+  min-width: 0;
+}
+.wwx-pcmd-name {
+  display: block;
+  font-size: 14px;
+  color: var(--writ-foreground-default);
+  font-weight: 500;
+}
+.wwx-pcmd-desc {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--writ-foreground-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wwx-palette-empty {
+  padding: 18px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--writ-foreground-subtle);
+}
+
+/* ─── Status bar ─────────────────────────────────────────────────────────── */
+.wwx-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  height: 30px;
+  border-top: 1px solid var(--writ-border-soft);
+  background: color-mix(in srgb, var(--writ-surface-sunken) 55%, var(--writ-surface-raised));
+  font-family: var(--writ-font-mono);
+  font-size: 11px;
+  color: var(--writ-foreground-muted);
+}
+.wwx-status-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.wwx-status-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.wwx-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--writ-status-success);
+  animation: wwx-fade-in 0.2s ease;
+}
+.wwx-save-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--writ-status-success);
+}
+.wwx-field {
+  color: var(--writ-foreground-subtle);
+  white-space: nowrap;
+}
+.wwx-chip {
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--writ-overlay-subtle);
+  color: var(--writ-warning-foreground);
+  white-space: nowrap;
+}
+.wwx-spell-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.wwx-spell {
+  border: none;
+  cursor: pointer;
+  color: var(--writ-foreground-default);
+  background: var(--writ-overlay-subtle);
+}
+.wwx-spell[data-off='true'] {
+  color: var(--writ-foreground-subtle);
+  background: transparent;
+}
+.wwx-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--writ-surface-elevated);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.wwx-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--writ-foreground-default);
+  font-family: var(--writ-font-sans);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.wwx-menu-item:hover {
+  background: var(--writ-overlay-hover);
+}
+.wwx-tokens {
+  color: var(--writ-accent-default);
+  white-space: nowrap;
+}
+.wwx-viewtoggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+.wwx-vtog {
+  padding: 2px 8px;
+  border: none;
+  background: transparent;
+  color: var(--writ-foreground-subtle);
+  font-family: var(--writ-font-mono);
+  font-size: 11px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.wwx-vtog:hover {
+  color: var(--writ-foreground-default);
+}
+.wwx-vtog[aria-pressed='true'] {
+  color: var(--writ-accent-foreground);
+  background: var(--writ-accent-default);
+}
+.wwx-palette-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  background: transparent;
+  color: var(--writ-foreground-muted);
+  cursor: pointer;
+}
+.wwx-palette-cue-label {
+  font-family: var(--writ-font-mono);
+  font-size: 11px;
+}
+
+@keyframes wwx-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 720px) {
+  .wwx-body {
+    height: min(70vh, 520px);
+  }
+  .hide-sm {
+    display: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wwx-save,
+  .wwx-watch-dot {
+    animation: none;
+  }
+}

@@ -101,6 +101,21 @@
   padding: var(--writ-space-2) var(--writ-space-3) var(--writ-space-4);
 }
 
+.shortcut-group-label {
+  padding: var(--writ-space-3) var(--writ-space-3) var(--writ-space-1);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--writ-foreground-subtle);
+  font-weight: 600;
+}
+
+.shortcut-group-note {
+  padding: 0 var(--writ-space-3) var(--writ-space-2);
+  font-size: 12px;
+  color: var(--writ-foreground-subtle);
+}
+
 .shortcut-row {
   display: grid;
   grid-template-columns: 1fr auto auto;

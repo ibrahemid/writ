@@ -17,7 +17,7 @@ impl TextTransform for EnsureFinalNewline {
     fn metadata(&self) -> &TransformMetadata {
         static META: OnceLock<TransformMetadata> = OnceLock::new();
         META.get_or_init(|| TransformMetadata {
-            label: "Ensure Final Newline".to_string(),
+            label: "End with one newline".to_string(),
             description: "End the text with exactly one trailing newline.".to_string(),
             category: TransformCategory::Whitespace,
         })

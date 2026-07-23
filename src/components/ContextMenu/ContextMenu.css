@@ -21,9 +21,21 @@
   background: none;
 }
 
-.context-menu-item:hover {
+.context-menu-item:hover,
+.context-menu-item:focus-visible {
   background: var(--writ-surface-hover);
   color: var(--writ-foreground-default);
+  outline: none;
+}
+
+.context-menu-item:disabled {
+  color: var(--writ-foreground-subtle);
+  cursor: default;
+}
+
+.context-menu-item:disabled:hover {
+  background: none;
+  color: var(--writ-foreground-subtle);
 }
 
 .context-menu-danger:hover {
