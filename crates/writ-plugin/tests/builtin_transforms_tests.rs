@@ -447,6 +447,6 @@ fn prepare_prompt_does_not_mutate_plain_text_beyond_tail() {
 fn prepare_prompt_metadata_is_palette_ready() {
     let t = PreparePrompt;
     assert_eq!(t.id(), "prepare_prompt");
-    assert_eq!(t.metadata().label, "Prepare as Prompt");
+    assert_eq!(t.metadata().label, "Prepare as prompt");
     assert!(!t.metadata().description.is_empty());
 }

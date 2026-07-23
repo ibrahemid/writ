@@ -7,7 +7,7 @@ export async function registerTransformCommands(): Promise<void> {
   for (const descriptor of descriptors) {
     registerCommand({
       id: `transform.${descriptor.id}`,
-      label: `Transform: ${descriptor.metadata.label}`,
+      label: `Text: ${descriptor.metadata.label}`,
       description: descriptor.metadata.description,
       scope: "app",
       execute: () => {
