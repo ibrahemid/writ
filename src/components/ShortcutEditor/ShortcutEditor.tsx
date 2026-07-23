@@ -45,9 +45,16 @@ export default function ShortcutEditor() {
 
   const commands = createMemo<Command[]>(() =>
     useAllCommands()
-      .filter((c) => c.scope === "app")
+      .filter((c) => c.scope === "app" || c.scope === "editor")
       .slice()
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" })),
+  );
+
+  const appCommands = createMemo<Command[]>(() =>
+    commands().filter((c) => c.scope === "app"),
+  );
+  const editorCommands = createMemo<Command[]>(() =>
+    commands().filter((c) => c.scope === "editor"),
   );
 
   createEffect(() => {
@@ -166,6 +173,72 @@ export default function ShortcutEditor() {
     }
   }
 
+  function renderRow(cmd: Command) {
+    const binding = () => drafts()[cmd.id]?.binding ?? "";
+    const aliases = () => cmd.keybindingAliases ?? [];
+    const isListening = () => listeningId() === cmd.id;
+    const conflictWith = () => conflicts().get(cmd.id) ?? [];
+    const segments = () => keybindingSegments(binding());
+    const isDefault = () => binding() === (cmd.keybinding ?? "");
+
+    return (
+      <div class="shortcut-row">
+        <div class="shortcut-row-info">
+          <div class="shortcut-row-label">{cmd.label}</div>
+          <Show when={cmd.description}>
+            <div class="shortcut-row-desc">{cmd.description}</div>
+          </Show>
+          <Show when={aliases().length > 0}>
+            <div class="shortcut-row-aliases">
+              ({aliases().length} {aliases().length === 1 ? "alias" : "aliases"}, read-only)
+            </div>
+          </Show>
+          <Show when={conflictWith().length > 0}>
+            <div class="shortcut-row-conflict">
+              Conflicts with {conflictWith().join(", ")}
+            </div>
+          </Show>
+        </div>
+        <div class="shortcut-row-chip" aria-live="polite">
+          <Show
+            when={isListening()}
+            fallback={
+              <Show
+                when={segments().length > 0}
+                fallback={<span class="shortcut-row-empty">unset</span>}
+              >
+                <span class="kbd-chord">
+                  <For each={segments()}>
+                    {(seg) => <span class="kbd-key">{seg}</span>}
+                  </For>
+                </span>
+              </Show>
+            }
+          >
+            <span class="shortcut-row-listening">Press a key…</span>
+          </Show>
+        </div>
+        <div class="shortcut-row-controls">
+          <button
+            type="button"
+            class="shortcut-row-btn"
+            onClick={() => (isListening() ? stopRecording() : startRecording(cmd.id))}
+          >
+            {isListening() ? "Cancel" : "Record"}
+          </button>
+          <button
+            type="button"
+            class="shortcut-row-btn"
+            onClick={() => handleReset(cmd.id)}
+            disabled={isDefault()}
+          >
+            Reset
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Show when={isOpen()}>
       <div class="shortcut-editor-overlay" onClick={() => closeShortcutEditor()}>
@@ -210,73 +283,17 @@ export default function ShortcutEditor() {
           </div>
 
           <div class="shortcut-editor-body">
-            <For each={commands()}>
-              {(cmd) => {
-                const binding = () => drafts()[cmd.id]?.binding ?? "";
-                const aliases = () => cmd.keybindingAliases ?? [];
-                const isListening = () => listeningId() === cmd.id;
-                const conflictWith = () => conflicts().get(cmd.id) ?? [];
-                const segments = () => keybindingSegments(binding());
-                const isDefault = () => binding() === (cmd.keybinding ?? "");
-
-                return (
-                  <div class="shortcut-row">
-                    <div class="shortcut-row-info">
-                      <div class="shortcut-row-label">{cmd.label}</div>
-                      <Show when={cmd.description}>
-                        <div class="shortcut-row-desc">{cmd.description}</div>
-                      </Show>
-                      <Show when={aliases().length > 0}>
-                        <div class="shortcut-row-aliases">
-                          ({aliases().length} {aliases().length === 1 ? "alias" : "aliases"}, read-only)
-                        </div>
-                      </Show>
-                      <Show when={conflictWith().length > 0}>
-                        <div class="shortcut-row-conflict">
-                          Conflicts with {conflictWith().join(", ")}
-                        </div>
-                      </Show>
-                    </div>
-                    <div class="shortcut-row-chip" aria-live="polite">
-                      <Show
-                        when={isListening()}
-                        fallback={
-                          <Show
-                            when={segments().length > 0}
-                            fallback={<span class="shortcut-row-empty">unset</span>}
-                          >
-                            <span class="kbd-chord">
-                              <For each={segments()}>
-                                {(seg) => <span class="kbd-key">{seg}</span>}
-                              </For>
-                            </span>
-                          </Show>
-                        }
-                      >
-                        <span class="shortcut-row-listening">Press a key…</span>
-                      </Show>
-                    </div>
-                    <div class="shortcut-row-controls">
-                      <button
-                        type="button"
-                        class="shortcut-row-btn"
-                        onClick={() => (isListening() ? stopRecording() : startRecording(cmd.id))}
-                      >
-                        {isListening() ? "Cancel" : "Record"}
-                      </button>
-                      <button
-                        type="button"
-                        class="shortcut-row-btn"
-                        onClick={() => handleReset(cmd.id)}
-                        disabled={isDefault()}
-                      >
-                        Reset
-                      </button>
-                    </div>
-                  </div>
-                );
-              }}
-            </For>
+            <Show when={appCommands().length > 0}>
+              <div class="shortcut-group-label">Commands</div>
+              <For each={appCommands()}>{renderRow}</For>
+            </Show>
+            <Show when={editorCommands().length > 0}>
+              <div class="shortcut-group-label">Editor</div>
+              <div class="shortcut-group-note">
+                Markdown formatting commands appear while a Markdown file is open.
+              </div>
+              <For each={editorCommands()}>{renderRow}</For>
+            </Show>
           </div>
         </div>
       </div>

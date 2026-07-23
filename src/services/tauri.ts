@@ -28,6 +28,17 @@ export async function promptFillPlaceholders(
   return invoke("prompt_fill_placeholders", { text, values });
 }
 
+import type { SpellingLint } from "../types/spelling";
+export type { SpellingLint };
+
+export async function checkSpelling(text: string): Promise<SpellingLint[]> {
+  return invoke("check_spelling", { text });
+}
+
+export async function spellingAddIgnoredWord(word: string): Promise<void> {
+  return invoke("spelling_add_ignored_word", { word });
+}
+
 export async function createBuffer(title?: string): Promise<BufferDocument> {
   return invoke("create_buffer", { title: title ?? null });
 }
@@ -558,6 +569,57 @@ export async function getStorageInfo(): Promise<StorageInfo> {
 
 export async function revealStoragePath(): Promise<void> {
   return invoke("reveal_storage_path");
+}
+
+// --- Rewrite (opt-in) ---
+
+export type AiAction = "proofread" | "rephrase" | "polish" | "custom";
+
+export interface AiKeyState {
+  is_set: boolean;
+  memory_only: boolean;
+}
+
+export async function aiRewrite(
+  requestId: string,
+  action: AiAction,
+  text: string,
+  customInstruction?: string,
+): Promise<string> {
+  return invoke("ai_rewrite", {
+    requestId,
+    action,
+    text,
+    customInstruction: customInstruction ?? null,
+  });
+}
+
+export async function aiCancel(requestId: string): Promise<void> {
+  return invoke("ai_cancel", { requestId });
+}
+
+export interface AiConnectionStatus {
+  reachable: boolean;
+  model_listed: boolean | null;
+  kind: string;
+  detail: string;
+  models: string[];
+}
+
+export async function aiCheckConnection(): Promise<AiConnectionStatus> {
+  return invoke("ai_check_connection");
+}
+
+export async function aiSetApiKey(preset: string, key: string): Promise<AiKeyState> {
+  return invoke("ai_set_api_key", { preset, key });
+}
+
+export async function aiClearApiKey(preset: string): Promise<AiKeyState> {
+  return invoke("ai_clear_api_key", { preset });
+}
+
+export async function aiHasApiKey(preset: string): Promise<AiKeyState> {
+  return invoke("ai_has_api_key", { preset });
 }
 
 export async function showAndFocusWindow(): Promise<void> {

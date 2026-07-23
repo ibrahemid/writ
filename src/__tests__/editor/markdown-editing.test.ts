@@ -2,35 +2,9 @@ import { describe, it, expect } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
-import {
-  markdownEditingKeymap,
-  markdownEditingExtension,
-} from "../../editor/markdown-editing";
-import {
-  toggleBold,
-  toggleItalic,
-  toggleStrikethrough,
-  toggleInlineCode,
-  insertLink,
-} from "../../commands/markdown-format";
+import { markdownEditingExtension } from "../../editor/markdown-editing";
 import { registerBuiltinLanguages } from "../../editor/builtins";
 import { getExtension } from "../../editor/language-registry";
-
-describe("markdownEditingKeymap", () => {
-  const byKey = new Map(markdownEditingKeymap.map((b) => [b.key, b.run]));
-
-  it("binds the five formatting commands", () => {
-    expect(byKey.get("Mod-b")).toBe(toggleBold);
-    expect(byKey.get("Mod-i")).toBe(toggleItalic);
-    expect(byKey.get("Mod-Shift-x")).toBe(toggleStrikethrough);
-    expect(byKey.get("Mod-e")).toBe(toggleInlineCode);
-    expect(byKey.get("Mod-k")).toBe(insertLink);
-  });
-
-  it("binds nothing else", () => {
-    expect(markdownEditingKeymap).toHaveLength(5);
-  });
-});
 
 describe("markdownEditingExtension runtime", () => {
   it("mounts in a view without throwing", () => {

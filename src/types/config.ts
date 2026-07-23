@@ -28,6 +28,24 @@ export interface UpdaterConfig {
   auto_check: boolean;
 }
 
+export type AiPreset = "ollama" | "groq" | "gemini" | "deepseek" | "openrouter" | "custom";
+
+export interface AiConfig {
+  enabled: boolean;
+  preset: AiPreset;
+  base_url: string;
+  model: string;
+  consented_hosts: string[];
+}
+
+export type SpellingDialect = "american" | "british" | "canadian" | "australian";
+
+export interface SpellingConfig {
+  enabled: boolean;
+  dialect: string;
+  ignored_words: string[];
+}
+
 export interface WritConfig {
   hotkey: { toggle: string };
   sidebar: {
@@ -47,4 +65,6 @@ export interface WritConfig {
   workspace: { root: string | null };
   inbox: InboxConfig;
   updater: UpdaterConfig;
+  ai: AiConfig;
+  spelling: SpellingConfig;
 }

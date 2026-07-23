@@ -38,6 +38,14 @@ const DEFAULT_CONFIG: WritConfig = {
   workspace: { root: null },
   inbox: { path: null, focus: true },
   updater: { auto_check: true },
+  ai: {
+    enabled: false,
+    preset: "ollama",
+    base_url: "http://localhost:11434/v1",
+    model: "",
+    consented_hosts: [],
+  },
+  spelling: { enabled: false, dialect: "american", ignored_words: [] },
 };
 
 const PERSIST_DEBOUNCE_MS = 750;
@@ -55,6 +63,18 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
     },
     updater: {
       auto_check: incoming.updater?.auto_check ?? true,
+    },
+    ai: {
+      enabled: incoming.ai?.enabled ?? false,
+      preset: incoming.ai?.preset ?? "ollama",
+      base_url: incoming.ai?.base_url ?? "http://localhost:11434/v1",
+      model: incoming.ai?.model ?? "",
+      consented_hosts: incoming.ai?.consented_hosts ?? [],
+    },
+    spelling: {
+      enabled: incoming.spelling?.enabled ?? false,
+      dialect: incoming.spelling?.dialect ?? "american",
+      ignored_words: incoming.spelling?.ignored_words ?? [],
     },
   };
 }

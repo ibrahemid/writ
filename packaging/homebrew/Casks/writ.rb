@@ -15,7 +15,7 @@ cask "writ" do
   end
 
   auto_updates true
-  depends_on macos: ">= :monterey"
+  depends_on macos: :monterey
 
   pkg "Writ_#{version}_universal.pkg"
 

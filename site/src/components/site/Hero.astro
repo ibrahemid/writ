@@ -64,6 +64,22 @@
       6: 'Offline, keyboard-driven.',
       8: '[Download Writ](#download) [Try the window](#editor)',
     };
+    // The download CTA is platform-aware. Because the hero keeps source and
+    // render in sync, the label lives in the canonical source line (not just the
+    // rendered button), so the self-heal target never disagrees with what shows.
+    // No JS (static HTML) keeps the neutral "Download Writ".
+    const downloadLabel = (() => {
+      try {
+        const uad = (navigator as unknown as { userAgentData?: { platform?: string } }).userAgentData;
+        const p = (uad?.platform || navigator.userAgent || '').toLowerCase();
+        if (p.includes('win')) return 'Download for Windows';
+        if (p.includes('linux') && !p.includes('android')) return 'Download for Linux';
+        return 'Download for macOS';
+      } catch (_) {
+        return 'Download Writ';
+      }
+    })();
+    CANON[8] = `[${downloadLabel}](#download) [Try the window](#editor)`;
     const EDIT_LINES = [1, 3, 4, 5, 6, 8];
     const MAX_LINE = 56;
     const MAX_LINK_LINE = 64;
@@ -519,6 +535,12 @@
         enableEditing();
       }
     };
+
+    // Seed the platform label into the source line and rendered CTA together,
+    // before editing arms, so typing and self-heal keep them consistent.
+    setLineText(8, CANON[8]);
+    highlightLinkLine();
+    syncRendered();
     armWhenSettled();
   })();
 </script>

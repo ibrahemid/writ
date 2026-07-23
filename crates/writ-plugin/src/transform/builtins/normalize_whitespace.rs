@@ -16,8 +16,9 @@ impl TextTransform for NormalizeWhitespace {
     fn metadata(&self) -> &TransformMetadata {
         static META: OnceLock<TransformMetadata> = OnceLock::new();
         META.get_or_init(|| TransformMetadata {
-            label: "Normalize Whitespace".to_string(),
-            description: "Collapse multiple spaces/tabs inside each line to one space.".to_string(),
+            label: "Collapse repeated spaces".to_string(),
+            description: "Collapse repeated spaces and tabs inside a line down to one space."
+                .to_string(),
             category: TransformCategory::Whitespace,
         })
     }

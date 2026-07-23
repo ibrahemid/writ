@@ -1,0 +1,14 @@
+---
+interface Props {
+  slug: string;
+  id?: string;
+  lead?: boolean;
+}
+const { slug, id, lead = false } = Astro.props;
+const contentPad = lead ? 58 : 54;
+const gutPad = lead ? 64 : 60;
+---
+<div class="gut-col rv-g gut-mark" style={`padding-top:${gutPad}px`}><span class="gm-h">##</span> {slug}</div>
+<div class="rv" id={id} style={`padding:${contentPad}px 0 0 30px; scroll-margin-top:64px`}>
+  <slot />
+</div>

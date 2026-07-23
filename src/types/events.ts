@@ -12,6 +12,10 @@ export type WritEvent =
   | { kind: "inbox:file-arrived"; payload: { path: string } }
   | { kind: "update:status"; payload: UpdatePhase }
   | {
+      kind: "ai:rewrite";
+      payload: { request_id: string; kind: "chunk" | "done" | "error"; text?: string };
+    }
+  | {
       kind: "preview:rendered";
       payload: {
         buffer_id: string;
