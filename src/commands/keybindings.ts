@@ -1,6 +1,7 @@
 import {
   executeCommand,
   getAllCommands,
+  getCommand,
   notifyRegistryChanged,
   registryVersion,
 } from "./registry";
@@ -88,25 +89,14 @@ export function normalizeKey(e: KeyboardEvent): string {
 
 const keyBindingMap = new Map<string, string>();
 
-/**
- * Command ids that may fire while focus is inside the editor or a text input:
- * every `scope: "editor"` command (it is meant for the focused editor) plus any
- * app command flagged `global`. Other app commands are suppressed while typing
- * so their chord reaches the editor/input instead.
- */
-const focusPassthrough = new Set<string>();
-
 let lastShiftTime = 0;
 let shiftCommandId: string | null = null;
 
 export function rebuildKeyMap() {
   keyBindingMap.clear();
-  focusPassthrough.clear();
   shiftCommandId = null;
 
   for (const cmd of getAllCommands()) {
-    if (cmd.scope === "editor" || cmd.global) focusPassthrough.add(cmd.id);
-
     const primary = effectiveBinding(cmd.id, cmd.keybinding);
     const bindings = [primary, ...(cmd.keybindingAliases ?? [])].filter(
       (b): b is string => Boolean(b),
@@ -130,10 +120,20 @@ export function rebuildKeyMap() {
 }
 
 /**
+ * True when keyboard focus is inside a CodeMirror editor. Editor-scoped
+ * commands fire only here. Lives in `src/commands/` (not a component or store),
+ * so reading `document.activeElement` here is permitted.
+ */
+function isEditorFocused(): boolean {
+  const el = document.activeElement;
+  return el !== null && el.closest(".cm-editor") !== null;
+}
+
+/**
  * True when keyboard focus is inside a CodeMirror editor or any native text
- * input, where app-scoped chords must yield to the editor unless the matched
- * command is on the focus allowlist. Lives in `src/commands/` (not a component
- * or store), so reading `document.activeElement` here is permitted.
+ * input, where a non-global app-scoped chord must yield to the editor/input.
+ * Lives in `src/commands/` (not a component or store), so reading
+ * `document.activeElement` here is permitted.
  */
 function isTextEntryFocused(): boolean {
   const el = document.activeElement;
@@ -146,6 +146,10 @@ function isTextEntryFocused(): boolean {
 
 export function handleKeyDown(e: KeyboardEvent): boolean {
   if (isModalOpen()) return false;
+  // Composition and dead keys never match a chord: while an IME is composing,
+  // the browser reports keyCode 229 and sets isComposing, and the pending key
+  // is meant for the input method, not the command map.
+  if (e.isComposing || e.keyCode === 229) return false;
   if (e.key === "Shift" && shiftCommandId) {
     const now = Date.now();
     if (now - lastShiftTime < 400) {
@@ -165,17 +169,26 @@ export function handleKeyDown(e: KeyboardEvent): boolean {
 
   const normalized = normalizeKey(e);
   const commandId = keyBindingMap.get(normalized);
-  if (commandId) {
-    if (isTextEntryFocused() && !focusPassthrough.has(commandId)) {
-      // Let the keystroke reach the focused editor/input untouched.
-      return false;
-    }
-    e.preventDefault();
-    e.stopPropagation();
-    executeCommand(commandId);
-    return true;
+  if (!commandId) return false;
+  const cmd = getCommand(commandId);
+  if (!cmd) return false;
+
+  // Scope gate: an editor command runs only with focus inside a CodeMirror
+  // editor; a non-global app command yields to any focused text entry; a
+  // global app command runs anywhere.
+  if (cmd.scope === "editor") {
+    if (!isEditorFocused()) return false;
+  } else if (!cmd.global && isTextEntryFocused()) {
+    return false;
   }
-  return false;
+
+  // Run before deciding: a command that declines (returns false) is a
+  // fall-through, so the keystroke reaches CodeMirror and the browser exactly
+  // as a native keymap miss would — no preventDefault, no stopPropagation.
+  if (!executeCommand(commandId)) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  return true;
 }
 
 export function installKeyboardHandler() {

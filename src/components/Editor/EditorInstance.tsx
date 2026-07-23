@@ -36,6 +36,8 @@ import { rebuildKeyMap } from "../../commands/keybindings";
 import { getExtension as languageExtension } from "../../editor/language-registry";
 import { registerBuiltinLanguages } from "../../editor/builtins";
 import { editorModeForContent } from "../../editor/large-file";
+import { stripOwnedBindings } from "../../editor/keymap-filter";
+import { registerEditorCommands, OWNED_CM_COMMANDS } from "../../editor/editor-commands";
 import "./EditorInstance.css";
 
 registerBuiltinLanguages();
@@ -76,6 +78,7 @@ export default function EditorInstance(props: Props) {
   const win = useWindow();
   let containerRef!: HTMLDivElement;
   let view: EditorView | undefined;
+  let disposeEditorCommands: (() => void) | undefined;
   let currentBufferId: string | undefined;
   let appliedNameForLang = "";
   let lastDetectLen = 0;
@@ -218,9 +221,7 @@ export default function EditorInstance(props: Props) {
       search({ top: true }),
       syntaxHighlighting(writHighlight, { fallback: true }),
       keymap.of([
-        { key: "Alt-ArrowUp", run: addCursorUp },
-        { key: "Alt-ArrowDown", run: addCursorDown },
-        ...defaultKeymap,
+        ...stripOwnedBindings(defaultKeymap, OWNED_CM_COMMANDS),
         ...historyKeymap,
         ...closeBracketsKeymap,
         indentWithTab,
@@ -405,6 +406,8 @@ export default function EditorInstance(props: Props) {
   onMount(() => {
     containerRef.addEventListener("wheel", onWheelZoom, { passive: false });
 
+    disposeEditorCommands = registerEditorCommands(() => view ?? null);
+
     registerCommand({
       id: "editor.addCursorUp",
       label: "Add Cursor Above",
@@ -557,7 +560,7 @@ export default function EditorInstance(props: Props) {
     { id: "editor.toggleBold", label: "Toggle Bold", keybinding: "CmdOrCtrl+B", run: toggleBold },
     { id: "editor.toggleItalic", label: "Toggle Italic", keybinding: "CmdOrCtrl+I", run: toggleItalic },
     { id: "editor.toggleStrikethrough", label: "Toggle Strikethrough", keybinding: "CmdOrCtrl+Shift+X", run: toggleStrikethrough },
-    { id: "editor.toggleInlineCode", label: "Toggle Inline Code", keybinding: "CmdOrCtrl+E", run: toggleInlineCode },
+    { id: "editor.toggleInlineCode", label: "Toggle Inline Code", keybinding: "CmdOrCtrl+Shift+E", run: toggleInlineCode },
     { id: "editor.insertLink", label: "Insert Link", keybinding: "CmdOrCtrl+K", run: insertLink },
   ] as const;
 
@@ -586,7 +589,10 @@ export default function EditorInstance(props: Props) {
 
   onCleanup(() => {
     containerRef.removeEventListener("wheel", onWheelZoom);
+    disposeEditorCommands?.();
     for (const cmd of formatCommands) unregisterCommand(cmd.id);
+    unregisterCommand("editor.addCursorUp");
+    unregisterCommand("editor.addCursorDown");
     unregisterCommand("spelling.toggle");
     unregisterCommand("spelling.fixAll");
     unregisterCommand("spelling.preview");

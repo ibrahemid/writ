@@ -39,9 +39,11 @@ export default function CommandPalette() {
   let listRef: HTMLDivElement | undefined;
   let paletteRef: HTMLDivElement | undefined;
 
-  const appCommands = createMemo(() =>
+  const paletteCommands = createMemo(() =>
     useAllCommands().filter(
-      (cmd) => cmd.scope === "app" && cmd.id !== "palette.open",
+      (cmd) =>
+        (cmd.scope === "app" || cmd.scope === "editor") &&
+        cmd.id !== "palette.open",
     ),
   );
 
@@ -62,15 +64,27 @@ export default function CommandPalette() {
   const sections = createMemo<PaletteSection[]>(() => {
     const q = query().trim();
     const usage = configStore.config().commands.usage;
-    const all = appCommands();
+    const all = paletteCommands();
     const result: PaletteSection[] = [];
     if (!q) {
+      // Recent may hold either scope; the rest is subdivided into app commands
+      // then editor commands, each headed only when the split is visible.
       const { recent, rest } = partitionEmptyQuery(all, usage);
+      const appRest = rest.filter((cmd) => cmd.scope === "app");
+      const editorRest = rest.filter((cmd) => cmd.scope === "editor");
+      const subdivided = recent.length > 0 || editorRest.length > 0;
       if (recent.length > 0) {
         result.push({ kind: "recent", label: "Recent", commands: recent });
-        result.push({ kind: "all", label: "All commands", commands: rest });
-      } else {
-        result.push({ kind: "all", label: null, commands: rest });
+      }
+      if (appRest.length > 0) {
+        result.push({
+          kind: "all",
+          label: subdivided ? "Commands" : null,
+          commands: appRest,
+        });
+      }
+      if (editorRest.length > 0) {
+        result.push({ kind: "all", label: "Editor", commands: editorRest });
       }
       return result;
     }

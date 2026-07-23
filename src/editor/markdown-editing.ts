@@ -1,22 +1,10 @@
-import { Prec, type Extension } from "@codemirror/state";
-import { EditorView, keymap, type KeyBinding } from "@codemirror/view";
-import {
-  toggleBold,
-  toggleItalic,
-  toggleStrikethrough,
-  toggleInlineCode,
-  insertLink,
-  wrapOnType,
-} from "../commands/markdown-format";
+import { type Extension } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import { wrapOnType } from "../commands/markdown-format";
 
-export const markdownEditingKeymap: readonly KeyBinding[] = [
-  { key: "Mod-b", run: toggleBold },
-  { key: "Mod-i", run: toggleItalic },
-  { key: "Mod-Shift-x", run: toggleStrikethrough },
-  { key: "Mod-e", run: toggleInlineCode },
-  { key: "Mod-k", run: insertLink },
-];
-
+// The formatting chords (bold/italic/strikethrough/inline code/link) are owned
+// by the command registry (see EditorInstance's format-command effect), so they
+// are not bound here — a second CM keymap would ghost a user's rebind.
 const markerWrapOnType = EditorView.inputHandler.of((view, _from, _to, text) => {
   if (view.composing) return false;
   const spec = wrapOnType(view.state, text);
@@ -25,7 +13,4 @@ const markerWrapOnType = EditorView.inputHandler.of((view, _from, _to, text) => 
   return true;
 });
 
-export const markdownEditingExtension: Extension = [
-  Prec.high(keymap.of([...markdownEditingKeymap])),
-  markerWrapOnType,
-];
+export const markdownEditingExtension: Extension = [markerWrapOnType];
