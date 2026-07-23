@@ -12,12 +12,13 @@ pub struct CliStatus {
     pub path: String,
 }
 
-/// Whether the `writ` command is present at the install target.
+/// Whether the `writ` command is present at the install target *and* runnable.
 ///
-/// Uses `symlink_metadata` so a symlink counts as installed even when its own
-/// target is momentarily unreachable.
+/// Follows the link: a symlink left behind by an app bundle that has since been
+/// moved or deleted resolves to nothing, and reporting that as installed leaves
+/// the user with a shell that answers `command not found`.
 fn is_installed(target: &Path) -> bool {
-    target.symlink_metadata().is_ok()
+    target.metadata().is_ok()
 }
 
 /// IPC: report whether the `writ` command is already installed.
@@ -262,6 +263,23 @@ mod tests {
         std::fs::write(&present, "").unwrap();
         assert!(is_installed(&present));
         assert!(!is_installed(&dir.path().join("absent")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn is_installed_rejects_a_link_to_a_removed_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = dir.path().join("Writ.app/Contents/MacOS");
+        std::fs::create_dir_all(&bundle).unwrap();
+        let sidecar = bundle.join("writ");
+        std::fs::write(&sidecar, "").unwrap();
+
+        let link = dir.path().join("writ");
+        std::os::unix::fs::symlink(&sidecar, &link).unwrap();
+        assert!(is_installed(&link));
+
+        std::fs::remove_file(&sidecar).unwrap();
+        assert!(!is_installed(&link));
     }
 
     #[test]
