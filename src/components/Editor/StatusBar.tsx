@@ -5,6 +5,7 @@ import { saveStatusStore } from "../../stores/global/save-status";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import PreviewLayoutToggle from "../Preview/PreviewLayoutToggle";
 import PreviewScriptsToggle from "../Preview/PreviewScriptsToggle";
+import SpellingChip from "./SpellingChip";
 import TokenEstimate from "./TokenEstimate";
 import { languageLabel } from "./language-label";
 import Kbd from "../Kbd/Kbd";
@@ -62,6 +63,7 @@ export default function StatusBar() {
         <span class="statusbar-field statusbar-field--cursor">{cursorPosition()}</span>
         <span class="statusbar-field">{language()}</span>
         <span class="statusbar-field">UTF-8</span>
+        <SpellingChip />
         <TokenEstimate />
         <PreviewLayoutToggle />
         <PreviewScriptsToggle />

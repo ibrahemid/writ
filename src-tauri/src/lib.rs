@@ -271,6 +271,8 @@ pub fn run() {
             commands::prompt::prompt_estimate_tokens,
             commands::prompt::prompt_scan_placeholders,
             commands::prompt::prompt_fill_placeholders,
+            commands::spelling::check_spelling,
+            commands::spelling::spelling_add_ignored_word,
             commands::perf::report_first_paint,
             commands::update::check_for_update,
             commands::update::download_and_install_update,
