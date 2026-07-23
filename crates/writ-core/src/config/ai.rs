@@ -25,8 +25,8 @@ fn default_model() -> String {
     String::new()
 }
 
-fn default_consented_hosted() -> bool {
-    false
+fn default_consented_hosts() -> Vec<String> {
+    Vec::new()
 }
 
 /// Configuration for the opt-in rewrite feature (`[ai]`).
@@ -49,10 +49,11 @@ pub struct AiConfig {
     /// run until it is set.
     #[serde(default = "default_model")]
     pub model: String,
-    /// Records that the user accepted the one-time notice for a hosted
-    /// (non-local) provider. A hosted request refuses to run until this is set.
-    #[serde(default = "default_consented_hosted")]
-    pub consented_hosted: bool,
+    /// Hosts (non-local) for which the one-time send notice was accepted. A
+    /// hosted request refuses to run until the request's own host is listed, so
+    /// consenting to one provider never covers another or a hand-edited URL.
+    #[serde(default = "default_consented_hosts")]
+    pub consented_hosts: Vec<String>,
 }
 
 impl Default for AiConfig {
@@ -62,7 +63,7 @@ impl Default for AiConfig {
             preset: default_preset(),
             base_url: default_base_url(),
             model: default_model(),
-            consented_hosted: default_consented_hosted(),
+            consented_hosts: default_consented_hosts(),
         }
     }
 }
@@ -78,7 +79,7 @@ mod tests {
         assert_eq!(c.preset, "ollama");
         assert_eq!(c.base_url, "http://localhost:11434/v1");
         assert!(c.model.is_empty());
-        assert!(!c.consented_hosted);
+        assert!(c.consented_hosts.is_empty());
     }
 
     #[test]
@@ -96,7 +97,7 @@ mod tests {
         assert_eq!(c.model, "llama-3.3-70b");
         // Untouched fields fall back to defaults.
         assert_eq!(c.base_url, "http://localhost:11434/v1");
-        assert!(!c.consented_hosted);
+        assert!(c.consented_hosts.is_empty());
     }
 
     #[test]
@@ -106,7 +107,7 @@ mod tests {
             preset: "openrouter".to_string(),
             base_url: "https://openrouter.ai/api/v1".to_string(),
             model: "openai/gpt-4o-mini".to_string(),
-            consented_hosted: true,
+            consented_hosts: vec!["openrouter.ai".to_string()],
         };
         let s = toml::to_string(&c).unwrap();
         let back: AiConfig = toml::from_str(&s).unwrap();

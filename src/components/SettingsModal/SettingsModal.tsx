@@ -705,13 +705,16 @@ const AI_PRESET_BASE_URLS: Record<string, string> = {
   custom: "",
 };
 
-function isHostedUrl(raw: string): boolean {
+function urlHost(raw: string): string | null {
   try {
-    const host = new URL(raw).hostname;
-    return !(host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]");
+    return new URL(raw).hostname;
   } catch {
-    return false;
+    return null;
   }
+}
+
+function isLocalHost(host: string): boolean {
+  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
 }
 
 function AiSection() {
@@ -720,14 +723,28 @@ function AiSection() {
   const [keyInput, setKeyInput] = createSignal("");
   const [keyBusy, setKeyBusy] = createSignal(false);
 
+  // Only read key state once the feature is on, so a keychain access prompt is
+  // never triggered while the feature is off.
   createEffect(() => {
+    if (!cfg().enabled) {
+      setKeyState(null);
+      return;
+    }
     const preset = cfg().preset;
-    void aiRewriteStore.hasApiKey(preset)
+    void aiRewriteStore
+      .hasApiKey(preset)
       .then(setKeyState)
       .catch(() => setKeyState(null));
   });
 
-  const hostedUnconsented = () => cfg().enabled && isHostedUrl(cfg().base_url) && !cfg().consented_hosted;
+  // The effective host is hosted (non-local) and not yet consented to — shown
+  // for a preset switch or a hand-edited base URL alike.
+  const hostedUnconsented = () => {
+    if (!cfg().enabled) return false;
+    const host = urlHost(cfg().base_url);
+    if (!host || isLocalHost(host)) return false;
+    return !cfg().consented_hosts.includes(host);
+  };
 
   function onEnableToggle() {
     void patchConfig((prev) => ({ ...prev, ai: { ...prev.ai, enabled: !prev.ai.enabled } }));
@@ -754,7 +771,12 @@ function AiSection() {
   }
 
   function onConsent() {
-    void patchConfig((prev) => ({ ...prev, ai: { ...prev.ai, consented_hosted: true } }));
+    const host = urlHost(cfg().base_url);
+    if (!host || isLocalHost(host)) return;
+    void patchConfig((prev) => {
+      const hosts = Array.from(new Set([...prev.ai.consented_hosts, host])).sort();
+      return { ...prev, ai: { ...prev.ai, consented_hosts: hosts } };
+    });
   }
 
   async function onSetKey() {

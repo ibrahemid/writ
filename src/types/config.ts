@@ -35,7 +35,7 @@ export interface AiConfig {
   preset: AiPreset;
   base_url: string;
   model: string;
-  consented_hosted: boolean;
+  consented_hosts: string[];
 }
 
 export interface WritConfig {

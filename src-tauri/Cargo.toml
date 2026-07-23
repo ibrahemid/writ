@@ -38,11 +38,20 @@ thiserror = "2"
 url = "2"
 pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
 # Reuse the reqwest already resolved via tauri-plugin-updater (rustls, no
-# native-tls). `stream` gives the SSE byte stream; `json` builds the body.
+# native-tls). Only `stream` (SSE byte stream) and `json` (request body) are
+# added; the TLS provider stays `rustls-no-provider` from the updater so the
+# rustls `ring` provider is used and aws-lc-rs / quinn stay out of the tree.
 reqwest = { version = "0.13", default-features = false, features = [
-    "rustls",
     "stream",
     "json",
+] }
+# The `ring` crypto provider is installed at request time (mirroring the
+# updater's guard) so a `rustls-no-provider` client never panics.
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+    "tls12",
+    "logging",
 ] }
 futures-util = "0.3"
 

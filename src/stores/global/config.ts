@@ -43,7 +43,7 @@ const DEFAULT_CONFIG: WritConfig = {
     preset: "ollama",
     base_url: "http://localhost:11434/v1",
     model: "",
-    consented_hosted: false,
+    consented_hosts: [],
   },
 };
 
@@ -68,7 +68,7 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
       preset: incoming.ai?.preset ?? "ollama",
       base_url: incoming.ai?.base_url ?? "http://localhost:11434/v1",
       model: incoming.ai?.model ?? "",
-      consented_hosted: incoming.ai?.consented_hosted ?? false,
+      consented_hosts: incoming.ai?.consented_hosts ?? [],
     },
   };
 }

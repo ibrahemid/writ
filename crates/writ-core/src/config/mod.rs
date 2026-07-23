@@ -482,7 +482,7 @@ mod tests {
         let config: WritConfig = toml::from_str("").unwrap();
         assert!(!config.ai.enabled);
         assert_eq!(config.ai.preset, "ollama");
-        assert!(!config.ai.consented_hosted);
+        assert!(config.ai.consented_hosts.is_empty());
     }
 
     #[test]
@@ -492,7 +492,7 @@ mod tests {
         config.ai.preset = "deepseek".to_string();
         config.ai.base_url = "https://api.deepseek.com/v1".to_string();
         config.ai.model = "deepseek-chat".to_string();
-        config.ai.consented_hosted = true;
+        config.ai.consented_hosts = vec!["api.deepseek.com".to_string()];
 
         let serialized = toml::to_string(&config).unwrap();
         let parsed: WritConfig = toml::from_str(&serialized).unwrap();

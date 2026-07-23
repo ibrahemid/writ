@@ -113,7 +113,11 @@ mod keychain {
 
 /// Pure key-state policy: keychain wins; otherwise a memory entry is
 /// "set but session-only". Separated from the OS call so it is testable.
-fn compute_key_state(keychain_hit: bool, memory: &HashMap<String, String>, preset: &str) -> AiKeyState {
+fn compute_key_state(
+    keychain_hit: bool,
+    memory: &HashMap<String, String>,
+    preset: &str,
+) -> AiKeyState {
     if keychain_hit {
         AiKeyState {
             is_set: true,
@@ -249,7 +253,7 @@ fn prepare_request(
 
     let hosted = polish::is_hosted(host);
     let api_key = if hosted {
-        if !cfg.consented_hosted {
+        if !cfg.consented_hosts.iter().any(|h| h == host) {
             return Err("Confirm sending text to this provider first.".to_string());
         }
         match lookup_key(&cfg.preset) {
@@ -447,6 +451,31 @@ fn sanitize_ai_error(raw: &str) -> String {
 
 // --- Commands --------------------------------------------------------------
 
+/// Installs the `ring` rustls provider as the process default if none is set.
+/// Mirrors tauri-plugin-updater's guard so the two never double-install, and
+/// guarantees a provider exists even when no update check has run yet — a
+/// `rustls-no-provider` client panics at construction without one.
+fn ensure_crypto_provider() {
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+}
+
+/// Builds the rewrite HTTP client. Installs the crypto provider first (a
+/// `rustls-no-provider` client panics at construction otherwise). Redirects are
+/// refused: following a 3xx would re-send the request body (the user's text) to
+/// the `Location` host, escaping the endpoint guard, so a 3xx surfaces as an
+/// error status instead.
+fn build_client() -> Result<reqwest::Client, String> {
+    ensure_crypto_provider();
+    reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| sanitize_ai_error(&e.to_string()))
+}
+
 fn emit_ai(app: &AppHandle, request_id: &str, kind: &str, text: Option<String>) {
     if let Err(e) = emit_event(
         app,
@@ -488,11 +517,7 @@ pub async fn ai_rewrite(
 
     tracing::info!(text_len = text.len(), "starting rewrite");
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(CONNECT_TIMEOUT)
-        .timeout(REQUEST_TIMEOUT)
-        .build()
-        .map_err(|e| sanitize_ai_error(&e.to_string()))?;
+    let client = build_client()?;
 
     let cancel = Arc::new(AtomicBool::new(false));
 
@@ -545,7 +570,7 @@ mod tests {
             preset: "ollama".to_string(),
             base_url: "http://localhost:11434/v1".to_string(),
             model: "llama3".to_string(),
-            consented_hosted: false,
+            consented_hosts: Vec::new(),
         }
     }
 
@@ -633,7 +658,12 @@ mod tests {
         let no_consent = prepare_request(&cfg, "polish", "x", None, |_| Some("k".to_string()));
         assert!(no_consent.unwrap_err().contains("Confirm"));
 
-        cfg.consented_hosted = true;
+        // Consent to a different host must not cover this one.
+        cfg.consented_hosts = vec!["api.deepseek.com".to_string()];
+        let wrong_host = prepare_request(&cfg, "polish", "x", None, |_| Some("k".to_string()));
+        assert!(wrong_host.unwrap_err().contains("Confirm"));
+
+        cfg.consented_hosts = vec!["api.groq.com".to_string()];
         let no_key = prepare_request(&cfg, "polish", "x", None, |_| None);
         assert!(no_key.unwrap_err().contains("API key"));
 
@@ -729,10 +759,7 @@ mod tests {
         let events = Arc::new(Mutex::new(Vec::new()));
         let events_task = events.clone();
         tauri::async_runtime::block_on(async move {
-            let client = reqwest::Client::builder()
-                .connect_timeout(CONNECT_TIMEOUT)
-                .build()
-                .unwrap();
+            let client = build_client().unwrap();
             run_rewrite_stream(&client, &prepared, &cancel, |event| {
                 let mut ev = events_task.lock().unwrap();
                 match event {
@@ -770,6 +797,53 @@ mod tests {
         let events = run_against(base, Arc::new(AtomicBool::new(false)));
         assert_eq!(events.len(), 1);
         assert!(events[0].contains("429"), "got: {:?}", events);
+    }
+
+    #[test]
+    fn refuses_redirect_and_never_resends_body() {
+        // The redirect target records whether it ever receives a connection.
+        let hit_target = Arc::new(AtomicBool::new(false));
+        let listener_target = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port_target = listener_target.local_addr().unwrap().port();
+        {
+            let hit_target = hit_target.clone();
+            std::thread::spawn(move || {
+                if let Ok((mut stream, _)) = listener_target.accept() {
+                    hit_target.store(true, Ordering::SeqCst);
+                    let mut buf = [0u8; 2048];
+                    let _ = stream.read(&mut buf);
+                    let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+                }
+            });
+        }
+
+        // The configured endpoint answers 307 pointing at the target host.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 2048];
+                let _ = stream.read(&mut buf);
+                let resp = format!(
+                    "HTTP/1.1 307 Temporary Redirect\r\nLocation: http://127.0.0.1:{port_target}/v1/chat/completions\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+                let _ = stream.write_all(resp.as_bytes());
+                let _ = stream.flush();
+            }
+        });
+
+        let base = format!("http://127.0.0.1:{port}/v1");
+        let events = run_against(base, Arc::new(AtomicBool::new(false)));
+
+        assert!(
+            !hit_target.load(Ordering::SeqCst),
+            "request body was re-sent to the redirect target"
+        );
+        assert_eq!(events.len(), 1);
+        assert!(
+            events[0].contains("307"),
+            "expected a 307 error, got: {events:?}"
+        );
     }
 
     #[test]
