@@ -40,7 +40,14 @@ export interface ResultProvider {
   debounceMs?: number;
   // Renders a shortcut column for this provider's rows.
   showKbd?: boolean;
-  query(q: string, signal: AbortSignal): PaletteResult[] | Promise<PaletteResult[]>;
+  // `mode` is the routing the query arrived under: a provider that behaves
+  // differently when addressed by its prefix (the command list on a bare `>`)
+  // reads it; the rest ignore it.
+  query(
+    q: string,
+    signal: AbortSignal,
+    mode: PaletteMode,
+  ): PaletteResult[] | Promise<PaletteResult[]>;
   stream?: (
     q: string,
     onBatch: (results: PaletteResult[]) => void,

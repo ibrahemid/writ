@@ -41,6 +41,17 @@ describe("composeSections", () => {
     expect(sections[0].total).toBe(4);
   });
 
+  it("lifts the cap when the query addresses one provider by prefix", () => {
+    const providers = [provider({ id: "commands", cap: 2 })];
+    const rows = [result("a"), result("b"), result("c"), result("d")];
+    const capped = composeSections(providers, { commands: rows }, "all");
+    expect(capped.flat.length).toBe(2);
+    expect(capped.sections[0].hiddenCount).toBe(2);
+    const lifted = composeSections(providers, { commands: rows }, "commands");
+    expect(lifted.flat.length).toBe(4);
+    expect(lifted.sections[0].hiddenCount).toBe(0);
+  });
+
   it("keeps a noisy provider from crowding out a later one", () => {
     const providers = [
       provider({ id: "content", order: 1, cap: 2 }),

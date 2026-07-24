@@ -1,4 +1,4 @@
-import type { PaletteResult, ResultProvider } from "./types";
+import type { PaletteMode, PaletteResult, ResultProvider } from "./types";
 
 export interface ComposedSection {
   key: string;
@@ -25,14 +25,20 @@ export interface ComposedResults {
 export function composeSections(
   providers: readonly ResultProvider[],
   buckets: Readonly<Record<string, readonly PaletteResult[] | undefined>>,
+  mode: PaletteMode = "all",
 ): ComposedResults {
   const sections: ComposedSection[] = [];
   const ordered = [...providers].sort((a, b) => a.order - b.order);
 
+  // Caps keep one provider from crowding a mixed list. A prefixed query
+  // addresses one provider on purpose, so its rows all render; the engine's
+  // own limits stay stated through the notice line.
+  const capped = mode === "all";
+
   for (const provider of ordered) {
     const all = buckets[provider.id] ?? [];
     if (all.length === 0) continue;
-    const visible = all.slice(0, Math.max(0, provider.cap));
+    const visible = capped ? all.slice(0, Math.max(0, provider.cap)) : [...all];
     if (visible.length === 0) continue;
 
     const defaultHeading = provider.heading === undefined ? provider.section : provider.heading;

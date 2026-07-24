@@ -4,6 +4,7 @@ import { partitionEmptyQuery, rankWithQuery } from "../ranking";
 import { configStore } from "../../stores/global/config";
 import type { Command } from "../../types/commands";
 import type {
+  PaletteMode,
   PaletteResult,
   PaletteResultSection,
   ResultProvider,
@@ -64,11 +65,13 @@ export function createCommandProvider(options: CommandProviderOptions = {}): Res
     cap: options.cap ?? Number.POSITIVE_INFINITY,
     modes: ["all", "commands"],
     showKbd: true,
-    query(q: string): PaletteResult[] {
+    query(q: string, _signal: AbortSignal, mode: PaletteMode): PaletteResult[] {
       const all = visibleCommands();
       const usage = configStore.config().commands.usage;
       if (!q) {
-        if (!options.listOnEmptyQuery) return [];
+        // A bare `>` addresses this provider by name; it lists everything even
+        // where the mixed empty view would stay silent.
+        if (!options.listOnEmptyQuery && mode !== "commands") return [];
         // Recent may hold either scope; the rest is subdivided into app
         // commands then editor commands, each headed only when the split is
         // visible.

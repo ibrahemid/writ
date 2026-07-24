@@ -258,6 +258,35 @@ describe("SearchPalette", () => {
       expect(h.searchFiles).not.toHaveBeenCalled();
     });
 
+    it("a bare '>' lists every command instead of an empty state", async () => {
+      await open();
+      await type(">");
+      await waitFor(() => expect(labels()).toContain("Zebra command"));
+      expect(document.querySelector(".palette-empty")).toBeNull();
+    });
+
+    it("a bare '#' prompts for a term instead of claiming no matches", async () => {
+      await open();
+      await type("#");
+      await waitFor(() =>
+        expect(document.querySelector(".palette-empty")?.textContent).toContain(
+          "Type to search file content.",
+        ),
+      );
+      expect(document.body.textContent).not.toContain("Nothing matches");
+      expect(h.streamContent).not.toHaveBeenCalled();
+    });
+
+    it("a bare ':' prompts for a line number", async () => {
+      await open();
+      await type(":");
+      await waitFor(() =>
+        expect(document.querySelector(".palette-empty")?.textContent).toContain(
+          "Type a line number.",
+        ),
+      );
+    });
+
     it("':' offers the go-to-line jump alone", async () => {
       h.activeTabs = [doc("a", "zebra.md")];
       await open();

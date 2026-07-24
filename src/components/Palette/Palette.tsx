@@ -44,6 +44,20 @@ export default function Palette(props: PaletteProps) {
 
   const parsed = createMemo(() => parsePaletteQuery(query()));
 
+  // A bare prefix is a routing choice, not a failed search: no "nothing
+  // matches" until there is a term to match. Commands list themselves on a
+  // bare `>`, so only the term-requiring modes need a prompt.
+  function bareModeHint(): string | null {
+    switch (parsed().mode) {
+      case "content":
+        return "Type to search file content.";
+      case "line":
+        return "Type a line number.";
+      default:
+        return null;
+    }
+  }
+
   const activeProviders = createMemo(() =>
     props.providers.filter((p) => providerModes(p).includes(parsed().mode)),
   );
@@ -59,7 +73,7 @@ export default function Palette(props: PaletteProps) {
     return merged;
   });
 
-  const composed = createMemo(() => composeSections(activeProviders(), buckets()));
+  const composed = createMemo(() => composeSections(activeProviders(), buckets(), parsed().mode));
   const flat = createMemo(() => composed().flat);
   const selected = createMemo(() => Math.min(selectedIndex(), Math.max(0, flat().length - 1)));
 
@@ -110,7 +124,7 @@ export default function Palette(props: PaletteProps) {
       if (!isCurrent()) return;
       let produced: PaletteResult[] | Promise<PaletteResult[]>;
       try {
-        produced = provider.query(text, controller.signal);
+        produced = provider.query(text, controller.signal, parsed().mode);
       } catch (error) {
         console.error(`palette provider "${provider.id}" failed`, error);
         return;
@@ -233,10 +247,19 @@ export default function Palette(props: PaletteProps) {
             fallback={
               <Show when={query().trim().length > 0}>
                 <div class="palette-empty">
-                  <div class="palette-empty-title">Nothing matches "{query()}"</div>
-                  <div class="palette-empty-hint">
-                    Try a different word, or press Esc to dismiss.
-                  </div>
+                  <Show
+                    when={parsed().text === "" && bareModeHint()}
+                    fallback={
+                      <>
+                        <div class="palette-empty-title">Nothing matches "{query()}"</div>
+                        <div class="palette-empty-hint">
+                          Try a different word, or press Esc to dismiss.
+                        </div>
+                      </>
+                    }
+                  >
+                    {(hint) => <div class="palette-empty-hint">{hint()}</div>}
+                  </Show>
                 </div>
               </Show>
             }

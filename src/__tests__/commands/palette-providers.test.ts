@@ -93,7 +93,7 @@ describe("files provider", () => {
   it("lists open tabs and history on an empty query", async () => {
     h.activeTabs = [doc({ id: "a", title: "Alpha" })];
     h.historyList = [doc({ id: "b", title: "Bravo", status: "history" })];
-    const results = await createFilesProvider().query("", signal());
+    const results = await createFilesProvider().query("", signal(), "all");
     expect(results.map((r) => r.label)).toEqual(["Alpha", "Bravo"]);
     expect(h.searchFiles).not.toHaveBeenCalled();
   });
@@ -103,7 +103,7 @@ describe("files provider", () => {
       doc({ id: "a", title: "Alpha", source_path: "/repo/docs/alpha.md" }),
       doc({ id: "b", title: "Bravo", source_path: "/repo/src/main.rs" }),
     ];
-    const results = await createFilesProvider().query("main", signal());
+    const results = await createFilesProvider().query("main", signal(), "all");
     expect(results.map((r) => r.label)).toEqual(["Bravo"]);
   });
 
@@ -111,7 +111,7 @@ describe("files provider", () => {
     h.root = "/repo";
     h.activeTabs = [doc({ id: "a", title: "main.md", source_path: "/repo/docs/main.md" })];
     h.searchFiles.mockResolvedValue([{ path: "src/main.rs", name: "main.rs", score: 9 }]);
-    const results = await createFilesProvider().query("main", signal());
+    const results = await createFilesProvider().query("main", signal(), "all");
     expect(results.map((r) => r.label)).toEqual(["main.md", "main.rs"]);
   });
 
@@ -119,7 +119,7 @@ describe("files provider", () => {
     h.root = "/repo";
     h.activeTabs = [doc({ id: "a", title: "main.rs", source_path: "/repo/src/main.rs" })];
     h.searchFiles.mockResolvedValue([{ path: "src/main.rs", name: "main.rs", score: 9 }]);
-    const results = await createFilesProvider().query("main", signal());
+    const results = await createFilesProvider().query("main", signal(), "all");
     expect(results).toHaveLength(1);
     expect(results[0].id).toBe("file:buffer:a");
   });
@@ -130,7 +130,7 @@ describe("files provider", () => {
       doc({ id: "h", title: "main.rs", status: "history", source_path: "/repo/src/main.rs" }),
     ];
     h.searchFiles.mockResolvedValue([{ path: "src/main.rs", name: "main.rs", score: 9 }]);
-    const results = await createFilesProvider().query("main", signal());
+    const results = await createFilesProvider().query("main", signal(), "all");
     expect(results).toHaveLength(1);
     expect(results[0].id).toBe("file:buffer:h");
   });
@@ -141,20 +141,20 @@ describe("files provider", () => {
       doc({ id: "a", title: "main.rs", source_path: "C:\\repo\\src\\main.rs" }),
     ];
     h.searchFiles.mockResolvedValue([{ path: "src/main.rs", name: "main.rs", score: 9 }]);
-    const results = await createFilesProvider().query("main", signal());
+    const results = await createFilesProvider().query("main", signal(), "all");
     expect(results).toHaveLength(1);
   });
 
   it("activates an open tab", async () => {
     h.activeTabs = [doc({ id: "a", title: "Alpha" })];
-    const results = await createFilesProvider().query("alpha", signal());
+    const results = await createFilesProvider().query("alpha", signal(), "all");
     results[0].execute();
     expect(h.setActiveTabId).toHaveBeenCalledWith("a");
   });
 
   it("restores a history entry", async () => {
     h.historyList = [doc({ id: "b", title: "Bravo", status: "history" })];
-    const results = await createFilesProvider().query("bravo", signal());
+    const results = await createFilesProvider().query("bravo", signal(), "all");
     results[0].execute();
     expect(h.restoreFromHistory).toHaveBeenCalledWith("b");
   });
@@ -162,7 +162,7 @@ describe("files provider", () => {
   it("opens a workspace file by absolute path", async () => {
     h.root = "/repo";
     h.searchFiles.mockResolvedValue([{ path: "src/main.rs", name: "main.rs", score: 9 }]);
-    const results = await createFilesProvider().query("main", signal());
+    const results = await createFilesProvider().query("main", signal(), "all");
     results[0].execute();
     expect(h.openFile).toHaveBeenCalledWith("/repo/src/main.rs");
   });
@@ -177,7 +177,7 @@ describe("content provider", () => {
       ],
       total: 1,
     });
-    const results = await createContentProvider().query("todo", signal());
+    const results = await createContentProvider().query("todo", signal(), "all");
     expect(results).toHaveLength(1);
     expect(results[0].line).toBe(12);
     expect(results[0].snippet).toEqual([{ text: "todo", matched: true }]);
@@ -189,7 +189,7 @@ describe("content provider", () => {
       hits: [{ buffer_id: "a", title: "Alpha", line: 12, snippet: [] }],
       total: 1,
     });
-    const results = await createContentProvider().query("todo", signal());
+    const results = await createContentProvider().query("todo", signal(), "all");
     results[0].execute();
     expect(h.setActiveTabId).toHaveBeenCalledWith("a");
     expect(h.requestReveal).toHaveBeenCalledWith("a", 12);
@@ -201,7 +201,7 @@ describe("content provider", () => {
       hits: [{ buffer_id: "b", title: "Bravo", line: 4, snippet: [] }],
       total: 1,
     });
-    const results = await createContentProvider().query("todo", signal());
+    const results = await createContentProvider().query("todo", signal(), "all");
     results[0].execute();
     await Promise.resolve();
     expect(h.restoreFromHistory).toHaveBeenCalledWith("b");
@@ -213,7 +213,7 @@ describe("content provider", () => {
       hits: [{ buffer_id: "gone", title: "Gone", line: 1, snippet: [] }],
       total: 1,
     });
-    expect(await createContentProvider().query("todo", signal())).toEqual([]);
+    expect(await createContentProvider().query("todo", signal(), "all")).toEqual([]);
   });
 
   it("streams workspace hits and reveals the line on the opened buffer", async () => {
@@ -271,7 +271,7 @@ describe("go to line provider", () => {
   it("offers the jump for a numeric query in the active buffer", () => {
     h.activeTabId = "a";
     h.activeTabs = [doc({ id: "a", title: "Alpha" })];
-    const results = createGotoLineProvider().query("42", signal()) as { label: string; execute: () => void }[];
+    const results = createGotoLineProvider().query("42", signal(), "all") as { label: string; execute: () => void }[];
     expect(results[0].label).toBe("Go to line 42");
     results[0].execute();
     expect(h.requestReveal).toHaveBeenCalledWith("a", 42);
@@ -279,15 +279,15 @@ describe("go to line provider", () => {
 
   it("contributes nothing for a non-numeric query", () => {
     h.activeTabId = "a";
-    expect(createGotoLineProvider().query("abc", signal())).toEqual([]);
+    expect(createGotoLineProvider().query("abc", signal(), "all")).toEqual([]);
   });
 
   it("contributes nothing without an active buffer", () => {
-    expect(createGotoLineProvider().query("42", signal())).toEqual([]);
+    expect(createGotoLineProvider().query("42", signal(), "all")).toEqual([]);
   });
 
   it("rejects line zero", () => {
     h.activeTabId = "a";
-    expect(createGotoLineProvider().query("0", signal())).toEqual([]);
+    expect(createGotoLineProvider().query("0", signal(), "all")).toEqual([]);
   });
 });
