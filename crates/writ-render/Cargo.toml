@@ -19,7 +19,7 @@ crate-type = ["lib", "cdylib"]
 wasm = ["dep:wasm-bindgen", "dep:serde", "dep:serde-wasm-bindgen"]
 
 [dependencies]
-pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 
 [dependencies.wasm-bindgen]
 version = "0.2"
