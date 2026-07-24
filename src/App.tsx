@@ -3,6 +3,7 @@ import TitleBar from "./components/TitleBar/TitleBar";
 import EditorArea from "./components/Editor/EditorArea";
 import Sidebar from "./components/Sidebar/Sidebar";
 import CommandPalette, { toggleCommandPalette } from "./components/CommandPalette/CommandPalette";
+import SearchPalette, { toggleSearchPalette } from "./components/SearchPalette/SearchPalette";
 import ThemeEditor, { openThemeEditor } from "./components/ThemeEditor/ThemeEditor";
 import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/ShortcutEditor";
 import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
@@ -302,6 +303,18 @@ function AppShell() {
       label: "Search content…",
       scope: "app",
       execute: openContentSearch,
+    });
+
+    registerCommand({
+      id: "search.openEverywhere",
+      label: "Search Everywhere",
+      description: "Search commands, settings, file names and file content",
+      keybinding: "CmdOrCtrl+Shift+F",
+      scope: "app",
+      // Global: the editor holds focus almost all the time, so a focus-gated
+      // chord would never reach the handler from where it is used.
+      global: true,
+      execute: () => toggleSearchPalette(),
     });
 
     registerCommand({
@@ -605,6 +618,7 @@ function AppShell() {
         <EditorArea />
       </div>
       <CommandPalette />
+      <SearchPalette />
       <SettingsModal />
       <ThemeEditor />
       <ShortcutEditor />

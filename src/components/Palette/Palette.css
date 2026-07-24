@@ -84,6 +84,27 @@
   white-space: nowrap;
 }
 
+.palette-item-snippet {
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-foreground-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.palette-item-snippet .is-match {
+  color: var(--writ-foreground-default);
+  background: color-mix(in srgb, var(--writ-accent-default) 24%, transparent);
+  border-radius: 2px;
+}
+
+.palette-item-line {
+  flex: none;
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-foreground-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
 .palette-section + .palette-section {
   margin-top: var(--writ-space-2);
   padding-top: var(--writ-space-2);
@@ -97,6 +118,12 @@
   text-transform: uppercase;
   color: var(--writ-foreground-subtle);
   font-weight: 600;
+}
+
+.palette-section-more {
+  padding: var(--writ-space-1) var(--writ-space-4) var(--writ-space-2);
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-foreground-subtle);
 }
 
 .palette-empty {
@@ -113,6 +140,26 @@
 .palette-empty-hint {
   font-size: var(--writ-font-size-xs);
   color: var(--writ-foreground-subtle);
+}
+
+.palette-notice {
+  padding: var(--writ-space-2) var(--writ-space-5);
+  border-top: 1px solid var(--writ-border-soft);
+  font-size: var(--writ-font-size-xs);
+  color: var(--writ-foreground-subtle);
+}
+
+.palette-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -21,6 +21,25 @@ export function dirname(path: string): string {
   return cut > 0 ? path.slice(0, cut) : path;
 }
 
+// Joins a native-separator base with a forward-slash relative path, keeping the
+// base's separator style. Workspace search returns relative, forward-slash
+// paths; buffers carry absolute, native ones.
+export function joinPath(base: string, relative: string): string {
+  const rel = relative.replace(/^[/\\]+/, "");
+  if (!base) return rel;
+  const sep = base.includes("\\") && !base.includes("/") ? "\\" : "/";
+  const trimmed = base.replace(/[/\\]+$/, "");
+  if (!rel) return trimmed;
+  return `${trimmed}${sep}${rel}`;
+}
+
+// Comparison key for "is this the same file". Separator style differs between
+// a Windows buffer path and a joined workspace path, so both collapse to "/"
+// before they are compared.
+export function pathKey(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
 const WINDOWS_DRIVE = /^[A-Za-z]:[\\/]/;
 const CONTROL_CHAR = /[\u0000-\u001f\u007f]/;
 

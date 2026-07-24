@@ -121,6 +121,7 @@ The [landing page](https://writ.ibrahemid.com) has a live editor you can try in 
 | Switch tabs | `Cmd+[` / `Cmd+]` |
 | Reopen closed tab | `Cmd+Shift+T` |
 | Command palette | `Shift+Shift` |
+| Search everywhere | `Cmd+Shift+F` |
 | Toggle sidebar | `Cmd+S` |
 | Rename tab | Double-click tab |
 | Find in document | `Cmd+F` |
