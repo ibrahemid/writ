@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize, LogicalPosition } from "@tauri-apps/api/window";
 import type { BufferDocument, FileOpenResult } from "../types/buffer";
 import type { WritConfig } from "../types/config";
@@ -485,6 +485,35 @@ export async function listWorkspaceDir(dirPath: string): Promise<WorkspaceEntry[
 
 export async function getWorkspaceRoot(): Promise<string | null> {
   return invoke("get_workspace_root");
+}
+
+import type {
+  FileHit,
+  IndexStatus,
+  ContentHit,
+  GrepOutcome,
+  SearchBatch,
+} from "../types/search";
+export type { FileHit, IndexStatus, ContentHit, GrepOutcome, SearchBatch };
+
+export async function searchWorkspaceFiles(query: string): Promise<FileHit[]> {
+  return invoke("search_workspace_files", { query });
+}
+
+export async function workspaceIndexStatus(): Promise<IndexStatus> {
+  return invoke("workspace_index_status");
+}
+
+// Streams content-search results (ADR-026). Each batch is generation-stamped;
+// callers discard batches whose generation is stale. The final batch carries
+// the outcome. The channel is scoped to this call and dies with it.
+export async function searchWorkspaceContent(
+  query: string,
+  onBatch: (batch: SearchBatch) => void,
+): Promise<void> {
+  const channel = new Channel<SearchBatch>();
+  channel.onmessage = onBatch;
+  return invoke("search_workspace_content", { query, onBatch: channel });
 }
 
 export interface InstallCliResult {

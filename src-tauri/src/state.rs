@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex, RwLock};
 use tracing::{info, warn};
 use writ_core::config::WritConfig;
@@ -58,6 +58,13 @@ pub struct AppState {
     pub inbox_watcher: Mutex<Option<WatcherHandle>>,
     /// Coalesces deferred FTS reindexes off the autosave path (ADR-020).
     pub fts_scheduler: FtsScheduler,
+    /// In-memory workspace file-name index (ADR-026). Shared with the watcher
+    /// subscriber and the background build thread.
+    pub workspace_index: crate::workspace_index::SharedIndex,
+    /// Monotonic content-search generation. Each `search_workspace_content`
+    /// call bumps it and captures its value; the walker's cancel closure
+    /// compares against this so a newer query stops the older one (ADR-026).
+    pub search_generation: Arc<AtomicU64>,
 }
 
 impl AppState {
@@ -192,6 +199,10 @@ impl AppState {
             info!(root = %root.display(), "inbox folder restored from config");
         }
 
+        let workspace_index = Arc::new(RwLock::new(crate::workspace_index::WorkspaceIndex::new(
+            workspace_root.clone(),
+        )));
+
         let mut transforms = TransformRegistry::new();
         register_builtins(&mut transforms)?;
         info!(count = transforms.len(), "transform registry initialized");
@@ -228,6 +239,8 @@ impl AppState {
             inbox_root: Mutex::new(inbox_root),
             inbox_watcher: Mutex::new(None),
             fts_scheduler: FtsScheduler::new(),
+            workspace_index,
+            search_generation: Arc::new(AtomicU64::new(0)),
         })
     }
 
