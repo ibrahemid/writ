@@ -42,10 +42,11 @@
   overflow-wrap: anywhere;
 }
 
+/* Sans, per ADR-008: mono is reserved for the editor and history timestamps,
+   and the host / address hierarchy is already carried by size and color. */
 .link-confirm-url {
   margin: var(--writ-space-1) 0 0;
   color: var(--writ-foreground-subtle);
-  font-family: var(--writ-font-mono);
   font-size: var(--writ-font-size-xs);
   line-height: 1.4;
   overflow: hidden;
