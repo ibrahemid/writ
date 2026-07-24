@@ -17,10 +17,12 @@ pub struct LinkVerdict {
 /// message tells the user something the link itself does not.
 fn message_for(reason: RejectReason) -> String {
     match reason {
-        RejectReason::Scheme => "Writ opens http, https, and mailto links only.".to_string(),
-        RejectReason::Credentials => "That link carries a sign-in name in its address.".to_string(),
+        RejectReason::Scheme => "Writ opens only http, https, and mailto links.".to_string(),
+        RejectReason::Credentials => {
+            "That link hides its real destination behind a username.".to_string()
+        }
         RejectReason::NoHost | RejectReason::Control | RejectReason::Unparseable => {
-            "That is not a valid web address.".to_string()
+            "That link is not a valid web address.".to_string()
         }
     }
 }

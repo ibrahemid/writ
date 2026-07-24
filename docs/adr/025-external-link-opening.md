@@ -123,6 +123,13 @@ Open button. The user's click on that button is the gesture, and it is the only
 caller of `open_external_url` from that path. A forged message produces, at
 worst, a popover the user dismisses.
 
+What the popover shows comes from the classification, not from the frame. The
+host line exists only once `classify_external_url` has approved a destination,
+and it names the host of the parser's normalized URL. Reading a host out of the
+raw href would put a second URL parser in front of the user, making a claim the
+policy never approved — `https://bank.example@evil.example/` is refused in Rust
+and would otherwise render `evil.example` as though it were a plain destination.
+
 The cost is one extra click per preview link, stated plainly. The alternative
 that buys the click back is intercepting navigation at the webview level in
 Rust, trusting no JavaScript anywhere; subframe navigation interception is
