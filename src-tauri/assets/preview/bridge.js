@@ -78,6 +78,38 @@
     post({ type: "zoomWheel", deltaY: ev.deltaY });
   }
 
+  // ---- links -----------------------------------------------------------
+  // The bridge shares this frame's realm with whatever scripts the document
+  // brought, so nothing it posts can be treated as proof of a real click. It
+  // therefore reports the destination and lets the shell ask; the shell's own
+  // button is the trustworthy gesture (ADR-025). preventDefault stops the frame
+  // from navigating away from the rendered document either way.
+  //
+  // A same-document fragment is left alone, so an in-page table of contents
+  // still jumps natively.
+  function anchorFor(node) {
+    for (var n = node; n; n = n.parentNode) {
+      if (n.nodeType === 1 && n.tagName === "A") return n;
+    }
+    return null;
+  }
+
+  function onLinkClick(ev) {
+    if (ev.button) return;
+    if (ev.defaultPrevented) return;
+    var anchor = anchorFor(ev.target);
+    if (!anchor || !anchor.getAttribute) return;
+    var href = anchor.getAttribute("href");
+    if (typeof href !== "string" || href === "" || href.charAt(0) === "#") return;
+    ev.preventDefault();
+    post({
+      type: "link:open",
+      href: href,
+      x: typeof ev.clientX === "number" ? ev.clientX : 0,
+      y: typeof ev.clientY === "number" ? ev.clientY : 0,
+    });
+  }
+
   // ---- find ------------------------------------------------------------
   // In-preview find. Matches are located over the document's concatenated text
   // (so a query spanning inline elements is found) and painted by wrapping each
@@ -310,5 +342,6 @@
   win.addEventListener("message", onMessage);
   win.addEventListener("keydown", onZoomKey);
   win.addEventListener("wheel", onZoomWheel, { passive: false });
+  win.addEventListener("click", onLinkClick);
   post({ type: "ready" });
 })(window, document, parent);
