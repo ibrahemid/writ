@@ -22,6 +22,7 @@
 //! - [`history`]: recently-closed buffer history.
 //! - [`hotkey`]: platform-neutral chord representation and parser.
 //! - [`inbox`]: watch-inbox auto-open policy (ADR-018).
+//! - [`link`]: external-link allowlist policy (ADR-025).
 //! - [`prompt`]: prompt-document helpers — token estimation, stripping,
 //!   placeholders (ADR-015).
 //! - [`recovery`]: crash-recovery policy types and resolution logic.
@@ -53,6 +54,8 @@ pub mod history;
 pub mod hotkey;
 /// Watch-inbox auto-open policy — ADR-018.
 pub mod inbox;
+/// External-link allowlist policy — ADR-025.
+pub mod link;
 /// Prompt construction and endpoint policy for opt-in text rewriting.
 pub mod polish;
 /// Preview surface types and content-type renderer registry — ADR-009.

@@ -6,6 +6,7 @@ pub mod default_app;
 pub mod file;
 pub mod history;
 pub mod inbox;
+pub mod link;
 pub mod perf;
 pub mod preview;
 pub mod prompt;

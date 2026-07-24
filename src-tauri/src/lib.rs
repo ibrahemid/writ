@@ -241,6 +241,10 @@ pub fn run() {
     let app = builder
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        // Registered for the Rust-side `OpenerExt` only. `opener:allow-open-url`
+        // stays out of capabilities/default.json so the frontend cannot reach
+        // the plugin's own command and skip the link policy (ADR-025).
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .register_uri_scheme_protocol("writ-preview", preview::handler::serve)
         .manage(app_state)
@@ -303,6 +307,8 @@ pub fn run() {
             commands::inbox::clear_inbox,
             commands::inbox::get_inbox_path,
             commands::inbox::list_inbox_files,
+            commands::link::open_external_url,
+            commands::link::classify_external_url,
             commands::storage::get_storage_info,
             commands::storage::reveal_storage_path,
             commands::ai::ai_rewrite,
