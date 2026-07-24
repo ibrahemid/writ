@@ -4,18 +4,11 @@ This directory holds everything the Writ project needs to publish releases acros
 
 ## Install paths
 
-Live today:
-
 | Platform | Install |
 |---|---|
 | macOS | `brew install --cask ibrahemid/writ/writ` |
 | Windows | `winget install -e --id ibrahemid.Writ` |
 | Any Linux | `curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh \| sh` |
-
-Not published yet (see the status table below):
-
-| Platform | Install command |
-|---|---|
 | Arch Linux | `yay -S writ-bin` (or any AUR helper) |
 
 ## Layout
@@ -26,7 +19,7 @@ packaging/
     Casks/writ.rb
     README.md
   winget/                     # winget manifests for microsoft/winget-pkgs
-    manifests/i/ibrahemid/Writ/0.1.0/
+    manifests/i/ibrahemid/Writ/<version>/
     README.md
   aur/                        # Arch User Repository package
     writ-bin/
@@ -36,16 +29,16 @@ packaging/
 
 Each subdirectory has its own README covering the channel-specific submission process. Start there if you are publishing a channel for the first time.
 
-## Current status (v0.1.0)
+## Current status (v0.2.0)
 
 | Channel | Status | Notes |
 |---|---|---|
-| Homebrew (self-hosted tap) | Live | Tap at `github.com/ibrahemid/homebrew-writ` serves 0.1.0. Each release still needs the cask copied over after the bump PR merges. |
-| Homebrew upstream | Deferred | Eligible after v0.2.0+ stability window and after macOS notarization is live. |
-| winget | Live | `ibrahemid.Writ` 0.1.0 merged into `microsoft/winget-pkgs` (PR 399097). Each new version needs another upstream PR. |
-| AUR `writ-bin` | Pending first push | Requires a one-time SSH key upload to aur.archlinux.org and initial `git push` to the AUR remote. |
-| Flatpak | Deferred to v0.2.0+ | Flathub submission requires a stable release line and a Flatpak manifest (`org.writ.Writ.yaml`) tracked separately. Revisit once Linux distribution feedback justifies the maintenance cost. |
-| Snap | Deferred to v0.2.0+ | Snap requires a `snapcraft.yaml` and a Snapcraft store account. Lower priority than Flatpak because most Arch and Debian users prefer AUR and AppImage respectively. |
+| Homebrew (self-hosted tap) | Live | Tap at `github.com/ibrahemid/homebrew-writ` serves 0.2.0. Each release still needs the cask copied over after the bump PR merges. |
+| Homebrew upstream | Deferred | Eligible after a stability window on the 0.2.x line. Notarization is live. |
+| winget | Live | `ibrahemid.Writ` 0.2.0 merged into `microsoft/winget-pkgs`. Each new version needs another upstream PR. |
+| AUR `writ-bin` | Live | https://aur.archlinux.org/packages/writ-bin serves 0.2.0-1. Each release is a `git push` of `PKGBUILD` and `.SRCINFO` to `ssh://aur@aur.archlinux.org/writ-bin.git`. |
+| Flatpak | Deferred | Flathub submission requires a stable release line and a Flatpak manifest (`org.writ.Writ.yaml`) tracked separately. Revisit once Linux distribution feedback justifies the maintenance cost. |
+| Snap | Deferred | Snap requires a `snapcraft.yaml` and a Snapcraft store account. Lower priority than Flatpak because most Arch and Debian users prefer AUR and AppImage respectively. |
 
 ## Artifact names (source of truth)
 
@@ -101,7 +94,7 @@ All three read `VERSION` and the relevant `SHA_*` values from environment variab
 Local dry run example:
 
 ```sh
-VERSION=0.1.0 \
+VERSION=0.2.0 \
 SHA_UNIVERSAL=0000000000000000000000000000000000000000000000000000000000000000 \
 python3 scripts/packaging_bump_homebrew.py
 ```
