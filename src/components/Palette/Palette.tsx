@@ -31,7 +31,11 @@ export default function Palette(props: PaletteProps) {
   const optionId = (index: number) => `${domId}-option-${index}`;
 
   const [query, setQuery] = createSignal("");
-  const [buckets, setBuckets] = createSignal<Buckets>({});
+  // A provider that both queries and streams fills two buckets: the query
+  // result replaces, the stream appends. Merging them at render time keeps a
+  // late `query` resolution from wiping batches that already arrived.
+  const [queried, setQueried] = createSignal<Buckets>({});
+  const [streamed, setStreamed] = createSignal<Buckets>({});
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   let inputRef: HTMLInputElement | undefined;
   let listRef: HTMLDivElement | undefined;
@@ -44,6 +48,17 @@ export default function Palette(props: PaletteProps) {
     props.providers.filter((p) => providerModes(p).includes(parsed().mode)),
   );
 
+  const buckets = createMemo<Buckets>(() => {
+    const fromQuery = queried();
+    const fromStream = streamed();
+    const merged: Buckets = { ...fromQuery };
+    for (const [id, rows] of Object.entries(fromStream)) {
+      if (!rows) continue;
+      merged[id] = [...(fromQuery[id] ?? []), ...rows];
+    }
+    return merged;
+  });
+
   const composed = createMemo(() => composeSections(activeProviders(), buckets()));
   const flat = createMemo(() => composed().flat);
   const selected = createMemo(() => Math.min(selectedIndex(), Math.max(0, flat().length - 1)));
@@ -51,7 +66,8 @@ export default function Palette(props: PaletteProps) {
   createEffect(() => {
     if (!props.open) {
       setQuery("");
-      setBuckets({});
+      setQueried({});
+      setStreamed({});
       setSelectedIndex(0);
       generation += 1;
       return;
@@ -71,19 +87,20 @@ export default function Palette(props: PaletteProps) {
     const gen = generation;
     const controller = new AbortController();
     const timers: ReturnType<typeof setTimeout>[] = [];
-    setBuckets({});
+    setQueried({});
+    setStreamed({});
     setSelectedIndex(0);
 
     const isCurrent = () => gen === generation && !controller.signal.aborted;
 
     function replace(providerId: string, results: PaletteResult[]) {
       if (!isCurrent()) return;
-      setBuckets((prev) => ({ ...prev, [providerId]: results }));
+      setQueried((prev) => ({ ...prev, [providerId]: results }));
     }
 
     function append(providerId: string, results: PaletteResult[]) {
       if (!isCurrent() || results.length === 0) return;
-      setBuckets((prev) => ({
+      setStreamed((prev) => ({
         ...prev,
         [providerId]: [...(prev[providerId] ?? []), ...results],
       }));

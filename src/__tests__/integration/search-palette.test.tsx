@@ -129,6 +129,12 @@ function labels(): string[] {
   return items().map((el) => el.querySelector(".palette-item-label")?.textContent ?? "");
 }
 
+function sectionLabels(kind: string): string[] {
+  return Array.from(
+    document.querySelectorAll(`.palette-section-${kind} .palette-item-label`),
+  ).map((el) => el.textContent ?? "");
+}
+
 async function type(value: string) {
   fireEvent.input(input(), { target: { value } });
   await Promise.resolve();
@@ -203,6 +209,29 @@ describe("SearchPalette", () => {
     await waitFor(() => {
       expect(labels()).toEqual(["Zebra command", "zebra.md", "zebra.rs", "other.rs"]);
     });
+  });
+
+  it("keeps streamed hits that arrive before the buffer search resolves", async () => {
+    h.activeTabs = [doc("a", "zebra.md", "/repo/zebra.md")];
+    h.streamContent.mockImplementation(
+      async (_q: string, onBatch: (b: { hits: unknown[]; outcome: null }) => void) => {
+        onBatch({ hits: [{ path: "src/early.rs", line: 1, snippet: [] }], outcome: null });
+      },
+    );
+    let resolveBuffers: (r: unknown) => void = () => {};
+    h.searchBuffers.mockImplementation(
+      () => new Promise((resolve) => { resolveBuffers = resolve; }),
+    );
+
+    await open();
+    await type("zebra");
+    await waitFor(() => expect(sectionLabels("content")).toEqual(["early.rs"]));
+
+    resolveBuffers({
+      hits: [{ buffer_id: "a", title: "zebra.md", line: 9, snippet: [] }],
+      total: 1,
+    });
+    await waitFor(() => expect(sectionLabels("content")).toEqual(["zebra.md", "early.rs"]));
   });
 
   describe("prefix routing", () => {
@@ -304,7 +333,7 @@ describe("SearchPalette", () => {
     await open();
     await waitFor(() =>
       expect(document.querySelector(".palette-notice")?.textContent).toBe(
-        "File index capped at 200000 files",
+        `File index capped at ${(200000).toLocaleString()} files`,
       ),
     );
   });

@@ -35,7 +35,7 @@ export function searchNotice(): string | null {
   const parts: string[] = [];
   const status = workspaceSearchStore.indexStatus();
   if (status.truncated) {
-    parts.push(`File index capped at ${status.file_count} files`);
+    parts.push(`File index capped at ${status.file_count.toLocaleString()} files`);
   }
   const outcome = workspaceSearchStore.lastOutcome();
   if (outcome?.truncated) {
@@ -52,8 +52,8 @@ export default function SearchPalette() {
       onClose={() => setIsOpen(false)}
       providers={PROVIDERS}
       placeholder="Search files, content, commands"
-      label="Search everything"
-      inputLabel="Search everything"
+      label="Search everywhere"
+      inputLabel="Search files, content, commands"
       notice={searchNotice}
       onOpen={() => void workspaceSearchStore.refreshIndexStatus()}
     />

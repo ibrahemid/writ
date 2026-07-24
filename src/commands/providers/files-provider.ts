@@ -36,7 +36,7 @@ export function createFilesProvider(options: FilesProviderOptions = {}): ResultP
         results.push({
           id: `file:buffer:${target.doc.id}`,
           label: target.doc.title,
-          detail: target.doc.source_path ?? (target.kind === "history" ? "History" : "Unsaved"),
+          detail: target.doc.source_path ?? (target.kind === "history" ? "History" : "Scratch"),
           execute: () => openTarget({ kind: target.kind, id: target.doc.id }),
         });
       }
