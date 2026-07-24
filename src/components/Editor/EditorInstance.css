@@ -6,3 +6,12 @@
 .editor-instance .cm-editor {
   height: 100%;
 }
+
+/* A link is undecorated until the modifier that would open it is held, so the
+   editor's syntax colors stay authoritative and nothing shifts on hover. */
+.cm-editor.writ-link-active .writ-link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: from-font;
+  text-underline-offset: 0.18em;
+}
