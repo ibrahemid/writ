@@ -15,7 +15,11 @@ import { themeStore } from "../../stores/global/theme";
 import { markdownTypographyPlugin } from "../../editor/markdown-typography";
 import { markdownEditingExtension } from "../../editor/markdown-editing";
 import { spellingExtension } from "../../editor/spelling";
+import { linkLayer } from "../../editor/link-layer";
 import { spellingStore } from "../../stores/global/spelling";
+import { linkStore } from "../../stores/global/link";
+import { workspaceStore } from "../../stores/global/workspace";
+import { dirname, resolveWithinRoot } from "../../lib/path";
 import { openSpellingPreview } from "./SpellingPreview";
 import {
   toggleBold,
@@ -89,6 +93,24 @@ export default function EditorInstance(props: Props) {
   const editingCompartment = new Compartment();
   const readOnlyCompartment = new Compartment();
   const spellingCompartment = new Compartment();
+  const linkCompartment = new Compartment();
+
+  // A destination without a scheme is a file reference. It opens in Writ only
+  // when it resolves inside the open workspace; anything else stays inert,
+  // because a bare word that looks path-like is not an error worth a toast.
+  const linkDeps = {
+    openUrl: (url: string) => {
+      void linkStore.openExternal(url);
+    },
+    openWorkspaceFile: (raw: string) => {
+      const root = workspaceStore.root();
+      if (!root) return;
+      const source = props.buffer.source_path;
+      const target = resolveWithinRoot(root, source ? dirname(source) : root, raw);
+      if (!target) return;
+      void win.tabs.openFile(target).catch(() => undefined);
+    },
+  };
 
   // A buffer can be checked when it is in Normal mode and under the size cap,
   // independent of whether the feature is switched on. This drives the
@@ -201,6 +223,7 @@ export default function EditorInstance(props: Props) {
       editingCompartment.of(isRestricted ? [] : editingExtension(langId, mode)),
       // Configured by applySpelling() after the view mounts.
       spellingCompartment.of([]),
+      linkCompartment.of(isRestricted ? [] : linkLayer(linkDeps)),
       readOnlyCompartment.of(
         isBinary
           ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]

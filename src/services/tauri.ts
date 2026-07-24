@@ -4,6 +4,7 @@ import type { BufferDocument, FileOpenResult } from "../types/buffer";
 import type { WritConfig } from "../types/config";
 import type { TransformDescriptor } from "../types/transforms";
 import type { ThemePolarity } from "../types/theme";
+import type { LinkVerdict } from "../types/link";
 
 export async function listTransforms(): Promise<TransformDescriptor[]> {
   return invoke("list_transforms");
@@ -649,6 +650,16 @@ export async function aiClearApiKey(preset: string): Promise<AiKeyState> {
 
 export async function aiHasApiKey(preset: string): Promise<AiKeyState> {
   return invoke("ai_has_api_key", { preset });
+}
+
+// The raw string travels untouched. Normalization and the scheme allowlist are
+// Rust's, so the UI can never widen what reaches the operating system.
+export async function openExternalUrl(url: string): Promise<void> {
+  return invoke("open_external_url", { url });
+}
+
+export async function classifyExternalUrl(url: string): Promise<LinkVerdict> {
+  return invoke("classify_external_url", { url });
 }
 
 export async function showAndFocusWindow(): Promise<void> {
