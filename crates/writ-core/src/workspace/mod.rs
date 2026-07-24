@@ -8,6 +8,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+pub mod file_search;
+
 /// A single entry (file or directory) in a workspace directory listing.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceEntry {
@@ -37,6 +39,16 @@ const DEFAULT_IGNORES: &[&str] = &[
 /// excluded from workspace directory listings.
 pub fn is_ignored(name: &str) -> bool {
     DEFAULT_IGNORES.contains(&name)
+}
+
+/// The directory names Writ ignores by default, independent of any git ignore
+/// configuration. The workspace search walker (in `writ-storage`) feeds these
+/// to the `ignore` crate as overrides so the name index and the content grep
+/// apply the same union of Writ ignores and gitignore (ADR-026). `.git` is part
+/// of the set and is therefore always excluded even though hidden files are
+/// otherwise included in search.
+pub fn default_ignored_dirs() -> &'static [&'static str] {
+    DEFAULT_IGNORES
 }
 
 /// Returns `true` when any component of `path` below `root` matches the
@@ -82,6 +94,21 @@ mod tests {
         ] {
             assert!(is_ignored(name), "{name} should be ignored");
         }
+    }
+
+    #[test]
+    fn default_ignored_dirs_carries_the_writ_side_of_the_union() {
+        let dirs = default_ignored_dirs();
+        // `.git` is always excluded; the common heavy build/dep dirs too.
+        assert!(dirs.contains(&".git"));
+        assert!(dirs.contains(&"node_modules"));
+        assert!(dirs.contains(&"target"));
+        // Dotfiles are included in search (ADR-026): a plain `.env` is not a
+        // Writ default ignore, so only gitignore can exclude it. This is the
+        // seam where the union's git half does the work.
+        assert!(!dirs.contains(&".env"));
+        assert!(!is_ignored(".env"));
+        assert!(!is_ignored(".github"));
     }
 
     #[test]

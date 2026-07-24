@@ -23,6 +23,10 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 tempfile = "3"
+ignore = "0.4.31"
+grep-searcher = "0.1.17"
+grep-regex = "0.1.14"
+grep-matcher = "0.1.9"
 
 [features]
 bundled = ["rusqlite/bundled"]

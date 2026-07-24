@@ -187,6 +187,82 @@ fn ellipsis() -> SnippetSegment {
     }
 }
 
+/// How many characters of lead to keep before the first match when windowing a
+/// long content line.
+const CONTENT_LEAD_CHARS: usize = 32;
+
+/// Builds a highlighted snippet for one workspace content-search match line.
+///
+/// The literal `query` is highlighted ASCII-case-insensitively (matching the
+/// case-insensitive grep matcher; a Unicode-case-only difference is found but
+/// not visually highlighted). A line longer than `max_bytes` is windowed around
+/// the first match and truncated so the snippet's UTF-8 length never exceeds
+/// `max_bytes`, with an ellipsis marking each elided side. The match is always
+/// preserved: a long line is elided, never dropped (ADR-026).
+pub fn content_snippet(line: &str, query: &str, max_bytes: usize) -> Vec<SnippetSegment> {
+    let chars: Vec<char> = line.chars().collect();
+    let terms = [query.to_string()];
+    let spans = match_spans(&chars, &terms);
+
+    // Choose a window start: lead into the first match if the line is long.
+    let mut start = 0usize;
+    let mut lead = false;
+    if line.len() > max_bytes {
+        if let Some(&(first, _)) = spans.first() {
+            if first > CONTENT_LEAD_CHARS {
+                start = first - CONTENT_LEAD_CHARS;
+                lead = true;
+            }
+        }
+    }
+    if !lead {
+        while start < chars.len() && chars[start].is_whitespace() {
+            start += 1;
+        }
+    }
+
+    // Extend the window char by char until the next character would push the
+    // UTF-8 byte length past the cap.
+    let ellipsis_bytes = "…".len();
+    let budget = max_bytes.saturating_sub(if lead { ellipsis_bytes } else { 0 });
+    let mut used = 0usize;
+    let mut end = start;
+    while end < chars.len() {
+        let cb = chars[end].len_utf8();
+        if used + cb > budget {
+            break;
+        }
+        used += cb;
+        end += 1;
+    }
+    let tail = end < chars.len();
+
+    let mut out = Vec::new();
+    if lead {
+        out.push(ellipsis());
+    }
+    let mut pos = start;
+    for &(s, e) in &spans {
+        let s = s.max(start);
+        let e = e.min(end);
+        if s >= e {
+            continue;
+        }
+        if s > pos {
+            out.push(segment(&chars[pos..s], false));
+        }
+        out.push(segment(&chars[s..e], true));
+        pos = e;
+    }
+    if pos < end {
+        out.push(segment(&chars[pos..end], false));
+    }
+    if tail {
+        out.push(ellipsis());
+    }
+    out
+}
+
 /// Minimum length of a usable search token. Single characters produce a
 /// prefix scan that matches almost every buffer; below this the query is
 /// treated as empty and yields no results, which is also the server-side
@@ -385,5 +461,67 @@ mod tests {
     #[test]
     fn unicode_alphanumerics_are_preserved() {
         assert_eq!(to_prefix_match("café").as_deref(), Some("\"café\"*"));
+    }
+
+    fn snippet_str(segs: &[SnippetSegment]) -> String {
+        segs.iter().map(|s| s.text.as_str()).collect()
+    }
+
+    fn snippet_matched(segs: &[SnippetSegment]) -> Vec<String> {
+        segs.iter()
+            .filter(|s| s.matched)
+            .map(|s| s.text.clone())
+            .collect()
+    }
+
+    #[test]
+    fn content_snippet_highlights_literal_query() {
+        let segs = content_snippet("let token = 1;", "token", 512);
+        assert_eq!(snippet_str(&segs), "let token = 1;");
+        assert_eq!(snippet_matched(&segs), vec!["token"]);
+    }
+
+    #[test]
+    fn content_snippet_is_case_insensitive() {
+        let segs = content_snippet("The TOKEN here", "token", 512);
+        assert_eq!(snippet_matched(&segs), vec!["TOKEN"]);
+    }
+
+    #[test]
+    fn content_snippet_elides_long_line_but_keeps_match() {
+        let prefix = "x".repeat(2000);
+        let line = format!("{prefix} NEEDLE tail");
+        let segs = content_snippet(&line, "NEEDLE", 512);
+        let text = snippet_str(&segs);
+        assert!(text.starts_with('…'), "long line should lead with ellipsis");
+        assert!(text.contains("NEEDLE"), "the match must never be dropped");
+        assert!(
+            text.len() <= 512 + "…".len() * 2,
+            "snippet byte length {} exceeds cap",
+            text.len()
+        );
+        assert_eq!(snippet_matched(&segs), vec!["NEEDLE"]);
+    }
+
+    #[test]
+    fn content_snippet_truncates_long_line_without_match_window() {
+        // Match near the front: no leading ellipsis, but a trailing one.
+        let line = format!("NEEDLE {}", "y".repeat(2000));
+        let segs = content_snippet(&line, "NEEDLE", 512);
+        let text = snippet_str(&segs);
+        assert!(!text.starts_with('…'));
+        assert!(text.ends_with('…'));
+        assert!(text.contains("NEEDLE"));
+    }
+
+    #[test]
+    fn content_snippet_multibyte_never_splits_a_char() {
+        // A line of multibyte chars with a match; truncation must land on a char
+        // boundary (no panic, valid UTF-8).
+        let line = format!("{} café done", "é".repeat(400));
+        let segs = content_snippet(&line, "café", 64);
+        let text = snippet_str(&segs);
+        assert!(text.is_char_boundary(text.len()));
+        assert!(text.len() <= 64 + "…".len() * 2);
     }
 }
