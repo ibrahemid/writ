@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { basename, dirname, resolveWithinRoot } from "../../lib/path";
+import { basename, dirname, joinPath, pathKey, resolveWithinRoot } from "../../lib/path";
 
 describe("basename", () => {
   it("returns the last segment of a posix path", () => {
@@ -39,6 +39,44 @@ describe("dirname", () => {
   it("returns the input unchanged when there is no parent", () => {
     expect(dirname("notes.md")).toBe("notes.md");
     expect(dirname("/foo")).toBe("/foo");
+  });
+});
+
+describe("joinPath", () => {
+  it("joins a posix root with a forward-slash relative path", () => {
+    expect(joinPath("/home/user/repo", "src/main.rs")).toBe("/home/user/repo/src/main.rs");
+  });
+
+  it("keeps the windows separator of the root", () => {
+    expect(joinPath("C:\\Users\\me\\repo", "src/main.rs")).toBe("C:\\Users\\me\\repo\\src/main.rs");
+  });
+
+  it("collapses a trailing root separator and a leading relative separator", () => {
+    expect(joinPath("/repo/", "/src/main.rs")).toBe("/repo/src/main.rs");
+  });
+
+  it("returns the relative path when the root is empty", () => {
+    expect(joinPath("", "src/main.rs")).toBe("src/main.rs");
+  });
+
+  it("returns the root when the relative path is empty", () => {
+    expect(joinPath("/repo", "")).toBe("/repo");
+  });
+});
+
+describe("pathKey", () => {
+  it("matches a windows buffer path against a joined workspace path", () => {
+    const fromBuffer = "C:\\Users\\me\\repo\\src\\main.rs";
+    const fromWorkspace = joinPath("C:\\Users\\me\\repo", "src/main.rs");
+    expect(pathKey(fromWorkspace)).toBe(pathKey(fromBuffer));
+  });
+
+  it("leaves a posix path unchanged", () => {
+    expect(pathKey("/repo/src/main.rs")).toBe("/repo/src/main.rs");
+  });
+
+  it("keeps distinct files distinct", () => {
+    expect(pathKey("/repo/src/a.rs")).not.toBe(pathKey("/repo/src/b.rs"));
   });
 });
 
