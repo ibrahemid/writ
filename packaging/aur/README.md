@@ -63,44 +63,23 @@ makepkg --printsrcinfo > .SRCINFO
 
 The post-release workflow regenerates `.SRCINFO` as part of the bump PR when it updates the version and SHA.
 
-## Submitting to AUR
+## Submission
 
-AUR submission is a one-time setup. After that every release is a `git push` to the AUR git remote.
-
-1. Create an account at https://aur.archlinux.org.
-2. Upload an SSH public key to your AUR profile. Only ed25519 and RSA 4096+ keys are accepted.
-3. Confirm the package name is available:
-   ```sh
-   ssh aur@aur.archlinux.org list-repos
-   ```
-4. Clone the empty package repo (this creates it on first push):
-   ```sh
-   git clone ssh://aur@aur.archlinux.org/writ-bin.git aur-writ-bin
-   ```
-5. Copy the PKGBUILD and generated `.SRCINFO` into the clone:
-   ```sh
-   cp packaging/aur/writ-bin/PKGBUILD aur-writ-bin/PKGBUILD
-   cd aur-writ-bin
-   makepkg --printsrcinfo > .SRCINFO
-   ```
-6. Commit and push:
-   ```sh
-   git add PKGBUILD .SRCINFO
-   git commit -m "writ-bin 0.1.0-1: initial release"
-   git push origin master
-   ```
+Done. `writ-bin` is published at https://aur.archlinux.org/packages/writ-bin, first pushed at 0.2.0-1. The account key lives at `~/.ssh/aur_ed25519` with a matching `Host aur.archlinux.org` entry in `~/.ssh/config`.
 
 ## Updating on a new release
 
-The post-release workflow `.github/workflows/packages.yml` rewrites `pkgver`, `sha256sums`, and `.SRCINFO` in this repo and opens a PR with the bumps. After the PR merges, push the updated `PKGBUILD` and `.SRCINFO` to the AUR remote:
+The post-release workflow `.github/workflows/packages.yml` rewrites `pkgver`, `sha256sums`, and `.SRCINFO` in this repo and opens a PR with the bumps. After the PR merges, push the updated files to the AUR remote:
 
 ```sh
-cp packaging/aur/writ-bin/PKGBUILD aur-writ-bin/PKGBUILD
-cp packaging/aur/writ-bin/.SRCINFO aur-writ-bin/.SRCINFO  # if present
+git clone ssh://aur@aur.archlinux.org/writ-bin.git aur-writ-bin
+install -m644 packaging/aur/writ-bin/PKGBUILD packaging/aur/writ-bin/.SRCINFO aur-writ-bin/
 cd aur-writ-bin
 git add PKGBUILD .SRCINFO
 git commit -m "writ-bin <version>-1"
-git push origin master
+git push origin HEAD:master
 ```
+
+AUR only accepts `master`, and a fresh clone checks out whatever `init.defaultBranch` says, so push `HEAD:master` rather than `master`. Copy the two files by name; `packaging/aur/` carries a `.DS_Store`. The AUR server validates `.SRCINFO` against the `PKGBUILD` on push and rejects the push if they disagree, which is what makes the script-generated `.SRCINFO` safe to ship without an Arch host.
 
 A follow-up improvement is to push directly from the workflow using a deploy key registered with the AUR account.
