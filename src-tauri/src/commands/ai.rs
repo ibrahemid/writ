@@ -10,9 +10,11 @@
 //! - The endpoint guard ([`writ_core::polish::is_endpoint_allowed`]) runs on
 //!   every request against the parsed host, so a hand-edited `config.toml`
 //!   pointing `http` at a remote host is rejected before any bytes leave.
-//! - API keys never touch `config.toml`, the database, or disk: they live in
-//!   the OS keychain, or in memory for the session when the keychain is
-//!   unavailable.
+//! - API keys never touch `config.toml`, the database, or disk. They are stored
+//!   in the OS keychain, or held in memory for the session when the keychain is
+//!   unavailable. A key read back from the keychain is also cached in memory for
+//!   the session, because each keychain read can raise a system password
+//!   prompt; that cache is process-local and dies with the process.
 //! - Only lengths and status codes are logged. Prompt text, response text, and
 //!   keys never reach the logs or error strings shown to the user.
 
