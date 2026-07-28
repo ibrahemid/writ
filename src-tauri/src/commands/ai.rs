@@ -293,13 +293,24 @@ pub fn ai_consent_host(app: AppHandle) -> Result<AiEndpointState, String> {
         return Err("This endpoint is on your machine; nothing is sent.".to_string());
     }
 
+    // Record under the lock and re-read there, so a settings write landing
+    // between the read above and this point is not silently overwritten with a
+    // stale clone. On a failed disk write the in-memory list is put back, so
+    // memory and disk never disagree about what was consented to.
     if !is_consented(&config.ai, &target.host) {
-        config.ai.consented_hosts.push(target.host.clone());
-        config.ai.consented_hosts.sort();
-        config.ai.consented_hosts.dedup();
-        super::config::persist_config(&state, &config)?;
-        let mut current = recover_poison(state.config.lock(), "commands::ai::ai_consent_host");
-        *current = config.clone();
+        let updated = {
+            let mut guard = recover_poison(state.config.lock(), "commands::ai::ai_consent_host");
+            guard.ai.consented_hosts.push(target.host.clone());
+            guard.ai.consented_hosts.sort();
+            guard.ai.consented_hosts.dedup();
+            guard.clone()
+        };
+        if let Err(reason) = super::config::persist_config(&state, &updated) {
+            let mut guard = recover_poison(state.config.lock(), "commands::ai::ai_consent_host");
+            guard.ai.consented_hosts.retain(|h| h != &target.host);
+            return Err(reason);
+        }
+        config = updated;
     }
 
     let key_state = {
