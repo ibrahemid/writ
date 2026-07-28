@@ -19,36 +19,58 @@ export interface MenuItem {
 }
 
 // A menu is positioned either at cursor coordinates (right-click) or anchored
-// to an element's rect (a status-bar chip, opening upward). Both modes share
-// the same keyboard navigation and dismissal.
+// to an element's rect (a status-bar chip, or a word in the editor). Both modes
+// share the same keyboard navigation and dismissal.
 interface ContextMenuState {
   items: MenuItem[];
   cursor?: { x: number; y: number };
   anchor?: DOMRect;
   trigger?: HTMLElement | null;
+  /** Region the menu must stay inside. Defaults to the viewport. */
+  bounds?: DOMRect;
 }
 
 // Singleton state — Writ is single-window, single-instance per component
 const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
 
-export function showContextMenu(x: number, y: number, items: MenuItem[]) {
-  setMenu({ items, cursor: { x, y } });
+export function showContextMenu(
+  x: number,
+  y: number,
+  items: MenuItem[],
+  bounds?: DOMRect,
+) {
+  setMenu({ items, cursor: { x, y }, bounds });
 }
 
 /**
- * Opens the menu anchored above `anchor`. When `trigger` is given, focus
- * returns to it on close, so keyboard users land back where they started.
+ * Opens the menu against `anchor`, preferring above it and flipping below when
+ * there is not room. When `trigger` is given, focus returns to it on close, so
+ * keyboard users land back where they started.
+ *
+ * `bounds` confines the menu to a region — the editor's scroller, say — so a
+ * word near the top of the document does not open a menu over the tab bar.
  */
-export function showAnchoredMenu(anchor: DOMRect, items: MenuItem[], trigger?: HTMLElement) {
-  setMenu({ items, anchor, trigger: trigger ?? null });
+export function showAnchoredMenu(
+  anchor: DOMRect,
+  items: MenuItem[],
+  trigger?: HTMLElement,
+  bounds?: DOMRect,
+) {
+  setMenu({ items, anchor, trigger: trigger ?? null, bounds });
 }
 
 export function hideContextMenu() {
   setMenu(null);
 }
 
-/** Keeps the menu off the very edge of the window when it has to be clamped. */
+/** Keeps the menu off the very edge of its allowed region. */
 const EDGE_GAP = 4;
+/** Space between the menu and the thing it is anchored to. */
+const GAP = 4;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(value, max));
+}
 
 export default function ContextMenu() {
   const [focused, setFocused] = createSignal(-1);
@@ -177,30 +199,48 @@ export default function ContextMenu() {
     });
   });
 
+  /** The region the menu may occupy: the caller's bounds, else the viewport. */
+  function limits(m: ContextMenuState) {
+    return {
+      top: (m.bounds?.top ?? 0) + EDGE_GAP,
+      bottom: (m.bounds?.bottom ?? window.innerHeight) - EDGE_GAP,
+      left: (m.bounds?.left ?? 0) + EDGE_GAP,
+      right: (m.bounds?.right ?? window.innerWidth) - EDGE_GAP,
+    };
+  }
+
   function positionStyle(m: ContextMenuState): Record<string, string> {
+    const box = limits(m);
+    const height = size().height;
+
     if (m.anchor) {
-      // Open upward from the anchor's top edge (status bar sits at the bottom).
+      // Prefer above (the status-bar chips sit at the bottom of the window), but
+      // flip below when there is no room — a misspelled word on the first line
+      // would otherwise open its corrections over the tab bar.
+      const fitsAbove = m.anchor.top - GAP - height >= box.top;
+      const top = fitsAbove ? m.anchor.top - GAP - height : m.anchor.bottom + GAP;
       return {
-        left: `${clampLeft(m.anchor.left)}px`,
-        bottom: `${Math.max(EDGE_GAP, window.innerHeight - m.anchor.top + 4)}px`,
+        left: `${clampLeft(clamp(m.anchor.left, box.left, box.right - size().width), m)}px`,
+        top: `${clamp(top, box.top, Math.max(box.top, box.bottom - height))}px`,
       };
     }
+
     // Cursor mode: flip back over the cursor when the menu would overflow, so a
     // right-click near the right or bottom edge stays fully on screen.
     const x = m.cursor?.x ?? 0;
     const y = m.cursor?.y ?? 0;
     const width = size().width;
-    const height = size().height;
-    const left =
-      x + width + EDGE_GAP > window.innerWidth ? Math.max(EDGE_GAP, x - width) : x;
-    const top =
-      y + height + EDGE_GAP > window.innerHeight ? Math.max(EDGE_GAP, y - height) : y;
-    return { left: `${clampLeft(left)}px`, top: `${top}px` };
+    const left = x + width > box.right ? x - width : x;
+    const top = y + height > box.bottom ? y - height : y;
+    return {
+      left: `${clampLeft(left, m)}px`,
+      top: `${clamp(top, box.top, Math.max(box.top, box.bottom - height))}px`,
+    };
   }
 
-  function clampLeft(left: number): number {
-    const max = window.innerWidth - size().width - EDGE_GAP;
-    return Math.max(EDGE_GAP, Math.min(left, Math.max(EDGE_GAP, max)));
+  function clampLeft(left: number, m: ContextMenuState): number {
+    const box = limits(m);
+    return clamp(left, box.left, Math.max(box.left, box.right - size().width));
   }
 
   return (

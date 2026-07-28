@@ -200,8 +200,8 @@ function posInSelection(view: EditorView, pos: number): boolean {
 }
 
 export interface EditorContextMenuDeps {
-  /** Opens the app menu at viewport coordinates. */
-  show(x: number, y: number, items: EditorMenuItem[]): void;
+  /** Opens the app menu at viewport coordinates, confined to `bounds`. */
+  show(x: number, y: number, items: EditorMenuItem[], bounds: DOMRect): void;
   /** Live spelling entries for the active view. */
   spellingEntries(): readonly SpellingEntry[];
   actions: Omit<EditorMenuActions, "cut" | "copy" | "paste" | "selectAll">;
@@ -277,7 +277,12 @@ export function editorContextMenu(deps: EditorContextMenuDeps): Extension {
         event.clientX === 0 && event.clientY === 0
           ? view.coordsAtPos(selection.head)
           : { left: event.clientX, top: event.clientY };
-      deps.show(coords?.left ?? 0, coords?.top ?? 0, items);
+      deps.show(
+        coords?.left ?? 0,
+        coords?.top ?? 0,
+        items,
+        view.scrollDOM.getBoundingClientRect(),
+      );
       return true;
     },
   });

@@ -132,9 +132,9 @@ export default function EditorInstance(props: Props) {
   let menuBufferId: string | null = null;
 
   const contextMenuExtension = editorContextMenu({
-    show: (x, y, items) => {
+    show: (x, y, items, bounds) => {
       menuBufferId = win.editor.currentBufferId();
-      showContextMenu(x, y, items);
+      showContextMenu(x, y, items, bounds);
     },
     spellingEntries: () => spellingStore.entries(),
     aiEnabled: () => configStore.config().ai.enabled,
@@ -166,7 +166,7 @@ export default function EditorInstance(props: Props) {
 
   // Double-click a flagged word to correct it in place.
   const spellingMenuExtension = spellingMenu({
-    showAt: (rect, items) => showAnchoredMenu(rect, items),
+    showAt: (rect, items, bounds) => showAnchoredMenu(rect, items, undefined, bounds),
     entries: () => spellingStore.entries(),
     apply: (entry, replacement) => spellingStore.applyOne(entry, replacement),
     addToDictionary: (word) => void spellingStore.ignoreWord(word),

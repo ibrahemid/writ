@@ -137,6 +137,75 @@ describe("ContextMenu viewport clamping", () => {
     expect(el.style.top).toBe("20px");
   });
 
+  it("flips below the anchor when there is no room above", () => {
+    // A misspelled word on the first line: opening upward would put the menu
+    // over the tab bar.
+    const { container } = render(() => <ContextMenu />);
+    const rect = { width: 200, height: 150 } as DOMRect;
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      return this.classList?.contains("context-menu") ? rect : original.call(this);
+    };
+
+    try {
+      const word = new DOMRect(120, 90, 60, 18);
+      // Editor area starts below the chrome.
+      const bounds = new DOMRect(0, 80, window.innerWidth, window.innerHeight - 80);
+      showAnchoredMenu(word, [{ label: "organic", action: () => {} }], undefined, bounds);
+
+      const el = container.querySelector<HTMLElement>(".context-menu")!;
+      const top = Number.parseFloat(el.style.top);
+      // Below the word, and never above the editor's top edge.
+      expect(top).toBeGreaterThanOrEqual(word.bottom);
+      expect(top).toBeGreaterThanOrEqual(bounds.top);
+    } finally {
+      Element.prototype.getBoundingClientRect = original;
+    }
+  });
+
+  it("still opens above the anchor when there is room", () => {
+    const { container } = render(() => <ContextMenu />);
+    const rect = { width: 200, height: 100 } as DOMRect;
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      return this.classList?.contains("context-menu") ? rect : original.call(this);
+    };
+
+    try {
+      // A status-bar chip near the bottom of the window.
+      const chip = new DOMRect(20, window.innerHeight - 30, 80, 20);
+      showAnchoredMenu(chip, [{ label: "Proofread", action: () => {} }]);
+      const el = container.querySelector<HTMLElement>(".context-menu")!;
+      const top = Number.parseFloat(el.style.top);
+      expect(top + rect.height).toBeLessThanOrEqual(chip.top);
+    } finally {
+      Element.prototype.getBoundingClientRect = original;
+    }
+  });
+
+  it("keeps a cursor menu inside the bounds it was given", () => {
+    const { container } = render(() => <ContextMenu />);
+    const rect = { width: 200, height: 150 } as DOMRect;
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      return this.classList?.contains("context-menu") ? rect : original.call(this);
+    };
+
+    try {
+      const bounds = new DOMRect(0, 80, 500, 400);
+      showContextMenu(490, 470, [{ label: "Copy", action: () => {} }], bounds);
+      const el = container.querySelector<HTMLElement>(".context-menu")!;
+      const left = Number.parseFloat(el.style.left);
+      const top = Number.parseFloat(el.style.top);
+      expect(left).toBeGreaterThanOrEqual(bounds.left);
+      expect(left + rect.width).toBeLessThanOrEqual(bounds.right);
+      expect(top).toBeGreaterThanOrEqual(bounds.top);
+      expect(top + rect.height).toBeLessThanOrEqual(bounds.bottom);
+    } finally {
+      Element.prototype.getBoundingClientRect = original;
+    }
+  });
+
   it("renders a shortcut hint when one is given", () => {
     const { getByText } = render(() => <ContextMenu />);
     showContextMenu(0, 0, [{ label: "Copy", action: () => {}, kbd: "⌘C" }]);

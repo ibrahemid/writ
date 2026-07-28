@@ -18,8 +18,8 @@ import { spellingAt, MAX_SUGGESTIONS, type EditorMenuItem } from "./context-menu
  */
 
 export interface SpellingMenuDeps {
-  /** Opens the menu anchored above `rect`. */
-  showAt(rect: DOMRect, items: EditorMenuItem[]): void;
+  /** Opens the menu against `rect`, confined to `bounds`. */
+  showAt(rect: DOMRect, items: EditorMenuItem[], bounds: DOMRect): void;
   entries(): readonly SpellingEntry[];
   apply(entry: SpellingEntry, replacement: string): void;
   addToDictionary(word: string): void;
@@ -72,7 +72,9 @@ export function spellingMenu(deps: SpellingMenuDeps): Extension {
       if (!rect) return false;
 
       event.preventDefault();
-      deps.showAt(rect, spellingMenuItems(entry, deps));
+      // Confined to the editor's scroller, so corrections for a word on the
+      // first line open below it rather than over the tab bar.
+      deps.showAt(rect, spellingMenuItems(entry, deps), view.scrollDOM.getBoundingClientRect());
       return true;
     },
   });
