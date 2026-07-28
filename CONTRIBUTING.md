@@ -85,12 +85,33 @@ docs(adr): record decision to use SolidJS over React
 - Keep commits atomic: one logical change per commit
 - Reference issue numbers in the body when applicable
 
+## Branching
+
+`dev` is the integration branch and the default branch. Every pull request
+targets it.
+
+`main` is the release pointer: release tags are cut from it and the website
+deploys from it. Nothing lands on `main` except a promotion of `dev` at release
+time.
+
+The working agreement on `dev`:
+
+- One branch per change, cut from `dev`. Name it `type/short-description`.
+- Keep branches short-lived — days, not weeks. A branch that cannot merge within
+  a few days is a change that wants splitting.
+- `dev` stays releasable. The full test suite passes, clippy is clean, and no
+  knowingly broken state is merged.
+- Unfinished work ships behind a config flag rather than living on a long branch.
+  The rewrite feature does this with `ai.enabled`: the code is on `dev`, and the
+  feature is invisible until switched on.
+- Merged branches are deleted automatically. Do not reuse a branch after merge.
+
 ## Pull Request Process
 
-1. Fork the repository and create a branch from `main`.
+1. Fork the repository and create a branch from `dev`.
 2. Make your changes with passing tests and no clippy warnings.
 3. Update `CHANGELOG.md` under `[Unreleased]` with a summary of your change.
-4. Open a pull request against `main`. Fill in the PR template.
+4. Open a pull request against `dev`. Fill in the PR template.
 5. A maintainer will review within a few business days.
 6. Address review feedback in new commits (do not force-push during review).
 7. Once approved, a maintainer will squash-merge.
