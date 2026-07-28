@@ -42,9 +42,8 @@ export async function pasteIntoSelection(view: EditorView): Promise<void> {
   // An image-only or empty clipboard inserts nothing rather than clearing the
   // selection, which would silently destroy text.
   if (!text) return;
-  view.dispatch(
-    view.state.replaceSelection(text),
-    { scrollIntoView: true },
-  );
+  // One spec, not two: `dispatch(a, b)` would fire two transactions and put the
+  // scroll in its own, empty one.
+  view.dispatch({ ...view.state.replaceSelection(text), scrollIntoView: true });
   view.focus();
 }
