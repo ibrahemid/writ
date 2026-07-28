@@ -42,8 +42,8 @@ export async function pasteIntoSelection(view: EditorView): Promise<void> {
   // An image-only or empty clipboard inserts nothing rather than clearing the
   // selection, which would silently destroy text.
   if (!text) return;
-  // One spec, not two: `dispatch(a, b)` would fire two transactions and put the
-  // scroll in its own, empty one.
+  // Spread rather than a second spec: `replaceSelection` returns a spec with no
+  // scroll field, so merging is the direct way to ask for one.
   view.dispatch({ ...view.state.replaceSelection(text), scrollIntoView: true });
   view.focus();
 }

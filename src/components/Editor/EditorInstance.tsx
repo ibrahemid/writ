@@ -126,8 +126,16 @@ export default function EditorInstance(props: Props) {
   // Writ's own right-click menu. The native WKWebView menu is suppressed
   // app-wide, so every editor action a user expects from a right click has to
   // live here.
+  // The buffer the menu was opened over. Pinned alongside the range, because a
+  // tab can still be switched by shortcut while the menu is up: applying
+  // offsets captured in one buffer to another would overwrite the wrong text.
+  let menuBufferId: string | null = null;
+
   const contextMenuExtension = editorContextMenu({
-    show: (x, y, items) => showContextMenu(x, y, items),
+    show: (x, y, items) => {
+      menuBufferId = win.editor.currentBufferId();
+      showContextMenu(x, y, items);
+    },
     spellingEntries: () => spellingStore.entries(),
     aiEnabled: () => configStore.config().ai.enabled,
     editable: (view) => !view.state.readOnly,
@@ -139,11 +147,10 @@ export default function EditorInstance(props: Props) {
     actions: {
       rewriteActions: REWRITE_ACTIONS,
       runRewrite: (id, range) => {
-        // `range` was captured when the menu opened, so what runs is what was
-        // selected then — not whatever the selection became meanwhile.
-        const bufferId = win.editor.currentBufferId();
-        if (!bufferId) return;
-        void runRewriteAction(id as AiAction, { ...range, bufferId });
+        // Both the range and the buffer come from when the menu opened, so what
+        // runs is what was selected then, in the buffer it was selected in.
+        if (!menuBufferId) return;
+        void runRewriteAction(id as AiAction, { ...range, bufferId: menuBufferId });
       },
       applySpelling: (entry, replacement) => spellingStore.applyOne(entry, replacement),
       addToDictionary: (word) => void spellingStore.ignoreWord(word),

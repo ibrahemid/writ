@@ -87,8 +87,23 @@ function createAiRewriteStore() {
     });
   }
 
-  /** Begins a rewrite over `range`. `custom` opens for an instruction first. */
+  /** Begins a rewrite over `range`. `custom` opens for an instruction first.
+   *
+   * A range captured earlier (the context menu pins one when it opens) can go
+   * stale before it is used — an external reload or a watcher-driven change
+   * shifts the document underneath it. Offsets are only tracked once a session
+   * exists, so verify the text still matches before anchoring to them; applying
+   * a result through stale offsets would overwrite the wrong text. */
   function start(action: AiAction, range: AnchoredRange) {
+    const view = windowRegistry.getActive()?.editor.getView();
+    if (view) {
+      const docLength = view.state.doc.length;
+      const inBounds = range.from >= 0 && range.to <= docLength && range.from <= range.to;
+      if (!inBounds || view.state.doc.sliceString(range.from, range.to) !== range.text) {
+        showToast("The text changed; run the rewrite again.", "info");
+        return;
+      }
+    }
     reset();
     setSession({
       requestId: newRequestId(),

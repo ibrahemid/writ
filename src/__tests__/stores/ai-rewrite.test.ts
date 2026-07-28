@@ -19,6 +19,10 @@ vi.mock("../../components/Notifications/Toast", () => ({
   showToast: (...args: unknown[]) => showToast(...args),
 }));
 
+// Document the store reads to confirm a captured range still points at the same
+// text. Tests override it to simulate the document moving underneath.
+const doc = { text: "0123456789hello", length: 15 };
+
 vi.mock("../../stores/global/window-registry", () => ({
   windowRegistry: {
     getActive: () => ({
@@ -26,6 +30,16 @@ vi.mock("../../stores/global/window-registry", () => ({
         currentBufferId: () => "buf1",
         replaceRange: (...args: unknown[]) => replaceRange(...args),
         focusEditor: () => focusEditor(),
+        getView: () => ({
+          state: {
+            doc: {
+              get length() {
+                return doc.length;
+              },
+              sliceString: (from: number, to: number) => doc.text.slice(from, to),
+            },
+          },
+        }),
       },
     }),
   },
@@ -116,5 +130,41 @@ describe("aiRewriteStore streaming state machine", () => {
     aiRewriteStore.submitInstruction();
     expect(aiRewrite).toHaveBeenCalledWith(expect.any(String), "custom", "hello", "make it formal");
     expect(aiRewriteStore.status()).toBe("streaming");
+  });
+});
+
+describe("a captured range is checked before it is used", () => {
+  beforeEach(() => {
+    aiRewrite.mockReset().mockResolvedValue("req-1");
+    showToast.mockReset();
+    aiRewriteStore.discard();
+    doc.text = "0123456789hello";
+    doc.length = 15;
+  });
+
+  it("runs when the text at the range still matches", () => {
+    aiRewriteStore.start("polish", range);
+    expect(aiRewriteStore.isOpen()).toBe(true);
+    expect(aiRewrite).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses when the document moved underneath the range", () => {
+    // A context-menu range is captured at open; an external reload between then
+    // and the click would leave these offsets pointing at different text, and
+    // applying a result through them would overwrite the wrong words.
+    doc.text = "something else entirely";
+    doc.length = 23;
+    aiRewriteStore.start("polish", range);
+    expect(aiRewriteStore.isOpen()).toBe(false);
+    expect(aiRewrite).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalled();
+  });
+
+  it("refuses when the range now runs past the end of the document", () => {
+    doc.text = "tiny";
+    doc.length = 4;
+    aiRewriteStore.start("polish", range);
+    expect(aiRewriteStore.isOpen()).toBe(false);
+    expect(aiRewrite).not.toHaveBeenCalled();
   });
 });
