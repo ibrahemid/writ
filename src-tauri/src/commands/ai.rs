@@ -43,6 +43,16 @@ pub struct AiState {
     /// In-memory keys, keyed by preset, used only when the OS keychain is
     /// unavailable or access was denied. Never persisted.
     keys: Mutex<HashMap<String, String>>,
+    /// What the keychain answered for a preset this session: `Some(key)` when
+    /// one is stored, `None` when the lookup succeeded and found nothing.
+    ///
+    /// Every keychain read on macOS can raise a system password prompt, and an
+    /// unsigned build gets a fresh prompt after each rebuild because the ACL is
+    /// bound to the code signature. Answering "is a key set?" and "give me the
+    /// key" from this cache keeps that to at most one prompt per session
+    /// instead of one per rewrite. Invalidated whenever a key is set or
+    /// cleared. Never persisted, never logged.
+    keychain_cache: Mutex<HashMap<String, Option<String>>>,
     /// Cancel flags for in-flight streams, keyed by the frontend's request id.
     tasks: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
@@ -144,13 +154,54 @@ fn resolve_key_from(
     keychain_value.or_else(|| memory.get(preset).cloned())
 }
 
-fn key_state(memory: &HashMap<String, String>, preset: &str) -> AiKeyState {
-    let hit = matches!(keychain::get(preset), Ok(Some(_)));
+/// Reads the keychain at most once per preset per session.
+///
+/// A miss consults the OS (which may prompt) and records the answer, including
+/// "there is no key", so a preset with no key does not re-prompt on every
+/// rewrite. A keychain *error* is not cached: it means access was denied or the
+/// store was unavailable, and the next attempt should be free to succeed.
+fn cached_keychain_get(ai: &AiState, preset: &str) -> Option<String> {
+    {
+        let cache = recover_poison(
+            ai.keychain_cache.lock(),
+            "commands::ai::cached_keychain_get",
+        );
+        if let Some(hit) = cache.get(preset) {
+            return hit.clone();
+        }
+    }
+    match keychain::get(preset) {
+        Ok(found) => {
+            let mut cache = recover_poison(
+                ai.keychain_cache.lock(),
+                "commands::ai::cached_keychain_get",
+            );
+            cache.insert(preset.to_string(), found.clone());
+            found
+        }
+        Err(reason) => {
+            tracing::debug!(error = %reason, "keychain read failed; falling back to memory");
+            None
+        }
+    }
+}
+
+/// Drops the cached answer for a preset, after the stored key changes.
+fn invalidate_keychain_cache(ai: &AiState, preset: &str) {
+    let mut cache = recover_poison(
+        ai.keychain_cache.lock(),
+        "commands::ai::invalidate_keychain_cache",
+    );
+    cache.remove(preset);
+}
+
+fn key_state(ai: &AiState, memory: &HashMap<String, String>, preset: &str) -> AiKeyState {
+    let hit = cached_keychain_get(ai, preset).is_some();
     compute_key_state(hit, memory, preset)
 }
 
-fn resolve_key(memory: &HashMap<String, String>, preset: &str) -> Option<String> {
-    resolve_key_from(keychain::get(preset).ok().flatten(), memory, preset)
+fn resolve_key(ai: &AiState, memory: &HashMap<String, String>, preset: &str) -> Option<String> {
+    resolve_key_from(cached_keychain_get(ai, preset), memory, preset)
 }
 
 /// Stores a provider key. Prefers the OS keychain; on failure holds the key in
@@ -166,6 +217,7 @@ pub fn ai_set_api_key(
         return Err("The API key is empty.".to_string());
     }
     let mut memory = recover_poison(ai.keys.lock(), "commands::ai::ai_set_api_key");
+    invalidate_keychain_cache(&ai, &preset);
     match keychain::set(&preset, &key) {
         Ok(()) => {
             memory.remove(&preset);
@@ -191,6 +243,7 @@ pub fn ai_set_api_key(
 pub fn ai_clear_api_key(ai: State<'_, AiState>, preset: String) -> Result<AiKeyState, String> {
     let mut memory = recover_poison(ai.keys.lock(), "commands::ai::ai_clear_api_key");
     memory.remove(&preset);
+    invalidate_keychain_cache(&ai, &preset);
     if let Err(reason) = keychain::delete(&preset) {
         tracing::debug!(error = %reason, "keychain delete failed");
     }
@@ -204,7 +257,7 @@ pub fn ai_clear_api_key(ai: State<'_, AiState>, preset: String) -> Result<AiKeyS
 #[tauri::command]
 pub fn ai_has_api_key(ai: State<'_, AiState>, preset: String) -> Result<AiKeyState, String> {
     let memory = recover_poison(ai.keys.lock(), "commands::ai::ai_has_api_key");
-    Ok(key_state(&memory, &preset))
+    Ok(key_state(&ai, &memory, &preset))
 }
 
 // --- Consent ---------------------------------------------------------------
@@ -228,6 +281,15 @@ pub struct AiEndpointState {
     pub is_consented: bool,
     /// Whether a key is stored for the current preset, and where it lives.
     pub key_state: AiKeyState,
+}
+
+/// Whether answering "is a key set?" for this config needs the OS keychain at
+/// all. A local endpoint never uses a key, so asking would raise a system
+/// password prompt to compute a value nothing reads.
+fn needs_key_lookup(cfg: &AiConfig) -> bool {
+    polish::resolve_endpoint(&cfg.base_url)
+        .map(|t| t.is_hosted)
+        .unwrap_or(false)
 }
 
 /// Builds the endpoint state for `cfg`. Pure over its key lookup so the
@@ -263,10 +325,17 @@ pub fn ai_endpoint_state(app: AppHandle) -> Result<AiEndpointState, String> {
         let guard = recover_poison(state.config.lock(), "commands::ai::ai_endpoint_state");
         guard.ai.clone()
     };
-    let key_state = {
+    // A local endpoint needs no key, so do not consult the keychain to answer a
+    // question nothing reads: on macOS that alone can raise a password prompt.
+    let key_state = if needs_key_lookup(&cfg) {
         let ai = app.state::<AiState>();
         let memory = recover_poison(ai.keys.lock(), "commands::ai::ai_endpoint_state");
-        key_state(&memory, &cfg.preset)
+        key_state(&ai, &memory, &cfg.preset)
+    } else {
+        AiKeyState {
+            is_set: false,
+            memory_only: false,
+        }
     };
     Ok(endpoint_state_from(&cfg, key_state))
 }
@@ -316,7 +385,8 @@ pub fn ai_consent_host(app: AppHandle) -> Result<AiEndpointState, String> {
     let key_state = {
         let ai = app.state::<AiState>();
         let memory = recover_poison(ai.keys.lock(), "commands::ai::ai_consent_host");
-        key_state(&memory, &config.ai.preset)
+        // Reached only for a hosted endpoint, which does need a key.
+        key_state(&ai, &memory, &config.ai.preset)
     };
     Ok(endpoint_state_from(&config.ai, key_state))
 }
@@ -633,7 +703,7 @@ pub async fn ai_rewrite(
         let ai = app.state::<AiState>();
         let memory = recover_poison(ai.keys.lock(), "commands::ai::ai_rewrite");
         prepare_request(&cfg, &action, &text, custom_instruction, |preset| {
-            resolve_key(&memory, preset)
+            resolve_key(&ai, &memory, preset)
         })
         .map_err(|e| e.to_string())?
     };
@@ -846,7 +916,7 @@ pub async fn ai_check_connection(app: AppHandle) -> Result<AiConnectionStatus, S
     let api_key = if target.is_hosted {
         let ai = app.state::<AiState>();
         let memory = recover_poison(ai.keys.lock(), "commands::ai::ai_check_connection");
-        resolve_key(&memory, &cfg.preset)
+        resolve_key(&ai, &memory, &cfg.preset)
     } else {
         None
     };
@@ -1005,6 +1075,84 @@ mod tests {
         let err =
             prepare_request(&cfg, "custom", "x", Some("  ".to_string()), |_| None).unwrap_err();
         assert_eq!(err, PolishError::EmptyInstruction);
+    }
+
+    #[test]
+    fn a_local_endpoint_never_needs_the_keychain() {
+        // Reading the keychain can raise a system password prompt on macOS.
+        // Asking for a key a local endpoint will never use is a prompt for
+        // nothing.
+        assert!(!needs_key_lookup(&base_cfg()));
+    }
+
+    #[test]
+    fn a_hosted_endpoint_needs_the_keychain() {
+        let mut cfg = base_cfg();
+        cfg.base_url = "https://api.deepseek.com/v1".to_string();
+        assert!(needs_key_lookup(&cfg));
+    }
+
+    #[test]
+    fn an_unparseable_url_needs_no_keychain_lookup() {
+        let mut cfg = base_cfg();
+        cfg.base_url = "not a url".to_string();
+        assert!(!needs_key_lookup(&cfg));
+    }
+
+    #[test]
+    fn the_keychain_is_read_once_per_preset_then_served_from_cache() {
+        let ai = AiState::default();
+        // Seed the cache as a successful lookup would.
+        {
+            let mut cache = ai.keychain_cache.lock().unwrap();
+            cache.insert("groq".to_string(), Some("k".to_string()));
+        }
+        let memory = HashMap::new();
+        // Both readers answer from the cache: no second OS call, so no second
+        // password prompt during a session.
+        assert_eq!(resolve_key(&ai, &memory, "groq"), Some("k".to_string()));
+        assert!(key_state(&ai, &memory, "groq").is_set);
+    }
+
+    #[test]
+    fn a_cached_absence_is_honoured_without_asking_again() {
+        let ai = AiState::default();
+        {
+            let mut cache = ai.keychain_cache.lock().unwrap();
+            cache.insert("groq".to_string(), None);
+        }
+        let memory = HashMap::new();
+        assert_eq!(resolve_key(&ai, &memory, "groq"), None);
+        assert!(!key_state(&ai, &memory, "groq").is_set);
+    }
+
+    #[test]
+    fn the_memory_fallback_still_wins_when_the_keychain_holds_nothing() {
+        let ai = AiState::default();
+        {
+            let mut cache = ai.keychain_cache.lock().unwrap();
+            cache.insert("groq".to_string(), None);
+        }
+        let mut memory = HashMap::new();
+        memory.insert("groq".to_string(), "from-memory".to_string());
+        assert_eq!(
+            resolve_key(&ai, &memory, "groq"),
+            Some("from-memory".to_string())
+        );
+        let state = key_state(&ai, &memory, "groq");
+        assert!(state.is_set);
+        assert!(state.memory_only);
+    }
+
+    #[test]
+    fn changing_a_key_drops_the_cached_answer() {
+        let ai = AiState::default();
+        {
+            let mut cache = ai.keychain_cache.lock().unwrap();
+            cache.insert("groq".to_string(), Some("old".to_string()));
+        }
+        invalidate_keychain_cache(&ai, "groq");
+        assert!(!ai.keychain_cache.lock().unwrap().contains_key("groq"));
     }
 
     #[test]

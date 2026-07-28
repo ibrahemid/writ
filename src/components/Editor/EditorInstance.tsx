@@ -138,12 +138,11 @@ export default function EditorInstance(props: Props) {
     },
     actions: {
       rewriteActions: REWRITE_ACTIONS,
-      runRewrite: (id) => {
-        // The range is pinned when the menu opens: an edit while the menu is up
-        // must not silently retarget the rewrite.
+      runRewrite: (id, range) => {
+        // `range` was captured when the menu opened, so what runs is what was
+        // selected then — not whatever the selection became meanwhile.
         const bufferId = win.editor.currentBufferId();
-        const range = win.editor.getSelectionRange(true);
-        if (!bufferId || !range) return;
+        if (!bufferId) return;
         void runRewriteAction(id as AiAction, { ...range, bufferId });
       },
       applySpelling: (entry, replacement) => spellingStore.applyOne(entry, replacement),

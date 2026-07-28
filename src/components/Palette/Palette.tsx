@@ -89,15 +89,18 @@ export default function Palette(props: PaletteProps) {
       generation += 1;
       return;
     }
-    untrack(() => {
+    const seeded = untrack(() => {
       props.onOpen?.();
       const seed = props.initialQuery?.() ?? "";
       if (seed) setQuery(seed);
+      return seed.length > 0;
     });
     requestAnimationFrame(() => {
       inputRef?.focus();
-      // Select the seeded text so typing replaces it.
-      if (untrack(query)) inputRef?.select();
+      // Select only text this open actually seeded. Selecting whatever happens
+      // to be in the box would eat characters typed before this frame runs:
+      // the selection swallows them on the next keystroke.
+      if (seeded) inputRef?.select();
     });
   });
 

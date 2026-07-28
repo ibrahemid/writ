@@ -28,12 +28,23 @@ export interface EditorMenuItem {
   kbd?: string;
 }
 
+/** The exact text a rewrite will act on, resolved when the menu opens so an
+ * edit or a selection change afterwards cannot silently retarget it. */
+export interface PinnedRange {
+  from: number;
+  to: number;
+  text: string;
+  usedSelection: boolean;
+}
+
 /** Everything under the pointer that changes what the menu offers. */
 export interface EditorMenuContext {
   /** A non-empty selection exists. */
   hasSelection: boolean;
   /** The selected text, for labelling the search row. */
   selectionText: string;
+  /** The range a rewrite acts on, captured at open. */
+  pinnedRange: PinnedRange | null;
   /** The misspelling under the pointer, when there is one. */
   spelling: SpellingEntry | null;
   /** The link under the pointer, with its text resolved. */
@@ -57,7 +68,8 @@ export interface EditorMenuActions {
   addToDictionary(word: string): void;
   openLink(target: LinkRange, text: string): void;
   copyLink(text: string): void;
-  runRewrite(actionId: string): void;
+  /** `range` is captured when the menu opens, not read back at click time. */
+  runRewrite(actionId: string, range: PinnedRange): void;
   fillPlaceholders(): void;
   searchWorkspace(query: string): void;
   /** Rewrite actions, from the one action table. */
@@ -140,11 +152,12 @@ export function buildEditorMenuItems(
   // Rewrite acts on a selection. With nothing selected the whole-document path
   // stays available from the palette and the status-bar chip, so the menu does
   // not offer five rows that all open the same confirmation.
-  if (ctx.aiEnabled && ctx.hasSelection) {
+  if (ctx.aiEnabled && ctx.hasSelection && ctx.pinnedRange) {
+    const pinned = ctx.pinnedRange;
     actions.rewriteActions.forEach((action, index) => {
       items.push({
         label: action.menuLabel,
-        action: () => actions.runRewrite(action.id),
+        action: () => actions.runRewrite(action.id, pinned),
         disabled: !ctx.editable,
         separator: index === 0,
       });
@@ -230,6 +243,14 @@ export function editorContextMenu(deps: EditorContextMenuDeps): Extension {
         {
           hasSelection: selectionText.trim().length > 0,
           selectionText,
+          pinnedRange: selection.empty
+            ? null
+            : {
+                from: selection.from,
+                to: selection.to,
+                text: selectionText,
+                usedSelection: true,
+              },
           spelling: pos === null ? null : spellingAt(deps.spellingEntries(), pos),
           link: linkRange
             ? { range: linkRange, text: view.state.doc.sliceString(linkRange.from, linkRange.to) }

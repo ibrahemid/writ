@@ -36,6 +36,7 @@ function context(overrides: Partial<EditorMenuContext> = {}): EditorMenuContext 
   return {
     hasSelection: false,
     selectionText: "",
+    pinnedRange: null,
     spelling: null,
     link: null,
     aiEnabled: false,
@@ -57,6 +58,8 @@ function entry(overrides: Partial<SpellingEntry> = {}): SpellingEntry {
     ...overrides,
   };
 }
+
+const PINNED = { from: 0, to: 2, text: "hi", usedSelection: true };
 
 const labels = (items: { label: string }[]) => items.map((i) => i.label);
 
@@ -89,7 +92,7 @@ describe("editor menu adapts to the selection", () => {
 describe("rewrite group", () => {
   it("lists every rewrite action when text is selected and the feature is on", () => {
     const items = buildEditorMenuItems(
-      context({ hasSelection: true, selectionText: "hi", aiEnabled: true }),
+      context({ hasSelection: true, selectionText: "hi", aiEnabled: true, pinnedRange: PINNED }),
       actions(),
     );
     expect(labels(items)).toEqual(
@@ -113,11 +116,26 @@ describe("rewrite group", () => {
   it("runs the action it was given", () => {
     const acts = actions();
     const items = buildEditorMenuItems(
-      context({ hasSelection: true, selectionText: "hi", aiEnabled: true }),
+      context({ hasSelection: true, selectionText: "hi", aiEnabled: true, pinnedRange: PINNED }),
       acts,
     );
     items.find((i) => i.label === "Polish")!.action();
-    expect(acts.runRewrite).toHaveBeenCalledWith("polish");
+    expect(acts.runRewrite).toHaveBeenCalledWith("polish", PINNED);
+  });
+
+  it("carries the range captured at open, not whatever is selected later", () => {
+    const acts = actions();
+    const ctx = context({
+      hasSelection: true,
+      selectionText: "hi",
+      aiEnabled: true,
+      pinnedRange: PINNED,
+    });
+    const items = buildEditorMenuItems(ctx, acts);
+    // Selection moves on while the menu sits open.
+    ctx.selectionText = "something else";
+    items.find((i) => i.label === "Proofread")!.action();
+    expect(acts.runRewrite).toHaveBeenCalledWith("proofread", PINNED);
   });
 });
 
