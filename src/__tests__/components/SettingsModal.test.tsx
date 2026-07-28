@@ -24,7 +24,30 @@ const mocks = vi.hoisted(() => ({
   revealStoragePath: vi.fn().mockResolvedValue(undefined),
   copyStoragePath: vi.fn().mockResolvedValue(undefined),
   writeClipboardText: vi.fn().mockResolvedValue(undefined),
+  aiEndpointState: vi.fn(),
+  aiConsentHost: vi.fn(),
+  aiCheckConnection: vi.fn().mockResolvedValue({
+    reachable: true,
+    model_listed: true,
+    kind: "ok",
+    detail: "",
+    models: [],
+  }),
 }));
+
+/** Endpoint state for a hosted provider, defaulting to the operator's reported
+ * situation: reachable and allowed, but no consent recorded. */
+function hostedEndpoint(overrides: Record<string, unknown> = {}) {
+  return {
+    host: "api.deepseek.com",
+    host_port: "api.deepseek.com",
+    is_hosted: true,
+    is_allowed: true,
+    is_consented: false,
+    key_state: { is_set: true, memory_only: false },
+    ...overrides,
+  };
+}
 
 vi.mock("../../services/tauri", () => ({
   getConfig: vi.fn().mockResolvedValue(undefined),
@@ -35,6 +58,9 @@ vi.mock("../../services/tauri", () => ({
   aiHasApiKey: vi.fn().mockResolvedValue({ is_set: false, memory_only: false }),
   aiSetApiKey: vi.fn().mockResolvedValue({ is_set: true, memory_only: false }),
   aiClearApiKey: vi.fn().mockResolvedValue({ is_set: false, memory_only: false }),
+  aiEndpointState: mocks.aiEndpointState,
+  aiConsentHost: mocks.aiConsentHost,
+  aiCheckConnection: mocks.aiCheckConnection,
 }));
 
 vi.mock("../../stores/global/default-app", () => ({
@@ -130,6 +156,8 @@ describe("SettingsModal", () => {
     mocks.revealStoragePath.mockReset().mockResolvedValue(undefined);
     mocks.copyStoragePath.mockReset().mockResolvedValue(undefined);
     mocks.writeClipboardText.mockReset().mockResolvedValue(undefined);
+    mocks.aiEndpointState.mockReset().mockResolvedValue(hostedEndpoint());
+    mocks.aiConsentHost.mockReset().mockResolvedValue(hostedEndpoint({ is_consented: true }));
     clearDefaultAppSupport();
   });
 
@@ -636,5 +664,74 @@ describe("SettingsModal", () => {
       const indexed = new Set(SETTINGS_INDEX.map((e) => e.id));
       expect([...rendered].sort()).toEqual([...indexed].sort());
     });
+  });
+});
+
+describe("AI consent notice", () => {
+  async function openAiSection(enabled: boolean) {
+    mocks.config.mockReturnValue({
+      ...baseConfig(),
+      ai: {
+        enabled,
+        preset: "deepseek",
+        base_url: "https://api.deepseek.com/v1",
+        model: "deepseek-chat",
+        consented_hosts: [],
+      },
+    });
+    const result = render(() => <SettingsModal />);
+    openSettings("ai");
+    return result;
+  }
+
+  it("names the host that text would be sent to", async () => {
+    const { container } = await openAiSection(true);
+    await waitFor(() =>
+      expect(container.querySelector(".settings-ai-consent")).not.toBeNull(),
+    );
+    expect(container.querySelector(".settings-ai-consent-text")!.textContent).toContain(
+      "api.deepseek.com",
+    );
+  });
+
+  it("sits above the model and key rows, not below the connection line", async () => {
+    const { container } = await openAiSection(true);
+    await waitFor(() =>
+      expect(container.querySelector(".settings-ai-consent")).not.toBeNull(),
+    );
+    const notice = container.querySelector(".settings-ai-consent")!;
+    const keyRow = container.querySelector('[data-setting-id="ai.api_key"]')!;
+    // Buried below the fold is why the operator never saw it.
+    expect(notice.compareDocumentPosition(keyRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("records consent host-side rather than patching the config itself", async () => {
+    const { container, getByText } = await openAiSection(true);
+    await waitFor(() =>
+      expect(container.querySelector(".settings-ai-consent")).not.toBeNull(),
+    );
+    fireEvent.click(getByText("Allow"));
+    await waitFor(() => expect(mocks.aiConsentHost).toHaveBeenCalledTimes(1));
+  });
+
+  it("stays hidden once the host is consented to", async () => {
+    mocks.aiEndpointState.mockResolvedValue(hostedEndpoint({ is_consented: true }));
+    const { container } = await openAiSection(true);
+    await waitFor(() => expect(mocks.aiEndpointState).toHaveBeenCalled());
+    expect(container.querySelector(".settings-ai-consent")).toBeNull();
+  });
+
+  it("stays hidden for a local endpoint", async () => {
+    mocks.aiEndpointState.mockResolvedValue(
+      hostedEndpoint({ host: "localhost", is_hosted: false, is_consented: true }),
+    );
+    const { container } = await openAiSection(true);
+    await waitFor(() => expect(mocks.aiEndpointState).toHaveBeenCalled());
+    expect(container.querySelector(".settings-ai-consent")).toBeNull();
+  });
+
+  it("asks nothing while the feature is off", async () => {
+    const { container } = await openAiSection(false);
+    expect(container.querySelector(".settings-ai-consent")).toBeNull();
   });
 });

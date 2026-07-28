@@ -11,7 +11,13 @@ import type { ResultProvider } from "../Palette/types";
 // Singleton state — Writ is single-window
 const [isOpen, setIsOpen] = createSignal(false);
 
-export function openSearchPalette() { setIsOpen(true); }
+// Singleton state — Writ is single-window. Consumed once per open.
+const [seedQuery, setSeedQuery] = createSignal("");
+
+export function openSearchPalette(query = "") {
+  setSeedQuery(query);
+  setIsOpen(true);
+}
 export function closeSearchPalette() { setIsOpen(false); }
 export function toggleSearchPalette() { setIsOpen(prev => !prev); }
 
@@ -56,6 +62,7 @@ export default function SearchPalette() {
       inputLabel="Search files, content, commands"
       notice={searchNotice}
       onOpen={() => void workspaceSearchStore.refreshIndexStatus()}
+      initialQuery={seedQuery}
     />
   );
 }

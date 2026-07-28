@@ -16,6 +16,17 @@ import { markdownTypographyPlugin } from "../../editor/markdown-typography";
 import { markdownEditingExtension } from "../../editor/markdown-editing";
 import { spellingExtension } from "../../editor/spelling";
 import { linkLayer } from "../../editor/link-layer";
+import { editorContextMenu } from "../../editor/context-menu";
+import { spellingMenu } from "../../editor/spelling-menu";
+import {
+  copySelection,
+  cutSelection,
+  pasteIntoSelection,
+} from "../../editor/clipboard-commands";
+import { showContextMenu, showAnchoredMenu } from "../ContextMenu/ContextMenu";
+import { REWRITE_ACTIONS } from "../../commands/rewrite-actions";
+import { runRewriteAction, type AiAction } from "../../commands/ai";
+import { openSearchPalette } from "../SearchPalette/SearchPalette";
 import { spellingStore } from "../../stores/global/spelling";
 import { linkStore } from "../../stores/global/link";
 import { workspaceStore } from "../../stores/global/workspace";
@@ -35,7 +46,7 @@ import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { findStore } from "../../stores/global/find-store";
 import { aiRewriteStore } from "../../stores/global/ai-rewrite";
 import { useWindow } from "../WindowProvider/WindowProvider";
-import { registerCommand, unregisterCommand } from "../../commands/registry";
+import { registerCommand, unregisterCommand, executeCommand } from "../../commands/registry";
 import { rebuildKeyMap } from "../../commands/keybindings";
 import { getExtension as languageExtension } from "../../editor/language-registry";
 import { registerBuiltinLanguages } from "../../editor/builtins";
@@ -111,6 +122,49 @@ export default function EditorInstance(props: Props) {
       void win.tabs.openFile(target).catch(() => undefined);
     },
   };
+
+  // Writ's own right-click menu. The native WKWebView menu is suppressed
+  // app-wide, so every editor action a user expects from a right click has to
+  // live here.
+  const contextMenuExtension = editorContextMenu({
+    show: (x, y, items) => showContextMenu(x, y, items),
+    spellingEntries: () => spellingStore.entries(),
+    aiEnabled: () => configStore.config().ai.enabled,
+    editable: (view) => !view.state.readOnly,
+    clipboard: {
+      copy: (view) => void copySelection(view),
+      cut: (view) => void cutSelection(view),
+      paste: (view) => void pasteIntoSelection(view),
+    },
+    actions: {
+      rewriteActions: REWRITE_ACTIONS,
+      runRewrite: (id) => {
+        // The range is pinned when the menu opens: an edit while the menu is up
+        // must not silently retarget the rewrite.
+        const bufferId = win.editor.currentBufferId();
+        const range = win.editor.getSelectionRange(true);
+        if (!bufferId || !range) return;
+        void runRewriteAction(id as AiAction, { ...range, bufferId });
+      },
+      applySpelling: (entry, replacement) => spellingStore.applyOne(entry, replacement),
+      addToDictionary: (word) => void spellingStore.ignoreWord(word),
+      openLink: (target, text) => {
+        if (target.kind === "url") linkDeps.openUrl(text);
+        else linkDeps.openWorkspaceFile(text);
+      },
+      copyLink: (text) => void linkStore.copyLink(text),
+      fillPlaceholders: () => executeCommand("prompt.fillPlaceholders"),
+      searchWorkspace: (query) => openSearchPalette(query),
+    },
+  });
+
+  // Double-click a flagged word to correct it in place.
+  const spellingMenuExtension = spellingMenu({
+    showAt: (rect, items) => showAnchoredMenu(rect, items),
+    entries: () => spellingStore.entries(),
+    apply: (entry, replacement) => spellingStore.applyOne(entry, replacement),
+    addToDictionary: (word) => void spellingStore.ignoreWord(word),
+  });
 
   // A buffer can be checked when it is in Normal mode and under the size cap,
   // independent of whether the feature is switched on. This drives the
@@ -224,6 +278,8 @@ export default function EditorInstance(props: Props) {
       // Configured by applySpelling() after the view mounts.
       spellingCompartment.of([]),
       linkCompartment.of(isRestricted ? [] : linkLayer(linkDeps)),
+      contextMenuExtension,
+      spellingMenuExtension,
       readOnlyCompartment.of(
         isBinary
           ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]

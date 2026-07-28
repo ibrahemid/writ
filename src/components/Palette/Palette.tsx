@@ -18,6 +18,9 @@ export interface PaletteProps {
   notice?: () => string | null;
   // Fired once per open, before the first query runs.
   onOpen?: () => void;
+  // Seeds the input when the palette opens, for callers that already know what
+  // the user is looking for (the editor's "Search workspace for …" row).
+  initialQuery?: () => string;
 }
 
 type Buckets = Record<string, PaletteResult[] | undefined>;
@@ -86,8 +89,16 @@ export default function Palette(props: PaletteProps) {
       generation += 1;
       return;
     }
-    untrack(() => props.onOpen?.());
-    requestAnimationFrame(() => inputRef?.focus());
+    untrack(() => {
+      props.onOpen?.();
+      const seed = props.initialQuery?.() ?? "";
+      if (seed) setQuery(seed);
+    });
+    requestAnimationFrame(() => {
+      inputRef?.focus();
+      // Select the seeded text so typing replaces it.
+      if (untrack(query)) inputRef?.select();
+    });
   });
 
   // One generation per keystroke. Buckets are cleared synchronously here, not

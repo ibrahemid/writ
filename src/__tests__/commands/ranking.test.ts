@@ -130,4 +130,64 @@ describe("rankWithQuery", () => {
     const ranked = rankWithQuery(commands, "", {}, NOW);
     expect(ranked.map((c) => c.id)).toEqual(["a", "b"]);
   });
+
+  it("matches keywords that appear in neither label nor description", () => {
+    const withKeyword: Command = {
+      ...cmd("x.one", "Proofread", "Fix spelling"),
+      keywords: ["rewrite", "llm"],
+    };
+    const ranked = rankWithQuery([withKeyword, cmd("x.two", "Unrelated")], "rewrite", {}, NOW);
+    expect(ranked.map((c) => c.id)).toEqual(["x.one"]);
+  });
+
+  it("ranks a keyword hit above a description-only hit", () => {
+    const byKeyword: Command = { ...cmd("k", "Alpha"), keywords: ["rewrite"] };
+    const byDescription = cmd("d", "Beta", "this will rewrite things");
+    const ranked = rankWithQuery([byDescription, byKeyword], "rewrite", {}, NOW);
+    expect(ranked.map((c) => c.id)).toEqual(["k", "d"]);
+  });
+});
+
+describe("rewrite actions are findable in the palette", () => {
+  it("returns every rewrite action for the query that used to return one", async () => {
+    // Reported: searching the palette surfaced only the custom rewrite, because
+    // "rewrite" appeared in no other label, id, or description.
+    const { REWRITE_ACTIONS } = await import("../../commands/rewrite-actions");
+    const commands: Command[] = REWRITE_ACTIONS.map((a) => ({
+      id: a.commandId,
+      label: a.label,
+      description: a.description,
+      keywords: a.keywords,
+      scope: "app",
+      execute: () => {},
+    }));
+
+    const ranked = rankWithQuery(commands, "rewrite", {}, NOW);
+    expect(ranked).toHaveLength(REWRITE_ACTIONS.length);
+  });
+
+  it("finds each action by its own name too", async () => {
+    const { REWRITE_ACTIONS } = await import("../../commands/rewrite-actions");
+    const commands: Command[] = REWRITE_ACTIONS.map((a) => ({
+      id: a.commandId,
+      label: a.label,
+      description: a.description,
+      keywords: a.keywords,
+      scope: "app",
+      execute: () => {},
+    }));
+
+    for (const query of ["proofread", "rephrase", "polish", "improve prompt", "prompt"]) {
+      const ranked = rankWithQuery(commands, query, {}, NOW);
+      expect(ranked.length, `query "${query}" found nothing`).toBeGreaterThan(0);
+    }
+  });
+
+  it("keeps the actions adjacent in the alphabetical browse", async () => {
+    const { REWRITE_ACTIONS } = await import("../../commands/rewrite-actions");
+    // The shared "Rewrite:" prefix is what groups them; without it they scatter
+    // across the alphabet next to unrelated commands.
+    const labels = REWRITE_ACTIONS.map((a) => a.label);
+    expect(labels.every((l) => l.startsWith("Rewrite: "))).toBe(true);
+  });
 });

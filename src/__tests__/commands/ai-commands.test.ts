@@ -1,19 +1,34 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { registerAiCommands, unregisterAiCommands } from "../../commands/ai";
 import { getAllCommands } from "../../commands/registry";
+import { REWRITE_ACTIONS, REWRITE_COMMAND_IDS } from "../../commands/rewrite-actions";
 
-const AI_IDS = ["ai.custom", "ai.polish", "ai.proofread", "ai.rephrase"];
+// Derived from the one action table, so a new action cannot be added without
+// this file covering it.
+const AI_IDS = [...REWRITE_COMMAND_IDS].sort();
 
 describe("rewrite command registration", () => {
   afterEach(() => unregisterAiCommands());
 
-  it("registers all four rewrite commands", () => {
+  it("registers every rewrite command in the table", () => {
     registerAiCommands();
     const ids = getAllCommands()
       .filter((c) => c.id.startsWith("ai."))
       .map((c) => c.id)
       .sort();
     expect(ids).toEqual(AI_IDS);
+    expect(ids).toHaveLength(5);
+  });
+
+  it("offers proofread, rephrase, polish, improve prompt and custom", () => {
+    // The reported symptom was a palette that surfaced only the custom rewrite.
+    expect(REWRITE_ACTIONS.map((a) => a.id)).toEqual([
+      "proofread",
+      "rephrase",
+      "polish",
+      "improve_prompt",
+      "custom",
+    ]);
   });
 
   it("registers them app-scoped so the command palette lists them", () => {

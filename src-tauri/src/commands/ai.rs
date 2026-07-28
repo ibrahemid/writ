@@ -25,7 +25,7 @@ use futures_util::StreamExt;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use writ_core::config::AiConfig;
-use writ_core::polish::{self, PolishAction, POLISH_TEMPERATURE};
+use writ_core::polish::{self, PolishAction, PolishError, POLISH_TEMPERATURE};
 
 use crate::events::{emit_event, WritFrontendEvent};
 use crate::poison::recover_poison;
@@ -207,6 +207,109 @@ pub fn ai_has_api_key(ai: State<'_, AiState>, preset: String) -> Result<AiKeySta
     Ok(key_state(&memory, &preset))
 }
 
+// --- Consent ---------------------------------------------------------------
+
+/// What the UI needs to know about the configured endpoint before running a
+/// rewrite: where it points, whether it needs consent, and whether it has one.
+///
+/// The frontend never parses the base URL itself — it renders this — so there
+/// is exactly one host-resolution code path in the product.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AiEndpointState {
+    /// Resolved host, or `None` when the base URL does not parse.
+    pub host: Option<String>,
+    /// Host with `:port` when the URL carries one; for display.
+    pub host_port: Option<String>,
+    /// The endpoint leaves this machine, so consent and a key are required.
+    pub is_hosted: bool,
+    /// The scheme/host pair passes the outbound guard.
+    pub is_allowed: bool,
+    /// The send notice has been accepted for this exact host.
+    pub is_consented: bool,
+    /// Whether a key is stored for the current preset, and where it lives.
+    pub key_state: AiKeyState,
+}
+
+/// Builds the endpoint state for `cfg`. Pure over its key lookup so the
+/// consent/key matrix is testable without a keychain.
+fn endpoint_state_from(cfg: &AiConfig, key_state: AiKeyState) -> AiEndpointState {
+    match polish::resolve_endpoint(&cfg.base_url) {
+        Ok(target) => AiEndpointState {
+            is_consented: !target.is_hosted || is_consented(cfg, &target.host),
+            host: Some(target.host),
+            host_port: Some(target.host_port),
+            is_hosted: target.is_hosted,
+            is_allowed: target.is_allowed,
+            key_state,
+        },
+        Err(_) => AiEndpointState {
+            host: None,
+            host_port: None,
+            is_hosted: false,
+            is_allowed: false,
+            is_consented: false,
+            key_state,
+        },
+    }
+}
+
+/// Reports where the configured endpoint points and what it still needs, so the
+/// UI can ask for consent or a key before a rewrite is attempted rather than
+/// after it fails.
+#[tauri::command]
+pub fn ai_endpoint_state(app: AppHandle) -> Result<AiEndpointState, String> {
+    let cfg = {
+        let state = app.state::<AppState>();
+        let guard = recover_poison(state.config.lock(), "commands::ai::ai_endpoint_state");
+        guard.ai.clone()
+    };
+    let key_state = {
+        let ai = app.state::<AiState>();
+        let memory = recover_poison(ai.keys.lock(), "commands::ai::ai_endpoint_state");
+        key_state(&memory, &cfg.preset)
+    };
+    Ok(endpoint_state_from(&cfg, key_state))
+}
+
+/// Records the send notice for the currently configured host and persists it.
+///
+/// The host is resolved here rather than supplied by the caller, so consent is
+/// always stored under the exact string [`prepare_request`] later checks — a
+/// client-computed host could never drift out of agreement with the guard.
+/// Refuses a local or disallowed endpoint: there is nothing to consent to.
+#[tauri::command]
+pub fn ai_consent_host(app: AppHandle) -> Result<AiEndpointState, String> {
+    let state = app.state::<AppState>();
+    let mut config = {
+        let guard = recover_poison(state.config.lock(), "commands::ai::ai_consent_host");
+        guard.clone()
+    };
+
+    let target = polish::resolve_endpoint(&config.ai.base_url).map_err(|e| e.to_string())?;
+    if !target.is_allowed {
+        return Err(PolishError::EndpointNotAllowed.to_string());
+    }
+    if !target.is_hosted {
+        return Err("This endpoint is on your machine; nothing is sent.".to_string());
+    }
+
+    if !is_consented(&config.ai, &target.host) {
+        config.ai.consented_hosts.push(target.host.clone());
+        config.ai.consented_hosts.sort();
+        config.ai.consented_hosts.dedup();
+        super::config::persist_config(&state, &config)?;
+        let mut current = recover_poison(state.config.lock(), "commands::ai::ai_consent_host");
+        *current = config.clone();
+    }
+
+    let key_state = {
+        let ai = app.state::<AiState>();
+        let memory = recover_poison(ai.keys.lock(), "commands::ai::ai_consent_host");
+        key_state(&memory, &config.ai.preset)
+    };
+    Ok(endpoint_state_from(&config.ai, key_state))
+}
+
 // --- Request preparation (pure, testable) ----------------------------------
 
 /// Everything a stream needs, resolved from config and validated. Building this
@@ -228,36 +331,39 @@ fn prepare_request(
     text: &str,
     custom_instruction: Option<String>,
     lookup_key: impl FnOnce(&str) -> Option<String>,
-) -> Result<PreparedRequest, String> {
+) -> Result<PreparedRequest, PolishError> {
     if !cfg.enabled {
-        return Err("Rewriting is turned off.".to_string());
+        return Err(PolishError::Disabled);
     }
 
-    let action = PolishAction::parse(action_id, custom_instruction).map_err(|e| e.to_string())?;
-    let messages = polish::build_messages(&action, text).map_err(|e| e.to_string())?;
+    let action = PolishAction::parse(action_id, custom_instruction)?;
+    let messages = polish::build_messages(&action, text)?;
 
-    let url = url::Url::parse(cfg.base_url.trim())
-        .map_err(|_| "The base URL is not a valid URL.".to_string())?;
-    let scheme = url.scheme();
-    let host = url
-        .host_str()
-        .ok_or_else(|| "The base URL has no host.".to_string())?;
-    if !polish::is_endpoint_allowed(scheme, host) {
-        return Err("This base URL is not allowed. Use https, or http for localhost.".to_string());
+    // The one authority: the guard below and `ai_consent_host` resolve the host
+    // through the same call, so the string checked here is always the string
+    // recorded as consent.
+    let target = polish::resolve_endpoint(&cfg.base_url)?;
+    if !target.is_allowed {
+        return Err(PolishError::EndpointNotAllowed);
     }
 
     if cfg.model.trim().is_empty() {
-        return Err("Choose a model in AI settings.".to_string());
+        return Err(PolishError::ModelRequired);
     }
 
-    let hosted = polish::is_hosted(host);
-    let api_key = if hosted {
-        if !cfg.consented_hosts.iter().any(|h| h == host) {
-            return Err("Confirm sending text to this provider first.".to_string());
+    let api_key = if target.is_hosted {
+        if !is_consented(cfg, &target.host) {
+            return Err(PolishError::ConsentRequired {
+                host: target.host.clone(),
+            });
         }
         match lookup_key(&cfg.preset) {
             Some(k) => Some(k),
-            None => return Err("Add an API key for this provider first.".to_string()),
+            None => {
+                return Err(PolishError::ApiKeyRequired {
+                    host: target.host.clone(),
+                })
+            }
         }
     } else {
         None
@@ -276,8 +382,14 @@ fn prepare_request(
         endpoint,
         body,
         api_key,
-        is_localhost: polish::is_localhost(host),
+        is_localhost: !target.is_hosted,
     })
+}
+
+/// Whether the send notice was accepted for `host`. Membership is exact: a
+/// consent given for one provider never covers another.
+fn is_consented(cfg: &AiConfig, host: &str) -> bool {
+    cfg.consented_hosts.iter().any(|h| h == host)
 }
 
 // --- Streaming engine (pure over its callback, testable) -------------------
@@ -511,7 +623,8 @@ pub async fn ai_rewrite(
         let memory = recover_poison(ai.keys.lock(), "commands::ai::ai_rewrite");
         prepare_request(&cfg, &action, &text, custom_instruction, |preset| {
             resolve_key(&memory, preset)
-        })?
+        })
+        .map_err(|e| e.to_string())?
     };
 
     tracing::info!(text_len = text.len(), "starting rewrite");
@@ -704,9 +817,11 @@ pub async fn ai_check_connection(app: AppHandle) -> Result<AiConnectionStatus, S
         guard.ai.clone()
     };
 
-    let url = match url::Url::parse(cfg.base_url.trim()) {
-        Ok(u) => u,
-        Err(_) => {
+    // Same resolver as the rewrite guard and the consent recorder — the probe
+    // must never disagree with them about where the endpoint points.
+    let target = match polish::resolve_endpoint(&cfg.base_url) {
+        Ok(t) if t.is_allowed => t,
+        _ => {
             return Ok(AiConnectionStatus::new(
                 false,
                 None,
@@ -715,29 +830,9 @@ pub async fn ai_check_connection(app: AppHandle) -> Result<AiConnectionStatus, S
             ))
         }
     };
-    let scheme = url.scheme();
-    let Some(host) = url.host_str() else {
-        return Ok(AiConnectionStatus::new(
-            false,
-            None,
-            "invalid_url",
-            String::new(),
-        ));
-    };
-    if !polish::is_endpoint_allowed(scheme, host) {
-        return Ok(AiConnectionStatus::new(
-            false,
-            None,
-            "invalid_url",
-            String::new(),
-        ));
-    }
 
-    let host_port = match url.port() {
-        Some(port) => format!("{host}:{port}"),
-        None => host.to_string(),
-    };
-    let api_key = if polish::is_hosted(host) {
+    let host_port = target.host_port.clone();
+    let api_key = if target.is_hosted {
         let ai = app.state::<AiState>();
         let memory = recover_poison(ai.keys.lock(), "commands::ai::ai_check_connection");
         resolve_key(&memory, &cfg.preset)
@@ -815,7 +910,7 @@ mod tests {
         let mut cfg = base_cfg();
         cfg.enabled = false;
         let err = prepare_request(&cfg, "proofread", "x", None, |_| None).unwrap_err();
-        assert!(err.contains("turned off"));
+        assert_eq!(err, PolishError::Disabled);
     }
 
     #[test]
@@ -823,7 +918,7 @@ mod tests {
         let mut cfg = base_cfg();
         cfg.base_url = "http://api.groq.com/openai/v1".to_string();
         let err = prepare_request(&cfg, "proofread", "x", None, |_| None).unwrap_err();
-        assert!(err.contains("not allowed"), "got: {err}");
+        assert_eq!(err, PolishError::EndpointNotAllowed);
     }
 
     #[test]
@@ -831,7 +926,7 @@ mod tests {
         let mut cfg = base_cfg();
         cfg.base_url = "http://localhost.evil.com/v1".to_string();
         let err = prepare_request(&cfg, "proofread", "x", None, |_| None).unwrap_err();
-        assert!(err.contains("not allowed"), "got: {err}");
+        assert_eq!(err, PolishError::EndpointNotAllowed);
     }
 
     #[test]
@@ -839,7 +934,7 @@ mod tests {
         let mut cfg = base_cfg();
         cfg.model = "   ".to_string();
         let err = prepare_request(&cfg, "proofread", "x", None, |_| None).unwrap_err();
-        assert!(err.contains("model"), "got: {err}");
+        assert_eq!(err, PolishError::ModelRequired);
     }
 
     #[test]
@@ -861,16 +956,31 @@ mod tests {
         cfg.base_url = "https://api.groq.com/openai/v1".to_string();
 
         let no_consent = prepare_request(&cfg, "polish", "x", None, |_| Some("k".to_string()));
-        assert!(no_consent.unwrap_err().contains("Confirm"));
+        assert_eq!(
+            no_consent.unwrap_err(),
+            PolishError::ConsentRequired {
+                host: "api.groq.com".to_string()
+            }
+        );
 
         // Consent to a different host must not cover this one.
         cfg.consented_hosts = vec!["api.deepseek.com".to_string()];
         let wrong_host = prepare_request(&cfg, "polish", "x", None, |_| Some("k".to_string()));
-        assert!(wrong_host.unwrap_err().contains("Confirm"));
+        assert_eq!(
+            wrong_host.unwrap_err(),
+            PolishError::ConsentRequired {
+                host: "api.groq.com".to_string()
+            }
+        );
 
         cfg.consented_hosts = vec!["api.groq.com".to_string()];
         let no_key = prepare_request(&cfg, "polish", "x", None, |_| None);
-        assert!(no_key.unwrap_err().contains("API key"));
+        assert_eq!(
+            no_key.unwrap_err(),
+            PolishError::ApiKeyRequired {
+                host: "api.groq.com".to_string()
+            }
+        );
 
         let ok =
             prepare_request(&cfg, "polish", "x", None, |_| Some("secret".to_string())).unwrap();
@@ -883,7 +993,74 @@ mod tests {
         let cfg = base_cfg();
         let err =
             prepare_request(&cfg, "custom", "x", Some("  ".to_string()), |_| None).unwrap_err();
-        assert!(err.to_lowercase().contains("instruction"), "got: {err}");
+        assert_eq!(err, PolishError::EmptyInstruction);
+    }
+
+    #[test]
+    fn endpoint_state_reports_consent_and_key_for_a_hosted_provider() {
+        let mut cfg = base_cfg();
+        cfg.preset = "deepseek".to_string();
+        cfg.base_url = "https://api.deepseek.com/v1".to_string();
+        let no_key = AiKeyState {
+            is_set: false,
+            memory_only: false,
+        };
+
+        // The operator's reported state: hosted, allowed, no consent recorded.
+        let state = endpoint_state_from(&cfg, no_key);
+        assert_eq!(state.host.as_deref(), Some("api.deepseek.com"));
+        assert!(state.is_hosted);
+        assert!(state.is_allowed);
+        assert!(!state.is_consented);
+
+        cfg.consented_hosts = vec!["api.deepseek.com".to_string()];
+        assert!(endpoint_state_from(&cfg, no_key).is_consented);
+    }
+
+    #[test]
+    fn endpoint_state_treats_local_as_already_consented() {
+        // Nothing leaves the machine, so the UI must never ask.
+        let cfg = base_cfg();
+        let state = endpoint_state_from(
+            &cfg,
+            AiKeyState {
+                is_set: false,
+                memory_only: false,
+            },
+        );
+        assert!(!state.is_hosted);
+        assert!(state.is_consented);
+    }
+
+    #[test]
+    fn endpoint_state_survives_an_unparseable_url() {
+        let mut cfg = base_cfg();
+        cfg.base_url = "not a url".to_string();
+        let state = endpoint_state_from(
+            &cfg,
+            AiKeyState {
+                is_set: false,
+                memory_only: false,
+            },
+        );
+        assert!(state.host.is_none());
+        assert!(!state.is_allowed);
+        assert!(!state.is_consented);
+    }
+
+    #[test]
+    fn consent_is_recorded_under_the_host_the_guard_checks() {
+        // The whole point of resolving server-side: whatever `ai_consent_host`
+        // would store must satisfy `prepare_request` on the very next call.
+        let mut cfg = base_cfg();
+        cfg.preset = "deepseek".to_string();
+        cfg.base_url = "  https://API.DeepSeek.com/v1/  ".to_string();
+
+        let target = polish::resolve_endpoint(&cfg.base_url).unwrap();
+        cfg.consented_hosts = vec![target.host];
+
+        let prepared = prepare_request(&cfg, "polish", "x", None, |_| Some("k".to_string()));
+        assert!(prepared.is_ok(), "got: {:?}", prepared.unwrap_err());
     }
 
     #[test]

@@ -1,12 +1,21 @@
 import { createSignal, createEffect, Show, For, onCleanup } from "solid-js";
 import "./ContextMenu.css";
 
-interface MenuItem {
+export interface MenuItem {
   label: string;
   action: () => void;
   danger?: boolean;
+  /**
+   * Draws a divider *above* this item. Purely presentational: the item is still
+   * a normal, clickable entry. It is not "this row is a separator" — reading it
+   * that way silently killed every item that opened a group (Spelling settings,
+   * Close All Tabs, Clear All History).
+   */
   separator?: boolean;
+  /** The only flag that makes an item non-actionable. */
   disabled?: boolean;
+  /** Shortcut hint, right-aligned. */
+  kbd?: string;
 }
 
 // A menu is positioned either at cursor coordinates (right-click) or anchored
@@ -38,8 +47,14 @@ export function hideContextMenu() {
   setMenu(null);
 }
 
+/** Keeps the menu off the very edge of the window when it has to be clamped. */
+const EDGE_GAP = 4;
+
 export default function ContextMenu() {
   const [focused, setFocused] = createSignal(-1);
+  // Measured after render, so clamping uses the real box rather than a guess.
+  const [size, setSize] = createSignal({ width: 0, height: 0 });
+  let menuRef: HTMLDivElement | undefined;
   let buttons: (HTMLButtonElement | undefined)[] = [];
 
   function handleClickOutside() {
@@ -55,7 +70,7 @@ export default function ContextMenu() {
   }
 
   function focusableIndices(items: MenuItem[]): number[] {
-    return items.map((it, i) => (it.separator || it.disabled ? -1 : i)).filter((i) => i >= 0);
+    return items.map((it, i) => (it.disabled ? -1 : i)).filter((i) => i >= 0);
   }
 
   function moveFocus(delta: number) {
@@ -71,7 +86,7 @@ export default function ContextMenu() {
   function activate(index: number) {
     const m = menu();
     const item = m?.items[index];
-    if (!item || item.separator || item.disabled) return;
+    if (!item || item.disabled) return;
     item.action();
     close();
   }
@@ -119,6 +134,23 @@ export default function ContextMenu() {
     setFocused(first);
   });
 
+  // Measure once per open. The first paint may overflow the viewport by up to
+  // one frame; re-reading the box then re-positions it.
+  createEffect(() => {
+    if (!menu()) {
+      setSize({ width: 0, height: 0 });
+      return;
+    }
+    const el = menuRef;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setSize((prev) =>
+      prev.width === rect.width && prev.height === rect.height
+        ? prev
+        : { width: rect.width, height: rect.height },
+    );
+  });
+
   // Move DOM focus to follow the focused index.
   createEffect(() => {
     const index = focused();
@@ -149,17 +181,33 @@ export default function ContextMenu() {
     if (m.anchor) {
       // Open upward from the anchor's top edge (status bar sits at the bottom).
       return {
-        left: `${m.anchor.left}px`,
-        bottom: `${Math.max(0, window.innerHeight - m.anchor.top + 4)}px`,
+        left: `${clampLeft(m.anchor.left)}px`,
+        bottom: `${Math.max(EDGE_GAP, window.innerHeight - m.anchor.top + 4)}px`,
       };
     }
-    return { left: `${m.cursor?.x ?? 0}px`, top: `${m.cursor?.y ?? 0}px` };
+    // Cursor mode: flip back over the cursor when the menu would overflow, so a
+    // right-click near the right or bottom edge stays fully on screen.
+    const x = m.cursor?.x ?? 0;
+    const y = m.cursor?.y ?? 0;
+    const width = size().width;
+    const height = size().height;
+    const left =
+      x + width + EDGE_GAP > window.innerWidth ? Math.max(EDGE_GAP, x - width) : x;
+    const top =
+      y + height + EDGE_GAP > window.innerHeight ? Math.max(EDGE_GAP, y - height) : y;
+    return { left: `${clampLeft(left)}px`, top: `${top}px` };
+  }
+
+  function clampLeft(left: number): number {
+    const max = window.innerWidth - size().width - EDGE_GAP;
+    return Math.max(EDGE_GAP, Math.min(left, Math.max(EDGE_GAP, max)));
   }
 
   return (
     <Show when={menu()}>
       {(m) => (
         <div
+          ref={(el) => (menuRef = el)}
           class="context-menu"
           role="menu"
           style={positionStyle(m())}
@@ -179,7 +227,8 @@ export default function ContextMenu() {
                   class={`context-menu-item ${item.danger ? "context-menu-danger" : ""}`}
                   onClick={() => activate(index())}
                 >
-                  {item.label}
+                  <span class="context-menu-label">{item.label}</span>
+                  {item.kbd && <span class="context-menu-kbd">{item.kbd}</span>}
                 </button>
               </>
             )}
