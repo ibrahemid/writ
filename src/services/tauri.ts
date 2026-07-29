@@ -603,11 +603,32 @@ export async function revealStoragePath(): Promise<void> {
 
 // --- Rewrite (opt-in) ---
 
-export type AiAction = "proofread" | "rephrase" | "polish" | "custom";
+export type AiAction = "proofread" | "rephrase" | "polish" | "improve_prompt" | "custom";
 
 export interface AiKeyState {
   is_set: boolean;
   memory_only: boolean;
+}
+
+/** Where the configured endpoint points and what it still needs. The host is
+ * resolved in Rust by the same code the rewrite guard uses, so the frontend
+ * never parses a base URL itself. */
+export interface AiEndpointState {
+  host: string | null;
+  host_port: string | null;
+  is_hosted: boolean;
+  is_allowed: boolean;
+  is_consented: boolean;
+  key_state: AiKeyState;
+}
+
+export async function aiEndpointState(): Promise<AiEndpointState> {
+  return invoke("ai_endpoint_state");
+}
+
+/** Records the send notice for the currently configured host. */
+export async function aiConsentHost(): Promise<AiEndpointState> {
+  return invoke("ai_consent_host");
 }
 
 export async function aiRewrite(

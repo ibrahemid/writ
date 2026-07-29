@@ -8,12 +8,16 @@ import {
   aiHasApiKey,
   aiSetApiKey,
   aiClearApiKey,
+  aiEndpointState,
+  aiConsentHost,
   type AiAction,
   type AiKeyState,
+  type AiEndpointState,
 } from "../../services/tauri";
+import { rewriteActionLabel } from "../../commands/rewrite-actions";
 import type { WritEvent } from "../../types/events";
 
-export type { AiKeyState };
+export type { AiKeyState, AiEndpointState };
 
 type AiRewritePayload = Extract<WritEvent, { kind: "ai:rewrite" }>["payload"];
 
@@ -37,12 +41,6 @@ interface Session {
   action: AiAction;
 }
 
-const ACTION_LABELS: Record<AiAction, string> = {
-  proofread: "Proofread",
-  rephrase: "Rephrase",
-  polish: "Polish",
-  custom: "Custom rewrite",
-};
 
 // Singleton state — Writ is single-window. The overlay and its stream are a
 // single live session at a time.
@@ -89,8 +87,23 @@ function createAiRewriteStore() {
     });
   }
 
-  /** Begins a rewrite over `range`. `custom` opens for an instruction first. */
+  /** Begins a rewrite over `range`. `custom` opens for an instruction first.
+   *
+   * A range captured earlier (the context menu pins one when it opens) can go
+   * stale before it is used — an external reload or a watcher-driven change
+   * shifts the document underneath it. Offsets are only tracked once a session
+   * exists, so verify the text still matches before anchoring to them; applying
+   * a result through stale offsets would overwrite the wrong text. */
   function start(action: AiAction, range: AnchoredRange) {
+    const view = windowRegistry.getActive()?.editor.getView();
+    if (view) {
+      const docLength = view.state.doc.length;
+      const inBounds = range.from >= 0 && range.to <= docLength && range.from <= range.to;
+      if (!inBounds || view.state.doc.sliceString(range.from, range.to) !== range.text) {
+        showToast("The text changed; run the rewrite again.", "info");
+        return;
+      }
+    }
     reset();
     setSession({
       requestId: newRequestId(),
@@ -105,6 +118,18 @@ function createAiRewriteStore() {
       return;
     }
     launch(action);
+  }
+
+  /** Re-runs the failed request against the same anchored range.
+   *
+   * A fresh request id is issued so a late event from the failed attempt can
+   * never be matched against the retry. */
+  function retry() {
+    const s = session();
+    if (!s || status() !== "error") return;
+    const next = { ...s, requestId: newRequestId() };
+    setSession(next);
+    launch(next.action, next.action === "custom" ? instruction().trim() : undefined);
   }
 
   function submitInstruction() {
@@ -179,9 +204,10 @@ function createAiRewriteStore() {
     original: () => session()?.original ?? "",
     actionLabel: () => {
       const s = session();
-      return s ? ACTION_LABELS[s.action] : "";
+      return s ? rewriteActionLabel(s.action) : "";
     },
     start,
+    retry,
     submitInstruction,
     handleStreamEvent,
     onDocChanged,
@@ -190,6 +216,10 @@ function createAiRewriteStore() {
     hasApiKey: (preset: string): Promise<AiKeyState> => aiHasApiKey(preset),
     setApiKey: (preset: string, key: string): Promise<AiKeyState> => aiSetApiKey(preset, key),
     clearApiKey: (preset: string): Promise<AiKeyState> => aiClearApiKey(preset),
+    /** Where the configured endpoint points and what it still needs. */
+    endpointState: (): Promise<AiEndpointState> => aiEndpointState(),
+    /** Records the send notice for the configured host, host-side. */
+    consentHost: (): Promise<AiEndpointState> => aiConsentHost(),
   };
 }
 

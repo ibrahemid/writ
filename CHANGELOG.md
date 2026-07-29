@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- A Writ context menu in the editor, replacing the webview's. It offers what fits the moment: spelling corrections on a flagged word, link actions on a link, clipboard verbs, the rewrite actions when text is selected, and a workspace search seeded with the selection. Text fields get their own cut/copy/paste menu.
+- Rewrite gained an "improve prompt" action, which rewrites the selection as a clearer instruction for a model and reproduces `{{placeholder}}` tokens untouched.
+- Spelling corrections in place: double-click a flagged word to see its suggestions above it and click one to apply, or add that single word to the dictionary. Previously a word could only be fixed in bulk or ignored.
+- Commands carry search keywords, so the palette finds them by terms that appear in neither their label nor their description.
+
+### Changed
+
+- The rewrite actions share a `Rewrite:` prefix and are findable as a group; searching the palette for "rewrite" previously returned only the custom action.
+- Consent for a hosted provider is asked when the first rewrite runs, and names the host receiving the text. It was previously reachable only from a notice at the foot of the AI settings section, which left a configured provider failing with no way forward.
+- Rewrite failures name the host and offer the setting that fixes them, and a failed rewrite can be retried without re-selecting the text.
+
+### Fixed
+
+- Menu items that opened a group did nothing when clicked and could not be reached by keyboard: Spelling settings, Close All Tabs, and Clear All History.
+- Menus no longer open past the edge of the window. A menu that does not fit above its target flips below it, so corrections for a word near the top of a document are no longer pushed out of view.
+- The OS keychain is consulted once per provider per session rather than on every rewrite, which on macOS raised a password prompt each time. A local endpoint never consults it.
+
 ## [0.2.0] - 2026-07-24
 
 ### Added

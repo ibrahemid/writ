@@ -8,6 +8,13 @@ vi.mock("../../services/tauri", () => ({
   spellingAddIgnoredWord: vi.fn().mockResolvedValue(undefined),
 }));
 
+const settingsMocks = vi.hoisted(() => ({ openSettings: vi.fn() }));
+
+vi.mock("../../components/SettingsModal/SettingsModal", () => ({
+  default: () => null,
+  openSettings: settingsMocks.openSettings,
+}));
+
 import SpellingChip from "../../components/Editor/SpellingChip";
 import ContextMenu, { hideContextMenu } from "../../components/ContextMenu/ContextMenu";
 import { spellingStore } from "../../stores/global/spelling";
@@ -20,6 +27,7 @@ async function setEnabled(enabled: boolean) {
 
 beforeEach(async () => {
   spellingStore.detach();
+  settingsMocks.openSettings.mockClear();
   await setEnabled(false);
 });
 
@@ -97,6 +105,38 @@ describe("SpellingChip menu-driven toggle", () => {
     expect(getByText("Turn off spelling")).not.toBeNull();
     expect(getByText("Fix all (2)")).not.toBeNull();
     expect(queryByText("Preview…")).not.toBeNull();
+  });
+
+  // Reported: "spelling settings does not open from status bar when clicked".
+  // The row carries `separator: true` to open its group, which the menu used to
+  // read as "this row is a divider" and refuse to activate.
+  it("opens spelling settings from the menu", async () => {
+    spellingStore.setEligible(true);
+    await setEnabled(true);
+    const { container, getByText } = render(() => (
+      <>
+        <SpellingChip />
+        <ContextMenu />
+      </>
+    ));
+
+    fireEvent.click(container.querySelector(".spelling-chip")!);
+    fireEvent.click(getByText("Spelling settings"));
+    expect(settingsMocks.openSettings).toHaveBeenCalledWith("editor", "editor.spelling");
+  });
+
+  it("opens spelling settings while the feature is off", async () => {
+    spellingStore.setEligible(true);
+    const { container, getByText } = render(() => (
+      <>
+        <SpellingChip />
+        <ContextMenu />
+      </>
+    ));
+
+    fireEvent.click(container.querySelector(".spelling-chip")!);
+    fireEvent.click(getByText("Spelling settings"));
+    expect(settingsMocks.openSettings).toHaveBeenCalledWith("editor", "editor.spelling");
   });
 
   it("hides fix rows when on with no issues", async () => {

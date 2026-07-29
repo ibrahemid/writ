@@ -9,6 +9,7 @@ import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/
 import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
+import { installNativeContextMenuSuppressor } from "./lib/native-context-menu";
 import ToastContainer, { showToast } from "./components/Notifications/Toast";
 import ConfirmDialog, { requestConfirm } from "./components/ConfirmDialog/ConfirmDialog";
 import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
@@ -101,6 +102,8 @@ function AppShell() {
 
   onMount(async () => {
     measureFirstPaint("cold");
+    // Writ owns every context menu; the engine's belongs to a browser.
+    onCleanup(installNativeContextMenuSuppressor());
     themeStore.applyToRoot();
     await configStore.load();
     themeStore.loadConfig(configStore.config().theme);

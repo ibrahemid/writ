@@ -3,7 +3,8 @@ import { configStore } from "../../stores/global/config";
 import { windowRegistry } from "../../stores/global/window-registry";
 import { showAnchoredMenu } from "../ContextMenu/ContextMenu";
 import { openSettings } from "../SettingsModal/SettingsModal";
-import { runRewriteAction, type AiAction } from "../../commands/ai";
+import { runRewriteAction } from "../../commands/ai";
+import { REWRITE_ACTIONS } from "../../commands/rewrite-actions";
 import { aiConnectionStore, connectionDisplay } from "../../stores/global/ai-connection";
 
 // Status-bar chip shown while the rewrite feature is on. Clicking opens a menu
@@ -22,19 +23,15 @@ export default function RewriteChip() {
 
     const hasBuffer = windowRegistry.getActive()?.editor.currentBufferId() != null;
     const conn = connectionDisplay(aiConnectionStore.status(), configStore.config().ai.model);
-    const act = (a: AiAction) => ({
-      label: rewriteLabel(a),
-      action: () => void runRewriteAction(a),
-      disabled: !hasBuffer,
-    });
 
     showAnchoredMenu(
       ref.getBoundingClientRect(),
       [
-        act("proofread"),
-        act("rephrase"),
-        act("polish"),
-        act("custom"),
+        ...REWRITE_ACTIONS.map((action) => ({
+          label: action.menuLabel,
+          action: () => void runRewriteAction(action.id),
+          disabled: !hasBuffer,
+        })),
         { label: conn.text, action: () => {}, disabled: true, separator: true },
         { label: "AI settings", action: () => openSettings("ai", "ai.enabled") },
       ],
@@ -49,17 +46,4 @@ export default function RewriteChip() {
       </button>
     </Show>
   );
-}
-
-function rewriteLabel(action: AiAction): string {
-  switch (action) {
-    case "proofread":
-      return "Proofread";
-    case "rephrase":
-      return "Rephrase";
-    case "polish":
-      return "Polish";
-    case "custom":
-      return "Custom…";
-  }
 }
