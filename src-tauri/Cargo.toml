@@ -25,9 +25,10 @@ writ-plugin = { path = "../crates/writ-plugin" }
 tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-global-shortcut = "2"
+tauri-plugin-opener = "2"
 tauri-plugin-updater = "2"
-notify = "7"
-notify-debouncer-mini = "0.5"
+notify = "8"
+notify-debouncer-mini = "0.7"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
@@ -37,7 +38,7 @@ dirs = "6"
 chrono = "0.4"
 thiserror = "2"
 url = "2"
-pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 # Reuse the reqwest already resolved via tauri-plugin-updater (rustls, no
 # native-tls). Only `stream` (SSE byte stream) and `json` (request body) are
 # added; the TLS provider stays `rustls-no-provider` from the updater so the
@@ -55,6 +56,7 @@ rustls = { version = "0.23", default-features = false, features = [
     "logging",
 ] }
 futures-util = "0.3"
+tauri-plugin-clipboard-manager = "2"
 
 [target.'cfg(not(any(target_os = "macos", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"

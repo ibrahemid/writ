@@ -14,8 +14,8 @@ categories.workspace = true
 
 [dependencies]
 writ-core = { path = "../writ-core" }
-rusqlite = { version = "0.31" }
-toml = "0.8"
+rusqlite = { version = "0.40" }
+toml = "0.9"
 tracing = "0.1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
@@ -23,14 +23,18 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 tempfile = "3"
+ignore = "0.4.31"
+grep-searcher = "0.1.17"
+grep-regex = "0.1.14"
+grep-matcher = "0.1.9"
 
 [features]
 bundled = ["rusqlite/bundled"]
 
 [dev-dependencies]
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 tempfile = "3"
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 writ-core = { path = "../writ-core" }
 chrono = { version = "0.4", features = ["serde"] }
 

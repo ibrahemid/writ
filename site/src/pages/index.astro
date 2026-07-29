@@ -2,7 +2,14 @@
 import Site from '../layouts/Site.astro';
 import Hero from '../components/site/Hero.astro';
 import WindowRow from '../components/site/WindowRow.astro';
-import Sections from '../components/site/Sections.astro';
+import Section from '../components/site/Section.astro';
+import SceneRender from '../components/site/SceneRender.astro';
+import SceneFind from '../components/site/SceneFind.astro';
+import SceneClean from '../components/site/SceneClean.astro';
+import SceneCatch from '../components/site/SceneCatch.astro';
+import Ledger from '../components/site/Ledger.astro';
+import Install from '../components/site/Install.astro';
+import StatusBar from '../components/site/StatusBar.astro';
 import { EDITOR_COMMAND_KEYS } from '../../../src/editor/editor-command-keys';
 import { keybindingSegments } from '../../../src/lib/keybinding-format';
 import warpLight from '../../../src/styles/themes/warp-light.json';
@@ -20,6 +27,7 @@ const seg = (binding: string) => keybindingSegments(binding, { isMac: true });
 const appShortcuts = [
   { label: 'Toggle window', bindings: ['CmdOrCtrl+Shift+Space'] },
   { label: 'Command palette', bindings: ['Shift+Shift'] },
+  { label: 'Search everywhere', bindings: ['CmdOrCtrl+Shift+F'] },
   { label: 'New tab', bindings: ['CmdOrCtrl+T'] },
   { label: 'Close tab', bindings: ['CmdOrCtrl+W'] },
   { label: 'Switch tabs', bindings: ['CmdOrCtrl+[', 'CmdOrCtrl+]'] },
@@ -37,8 +45,17 @@ const kcCols = [
     <div class="spine" aria-hidden="true"></div>
     <Hero />
     <WindowRow />
-    <Sections kcCols={kcCols} presets={presets} />
+    <Section slug="why-writ">
+      <p class="sec-lead">A text editor opens fast but shows raw text. An IDE renders everything but is slow to reach for. Writ is the fast middle.</p>
+    </Section>
+    <SceneRender />
+    <SceneFind />
+    <SceneClean />
+    <SceneCatch />
+    <Ledger kcCols={kcCols} presets={presets} />
+    <Install />
   </main>
+  <StatusBar />
 </Site>
 
 <script>
@@ -51,98 +68,114 @@ const kcCols = [
         document.dispatchEvent(new CustomEvent('writ:cmd', { detail: { action, arg } }));
       });
     });
+  })();
+</script>
 
+<script>
+  // Below the fold the page belongs to scroll: each section's gutter token paints
+  // first, then its block renders under it, echoing the source-then-preview loop.
+  // The hidden initial state is keyed on [data-writ-intro], which the hero's
+  // pre-paint script sets only when JS runs and reduced motion is off — so no-JS
+  // and reduced-motion visitors get the assembled page with the static gutter line.
+  (function () {
     const root = document.documentElement;
+    if (!root.hasAttribute('data-writ-intro')) return;
+
     const sections = Array.from(document.querySelectorAll<HTMLElement>('.rv'));
-    const winGut = document.querySelector<HTMLElement>('[data-rv-win]');
-    const revealSection = (el: HTMLElement) => {
+    const reveal = (el: HTMLElement) => {
       el.classList.add('in');
       const gut = el.previousElementSibling;
       if (gut && gut.classList.contains('rv-g')) gut.classList.add('in');
     };
-    const revealAll = () => {
-      sections.forEach(revealSection);
-      if (winGut) winGut.classList.add('in');
-    };
-    if (root.getAttribute('data-writ-intro') !== 'play') {
-      revealAll();
+    if (!('IntersectionObserver' in window)) {
+      sections.forEach(reveal);
       return;
     }
-
-    const mobile = window.matchMedia('(max-width: 880px)').matches;
-    const winAt = mobile ? 0.8 : 2.05;
-    // Section timings derive from document order so the cascade scales to any
-    // number of sections instead of collapsing onto a fixed final slot.
-    const firstAt = mobile ? 2.0 : 3.3;
-    const step = mobile ? 0.2 : 0.32;
-    const atOf = (i: number) => firstAt + i * step;
-    const timers: number[] = [];
-
-    const spine = document.querySelector<HTMLElement>('.spine');
-    const main = document.getElementById('top');
-    let currentAnim: Animation | null = null;
-    let currentScale = 0;
-    const fractionOf = (el: HTMLElement | null): number => {
-      if (!main) return 1;
-      const height = main.scrollHeight;
-      if (!el) return 1;
-      const mainTop = main.getBoundingClientRect().top;
-      return Math.min(Math.max((el.getBoundingClientRect().top - mainTop) / height, 0), 1);
-    };
-    const growTo = (fraction: number, seconds: number) => {
-      if (!spine || mobile) return;
-      try {
-        if (currentAnim) currentAnim.commitStyles();
-      } catch (_) {}
-      if (currentAnim) currentAnim.cancel();
-      currentAnim = spine.animate(
-        [{ transform: `scaleY(${currentScale})` }, { transform: `scaleY(${fraction})` }],
-        { duration: Math.max(seconds, 0.01) * 1000, easing: 'linear', fill: 'forwards' },
-      );
-      currentScale = fraction;
-    };
-
-    interface Step {
-      at: number;
-      run: () => void;
-    }
-    const steps: Step[] = [];
-    const win = document.querySelector<HTMLElement>('.win-rise');
-    steps.push({
-      at: 0.15,
-      run: () => growTo(fractionOf(win), winAt - 0.15),
-    });
-    steps.push({
-      at: winAt,
-      run: () => {
-        if (winGut) winGut.classList.add('in');
-        const next = sections[0] ?? null;
-        growTo(fractionOf(next), atOf(0) - winAt);
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (!e.isIntersecting) return;
+          reveal(e.target as HTMLElement);
+          io.unobserve(e.target);
+        });
       },
-    });
-    sections.forEach((el, i) => {
-      const at = atOf(i);
-      const nextAt = atOf(i + 1);
-      steps.push({
-        at,
-        run: () => {
-          revealSection(el);
-          const next = sections[i + 1] ?? null;
-          growTo(fractionOf(next), nextAt - at);
-        },
-      });
-    });
-    steps.forEach((step) => timers.push(window.setTimeout(step.run, step.at * 1000)));
+      { threshold: 0.12, rootMargin: '0px 0px -8% 0px' },
+    );
+    sections.forEach((el) => io.observe(el));
+  })();
+</script>
 
-    const observer = new MutationObserver(() => {
-      if (root.getAttribute('data-writ-intro') !== 'done') return;
-      timers.forEach((t) => clearTimeout(t));
-      revealAll();
-      if (currentAnim) currentAnim.cancel();
-      if (spine) spine.style.transform = 'none';
-      observer.disconnect();
-    });
-    observer.observe(root, { attributes: true, attributeFilter: ['data-writ-intro'] });
+<script>
+  // One rAF-coalesced driver owns everything position-bound: the spine grows to
+  // the read position, and the page status bar tracks the active section and a
+  // line number derived from the page measured in editor lines (26px).
+  (function () {
+    const root = document.documentElement;
+    const main = document.getElementById('top');
+    const spine = document.querySelector<HTMLElement>('.spine');
+    const pos = document.querySelector<HTMLElement>('.pb-pos');
+    const toks = Array.from(document.querySelectorAll<HTMLElement>('.pb-tok[data-sect]'));
+    const targets = toks
+      .map((t) => ({ t, el: document.getElementById(t.dataset.sect || '') }))
+      .filter((x): x is { t: HTMLElement; el: HTMLElement } => Boolean(x.el));
+    if (!main) return;
+
+    const motion = root.hasAttribute('data-writ-intro');
+    let target = 0;
+    let current = -1;
+    let raf = 0;
+
+    const settle = () => {
+      raf = 0;
+      if (spine && motion) {
+        current = current < 0 ? target : current + (target - current) * 0.22;
+        if (Math.abs(target - current) < 0.002) current = target;
+        spine.style.setProperty('--spine-p', current.toFixed(4));
+        if (current !== target) raf = requestAnimationFrame(settle);
+      }
+    };
+
+    const measure = () => {
+      const rect = main.getBoundingClientRect();
+      const read = Math.min(Math.max(window.innerHeight - rect.top, 0), rect.height);
+      target = rect.height > 0 ? read / rect.height : 1;
+      if (!raf) raf = requestAnimationFrame(settle);
+
+      if (pos) {
+        const ln = Math.max(1, Math.round(window.scrollY / 26) + 1);
+        pos.textContent = 'Ln ' + ln;
+      }
+      let active: HTMLElement | null = null;
+      const cut = window.innerHeight * 0.4;
+      for (const { t, el } of targets) {
+        if (el.getBoundingClientRect().top <= cut) active = t;
+      }
+      // At the end of the document the last section may be too short to reach
+      // the cut line; the bottom of the page is the bottom of the document.
+      const maxScroll = root.scrollHeight - window.innerHeight;
+      if (maxScroll - window.scrollY < 4 && targets.length > 0) {
+        active = targets[targets.length - 1]!.t;
+      }
+      toks.forEach((t) => {
+        const on = t === (active ?? toks[0]);
+        t.classList.toggle('on', on);
+        if (on) t.setAttribute('aria-current', 'true');
+        else t.removeAttribute('aria-current');
+      });
+    };
+
+    let queued = false;
+    const onScroll = () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        measure();
+      });
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+    measure();
   })();
 </script>
 

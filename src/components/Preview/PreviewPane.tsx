@@ -8,6 +8,7 @@ import { createPreviewBridge } from "../../lib/preview-bridge";
 import { createPreviewSearchController } from "../../editor/search/preview-search-controller";
 import { findStore } from "../../stores/global/find-store";
 import PreviewStatusChip, { type PreviewState } from "./PreviewStatusChip";
+import LinkConfirm, { type LinkRequest } from "./LinkConfirm";
 import "./preview-chrome.css";
 
 interface Props {
@@ -42,12 +43,23 @@ export default function PreviewPane(props: Props) {
   const [state, setState] = createSignal<PreviewState>("rendering");
   const [warnings, setWarnings] = createSignal<string[]>([]);
   const [message, setMessage] = createSignal("");
+  // At most one link confirmation exists; a burst of link:open messages
+  // replaces it rather than stacking popovers.
+  const [linkRequest, setLinkRequest] = createSignal<LinkRequest | null>(null);
+  let nextLinkId = 0;
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   let lastRenderedText: string | null = null;
   let iframeEl: HTMLIFrameElement | undefined;
 
   function editorScroller(): HTMLElement | undefined {
     return win.editor.getView()?.scrollDOM;
+  }
+
+  // The iframe fills the pane, so its size is the box the confirmation
+  // popover is clamped to and the frame of the click coordinates it carries.
+  function frameRect(): { width: number; height: number } {
+    const rect = iframeEl?.getBoundingClientRect();
+    return { width: rect?.width ?? 0, height: rect?.height ?? 0 };
   }
 
   // The editor zoom expressed as a scale factor (1 = the document's native
@@ -113,6 +125,16 @@ export default function PreviewPane(props: Props) {
       editorZoom.handleWheel(d.deltaY, performance.now());
     } else if (d.type === "scroll" && typeof d.fraction === "number") {
       bridge.onIframeMessage({ type: "scroll", fraction: d.fraction });
+    } else if (d.type === "link:open" && typeof d.href === "string" && d.href !== "") {
+      // The message opens nothing on its own. Anything in the frame can post
+      // it, including a script the document brought, so all it can produce is
+      // a popover the user dismisses (ADR-025).
+      setLinkRequest({
+        id: nextLinkId++,
+        href: d.href,
+        x: typeof d.x === "number" && Number.isFinite(d.x) ? d.x : 0,
+        y: typeof d.y === "number" && Number.isFinite(d.y) ? d.y : 0,
+      });
     } else if (d.type === "findResult") {
       search.applyResult({
         current: d.current ?? 0,
@@ -335,6 +357,17 @@ export default function PreviewPane(props: Props) {
         </div>
       </Show>
       <PreviewStatusChip state={state()} warnings={warnings()} message={message()} />
+      {/* A sibling of the iframe, never a wrapper: the frame element must stay
+          mounted through every state change (#124). */}
+      <Show when={linkRequest()} keyed>
+        {(request) => (
+          <LinkConfirm
+            request={request}
+            frameRect={frameRect}
+            onDismiss={() => setLinkRequest(null)}
+          />
+        )}
+      </Show>
     </div>
   );
 }

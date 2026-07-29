@@ -546,6 +546,14 @@
 .wwx-palette-input::placeholder {
   color: var(--writ-foreground-subtle);
 }
+.wwx-palette-hint {
+  padding: 7px 18px;
+  border-bottom: 1px solid var(--writ-border-soft);
+  font-family: var(--writ-font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--writ-foreground-subtle);
+}
 .wwx-palette-list {
   max-height: 320px;
   overflow-y: auto;
@@ -593,6 +601,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.wwx-pcmd-meta {
+  flex: none;
+  font-family: var(--writ-font-mono);
+  font-size: 11px;
+  color: var(--writ-foreground-subtle);
+  font-variant-numeric: tabular-nums;
 }
 .wwx-palette-empty {
   padding: 18px;

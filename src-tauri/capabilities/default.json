@@ -17,6 +17,8 @@
         "core:window:allow-show",
         "core:window:allow-set-focus",
         "core:window:allow-start-dragging",
+        "clipboard-manager:allow-read-text",
+        "clipboard-manager:allow-write-text",
         "dialog:allow-save",
         "global-shortcut:allow-register",
         "global-shortcut:allow-unregister",

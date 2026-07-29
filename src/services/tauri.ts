@@ -1,9 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize, LogicalPosition } from "@tauri-apps/api/window";
 import type { BufferDocument, FileOpenResult } from "../types/buffer";
 import type { WritConfig } from "../types/config";
 import type { TransformDescriptor } from "../types/transforms";
 import type { ThemePolarity } from "../types/theme";
+import type { LinkVerdict } from "../types/link";
 
 export async function listTransforms(): Promise<TransformDescriptor[]> {
   return invoke("list_transforms");
@@ -487,6 +488,35 @@ export async function getWorkspaceRoot(): Promise<string | null> {
   return invoke("get_workspace_root");
 }
 
+import type {
+  FileHit,
+  IndexStatus,
+  ContentHit,
+  GrepOutcome,
+  SearchBatch,
+} from "../types/search";
+export type { FileHit, IndexStatus, ContentHit, GrepOutcome, SearchBatch };
+
+export async function searchWorkspaceFiles(query: string): Promise<FileHit[]> {
+  return invoke("search_workspace_files", { query });
+}
+
+export async function workspaceIndexStatus(): Promise<IndexStatus> {
+  return invoke("workspace_index_status");
+}
+
+// Streams content-search results (ADR-026). Each batch is generation-stamped;
+// callers discard batches whose generation is stale. The final batch carries
+// the outcome. The channel is scoped to this call and dies with it.
+export async function searchWorkspaceContent(
+  query: string,
+  onBatch: (batch: SearchBatch) => void,
+): Promise<void> {
+  const channel = new Channel<SearchBatch>();
+  channel.onmessage = onBatch;
+  return invoke("search_workspace_content", { query, onBatch: channel });
+}
+
 export interface InstallCliResult {
   symlink_path: string;
   manual_command: string;
@@ -573,11 +603,32 @@ export async function revealStoragePath(): Promise<void> {
 
 // --- Rewrite (opt-in) ---
 
-export type AiAction = "proofread" | "rephrase" | "polish" | "custom";
+export type AiAction = "proofread" | "rephrase" | "polish" | "improve_prompt" | "custom";
 
 export interface AiKeyState {
   is_set: boolean;
   memory_only: boolean;
+}
+
+/** Where the configured endpoint points and what it still needs. The host is
+ * resolved in Rust by the same code the rewrite guard uses, so the frontend
+ * never parses a base URL itself. */
+export interface AiEndpointState {
+  host: string | null;
+  host_port: string | null;
+  is_hosted: boolean;
+  is_allowed: boolean;
+  is_consented: boolean;
+  key_state: AiKeyState;
+}
+
+export async function aiEndpointState(): Promise<AiEndpointState> {
+  return invoke("ai_endpoint_state");
+}
+
+/** Records the send notice for the currently configured host. */
+export async function aiConsentHost(): Promise<AiEndpointState> {
+  return invoke("ai_consent_host");
 }
 
 export async function aiRewrite(
@@ -620,6 +671,16 @@ export async function aiClearApiKey(preset: string): Promise<AiKeyState> {
 
 export async function aiHasApiKey(preset: string): Promise<AiKeyState> {
   return invoke("ai_has_api_key", { preset });
+}
+
+// The raw string travels untouched. Normalization and the scheme allowlist are
+// Rust's, so the UI can never widen what reaches the operating system.
+export async function openExternalUrl(url: string): Promise<void> {
+  return invoke("open_external_url", { url });
+}
+
+export async function classifyExternalUrl(url: string): Promise<LinkVerdict> {
+  return invoke("classify_external_url", { url });
 }
 
 export async function showAndFocusWindow(): Promise<void> {
