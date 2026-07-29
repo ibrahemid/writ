@@ -3,7 +3,6 @@ updates:
   # Rust workspace
   - package-ecosystem: "cargo"
     directory: "/"
-    target-branch: "dev"
     schedule:
       interval: "quarterly"
       day: "monday"
@@ -23,7 +22,6 @@ updates:
   # Root frontend (Tauri / SolidJS / Vite)
   - package-ecosystem: "npm"
     directory: "/"
-    target-branch: "dev"
     schedule:
       interval: "quarterly"
       day: "monday"
@@ -43,7 +41,6 @@ updates:
   # Site (Astro)
   - package-ecosystem: "npm"
     directory: "/site"
-    target-branch: "dev"
     schedule:
       interval: "quarterly"
       day: "monday"
@@ -63,7 +60,6 @@ updates:
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
-    target-branch: "dev"
     schedule:
       interval: "quarterly"
       day: "monday"
