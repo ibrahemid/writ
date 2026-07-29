@@ -1,0 +1,50 @@
+---
+import Section from './Section.astro';
+---
+<Section slug="clean-up" id="text">
+  <h2 class="sec-h2">Clean up text on your machine.</h2>
+  <div class="card-grid card-grid-wide">
+    <div class="card">
+      <div class="card-k">spell check</div>
+      <h3 class="card-h">Corrections in place</h3>
+      <p class="card-p">
+        Double-click a flagged word: accept one correction, fix them all, or add the word
+        to your dictionary. Code, URLs, and links stay clear. Off by default.
+      </p>
+      <div class="spell-demo">
+        <div class="spell-body">
+          the <span class="spell-err">settlment</span><span class="spell-pop" role="img" aria-label="Suggestions for settlment: settlement, or add it to the dictionary"><span class="spell-pi spell-pi-on">settlement</span><span class="spell-pi">settlements</span><span class="spell-pi spell-pi-add">Add &ldquo;settlment&rdquo; to dictionary</span></span> worker reads<br />
+          the bus and never <span class="spell-err">recieves</span> a <code class="spell-code">dup</code>
+        </div>
+        <div class="spell-status">
+          <span>Ln 4, Col 12</span>
+          <div class="spell-spacer"></div>
+          <span class="spell-count">2 spelling</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-k">rewrite</div>
+      <h3 class="card-h">Rewrite a selection</h3>
+      <p class="card-p">
+        Proofread, rephrase, polish, improve a prompt, or give your own instruction. A local
+        model by default; bring your own key for a hosted provider and it stays in the OS
+        keychain. Off until you turn it on, and Writ asks before the first send to a host:
+      </p>
+      <div class="consent-demo" role="img" aria-label="Confirmation shown before the first send to a provider">
+        <div class="consent-title">Send text to api.groq.com?</div>
+        <div class="consent-body">Only the text you rewrite is sent. Nothing else leaves your machine.</div>
+        <div class="consent-actions"><span class="consent-btn">Cancel</span><span class="consent-btn consent-btn-on">Send</span></div>
+      </div>
+      <div class="pill-row">
+        <span class="pill">Proofread</span>
+        <span class="pill">Rephrase</span>
+        <span class="pill">Polish</span>
+        <span class="pill">Improve prompt</span>
+        <span class="pill">Custom…</span>
+      </div>
+      <p class="card-foot">Ollama local, or Groq · Gemini · DeepSeek · OpenRouter with your key</p>
+    </div>
+  </div>
+</Section>

@@ -1,0 +1,96 @@
+---
+import Section from './Section.astro';
+
+interface KcCol {
+  h: string;
+  rows: { label: string; groups: string[][] }[];
+}
+interface PresetChip {
+  name: string;
+  polarity: string;
+  surface: { background: string };
+  foreground: { default: string };
+  accent: { default: string };
+  syntax: {
+    keyword: string;
+    string: string;
+    comment: string;
+    function: string;
+    number: string;
+    type: string;
+    variable: string;
+  };
+}
+interface Props {
+  kcCols: readonly KcCol[];
+  presets: readonly PresetChip[];
+}
+const { kcCols, presets } = Astro.props;
+
+const rows: { name: string; fact: string; keys?: string[]; mono?: string }[] = [
+  { name: 'Open links', fact: 'Web links open in your browser, file links open in Writ; the preview shows the destination and asks first.', keys: ['⌘', 'Click'] },
+  { name: 'Right-click', fact: 'Writ’s own menu: spelling fixes, link actions, rewrites, clipboard.' },
+  { name: 'Command palette', fact: 'Every command and setting, searchable.', keys: ['⇧', '⇧'] },
+  { name: 'Go to line', fact: 'A colon and a number, from the search palette.', mono: ':42' },
+  { name: 'Token estimate', fact: 'A running count in the status bar. Know the cost before you paste.' },
+  { name: 'Text transforms', fact: 'Tidy Whitespace and friends, built from small composable passes.' },
+  { name: 'Workspace folders', fact: 'A folder opens as a sidebar file tree.' },
+  { name: 'Tabs', fact: 'Reopen closed, rename on double-click.', keys: ['⌘', '⇧', 'T'] },
+  { name: 'Zoom', fact: 'One level scales the editor and the preview together.' },
+  { name: 'Autosave', fact: 'Every keystroke, to SQLite on your disk; crash recovery restores the session.' },
+  { name: 'Private by default', fact: 'No telemetry; self-updates verify a signed manifest and can be turned off.' },
+];
+---
+<Section slug="index" id="index">
+  <h2 class="sec-h2">The index.</h2>
+
+  <div class="ledger">
+    {rows.map((r) => (
+      <div class="lg-row">
+        <span class="lg-name">{r.name}</span>
+        <span class="lg-fact">{r.fact}</span>
+        {r.keys && (
+          <span class="lg-keys">{r.keys.map((k) => <kbd class="kc">{k}</kbd>)}</span>
+        )}
+        {r.mono && <span class="lg-keys"><code class="lg-code">{r.mono}</code></span>}
+      </div>
+    ))}
+  </div>
+
+  <div class="theme-row" id="themes">
+    <div class="lg-row lg-row-themes">
+      <span class="lg-name">Themes</span>
+      <span class="lg-fact">Six presets; change any color.</span>
+    </div>
+    <div class="theme-grid">
+      {presets.map((p) => (
+        <div class="theme-chip" style={`background:${p.surface.background}; color:${p.foreground.default}`}>
+          <div class="tchip-line"><span style={`color:${p.syntax.comment}`}># {p.name}</span></div>
+          <div class="tchip-line"><span style={`color:${p.syntax.keyword}`}>theme</span> = <span style={`color:${p.syntax.string}`}>"{p.polarity}"</span><span class="tchip-caret" style={`background:${p.accent.default}`}></span></div>
+        </div>
+      ))}
+    </div>
+  </div>
+
+  <div class="kc-cols" id="shortcuts">
+    {kcCols.map((col) => (
+      <div class="kc-col">
+        <div class="kc-col-h">{col.h}</div>
+        {col.rows.map((row) => (
+          <div class="kc-row">
+            <span class="kc-label">{row.label}</span>
+            <span class="kc-keys">
+              {row.groups.map((g, gi) => (
+                <Fragment>
+                  {gi > 0 && <span class="kc-sep">/</span>}
+                  {g.map((k) => <kbd class="kc">{k}</kbd>)}
+                </Fragment>
+              ))}
+            </span>
+          </div>
+        ))}
+      </div>
+    ))}
+  </div>
+  <p class="sec-note">Every shortcut is rebindable. Try them in the <a href="#editor">window above</a>.</p>
+</Section>

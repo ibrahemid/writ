@@ -1,0 +1,80 @@
+---
+import Section from './Section.astro';
+import release from '../../data/release.json';
+
+const repo = 'https://github.com/ibrahemid/writ';
+const releasesUrl = repo + '/releases';
+const published = release.published === true;
+const notarized = release.notarized === true;
+const sumsUrl = `${repo}/releases/download/${release.tag}/SHA256SUMS.txt`;
+
+const oneliners = [
+  { os: 'macOS', cmd: 'brew install --cask ibrahemid/writ/writ' },
+  { os: 'Windows', cmd: 'winget install -e --id ibrahemid.Writ' },
+  { os: 'Linux', cmd: 'curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh' },
+  { os: 'Arch', cmd: 'yay -S writ-bin' },
+];
+---
+<Section slug="install" id="download" lead>
+  <h2 class="sec-h2-lg">Always a keypress away.</h2>
+  <p class="sec-p sec-p-lg">A global hotkey brings Writ up over whatever you're in. Free, open source, no account.</p>
+
+  {published ? (
+    <div class="plat-grid">
+      <div class="plat-card featured" data-plat="mac">
+        <div class="plat-top">
+          <span class="plat-name">macOS</span>
+          {notarized && <span class="plat-badge">notarized</span>}
+        </div>
+        <a class="plat-dl" href={release.platforms.mac.pkg}>Download .pkg</a>
+        <a class="plat-alt" href={release.platforms.mac.dmg}>or .dmg</a>
+        <span class="plat-note">Apple silicon & Intel</span>
+      </div>
+      <div class="plat-card" data-plat="win">
+        <div class="plat-top"><span class="plat-name">Windows</span></div>
+        <a class="plat-dl" href={release.platforms.win.msi}>Download .msi</a>
+        <span class="plat-note">x64</span>
+      </div>
+      <div class="plat-card" data-plat="linux">
+        <div class="plat-top"><span class="plat-name">Linux</span></div>
+        <a class="plat-dl" href={release.platforms.linux.appImage}>Download .AppImage</a>
+        <a class="plat-alt" href={release.platforms.linux.deb}>or .deb</a>
+      </div>
+    </div>
+  ) : (
+    <div class="plat-grid">
+      <div class="plat-card featured" data-plat="mac" aria-disabled="true">
+        <div class="plat-top"><span class="plat-name">macOS</span></div>
+        <span class="plat-note">Apple silicon & Intel</span>
+      </div>
+      <div class="plat-card" data-plat="win" aria-disabled="true">
+        <div class="plat-top"><span class="plat-name">Windows</span></div>
+        <span class="plat-note">x64</span>
+      </div>
+      <div class="plat-card" data-plat="linux" aria-disabled="true">
+        <div class="plat-top"><span class="plat-name">Linux</span></div>
+        <span class="plat-note">AppImage & .deb</span>
+      </div>
+    </div>
+  )}
+
+  <div class="oneliners">
+    {oneliners.map((o) => (
+      <div class="ol-row">
+        <span class="ol-os">{o.os}</span>
+        <code class="ol-cmd">{o.cmd}</code>
+        <button class="copybtn" type="button" data-copy={o.cmd} aria-label={`Copy the ${o.os} install command`}><span>Copy</span></button>
+      </div>
+    ))}
+  </div>
+
+  {published ? (
+    <p class="dl-foot">
+      v{release.version} · updates itself · <a href={sumsUrl} rel="noopener noreferrer" target="_blank">checksums</a> · <a href={releasesUrl} rel="noopener noreferrer" target="_blank">Releases on GitHub</a>
+    </p>
+  ) : (
+    <p class="dl-foot">
+      Direct downloads are on <a href={releasesUrl} rel="noopener noreferrer" target="_blank">GitHub Releases</a>.
+    </p>
+  )}
+</Section>

@@ -14,7 +14,6 @@ const published = release.published === true;
       <a href={repo} rel="noopener noreferrer" target="_blank">GitHub</a>
       {published && <span class="ft-ver">v{release.version}</span>}
     </nav>
-    <div class="ft-tag">A fast scratchpad for everything you open.</div>
   </div>
 </footer>
 
@@ -61,13 +60,5 @@ const published = release.published === true;
     font-size: 12px;
     color: var(--subtle);
     font-variant-numeric: tabular-nums;
-  }
-  .ft-tag {
-    margin-left: auto;
-    font-size: 13px;
-    color: var(--subtle);
-  }
-  @media (max-width: 560px) {
-    .ft-tag { margin-left: 0; width: 100%; }
   }
 </style>

@@ -1,0 +1,22 @@
+---
+const sections = [
+  { token: '# writ', href: '#top', sect: 'top' },
+  { token: '## editor', href: '#editor', sect: 'editor' },
+  { token: '## render', href: '#render', sect: 'render' },
+  { token: '## find', href: '#search', sect: 'search' },
+  { token: '## clean-up', href: '#text', sect: 'text' },
+  { token: '## terminal', href: '#terminal', sect: 'terminal' },
+  { token: '## index', href: '#index', sect: 'index' },
+  { token: '## install', href: '#download', sect: 'download' },
+];
+---
+<nav class="pagebar" aria-label="Sections">
+  <span class="pb-file" aria-hidden="true">writ / index.md</span>
+  <div class="pb-toks">
+    {sections.map((s) => (
+      <a href={s.href} class="pb-tok" data-sect={s.sect}>{s.token}</a>
+    ))}
+  </div>
+  <span class="pb-pos" aria-hidden="true"></span>
+  <span class="pb-save" aria-hidden="true"><i class="pb-save-dot"></i>saved</span>
+</nav>

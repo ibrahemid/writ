@@ -70,9 +70,14 @@ interface DemoCommand {
   name: string;
   description?: string;
   binding?: string;
+  meta?: string;
   scope: 'app' | 'editor';
   run: () => void;
 }
+
+type PaletteMode = 'commands' | 'all';
+
+const SEARCH_ALL_HINT = '> commands · # content · : line';
 
 // Matches src/stores/global/token-estimate.ts formatTokenCount.
 function formatTokens(count: number): string {
@@ -152,6 +157,7 @@ export default function WritWindow() {
   const [query, setQuery] = useState('');
   const [searchMs, setSearchMs] = useState(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteMode, setPaletteMode] = useState<PaletteMode>('commands');
   const [paletteQuery, setPaletteQuery] = useState('');
   const [paletteIndex, setPaletteIndex] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -320,6 +326,30 @@ export default function WritWindow() {
       });
     },
     [defaultView, loadBuffer],
+  );
+
+  const gotoLine = useCallback((n: number) => {
+    const view = viewRef.current;
+    if (!view) return;
+    const line = view.state.doc.line(Math.max(1, Math.min(n, view.state.doc.lines)));
+    view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
+    setPaletteOpen(false);
+    view.focus();
+  }, []);
+
+  const openAt = useCallback(
+    (id: string, line: number) => {
+      setPaletteOpen(false);
+      open(id);
+      requestAnimationFrame(() => {
+        const view = viewRef.current;
+        if (!view || cmBufferRef.current !== id) return;
+        const l = view.state.doc.line(Math.max(1, Math.min(line, view.state.doc.lines)));
+        view.dispatch({ selection: { anchor: l.from }, scrollIntoView: true });
+        view.focus();
+      });
+    },
+    [open],
   );
 
   const cmdNewTab = useCallback(() => {
@@ -548,10 +578,57 @@ export default function WritWindow() {
     return list;
   }, [activeId, tabs, editableMd, cmdNewTab, closeTab, open, startRename, focusSearch, zoomIn, zoomOut, zoomReset, copyPrompt, runCm]);
 
-  // Empty query: Recent (usage-ranked), then Commands (app scope), then Editor
-  // (editor scope) — matching the app's palette grouping. With a query: a single
-  // unlabeled ranked-results section.
+  // Command mode mirrors the app's palette grouping: Recent (usage-ranked),
+  // Commands, Editor with an empty query; one unlabeled ranked section with one.
+  // Search-everywhere mode mirrors the app's Cmd+Shift+F palette: sectioned
+  // Commands / Files / Content results with the `>` `#` `:` prefix routing.
   const paletteSections = useMemo(() => {
+    if (paletteMode === 'all') {
+      const q = paletteQuery.trim();
+      const gotoMatch = q.match(/^:\s*(\d+)/);
+      if (gotoMatch) {
+        const n = Number(gotoMatch[1]);
+        return [{
+          label: null as string | null,
+          commands: [{ id: 'goto', name: `Go to line ${n}`, scope: 'app' as const, run: () => gotoLine(n) }],
+        }];
+      }
+      const cmdOnly = q.startsWith('>');
+      const contentOnly = q.startsWith('#');
+      const term = (cmdOnly || contentOnly ? q.slice(1) : q).trim().toLowerCase();
+      const sections: { label: string | null; commands: DemoCommand[] }[] = [];
+      if (!contentOnly && term) {
+        const matches = commands
+          .filter((c) => (c.name + ' ' + (c.description ?? '')).toLowerCase().includes(term))
+          .slice(0, 6);
+        if (matches.length > 0) sections.push({ label: 'Commands', commands: matches });
+      }
+      if (!cmdOnly) {
+        const ids = [...Object.keys(BUFFERS), ...Object.keys(dynamicRef.current)];
+        const files = ids
+          .filter((id) => (term ? nameOf(id).toLowerCase().includes(term) : true))
+          .slice(0, 8)
+          .map((id): DemoCommand => ({
+            id: 'file:' + id,
+            name: nameOf(id),
+            scope: 'app',
+            run: () => { setPaletteOpen(false); open(id); },
+          }));
+        if (files.length > 0) sections.push({ label: 'Files', commands: files });
+        if (term) {
+          const hits = computeResults(term).slice(0, 12).map((r): DemoCommand => ({
+            id: 'hit:' + r.id,
+            name: nameOf(r.id),
+            description: r.text.trim(),
+            meta: `Ln ${r.line}`,
+            scope: 'app',
+            run: () => openAt(r.id, r.line),
+          }));
+          if (hits.length > 0) sections.push({ label: 'Content', commands: hits });
+        }
+      }
+      return sections;
+    }
     const pq = paletteQuery.trim().toLowerCase();
     if (pq) {
       const matches = commands.filter(
@@ -570,7 +647,7 @@ export default function WritWindow() {
     if (appRest.length > 0) sections.push({ label: 'Commands', commands: appRest });
     if (editorRest.length > 0) sections.push({ label: 'Editor', commands: editorRest });
     return sections;
-  }, [commands, paletteQuery, recent]);
+  }, [commands, paletteMode, paletteQuery, recent, nameOf, computeResults, gotoLine, open, openAt]);
 
   const paletteFlat = useMemo(
     () => paletteSections.flatMap((s) => s.commands),
@@ -587,6 +664,7 @@ export default function WritWindow() {
   }, []);
 
   const openPalette = useCallback(() => {
+    setPaletteMode('commands');
     setPaletteOpen(true);
     setPaletteQuery('');
     scrollWin();
@@ -594,6 +672,7 @@ export default function WritWindow() {
   }, [scrollWin]);
 
   const togglePalette = useCallback(() => {
+    setPaletteMode('commands');
     setPaletteOpen((o) => {
       const next = !o;
       if (next) {
@@ -603,6 +682,17 @@ export default function WritWindow() {
       return next;
     });
   }, []);
+
+  const openSearchAll = useCallback(
+    (seed?: string) => {
+      setPaletteMode('all');
+      setPaletteOpen(true);
+      setPaletteQuery(seed ?? '');
+      scrollWin();
+      setTimeout(() => paletteRef.current?.focus(), 40);
+    },
+    [scrollWin],
+  );
 
   const loadFmt = useCallback(
     (k: 'md' | 'html' | 'mermaid' | 'math') => {
@@ -661,7 +751,7 @@ export default function WritWindow() {
 
   // Latest handlers, read by the once-registered document listeners below so
   // they never re-subscribe or capture stale closures.
-  const handlers = { open, openPalette, togglePalette, runSearch, loadFmt, scrollWin, paletteOpen };
+  const handlers = { open, openPalette, togglePalette, openSearchAll, runSearch, loadFmt, scrollWin, paletteOpen };
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
 
@@ -688,6 +778,13 @@ export default function WritWindow() {
       }
       lastShiftRef.current = 0;
       if (e.key === 'Escape' && h.paletteOpen) setPaletteOpen(false);
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+        const focusWithin = rootRef.current?.contains(document.activeElement);
+        if (hoverRef.current || focusWithin || h.paletteOpen) {
+          e.preventDefault();
+          h.openSearchAll();
+        }
+      }
     };
     document.addEventListener('keydown', onKey);
 
@@ -705,6 +802,8 @@ export default function WritWindow() {
         setViewMode('split');
         setQuery('');
         h.scrollWin();
+      } else if (detail.action === 'searchAll') {
+        h.openSearchAll(detail.arg);
       } else if (detail.action === 'search') {
         setSidebarOpen(true);
         h.runSearch(detail.arg || 'settle');
@@ -1003,7 +1102,7 @@ export default function WritWindow() {
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
-                aria-label="Command palette"
+                aria-label={paletteMode === 'all' ? 'Search everywhere' : 'Command palette'}
               >
                 <input
                   ref={paletteRef}
@@ -1022,12 +1121,15 @@ export default function WritWindow() {
                       if (cmd) runCommand(cmd);
                     }
                   }}
-                  placeholder="Search commands"
-                  aria-label="Command search"
+                  placeholder={paletteMode === 'all' ? 'Search files, content, commands' : 'Search commands'}
+                  aria-label={paletteMode === 'all' ? 'Search everywhere' : 'Command search'}
                   autoComplete="off"
                   spellCheck={false}
                   className="wwx-palette-input"
                 />
+                {paletteMode === 'all' && (
+                  <div className="wwx-palette-hint" aria-hidden="true">{SEARCH_ALL_HINT}</div>
+                )}
                 <div className="wwx-palette-list sidescroll">
                   {paletteFlat.length === 0 && (
                     <div className="wwx-palette-empty">Nothing matches "{paletteQuery}"</div>
@@ -1049,7 +1151,11 @@ export default function WritWindow() {
                               <span className="wwx-pcmd-name">{cmd.name}</span>
                               {cmd.description && <span className="wwx-pcmd-desc">{cmd.description}</span>}
                             </span>
-                            <Keys binding={cmd.binding} showEmpty />
+                            {cmd.meta ? (
+                              <span className="wwx-pcmd-meta">{cmd.meta}</span>
+                            ) : (
+                              <Keys binding={cmd.binding} showEmpty />
+                            )}
 
                           </button>
                         );
@@ -1135,7 +1241,8 @@ export default function WritWindow() {
       </div>
       <p className="ww-caption">
         The real editor. Type in <span className="ww-mono">report.md</span>, use <span className="ww-mono">⌘B</span> and{' '}
-        <span className="ww-mono">⌘D</span>, double-tap <span className="ww-mono">⇧</span> for commands.
+        <span className="ww-mono">⌘D</span>, double-tap <span className="ww-mono">⇧</span> for commands,{' '}
+        <span className="ww-mono">⌘⇧F</span> to search everything.
       </p>
     </div>
   );
