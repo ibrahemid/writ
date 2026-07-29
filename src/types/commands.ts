@@ -4,6 +4,13 @@ export interface Command {
   id: string;
   label: string;
   description?: string;
+  /**
+   * Extra search terms for the palette, for words a user would reasonably type
+   * that appear in neither the label nor the description. Ranked above the
+   * description and below the id. Mirrors the `keywords` field the settings
+   * index already uses.
+   */
+  keywords?: string[];
   keybinding?: string;
   keybindingAliases?: string[];
   scope: CommandScope;

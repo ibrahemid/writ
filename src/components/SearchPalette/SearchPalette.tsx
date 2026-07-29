@@ -11,9 +11,26 @@ import type { ResultProvider } from "../Palette/types";
 // Singleton state — Writ is single-window
 const [isOpen, setIsOpen] = createSignal(false);
 
-export function openSearchPalette() { setIsOpen(true); }
-export function closeSearchPalette() { setIsOpen(false); }
-export function toggleSearchPalette() { setIsOpen(prev => !prev); }
+// Singleton state — Writ is single-window. Cleared on every close and on the
+// keyboard path, so a query seeded from the editor's "Search workspace for …"
+// row can never reappear the next time the palette is opened by shortcut.
+const [seedQuery, setSeedQuery] = createSignal("");
+
+export function openSearchPalette(query = "") {
+  setSeedQuery(query);
+  setIsOpen(true);
+}
+export function closeSearchPalette() {
+  setIsOpen(false);
+  setSeedQuery("");
+}
+export function toggleSearchPalette() {
+  if (isOpen()) {
+    closeSearchPalette();
+    return;
+  }
+  openSearchPalette();
+}
 
 const PROVIDERS: ResultProvider[] = [
   createGotoLineProvider({ order: -1 }),
@@ -49,13 +66,14 @@ export default function SearchPalette() {
   return (
     <Palette
       open={isOpen()}
-      onClose={() => setIsOpen(false)}
+      onClose={closeSearchPalette}
       providers={PROVIDERS}
       placeholder="Search files, content, commands"
       label="Search everywhere"
       inputLabel="Search files, content, commands"
       notice={searchNotice}
       onOpen={() => void workspaceSearchStore.refreshIndexStatus()}
+      initialQuery={seedQuery}
     />
   );
 }

@@ -1,5 +1,6 @@
 // Singleton state — Writ is single-window.
 import * as tauri from "../../services/tauri";
+import { writeClipboardText } from "../../services/clipboard";
 import { showToast } from "../../components/Notifications/Toast";
 import type { LinkVerdict } from "../../types/link";
 
@@ -19,7 +20,17 @@ async function classify(url: string): Promise<LinkVerdict> {
   return tauri.classifyExternalUrl(url);
 }
 
+/** Copies a link destination, reporting failure rather than swallowing it. */
+async function copyLink(text: string): Promise<void> {
+  try {
+    await writeClipboardText(text);
+  } catch {
+    showToast("Could not copy the link.", "error");
+  }
+}
+
 export const linkStore = {
   openExternal,
   classify,
+  copyLink,
 };

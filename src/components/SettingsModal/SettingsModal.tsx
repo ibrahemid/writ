@@ -22,7 +22,11 @@ import { installFocusTrap } from "../../lib/focus-trap";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showToast } from "../Notifications/Toast";
 import { fetchCliStatus, installCli } from "../../stores/global/cli";
-import { aiRewriteStore, type AiKeyState } from "../../stores/global/ai-rewrite";
+import {
+  aiRewriteStore,
+  type AiKeyState,
+  type AiEndpointState,
+} from "../../stores/global/ai-rewrite";
 import { aiConnectionStore, connectionDisplay } from "../../stores/global/ai-connection";
 import { modelOptions, defaultModelFor, resolveAutoModel } from "../../stores/global/ai-models";
 import { copyStoragePath, fetchStorageInfo, revealStoragePath } from "../../stores/global/storage";
@@ -748,18 +752,6 @@ const AI_PRESET_BASE_URLS: Record<string, string> = {
   custom: "",
 };
 
-function urlHost(raw: string): string | null {
-  try {
-    return new URL(raw).hostname;
-  } catch {
-    return null;
-  }
-}
-
-function isLocalHost(host: string): boolean {
-  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
-}
-
 function AiSection() {
   const cfg = () => configStore.config().ai;
   const [keyState, setKeyState] = createSignal<AiKeyState | null>(null);
@@ -828,13 +820,31 @@ function AiSection() {
     }
   });
 
-  // The effective host is hosted (non-local) and not yet consented to — shown
-  // for a preset switch or a hand-edited base URL alike.
+  // Where the endpoint points and what it still needs. Resolved in Rust by the
+  // same code the request guard uses, so this panel can never disagree with the
+  // guard about which host consent applies to.
+  const [endpoint, setEndpoint] = createSignal<AiEndpointState | null>(null);
+
+  createEffect(() => {
+    if (!cfg().enabled) {
+      setEndpoint(null);
+      return;
+    }
+    // Track the fields that change the answer.
+    void cfg().base_url;
+    void cfg().preset;
+    void cfg().consented_hosts;
+    void aiRewriteStore
+      .endpointState()
+      .then(setEndpoint)
+      .catch(() => setEndpoint(null));
+  });
+
+  // Hosted (non-local) and not yet consented to — shown for a preset switch or
+  // a hand-edited base URL alike.
   const hostedUnconsented = () => {
-    if (!cfg().enabled) return false;
-    const host = urlHost(cfg().base_url);
-    if (!host || isLocalHost(host)) return false;
-    return !cfg().consented_hosts.includes(host);
+    const e = endpoint();
+    return Boolean(cfg().enabled && e?.is_allowed && e.is_hosted && !e.is_consented);
   };
 
   function onEnableToggle() {
@@ -877,13 +887,15 @@ function AiSection() {
     void patchConfig((prev) => ({ ...prev, ai: { ...prev.ai, model: value } }));
   }
 
-  function onConsent() {
-    const host = urlHost(cfg().base_url);
-    if (!host || isLocalHost(host)) return;
-    void patchConfig((prev) => {
-      const hosts = Array.from(new Set([...prev.ai.consented_hosts, host])).sort();
-      return { ...prev, ai: { ...prev.ai, consented_hosts: hosts } };
-    });
+  // Consent is recorded host-side: the command resolves the host itself and
+  // persists it, so the stored value is exactly what the guard checks.
+  async function onConsent() {
+    try {
+      setEndpoint(await aiRewriteStore.consentHost());
+      await configStore.load();
+    } catch {
+      showToast("Could not record the choice", "error");
+    }
   }
 
   async function onSetKey() {
@@ -964,6 +976,22 @@ function AiSection() {
             onChange={(e) => onBaseUrlChange(e.currentTarget.value)}
           />
         </SettingsRow>
+
+        <Show when={hostedUnconsented()}>
+          <div class="settings-ai-consent" role="note">
+            <p class="settings-ai-consent-text">
+              Text you rewrite is sent to {endpoint()?.host}. Nothing else leaves your machine.
+            </p>
+            <button
+              type="button"
+              class="settings-action-btn"
+              data-action="ai-consent"
+              onClick={() => void onConsent()}
+            >
+              Allow
+            </button>
+          </div>
+        </Show>
 
         <SettingsRow id="ai.model" label="Model" labelFor="setting-ai-model">
           <Show
@@ -1064,22 +1092,6 @@ function AiSection() {
           </button>
         </div>
 
-        <Show when={hostedUnconsented()}>
-          <div class="settings-ai-consent" role="note">
-            <p class="settings-ai-consent-text">
-              Selected text is sent to this provider when you run a rewrite. Nothing is sent
-              otherwise.
-            </p>
-            <button
-              type="button"
-              class="settings-action-btn"
-              data-action="ai-consent"
-              onClick={onConsent}
-            >
-              I understand
-            </button>
-          </div>
-        </Show>
     </div>
   );
 }

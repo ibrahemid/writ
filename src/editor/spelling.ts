@@ -166,6 +166,23 @@ export function computeFixChanges(
   return fixes;
 }
 
+/**
+ * Builds the replacement for one entry the user picked explicitly.
+ *
+ * Unlike [`computeFixChanges`] this ignores `confident` and the first-suggestion
+ * rule: the user chose this word and this replacement, so the only guard that
+ * still applies is the stale-offset check. Returns `null` when the text at the
+ * entry's range is no longer the flagged word.
+ */
+export function computeChosenFix(
+  entry: SpellingEntry,
+  docSlice: (from: number, to: number) => string,
+  replacement: string,
+): SpellingFix | null {
+  if (docSlice(entry.from, entry.to) !== entry.word) return null;
+  return { from: entry.from, to: entry.to, insert: replacement };
+}
+
 /** Applies fixes in a single transaction — one undo step. */
 export function applySpellingFixes(view: EditorView, fixes: SpellingFix[]): number {
   if (fixes.length === 0) return 0;

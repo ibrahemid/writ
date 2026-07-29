@@ -2,21 +2,89 @@ import { registerCommand, unregisterCommand } from "./registry";
 import { windowRegistry } from "../stores/global/window-registry";
 import { requestConfirm } from "../components/ConfirmDialog/ConfirmDialog";
 import { showToast } from "../components/Notifications/Toast";
-import { aiRewriteStore } from "../stores/global/ai-rewrite";
+import { openSettings } from "../components/SettingsModal/SettingsModal";
+import { aiRewriteStore, type AnchoredRange } from "../stores/global/ai-rewrite";
 import { aiConnectionStore } from "../stores/global/ai-connection";
 import { configStore } from "../stores/global/config";
+import { REWRITE_ACTIONS, REWRITE_COMMAND_IDS } from "./rewrite-actions";
+import type { AiEndpointState } from "../stores/global/ai-rewrite";
 import type { AiAction } from "../services/tauri";
 
 export type { AiAction };
 
-const AI_COMMAND_IDS = ["ai.proofread", "ai.rephrase", "ai.polish", "ai.custom"] as const;
+/**
+ * Resolves everything that would block a rewrite, in one pass, before any text
+ * is sent.
+ *
+ * The endpoint is resolved in Rust by the same code the request guard uses, so
+ * consent is always recorded under the exact host the guard later checks.
+ * Consent and key are handled together: a user who has neither is never stopped
+ * twice.
+ *
+ * Returns `true` when the rewrite may proceed.
+ */
+async function clearBlockersBeforeSending(): Promise<boolean> {
+  let endpoint: AiEndpointState;
+  try {
+    endpoint = await aiRewriteStore.endpointState();
+  } catch {
+    showToast("Could not read the AI settings.", "error");
+    return false;
+  }
 
-/** Runs a rewrite action from any entry point (palette command or status-bar
- * menu), acting on the active editor's selection. */
-export async function runRewriteAction(action: AiAction) {
+  if (!endpoint.is_allowed || !endpoint.host) {
+    const open = await requestConfirm({
+      title: "This base URL cannot be used",
+      message: "Use https, or http only for a server on this machine.",
+      confirmLabel: "Open settings",
+    });
+    if (open) openSettings("ai", "ai.base_url");
+    return false;
+  }
+
+  if (endpoint.is_hosted && !endpoint.is_consented) {
+    const confirmed = await requestConfirm({
+      title: `Send text to ${endpoint.host_port ?? endpoint.host}?`,
+      message: "Only the text you rewrite is sent. Nothing else leaves your machine.",
+      confirmLabel: "Send",
+    });
+    if (!confirmed) return false;
+    try {
+      endpoint = await aiRewriteStore.consentHost();
+    } catch {
+      showToast("Could not record the choice.", "error");
+      return false;
+    }
+  }
+
+  if (endpoint.is_hosted && !endpoint.key_state.is_set) {
+    const open = await requestConfirm({
+      title: `Add an API key for ${endpoint.host}`,
+      message: "The key is kept in your keychain, never in config.toml.",
+      confirmLabel: "Open settings",
+    });
+    if (open) openSettings("ai", "ai.api_key");
+    return false;
+  }
+
+  return true;
+}
+
+/** Runs a rewrite action from any entry point (palette command, status-bar
+ * menu, or the editor context menu), acting on the active editor's selection.
+ *
+ * `presetRange` lets a caller supply a range captured earlier — the context
+ * menu pins the selection when it opens, so an edit while the menu is up cannot
+ * silently retarget the rewrite. */
+export async function runRewriteAction(action: AiAction, presetRange?: AnchoredRange) {
   const model = configStore.config().ai.model.trim();
   if (!model) {
-    showToast("Choose a model in AI settings.", "info", 5000);
+    const open = await requestConfirm({
+      title: "Choose a model",
+      message: "No model is set.",
+      confirmLabel: "Open settings",
+    });
+    if (open) openSettings("ai", "ai.model");
     return;
   }
   // The last probe found the endpoint but not this model — say so instead of
@@ -32,7 +100,10 @@ export async function runRewriteAction(action: AiAction) {
   const bufferId = win.editor.currentBufferId();
   if (!bufferId) return;
 
-  const range = win.editor.getSelectionRange(true);
+  const range = presetRange ?? (() => {
+    const live = win.editor.getSelectionRange(true);
+    return live ? { ...live, bufferId } : null;
+  })();
   if (!range) return;
   if (range.text.trim().length === 0) {
     showToast("Select some text to rewrite.", "info");
@@ -48,7 +119,9 @@ export async function runRewriteAction(action: AiAction) {
     if (!confirmed) return;
   }
 
-  aiRewriteStore.start(action, { ...range, bufferId });
+  if (!(await clearBlockersBeforeSending())) return;
+
+  aiRewriteStore.start(action, range);
 }
 
 let registered = false;
@@ -57,38 +130,20 @@ export function registerAiCommands() {
   if (registered) return;
   registered = true;
 
-  registerCommand({
-    id: "ai.proofread",
-    label: "Proofread selection",
-    description: "Fix spelling, grammar, and punctuation with the configured model",
-    scope: "app",
-    execute: () => void runRewriteAction("proofread"),
-  });
-  registerCommand({
-    id: "ai.rephrase",
-    label: "Rephrase selection",
-    description: "Restate the same meaning in different wording",
-    scope: "app",
-    execute: () => void runRewriteAction("rephrase"),
-  });
-  registerCommand({
-    id: "ai.polish",
-    label: "Polish selection",
-    description: "Tighten and smooth while keeping the meaning and voice",
-    scope: "app",
-    execute: () => void runRewriteAction("polish"),
-  });
-  registerCommand({
-    id: "ai.custom",
-    label: "Custom rewrite…",
-    description: "Rewrite the selection with your own instruction",
-    scope: "app",
-    execute: () => void runRewriteAction("custom"),
-  });
+  for (const action of REWRITE_ACTIONS) {
+    registerCommand({
+      id: action.commandId,
+      label: action.label,
+      description: action.description,
+      keywords: action.keywords,
+      scope: "app",
+      execute: () => void runRewriteAction(action.id),
+    });
+  }
 }
 
 export function unregisterAiCommands() {
   if (!registered) return;
   registered = false;
-  for (const id of AI_COMMAND_IDS) unregisterCommand(id);
+  for (const id of REWRITE_COMMAND_IDS) unregisterCommand(id);
 }

@@ -9,6 +9,7 @@ import {
   removeSpellingWord,
   spellingEntries,
   computeFixChanges,
+  computeChosenFix,
   applySpellingFixes,
   type SpellingEntry,
 } from "../../editor/spelling";
@@ -117,6 +118,23 @@ function createSpellingStore() {
     return applied;
   }
 
+  /**
+   * Replaces one flagged word with a suggestion the user picked.
+   *
+   * The missing single-word action: until now a user could fix everything at
+   * once or ignore a word, but not accept one correction. Returns false when
+   * the text moved on and the entry no longer matches.
+   */
+  function applyOne(entry: SpellingEntry, replacement: string): boolean {
+    const active = view;
+    if (!active) return false;
+    const fix = computeChosenFix(entry, docSlice, replacement);
+    if (!fix) return false;
+    applySpellingFixes(active, [fix]);
+    active.focus();
+    return true;
+  }
+
   /** Applies only the fixes for the given entries, in one undo step. */
   function applyEntries(selected: SpellingEntry[]): number {
     const active = view;
@@ -157,6 +175,7 @@ function createSpellingStore() {
     clear,
     entries,
     fixAll,
+    applyOne,
     applyEntries,
     reveal,
     ignoreWord,

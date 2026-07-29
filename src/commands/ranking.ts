@@ -44,6 +44,9 @@ function matchScore(cmd: Command, queryLower: string): number {
   if (label.startsWith(queryLower)) return 4;
   if (label.includes(queryLower)) return 3;
   if (id.includes(queryLower)) return 2;
+  // Keywords rank with the id: they are deliberate search terms, so they beat
+  // an incidental word in a description.
+  if (cmd.keywords?.some((k) => k.toLowerCase().includes(queryLower))) return 2;
   if (desc.includes(queryLower)) return 1;
   return -1;
 }
