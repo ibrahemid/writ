@@ -102,7 +102,6 @@ fn search_workspace_files_ranks_index_and_reports_status() {
 
 #[test]
 fn content_search_streams_batches_and_final_outcome() {
-    let writ_dir = TempDir::new().unwrap();
     let ws = TempDir::new().unwrap();
     write_file(ws.path(), "a.rs", "let needle = 1;\nneedle again");
     write_file(ws.path(), "b.rs", "no match here");
