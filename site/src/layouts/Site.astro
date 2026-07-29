@@ -23,7 +23,7 @@ const canonical = SITE_URL + BASE + path;
 const ogImage = SITE_URL + BASE + '/brand/og-v2.png';
 ---
 <!doctype html>
-<html lang="en" data-theme="light" data-variant="flat">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -54,7 +54,8 @@ const ogImage = SITE_URL + BASE + '/brand/og-v2.png';
       (function () {
         try {
           var t = localStorage.getItem('writ:theme');
-          document.documentElement.setAttribute('data-theme', t === 'dark' ? 'dark' : 'light');
+          var dark = t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
         } catch (_) {}
       })();
     </script>
@@ -62,8 +63,6 @@ const ogImage = SITE_URL + BASE + '/brand/og-v2.png';
   <body>
     <a href="#content" class="skip-link">Skip to content</a>
     <div class="v2-page">
-      <div class="hero-glow" aria-hidden="true"></div>
-      <div class="bg-field" aria-hidden="true"></div>
       <TopHeader />
       <div id="content" tabindex="-1">
         <slot />

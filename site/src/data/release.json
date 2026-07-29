@@ -1,25 +1,25 @@
 {
-  "version": "0.1.0",
-  "tag": "v0.1.0",
-  "publishedAt": "",
-  "published": false,
-  "notarized": false,
+  "version": "0.2.0",
+  "tag": "v0.2.0",
+  "publishedAt": "2026-07-23T20:14:57Z",
+  "published": true,
+  "notarized": true,
   "platforms": {
     "mac": {
-      "dmg": "#",
-      "pkg": "#",
-      "sha256_dmg": "",
-      "sha256_pkg": ""
+      "dmg": "https://github.com/ibrahemid/writ/releases/download/v0.2.0/Writ_0.2.0_universal.dmg",
+      "pkg": "https://github.com/ibrahemid/writ/releases/download/v0.2.0/Writ_0.2.0_universal.pkg",
+      "sha256_dmg": "8095c083ea8db36d415a485353a0b4e1b01e64e296024dafff9a7462d8ec3380",
+      "sha256_pkg": "9ded85c583b4dcdef412aef69931bcb90d16eefe6edb1c4bef0662910338afb7"
     },
     "win": {
-      "msi": "#",
-      "sha256_msi": ""
+      "msi": "https://github.com/ibrahemid/writ/releases/download/v0.2.0/Writ_0.2.0_x64_en-US.msi",
+      "sha256_msi": "91c924ba9318903dfa2ccd41dc9a0b27c3b564dd2bc4435aec134890435e0aa1"
     },
     "linux": {
-      "deb": "#",
-      "appImage": "#",
-      "sha256_deb": "",
-      "sha256_appImage": ""
+      "deb": "https://github.com/ibrahemid/writ/releases/download/v0.2.0/Writ_0.2.0_amd64.deb",
+      "appImage": "https://github.com/ibrahemid/writ/releases/download/v0.2.0/Writ_0.2.0_amd64.AppImage",
+      "sha256_deb": "5d45cce32d6ebb8e4dd3def0dbf08acf0df9c817e7059880721fe661d963e483",
+      "sha256_appImage": "cbc02a0929aa5bb2c934b82b1aa633b3b7c2ae83968453d46772605155608911"
     }
   }
 }

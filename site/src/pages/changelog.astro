@@ -1,29 +1,6 @@
 ---
 import Site from "../layouts/Site.astro";
-import release from "../data/release.json";
-
-const isPublished = release.published === true && release.publishedAt !== '';
-const releaseDate = isPublished ? release.publishedAt : 'unreleased';
-
-const notes = [
-  { kind: 'added', text: 'split-pane live preview renders Markdown, HTML, Mermaid diagrams, and KaTeX math from bundled offline runtimes, with source and preview scroll in sync and find inside the preview.' },
-  { kind: 'added', text: 'global hotkey brings the window up over anything: Cmd+Shift+Space on macOS, Ctrl+Shift+Space on Linux and Windows.' },
-  { kind: 'added', text: 'tabbed CodeMirror 6 editor with language detection by extension and file content, live Markdown typography, and reopen-closed recovery.' },
-  { kind: 'added', text: 'find and replace overlay with a live match count.' },
-  { kind: 'added', text: 'full-text search across every buffer, with a results panel showing snippets and line numbers, backed by SQLite FTS5.' },
-  { kind: 'added', text: 'command palette on double-tap Shift.' },
-  { kind: 'added', text: 'settings window on Cmd+, with searchable settings and configurable shortcuts.' },
-  { kind: 'added', text: 'editor and preview font zoom.' },
-  { kind: 'added', text: 'status bar with language, encoding, and cursor position.' },
-  { kind: 'added', text: 'prompt fill modal with placeholder variables, a live token estimate, and copy as prompt.' },
-  { kind: 'added', text: 'text transforms: tidy whitespace, plus composable passes for trailing spaces, final newline, and punctuation spacing.' },
-  { kind: 'added', text: 'local spell check: wavy underlines on likely misspellings, with fix all, a preview list, and per-word ignore from the status bar. Off by default; code, URLs, and links stay unflagged.' },
-  { kind: 'added', text: 'rewrite a selection to proofread, rephrase, or polish it with a local model by default, or a hosted provider with your own key held in the OS keychain. Off until you turn it on, and text is sent only when you run a rewrite.' },
-  { kind: 'added', text: 'open a folder as a workspace with a sidebar file tree; a watched folder lists new files and opens them as they arrive.' },
-  { kind: 'added', text: 'writ command-line tool for opening files from the terminal; set Writ as the default app on macOS for Markdown, plain text, config, and source files.' },
-  { kind: 'added', text: 'app-wide light and dark themes, autosave with crash recovery, and self-update with signed manifests.' },
-  { kind: 'added', text: 'builds for macOS, Windows, and Linux: .dmg, .msi, .deb, and AppImage.' },
-];
+import { releases } from "../data/changelog";
 
 const kindColor: Record<string, string> = {
   added:   'var(--accent)',
@@ -41,25 +18,26 @@ const kindColor: Record<string, string> = {
     <div class="cl-wrap">
       <header class="cl-head">
         <h1>Changelog</h1>
-        <p class="cl-sub">Newest first.</p>
       </header>
 
-      <article class="rel" id={`v${release.version}`}>
-        <hr class="rel-rule" />
-        <header class="rel-head">
-          <h2>v{release.version}</h2>
-          <span class="rel-date">{releaseDate}</span>
-          <span class="rel-label">first release</span>
-        </header>
-        <ul class="rel-notes">
-          {notes.map((n) => (
-            <li>
-              <span class="rel-kind" style={{ color: kindColor[n.kind] || 'var(--muted)' }}>{n.kind}</span>
-              <span class="rel-text">{n.text}</span>
-            </li>
-          ))}
-        </ul>
-      </article>
+      {releases.map((rel) => (
+        <article class="rel" id={`v${rel.version}`}>
+          <hr class="rel-rule" />
+          <header class="rel-head">
+            <h2>v{rel.version}</h2>
+            <span class="rel-date">{rel.date}</span>
+            {rel.label && <span class="rel-label">{rel.label}</span>}
+          </header>
+          <ul class="rel-notes">
+            {rel.notes.map((n) => (
+              <li>
+                <span class="rel-kind" style={{ color: kindColor[n.kind] || 'var(--muted)' }}>{n.kind}</span>
+                <span class="rel-text">{n.text}</span>
+              </li>
+            ))}
+          </ul>
+        </article>
+      ))}
     </div>
   </section>
 

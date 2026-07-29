@@ -71,7 +71,7 @@ jobs:
           DMG=$(url_for 'universal\.dmg$'); PKG=$(url_for 'universal\.pkg$')
           MSI=$(url_for '\.msi$'); DEB=$(url_for '\.deb$'); APP=$(url_for '\.AppImage$')
           NOTARIZED="${{ secrets.APPLE_TEAM_ID != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' }}"
-          PUBLISHED=false; [ -n "$DMG$MSI$DEB" ] && PUBLISHED=true
+          PUBLISHED=false; [ -n "$PKG" ] && [ -n "$MSI" ] && [ -n "$APP" ] && PUBLISHED=true
           jq -n --arg version "$VERSION" --arg tag "$TAG" --arg publishedAt "$PUBLISHED_AT" \
             --argjson published "$PUBLISHED" --argjson notarized "$NOTARIZED" \
             --arg dmg "$DMG" --arg pkg "$PKG" --arg msi "$MSI" --arg deb "$DEB" --arg app "$APP" \

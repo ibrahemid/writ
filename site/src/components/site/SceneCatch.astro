@@ -1,0 +1,32 @@
+---
+import Section from './Section.astro';
+---
+<Section slug="terminal" id="terminal">
+  <h2 class="sec-h2">When something else makes the file.</h2>
+  <p class="sec-p">An agent writes a note, a script drops a log. Writ is where it opens, rendered and searchable.</p>
+  <div class="term-grid">
+    <div class="term">
+      <div class="term-line"><span class="term-p">$</span> <span class="term-c">writ notes.md</span></div>
+      <div class="term-line"><span class="term-p">$</span> <span class="term-c">pytest -q | writ --title run</span></div>
+      <div class="term-line"><span class="term-cm"># already running in the background</span></div>
+    </div>
+    <div class="cap-list">
+      <div class="cap">
+        <div class="cap-h">Default opener</div>
+        <p class="cap-p">Set Writ as the app for <code>.md</code>, <code>.log</code>, <code>.toml</code> and other text.</p>
+      </div>
+      <div class="cap">
+        <div class="cap-h">Watched inbox</div>
+        <p class="cap-p">New files in a folder list in the sidebar and open as they arrive.</p>
+      </div>
+      <div class="cap">
+        <div class="cap-h">Copy as Prompt</div>
+        <p class="cap-p">Grab a whole buffer to paste into a model.</p>
+      </div>
+      <div class="cap">
+        <div class="cap-h">Fill <code>{'{{placeholders}}'}</code></div>
+        <p class="cap-p">Prompt variables fill inline before you copy.</p>
+      </div>
+    </div>
+  </div>
+</Section>

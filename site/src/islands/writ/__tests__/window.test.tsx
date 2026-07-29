@@ -82,6 +82,38 @@ describe('WritWindow', () => {
     expect(screen.getByText('Results')).toBeTruthy();
   });
 
+  it('opens search everywhere from a writ:cmd event and sections the results', () => {
+    render(<WritWindow />);
+    fireEvent(
+      document,
+      new CustomEvent('writ:cmd', { detail: { action: 'searchAll', arg: 'settle' } }),
+    );
+    const input = screen.getByPlaceholderText('Search files, content, commands');
+    expect(input).toBeTruthy();
+    expect(screen.getByText('> commands · # content · : line')).toBeTruthy();
+    expect(screen.getByText('Files')).toBeTruthy();
+    expect(screen.getByText('Content')).toBeTruthy();
+    expect(screen.getAllByText(/^Ln \d+$/).length).toBeGreaterThan(0);
+  });
+
+  it('routes search-everywhere prefixes: > commands only, : go to line', () => {
+    render(<WritWindow />);
+    fireEvent(document, new CustomEvent('writ:cmd', { detail: { action: 'searchAll' } }));
+    const input = screen.getByPlaceholderText('Search files, content, commands');
+    fireEvent.change(input, { target: { value: '>tab' } });
+    expect(screen.getByText('Commands')).toBeTruthy();
+    expect(screen.queryByText('Content')).toBeNull();
+    fireEvent.change(input, { target: { value: ':12' } });
+    expect(screen.getByText('Go to line 12')).toBeTruthy();
+  });
+
+  it('opens search everywhere on Cmd+Shift+F while focus is inside the window', () => {
+    render(<WritWindow />);
+    (screen.getByLabelText('Search buffers') as HTMLInputElement).focus();
+    fireEvent.keyDown(document, { key: 'F', metaKey: true, shiftKey: true });
+    expect(screen.getByPlaceholderText('Search files, content, commands')).toBeTruthy();
+  });
+
   it('runs spelling off by default, flags seeded misspellings, and fixes them', async () => {
     render(<WritWindow />);
     fireEvent.click(screen.getByText('notes.md'));
