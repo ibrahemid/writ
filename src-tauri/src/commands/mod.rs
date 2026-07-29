@@ -7,6 +7,7 @@ pub mod file;
 pub mod history;
 pub mod inbox;
 pub mod link;
+pub mod notices;
 pub mod perf;
 pub mod preview;
 pub mod prompt;

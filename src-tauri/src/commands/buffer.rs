@@ -107,6 +107,36 @@ pub fn save_buffer_content(
     Ok(())
 }
 
+/// IPC: writes buffer content and leaves the search index alone.
+///
+/// Generated documents are written through here rather than through
+/// [`save_buffer_content`]. The third-party notices listing is hundreds of
+/// kilobytes of licence text that is not the user's writing, so indexing it
+/// would push their notes down every search result. `create_buffer` already
+/// indexed the title, so the tab stays findable by name.
+#[tauri::command]
+pub fn save_buffer_content_unindexed(
+    state: State<'_, AppState>,
+    id: String,
+    content: String,
+) -> Result<(), String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    let doc = store.get(&id).map_err(|e| e.to_string())?;
+    if doc.read_only {
+        return Err(format!("buffer {} is read-only", id));
+    }
+    {
+        let mut ignore = recover_poison(
+            state.watcher_ignore.lock(),
+            "commands::buffer::save_buffer_content_unindexed",
+        );
+        ignore.record(doc.filename.clone(), content.as_bytes(), Instant::now());
+    }
+    store
+        .save_content_without_index(&id, &content)
+        .map_err(|e| e.to_string())
+}
+
 /// Spawns the worker that reindexes a buffer once its edits settle. The worker
 /// waits one debounce window, and either reindexes (the buffer stopped
 /// changing) or waits again (a newer edit arrived), so an edit burst collapses

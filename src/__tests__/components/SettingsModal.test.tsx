@@ -24,6 +24,9 @@ const mocks = vi.hoisted(() => ({
   revealStoragePath: vi.fn().mockResolvedValue(undefined),
   copyStoragePath: vi.fn().mockResolvedValue(undefined),
   writeClipboardText: vi.fn().mockResolvedValue(undefined),
+  openThirdPartyNoticesBuffer: vi.fn(),
+  setActiveTabId: vi.fn(),
+  requestExternalReload: vi.fn(),
   aiEndpointState: vi.fn(),
   aiConsentHost: vi.fn(),
   aiCheckConnection: vi.fn().mockResolvedValue({
@@ -84,9 +87,15 @@ vi.mock("../../services/clipboard", () => ({
   writeClipboardText: mocks.writeClipboardText,
 }));
 
+vi.mock("../../stores/global/notices", () => ({
+  THIRD_PARTY_NOTICES_TITLE: "Third-party licences",
+  openThirdPartyNoticesBuffer: mocks.openThirdPartyNoticesBuffer,
+}));
+
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
-    editor: { focusEditor: mocks.focusEditor },
+    editor: { focusEditor: mocks.focusEditor, requestExternalReload: mocks.requestExternalReload },
+    tabs: { setActiveTabId: mocks.setActiveTabId },
   }),
   default: (props: { children: unknown }) => props.children,
 }));
@@ -156,6 +165,11 @@ describe("SettingsModal", () => {
     mocks.revealStoragePath.mockReset().mockResolvedValue(undefined);
     mocks.copyStoragePath.mockReset().mockResolvedValue(undefined);
     mocks.writeClipboardText.mockReset().mockResolvedValue(undefined);
+    mocks.openThirdPartyNoticesBuffer
+      .mockReset()
+      .mockResolvedValue({ doc: { id: "notices-buffer" }, reused: false });
+    mocks.setActiveTabId.mockReset();
+    mocks.requestExternalReload.mockReset();
     mocks.aiEndpointState.mockReset().mockResolvedValue(hostedEndpoint());
     mocks.aiConsentHost.mockReset().mockResolvedValue(hostedEndpoint({ is_consented: true }));
     clearDefaultAppSupport();
@@ -524,6 +538,70 @@ describe("SettingsModal", () => {
       fireEvent.input(input, { target: { value: "database" } });
       await waitFor(() => {
         expect(container.querySelector("[data-setting-id='storage.location']")).not.toBeNull();
+      });
+    });
+  });
+
+  describe("Third-party licences row", () => {
+    async function openUpdatesSection(container: Element) {
+      openSettings("updates");
+      await waitFor(() =>
+        expect(container.querySelector("[data-action='third-party-notices']")).not.toBeNull(),
+      );
+    }
+
+    it("opens the notices as a buffer and closes the modal", async () => {
+      const { container } = render(() => <SettingsModal />);
+      await openUpdatesSection(container);
+      fireEvent.click(
+        container.querySelector<HTMLButtonElement>("[data-action='third-party-notices']")!,
+      );
+      await waitFor(() =>
+        expect(mocks.openThirdPartyNoticesBuffer).toHaveBeenCalledTimes(1),
+      );
+      await waitFor(() => expect(mocks.setActiveTabId).toHaveBeenCalledWith("notices-buffer"));
+      expect(mocks.requestExternalReload).not.toHaveBeenCalled();
+      await waitFor(() => expect(container.querySelector("[role='dialog']")).toBeNull());
+    });
+
+    it("reloads the view when the notices tab was already open", async () => {
+      mocks.openThirdPartyNoticesBuffer.mockResolvedValue({
+        doc: { id: "notices-buffer" },
+        reused: true,
+      });
+      const { container } = render(() => <SettingsModal />);
+      await openUpdatesSection(container);
+      fireEvent.click(
+        container.querySelector<HTMLButtonElement>("[data-action='third-party-notices']")!,
+      );
+      await waitFor(() =>
+        expect(mocks.requestExternalReload).toHaveBeenCalledWith("notices-buffer"),
+      );
+      expect(mocks.setActiveTabId).toHaveBeenCalledWith("notices-buffer");
+    });
+
+    it("keeps the modal open when the notices cannot be read", async () => {
+      mocks.openThirdPartyNoticesBuffer.mockRejectedValue(new Error("missing"));
+      const { container } = render(() => <SettingsModal />);
+      await openUpdatesSection(container);
+      fireEvent.click(
+        container.querySelector<HTMLButtonElement>("[data-action='third-party-notices']")!,
+      );
+      await waitFor(() =>
+        expect(mocks.openThirdPartyNoticesBuffer).toHaveBeenCalledTimes(1),
+      );
+      expect(mocks.setActiveTabId).not.toHaveBeenCalled();
+      expect(container.querySelector("[role='dialog']")).not.toBeNull();
+    });
+
+    it("surfaces the licences row in search by keyword", async () => {
+      const { container } = render(() => <SettingsModal />);
+      openSettings();
+      await waitFor(() => expect(container.querySelector(".settings-search-input")).not.toBeNull());
+      const input = container.querySelector<HTMLInputElement>(".settings-search-input")!;
+      fireEvent.input(input, { target: { value: "copyright" } });
+      await waitFor(() => {
+        expect(container.querySelector("[data-setting-id='updates.third_party']")).not.toBeNull();
       });
     });
   });
