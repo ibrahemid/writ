@@ -274,7 +274,7 @@ impl AppState {
 /// `WRIT_DATA_DIR` overrides the default so that several development
 /// instances can run side by side without sharing one SQLite database.
 /// When unset (or blank) the default is `<home>/.writ`.
-fn resolve_writ_dir(
+pub(crate) fn resolve_writ_dir(
     custom: Option<String>,
     home: Option<PathBuf>,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {

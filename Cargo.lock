@@ -9847,6 +9847,7 @@ dependencies = [
  "notify-debouncer-mini",
  "pulldown-cmark",
  "reqwest 0.13.4",
+ "rfd",
  "rustls",
  "serde",
  "serde_json",
