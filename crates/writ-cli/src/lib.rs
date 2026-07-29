@@ -93,6 +93,14 @@ pub fn is_failed_startup(exit_success: Option<bool>) -> bool {
     exit_success == Some(false)
 }
 
+/// Whether a piped payload carries nothing worth opening.
+///
+/// Editor hooks pipe the output of a filter that matches nothing on most
+/// events, so an empty payload is dropped rather than opened as a blank buffer.
+pub fn is_empty_payload(content: &str) -> bool {
+    content.trim().is_empty()
+}
+
 /// Decide what to do when no paths were given.
 ///
 /// A pipe is read as stdin content. On a terminal, an explicit `-` is an error
@@ -534,5 +542,19 @@ mod tests {
     #[test]
     fn explicit_dash_on_a_terminal_is_an_error() {
         assert_eq!(no_path_action(false, true), NoPathAction::StdinIsTerminal);
+    }
+
+    #[test]
+    fn blank_payloads_are_empty() {
+        assert!(is_empty_payload(""));
+        assert!(is_empty_payload("\n"));
+        assert!(is_empty_payload("  \t\r\n "));
+    }
+
+    #[test]
+    fn payloads_with_content_are_not_empty() {
+        assert!(!is_empty_payload("x"));
+        assert!(!is_empty_payload("\n# heading\n"));
+        assert!(!is_empty_payload("0"));
     }
 }

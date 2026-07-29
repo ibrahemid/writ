@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use std::process;
 
 use clap::Parser;
-use writ_cli::{no_path_action, resolve_targets, stdin_file_path, NoPathAction, OpenTarget};
+use writ_cli::{
+    is_empty_payload, no_path_action, resolve_targets, stdin_file_path, NoPathAction, OpenTarget,
+};
 
 #[cfg(not(target_os = "macos"))]
 use std::path::Path;
@@ -79,6 +81,10 @@ fn main() {
                 if let Err(e) = io::stdin().read_to_string(&mut content) {
                     eprintln!("writ: failed to read stdin: {e}");
                     process::exit(1);
+                }
+
+                if is_empty_payload(&content) {
+                    return;
                 }
 
                 let piped_dir = resolve_piped_dir();
