@@ -459,6 +459,9 @@
       lineEls.forEach((el, ln) => {
         el.setAttribute('contenteditable', 'plaintext-only');
         el.setAttribute('spellcheck', 'false');
+        // .hs-src is aria-hidden (it duplicates the rendered heading), so these
+        // stay pointer-editable but out of the tab order.
+        el.setAttribute('tabindex', '-1');
         el.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') e.preventDefault();
         });
