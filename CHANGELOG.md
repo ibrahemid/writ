@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Writ requires macOS 12 or later. The bundle previously declared 10.15, so a 0.2.0 install on macOS 11 or earlier must not update: macOS will refuse to launch this build and the update feed carries no OS check.
 - The rewrite actions share a `Rewrite:` prefix and are findable as a group; searching the palette for "rewrite" previously returned only the custom action.
 - Consent for a hosted provider is asked when the first rewrite runs, and names the host receiving the text. It was previously reachable only from a notice at the foot of the AI settings section, which left a configured provider failing with no way forward.
 - Rewrite failures name the host and offer the setting that fixes them, and a failed rewrite can be retried without re-selecting the text.

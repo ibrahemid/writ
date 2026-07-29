@@ -135,13 +135,13 @@ Buffers are stored in a local SQLite database under your OS's standard applicati
 ## Install
 
 ```sh
-brew install --cask ibrahemid/writ/writ                              # macOS
+brew install --cask ibrahemid/writ/writ                              # macOS 12 or later
 winget install -e --id ibrahemid.Writ                                # Windows
 curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh # Linux
 yay -S writ-bin                                                      # Arch
 ```
 
-Or grab a `.pkg`, `.dmg`, `.msi`, `.AppImage`, or `.deb` from [Releases](https://github.com/ibrahemid/writ/releases/latest).
+Or grab a `.pkg` or `.dmg` (macOS 12 or later), `.msi`, `.AppImage`, or `.deb` from [Releases](https://github.com/ibrahemid/writ/releases/latest).
 
 ## Build from source
 

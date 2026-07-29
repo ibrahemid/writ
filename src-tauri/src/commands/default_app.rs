@@ -92,10 +92,11 @@ mod macos {
     use core_foundation::base::TCFType;
     use core_foundation::string::{CFString, CFStringRef};
 
-    // Launch Services symbols are deprecated since macOS 12 but still present
-    // and the only mechanism that targets our minimum of 10.15. Using them
-    // directly here avoids a crate dependency whose #[deprecated] attributes
-    // would fire clippy -D warnings.
+    // Launch Services symbols are deprecated as of macOS 12, the minimum this
+    // bundle targets, but they remain present and are still the only mechanism
+    // callable as plain C: the NSWorkspace replacements are Objective-C. Using
+    // them directly here avoids a crate dependency whose #[deprecated]
+    // attributes would fire clippy -D warnings.
     #[allow(non_snake_case)]
     #[link(name = "CoreServices", kind = "framework")]
     extern "C" {
