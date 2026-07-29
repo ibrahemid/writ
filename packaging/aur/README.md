@@ -25,7 +25,7 @@ The PKGBUILD pulls the official AppImage from GitHub Releases:
 https://github.com/ibrahemid/writ/releases/download/v<version>/Writ_<version>_amd64.AppImage
 ```
 
-It then extracts the AppImage under `/opt/writ/` and symlinks `/usr/bin/writ` to the `AppRun` entrypoint. The AppImage is not executed at install time, only unpacked, so no FUSE runtime is required for `pacman -S writ-bin` to succeed. `fuse2` is still listed as a runtime dependency because the app launcher re-executes `AppRun`, which many Tauri AppImages expect to run under a FUSE loopback.
+It then extracts the AppImage under `/opt/writ/` and installs `/usr/bin/writ` as a `/bin/sh` wrapper that execs the CLI from the payload (`/opt/writ/usr/bin/writ`) with `WRIT_GUI_BIN` defaulting to `/opt/writ/AppRun`. The CLI therefore handles `writ file.rs` and `... | writ`, while the app starts through `AppRun`, which sets up the bundled GTK environment the payload expects. The desktop entry launches `AppRun` directly. The AppImage is not executed at install time, only unpacked, so no FUSE runtime is required for `pacman -S writ-bin` to succeed. `fuse2` is still listed as a runtime dependency because the app launcher re-executes `AppRun`, which many Tauri AppImages expect to run under a FUSE loopback.
 
 ## Placeholders
 
