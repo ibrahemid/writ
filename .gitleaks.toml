@@ -1,0 +1,12 @@
+[extend]
+useDefault = true
+
+# Keyboard accelerators are written as `keybinding: "CmdOrCtrl+Shift+F"`. The
+# default generic-api-key rule reads the `key` in `keybinding` as a secret
+# keyword and flags the accelerator string.
+[allowlist]
+description = "Keyboard accelerator literals"
+regexTarget = "match"
+regexes = [
+  '''keybinding:\s*"[A-Za-z0-9+]+"''',
+]
