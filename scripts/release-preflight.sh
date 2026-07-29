@@ -9,7 +9,10 @@ set -euo pipefail
 # Requirements:
 #   - macOS host (for the mac .app + .pkg build)
 #   - Rust toolchain (already installed for normal dev)
-#   - pnpm (already installed for normal dev)
+#   - pnpm (already installed for normal dev), with the root node_modules
+#     installed: pnpm install --frozen-lockfile
+#   - cargo-about, for the third-party notices check:
+#       cargo install cargo-about --version 0.9.1 --locked --features cli
 #   - Docker (only required for the act-driven Linux dry run)
 #   - act (https://github.com/nektos/act, optional; install with `brew install act`)
 #
@@ -55,22 +58,28 @@ load_signing_secrets() {
   fi
 }
 
-step "1/7 cargo fmt --all --check"
+step "1/8 cargo fmt --all --check"
 cargo fmt --all --check
 
-step "2/7 cargo test --workspace"
+step "2/8 cargo test --workspace"
 cargo test --workspace
 
-step "3/7 cargo clippy --workspace -- -D warnings"
+step "3/8 cargo clippy --workspace -- -D warnings"
 cargo clippy --workspace -- -D warnings
 
-step "4/7 npx tsc --noEmit"
+step "4/8 npx tsc --noEmit"
 npx tsc --noEmit
 
-step "5/7 pnpm --dir site build"
+# Runs before the bundle so the notices copied into the installers are the ones
+# that were checked. The check needs cargo-about and the root node_modules; a
+# missing prerequisite fails rather than skips, or the file rots unnoticed.
+step "5/8 scripts/gen-third-party-notices.py --check"
+python3 scripts/gen-third-party-notices.py --check
+
+step "6/8 pnpm --dir site build"
 pnpm --dir site build
 
-step "6/7 cargo tauri build (universal mac .app + .dmg + .pkg, ad-hoc signed)"
+step "7/8 cargo tauri build (universal mac .app + .dmg + .pkg, ad-hoc signed)"
 if [[ "$(uname -s)" != "Darwin" ]]; then
   warn "Skipping mac build: this script is running on $(uname -s), not Darwin."
 else
@@ -100,7 +109,7 @@ else
   find "${TARGET_DIR}/universal-apple-darwin/release/bundle" -type f \( -name '*.pkg' -o -name '*.dmg' -o -name '*.tar.gz' -o -name '*.sig' \) 2>/dev/null | sort
 fi
 
-step "7/7 act --dryrun (Linux release leg)"
+step "8/8 act --dryrun (Linux release leg)"
 if ! command -v act >/dev/null 2>&1; then
   warn "act not installed; skipping Linux dry run."
   warn "Install with: brew install act"
