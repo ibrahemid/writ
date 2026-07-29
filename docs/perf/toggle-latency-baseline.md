@@ -2,10 +2,11 @@
 
 The "always-ready" promise of Writ's global hotkey (Cmd+Shift+Space) is a
 load-bearing piece of the product story. This document defines what we measure,
-how we measure it, and what the baseline numbers are on a developer-class macOS
-machine. Use the numbers here as the regression target when changes touch the
-window lifecycle, the SolidJS root mount, the CodeMirror constructor, or any
-code that runs between hotkey-fire and the first painted frame.
+how we measure it, and the targets a baseline run should meet on a
+developer-class macOS machine. Once recorded, use the baseline as the
+regression target when changes touch the window lifecycle, the SolidJS root
+mount, the CodeMirror constructor, or any code that runs between hotkey-fire
+and the first painted frame.
 
 ## What is measured
 
@@ -77,21 +78,14 @@ what users feel every day.
 
 ## Baseline run
 
-Platform: macOS Darwin 25.5.0, MacBook Air M2 (developer-class).
-Build: `cargo tauri dev` profile (`dev`, not `release`). Release-build numbers
-will be tighter; this document captures the dev-build baseline so day-to-day
-regressions are visible.
+No capture has been recorded yet. Regression comparison against the targets
+above is qualitative until one lands.
 
-> **Numbers to be filled on first capture run.** Run the steps above, append
-> the five warm-toggle samples and the single cold-toggle sample, then commit
-> an update to this section. Until that capture lands, regression comparison
-> is qualitative.
-
-```
-cold first paint: TBD ms
-warm rust elapsed: TBD µs
-warm frontend first paint: TBD ms (five samples, drop the first)
-```
+To record a baseline: run the capture steps above on a developer-class macOS
+machine using `cargo tauri dev` (not `release`), note the platform and build
+profile, then commit the cold first-paint number, the warm Rust elapsed
+number, and the warm frontend first-paint number (five samples, drop the
+first) into this section.
 
 ## How to regress against this
 
