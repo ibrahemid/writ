@@ -70,10 +70,28 @@ jobs:
           name_for(){ echo "$RELEASE_JSON" | jq -r --arg re "$1" '[.assets[]|select(.name|test($re))]|.[0].name // ""'; }
           DMG=$(url_for 'universal\.dmg$'); PKG=$(url_for 'universal\.pkg$')
           MSI=$(url_for '\.msi$'); DEB=$(url_for '\.deb$'); APP=$(url_for '\.AppImage$')
-          NOTARIZED="${{ secrets.APPLE_TEAM_ID != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' }}"
-          PUBLISHED=false; [ -n "$PKG" ] && [ -n "$MSI" ] && [ -n "$APP" ] && PUBLISHED=true
+
+          # release.yml writes release-meta.json from the actual stapler
+          # validate results. Missing or unparseable means not notarized.
+          META_URL="$(echo "$RELEASE_JSON" | jq -r '[.assets[]|select(.name=="release-meta.json")]|.[0].browser_download_url // ""')"
+          NOTARIZED=false
+          if [ -n "$META_URL" ]; then
+            META="$(curl -fsSL "$META_URL" || echo '')"
+            if [ -n "$META" ]; then
+              NOTARIZED="$(echo "$META" | jq -r 'if (.pkg.stapled == true and .dmg.stapled == true) then "true" else "false" end' 2>/dev/null || echo false)"
+            fi
+          fi
+          case "$NOTARIZED" in true|false) ;; *) NOTARIZED=false ;; esac
+
+          HAS_CHECKSUMS=false; [ -n "$SUMS_URL" ] && HAS_CHECKSUMS=true
+          # Every URL the page renders has to exist, not just the primaries.
+          PUBLISHED=false
+          if [ -n "$PKG" ] && [ -n "$DMG" ] && [ -n "$MSI" ] && [ -n "$DEB" ] && [ -n "$APP" ]; then
+            PUBLISHED=true
+          fi
           jq -n --arg version "$VERSION" --arg tag "$TAG" --arg publishedAt "$PUBLISHED_AT" \
             --argjson published "$PUBLISHED" --argjson notarized "$NOTARIZED" \
+            --argjson hasChecksums "$HAS_CHECKSUMS" \
             --arg dmg "$DMG" --arg pkg "$PKG" --arg msi "$MSI" --arg deb "$DEB" --arg app "$APP" \
             --arg sdmg "$(sha_for "$(name_for 'universal\.dmg$')")" \
             --arg spkg "$(sha_for "$(name_for 'universal\.pkg$')")" \
@@ -81,6 +99,7 @@ jobs:
             --arg sdeb "$(sha_for "$(name_for '\.deb$')")" \
             --arg sapp "$(sha_for "$(name_for '\.AppImage$')")" \
             '{version:$version,tag:$tag,publishedAt:$publishedAt,published:$published,notarized:$notarized,
+              hasChecksums:$hasChecksums,
               platforms:{
                 mac:{dmg:(if $dmg==""then"#"else $dmg end),pkg:(if $pkg==""then"#"else $pkg end),sha256_dmg:$sdmg,sha256_pkg:$spkg},
                 win:{msi:(if $msi==""then"#"else $msi end),sha256_msi:$smsi},
