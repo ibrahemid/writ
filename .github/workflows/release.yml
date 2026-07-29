@@ -202,11 +202,13 @@ jobs:
           workspaces: ". -> target"
           shared-key: release-${{ matrix.os }}
 
-      - name: Import Apple Developer ID certificate
+      - name: Import Apple Developer ID certificates
         if: matrix.os == 'macos-latest' && env.APPLE_CERTIFICATE != ''
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_INSTALLER_CERTIFICATE: ${{ secrets.APPLE_INSTALLER_CERTIFICATE }}
+          APPLE_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
           KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
@@ -221,8 +223,21 @@ jobs:
             -P "$APPLE_CERTIFICATE_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           rm -f "$RUNNER_TEMP/certificate.p12"
+          # Developer ID Installer is a separate certificate from Developer ID
+          # Application; productsign needs it to sign the .pkg wrapper.
+          if [ -n "${APPLE_INSTALLER_CERTIFICATE:-}" ]; then
+            echo "$APPLE_INSTALLER_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/installer.p12"
+            security import "$RUNNER_TEMP/installer.p12" \
+              -k "$KEYCHAIN_PATH" \
+              -P "$APPLE_INSTALLER_CERTIFICATE_PASSWORD" \
+              -T /usr/bin/productsign \
+              -T /usr/bin/security
+            rm -f "$RUNNER_TEMP/installer.p12"
+          else
+            echo "APPLE_INSTALLER_CERTIFICATE absent; the .pkg will not be signed"
+          fi
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
       - name: Export code-signing secrets only when present
         shell: bash
@@ -326,7 +341,17 @@ jobs:
       - name: Build .pkg installer
         if: matrix.os == 'macos-latest'
         shell: bash
-        run: bash scripts/build-mac-pkg.sh
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          if [ -f "$KEYCHAIN_PATH" ]; then
+            IDENTITY="$(security find-identity -v "$KEYCHAIN_PATH" \
+              | awk -F'"' '/Developer ID Installer/{print $2; exit}' || true)"
+            if [ -n "$IDENTITY" ]; then
+              export WRIT_INSTALLER_SIGNING_IDENTITY="$IDENTITY"
+            fi
+          fi
+          bash scripts/build-mac-pkg.sh
 
       - name: Verify mac artifacts exist
         if: matrix.os == 'macos-latest'
@@ -346,19 +371,48 @@ jobs:
           echo "pkg: $PKG"
           echo "dmg: $DMG"
 
-      - name: Upload .pkg to release
+      # Tauri notarizes the .app; the pkg and dmg wrappers each need their own
+      # ticket so Gatekeeper accepts the download without an online round trip.
+      # Both upload only after their ticket is stapled and validated.
+      - name: Notarize, staple and upload the pkg
         if: matrix.os == 'macos-latest'
         env:
+          HAS_APPLE_NOTARIZE: ${{ secrets.APPLE_TEAM_ID != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.create-release.outputs.tag_name }}
         shell: bash
         run: |
           set -euo pipefail
           PKG="$(ls target/universal-apple-darwin/release/bundle/macos/Writ_*_universal.pkg)"
+          PKG_SIGNED=false
+          PKG_NOTARIZED=false
+          PKG_STAPLED=false
+          if pkgutil --check-signature "$PKG" | grep -q "Developer ID Installer"; then
+            PKG_SIGNED=true
+          fi
+          if [ "$PKG_SIGNED" != "true" ]; then
+            echo "installer certificate absent; pkg ships unsigned and Gatekeeper will reject it"
+          elif [ "$HAS_APPLE_NOTARIZE" != "true" ]; then
+            echo "notarization secrets absent; pkg ships signed but without a ticket"
+          else
+            xcrun notarytool submit "$PKG" \
+              --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" \
+              --wait
+            PKG_NOTARIZED=true
+            xcrun stapler staple "$PKG"
+            xcrun stapler validate "$PKG"
+            PKG_STAPLED=true
+          fi
           gh release upload "$TAG" "$PKG" --repo "$GITHUB_REPOSITORY" --clobber
+          {
+            echo "PKG_SIGNED=$PKG_SIGNED"
+            echo "PKG_NOTARIZED=$PKG_NOTARIZED"
+            echo "PKG_STAPLED=$PKG_STAPLED"
+          } >> "$GITHUB_ENV"
 
-      # Tauri notarizes the .app; the dmg wrapper needs its own ticket so
-      # Gatekeeper accepts the download without an online round trip.
       - name: Notarize and staple the dmg
         if: matrix.os == 'macos-latest'
         env:
@@ -373,6 +427,7 @@ jobs:
           set -euo pipefail
           if [ "$HAS_APPLE_NOTARIZE" != "true" ]; then
             echo "notarization secrets absent; dmg ships unnotarized"
+            echo "DMG_STAPLED=false" >> "$GITHUB_ENV"
             exit 0
           fi
           DMG="$(ls target/universal-apple-darwin/release/bundle/dmg/Writ_*_universal.dmg)"
@@ -381,7 +436,30 @@ jobs:
             --wait
           xcrun stapler staple "$DMG"
           xcrun stapler validate "$DMG"
+          # tauri-action already uploaded the pre-staple dmg; --clobber replaces
+          # those bytes with the stapled copy.
           gh release upload "$TAG" "$DMG" --repo "$GITHUB_REPOSITORY" --clobber
+          echo "DMG_STAPLED=true" >> "$GITHUB_ENV"
+
+      # The site reads this to decide whether it may show a notarized badge.
+      - name: Upload release-meta.json
+        if: matrix.os == 'macos-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.create-release.outputs.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -n \
+            --argjson pkgSigned "${PKG_SIGNED:-false}" \
+            --argjson pkgNotarized "${PKG_NOTARIZED:-false}" \
+            --argjson pkgStapled "${PKG_STAPLED:-false}" \
+            --argjson dmgStapled "${DMG_STAPLED:-false}" \
+            '{schema:1,
+              pkg:{signed:$pkgSigned,notarized:$pkgNotarized,stapled:$pkgStapled},
+              dmg:{stapled:$dmgStapled}}' > release-meta.json
+          cat release-meta.json
+          gh release upload "$TAG" release-meta.json --repo "$GITHUB_REPOSITORY" --clobber
 
   finalize:
     name: Finalize release (checksums + updater manifest)
