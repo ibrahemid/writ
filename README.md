@@ -40,7 +40,7 @@ Writ extends that to how I work: resident and summoned, not launched. One hotkey
 - `Cmd+click` (`Ctrl` elsewhere) opens `http`, `https`, and `mailto` links from the editor, underlined only while the modifier is held; a relative link like `[spec](./notes/spec.md)` opens in Writ when it resolves inside the workspace. A link clicked in the preview names its destination host and asks before opening
 - Right-click gets Writ's own menu rather than the webview's, everywhere but the preview pane: spelling corrections, link actions, clipboard, rewrite actions on a selection, and a workspace search seeded with it
 - Spell check runs locally, so nothing leaves the machine. Double-click a flagged word for corrections in place: accept one, fix all, or add the word to your dictionary. Code, URLs, and tokens like `API` or `useSignal` stay unflagged. Off by default
-- Rewrite a selection: proofread, rephrase, polish, improve prompt (instructed to leave `{{placeholders}}` intact), or your own instruction. A local model (Ollama) by default, or any OpenAI-compatible endpoint with your own key, kept in the OS keychain. Off until you turn it on; Writ asks before the first send to a host off your machine, and only the text you rewrite is sent
+- Rewrite a selection: proofread, rephrase, polish, improve prompt (instructed to leave `{{placeholders}}` intact), or your own instruction. A local model (Ollama) by default, or any OpenAI-compatible endpoint with your own key, kept in the OS keychain on macOS and Windows and in memory for the session elsewhere. Off until you turn it on; Writ asks before the first send to a host off your machine, and only the text you rewrite is sent
 - Prompt fill: placeholder variables, a live token estimate, copy as prompt
 - Text transforms such as Tidy Whitespace, built from small composable passes
 - Workspace folders with a file tree, plus a watched inbox that opens new files as they arrive
@@ -52,7 +52,7 @@ Writ extends that to how I work: resident and summoned, not launched. One hotkey
 
 Each of these is recorded in [docs/adr/](docs/adr/); the short version:
 
-- **Buffers live in SQLite, not loose files.** That is what makes autosave-per-keystroke, restart persistence, and instant full-text search possible. Files on disk still open and save normally; the database is the scratch layer where most text starts and much of it ends.
+- **Text on disk, metadata in SQLite.** Each buffer's text is a plain file under `~/.writ/buffers/`; `writ.db` carries the metadata and the full-text index. That split is what makes autosave-per-keystroke, restart persistence, and instant full-text search possible. Files you open still save back to their own path; the buffers directory is the scratch layer where most text starts and much of it ends.
 - **Resident, not launched.** The app starts hidden and keeps running in the background, so the hotkey shows a window instead of booting a program. Cold start time stops mattering because it happens once.
 - **Keyboard first.** Every command, setting, and buffer is reachable from the palette. The mouse is optional.
 - **The preview trusts nothing.** Markdown, HTML, Mermaid, and KaTeX render from runtimes bundled into the app, and the preview blocks all network access.
@@ -130,7 +130,7 @@ The [landing page](https://writ.ibrahemid.com) has a live editor you can try in 
 | Rename tab | Double-click tab |
 | Find in document | `Cmd+F` |
 
-Buffers are stored in a local SQLite database under your OS's standard application data directory.
+Writ keeps its state in `~/.writ`: buffer text as plain files under `buffers/`, metadata and the search index in `writ.db`, anything piped into the `writ` CLI in `piped/`, plus `config.toml` and `logs/`.
 
 ## Install
 
@@ -169,7 +169,7 @@ The installer or app bundle is written to `src-tauri/target/release/bundle/`.
 | Desktop shell | Tauri v2 |
 | Frontend | SolidJS + Vite |
 | Editor | CodeMirror 6 |
-| Storage | SQLite (WAL mode, FTS5) |
+| Storage | Plain files + SQLite (WAL mode, FTS5) |
 | Core logic | Rust: `writ-core`, `writ-storage`, `writ-render`, `writ-plugin` |
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system design and [docs/adr/](docs/adr/) for architecture decision records.
