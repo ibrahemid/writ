@@ -28,7 +28,7 @@ const oneliners = [
         </div>
         <a class="plat-dl" href={release.platforms.mac.pkg}>Download .pkg</a>
         <a class="plat-alt" href={release.platforms.mac.dmg}>or .dmg</a>
-        <span class="plat-note">Apple silicon & Intel</span>
+        <span class="plat-note">Apple silicon & Intel · macOS 12+</span>
       </div>
       <div class="plat-card" data-plat="win">
         <div class="plat-top"><span class="plat-name">Windows</span></div>
@@ -39,6 +39,7 @@ const oneliners = [
         <div class="plat-top"><span class="plat-name">Linux</span></div>
         <a class="plat-dl" href={release.platforms.linux.appImage}>Download .AppImage</a>
         <a class="plat-alt" href={release.platforms.linux.deb}>or .deb</a>
+        <span class="plat-note">x86_64</span>
       </div>
     </div>
   ) : (
