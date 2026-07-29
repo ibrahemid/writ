@@ -33,10 +33,14 @@ Writ extends that to how I work: resident and summoned, not launched. One hotkey
 
 - Global hotkey summons the window from anywhere: `Cmd+Shift+Space` on macOS, `Ctrl+Shift+Space` on Windows and Linux
 - Autosave on every keystroke; buffers persist across restarts; crash recovery restores the last session
-- Full-text search across every buffer, backed by SQLite FTS5
+- Search everywhere on `Cmd+Shift+F`: commands, settings, and every buffer, open or from history, in one palette. With a workspace folder open it adds file names, and greps file contents on each query. Prefixes: `>` commands, `#` content, `:` go to line
 - Split-pane live preview: Markdown, HTML, Mermaid diagrams, and KaTeX math, rendered fully offline with scroll sync
-- Command palette on double-tap `Shift`; settings and every command are searchable from it
+- Command palette on double-tap `Shift`
 - CodeMirror 6 editor with language auto-detection, live Markdown typography, and formatting shortcuts
+- `Cmd+click` (`Ctrl` elsewhere) opens `http`, `https`, and `mailto` links from the editor, underlined only while the modifier is held; a relative link like `[spec](./notes/spec.md)` opens in Writ when it resolves inside the workspace. A link clicked in the preview names its destination host and asks before opening
+- Right-click gets Writ's own menu rather than the webview's, everywhere but the preview pane: spelling corrections, link actions, clipboard, rewrite actions on a selection, and a workspace search seeded with it
+- Spell check runs locally, so nothing leaves the machine. Double-click a flagged word for corrections in place: accept one, fix all, or add the word to your dictionary. Code, URLs, and tokens like `API` or `useSignal` stay unflagged. Off by default
+- Rewrite a selection: proofread, rephrase, polish, improve prompt (instructed to leave `{{placeholders}}` intact), or your own instruction. A local model (Ollama) by default, or any OpenAI-compatible endpoint with your own key, kept in the OS keychain. Off until you turn it on; Writ asks before the first send to a host off your machine, and only the text you rewrite is sent
 - Prompt fill: placeholder variables, a live token estimate, copy as prompt
 - Text transforms such as Tidy Whitespace, built from small composable passes
 - Workspace folders with a file tree, plus a watched inbox that opens new files as they arrive
@@ -134,6 +138,7 @@ Buffers are stored in a local SQLite database under your OS's standard applicati
 brew install --cask ibrahemid/writ/writ                              # macOS
 winget install -e --id ibrahemid.Writ                                # Windows
 curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh # Linux
+yay -S writ-bin                                                      # Arch
 ```
 
 Or grab a `.pkg`, `.dmg`, `.msi`, `.AppImage`, or `.deb` from [Releases](https://github.com/ibrahemid/writ/releases/latest).
