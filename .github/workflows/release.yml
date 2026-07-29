@@ -377,6 +377,7 @@ jobs:
       - name: Notarize, staple and upload the pkg
         if: matrix.os == 'macos-latest'
         env:
+          HAS_INSTALLER_CERT: ${{ secrets.APPLE_INSTALLER_CERTIFICATE != '' }}
           HAS_APPLE_NOTARIZE: ${{ secrets.APPLE_TEAM_ID != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
@@ -393,8 +394,15 @@ jobs:
           if pkgutil --check-signature "$PKG" | grep -q "Developer ID Installer"; then
             PKG_SIGNED=true
           fi
+          # Configured but unsigned means the identity did not resolve. Shipping
+          # that quietly is the exact state this pipeline exists to prevent.
+          if [ "$PKG_SIGNED" != "true" ] && [ "$HAS_INSTALLER_CERT" = "true" ]; then
+            echo "APPLE_INSTALLER_CERTIFICATE is set but the pkg came out unsigned" >&2
+            pkgutil --check-signature "$PKG" >&2 || true
+            exit 1
+          fi
           if [ "$PKG_SIGNED" != "true" ]; then
-            echo "installer certificate absent; pkg ships unsigned and Gatekeeper will reject it"
+            echo "no installer certificate configured; pkg ships unsigned and Gatekeeper will reject it"
           elif [ "$HAS_APPLE_NOTARIZE" != "true" ]; then
             echo "notarization secrets absent; pkg ships signed but without a ticket"
           else
