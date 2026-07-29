@@ -15,7 +15,7 @@ framework code, and typed contracts across every layer of the stack.
 │  │                          │   │                            │  │
 │  │  ┌────────────────────┐  │   │  ┌──────────────────────┐ │  │
 │  │  │     writ-core      │  │   │  │     Components       │ │  │
-│  │  │  (pure domain)     │  │   │  │  (editor, sidebar,   │ │  │
+│  │  │  (domain model)    │  │   │  │  (editor, sidebar,   │ │  │
 │  │  │  buffer, config,   │  │   │  │   tabs, statusbar)   │ │  │
 │  │  │  events, policy    │  │   │  └──────────┬───────────┘ │  │
 │  │  └────────┬───────────┘  │   │             │             │  │
@@ -26,10 +26,10 @@ framework code, and typed contracts across every layer of the stack.
 │  │  │  TOML, FTS5        │  │   │  └──────────┬───────────┘ │  │
 │  │  └────────┬───────────┘  │   │             │             │  │
 │  │           │              │   │  ┌──────────▼───────────┐ │  │
-│  │  ┌────────▼───────────┐  │   │  │      Services        │ │  │
-│  │  │   writ-plugin      │  │   │  │   tauri.ts (IPC)     │ │  │
-│  │  │  extension API     │  │   │  │   typed commands     │ │  │
-│  │  └────────┬───────────┘  │   │  └──────────┬───────────┘ │  │
+│  │           │              │   │  │      Services        │ │  │
+│  │           │              │   │  │   tauri.ts (IPC)     │ │  │
+│  │           │              │   │  │   typed commands     │ │  │
+│  │           │              │   │  └──────────┬───────────┘ │  │
 │  │           │              │   │             │             │  │
 │  │  ┌────────▼───────────┐  │◄──┼─────────────┘             │  │
 │  │  │     src-tauri      │  │   │         IPC Bridge        │  │
@@ -40,17 +40,44 @@ framework code, and typed contracts across every layer of the stack.
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+The diagram shows the runtime path. The full set of cargo dependency edges between
+workspace members, which is what the build enforces:
+
+```
+src-tauri ─┬─▶ writ-core
+           ├─▶ writ-storage ──▶ writ-core
+           ├─▶ writ-plugin ───▶ writ-core
+           ├─▶ writ-lint ─────▶ writ-core
+           └─▶ writ-render        (no workspace dependencies)
+
+writ-cli                          (no workspace dependencies; ships beside the
+                                   app binary as a Tauri sidecar, not linked in)
+```
+
+`writ-storage`, `writ-plugin` and `writ-lint` are siblings on `writ-core`. None of
+them depends on another.
+
 ## Crate Responsibilities
 
 ### writ-core
-Pure domain logic. No I/O, no framework imports, no async runtime. Contains:
+Domain model and policy. Zero Tauri, no framework imports, no async runtime. Contains:
 - Buffer model: open/close lifecycle, dirty state, cursor positions
 - Config schema: typed structs for user preferences, keybindings, theme tokens
 - Domain events: `BufferOpened`, `BufferSaved`, `ConfigChanged`, etc.
 - Conflict policy: last-write-wins vs. prompt-on-conflict resolution logic
+- Recovery policy: snapshot retention and which buffers to restore after an unclean launch
+- File classification: the open-mode ladder in `file_ops`, which decides whether a path opens
+  normally, as a large file, or is refused
 
-The constraint is absolute: `writ-core` must compile with no external dependencies beyond
-`serde` and `thiserror`. If any Tauri type ever appears here, the workspace will fail to build.
+`writ-core` is not I/O-free. `file_ops` makes bounded `std::fs` probes (`metadata` for size, a
+head-of-file read to sniff for NUL bytes, `canonicalize` on argv paths) because classification
+cannot be decided without them. Reading and writing file contents is `writ-storage`'s job and
+stays there.
+
+The enforced constraint is the dependency direction: `writ-core` depends on no other
+workspace crate, and if any Tauri type appears here the workspace fails to build. Its
+external dependencies are `serde`, `serde_json`, `uuid`, `chrono`, `tracing`, `thiserror`,
+`sha2` and `url`.
 
 ### writ-storage
 All persistence. Depends on `writ-core` for domain types, but not on Tauri. Contains:
@@ -71,7 +98,30 @@ All persistence. Depends on `writ-core` for domain types, but not on Tauri. Cont
 ### writ-plugin
 Defines the extension boundary. Provides a stable API surface that plugins target. Depends on
 `writ-core` types. Isolates the plugin ABI from Tauri internals so the host runtime can evolve
-independently of published extension contracts.
+independently of published extension contracts. Also holds the shipped text-transform runtime:
+the `TextTransform` trait, the registry, and the built-in and composite transforms
+(see [ADR-006](./adr/006-plugin-runtime-v1.md) and [ADR-012](./adr/012-composite-transforms.md)).
+
+### writ-render
+Markdown to HTML-fragment core. Turns buffer text into the fragment the preview pane renders,
+including fenced-diagram blocks. `pulldown-cmark` is its only non-optional dependency and it
+depends on no workspace crate, so it stays callable outside the app; `crate-type` includes
+`cdylib` and an optional `wasm` feature compiles it to WebAssembly. `src-tauri`'s preview
+renderers are the in-tree consumer.
+
+### writ-lint
+Spell check and mechanical-writing rules, wrapping `harper-core` against its curated
+in-process dictionary. Depends on `writ-core`. Style and readability rules are off by design:
+Writ flags mistakes, not prose taste. Harper reports character offsets and CodeMirror measures
+UTF-16 code units, so the crate converts every span before returning.
+
+### writ-cli
+The `writ` command line binary. Parses argv and stdin into an open target (a file list, a
+workspace directory, or piped text written under `~/.writ/piped/`) and hands it to the app:
+by bundle id on macOS, by the sibling app binary elsewhere, with the OS default handler as
+the fallback. Depends on no workspace crate and has no Tauri dependency, so it is testable
+without an app handle. Bundled as a Tauri sidecar that ships beside the app executable.
+See [ADR-017](./adr/017-command-line-surface.md).
 
 ### src-tauri
 The only crate that imports `tauri`. Thin adapter responsibilities only:
@@ -92,8 +142,18 @@ Components → Stores → Services (tauri.ts) → IPC → Rust commands
 - **Services / tauri.ts** is the single file that calls `@tauri-apps/api/core` `invoke()`.
   All IPC payloads and responses are typed with generated or hand-maintained TypeScript interfaces
   that mirror the Rust command signatures.
+- **Services / events.ts** is the single file that imports `@tauri-apps/api/event`. Every
+  `listen` and `emit` goes through it, so the set of live subscriptions is readable in one place.
 - **IPC** layer carries typed JSON. Command names and payload shapes are the contract; breaking
   changes require updating both sides atomically.
+
+Two rules keep the DOM out of the reactive graph:
+
+- No `document.querySelector` in components or stores. Reach an element with a ref, or keep the
+  state in a store. Test files are exempt.
+- No `document.addEventListener` outside `onMount` or `createEffect`, and every listener is
+  removed in a matching `onCleanup`. A listener registered at module scope outlives the
+  component that wanted it.
 
 ## Design Principles
 

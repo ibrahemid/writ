@@ -6,19 +6,15 @@ body:
   - type: markdown
     attributes:
       value: |
-        Questions belong in GitHub Discussions, not Issues. The Issues tracker is reserved for reproducible bugs and actionable feature requests.
+        Reproducible bugs and feature requests have their own templates.
 
-        Please open a new Discussion instead: https://github.com/ibrahemid/writ/discussions
-
-        If you are certain your question belongs here (for example, an ambiguity in the documentation that should be fixed), fill in the fields below.
+        Check the [README](https://github.com/ibrahemid/writ#readme), [CONTRIBUTING.md](https://github.com/ibrahemid/writ/blob/main/CONTRIBUTING.md) and [docs/ARCHITECTURE.md](https://github.com/ibrahemid/writ/blob/main/docs/ARCHITECTURE.md) first.
   - type: checkboxes
     id: confirm
     attributes:
       label: Confirmation
       options:
-        - label: I searched existing Discussions and Issues and could not find an answer.
-          required: true
-        - label: I understand this will likely be converted to a Discussion by a maintainer.
+        - label: I searched existing issues and could not find an answer.
           required: true
   - type: textarea
     id: question

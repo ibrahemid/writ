@@ -48,9 +48,12 @@ Once Writ reaches a `1.x` release, this table will be updated with a formal supp
 
 The following are in scope:
 
-- `writ-core`, `writ-storage`, and `writ-plugin` Rust crates.
+- Every Rust crate in the workspace: `writ-core`, `writ-storage`, `writ-plugin`,
+  `writ-render`, `writ-lint`, and `writ-cli` (the `writ` command, which parses argv
+  and piped stdin).
 - The `src-tauri` Tauri IPC layer and its command surface.
 - The SolidJS frontend under `src/`.
+- Markdown and HTML rendering in the preview pane.
 - SQLite database handling and FTS5 query construction.
 - Release artifacts published under GitHub Releases.
 

@@ -7,10 +7,8 @@ Writ works well as a scratchpad alongside Claude Code. Two patterns are useful: 
 Install the `writ` command from Settings → Files → "Install `writ` command", or run the symlink manually:
 
 ```sh
-ln -sf "/Applications/Writ.app/Contents/MacOS/writ-aarch64-apple-darwin" /usr/local/bin/writ
+ln -sf "/Applications/Writ.app/Contents/MacOS/writ" /usr/local/bin/writ
 ```
-
-Adjust the binary name for your architecture (`x86_64-apple-darwin` on Intel Macs).
 
 ## Pipe any output into Writ
 

@@ -4,7 +4,7 @@ Thank you for your interest in contributing. This document covers everything you
 
 ## Prerequisites
 
-- **Rust** 1.77+, install via [rustup.rs](https://rustup.rs)
+- **Rust** 1.89+ (the workspace `rust-version`), install via [rustup.rs](https://rustup.rs)
 - **Node.js** 20+, via [nodejs.org](https://nodejs.org) or a version manager
 - **pnpm** 9+: `npm install -g pnpm`
 - **Tauri CLI prerequisites** for your platform: [tauri.app/start/prerequisites](https://tauri.app/start/prerequisites/)
@@ -32,19 +32,24 @@ pnpm build                       # full frontend build (catches bundler errors)
 
 Run all three before submitting a pull request. CI runs the same checks.
 
+New public Rust functions ship with tests, and a new IPC command ships with coverage of the command itself. A bug fix ships with a test that fails without it.
+
 ## Project Structure
 
 ```
 writ/
 ├── crates/
-│   ├── writ-core/       # Pure Rust business logic (no I/O, no Tauri)
-│   ├── writ-storage/    # SQLite persistence, FTS5, migrations
-│   └── writ-plugin/     # Plugin API boundary types and trait definitions
+│   ├── writ-core/       # Domain model and policy, no Tauri
+│   ├── writ-storage/    # SQLite persistence, FTS5, migrations, file I/O
+│   ├── writ-plugin/     # Plugin boundary types and the text-transform runtime
+│   ├── writ-render/     # Markdown to HTML fragments for the preview pane
+│   ├── writ-lint/       # Spell check and mechanical-writing rules (Harper)
+│   └── writ-cli/        # The `writ` command, bundled as a Tauri sidecar
 ├── src-tauri/           # Tauri adapter: IPC commands, app lifecycle, file watcher
 └── src/                 # SolidJS frontend: components, stores, services
 ```
 
-The crate separation is intentional and compiler-enforced. `writ-core` must never import `tauri` or `writ-storage` directly. See [ADR-005](docs/adr/005-cargo-workspace-split.md).
+The crate separation is intentional and compiler-enforced. `writ-core` must never import `tauri` or `writ-storage` directly. See [ADR-005](docs/adr/005-cargo-workspace-split.md) for the split and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the current dependency graph and the frontend layering rules.
 
 ## Code Style
 

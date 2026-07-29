@@ -44,6 +44,15 @@ The scratch file lives under a well-known Writ-owned subdirectory. No inbox-id c
 
 The CLI binary is bundled as an `externalBin` sidecar (`src-tauri/binaries/writ-<target-triple>`). Tauri renames sidecar binaries with the target triple at bundle time. The `install_cli` IPC command resolves the sidecar path from the app bundle's Resources directory and creates a symlink at `/usr/local/bin/writ`. If the directory is not writable, the command returns the manual `ln -s` command string as an error detail. The symlink is created by the app, not the installer, to defer the privileged step until the user explicitly requests it from Settings.
 
+> **Correction (2026-07-30).** Two details in the paragraph above are wrong about
+> the shipped build, kept here rather than rewritten because the record is dated.
+> Tauri strips the target triple at bundle time rather than adding one, so the
+> bundle contains a plain `writ` (universal on macOS), and `install_cli` resolves
+> it next to the running executable, not from `Resources/`: `resource_dir()`
+> points at a sibling folder that does not contain the sidecar
+> (`src-tauri/src/commands/cli.rs:46-61`). The correct manual symlink is
+> `ln -sf "/Applications/Writ.app/Contents/MacOS/writ" /usr/local/bin/writ`.
+
 ### Settings UI
 
 Settings → Files section gains an "Install `writ` command" button. The action routes component → store → `tauri.ts` → `install_cli` IPC, following the layering rule. The result is surfaced as a toast.

@@ -23,7 +23,7 @@ All boxes must be checked before a maintainer will review.
 
 ## Architecture Compliance
 
-Confirm the change respects the rules in `CLAUDE.md`:
+Confirm the change respects the rules in [docs/ARCHITECTURE.md](https://github.com/ibrahemid/writ/blob/main/docs/ARCHITECTURE.md) and [CONTRIBUTING.md](https://github.com/ibrahemid/writ/blob/main/CONTRIBUTING.md):
 
 - [ ] Cargo workspace boundaries respected (`writ-core` has no Tauri dependency, `src-tauri` is the only Tauri adapter).
 - [ ] `src/services/tauri.ts` is still the only file that imports `@tauri-apps/api`.

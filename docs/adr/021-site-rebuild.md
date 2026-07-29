@@ -1,7 +1,22 @@
 # ADR-021: Site Rebuild
 
-**Status:** Proposed
+**Status:** Accepted, shipped except Decision 2's WASM half (recorded 2026-07-30)
 **Date:** 2026-06-23
+
+> **Shipped.** The site under `site/` is this rebuild: Astro components, no
+> `framer-motion`, no `HeroDemo.tsx`. Two corrections, since the context below
+> reads as current state but was written on 2026-06-23.
+>
+> The install commands the context calls invented are real published channels
+> and stayed: `packaging/homebrew/Casks/writ.rb`,
+> `packaging/winget/manifests/i/ibrahemid/Writ/`, `install.sh` and
+> `packaging/aur/writ-bin/PKGBUILD` all ship, and
+> `site/src/components/site/Install.astro` publishes them plus an Arch entry.
+>
+> Decision 2 shipped only its first half. `crates/writ-render/` exists and
+> `src-tauri/src/preview/renderers/markdown.rs` delegates to it, but the site
+> never ran it as WASM. The demo renders markdown in TypeScript
+> (`site/src/islands/writ/render.ts`), so the site build has no Rust step.
 
 ## Context
 
