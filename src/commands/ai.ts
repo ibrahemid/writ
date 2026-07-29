@@ -45,7 +45,8 @@ async function clearBlockersBeforeSending(): Promise<boolean> {
   if (endpoint.is_hosted && !endpoint.is_consented) {
     const confirmed = await requestConfirm({
       title: `Send text to ${endpoint.host_port ?? endpoint.host}?`,
-      message: "Only the text you rewrite is sent. Nothing else leaves your machine.",
+      message:
+        "The text you rewrite is sent with your API key. Writ also sends the key on its own to check the host is reachable; nothing else leaves your machine.",
       confirmLabel: "Send",
     });
     if (!confirmed) return false;

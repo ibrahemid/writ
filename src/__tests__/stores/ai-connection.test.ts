@@ -106,4 +106,35 @@ describe("connectionDisplay", () => {
     );
     expect(refusedHosted.text.toLowerCase()).not.toContain("ollama");
   });
+
+  // A hosted endpoint is not probed before consent, so this state means "no
+  // request was made", not "the endpoint failed".
+  it("reads a blocked hosted probe as needing consent, not as a failure", () => {
+    const consent = connectionDisplay(
+      {
+        reachable: false,
+        model_listed: null,
+        kind: "consent_required",
+        detail: "api.groq.com",
+        models: [],
+      },
+      "llama3",
+    );
+    expect(consent.tone).toBe("warn");
+    expect(consent.text).toBe("Not checked until you allow api.groq.com");
+  });
+
+  it("reads a probe blocked by the master switch as off", () => {
+    const off = connectionDisplay(
+      {
+        reachable: false,
+        model_listed: null,
+        kind: "disabled",
+        detail: "api.groq.com",
+        models: [],
+      },
+      "llama3",
+    );
+    expect(off).toEqual({ text: "Rewriting is off", tone: "idle" });
+  });
 });
