@@ -203,7 +203,7 @@ jobs:
           shared-key: release-${{ matrix.os }}
 
       - name: Import Apple Developer ID certificates
-        if: matrix.os == 'macos-latest' && env.APPLE_CERTIFICATE != ''
+        if: matrix.os == 'macos-latest' && (env.APPLE_CERTIFICATE != '' || env.APPLE_INSTALLER_CERTIFICATE != '')
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -217,15 +217,20 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '" ')
-          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
-          security import "$RUNNER_TEMP/certificate.p12" \
-            -k "$KEYCHAIN_PATH" \
-            -P "$APPLE_CERTIFICATE_PASSWORD" \
-            -T /usr/bin/codesign \
-            -T /usr/bin/security
-          rm -f "$RUNNER_TEMP/certificate.p12"
           # Developer ID Installer is a separate certificate from Developer ID
-          # Application; productsign needs it to sign the .pkg wrapper.
+          # Application: the first signs the .pkg wrapper through productsign,
+          # the second signs the .app, and either may be configured alone.
+          if [ -n "${APPLE_CERTIFICATE:-}" ]; then
+            echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+            security import "$RUNNER_TEMP/certificate.p12" \
+              -k "$KEYCHAIN_PATH" \
+              -P "$APPLE_CERTIFICATE_PASSWORD" \
+              -T /usr/bin/codesign \
+              -T /usr/bin/security
+            rm -f "$RUNNER_TEMP/certificate.p12"
+          else
+            echo "APPLE_CERTIFICATE absent; the .app will not carry a Developer ID signature"
+          fi
           if [ -n "${APPLE_INSTALLER_CERTIFICATE:-}" ]; then
             echo "$APPLE_INSTALLER_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/installer.p12"
             security import "$RUNNER_TEMP/installer.p12" \
@@ -391,14 +396,32 @@ jobs:
           PKG_SIGNED=false
           PKG_NOTARIZED=false
           PKG_STAPLED=false
-          if pkgutil --check-signature "$PKG" | grep -q "Developer ID Installer"; then
-            PKG_SIGNED=true
-          fi
+          # Read the signature into a variable rather than piping it: a reader
+          # that exits on the first match can leave pkgutil killed by SIGPIPE,
+          # and under pipefail a signed pkg would then read as unsigned.
+          PKG_SIGNATURE="$(pkgutil --check-signature "$PKG" 2>&1 || true)"
+          case "$PKG_SIGNATURE" in
+            *"Developer ID Installer"*) PKG_SIGNED=true ;;
+          esac
           # Configured but unsigned means the identity did not resolve. Shipping
           # that quietly is the exact state this pipeline exists to prevent.
           if [ "$PKG_SIGNED" != "true" ] && [ "$HAS_INSTALLER_CERT" = "true" ]; then
-            echo "APPLE_INSTALLER_CERTIFICATE is set but the pkg came out unsigned" >&2
-            pkgutil --check-signature "$PKG" >&2 || true
+            KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+            if [ ! -f "$KEYCHAIN_PATH" ]; then
+              echo "APPLE_INSTALLER_CERTIFICATE is set but $KEYCHAIN_PATH does not exist: the certificate import step never ran" >&2
+            else
+              IDENTITIES="$(security find-identity -v "$KEYCHAIN_PATH" 2>&1 || true)"
+              case "$IDENTITIES" in
+                *"Developer ID Installer"*)
+                  echo "APPLE_INSTALLER_CERTIFICATE is set and the identity is in the keychain, but productsign left the pkg unsigned" >&2
+                  ;;
+                *)
+                  echo "APPLE_INSTALLER_CERTIFICATE is set but no Developer ID Installer identity reached the keychain: check APPLE_INSTALLER_CERTIFICATE_PASSWORD and that the secret holds a base64 Developer ID Installer .p12" >&2
+                  ;;
+              esac
+              echo "$IDENTITIES" >&2
+            fi
+            echo "$PKG_SIGNATURE" >&2
             exit 1
           fi
           if [ "$PKG_SIGNED" != "true" ]; then
