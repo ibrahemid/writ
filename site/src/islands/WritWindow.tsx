@@ -135,6 +135,7 @@ export default function WritWindow() {
   const loadingRef = useRef(false);
   const spellingOnRef = useRef(false);
   const hoverRef = useRef(false);
+  const narrowRef = useRef(false);
   const lastShiftRef = useRef(0);
   const lastMermaidRef = useRef('');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -756,7 +757,18 @@ export default function WritWindow() {
   handlersRef.current = handlers;
 
   useEffect(() => {
-    const onResize = () => setNarrow(window.innerWidth < 720);
+    // The 232px sidebar track leaves no editor column on a phone, so crossing
+    // the breakpoint owns the sidebar: entering narrow collapses it, leaving
+    // narrow restores it. Resizes that stay on one side of the breakpoint leave
+    // an explicit toggle alone.
+    const onResize = () => {
+      const isNarrow = window.innerWidth < 720;
+      setNarrow(isNarrow);
+      if (isNarrow !== narrowRef.current) {
+        narrowRef.current = isNarrow;
+        setSidebarOpen(!isNarrow);
+      }
+    };
     onResize();
     window.addEventListener('resize', onResize);
 
