@@ -33,8 +33,5 @@ export default defineConfig({
       },
       dedupe: CM_DEDUPE,
     },
-    ssr: {
-      noExternal: ['motion'],
-    },
   },
 });
