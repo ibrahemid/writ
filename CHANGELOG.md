@@ -37,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - On the AUR package, `/usr/bin/writ` is the CLI, so piping and `--title` work. It previously pointed at the app, which reads argv as paths and ignores stdin. The desktop entry still launches the app.
 - `writ <file>` opens the file in Writ on Linux and Windows. It previously went through the desktop default handler, which could open another editor, since Writ registers its file associations at Alternate rank.
 - An empty piped payload opens nothing. It previously wrote a zero-byte file and opened a blank buffer.
+- `writ --version` reports the installed version. It printed 0.1.0 on every release since the CLI landed.
 
 ## [0.2.0] - 2026-07-24
 
