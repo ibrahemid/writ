@@ -1,11 +1,110 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+/// Environment variable naming the Writ application binary to launch.
+/// Read on Linux and Windows; macOS resolves the app by bundle identifier.
+pub const GUI_BIN_ENV: &str = "WRIT_GUI_BIN";
+
+/// Name of the Writ application binary as it ships beside the CLI: `usr/bin/`
+/// in the .deb and the AppImage payload, the install directory in the MSI.
+#[cfg(windows)]
+pub const GUI_BINARY_NAME: &str = "writ-tauri.exe";
+#[cfg(not(windows))]
+pub const GUI_BINARY_NAME: &str = "writ-tauri";
+
 #[derive(Debug, PartialEq)]
 pub enum OpenTarget {
     Files(Vec<PathBuf>),
     Workspace(PathBuf),
     Stdin { title: Option<String> },
+}
+
+/// Where the CLI should send its payload.
+#[derive(Debug, PartialEq)]
+pub enum GuiLaunch {
+    /// Run this binary directly, with the paths as arguments.
+    Binary(PathBuf),
+    /// No Writ binary could be located; hand the paths to the desktop default
+    /// handler, which may open them in another application.
+    OsDefault,
+}
+
+/// What an invocation carrying no path arguments should do.
+#[derive(Debug, PartialEq)]
+pub enum NoPathAction {
+    /// Read the piped payload from stdin.
+    ReadStdin,
+    /// Open Writ with no document.
+    LaunchApp,
+    /// `-` was requested but stdin is a terminal.
+    StdinIsTerminal,
+}
+
+/// Locate the Writ application binary on Linux and Windows.
+///
+/// Order: `WRIT_GUI_BIN` when it points at a file, then a `writ-tauri` sibling
+/// of the running CLI, then the desktop default handler. Both the .deb and the
+/// AppImage payload place `usr/bin/writ` next to `usr/bin/writ-tauri`, and the
+/// MSI installs `writ.exe` next to `writ-tauri.exe`, so the sibling lookup
+/// covers every shipped layout.
+///
+/// A candidate that is the running CLI itself is skipped: launching it would
+/// re-enter the CLI, which would launch it again, and nothing would ever open.
+pub fn resolve_gui_binary(env_override: Option<&Path>, current_exe: Option<&Path>) -> GuiLaunch {
+    if let Some(candidate) = env_override {
+        if candidate.is_file() && !is_current_exe(candidate, current_exe) {
+            return GuiLaunch::Binary(candidate.to_path_buf());
+        }
+    }
+
+    if let Some(sibling) = current_exe
+        .and_then(Path::parent)
+        .map(|dir| dir.join(GUI_BINARY_NAME))
+    {
+        if sibling.is_file() && !is_current_exe(&sibling, current_exe) {
+            return GuiLaunch::Binary(sibling);
+        }
+    }
+
+    GuiLaunch::OsDefault
+}
+
+/// Whether `candidate` is the running CLI.
+///
+/// Both paths are canonicalized so a symlink to the CLI is recognized as the
+/// CLI. A path that cannot be canonicalized is compared literally.
+fn is_current_exe(candidate: &Path, current_exe: Option<&Path>) -> bool {
+    let Some(current_exe) = current_exe else {
+        return false;
+    };
+    match (candidate.canonicalize(), current_exe.canonicalize()) {
+        (Ok(candidate), Ok(current_exe)) => candidate == current_exe,
+        _ => candidate == current_exe,
+    }
+}
+
+/// Whether the application process failed to start.
+///
+/// `exit_success` is `None` while the process is still running and
+/// `Some(succeeded)` once it has exited. Invoking Writ while it is already open
+/// forwards the arguments to the running instance and exits 0, so only a
+/// nonzero exit within the startup window means nothing was opened.
+pub fn is_failed_startup(exit_success: Option<bool>) -> bool {
+    exit_success == Some(false)
+}
+
+/// Decide what to do when no paths were given.
+///
+/// A pipe is read as stdin content. On a terminal, an explicit `-` is an error
+/// because there is nothing to read, while a bare `writ` opens the app.
+pub fn no_path_action(stdin_is_pipe: bool, dash_given: bool) -> NoPathAction {
+    if stdin_is_pipe {
+        NoPathAction::ReadStdin
+    } else if dash_given {
+        NoPathAction::StdinIsTerminal
+    } else {
+        NoPathAction::LaunchApp
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -275,5 +374,165 @@ mod tests {
             path.starts_with(dir.path()),
             "path escaped the piped dir: {path:?}"
         );
+    }
+
+    fn touch(path: &Path) {
+        std::fs::write(path, "").unwrap();
+    }
+
+    #[test]
+    fn env_override_is_used_when_it_points_at_a_file() {
+        let dir = TempDir::new().unwrap();
+        let gui = dir.path().join("Writ-AppRun");
+        touch(&gui);
+        assert_eq!(
+            resolve_gui_binary(Some(&gui), None),
+            GuiLaunch::Binary(gui.clone())
+        );
+    }
+
+    #[test]
+    fn env_override_wins_over_sibling() {
+        let over = TempDir::new().unwrap();
+        let bin = TempDir::new().unwrap();
+        let gui = over.path().join("Writ-AppRun");
+        touch(&gui);
+        touch(&bin.path().join(GUI_BINARY_NAME));
+        let cli = bin.path().join("writ");
+        touch(&cli);
+        assert_eq!(
+            resolve_gui_binary(Some(&gui), Some(&cli)),
+            GuiLaunch::Binary(gui)
+        );
+    }
+
+    #[test]
+    fn missing_env_override_falls_through_to_sibling() {
+        let dir = TempDir::new().unwrap();
+        let sibling = dir.path().join(GUI_BINARY_NAME);
+        touch(&sibling);
+        let cli = dir.path().join("writ");
+        touch(&cli);
+        let absent = dir.path().join("not-here");
+        assert_eq!(
+            resolve_gui_binary(Some(&absent), Some(&cli)),
+            GuiLaunch::Binary(sibling)
+        );
+    }
+
+    #[test]
+    fn directory_env_override_falls_through_to_sibling() {
+        let dir = TempDir::new().unwrap();
+        let sibling = dir.path().join(GUI_BINARY_NAME);
+        touch(&sibling);
+        let cli = dir.path().join("writ");
+        touch(&cli);
+        assert_eq!(
+            resolve_gui_binary(Some(dir.path()), Some(&cli)),
+            GuiLaunch::Binary(sibling)
+        );
+    }
+
+    #[test]
+    fn sibling_is_resolved_without_an_override() {
+        let dir = TempDir::new().unwrap();
+        let sibling = dir.path().join(GUI_BINARY_NAME);
+        touch(&sibling);
+        let cli = dir.path().join("writ");
+        touch(&cli);
+        assert_eq!(
+            resolve_gui_binary(None, Some(&cli)),
+            GuiLaunch::Binary(sibling)
+        );
+    }
+
+    #[test]
+    fn missing_sibling_falls_back_to_os_default() {
+        let dir = TempDir::new().unwrap();
+        let cli = dir.path().join("writ");
+        touch(&cli);
+        assert_eq!(resolve_gui_binary(None, Some(&cli)), GuiLaunch::OsDefault);
+    }
+
+    #[test]
+    fn unknown_current_exe_falls_back_to_os_default() {
+        assert_eq!(resolve_gui_binary(None, None), GuiLaunch::OsDefault);
+    }
+
+    #[test]
+    fn env_override_pointing_at_the_cli_itself_is_skipped() {
+        let dir = TempDir::new().unwrap();
+        let cli = dir.path().join("writ");
+        touch(&cli);
+        assert_eq!(
+            resolve_gui_binary(Some(&cli), Some(&cli)),
+            GuiLaunch::OsDefault
+        );
+    }
+
+    #[test]
+    fn env_override_pointing_at_the_cli_itself_falls_through_to_sibling() {
+        let dir = TempDir::new().unwrap();
+        let cli = dir.path().join("writ");
+        touch(&cli);
+        let sibling = dir.path().join(GUI_BINARY_NAME);
+        touch(&sibling);
+        assert_eq!(
+            resolve_gui_binary(Some(&cli), Some(&cli)),
+            GuiLaunch::Binary(sibling)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn env_override_symlinked_to_the_cli_is_skipped() {
+        let dir = TempDir::new().unwrap();
+        let cli = dir.path().join("writ");
+        touch(&cli);
+        let link = dir.path().join("writ-link");
+        std::os::unix::fs::symlink(&cli, &link).unwrap();
+        assert_eq!(
+            resolve_gui_binary(Some(&link), Some(&cli)),
+            GuiLaunch::OsDefault
+        );
+    }
+
+    #[test]
+    fn sibling_that_is_the_cli_itself_is_skipped() {
+        let dir = TempDir::new().unwrap();
+        let cli = dir.path().join(GUI_BINARY_NAME);
+        touch(&cli);
+        assert_eq!(resolve_gui_binary(None, Some(&cli)), GuiLaunch::OsDefault);
+    }
+
+    #[test]
+    fn a_running_app_is_not_a_failed_startup() {
+        assert!(!is_failed_startup(None));
+    }
+
+    #[test]
+    fn an_app_that_forwarded_its_arguments_and_exited_is_not_a_failed_startup() {
+        assert!(!is_failed_startup(Some(true)));
+    }
+
+    #[test]
+    fn an_app_that_exited_nonzero_is_a_failed_startup() {
+        assert!(is_failed_startup(Some(false)));
+    }
+
+    #[test]
+    fn piped_stdin_is_read() {
+        assert_eq!(no_path_action(true, false), NoPathAction::ReadStdin);
+        assert_eq!(no_path_action(true, true), NoPathAction::ReadStdin);
+    }
+
+    #[test]
+    fn bare_invocation_on_a_terminal_launches_the_app() {
+        assert_eq!(no_path_action(false, false), NoPathAction::LaunchApp);
+    }
+
+    #[test]
+    fn explicit_dash_on_a_terminal_is_an_error() {
+        assert_eq!(no_path_action(false, true), NoPathAction::StdinIsTerminal);
     }
 }
