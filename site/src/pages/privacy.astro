@@ -3,35 +3,73 @@ import Site from "../layouts/Site.astro";
 ---
 <Site
   title="Writ — Privacy"
-  description="Writ stores everything locally. The site uses no analytics. The app makes no network requests except optional update checks."
+  description="Writ keeps your text on your disk. No telemetry, no account. The one feature that can send text off the machine is off by default."
   path="/privacy/"
 >
   <section class="pr">
     <div class="pr-wrap">
       <header class="pr-head">
-        <h1>Local only. No telemetry.</h1>
-        <p class="pr-meta">Last reviewed 2026-06-24.</p>
+        <h1>Where your text lives, and what leaves the machine.</h1>
+        <p class="pr-meta">Last reviewed 2026-07-30.</p>
       </header>
 
       <div class="pr-body">
         <p>
-          Writ stores every keystroke on your disk, in a single SQLite database under your OS user data directory.
-          That is the whole storage model. There is no cloud, no account, no sync server.
+          Writ stores your text in <code>~/.writ</code>. Each buffer's text is a plain file under
+          <code>buffers/</code>. Next to it, <code>writ.db</code> holds the buffer metadata and a copy of the text that
+          full-text search reads; a file opened above 5&nbsp;MB is left out of that index. Writ has no server side and
+          no account.
+          <code>Settings &rarr; Storage</code> shows the full path to <code>writ.db</code>, inside that directory.
+        </p>
+        <p>
+          The same directory holds <code>config.toml</code> and <code>logs/</code>, which records what the app did and
+          the paths of files and folders you opened, not the text inside them. Logs rotate daily and are not deleted on
+          a schedule. Anything you pipe into the <code>writ</code> CLI is also written to <code>piped/</code> and kept there.
         </p>
 
         <h2>What the app does on the network</h2>
         <p>
-          By default the desktop app makes one outbound request: at launch, it fetches a static release manifest from GitHub.
-          The request carries nothing about you beyond what any HTTP request carries; Writ downloads the manifest and
-          compares your platform and version on your machine. You can disable it in Settings;
-          when disabled, Writ makes zero network requests for the rest of the session.
+          With rewriting off, which is the default, the app makes one kind of outbound request: it fetches a static
+          release manifest from GitHub and compares your platform and version on your machine. That happens on its own
+          shortly after launch, no more than once a day, and whenever it is asked for in
+          <code>Settings &rarr; Updates</code>. The request carries nothing about you beyond what any HTTP request
+          carries. Turn the automatic one off with <code>Check for updates automatically</code>. Installing an update
+          downloads the release from GitHub and checks it against a signing key built into the app.
+        </p>
+        <p>
+          Spell check runs against a dictionary bundled in the app and makes no requests.
         </p>
         <p>
           The preview pane runs under a fixed content-security-policy (<code>default-src 'none'</code>) in an isolated origin.
           Rendered HTML makes no network calls.
         </p>
         <p>
-          Writ does not send crash reports, usage analytics, telemetry, or beacons. There is no opt-out because there is nothing to opt out of.
+          Writ sends no crash reports, usage data, or telemetry.
+        </p>
+
+        <h2>Rewriting text</h2>
+        <p>
+          Writ can rewrite a selection through an OpenAI-compatible endpoint. This is the only feature that can send what
+          you write off your machine. It is off by default; turn it on in <code>Settings &rarr; Rewrite</code>. The
+          default endpoint is a local Ollama server at <code>http://localhost:11434/v1</code>, which keeps the request
+          on your machine.
+        </p>
+        <p>
+          Point it at a hosted provider and Writ asks once, naming the host, before it sends that host anything: the
+          text you rewrite, or the check that the endpoint is reachable. The answer is recorded for that host alone, so
+          agreeing to one provider does not cover another or a hand-edited URL. The request body carries the text being
+          rewritten, the instruction for the action you picked, and the model id. With nothing selected, Writ asks
+          before sending the whole buffer instead.
+        </p>
+        <p>
+          While the feature is on, Writ checks whether the endpoint is reachable by requesting its model list, from
+          Settings and from the Rewrite menu in the status bar. That request carries your API key and no document
+          text, and it is not sent to a hosted endpoint you have not agreed to.
+        </p>
+        <p>
+          On macOS and Windows the API key is stored in the system keychain, under the service <code>com.writ.ai</code>.
+          On other platforms it is held in memory for the session and is gone on restart. It is never written to
+          <code>config.toml</code>.
         </p>
 
         <h2>What this site does</h2>
@@ -40,17 +78,21 @@ import Site from "../layouts/Site.astro";
           It runs no analytics scripts, sets no cookies, and does not embed third-party widgets.
         </p>
 
-        <h2>Data export and deletion</h2>
+        <h2>Backup and deletion</h2>
         <p>
-          Your buffers are plain rows in a local SQLite file. Copy it to back up; delete it to reset.
-          The path is shown in <code>Settings &rarr; Storage</code>.
+          Copy <code>~/.writ</code> to back up; <code>writ.db</code> on its own leaves the buffer text behind.
+        </p>
+        <p>
+          Delete <code>~/.writ</code> to return the app to a fresh install. Files you saved elsewhere on disk are
+          untouched. An API key is not in that directory: clear it from <code>Settings &rarr; Rewrite</code>, or from
+          your keychain.
         </p>
 
         <h2>Source of truth</h2>
         <p>
-          This page describes intent. The source of truth is the code:
+          Everything above is in the repository:
           <a href="https://github.com/ibrahemid/writ" rel="noopener" target="_blank">github.com/ibrahemid/writ</a>.
-          If you find a network call that contradicts the policy above, file an issue and it will be treated as a bug.
+          If you find a network call this page does not describe, file an issue and it will be treated as a bug.
         </p>
       </div>
     </div>
