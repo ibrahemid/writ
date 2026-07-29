@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
   pull_request:
-    branches: [main, dev]
+    branches: [main]
 
 permissions:
   contents: read
@@ -94,7 +94,7 @@ jobs:
           cp "target/debug/writ${EXT}" "src-tauri/binaries/writ-${HOST_TRIPLE}${EXT}"
 
       - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run tests
         run: cargo test --workspace
@@ -106,8 +106,47 @@ jobs:
       - name: TypeScript check
         run: pnpm exec tsc --noEmit
 
+      - name: Frontend tests
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm exec vitest run
+
       - name: Frontend build
         run: pnpm build
 
       - name: Tauri build check
         run: cargo check --lib -p writ-tauri
+
+  site:
+    name: Site
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271  # v6.0.9
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      - name: Astro check
+        run: pnpm run check
+
+      - name: Site tests
+        run: pnpm test
+
+      - name: Site build
+        run: pnpm build
