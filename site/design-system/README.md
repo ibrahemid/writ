@@ -63,12 +63,8 @@ Bricolage uses `font-variation-settings: 'opsz' 72` at large sizes, `'opsz' 40` 
 - `--text-xs` (11px) through `--text-display` (56px)
 - `--ease` / `--spring` / `--duration-fast/base/slow`
 
-## Preview cards
-
-All cards in `preview/` link `card.css` and hard-code current hex values. Critical cards: `semantic-colors`, `theme-light`, `theme-dark`, `syntax`, `type-display`, `brand-mark`.
-
 ## Usage
 
-Link `colors_and_type.css` as the single stylesheet foundation. Card previews each link `card.css` (which embeds fonts and a minimal layout system).
+`site/src/layouts/Site.astro` imports `colors_and_type.css` as the single stylesheet foundation. The stylesheet self-hosts the fonts above via `@font-face`.
 
 Light is default (`:root`). Dark activates via `[data-theme='dark']` on `<html>`.
