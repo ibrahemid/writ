@@ -1,7 +1,7 @@
 pkgbase = writ-bin
 	pkgdesc = Lightweight, always-ready text editor for developers
-	pkgver = 0.2.0
-	pkgrel = 2
+	pkgver = 0.3.0
+	pkgrel = 1
 	url = https://github.com/ibrahemid/writ
 	arch = x86_64
 	license = MIT
@@ -13,10 +13,10 @@ pkgbase = writ-bin
 	provides = writ
 	conflicts = writ
 	options = !strip
-	source = writ-0.2.0.AppImage::https://github.com/ibrahemid/writ/releases/download/v0.2.0/Writ_0.2.0_amd64.AppImage
-	source = LICENSE-0.2.0::https://github.com/ibrahemid/writ/raw/v0.2.0/LICENSE
-	noextract = writ-0.2.0.AppImage
-	sha256sums = cbc02a0929aa5bb2c934b82b1aa633b3b7c2ae83968453d46772605155608911
+	source = writ-0.3.0.AppImage::https://github.com/ibrahemid/writ/releases/download/v0.3.0/Writ_0.3.0_amd64.AppImage
+	source = LICENSE-0.3.0::https://github.com/ibrahemid/writ/raw/v0.3.0/LICENSE
+	noextract = writ-0.3.0.AppImage
+	sha256sums = 1f729cb9dac78ef5529c8568f1042e49e8a209d040aaf8baf8b32162b746e026
 	sha256sums = SKIP
 
 pkgname = writ-bin
