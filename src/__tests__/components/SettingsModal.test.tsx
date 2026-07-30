@@ -111,6 +111,7 @@ vi.spyOn(configStore, "save").mockImplementation(mocks.save);
 vi.spyOn(configStore, "config").mockImplementation(mocks.config);
 
 import SettingsModal, { openSettings, closeSettings } from "../../components/SettingsModal/SettingsModal";
+import { aiConnectionStore } from "../../stores/global/ai-connection";
 import { SETTINGS_INDEX, SECTION_ORDER } from "../../settings";
 import { clearDefaultAppSupport, probeDefaultAppSupport } from "../../stores/global/default-app-support";
 
@@ -733,5 +734,27 @@ describe("AI consent notice", () => {
   it("asks nothing while the feature is off", async () => {
     const { container } = await openAiSection(false);
     expect(container.querySelector(".settings-ai-consent")).toBeNull();
+  });
+
+  // The probe carries the API key, so an unconsented hosted endpoint is not
+  // contacted at all. The line has to read as "nothing was sent yet", not as a
+  // dead endpoint.
+  it("reports a probe held back for consent instead of a connection failure", async () => {
+    aiConnectionStore.reset();
+    mocks.aiCheckConnection.mockResolvedValue({
+      reachable: false,
+      model_listed: null,
+      kind: "consent_required",
+      detail: "api.deepseek.com",
+      models: [],
+    });
+    const { container } = await openAiSection(true);
+    await waitFor(() => {
+      const line = container.querySelector(".settings-ai-connection-status");
+      expect(line?.textContent).toBe("Not checked until you allow api.deepseek.com");
+    });
+    expect(
+      container.querySelector(".settings-ai-connection-status")!.getAttribute("data-tone"),
+    ).toBe("warn");
   });
 });

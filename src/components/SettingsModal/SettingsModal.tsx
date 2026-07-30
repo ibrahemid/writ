@@ -786,10 +786,13 @@ function AiSection() {
       aiConnectionStore.reset();
       return;
     }
-    // Track the fields that define the target.
+    // Track the fields that define the target. `consented_hosts` is one of
+    // them: a hosted endpoint is not probed before consent, so granting it is
+    // what makes the next probe possible.
     void c.preset;
     void c.base_url;
     void c.model;
+    void c.consented_hosts;
     aiConnectionStore.scheduleCheck();
   });
 
@@ -980,7 +983,8 @@ function AiSection() {
         <Show when={hostedUnconsented()}>
           <div class="settings-ai-consent" role="note">
             <p class="settings-ai-consent-text">
-              Text you rewrite is sent to {endpoint()?.host}. Nothing else leaves your machine.
+              Text you rewrite is sent to {endpoint()?.host} with your API key. Writ also sends the
+              key on its own to check the host is reachable; nothing else leaves your machine.
             </p>
             <button
               type="button"

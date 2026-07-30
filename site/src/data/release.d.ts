@@ -26,6 +26,7 @@ declare module '*/release.json' {
     publishedAt: string;
     published: boolean;
     notarized: boolean;
+    hasChecksums: boolean;
     platforms: ReleasePlatforms;
   }
   const value: Release;

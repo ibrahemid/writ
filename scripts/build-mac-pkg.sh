@@ -10,8 +10,11 @@
 #     - Reads .app from target/universal-apple-darwin/release/bundle/macos/Writ.app
 #     - Writes target/universal-apple-darwin/release/bundle/macos/Writ_<version>_universal.pkg
 #
+#     - Signs the installer when WRIT_INSTALLER_SIGNING_IDENTITY is set
+#       (e.g. "Developer ID Installer: Ibrahem Mahyob (5C6Y52822Q)")
+#
 # Requirements:
-#   pkgbuild (ships with macOS)
+#   pkgbuild, productbuild, productsign (ship with macOS)
 #   The Tauri build must have already produced Writ.app
 
 set -euo pipefail
@@ -68,13 +71,54 @@ POSTINSTALL
 
 chmod +x "$WORK/scripts/preinstall" "$WORK/scripts/postinstall"
 
+# The component package goes to a scratch dir, not next to $OUT: release.yml
+# globs Writ_*_universal.pkg in the bundle dir and a second match breaks it.
+mkdir -p "$WORK/component"
 pkgbuild \
   --root "$WORK/root" \
   --identifier com.writ.editor \
   --version "$VERSION" \
   --install-location / \
   --scripts "$WORK/scripts" \
-  "$OUT"
+  "$WORK/component/Writ.pkg"
+
+# A pkgbuild component package cannot carry an OS requirement. productbuild
+# with a Distribution file can, and MIN_OS is the floor the Homebrew cask
+# already declares (packaging/homebrew/Casks/writ.rb: depends_on macos).
+MIN_OS="12.0"
+cat > "$WORK/distribution.xml" <<DISTRIBUTION
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>Writ</title>
+    <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
+    <allowed-os-versions>
+        <os-version min="${MIN_OS}"/>
+    </allowed-os-versions>
+    <choices-outline>
+        <line choice="com.writ.editor"/>
+    </choices-outline>
+    <choice id="com.writ.editor" visible="false">
+        <pkg-ref id="com.writ.editor"/>
+    </choice>
+    <pkg-ref id="com.writ.editor" version="${VERSION}" onConclusion="none">Writ.pkg</pkg-ref>
+</installer-gui-script>
+DISTRIBUTION
+
+productbuild \
+  --distribution "$WORK/distribution.xml" \
+  --package-path "$WORK/component" \
+  "$WORK/unsigned.pkg"
+
+if [ -n "${WRIT_INSTALLER_SIGNING_IDENTITY:-}" ]; then
+  productsign --sign "$WRIT_INSTALLER_SIGNING_IDENTITY" "$WORK/unsigned.pkg" "$OUT"
+  if ! pkgutil --check-signature "$OUT"; then
+    echo "productsign produced a package pkgutil will not accept" >&2
+    exit 1
+  fi
+else
+  cp "$WORK/unsigned.pkg" "$OUT"
+  echo "WRIT_INSTALLER_SIGNING_IDENTITY unset: installer is unsigned, Gatekeeper will reject it" >&2
+fi
 
 echo
 echo "wrote $OUT"

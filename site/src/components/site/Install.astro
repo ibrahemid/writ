@@ -6,7 +6,10 @@ const repo = 'https://github.com/ibrahemid/writ';
 const releasesUrl = repo + '/releases';
 const published = release.published === true;
 const notarized = release.notarized === true;
+const hasChecksums = release.hasChecksums === true;
 const sumsUrl = `${repo}/releases/download/${release.tag}/SHA256SUMS.txt`;
+const macDmg = release.platforms.mac.dmg;
+const linuxDeb = release.platforms.linux.deb;
 
 const oneliners = [
   { os: 'macOS', cmd: 'brew install --cask ibrahemid/writ/writ' },
@@ -27,7 +30,7 @@ const oneliners = [
           {notarized && <span class="plat-badge">notarized</span>}
         </div>
         <a class="plat-dl" href={release.platforms.mac.pkg}>Download .pkg</a>
-        <a class="plat-alt" href={release.platforms.mac.dmg}>or .dmg</a>
+        {macDmg !== '#' && <a class="plat-alt" href={macDmg}>or .dmg</a>}
         <span class="plat-note">Apple silicon & Intel · macOS 12+</span>
       </div>
       <div class="plat-card" data-plat="win">
@@ -38,7 +41,7 @@ const oneliners = [
       <div class="plat-card" data-plat="linux">
         <div class="plat-top"><span class="plat-name">Linux</span></div>
         <a class="plat-dl" href={release.platforms.linux.appImage}>Download .AppImage</a>
-        <a class="plat-alt" href={release.platforms.linux.deb}>or .deb</a>
+        {linuxDeb !== '#' && <a class="plat-alt" href={linuxDeb}>or .deb</a>}
         <span class="plat-note">x86_64</span>
       </div>
     </div>
@@ -71,7 +74,7 @@ const oneliners = [
 
   {published ? (
     <p class="dl-foot">
-      v{release.version} · updates itself · <a href={sumsUrl} rel="noopener noreferrer" target="_blank">checksums</a> · <a href={releasesUrl} rel="noopener noreferrer" target="_blank">Releases on GitHub</a>
+      v{release.version} · updates itself · {hasChecksums && (<Fragment><a href={sumsUrl} rel="noopener noreferrer" target="_blank">checksums</a> · </Fragment>)}<a href={releasesUrl} rel="noopener noreferrer" target="_blank">Releases on GitHub</a>
     </p>
   ) : (
     <p class="dl-foot">

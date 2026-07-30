@@ -3,7 +3,8 @@
   "tag": "v0.2.0",
   "publishedAt": "2026-07-23T20:14:57Z",
   "published": true,
-  "notarized": true,
+  "notarized": false,
+  "hasChecksums": true,
   "platforms": {
     "mac": {
       "dmg": "https://github.com/ibrahemid/writ/releases/download/v0.2.0/Writ_0.2.0_universal.dmg",

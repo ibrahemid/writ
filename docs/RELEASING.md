@@ -40,6 +40,8 @@ Navigate to `Settings` -> `Secrets and variables` -> `Actions` and add:
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | yes if you set one in 1.1 | Leave unset if the key has no password |
 | `APPLE_CERTIFICATE` | optional, recommended | Base64-encoded `.p12` Developer ID Application cert |
 | `APPLE_CERTIFICATE_PASSWORD` | optional | Password for the `.p12` |
+| `APPLE_INSTALLER_CERTIFICATE` | required to sign the `.pkg` | Base64-encoded `.p12` Developer ID Installer cert |
+| `APPLE_INSTALLER_CERTIFICATE_PASSWORD` | optional | Password for the installer `.p12` |
 | `APPLE_SIGNING_IDENTITY` | optional | e.g. `Developer ID Application: Your Name (TEAMID)` |
 | `APPLE_ID` | optional | Apple ID email used for notarization |
 | `APPLE_PASSWORD` | optional | App-specific password for notarization |
