@@ -10,6 +10,9 @@
 //! - The endpoint guard ([`writ_core::polish::is_endpoint_allowed`]) runs on
 //!   every request against the parsed host, so a hand-edited `config.toml`
 //!   pointing `http` at a remote host is rejected before any bytes leave.
+//! - Consent precedes every request to a hosted endpoint, the reachability
+//!   probe included: the probe carries the key, so it is gated by
+//!   [`probe_gate`] exactly as a rewrite is gated by [`prepare_request`].
 //! - API keys never touch `config.toml`, the database, or disk. They are stored
 //!   in the OS keychain, or held in memory for the session when the keychain is
 //!   unavailable. A key read back from the keychain is also cached in memory for
@@ -771,7 +774,8 @@ pub struct AiConnectionStatus {
     /// configured.
     pub model_listed: Option<bool>,
     /// One of `ok`, `model_missing`, `unauthorized`, `server_error`, `refused`,
-    /// `timeout`, `invalid_url`, `error`.
+    /// `timeout`, `error`, or one of the three decided before any request is
+    /// made: `invalid_url`, `disabled`, `consent_required`.
     pub kind: String,
     /// Sanitized fragment: host:port, a status code, or empty.
     pub detail: String,
@@ -889,9 +893,45 @@ async fn run_connection_check(
     status.with_models(ids)
 }
 
+/// Whether the probe may contact `target`.
+///
+/// The probe carries the API key, so it is a request to the provider like any
+/// other and passes the same two gates [`prepare_request`] applies before text
+/// is sent: the feature must be on, and the host must be consented to. A local
+/// endpoint reaches nobody and stays ungated.
+fn probe_gate(cfg: &AiConfig, target: &polish::EndpointTarget) -> Result<(), PolishError> {
+    if !target.is_hosted {
+        return Ok(());
+    }
+    if !cfg.enabled {
+        return Err(PolishError::Disabled);
+    }
+    if !is_consented(cfg, &target.host) {
+        return Err(PolishError::ConsentRequired {
+            host: target.host.clone(),
+        });
+    }
+    Ok(())
+}
+
+/// The status for a probe that was never sent. `detail` is the bare host: it
+/// names the consent key the user would be granting, not the probe target.
+///
+/// The `kind` strings are the frontend's contract — it renders these as a
+/// pre-request state rather than as a connection failure.
+fn blocked_probe_status(err: &PolishError, host: &str) -> AiConnectionStatus {
+    let kind = match err {
+        PolishError::Disabled => "disabled",
+        PolishError::ConsentRequired { .. } => "consent_required",
+        _ => "error",
+    };
+    AiConnectionStatus::new(false, None, kind, host.to_string())
+}
+
 /// Probes the configured endpoint's `/models` so the UI can show connection
 /// state before a rewrite is attempted. No key is sent to a local endpoint; a
-/// hosted one gets the stored key. Response bodies are read only for model ids.
+/// hosted one gets the stored key, and only once the user has consented to that
+/// host. Response bodies are read only for model ids.
 #[tauri::command]
 pub async fn ai_check_connection(app: AppHandle) -> Result<AiConnectionStatus, String> {
     let cfg = {
@@ -913,6 +953,12 @@ pub async fn ai_check_connection(app: AppHandle) -> Result<AiConnectionStatus, S
             ))
         }
     };
+
+    // Before the key is read, so a blocked probe raises no keychain prompt and
+    // no credential exists to leak.
+    if let Err(err) = probe_gate(&cfg, &target) {
+        return Ok(blocked_probe_status(&err, &target.host));
+    }
 
     let host_port = target.host_port.clone();
     let api_key = if target.is_hosted {
@@ -1395,6 +1441,82 @@ mod tests {
             let client = build_probe_client().unwrap();
             run_connection_check(&client, &endpoint, None, model, "127.0.0.1:0").await
         })
+    }
+
+    fn gate_for(cfg: &AiConfig) -> Result<(), PolishError> {
+        let target = polish::resolve_endpoint(&cfg.base_url).unwrap();
+        probe_gate(cfg, &target)
+    }
+
+    fn hosted_cfg() -> AiConfig {
+        AiConfig {
+            preset: "groq".to_string(),
+            base_url: "https://api.groq.com/openai/v1".to_string(),
+            ..base_cfg()
+        }
+    }
+
+    #[test]
+    fn unconsented_hosted_probe_is_rejected() {
+        let mut cfg = hosted_cfg();
+        assert_eq!(
+            gate_for(&cfg).unwrap_err(),
+            PolishError::ConsentRequired {
+                host: "api.groq.com".to_string()
+            }
+        );
+
+        // Consent to a different host must not cover this one, exactly as in
+        // the rewrite guard.
+        cfg.consented_hosts = vec!["api.deepseek.com".to_string()];
+        assert_eq!(
+            gate_for(&cfg).unwrap_err(),
+            PolishError::ConsentRequired {
+                host: "api.groq.com".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn consented_hosted_probe_is_allowed() {
+        let mut cfg = hosted_cfg();
+        cfg.consented_hosts = vec!["api.groq.com".to_string()];
+        assert_eq!(gate_for(&cfg), Ok(()));
+    }
+
+    #[test]
+    fn hosted_probe_is_rejected_while_rewriting_is_off() {
+        let mut cfg = hosted_cfg();
+        cfg.enabled = false;
+        cfg.consented_hosts = vec!["api.groq.com".to_string()];
+        assert_eq!(gate_for(&cfg).unwrap_err(), PolishError::Disabled);
+    }
+
+    #[test]
+    fn a_blocked_probe_reports_its_reason_and_the_consent_host() {
+        let consent = PolishError::ConsentRequired {
+            host: "api.groq.com".to_string(),
+        };
+        let status = blocked_probe_status(&consent, "api.groq.com");
+        assert!(!status.reachable);
+        assert_eq!(status.kind, "consent_required");
+        // The consent key, so the line names what the user would be allowing.
+        assert_eq!(status.detail, "api.groq.com");
+        assert!(status.models.is_empty());
+
+        assert_eq!(
+            blocked_probe_status(&PolishError::Disabled, "api.groq.com").kind,
+            "disabled"
+        );
+    }
+
+    #[test]
+    fn local_probe_is_never_gated() {
+        let mut cfg = base_cfg();
+        assert!(cfg.consented_hosts.is_empty());
+        assert_eq!(gate_for(&cfg), Ok(()));
+        cfg.enabled = false;
+        assert_eq!(gate_for(&cfg), Ok(()));
     }
 
     #[test]

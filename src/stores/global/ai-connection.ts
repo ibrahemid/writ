@@ -29,6 +29,10 @@ export function connectionDisplay(
   switch (status.kind) {
     case "ok":
       return { text: "Connected", tone: "ok" };
+    case "consent_required":
+      return { text: `Not checked until you allow ${status.detail}`, tone: "warn" };
+    case "disabled":
+      return { text: "Rewriting is off", tone: "idle" };
     case "model_missing":
       return { text: `Connected, but "${status.detail || model}" is not available`, tone: "warn" };
     case "unauthorized":
