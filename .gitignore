@@ -9,6 +9,9 @@ node_modules/
 node_modules
 dist/
 
+# Python (release scripts and their tests)
+__pycache__/
+
 # Generated WASM artifact (built by site/scripts/build-wasm.mjs)
 site/src/wasm/
 
