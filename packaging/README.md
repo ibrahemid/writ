@@ -54,6 +54,7 @@ The post-release workflow expects these artifact names on GitHub Releases. They 
 | macOS updater bundle | `Writ_universal.app.tar.gz` (and `.sig`) |
 | Checksums | `SHA256SUMS.txt` |
 | Tauri updater manifest | `latest.json` |
+| macOS signing outcomes | `release-meta.json` |
 
 Tauri v2 signs the platform installer directly instead of wrapping it, so the
 Windows and Linux updater payloads are the `.msi` and `.AppImage` themselves,

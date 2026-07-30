@@ -180,32 +180,71 @@ separately, and the `.pkg` needs a different certificate from the other two:
   **Application** identity (`APPLE_SIGNING_IDENTITY`, falling back to ad-hoc
   `-` when the secret is absent) and notarized when `APPLE_ID`,
   `APPLE_PASSWORD`, and `APPLE_TEAM_ID` are all set.
-- The `.dmg` wraps an already-notarized `.app`, but the wrapper needs its own
-  ticket: `xcrun notarytool submit --wait`, then `xcrun stapler staple` and
-  `xcrun stapler validate`. Stapling embeds the ticket in the file, so this
-  runs before the upload, not after.
 - The `.pkg` is built by `scripts/build-mac-pkg.sh`. `pkgbuild` produces the
   component package carrying the pre-install (quit a running Writ) and
   post-install (relaunch) scripts; `productbuild` wraps it in a distribution
-  that gates the install on the minimum supported macOS version, which a bare
-  component package cannot express; `productsign` signs the result with the
-  Developer ID **Installer** identity named by
-  `WRIT_INSTALLER_SIGNING_IDENTITY`. The script then runs
-  `pkgutil --check-signature` on its own output and fails if the signature does
-  not verify. With the variable unset it writes an unsigned installer instead
-  of failing, which is what a local preflight run produces. The signed `.pkg`
-  is notarized and stapled the same way as the `.dmg`, then uploaded.
+  declaring the macOS 12.0 floor, which a bare component package cannot
+  express; `productsign` signs the result when
+  `WRIT_INSTALLER_SIGNING_IDENTITY` is set. The workflow sets that itself,
+  resolving the Developer ID **Installer** identity out of the build keychain
+  rather than reading it from a secret; the certificate arrives as
+  `APPLE_INSTALLER_CERTIFICATE`. That is a different certificate from the
+  Application one: a `.pkg` signed with the Application identity is rejected.
+  With the variable unset the script still writes an installer, unsigned, and
+  prints that Gatekeeper will reject it. That is what a local preflight run
+  produces, since nothing in `scripts/release-preflight.sh` sets the identity.
+- The `.dmg` wraps an already-notarized `.app`, but the wrapper needs its own
+  ticket.
+
+With the notarization secrets set, both wrappers go through
+`xcrun notarytool submit --wait`, then `xcrun stapler staple` and
+`xcrun stapler validate`. Stapling embeds the ticket in the file, so each
+upload comes after it: the `.pkg` uploads once its own ticket is stapled, and
+the stapled `.dmg` overwrites the pre-staple copy `tauri-action` already
+pushed. Without those secrets the job logs what it skipped and the wrappers
+ship without tickets.
+
+Two guards sit on this path. The workflow reads the `.pkg` signature back with
+`pkgutil --check-signature` and **fails the job** when
+`APPLE_INSTALLER_CERTIFICATE` is configured but the signature is absent, so a
+silently unsigned installer cannot ship. And it writes `release-meta.json` from
+the outcomes it observed, uploaded as a release asset:
+
+```json
+{
+  "schema": 1,
+  "pkg": { "signed": true, "notarized": true, "stapled": true },
+  "dmg": { "stapled": true }
+}
+```
+
+`site.yml` reads that asset back and sets the site's `notarized` flag true only
+when `pkg.stapled` and `dmg.stapled` are both true. A missing or unparseable
+asset reads as false, so the site cannot claim notarization a release did not
+produce. It is deliberately absent from `SHA256SUMS.txt`, where the checksum
+step globs binary artifacts only: this is a derived status file the site reads,
+not an integrity-bearing download.
 
 ### 2.5 Smoke test before publishing
 
 Download each installer from the draft release and install it on a clean
 machine:
 
-- macOS: double-click the `.pkg`, allow it through Gatekeeper if needed, and
-  install. The installer quits any running Writ, swaps the bundle, and
-  relaunches the new version. Confirm hotkey and autosave still work. As a
-  secondary check, mount the `.dmg`, drag `Writ.app` to `/Applications`, and
-  confirm it launches the same version.
+- macOS: check the `.pkg` before installing it.
+
+  ```bash
+  pkgutil --check-signature Writ_<version>_universal.pkg   # Developer ID Installer chain
+  xcrun stapler validate Writ_<version>_universal.pkg      # ticket is embedded
+  ```
+
+  Both must pass, and `release-meta.json` has to sit among the draft's assets
+  with `pkg.signed`, `pkg.notarized`, `pkg.stapled`, and `dmg.stapled` all
+  true. Then install. The installer quits any running Writ, swaps the bundle,
+  and relaunches the new version. Confirm hotkey and autosave still work. A
+  signed and stapled installer draws no Gatekeeper prompt on a machine that
+  has never held the certificate; if one appears, stop and find out why
+  instead of clicking through. As a secondary check, mount the `.dmg`, drag
+  `Writ.app` to `/Applications`, and confirm it launches the same version.
 - Windows: run the `.msi`, launch from Start menu, confirm hotkey and
   autosave work.
 - Linux: install the `.deb` with `sudo dpkg -i`, or run the `.AppImage`
@@ -244,6 +283,10 @@ Publishing fires two workflows: `site.yml` deploys the site and rewrites
 the distribution-manifest bump PR. Then check:
 
 - `/download` on the site offers the new version and every link resolves.
+- The macOS card carries the `notarized` badge. `site.yml` sets that flag from
+  the `release-meta.json` asset, true only when `pkg.stapled` and `dmg.stapled`
+  are both true, so a missing badge means one of the two never got a stapled
+  ticket.
 - `/changelog` shows the new version. If it stops at the previous one, the
   `site/src/data/changelog.ts` entry from §2.2 is missing: add it, merge, and
   the site redeploys.
@@ -284,7 +327,8 @@ xcrun stapler validate Writ_0.2.0-rc.1_universal.pkg      # ticket is embedded, 
 ```
 
 Run them on a machine that has never had the signing certificate installed. All
-three must pass before the real tag goes out.
+three must pass, and `release-meta.json` on the same pre-release must report
+every flag true, before the real tag goes out.
 
 ## 4. Rolling back
 
@@ -389,6 +433,7 @@ Revert the version bumps from step 2 before committing.
 - `.github/workflows/release.yml`         release pipeline
 - `.github/workflows/bump-version.yml`    version bump automation
 - `.github/workflows/packages.yml`        post-release manifest bumps
+- `.github/workflows/site.yml`            site deploy, release.json sync
 - `.github/scripts/bump_version.py`       version bump implementation
 - `.github/scripts/build_latest_json.py`  updater manifest builder
 - `scripts/release-preflight.sh`          local gates to run before tagging
@@ -399,5 +444,6 @@ Revert the version bumps from step 2 before committing.
 - `site/package.json`                     site version, read by the tag command
 - `CHANGELOG.md`                          human-curated changelog
 - `site/src/data/changelog.ts`            source of the `/changelog` page
+- `release-meta.json` (release asset)     macOS signing outcomes the site reads
 - `docs/adr/007-in-app-updater.md`        updater design, gates, test loop
 - `src-tauri/src/commands/update.rs`      updater IPC + endpoint override
