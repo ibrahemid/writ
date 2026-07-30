@@ -2,11 +2,21 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import WritWindow from '../../WritWindow';
 
-afterEach(cleanup);
+const DEFAULT_WIDTH = window.innerWidth;
+
+afterEach(() => {
+  cleanup();
+  setViewportWidth(DEFAULT_WIDTH);
+});
 
 function openPalette() {
   fireEvent.click(screen.getByLabelText('Open command palette'));
   return screen.getByPlaceholderText('Search commands');
+}
+
+function setViewportWidth(px: number) {
+  Object.defineProperty(window, 'innerWidth', { value: px, configurable: true, writable: true });
+  fireEvent(window, new Event('resize'));
 }
 
 describe('WritWindow', () => {
@@ -112,6 +122,32 @@ describe('WritWindow', () => {
     (screen.getByLabelText('Search buffers') as HTMLInputElement).focus();
     fireEvent.keyDown(document, { key: 'F', metaKey: true, shiftKey: true });
     expect(screen.getByPlaceholderText('Search files, content, commands')).toBeTruthy();
+  });
+
+  it('collapses the sidebar below 720px and restores it above the breakpoint', () => {
+    const { container } = render(<WritWindow />);
+    expect(container.querySelector('.wwx-side')).toBeTruthy();
+    setViewportWidth(375);
+    expect(container.querySelector('.wwx-side')).toBeNull();
+    setViewportWidth(1200);
+    expect(container.querySelector('.wwx-side')).toBeTruthy();
+  });
+
+  it('keeps a sidebar opened by hand while the viewport stays narrow', () => {
+    const { container } = render(<WritWindow />);
+    setViewportWidth(375);
+    expect(container.querySelector('.wwx-side')).toBeNull();
+    openPalette();
+    fireEvent.click(screen.getByText('Toggle Sidebar'));
+    expect(container.querySelector('.wwx-side')).toBeTruthy();
+    setViewportWidth(360);
+    expect(container.querySelector('.wwx-side')).toBeTruthy();
+  });
+
+  it('collapses the sidebar when the island mounts on a narrow viewport', () => {
+    setViewportWidth(375);
+    const { container } = render(<WritWindow />);
+    expect(container.querySelector('.wwx-side')).toBeNull();
   });
 
   it('runs spelling off by default, flags seeded misspellings, and fixes them', async () => {
