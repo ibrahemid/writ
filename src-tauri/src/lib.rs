@@ -7,6 +7,7 @@ pub mod poison;
 pub mod preview;
 pub mod security;
 pub mod startup;
+pub mod startup_failure;
 pub mod state;
 pub mod watcher;
 pub mod window_state;
@@ -17,6 +18,7 @@ use poison::recover_poison;
 use state::AppState;
 use tauri::{Listener, Manager};
 use tracing::info;
+use writ_core::startup::{StartupFailure, StartupStage};
 
 #[cfg(target_os = "macos")]
 const MENU_ACTION_IDS: &[&str] = &[
@@ -175,16 +177,39 @@ fn restore_main_window_geometry(
 }
 
 pub fn run() {
-    let writ_dir = dirs::home_dir()
-        .expect("could not find home directory")
-        .join(".writ");
+    let writ_dir =
+        match state::resolve_writ_dir(std::env::var("WRIT_DATA_DIR").ok(), dirs::home_dir()) {
+            Ok(dir) => dir,
+            Err(error) => startup_failure::abort_with_report(
+                &StartupFailure::new(
+                    StartupStage::DataDirectory,
+                    error.to_string(),
+                    None,
+                    startup_failure::timestamp(),
+                ),
+                None,
+            ),
+        };
     let logs_dir = writ_dir.join("logs");
-    logging::init_logging(&logs_dir);
+    // Installed first: setting the hook touches nothing, while opening the
+    // log file can fail on the same unwritable directory.
     logging::panic_handler::install_panic_handler(&logs_dir);
+    logging::init_logging(&logs_dir);
 
     info!("writ starting");
 
-    let app_state = AppState::initialize().expect("failed to initialize app state");
+    let app_state = match AppState::initialize() {
+        Ok(app_state) => app_state,
+        Err(error) => startup_failure::abort_with_report(
+            &StartupFailure::new(
+                StartupStage::AppState,
+                error.to_string(),
+                Some(writ_dir.clone()),
+                startup_failure::timestamp(),
+            ),
+            Some(&logs_dir),
+        ),
+    };
     let config_path = app_state.writ_dir.join("config.toml");
     let buffers_dir = app_state.buffers_dir.clone();
     let watcher_ignore = app_state.watcher_ignore.clone();

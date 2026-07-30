@@ -61,6 +61,15 @@ tauri-plugin-clipboard-manager = "2"
 [target.'cfg(not(any(target_os = "macos", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
 
+# A startup failure has to be shown before the Tauri builder runs, so
+# tauri-plugin-dialog is not available yet. rfd is the plugin's own backend
+# and is already in the tree; taking it directly with no default features
+# links the AppKit / win32 message box and nothing else. Excluded on Linux,
+# where rfd's dialogs would add GTK as a direct build dependency of this
+# crate; see startup_failure::show_failure_dialog_via_command.
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+rfd = { version = "0.16", default-features = false }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 keyring = { version = "3", features = ["apple-native"] }

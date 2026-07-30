@@ -26,6 +26,7 @@
 //! - [`prompt`]: prompt-document helpers — token estimation, stripping,
 //!   placeholders (ADR-015).
 //! - [`recovery`]: crash-recovery policy types and resolution logic.
+//! - [`startup`]: startup-failure report formatting and location policy.
 //! - [`update`]: update lifecycle phases and transition policy.
 //! - [`watcher`]: external-change representation and conflict policy.
 //! - [`workspace`]: workspace-level state (reserved).
@@ -66,6 +67,8 @@ pub mod prompt;
 pub mod recovery;
 /// Full-text search query policy: prefix-match construction and sanitization.
 pub mod search;
+/// Startup-failure report formatting and report-location policy.
+pub mod startup;
 /// Update lifecycle phases and transition policy.
 pub mod update;
 /// External-change events and conflict-resolution policy.
