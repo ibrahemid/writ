@@ -8,8 +8,14 @@ Expected environment variables:
 
 The script is run from the directory containing downloaded release assets.
 Tauri's updater expects the following platform keys:
-  darwin-aarch64, darwin-x86_64, windows-x86_64, linux-x86_64
+  darwin-aarch64, darwin-x86_64, windows-x86_64, linux-x86_64, linux-x86_64-deb
 Each platform entry must contain a signed URL and the .sig content.
+
+The `-deb` key exists because tauri-plugin-updater resolves a payload by trying
+`{os}-{arch}-{installer}` before `{os}-{arch}`, where `{installer}` comes from
+the bundle type patched into the binary at build time. A .deb-installed Writ
+reports `deb` and hands the downloaded bytes to `dpkg`, which rejects the
+AppImage served under `linux-x86_64`.
 """
 from __future__ import annotations
 
@@ -87,6 +93,13 @@ def main() -> int:
             "url": f"https://github.com/{repo}/releases/download/{tag}/{linux_asset.name}",
         }
 
+    deb_asset = match_one([r"_amd64\.deb$", r"\.deb$"], root)
+    if deb_asset:
+        platforms["linux-x86_64-deb"] = {
+            "signature": read_sig(deb_asset),
+            "url": f"https://github.com/{repo}/releases/download/{tag}/{deb_asset.name}",
+        }
+
     manifest = {
         "version": version,
         "notes": f"See https://github.com/{repo}/releases/tag/{tag}",
@@ -98,7 +111,13 @@ def main() -> int:
     output.write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps(manifest, indent=2))
 
-    required = {"darwin-aarch64", "darwin-x86_64", "windows-x86_64", "linux-x86_64"}
+    required = {
+        "darwin-aarch64",
+        "darwin-x86_64",
+        "windows-x86_64",
+        "linux-x86_64",
+        "linux-x86_64-deb",
+    }
     missing = required - platforms.keys()
     if missing:
         print(

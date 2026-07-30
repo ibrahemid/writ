@@ -99,6 +99,10 @@ jobs:
       - name: Run tests
         run: cargo test --workspace
 
+      - name: Release script tests
+        if: matrix.os == 'ubuntu-latest'
+        run: python3 -m unittest discover -s .github/scripts -t .github/scripts
+
       - name: Security audit
         run: cargo audit
         continue-on-error: true

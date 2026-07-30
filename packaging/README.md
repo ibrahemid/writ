@@ -64,6 +64,8 @@ The `.pkg` is the recommended *first-install* path: it ships pre-install and pos
 
 The in-app updater does **not** consume the `.pkg`. It consumes the signed `Writ_universal.app.tar.gz` (the "macOS updater bundle" row above), verifies its `.sig` against the embedded minisign public key, and swaps the `.app` in place. The `.pkg` and the `.app.tar.gz` are produced by separate steps in `release.yml` and are not interchangeable.
 
+On Linux the updater consumes the artifact matching how Writ was installed: `Writ_<version>_amd64.AppImage` for AppImage installs, `Writ_<version>_amd64.deb` for deb installs. `latest.json` carries both, under `linux-x86_64` and `linux-x86_64-deb`.
+
 The `.dmg` is offered alongside for users who prefer drag-to-Applications. It contains the same `Writ.app` bundle as the `.pkg`. Replacing a running `Writ.app` from a mounted dmg requires the user to quit Writ first; that is why the `.pkg` remains the default recommendation.
 
 If these filenames change, update `.github/workflows/packages.yml` and the three bump scripts in `scripts/`.
