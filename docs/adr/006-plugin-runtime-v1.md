@@ -1,7 +1,15 @@
 # ADR-006: Plugin Runtime v1 — In-Process Text Transforms
 
-**Status:** Proposed
+**Status:** Accepted, shipped (recorded 2026-07-30)
 **Date:** 2026-05-08
+
+> **Shipped.** The runtime described here is in the tree: the `TextTransform`
+> trait and `TransformRegistry` in `crates/writ-plugin/src/transform/registry.rs`,
+> `register_builtins` in `transform/builtins/mod.rs`, and the `list_transforms`
+> and `apply_transform` IPC commands in `src-tauri/src/commands/transforms.rs`.
+> The `apply` budget is enforced by `scripts/perf-gate.sh`, run before tagging a
+> release (`docs/perf-budgets.md`). ADR-012 extends this runtime with composite
+> transforms. Nothing in the decision changed; only the status label was stale.
 
 ## Context
 

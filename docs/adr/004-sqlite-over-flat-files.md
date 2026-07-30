@@ -50,6 +50,13 @@ Key factors:
 The SQLite file lives in the platform data directory (`~/.local/share/writ/` on Linux,
 `~/Library/Application Support/writ/` on macOS) as `writ.db`.
 
+> **Correction (2026-07-30).** The shipped location is `~/.writ/writ.db` on every
+> platform, not the platform data directory
+> (`src-tauri/src/state.rs:79`, `:286`). The buffer files and `config.toml` sit
+> beside it under `~/.writ`, and the `writ` CLI writes piped stdin to
+> `~/.writ/piped/`. `WRIT_DATA_DIR` overrides the root, which is how a
+> development instance runs against its own database.
+
 ## Consequences
 
 **Positive:**
