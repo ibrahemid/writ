@@ -87,25 +87,60 @@ semver (e.g. `0.1.0`, `0.2.0-rc.1`). The workflow updates:
 - `Cargo.toml` (workspace package version)
 - `src-tauri/tauri.conf.json` (top-level `version`)
 - `package.json` (top-level `version`)
+- `site/package.json` (top-level `version`)
 
-It opens a PR by default. Review, merge. If you prefer a direct push, uncheck
-`create_pr` when dispatching, but PR is recommended for the audit trail.
+It opens a PR against `main` by default. Review, merge. If you prefer a direct
+push, uncheck `create_pr` when dispatching, but PR is recommended for the audit
+trail.
 
-### 2.2 Update CHANGELOG.md
+### 2.2 Update the changelogs
 
-Move the `Unreleased` section into a dated release section following
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Commit on the same
-branch as the version bump.
+Move the `Unreleased` section of `CHANGELOG.md` into a dated release section
+following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-### 2.3 Tag and push
+Mirror that section into `site/src/data/changelog.ts` as a new first entry in
+`releases`: `version`, `date`, and one note per line with its `kind`. The
+`/changelog` page renders that array verbatim and nothing generates it. The site
+footer takes its version from the published release instead, so skipping this
+leaves the deployed site advertising the new version beside a changelog that
+stops at the previous one.
 
-Once the version-bump PR is merged to `main`:
+Commit both on the same branch as the version bump.
+
+### 2.3 Pre-tag checks, tag, and push
+
+Branches come off `main`, pull requests target `main`, and tags are cut from
+`main`. There is no integration branch to merge first.
+
+Before tagging:
+
+1. `origin/main` is green. `.github/workflows/ci.yml` runs the three-platform
+   matrix on every push to `main` and every pull request targeting it.
+2. `scripts/release-preflight.sh` passes locally:
+
+   ```bash
+   scripts/release-preflight.sh
+   ```
+
+   It runs seven gates on your machine: `cargo fmt --all --check`,
+   `cargo test --workspace`, `cargo clippy --workspace -- -D warnings`,
+   `npx tsc --noEmit`, `pnpm --dir site build`, a universal macOS `app,dmg`
+   build followed by `scripts/build-mac-pkg.sh`, and an `act --dryrun` of the
+   Linux release leg. Gate 7 checks the workflow shape, not the Linux build;
+   drop `--dryrun` to run the build itself. Gate 6 is skipped with a warning
+   off Darwin, gate 7 when `act` or Docker is missing, and the closing
+   `preflight: OK` says nothing about a gate that was skipped. A mac build
+   that would fail the tag fails here instead of burning macOS CI minutes.
+   Windows still needs CI or a VM.
+
+The script ends by printing the tag command, reading the version from
+`site/package.json`:
 
 ```bash
 git checkout main
 git pull --ff-only
-git tag v0.1.0          # match the version you bumped to
-git push origin v0.1.0
+git tag "v$(jq -r .version site/package.json)"
+git push origin "v$(jq -r .version site/package.json)"
 ```
 
 The push triggers `.github/workflows/release.yml`.
@@ -117,28 +152,101 @@ The push triggers `.github/workflows/release.yml`.
    conventional-commit prefixes since the previous `v*.*.*` tag.
 2. `build`  runs a matrix build on:
    - `macos-latest`  universal binary (`aarch64` + `x86_64` merged), producing
-     `.pkg` (with quit/relaunch scripts), `.dmg` (drag-to-Applications),
-     `.app.tar.gz`, and `.app.tar.gz.sig`. Both the `.pkg` and `.dmg` ship on
-     every release; the `.pkg` is the default recommendation and the source
-     for the Homebrew cask and the in-app updater.
-   - `windows-latest`  x64, producing `.msi`, `.msi.zip`, `.msi.zip.sig`.
-   - `ubuntu-22.04`  x64, producing `.deb`, `.AppImage`, `.AppImage.tar.gz`,
-     `.AppImage.tar.gz.sig`.
-   All artifacts are uploaded to the draft release by `tauri-action`.
+     `Writ_<version>_universal.pkg` (with quit/relaunch scripts),
+     `Writ_<version>_universal.dmg` (drag-to-Applications), and
+     `Writ_universal.app.tar.gz` + `.sig`. Both the `.pkg` and the `.dmg` ship
+     on every release; the `.pkg` is the default recommendation and the source
+     for the Homebrew cask. The in-app updater consumes neither: it downloads
+     `Writ_universal.app.tar.gz`, verifies the `.sig` against the embedded
+     minisign public key, and swaps the `.app` in place.
+   - `windows-latest`  x64, producing `Writ_<version>_x64_en-US.msi` + `.sig`.
+   - `ubuntu-22.04`  x64, producing `Writ_<version>_amd64.deb` + `.sig` and
+     `Writ_<version>_amd64.AppImage` + `.sig`.
+
+   Tauri v2 signs the platform installer directly instead of wrapping it, so
+   there is no `.msi.zip` and no `.AppImage.tar.gz`; the `.sig` sits beside the
+   raw installer (`createUpdaterArtifacts` in `src-tauri/tauri.conf.json`).
+   Both Linux installers are updater payloads: `latest.json` carries the
+   `.AppImage` under `linux-x86_64` and the `.deb` under `linux-x86_64-deb`,
+   and the plugin picks by the bundle type baked into the running binary, so a
+   deb install updates from the `.deb`. All artifacts are uploaded to the draft
+   release.
 3. `finalize`  downloads every release asset, generates `SHA256SUMS.txt`, and
    writes `latest.json` (the Tauri updater manifest). Both files are uploaded
    back to the draft release.
+
+**macOS signing and notarization.** The mac leg handles three artifacts
+separately, and the `.pkg` needs a different certificate from the other two:
+
+- The `.app` is codesigned by `tauri-action` with the Developer ID
+  **Application** identity (`APPLE_SIGNING_IDENTITY`, falling back to ad-hoc
+  `-` when the secret is absent) and notarized when `APPLE_ID`,
+  `APPLE_PASSWORD`, and `APPLE_TEAM_ID` are all set.
+- The `.pkg` is built by `scripts/build-mac-pkg.sh`. `pkgbuild` produces the
+  component package carrying the pre-install (quit a running Writ) and
+  post-install (relaunch) scripts; `productbuild` wraps it in a distribution
+  declaring the macOS 12.0 floor, which a bare component package cannot
+  express; `productsign` signs the result when
+  `WRIT_INSTALLER_SIGNING_IDENTITY` is set. The workflow sets that itself,
+  resolving the Developer ID **Installer** identity out of the build keychain
+  rather than reading it from a secret; the certificate arrives as
+  `APPLE_INSTALLER_CERTIFICATE`. That is a different certificate from the
+  Application one: a `.pkg` signed with the Application identity is rejected.
+  With the variable unset the script still writes an installer, unsigned, and
+  prints that Gatekeeper will reject it. That is what a local preflight run
+  produces, since nothing in `scripts/release-preflight.sh` sets the identity.
+- The `.dmg` wraps an already-notarized `.app`, but the wrapper needs its own
+  ticket.
+
+With the notarization secrets set, both wrappers go through
+`xcrun notarytool submit --wait`, then `xcrun stapler staple` and
+`xcrun stapler validate`. Stapling embeds the ticket in the file, so each
+upload comes after it: the `.pkg` uploads once its own ticket is stapled, and
+the stapled `.dmg` overwrites the pre-staple copy `tauri-action` already
+pushed. Without those secrets the job logs what it skipped and the wrappers
+ship without tickets.
+
+Two guards sit on this path. The workflow reads the `.pkg` signature back with
+`pkgutil --check-signature` and **fails the job** when
+`APPLE_INSTALLER_CERTIFICATE` is configured but the signature is absent, so a
+silently unsigned installer cannot ship. And it writes `release-meta.json` from
+the outcomes it observed, uploaded as a release asset:
+
+```json
+{
+  "schema": 1,
+  "pkg": { "signed": true, "notarized": true, "stapled": true },
+  "dmg": { "stapled": true }
+}
+```
+
+`site.yml` reads that asset back and sets the site's `notarized` flag true only
+when `pkg.stapled` and `dmg.stapled` are both true. A missing or unparseable
+asset reads as false, so the site cannot claim notarization a release did not
+produce. It is deliberately absent from `SHA256SUMS.txt`, where the checksum
+step globs binary artifacts only: this is a derived status file the site reads,
+not an integrity-bearing download.
 
 ### 2.5 Smoke test before publishing
 
 Download each installer from the draft release and install it on a clean
 machine:
 
-- macOS: double-click the `.pkg`, allow it through Gatekeeper if needed, and
-  install. The installer quits any running Writ, swaps the bundle, and
-  relaunches the new version. Confirm hotkey and autosave still work. As a
-  secondary check, mount the `.dmg`, drag `Writ.app` to `/Applications`, and
-  confirm it launches the same version.
+- macOS: check the `.pkg` before installing it.
+
+  ```bash
+  pkgutil --check-signature Writ_<version>_universal.pkg   # Developer ID Installer chain
+  xcrun stapler validate Writ_<version>_universal.pkg      # ticket is embedded
+  ```
+
+  Both must pass, and `release-meta.json` has to sit among the draft's assets
+  with `pkg.signed`, `pkg.notarized`, `pkg.stapled`, and `dmg.stapled` all
+  true. Then install. The installer quits any running Writ, swaps the bundle,
+  and relaunches the new version. Confirm hotkey and autosave still work. A
+  signed and stapled installer draws no Gatekeeper prompt on a machine that
+  has never held the certificate; if one appears, stop and find out why
+  instead of clicking through. As a secondary check, mount the `.dmg`, drag
+  `Writ.app` to `/Applications`, and confirm it launches the same version.
 - Windows: run the `.msi`, launch from Start menu, confirm hotkey and
   autosave work.
 - Linux: install the `.deb` with `sudo dpkg -i`, or run the `.AppImage`
@@ -170,6 +278,31 @@ https://github.com/ibrahemid/writ/releases/latest/download/latest.json
 This URL is what installed clients poll for updates (configured in
 `tauri.conf.json` under `plugins.updater.endpoints`).
 
+### 2.7 After publishing
+
+Publishing fires two workflows: `site.yml` deploys the site and rewrites
+`site/src/data/release.json` from the latest release, and `packages.yml` opens
+the distribution-manifest bump PR. Then check:
+
+- `/download` on the site offers the new version and every link resolves.
+- The macOS card carries the `notarized` badge. `site.yml` sets that flag from
+  the `release-meta.json` asset, true only when `pkg.stapled` and `dmg.stapled`
+  are both true, so a missing badge means one of the two never got a stapled
+  ticket.
+- `/changelog` shows the new version. If it stops at the previous one, the
+  `site/src/data/changelog.ts` entry from §2.2 is missing: add it, merge, and
+  the site redeploys.
+- The Linux one-liner resolves the new tag:
+
+  ```bash
+  curl -s https://api.github.com/repos/ibrahemid/writ/releases/latest | jq -r .tag_name
+  ```
+
+  This must print the tag you just published. `install.sh` reads that endpoint
+  to decide which release to download, and a draft release is not served by it.
+- The packaging bump PR carries the right SHAs. Merge it, then follow the
+  per-channel push steps in `packaging/README.md`.
+
 ## 3. Release-candidate builds
 
 For pre-release testing, tag with a suffix:
@@ -183,6 +316,21 @@ The workflow detects the suffix and marks the draft release as a pre-release
 automatically. Pre-releases are not served by `releases/latest`, so installed
 clients will not auto-update to them unless you temporarily override the
 updater endpoint.
+
+Cut an `-rc` before any release that changes signing, notarization, or the
+installer. Signing failures are only visible on a published artifact: the
+build succeeds either way, and an unsigned or unstapled `.pkg` looks identical
+until Gatekeeper sees it. Download the `.pkg` from the pre-release and run:
+
+```bash
+pkgutil --check-signature Writ_0.2.0-rc.1_universal.pkg   # Developer ID Installer chain
+spctl -a -t install -vv Writ_0.2.0-rc.1_universal.pkg     # what Gatekeeper decides
+xcrun stapler validate Writ_0.2.0-rc.1_universal.pkg      # ticket is embedded, works offline
+```
+
+Run them on a machine that has never had the signing certificate installed. All
+three must pass, and `release-meta.json` on the same pre-release must report
+every flag true, before the real tag goes out.
 
 ## 4. Rolling back
 
@@ -203,11 +351,16 @@ clear the Apple / Windows secrets to fall back to unsigned builds.
 
 ### 5.2 `latest.json` has an empty `platforms` object
 
-The finalize step did not find any `.app.tar.gz`, `.msi.zip`, or
-`.AppImage.tar.gz` among the release assets. This happens when:
+The finalize step identifies an updater payload by the `.sig` beside it, so an
+empty or partial `platforms` means one of `Writ_universal.app.tar.gz`, `.msi`,
+`.AppImage`, or `.deb` reached the release without its `.sig`.
+`build_latest_json.py` requires all five keys (`darwin-aarch64`,
+`darwin-x86_64`, `windows-x86_64`, `linux-x86_64`, `linux-x86_64-deb`) and
+fails the job naming the ones it could not fill instead of publishing a partial
+manifest. This happens when:
 
-- The `updater` bundle target is missing from `tauri.conf.json`.
-- `TAURI_SIGNING_PRIVATE_KEY` is unset, so the updater bundles are skipped.
+- `createUpdaterArtifacts` is off in `tauri.conf.json`, so nothing is signed.
+- `TAURI_SIGNING_PRIVATE_KEY` is unset, so the signatures are skipped.
 
 Verify both and re-run the finalize job.
 
@@ -281,11 +434,18 @@ Revert the version bumps from step 2 before committing.
 
 - `.github/workflows/release.yml`         release pipeline
 - `.github/workflows/bump-version.yml`    version bump automation
+- `.github/workflows/packages.yml`        post-release manifest bumps
+- `.github/workflows/site.yml`            site deploy, release.json sync
 - `.github/scripts/bump_version.py`       version bump implementation
 - `.github/scripts/build_latest_json.py`  updater manifest builder
+- `scripts/release-preflight.sh`          local gates to run before tagging
+- `scripts/build-mac-pkg.sh`              macOS installer build and signing
 - `src-tauri/tauri.conf.json`             bundle targets, updater pubkey
 - `Cargo.toml`                            workspace version
 - `package.json`                          frontend version
+- `site/package.json`                     site version, read by the tag command
 - `CHANGELOG.md`                          human-curated changelog
+- `site/src/data/changelog.ts`            source of the `/changelog` page
+- `release-meta.json` (release asset)     macOS signing outcomes the site reads
 - `docs/adr/007-in-app-updater.md`        updater design, gates, test loop
 - `src-tauri/src/commands/update.rs`      updater IPC + endpoint override

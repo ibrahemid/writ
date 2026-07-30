@@ -48,14 +48,17 @@ The post-release workflow expects these artifact names on GitHub Releases. They 
 |---|---|
 | macOS Universal PKG | `Writ_<version>_universal.pkg` |
 | macOS Universal DMG | `Writ_<version>_universal.dmg` |
-| Windows x64 MSI | `Writ_<version>_x64_en-US.msi` |
-| Linux AppImage | `Writ_<version>_amd64.AppImage` |
-| Linux deb | `Writ_<version>_amd64.deb` |
+| Windows x64 MSI | `Writ_<version>_x64_en-US.msi` (and `.sig`) |
+| Linux AppImage | `Writ_<version>_amd64.AppImage` (and `.sig`) |
+| Linux deb | `Writ_<version>_amd64.deb` (and `.sig`) |
 | macOS updater bundle | `Writ_universal.app.tar.gz` (and `.sig`) |
-| Windows updater bundle | `Writ_<version>_x64_en-US.msi.zip` (and `.sig`) |
-| Linux updater bundle | `Writ_<version>_amd64.AppImage.tar.gz` (and `.sig`) |
 | Checksums | `SHA256SUMS.txt` |
 | Tauri updater manifest | `latest.json` |
+| macOS signing outcomes | `release-meta.json` |
+
+Tauri v2 signs the platform installer directly instead of wrapping it, so the
+Windows and Linux updater payloads are the `.msi` and `.AppImage` themselves,
+with the `.sig` beside them. There is no `.msi.zip` and no `.AppImage.tar.gz`.
 
 The `.pkg` is the recommended *first-install* path: it ships pre-install and post-install scripts so the installer quits a running Writ, swaps the bundle, and relaunches the new version. No manual quit needed. The Homebrew cask consumes the `.pkg`.
 
