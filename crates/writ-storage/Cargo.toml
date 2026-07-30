@@ -15,7 +15,7 @@ categories.workspace = true
 [dependencies]
 writ-core = { path = "../writ-core" }
 rusqlite = { version = "0.40" }
-toml = "0.9"
+toml = "1.1"
 tracing = "0.1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
