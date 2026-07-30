@@ -71,6 +71,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "appearance.custom_colors", section: "appearance", title: "Custom colors", keywords: ["theme", "colors", "custom", "palette"] },
   { id: "updates.auto_check", section: "updates", title: "Check for updates automatically", keywords: ["update", "auto", "check", "version"] },
   { id: "updates.check_now", section: "updates", title: "Check for updates now", keywords: ["update", "check", "now", "version"] },
+  { id: "updates.third_party", section: "updates", title: "Third-party licences", keywords: ["licence", "license", "licenses", "third party", "notices", "attribution", "copyright", "open source", "credits", "acknowledgements"] },
   { id: "shortcuts.edit", section: "shortcuts", title: "Keyboard shortcuts", keywords: ["shortcut", "keyboard", "keybinding", "hotkey", "rebind"] },
 ];
 

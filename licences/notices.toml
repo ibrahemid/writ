@@ -1,0 +1,148 @@
+# Licence texts for crates whose published package leaves them out.
+#
+# cargo-about falls back to the SPDX template when it finds no licence file in a
+# crate, which puts "Copyright (c) <year> <copyright holders>" where the real
+# notice belongs. Most of those crates do ship the file under a name cargo-about
+# does not look for, and the generator finds those itself. The rest are here:
+# each text is the file from the crate's own source repository, pinned to a
+# commit.
+#
+# `unattributed` records the crates that publish no copyright notice anywhere:
+# none in the package, none in the repository. Their licence is reproduced with
+# the unfilled copyright line removed rather than with a placeholder in it.
+#
+# scripts/gen-third-party-notices.py reads this offline. A crate that cargo-about
+# cannot resolve and that is listed in neither table fails generation, and so
+# does an entry here that no longer matches a shipped crate.
+
+[[notice]]
+crates = ["burn-ir", "burn-nn", "burn-optim"]
+licence = "MIT"
+file = "burn.txt"
+sources = [
+    "https://raw.githubusercontent.com/tracel-ai/burn/a6da424feacf6d82d6a0e81db197310796267c2b/LICENSE-MIT",
+]
+
+[[notice]]
+crates = ["convert_case"]
+licence = "MIT"
+file = "convert-case.txt"
+# The repository carried no licence file when 0.4.0 was published; this is the
+# one the project added later, under the same author.
+sources = [
+    "https://raw.githubusercontent.com/rutrum/convert-case/e58d5ae2ee30e434f1ea19a63e35c7e6abae84ad/LICENSE",
+]
+
+[[notice]]
+crates = ["cubecl-quant"]
+licence = "MIT"
+file = "cubecl.txt"
+sources = [
+    "https://raw.githubusercontent.com/tracel-ai/cubecl/0e2ba072b1ebba595d65a90804e616e1b799ef16/LICENSE-MIT",
+]
+
+[[notice]]
+crates = ["dlopen2", "dlopen2_derive"]
+licence = "MIT"
+file = "dlopen2.txt"
+sources = [
+    "https://raw.githubusercontent.com/OpenByteDev/dlopen2/cc80e4a0a90d499b677fdf7743699b4b3a43a989/LICENSE",
+]
+
+[[notice]]
+crates = ["embassy-futures"]
+licence = "MIT"
+file = "embassy.txt"
+sources = [
+    "https://raw.githubusercontent.com/embassy-rs/embassy/3e8d8fec15286eb25b8bba7d103c8fc279544551/LICENSE-MIT",
+]
+
+[[notice]]
+crates = ["match_token"]
+licence = "MIT"
+file = "html5ever.txt"
+sources = [
+    "https://raw.githubusercontent.com/servo/html5ever/0e4e125b8672abad4ff14d1e0043d3be9305af6a/LICENSE-MIT",
+]
+
+[[notice]]
+crates = ["alloc-stdlib"]
+licence = "BSD-3-Clause"
+file = "rust-alloc-no-stdlib.txt"
+sources = [
+    "https://raw.githubusercontent.com/dropbox/rust-alloc-no-stdlib/6032b6a9b20e03737135c55a0270ccffcc1438ef/LICENSE",
+]
+
+[[notice]]
+crates = ["brotli"]
+licence = "BSD-3-Clause"
+file = "rust-brotli.txt"
+# The package ships LICENSE.MIT and nothing for the BSD half of "BSD-3-Clause
+# AND MIT".
+sources = [
+    "https://raw.githubusercontent.com/dropbox/rust-brotli/769efcbca153bfc4737f1986459da5d9d23368b8/LICENSE.BSD-3-Clause",
+]
+
+[[notice]]
+crates = ["phf", "phf_codegen", "phf_generator", "phf_macros", "phf_shared"]
+licence = "MIT"
+file = "rust-phf.txt"
+sources = [
+    "https://raw.githubusercontent.com/sfackler/rust-phf/bed01538ae576876f11189d541875d228acef9e8/LICENSE",
+]
+
+[[notice]]
+crates = [
+    "unic-char-property",
+    "unic-char-range",
+    "unic-common",
+    "unic-ucd-ident",
+    "unic-ucd-version",
+]
+licence = "MIT"
+file = "rust-unic.txt"
+# The copyright notice and the permission text are separate files upstream, in
+# this order.
+sources = [
+    "https://raw.githubusercontent.com/open-i18n/rust-unic/5878605364af97a3358368a6eaef02104af2e016/COPYRIGHT.md",
+    "https://raw.githubusercontent.com/open-i18n/rust-unic/5878605364af97a3358368a6eaef02104af2e016/LICENSE-MIT",
+]
+
+[[notice]]
+crates = ["tauri-plugin"]
+licence = "MIT"
+file = "tauri.txt"
+sources = [
+    "https://raw.githubusercontent.com/tauri-apps/tauri/9b17a7aeae9a83222ffe829aa4e2d8a5ba6bed8c/LICENSE_MIT",
+]
+
+[[notice]]
+crates = ["webview2-com", "webview2-com-macros", "webview2-com-sys"]
+licence = "MIT"
+file = "webview2-rs.txt"
+sources = [
+    "https://raw.githubusercontent.com/wravery/webview2-rs/b74dc5e2b394044bea5191052868ce7a106c202c/LICENSE",
+]
+
+# https://github.com/madsmtm/objc2 carries a LICENSE.md that names the licence
+# of each crate and states no copyright.
+[[unattributed]]
+crates = [
+    "block2",
+    "dispatch2",
+    "objc2",
+    "objc2-app-kit",
+    "objc2-core-foundation",
+    "objc2-core-graphics",
+    "objc2-encode",
+    "objc2-exception-helper",
+    "objc2-foundation",
+    "objc2-osa-kit",
+    "objc2-quartz-core",
+    "objc2-web-kit",
+]
+licence = "MIT"
+
+[[unattributed]]
+crates = ["fxhash", "mac"]
+licence = "MIT"

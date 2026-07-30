@@ -31,6 +31,7 @@ import { aiConnectionStore, connectionDisplay } from "../../stores/global/ai-con
 import { modelOptions, defaultModelFor, resolveAutoModel } from "../../stores/global/ai-models";
 import { copyStoragePath, fetchStorageInfo, revealStoragePath } from "../../stores/global/storage";
 import type { StorageInfo } from "../../stores/global/storage";
+import { openThirdPartyNoticesBuffer } from "../../stores/global/notices";
 import type { DefaultLayout } from "../../types/config";
 import {
   fetchDefaultAppTypes,
@@ -703,6 +704,7 @@ function PreviewSection() {
 }
 
 function UpdatesSection() {
+  const win = useWindow();
   const autoCheck = () => configStore.config().updater.auto_check;
 
   function onAutoCheckToggle() {
@@ -710,6 +712,19 @@ function UpdatesSection() {
       ...prev,
       updater: { ...prev.updater, auto_check: !prev.updater.auto_check },
     }));
+  }
+
+  async function onViewNotices() {
+    try {
+      const { doc, reused } = await openThirdPartyNoticesBuffer();
+      win.tabs.setActiveTabId(doc.id);
+      // Activating an already-active tab loads nothing, so the refreshed text
+      // has to be pulled into the view explicitly.
+      if (reused) win.editor.requestExternalReload(doc.id);
+      closeSettings();
+    } catch {
+      showToast("Could not open the third-party licences", "error");
+    }
   }
 
   return (
@@ -737,6 +752,16 @@ function UpdatesSection() {
           onClick={() => void updateStore.checkForUpdate()}
         >
           Check now
+        </button>
+      </SettingsRow>
+      <SettingsRow id="updates.third_party" label="Third-party licences">
+        <button
+          type="button"
+          class="settings-action-btn"
+          data-action="third-party-notices"
+          onClick={() => void onViewNotices()}
+        >
+          View
         </button>
       </SettingsRow>
     </div>

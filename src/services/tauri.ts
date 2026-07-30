@@ -52,6 +52,10 @@ export async function saveBufferContent(id: string, content: string): Promise<vo
   return invoke("save_buffer_content", { id, content });
 }
 
+export async function saveBufferContentUnindexed(id: string, content: string): Promise<void> {
+  return invoke("save_buffer_content_unindexed", { id, content });
+}
+
 export async function readBufferContent(id: string): Promise<string> {
   const bytes = await invoke<ArrayBuffer>("read_buffer_content", { id });
   return new TextDecoder().decode(bytes);
@@ -599,6 +603,12 @@ export async function getStorageInfo(): Promise<StorageInfo> {
 
 export async function revealStoragePath(): Promise<void> {
   return invoke("reveal_storage_path");
+}
+
+// --- Third-party licences ---
+
+export async function readThirdPartyNotices(): Promise<string> {
+  return invoke("read_third_party_notices");
 }
 
 // --- Rewrite (opt-in) ---
