@@ -13,7 +13,7 @@ homebrew-writ/
     writ.rb
 ```
 
-`Casks/writ.rb` in the tap repo is a copy of `packaging/homebrew/Casks/writ.rb` in this repo. The post-release workflow at `.github/workflows/packages.yml` keeps the copy in this repo up to date; publishing to the tap is currently a manual copy step until we wire up a push action.
+`Casks/writ.rb` in the tap repo is a copy of `packaging/homebrew/Casks/writ.rb` in this repo. The post-release workflow at `.github/workflows/packages.yml` keeps the copy in this repo up to date; publishing to the tap is a manual copy step, with no push action wired up yet.
 
 ## Verifying the tap
 

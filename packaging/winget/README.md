@@ -25,7 +25,7 @@ Schema version: 1.6.0.
 
 ## Placeholders
 
-`__SHA256_MSI__` in the installer manifest is replaced with the SHA256 of the released `Writ_<version>_x64_en-US.msi` by the post-release workflow.
+Before a release fills it in, `InstallerSha256` holds the placeholder `__SHA256_MSI__`. The post-release workflow replaces it with the SHA256 of the released `Writ_<version>_x64_en-US.msi`.
 
 ## ProductCode
 

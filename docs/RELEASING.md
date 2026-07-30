@@ -241,7 +241,7 @@ This URL is what installed clients poll for updates (configured in
 
 Publishing fires two workflows: `site.yml` deploys the site and rewrites
 `site/src/data/release.json` from the latest release, and `packages.yml` opens
-the distribution-manifest bump PR. Check all four:
+the distribution-manifest bump PR. Then check:
 
 - `/download` on the site offers the new version and every link resolves.
 - `/changelog` shows the new version. If it stops at the previous one, the
@@ -283,8 +283,8 @@ spctl -a -t install -vv Writ_0.2.0-rc.1_universal.pkg     # what Gatekeeper deci
 xcrun stapler validate Writ_0.2.0-rc.1_universal.pkg      # ticket is embedded, works offline
 ```
 
-All three must pass on a machine that has never seen the certificate before the
-real tag goes out.
+Run them on a machine that has never had the signing certificate installed. All
+three must pass before the real tag goes out.
 
 ## 4. Rolling back
 
