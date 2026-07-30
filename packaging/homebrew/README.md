@@ -1,6 +1,6 @@
 # Writ Homebrew Cask
 
-This directory holds the Homebrew Cask formula for Writ. On day one Writ ships through a self-hosted tap so we control the release cadence without waiting for `homebrew/homebrew-cask` review cycles. Once Writ has a stable track record we can submit to upstream.
+This directory holds the Homebrew Cask formula for Writ. Writ ships through a self-hosted tap, so release cadence does not wait on `homebrew/homebrew-cask` review cycles. Upstream submission comes later.
 
 ## Self-hosted tap layout
 
@@ -15,21 +15,17 @@ homebrew-writ/
 
 `Casks/writ.rb` in the tap repo is a copy of `packaging/homebrew/Casks/writ.rb` in this repo. The post-release workflow at `.github/workflows/packages.yml` keeps the copy in this repo up to date; publishing to the tap is currently a manual copy step until we wire up a push action.
 
-## Publishing the tap (first time)
+## Verifying the tap
 
-1. Create an empty public repo at `github.com/ibrahemid/homebrew-writ`.
-2. Clone it locally.
-3. Copy `packaging/homebrew/Casks/writ.rb` from this repo into `Casks/writ.rb` in the tap repo.
-4. Commit and push.
-5. Verify the tap works end to end:
+The tap is published and serves the current release. To check it end to end:
 
-   ```sh
-   brew tap ibrahemid/writ
-   brew install --cask writ
-   open -a Writ
-   brew uninstall --cask writ
-   brew untap ibrahemid/writ
-   ```
+```sh
+brew tap ibrahemid/writ
+brew install --cask writ
+open -a Writ
+brew uninstall --cask writ
+brew untap ibrahemid/writ
+```
 
 ## Updating the tap on a new release
 
@@ -50,17 +46,18 @@ brew install --cask writ
 ## Submitting to homebrew/homebrew-cask (later)
 
 Eligibility requires:
-- A stable release line (we suggest waiting past v0.2.0).
+- A stable release line (a window on the 0.2.x line).
 - The artifact must be downloadable from a public URL with no authentication.
 - The binary must be signed and notarized for macOS.
 
 When ready, follow the [Homebrew Cask Cookbook](https://docs.brew.sh/Cask-Cookbook) and open a PR against `homebrew/homebrew-cask` copying `writ.rb` to `Casks/w/writ.rb`.
 
-## Placeholders
+## The SHA field
 
-The cask in this repo uses placeholders:
+The cask installs one artifact for both architectures, the universal
+`Writ_<version>_universal.pkg`, so it carries a single `sha256`. Before a
+release fills it in that field holds the placeholder `__SHA256_UNIVERSAL__`.
 
-- `__SHA256_ARM64__` for the Apple Silicon DMG
-- `__SHA256_INTEL__` for the Intel DMG
-
-The packages workflow replaces both on `release: published`.
+`.github/workflows/packages.yml` rewrites the version and that field on
+`release: published`, delegating to `scripts/packaging_bump_homebrew.py`, which
+rewrites one `sha256` field and exits non-zero if it finds none.

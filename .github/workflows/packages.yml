@@ -133,7 +133,7 @@ jobs:
             Automated bump triggered by release `${{ steps.tag.outputs.tag }}`.
 
             Updated files:
-            - `packaging/homebrew/Casks/writ.rb` (version + SHA256 for the universal DMG)
+            - `packaging/homebrew/Casks/writ.rb` (version + SHA256 for the universal pkg)
             - `packaging/winget/manifests/i/ibrahemid/Writ/${{ steps.tag.outputs.version }}/` (copied from previous version, rewritten)
             - `packaging/aur/writ-bin/PKGBUILD` + regenerated `.SRCINFO`
 
