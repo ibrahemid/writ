@@ -1,5 +1,6 @@
 import { createSignal, createRoot } from "solid-js";
 import * as api from "../../services/tauri";
+import { onEvent } from "../../services/events";
 import { configStore } from "./config";
 
 // Singleton — app-global, not window-scoped (ADR-009 E3).
@@ -14,6 +15,8 @@ const MAXIMIZED_COALESCE_MS = 100;
 function createOsWindowStore() {
   const [focused, setFocused] = createSignal(true);
   const [maximized, setMaximized] = createSignal(false);
+  const [snapHovered, setSnapHovered] = createSignal(false);
+  const [snapPressed, setSnapPressed] = createSignal(false);
   let geometryTimer: ReturnType<typeof setTimeout> | null = null;
   let maximizedTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -57,6 +60,38 @@ function createOsWindowStore() {
   async function toggleMaximize(): Promise<void> {
     await api.toggleMaximizeWindow();
     await syncMaximized();
+  }
+
+  // On Windows the maximize button is covered by the child window that answers
+  // the snap-layout hit test, so the button itself never receives a real mouse
+  // event: CSS :hover and :active are dead over it and the pointer state has to
+  // come back from Rust.
+  async function installSnapOverlay(metrics: api.CaptionButtonMetrics): Promise<() => void> {
+    await api.reportCaptionButtonMetrics(metrics);
+    const unlisten = await onEvent("titlebar:maximize-hit", ({ phase }) => {
+      switch (phase) {
+        case "enter":
+          setSnapHovered(true);
+          break;
+        case "leave":
+          setSnapHovered(false);
+          setSnapPressed(false);
+          break;
+        case "press":
+          setSnapPressed(true);
+          break;
+        case "click":
+          // The pointer is still over the button, so the hover stands.
+          setSnapPressed(false);
+          void toggleMaximize();
+          break;
+      }
+    });
+    return () => {
+      unlisten();
+      setSnapHovered(false);
+      setSnapPressed(false);
+    };
   }
 
   async function persistGeometryNow(): Promise<void> {
@@ -120,8 +155,11 @@ function createOsWindowStore() {
   return {
     focused,
     maximized,
+    snapHovered,
+    snapPressed,
     installFocusSync,
     installMaximizeSync,
+    installSnapOverlay,
     installGeometryPersistence,
     flushGeometry,
     reveal: api.showWindow,

@@ -75,6 +75,9 @@ vi.mock("../../stores/global/os-window", () => ({
   osWindowStore: {
     focused: () => true,
     maximized: () => false,
+    snapHovered: () => false,
+    snapPressed: () => false,
+    installSnapOverlay: () => Promise.resolve(() => {}),
     toggleMaximize: mocks.toggleMaximize,
     startDragging: mocks.startDragging,
     minimize: mocks.minimize,

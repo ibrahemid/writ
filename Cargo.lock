@@ -9846,7 +9846,7 @@ dependencies = [
 
 [[package]]
 name = "writ-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "clap",
  "dirs",
@@ -9856,7 +9856,7 @@ dependencies = [
 
 [[package]]
 name = "writ-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "serde",
@@ -9872,7 +9872,7 @@ dependencies = [
 
 [[package]]
 name = "writ-lint"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "harper-core",
  "serde",
@@ -9881,7 +9881,7 @@ dependencies = [
 
 [[package]]
 name = "writ-plugin"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "criterion",
  "serde",
@@ -9893,7 +9893,7 @@ dependencies = [
 
 [[package]]
 name = "writ-render"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pulldown-cmark",
  "serde",
@@ -9903,7 +9903,7 @@ dependencies = [
 
 [[package]]
 name = "writ-storage"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "criterion",
@@ -9924,7 +9924,7 @@ dependencies = [
 
 [[package]]
 name = "writ-tauri"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "core-foundation 0.10.1",
@@ -9953,6 +9953,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "url",
+ "windows 0.61.3",
  "writ-core",
  "writ-lint",
  "writ-plugin",

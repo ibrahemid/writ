@@ -366,6 +366,23 @@ export async function computeWindowPlacement(
   }
 }
 
+// Horizontal position travels as a distance from the window's right edge: the
+// caption controls are right-anchored, so it survives every later resize.
+export interface CaptionButtonMetrics {
+  offsetFromRight: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export async function reportCaptionButtonMetrics(metrics: CaptionButtonMetrics): Promise<void> {
+  try {
+    await invoke("set_caption_button_metrics", { metrics });
+  } catch (err) {
+    console.warn("reportCaptionButtonMetrics failed:", err);
+  }
+}
+
 export async function onWindowResized(handler: () => void): Promise<() => void> {
   try {
     const win = getCurrentWindow();

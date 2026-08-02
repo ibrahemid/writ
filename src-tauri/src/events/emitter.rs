@@ -1,6 +1,18 @@
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, EventTarget};
 use writ_core::update::UpdatePhase;
+
+/// Pointer phases the snap-layout overlay reports for the maximize button. The
+/// overlay sits above the webview, so the button never sees the real mouse
+/// events and takes its hover and press state from these instead.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CaptionHitPhase {
+    Enter,
+    Leave,
+    Press,
+    Click,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "payload")]
@@ -65,10 +77,13 @@ pub enum WritFrontendEvent {
         layout: String,
         ratio: Option<f32>,
     },
+
+    #[serde(rename = "titlebar:maximize-hit")]
+    CaptionMaximizeHit { phase: CaptionHitPhase },
 }
 
-pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), String> {
-    let event_name = match &event {
+fn event_name(event: &WritFrontendEvent) -> &'static str {
+    match event {
         WritFrontendEvent::BufferOpened { .. } => "writ://buffer-opened",
         WritFrontendEvent::PendingOpens { .. } => "writ://pending-opens",
         WritFrontendEvent::FilesDropped { .. } => "writ://files-dropped",
@@ -83,6 +98,22 @@ pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), Strin
         WritFrontendEvent::PreviewRendered { .. } => "writ://preview-rendered",
         WritFrontendEvent::PreviewError { .. } => "writ://preview-error",
         WritFrontendEvent::LayoutChanged { .. } => "writ://preview-layout-changed",
-    };
-    app.emit(event_name, &event).map_err(|e| e.to_string())
+        WritFrontendEvent::CaptionMaximizeHit { .. } => "writ://titlebar-maximize-hit",
+    }
+}
+
+pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), String> {
+    app.emit(event_name(&event), &event)
+        .map_err(|e| e.to_string())
+}
+
+/// Emits to the main webview only, for events that describe that window's own
+/// chrome and would be meaningless anywhere else.
+pub fn emit_event_to_main(app: &AppHandle, event: WritFrontendEvent) -> Result<(), String> {
+    app.emit_to(
+        EventTarget::webview_window("main"),
+        event_name(&event),
+        &event,
+    )
+    .map_err(|e| e.to_string())
 }

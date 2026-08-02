@@ -22,6 +22,7 @@ const EVENT_MAP: Record<EventKind, string> = {
   "preview:rendered": "writ://preview-rendered",
   "preview:error": "writ://preview-error",
   "preview:layout_changed": "writ://preview-layout-changed",
+  "titlebar:maximize-hit": "writ://titlebar-maximize-hit",
 };
 
 export async function onEvent<K extends EventKind>(

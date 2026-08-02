@@ -1,6 +1,7 @@
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
+use crate::snap_overlay::{self, CaptionButtonMetrics};
 use crate::window_state::{
     decide_toggle, logical_rect, place_window, Rect, ToggleAction, WindowPlacement,
 };
@@ -79,4 +80,19 @@ pub fn compute_window_placement(
         WindowPlacement::At { x, y } => Some(LogicalWindowPosition { x, y }),
         WindowPlacement::Center => None,
     })
+}
+
+/// Reports where the frontend drew the caption maximize button, in logical
+/// pixels, so Windows can be given a rect that hit-tests as the maximize button
+/// and offers its snap-layout flyout there. A no-op on other platforms.
+#[tauri::command]
+pub fn set_caption_button_metrics(
+    app: AppHandle,
+    metrics: CaptionButtonMetrics,
+) -> Result<(), String> {
+    let metrics = metrics.validate().map_err(|e| e.to_string())?;
+    let Some(window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    snap_overlay::install(&window, metrics)
 }

@@ -162,12 +162,16 @@
 
 /* Fluent's subtle fill weakens on press rather than deepening, so pressed is a
    lighter wash than hover, not a darker one. */
-.winctrl:hover {
+/* The snap-layout hit-test window covers the maximize button, so its pointer
+   state arrives from the OS as a class instead of :hover and :active. */
+.winctrl:hover,
+.winctrl.is-snap-hovered {
   background: var(--writ-overlay-hover);
   color: var(--writ-foreground-default);
 }
 
-.winctrl:active {
+.winctrl:active,
+.winctrl.is-snap-pressed {
   background: var(--writ-overlay-subtle);
   color: var(--writ-foreground-muted);
 }

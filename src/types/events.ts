@@ -28,4 +28,7 @@ export type WritEvent =
   | {
       kind: "preview:layout_changed";
       payload: { buffer_id: string; window_id: number; layout: string; ratio: number | null };
-    };
+    }
+  | { kind: "titlebar:maximize-hit"; payload: { phase: CaptionHitPhase } };
+
+export type CaptionHitPhase = "enter" | "leave" | "press" | "click";

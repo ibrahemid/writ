@@ -1,4 +1,4 @@
-import { Show } from "solid-js";
+import { Show, onMount, onCleanup } from "solid-js";
 import { osWindowStore } from "../../stores/global/os-window";
 import type { Platform } from "../../lib/platform";
 
@@ -9,6 +9,48 @@ interface Props {
 }
 
 export default function TrafficLights(props: Props) {
+  let maximizeRef: HTMLButtonElement | undefined;
+
+  onMount(() => {
+    if (props.platform !== "win" || !maximizeRef) return;
+    // ResizeObserver is absent in jsdom, and this path only runs on Windows.
+    if (typeof ResizeObserver === "undefined") return;
+
+    const button = maximizeRef;
+    let dispose: (() => void) | null = null;
+    let disposed = false;
+
+    // The report waits for the first layout that measures the button: the
+    // window can still be hidden at mount, where a zero-sized measurement is
+    // rejected outright and there would be no second attempt. One report is
+    // still all it takes afterwards, since the measurement is a distance from
+    // the window's right edge and the titlebar's metrics are fixed tokens.
+    const observer = new ResizeObserver(() => {
+      const rect = button.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      observer.disconnect();
+
+      void osWindowStore
+        .installSnapOverlay({
+          offsetFromRight: window.innerWidth - rect.right,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        })
+        .then((teardown) => {
+          if (disposed) teardown();
+          else dispose = teardown;
+        });
+    });
+    observer.observe(button);
+
+    onCleanup(() => {
+      disposed = true;
+      observer.disconnect();
+      dispose?.();
+    });
+  });
+
   return (
     <Show
       when={props.platform === "mac"}
@@ -25,13 +67,18 @@ export default function TrafficLights(props: Props) {
               <path d="M1 5.5H9" stroke="currentColor" stroke-width="1" />
             </svg>
           </button>
-          {/* TODO(operator): the Win11 snap-layout flyout only appears when the
-              OS treats this rect as the caption maximize button, which needs
-              WM_NCHITTEST to answer HTMAXBUTTON for it. That is a Rust-side
-              window subclass; nothing the frontend can declare reaches it. */}
+          {/* Windows sends this button's pointer state back over IPC, from the
+              child window it hit-tests as the caption maximize button. That
+              window swallows the real mouse events, so hover and press arrive
+              as classes and the DOM click path is left for the keyboard. */}
           <button
+            ref={maximizeRef}
             type="button"
             class="winctrl winctrl-max"
+            classList={{
+              "is-snap-hovered": osWindowStore.snapHovered(),
+              "is-snap-pressed": osWindowStore.snapPressed(),
+            }}
             onClick={osWindowStore.toggleMaximize}
             title={props.maximized ? "Restore" : "Maximize"}
             aria-label={props.maximized ? "Restore window" : "Maximize window"}

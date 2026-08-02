@@ -17,6 +17,11 @@ vi.mock("../../services/tauri", () => ({
   centerWindow: vi.fn().mockResolvedValue(undefined),
   onWindowResized: vi.fn(),
   onWindowMoved: vi.fn(),
+  reportCaptionButtonMetrics: vi.fn(),
+}));
+
+vi.mock("../../services/events", () => ({
+  onEvent: vi.fn(),
 }));
 
 vi.mock("../../stores/global/config", () => ({
@@ -27,10 +32,13 @@ vi.mock("../../stores/global/config", () => ({
 }));
 
 import * as api from "../../services/tauri";
+import { onEvent } from "../../services/events";
 import { configStore } from "../../stores/global/config";
 import { osWindowStore } from "../../stores/global/os-window";
+import type { CaptionHitPhase } from "../../types/events";
 
 const apiMock = api as unknown as Record<string, ReturnType<typeof vi.fn>>;
+const onEventMock = onEvent as unknown as ReturnType<typeof vi.fn>;
 const configMock = configStore as unknown as {
   config: ReturnType<typeof vi.fn>;
   save: ReturnType<typeof vi.fn>;
@@ -50,6 +58,9 @@ beforeEach(() => {
   apiMock.setLogicalWindowSize.mockResolvedValue(undefined);
   apiMock.setLogicalWindowPosition.mockResolvedValue(undefined);
   apiMock.centerWindow.mockResolvedValue(undefined);
+  apiMock.reportCaptionButtonMetrics.mockResolvedValue(undefined);
+  onEventMock.mockReset();
+  onEventMock.mockResolvedValue(() => {});
   configMock.config.mockReset();
   configMock.save.mockReset();
   configMock.save.mockResolvedValue(undefined);
@@ -168,6 +179,65 @@ describe("osWindowStore maximize sync", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("osWindowStore snap overlay", () => {
+  const METRICS = { offsetFromRight: 46, top: 0, width: 46, height: 36 };
+
+  async function install(): Promise<{ push: (phase: CaptionHitPhase) => void; dispose: () => void }> {
+    let push: ((payload: { phase: CaptionHitPhase }) => void) | undefined;
+    onEventMock.mockImplementation((_kind: string, handler: (p: { phase: CaptionHitPhase }) => void) => {
+      push = handler;
+      return Promise.resolve(() => {});
+    });
+    const dispose = await osWindowStore.installSnapOverlay(METRICS);
+    return { push: (phase) => push?.({ phase }), dispose };
+  }
+
+  it("reports the measured button before subscribing", async () => {
+    const { dispose } = await install();
+    expect(apiMock.reportCaptionButtonMetrics).toHaveBeenCalledWith(METRICS);
+    expect(onEventMock).toHaveBeenCalledWith("titlebar:maximize-hit", expect.any(Function));
+    dispose();
+  });
+
+  it("tracks hover and press from the overlay's phases", async () => {
+    const { push, dispose } = await install();
+    expect(osWindowStore.snapHovered()).toBe(false);
+
+    push("enter");
+    expect(osWindowStore.snapHovered()).toBe(true);
+
+    push("press");
+    expect(osWindowStore.snapPressed()).toBe(true);
+
+    push("leave");
+    expect(osWindowStore.snapHovered()).toBe(false);
+    expect(osWindowStore.snapPressed()).toBe(false);
+    dispose();
+  });
+
+  it("toggles the window on click and keeps the hover the cursor is still in", async () => {
+    const { push, dispose } = await install();
+    push("enter");
+    push("press");
+    push("click");
+
+    expect(apiMock.toggleMaximizeWindow).toHaveBeenCalledTimes(1);
+    expect(osWindowStore.snapPressed()).toBe(false);
+    expect(osWindowStore.snapHovered()).toBe(true);
+    dispose();
+  });
+
+  it("clears the visual state on teardown so a torn-down button is not left lit", async () => {
+    const { push, dispose } = await install();
+    push("enter");
+    push("press");
+    dispose();
+
+    expect(osWindowStore.snapHovered()).toBe(false);
+    expect(osWindowStore.snapPressed()).toBe(false);
   });
 });
 

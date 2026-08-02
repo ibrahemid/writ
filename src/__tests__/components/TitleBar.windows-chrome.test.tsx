@@ -41,6 +41,9 @@ const mocks = vi.hoisted(() => ({
   minimize: vi.fn(),
   hide: vi.fn(),
   toggleFullscreen: vi.fn(),
+  installSnapOverlay: vi.fn(),
+  snapHovered: { current: false },
+  snapPressed: { current: false },
 }));
 
 vi.mock("../../lib/platform", () => ({
@@ -83,11 +86,14 @@ vi.mock("../../stores/global/os-window", () => ({
   osWindowStore: {
     focused: () => true,
     maximized: () => mocks.maximized.current,
+    snapHovered: () => mocks.snapHovered.current,
+    snapPressed: () => mocks.snapPressed.current,
     toggleMaximize: mocks.toggleMaximize,
     startDragging: mocks.startDragging,
     minimize: mocks.minimize,
     hide: mocks.hide,
     toggleFullscreen: mocks.toggleFullscreen,
+    installSnapOverlay: mocks.installSnapOverlay,
   },
 }));
 
@@ -122,6 +128,7 @@ function openedMenuItems(): MenuItem[] {
 
 beforeEach(() => {
   executed.length = 0;
+  mocks.installSnapOverlay.mockResolvedValue(() => {});
   for (const cmd of MENU_COMMANDS) {
     registerCommand({
       ...cmd,
@@ -137,6 +144,8 @@ afterEach(() => {
   for (const cmd of MENU_COMMANDS) unregisterCommand(cmd.id);
   mocks.platform.current = "win";
   mocks.maximized.current = false;
+  mocks.snapHovered.current = false;
+  mocks.snapPressed.current = false;
   vi.clearAllMocks();
   cleanup();
 });
@@ -251,6 +260,122 @@ describe("maximize button reflects window state", () => {
     expect(button.getAttribute("aria-label")).toBe("Restore window");
     expect(button.getAttribute("title")).toBe("Restore");
     expect(button.querySelector("svg path")).not.toBeNull();
+  });
+});
+
+describe("snap-layout overlay geometry", () => {
+  // jsdom has no ResizeObserver and zeroes every rect, which is also the state
+  // the real button is in while the window is still hidden. Driving both by
+  // hand is what lets the hidden-window case be tested at all.
+  let observers: StubResizeObserver[] = [];
+  let measured: DOMRect | null = null;
+
+  class StubResizeObserver {
+    disconnected = false;
+    constructor(private callback: () => void) {
+      observers.push(this);
+    }
+    observe(): void {}
+    disconnect(): void {
+      this.disconnected = true;
+    }
+    // A disconnected observer never calls back, so the stub must not either.
+    layout(rect: DOMRect | null): void {
+      if (this.disconnected) return;
+      measured = rect;
+      this.callback();
+    }
+  }
+
+  beforeEach(() => {
+    observers = [];
+    measured = null;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });
+    vi.stubGlobal("ResizeObserver", StubResizeObserver);
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
+      if (!this.classList.contains("winctrl-max") || !measured) return original.call(this);
+      return measured;
+    };
+    return () => {
+      Element.prototype.getBoundingClientRect = original;
+      vi.unstubAllGlobals();
+    };
+  });
+
+  const REAL_LAYOUT = { top: 0, right: 1154, width: 46, height: 36 } as DOMRect;
+
+  it("reports the button as a distance from the window's right edge", () => {
+    renderOn("win");
+    observers[0].layout(REAL_LAYOUT);
+
+    expect(mocks.installSnapOverlay).toHaveBeenCalledTimes(1);
+    expect(mocks.installSnapOverlay.mock.calls[0][0]).toEqual({
+      offsetFromRight: 46,
+      top: 0,
+      width: 46,
+      height: 36,
+    });
+  });
+
+  // The window is created hidden and shown after first paint. A zero-sized
+  // report is rejected by Rust and never retried, which would leave the app
+  // with no snap layouts for the rest of the session.
+  it("reports nothing while the button still measures zero", () => {
+    renderOn("win");
+    observers[0].layout({ top: 0, right: 0, width: 0, height: 0 } as DOMRect);
+
+    expect(mocks.installSnapOverlay).not.toHaveBeenCalled();
+    expect(observers[0].disconnected).toBe(false);
+  });
+
+  it("reports once the button gets a real layout, and only once", () => {
+    renderOn("win");
+    observers[0].layout({ top: 0, right: 0, width: 0, height: 0 } as DOMRect);
+    observers[0].layout(REAL_LAYOUT);
+    observers[0].layout({ ...REAL_LAYOUT, right: 900 } as DOMRect);
+
+    expect(mocks.installSnapOverlay).toHaveBeenCalledTimes(1);
+    expect(mocks.installSnapOverlay.mock.calls[0][0].offsetFromRight).toBe(46);
+    expect(observers[0].disconnected).toBe(true);
+  });
+
+  it("stops observing when the titlebar unmounts before any real layout", () => {
+    renderOn("win");
+    cleanup();
+
+    expect(observers[0].disconnected).toBe(true);
+    observers[0].layout(REAL_LAYOUT);
+    expect(mocks.installSnapOverlay).not.toHaveBeenCalled();
+  });
+
+  it.each(["mac", "linux"] as const)("reports nothing on %s, which has no snap layouts", (platform) => {
+    renderOn(platform);
+    expect(observers).toHaveLength(0);
+    expect(mocks.installSnapOverlay).not.toHaveBeenCalled();
+  });
+
+  it("lights the maximize button from the overlay's hover, which CSS cannot see", () => {
+    mocks.snapHovered.current = true;
+    const { container } = renderOn("win");
+    const button = container.querySelector<HTMLButtonElement>(".winctrl-max")!;
+    expect(button.classList.contains("is-snap-hovered")).toBe(true);
+    expect(button.classList.contains("is-snap-pressed")).toBe(false);
+  });
+
+  it("presses the maximize button from the overlay's press", () => {
+    mocks.snapPressed.current = true;
+    const { container } = renderOn("win");
+    const button = container.querySelector<HTMLButtonElement>(".winctrl-max")!;
+    expect(button.classList.contains("is-snap-pressed")).toBe(true);
+  });
+
+  it("leaves the other caption buttons on their own CSS state", () => {
+    mocks.snapHovered.current = true;
+    const { container } = renderOn("win");
+    for (const cls of [".winctrl-min", ".winctrl-close"]) {
+      expect(container.querySelector(cls)!.classList.contains("is-snap-hovered")).toBe(false);
+    }
   });
 });
 
