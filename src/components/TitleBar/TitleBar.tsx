@@ -1,14 +1,13 @@
 import { Show } from "solid-js";
 import TabBar from "../Editor/TabBar";
 import TrafficLights from "./TrafficLights";
+import AppMenu from "./AppMenu";
 import Kbd from "../Kbd/Kbd";
 import { detectPlatform } from "../../lib/platform";
 import { configStore } from "../../stores/global/config";
 import { osWindowStore } from "../../stores/global/os-window";
 import "./TitleBar.css";
 
-const PLATFORM = detectPlatform();
-const TRAFFIC_LIGHTS_ON_LEFT = PLATFORM === "mac";
 const INTERACTIVE_SELECTOR = 'button, input, select, [role="button"], [data-no-drag]';
 
 export function isInteractiveTarget(target: EventTarget | null): boolean {
@@ -23,6 +22,11 @@ export function isInteractiveTarget(target: EventTarget | null): boolean {
 }
 
 export default function TitleBar() {
+  // Read per mount rather than at module load: a Solid component body runs once,
+  // so this costs one navigator read and keeps the platform branch observable.
+  const platform = detectPlatform();
+  const trafficLightsOnLeft = platform === "mac";
+
   function handleMouseDown(e: MouseEvent) {
     if (e.button !== 0) return;
     if (isInteractiveTarget(e.target)) return;
@@ -37,12 +41,21 @@ export default function TitleBar() {
 
   return (
     <div
-      class={`titlebar titlebar-${PLATFORM}`}
+      class={`titlebar titlebar-${platform}`}
       onMouseDown={handleMouseDown}
       onDblClick={handleDblClick}
     >
-      <Show when={TRAFFIC_LIGHTS_ON_LEFT}>
-        <TrafficLights platform={PLATFORM} focused={osWindowStore.focused()} />
+      <Show when={trafficLightsOnLeft}>
+        <TrafficLights
+          platform={platform}
+          focused={osWindowStore.focused()}
+          maximized={osWindowStore.maximized()}
+        />
+      </Show>
+      {/* TODO(operator): Linux has the same gap (no menu bar under
+          `decorations: false`) but is left alone until its chrome is decided. */}
+      <Show when={platform === "win"}>
+        <AppMenu />
       </Show>
       <div class="titlebar-tabs">
         <TabBar />
@@ -50,8 +63,12 @@ export default function TitleBar() {
       <div class="titlebar-right" title="Toggle Writ from anywhere" data-no-drag>
         <Kbd binding={configStore.config().hotkey.toggle} />
       </div>
-      <Show when={!TRAFFIC_LIGHTS_ON_LEFT}>
-        <TrafficLights platform={PLATFORM} focused={osWindowStore.focused()} />
+      <Show when={!trafficLightsOnLeft}>
+        <TrafficLights
+          platform={platform}
+          focused={osWindowStore.focused()}
+          maximized={osWindowStore.maximized()}
+        />
       </Show>
     </div>
   );

@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   createTab: vi.fn(),
   renameBuffer: vi.fn(),
   showContextMenu: vi.fn(),
+  showAnchoredMenu: vi.fn(),
   toggleMaximize: vi.fn(),
   startDragging: vi.fn(),
   minimize: vi.fn(),
@@ -67,11 +68,13 @@ vi.mock("../../stores/global/window-registry", () => ({
 
 vi.mock("../../components/ContextMenu/ContextMenu", () => ({
   showContextMenu: mocks.showContextMenu,
+  showAnchoredMenu: mocks.showAnchoredMenu,
 }));
 
 vi.mock("../../stores/global/os-window", () => ({
   osWindowStore: {
     focused: () => true,
+    maximized: () => false,
     toggleMaximize: mocks.toggleMaximize,
     startDragging: mocks.startDragging,
     minimize: mocks.minimize,

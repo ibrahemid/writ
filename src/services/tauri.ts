@@ -262,6 +262,16 @@ export async function toggleMaximizeWindow(): Promise<void> {
   }
 }
 
+export async function isWindowMaximized(): Promise<boolean> {
+  try {
+    const win = getCurrentWindow();
+    return await win.isMaximized();
+  } catch (err) {
+    console.warn("isWindowMaximized failed:", err);
+    return false;
+  }
+}
+
 export async function toggleFullscreenWindow(): Promise<void> {
   try {
     const win = getCurrentWindow();

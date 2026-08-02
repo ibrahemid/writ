@@ -12,10 +12,28 @@ const PERSIST_DEBOUNCE_MS = 500;
 
 function createOsWindowStore() {
   const [focused, setFocused] = createSignal(true);
+  const [maximized, setMaximized] = createSignal(false);
   let geometryTimer: ReturnType<typeof setTimeout> | null = null;
 
   async function installFocusSync(): Promise<() => void> {
     return api.onWindowFocusChange(setFocused);
+  }
+
+  async function syncMaximized(): Promise<void> {
+    setMaximized(await api.isWindowMaximized());
+  }
+
+  async function installMaximizeSync(): Promise<() => void> {
+    await syncMaximized();
+    return api.onWindowResized(() => void syncMaximized());
+  }
+
+  // Re-read after the toggle resolves rather than trusting the resize event: a
+  // window maximized to the same bounds it already had emits no resize, which
+  // would leave the button showing the state the user just left.
+  async function toggleMaximize(): Promise<void> {
+    await api.toggleMaximizeWindow();
+    await syncMaximized();
   }
 
   async function persistGeometryNow(): Promise<void> {
@@ -78,13 +96,15 @@ function createOsWindowStore() {
 
   return {
     focused,
+    maximized,
     installFocusSync,
+    installMaximizeSync,
     installGeometryPersistence,
     flushGeometry,
     reveal: api.showWindow,
     hide: api.hideWindow,
     minimize: api.minimizeWindow,
-    toggleMaximize: api.toggleMaximizeWindow,
+    toggleMaximize,
     toggleFullscreen: api.toggleFullscreenWindow,
     startDragging: api.startDraggingWindow,
   };

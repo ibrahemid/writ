@@ -5,6 +5,7 @@ vi.mock("../../services/tauri", () => ({
   hideWindow: vi.fn().mockResolvedValue(undefined),
   minimizeWindow: vi.fn().mockResolvedValue(undefined),
   toggleMaximizeWindow: vi.fn().mockResolvedValue(undefined),
+  isWindowMaximized: vi.fn().mockResolvedValue(false),
   toggleFullscreenWindow: vi.fn().mockResolvedValue(undefined),
   startDraggingWindow: vi.fn().mockResolvedValue(undefined),
   onWindowFocusChange: vi.fn(),
@@ -43,6 +44,7 @@ beforeEach(() => {
   apiMock.hideWindow.mockResolvedValue(undefined);
   apiMock.minimizeWindow.mockResolvedValue(undefined);
   apiMock.toggleMaximizeWindow.mockResolvedValue(undefined);
+  apiMock.isWindowMaximized.mockResolvedValue(false);
   apiMock.toggleFullscreenWindow.mockResolvedValue(undefined);
   apiMock.startDraggingWindow.mockResolvedValue(undefined);
   apiMock.setLogicalWindowSize.mockResolvedValue(undefined);
@@ -77,6 +79,54 @@ describe("osWindowStore actions", () => {
   it("startDragging delegates to api.startDraggingWindow exactly once", async () => {
     await osWindowStore.startDragging();
     expect(apiMock.startDraggingWindow).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("osWindowStore maximize sync", () => {
+  it("installMaximizeSync seeds the signal from the current window state", async () => {
+    apiMock.onWindowResized.mockResolvedValue(() => {});
+    apiMock.isWindowMaximized.mockResolvedValue(true);
+
+    const unlisten = await osWindowStore.installMaximizeSync();
+    expect(typeof unlisten).toBe("function");
+    expect(osWindowStore.maximized()).toBe(true);
+
+    unlisten();
+  });
+
+  it("re-reads the window on resize", async () => {
+    let resize: (() => void) | undefined;
+    apiMock.onWindowResized.mockImplementation((cb: () => void) => {
+      resize = cb;
+      return Promise.resolve(() => {});
+    });
+    apiMock.isWindowMaximized.mockResolvedValue(false);
+
+    const unlisten = await osWindowStore.installMaximizeSync();
+    expect(osWindowStore.maximized()).toBe(false);
+
+    apiMock.isWindowMaximized.mockResolvedValue(true);
+    resize?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(osWindowStore.maximized()).toBe(true);
+    unlisten();
+  });
+
+  // A maximize that lands on the bounds the window already had emits no resize,
+  // so the toggle has to settle the signal itself or the button lies.
+  it("re-reads after toggleMaximize without waiting for a resize event", async () => {
+    apiMock.onWindowResized.mockResolvedValue(() => {});
+    apiMock.isWindowMaximized.mockResolvedValue(false);
+    const unlisten = await osWindowStore.installMaximizeSync();
+    expect(osWindowStore.maximized()).toBe(false);
+
+    apiMock.isWindowMaximized.mockResolvedValue(true);
+    await osWindowStore.toggleMaximize();
+
+    expect(osWindowStore.maximized()).toBe(true);
+    unlisten();
   });
 });
 

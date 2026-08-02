@@ -94,6 +94,25 @@
   filter: brightness(1.05);
 }
 
+/* Neutral by intent: structure and hit target only, styling still to be designed. */
+.titlebar-appmenu {
+  height: var(--writ-titlebar-height);
+  padding: 0 var(--writ-space-3);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--writ-foreground-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.titlebar-appmenu:hover {
+  background: var(--writ-surface-hover);
+  color: var(--writ-foreground-default);
+}
+
 .titlebar-controls-win {
   display: flex;
   align-items: stretch;
