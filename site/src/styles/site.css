@@ -38,6 +38,10 @@
 @keyframes hs-appear {
   to { opacity: 1; }
 }
+@keyframes hs-line-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
 @keyframes hs-sweep {
   from { clip-path: inset(0 100% 0 0); }
   to { clip-path: inset(0 0 0 0); }
@@ -89,27 +93,45 @@
 
 .hero-sheet {
   --anger: 0;
+  /* The source pane is a real editor line: one column budget owns it. --hs-cols
+     is the widest line the pane must hold (and the widest the editor accepts),
+     --hs-adv the mono advance in em (JS measures the loaded face), --hs-gutter
+     the fixed chrome around the text (line number + indent + caret). Type size
+     falls out of those three, so a line can never outrun the column. */
+  --hs-cols: 60;
+  --hs-adv: 0.6;
+  --hs-gutter: 76px;
   grid-column: 1 / -1;
   padding: 52px 0 26px;
 }
 .hs-body {
   display: grid;
-  grid-template-columns: minmax(0, 33fr) minmax(0, 42fr);
+  grid-template-columns: minmax(0, 47fr) minmax(0, 53fr);
   gap: 38px;
 }
 .hs-src {
+  container-type: inline-size;
+  --hs-fs: clamp(
+    10px,
+    calc((100cqw - var(--hs-gutter)) / (var(--hs-cols) * var(--hs-adv))),
+    12.5px
+  );
   position: relative;
   font-family: var(--font-mono);
-  font-size: 12.5px;
   color: var(--muted);
   padding-top: 6px;
 }
 .hs-editable .lt { cursor: text; }
+/* Nothing else says the pane takes typing, so the pane says it on approach. */
+html[data-writ-intro] .hs-src.hs-editable:hover { opacity: 0.92; }
+.hs-editable .hs-line:hover .ln { color: var(--accent); }
 .lt[contenteditable],
 .hr-h1-text[contenteditable],
 .hr-sub[contenteditable] {
   outline: none;
-  caret-color: var(--accent);
+  /* Your own caret carries the temper too, so the heat reads while you type
+     and not only when the fixing caret arrives. */
+  caret-color: color-mix(in oklab, var(--accent) calc(100% - var(--anger) * 100%), #e5341f);
   border-radius: 4px;
 }
 .lt[contenteditable]:focus { background: color-mix(in srgb, var(--accent) 5%, transparent); }
@@ -120,8 +142,8 @@
   position: absolute;
   top: 0;
   left: 0;
-  width: calc(7px + var(--anger) * 3px);
-  height: calc(15px + var(--anger) * 4px);
+  width: calc(var(--hs-fs) * 0.56 + var(--anger) * 3px);
+  height: calc(var(--hs-fs) * 1.2 + var(--anger) * 4px);
   opacity: 0;
   pointer-events: none;
   transition: transform 0.09s ease-out, opacity 0.2s var(--ease);
@@ -191,12 +213,15 @@
   background: color-mix(in oklab, var(--accent) calc(100% - var(--anger) * 100%), #e5341f);
 }
 .hs-save-dot { transition: background 0.25s var(--ease); }
-.hs-save-dot.editing { background: var(--accent); }
+.hs-save-dot.editing {
+  background: color-mix(in oklab, var(--accent) calc(100% - var(--anger) * 100%), #e5341f);
+}
 .hs-line {
   display: flex;
   align-items: center;
   height: 26px;
   white-space: nowrap;
+  font-size: var(--hs-fs);
 }
 .ln {
   flex: none;
@@ -210,15 +235,16 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  transition: color 0.14s var(--ease);
 }
-.hs-line .lt { margin-left: 18px; }
+.hs-line .lt { margin-left: 12px; }
 .lt-h { color: var(--accent); font-weight: 500; }
 .lk { color: var(--foreground); }
 .lu { color: var(--accent); opacity: 0.75; }
 .hs-caret {
   flex: none;
-  width: 7px;
-  height: 15px;
+  width: calc(var(--hs-fs) * 0.56);
+  height: calc(var(--hs-fs) * 1.2);
   margin-left: 1px;
   border-radius: 1.5px;
   background: var(--accent);
@@ -268,6 +294,15 @@
   color: var(--subtle);
 }
 .hs-file { color: var(--muted); }
+/* Fades in when the typing is actually wired up, not on an intro beat: the
+   pane must not offer an ability it does not have yet. */
+.hs-edit {
+  opacity: 0;
+  color: var(--accent);
+  transition: opacity 0.45s var(--ease), color 0.4s var(--ease);
+}
+.hs-edit.on { opacity: 1; }
+.hs-edit.spent { color: var(--subtle); }
 .hs-pos { counter-reset: lnc var(--lnc) colc var(--colc); }
 .hs-pos::after { content: 'Ln ' counter(lnc) ', Col ' counter(colc); }
 .hs-tok { margin-left: auto; counter-reset: tok var(--tok); }
@@ -275,107 +310,136 @@
 .hs-save { display: inline-flex; align-items: center; gap: 6px; }
 .hs-save-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--success); }
 
-/* Intro choreography — hero sheet */
+/* Intro choreography — hero sheet.
+   Every beat is a variable and every delay is `beat * --i`, so the whole
+   sequence has one clock: the stacked layout re-cuts it by reassigning beats
+   (not by restating twenty delays), and scrolling scales --i to fast-forward
+   what is already running instead of snapping it away. Beats read as one pass:
+   the source line types, its rendered block lands under it, repeat. */
+html[data-writ-intro] {
+  --i: 1;
+  --i-gut: 0.1s;
+  --i-gut-step: 0.045s;
+  --i-type: 0.3s;
+  --i-type-dur: 0.95s;
+  --i-h1: 1.32s;
+  --i-paste: 1.62s;
+  --i-paste-step: 0.14s;
+  --i-sub: 2.06s;
+  --i-link: 2.44s;
+  --i-cta: 2.6s;
+  --i-cta-step: 0.12s;
+  --i-status: 0.22s;
+  --i-status-step: 0.16s;
+  --i-save: 2.95s;
+  --i-dim: 3.05s;
+  --i-count-dur: 3s;
+  --i-win: 2.35s;
+}
 [data-writ-intro='play'] .ln {
   opacity: 0;
-  animation: hs-appear 0.3s var(--ease) forwards;
+  animation: hs-appear 0.34s var(--ease) forwards;
+  animation-delay: calc(var(--i-gut) * var(--i));
 }
-[data-writ-intro='play'] .hs-line:nth-child(1) .ln { animation-delay: 0.05s; }
-[data-writ-intro='play'] .hs-line:nth-child(2) .ln { animation-delay: 0.09s; }
-[data-writ-intro='play'] .hs-line:nth-child(3) .ln { animation-delay: 0.13s; }
-[data-writ-intro='play'] .hs-line:nth-child(4) .ln { animation-delay: 0.17s; }
-[data-writ-intro='play'] .hs-line:nth-child(5) .ln { animation-delay: 0.21s; }
-[data-writ-intro='play'] .hs-line:nth-child(6) .ln { animation-delay: 0.25s; }
-[data-writ-intro='play'] .hs-line:nth-child(7) .ln { animation-delay: 0.29s; }
-[data-writ-intro='play'] .hs-line:nth-child(8) .ln { animation-delay: 0.33s; }
+[data-writ-intro='play'] .hs-line:nth-child(2) .ln { animation-delay: calc((var(--i-gut) + 1 * var(--i-gut-step)) * var(--i)); }
+[data-writ-intro='play'] .hs-line:nth-child(3) .ln { animation-delay: calc((var(--i-gut) + 2 * var(--i-gut-step)) * var(--i)); }
+[data-writ-intro='play'] .hs-line:nth-child(4) .ln { animation-delay: calc((var(--i-gut) + 3 * var(--i-gut-step)) * var(--i)); }
+[data-writ-intro='play'] .hs-line:nth-child(5) .ln { animation-delay: calc((var(--i-gut) + 4 * var(--i-gut-step)) * var(--i)); }
+[data-writ-intro='play'] .hs-line:nth-child(6) .ln { animation-delay: calc((var(--i-gut) + 5 * var(--i-gut-step)) * var(--i)); }
+[data-writ-intro='play'] .hs-line:nth-child(7) .ln { animation-delay: calc((var(--i-gut) + 6 * var(--i-gut-step)) * var(--i)); }
+[data-writ-intro='play'] .hs-line:nth-child(8) .ln { animation-delay: calc((var(--i-gut) + 7 * var(--i-gut-step)) * var(--i)); }
 [data-writ-intro='play'] .lt-type {
   overflow: hidden;
   width: 0;
-  animation: hs-type 0.72s steps(40, end) 0.25s forwards;
+  animation: hs-type calc(var(--i-type-dur) * var(--i)) steps(40, end) calc(var(--i-type) * var(--i)) forwards;
 }
 [data-writ-intro='play'] .hs-c1 {
   display: block;
   opacity: 0;
-  animation: hs-type-caret 0.78s linear 0.22s forwards;
+  animation: hs-type-caret calc((var(--i-type-dur) + 0.06s) * var(--i)) linear calc((var(--i-type) - 0.03s) * var(--i)) forwards;
 }
-[data-writ-intro='play'] .lt-paste { opacity: 0; animation: hs-appear 0.01s linear forwards; }
-[data-writ-intro='play'] .lt-p1 { animation-delay: 1.18s; }
-[data-writ-intro='play'] .lt-p2 { animation-delay: 1.26s; }
-[data-writ-intro='play'] .lt-p3 { animation-delay: 1.34s; }
-[data-writ-intro='play'] .lt-p4 { animation-delay: 1.42s; }
-[data-writ-intro='play'] .lt-p5 { animation-delay: 1.72s; }
+[data-writ-intro='play'] .lt-paste {
+  opacity: 0;
+  animation: hs-line-in 0.38s var(--ease) forwards;
+}
+[data-writ-intro='play'] .lt-p1 { animation-delay: calc(var(--i-paste) * var(--i)); }
+[data-writ-intro='play'] .lt-p2 { animation-delay: calc((var(--i-paste) + 1 * var(--i-paste-step)) * var(--i)); }
+[data-writ-intro='play'] .lt-p3 { animation-delay: calc((var(--i-paste) + 2 * var(--i-paste-step)) * var(--i)); }
+[data-writ-intro='play'] .lt-p4 { animation-delay: calc((var(--i-paste) + 3 * var(--i-paste-step)) * var(--i)); }
+[data-writ-intro='play'] .lt-p5 { animation-delay: calc(var(--i-link) * var(--i)); }
+/* The resting caret keeps blinking for good: it is the pane's only standing
+   sign that the source takes typing. */
+html[data-writ-intro] .hs-c2 { animation: hs-blink 1.05s step-end infinite; }
 [data-writ-intro='play'] .hs-c2 {
   opacity: 0;
-  animation: hs-blink 0.9s step-end 1.78s infinite;
+  animation-delay: calc((var(--i-link) + 0.1s) * var(--i));
 }
 [data-writ-intro='play'] .hr-h1 {
   clip-path: inset(0 100% 0 0);
-  animation: hs-sweep 0.42s var(--ease) 1.0s forwards;
+  animation: hs-sweep 0.5s var(--ease) calc(var(--i-h1) * var(--i)) forwards;
 }
 [data-writ-intro='play'] .hr-sub {
   clip-path: inset(0 100% 0 0);
-  animation: hs-sweep 0.38s var(--ease) 1.55s forwards;
+  animation: hs-sweep 0.46s var(--ease) calc(var(--i-sub) * var(--i)) forwards;
 }
 [data-writ-intro='play'] .hr-cta1 {
   opacity: 0;
-  animation: hs-pop 0.34s var(--spring) 1.84s forwards;
+  animation: hs-pop 0.4s var(--spring) calc(var(--i-cta) * var(--i)) forwards;
 }
 [data-writ-intro='play'] .hr-cta2 {
   opacity: 0;
-  animation: hs-pop 0.34s var(--spring) 1.94s forwards;
+  animation: hs-pop 0.4s var(--spring) calc((var(--i-cta) + var(--i-cta-step)) * var(--i)) forwards;
 }
-[data-writ-intro='play'] .hs-status { opacity: 0; animation: hs-appear 0.4s var(--ease) 0.15s forwards; }
-[data-writ-intro='play'] .hs-file { opacity: 0; animation: hs-appear 0.35s var(--ease) 0.25s forwards; }
-[data-writ-intro='play'] .hs-meta { opacity: 0; animation: hs-appear 0.35s var(--ease) 0.5s forwards; }
+[data-writ-intro='play'] .hs-status { opacity: 0; animation: hs-appear 0.4s var(--ease) calc(var(--i-status) * var(--i)) forwards; }
+[data-writ-intro='play'] .hs-file { opacity: 0; animation: hs-appear 0.35s var(--ease) calc((var(--i-status) + 1 * var(--i-status-step)) * var(--i)) forwards; }
+[data-writ-intro='play'] .hs-meta { opacity: 0; animation: hs-appear 0.35s var(--ease) calc((var(--i-status) + 2 * var(--i-status-step)) * var(--i)) forwards; }
 [data-writ-intro='play'] .hs-pos {
   opacity: 0;
   animation:
-    hs-appear 0.35s var(--ease) 0.68s forwards,
-    hs-poscount 2.6s linear forwards;
+    hs-appear 0.35s var(--ease) calc((var(--i-status) + 3 * var(--i-status-step)) * var(--i)) forwards,
+    hs-poscount calc(var(--i-count-dur) * var(--i)) linear forwards;
 }
 [data-writ-intro='play'] .hs-tok {
   opacity: 0;
   animation:
-    hs-appear 0.35s var(--ease) 0.82s forwards,
-    hs-count 2.6s linear forwards;
+    hs-appear 0.35s var(--ease) calc((var(--i-status) + 4 * var(--i-status-step)) * var(--i)) forwards,
+    hs-count calc(var(--i-count-dur) * var(--i)) linear forwards;
 }
-[data-writ-intro='play'] .hs-save { opacity: 0; animation: hs-appear 0.45s var(--ease) 2.35s forwards; }
-[data-writ-intro='play'] .hs-src { animation: hs-dim 0.6s var(--ease) 2.5s forwards; }
+[data-writ-intro='play'] .hs-save { opacity: 0; animation: hs-appear 0.45s var(--ease) calc(var(--i-save) * var(--i)) forwards; }
+[data-writ-intro='play'] .hs-src { animation: hs-dim 0.6s var(--ease) calc(var(--i-dim) * var(--i)) forwards; }
 
 /* Intro choreography — the demo window assembles part by part once the hero
-   has rendered. Targets the island's server-rendered markup, so the sequence
-   plays with or without hydration having finished. */
+   has rendered. Every part hangs off --i-win, so the group moves as one.
+   Targets the island's server-rendered markup, so the sequence plays with or
+   without hydration having finished. */
 [data-writ-intro='play'] .win-rise {
   opacity: 0;
-  animation: ww-shell-in 0.55s var(--spring) 2.0s forwards;
+  animation: ww-shell-in 0.6s var(--spring) calc(var(--i-win) * var(--i)) forwards;
 }
-[data-writ-intro='play'] .wwx-titlebar { opacity: 0; animation: ww-part-down 0.34s var(--ease) 2.3s forwards; }
+[data-writ-intro='play'] .wwx-titlebar { opacity: 0; animation: ww-part-down 0.34s var(--ease) calc((var(--i-win) + 0.3s) * var(--i)) forwards; }
 [data-writ-intro='play'] .wwx-lights span { opacity: 0; animation: ww-light-pop 0.3s var(--spring) forwards; }
-[data-writ-intro='play'] .wwx-lights span:nth-child(1) { animation-delay: 2.42s; }
-[data-writ-intro='play'] .wwx-lights span:nth-child(2) { animation-delay: 2.48s; }
-[data-writ-intro='play'] .wwx-lights span:nth-child(3) { animation-delay: 2.54s; }
+[data-writ-intro='play'] .wwx-lights span:nth-child(1) { animation-delay: calc((var(--i-win) + 0.42s) * var(--i)); }
+[data-writ-intro='play'] .wwx-lights span:nth-child(2) { animation-delay: calc((var(--i-win) + 0.48s) * var(--i)); }
+[data-writ-intro='play'] .wwx-lights span:nth-child(3) { animation-delay: calc((var(--i-win) + 0.54s) * var(--i)); }
 [data-writ-intro='play'] .wwx-tabs .wwx-tab { opacity: 0; animation: ww-part-left 0.3s var(--ease) forwards; }
-[data-writ-intro='play'] .wwx-tabs .wwx-tab:nth-of-type(1) { animation-delay: 2.5s; }
-[data-writ-intro='play'] .wwx-tabs .wwx-tab:nth-of-type(2) { animation-delay: 2.57s; }
-[data-writ-intro='play'] .wwx-tabs .wwx-tab:nth-of-type(3) { animation-delay: 2.64s; }
-[data-writ-intro='play'] .wwx-tabs .wwx-tab:nth-of-type(4) { animation-delay: 2.71s; }
-[data-writ-intro='play'] .wwx-newtab { opacity: 0; animation: hs-appear 0.3s var(--ease) 2.78s forwards; }
-[data-writ-intro='play'] .wwx-chord { opacity: 0; animation: hs-appear 0.3s var(--ease) 2.85s forwards; }
-[data-writ-intro='play'] .wwx-side { opacity: 0; animation: ww-part-left 0.4s var(--ease) 2.55s forwards; }
-[data-writ-intro='play'] .wwx-main { opacity: 0; animation: hs-appear 0.45s var(--ease) 2.7s forwards; }
-[data-writ-intro='play'] .wwx-status { opacity: 0; animation: ww-part-up 0.34s var(--ease) 2.9s forwards; }
-[data-writ-intro='play'] .ww-caption { opacity: 0; animation: hs-appear 0.45s var(--ease) 3.1s forwards; }
-[data-writ-intro='play'] [data-rv-win] { opacity: 0; animation: hs-appear 0.4s var(--ease) 2.2s forwards; }
+[data-writ-intro='play'] .wwx-tabs .wwx-tab:nth-of-type(1) { animation-delay: calc((var(--i-win) + 0.5s) * var(--i)); }
+[data-writ-intro='play'] .wwx-tabs .wwx-tab:nth-of-type(2) { animation-delay: calc((var(--i-win) + 0.57s) * var(--i)); }
+[data-writ-intro='play'] .wwx-tabs .wwx-tab:nth-of-type(3) { animation-delay: calc((var(--i-win) + 0.64s) * var(--i)); }
+[data-writ-intro='play'] .wwx-tabs .wwx-tab:nth-of-type(4) { animation-delay: calc((var(--i-win) + 0.71s) * var(--i)); }
+[data-writ-intro='play'] .wwx-newtab { opacity: 0; animation: hs-appear 0.3s var(--ease) calc((var(--i-win) + 0.78s) * var(--i)) forwards; }
+[data-writ-intro='play'] .wwx-chord { opacity: 0; animation: hs-appear 0.3s var(--ease) calc((var(--i-win) + 0.85s) * var(--i)) forwards; }
+[data-writ-intro='play'] .wwx-side { opacity: 0; animation: ww-part-left 0.4s var(--ease) calc((var(--i-win) + 0.55s) * var(--i)) forwards; }
+[data-writ-intro='play'] .wwx-main { opacity: 0; animation: hs-appear 0.45s var(--ease) calc((var(--i-win) + 0.7s) * var(--i)) forwards; }
+[data-writ-intro='play'] .wwx-status { opacity: 0; animation: ww-part-up 0.34s var(--ease) calc((var(--i-win) + 0.9s) * var(--i)) forwards; }
+[data-writ-intro='play'] .ww-caption { opacity: 0; animation: hs-appear 0.45s var(--ease) calc((var(--i-win) + 0.98s) * var(--i)) forwards; }
+[data-writ-intro='play'] [data-rv-win] { opacity: 0; animation: hs-appear 0.4s var(--ease) calc((var(--i-win) - 0.3s) * var(--i)) forwards; }
 
-[data-writ-intro='done'] .hero-sheet *,
-[data-writ-intro='done'] .win-rise,
-[data-writ-intro='done'] .win-rise *,
-[data-writ-intro='done'] [data-rv-win] {
-  animation-duration: 0s !important;
-  animation-delay: 0s !important;
-}
+/* 'done' drops every 'play' rule, so each element falls to the base state the
+   markup already declares — which is the state the intro was animating toward.
+   Only values the intro *changed* need restating here. Nothing may reach for
+   `animation: none` on .hero-sheet: the caret's temper animates in that
+   subtree and must survive the intro. */
 [data-writ-intro='done'] .hs-src { opacity: 0.68; }
-[data-writ-intro='done'] .hs-c2 { opacity: 1; animation: none; }
 
 /* ─── The spine: the page's read position, drawn as the document's own rule ──
    With JS and motion, the gutter borders go transparent and this single line
@@ -1126,34 +1190,41 @@ button, a { touch-action: manipulation; }
 .hdr-gh:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
 
 /* ─── Responsive ─────────────────────────────────────────────────────────── */
+/* Side by side needs room for a 60-column source line at a readable size next
+   to the heading; below that the pane stacks under the rendered block, where
+   full width gives it the columns back. The headline stays first either way. */
+@media (max-width: 1059px) {
+  .hs-body { grid-template-columns: 1fr; gap: 30px; }
+  .hs-src { order: 2; padding-top: 0; }
+  .hs-render { order: 1; border-left: none; padding-left: 0; }
+  .hero-sheet { padding-top: 44px; }
+  /* Stacked, the render leads and the source writes itself underneath. */
+  html[data-writ-intro] {
+    --i-h1: 0.16s;
+    --i-sub: 0.46s;
+    --i-cta: 0.76s;
+    --i-status: 1.55s;
+    --i-status-step: 0.1s;
+    --i-gut: 1.12s;
+    --i-gut-step: 0.035s;
+    --i-type: 1.2s;
+    --i-type-dur: 0.75s;
+    --i-paste: 2.0s;
+    --i-paste-step: 0.1s;
+    --i-link: 2.4s;
+    --i-save: 2.6s;
+    --i-dim: 2.7s;
+    --i-count-dur: 2.4s;
+    --i-win: 1.2s;
+  }
+}
 @media (max-width: 880px) {
   .gut-col { display: none !important; }
   .spine { display: none !important; }
-  .hs-src, .hs-status { display: none !important; }
-  .hs-body { grid-template-columns: 1fr; gap: 0; }
-  .hs-render { border-left: none; padding-left: 0; }
-  .hero-sheet { padding-top: 40px; }
-  [data-writ-intro='play'] .hr-h1 { animation-delay: 0.1s; }
-  [data-writ-intro='play'] .hr-sub { animation-delay: 0.32s; }
-  [data-writ-intro='play'] .hr-cta1 { animation-delay: 0.55s; }
-  [data-writ-intro='play'] .hr-cta2 { animation-delay: 0.63s; }
-  [data-writ-intro='play'] .win-rise { animation-delay: 0.75s; }
-  [data-writ-intro='play'] .wwx-titlebar { animation-delay: 1.0s; }
-  [data-writ-intro='play'] .wwx-lights span:nth-child(1) { animation-delay: 1.1s; }
-  [data-writ-intro='play'] .wwx-lights span:nth-child(2) { animation-delay: 1.16s; }
-  [data-writ-intro='play'] .wwx-lights span:nth-child(3) { animation-delay: 1.22s; }
-  [data-writ-intro='play'] .wwx-tabs .wwx-tab:nth-of-type(1) { animation-delay: 1.18s; }
-  [data-writ-intro='play'] .wwx-tabs .wwx-tab:nth-of-type(2) { animation-delay: 1.25s; }
-  [data-writ-intro='play'] .wwx-tabs .wwx-tab:nth-of-type(3) { animation-delay: 1.32s; }
-  [data-writ-intro='play'] .wwx-tabs .wwx-tab:nth-of-type(4) { animation-delay: 1.39s; }
-  [data-writ-intro='play'] .wwx-newtab { animation-delay: 1.46s; }
-  [data-writ-intro='play'] .wwx-chord { animation-delay: 1.5s; }
-  [data-writ-intro='play'] .wwx-side { animation-delay: 1.25s; }
-  [data-writ-intro='play'] .wwx-main { animation-delay: 1.4s; }
-  [data-writ-intro='play'] .wwx-status { animation-delay: 1.6s; }
-  [data-writ-intro='play'] .ww-caption { animation-delay: 1.75s; }
-  [data-writ-intro='play'] [data-rv-win] { animation-delay: 0.75s; }
-  .v2-grid { grid-template-columns: 1fr !important; }
+  /* minmax(0, …), never a bare 1fr: an `auto` minimum lets any wide child
+     (the demo window, the install grid) push the track past the viewport, and
+     the page has no horizontal scroll to reach what that pushes off-screen. */
+  .v2-grid { grid-template-columns: minmax(0, 1fr) !important; }
   .lg-row { grid-template-columns: 1fr; gap: 3px; padding: 11px 0; }
   .lg-keys { justify-self: start; }
 }
@@ -1167,6 +1238,10 @@ button, a { touch-action: manipulation; }
   .pb-file, .pb-pos, .pb-save { display: none; }
   .pagebar { gap: 8px; padding: 0 10px; }
   body:has(.pagebar) .site-footer-inner { padding-bottom: 66px; }
+  /* The pane still holds its columns here, but not under a thumb: on a phone
+     the hero is the headline and the two actions. */
+  .hs-src, .hs-status { display: none !important; }
+  html[data-writ-intro] { --i-win: 1s; }
 }
 
 /* ─── Reduced motion ─────────────────────────────────────────────────────── */

@@ -1,18 +1,36 @@
 <script is:inline>
   (function () {
     try {
-      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        var root = document.documentElement;
-        root.setAttribute('data-writ-intro', 'play');
-        var skip = function () {
-          if (root.getAttribute('data-writ-intro') === 'play') {
-            root.setAttribute('data-writ-intro', 'done');
-          }
-        };
-        ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(function (ev) {
-          window.addEventListener(ev, skip, { once: true, passive: true });
-        });
-      }
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      var root = document.documentElement;
+      root.setAttribute('data-writ-intro', 'play');
+      // Reaching for the page means you want it now; scrolling past only means
+      // you are ahead of it. The first ends the intro, the second speeds up
+      // what is already running so nothing pops out of existence mid-motion.
+      var end = function () {
+        if (root.getAttribute('data-writ-intro') === 'play') {
+          root.setAttribute('data-writ-intro', 'done');
+        }
+      };
+      var hurry = function () {
+        if (root.getAttribute('data-writ-intro') === 'play') {
+          moved = true;
+          root.style.setProperty('--i', '0.36');
+        }
+      };
+      // A touch scroll opens with a pointerdown, so on touch the decision waits
+      // for the gesture: a drag hurries, a tap ends.
+      var moved = false;
+      window.addEventListener('keydown', end, { once: true, passive: true });
+      window.addEventListener('wheel', hurry, { once: true, passive: true });
+      window.addEventListener('touchmove', hurry, { passive: true });
+      window.addEventListener('pointerdown', function (e) {
+        if (e.pointerType === 'touch') return;
+        end();
+      }, { passive: true });
+      window.addEventListener('touchend', function () {
+        if (!moved) end();
+      }, { passive: true });
     } catch (_) {}
   })();
 </script>
@@ -48,6 +66,7 @@
   <div class="hs-status" aria-hidden="true">
     <span class="hs-file">writ / scratch.md</span>
     <span class="hs-meta">markdown · split</span>
+    <span class="hs-edit"></span>
     <span class="hs-pos"></span>
     <span class="hs-tok"></span>
     <span class="hs-save"><i class="hs-save-dot"></i>saved</span>
@@ -81,20 +100,21 @@
     })();
     CANON[8] = `[${downloadLabel}](#download) [Try the window](#editor)`;
     const EDIT_LINES = [1, 3, 4, 5, 6, 8];
-    const MAX_LINE = 56;
-    const MAX_LINK_LINE = 64;
     const MAX_H1 = 48;
     const SUB_WRAP = 46;
     const CANON_CHARS = Object.values(CANON).join('').length;
 
-    /* The caret's temper. Edits add heat (removals and interrupting an active
-       restore add more), time cools it down. One scalar drives everything:
-       restore cadence in JS and the visual ramp in CSS via --anger. */
-    const HEAT_EDIT = 0.05;
-    const HEAT_REMOVAL = 0.09;
-    const HEAT_INTERRUPT = 0.16;
-    const COOL_PER_SEC = 0.14;
+    /* The caret's temper. Edits add heat (removals, refused overflow and
+       interrupting an active restore add more), time cools it down after a
+       moment's grace so the heat is still there when the caret arrives to fix
+       things. One scalar drives everything: restore cadence in JS and the
+       visual ramp in CSS via --anger. */
+    const HEAT_EDIT = 0.055;
+    const HEAT_REMOVAL = 0.13;
+    const HEAT_INTERRUPT = 0.3;
+    const COOL_PER_SEC = 0.11;
     const COOL_TICK_MS = 125;
+    const COOL_HOLD_MS = 1300;
     const CALM = {
       idleMs: 3000,
       noticeMs: 380,
@@ -133,9 +153,38 @@
     const saveDot = document.querySelector<HTMLElement>('.hs-save-dot');
     const restCaret = document.querySelector<HTMLElement>('.hs-c2');
     const fixCaret = document.querySelector<HTMLElement>('.hs-fix-caret');
+    const editChip = document.querySelector<HTMLElement>('.hs-edit');
     if (!src || lineEls.size !== 6 || !h1Text || !sub || !fixCaret) return;
 
     const sheet = document.querySelector<HTMLElement>('.hero-sheet');
+
+    /* The pane sizes its type from a column budget (--hs-cols) and the mono
+       advance (--hs-adv), so the editor's own limit has to come from the same
+       number or a legal line could still outrun the column. The CSS ships a
+       0.6em default; measuring the face that actually loaded keeps the two
+       honest when the webfont swaps in or is missing entirely. */
+    const cssCols = Number.parseInt(
+      getComputedStyle(sheet ?? src).getPropertyValue('--hs-cols'),
+      10,
+    );
+    const canonWidest = Math.max(...Object.values(CANON).map((l) => l.length));
+    const MAX_LINE = Math.max(canonWidest, Number.isFinite(cssCols) ? cssCols : 60);
+    const MAX_LINK_LINE = MAX_LINE;
+
+    const measureAdvance = () => {
+      const probe = document.createElement('span');
+      probe.setAttribute('aria-hidden', 'true');
+      probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;top:0;left:0';
+      probe.style.font = getComputedStyle(lineEls.get(1) ?? src).font;
+      probe.textContent = '0'.repeat(100);
+      src.appendChild(probe);
+      const em = Number.parseFloat(getComputedStyle(probe).fontSize);
+      const adv = probe.getBoundingClientRect().width / 100;
+      probe.remove();
+      if (em > 0 && adv > 0) sheet?.style.setProperty('--hs-adv', (adv / em).toFixed(4));
+    };
+    measureAdvance();
+    document.fonts?.ready.then(measureAdvance).catch(() => {});
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let statusLive = false;
     let restoring = false;
@@ -144,6 +193,7 @@
     let syncing = false;
     let anger = 0;
     let coolTimer = 0;
+    let lastHeatAt = 0;
     let lastCharCount = CANON_CHARS;
     let lastContent = Object.values(CANON).join('\n');
 
@@ -163,6 +213,9 @@
       sheet?.style.setProperty('--anger', anger.toFixed(3));
     };
     const coolDown = () => {
+      // Grace after the last provocation, and no cooling at all mid-repair:
+      // the caret is on screen exactly then, and that is the whole tell.
+      if (restoring || performance.now() - lastHeatAt < COOL_HOLD_MS) return;
       anger = Math.max(0, anger - (COOL_PER_SEC * COOL_TICK_MS) / 1000);
       applyAnger();
       if (anger === 0) {
@@ -172,6 +225,7 @@
     };
     const heatUp = (amount: number) => {
       anger = Math.min(1, anger + amount);
+      lastHeatAt = performance.now();
       applyAnger();
       if (!coolTimer) coolTimer = window.setInterval(coolDown, COOL_TICK_MS);
     };
@@ -432,6 +486,7 @@
       }
       lastCharCount = chars;
       lastContent = content;
+      editChip?.classList.add('spent');
       saveDot?.classList.add('editing');
       if (restCaret) restCaret.style.opacity = '0';
       setTokens();
@@ -439,11 +494,14 @@
       idleTimer = window.setTimeout(startRestore, tempo().idleMs);
     };
 
+    // Refusing input is the pane defending its column budget, and the caret
+    // takes it as badly as it takes a deletion.
     const clampLine = (el: HTMLElement, max: number) => {
       const t = el.textContent ?? '';
       if (t.length > max) {
         el.textContent = t.slice(0, max);
         placeCaretEnd(el);
+        heatUp(HEAT_REMOVAL);
       }
     };
     const placeCaretEnd = (el: HTMLElement) => {
@@ -502,6 +560,13 @@
         noteEdit();
       });
 
+      // The pane looks like chrome until it says otherwise, and it only says
+      // so once the typing is actually wired up.
+      if (editChip) {
+        editChip.textContent = 'editable';
+        editChip.classList.add('on');
+      }
+
       document.addEventListener('selectionchange', () => {
         if (restoring) return;
         const sel = window.getSelection();
@@ -518,25 +583,30 @@
       src.classList.add('hs-editable');
     };
 
+    /* Editing waits for the intro so a stray click can't fight the typing, but
+       the wait is driven by the intro itself — the last beat is the CTA pop, so
+       its animationend is the moment the hero is done. A pointerdown arms in
+       the capture phase, ahead of the browser placing a caret, so the click
+       that ends the intro is also the click that lands in the text. */
     const armWhenSettled = () => {
-      const mode = root.getAttribute('data-writ-intro');
-      if (mode === 'play') {
-        let armed = false;
-        const arm = () => {
-          if (armed) return;
-          armed = true;
-          enableEditing();
-        };
-        window.setTimeout(arm, 3400);
-        new MutationObserver((_, obs) => {
-          if (root.getAttribute('data-writ-intro') === 'done') {
-            arm();
-            obs.disconnect();
-          }
-        }).observe(root, { attributes: true, attributeFilter: ['data-writ-intro'] });
-      } else {
+      if (root.getAttribute('data-writ-intro') !== 'play') {
         enableEditing();
+        return;
       }
+      let armed = false;
+      const arm = () => {
+        if (armed) return;
+        armed = true;
+        window.clearTimeout(fallback);
+        window.removeEventListener('pointerdown', arm, true);
+        enableEditing();
+      };
+      const cta2 = document.querySelector<HTMLElement>('.hr-cta2');
+      cta2?.addEventListener('animationend', arm, { once: true });
+      window.addEventListener('pointerdown', arm, { capture: true });
+      // Nothing to hang the end on if the CTA never animates (island swapped,
+      // animation dropped): 5s is past the longest beat either layout runs.
+      const fallback = window.setTimeout(arm, 5000);
     };
 
     // Seed the platform label into the source line and rendered CTA together,
