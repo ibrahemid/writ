@@ -20,8 +20,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     RegisterClassExW, SetWindowLongPtrW, SetWindowPos, CREATESTRUCTW, GWLP_USERDATA, HTMAXBUTTON,
     HWND_TOP, SWP_NOACTIVATE, WINDOW_EX_STYLE, WM_DPICHANGED, WM_NCCREATE, WM_NCDESTROY,
     WM_NCHITTEST, WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE,
-    WM_NCMOUSEMOVE, WM_SIZE, WNDCLASSEXW, WNDCLASS_STYLES, WS_CHILD, WS_CLIPSIBLINGS,
-    WS_OVERLAPPED, WS_VISIBLE,
+    WM_NCMOUSEMOVE, WM_SIZE, WNDCLASSEXW, WNDCLASS_STYLES, WS_CHILD, WS_CLIPSIBLINGS, WS_VISIBLE,
 };
 
 use super::{overlay_rect, CaptionButtonMetrics};
@@ -29,8 +28,8 @@ use crate::events::{emit_event_to_main, CaptionHitPhase, WritFrontendEvent};
 
 const PARENT_SUBCLASS_ID: usize = 1;
 
-/// Live overlay window, or 0 when there is none. Written only from the
-/// event-loop thread; read from the IPC thread to decide create-or-reposition.
+/// Live overlay window, or 0 when there is none. Only ever touched on the
+/// event-loop thread, which is what decides create-or-reposition.
 static OVERLAY_HWND: AtomicIsize = AtomicIsize::new(0);
 
 /// Last metrics the frontend reported. Read on every reposition, so the
@@ -69,10 +68,17 @@ pub fn install(window: &WebviewWindow, metrics: CaptionButtonMetrics) -> Result<
                                 PARENT_SUBCLASS_ID,
                                 0,
                             );
+                            // Without the subclass nothing repositions or tears
+                            // the overlay down, so after the first resize it
+                            // would answer HTMAXBUTTON over whatever moved
+                            // under its stale rect. Take it back out.
                             if !subclassed.as_bool() {
                                 tracing::warn!(
-                                    "snap-layout overlay installed without a window subclass; it will not follow resizes"
+                                    "snap-layout overlay removed: its window subclass could not be installed"
                                 );
+                                OVERLAY_HWND.store(0, Ordering::SeqCst);
+                                let _ = DestroyWindow(overlay);
+                                return;
                             }
                         }
                         Err(e) => {
@@ -131,7 +137,7 @@ unsafe fn create_overlay(parent: HWND, app: AppHandle) -> Result<HWND, String> {
             WINDOW_EX_STYLE::default(),
             w!("WritSnapOverlay"),
             None,
-            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_OVERLAPPED,
+            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
             0,
             0,
             0,
@@ -208,11 +214,11 @@ unsafe extern "system" fn parent_subclass_proc(
         // Teardown belongs to WM_NCDESTROY, not WM_CLOSE: Writ hides on close,
         // so the window outlives every WM_CLOSE it receives (Alt+F4 included)
         // and tearing down there would kill snap for the rest of the session.
+        //
+        // Nothing to destroy here: Windows destroys children before the parent
+        // reaches this message, so the overlay has already cleared itself from
+        // OVERLAY_HWND and its handle could by now belong to another window.
         WM_NCDESTROY => {
-            let overlay = OVERLAY_HWND.swap(0, Ordering::SeqCst);
-            if overlay != 0 {
-                let _ = unsafe { DestroyWindow(HWND(overlay as *mut c_void)) };
-            }
             let _ = unsafe {
                 RemoveWindowSubclass(hwnd, Some(parent_subclass_proc), PARENT_SUBCLASS_ID)
             };
@@ -307,7 +313,17 @@ unsafe extern "system" fn overlay_proc(
             LRESULT(0)
         }
 
+        // The overlay retires itself here rather than being reaped by the
+        // parent: children are destroyed first, so by the time the parent gets
+        // its own WM_NCDESTROY this handle is gone and may already have been
+        // reused for an unrelated window.
         WM_NCDESTROY => {
+            let _ = OVERLAY_HWND.compare_exchange(
+                hwnd.0 as isize,
+                0,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            );
             let previous =
                 unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0) } as *mut OverlayState;
             if !previous.is_null() {
