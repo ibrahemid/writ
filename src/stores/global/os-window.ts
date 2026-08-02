@@ -9,11 +9,13 @@ import { configStore } from "./config";
 // exactly one of these.
 
 const PERSIST_DEBOUNCE_MS = 500;
+const MAXIMIZED_COALESCE_MS = 100;
 
 function createOsWindowStore() {
   const [focused, setFocused] = createSignal(true);
   const [maximized, setMaximized] = createSignal(false);
   let geometryTimer: ReturnType<typeof setTimeout> | null = null;
+  let maximizedTimer: ReturnType<typeof setTimeout> | null = null;
 
   async function installFocusSync(): Promise<() => void> {
     return api.onWindowFocusChange(setFocused);
@@ -23,14 +25,35 @@ function createOsWindowStore() {
     setMaximized(await api.isWindowMaximized());
   }
 
-  async function installMaximizeSync(): Promise<() => void> {
-    await syncMaximized();
-    return api.onWindowResized(() => void syncMaximized());
+  // Dragging a window edge emits resize continuously, and each one would cost an
+  // IPC round-trip. The button's own path re-reads immediately (see below), so
+  // this listener only has to catch OS-initiated changes: snap layouts, Win+Up,
+  // drag-to-top. A short trailing coalesce keeps those prompt without the storm.
+  function scheduleMaximizedSync(): void {
+    if (maximizedTimer) clearTimeout(maximizedTimer);
+    maximizedTimer = setTimeout(() => {
+      maximizedTimer = null;
+      void syncMaximized();
+    }, MAXIMIZED_COALESCE_MS);
   }
 
-  // Re-read after the toggle resolves rather than trusting the resize event: a
-  // window maximized to the same bounds it already had emits no resize, which
-  // would leave the button showing the state the user just left.
+  async function installMaximizeSync(): Promise<() => void> {
+    const unResized = await api.onWindowResized(scheduleMaximizedSync);
+    // Seeded off the cold path: the window is still hidden here and starts
+    // restored, so this must not add a round-trip ahead of the first paint.
+    scheduleMaximizedSync();
+    return () => {
+      if (maximizedTimer) {
+        clearTimeout(maximizedTimer);
+        maximizedTimer = null;
+      }
+      unResized();
+    };
+  }
+
+  // Re-read as soon as the toggle resolves rather than waiting on the coalesced
+  // resize: a window maximized to the same bounds it already had emits no
+  // resize at all, which would leave the button showing the state just left.
   async function toggleMaximize(): Promise<void> {
     await api.toggleMaximizeWindow();
     await syncMaximized();

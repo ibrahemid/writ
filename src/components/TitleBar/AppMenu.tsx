@@ -49,6 +49,13 @@ export function appMenuItems(): MenuItem[] {
  * Windows/Linux have no menu bar to hang these actions on, so the titlebar
  * carries a single button that opens them. `ContextMenu` owns the popup,
  * including keyboard navigation and returning focus here on dismiss.
+ *
+ * Passing the button as the trigger is what makes Escape land back on it. The
+ * cost: `ContextMenu.close()` restores that focus synchronously right after the
+ * action runs, so an entry added here must not focus its surface synchronously
+ * or the button steals it straight back. Every command listed above defers
+ * (the palette focuses in a requestAnimationFrame, the tab commands are async),
+ * which is why the trigger is safe to pass today.
  */
 export default function AppMenu() {
   let button: HTMLButtonElement | undefined;

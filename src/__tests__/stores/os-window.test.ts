@@ -83,35 +83,53 @@ describe("osWindowStore actions", () => {
 });
 
 describe("osWindowStore maximize sync", () => {
-  it("installMaximizeSync seeds the signal from the current window state", async () => {
-    apiMock.onWindowResized.mockResolvedValue(() => {});
-    apiMock.isWindowMaximized.mockResolvedValue(true);
+  it("installMaximizeSync seeds the signal without blocking on IPC", async () => {
+    vi.useFakeTimers();
+    try {
+      apiMock.onWindowResized.mockResolvedValue(() => {});
+      apiMock.isWindowMaximized.mockResolvedValue(true);
 
-    const unlisten = await osWindowStore.installMaximizeSync();
-    expect(typeof unlisten).toBe("function");
-    expect(osWindowStore.maximized()).toBe(true);
+      const unlisten = await osWindowStore.installMaximizeSync();
+      expect(typeof unlisten).toBe("function");
+      // Seeding is scheduled, not awaited: the cold path must not wait on it.
+      expect(apiMock.isWindowMaximized).not.toHaveBeenCalled();
 
-    unlisten();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(osWindowStore.maximized()).toBe(true);
+
+      unlisten();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("re-reads the window on resize", async () => {
-    let resize: (() => void) | undefined;
-    apiMock.onWindowResized.mockImplementation((cb: () => void) => {
-      resize = cb;
-      return Promise.resolve(() => {});
-    });
-    apiMock.isWindowMaximized.mockResolvedValue(false);
+  it("coalesces a resize storm into one read", async () => {
+    vi.useFakeTimers();
+    try {
+      let resize: (() => void) | undefined;
+      apiMock.onWindowResized.mockImplementation((cb: () => void) => {
+        resize = cb;
+        return Promise.resolve(() => {});
+      });
+      apiMock.isWindowMaximized.mockResolvedValue(false);
 
-    const unlisten = await osWindowStore.installMaximizeSync();
-    expect(osWindowStore.maximized()).toBe(false);
+      const unlisten = await osWindowStore.installMaximizeSync();
+      await vi.advanceTimersByTimeAsync(100);
+      apiMock.isWindowMaximized.mockClear();
+      apiMock.isWindowMaximized.mockResolvedValue(true);
 
-    apiMock.isWindowMaximized.mockResolvedValue(true);
-    resize?.();
-    await Promise.resolve();
-    await Promise.resolve();
+      for (let i = 0; i < 20; i++) resize?.();
+      await vi.advanceTimersByTimeAsync(99);
+      expect(apiMock.isWindowMaximized).not.toHaveBeenCalled();
 
-    expect(osWindowStore.maximized()).toBe(true);
-    unlisten();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(apiMock.isWindowMaximized).toHaveBeenCalledTimes(1);
+      expect(osWindowStore.maximized()).toBe(true);
+
+      unlisten();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // A maximize that lands on the bounds the window already had emits no resize,
@@ -120,13 +138,36 @@ describe("osWindowStore maximize sync", () => {
     apiMock.onWindowResized.mockResolvedValue(() => {});
     apiMock.isWindowMaximized.mockResolvedValue(false);
     const unlisten = await osWindowStore.installMaximizeSync();
-    expect(osWindowStore.maximized()).toBe(false);
 
     apiMock.isWindowMaximized.mockResolvedValue(true);
     await osWindowStore.toggleMaximize();
 
     expect(osWindowStore.maximized()).toBe(true);
     unlisten();
+  });
+
+  it("cancels a pending read on unlisten so a torn-down store stops polling", async () => {
+    vi.useFakeTimers();
+    try {
+      let resize: (() => void) | undefined;
+      apiMock.onWindowResized.mockImplementation((cb: () => void) => {
+        resize = cb;
+        return Promise.resolve(() => {});
+      });
+      apiMock.isWindowMaximized.mockResolvedValue(false);
+
+      const unlisten = await osWindowStore.installMaximizeSync();
+      await vi.advanceTimersByTimeAsync(100);
+      apiMock.isWindowMaximized.mockClear();
+
+      resize?.();
+      unlisten();
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(apiMock.isWindowMaximized).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
