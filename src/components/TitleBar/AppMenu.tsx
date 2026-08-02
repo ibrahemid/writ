@@ -75,6 +75,16 @@ export default function AppMenu() {
       onClick={openMenu}
     >
       Writ
+      <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
+        <path
+          d="M1.5 3L4 5.5L6.5 3"
+          stroke="currentColor"
+          stroke-width="1"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          fill="none"
+        />
+      </svg>
     </button>
   );
 }

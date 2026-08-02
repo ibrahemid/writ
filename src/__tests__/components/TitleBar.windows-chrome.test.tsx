@@ -141,9 +141,9 @@ afterEach(() => {
   cleanup();
 });
 
-describe("titlebar menu affordance is Windows-only", () => {
-  it("renders the Writ menu button on Windows", () => {
-    const { container } = renderOn("win");
+describe("titlebar menu affordance carries the platforms with no menu bar", () => {
+  it.each(["win", "linux"] as const)("renders the Writ menu button on %s", (platform) => {
+    const { container } = renderOn(platform);
     const button = container.querySelector<HTMLButtonElement>(".titlebar-appmenu");
     expect(button).not.toBeNull();
     expect(button!.tagName).toBe("BUTTON");
@@ -156,9 +156,25 @@ describe("titlebar menu affordance is Windows-only", () => {
     expect(container.querySelector(".titlebar-appmenu")).toBeNull();
   });
 
-  it("omits the menu button on Linux", () => {
+  it("opens the same menu from the Linux titlebar", () => {
     const { container } = renderOn("linux");
-    expect(container.querySelector(".titlebar-appmenu")).toBeNull();
+    fireEvent.click(container.querySelector(".titlebar-appmenu")!);
+
+    expect(mocks.showAnchoredMenu).toHaveBeenCalledTimes(1);
+    expect(openedMenuItems().map((item) => item.label)).toEqual([
+      "Open File",
+      "New Tab",
+      "Close Tab",
+      "Command Palette",
+      "Check for Updates",
+    ]);
+  });
+
+  it("gives Linux the same caption controls, under its own titlebar class", () => {
+    const { container } = renderOn("linux");
+    expect(container.querySelector(".titlebar-linux")).not.toBeNull();
+    expect(container.querySelectorAll(".winctrl")).toHaveLength(3);
+    expect(container.querySelector(".titlebar-controls-mac")).toBeNull();
   });
 
   it("leaves the macOS titlebar on its traffic-light branch with no window controls added", () => {
@@ -198,6 +214,23 @@ describe("Windows window controls", () => {
     const { container } = renderOn("win");
     fireEvent.click(container.querySelector(".winctrl-close")!);
     expect(mocks.hide).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the close button for what it does, which is hide", () => {
+    const { container } = renderOn("win");
+    const button = container.querySelector<HTMLButtonElement>(".winctrl-close")!;
+    expect(button.getAttribute("title")).toBe("Hide");
+    expect(button.getAttribute("aria-label")).toBe("Hide window");
+  });
+
+  it("clicks through a press on the glyph instead of dragging the window", () => {
+    const { container } = renderOn("win");
+    // The glyph is an SVG element, not an HTMLElement: if the titlebar's
+    // interactive-target check misses it, pressing the middle of a caption
+    // button starts a window drag and the button never fires.
+    const glyph = container.querySelector(".winctrl-min svg")!;
+    fireEvent.mouseDown(glyph, { button: 0 });
+    expect(mocks.startDragging).not.toHaveBeenCalled();
   });
 });
 

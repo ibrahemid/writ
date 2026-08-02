@@ -144,6 +144,19 @@ describe("isInteractiveTarget", () => {
     }
   });
 
+  it("treats an SVG glyph inside a button as interactive", () => {
+    const button = document.createElement("button");
+    const glyph = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    button.appendChild(glyph);
+    document.body.appendChild(button);
+    try {
+      expect(glyph).not.toBeInstanceOf(HTMLElement);
+      expect(isInteractiveTarget(glyph)).toBe(true);
+    } finally {
+      button.remove();
+    }
+  });
+
   it("treats a connected bare surface as non-interactive", () => {
     const bare = document.createElement("div");
     document.body.appendChild(bare);

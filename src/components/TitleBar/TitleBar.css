@@ -94,23 +94,50 @@
   filter: brightness(1.05);
 }
 
-/* Neutral by intent: structure and hit target only, styling still to be designed. */
+/* Sized to its label and inset from the bar, the way a Fluent button sits in a
+   caption row — not stretched to the caption-button grid opposite it. */
 .titlebar-appmenu {
-  height: var(--writ-titlebar-height);
+  height: 24px;
+  align-self: center;
+  margin-left: var(--writ-space-3);
   padding: 0 var(--writ-space-3);
   display: flex;
   align-items: center;
+  gap: 5px;
   flex-shrink: 0;
   background: transparent;
   border: none;
+  border-radius: var(--writ-radius-1);
   color: var(--writ-foreground-muted);
-  font: inherit;
+  font-family: inherit;
+  font-size: var(--writ-font-size-sm);
+  font-weight: 500;
+  line-height: 1;
   cursor: pointer;
+  transition: background 80ms ease, color 80ms ease;
+}
+
+.titlebar-appmenu svg {
+  flex: none;
+  opacity: 0.7;
+  transition: opacity 80ms ease;
 }
 
 .titlebar-appmenu:hover {
-  background: var(--writ-surface-hover);
+  background: var(--writ-overlay-hover);
   color: var(--writ-foreground-default);
+}
+
+.titlebar-appmenu:hover svg {
+  opacity: 1;
+}
+
+.titlebar-appmenu:active {
+  background: var(--writ-overlay-subtle);
+}
+
+.titlebar-appmenu:focus-visible {
+  outline-offset: 1px;
 }
 
 .titlebar-controls-win {
@@ -125,6 +152,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
   background: transparent;
   border: none;
   color: var(--writ-foreground-muted);
@@ -132,24 +160,49 @@
   transition: background 80ms ease, color 80ms ease;
 }
 
+/* Fluent's subtle fill weakens on press rather than deepening, so pressed is a
+   lighter wash than hover, not a darker one. */
 .winctrl:hover {
-  background: var(--writ-surface-hover);
+  background: var(--writ-overlay-hover);
   color: var(--writ-foreground-default);
 }
 
+.winctrl:active {
+  background: var(--writ-overlay-subtle);
+  color: var(--writ-foreground-muted);
+}
+
 .winctrl-close:hover {
-  background: var(--writ-status-error);
+  background: var(--writ-winctrl-danger-bg);
   color: var(--writ-winctrl-danger-fg);
 }
 
-.titlebar-linux .winctrl {
+/* Thinned rather than darkened, so the press lifts over a light caption and
+   deepens over a dark one, the way the system control does. */
+.winctrl-close:active {
+  background: color-mix(in srgb, var(--writ-winctrl-danger-bg) 90%, transparent);
+  color: color-mix(in srgb, var(--writ-winctrl-danger-fg) 70%, transparent);
+}
+
+/* Drawn inside the button: a caption control runs to the window edge, where an
+   offset ring would be clipped. */
+.winctrl:focus-visible {
+  outline: 2px solid var(--writ-accent-default);
+  outline-offset: -3px;
+  border-radius: 0;
+}
+
+.titlebar-linux .winctrl,
+.titlebar-linux .titlebar-appmenu {
   color: var(--writ-foreground-default);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .maclight,
   .maclight svg,
-  .winctrl {
+  .winctrl,
+  .titlebar-appmenu,
+  .titlebar-appmenu svg {
     transition: none;
   }
 }

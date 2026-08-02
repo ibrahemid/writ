@@ -11,7 +11,10 @@ import "./TitleBar.css";
 const INTERACTIVE_SELECTOR = 'button, input, select, [role="button"], [data-no-drag]';
 
 export function isInteractiveTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
+  // Element, not HTMLElement: a press landing on a caption button's glyph hits
+  // an SVG element, which is not an HTMLElement and would read as bare titlebar
+  // — dragging the window instead of clicking the button under the cursor.
+  if (!(target instanceof Element)) return false;
   // This runs in a delegated ancestor handler, so closest() reads the live tree.
   // If a descendant handler detached the clicked node earlier in the same event,
   // closest() can no longer reach its interactive ancestor and would misread it
@@ -52,9 +55,7 @@ export default function TitleBar() {
           maximized={osWindowStore.maximized()}
         />
       </Show>
-      {/* TODO(operator): Linux has the same gap (no menu bar under
-          `decorations: false`) but is left alone until its chrome is decided. */}
-      <Show when={platform === "win"}>
+      <Show when={platform === "win" || platform === "linux"}>
         <AppMenu />
       </Show>
       <div class="titlebar-tabs">

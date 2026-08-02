@@ -22,7 +22,7 @@ export default function TrafficLights(props: Props) {
             aria-label="Minimize window"
           >
             <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-              <path d="M1 5H9" stroke="currentColor" stroke-width="1" />
+              <path d="M1 5.5H9" stroke="currentColor" stroke-width="1" />
             </svg>
           </button>
           {/* TODO(operator): the Win11 snap-layout flyout only appears when the
@@ -54,7 +54,7 @@ export default function TrafficLights(props: Props) {
             type="button"
             class="winctrl winctrl-close"
             onClick={osWindowStore.hide}
-            title="Close"
+            title="Hide"
             aria-label="Hide window"
           >
             <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
