@@ -10992,7 +10992,7 @@ THE SOFTWARE.
 
 ### MIT
 
-@tauri-apps/api 2.10.1
+@tauri-apps/api 2.11.1
 
 ```
 MIT License
