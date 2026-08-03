@@ -12,6 +12,16 @@ export interface ChangelogRelease {
 
 export const releases: ChangelogRelease[] = [
   {
+    version: "0.3.1",
+    date: "2026-08-03",
+    notes: [
+      { kind: 'added', text: "a Writ menu on the Windows and Linux titlebar: open file, new tab, close tab, the command palette, and the update check, each with its shortcut." },
+      { kind: 'added', text: "Windows 11 snap layouts open from the maximize button." },
+      { kind: 'changed', text: "the Windows window controls follow the Windows 11 caption treatment, and the maximize button shows restore while the window is maximized." },
+      { kind: 'fixed', text: "pressing the icon inside a titlebar button clicks the button instead of dragging the window." },
+    ],
+  },
+  {
     version: "0.3.0",
     date: "2026-07-30",
     notes: [
