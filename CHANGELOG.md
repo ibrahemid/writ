@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.1] - 2026-08-03
+
+### Added
+
+- A Writ menu on the Windows and Linux titlebar, opening the same actions the macOS menu bar carries: open file, new tab, close tab, the command palette, and the update check, each with its shortcut.
+- Windows 11 snap layouts open from the titlebar's maximize button.
+
+### Changed
+
+- The Windows window controls follow the Windows 11 caption treatment: hover and pressed states, the caption red on close, and a visible keyboard focus ring. The maximize button reflects the live window state, showing restore while the window is maximized.
+
+### Fixed
+
+- Pressing the icon inside a titlebar button clicks the button instead of dragging the window.
+- The Windows close button's tooltip says Hide, which is what the button does.
+
 ## [0.3.0] - 2026-07-30
 
 ### Added
