@@ -10,6 +10,7 @@ import SettingsModal, { openSettings } from "./components/SettingsModal/Settings
 import { startRenameActiveTab } from "./components/Editor/TabBar";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
 import { installNativeContextMenuSuppressor } from "./lib/native-context-menu";
+import { IS_MAC } from "./lib/platform";
 import ToastContainer, { showToast } from "./components/Notifications/Toast";
 import ConfirmDialog, { requestConfirm } from "./components/ConfirmDialog/ConfirmDialog";
 import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
@@ -108,6 +109,9 @@ function AppShell() {
     await configStore.load();
     themeStore.loadConfig(configStore.config().theme);
     unlisteners.push(await osWindowStore.installFocusSync());
+    // Only the Windows and Linux titlebars read maximized(); on macOS this
+    // would be an IPC round-trip per resize feeding a signal nothing renders.
+    if (!IS_MAC) unlisteners.push(await osWindowStore.installMaximizeSync());
     unlisteners.push(await osWindowStore.installGeometryPersistence());
     unlisteners.push(await installCloseFlush([() => osWindowStore.flushGeometry()]));
     win.sidebar.hydrateFromConfig();

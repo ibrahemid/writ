@@ -6,6 +6,7 @@ pub mod logging;
 pub mod poison;
 pub mod preview;
 pub mod security;
+pub mod snap_overlay;
 pub mod startup;
 pub mod startup_failure;
 pub mod state;
@@ -299,6 +300,7 @@ pub fn run() {
             commands::config::update_config,
             commands::window::toggle_window,
             commands::window::compute_window_placement,
+            commands::window::set_caption_button_metrics,
             commands::transforms::list_transforms,
             commands::transforms::apply_transform,
             commands::prompt::prompt_estimate_tokens,

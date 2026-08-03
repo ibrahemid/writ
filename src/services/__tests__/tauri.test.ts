@@ -32,6 +32,7 @@ import {
   minimizeWindow,
   startDraggingWindow,
   toggleMaximizeWindow,
+  isWindowMaximized,
   toggleFullscreenWindow,
   onWindowFocusChange,
   onWindowCloseRequested,
@@ -169,6 +170,21 @@ describe("toggleMaximizeWindow", () => {
     await toggleMaximizeWindow();
     expect(mockWindow.unmaximize).toHaveBeenCalledOnce();
     expect(mockWindow.maximize).not.toHaveBeenCalled();
+  });
+});
+
+describe("isWindowMaximized", () => {
+  it("reports the window state", async () => {
+    mockWindow.isMaximized.mockResolvedValueOnce(true);
+    await expect(isWindowMaximized()).resolves.toBe(true);
+  });
+
+  // The titlebar reads this on every resize; a rejection must not leave the
+  // maximize button stuck, so it degrades to the restored icon.
+  it("warns and reports false when isMaximized rejects", async () => {
+    mockWindow.isMaximized.mockRejectedValueOnce(new Error("query failed"));
+    await expect(isWindowMaximized()).resolves.toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith("isWindowMaximized failed:", expect.any(Error));
   });
 });
 

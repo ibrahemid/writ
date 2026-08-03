@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   createTab: vi.fn(),
   renameBuffer: vi.fn(),
   showContextMenu: vi.fn(),
+  showAnchoredMenu: vi.fn(),
   toggleMaximize: vi.fn(),
   startDragging: vi.fn(),
   minimize: vi.fn(),
@@ -67,11 +68,16 @@ vi.mock("../../stores/global/window-registry", () => ({
 
 vi.mock("../../components/ContextMenu/ContextMenu", () => ({
   showContextMenu: mocks.showContextMenu,
+  showAnchoredMenu: mocks.showAnchoredMenu,
 }));
 
 vi.mock("../../stores/global/os-window", () => ({
   osWindowStore: {
     focused: () => true,
+    maximized: () => false,
+    snapHovered: () => false,
+    snapPressed: () => false,
+    installSnapOverlay: () => Promise.resolve(() => {}),
     toggleMaximize: mocks.toggleMaximize,
     startDragging: mocks.startDragging,
     minimize: mocks.minimize,
@@ -136,6 +142,19 @@ describe("isInteractiveTarget", () => {
     document.body.appendChild(button);
     try {
       expect(isInteractiveTarget(child)).toBe(true);
+    } finally {
+      button.remove();
+    }
+  });
+
+  it("treats an SVG glyph inside a button as interactive", () => {
+    const button = document.createElement("button");
+    const glyph = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    button.appendChild(glyph);
+    document.body.appendChild(button);
+    try {
+      expect(glyph).not.toBeInstanceOf(HTMLElement);
+      expect(isInteractiveTarget(glyph)).toBe(true);
     } finally {
       button.remove();
     }

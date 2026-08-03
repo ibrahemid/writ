@@ -55,7 +55,8 @@
   --writ-shadow-chip:    0 2px 8px rgba(0, 0, 0, 0.25);
   --writ-shadow-xs:      0 1px 2px rgba(0, 0, 0, 0.2);
 
-  /* Window controls mirror native macOS semantics — fixed across app themes. */
+  /* Window controls mirror their host: macOS traffic lights, the Win11 caption
+     red. Fixed across app themes, since the OS does not restyle them either. */
   --writ-traffic-close:          #ff5f57;
   --writ-traffic-minimize:       #ffbd2e;
   --writ-traffic-maximize:       #28c840;
@@ -64,6 +65,7 @@
   --writ-traffic-minimize-glyph: #5a3300;
   --writ-traffic-maximize-glyph: #003800;
   --writ-winctrl-danger-fg:      #ffffff;
+  --writ-winctrl-danger-bg:      #c42b1c;
 
   --writ-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --writ-font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", ui-monospace, monospace;
