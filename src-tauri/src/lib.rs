@@ -133,7 +133,9 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
 /// Applies the saved window geometry to the (hidden) main window before it is
 /// first shown, so the frontend never has to await IPC to resize on the cold
-/// path. Sizing always applies; positioning runs the saved rect through
+/// path. The saved size is fitted to the work area of the monitor the window
+/// will land on, so a rect saved from a larger display can never reopen bigger
+/// than the screen; positioning then runs that fitted rect through
 /// [`window_state::place_window`] against the live monitor layout so a window
 /// saved on a now-disconnected display re-centers instead of opening
 /// off-screen.
@@ -141,39 +143,56 @@ fn restore_main_window_geometry(
     window: &tauri::WebviewWindow,
     cfg: &writ_core::config::WindowConfig,
 ) {
-    if cfg.width > 0 && cfg.height > 0 {
-        let _ = window.set_size(tauri::LogicalSize::new(
-            f64::from(cfg.width),
-            f64::from(cfg.height),
-        ));
+    // Work areas rather than full monitor rects: a restored window must not
+    // land under the taskbar or the menu bar.
+    let work_area_of = |m: &tauri::Monitor| {
+        let area = m.work_area();
+        window_state::logical_rect(
+            area.position.x,
+            area.position.y,
+            area.size.width,
+            area.size.height,
+            m.scale_factor(),
+        )
+    };
+
+    let monitors: Vec<window_state::Rect> = window
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(work_area_of)
+        .collect();
+
+    // The monitor `window.center()` uses, so a saved rect that overlaps nothing
+    // is sized against the display it will actually be centered on.
+    let fallback = match window.current_monitor() {
+        Ok(Some(m)) => Some(work_area_of(&m)),
+        _ => None,
+    };
+
+    let plan = window_state::plan_restore(
+        cfg.width,
+        cfg.height,
+        cfg.x,
+        cfg.y,
+        &monitors,
+        fallback,
+        window_state::MIN_LOGICAL_WIDTH,
+        window_state::MIN_LOGICAL_HEIGHT,
+    );
+
+    if let Some((width, height)) = plan.size {
+        let _ = window.set_size(tauri::LogicalSize::new(f64::from(width), f64::from(height)));
     }
 
-    if let (Some(x), Some(y)) = (cfg.x, cfg.y) {
-        let monitors: Vec<window_state::Rect> = window
-            .available_monitors()
-            .unwrap_or_default()
-            .iter()
-            .map(|m| {
-                let p = m.position();
-                let s = m.size();
-                window_state::logical_rect(p.x, p.y, s.width, s.height, m.scale_factor())
-            })
-            .collect();
-        let saved = window_state::Rect {
-            x,
-            y,
-            width: cfg.width,
-            height: cfg.height,
-        };
-        match window_state::place_window(saved, &monitors) {
-            window_state::WindowPlacement::At { x, y } => {
-                let _ =
-                    window.set_position(tauri::LogicalPosition::new(f64::from(x), f64::from(y)));
-            }
-            window_state::WindowPlacement::Center => {
-                let _ = window.center();
-            }
+    match plan.placement {
+        Some(window_state::WindowPlacement::At { x, y }) => {
+            let _ = window.set_position(tauri::LogicalPosition::new(f64::from(x), f64::from(y)));
         }
+        Some(window_state::WindowPlacement::Center) => {
+            let _ = window.center();
+        }
+        None => {}
     }
 }
 

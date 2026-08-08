@@ -248,6 +248,15 @@ export async function startDraggingWindow(): Promise<void> {
   }
 }
 
+export async function maximizeWindow(): Promise<void> {
+  try {
+    const win = getCurrentWindow();
+    await win.maximize();
+  } catch (err) {
+    console.warn("maximizeWindow failed:", err);
+  }
+}
+
 export async function toggleMaximizeWindow(): Promise<void> {
   try {
     const win = getCurrentWindow();
@@ -268,6 +277,26 @@ export async function isWindowMaximized(): Promise<boolean> {
     return await win.isMaximized();
   } catch (err) {
     console.warn("isWindowMaximized failed:", err);
+    return false;
+  }
+}
+
+export async function isWindowMinimized(): Promise<boolean> {
+  try {
+    const win = getCurrentWindow();
+    return await win.isMinimized();
+  } catch (err) {
+    console.warn("isWindowMinimized failed:", err);
+    return false;
+  }
+}
+
+export async function isWindowFullscreen(): Promise<boolean> {
+  try {
+    const win = getCurrentWindow();
+    return await win.isFullscreen();
+  } catch (err) {
+    console.warn("isWindowFullscreen failed:", err);
     return false;
   }
 }
@@ -296,10 +325,13 @@ export async function onWindowFocusChange(
 }
 
 
+// Inner size, because restore applies it with set_size, which is the inner
+// rect. On Windows the undecorated window's outer rect is larger than its inner
+// rect by the shadow insets, so saving outer would grow the window every launch.
 export async function getLogicalWindowSize(): Promise<{ width: number; height: number } | null> {
   try {
     const win = getCurrentWindow();
-    const size = await win.outerSize();
+    const size = await win.innerSize();
     const scale = await win.scaleFactor();
     return {
       width: Math.round(size.width / scale),

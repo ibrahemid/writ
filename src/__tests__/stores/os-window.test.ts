@@ -9,8 +9,11 @@ const mocks = vi.hoisted(() => ({
     showWindow: vi.fn(),
     hideWindow: vi.fn(),
     minimizeWindow: vi.fn(),
+    maximizeWindow: vi.fn(),
     toggleMaximizeWindow: vi.fn(),
     isWindowMaximized: vi.fn(),
+    isWindowMinimized: vi.fn(),
+    isWindowFullscreen: vi.fn(),
     toggleFullscreenWindow: vi.fn(),
     startDraggingWindow: vi.fn(),
     onWindowFocusChange: vi.fn(),
@@ -58,8 +61,11 @@ beforeEach(() => {
   apiMock.showWindow.mockResolvedValue(undefined);
   apiMock.hideWindow.mockResolvedValue(undefined);
   apiMock.minimizeWindow.mockResolvedValue(undefined);
+  apiMock.maximizeWindow.mockResolvedValue(undefined);
   apiMock.toggleMaximizeWindow.mockResolvedValue(undefined);
   apiMock.isWindowMaximized.mockResolvedValue(false);
+  apiMock.isWindowMinimized.mockResolvedValue(false);
+  apiMock.isWindowFullscreen.mockResolvedValue(false);
   apiMock.toggleFullscreenWindow.mockResolvedValue(undefined);
   apiMock.startDraggingWindow.mockResolvedValue(undefined);
   apiMock.setLogicalWindowSize.mockResolvedValue(undefined);
@@ -84,6 +90,12 @@ describe("osWindowStore actions", () => {
     const store = await freshStore();
     await store.minimize();
     expect(apiMock.minimizeWindow).toHaveBeenCalledTimes(1);
+  });
+
+  it("maximize delegates to api.maximizeWindow exactly once", async () => {
+    const store = await freshStore();
+    await store.maximize();
+    expect(apiMock.maximizeWindow).toHaveBeenCalledTimes(1);
   });
 
   it("toggleMaximize delegates to api.toggleMaximizeWindow exactly once", async () => {
@@ -319,7 +331,9 @@ describe("osWindowStore installGeometryPersistence", () => {
         move = cb;
         return Promise.resolve(() => {});
       });
-      configMock.config.mockReturnValue({ window: { width: 800, height: 600, x: 100, y: 100 } });
+      configMock.config.mockReturnValue({
+        window: { width: 800, height: 600, x: 100, y: 100, maximized: false },
+      });
       apiMock.getLogicalWindowSize.mockResolvedValue({ width: 1024, height: 768 });
       apiMock.getLogicalWindowPosition.mockResolvedValue({ x: 300, y: 220 });
 
@@ -338,7 +352,9 @@ describe("osWindowStore installGeometryPersistence", () => {
 
       expect(configMock.save).toHaveBeenCalledTimes(1);
       expect(configMock.save).toHaveBeenCalledWith(
-        expect.objectContaining({ window: { width: 1024, height: 768, x: 300, y: 220 } }),
+        expect.objectContaining({
+          window: { width: 1024, height: 768, x: 300, y: 220, maximized: false },
+        }),
       );
 
       unlisten();
@@ -357,7 +373,9 @@ describe("osWindowStore installGeometryPersistence", () => {
         return Promise.resolve(() => {});
       });
       apiMock.onWindowMoved.mockImplementation(() => Promise.resolve(() => {}));
-      configMock.config.mockReturnValue({ window: { width: 800, height: 600, x: 100, y: 100 } });
+      configMock.config.mockReturnValue({
+        window: { width: 800, height: 600, x: 100, y: 100, maximized: false },
+      });
       apiMock.getLogicalWindowSize.mockResolvedValue({ width: 800, height: 600 });
       apiMock.getLogicalWindowPosition.mockResolvedValue({ x: 100, y: 100 });
 
@@ -374,6 +392,103 @@ describe("osWindowStore installGeometryPersistence", () => {
   });
 });
 
+// Quitting while maximized used to persist the work-area frame rect as the
+// floating geometry, and the next launch restored it as a plain window bigger
+// than the monitor. Minimized and fullscreen bounds are not window geometry
+// either.
+describe("osWindowStore geometry persistence state guards", () => {
+  const STORED = { width: 800, height: 600, x: 100, y: 100, maximized: false };
+
+  it("skips persisting while minimized, without measuring the window", async () => {
+    const store = await freshStore();
+    configMock.config.mockReturnValue({ window: STORED });
+    apiMock.isWindowMinimized.mockResolvedValue(true);
+    apiMock.getLogicalWindowSize.mockResolvedValue({ width: 160, height: 28 });
+    apiMock.getLogicalWindowPosition.mockResolvedValue({ x: -32000, y: -32000 });
+
+    await store.flushGeometry();
+
+    expect(configMock.save).not.toHaveBeenCalled();
+    expect(apiMock.getLogicalWindowSize).not.toHaveBeenCalled();
+  });
+
+  it("skips persisting while fullscreen", async () => {
+    const store = await freshStore();
+    configMock.config.mockReturnValue({ window: STORED });
+    apiMock.isWindowFullscreen.mockResolvedValue(true);
+    apiMock.getLogicalWindowSize.mockResolvedValue({ width: 1920, height: 1080 });
+    apiMock.getLogicalWindowPosition.mockResolvedValue({ x: 0, y: 0 });
+
+    await store.flushGeometry();
+
+    expect(configMock.save).not.toHaveBeenCalled();
+    expect(apiMock.getLogicalWindowSize).not.toHaveBeenCalled();
+  });
+
+  it("persists the flag and the current position while maximized, keeping the stored size", async () => {
+    const store = await freshStore();
+    configMock.config.mockReturnValue({ window: STORED });
+    apiMock.isWindowMaximized.mockResolvedValue(true);
+    apiMock.getLogicalWindowSize.mockResolvedValue({ width: 1936, height: 1048 });
+    apiMock.getLogicalWindowPosition.mockResolvedValue({ x: -8, y: -8 });
+
+    await store.flushGeometry();
+
+    expect(configMock.save).toHaveBeenCalledTimes(1);
+    expect(configMock.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        window: { width: 800, height: 600, x: -8, y: -8, maximized: true },
+      }),
+    );
+  });
+
+  it("does not write when the flag and the position are both unchanged", async () => {
+    const store = await freshStore();
+    configMock.config.mockReturnValue({ window: { ...STORED, maximized: true } });
+    apiMock.isWindowMaximized.mockResolvedValue(true);
+    apiMock.getLogicalWindowPosition.mockResolvedValue({ x: 100, y: 100 });
+
+    await store.flushGeometry();
+
+    expect(configMock.save).not.toHaveBeenCalled();
+  });
+
+  // Maximize, drag to the second monitor, quit: the flag alone would reopen the
+  // window maximized on the monitor it left.
+  it("saves the new position when a maximized window moved to another monitor", async () => {
+    const store = await freshStore();
+    configMock.config.mockReturnValue({ window: { ...STORED, maximized: true } });
+    apiMock.isWindowMaximized.mockResolvedValue(true);
+    apiMock.getLogicalWindowPosition.mockResolvedValue({ x: 1920, y: 0 });
+
+    await store.flushGeometry();
+
+    expect(configMock.save).toHaveBeenCalledTimes(1);
+    expect(configMock.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        window: { width: 800, height: 600, x: 1920, y: 0, maximized: true },
+      }),
+    );
+  });
+
+  it("persists the measured rect with the flag cleared when not maximized", async () => {
+    const store = await freshStore();
+    configMock.config.mockReturnValue({ window: { ...STORED, maximized: true } });
+    apiMock.isWindowMaximized.mockResolvedValue(false);
+    apiMock.getLogicalWindowSize.mockResolvedValue({ width: 1024, height: 768 });
+    apiMock.getLogicalWindowPosition.mockResolvedValue({ x: 300, y: 220 });
+
+    await store.flushGeometry();
+
+    expect(configMock.save).toHaveBeenCalledTimes(1);
+    expect(configMock.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        window: { width: 1024, height: 768, x: 300, y: 220, maximized: false },
+      }),
+    );
+  });
+});
+
 describe("osWindowStore flushGeometry (close-flush regression)", () => {
   it("writes the pending geometry immediately instead of waiting for the debounce", async () => {
     const store = await freshStore();
@@ -385,7 +500,9 @@ describe("osWindowStore flushGeometry (close-flush regression)", () => {
         move = cb;
         return Promise.resolve(() => {});
       });
-      configMock.config.mockReturnValue({ window: { width: 800, height: 600, x: 100, y: 100 } });
+      configMock.config.mockReturnValue({
+        window: { width: 800, height: 600, x: 100, y: 100, maximized: false },
+      });
       apiMock.getLogicalWindowSize.mockResolvedValue({ width: 800, height: 600 });
       apiMock.getLogicalWindowPosition.mockResolvedValue({ x: 640, y: 360 });
 
@@ -399,7 +516,9 @@ describe("osWindowStore flushGeometry (close-flush regression)", () => {
 
       expect(configMock.save).toHaveBeenCalledTimes(1);
       expect(configMock.save).toHaveBeenCalledWith(
-        expect.objectContaining({ window: { width: 800, height: 600, x: 640, y: 360 } }),
+        expect.objectContaining({
+          window: { width: 800, height: 600, x: 640, y: 360, maximized: false },
+        }),
       );
 
       unlisten();
@@ -418,7 +537,9 @@ describe("osWindowStore flushGeometry (close-flush regression)", () => {
         move = cb;
         return Promise.resolve(() => {});
       });
-      configMock.config.mockReturnValue({ window: { width: 800, height: 600, x: 100, y: 100 } });
+      configMock.config.mockReturnValue({
+        window: { width: 800, height: 600, x: 100, y: 100, maximized: false },
+      });
       apiMock.getLogicalWindowSize.mockResolvedValue({ width: 800, height: 600 });
       apiMock.getLogicalWindowPosition.mockResolvedValue({ x: 640, y: 360 });
 

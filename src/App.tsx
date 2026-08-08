@@ -159,6 +159,12 @@ function AppShell() {
       }
     }
 
+    // Reapplied here rather than in the hidden Rust restore path: on Windows
+    // maximizing runs ShowWindow(SW_MAXIMIZE), which has no visibility guard,
+    // so it would put an unpainted frame on screen for the whole boot and turn
+    // the reveal below into a no-op. By this point the webview has painted.
+    if (configStore.config().window.maximized) await osWindowStore.maximize();
+
     // The window was created hidden to avoid a cold-start flash; reveal it now
     // that content and the active tab are in place. Showing directly (not via
     // requestAnimationFrame, which a browser may throttle for a hidden

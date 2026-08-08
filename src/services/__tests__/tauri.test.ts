@@ -5,10 +5,14 @@ const mockWindow = {
   minimize: vi.fn(),
   startDragging: vi.fn(),
   isMaximized: vi.fn(),
+  isMinimized: vi.fn(),
   maximize: vi.fn(),
   unmaximize: vi.fn(),
   isFullscreen: vi.fn(),
   setFullscreen: vi.fn(),
+  innerSize: vi.fn(),
+  outerSize: vi.fn(),
+  scaleFactor: vi.fn(),
   onResized: vi.fn(),
   onFocusChanged: vi.fn(),
   onCloseRequested: vi.fn(),
@@ -31,8 +35,12 @@ import {
   hideWindow,
   minimizeWindow,
   startDraggingWindow,
+  maximizeWindow,
   toggleMaximizeWindow,
   isWindowMaximized,
+  isWindowMinimized,
+  isWindowFullscreen,
+  getLogicalWindowSize,
   toggleFullscreenWindow,
   onWindowFocusChange,
   onWindowCloseRequested,
@@ -149,6 +157,22 @@ describe("startDraggingWindow", () => {
   });
 });
 
+describe("maximizeWindow", () => {
+  it("maximizes without querying the current state", async () => {
+    mockWindow.maximize.mockResolvedValueOnce(undefined);
+    await maximizeWindow();
+    expect(mockWindow.maximize).toHaveBeenCalledOnce();
+    expect(mockWindow.isMaximized).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("logs a warning when maximize rejects", async () => {
+    mockWindow.maximize.mockRejectedValueOnce(new Error("denied"));
+    await maximizeWindow();
+    expect(warnSpy).toHaveBeenCalledWith("maximizeWindow failed:", expect.any(Error));
+  });
+});
+
 describe("toggleMaximizeWindow", () => {
   it("logs a warning when isMaximized rejects", async () => {
     mockWindow.isMaximized.mockRejectedValueOnce(new Error("query failed"));
@@ -185,6 +209,58 @@ describe("isWindowMaximized", () => {
     mockWindow.isMaximized.mockRejectedValueOnce(new Error("query failed"));
     await expect(isWindowMaximized()).resolves.toBe(false);
     expect(warnSpy).toHaveBeenCalledWith("isWindowMaximized failed:", expect.any(Error));
+  });
+});
+
+describe("isWindowMinimized", () => {
+  it("reports the window state", async () => {
+    mockWindow.isMinimized.mockResolvedValueOnce(true);
+    await expect(isWindowMinimized()).resolves.toBe(true);
+  });
+
+  it("warns and reports false when isMinimized rejects", async () => {
+    mockWindow.isMinimized.mockRejectedValueOnce(new Error("query failed"));
+    await expect(isWindowMinimized()).resolves.toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith("isWindowMinimized failed:", expect.any(Error));
+  });
+});
+
+describe("isWindowFullscreen", () => {
+  it("reports the window state", async () => {
+    mockWindow.isFullscreen.mockResolvedValueOnce(true);
+    await expect(isWindowFullscreen()).resolves.toBe(true);
+  });
+
+  it("warns and reports false when isFullscreen rejects", async () => {
+    mockWindow.isFullscreen.mockRejectedValueOnce(new Error("query failed"));
+    await expect(isWindowFullscreen()).resolves.toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith("isWindowFullscreen failed:", expect.any(Error));
+  });
+});
+
+describe("getLogicalWindowSize", () => {
+  // Restore applies the size with set_size, which is the inner rect; reading
+  // the outer one would re-save the shadow insets and grow the window on every
+  // Windows launch.
+  it("measures the inner size, never the outer one", async () => {
+    mockWindow.innerSize.mockResolvedValueOnce({ width: 2048, height: 1536 });
+    mockWindow.outerSize.mockResolvedValueOnce({ width: 2080, height: 1554 });
+    mockWindow.scaleFactor.mockResolvedValueOnce(2);
+
+    await expect(getLogicalWindowSize()).resolves.toEqual({ width: 1024, height: 768 });
+    expect(mockWindow.outerSize).not.toHaveBeenCalled();
+  });
+
+  it("rounds the logical size at fractional scale factors", async () => {
+    mockWindow.innerSize.mockResolvedValueOnce({ width: 1801, height: 1201 });
+    mockWindow.scaleFactor.mockResolvedValueOnce(1.5);
+    await expect(getLogicalWindowSize()).resolves.toEqual({ width: 1201, height: 801 });
+  });
+
+  it("warns and reports null when the measurement rejects", async () => {
+    mockWindow.innerSize.mockRejectedValueOnce(new Error("no window"));
+    await expect(getLogicalWindowSize()).resolves.toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith("getLogicalWindowSize failed:", expect.any(Error));
   });
 });
 

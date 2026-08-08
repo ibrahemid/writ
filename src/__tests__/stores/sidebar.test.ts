@@ -36,7 +36,7 @@ function buildConfig(overrides: Partial<WritConfig["sidebar"]> = {}): WritConfig
       ...overrides,
     },
     editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true },
-    window: { width: 800, height: 600 },
+    window: { width: 800, height: 600, maximized: false },
     keybindings: {},
     history: { max_entries: 500 },
     storage: { path: "~/.writ" },
