@@ -7,6 +7,12 @@ function btn(label: string): HTMLButtonElement {
   return b;
 }
 
+function textInput(): HTMLInputElement {
+  const i = document.createElement("input");
+  i.type = "text";
+  return i;
+}
+
 function press(target: EventTarget, key: string, shiftKey = false): KeyboardEvent {
   const e = new KeyboardEvent("keydown", { key, shiftKey, bubbles: true, cancelable: true });
   target.dispatchEvent(e);
@@ -96,6 +102,102 @@ describe("installFocusTrap", () => {
     const teardown = installFocusTrap(container);
     teardown();
     expect(document.activeElement).toBe(before);
+  });
+
+  it("marks a pointer-focused origin silent when restoring", () => {
+    const origin = btn("origin");
+    document.body.appendChild(origin);
+    origin.focus();
+    expect(origin.matches(":focus-visible")).toBe(false);
+
+    const container = document.createElement("div");
+    container.appendChild(textInput());
+    document.body.appendChild(container);
+
+    const teardown = installFocusTrap(container);
+    teardown();
+
+    expect(document.activeElement).toBe(origin);
+    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(true);
+    expect(origin.matches(":focus-visible")).toBe(true);
+  });
+
+  it("leaves a keyboard-focused origin unmarked when restoring", () => {
+    const origin = textInput();
+    document.body.appendChild(origin);
+    origin.focus();
+    expect(origin.matches(":focus-visible")).toBe(true);
+
+    const container = document.createElement("div");
+    container.appendChild(btn("inside"));
+    document.body.appendChild(container);
+
+    const teardown = installFocusTrap(container);
+    teardown();
+
+    expect(document.activeElement).toBe(origin);
+    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(false);
+  });
+
+  it("clears the silent mark on the next keydown", () => {
+    const origin = btn("origin");
+    document.body.appendChild(origin);
+    origin.focus();
+
+    const container = document.createElement("div");
+    container.appendChild(textInput());
+    document.body.appendChild(container);
+
+    const teardown = installFocusTrap(container);
+    teardown();
+    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(true);
+
+    press(origin, "ArrowDown");
+    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(false);
+  });
+
+  it("clears the silent mark when focus moves elsewhere", () => {
+    const origin = btn("origin");
+    const other = btn("other");
+    document.body.append(origin, other);
+    origin.focus();
+
+    const container = document.createElement("div");
+    container.appendChild(textInput());
+    document.body.appendChild(container);
+
+    const teardown = installFocusTrap(container);
+    teardown();
+    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(true);
+
+    other.focus();
+    expect(document.activeElement).toBe(other);
+    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(false);
+  });
+
+  it("keeps the restore quiet across repeated cycles over the same origin", () => {
+    const prior = btn("prior");
+    const origin = btn("origin");
+    document.body.append(prior, origin);
+    prior.focus();
+    origin.focus();
+    expect(origin.matches(":focus-visible")).toBe(false);
+
+    const container = document.createElement("div");
+    container.appendChild(textInput());
+    document.body.appendChild(container);
+
+    const teardownOne = installFocusTrap(container);
+    teardownOne();
+    expect(document.activeElement).toBe(origin);
+    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(true);
+
+    const teardownTwo = installFocusTrap(container);
+    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(false);
+
+    teardownTwo();
+    expect(document.activeElement).toBe(origin);
+    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(true);
   });
 
   it("falls back when previouslyFocused is null/body", () => {

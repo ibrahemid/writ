@@ -8,6 +8,10 @@
   border-radius: var(--writ-radius-1);
 }
 
+[data-writ-focus-silent][data-writ-focus-silent]:focus-visible {
+  outline: none;
+}
+
 .tab:focus-visible,
 .tab-item:focus-visible,
 .palette-item:focus-visible,

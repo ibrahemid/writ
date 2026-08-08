@@ -13,7 +13,7 @@
   background: var(--writ-surface-raised);
   border: 1px solid var(--writ-border-soft);
   border-radius: var(--writ-radius-3);
-  box-shadow: var(--writ-shadow-modal);
+  box-shadow: var(--writ-shadow-overlay);
 }
 
 .ai-overlay-header {

@@ -15,6 +15,30 @@ function isRestorable(el: Element | null): el is HTMLElement {
   return true;
 }
 
+const SILENT_ATTR = "data-writ-focus-silent";
+
+function matchesFocusVisible(el: Element | null): boolean {
+  if (!el) return false;
+  try {
+    return el.matches(":focus-visible");
+  } catch {
+    // Engine cannot evaluate :focus-visible — never suppress a ring we cannot prove is unwanted.
+    return true;
+  }
+}
+
+function restoreFocusQuietly(el: HTMLElement): void {
+  el.setAttribute(SILENT_ATTR, "");
+  const controller = new AbortController();
+  const clear = () => {
+    el.removeAttribute(SILENT_ATTR);
+    controller.abort();
+  };
+  el.addEventListener("keydown", clear, { signal: controller.signal });
+  el.addEventListener("focusout", clear, { signal: controller.signal });
+  el.focus();
+}
+
 function collectPathInerts(container: HTMLElement): HTMLElement[] {
   const inerted: HTMLElement[] = [];
   let node: HTMLElement | null = container;
@@ -38,6 +62,12 @@ export function installFocusTrap(
   opts: FocusTrapOptions = {},
 ): () => void {
   const previouslyFocused = document.activeElement;
+  // Must be read before the trap moves focus — afterwards the origin reports focus-visible.
+  // An origin still carrying the silent attribute was focused by a previous quiet restore,
+  // so its focus-visible match is synthetic and must not promote this teardown to the loud path.
+  const originWasFocusVisible =
+    matchesFocusVisible(previouslyFocused) &&
+    !(previouslyFocused instanceof Element && previouslyFocused.hasAttribute(SILENT_ATTR));
   const inertedPeers = collectPathInerts(container);
   pushModal();
   let popped = false;
@@ -90,7 +120,8 @@ export function installFocusTrap(
       popped = true;
     }
     if (isRestorable(previouslyFocused)) {
-      previouslyFocused.focus();
+      if (originWasFocusVisible) previouslyFocused.focus();
+      else restoreFocusQuietly(previouslyFocused);
     } else {
       const fallback = opts.fallbackRestore?.() ?? null;
       if (isRestorable(fallback)) fallback.focus();
