@@ -42,8 +42,10 @@ function createOsWindowStore() {
 
   async function installMaximizeSync(): Promise<() => void> {
     const unResized = await api.onWindowResized(scheduleMaximizedSync);
-    // Seeded off the cold path: the window is still hidden here and starts
-    // restored, so this must not add a round-trip ahead of the first paint.
+    // Seeded off the cold path: this runs before the window is revealed (and
+    // before a saved maximized state is reapplied), so it must not add a
+    // round-trip ahead of the first paint. The reapply emits a resize, which
+    // the listener above turns into the seeding read.
     scheduleMaximizedSync();
     return () => {
       if (maximizedTimer) {
@@ -95,22 +97,51 @@ function createOsWindowStore() {
   }
 
   async function persistGeometryNow(): Promise<void> {
+    // A minimized window reports garbage bounds (-32000 on Windows) and a
+    // fullscreen one reports the screen; neither is the geometry to restore to.
+    if (await api.isWindowMinimized()) return;
+    if (await api.isWindowFullscreen()) return;
+
+    const existing = configStore.config().window;
+
+    // While maximized the window reports the work area, not the rect the user
+    // sized, so the stored width/height stay the floating ones the next launch
+    // unmaximizes back to. The position is still worth taking: it tracks the
+    // monitor the maximized window sits on, and place_window clamps it into
+    // that monitor's work area on restore.
+    if (await api.isWindowMaximized()) {
+      const maxPos = await api.getLogicalWindowPosition();
+      const x = maxPos ? maxPos.x : (existing.x ?? null);
+      const y = maxPos ? maxPos.y : (existing.y ?? null);
+      if (existing.maximized && (existing.x ?? null) === x && (existing.y ?? null) === y) return;
+      try {
+        await configStore.save({
+          ...configStore.config(),
+          window: { ...existing, x, y, maximized: true },
+        });
+      } catch (err) {
+        console.error("[osWindowStore] failed to persist window geometry", err);
+      }
+      return;
+    }
+
     const size = await api.getLogicalWindowSize();
     if (!size) return;
     const pos = await api.getLogicalWindowPosition();
-    const existing = configStore.config().window;
     const next = {
       width: size.width,
       height: size.height,
-      x: pos ? pos.x : (existing?.x ?? null),
-      y: pos ? pos.y : (existing?.y ?? null),
+      x: pos ? pos.x : (existing.x ?? null),
+      y: pos ? pos.y : (existing.y ?? null),
+      maximized: false,
     };
     if (
       existing &&
       existing.width === next.width &&
       existing.height === next.height &&
       (existing.x ?? null) === next.x &&
-      (existing.y ?? null) === next.y
+      (existing.y ?? null) === next.y &&
+      existing.maximized === next.maximized
     ) {
       return;
     }
@@ -165,6 +196,7 @@ function createOsWindowStore() {
     reveal: api.showWindow,
     hide: api.hideWindow,
     minimize: api.minimizeWindow,
+    maximize: api.maximizeWindow,
     toggleMaximize,
     toggleFullscreen: api.toggleFullscreenWindow,
     startDragging: api.startDraggingWindow,

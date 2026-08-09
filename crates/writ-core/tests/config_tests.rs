@@ -182,6 +182,35 @@ fn window_position_omitted_from_toml_when_unset() {
 }
 
 #[test]
+fn window_maximized_defaults_to_false() {
+    let config = WritConfig::default();
+    assert!(!config.window.maximized);
+}
+
+#[test]
+fn window_maximized_missing_from_toml_defaults_to_false() {
+    let toml_str = "[window]\nwidth = 1100\nheight = 720\nx = 240\ny = 120\n";
+    let parsed: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert!(!parsed.window.maximized);
+    assert_eq!(parsed.window.x, Some(240));
+}
+
+#[test]
+fn window_maximized_round_trips_through_toml() {
+    let mut config = WritConfig::default();
+    config.window.maximized = true;
+    config.window.x = Some(240);
+    config.window.y = Some(-120);
+    let toml_str = toml::to_string(&config).expect("serialization failed");
+    let restored: WritConfig = toml::from_str(&toml_str).expect("deserialization failed");
+    assert!(restored.window.maximized);
+    assert_eq!(restored.window.width, config.window.width);
+    assert_eq!(restored.window.height, config.window.height);
+    assert_eq!(restored.window.x, Some(240));
+    assert_eq!(restored.window.y, Some(-120));
+}
+
+#[test]
 fn markdown_typography_defaults_to_true() {
     let config = WritConfig::default();
     assert!(config.editor.markdown_typography);

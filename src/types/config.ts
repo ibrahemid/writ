@@ -55,7 +55,7 @@ export interface WritConfig {
     open: boolean;
   };
   editor: { font_family: string; font_size: number; word_wrap: boolean; tab_size: number; autosave_debounce_ms: number; markdown_typography: boolean; markdown_editing: boolean };
-  window: { width: number; height: number; x?: number | null; y?: number | null };
+  window: { width: number; height: number; x?: number | null; y?: number | null; maximized: boolean };
   keybindings: Record<string, string>;
   history: { max_entries: number };
   storage: { path: string };

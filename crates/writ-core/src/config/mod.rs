@@ -209,6 +209,12 @@ pub struct WindowConfig {
     /// Last saved window y position in logical pixels. `None` until placed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub y: Option<i32>,
+    /// Whether the window was maximized at last save; restored across launches.
+    /// The width/height above stay the pre-maximize floating size, so
+    /// unmaximizing lands back at the size the user left. The x/y follow the
+    /// maximized frame instead, so the next launch reopens on the same monitor.
+    #[serde(default)]
+    pub maximized: bool,
 }
 
 impl Default for WindowConfig {
@@ -218,6 +224,7 @@ impl Default for WindowConfig {
             height: default_window_height(),
             x: None,
             y: None,
+            maximized: false,
         }
     }
 }
@@ -460,6 +467,12 @@ mod tests {
         let config: WritConfig = toml::from_str("").unwrap();
         assert_eq!(config.inbox.path, None);
         assert!(config.inbox.focus);
+    }
+
+    #[test]
+    fn missing_window_section_defaults_to_unmaximized() {
+        let config: WritConfig = toml::from_str("").unwrap();
+        assert!(!config.window.maximized);
     }
 
     #[test]
