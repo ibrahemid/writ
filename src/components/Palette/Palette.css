@@ -3,14 +3,15 @@
   inset: 0;
   background: var(--writ-overlay-scrim);
   display: flex;
+  align-items: flex-start;
   justify-content: center;
   padding-top: 96px;
   z-index: 100;
 }
 
 .palette {
-  width: 560px;
-  max-height: 440px;
+  width: min(640px, calc(100vw - 96px));
+  max-height: min(520px, calc(100vh - 176px));
   background: var(--writ-surface-raised);
   border: 1px solid var(--writ-border-soft);
   border-radius: var(--writ-radius-3);
@@ -22,9 +23,10 @@
 
 .palette-input {
   width: 100%;
-  height: 48px;
+  height: 52px;
+  flex: 0 0 auto;
   padding: 0 var(--writ-space-5);
-  font-size: 14px;
+  font-size: 16px;
   background: transparent;
   color: var(--writ-foreground-default);
   border-bottom: 1px solid var(--writ-border-soft);
@@ -37,7 +39,8 @@
 
 .palette-results {
   overflow-y: auto;
-  max-height: 380px;
+  flex: 1 1 auto;
+  min-height: 0;
   padding: var(--writ-space-2);
 }
 
@@ -69,7 +72,7 @@
 }
 
 .palette-item-label {
-  font-size: 13px;
+  font-size: var(--writ-font-size);
   color: inherit;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -77,7 +80,7 @@
 }
 
 .palette-item-desc {
-  font-size: var(--writ-font-size-xs);
+  font-size: var(--writ-font-size-sm);
   color: var(--writ-foreground-subtle);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -85,7 +88,7 @@
 }
 
 .palette-item-snippet {
-  font-size: var(--writ-font-size-xs);
+  font-size: var(--writ-font-size-sm);
   color: var(--writ-foreground-subtle);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -113,7 +116,7 @@
 
 .palette-section-label {
   padding: var(--writ-space-2) var(--writ-space-4) var(--writ-space-1);
-  font-size: 10px;
+  font-size: var(--writ-font-size-xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--writ-foreground-subtle);
@@ -132,7 +135,7 @@
 }
 
 .palette-empty-title {
-  font-size: 13px;
+  font-size: var(--writ-font-size);
   color: var(--writ-foreground-muted);
   margin-bottom: var(--writ-space-3);
 }
@@ -143,6 +146,7 @@
 }
 
 .palette-notice {
+  flex: 0 0 auto;
   padding: var(--writ-space-2) var(--writ-space-5);
   border-top: 1px solid var(--writ-border-soft);
   font-size: var(--writ-font-size-xs);
