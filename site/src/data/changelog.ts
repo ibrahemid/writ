@@ -13,12 +13,15 @@ export interface ChangelogRelease {
 export const releases: ChangelogRelease[] = [
   {
     version: "0.3.1",
-    date: "2026-08-03",
+    date: "2026-08-09",
     notes: [
       { kind: 'added', text: "a Writ menu on the Windows and Linux titlebar: open file, new tab, close tab, the command palette, and the update check, each with its shortcut." },
       { kind: 'added', text: "Windows 11 snap layouts open from the maximize button." },
       { kind: 'changed', text: "the Windows window controls follow the Windows 11 caption treatment, and the maximize button shows restore while the window is maximized." },
+      { kind: 'changed', text: "the command palette is wider with a larger input and sizes to its results; modal shadows lighten across the app." },
       { kind: 'fixed', text: "pressing the icon inside a titlebar button clicks the button instead of dragging the window." },
+      { kind: 'fixed', text: "closing the command palette no longer leaves a focus ring on the active tab." },
+      { kind: 'fixed', text: "on Windows, the window no longer grows across launches or reopens larger than the screen, and a window closed maximized reopens maximized on the same monitor." },
     ],
   },
   {
