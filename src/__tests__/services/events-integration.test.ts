@@ -46,7 +46,6 @@ vi.mock("../../services/tauri", () => ({
   }),
   openFileConfirmed: vi.fn().mockResolvedValue(undefined),
   showOpenFileDialog: vi.fn().mockResolvedValue(null),
-  saveToSource: vi.fn().mockResolvedValue(undefined),
   hideWindow: vi.fn().mockResolvedValue(undefined),
   minimizeWindow: vi.fn().mockResolvedValue(undefined),
 }));

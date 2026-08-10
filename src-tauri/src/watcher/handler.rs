@@ -81,9 +81,11 @@ pub fn start_file_watcher(
 /// Starts a recursive watcher on the workspace `root`, emitting
 /// [`WritEvent::WorkspaceChanged`] for surfaced paths.
 ///
-/// Writ never writes inside workspace directories through this path
-/// (buffer saves land in the buffers dir; save-to-source refreshes are
-/// idempotent listing reloads), so no self-write suppression is needed.
+/// Saving a buffer writes the file it was opened from, so Writ's own writes
+/// do land inside a watched workspace. They are not suppressed: the only
+/// consumer is the file index, which patches the one path in place, and an
+/// upsert of a path it already holds changes nothing. Fingerprinting every
+/// event to skip a no-op would cost a read of the file per keystroke burst.
 pub fn start_workspace_watcher(
     bus: Arc<EventBus>,
     root: PathBuf,
@@ -122,13 +124,14 @@ pub fn start_workspace_watcher(
 /// [`WritEvent::InboxFileArrived`] for qualifying files created after the
 /// watcher started (ADR-018).
 ///
-/// Writ never writes inside inbox directories (buffer saves land in the
-/// buffers dir), so no self-write suppression is needed; a user pointing
-/// the inbox at already-open files is deduplicated downstream by the
-/// open path's canonical source-path lookup.
+/// Saving a buffer writes the file it was opened from, so an inbox file the
+/// user is editing is written inside the watched tree: the ignore set is
+/// consulted to keep Writ's own saves from arriving as new files, which would
+/// reopen the tab and pull the window forward mid-keystroke.
 pub fn start_inbox_watcher(
     bus: Arc<EventBus>,
     root: PathBuf,
+    ignore_set: IgnoreSet,
 ) -> Result<WatcherHandle, Box<dyn std::error::Error>> {
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
 
@@ -147,9 +150,14 @@ pub fn start_inbox_watcher(
             match result {
                 Ok(events) => {
                     for event in events {
-                        if let Some(domain_event) =
-                            classify_inbox_event(&event.path, &root, &preexisting)
-                        {
+                        if let Some(domain_event) = classify_inbox_event(
+                            &event.path,
+                            &root,
+                            &preexisting,
+                            &ignore_set,
+                            DEFAULT_IGNORE_TTL,
+                            Instant::now(),
+                        ) {
                             bus.emit(domain_event);
                         }
                     }
@@ -202,16 +210,32 @@ fn snapshot_files(root: &Path) -> std::collections::HashSet<PathBuf> {
 /// debouncer does not distinguish create from modify, so the snapshot taken
 /// at watch start is the discriminator: an event for a path in the snapshot
 /// is a pre-existing file (possibly modified) and is suppressed (ADR-024).
+///
+/// A file Writ has just saved is its own write, not an arrival: the ignore
+/// set is keyed by full path for source writes and fingerprints the bytes, so
+/// suppression here cannot swallow someone else's edit to the same file.
 pub fn classify_inbox_event(
     path: &Path,
     root: &Path,
     preexisting: &std::collections::HashSet<PathBuf>,
+    ignore_set: &IgnoreSet,
+    ttl: Duration,
+    now: Instant,
 ) -> Option<WritEvent> {
     let metadata = std::fs::metadata(path).ok()?;
     if !metadata.is_file() {
         return None;
     }
     if !writ_core::inbox::qualifies_for_auto_open(root, path, preexisting) {
+        return None;
+    }
+    let key = path.to_string_lossy().into_owned();
+    let decision = {
+        let current_bytes = std::fs::read(path).ok();
+        let mut set = recover_poison(ignore_set.lock(), "watcher::handler::inbox_event");
+        set.decide(&key, current_bytes.as_deref(), now, ttl)
+    };
+    if decision == SuppressDecision::Suppress {
         return None;
     }
     match writ_core::file_ops::classify_path(path) {
@@ -329,6 +353,23 @@ mod tests {
 
     fn make_set() -> IgnoreSet {
         create_ignore_set()
+    }
+
+    /// Inbox classification with an empty ignore set — the case where every
+    /// write is somebody else's.
+    fn classify_inbox(
+        path: &Path,
+        root: &Path,
+        preexisting: &std::collections::HashSet<PathBuf>,
+    ) -> Option<WritEvent> {
+        classify_inbox_event(
+            path,
+            root,
+            preexisting,
+            &make_set(),
+            DEFAULT_IGNORE_TTL,
+            Instant::now(),
+        )
     }
 
     #[test]
@@ -614,7 +655,7 @@ mod tests {
         let file = dir.path().join("report.md");
         fs::write(&file, b"# done").unwrap();
 
-        match classify_inbox_event(&file, dir.path(), &preexisting) {
+        match classify_inbox(&file, dir.path(), &preexisting) {
             Some(WritEvent::InboxFileArrived { path }) => {
                 assert_eq!(path, file.to_string_lossy());
             }
@@ -632,7 +673,7 @@ mod tests {
         fs::write(&file, b"after").unwrap();
 
         assert!(
-            classify_inbox_event(&file, dir.path(), &preexisting).is_none(),
+            classify_inbox(&file, dir.path(), &preexisting).is_none(),
             "a file present at watch start must never auto-open"
         );
     }
@@ -646,7 +687,7 @@ mod tests {
         let file = nested.join("readme.md");
         fs::write(&file, b"x").unwrap();
 
-        assert!(classify_inbox_event(&file, dir.path(), &preexisting).is_none());
+        assert!(classify_inbox(&file, dir.path(), &preexisting).is_none());
     }
 
     #[test]
@@ -657,7 +698,7 @@ mod tests {
         let file = other.path().join("report.md");
         fs::write(&file, b"x").unwrap();
 
-        assert!(classify_inbox_event(&file, dir.path(), &preexisting).is_none());
+        assert!(classify_inbox(&file, dir.path(), &preexisting).is_none());
     }
 
     #[test]
@@ -668,7 +709,7 @@ mod tests {
         fs::write(&file, [0u8, 159, 146, 150]).unwrap();
 
         assert!(
-            classify_inbox_event(&file, dir.path(), &preexisting).is_none(),
+            classify_inbox(&file, dir.path(), &preexisting).is_none(),
             "non-text files must not auto-open"
         );
     }
@@ -685,7 +726,7 @@ mod tests {
         fs::write(&file, &big).unwrap();
 
         assert!(
-            classify_inbox_event(&file, dir.path(), &preexisting).is_none(),
+            classify_inbox(&file, dir.path(), &preexisting).is_none(),
             "files above the normal-open threshold must not auto-open into the inbox"
         );
     }
@@ -697,7 +738,68 @@ mod tests {
         let sub = dir.path().join("new-dir");
         fs::create_dir(&sub).unwrap();
 
-        assert!(classify_inbox_event(&sub, dir.path(), &preexisting).is_none());
+        assert!(classify_inbox(&sub, dir.path(), &preexisting).is_none());
+    }
+
+    #[test]
+    fn inbox_event_for_a_save_writ_just_made_is_suppressed() {
+        let dir = tempdir().unwrap();
+        let preexisting = std::collections::HashSet::new();
+        let file = dir.path().join("agent-output.md");
+        let bytes = b"# edited in writ";
+        fs::write(&file, bytes).unwrap();
+
+        // Saving a buffer writes the file it was opened from. Without the
+        // stamp the write reads as a new arrival, which reopens the tab and
+        // pulls the window forward on every keystroke burst.
+        let set = make_set();
+        let now = Instant::now();
+        {
+            let mut guard = set.lock().unwrap();
+            guard.record(file.to_string_lossy().into_owned(), bytes, now);
+        }
+
+        assert!(classify_inbox_event(
+            &file,
+            dir.path(),
+            &preexisting,
+            &set,
+            DEFAULT_IGNORE_TTL,
+            now
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn inbox_event_for_another_program_writing_the_same_file_surfaces() {
+        let dir = tempdir().unwrap();
+        let preexisting = std::collections::HashSet::new();
+        let file = dir.path().join("agent-output.md");
+
+        let set = make_set();
+        let now = Instant::now();
+        {
+            let mut guard = set.lock().unwrap();
+            guard.record(
+                file.to_string_lossy().into_owned(),
+                b"# edited in writ",
+                now,
+            );
+        }
+        fs::write(&file, b"# rewritten by the agent").unwrap();
+
+        assert!(
+            classify_inbox_event(
+                &file,
+                dir.path(),
+                &preexisting,
+                &set,
+                DEFAULT_IGNORE_TTL,
+                now
+            )
+            .is_some(),
+            "the stamp fingerprints bytes, so it must not swallow a real arrival"
+        );
     }
 
     #[test]
@@ -706,6 +808,6 @@ mod tests {
         let preexisting = std::collections::HashSet::new();
         let file = dir.path().join("gone.md");
 
-        assert!(classify_inbox_event(&file, dir.path(), &preexisting).is_none());
+        assert!(classify_inbox(&file, dir.path(), &preexisting).is_none());
     }
 }

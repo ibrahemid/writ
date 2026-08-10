@@ -152,24 +152,7 @@ impl AppState {
         let watcher_ignore = crate::watcher::handler::create_ignore_set();
 
         let authorized_paths = AuthorizedPaths::new();
-        let mut hydrated = 0usize;
-        for status in [
-            writ_core::buffer::document::BufferStatus::Active,
-            writ_core::buffer::document::BufferStatus::History,
-        ] {
-            if let Ok(buffers) = store.list_by_status(status) {
-                for doc in buffers {
-                    if let Some(source_path) = doc.source_path.as_deref() {
-                        if let Ok(canonical) =
-                            canonicalize_for_authorization(std::path::Path::new(source_path))
-                        {
-                            authorized_paths.record_blessed_source(canonical);
-                            hydrated += 1;
-                        }
-                    }
-                }
-            }
-        }
+        let hydrated = bless_persisted_sources(&store, &authorized_paths);
         if hydrated > 0 {
             info!(
                 hydrated,
@@ -267,6 +250,42 @@ impl AppState {
             .as_ref()
             .is_some_and(|root| std::path::Path::new(canonical_path).starts_with(root))
     }
+}
+
+/// Re-blesses the source paths of every persisted buffer, returning how many.
+///
+/// Blessing normally happens when a file is opened, in memory. Tabs outlive
+/// the process, though, and a save writes the file the buffer came from, so a
+/// restored tab has to carry its permission across the restart or the first
+/// keystroke after a relaunch fails as an unauthorized write.
+///
+/// Both the stored path and its resolved form are recorded. The stored path is
+/// what a save presents; resolving can fail outright for a file deleted while
+/// Writ was closed, and refusing there would leave that tab permanently
+/// unsavable instead of recreating the file it came from.
+pub fn bless_persisted_sources(store: &BufferStore, authorized_paths: &AuthorizedPaths) -> usize {
+    let mut hydrated = 0usize;
+    for status in [
+        writ_core::buffer::document::BufferStatus::Active,
+        writ_core::buffer::document::BufferStatus::History,
+    ] {
+        let Ok(buffers) = store.list_by_status(status) else {
+            continue;
+        };
+        for doc in buffers {
+            let Some(source_path) = doc.source_path else {
+                continue;
+            };
+            if let Ok(canonical) =
+                canonicalize_for_authorization(std::path::Path::new(&source_path))
+            {
+                authorized_paths.record_blessed_source(canonical);
+            }
+            authorized_paths.record_blessed_source(source_path);
+            hydrated += 1;
+        }
+    }
+    hydrated
 }
 
 /// Resolve the base directory for Writ's database, buffers, and config.

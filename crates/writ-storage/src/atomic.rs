@@ -18,11 +18,38 @@ use std::path::Path;
 
 use tempfile::NamedTempFile;
 
+/// Copies the destination's permission bits onto the replacement file.
+///
+/// `tempfile` creates the replacement 0600 and `persist` renames it over the
+/// destination, so a save that did not do this would narrow a 0644 config or a
+/// 0755 script to owner-only read/write the first time it was edited. Absent
+/// or unreadable metadata means there is nothing to inherit (a file being
+/// created) and leaves the temp file's own mode in place.
+///
+/// Windows is not covered: the replacement inherits the directory's ACL, and
+/// carrying the read-only attribute across would make `persist` fail.
+#[cfg(unix)]
+fn inherit_mode(target: &Path, replacement: &std::fs::File) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let Ok(metadata) = std::fs::metadata(target) else {
+        return;
+    };
+    let mode = metadata.permissions().mode() & 0o7777;
+    let _ = replacement.set_permissions(std::fs::Permissions::from_mode(mode));
+}
+
 /// Writes `bytes` to `target` such that observers see either the old
 /// content or the new content, never a partial write.
 ///
 /// The function fsyncs the temp file before rename and best-effort
-/// fsyncs the parent directory afterward on Unix targets.
+/// fsyncs the parent directory afterward on Unix targets. An existing
+/// destination's permission bits carry over to the replacement.
+///
+/// `target` is taken literally: a symlink at that path is replaced by a
+/// regular file rather than written through. Callers that mean the linked
+/// file resolve the path first — the external-file open path canonicalizes
+/// before it records `source_path`, so saves land on the real file.
 ///
 /// # Errors
 ///
@@ -41,6 +68,10 @@ pub fn write_atomic(target: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut tmp = NamedTempFile::new_in(dir)?;
     tmp.as_file_mut().write_all(bytes)?;
     tmp.as_file_mut().sync_all()?;
+
+    #[cfg(unix)]
+    inherit_mode(target, tmp.as_file());
+
     tmp.persist(target).map_err(|e| e.error)?;
 
     #[cfg(unix)]

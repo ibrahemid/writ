@@ -13,7 +13,11 @@ const NOTICES_HEADING = "# Third-party notices";
 async function findOpenNoticesBuffer(): Promise<BufferDocument | null> {
   const candidates = bufferRegistry
     .activeTabs()
-    .filter((buffer) => buffer.title === THIRD_PARTY_NOTICES_TITLE);
+    .filter(
+      // A generated listing is never file-backed, and a save writes the file a
+      // buffer came from, so a tab holding someone's file stays out of this.
+      (buffer) => buffer.source_path === null && buffer.title === THIRD_PARTY_NOTICES_TITLE,
+    );
   for (const candidate of candidates) {
     const content = await bufferRegistry.readContent(candidate.id).catch(() => null);
     if (content?.startsWith(NOTICES_HEADING)) return candidate;

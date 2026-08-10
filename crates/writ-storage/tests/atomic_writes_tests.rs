@@ -257,3 +257,36 @@ fn write_atomic_handles_large_payloads() {
     assert_eq!(read_back, payload);
     assert_eq!(count_files_in_dir(dir.path()), 1);
 }
+
+#[cfg(unix)]
+#[test]
+fn write_atomic_keeps_the_destination_mode() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().expect("tempdir");
+    let target = dir.path().join("script.sh");
+    fs::write(&target, b"#!/bin/sh\n").expect("seed failed");
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).expect("chmod failed");
+
+    writ_storage::atomic::write_atomic(&target, b"#!/bin/sh\necho hi\n").expect("atomic write");
+
+    let mode = fs::metadata(&target).expect("stat").permissions().mode() & 0o777;
+    assert_eq!(
+        mode, 0o755,
+        "a save must not narrow the file it replaces to the temp file's own mode"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn write_atomic_creates_new_files_privately() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().expect("tempdir");
+    let target = dir.path().join("fresh.txt");
+
+    writ_storage::atomic::write_atomic(&target, b"new").expect("atomic write");
+
+    let mode = fs::metadata(&target).expect("stat").permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "a file with no predecessor stays owner-only");
+}

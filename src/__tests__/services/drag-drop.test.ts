@@ -56,7 +56,6 @@ vi.mock("../../services/tauri", () => ({
     return Promise.resolve({ doc, mode: { kind: "Normal" }, size_bytes: doc.size_bytes });
   }),
   showOpenFileDialog: vi.fn().mockResolvedValue(null),
-  saveToSource: vi.fn().mockResolvedValue(undefined),
   hideWindow: vi.fn().mockResolvedValue(undefined),
   minimizeWindow: vi.fn().mockResolvedValue(undefined),
 }));

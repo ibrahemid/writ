@@ -387,6 +387,37 @@ impl BufferStore {
     /// the external file. Fails when the buffer is read-only (binary
     /// hex-view buffers must never write back to their source).
     pub fn save_to_source(&self, id: &str, content: &str) -> StorageResult<()> {
+        let doc = self.write_source_and_mirror(id, content)?;
+
+        let tx = self.conn.unchecked_transaction()?;
+        queries::update_timestamp(&tx, id)?;
+        if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
+            crate::fts::FtsIndex::new(&tx).update(id, &doc.title, content)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Persists content back to the buffer's originating file and its mirror,
+    /// **without** touching the FTS index.
+    ///
+    /// The source-backed half of the deferred-reindex path (ADR-020): autosave
+    /// writes through here on every debounce, then schedules one coalesced
+    /// [`Self::reindex_buffer`]. Both files are durable on return, exactly as
+    /// in [`Self::save_to_source`].
+    pub fn save_to_source_without_index(&self, id: &str, content: &str) -> StorageResult<()> {
+        self.write_source_and_mirror(id, content)?;
+        queries::update_timestamp(&self.conn, id)?;
+        Ok(())
+    }
+
+    /// Writes `content` to the buffer's source file and to its mirror under
+    /// `buffers_dir`, returning the buffer row both writes were resolved from.
+    ///
+    /// The source is written first: if it fails, the mirror still holds what
+    /// the file on disk holds, so the two never disagree about content Writ
+    /// failed to persist.
+    fn write_source_and_mirror(&self, id: &str, content: &str) -> StorageResult<BufferDocument> {
         let doc = queries::get_buffer(&self.conn, id)?;
         if doc.read_only {
             return Err(StorageError::Consistency {
@@ -400,13 +431,52 @@ impl BufferStore {
                 message: format!("buffer {} has no source_path", id),
             })?;
         write_atomic(Path::new(source_path), content.as_bytes())?;
+        write_atomic(&self.buffers_dir.join(&doc.filename), content.as_bytes())?;
+        Ok(doc)
+    }
+
+    /// Reads the buffer's source file when it has drifted from Writ's mirror
+    /// of it, or `None` when the two still agree.
+    ///
+    /// Reopening a file that is already open returns the existing buffer, and
+    /// the editor loads from the mirror — so without this, a file edited
+    /// elsewhere since it was opened would show Writ's stale copy, and the
+    /// next keystroke would write that copy back over the newer file. Pairs
+    /// with [`Self::refresh_mirror`], which the caller runs after stamping the
+    /// write against the watcher.
+    pub fn read_source_if_diverged(&self, id: &str) -> StorageResult<Option<Vec<u8>>> {
+        let doc = queries::get_buffer(&self.conn, id)?;
+        // A binary buffer's mirror holds the generated hex dump, not the file's
+        // bytes; the two are supposed to differ.
+        if doc.read_only {
+            return Ok(None);
+        }
+        let source_path = doc
+            .source_path
+            .as_ref()
+            .ok_or_else(|| StorageError::Consistency {
+                message: format!("buffer {} has no source_path", id),
+            })?;
+
+        let source_file = Path::new(source_path);
         let buffer_file = self.buffers_dir.join(&doc.filename);
-        write_atomic(&buffer_file, content.as_bytes())?;
+        if !source_differs_from_mirror(source_file, &buffer_file, doc.size_bytes)? {
+            return Ok(None);
+        }
+        Ok(Some(std::fs::read(source_file)?))
+    }
+
+    /// Replaces the buffer's mirror with `source`, the bytes just read from
+    /// its originating file, and reindexes it.
+    pub fn refresh_mirror(&self, id: &str, source: &[u8]) -> StorageResult<()> {
+        let doc = queries::get_buffer(&self.conn, id)?;
+        write_atomic(&self.buffers_dir.join(&doc.filename), source)?;
 
         let tx = self.conn.unchecked_transaction()?;
         queries::update_timestamp(&tx, id)?;
         if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
-            crate::fts::FtsIndex::new(&tx).update(id, &doc.title, content)?;
+            let text = String::from_utf8_lossy(source);
+            crate::fts::FtsIndex::new(&tx).update(id, &doc.title, &text)?;
         }
         tx.commit()?;
         Ok(())
@@ -606,4 +676,31 @@ impl BufferStore {
         }
         Ok(map)
     }
+}
+
+/// Whether an external file has drifted from Writ's mirror of it.
+///
+/// Sizes are compared first so the common "nothing changed" answer costs two
+/// stats. Byte comparison settles a same-size difference, but only up to
+/// [`THRESHOLD_NORMAL_BYTES`]: reading a pair of hundred-megabyte files to
+/// answer a question raised by opening a tab is not worth the stall, and a
+/// same-size edit to a file that large stays with the mirror until the tab is
+/// reopened after a close.
+fn source_differs_from_mirror(
+    source: &Path,
+    mirror: &Path,
+    size_bytes: u64,
+) -> StorageResult<bool> {
+    let source_len = std::fs::metadata(source)?.len();
+    let mirror_len = match std::fs::metadata(mirror) {
+        Ok(meta) => meta.len(),
+        Err(_) => return Ok(true),
+    };
+    if source_len != mirror_len {
+        return Ok(true);
+    }
+    if size_bytes > THRESHOLD_NORMAL_BYTES {
+        return Ok(false);
+    }
+    Ok(std::fs::read(source)? != std::fs::read(mirror).unwrap_or_default())
 }

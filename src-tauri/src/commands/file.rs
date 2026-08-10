@@ -9,7 +9,10 @@ use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use writ_core::buffer::document::BufferDocument;
 use writ_core::buffer::manager::BufferManager;
+use writ_core::events::bus::WritEvent;
 use writ_core::file_ops::{self, FileOpenMode};
+use writ_core::watcher::change_event::ExternalChange;
+use writ_storage::buffer_store::BufferStore;
 
 const ERR_UNAUTHORIZED_PATH: &str =
     "path not authorized: open files via the dialog or by dropping them onto the window";
@@ -110,6 +113,7 @@ fn open_file_classified(
         state
             .authorized_paths
             .record_blessed_source(canonical.to_string());
+        resync_open_buffer(state, &store, &existing);
         let existing_mode = file_ops::classify_file(existing.size_bytes, existing.read_only);
         return Ok(FileOpenResult {
             mode: existing_mode,
@@ -261,55 +265,58 @@ pub async fn pick_files_to_open(app: tauri::AppHandle) -> Result<Vec<String>, St
     Ok(out)
 }
 
-pub fn save_to_source_for_test(
-    state: &AppState,
-    id: String,
-    content: String,
-) -> Result<(), String> {
-    save_to_source_inner(state, id, content)
-}
-
-fn save_to_source_inner(state: &AppState, id: String, content: String) -> Result<(), String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    let doc = store.get(&id).map_err(|e| e.to_string())?;
-
-    if doc.read_only {
-        return Err(format!("buffer {} is read-only", id));
-    }
-
-    let source_path = doc
-        .source_path
-        .as_deref()
-        .ok_or_else(|| "buffer has no source_path".to_string())?;
-
-    let canonical = canonicalize_for_authorization(Path::new(source_path))
-        .map_err(|_| ERR_UNAUTHORIZED_PATH.to_string())?;
-
-    if canonical != source_path {
-        return Err(ERR_UNAUTHORIZED_PATH.to_string());
-    }
-    if !state.authorized_paths.is_blessed_source(&canonical) {
-        return Err(ERR_UNAUTHORIZED_PATH.to_string());
-    }
-
+/// Brings an already-open buffer back in line with its file on disk.
+///
+/// Reopening is how the user says "show me this file" — the CLI reopening a
+/// list of paths, the OS handing Writ a document, a drop onto the window — so
+/// disk wins over the copy Writ loaded earlier. The editor is told through the
+/// same event an external edit raises, which reloads a clean buffer and asks
+/// first when there are unsaved keystrokes to lose.
+///
+/// Best-effort: a file that cannot be read here still opens its tab with the
+/// content Writ already has.
+fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocument) {
+    let Ok(Some(source)) = store.read_source_if_diverged(&doc.id) else {
+        return;
+    };
     {
         let mut ignore = recover_poison(
             state.watcher_ignore.lock(),
-            "commands::file::save_to_source",
+            "commands::file::resync_open_buffer",
         );
-        ignore.record(doc.filename.clone(), content.as_bytes(), Instant::now());
+        ignore.record(doc.filename.clone(), &source, Instant::now());
     }
-
-    store
-        .save_to_source(&id, &content)
-        .map_err(|e| e.to_string())
+    if store.refresh_mirror(&doc.id, &source).is_err() {
+        return;
+    }
+    state.event_bus.emit(WritEvent::BufferExternal {
+        buffer_id: doc.id.clone(),
+        change: ExternalChange::Modified,
+    });
 }
 
-#[tauri::command]
-pub fn save_to_source(
-    state: State<'_, AppState>,
-    id: String,
-    content: String,
-) -> Result<(), String> {
-    save_to_source_inner(&state, id, content)
+/// Gate on writing back to a buffer's originating file.
+///
+/// Two things have to hold. The path must still resolve to itself, so a file
+/// swapped for a symlink after it was opened cannot redirect the write
+/// somewhere else. And it must be blessed — recorded when the file was opened
+/// through the dialog, a drop, the CLI, or the OS, and rehydrated at startup
+/// from the persisted buffers — so a compromised webview cannot name an
+/// arbitrary path and have Writ write it.
+///
+/// A path that no longer exists passes: a file deleted underneath an open
+/// buffer is recreated by the next save, which is what the external-edit
+/// policy promises. Nothing can be redirected in that case either, since
+/// [`write_atomic`](writ_storage::atomic::write_atomic) renames onto the
+/// literal path rather than following a dangling link.
+pub fn authorize_source_write(state: &AppState, source_path: &str) -> Result<(), String> {
+    if !state.authorized_paths.is_blessed_source(source_path) {
+        return Err(ERR_UNAUTHORIZED_PATH.to_string());
+    }
+    match canonicalize_for_authorization(Path::new(source_path)) {
+        Ok(canonical) if canonical == source_path => Ok(()),
+        Ok(_) => Err(ERR_UNAUTHORIZED_PATH.to_string()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(ERR_UNAUTHORIZED_PATH.to_string()),
+    }
 }

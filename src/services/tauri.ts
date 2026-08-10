@@ -132,10 +132,6 @@ export async function openFileConfirmed(path: string): Promise<FileOpenResult> {
   return invoke("open_file_confirmed", { path });
 }
 
-export async function saveToSource(id: string, content: string): Promise<void> {
-  return invoke("save_to_source", { id, content });
-}
-
 export async function showOpenFileDialog(): Promise<string | null> {
   const paths = await invoke<string[]>("pick_files_to_open");
   if (Array.isArray(paths) && paths.length > 0) {
