@@ -14,12 +14,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@astrojs/react": "^4.4.2",
+    "@astrojs/react": "^6.0.2",
     "@astrojs/sitemap": "^3.7.3",
     "@codemirror/autocomplete": "^6.20.1",
     "@codemirror/commands": "^6.10.3",
     "@codemirror/lang-css": "^6.3.1",
-    "@codemirror/lang-html": "^6.4.11",
+    "@codemirror/lang-html": "^6.4.12",
     "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lang-markdown": "^6.5.2",
@@ -29,22 +29,22 @@
     "@codemirror/view": "^6.43.9",
     "@lezer/common": "^1.2.3",
     "@lezer/highlight": "^1.2.3",
-    "astro": "^5.1.5",
+    "astro": "^7.2.2",
     "katex": "0.18.4",
     "mermaid": "11.16.1",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/katex": "^0.16.8",
-    "@types/react": "^18.3.28",
-    "@types/react-dom": "^18.3.7",
-    "@vitejs/plugin-react": "^4.7.0",
-    "jsdom": "^29.1.0",
-    "typescript": "^5.7.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "jsdom": "^30.0.1",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },
   "packageManager": "pnpm@10.13.1"
