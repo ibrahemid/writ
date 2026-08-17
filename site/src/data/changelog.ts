@@ -12,6 +12,15 @@ export interface ChangelogRelease {
 
 export const releases: ChangelogRelease[] = [
   {
+    version: "0.3.2",
+    date: "2026-08-18",
+    notes: [
+      { kind: 'added', text: "Arabic and right-to-left writing: each editor line takes its direction from its first strong character, so Arabic reads right-to-left and Latin left-to-right in the same document." },
+      { kind: 'added', text: "preview paragraphs, headings, lists, and tables resolve their direction the same way; code blocks stay left-to-right." },
+      { kind: 'added', text: "Arabic text renders in the platform's Arabic fonts instead of fallback glyphs." },
+    ],
+  },
+  {
     version: "0.3.1",
     date: "2026-08-09",
     notes: [

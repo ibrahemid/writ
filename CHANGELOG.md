@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.2] - 2026-08-18
+
+### Added
+
+- Arabic and right-to-left writing. Each editor line takes its direction from its first strong character, so Arabic reads right-to-left and Latin left-to-right within the same document. Preview paragraphs, headings, lists, and tables resolve their direction the same way, while code blocks stay left-to-right. Arabic text renders in the platform's Arabic fonts instead of fallback glyphs.
+
 ## [0.3.1] - 2026-08-03
 
 ### Added
