@@ -41,8 +41,11 @@
   --writ-preview-syntax-function: #7aa2f7;
   --writ-preview-syntax-number: #ff9e64;
 
-  --writ-preview-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  --writ-preview-font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", ui-monospace, monospace;
+  /* Arabic families precede the generic keywords so per-glyph fallback reaches
+     SF Arabic (current macOS), Geeza Pro (older macOS), or Noto Naskh Arabic
+     (Linux) rather than the platform default. Mirrors the app's theme.css. */
+  --writ-preview-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", system-ui, sans-serif;
+  --writ-preview-font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", ui-monospace, monospace;
 
   /* Modular type scale, major third (1.25). Base 16px. */
   --writ-preview-fs-base: 1rem;
@@ -106,6 +109,21 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Mixed-direction documents: every text block resolves its own direction from
+   its first strong character, so an Arabic paragraph reads right-to-left in an
+   otherwise left-to-right document. Deliberately not applied to pre/code, which
+   stay left-to-right. List markers and the blockquote rail stay on the left:
+   both follow the `direction` property, which plaintext does not change. */
+p,
+h1, h2, h3, h4, h5, h6,
+li,
+blockquote,
+th, td,
+figcaption,
+dt, dd {
+  unicode-bidi: plaintext;
 }
 
 ::selection {

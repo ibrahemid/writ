@@ -1,0 +1,95 @@
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+// Inter and JetBrains Mono carry no Arabic glyphs. Every font stack the app or
+// the preview resolves must therefore name an Arabic-capable family before the
+// generic keyword, or per-glyph fallback lands on the platform default.
+
+const THEME_CSS = readFileSync(resolve(process.cwd(), "src/styles/theme.css"), "utf8");
+const PREVIEW_CSS = readFileSync(
+  resolve(process.cwd(), "src-tauri/assets/preview-base.css"),
+  "utf8",
+);
+
+const ARABIC_FAMILIES = ['"SF Arabic"', '"Geeza Pro"', '"Noto Naskh Arabic"'];
+
+const STACKS: { name: string; css: string; token: string; generic: string }[] = [
+  { name: "app sans", css: THEME_CSS, token: "--writ-font-sans", generic: "system-ui" },
+  { name: "app mono", css: THEME_CSS, token: "--writ-font-mono", generic: "ui-monospace" },
+  {
+    name: "preview sans",
+    css: PREVIEW_CSS,
+    token: "--writ-preview-font-sans",
+    generic: "system-ui",
+  },
+  {
+    name: "preview mono",
+    css: PREVIEW_CSS,
+    token: "--writ-preview-font-mono",
+    generic: "ui-monospace",
+  },
+];
+
+function stackValue(css: string, token: string): string {
+  const m = new RegExp(`${token}\\s*:\\s*([^;]+);`).exec(css);
+  if (!m) throw new Error(`token ${token} not found`);
+  return m[1];
+}
+
+const BIDI_BLOCK_ELEMENTS = [
+  "p",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "li",
+  "blockquote",
+  "th",
+  "td",
+  "figcaption",
+  "dt",
+  "dd",
+];
+
+function plaintextSelectors(css: string): string[] {
+  const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const blocks = Array.from(stripped.matchAll(/([^{}]+)\{([^}]*)\}/g));
+  return blocks
+    .filter(([, , body]) => /unicode-bidi\s*:\s*plaintext/.test(body))
+    .flatMap(([, selector]) => selector.split(",").map((s) => s.replace(/\s+/g, " ").trim()))
+    .filter((s) => s.length > 0);
+}
+
+describe("Arabic font fallbacks", () => {
+  for (const { name, css, token, generic } of STACKS) {
+    it(`${name} stack names Arabic families before ${generic}`, () => {
+      const value = stackValue(css, token);
+      for (const family of ARABIC_FAMILIES) {
+        expect(value, `${token} is missing ${family}`).toContain(family);
+        expect(
+          value.indexOf(family),
+          `${family} must precede ${generic} in ${token}`,
+        ).toBeLessThan(value.indexOf(generic));
+      }
+    });
+  }
+});
+
+describe("preview automatic direction", () => {
+  const selectors = plaintextSelectors(PREVIEW_CSS);
+
+  it("resolves direction per text block", () => {
+    for (const element of BIDI_BLOCK_ELEMENTS) {
+      expect(selectors, `${element} should resolve its own direction`).toContain(element);
+    }
+  });
+
+  it("leaves code blocks left-to-right", () => {
+    expect(selectors).not.toContain("pre");
+    expect(selectors).not.toContain("code");
+    expect(selectors).not.toContain("pre code");
+  });
+});
