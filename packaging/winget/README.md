@@ -33,7 +33,7 @@ The 0.2.0 installer manifest carries the real `ProductCode` GUID, and the upstre
 
 `scripts/packaging_bump_winget.py` rewrites `PackageVersion`, `InstallerUrl`, `InstallerSha256`, `ReleaseDate`, and `ReleaseNotesUrl`. It does not touch `ProductCode`, so a new version inherits the previous version's GUID.
 
-Whether inheriting it is correct is unresolved: it depends on whether Tauri's WiX bundler mints a fresh ProductCode per version. Until that is settled, read the GUID out of the built MSI and paste it into the new manifest before opening the upstream PR. That is safe either way, and the upstream validation bot rejects a wrong one.
+Inheriting it is wrong: Tauri's WiX bundler mints a fresh ProductCode for every version (confirmed 0.3.1 -> 0.3.2). Read the GUID out of the built MSI and paste it into the new manifest before opening the upstream PR; the upstream validation bot rejects a stale one.
 
 On Windows:
 
