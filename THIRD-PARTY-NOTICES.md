@@ -10740,7 +10740,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### MIT
 
-@codemirror/autocomplete 6.20.1, @codemirror/commands 6.10.3, @codemirror/lang-angular 0.1.4, @codemirror/lang-cpp 6.0.3, @codemirror/lang-css 6.3.1, @codemirror/lang-html 6.4.11, @codemirror/lang-java 6.0.2, @codemirror/lang-javascript 6.2.5, @codemirror/lang-json 6.0.2, @codemirror/lang-less 6.0.2, @codemirror/lang-markdown 6.5.0, @codemirror/lang-php 6.0.2, @codemirror/lang-python 6.2.1, @codemirror/lang-rust 6.0.2, @codemirror/lang-sass 6.0.2, @codemirror/lang-sql 6.10.0, @codemirror/lang-vue 0.1.3, @codemirror/lang-wast 6.0.2, @codemirror/lang-xml 6.1.0, @codemirror/language 6.12.3, @codemirror/language-data 6.5.2, @codemirror/legacy-modes 6.5.2, @codemirror/lint 6.9.5, @codemirror/search 6.6.0, @codemirror/state 6.6.0, @codemirror/view 6.40.0
+@codemirror/autocomplete 6.20.3, @codemirror/commands 6.11.0, @codemirror/lang-angular 0.1.4, @codemirror/lang-cpp 6.0.3, @codemirror/lang-css 6.3.1, @codemirror/lang-html 6.4.12, @codemirror/lang-java 6.0.2, @codemirror/lang-javascript 6.2.5, @codemirror/lang-json 6.0.2, @codemirror/lang-less 6.0.2, @codemirror/lang-markdown 6.5.2, @codemirror/lang-php 6.0.2, @codemirror/lang-python 6.2.1, @codemirror/lang-rust 6.0.2, @codemirror/lang-sass 6.0.2, @codemirror/lang-sql 6.10.0, @codemirror/lang-vue 0.1.3, @codemirror/lang-wast 6.0.2, @codemirror/lang-xml 6.1.0, @codemirror/language 6.12.4, @codemirror/language-data 6.5.2, @codemirror/legacy-modes 6.5.2, @codemirror/lint 6.9.5, @codemirror/search 6.7.1, @codemirror/state 6.7.1, @codemirror/view 6.43.9
 
 ```
 MIT License
@@ -11072,7 +11072,7 @@ SOFTWARE.
 
 ### MIT
 
-seroval 1.5.1, seroval-plugins 1.5.1
+seroval 1.5.6, seroval-plugins 1.5.6
 
 ```
 MIT License Copyright (c) 2025 Alexis Munsayac <alexis.munsayac@gmail.com>
@@ -11086,7 +11086,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### MIT
 
-solid-js 1.9.12
+solid-js 1.9.14
 
 ```
 MIT License
@@ -11166,7 +11166,7 @@ THE SOFTWARE.
 
 ### OFL-1.1
 
-@fontsource/inter 5.2.8
+@fontsource/inter 5.3.0
 
 ```
 Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter) Inter-Italic[opsz,wght].ttf: Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)
@@ -11270,7 +11270,7 @@ These packages state their copyright and the licence they grant in a machine-rea
 
 ### MIT
 
-@tauri-apps/plugin-clipboard-manager 2.3.2, @tauri-apps/plugin-dialog 2.7.0, @tauri-apps/plugin-global-shortcut 2.3.1
+@tauri-apps/plugin-clipboard-manager 2.3.2, @tauri-apps/plugin-dialog 2.7.2, @tauri-apps/plugin-global-shortcut 2.3.2
 
 ```
 SPDXVersion: SPDX-2.1
