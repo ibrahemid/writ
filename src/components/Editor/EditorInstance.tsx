@@ -51,6 +51,7 @@ import { rebuildKeyMap } from "../../commands/keybindings";
 import { getExtension as languageExtension } from "../../editor/language-registry";
 import { registerBuiltinLanguages } from "../../editor/builtins";
 import { editorModeForContent } from "../../editor/large-file";
+import { autoTextDirection } from "../../editor/bidi";
 import { stripOwnedBindings } from "../../editor/keymap-filter";
 import { registerEditorCommands, OWNED_CM_COMMANDS } from "../../editor/editor-commands";
 import "./EditorInstance.css";
@@ -313,6 +314,7 @@ export default function EditorInstance(props: Props) {
       ]),
       themeCompartment.of(editorThemeFor(themeStore.polarity())),
       ...(isRestricted ? [] : [EditorView.lineWrapping]),
+      ...(isRestricted ? [] : [autoTextDirection]),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           // A reload-from-disk must never trigger a save-back (it would rewrite

@@ -67,8 +67,13 @@
   --writ-winctrl-danger-fg:      #ffffff;
   --writ-winctrl-danger-bg:      #c42b1c;
 
-  --writ-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  --writ-font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", ui-monospace, monospace;
+  /* Arabic families sit after the Latin faces and before the generic keywords:
+     Inter and JetBrains Mono carry no Arabic glyphs, so per-glyph fallback
+     reaches SF Arabic (current macOS), Geeza Pro (older macOS), or Noto Naskh
+     Arabic (Linux) before the platform default. Windows resolves through
+     Segoe UI / system-ui, which already shapes Arabic. */
+  --writ-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", system-ui, sans-serif;
+  --writ-font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", ui-monospace, monospace;
   --writ-font-size: 14px;
   --writ-editor-font-size: 14px;
   --writ-font-size-sm: 12px;
