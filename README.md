@@ -145,7 +145,7 @@ Or grab a `.pkg` or `.dmg` (macOS 12 or later), `.msi`, `.AppImage`, or `.deb` f
 
 ## Build from source
 
-Prerequisites: Rust 1.89+, Node.js 20+, pnpm 9+, and the [Tauri v2 platform prerequisites](https://tauri.app/start/prerequisites/) for your OS.
+Prerequisites: Rust 1.89+, Node.js 22.22+, pnpm 9+, and the [Tauri v2 platform prerequisites](https://tauri.app/start/prerequisites/) for your OS.
 
 ```bash
 git clone https://github.com/ibrahemid/writ.git

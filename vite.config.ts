@@ -8,6 +8,12 @@ const devPort = Number(process.env.WRIT_DEV_PORT) || 1420;
 export default defineConfig({
   plugins: [solidPlugin()],
   clearScreen: false,
+  // Pinned to the webviews Writ ships against: tauri.conf.json sets
+  // minimumSystemVersion 12.0, whose WKWebView predates Vite's default
+  // baseline target.
+  build: {
+    target: ["es2020", "edge88", "firefox78", "chrome87", "safari14"],
+  },
   server: {
     port: devPort,
     strictPort: true,
