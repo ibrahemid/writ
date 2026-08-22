@@ -12,6 +12,15 @@ export interface ChangelogRelease {
 
 export const releases: ChangelogRelease[] = [
   {
+    version: "0.3.3",
+    date: "2026-08-22",
+    notes: [
+      { kind: 'fixed', text: "edits to a file opened from disk save back to that file; since 0.3.0 they only reached Writ's internal copy." },
+      { kind: 'fixed', text: "a saved file keeps its permissions, and a file whose contents changed on disk reloads when reopened." },
+      { kind: 'changed', text: "Cmd+S saves the active tab right away; the sidebar toggle moves to Cmd+\\." },
+    ],
+  },
+  {
     version: "0.3.2",
     date: "2026-08-18",
     notes: [
