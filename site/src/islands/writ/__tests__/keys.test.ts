@@ -16,6 +16,10 @@ describe('toCmKey', () => {
     expect(toCmKey('Alt+ArrowDown')).toBe('Alt-ArrowDown');
   });
 
+  it('keeps a backslash as the key', () => {
+    expect(toCmKey('CmdOrCtrl+\\')).toBe('Mod-\\');
+  });
+
   it('keeps punctuation and Enter as the key', () => {
     expect(toCmKey('CmdOrCtrl+/')).toBe('Mod-/');
     expect(toCmKey('CmdOrCtrl+Enter')).toBe('Mod-Enter');

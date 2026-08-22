@@ -27,8 +27,12 @@ pub fn set_inbox_path_from_path(state: &AppState, raw: &Path) -> Result<String, 
         *root = Some(canonical.clone());
     }
 
-    let handle = start_inbox_watcher(state.event_bus.clone(), canonical.clone())
-        .map_err(|e| e.to_string())?;
+    let handle = start_inbox_watcher(
+        state.event_bus.clone(),
+        canonical.clone(),
+        state.watcher_ignore.clone(),
+    )
+    .map_err(|e| e.to_string())?;
     {
         let mut watcher = state.inbox_watcher.lock().map_err(|e| e.to_string())?;
         *watcher = Some(handle);

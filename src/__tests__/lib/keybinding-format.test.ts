@@ -34,6 +34,11 @@ describe("formatKeybinding", () => {
     expect(formatKeybinding("CmdOrCtrl+Shift+T", { isMac: false })).toBe("Ctrl+Shift+T");
   });
 
+  it("formats CmdOrCtrl+\\ to ⌘\\ on darwin and Ctrl+\\ elsewhere", () => {
+    expect(formatKeybinding("CmdOrCtrl+\\", { isMac: true })).toBe("⌘\\");
+    expect(formatKeybinding("CmdOrCtrl+\\", { isMac: false })).toBe("Ctrl+\\");
+  });
+
   it("preserves function key bindings unchanged", () => {
     expect(formatKeybinding("F2", { isMac: true })).toBe("F2");
     expect(formatKeybinding("F2", { isMac: false })).toBe("F2");
@@ -59,6 +64,10 @@ describe("keybindingSegments", () => {
 
   it("splits CmdOrCtrl+Shift+T into three segments on darwin", () => {
     expect(keybindingSegments("CmdOrCtrl+Shift+T", { isMac: true })).toEqual(["⌘", "⇧", "T"]);
+  });
+
+  it("splits CmdOrCtrl+\\ into modifier and key on darwin", () => {
+    expect(keybindingSegments("CmdOrCtrl+\\", { isMac: true })).toEqual(["⌘", "\\"]);
   });
 
   it("returns single segment for F2", () => {

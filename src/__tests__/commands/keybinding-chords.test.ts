@@ -52,6 +52,20 @@ describe("default keybindings", () => {
     ).toEqual([]);
   });
 
+  it("CmdOrCtrl+S is claimed by buffer.save alone", () => {
+    const owners = declaredChords().get("CmdOrCtrl+S");
+    expect(owners).toEqual(["src/App.tsx"]);
+    const app = readFileSync(resolve(SRC, "App.tsx"), "utf8");
+    expect(app).toMatch(/id:\s*"buffer\.save"[\s\S]{0,200}"CmdOrCtrl\+S"/);
+  });
+
+  it("CmdOrCtrl+\\ is claimed by sidebar.toggle alone", () => {
+    const owners = declaredChords().get("CmdOrCtrl+\\\\");
+    expect(owners).toEqual(["src/App.tsx"]);
+    const app = readFileSync(resolve(SRC, "App.tsx"), "utf8");
+    expect(app).toMatch(/id:\s*"sidebar\.toggle"[\s\S]{0,200}"CmdOrCtrl\+\\\\"/);
+  });
+
   it("CmdOrCtrl+Shift+F is claimed by search.openEverywhere alone", () => {
     const owners = declaredChords().get("CmdOrCtrl+Shift+F");
     expect(owners).toEqual(["src/App.tsx"]);

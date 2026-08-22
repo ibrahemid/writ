@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::time::Instant;
 
 use crate::fts_scheduler::{PollOutcome, FTS_REINDEX_DEBOUNCE};
@@ -74,19 +75,26 @@ pub fn get_buffer(state: State<'_, AppState>, id: String) -> Result<BufferDocume
     store.get(&id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub fn save_buffer_content(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-    content: String,
-) -> Result<(), String> {
-    {
-        let store = state.store.lock().map_err(|e| e.to_string())?;
-        let doc = store.get(&id).map_err(|e| e.to_string())?;
-        if doc.read_only {
-            return Err(format!("buffer {} is read-only", id));
-        }
+/// Writes `content` for buffer `id`, to the file the buffer came from when it
+/// came from one, and to its buffer file otherwise.
+///
+/// The destination is decided here rather than by the caller: autosave, the
+/// flush on closing a tab, and the flush on quitting all arrive through the
+/// one IPC command, and a buffer opened from disk has to reach its file
+/// through every one of them. The frontend never names a path — the row in the
+/// database does, from the authorized path it was opened with.
+///
+/// Writes and stamps immediately; the FTS reindex is deferred off the
+/// keystroke loop (ADR-020). The bytes on disk are durable on return; only
+/// search freshness lags, bounded by the debounce and the shutdown flush.
+pub fn save_buffer_content_inner(state: &AppState, id: &str, content: &str) -> Result<(), String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    let doc = store.get(id).map_err(|e| e.to_string())?;
+    if doc.read_only {
+        return Err(format!("buffer {} is read-only", id));
+    }
+
+    let Some(source_path) = doc.source_path.as_deref() else {
         {
             let mut ignore = recover_poison(
                 state.watcher_ignore.lock(),
@@ -94,13 +102,45 @@ pub fn save_buffer_content(
             );
             ignore.record(doc.filename.clone(), content.as_bytes(), Instant::now());
         }
-        // Write and stamp immediately; defer the FTS reindex off the keystroke
-        // loop (ADR-020). The disk bytes are durable on return; only search
-        // freshness is deferred, bounded by the debounce and the shutdown flush.
-        store
-            .save_content_without_index(&id, &content)
-            .map_err(|e| e.to_string())?;
+        return store
+            .save_content_without_index(id, content)
+            .map_err(|e| e.to_string());
+    };
+
+    crate::commands::file::authorize_source_write(state, source_path)?;
+    {
+        let mut ignore = recover_poison(
+            state.watcher_ignore.lock(),
+            "commands::buffer::save_buffer_content:source",
+        );
+        let bytes = content.as_bytes();
+        let now = Instant::now();
+        // Three keys for the two files this write touches, because each
+        // watcher recognizes its own: the buffers-dir watcher keys on the
+        // mirror's filename, the inbox watcher on the source's full path, and
+        // the config watcher on the config file's bare name. Missing one turns
+        // Writ's own save into an external-change event — a config reload, or
+        // an inbox arrival that reopens the tab and pulls the window forward,
+        // on every keystroke.
+        ignore.record(doc.filename.clone(), bytes, now);
+        ignore.record(source_path.to_string(), bytes, now);
+        if let Some(name) = Path::new(source_path).file_name() {
+            ignore.record(name.to_string_lossy().into_owned(), bytes, now);
+        }
     }
+    store
+        .save_to_source_without_index(id, content)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_buffer_content(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    content: String,
+) -> Result<(), String> {
+    save_buffer_content_inner(&state, &id, &content)?;
     if let Some(generation) = state.fts_scheduler.on_edit(&id) {
         spawn_deferred_reindex(app, id, generation);
     }
@@ -114,27 +154,17 @@ pub fn save_buffer_content(
 /// kilobytes of licence text that is not the user's writing, so indexing it
 /// would push their notes down every search result. `create_buffer` already
 /// indexed the title, so the tab stays findable by name.
+///
+/// Destination follows the same rule as every other save: generated documents
+/// live in scratch buffers, so in practice this only ever writes the buffers
+/// dir.
 #[tauri::command]
 pub fn save_buffer_content_unindexed(
     state: State<'_, AppState>,
     id: String,
     content: String,
 ) -> Result<(), String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    let doc = store.get(&id).map_err(|e| e.to_string())?;
-    if doc.read_only {
-        return Err(format!("buffer {} is read-only", id));
-    }
-    {
-        let mut ignore = recover_poison(
-            state.watcher_ignore.lock(),
-            "commands::buffer::save_buffer_content_unindexed",
-        );
-        ignore.record(doc.filename.clone(), content.as_bytes(), Instant::now());
-    }
-    store
-        .save_content_without_index(&id, &content)
-        .map_err(|e| e.to_string())
+    save_buffer_content_inner(&state, &id, &content)
 }
 
 /// Spawns the worker that reindexes a buffer once its edits settle. The worker

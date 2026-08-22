@@ -332,3 +332,134 @@ fn delete_source_backed_buffer_removes_buffer_copy() {
     assert!(!buffer_copy.exists());
     assert!(store.get("del-src").is_err());
 }
+
+#[test]
+fn save_to_source_without_index_writes_original_file_and_buffer_copy() {
+    let (dir, store) = setup();
+    let source_file = dir.path().join("deferred.md");
+    std::fs::write(&source_file, "# Before").unwrap();
+
+    let doc = make_source_doc("deferred-1", "deferred.md", source_file.to_str().unwrap());
+    store.open_from_path(&doc, "# Before").unwrap();
+
+    store
+        .save_to_source_without_index("deferred-1", "# After")
+        .unwrap();
+
+    assert_eq!(std::fs::read_to_string(&source_file).unwrap(), "# After");
+    let buffer_copy = dir.path().join("buffers").join(&doc.filename);
+    assert_eq!(std::fs::read_to_string(buffer_copy).unwrap(), "# After");
+}
+
+#[test]
+fn save_to_source_without_index_leaves_the_index_alone() {
+    let (dir, store) = setup();
+    let source_file = dir.path().join("indexless.md");
+    std::fs::write(&source_file, "seeded").unwrap();
+
+    let doc = make_source_doc("indexless-1", "indexless.md", source_file.to_str().unwrap());
+    store.open_from_path(&doc, "seeded").unwrap();
+
+    store
+        .save_to_source_without_index("indexless-1", "unindexed marker")
+        .unwrap();
+
+    let hits = store.search("marker").unwrap();
+    assert!(
+        hits.is_empty(),
+        "the deferred path must not reindex; the scheduler does that later"
+    );
+
+    store.reindex_buffer("indexless-1").unwrap();
+    let hits = store.search("marker").unwrap();
+    assert_eq!(hits.len(), 1, "the deferred reindex picks the write up");
+}
+
+#[test]
+fn save_to_source_without_index_refuses_a_scratch_buffer() {
+    let (_dir, store) = setup();
+    let doc = make_scratch_doc("scratch-deferred", "notes");
+    store.insert(&doc).unwrap();
+
+    assert!(store
+        .save_to_source_without_index("scratch-deferred", "content")
+        .is_err());
+}
+
+#[test]
+fn read_source_if_diverged_reports_an_edit_made_outside_writ() {
+    let (_dir, store) = setup();
+    let dir2 = TempDir::new().unwrap();
+    let source_file = dir2.path().join("shared.md");
+    std::fs::write(&source_file, "mine").unwrap();
+
+    let doc = make_source_doc("diverged-1", "shared.md", source_file.to_str().unwrap());
+    store.open_from_path(&doc, "mine").unwrap();
+
+    assert_eq!(store.read_source_if_diverged("diverged-1").unwrap(), None);
+
+    std::fs::write(&source_file, "theirs").unwrap();
+    assert_eq!(
+        store.read_source_if_diverged("diverged-1").unwrap(),
+        Some(b"theirs".to_vec())
+    );
+}
+
+#[test]
+fn read_source_if_diverged_catches_a_same_length_edit() {
+    let (_dir, store) = setup();
+    let dir2 = TempDir::new().unwrap();
+    let source_file = dir2.path().join("samelen.md");
+    std::fs::write(&source_file, "aaaa").unwrap();
+
+    let doc = make_source_doc("samelen-1", "samelen.md", source_file.to_str().unwrap());
+    store.open_from_path(&doc, "aaaa").unwrap();
+
+    std::fs::write(&source_file, "bbbb").unwrap();
+    assert_eq!(
+        store.read_source_if_diverged("samelen-1").unwrap(),
+        Some(b"bbbb".to_vec()),
+        "equal sizes still have to be compared byte for byte"
+    );
+}
+
+#[test]
+fn read_source_if_diverged_skips_a_binary_buffers_hex_view() {
+    let (_dir, store) = setup();
+    let dir2 = TempDir::new().unwrap();
+    let source_file = dir2.path().join("dump.bin");
+    std::fs::write(&source_file, [0u8, 1, 2, 3]).unwrap();
+
+    let mut doc = make_source_doc("binary-1", "dump.bin", source_file.to_str().unwrap());
+    doc.read_only = true;
+    store.open_from_path(&doc, "00000000  00 01 02 03").unwrap();
+
+    assert_eq!(
+        store.read_source_if_diverged("binary-1").unwrap(),
+        None,
+        "a hex dump is supposed to differ from the bytes it renders"
+    );
+}
+
+#[test]
+fn refresh_mirror_replaces_the_copy_and_reindexes() {
+    let (dir, store) = setup();
+    let dir2 = TempDir::new().unwrap();
+    let source_file = dir2.path().join("refresh.md");
+    std::fs::write(&source_file, "stale").unwrap();
+
+    let doc = make_source_doc("refresh-1", "refresh.md", source_file.to_str().unwrap());
+    store.open_from_path(&doc, "stale").unwrap();
+
+    store
+        .refresh_mirror("refresh-1", b"externally rewritten")
+        .unwrap();
+
+    let buffer_copy = dir.path().join("buffers").join(&doc.filename);
+    assert_eq!(
+        std::fs::read_to_string(buffer_copy).unwrap(),
+        "externally rewritten"
+    );
+    assert_eq!(store.search("externally").unwrap().len(), 1);
+    assert!(store.search("stale").unwrap().is_empty());
+}

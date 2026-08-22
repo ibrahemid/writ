@@ -75,6 +75,20 @@ export async function flushAutosave(bufferId?: string): Promise<void> {
   await Promise.all(Array.from(ids, (id) => runPendingSave(id)));
 }
 
+// Writes the buffer now whether or not an edit is pending: an explicit save is
+// a deterministic "it is on disk" action, so it must not fall through to a
+// no-op the way flushing an empty queue does. Reports through the same success
+// and error listeners as an autosave.
+export async function saveNow(bufferId: string, content: ContentSource): Promise<void> {
+  const timer = timers.get(bufferId);
+  if (timer) {
+    clearTimeout(timer);
+    timers.delete(bufferId);
+  }
+  pendingContent.set(bufferId, content);
+  await runPendingSave(bufferId);
+}
+
 async function runPendingSave(bufferId: string): Promise<void> {
   const source = pendingContent.get(bufferId);
   if (source === undefined) return;

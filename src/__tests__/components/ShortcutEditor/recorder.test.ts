@@ -40,6 +40,12 @@ describe("ShortcutRecorder", () => {
     expect(outcome).toEqual({ kind: "captured", binding: "CmdOrCtrl+N" });
   });
 
+  it("captures the backslash key as the sidebar chord", () => {
+    const recorder = new ShortcutRecorder();
+    const outcome = recorder.handle({ key: "\\", metaKey: true });
+    expect(outcome).toEqual({ kind: "captured", binding: "CmdOrCtrl+\\" });
+  });
+
   it("translates Space into the Space token", () => {
     const recorder = new ShortcutRecorder();
     const outcome = recorder.handle({ key: " ", metaKey: true });

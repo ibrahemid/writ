@@ -11,7 +11,7 @@ import type { WritConfig } from "../../types/config";
 
 const MOCK_CONFIG: WritConfig = {
   hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
-  sidebar: { toggle: "CmdOrCtrl+S", default_visible: false, position: "left", open: false },
+  sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false },
   editor: { font_family: "JetBrains Mono", font_size: 16, word_wrap: true, tab_size: 4, autosave_debounce_ms: 500, markdown_typography: true, markdown_editing: true },
   window: { width: 1200, height: 800, maximized: false },
   keybindings: {},

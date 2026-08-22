@@ -310,7 +310,6 @@ pub fn run() {
             commands::file::open_file,
             commands::file::open_file_confirmed,
             commands::file::pick_files_to_open,
-            commands::file::save_to_source,
             commands::history::list_history,
             commands::history::restore_buffer,
             commands::history::clear_history,
@@ -531,7 +530,11 @@ pub fn run() {
                     .unwrap_or_else(|e| e.into_inner())
                     .clone();
                 if let Some(root) = restored_inbox {
-                    match watcher::handler::start_inbox_watcher(state.event_bus.clone(), root) {
+                    match watcher::handler::start_inbox_watcher(
+                        state.event_bus.clone(),
+                        root,
+                        state.watcher_ignore.clone(),
+                    ) {
                         Ok(handle) => {
                             let mut slot = recover_poison(
                                 state.inbox_watcher.lock(),
