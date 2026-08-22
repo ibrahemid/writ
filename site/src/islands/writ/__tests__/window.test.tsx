@@ -20,16 +20,16 @@ function setViewportWidth(px: number) {
 }
 
 describe('WritWindow', () => {
-  it('mounts the CodeMirror editor on the default report.md buffer', () => {
+  it('mounts the CodeMirror editor on the default buffer', () => {
     const { container } = render(<WritWindow />);
-    expect(screen.getAllByTitle('report.md').length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle('meeting-notes.md').length).toBeGreaterThan(0);
     expect(container.querySelector('.cm-editor')).toBeTruthy();
     expect(screen.getByText(/tok/)).toBeTruthy();
   });
 
   it('lists the four open buffers as tabs', () => {
     render(<WritWindow />);
-    for (const name of ['report.md', 'settle.ts', 'schema.sql', 'gateway.log']) {
+    for (const name of ['meeting-notes.md', 'trip-packing.md', 'recipe.md', 'draft-email.md']) {
       expect(screen.getAllByTitle(name).length).toBeGreaterThan(0);
     }
   });
@@ -64,7 +64,8 @@ describe('WritWindow', () => {
     fireEvent.click(screen.getByText('Toggle Bold'));
     await waitFor(() => expect(container.querySelector('.wwx-save')).toBeTruthy(), { timeout: 2000 });
 
-    fireEvent.click(screen.getAllByTitle('settle.ts')[0]!);
+    // settle.ts is the one non-markdown buffer in the seed, reached from the history list.
+    fireEvent.click(screen.getByText('settle.ts'));
     openPalette();
     expect(screen.queryByText('Toggle Bold')).toBeNull();
     expect(screen.getByText('Duplicate Line')).toBeTruthy();
@@ -81,7 +82,7 @@ describe('WritWindow', () => {
 
   it('hides the preview toggle on a non-markdown buffer', () => {
     render(<WritWindow />);
-    fireEvent.click(screen.getAllByTitle('settle.ts')[0]!);
+    fireEvent.click(screen.getByText('settle.ts'));
     expect(screen.queryByTitle('Preview')).toBeNull();
   });
 

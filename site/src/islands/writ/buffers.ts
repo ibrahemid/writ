@@ -26,45 +26,89 @@ export function cmLangId(lang: BufferLang): string | null {
 
 const join = (lines: string[]): string => lines.join('\n');
 
-const reportMd = join([
-  '# Payments service — migration analysis',
+const meetingNotesMd = join([
+  '# Team sync, Tuesday',
   '',
-  'Generated for `svc-payments` at commit `a3f91c2`. Scope: move the settlement path off the legacy queue and onto the new event bus without dropping idempotency guarantees.',
+  'Present: Dana, Omar, Lucy. Twenty minutes, mostly the launch date.',
   '',
-  '## Summary',
+  '## Decisions',
   '',
-  'The settlement worker is the only consumer still bound to the legacy `rabbit:settle` queue. Everything else already reads from the bus. Cutting it over removes the last broker dependency and lets us delete the dual-write shim in `ledger/append.ts`.',
+  '- Launch moves to the 14th. Dana calls the printer today.',
+  '- One location for the photo shoot instead of two.',
   '',
-  '## Cutover checklist',
+  '## Actions',
   '',
-  '- [x] Freeze the legacy queue for new settlements',
-  '- [ ] Point the worker at the bus',
-  '- [ ] Delete the dual-write shim',
+  '- [x] Send Dana the venue quote',
+  '- [ ] Confirm the caterer headcount by Friday',
+  '- [ ] Ask Lucy for the updated slides',
+  '- [ ] Book the van for the 13th',
   '',
-  '## Settlement flow today',
+  '## Open questions',
   '',
-  '```mermaid',
-  'flowchart LR',
-  '  A[Checkout] -->|charge.authorized| B(Event bus)',
-  '  B --> C[Settlement worker]',
-  '  C -->|legacy| D[(rabbit:settle)]',
-  '  C --> E[Ledger append]',
-  '  E --> F[(Postgres)]',
-  '```',
+  'Omar wants the printing budget split out from the general line. Nobody could remember what the deposit was, so it goes on next week\'s list.',
   '',
-  'Once the worker consumes settlement events directly from the bus, node `D` disappears.',
+  '> Next sync Tuesday, same time, same room.',
+]);
+
+const tripPackingMd = join([
+  '# Lisbon, five days',
   '',
-  '## Idempotency',
+  'One carry-on. Laundry at the flat on Wednesday, so pack for three days and repeat.',
   '',
-  'Each settlement is keyed by `(account_id, charge_id)`. The dedup window $w$ must cover the worst-case redelivery interval:',
+  '## Bag',
   '',
-  '$$w \\;\\ge\\; \\max_i\\, r_i \\,+\\, \\Delta_{clock}$$',
+  '- [x] Passport and the printed booking',
+  '- [ ] Plug adapter, type F',
+  '- [ ] Charger and the short cable',
+  '- [ ] Two shirts, one jumper, one pair of shoes',
+  '- [ ] Sunscreen, the small bottle',
   '',
-  '- [x] Move the idempotency key into the message body',
-  '- [x] Read settlements from the bus',
-  '- [ ] Delete the dual-write shim',
+  '## Before leaving',
   '',
-  '> With the bus we expect at-least-once delivery, so the worker must stay safe under replay.',
+  '- [ ] Water the plants',
+  '- [ ] Bins out Thursday night',
+  '- [ ] Spare key to Sam',
+]);
+
+const recipeMd = join([
+  '# Tomato and bread soup',
+  '',
+  'Serves four. Forty minutes, most of it waiting.',
+  '',
+  '## What you need',
+  '',
+  '- 800 g ripe tomatoes, or two tins',
+  '- 250 g stale bread, crusts on',
+  '- 3 cloves of garlic',
+  '- A handful of basil',
+  '- Olive oil, salt, pepper',
+  '',
+  '## What to do',
+  '',
+  '1. Warm the oil and cook the garlic gently until it smells sweet. Do not let it brown.',
+  '2. Add the tomatoes and a cup of water. Simmer 15 minutes.',
+  '3. Tear the bread in, stir, take the pan off the heat and leave it 10 minutes.',
+  '4. Beat it with a spoon until it thickens. Basil, oil and salt at the end.',
+  '',
+  'Better the next day. Reheat it slowly and add water.',
+]);
+
+const draftEmailMd = join([
+  '# Draft, reply to the landlord',
+  '',
+  '**Subject:** Radiator in the back room',
+  '',
+  'Hi Peter,',
+  '',
+  'The radiator in the back room has not warmed up since the weekend. The others are fine, so I do not think it is the boiler. I bled it on Sunday and nothing came out.',
+  '',
+  'Can you send someone this week? I am in Thursday and Friday after 4pm, and any time Saturday.',
+  '',
+  'Thanks',
+  '',
+  '---',
+  '',
+  'Second paragraph stays short on purpose. Send it in the morning.',
 ]);
 
 const settleTs = join([
@@ -114,113 +158,68 @@ const settleTs = join([
   '}',
 ]);
 
-const schemaSql = join([
-  '-- settlement schema — svc-payments',
-  'create table settlements (',
-  '  account_id   text        not null,',
-  '  charge_id    text        not null,',
-  '  amount_minor bigint      not null,',
-  "  currency     text        not null check (currency in ('usd','eur','gbp')),",
-  '  settled_at   timestamptz not null default now(),',
-  '  primary key (account_id, charge_id)',
-  ');',
+const readingListMd = join([
+  '# Reading list',
   '',
-  'create index settlements_settled_at_idx',
-  '  on settlements (settled_at desc);',
-  '',
-  '-- backfill from the legacy ledger',
-  'insert into settlements (account_id, charge_id, amount_minor, currency)',
-  'select account_id, charge_id, amount_minor, currency',
-  'from legacy.ledger_entries',
-  "where kind = 'settlement'",
-  'on conflict (account_id, charge_id) do nothing;',
+  '- The book Lucy lent me. Bought a copy, still on the shelf.',
+  '- Two long pieces on the Lisbon earthquake, saved to the folder.',
+  '- The article Omar sent about printing costs. Skimmed, worth a second pass.',
+  '- Something about sourdough that turned out to be an advert.',
 ]);
 
-const gatewayLog = join([
-  '2026-06-25T14:02:11Z INFO  bus connected partition=3 lag=0',
-  '2026-06-25T14:02:11Z INFO  req settled account=acct_8842 charge=ch_91f amount=4200 status=ok',
-  '2026-06-25T14:02:12Z WARN  redelivery seen key=acct_8842:ch_91f within horizon',
-  '2026-06-25T14:02:12Z INFO  req settled account=acct_2210 charge=ch_77a amount=1599 status=ok',
-  '2026-06-25T14:02:13Z ERROR append failed table=settlements code=23505 duplicate_key',
-  '2026-06-25T14:02:13Z INFO  retry scheduled key=acct_2210:ch_77a in=200ms',
-  '2026-06-25T14:02:13Z INFO  req settled account=acct_5531 charge=ch_3a2 amount=8800 status=ok',
-  '2026-06-25T14:02:14Z DEBUG dedup map size=1284 horizon_ms=300000',
-  '2026-06-25T14:02:14Z INFO  req settled account=acct_9001 charge=ch_b40 amount=300 status=ok',
-  '2026-06-25T14:02:15Z WARN  unknown currency currency=chf dropped=true',
-  '2026-06-25T14:02:15Z INFO  bus lag=0 throughput=512/s',
-]);
-
-const stagingEnv = join([
-  '# svc-payments — staging',
-  'DATABASE_URL=postgres://localhost:5432/payments',
-  'BUS_BROKERS=localhost:9092',
-  'FEATURE_SETTLEMENT_BUS=true',
-  'DEDUP_HORIZON_MS=300000',
-  'LOG_LEVEL=debug',
-]);
-
-const configYaml = join([
-  'service: svc-payments',
-  'settlement:',
-  '  transport: bus',
-  '  dedup_horizon_ms: 300000',
-  '  currencies: [usd, eur, gbp]',
-  'observability:',
-  '  level: info',
-  '  exporter: otlp',
-]);
-
-const releaseHtml = join([
+const newsletterHtml = join([
   '<section style="font-family:system-ui; max-width:540px">',
-  '  <h1 style="margin:0 0 8px">Writ 1.0 is here</h1>',
-  '  <p style="color:#5a5a6a; line-height:1.5">Render Markdown, HTML, Mermaid and KaTeX the',
-  '  moment you open a file — fully offline, with every scratch searchable.</p>',
-  '  <p><a href="#" style="color:#3b5bdb">Get it for macOS, Windows or Linux →</a></p>',
+  '  <h1 style="margin:0 0 8px">Allotment newsletter, March</h1>',
+  '  <p style="color:#5a5a6a; line-height:1.5">Plot inspections are on the 12th. The water is back',
+  '  on from the first weekend, and three plots at the top end are free.</p>',
+  '  <p><a href="#" style="color:#3b5bdb">Put your name down for a plot →</a></p>',
   '</section>',
 ]);
 
 const notesMd = join([
-  '# scratch — review notes',
+  '# scratch, notes',
   '',
-  'Quick pass over teh settlement worker before we cut over.',
+  'Quick pass over teh packing list before Friday.',
   '',
-  '- recieve events from the bus, not the queue',
-  '- keep the dedup horizon seperate from the retry policy',
-  '- double-check the enviroment flags in staging',
+  '- recieve the tickets from Dana, they are not in the folder yet',
+  '- keep the receipts seperate from the travel notes',
+  '- check the enviroment tab in the camera settings before packing it',
 ]);
 
 const writ1559 = join([
-  '# scratch — retry policy',
+  '# scratch, from the call',
   '',
-  'Agent proposed the backoff for `handleSettlement`:',
+  'Numbers Dana read out, before I lose them:',
   '',
-  '- max attempts: **5**',
-  '- backoff: exponential, base `200ms`',
-  '- jitter: full',
+  '- deposit **450**, paid in January',
+  '- balance due 14 days before',
+  '- full refund up to 30 days out',
   '',
-  '> paste back into the worker once confirmed',
+  '> check this against the email',
 ]);
 
 const writ4471 = join([
-  '# scratch — auth flow',
+  '# scratch, moving day',
   '',
   '```mermaid',
-  'sequenceDiagram',
-  '  Client->>Gateway: POST /token',
-  '  Gateway->>Auth: validate',
-  '  Auth-->>Gateway: access + refresh',
-  '  Gateway-->>Client: 200 (access, refresh)',
+  'flowchart TD',
+  '  A[Keys at 9] --> B[Van loaded]',
+  '  B --> C{Lift working?}',
+  '  C -->|yes| D[Boxes up first]',
+  '  C -->|no| E[Furniture first, up the stairs]',
+  '  D --> F[Beds built by 6]',
+  '  E --> F',
   '```',
 ]);
 
 const writ3182 = join([
-  '# scratch — gradient step',
+  '# scratch, the loan',
   '',
-  'The update rule:',
+  'Monthly payment on a repayment loan:',
   '',
-  '$$\\theta_{t+1} = \\theta_t - \\eta\\,\\nabla_\\theta J(\\theta_t)$$',
+  '$$M = P\\,\\frac{r(1+r)^n}{(1+r)^n - 1}$$',
   '',
-  'with learning rate $\\eta = 0.01$ and batch size $n = 32$.',
+  'with $P = 18000$, a monthly rate $r = 0.0042$ and $n = 60$ payments.',
 ]);
 
 function buildBigLog(): string {
@@ -249,11 +248,18 @@ function buildBigLog(): string {
   return lines.join('\n');
 }
 
+// Demo seed. Keys are buffer ids and `name` is the label the window renders, so
+// the two can differ: `report.md` is the id WritWindow.tsx opens on mount and
+// falls back to, while the tab reads meeting-notes.md.
 export const BUFFERS: Record<string, BufferMeta> = {
-  'report.md': { name: 'report.md', lang: 'md' },
+  'report.md': { name: 'meeting-notes.md', lang: 'md' },
+  'trip-packing.md': { name: 'trip-packing.md', lang: 'md' },
+  'recipe.md': { name: 'recipe.md', lang: 'md' },
+  'draft-email.md': { name: 'draft-email.md', lang: 'md' },
+  'notes.md': { name: 'notes.md', lang: 'md' },
+  'reading-list.md': { name: 'reading-list.md', lang: 'md' },
+  'newsletter.html': { name: 'newsletter.html', lang: 'html' },
   'settle.ts': { name: 'settle.ts', lang: 'ts' },
-  'schema.sql': { name: 'schema.sql', lang: 'plain' },
-  'gateway.log': { name: 'gateway.log', lang: 'plain' },
   'icon-256.png': {
     name: 'icon-256.png',
     lang: 'binary',
@@ -265,26 +271,22 @@ export const BUFFERS: Record<string, BufferMeta> = {
     lang: 'huge',
     badge: 'Large file · syntax off',
   },
-  'staging.env': { name: 'staging.env', lang: 'plain' },
-  'release-email.html': { name: 'release-email.html', lang: 'html' },
-  'config.yaml': { name: 'config.yaml', lang: 'plain' },
-  'notes.md': { name: 'notes.md', lang: 'md' },
   'writ-1559': { name: 'writ-1559', lang: 'md' },
   'writ-4471': { name: 'writ-4471', lang: 'md' },
   'writ-3182': { name: 'writ-3182', lang: 'md' },
 };
 
 export const DEFAULT_CONTENTS: Record<string, string> = {
-  'report.md': reportMd,
+  'report.md': meetingNotesMd,
+  'trip-packing.md': tripPackingMd,
+  'recipe.md': recipeMd,
+  'draft-email.md': draftEmailMd,
+  'notes.md': notesMd,
+  'reading-list.md': readingListMd,
+  'newsletter.html': newsletterHtml,
   'settle.ts': settleTs,
-  'schema.sql': schemaSql,
-  'gateway.log': gatewayLog,
   'icon-256.png': '',
   'gateway-week.log': buildBigLog(),
-  'staging.env': stagingEnv,
-  'release-email.html': releaseHtml,
-  'config.yaml': configYaml,
-  'notes.md': notesMd,
   'writ-1559': writ1559,
   'writ-4471': writ4471,
   'writ-3182': writ3182,
@@ -292,21 +294,21 @@ export const DEFAULT_CONTENTS: Record<string, string> = {
 
 export const FMT: Record<'md' | 'html' | 'mermaid' | 'math', string> = {
   md: 'report.md',
-  html: 'release-email.html',
+  html: 'newsletter.html',
   mermaid: 'writ-4471',
   math: 'writ-3182',
 };
 
-export const OPEN_FILES = ['report.md', 'settle.ts', 'schema.sql', 'gateway.log'];
+export const OPEN_FILES = ['report.md', 'trip-packing.md', 'recipe.md', 'draft-email.md'];
 
 export const HISTORY: { id: string; when: string }[] = [
   { id: 'notes.md', when: '1m' },
-  { id: 'staging.env', when: '3m' },
-  { id: 'release-email.html', when: '5m' },
-  { id: 'config.yaml', when: '9m' },
-  { id: 'writ-1559', when: '12m' },
-  { id: 'writ-4471', when: '15m' },
-  { id: 'writ-3182', when: '18m' },
+  { id: 'reading-list.md', when: '4m' },
+  { id: 'newsletter.html', when: '7m' },
+  { id: 'writ-4471', when: '11m' },
+  { id: 'writ-3182', when: '16m' },
+  { id: 'settle.ts', when: '24m' },
+  { id: 'writ-1559', when: '31m' },
 ];
 
 // The nine text transforms, with the app's plain labels and descriptions and in
