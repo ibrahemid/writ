@@ -17,6 +17,7 @@ import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
 import UpdateBanner from "./components/UpdateBanner/UpdateBanner";
 import WindowProvider, { useWindow } from "./components/WindowProvider/WindowProvider";
 import { bufferRegistry } from "./stores/global/buffer-registry";
+import { formatSaveError } from "./lib/save-error";
 import { workspaceStore } from "./stores/global/workspace";
 import { inboxStore } from "./stores/global/inbox";
 import { updateStore } from "./stores/global/update";
@@ -56,6 +57,14 @@ import "./styles/global.css";
 import "./App.css";
 
 const MAIN_WINDOW_ID = 1;
+
+// A save failure names the file the user knows, never the buffer UUID.
+function bufferName(bufferId: string): string {
+  const doc = bufferRegistry.buffers().find((b) => b.id === bufferId);
+  if (!doc) return "the file";
+  const base = doc.source_path?.split(/[\\/]/).pop();
+  return base || doc.title || doc.filename;
+}
 
 async function openPendingPaths(paths: string[]) {
   if (!Array.isArray(paths)) {
@@ -444,7 +453,8 @@ function AppShell() {
         if (tabs.length === 0) return;
         const confirmed = await requestConfirm({
           title: "Close all tabs?",
-          message: `All ${tabs.length} open tab${tabs.length === 1 ? "" : "s"} will move to history. You can reopen them from the sidebar.`,
+          message:
+            "Each tab that saves moves to history, where you can reopen it. A tab that cannot save stays open.",
           confirmLabel: "Close all",
         });
         if (confirmed) void w.tabs.closeAllTabs();
@@ -601,8 +611,8 @@ function AppShell() {
     });
     unlisteners.push(unlisten4);
 
-    const offAutosaveError = onAutosaveError((bufferId) => {
-      showToast(`Autosave failed for ${bufferId}`, "error");
+    const offAutosaveError = onAutosaveError((bufferId, error) => {
+      showToast(`Couldn't save ${bufferName(bufferId)}: ${formatSaveError(error)}`, "error");
     });
     unlisteners.push(offAutosaveError);
 

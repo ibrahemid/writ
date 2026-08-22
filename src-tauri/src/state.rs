@@ -149,6 +149,20 @@ impl AppState {
             }
             Err(e) => warn!(error = %e, "storage consistency check failed"),
         }
+
+        // Reclaim the space left by superseded session snapshots before the
+        // window shows: a VACUUM needs exclusive access to the database, which
+        // only holds while nothing else is running yet.
+        match store.run_maintenance() {
+            Ok(outcome) if outcome.vacuumed => info!(
+                before_bytes = outcome.before.file_bytes(),
+                after_bytes = outcome.after.file_bytes(),
+                "reclaimed database free space at startup"
+            ),
+            Ok(_) => {}
+            Err(e) => warn!(error = %e, "database maintenance failed"),
+        }
+
         let watcher_ignore = crate::watcher::handler::create_ignore_set();
 
         let authorized_paths = AuthorizedPaths::new();

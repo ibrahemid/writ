@@ -9,6 +9,9 @@ export interface ConfirmRequest {
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  // Which button takes focus when the dialog opens. Cancel for a choice whose
+  // confirm side destroys something the user cannot get back.
+  defaultAction?: "confirm" | "cancel";
 }
 
 interface PendingConfirm extends ConfirmRequest {
@@ -38,6 +41,7 @@ export default function ConfirmDialog() {
   const win = useWindow();
   let dialogRef: HTMLDivElement | undefined;
   let confirmRef: HTMLButtonElement | undefined;
+  let cancelRef: HTMLButtonElement | undefined;
 
   createEffect(() => {
     const current = pending();
@@ -49,7 +53,9 @@ export default function ConfirmDialog() {
         return null;
       },
     });
-    requestAnimationFrame(() => confirmRef?.focus());
+    const focusTarget = () =>
+      current.defaultAction === "cancel" ? cancelRef : confirmRef;
+    requestAnimationFrame(() => focusTarget()?.focus());
     onCleanup(teardown);
   });
 
@@ -74,6 +80,7 @@ export default function ConfirmDialog() {
             </div>
             <div class="confirm-actions">
               <button
+                ref={cancelRef}
                 type="button"
                 class="confirm-button confirm-cancel"
                 onClick={() => settle(false)}

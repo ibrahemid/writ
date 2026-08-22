@@ -43,6 +43,11 @@ export default function StatusBar() {
                 "is-saved": saveStatusStore.status() === "saved",
                 "is-failed": saveStatusStore.status() === "failed",
               }}
+              title={
+                saveStatusStore.status() === "failed"
+                  ? (saveStatusStore.lastError() ?? undefined)
+                  : undefined
+              }
             >
               <span class="statusbar-dot" aria-hidden="true" />
               <span class="statusbar-label">

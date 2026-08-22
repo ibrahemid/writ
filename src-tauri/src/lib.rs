@@ -554,10 +554,10 @@ pub fn run() {
                 std::thread::sleep(std::time::Duration::from_secs(30));
                 let snapshot_error = {
                     let state = snapshot_handle.state::<AppState>();
-                    state.store.lock().ok().map(|store| {
+                    state.store.lock().ok().map(|mut store| {
                         store
                             .collect_buffer_contents()
-                            .and_then(|contents| store.write_session_snapshot(&contents, false))
+                            .and_then(|contents| store.write_session_snapshot_if_changed(&contents))
                     })
                 };
                 if let Some(Err(e)) = snapshot_error {

@@ -4,11 +4,12 @@ import { render, cleanup } from "@solidjs/testing-library";
 const fixtures = await vi.hoisted(async () => {
   const { createSignal } = await import("solid-js");
   const [status, setStatus] = createSignal<"idle" | "saved" | "failed">("idle");
-  return { status, setStatus };
+  const [lastError, setLastError] = createSignal<string | null>(null);
+  return { status, setStatus, lastError, setLastError };
 });
 
 vi.mock("../../stores/global/save-status", () => ({
-  saveStatusStore: { status: fixtures.status },
+  saveStatusStore: { status: fixtures.status, lastError: fixtures.lastError },
 }));
 
 vi.mock("../../commands/registry", () => ({
@@ -52,6 +53,7 @@ import StatusBar from "../../components/Editor/StatusBar";
 describe("StatusBar persistent live region (#50)", () => {
   afterEach(() => {
     fixtures.setStatus("idle");
+    fixtures.setLastError(null);
     cleanup();
   });
 
@@ -82,5 +84,14 @@ describe("StatusBar persistent live region (#50)", () => {
     const pill = container.querySelector<HTMLElement>(".statusbar-save")!;
     expect(pill).not.toBeNull();
     expect(pill.classList.contains("is-failed")).toBe(true);
+  });
+
+  it("carries the failure reason on the pill without lengthening the label", () => {
+    const { container } = render(() => <StatusBar />);
+    fixtures.setStatus("failed");
+    fixtures.setLastError("path not authorized");
+    const pill = container.querySelector<HTMLElement>(".statusbar-save")!;
+    expect(pill.getAttribute("title")).toBe("path not authorized");
+    expect(pill.querySelector(".statusbar-label")!.textContent).toBe("save failed");
   });
 });

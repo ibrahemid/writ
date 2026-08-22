@@ -5,6 +5,7 @@ use uuid::Uuid;
 use writ_core::recovery::{resolve_recovery, RecoveredBuffer, RecoveryResolution, MAX_SNAPSHOTS};
 
 use crate::errors::StorageResult;
+use crate::maintenance::checkpoint_truncate;
 
 /// A point-in-time snapshot of Writ's session state.
 pub struct SessionSnapshot {
@@ -43,6 +44,11 @@ impl<'a> SnapshotManager<'a> {
             params![id, state_str, is_clean_int],
         )?;
         self.prune_old_snapshots()?;
+        // Pruning frees pages inside the write-ahead log, not the database
+        // file; without a checkpoint the log keeps every superseded snapshot.
+        if let Err(e) = checkpoint_truncate(self.conn) {
+            tracing::warn!(error = %e, "wal checkpoint after snapshot prune failed");
+        }
         Ok(())
     }
 

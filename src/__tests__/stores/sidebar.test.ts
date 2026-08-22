@@ -11,7 +11,7 @@ function hit(id: string) {
 }
 
 vi.mock("../../services/autosave", () => ({
-  flushAutosave: vi.fn().mockResolvedValue(undefined),
+  flushAutosave: vi.fn().mockResolvedValue({ ok: true, failures: [] }),
 }));
 
 import { createSidebarStore, type SidebarStore } from "../../stores/window/sidebar-store";
@@ -202,6 +202,7 @@ describe("sidebar-store (per-window factory)", () => {
       const order: string[] = [];
       mockedFlush.mockImplementationOnce(async () => {
         order.push("flush");
+        return { ok: true, failures: [] };
       });
       mockedSearch.mockImplementationOnce(async () => {
         order.push("search");

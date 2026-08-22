@@ -23,6 +23,7 @@
 //! - [`hotkey`]: platform-neutral chord representation and parser.
 //! - [`inbox`]: watch-inbox auto-open policy (ADR-018).
 //! - [`link`]: external-link allowlist policy (ADR-025).
+//! - [`maintenance`]: database bloat policy driving startup `VACUUM`.
 //! - [`prompt`]: prompt-document helpers — token estimation, stripping,
 //!   placeholders (ADR-015).
 //! - [`recovery`]: crash-recovery policy types and resolution logic.
@@ -57,6 +58,8 @@ pub mod hotkey;
 pub mod inbox;
 /// External-link allowlist policy — ADR-025.
 pub mod link;
+/// Database bloat policy driving the startup vacuum.
+pub mod maintenance;
 /// Prompt construction and endpoint policy for opt-in text rewriting.
 pub mod polish;
 /// Preview surface types and content-type renderer registry — ADR-009.

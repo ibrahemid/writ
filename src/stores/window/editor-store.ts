@@ -8,6 +8,7 @@ import {
   flushAutosave as flushAutosaveService,
   saveNow as saveNowService,
   type ContentSource,
+  type SaveResult,
 } from "../../services/autosave";
 import {
   detectLanguage as detectLanguageService,
@@ -26,6 +27,8 @@ export type ApplyEditResult =
   | { applied: false; reason: "no-active-view" | "transform-error"; error?: unknown };
 
 export type EditorStore = ReturnType<typeof createEditorStore>;
+
+const NOTHING_TO_SAVE: SaveResult = { ok: true, failures: [] };
 
 export function createEditorStore() {
   const [cursorLine, setCursorLine] = createSignal(1);
@@ -173,7 +176,7 @@ export function createEditorStore() {
     cancelAutosaveService(bufferId);
   }
 
-  function flushAutosave(bufferId?: string): Promise<void> {
+  function flushAutosave(bufferId?: string): Promise<SaveResult> {
     return flushAutosaveService(bufferId);
   }
 
@@ -181,11 +184,11 @@ export function createEditorStore() {
   // no edit is pending, so the keystroke always means "it is on disk now". A
   // binary buffer is skipped: it opens read-only and its view holds a decoded
   // rendering, never the bytes to write back.
-  function saveActiveBuffer(): Promise<void> {
+  function saveActiveBuffer(): Promise<SaveResult> {
     const bufferId = currentBufferId();
     const view = activeView;
-    if (bufferId === null || view === null) return Promise.resolve();
-    if (largeFileMode()?.kind === "Binary") return Promise.resolve();
+    if (bufferId === null || view === null) return Promise.resolve(NOTHING_TO_SAVE);
+    if (largeFileMode()?.kind === "Binary") return Promise.resolve(NOTHING_TO_SAVE);
     return saveNowService(bufferId, () => view.state.doc.toString());
   }
 

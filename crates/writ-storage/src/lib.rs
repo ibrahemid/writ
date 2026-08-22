@@ -16,6 +16,7 @@
 //! - [`consistency`]: startup checks that reconcile the database with
 //!   the on-disk buffer directory.
 //! - [`fts`]: FTS5 indexing and search over buffer content.
+//! - [`maintenance`]: WAL checkpointing and freelist reclamation.
 //! - [`recovery`]: session snapshots and dirty-shutdown detection.
 //! - [`errors`]: crate-wide [`errors::StorageError`] /
 //!   [`errors::StorageResult`].
@@ -42,6 +43,8 @@ pub mod fts;
 pub mod inbox_store;
 /// Per-buffer preview layout persistence (ADR-009).
 pub mod layout_state;
+/// WAL checkpointing and freelist reclamation.
+pub mod maintenance;
 /// Session snapshots and dirty-shutdown detection.
 pub mod recovery;
 /// On-demand content grep over the workspace folder (ADR-026).
