@@ -17,7 +17,7 @@ import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
 import UpdateBanner from "./components/UpdateBanner/UpdateBanner";
 import WindowProvider, { useWindow } from "./components/WindowProvider/WindowProvider";
 import { bufferRegistry } from "./stores/global/buffer-registry";
-import { formatSaveError } from "./stores/global/save-status";
+import { formatSaveError } from "./lib/save-error";
 import { workspaceStore } from "./stores/global/workspace";
 import { inboxStore } from "./stores/global/inbox";
 import { updateStore } from "./stores/global/update";
@@ -453,7 +453,8 @@ function AppShell() {
         if (tabs.length === 0) return;
         const confirmed = await requestConfirm({
           title: "Close all tabs?",
-          message: `All ${tabs.length} open tab${tabs.length === 1 ? "" : "s"} will move to history. You can reopen them from the sidebar.`,
+          message:
+            "Each tab that saves moves to history, where you can reopen it. A tab that cannot save stays open.",
           confirmLabel: "Close all",
         });
         if (confirmed) void w.tabs.closeAllTabs();

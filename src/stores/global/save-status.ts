@@ -1,17 +1,11 @@
 import { createSignal, createRoot } from "solid-js";
 import { onAutosaveError, onAutosaveSuccess } from "../../services/autosave";
+import { formatSaveError } from "../../lib/save-error";
 
 // Singleton — app-global, not window-scoped (ADR-009 E3).
 // Autosave runs once for the whole app; this status mirrors that single pipeline.
 
 export type SaveStatus = "idle" | "saved" | "failed";
-
-// Tauri rejects IPC with a plain string; a thrown Error carries its message.
-export function formatSaveError(error: unknown): string {
-  const text = error instanceof Error ? error.message : String(error ?? "");
-  const trimmed = text.trim();
-  return trimmed.length > 0 ? trimmed : "unknown error";
-}
 
 const SAVED_VISIBLE_MS = 1200;
 

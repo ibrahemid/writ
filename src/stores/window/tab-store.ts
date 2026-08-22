@@ -1,6 +1,9 @@
 import { createSignal } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
 import type { BufferRegistry } from "../global/buffer-registry";
+import type { SaveFailure } from "../../services/autosave";
+import { formatSaveError } from "../../lib/save-error";
+import { requestConfirm } from "../../components/ConfirmDialog/ConfirmDialog";
 
 export type TabStore = ReturnType<typeof createTabStore>;
 
@@ -30,7 +33,25 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
     return doc;
   }
 
-  async function closeTab(id: string): Promise<void> {
+  // A buffer on a volume that never accepts a write would otherwise hold its
+  // tab open for the rest of the session. Name what went wrong and let the user
+  // decide, with the safe answer focused.
+  async function confirmDiscard(title: string, message: string): Promise<boolean> {
+    return requestConfirm({
+      title,
+      message,
+      confirmLabel: "Close and lose changes",
+      cancelLabel: "Keep open",
+      danger: true,
+      defaultAction: "cancel",
+    });
+  }
+
+  function bufferTitle(id: string): string {
+    return registry.buffers().find((b) => b.id === id)?.title ?? id;
+  }
+
+  function selectSurvivor(id: string) {
     // Move the selection to the surviving tab BEFORE mutating buffer status.
     // closeBuffer flips the closed buffer to history, which synchronously
     // re-runs the active-buffer memo; if activeTabId still pointed at the
@@ -40,16 +61,48 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
     // iframe hard-freezes the macOS webview. Reselecting first keeps the
     // transition active->next (src navigation) or active->null only when no
     // tab survives (a single clean teardown), both safe.
-    if (activeTabId() === id) {
-      const remaining = registry.activeTabs().filter((b) => b.id !== id);
-      setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
-    }
-    await registry.closeBuffer(id);
+    if (activeTabId() !== id) return;
+    const remaining = registry.activeTabs().filter((b) => b.id !== id);
+    setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
+  }
+
+  function reselectRefused(id: string) {
     // The registry refuses to close a buffer whose text could not be written.
     // Put the user back on the tab that still holds it.
     if (registry.activeTabs().some((b) => b.id === id)) {
       setActiveTabId(id);
     }
+  }
+
+  async function discardFailed(ids: string[], failures: SaveFailure[]): Promise<void> {
+    if (ids.length === 0) return;
+    const names = ids.map(bufferTitle);
+    const discard =
+      ids.length === 1
+        ? await confirmDiscard(
+            `Couldn't save ${names[0]}`,
+            `${formatSaveError(failures.find((f) => f.bufferId === ids[0])?.error)}. Closing the tab discards the unsaved text.`,
+          )
+        : await confirmDiscard(
+            `Couldn't save ${ids.length} tabs`,
+            `${names.join(", ")}\n\nClosing them discards the unsaved text.`,
+          );
+    if (!discard) return;
+    if (ids.length === 1) {
+      selectSurvivor(ids[0]);
+      await registry.closeBuffer(ids[0], { discard: true });
+    } else {
+      await registry.closeBuffers(ids, { discard: true });
+    }
+  }
+
+  async function closeTab(id: string): Promise<void> {
+    selectSurvivor(id);
+    const outcome = await registry.closeBuffer(id);
+    if (outcome.closed) return;
+    reselectRefused(id);
+    await discardFailed([id], outcome.failures);
+    reselectRefused(id);
   }
 
   async function closeOtherTabs(keepId: string): Promise<void> {
@@ -58,7 +111,8 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
     // Reselect the surviving tab first for the same reason as closeTab: a
     // transient null active-buffer would recreate the preview iframe.
     setActiveTabId(keepId);
-    await registry.closeBuffers(toClose.map((b) => b.id));
+    const outcome = await registry.closeBuffers(toClose.map((b) => b.id));
+    await discardFailed(outcome.failedIds, outcome.failures);
   }
 
   async function closeAllTabs(): Promise<void> {
@@ -67,7 +121,8 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
       setActiveTabId(null);
       return;
     }
-    await registry.closeBuffers(toClose.map((b) => b.id));
+    const outcome = await registry.closeBuffers(toClose.map((b) => b.id));
+    await discardFailed(outcome.failedIds, outcome.failures);
     const remaining = registry.activeTabs();
     setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
   }

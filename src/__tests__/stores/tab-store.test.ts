@@ -24,6 +24,14 @@ function mockBuffer(overrides: Partial<BufferDocument> = {}): BufferDocument {
   };
 }
 
+const confirmMock = vi.hoisted(() =>
+  vi.fn((_request: ConfirmRequest) => Promise.resolve(false)),
+);
+
+vi.mock("../../components/ConfirmDialog/ConfirmDialog", () => ({
+  requestConfirm: confirmMock,
+}));
+
 vi.mock("../../services/tauri", () => ({
   createBuffer: vi.fn().mockImplementation(() => Promise.resolve(mockBuffer())),
   listActiveBuffers: vi.fn().mockResolvedValue([]),
@@ -49,6 +57,7 @@ vi.mock("../../services/tauri", () => ({
   previewClose: vi.fn().mockResolvedValue(undefined),
 }));
 
+import type { ConfirmRequest } from "../../components/ConfirmDialog/ConfirmDialog";
 import { createTabStore } from "../../stores/window/tab-store";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { debouncedSave, cancelAutosave } from "../../services/autosave";
@@ -67,6 +76,7 @@ describe("tabStore (per-window factory)", () => {
     callLog.length = 0;
     mockedApi.listActiveBuffers.mockResolvedValue([]);
     mockedApi.listHistory.mockResolvedValue([]);
+    confirmMock.mockImplementation(() => Promise.resolve(false));
     for (const b of bufferRegistry.activeTabs()) cancelAutosave(b.id);
     for (const b of bufferRegistry.historyList()) cancelAutosave(b.id);
     await bufferRegistry.load();
@@ -161,10 +171,71 @@ describe("tabStore (per-window factory)", () => {
 
       await tabs.closeTab(unsaved.id);
 
+      expect(confirmMock).toHaveBeenCalledOnce();
+      expect(confirmMock.mock.calls[0][0]).toMatchObject({
+        title: `Couldn't save ${unsaved.title}`,
+        confirmLabel: "Close and lose changes",
+        cancelLabel: "Keep open",
+        defaultAction: "cancel",
+      });
       expect(mockedApi.closeBuffer).not.toHaveBeenCalled();
       expect(bufferRegistry.activeTabs().map((b) => b.id)).toEqual([first.id, unsaved.id]);
       expect(tabs.activeTabId()).toBe(unsaved.id);
       cancelAutosave(unsaved.id);
+    });
+
+    it("keeps the tab open while a failing write is still in flight", async () => {
+      // The write has already left the queue, so a close that only looked at
+      // the queue would report success and take the text with it.
+      const tabs = freshTabStore();
+      await tabs.createTab();
+      const unsaved = await tabs.createTab();
+      let rejectWrite: ((reason: Error) => void) | undefined;
+      mockedApi.saveBufferContent.mockImplementationOnce(
+        () => new Promise((_resolve, reject) => { rejectWrite = reject; }),
+      );
+      mockedApi.saveBufferContent.mockImplementation(() =>
+        Promise.reject(new Error("disk full")),
+      );
+      debouncedSave(unsaved.id, "work in progress", 0);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      expect(rejectWrite).toBeDefined();
+
+      const closing = tabs.closeTab(unsaved.id);
+      await Promise.resolve();
+      rejectWrite!(new Error("disk full"));
+      await closing;
+
+      expect(mockedApi.closeBuffer).not.toHaveBeenCalled();
+      expect(bufferRegistry.activeTabs().map((b) => b.id)).toContain(unsaved.id);
+      expect(tabs.activeTabId()).toBe(unsaved.id);
+      cancelAutosave(unsaved.id);
+      mockedApi.saveBufferContent.mockReset();
+      mockedApi.saveBufferContent.mockImplementation(async (id: string, content: string) => {
+        callLog.push(`saveBufferContent:${id}:${content}`);
+      });
+    });
+
+    it("closes the tab when the user chooses to lose the changes", async () => {
+      // Without this the tab is stuck for the rest of the session on a volume
+      // that never accepts a write.
+      const tabs = freshTabStore();
+      const first = await tabs.createTab();
+      const unsaved = await tabs.createTab();
+      mockedApi.saveBufferContent.mockRejectedValue(new Error("disk full"));
+      debouncedSave(unsaved.id, "work in progress", 0);
+      confirmMock.mockImplementation(() => Promise.resolve(true));
+
+      await tabs.closeTab(unsaved.id);
+
+      expect(mockedApi.closeBuffer).toHaveBeenCalledWith(unsaved.id);
+      expect(bufferRegistry.activeTabs().map((b) => b.id)).toEqual([first.id]);
+      expect(tabs.activeTabId()).toBe(first.id);
+      expect(mockedApi.saveBufferContent).toHaveBeenCalledTimes(1);
+      mockedApi.saveBufferContent.mockReset();
+      mockedApi.saveBufferContent.mockImplementation(async (id: string, content: string) => {
+        callLog.push(`saveBufferContent:${id}:${content}`);
+      });
     });
   });
 
@@ -207,9 +278,43 @@ describe("tabStore (per-window factory)", () => {
       await tabs.closeAllTabs();
 
       expect(mockedApi.closeBuffers).toHaveBeenCalledWith([first.id]);
+      expect(confirmMock).toHaveBeenCalledOnce();
       expect(bufferRegistry.activeTabs().map((b) => b.id)).toEqual([unsaved.id]);
       expect(tabs.activeTabId()).toBe(unsaved.id);
       cancelAutosave(unsaved.id);
+    });
+
+    it("closes the rest and offers one choice for the tabs that failed", async () => {
+      const tabs = freshTabStore();
+      const clean = await tabs.createTab();
+      const stuckA = await tabs.createTab();
+      const stuckB = await tabs.createTab();
+      mockedApi.saveBufferContent.mockImplementation(async (id: string, content: string) => {
+        if (id === stuckA.id || id === stuckB.id) throw new Error("disk full");
+        callLog.push(`saveBufferContent:${id}:${content}`);
+      });
+      debouncedSave(stuckA.id, "a", 0);
+      debouncedSave(stuckB.id, "b", 0);
+      confirmMock.mockImplementation(() => Promise.resolve(true));
+
+      await tabs.closeAllTabs();
+
+      expect(mockedApi.closeBuffers).toHaveBeenNthCalledWith(1, [clean.id]);
+      expect(confirmMock).toHaveBeenCalledOnce();
+      expect(confirmMock.mock.calls[0][0]).toMatchObject({
+        title: "Couldn't save 2 tabs",
+        confirmLabel: "Close and lose changes",
+        cancelLabel: "Keep open",
+      });
+      expect(confirmMock.mock.calls[0][0].message).toContain(stuckA.title);
+      expect(confirmMock.mock.calls[0][0].message).toContain(stuckB.title);
+      expect(mockedApi.closeBuffers).toHaveBeenNthCalledWith(2, [stuckA.id, stuckB.id]);
+      expect(bufferRegistry.activeTabs()).toEqual([]);
+      expect(tabs.activeTabId()).toBeNull();
+      mockedApi.saveBufferContent.mockReset();
+      mockedApi.saveBufferContent.mockImplementation(async (id: string, content: string) => {
+        callLog.push(`saveBufferContent:${id}:${content}`);
+      });
     });
   });
 

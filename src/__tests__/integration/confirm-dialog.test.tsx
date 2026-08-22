@@ -94,6 +94,22 @@ describe("ConfirmDialog", () => {
     void second;
   });
 
+  it("focuses cancel when asked for it", async () => {
+    const container = mountShell();
+    render(() => <ConfirmDialog />, { container });
+
+    requestConfirm({
+      title: "Couldn't save notes.md",
+      message: "disk full. Closing the tab discards the unsaved text.",
+      confirmLabel: "Close and lose changes",
+      cancelLabel: "Keep open",
+      defaultAction: "cancel",
+    });
+    await new Promise<void>((r) => setTimeout(r, 50));
+
+    expect(document.activeElement).toBe(document.querySelector(".confirm-cancel"));
+  });
+
   it("applies danger styling when requested", async () => {
     const container = mountShell();
     render(() => <ConfirmDialog />, { container });
