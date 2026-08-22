@@ -1,7 +1,7 @@
 # Maintainer: ibrahemid <ibrahemid@gmail.com>
 pkgname=writ-bin
 _pkgname=writ
-pkgver=0.3.2
+pkgver=0.3.3
 pkgrel=1
 pkgdesc="Lightweight, always-ready text editor for developers"
 arch=('x86_64')
@@ -15,7 +15,7 @@ options=('!strip')
 source=("${_pkgname}-${pkgver}.AppImage::${url}/releases/download/v${pkgver}/Writ_${pkgver}_amd64.AppImage"
         "LICENSE-${pkgver}::${url}/raw/v${pkgver}/LICENSE")
 noextract=("${_pkgname}-${pkgver}.AppImage")
-sha256sums=('07682f522eb11a1a1d31c2350b7eff5e6c1a07737bd0f6d3d576672328e0bb09'
+sha256sums=('5bb2800a873ee46a262d31e9cbd31858acb820512465c7cd1ef804d8e4451b77'
             'SKIP')
 
 prepare() {

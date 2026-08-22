@@ -1,6 +1,6 @@
 cask "writ" do
-  version "0.3.2"
-  sha256 "1e522c45ad68fb7c973385d70fea224b1a111dfbf0214c6be3651d599a87c999"
+  version "0.3.3"
+  sha256 "d2c61990130b7b2d8252b99881310924f68b1b9622a986d67d142b52c7bbbb86"
 
   url "https://github.com/ibrahemid/writ/releases/download/v#{version}/Writ_#{version}_universal.pkg",
       verified: "github.com/ibrahemid/writ/"
