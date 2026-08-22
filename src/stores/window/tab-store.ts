@@ -45,6 +45,11 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
       setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
     }
     await registry.closeBuffer(id);
+    // The registry refuses to close a buffer whose text could not be written.
+    // Put the user back on the tab that still holds it.
+    if (registry.activeTabs().some((b) => b.id === id)) {
+      setActiveTabId(id);
+    }
   }
 
   async function closeOtherTabs(keepId: string): Promise<void> {
@@ -63,7 +68,8 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
       return;
     }
     await registry.closeBuffers(toClose.map((b) => b.id));
-    setActiveTabId(null);
+    const remaining = registry.activeTabs();
+    setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
   }
 
   async function restoreFromHistory(id: string): Promise<void> {

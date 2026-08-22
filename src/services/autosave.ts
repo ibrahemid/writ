@@ -10,6 +10,30 @@ type AutosaveSuccessListener = (bufferId: string) => void;
 // at flush time rather than a value captured keystrokes earlier (ADR-020).
 export type ContentSource = string | (() => string);
 
+export interface SaveFailure {
+  bufferId: string;
+  error: unknown;
+}
+
+// A save reports its outcome instead of rejecting: every caller awaits it on a
+// path (tab close, window close, search) that must keep running when a write
+// fails, and the one thing they all need is whether the text reached disk.
+export interface SaveResult {
+  ok: boolean;
+  failures: SaveFailure[];
+}
+
+const SAVE_OK: SaveResult = { ok: true, failures: [] };
+
+function saveFailed(bufferId: string, error: unknown): SaveResult {
+  return { ok: false, failures: [{ bufferId, error }] };
+}
+
+function mergeResults(results: SaveResult[]): SaveResult {
+  const failures = results.flatMap((r) => r.failures);
+  return { ok: failures.length === 0, failures };
+}
+
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 const pendingContent = new Map<string, ContentSource>();
 const errorListeners = new Set<AutosaveErrorListener>();
@@ -56,7 +80,7 @@ export function cancelAutosave(bufferId: string) {
   pendingContent.delete(bufferId);
 }
 
-export async function flushAutosave(bufferId?: string): Promise<void> {
+export async function flushAutosave(bufferId?: string): Promise<SaveResult> {
   if (bufferId !== undefined) {
     const timer = timers.get(bufferId);
     if (timer) {
@@ -64,34 +88,35 @@ export async function flushAutosave(bufferId?: string): Promise<void> {
       timers.delete(bufferId);
     }
     if (pendingContent.has(bufferId)) {
-      await runPendingSave(bufferId);
+      return runPendingSave(bufferId);
     }
-    return;
+    return SAVE_OK;
   }
 
   const ids = new Set<string>([...timers.keys(), ...pendingContent.keys()]);
   for (const timer of timers.values()) clearTimeout(timer);
   timers.clear();
-  await Promise.all(Array.from(ids, (id) => runPendingSave(id)));
+  const results = await Promise.all(Array.from(ids, (id) => runPendingSave(id)));
+  return mergeResults(results);
 }
 
 // Writes the buffer now whether or not an edit is pending: an explicit save is
 // a deterministic "it is on disk" action, so it must not fall through to a
 // no-op the way flushing an empty queue does. Reports through the same success
 // and error listeners as an autosave.
-export async function saveNow(bufferId: string, content: ContentSource): Promise<void> {
+export async function saveNow(bufferId: string, content: ContentSource): Promise<SaveResult> {
   const timer = timers.get(bufferId);
   if (timer) {
     clearTimeout(timer);
     timers.delete(bufferId);
   }
   pendingContent.set(bufferId, content);
-  await runPendingSave(bufferId);
+  return runPendingSave(bufferId);
 }
 
-async function runPendingSave(bufferId: string): Promise<void> {
+async function runPendingSave(bufferId: string): Promise<SaveResult> {
   const source = pendingContent.get(bufferId);
-  if (source === undefined) return;
+  if (source === undefined) return SAVE_OK;
   pendingContent.delete(bufferId);
 
   let content: string;
@@ -103,7 +128,7 @@ async function runPendingSave(bufferId: string): Promise<void> {
     for (const listener of errorListeners) {
       listener(bufferId, error);
     }
-    return;
+    return saveFailed(bufferId, error);
   }
 
   try {
@@ -111,9 +136,18 @@ async function runPendingSave(bufferId: string): Promise<void> {
     for (const listener of successListeners) {
       listener(bufferId);
     }
+    return SAVE_OK;
   } catch (error) {
+    // A failed write must not consume the text. It goes back on the queue as a
+    // plain string (the getter's document may be gone by the retry) so the next
+    // scheduled save or flush writes it again. Content that arrived while this
+    // write was in flight is newer and wins.
+    if (!pendingContent.has(bufferId)) {
+      pendingContent.set(bufferId, content);
+    }
     for (const listener of errorListeners) {
       listener(bufferId, error);
     }
+    return saveFailed(bufferId, error);
   }
 }

@@ -54,7 +54,7 @@ vi.mock("../../services/tauri", () => ({
 }));
 
 vi.mock("../../services/autosave", () => ({
-  flushAutosave: vi.fn().mockResolvedValue(undefined),
+  flushAutosave: vi.fn().mockResolvedValue({ ok: true, failures: [] }),
 }));
 
 import { bufferRegistry } from "../../stores/global/buffer-registry";
@@ -147,6 +147,22 @@ describe("bufferRegistry (app-global)", () => {
         mockedApi.closeBuffer.mock.invocationCallOrder[0],
       );
     });
+
+    it("keeps the tab open when the flush could not write", async () => {
+      // The tab is the only place the unwritten text still exists, so a failed
+      // save must not be followed by a close.
+      const doc = await bufferRegistry.createBuffer();
+      mockedFlush.mockResolvedValueOnce({
+        ok: false,
+        failures: [{ bufferId: doc.id, error: new Error("path not authorized") }],
+      });
+
+      await bufferRegistry.closeBuffer(doc.id);
+
+      expect(mockedApi.closeBuffer).not.toHaveBeenCalled();
+      expect(bufferRegistry.activeTabs().find((t) => t.id === doc.id)).toBeDefined();
+      expect(bufferRegistry.historyList().find((h) => h.id === doc.id)).toBeUndefined();
+    });
   });
 
   describe("closeBuffers (bulk)", () => {
@@ -182,6 +198,24 @@ describe("bufferRegistry (app-global)", () => {
       expect(mockedFlush).toHaveBeenCalledWith(b.id);
       const lastFlush = Math.max(...mockedFlush.mock.invocationCallOrder);
       expect(lastFlush).toBeLessThan(mockedApi.closeBuffers.mock.invocationCallOrder[0]);
+    });
+
+    it("closes only the buffers whose text reached disk", async () => {
+      const a = await bufferRegistry.createBuffer();
+      const b = await bufferRegistry.createBuffer();
+      mockedApi.closeBuffers.mockClear();
+      mockedFlush.mockImplementation(async (id?: string) =>
+        id === b.id
+          ? { ok: false, failures: [{ bufferId: b.id, error: new Error("disk full") }] }
+          : { ok: true, failures: [] },
+      );
+
+      await bufferRegistry.closeBuffers([a.id, b.id]);
+
+      expect(mockedApi.closeBuffers).toHaveBeenCalledWith([a.id]);
+      expect(bufferRegistry.activeTabs().find((t) => t.id === b.id)).toBeDefined();
+      mockedFlush.mockReset();
+      mockedFlush.mockResolvedValue({ ok: true, failures: [] });
     });
   });
 

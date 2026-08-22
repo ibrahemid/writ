@@ -151,6 +151,21 @@ describe("tabStore (per-window factory)", () => {
       expect(activeWhenClosed).toBeNull();
       expect(tabs.activeTabId()).toBeNull();
     });
+
+    it("stays on the tab when its text could not be written", async () => {
+      const tabs = freshTabStore();
+      const first = await tabs.createTab();
+      const unsaved = await tabs.createTab();
+      mockedApi.saveBufferContent.mockRejectedValueOnce(new Error("disk full"));
+      debouncedSave(unsaved.id, "work in progress", 0);
+
+      await tabs.closeTab(unsaved.id);
+
+      expect(mockedApi.closeBuffer).not.toHaveBeenCalled();
+      expect(bufferRegistry.activeTabs().map((b) => b.id)).toEqual([first.id, unsaved.id]);
+      expect(tabs.activeTabId()).toBe(unsaved.id);
+      cancelAutosave(unsaved.id);
+    });
   });
 
   describe("closeOtherTabs", () => {
@@ -180,6 +195,21 @@ describe("tabStore (per-window factory)", () => {
       expect(mockedApi.closeBuffers).toHaveBeenCalledOnce();
       expect(mockedApi.closeBuffers).toHaveBeenCalledWith([first.id, second.id]);
       expect(tabs.activeTabId()).toBeNull();
+    });
+
+    it("keeps a tab whose text could not be written, and selects it", async () => {
+      const tabs = freshTabStore();
+      const first = await tabs.createTab();
+      const unsaved = await tabs.createTab();
+      mockedApi.saveBufferContent.mockRejectedValueOnce(new Error("disk full"));
+      debouncedSave(unsaved.id, "work in progress", 0);
+
+      await tabs.closeAllTabs();
+
+      expect(mockedApi.closeBuffers).toHaveBeenCalledWith([first.id]);
+      expect(bufferRegistry.activeTabs().map((b) => b.id)).toEqual([unsaved.id]);
+      expect(tabs.activeTabId()).toBe(unsaved.id);
+      cancelAutosave(unsaved.id);
     });
   });
 

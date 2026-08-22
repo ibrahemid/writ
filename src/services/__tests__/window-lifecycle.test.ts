@@ -19,6 +19,7 @@ describe("installCloseFlush", () => {
   beforeEach(() => {
     mockedOnClose.mockReset();
     mockedFlush.mockReset();
+    mockedFlush.mockResolvedValue({ ok: true, failures: [] });
   });
 
   it("subscribes via onWindowCloseRequested and returns the unlisten", async () => {
@@ -37,7 +38,7 @@ describe("installCloseFlush", () => {
       captured = handler;
       return () => {};
     });
-    mockedFlush.mockResolvedValueOnce(undefined);
+    mockedFlush.mockResolvedValueOnce({ ok: true, failures: [] });
 
     await installCloseFlush();
     expect(captured).toBeDefined();
@@ -57,6 +58,7 @@ describe("installCloseFlush", () => {
     const order: string[] = [];
     mockedFlush.mockImplementationOnce(async () => {
       order.push("autosave");
+      return { ok: true, failures: [] };
     });
     const geometryFlush = vi.fn(async () => {
       order.push("geometry");

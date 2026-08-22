@@ -36,7 +36,11 @@ function createBufferRegistry() {
   }
 
   async function closeBuffer(id: string): Promise<void> {
-    await flushAutosave(id);
+    // Closing a tab whose text did not reach disk would destroy it: the tab is
+    // the only place that text still exists. Keep the tab open instead and let
+    // the autosave error listener tell the user why.
+    const flushed = await flushAutosave(id);
+    if (!flushed.ok) return;
     await api.closeBuffer(id);
     // The preview pane is a window-lifetime singleton (never unmounted, to
     // avoid the writ-preview:// iframe teardown freeze), so it no longer evicts
@@ -53,11 +57,15 @@ function createBufferRegistry() {
 
   async function closeBuffers(ids: string[]): Promise<void> {
     if (ids.length === 0) return;
-    await Promise.all(ids.map((id) => flushAutosave(id)));
-    await api.closeBuffers(ids);
-    for (const id of ids) void api.previewClose(id).catch(() => {});
+    const flushed = await Promise.all(
+      ids.map(async (id) => ({ id, ok: (await flushAutosave(id)).ok })),
+    );
+    const saved = flushed.filter((f) => f.ok).map((f) => f.id);
+    if (saved.length === 0) return;
+    await api.closeBuffers(saved);
+    for (const id of saved) void api.previewClose(id).catch(() => {});
     const closedAt = new Date().toISOString();
-    const closedIds = new Set(ids);
+    const closedIds = new Set(saved);
     setBuffers((prev) =>
       prev.map((b) =>
         closedIds.has(b.id)
