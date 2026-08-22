@@ -344,6 +344,14 @@ describe("pruneLegacyDefaultOverrides", () => {
     });
     expect(pruned).toEqual({});
   });
+
+  it("drops a persisted sidebar.toggle on Cmd+S so the chord reaches buffer.save", () => {
+    // Saving the shortcut editor used to persist every default, so an old
+    // install carries "sidebar.toggle": "CmdOrCtrl+S". Left in place it would
+    // outrank the new default and swallow the save chord.
+    const pruned = pruneLegacyDefaultOverrides({ "sidebar.toggle": "CmdOrCtrl+S" });
+    expect(pruned).toEqual({});
+  });
 });
 
 describe("editor-focus gating", () => {
@@ -383,7 +391,7 @@ describe("editor-focus gating", () => {
     } as unknown as KeyboardEvent;
   }
 
-  it("fires Cmd+S (sidebar.toggle) while the editor is focused — it is global", () => {
+  it("fires Cmd+\\ (sidebar.toggle) while the editor is focused — it is global", () => {
     // The editor holds focus almost all the time in a writing app, so a
     // focus-gated sidebar toggle is unreachable from the keyboard (and once the
     // sidebar opens, focus moves to its search input, also a gated text entry,
@@ -393,10 +401,31 @@ describe("editor-focus gating", () => {
     registerCommand({
       id: "sidebar.toggle",
       label: "Toggle Sidebar",
-      keybinding: "CmdOrCtrl+S",
+      keybinding: "CmdOrCtrl+\\",
       scope: "app",
       global: true,
       execute: () => { toggled = true; },
+    });
+    rebuildKeyMap();
+    focusEditor();
+
+    const event = keyEvent({ key: "\\", metaKey: true });
+    const handled = handleKeyDown(event);
+
+    expect(handled).toBe(true);
+    expect(toggled).toBe(true);
+    expect(event.preventDefault).toHaveBeenCalled();
+  });
+
+  it("fires Cmd+S (buffer.save) while the editor is focused — it is global", () => {
+    let saved = false;
+    registerCommand({
+      id: "buffer.save",
+      label: "Save",
+      keybinding: "CmdOrCtrl+S",
+      scope: "app",
+      global: true,
+      execute: () => { saved = true; },
     });
     rebuildKeyMap();
     focusEditor();
@@ -405,7 +434,7 @@ describe("editor-focus gating", () => {
     const handled = handleKeyDown(event);
 
     expect(handled).toBe(true);
-    expect(toggled).toBe(true);
+    expect(saved).toBe(true);
     expect(event.preventDefault).toHaveBeenCalled();
   });
 
@@ -462,12 +491,12 @@ describe("editor-focus gating", () => {
     expect(executed).toBe(true);
   });
 
-  it("fires Cmd+S (sidebar.toggle) when focus is outside any editor or input", () => {
+  it("fires Cmd+\\ (sidebar.toggle) when focus is outside any editor or input", () => {
     let toggled = false;
     registerCommand({
       id: "sidebar.toggle",
       label: "Toggle Sidebar",
-      keybinding: "CmdOrCtrl+S",
+      keybinding: "CmdOrCtrl+\\",
       scope: "app",
       execute: () => { toggled = true; },
     });
@@ -475,7 +504,7 @@ describe("editor-focus gating", () => {
     document.body.focus();
     expect(editor.contains(document.activeElement)).toBe(false);
 
-    const event = keyEvent({ key: "s", metaKey: true });
+    const event = keyEvent({ key: "\\", metaKey: true });
     const handled = handleKeyDown(event);
 
     expect(handled).toBe(true);
@@ -490,7 +519,7 @@ describe("editor-focus gating", () => {
     registerCommand({
       id: "sidebar.toggle",
       label: "Toggle Sidebar",
-      keybinding: "CmdOrCtrl+S",
+      keybinding: "CmdOrCtrl+\\",
       scope: "app",
       execute: () => { toggled = true; },
     });
@@ -498,7 +527,7 @@ describe("editor-focus gating", () => {
     input.focus();
     expect(document.activeElement).toBe(input);
 
-    const handled = handleKeyDown(keyEvent({ key: "s", metaKey: true }));
+    const handled = handleKeyDown(keyEvent({ key: "\\", metaKey: true }));
     expect(handled).toBe(false);
     expect(toggled).toBe(false);
 

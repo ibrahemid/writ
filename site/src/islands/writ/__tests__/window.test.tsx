@@ -133,6 +133,16 @@ describe('WritWindow', () => {
     expect(container.querySelector('.wwx-side')).toBeTruthy();
   });
 
+  it('shows the saved status when Save runs from the palette', () => {
+    const { container } = render(<WritWindow />);
+    openPalette();
+    const row = screen.getByText('Save').closest('.wwx-pcmd') as HTMLElement;
+    expect(row).toBeTruthy();
+    expect(row.querySelector('.wwx-key')).toBeTruthy();
+    fireEvent.click(screen.getByText('Save'));
+    expect(container.querySelector('.wwx-save')).toBeTruthy();
+  });
+
   it('keeps a sidebar opened by hand while the viewport stays narrow', () => {
     const { container } = render(<WritWindow />);
     setViewportWidth(375);

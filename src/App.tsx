@@ -193,6 +193,18 @@ function AppShell() {
     });
 
     registerCommand({
+      id: "buffer.save",
+      label: "Save",
+      description: "Write the active buffer to disk now",
+      keybinding: "CmdOrCtrl+S",
+      scope: "app",
+      // Global: the editor holds focus while writing, so a focus-gated save
+      // would never fire from where it is pressed.
+      global: true,
+      execute: () => void windowRegistry.getActive()?.editor.saveActiveBuffer(),
+    });
+
+    registerCommand({
       id: "workspace.openFolder",
       label: "Open Folder…",
       description: "Open a folder as the workspace",
@@ -302,7 +314,7 @@ function AppShell() {
       id: "sidebar.toggle",
       label: "Toggle Sidebar",
       description: "Show or hide the tabs + history rail",
-      keybinding: "CmdOrCtrl+S",
+      keybinding: "CmdOrCtrl+\\",
       scope: "app",
       // Global: the editor holds focus almost all the time in a writing app, so
       // a focus-gated sidebar toggle would be unreachable from the keyboard. It

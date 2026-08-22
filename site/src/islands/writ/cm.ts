@@ -94,7 +94,9 @@ export interface DemoStateParams {
   spelling: boolean;
   onSpellCount: (count: number) => void;
   onUpdate: (update: ViewUpdate) => void;
-  /** ⌘S while the editor is focused — swallow the browser save dialog. */
+  /** ⌘S while the editor is focused — save, and swallow the browser dialog. */
+  onSave: () => void;
+  /** ⌘\ while the editor is focused. */
   onToggleSidebar: () => void;
   /** ⌘F while the editor is focused — swallow the browser find bar. */
   onFocusSearch: () => void;
@@ -103,13 +105,14 @@ export interface DemoStateParams {
 export function createDemoState(params: DemoStateParams): EditorState {
   registerDemoLanguages();
   const { content, langId, restricted, polarity, spelling, onSpellCount, onUpdate } = params;
-  const { onToggleSidebar, onFocusSearch } = params;
+  const { onSave, onToggleSidebar, onFocusSearch } = params;
   const isMarkdown = langId === 'markdown' && !restricted;
 
-  // Editor-focused only: while typing, ⌘S/⌘F should hit the demo chrome, not the
-  // browser. Left global (⌘T/⌘W stay browser-owned).
+  // Editor-focused only: while typing, ⌘S/⌘\/⌘F should hit the demo chrome, not
+  // the browser. Left global (⌘T/⌘W stay browser-owned).
   const chromeBindings: KeyBinding[] = [
-    { key: 'Mod-s', preventDefault: true, run: () => { onToggleSidebar(); return true; } },
+    { key: 'Mod-s', preventDefault: true, run: () => { onSave(); return true; } },
+    { key: 'Mod-\\', preventDefault: true, run: () => { onToggleSidebar(); return true; } },
     { key: 'Mod-f', preventDefault: true, run: () => { onFocusSearch(); return true; } },
   ];
   const langExt: Extension = restricted ? [] : getExtension(langId);

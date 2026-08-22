@@ -29,7 +29,7 @@ function buildConfig(overrides: Partial<WritConfig["sidebar"]> = {}): WritConfig
   return {
     hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
     sidebar: {
-      toggle: "CmdOrCtrl+S",
+      toggle: "CmdOrCtrl+\\",
       default_visible: false,
       position: "left",
       open: false,

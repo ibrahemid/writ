@@ -213,6 +213,14 @@ export default function WritWindow() {
     }, 800);
   }, []);
 
+  // The explicit ⌘S. The app writes on the spot, so the demo shows "saved" at
+  // once instead of waiting out the autosave quiet window.
+  const saveNow = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    setSaveStatus('saved');
+    saveTimerRef.current = setTimeout(() => setSaveStatus('idle'), 1400);
+  }, []);
+
   const scheduleRelint = useCallback((view: EditorView) => {
     if (relintTimerRef.current) clearTimeout(relintTimerRef.current);
     relintTimerRef.current = setTimeout(() => {
@@ -268,6 +276,7 @@ export default function WritWindow() {
           spelling: spellOn,
           onSpellCount: setSpellCount,
           onUpdate,
+          onSave: saveNow,
           onToggleSidebar: () => setSidebarOpen((s) => !s),
           onFocusSearch: () => {
             setSidebarOpen(true);
@@ -286,7 +295,7 @@ export default function WritWindow() {
       requestAnimationFrame(() => viewRef.current?.requestMeasure());
       view.focus();
     },
-    [metaOf, onUpdate, spellingEligible],
+    [metaOf, onUpdate, saveNow, spellingEligible],
   );
 
   const scrollWin = useCallback(() => {
@@ -531,7 +540,8 @@ export default function WritWindow() {
         open(tabs[(i - 1 + tabs.length) % tabs.length] ?? activeId);
       } },
       { id: 'renametab', name: 'Rename Tab', description: 'Rename the active buffer inline.', binding: 'F2', scope: 'app', run: () => startRename(activeId) },
-      { id: 'togglesidebar', name: 'Toggle Sidebar', description: 'Show or hide the buffer list.', binding: 'CmdOrCtrl+S', scope: 'app', run: () => { setSidebarOpen((s) => !s); setPaletteOpen(false); } },
+      { id: 'save', name: 'Save', description: 'Write the buffer to disk now.', binding: 'CmdOrCtrl+S', scope: 'app', run: () => { saveNow(); setPaletteOpen(false); } },
+      { id: 'togglesidebar', name: 'Toggle Sidebar', description: 'Show or hide the buffer list.', binding: 'CmdOrCtrl+\\', scope: 'app', run: () => { setSidebarOpen((s) => !s); setPaletteOpen(false); } },
       { id: 'find', name: 'Find', description: 'Focus the search field.', binding: 'CmdOrCtrl+F', scope: 'app', run: focusSearch },
       { id: 'search', name: 'Search', description: 'Full-text search across every buffer.', scope: 'app', run: focusSearch },
       { id: 'zoomin', name: 'Zoom In', description: 'Increase editor scale.', binding: 'CmdOrCtrl+=', scope: 'app', run: zoomIn },
@@ -577,7 +587,7 @@ export default function WritWindow() {
       });
     }
     return list;
-  }, [activeId, tabs, editableMd, cmdNewTab, closeTab, open, startRename, focusSearch, zoomIn, zoomOut, zoomReset, copyPrompt, runCm]);
+  }, [activeId, tabs, editableMd, cmdNewTab, closeTab, open, startRename, focusSearch, saveNow, zoomIn, zoomOut, zoomReset, copyPrompt, runCm]);
 
   // Command mode mirrors the app's palette grouping: Recent (usage-ranked),
   // Commands, Editor with an empty query; one unlabeled ranked section with one.
@@ -719,6 +729,7 @@ export default function WritWindow() {
         spelling: false,
         onSpellCount: setSpellCount,
         onUpdate,
+        onSave: saveNow,
         onToggleSidebar: () => setSidebarOpen((s) => !s),
         onFocusSearch: () => {
           setSidebarOpen(true);
@@ -734,7 +745,7 @@ export default function WritWindow() {
       viewRef.current = null;
       cmBufferRef.current = null;
     };
-  }, [onUpdate]);
+  }, [onUpdate, saveNow]);
 
   useEffect(() => {
     const onTheme = () => {

@@ -6,6 +6,7 @@ import {
   debouncedSave,
   cancelAutosave as cancelAutosaveService,
   flushAutosave as flushAutosaveService,
+  saveNow as saveNowService,
   type ContentSource,
 } from "../../services/autosave";
 import {
@@ -176,6 +177,18 @@ export function createEditorStore() {
     return flushAutosaveService(bufferId);
   }
 
+  // The explicit save. Writes the live document of the loaded buffer even when
+  // no edit is pending, so the keystroke always means "it is on disk now". A
+  // binary buffer is skipped: it opens read-only and its view holds a decoded
+  // rendering, never the bytes to write back.
+  function saveActiveBuffer(): Promise<void> {
+    const bufferId = currentBufferId();
+    const view = activeView;
+    if (bufferId === null || view === null) return Promise.resolve();
+    if (largeFileMode()?.kind === "Binary") return Promise.resolve();
+    return saveNowService(bufferId, () => view.state.doc.toString());
+  }
+
   function detectLanguage(content: string, filename?: string): string | null {
     return detectLanguageService(content, filename);
   }
@@ -200,7 +213,7 @@ export function createEditorStore() {
     getSelectionRange,
     replaceRange,
     applyEditToActiveBuffer,
-    scheduleAutosave, cancelAutosave, flushAutosave,
+    scheduleAutosave, cancelAutosave, flushAutosave, saveActiveBuffer,
     detectLanguage, detectFromContent,
   };
 }
