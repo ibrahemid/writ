@@ -12,6 +12,14 @@ export interface ChangelogRelease {
 
 export const releases: ChangelogRelease[] = [
   {
+    version: "0.3.4",
+    date: "2026-08-22",
+    notes: [
+      { kind: 'fixed', text: "the database no longer grows without limit: recovery snapshots write only on change, and a bloated database is compacted once at startup." },
+      { kind: 'fixed', text: "a save that fails keeps the text queued and retries; closing the tab asks before discarding it, and the message names the file and the reason." },
+    ],
+  },
+  {
     version: "0.3.3",
     date: "2026-08-22",
     notes: [
