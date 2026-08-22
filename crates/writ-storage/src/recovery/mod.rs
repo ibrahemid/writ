@@ -15,8 +15,12 @@
 //!    fire-and-forget startup event cannot.
 //! 3. **Snapshots** — `src-tauri/src/lib.rs` writes an unclean heartbeat
 //!    snapshot every 30 s and a clean snapshot on `ExitRequested`, via
-//!    [`snapshot::SnapshotManager`] / `BufferStore::write_session_snapshot`.
-//!    The `is_clean` flag is the contract `check_dirty_shutdown` reads.
+//!    [`snapshot::SnapshotManager`] /
+//!    `BufferStore::write_session_snapshot_if_changed` and
+//!    `BufferStore::write_session_snapshot`. The heartbeat writes only when
+//!    the buffer contents changed since its last snapshot; shutdown writes
+//!    unconditionally, because the `is_clean` flag it records is the contract
+//!    `check_dirty_shutdown` reads.
 //! 4. **Consistency** — `state.rs` runs
 //!    [`crate::consistency::ConsistencyChecker`] on the same boot path and
 //!    logs orphan / missing backing files (repair policy is a separate ADR).

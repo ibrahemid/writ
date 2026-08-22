@@ -20,6 +20,15 @@ fn open_database_creates_file_in_wal_mode() {
 }
 
 #[test]
+fn open_database_caps_the_write_ahead_log() {
+    let (_dir, conn) = setup_temp_db();
+    let limit: i64 = conn
+        .query_row("PRAGMA journal_size_limit", [], |row| row.get(0))
+        .expect("failed to query journal_size_limit");
+    assert_eq!(limit, 64 * 1024 * 1024);
+}
+
+#[test]
 fn run_migrations_creates_schema() {
     let (_dir, conn) = setup_temp_db();
     run_migrations(&conn).expect("migrations failed");
