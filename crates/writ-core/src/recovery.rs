@@ -1,4 +1,7 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 /// Maximum number of session snapshots retained per database.
 ///
@@ -37,5 +40,128 @@ pub fn resolve_recovery(snapshot_created_at: &str, buffer_updated_at: &str) -> R
         RecoveryResolution::Restore
     } else {
         RecoveryResolution::Ignore
+    }
+}
+
+/// Stable fingerprint of a set of buffer contents.
+///
+/// Two collections with the same buffer ids and the same content produce the
+/// same fingerprint regardless of iteration order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SnapshotFingerprint([u8; 32]);
+
+impl SnapshotFingerprint {
+    /// Returns the raw 32-byte digest.
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+/// Computes the fingerprint of the buffer contents destined for a snapshot.
+///
+/// Ids are sorted so a `HashMap`'s iteration order cannot change the result,
+/// and each id and content is length-prefixed so no pair of buffers can be
+/// concatenated into the same byte stream as a different pair.
+pub fn fingerprint_buffers(buffer_contents: &HashMap<String, String>) -> SnapshotFingerprint {
+    let mut ids: Vec<&String> = buffer_contents.keys().collect();
+    ids.sort();
+
+    let mut hasher = Sha256::new();
+    for id in ids {
+        let content = &buffer_contents[id];
+        hasher.update((id.len() as u64).to_le_bytes());
+        hasher.update(id.as_bytes());
+        hasher.update((content.len() as u64).to_le_bytes());
+        hasher.update(content.as_bytes());
+    }
+    let digest = hasher.finalize();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    SnapshotFingerprint(out)
+}
+
+/// Decides whether a heartbeat snapshot is worth writing.
+///
+/// A snapshot is written only when the content differs from the last one
+/// persisted. Writing an identical snapshot every heartbeat costs an insert
+/// and a delete per interval and leaves the freed pages behind, which is what
+/// grew the database without bound.
+pub fn should_snapshot(
+    previous: Option<SnapshotFingerprint>,
+    current: SnapshotFingerprint,
+) -> bool {
+    previous != Some(current)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn map(entries: &[(&str, &str)]) -> HashMap<String, String> {
+        entries
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn fingerprint_is_stable_across_insertion_order() {
+        let a = map(&[("buf-1", "alpha"), ("buf-2", "beta")]);
+        let mut b = HashMap::new();
+        b.insert("buf-2".to_string(), "beta".to_string());
+        b.insert("buf-1".to_string(), "alpha".to_string());
+
+        assert_eq!(fingerprint_buffers(&a), fingerprint_buffers(&b));
+    }
+
+    #[test]
+    fn fingerprint_changes_when_content_changes() {
+        let before = map(&[("buf-1", "alpha")]);
+        let after = map(&[("buf-1", "alpha!")]);
+
+        assert_ne!(fingerprint_buffers(&before), fingerprint_buffers(&after));
+    }
+
+    #[test]
+    fn fingerprint_changes_when_a_buffer_is_added_or_removed() {
+        let one = map(&[("buf-1", "alpha")]);
+        let two = map(&[("buf-1", "alpha"), ("buf-2", "")]);
+
+        assert_ne!(fingerprint_buffers(&one), fingerprint_buffers(&two));
+    }
+
+    #[test]
+    fn fingerprint_separates_ids_from_content() {
+        let split = map(&[("ab", "cd")]);
+        let shifted = map(&[("a", "bcd")]);
+
+        assert_ne!(fingerprint_buffers(&split), fingerprint_buffers(&shifted));
+    }
+
+    #[test]
+    fn empty_collections_fingerprint_equal() {
+        assert_eq!(
+            fingerprint_buffers(&HashMap::new()),
+            fingerprint_buffers(&HashMap::new())
+        );
+    }
+
+    #[test]
+    fn should_snapshot_is_true_without_a_previous_fingerprint() {
+        let current = fingerprint_buffers(&map(&[("buf-1", "alpha")]));
+        assert!(should_snapshot(None, current));
+    }
+
+    #[test]
+    fn should_snapshot_is_false_when_nothing_changed() {
+        let current = fingerprint_buffers(&map(&[("buf-1", "alpha")]));
+        assert!(!should_snapshot(Some(current), current));
+    }
+
+    #[test]
+    fn should_snapshot_is_true_after_an_edit() {
+        let previous = fingerprint_buffers(&map(&[("buf-1", "alpha")]));
+        let current = fingerprint_buffers(&map(&[("buf-1", "alpha beta")]));
+        assert!(should_snapshot(Some(previous), current));
     }
 }

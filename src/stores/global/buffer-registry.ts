@@ -1,8 +1,26 @@
 import { createSignal, createMemo, createRoot } from "solid-js";
 import type { BufferDocument, FileOpenResult } from "../../types/buffer";
 import * as api from "../../services/tauri";
-import { flushAutosave } from "../../services/autosave";
+import { cancelAutosave, flushAutosave, type SaveFailure } from "../../services/autosave";
 import { requestConfirm } from "../../components/ConfirmDialog/ConfirmDialog";
+
+export interface CloseOutcome {
+  closed: boolean;
+  failures: SaveFailure[];
+}
+
+export interface BulkCloseOutcome {
+  closedIds: string[];
+  failedIds: string[];
+  failures: SaveFailure[];
+}
+
+export interface CloseOptions {
+  // Close without writing: the caller has told the user the text is about to be
+  // lost and the user chose to lose it. Without this a buffer on a volume that
+  // never accepts a write can never be closed.
+  discard?: boolean;
+}
 
 // Singleton — app-global, not window-scoped (ADR-009 E3).
 // The set of buffers is shared across every window; active-tab focus per
@@ -35,8 +53,16 @@ function createBufferRegistry() {
     return doc;
   }
 
-  async function closeBuffer(id: string): Promise<void> {
-    await flushAutosave(id);
+  async function closeBuffer(id: string, options: CloseOptions = {}): Promise<CloseOutcome> {
+    // Closing a tab whose text did not reach disk would destroy it: the tab is
+    // the only place that text still exists. Report the failure instead so the
+    // caller can offer the choice, and keep the tab open until it does.
+    if (options.discard) {
+      cancelAutosave(id);
+    } else {
+      const flushed = await flushAutosave(id);
+      if (!flushed.ok) return { closed: false, failures: flushed.failures };
+    }
     await api.closeBuffer(id);
     // The preview pane is a window-lifetime singleton (never unmounted, to
     // avoid the writ-preview:// iframe teardown freeze), so it no longer evicts
@@ -49,15 +75,30 @@ function createBufferRegistry() {
         b.id === id ? { ...b, status: "history" as const, closed_at: closedAt } : b,
       ),
     );
+    return { closed: true, failures: [] };
   }
 
-  async function closeBuffers(ids: string[]): Promise<void> {
-    if (ids.length === 0) return;
-    await Promise.all(ids.map((id) => flushAutosave(id)));
-    await api.closeBuffers(ids);
-    for (const id of ids) void api.previewClose(id).catch(() => {});
+  async function closeBuffers(ids: string[], options: CloseOptions = {}): Promise<BulkCloseOutcome> {
+    if (ids.length === 0) return { closedIds: [], failedIds: [], failures: [] };
+
+    let saved = ids;
+    let failedIds: string[] = [];
+    let failures: SaveFailure[] = [];
+    if (options.discard) {
+      for (const id of ids) cancelAutosave(id);
+    } else {
+      const flushed = await Promise.all(
+        ids.map(async (id) => ({ id, result: await flushAutosave(id) })),
+      );
+      saved = flushed.filter((f) => f.result.ok).map((f) => f.id);
+      failedIds = flushed.filter((f) => !f.result.ok).map((f) => f.id);
+      failures = flushed.flatMap((f) => f.result.failures);
+    }
+    if (saved.length === 0) return { closedIds: [], failedIds, failures };
+    await api.closeBuffers(saved);
+    for (const id of saved) void api.previewClose(id).catch(() => {});
     const closedAt = new Date().toISOString();
-    const closedIds = new Set(ids);
+    const closedIds = new Set(saved);
     setBuffers((prev) =>
       prev.map((b) =>
         closedIds.has(b.id)
@@ -65,6 +106,7 @@ function createBufferRegistry() {
           : b,
       ),
     );
+    return { closedIds: saved, failedIds, failures };
   }
 
   async function restoreBuffer(id: string): Promise<void> {

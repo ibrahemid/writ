@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.4] - 2026-08-22
+
+### Fixed
+
+- The database no longer grows without limit. The recovery snapshot was rewritten every 30 seconds even when nothing had changed and the freed space was never reclaimed; snapshots now write only on change, and a bloated database is compacted once at startup.
+- A save that fails no longer loses the text. The edit stays queued and retries on the next save, closing the tab asks before discarding it, and the message names the file and the reason.
+
+## [0.3.3] - 2026-08-22
+
+### Fixed
+
+- Edits to a file opened from disk save back to that file. Since 0.3.0 they only reached Writ's internal copy, so the file on disk never changed.
+- A saved file keeps its permissions, and a file whose contents changed on disk reloads when reopened.
+
+### Changed
+
+- Cmd+S saves the active tab right away. The sidebar toggle moves to Cmd+\.
+
 ## [0.3.2] - 2026-08-18
 
 ### Added

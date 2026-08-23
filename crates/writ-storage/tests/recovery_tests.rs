@@ -286,3 +286,81 @@ fn collect_buffer_contents_reads_active_files() {
         Some("buffer text content")
     );
 }
+
+// --- heartbeat snapshots skip unchanged content ---
+
+fn snapshot_count(dir: &TempDir) -> i64 {
+    let conn = open_database(&dir.path().join("writ.db")).expect("open db");
+    conn.query_row("SELECT COUNT(*) FROM session_snapshots", [], |row| {
+        row.get(0)
+    })
+    .expect("count")
+}
+
+#[test]
+fn heartbeat_writes_one_row_for_two_identical_collections() {
+    let (dir, mut store) = setup_store();
+    let mut contents = HashMap::new();
+    contents.insert("buf-1".to_string(), "unchanged".to_string());
+
+    assert!(
+        store
+            .write_session_snapshot_if_changed(&contents)
+            .expect("first heartbeat"),
+        "the first heartbeat has nothing to compare against and must write"
+    );
+    assert!(
+        !store
+            .write_session_snapshot_if_changed(&contents)
+            .expect("second heartbeat"),
+        "an unchanged heartbeat must not write"
+    );
+
+    assert_eq!(snapshot_count(&dir), 1);
+}
+
+#[test]
+fn heartbeat_writes_again_once_content_changes() {
+    let (dir, mut store) = setup_store();
+    let mut contents = HashMap::new();
+    contents.insert("buf-1".to_string(), "first".to_string());
+    store
+        .write_session_snapshot_if_changed(&contents)
+        .expect("first heartbeat");
+
+    contents.insert("buf-1".to_string(), "second".to_string());
+    assert!(
+        store
+            .write_session_snapshot_if_changed(&contents)
+            .expect("changed heartbeat"),
+        "edited content must produce a snapshot"
+    );
+
+    assert_eq!(snapshot_count(&dir), 2);
+    let conn = open_database(&dir.path().join("writ.db")).expect("open db");
+    let latest = SnapshotManager::new(&conn)
+        .latest_snapshot()
+        .expect("latest")
+        .expect("some");
+    assert_eq!(latest.state_json["buffers"]["buf-1"], "second");
+}
+
+#[test]
+fn clean_shutdown_snapshot_writes_even_when_content_is_unchanged() {
+    let (dir, mut store) = setup_store();
+    let mut contents = HashMap::new();
+    contents.insert("buf-1".to_string(), "unchanged".to_string());
+    store
+        .write_session_snapshot_if_changed(&contents)
+        .expect("heartbeat");
+
+    store
+        .write_session_snapshot(&contents, true)
+        .expect("clean shutdown snapshot");
+
+    assert_eq!(snapshot_count(&dir), 2);
+    assert!(
+        !store.is_dirty_shutdown().expect("dirty check"),
+        "the shutdown snapshot must record the clean marker whatever the content is"
+    );
+}

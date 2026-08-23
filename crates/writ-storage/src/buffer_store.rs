@@ -6,12 +6,15 @@ use writ_core::file_ops::THRESHOLD_NORMAL_BYTES;
 use rusqlite::Connection;
 use tracing::warn;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
-use writ_core::recovery::RecoveredBuffer;
+use writ_core::recovery::{
+    fingerprint_buffers, should_snapshot, RecoveredBuffer, SnapshotFingerprint,
+};
 use writ_core::search::SearchHit;
 
 use crate::atomic::write_atomic;
 use crate::database::queries;
 use crate::errors::{StorageError, StorageResult};
+use crate::maintenance::{self, DatabaseStats, MaintenanceOutcome};
 use crate::recovery::dirty_shutdown::check_dirty_shutdown;
 use crate::recovery::snapshot::SnapshotManager;
 
@@ -24,12 +27,17 @@ use crate::recovery::snapshot::SnapshotManager;
 pub struct BufferStore {
     conn: Connection,
     buffers_dir: PathBuf,
+    last_snapshot_fingerprint: Option<SnapshotFingerprint>,
 }
 
 impl BufferStore {
     /// Constructs a store over the given connection and buffers directory.
     pub fn new(conn: Connection, buffers_dir: PathBuf) -> Self {
-        Self { conn, buffers_dir }
+        Self {
+            conn,
+            buffers_dir,
+            last_snapshot_fingerprint: None,
+        }
     }
 
     /// Returns the path to the directory holding buffer content files.
@@ -633,6 +641,36 @@ impl BufferStore {
         let extra = serde_json::Value::Object(serde_json::Map::new());
         let mgr = SnapshotManager::new(&self.conn);
         mgr.write_session_snapshot(buffer_contents, &extra, is_clean)
+    }
+
+    /// Writes a heartbeat snapshot only when the buffer contents differ from
+    /// the last snapshot this store wrote.
+    ///
+    /// Returns `true` when a snapshot was written. The unconditional variant
+    /// stays available for shutdown, where the `is_clean` marker itself is the
+    /// payload and must be recorded whatever the content is.
+    pub fn write_session_snapshot_if_changed(
+        &mut self,
+        buffer_contents: &HashMap<String, String>,
+    ) -> StorageResult<bool> {
+        let fingerprint = fingerprint_buffers(buffer_contents);
+        if !should_snapshot(self.last_snapshot_fingerprint, fingerprint) {
+            return Ok(false);
+        }
+        self.write_session_snapshot(buffer_contents, false)?;
+        self.last_snapshot_fingerprint = Some(fingerprint);
+        Ok(true)
+    }
+
+    /// Returns page accounting for the underlying database file.
+    pub fn database_stats(&self) -> StorageResult<DatabaseStats> {
+        maintenance::read_stats(&self.conn)
+    }
+
+    /// Checkpoints the write-ahead log and reclaims free pages when they
+    /// dominate the database file.
+    pub fn run_maintenance(&self) -> StorageResult<MaintenanceOutcome> {
+        maintenance::run_maintenance(&self.conn)
     }
 
     /// Resolves which active buffers should be restored from the latest

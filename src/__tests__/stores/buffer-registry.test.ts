@@ -54,15 +54,17 @@ vi.mock("../../services/tauri", () => ({
 }));
 
 vi.mock("../../services/autosave", () => ({
-  flushAutosave: vi.fn().mockResolvedValue(undefined),
+  flushAutosave: vi.fn().mockResolvedValue({ ok: true, failures: [] }),
+  cancelAutosave: vi.fn(),
 }));
 
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import * as api from "../../services/tauri";
-import { flushAutosave } from "../../services/autosave";
+import { cancelAutosave, flushAutosave } from "../../services/autosave";
 
 const mockedApi = vi.mocked(api);
 const mockedFlush = vi.mocked(flushAutosave);
+const mockedCancel = vi.mocked(cancelAutosave);
 
 describe("bufferRegistry (app-global)", () => {
   beforeEach(async () => {
@@ -147,6 +149,38 @@ describe("bufferRegistry (app-global)", () => {
         mockedApi.closeBuffer.mock.invocationCallOrder[0],
       );
     });
+
+    it("keeps the tab open when the flush could not write", async () => {
+      // The tab is the only place the unwritten text still exists, so a failed
+      // save must not be followed by a close.
+      const doc = await bufferRegistry.createBuffer();
+      mockedFlush.mockResolvedValueOnce({
+        ok: false,
+        failures: [{ bufferId: doc.id, error: new Error("path not authorized") }],
+      });
+
+      const outcome = await bufferRegistry.closeBuffer(doc.id);
+
+      expect(outcome.closed).toBe(false);
+      expect(outcome.failures.map((f) => f.bufferId)).toEqual([doc.id]);
+      expect(mockedApi.closeBuffer).not.toHaveBeenCalled();
+      expect(bufferRegistry.activeTabs().find((t) => t.id === doc.id)).toBeDefined();
+      expect(bufferRegistry.historyList().find((h) => h.id === doc.id)).toBeUndefined();
+    });
+
+    it("closes without writing when the caller discards the text", async () => {
+      // The only way out of a buffer whose volume never accepts a write.
+      const doc = await bufferRegistry.createBuffer();
+      mockedFlush.mockClear();
+
+      const outcome = await bufferRegistry.closeBuffer(doc.id, { discard: true });
+
+      expect(outcome.closed).toBe(true);
+      expect(mockedFlush).not.toHaveBeenCalled();
+      expect(mockedCancel).toHaveBeenCalledWith(doc.id);
+      expect(mockedApi.closeBuffer).toHaveBeenCalledWith(doc.id);
+      expect(bufferRegistry.historyList().find((h) => h.id === doc.id)).toBeDefined();
+    });
   });
 
   describe("closeBuffers (bulk)", () => {
@@ -182,6 +216,42 @@ describe("bufferRegistry (app-global)", () => {
       expect(mockedFlush).toHaveBeenCalledWith(b.id);
       const lastFlush = Math.max(...mockedFlush.mock.invocationCallOrder);
       expect(lastFlush).toBeLessThan(mockedApi.closeBuffers.mock.invocationCallOrder[0]);
+    });
+
+    it("closes only the buffers whose text reached disk", async () => {
+      const a = await bufferRegistry.createBuffer();
+      const b = await bufferRegistry.createBuffer();
+      mockedApi.closeBuffers.mockClear();
+      mockedFlush.mockImplementation(async (id?: string) =>
+        id === b.id
+          ? { ok: false, failures: [{ bufferId: b.id, error: new Error("disk full") }] }
+          : { ok: true, failures: [] },
+      );
+
+      const outcome = await bufferRegistry.closeBuffers([a.id, b.id]);
+
+      expect(mockedApi.closeBuffers).toHaveBeenCalledWith([a.id]);
+      expect(outcome.closedIds).toEqual([a.id]);
+      expect(outcome.failedIds).toEqual([b.id]);
+      expect(outcome.failures.map((f) => f.bufferId)).toEqual([b.id]);
+      expect(bufferRegistry.activeTabs().find((t) => t.id === b.id)).toBeDefined();
+      mockedFlush.mockReset();
+      mockedFlush.mockResolvedValue({ ok: true, failures: [] });
+    });
+
+    it("closes discarded buffers without flushing them", async () => {
+      const a = await bufferRegistry.createBuffer();
+      const b = await bufferRegistry.createBuffer();
+      mockedFlush.mockClear();
+
+      const outcome = await bufferRegistry.closeBuffers([a.id, b.id], { discard: true });
+
+      expect(mockedFlush).not.toHaveBeenCalled();
+      expect(mockedCancel).toHaveBeenCalledWith(a.id);
+      expect(mockedCancel).toHaveBeenCalledWith(b.id);
+      expect(outcome.closedIds).toEqual([a.id, b.id]);
+      expect(bufferRegistry.activeTabs().find((t) => t.id === a.id)).toBeUndefined();
+      expect(bufferRegistry.activeTabs().find((t) => t.id === b.id)).toBeUndefined();
     });
   });
 

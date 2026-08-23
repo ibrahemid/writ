@@ -10,6 +10,8 @@ import {
   onAutosaveError,
   onAutosaveSuccess,
   flushAutosave,
+  hasPendingAutosave,
+  saveNow,
 } from "../../services/autosave";
 import { saveBufferContent } from "../../services/tauri";
 
@@ -73,6 +75,7 @@ describe("autosave", () => {
 
       expect(listener).toHaveBeenCalledWith("buf-1", expect.any(Error));
       unsubscribe();
+      cancelAutosave("buf-1");
     });
   });
 
@@ -99,6 +102,7 @@ describe("autosave", () => {
 
       expect(success).not.toHaveBeenCalled();
       unsubscribe();
+      cancelAutosave("buf-fail");
     });
 
     it("stops notifying after unsubscribe", async () => {
@@ -212,6 +216,182 @@ describe("autosave", () => {
       expect(mockedSave).not.toHaveBeenCalled();
       expect(listener).toHaveBeenCalledWith("buf-1", expect.any(Error));
       unsubscribe();
+      cancelAutosave("buf-1");
+    });
+  });
+
+  describe("failed writes keep the text", () => {
+    it("reports the failure through the flush result", async () => {
+      mockedSave.mockRejectedValueOnce(new Error("path not authorized"));
+      debouncedSave("buf-keep", "precious", 300);
+
+      const result = await flushAutosave("buf-keep");
+
+      expect(result.ok).toBe(false);
+      expect(result.failures).toEqual([
+        { bufferId: "buf-keep", error: expect.any(Error) },
+      ]);
+      cancelAutosave("buf-keep");
+    });
+
+    it("retries the same text on the next flush", async () => {
+      mockedSave.mockRejectedValueOnce(new Error("disk full"));
+      debouncedSave("buf-keep", "precious", 300);
+
+      const failed = await flushAutosave("buf-keep");
+      expect(failed.ok).toBe(false);
+      expect(hasPendingAutosave("buf-keep")).toBe(true);
+
+      const retried = await flushAutosave("buf-keep");
+
+      expect(retried.ok).toBe(true);
+      expect(mockedSave).toHaveBeenCalledTimes(2);
+      expect(mockedSave).toHaveBeenLastCalledWith("buf-keep", "precious");
+      expect(hasPendingAutosave("buf-keep")).toBe(false);
+    });
+
+    it("keeps the newer text when an edit lands during a failing write", async () => {
+      let rejectWrite: ((reason: Error) => void) | undefined;
+      mockedSave.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectWrite = reject;
+          }),
+      );
+
+      debouncedSave("buf-race", "old", 300);
+      const flushing = flushAutosave("buf-race");
+      await Promise.resolve();
+
+      debouncedSave("buf-race", "new", 300);
+      rejectWrite!(new Error("disk full"));
+      await flushing;
+
+      await flushAutosave("buf-race");
+
+      expect(mockedSave).toHaveBeenLastCalledWith("buf-race", "new");
+      expect(hasPendingAutosave("buf-race")).toBe(false);
+    });
+
+    it("writes the newer text when two writes for one buffer both fail", async () => {
+      // Cmd+S landing on top of an in-flight autosave that is failing. The
+      // older attempt must not put its stale text back over the newer text.
+      let rejectFirst: ((reason: Error) => void) | undefined;
+      let rejectSecond: ((reason: Error) => void) | undefined;
+      mockedSave.mockImplementationOnce(
+        () => new Promise((_resolve, reject) => { rejectFirst = reject; }),
+      );
+      mockedSave.mockImplementationOnce(
+        () => new Promise((_resolve, reject) => { rejectSecond = reject; }),
+      );
+
+      debouncedSave("p1", "old", 300);
+      const firstFlush = flushAutosave("p1");
+      await Promise.resolve();
+      expect(rejectFirst).toBeDefined();
+
+      const explicit = saveNow("p1", "new");
+      await Promise.resolve();
+
+      rejectFirst!(new Error("disk full"));
+      await firstFlush;
+      // The second write only starts once the first settles: one write per
+      // buffer at a time.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(rejectSecond).toBeDefined();
+      rejectSecond!(new Error("disk full"));
+      await explicit;
+
+      mockedSave.mockClear();
+      const retried = await flushAutosave("p1");
+
+      expect(retried.ok).toBe(true);
+      expect(mockedSave).toHaveBeenCalledOnce();
+      expect(mockedSave).toHaveBeenCalledWith("p1", "new");
+      expect(hasPendingAutosave("p1")).toBe(false);
+    });
+
+    it("never runs two writes for one buffer at the same time", async () => {
+      let inFlightCount = 0;
+      let peak = 0;
+      mockedSave.mockImplementation(async () => {
+        inFlightCount++;
+        peak = Math.max(peak, inFlightCount);
+        await Promise.resolve();
+        inFlightCount--;
+      });
+
+      debouncedSave("p2", "a", 300);
+      const first = flushAutosave("p2");
+      const second = saveNow("p2", "b");
+      const third = flushAutosave("p2");
+      await Promise.all([first, second, third]);
+
+      expect(peak).toBe(1);
+      expect(mockedSave).toHaveBeenLastCalledWith("p2", "b");
+      mockedSave.mockReset();
+      mockedSave.mockResolvedValue(undefined);
+    });
+
+    it("reports the in-flight failure to a flush that arrives during the write", async () => {
+      let rejectWrite: ((reason: Error) => void) | undefined;
+      mockedSave.mockImplementationOnce(
+        () => new Promise((_resolve, reject) => { rejectWrite = reject; }),
+      );
+      mockedSave.mockImplementationOnce(
+        () => Promise.reject(new Error("disk full")),
+      );
+
+      debouncedSave("p3", "precious", 300);
+      const writing = flushAutosave("p3");
+      await Promise.resolve();
+
+      const closing = flushAutosave("p3");
+      rejectWrite!(new Error("disk full"));
+
+      expect((await writing).ok).toBe(false);
+      const result = await closing;
+      expect(result.ok).toBe(false);
+      expect(result.failures[0].bufferId).toBe("p3");
+      expect(hasPendingAutosave("p3")).toBe(true);
+      cancelAutosave("p3");
+    });
+
+    it("drops the failed text when the buffer was cancelled meanwhile", async () => {
+      let rejectWrite: ((reason: Error) => void) | undefined;
+      mockedSave.mockImplementationOnce(
+        () => new Promise((_resolve, reject) => { rejectWrite = reject; }),
+      );
+
+      debouncedSave("p4", "discarded", 300);
+      const writing = flushAutosave("p4");
+      await Promise.resolve();
+
+      cancelAutosave("p4");
+      rejectWrite!(new Error("disk full"));
+      await writing;
+
+      expect(hasPendingAutosave("p4")).toBe(false);
+    });
+
+    it("resolves ok when nothing was pending", async () => {
+      const result = await flushAutosave("buf-absent");
+      expect(result).toEqual({ ok: true, failures: [] });
+    });
+
+    it("reports every failure when flushing all buffers", async () => {
+      mockedSave.mockRejectedValueOnce(new Error("one"));
+      mockedSave.mockRejectedValueOnce(new Error("two"));
+      debouncedSave("buf-x", "x", 300);
+      debouncedSave("buf-y", "y", 300);
+
+      const result = await flushAutosave();
+
+      expect(result.ok).toBe(false);
+      expect(result.failures.map((f) => f.bufferId).sort()).toEqual(["buf-x", "buf-y"]);
+      cancelAutosave("buf-x");
+      cancelAutosave("buf-y");
     });
   });
 });

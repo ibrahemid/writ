@@ -5,7 +5,7 @@ vi.mock("../../services/tauri", () => ({
 }));
 
 import { saveStatusStore } from "../../stores/global/save-status";
-import { debouncedSave, flushAutosave } from "../../services/autosave";
+import { debouncedSave, flushAutosave, cancelAutosave } from "../../services/autosave";
 import { saveBufferContent } from "../../services/tauri";
 
 const mockedSave = vi.mocked(saveBufferContent);
@@ -44,5 +44,21 @@ describe("saveStatusStore", () => {
 
     await vi.advanceTimersByTimeAsync(5000);
     expect(saveStatusStore.status()).toBe("failed");
+    cancelAutosave("buf-failed");
+  });
+
+  it("keeps the reason for the failure and drops it once a save lands", async () => {
+    vi.useFakeTimers();
+    mockedSave.mockRejectedValueOnce("path not authorized: /etc/hosts");
+
+    debouncedSave("buf-reason", "oops", 0);
+    await flushAutosave("buf-reason");
+
+    expect(saveStatusStore.lastError()).toBe("path not authorized: /etc/hosts");
+
+    await flushAutosave("buf-reason");
+
+    expect(saveStatusStore.status()).toBe("saved");
+    expect(saveStatusStore.lastError()).toBeNull();
   });
 });
