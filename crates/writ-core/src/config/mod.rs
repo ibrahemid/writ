@@ -26,7 +26,7 @@ fn default_hotkey_toggle() -> String {
 }
 
 fn default_sidebar_toggle() -> String {
-    "CmdOrCtrl+S".to_string()
+    "CmdOrCtrl+\\".to_string()
 }
 
 fn default_sidebar_default_visible() -> bool {

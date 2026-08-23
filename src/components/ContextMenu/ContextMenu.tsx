@@ -199,6 +199,27 @@ export default function ContextMenu() {
     });
   });
 
+  // Focus does not always land in the menu (a spelling popover opens on a
+  // double-click the editor also handles, and the editor keeps the caret), so
+  // the menu's own key handler never sees Escape. At the document level:
+  // Escape closes; any other key outside the menu means the user has moved on,
+  // so the menu closes and the key goes wherever it was headed.
+  function handleDocumentKeyDown(event: KeyboardEvent) {
+    if (menuRef && event.target instanceof Node && menuRef.contains(event.target)) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+      return;
+    }
+    if (event.key.length === 1 || event.key === "Backspace" || event.key === "Enter") close();
+  }
+
+  createEffect(() => {
+    if (!menu()) return;
+    document.addEventListener("keydown", handleDocumentKeyDown, true);
+    onCleanup(() => document.removeEventListener("keydown", handleDocumentKeyDown, true));
+  });
+
   /** The region the menu may occupy: the caller's bounds, else the viewport. */
   function limits(m: ContextMenuState) {
     return {

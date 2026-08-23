@@ -67,6 +67,25 @@ describe("ContextMenu separator items stay clickable", () => {
   // `separator: true` draws a divider above an item; it never meant the item
   // itself is a divider. Reading it that way made every group-opening item dead
   // on arrival: Spelling settings, Close All Tabs, Clear All History.
+  it("closes on Escape even when focus stayed outside the menu", () => {
+    const { getByText, container } = render(() => <Harness />);
+    fireEvent.click(getByText("open"));
+    expect(container.querySelector(".context-menu")).not.toBeNull();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(container.querySelector(".context-menu")).toBeNull();
+  });
+
+  it("closes when the user types elsewhere, without eating the key", () => {
+    const { getByText, container } = render(() => <Harness />);
+    fireEvent.click(getByText("open"));
+    const outside = document.createElement("textarea");
+    document.body.appendChild(outside);
+    const notCancelled = fireEvent.keyDown(outside, { key: "a" });
+    expect(notCancelled).toBe(true);
+    expect(container.querySelector(".context-menu")).toBeNull();
+    outside.remove();
+  });
+
   it("runs the action of an item that opens a group", () => {
     const action = vi.fn();
     const { container, getByText } = render(() => <ContextMenu />);

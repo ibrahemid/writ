@@ -25,7 +25,7 @@ import { configStore } from "./stores/global/config";
 import { themeStore } from "./stores/global/theme";
 import { osWindowStore } from "./stores/global/os-window";
 import { windowRegistry } from "./stores/global/window-registry";
-import { focusSearchBar } from "./components/Sidebar/SearchBar";
+import { focusAfterSidebarChange } from "./lib/sidebar-focus";
 import { openContentSearch } from "./commands/search";
 import { findStore } from "./stores/global/find-store";
 import { registerTransformCommands } from "./commands/transforms";
@@ -631,12 +631,11 @@ function AppShell() {
     }
   });
 
+  // Toggling the sidebar changes what is visible, not where you type: showing
+  // it leaves the caret in the note, hiding it returns focus to the note so
+  // nothing stays focused inside a collapsed region.
   createEffect(() => {
-    if (win.sidebar.isOpen()) {
-      focusSearchBar();
-    } else {
-      win.editor.focusEditor();
-    }
+    if (focusAfterSidebarChange(win.sidebar.isOpen()) === "editor") win.editor.focusEditor();
   });
 
   // Rewrite commands exist in the palette only while the feature is on.

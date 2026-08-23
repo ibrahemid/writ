@@ -34,12 +34,18 @@ describe("InboxSection", () => {
   });
 
   it("shows the folder name and the empty state when watched but no files", () => {
-    h.setPath("/Users/me/Downloads/inbox");
+    h.setPath("/Users/me/Downloads/reports");
     const { container } = render(() => <InboxSection />);
     expect(container.querySelector(".sidebar-section-title")!.textContent).toContain(
-      "Inbox · inbox",
+      "Inbox · reports",
     );
     expect(container.querySelector(".inbox-empty")!.textContent).toBe("No files yet");
+  });
+
+  it("does not repeat the name when the folder is itself called Inbox", () => {
+    h.setPath("/Users/me/Inbox");
+    const { container } = render(() => <InboxSection />);
+    expect(container.querySelector(".sidebar-section-title")!.textContent!.trim()).toBe("Inbox");
   });
 
   it("lists files with formatted sizes", () => {

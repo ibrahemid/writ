@@ -28,6 +28,31 @@ pub fn style_tag() -> String {
     format!("<style>{PREVIEW_BASE_CSS}</style>")
 }
 
+/// The base theme for a document that keeps its own `<html>` tag (an HTML
+/// buffer), where the polarity cannot be carried as an attribute on the root.
+/// The light palette is re-declared on `:root` after the base sheet so it wins
+/// without touching the author's markup; dark is the sheet's default.
+pub fn style_tag_for(polarity: ThemePolarity) -> String {
+    match polarity {
+        ThemePolarity::Dark => style_tag(),
+        ThemePolarity::Light => match light_palette_block() {
+            Some(block) => format!("<style>{PREVIEW_BASE_CSS}\n:root{block}</style>"),
+            None => style_tag(),
+        },
+    }
+}
+
+/// The `{ ... }` body of the `[data-writ-theme="light"]` rule in the base sheet.
+fn light_palette_block() -> Option<&'static str> {
+    // The selector is also quoted in the sheet's header comment; the rule is
+    // the occurrence followed by its opening brace.
+    let start = PREVIEW_BASE_CSS.find("[data-writ-theme=\"light\"] {")?;
+    let rest = &PREVIEW_BASE_CSS[start..];
+    let open = rest.find('{')?;
+    let close = rest[open..].find('}')? + open;
+    Some(&rest[open..=close])
+}
+
 /// Same-origin URL of the bundled first-party preview bridge runtime.
 pub const BRIDGE_URL: &str = "writ-preview://document/_assets/preview/bridge.js";
 
@@ -98,6 +123,27 @@ pub fn wrap_document_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn light_style_tag_redeclares_the_light_palette_on_root() {
+        let tag = style_tag_for(ThemePolarity::Light);
+        let at = tag.rfind(":root{").expect("a :root override is appended");
+        let block = &tag[at..];
+        assert!(
+            block.contains("--writ-preview-bg: #fbfbfd"),
+            "override carries the light palette"
+        );
+        assert!(
+            !block.contains("#0e0e14"),
+            "override must not be the dark root block"
+        );
+        assert!(at > tag.find("[data-writ-theme=\"light\"] {").unwrap());
+    }
+
+    #[test]
+    fn dark_style_tag_is_the_plain_base_sheet() {
+        assert_eq!(style_tag_for(ThemePolarity::Dark), style_tag());
+    }
 
     #[test]
     fn base_css_is_nonempty_and_themed() {

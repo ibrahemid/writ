@@ -27,6 +27,8 @@ export default function Sidebar() {
     <div
       class="sidebar"
       classList={{ "is-open": win.sidebar.isOpen() }}
+      aria-hidden={win.sidebar.isOpen() ? undefined : "true"}
+      inert={!win.sidebar.isOpen()}
     >
       <SearchBar />
       <Show

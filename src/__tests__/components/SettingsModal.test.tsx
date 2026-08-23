@@ -641,6 +641,15 @@ describe("SettingsModal", () => {
       });
     });
 
+    it("keeps the rewrite connection status out of unrelated results", async () => {
+      const { container } = render(() => <SettingsModal />);
+      await openAndSearch(container, "font");
+      await waitFor(() => {
+        expect(container.querySelector("[data-setting-id='editor.font_size']")).not.toBeNull();
+        expect(container.querySelector(".settings-ai-connection")).toBeNull();
+      });
+    });
+
     it("shows an empty state when nothing matches", async () => {
       const { container } = render(() => <SettingsModal />);
       await openAndSearch(container, "zzzzz");

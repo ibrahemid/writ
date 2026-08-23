@@ -18,7 +18,9 @@
   padding: 6px 14px;
   text-align: left;
   font-size: var(--writ-font-size-sm);
-  color: var(--writ-foreground-muted);
+  /* Default foreground: muted on the raised surface reads as disabled, and
+     the real disabled state needs to look different from the live one. */
+  color: var(--writ-foreground-default);
   cursor: pointer;
   border: none;
   background: none;

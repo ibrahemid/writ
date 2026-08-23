@@ -85,6 +85,18 @@ describe("ThemeEditor focus trap", () => {
     expect(document.querySelector(".theme-editor")).toBeNull();
   });
 
+  it("Escape still closes the dialog after a click left focus on the body", async () => {
+    render(() => <ThemeEditor />);
+    openThemeEditor();
+    await tick();
+    expect(document.querySelector(".theme-editor")).not.toBeNull();
+    // macOS does not focus a button on click, so focus ends up on the body.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    expect(document.activeElement).toBe(document.body);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(document.querySelector(".theme-editor")).toBeNull();
+  });
+
   it("falls back to editor focus when previouslyFocused is body", async () => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     render(() => <ThemeEditor />);
