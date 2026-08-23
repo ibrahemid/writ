@@ -1,26 +1,31 @@
 {
-  "version": "0.2.0",
-  "tag": "v0.2.0",
-  "publishedAt": "2026-07-23T20:14:57Z",
+  "version": "0.3.4",
+  "tag": "v0.3.4",
+  "publishedAt": "2026-08-22T16:27:29Z",
   "published": true,
-  "notarized": false,
+  "notarized": true,
   "hasChecksums": true,
   "platforms": {
     "mac": {
-      "dmg": "https://github.com/ibrahemid/writ/releases/download/v0.2.0/Writ_0.2.0_universal.dmg",
-      "pkg": "https://github.com/ibrahemid/writ/releases/download/v0.2.0/Writ_0.2.0_universal.pkg",
-      "sha256_dmg": "8095c083ea8db36d415a485353a0b4e1b01e64e296024dafff9a7462d8ec3380",
-      "sha256_pkg": "9ded85c583b4dcdef412aef69931bcb90d16eefe6edb1c4bef0662910338afb7"
+      "dmg": "https://github.com/ibrahemid/writ/releases/download/v0.3.4/Writ_0.3.4_universal.dmg",
+      "pkg": "https://github.com/ibrahemid/writ/releases/download/v0.3.4/Writ_0.3.4_universal.pkg",
+      "sha256_dmg": "c782ab2696515c685f8af182f901832a2b668fd3ac26a8f9a4cfe7f2076d1386",
+      "sha256_pkg": "aedbfc7c910e771a7070f27733ff6c518971a54affb47e91f8e6ce009dc3ca98",
+      "size_dmg": 21757912,
+      "size_pkg": 21643980
     },
     "win": {
-      "msi": "https://github.com/ibrahemid/writ/releases/download/v0.2.0/Writ_0.2.0_x64_en-US.msi",
-      "sha256_msi": "91c924ba9318903dfa2ccd41dc9a0b27c3b564dd2bc4435aec134890435e0aa1"
+      "msi": "https://github.com/ibrahemid/writ/releases/download/v0.3.4/Writ_0.3.4_x64_en-US.msi",
+      "sha256_msi": "0b2b6cad3a7015784f7d5bf46c8a1424aaa69699da1253b26d656added4fdc56",
+      "size_msi": 11087872
     },
     "linux": {
-      "deb": "https://github.com/ibrahemid/writ/releases/download/v0.2.0/Writ_0.2.0_amd64.deb",
-      "appImage": "https://github.com/ibrahemid/writ/releases/download/v0.2.0/Writ_0.2.0_amd64.AppImage",
-      "sha256_deb": "5d45cce32d6ebb8e4dd3def0dbf08acf0df9c817e7059880721fe661d963e483",
-      "sha256_appImage": "cbc02a0929aa5bb2c934b82b1aa633b3b7c2ae83968453d46772605155608911"
+      "deb": "https://github.com/ibrahemid/writ/releases/download/v0.3.4/Writ_0.3.4_amd64.deb",
+      "appImage": "https://github.com/ibrahemid/writ/releases/download/v0.3.4/Writ_0.3.4_amd64.AppImage",
+      "sha256_deb": "7e9dbc3366e7549ffc98d985e8d088be75b45decb4ef9a1e2350f64670740432",
+      "sha256_appImage": "3c92b7b7faa14cb666a07e8ad1e7f14fb67ef17e3b25c6dbe556bd2514e5973d",
+      "size_deb": 12352820,
+      "size_appImage": 89242104
     }
   }
 }

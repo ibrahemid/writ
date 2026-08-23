@@ -1,0 +1,34 @@
+---
+import Site from '../../layouts/Site.astro';
+import Doc from '../../components/site/Doc.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<Site title="Writ next to Obsidian" description="Keep the vault. Writ is the scratchpad beside it: one hotkey, no config, and it opens your vault's .md files directly." path="/vs/obsidian/">
+  <Doc eyebrow="compare" title="Writ next to Obsidian." shot="still-vault" shotAlt="An Obsidian vault open as a folder in Writ: the tree in the sidebar, a note rendered beside its source" shotOwed="a vault folder open in Writ (app capture, still-vault)" lead="Obsidian is where a life's notes live. Writ is for the text that never makes it that far: the thing you need to jot during a call, the draft you want to read rendered, the file someone sent. Most people who use both keep both.">
+    <div class="doc-body">
+      <h2>What each one is for</h2>
+      <table>
+        <tr><th></th><th>Obsidian</th><th>Writ</th></tr>
+        <tr><td>Shape</td><td>A vault: a folder of linked notes you organize.</td><td>A scratchpad: notes you throw in, kept and searchable.</td></tr>
+        <tr><td>Getting to it</td><td>Launch the app, open the vault.</td><td>Already running. One hotkey over any app.</td></tr>
+        <tr><td>Your files</td><td>Plain .md in the vault folder.</td><td>Plain .txt in <code>~/.writ/buffers</code>, and any file on disk you open.</td></tr>
+        <tr><td>Links between notes</td><td>Wikilinks, backlinks, graph.</td><td>Relative links inside an open folder. Wikilinks and backlinks are planned, not shipped.</td></tr>
+        <tr><td>Plugins</td><td>Thousands.</td><td>None. Text transforms and an opt-in rewrite are built in.</td></tr>
+        <tr><td>Mobile and sync</td><td>Apps on every platform, paid sync.</td><td>Desktop only. Sync is whatever you do with the folder.</td></tr>
+        <tr><td>Rendering</td><td>Live preview and reading view.</td><td>Source beside rendered, plus HTML, Mermaid and KaTeX.</td></tr>
+        <tr><td>Price</td><td>Free for personal use; sync and publish are paid.</td><td>Free. MIT.</td></tr>
+      </table>
+
+      <h2>Using Writ on a vault</h2>
+      <p>A vault is a folder of markdown files, so Writ can open it as a folder: the sidebar shows the tree, search covers every file's contents, and relative links open inside Writ. Obsidian's <code>[[wikilinks]]</code> show as text for now. Edits you make go back to the file with <kbd class="kc">⌘</kbd><kbd class="kc">S</kbd>, and Obsidian sees them like any other change on disk. The <a href={`${base}/guides/obsidian-vault-files/`}>guide</a> walks through it.</p>
+
+      <h2>Where Writ is the wrong tool</h2>
+      <p>If what you want is a second brain, with backlinks, a graph, daily notes, plugins, and your phone in sync, that is Obsidian's job and Writ does not do it. If what you want is a window that is already open when a thought arrives, and a record of every such window you ever opened, that is Writ's.</p>
+
+      <div class="doc-cta">
+        <a href={`${base}/download/`} class="v2-btn-primary">Download Writ</a>
+        <a href={`${base}/`} class="v2-btn-ghost">What Writ does</a>
+      </div>
+    </div>
+  </Doc>
+</Site>

@@ -1,0 +1,33 @@
+---
+import Site from '../../layouts/Site.astro';
+import Doc from '../../components/site/Doc.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<Site title="Make Writ the app for .md files" description="Register Writ as the default app for markdown and text on macOS, Windows and Linux, so a double-click opens the file here." path="/guides/default-md-app/">
+  <Doc eyebrow="guide" title="Make Writ the app for .md files." shot="still-settings-files" shotAlt="Writ settings, Files: the Make default rows for Markdown, plain text, config and source" shotOwed="Settings, Files (app capture, still-settings-files)" lead="Once, per file type. After that a double-click in Finder or Explorer opens the file in Writ, rendered.">
+    <div class="doc-body">
+      <h2>macOS</h2>
+      <ol>
+        <li>Open Settings (<kbd class="kc">⌘</kbd><kbd class="kc">,</kbd>), Files. Each group has its own row with a Make default button: Markdown, Plain text &amp; logs, Config &amp; data, Source code. Press it for the groups you want; the row then reads "Writ is the default".</li>
+        <li>macOS keeps the choice per type, so claiming Markdown does not change what opens <code>.txt</code>. If a row will not take, Finder's Get Info on one file, Open with: Writ, Change All does the same thing by hand.</li>
+      </ol>
+
+      <h2>Windows</h2>
+      <ol>
+        <li>Right-click any <code>.md</code> file, Open with, Choose another app.</li>
+        <li>Pick Writ and tick "Always use this app".</li>
+        <li>Repeat for <code>.txt</code> or any other extension you want here.</li>
+      </ol>
+
+      <h2>Linux</h2>
+      <p>The .deb installs a desktop entry named <code>Writ.desktop</code>, so Writ appears in your file manager's Open With list. To make it the default from a terminal:</p>
+      <pre><code>xdg-mime default Writ.desktop text/markdown
+xdg-mime default Writ.desktop text/plain</code></pre>
+      <p>With the AppImage, register it first with AppImageLauncher (or any integrator that writes a desktop entry), then run the same commands with the name it created.</p>
+
+      <h2>What opening a file means</h2>
+      <p>The file opens in a tab under its own name. Edits stay in Writ until <kbd class="kc">⌘</kbd><kbd class="kc">S</kbd> writes them back, and if the file changes on disk while it is open the status bar says so first. Closing the tab never deletes or changes the file. The note also goes into history, so <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">F</kbd> finds it later even if the file has moved.</p>
+      <p>Related: <a href={`${base}/docs/#default-app`}>the default app in the docs</a>.</p>
+    </div>
+  </Doc>
+</Site>

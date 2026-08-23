@@ -1,0 +1,29 @@
+---
+import Site from '../../layouts/Site.astro';
+import Doc from '../../components/site/Doc.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<Site title="Writ next to Apple Notes" description="Apple Notes is on every Apple device. Writ keeps plain files you can open anywhere, writes markdown, and opens files." path="/vs/apple-notes/">
+  <Doc eyebrow="compare" title="Writ next to Apple Notes." shot="still-sidebar-history" shotAlt="The Writ sidebar: open notes, and the history of every earlier note by day" lead="Apple Notes is on the phone, the watch and the Mac, and it syncs for free. Writ is a different kind of note: a plain file on disk, in markdown, that you can also hand to any other program.">
+    <div class="doc-body">
+      <table>
+        <tr><th></th><th>Apple Notes</th><th>Writ</th></tr>
+        <tr><td>Where the text is</td><td>A database synced through iCloud.</td><td>One plain text file per note in <code>~/.writ/buffers</code>.</td></tr>
+        <tr><td>Format</td><td>Rich text. Pasted code and markdown get reformatted.</td><td>Markdown, rendered beside the source. Code stays code.</td></tr>
+        <tr><td>Getting to it</td><td>Open the app or a Quick Note.</td><td>Already running. One hotkey over any app.</td></tr>
+        <tr><td>Opening files</td><td>Attachments inside a note.</td><td>Opens the file itself: text, markdown, HTML, configs, logs.</td></tr>
+        <tr><td>Search</td><td>Across your notes.</td><td>Across every note you ever opened, plus any folder you point it at.</td></tr>
+        <tr><td>Devices</td><td>iPhone, iPad, Mac, web.</td><td>Mac, Windows, Linux. No phone app.</td></tr>
+        <tr><td>Price</td><td>Included with the device.</td><td>Free. MIT.</td></tr>
+      </table>
+
+      <h2>Keeping both</h2>
+      <p>Notes is the right place for the grocery list you will read on your phone. Writ is the right place for the text that has to stay exactly as typed, for anything with code or markdown in it, and for files that came from somewhere else. Text moves between them with copy and paste; Writ's files also open in any editor, now and in twenty years.</p>
+
+      <div class="doc-cta">
+        <a href={`${base}/download/`} class="v2-btn-primary">Download Writ</a>
+        <a href={`${base}/`} class="v2-btn-ghost">What Writ does</a>
+      </div>
+    </div>
+  </Doc>
+</Site>

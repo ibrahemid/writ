@@ -640,6 +640,8 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+  overflow: hidden;
 }
 .wwx-save {
   display: inline-flex;

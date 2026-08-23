@@ -1,6 +1,7 @@
 ---
 import Site from "../layouts/Site.astro";
 import { releases } from "../data/changelog";
+import Capture from "../components/site/Capture.astro";
 
 const kindColor: Record<string, string> = {
   added:   'var(--accent)',
@@ -10,15 +11,20 @@ const kindColor: Record<string, string> = {
 };
 ---
 <Site
-  title="Writ — Changelog"
+  title="Writ changelog"
   description="What ships in each release of Writ."
   path="/changelog/"
 >
-  <section class="cl">
-    <div class="cl-wrap">
-      <header class="cl-head">
-        <h1>Changelog</h1>
-      </header>
+  <main class="page" id="top">
+  <section class="band doc cl">
+    <header class="cl-head">
+      <span class="doc-eyebrow">changelog</span>
+      <h1 class="doc-h1">What changed.</h1>
+    </header>
+    <div class="u-bleed-r doc-wide">
+      <Capture name="still-split-note" alt="The current release: meeting notes in split view" class="shot-win shot-bleed-r" sizes="(max-width: 880px) 100vw, 1200px" />
+    </div>
+    <div class="cl-wrap u-wide" style="margin-top:40px">
 
       {releases.map((rel) => (
         <article class="rel" id={`v${rel.version}`}>
@@ -40,29 +46,32 @@ const kindColor: Record<string, string> = {
       ))}
     </div>
   </section>
+  </main>
 
   <style>
-    .cl { padding: 6rem 0 8rem; }
-    .cl-wrap { width: min(720px, 100% - 48px); margin: 0 auto; display: flex; flex-direction: column; gap: 3rem; }
+    .cl { padding-bottom: 6rem; }
+    .cl-wrap { display: flex; flex-direction: column; gap: 0; }
+    .cl-head { max-width: var(--measure); }
     .cl-head { display: flex; flex-direction: column; gap: 0.5rem; }
-    .cl-head h1 {
-      font-family: var(--font-display);
-      font-size: clamp(28px, 4vw, 46px);
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      color: var(--foreground);
-      margin: 0;
-    }
     .cl-sub { color: var(--muted); margin: 0; font-family: var(--font-mono); font-size: 13px; }
 
-    .rel { display: flex; flex-direction: column; gap: 1rem; }
-    .rel-rule { border: none; border-top: 1px solid var(--line); margin: 0; }
+    /* Version and date sit in a left rail, the notes run beside them at the
+       reading measure: one release is one row, the rule spans the whole width. */
+    .rel {
+      display: grid;
+      grid-template-columns: 200px minmax(0, var(--measure));
+      gap: 0 clamp(24px, 4vw, 64px);
+      padding: 1.5rem 0 2.5rem;
+    }
+    .rel-rule { grid-column: 1 / -1; border: none; border-top: 1px solid var(--line); margin: 0 0 1.25rem; }
     .rel-head {
       display: flex;
-      align-items: baseline;
-      gap: 1rem;
-      flex-wrap: wrap;
-      padding-top: 1.25rem;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.35rem;
+    }
+    @media (max-width: 720px) {
+      .rel { grid-template-columns: 1fr; gap: 0.75rem 0; }
     }
     .rel-head h2 {
       margin: 0;

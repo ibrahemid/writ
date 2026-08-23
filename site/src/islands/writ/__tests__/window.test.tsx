@@ -24,7 +24,6 @@ describe('WritWindow', () => {
     const { container } = render(<WritWindow />);
     expect(screen.getAllByTitle('meeting-notes.md').length).toBeGreaterThan(0);
     expect(container.querySelector('.cm-editor')).toBeTruthy();
-    expect(screen.getByText(/tok/)).toBeTruthy();
   });
 
   it('lists the four open buffers as tabs', () => {

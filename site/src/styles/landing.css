@@ -1,0 +1,794 @@
+@keyframes writ-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.32; }
+}
+
+/* ─── Hero: the page opens as a Writ split view ──────────────────────────────
+   Source pane writes the hero's own markdown; the rendered pane paints each
+   block as its source lands. Plays only when the inline pre-paint script sets
+   [data-writ-intro='play'] (JS on, no reduced-motion). Markup defaults to the
+   final static state. Any interaction sets 'done', which snaps every intro
+   animation to its end state. */
+@keyframes hs-type {
+  to { width: 39ch; }
+}
+@keyframes hs-blink {
+  0%, 55% { opacity: 1; }
+  56%, 100% { opacity: 0; }
+}
+@keyframes hs-type-caret {
+  0%, 96% { opacity: 1; }
+  97%, 100% { opacity: 0; }
+}
+@keyframes hs-appear {
+  to { opacity: 1; }
+}
+@keyframes hs-line-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes hs-sweep {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+@keyframes hs-pop {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes hs-dim {
+  to { opacity: 0.68; }
+}
+
+.hero-sheet {
+  --anger: 0;
+  /* The source pane is a real editor line: one column budget owns it. --hs-cols
+     is the widest line the pane must hold (and the widest the editor accepts),
+     --hs-adv the mono advance in em (JS measures the loaded face), --hs-gutter
+     the fixed chrome around the text (line number + indent + caret). Type size
+     falls out of those three, so a line can never outrun the column. */
+  --hs-cols: 60;
+  --hs-adv: 0.6;
+  --hs-gutter: 76px;
+  padding: 0;
+}
+.hs-body {
+  display: grid;
+  grid-template-columns: minmax(0, 47fr) minmax(0, 53fr);
+  gap: 38px;
+}
+.hs-src {
+  container-type: inline-size;
+  --hs-fs: clamp(
+    10px,
+    calc((100cqw - var(--hs-gutter)) / (var(--hs-cols) * var(--hs-adv))),
+    12.5px
+  );
+  position: relative;
+  font-family: var(--font-mono);
+  color: var(--muted);
+  padding-top: 6px;
+}
+.hs-editable .lt { cursor: text; }
+/* Nothing else says the pane takes typing, so the pane says it on approach. */
+html[data-writ-intro] .hs-src.hs-editable:hover { opacity: 0.92; }
+.hs-editable .hs-line:hover .ln { color: var(--accent); }
+.lt[contenteditable],
+.hr-h1-text[contenteditable],
+.hr-sub[contenteditable] {
+  outline: none;
+  /* Your own caret carries the temper too, so the heat reads while you type
+     and not only when the fixing caret arrives. */
+  caret-color: color-mix(in oklab, var(--accent) calc(100% - var(--anger) * 100%), #e5341f);
+  border-radius: 4px;
+}
+.lt[contenteditable]:focus { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.hr-h1-text[contenteditable]:focus,
+.hr-sub[contenteditable]:focus { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.lt-wiping { opacity: 0.35; transition: opacity 0.15s var(--ease); }
+.hs-fix-caret {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(var(--hs-fs) * 0.56 + var(--anger) * 3px);
+  height: calc(var(--hs-fs) * 1.2 + var(--anger) * 4px);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.09s ease-out, opacity 0.2s var(--ease);
+}
+.hs-fix-caret.on { opacity: 1; }
+.hs-fc-core {
+  position: absolute;
+  inset: 0;
+  border-radius: 1.5px;
+  background: color-mix(in oklab, var(--accent) calc(100% - var(--anger) * 100%), #e5341f);
+  box-shadow:
+    0 0 calc(var(--anger) * 10px) rgb(229 52 31 / calc(var(--anger) * 0.55)),
+    0 0 calc(var(--anger) * 26px) rgb(255 122 26 / calc(var(--anger) * 0.3));
+  animation: hs-tremble 0.09s steps(2) infinite;
+}
+@keyframes hs-tremble {
+  0%, 100% { transform: translate(calc(var(--anger) * -0.7px), 0); }
+  50% { transform: translate(calc(var(--anger) * 0.7px), calc(var(--anger) * 0.4px)); }
+}
+.hs-fc-face {
+  position: absolute;
+  top: 15%;
+  left: 50%;
+  width: 8px;
+  height: 5px;
+  margin-left: -4px;
+  opacity: clamp(0, calc((var(--anger) - 0.72) * 4), 1);
+}
+.hs-fc-flame {
+  position: absolute;
+  left: 50%;
+  bottom: 88%;
+  width: 14px;
+  height: 16px;
+  margin-left: -7px;
+  opacity: clamp(0, calc((var(--anger) - 0.62) * 2.8), 1);
+  filter: blur(1.3px);
+  pointer-events: none;
+}
+.hs-fc-flame::before,
+.hs-fc-flame::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  border-radius: 50% 50% 46% 46% / 68% 68% 32% 32%;
+  transform-origin: 50% 100%;
+}
+.hs-fc-flame::before {
+  left: 1px;
+  width: 12px;
+  height: 15px;
+  background: radial-gradient(60% 88% at 50% 92%, #ffd23f 0%, #ff9a1f 42%, #ff471a 70%, transparent 88%);
+  animation: hs-flame 0.26s ease-in-out infinite alternate;
+}
+.hs-fc-flame::after {
+  left: 4px;
+  width: 7px;
+  height: 10px;
+  background: radial-gradient(60% 90% at 50% 95%, #fff3b0 0%, #ffd23f 55%, transparent 85%);
+  animation: hs-flame 0.19s ease-in-out infinite alternate-reverse;
+}
+@keyframes hs-flame {
+  from { transform: scaleY(0.82) scaleX(1.06) skewX(-3deg); }
+  to { transform: scaleY(1.14) scaleX(0.94) skewX(3.5deg); }
+}
+.hero-sheet .hs-c2 {
+  background: color-mix(in oklab, var(--accent) calc(100% - var(--anger) * 100%), #e5341f);
+}
+.hs-save-dot { transition: background 0.25s var(--ease); }
+.hs-save-dot.editing {
+  background: color-mix(in oklab, var(--accent) calc(100% - var(--anger) * 100%), #e5341f);
+}
+.hs-line {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  white-space: nowrap;
+  font-size: var(--hs-fs);
+}
+.ln {
+  flex: none;
+  width: 56px;
+  padding-right: 12px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--subtle);
+  border-right: 1px solid var(--line);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  transition: color 0.14s var(--ease);
+}
+.hs-line .lt { margin-left: 12px; }
+.lt-h { color: var(--accent); }
+.lk { color: var(--foreground); }
+.lu { color: var(--accent); opacity: 0.75; }
+.hs-caret {
+  flex: none;
+  width: calc(var(--hs-fs) * 0.56);
+  height: calc(var(--hs-fs) * 1.2);
+  margin-left: 1px;
+  border-radius: 1.5px;
+  background: var(--accent);
+}
+.hs-c1 { display: none; }
+.hs-render {
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  padding-left: 38px;
+}
+
+/* Intro choreography — hero sheet.
+   Every beat is a variable and every delay is `beat * --i`, so the whole
+   sequence has one clock: the stacked layout re-cuts it by reassigning beats
+   (not by restating twenty delays), and scrolling scales --i to fast-forward
+   what is already running instead of snapping it away. Beats read as one pass:
+   the source line types, its rendered block lands under it, repeat. */
+html[data-writ-intro] {
+  --i: 1;
+  --i-h1: 0.16s;
+  --i-sub: 0.46s;
+  --i-cta: 0.76s;
+  --i-cta-step: 0.12s;
+  --i-status: 1.55s;
+  --i-status-step: 0.1s;
+  --i-gut: 1.12s;
+  --i-gut-step: 0.035s;
+  --i-type: 1.2s;
+  --i-type-dur: 0.75s;
+  --i-paste: 2.0s;
+  --i-paste-step: 0.1s;
+  --i-link: 2.4s;
+  --i-save: 2.6s;
+  --i-dim: 2.7s;
+}
+[data-writ-intro='play'] .ln {
+  opacity: 0;
+  animation: hs-appear 0.34s var(--ease) forwards;
+  animation-delay: calc(var(--i-gut) * var(--i));
+}
+[data-writ-intro='play'] .hs-line:nth-child(2) .ln { animation-delay: calc((var(--i-gut) + 1 * var(--i-gut-step)) * var(--i)); }
+[data-writ-intro='play'] .hs-line:nth-child(3) .ln { animation-delay: calc((var(--i-gut) + 2 * var(--i-gut-step)) * var(--i)); }
+[data-writ-intro='play'] .hs-line:nth-child(4) .ln { animation-delay: calc((var(--i-gut) + 3 * var(--i-gut-step)) * var(--i)); }
+[data-writ-intro='play'] .hs-line:nth-child(5) .ln { animation-delay: calc((var(--i-gut) + 4 * var(--i-gut-step)) * var(--i)); }
+[data-writ-intro='play'] .hs-line:nth-child(6) .ln { animation-delay: calc((var(--i-gut) + 5 * var(--i-gut-step)) * var(--i)); }
+[data-writ-intro='play'] .hs-line:nth-child(7) .ln { animation-delay: calc((var(--i-gut) + 6 * var(--i-gut-step)) * var(--i)); }
+[data-writ-intro='play'] .hs-line:nth-child(8) .ln { animation-delay: calc((var(--i-gut) + 7 * var(--i-gut-step)) * var(--i)); }
+[data-writ-intro='play'] .lt-type {
+  overflow: hidden;
+  width: 0;
+  animation: hs-type calc(var(--i-type-dur) * var(--i)) steps(39, end) calc(var(--i-type) * var(--i)) forwards;
+}
+[data-writ-intro='play'] .hs-c1 {
+  display: block;
+  opacity: 0;
+  animation: hs-type-caret calc((var(--i-type-dur) + 0.06s) * var(--i)) linear calc((var(--i-type) - 0.03s) * var(--i)) forwards;
+}
+[data-writ-intro='play'] .lt-paste {
+  opacity: 0;
+  animation: hs-line-in 0.38s var(--ease) forwards;
+}
+[data-writ-intro='play'] .lt-p1 { animation-delay: calc(var(--i-paste) * var(--i)); }
+[data-writ-intro='play'] .lt-p2 { animation-delay: calc((var(--i-paste) + 1 * var(--i-paste-step)) * var(--i)); }
+[data-writ-intro='play'] .lt-p3 { animation-delay: calc((var(--i-paste) + 2 * var(--i-paste-step)) * var(--i)); }
+[data-writ-intro='play'] .lt-p4 { animation-delay: calc((var(--i-paste) + 3 * var(--i-paste-step)) * var(--i)); }
+[data-writ-intro='play'] .lt-p5 { animation-delay: calc(var(--i-link) * var(--i)); }
+/* The resting caret keeps blinking for good: it is the pane's only standing
+   sign that the source takes typing. */
+html[data-writ-intro] .hs-c2 { animation: hs-blink 1.05s step-end infinite; }
+[data-writ-intro='play'] .hs-c2 {
+  opacity: 0;
+  animation-delay: calc((var(--i-link) + 0.1s) * var(--i));
+}
+[data-writ-intro='play'] .hr-h1 {
+  clip-path: inset(0 100% 0 0);
+  animation: hs-sweep 0.5s var(--ease) calc(var(--i-h1) * var(--i)) forwards;
+}
+[data-writ-intro='play'] .hr-sub {
+  clip-path: inset(0 100% 0 0);
+  animation: hs-sweep 0.46s var(--ease) calc(var(--i-sub) * var(--i)) forwards;
+}
+[data-writ-intro='play'] .hr-cta1 {
+  opacity: 0;
+  animation: hs-pop 0.4s var(--spring) calc(var(--i-cta) * var(--i)) forwards;
+}
+[data-writ-intro='play'] .hr-cta2 {
+  opacity: 0;
+  animation: hs-pop 0.4s var(--spring) calc((var(--i-cta) + var(--i-cta-step)) * var(--i)) forwards;
+}
+[data-writ-intro='play'] .hs-status { opacity: 0; animation: hs-appear 0.4s var(--ease) calc(var(--i-status) * var(--i)) forwards; }
+[data-writ-intro='play'] .hs-file { opacity: 0; animation: hs-appear 0.35s var(--ease) calc((var(--i-status) + 1 * var(--i-status-step)) * var(--i)) forwards; }
+[data-writ-intro='play'] .hs-meta { opacity: 0; animation: hs-appear 0.35s var(--ease) calc((var(--i-status) + 2 * var(--i-status-step)) * var(--i)) forwards; }
+[data-writ-intro='play'] .hs-save { opacity: 0; animation: hs-appear 0.45s var(--ease) calc(var(--i-save) * var(--i)) forwards; }
+[data-writ-intro='play'] .hs-src { animation: hs-dim 0.6s var(--ease) calc(var(--i-dim) * var(--i)) forwards; }
+/* ─── Prose (preview pane) ───────────────────────────────────────────────── */
+.writ-prose {
+  font-family: var(--font-sans);
+  color: var(--foreground);
+  font-size: 14.5px;
+  line-height: 1.7;
+  word-wrap: break-word;
+}
+.writ-prose > * + * { margin-top: 12px; }
+.writ-prose h1, .writ-prose .h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 27px;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  font-variation-settings: 'opsz' 60;
+  margin-top: 2px;
+}
+.writ-prose h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+  margin-top: 22px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.writ-prose h3 { font-weight: 600; font-size: 16px; margin-top: 16px; }
+.writ-prose a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.writ-prose strong { font-weight: 600; }
+.writ-prose em { font-style: italic; }
+.writ-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+.writ-prose pre {
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 13px 15px;
+  overflow: auto;
+}
+.writ-prose pre code {
+  background: none;
+  color: var(--foreground);
+  padding: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.writ-prose blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 2px 0 2px 14px;
+  color: var(--muted);
+  font-style: italic;
+}
+.writ-prose ul, .writ-prose ol { padding-left: 21px; }
+.writ-prose li { margin-top: 4px; }
+.writ-prose li.task {
+  list-style: none;
+  margin-left: -21px;
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+}
+.writ-prose .ck {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
+  border: 1.5px solid var(--border-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  font-size: 10px;
+  color: #fff;
+  margin-top: 2px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+.writ-prose .ck.on { background: var(--accent); border-color: var(--accent); }
+.writ-prose .ck:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.writ-prose table { border-collapse: collapse; font-size: 13px; }
+.writ-prose th, .writ-prose td { border: 1px solid var(--line); padding: 6px 11px; text-align: left; }
+.writ-prose th { background: var(--sunken); font-weight: 600; }
+.writ-prose hr { border: none; border-top: 1px solid var(--line); }
+.writ-prose .mermaid {
+  display: flex;
+  justify-content: center;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 16px 10px;
+}
+.writ-prose .mermaid svg { max-width: 100%; }
+.writ-prose .katex-display { margin: 14px 0; overflow-x: auto; overflow-y: hidden; }
+.wmark { background: var(--accent-soft); color: var(--accent); border-radius: 3px; padding: 0 1px; font-weight: 600; }
+
+/* ─── Triggers ───────────────────────────────────────────────────────────── */
+.gtrig {
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 9px;
+  padding: 9px 13px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--foreground);
+  transition: border-color 0.16s var(--ease), color 0.16s var(--ease), transform 0.16s var(--ease);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.gtrig:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+
+/* ─── Scrollbars (shared with the window island) ─────────────────────────── */
+.codescroll::-webkit-scrollbar,
+.writ-prose::-webkit-scrollbar,
+.sidescroll::-webkit-scrollbar { width: 9px; height: 9px; }
+.codescroll::-webkit-scrollbar-thumb,
+.writ-prose::-webkit-scrollbar-thumb,
+.sidescroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 6px; }
+.codescroll::-webkit-scrollbar-track,
+.sidescroll::-webkit-scrollbar-track { background: transparent; }
+/* ─── The window (island shell) ──────────────────────────────────────────── */
+.ww-root { padding: 0; min-width: 0; }
+.ww-window {
+  position: relative;
+  border-radius: 13px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--win-shadow);
+  overflow: hidden;
+}
+.ww-caption { margin-top: 13px; font-size: 13px; color: var(--subtle); }
+.ww-mono { font-family: var(--font-mono); color: var(--muted); }
+
+/* 'done' drops every 'play' rule, so each element falls to the base state the
+   markup already declares. Only values the intro changed need restating. */
+[data-writ-intro='done'] .hs-src { opacity: 0.68; }
+
+/* ─── Additive motion ────────────────────────────────────────────────────────
+   Nothing is hidden by default. When a section enters the viewport (and only
+   with JS, motion on) its children play a short rise, staggered by --n. */
+@keyframes sec-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+html[data-writ-intro] .sec.in > .mo,
+html[data-writ-intro] .sec.in .mo-g > * {
+  animation: sec-rise 0.55s var(--ease) both;
+  animation-delay: calc(var(--n, 0) * 80ms);
+}
+html[data-writ-intro] .sec.in .mo-g > :nth-child(2) { --n: 1; }
+html[data-writ-intro] .sec.in .mo-g > :nth-child(3) { --n: 2; }
+html[data-writ-intro] .sec.in .mo-g > :nth-child(4) { --n: 3; }
+
+/* ─── Hero band ──────────────────────────────────────────────────────────────
+   The stage: the app's dark surface in both polarities. The sheet (source pane
+   typing the page, rendered pane beside it) sits left; the summon loop sits
+   right and runs off the bottom of the band into the paper. */
+.hero-band {
+  background: var(--background);
+  color: var(--foreground);
+  border-bottom: 1px solid var(--line-soft);
+  padding-top: 48px;
+}
+html[data-theme='dark'] .hero-band { background: var(--paper2); }
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 11fr) minmax(0, 13fr);
+  gap: clamp(28px, 4vw, 64px);
+  align-items: end;
+}
+.hero-copy { padding-bottom: 44px; }
+/* In the band the sheet stacks: the rendered block leads, the source pane
+   writes itself underneath at the full column width. */
+.hero-copy .hs-body { grid-template-columns: 1fr; gap: 26px; }
+.hero-copy .hs-src { order: 2; padding-top: 0; }
+.hero-copy .hs-render { order: 1; border-left: none; padding-left: 0; }
+.hero-copy .hs-line { height: 24px; }
+.hero-band { z-index: 3; }
+.hero-media {
+  position: relative;
+  margin-bottom: -72px;
+  border: 1px solid var(--border-strong);
+  border-bottom: 0;
+  border-radius: 13px 13px 0 0;
+  overflow: hidden;
+  background: var(--card);
+  box-shadow: var(--win-shadow);
+  /* The window capture's own ratio; the summon loop is recorded to match. */
+  aspect-ratio: 1100 / 720;
+}
+.hero-media .loop { position: absolute; inset: 0; aspect-ratio: auto !important; }
+.hero-media video, .hero-media img, .hero-media picture { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+.hero-after { padding-top: 110px; }
+.hr-h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variation-settings: 'opsz' 96;
+  font-size: clamp(34px, 3.6vw, 54px);
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+  color: var(--foreground);
+  max-width: 22ch;
+  position: relative;
+}
+.hr-br { display: none; }
+@media (min-width: 561px) { .hr-br { display: inline; } }
+.hr-sub {
+  max-width: 42ch;
+  margin-top: 18px;
+  font-size: clamp(15.5px, 1.4vw, 17px);
+  line-height: 1.55;
+  color: var(--muted);
+  position: relative;
+}
+.hr-ctas { display: flex; flex-wrap: wrap; gap: 11px; margin-top: 26px; transition: opacity 0.25s var(--ease); }
+.hr-ctas-broken { opacity: 0.4; }
+.hr-meta {
+  margin-top: 14px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--subtle);
+  max-width: 52ch;
+}
+.hr-meta a { color: var(--subtle); text-decoration: underline; text-underline-offset: 2px; }
+.hs-status {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 18px;
+  padding: 9px 2px 0 0;
+  border-top: 1px solid var(--line-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--subtle);
+}
+.hs-file { color: var(--muted); }
+.hs-edit { opacity: 0; color: var(--accent); transition: opacity 0.45s var(--ease), color 0.4s var(--ease); }
+.hs-edit.on { opacity: 1; }
+.hs-edit.spent { color: var(--subtle); }
+.hs-save { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.hs-save-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--success); }
+
+/* ─── Section grammar ────────────────────────────────────────────────────── */
+.sec { padding: 88px 0 0; }
+.sec-tight { padding-top: 56px; }
+.sec-h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variation-settings: 'opsz' 72;
+  font-size: clamp(26px, 3vw, 40px);
+  letter-spacing: -0.03em;
+  line-height: 1.06;
+  color: var(--foreground);
+  max-width: 20ch;
+  text-wrap: balance;
+}
+.sec-h2-lg { font-size: clamp(32px, 4vw, 56px); letter-spacing: -0.035em; line-height: 1.02; max-width: 16ch; font-variation-settings: 'opsz' 96; }
+.sec-p {
+  max-width: var(--measure);
+  margin-top: 14px;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.sec-p .kc { margin: 0 1px; }
+.sec-note { margin-top: 18px; font-size: 14px; color: var(--muted); }
+.sec-note a, .dl-foot a, .mech a, .sec-p a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.cap {
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--subtle);
+}
+.cap b { font-weight: 600; color: var(--foreground); }
+.cap .kc { margin: 0 1px; vertical-align: -2px; }
+
+/* Capture slots: real app stills and loops. No border radius on a strip, a
+   hairline and the window radius when one stands alone. */
+.shot { display: block; position: relative; background: var(--card); overflow: hidden; }
+.shot img, .shot video, .shot picture { display: block; width: 100%; height: auto; }
+.shot-win { border: 1px solid var(--line); border-radius: 13px; box-shadow: var(--win-shadow); }
+.shot-bleed-l { border-radius: 0 13px 13px 0; border-left: 0; }
+.shot-bleed-r { border-radius: 13px 0 0 13px; border-right: 0; }
+.shot-owed { aspect-ratio: 16 / 10; }
+
+/* Three beats, edge to edge, 2px gutters. */
+.strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  margin-top: 40px;
+  background: var(--line);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.strip .shot { border-radius: 0; }
+.strip-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.beats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px;
+  margin-top: 18px;
+}
+.beat-h { font-weight: 600; font-size: 15px; color: var(--foreground); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.beat-p { margin-top: 5px; font-size: 14px; line-height: 1.5; color: var(--muted); max-width: 34ch; }
+
+/* Two-up: text in the column, media breaking one edge. */
+.twoup {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: clamp(28px, 4vw, 64px);
+  align-items: center;
+}
+.twoup-r { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+.twoup .sec-h2 { max-width: 16ch; }
+
+/* Window row (island) */
+.win-row { margin-top: 36px; }
+.ww-caption { margin-top: 13px; font-size: 13px; color: var(--subtle); }
+.ww-mono { font-family: var(--font-mono); color: var(--muted); }
+.trig-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.trig-g { color: var(--accent); }
+
+/* Tinted band */
+.band-tint { background: var(--paper2); border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); margin-top: 88px; padding-bottom: 72px; }
+.band-tint .sec { padding-top: 72px; }
+
+/* Mechanism list: the durability claim as a table of facts. */
+.mech {
+  margin-top: 26px;
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--line);
+}
+.mech-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
+  gap: 18px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.mech-k { font-family: var(--font-mono); font-size: 12.5px; color: var(--foreground); }
+.mech code { font-family: var(--font-mono); font-size: 0.9em; color: var(--foreground); }
+
+/* Three-up: plain columns with a hairline, whole column is the link. */
+.threeup {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(22px, 3vw, 44px);
+  margin-top: 30px;
+}
+.from {
+  display: block;
+  padding-top: 16px;
+  border-top: 1px solid var(--foreground);
+  color: inherit;
+}
+.from-h { font-family: var(--font-display); font-weight: 600; font-size: 20px; letter-spacing: -0.02em; color: var(--foreground); }
+.from-p { margin-top: 8px; font-size: 14.5px; line-height: 1.5; color: var(--muted); }
+.from-l { margin-top: 12px; font-family: var(--font-mono); font-size: 12px; color: var(--accent); }
+.from:hover .from-l { text-decoration: underline; text-underline-offset: 2px; }
+
+/* Private: a fact list, no media. */
+.facts { margin-top: 22px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 40px; max-width: 70ch; }
+.fact { font-size: 15px; line-height: 1.5; color: var(--muted); padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+.fact b { font-weight: 600; color: var(--foreground); }
+
+/* ─── The index ──────────────────────────────────────────────────────────── */
+.ledger { margin-top: 26px; border-top: 1px solid var(--line); }
+.lg-row {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr) auto;
+  gap: 14px 22px;
+  align-items: baseline;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.lg-name { font-family: var(--font-mono); font-size: 12.5px; color: var(--foreground); }
+.lg-fact { font-size: 14px; line-height: 1.5; color: var(--muted); }
+.lg-keys { display: inline-flex; align-items: center; gap: 4px; justify-self: end; }
+.lg-code { font-family: var(--font-mono); font-size: 11.5px; color: var(--accent); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; }
+.index-aside { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; margin-top: 36px; align-items: start; }
+.theme-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.theme-chip {
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.7;
+  overflow: hidden;
+}
+.tchip-line { white-space: nowrap; }
+.tchip-caret { display: inline-block; width: 6px; height: 12px; margin-left: 2px; vertical-align: text-bottom; border-radius: 1.5px; }
+
+/* ─── Install band ───────────────────────────────────────────────────────── */
+.install-band { margin-top: 96px; padding: 80px 0 56px; background: var(--background); color: var(--foreground); border-top: 1px solid var(--line-soft); }
+html[data-theme='dark'] .install-band { background: var(--paper2); }
+.plat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 30px; }
+.plat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--card);
+  transition: border-color 0.15s var(--ease);
+}
+.plat-card.featured { border-color: var(--accent); }
+.plat-card[aria-disabled='true'] { opacity: 0.6; }
+.plat-top { display: flex; align-items: center; gap: 8px; }
+.plat-name { font-weight: 600; font-size: 17px; color: var(--foreground); }
+.plat-badge { font-family: var(--font-mono); font-size: 10px; color: var(--success); border: 1px solid color-mix(in srgb, var(--success) 45%, transparent); border-radius: 20px; padding: 1px 7px; }
+.plat-dl { display: inline-flex; align-items: center; height: 36px; padding: 0 15px; border-radius: 9px; background: var(--accent); color: var(--accent-foreground); font-weight: 600; font-size: 13.5px; transition: background 0.15s var(--ease); }
+.plat-dl:hover { background: var(--accent-hover); color: var(--accent-foreground); }
+.plat-alt { font-family: var(--font-mono); font-size: 12px; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.plat-note { font-family: var(--font-mono); font-size: 11px; color: var(--subtle); line-height: 1.6; }
+.install-cols { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); min-width: 0; gap: clamp(28px, 4vw, 64px); margin-top: 36px; align-items: start; }
+.oneliners { display: grid; gap: 8px; min-width: 0; }
+.ol-group { display: grid; gap: 4px; min-width: 0; }
+.ol-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); min-width: 0; }
+.ol-os { flex: none; width: 64px; font-family: var(--font-mono); font-size: 11px; color: var(--subtle); }
+.ol-cmd { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 12.5px; color: var(--foreground); white-space: nowrap; overflow-x: auto; }
+.copybtn { flex: none; cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 7px; padding: 4px 10px; font-family: var(--font-mono); font-size: 11px; transition: border-color 0.14s var(--ease), color 0.14s var(--ease); }
+.copybtn:hover { border-color: var(--accent); color: var(--accent); }
+.copybtn.copied { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, transparent); }
+.first-open { font-size: 14px; line-height: 1.55; color: var(--muted); }
+.first-open h3 { font-weight: 600; font-size: 14px; color: var(--foreground); margin-bottom: 6px; }
+.first-open ol { padding-left: 18px; margin-top: 6px; }
+.first-open li + li { margin-top: 4px; }
+.first-open code { font-family: var(--font-mono); font-size: 0.9em; color: var(--foreground); }
+.dl-foot { margin-top: 22px; font-family: var(--font-mono); font-size: 12px; color: var(--subtle); }
+
+/* ─── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 1180px) {
+  .hero-grid { grid-template-columns: 1fr; }
+  .hero-copy { padding-bottom: 40px; }
+  .hero-media { margin-bottom: -56px; min-height: 0; aspect-ratio: 16 / 10; }
+  .hero-after { padding-top: 96px; }
+  .hero-copy .hs-body { grid-template-columns: minmax(0, 47fr) minmax(0, 53fr); }
+}
+@media (max-width: 880px) {
+  .twoup, .twoup-r { grid-template-columns: 1fr; }
+  .twoup .shot-bleed-l, .twoup .shot-bleed-r { border-radius: 13px; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+  .twoup-r > :first-child { order: 2; }
+  .twoup-r > :last-child { order: 1; }
+  .page > .u-bleed-r, .page > .u-bleed-l, .band > .u-bleed-r, .band > .u-bleed-l { grid-column: content; }
+  .index-aside, .install-cols { grid-template-columns: 1fr; }
+  .lg-row { grid-template-columns: 1fr; gap: 3px; padding: 11px 0; }
+  .lg-keys { justify-self: start; }
+  .facts { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .strip, .strip-2 { grid-template-columns: 1fr; }
+  .beats, .threeup { grid-template-columns: 1fr; gap: 18px; }
+  .sec { padding-top: 64px; }
+  .band-tint { margin-top: 64px; padding-bottom: 56px; }
+  .install-band { margin-top: 72px; padding-top: 60px; }
+  .mech-row { grid-template-columns: 1fr; gap: 4px; }
+}
+@media (max-width: 560px) {
+  .plat-grid { grid-template-columns: 1fr; }
+  .hs-src, .hs-status { display: none !important; }
+  .hero-copy .hs-body { grid-template-columns: 1fr; }
+  .hr-meta { display: none; }
+  .hr-ctas { flex-direction: column; align-items: stretch; }
+  .hr-ctas .v2-btn-primary, .hr-ctas .v2-btn-ghost { justify-content: center; }
+  .hero-band { padding-top: 28px; }
+  .hero-media { margin-bottom: -40px; }
+  .hero-after { padding-top: 72px; }
+}
+
+/* ─── Reduced motion ─────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .hs-caret, .hs-c2 { animation: none !important; }
+  .hs-fc-core, .hs-fc-flame::before, .hs-fc-flame::after { animation: none !important; }
+  .sec.in > .mo, .sec.in .mo-g > * { animation: none !important; }
+  .hs-src, .hr-h1, .hr-sub, .hr-cta1, .hr-cta2, .hs-status, .hs-file, .hs-meta, .hs-save {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    clip-path: none !important;
+  }
+  .loop video { display: none; }
+  .loop .loop-fallback { display: block !important; }
+}
+

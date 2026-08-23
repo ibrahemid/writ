@@ -1,0 +1,26 @@
+---
+import Capture from './Capture.astro';
+
+interface Props {
+  eyebrow?: string;
+  title: string;
+  lead?: string;
+  shot?: string;
+  shotAlt?: string;
+  shotOwed?: string;
+}
+const { eyebrow, title, lead, shot, shotAlt = '', shotOwed } = Astro.props;
+---
+<main class="page" id="top">
+  <article class="band doc">
+    {eyebrow && <span class="doc-eyebrow">{eyebrow}</span>}
+    <h1 class="doc-h1">{title}</h1>
+    {lead && <p class="doc-lead">{lead}</p>}
+    {shot && (
+      <div class="u-bleed-r doc-wide">
+        <Capture name={shot} alt={shotAlt} class="shot-win shot-bleed-r" sizes="(max-width: 880px) 100vw, 1200px" owed={shotOwed} />
+      </div>
+    )}
+    <slot />
+  </article>
+</main>

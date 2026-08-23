@@ -1,7 +1,9 @@
 ---
-import Section from './Section.astro';
 import release from '../../data/release.json';
+import Capture from './Capture.astro';
 
+interface Props { standalone?: boolean }
+const { standalone = false } = Astro.props;
 const repo = 'https://github.com/ibrahemid/writ';
 const releasesUrl = repo + '/releases';
 const published = release.published === true;
@@ -10,75 +12,100 @@ const hasChecksums = release.hasChecksums === true;
 const sumsUrl = `${repo}/releases/download/${release.tag}/SHA256SUMS.txt`;
 const macDmg = release.platforms.mac.dmg;
 const linuxDeb = release.platforms.linux.deb;
+const mb = (n: number | undefined) => (n ? `${Math.round(n / 1048576)} MB` : '');
 
-const oneliners = [
-  { os: 'macOS', cmd: 'brew install --cask ibrahemid/writ/writ' },
-  { os: 'Windows', cmd: 'winget install -e --id ibrahemid.Writ' },
-  { os: 'Linux', cmd: 'curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh' },
-  { os: 'Arch', cmd: 'yay -S writ-bin' },
+const oneliners: { os: string; lines: string[] }[] = [
+  { os: 'macOS', lines: ['brew trust ibrahemid/writ', 'brew install --cask ibrahemid/writ/writ'] },
+  { os: 'Windows', lines: ['winget install -e --id ibrahemid.Writ'] },
+  { os: 'Linux', lines: ['curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh'] },
+  { os: 'Arch', lines: ['yay -S writ-bin'] },
 ];
 ---
-<Section slug="install" id="download" lead>
-  <h2 class="sec-h2-lg">Always a keypress away.</h2>
-  <p class="sec-p sec-p-lg">A global hotkey brings Writ up over whatever you're in. Free, open source, no account.</p>
+<section class:list={['band', 'install-band', { 'install-standalone': standalone }]} data-theme="dark" id="download">
+  <span class="mark" aria-hidden="true"><span class="gm-h">##</span> install</span>
+  <div class="u-wide">
+    {standalone ? (
+      <h1 class="sec-h2 sec-h2-lg">Download Writ.</h1>
+    ) : (
+      <h2 class="sec-h2 sec-h2-lg">Always a keypress away.</h2>
+    )}
+    <p class="sec-p">Signed builds for three platforms, or a package manager one-liner.</p>
+    {standalone && <div class="doc-wide"><Capture name="still-split-note" alt="Meeting notes in Writ, source on the left and the rendered note on the right" class="shot-win" sizes="(max-width: 1440px) 100vw, 1340px" /></div>}
 
-  {published ? (
-    <div class="plat-grid">
-      <div class="plat-card featured" data-plat="mac">
-        <div class="plat-top">
-          <span class="plat-name">macOS</span>
-          {notarized && <span class="plat-badge">notarized</span>}
+    {published ? (
+      <div class="plat-grid mo-g">
+        <div class="plat-card featured" data-plat="mac">
+          <div class="plat-top">
+            <span class="plat-name">macOS</span>
+            {notarized && <span class="plat-badge">notarized</span>}
+          </div>
+          <a class="plat-dl" href={release.platforms.mac.pkg}>Download .pkg</a>
+          {macDmg !== '#' && <a class="plat-alt" href={macDmg}>or .dmg</a>}
+          <span class="plat-note">macOS 12+ · Apple silicon &amp; Intel<br />{mb(release.platforms.mac.size_pkg)}</span>
         </div>
-        <a class="plat-dl" href={release.platforms.mac.pkg}>Download .pkg</a>
-        {macDmg !== '#' && <a class="plat-alt" href={macDmg}>or .dmg</a>}
-        <span class="plat-note">Apple silicon & Intel · macOS 12+</span>
+        <div class="plat-card" data-plat="win">
+          <div class="plat-top"><span class="plat-name">Windows</span></div>
+          <a class="plat-dl" href={release.platforms.win.msi}>Download .msi</a>
+          <span class="plat-note">Windows 10+ · x64<br />{mb(release.platforms.win.size_msi)}</span>
+        </div>
+        <div class="plat-card" data-plat="linux">
+          <div class="plat-top"><span class="plat-name">Linux</span></div>
+          <a class="plat-dl" href={release.platforms.linux.appImage}>Download .AppImage</a>
+          {linuxDeb !== '#' && <a class="plat-alt" href={linuxDeb}>or .deb</a>}
+          <span class="plat-note">x86_64<br />{mb(release.platforms.linux.size_appImage)} · .deb {mb(release.platforms.linux.size_deb)}</span>
+        </div>
       </div>
-      <div class="plat-card" data-plat="win">
-        <div class="plat-top"><span class="plat-name">Windows</span></div>
-        <a class="plat-dl" href={release.platforms.win.msi}>Download .msi</a>
-        <span class="plat-note">x64</span>
+    ) : (
+      <div class="plat-grid">
+        <div class="plat-card featured" data-plat="mac" aria-disabled="true">
+          <div class="plat-top"><span class="plat-name">macOS</span></div>
+          <span class="plat-note">Apple silicon &amp; Intel</span>
+        </div>
+        <div class="plat-card" data-plat="win" aria-disabled="true">
+          <div class="plat-top"><span class="plat-name">Windows</span></div>
+          <span class="plat-note">x64</span>
+        </div>
+        <div class="plat-card" data-plat="linux" aria-disabled="true">
+          <div class="plat-top"><span class="plat-name">Linux</span></div>
+          <span class="plat-note">AppImage &amp; .deb</span>
+        </div>
       </div>
-      <div class="plat-card" data-plat="linux">
-        <div class="plat-top"><span class="plat-name">Linux</span></div>
-        <a class="plat-dl" href={release.platforms.linux.appImage}>Download .AppImage</a>
-        {linuxDeb !== '#' && <a class="plat-alt" href={linuxDeb}>or .deb</a>}
-        <span class="plat-note">x86_64</span>
-      </div>
-    </div>
-  ) : (
-    <div class="plat-grid">
-      <div class="plat-card featured" data-plat="mac" aria-disabled="true">
-        <div class="plat-top"><span class="plat-name">macOS</span></div>
-        <span class="plat-note">Apple silicon & Intel</span>
-      </div>
-      <div class="plat-card" data-plat="win" aria-disabled="true">
-        <div class="plat-top"><span class="plat-name">Windows</span></div>
-        <span class="plat-note">x64</span>
-      </div>
-      <div class="plat-card" data-plat="linux" aria-disabled="true">
-        <div class="plat-top"><span class="plat-name">Linux</span></div>
-        <span class="plat-note">AppImage & .deb</span>
-      </div>
-    </div>
-  )}
+    )}
 
-  <div class="oneliners">
-    {oneliners.map((o) => (
-      <div class="ol-row">
-        <span class="ol-os">{o.os}</span>
-        <code class="ol-cmd">{o.cmd}</code>
-        <button class="copybtn" type="button" data-copy={o.cmd} aria-label={`Copy the ${o.os} install command`}><span>Copy</span></button>
+    <div class="install-cols">
+      <div class="oneliners">
+        {oneliners.map((o) => (
+          <div class="ol-group">
+            {o.lines.map((cmd, i) => (
+              <div class="ol-row">
+                <span class="ol-os">{i === 0 ? o.os : ''}</span>
+                <code class="ol-cmd">{cmd}</code>
+                <button class="copybtn" type="button" data-copy={cmd} aria-label={`Copy: ${cmd}`}><span>Copy</span></button>
+              </div>
+            ))}
+          </div>
+        ))}
       </div>
-    ))}
+      <div class="first-open">
+        <h3>First open on macOS</h3>
+        <ol>
+          <li>Open the <code>.pkg</code> and follow the installer. The build is signed and notarized by Apple, so there is no warning to click through.</li>
+          <li>Launch Writ once from Applications. It keeps running after you switch away.</li>
+          <li>Press <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">Space</kbd> from any app to bring it up, and again to put it away.</li>
+        </ol>
+        <h3 style="margin-top:18px">Updates</h3>
+        <p>Writ checks for a new version on start and installs it when you say so. The check can be turned off in Settings.</p>
+      </div>
+    </div>
+
+    {published ? (
+      <p class="dl-foot">
+        v{release.version} · {hasChecksums && (<Fragment><a href={sumsUrl} rel="noopener noreferrer" target="_blank">SHA256 checksums</a> · </Fragment>)}<a href={releasesUrl} rel="noopener noreferrer" target="_blank">all releases on GitHub</a>
+      </p>
+    ) : (
+      <p class="dl-foot">
+        Direct downloads are on <a href={releasesUrl} rel="noopener noreferrer" target="_blank">GitHub Releases</a>.
+      </p>
+    )}
   </div>
-
-  {published ? (
-    <p class="dl-foot">
-      v{release.version} · updates itself · {hasChecksums && (<Fragment><a href={sumsUrl} rel="noopener noreferrer" target="_blank">checksums</a> · </Fragment>)}<a href={releasesUrl} rel="noopener noreferrer" target="_blank">Releases on GitHub</a>
-    </p>
-  ) : (
-    <p class="dl-foot">
-      Direct downloads are on <a href={releasesUrl} rel="noopener noreferrer" target="_blank">GitHub Releases</a>.
-    </p>
-  )}
-</Section>
+</section>

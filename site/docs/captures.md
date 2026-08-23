@@ -1,5 +1,16 @@
 # Capture list for the site revamp
 
+Status 2026-08-24: the split-view, search, mermaid, KaTeX, HTML, sidebar-history and settings stills now come from the real app (docs/design/2026-08-24/app/, copied into site/src/assets/captures/). The five loops below and the Finder still are still owed. The hero (`summon`) and the find band (`search`) are live Loop slots: drop `site/public/media/<name>-{light,dark}.{webm,mp4}` in and they play on scroll with the current still as the poster (site/src/components/site/Loop.astro). Shots 3-5 currently render as stills; wire a Loop where the capture lands.
+
+Owed, in order of impact:
+
+1. Shot 1 (summon loop) — the hero slot. Record the window at 1100x720 (the hero box is locked to that ratio).
+2. Shot 2 (search loop) — the find band; the still-search capture stands in.
+3. Shot 3 (inbox loop) — the agent-output guide header; still stands in.
+4. Shot 4 (themes loop) — the index section; theme swatches stand in.
+5. Shot 5 (Obsidian side-by-side) — /vs/obsidian; the still-vault capture stands in.
+6. still-finder-buffers — Finder open on ~/.writ/buffers, one plain file per note, no identifying paths. Used by the "It doesn't lose things" section (currently an owed slot).
+
 Six recordings for `site/public/media/`. Five loops and one set of stills. Shot 1 is the hero.
 
 Encode targets, budgets and the autoplay rules come from the design standard: hero mp4 under 1.2 MB, webm under 0.8 MB, poster under 60 KB, page under 1.8 MB on first view.

@@ -1,0 +1,23 @@
+---
+import Site from '../../layouts/Site.astro';
+import Doc from '../../components/site/Doc.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const guides = [
+  { href: 'obsidian-vault-files', title: 'Open your Obsidian vault files without opening Obsidian', p: 'Point Writ at the vault folder, read and edit any note from the hotkey, and hand edits back to the vault.' },
+  { href: 'agent-output', title: 'Read what an agent wrote, and find it again next week', p: 'A watched inbox opens each report as it lands; search finds it later. For Claude Code, Codex and scripts that write files.' },
+  { href: 'default-md-app', title: 'Make Writ the app for .md files', p: 'Register Writ for text and markdown so a double-click in Finder or Explorer opens here.' },
+];
+---
+<Site title="Writ guides" description="Step-by-step guides: Obsidian vault files in Writ, reading agent output, making Writ the default app for markdown." path="/guides/">
+  <Doc eyebrow="guides" title="Guides." shot="still-sidebar-history" shotAlt="The Writ sidebar listing open notes and the history of earlier ones" lead="Three things people set up in the first week.">
+    <div class="doc-grid">
+      {guides.map((g) => (
+        <a class="from" href={`${base}/guides/${g.href}/`}>
+          <div class="from-h">{g.title}</div>
+          <p class="from-p">{g.p}</p>
+          <div class="from-l">Read →</div>
+        </a>
+      ))}
+    </div>
+  </Doc>
+</Site>

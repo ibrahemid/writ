@@ -21,6 +21,9 @@
       // A touch scroll opens with a pointerdown, so on touch the decision waits
       // for the gesture: a drag hurries, a tap ends.
       var moved = false;
+      // The intro is 2.7s long; past that every 'play' rule is spent, so the
+      // attribute drops to 'done' and nothing can stay hidden behind it.
+      window.setTimeout(end, 3400);
       window.addEventListener('keydown', end, { once: true, passive: true });
       window.addEventListener('wheel', hurry, { once: true, passive: true });
       window.addEventListener('touchmove', hurry, { passive: true });
@@ -37,12 +40,12 @@
 <div class="hero-sheet">
   <div class="hs-body">
     <div class="hs-src" aria-hidden="true">
-      <div class="hs-line"><span class="ln">1</span><span class="lt lt-h lt-type" data-line="1"># A fast scratchpad that opens anything.</span><span class="hs-caret hs-c1"></span></div>
+      <div class="hs-line"><span class="ln">1</span><span class="lt lt-h lt-type" data-line="1"># Already open. Still there next month.</span><span class="hs-caret hs-c1"></span></div>
       <div class="hs-line"><span class="ln">2</span></div>
-      <div class="hs-line"><span class="ln">3</span><span class="lt lt-paste lt-p1" data-line="3">Writ sits between a text editor and an IDE.</span></div>
-      <div class="hs-line"><span class="ln">4</span><span class="lt lt-paste lt-p2" data-line="4">Markdown, HTML, Mermaid and KaTeX render live,</span></div>
-      <div class="hs-line"><span class="ln">5</span><span class="lt lt-paste lt-p3" data-line="5">and every scratch stays searchable.</span></div>
-      <div class="hs-line"><span class="ln">6</span><span class="lt lt-paste lt-p4" data-line="6">Offline, keyboard-driven.</span></div>
+      <div class="hs-line"><span class="ln">3</span><span class="lt lt-paste lt-p1" data-line="3">One hotkey brings up a scratchpad over whatever</span></div>
+      <div class="hs-line"><span class="ln">4</span><span class="lt lt-paste lt-p2" data-line="4">you're doing. It saves as you type and keeps</span></div>
+      <div class="hs-line"><span class="ln">5</span><span class="lt lt-paste lt-p3" data-line="5">everything you ever put in it, searchable.</span></div>
+      <div class="hs-line"><span class="ln">6</span><span class="lt lt-paste lt-p4" data-line="6">Free and open source. Works offline.</span></div>
       <div class="hs-line"><span class="ln">7</span></div>
       <div class="hs-line"><span class="ln">8</span><span class="lt lt-paste lt-p5" data-line="8"><span class="lk">[Download Writ]</span><span class="lu">(#download)</span> <span class="lk">[Try the window]</span><span class="lu">(#editor)</span></span><span class="hs-caret hs-c2"></span></div>
       <span class="hs-fix-caret" aria-hidden="true">
@@ -53,22 +56,21 @@
       </span>
     </div>
     <div class="hs-render">
-      <h1 class="hr-h1"><span class="hr-h1-text">A fast scratchpad that opens anything</span><span class="hr-dot" style="color:var(--accent)">.</span></h1>
-      <p class="hr-sub">Writ sits between a text editor and an IDE. Markdown, HTML, Mermaid and KaTeX render live, and every scratch stays searchable. Offline, keyboard-driven.</p>
+      <h1 class="hr-h1"><span class="hr-h1-text">Already open.<br class="hr-br" /> Still there next month</span><span class="hr-dot" style="color:var(--accent)">.</span></h1>
+      <p class="hr-sub">One hotkey brings up a scratchpad over whatever you're doing. It saves as you type and keeps everything you ever put in it, searchable. Free and open source. Works offline.</p>
       <div class="hr-ctas">
-        <a href="#download" class="v2-btn-primary hr-cta1" style="display:inline-flex; align-items:center; gap:9px; height:48px; padding:0 24px; border-radius:11px; background:var(--accent); color:var(--accent-foreground); font-weight:600; font-size:15.5px; box-shadow:0 8px 24px -8px var(--glow)">Download Writ</a>
-        <button type="button" data-cmd="demoRender" class="v2-btn-ghost hr-cta2" style="display:inline-flex; align-items:center; gap:8px; height:48px; padding:0 20px; border-radius:11px; cursor:pointer; background:transparent; color:var(--foreground); border:1px solid var(--border); font-weight:550; font-size:15.5px">
+        <a href="#download" class="v2-btn-primary hr-cta1">Download Writ</a>
+        <button type="button" data-cmd="demoRender" class="v2-btn-ghost hr-cta2">
           <span style="font-family:var(--font-mono); font-size:12px; color:var(--accent)">▸</span> <span class="hr-cta2-label">Try the window</span>
         </button>
       </div>
+      <div class="hr-meta"><slot name="meta" /></div>
     </div>
   </div>
   <div class="hs-status" aria-hidden="true">
-    <span class="hs-file">writ / scratch.md</span>
-    <span class="hs-meta">markdown · split</span>
+    <span class="hs-file">writ / index.md</span>
+    <span class="hs-meta">split</span>
     <span class="hs-edit"></span>
-    <span class="hs-pos"></span>
-    <span class="hs-tok"></span>
     <span class="hs-save"><i class="hs-save-dot"></i>saved</span>
   </div>
 </div>
@@ -76,11 +78,11 @@
 <script>
   (function () {
     const CANON: Record<number, string> = {
-      1: '# A fast scratchpad that opens anything.',
-      3: 'Writ sits between a text editor and an IDE.',
-      4: 'Markdown, HTML, Mermaid and KaTeX render live,',
-      5: 'and every scratch stays searchable.',
-      6: 'Offline, keyboard-driven.',
+      1: '# Already open. Still there next month.',
+      3: 'One hotkey brings up a scratchpad over whatever',
+      4: "you're doing. It saves as you type and keeps",
+      5: 'everything you ever put in it, searchable.',
+      6: 'Free and open source. Works offline.',
       8: '[Download Writ](#download) [Try the window](#editor)',
     };
     // The download CTA is platform-aware. Because the hero keeps source and
@@ -148,8 +150,6 @@
     const cta1 = document.querySelector<HTMLAnchorElement>('.hr-cta1');
     const cta2Label = document.querySelector<HTMLElement>('.hr-cta2-label');
     const ctas = document.querySelector<HTMLElement>('.hr-ctas');
-    const posEl = document.querySelector<HTMLElement>('.hs-pos');
-    const tokEl = document.querySelector<HTMLElement>('.hs-tok');
     const saveDot = document.querySelector<HTMLElement>('.hs-save-dot');
     const restCaret = document.querySelector<HTMLElement>('.hs-c2');
     const fixCaret = document.querySelector<HTMLElement>('.hs-fix-caret');
@@ -256,24 +256,6 @@
       mk('lu', m[5] ?? '');
     };
 
-    const goLiveStatus = () => {
-      if (statusLive) return;
-      statusLive = true;
-      [posEl, tokEl].forEach((el) => {
-        el?.getAnimations().forEach((a) => a.cancel());
-        if (el) el.style.opacity = '1';
-      });
-    };
-    const setPos = (line: number, col: number) => {
-      goLiveStatus();
-      posEl?.style.setProperty('--lnc', String(line));
-      posEl?.style.setProperty('--colc', String(col));
-    };
-    const setTokens = () => {
-      goLiveStatus();
-      const chars = EDIT_LINES.reduce((n, ln) => n + lineText(ln).length, 0);
-      tokEl?.style.setProperty('--tok', String(Math.max(0, Math.round((chars * 62) / CANON_CHARS))));
-    };
 
     const syncRendered = () => {
       syncing = true;
@@ -380,7 +362,6 @@
       if (cur === want) return true;
       const from = firstDiff(cur, want);
       moveFixCaret(ln, cur.length);
-      setPos(ln, cur.length + 1);
       await sleep(jitter(tempo().noticeMs, tempo().noticeMs * 0.3));
       if (token !== restoreToken) return false;
 
@@ -396,8 +377,6 @@
         setLineText(ln, cur.slice(0, from));
         el?.classList.remove('lt-wiping');
         moveFixCaret(ln, from);
-        setPos(ln, from + 1);
-        setTokens();
         syncRendered();
         await sleep(jitter(200, 60));
       } else {
@@ -408,8 +387,6 @@
           i = Math.max(from, i - t.burst);
           setLineText(ln, cur.slice(0, i));
           moveFixCaret(ln, i);
-          setPos(ln, i + 1);
-          setTokens();
           syncRendered();
           await sleep(jitter(t.backMs, t.backJitter));
         }
@@ -421,8 +398,6 @@
         i = Math.min(want.length, i + t.burst);
         setLineText(ln, want.slice(0, i));
         moveFixCaret(ln, i);
-        setPos(ln, i + 1);
-        setTokens();
         syncRendered();
         if (Math.random() < t.pauseChance) await sleep(jitter(190, 70));
         else await sleep(jitter(t.typeMs, t.typeJitter));
@@ -457,11 +432,9 @@
       }
       highlightLinkLine();
       syncRendered();
-      setTokens();
       lastCharCount = EDIT_LINES.reduce((n, ln) => n + lineText(ln).length, 0);
       lastContent = EDIT_LINES.map(lineText).join('\n');
       moveFixCaret(8, CANON[8]?.length ?? 0);
-      setPos(8, (CANON[8]?.length ?? 0) + 1);
       await sleep(500);
       if (token !== restoreToken) return;
       fixCaret.classList.remove('on');
@@ -489,7 +462,6 @@
       editChip?.classList.add('spent');
       saveDot?.classList.add('editing');
       if (restCaret) restCaret.style.opacity = '0';
-      setTokens();
       window.clearTimeout(idleTimer);
       idleTimer = window.setTimeout(startRestore, tempo().idleMs);
     };
@@ -567,19 +539,6 @@
         editChip.classList.add('on');
       }
 
-      document.addEventListener('selectionchange', () => {
-        if (restoring) return;
-        const sel = window.getSelection();
-        const node = sel?.anchorNode;
-        if (!node) return;
-        const host = (node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element))?.closest?.('.lt[data-line]') as HTMLElement | null;
-        if (!host) return;
-        const ln = Number(host.dataset.line);
-        const range = sel?.getRangeAt(0).cloneRange();
-        if (!range) return;
-        range.setStart(host, 0);
-        setPos(ln, range.toString().length + 1);
-      });
       src.classList.add('hs-editable');
     };
 

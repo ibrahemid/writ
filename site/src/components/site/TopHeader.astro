@@ -1,10 +1,18 @@
 ---
+interface Props { onDark?: boolean }
+const { onDark = false } = Astro.props;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const repo = 'https://github.com/ibrahemid/writ';
 ---
-<header class="v2-header">
+<header class:list={['v2-header', 'page', { 'on-dark': onDark }]} data-theme={onDark ? 'dark' : undefined}>
   <div class="hdr-inner">
     <a href={`${base}/`} class="hdr-logo">Writ<span style="color:var(--accent)">.</span></a>
+    <nav class="hdr-nav" aria-label="Site">
+      <a href={`${base}/docs/`}>Docs</a>
+      <a href={`${base}/guides/`}>Guides</a>
+      <a href={`${base}/vs/obsidian/`}>Compare</a>
+      <a href={`${base}/changelog/`}>Changelog</a>
+    </nav>
     <div class="hdr-right">
       <a href={repo} class="hdr-gh hide-sm" rel="noopener noreferrer" target="_blank">GitHub</a>
       <button class="theme-toggle" type="button" data-toggle-theme aria-label="Switch color theme">
@@ -16,7 +24,7 @@ const repo = 'https://github.com/ibrahemid/writ';
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
         </svg>
       </button>
-      <a href={`${base}/#download`} class="hide-sm v2-btn-primary hdr-dl">Download</a>
+      <a href={`${base}/download/`} class="hide-sm hdr-dl">Download</a>
     </div>
   </div>
 </header>
@@ -25,14 +33,29 @@ const repo = 'https://github.com/ibrahemid/writ';
   (function () {
     const root = document.documentElement;
     const toggle = document.querySelector('[data-toggle-theme]');
+    const header = document.querySelector<HTMLElement>('.v2-header.on-dark');
+    // The header is dark while it sits over the hero band; once the band has
+    // scrolled past it takes the page's own theme.
+    const band = document.querySelector<HTMLElement>('.hero-band');
+    if (header && band && 'IntersectionObserver' in window) {
+      const io = new IntersectionObserver(
+        (entries) => {
+          const e = entries[0];
+          if (!e) return;
+          const over = e.isIntersecting;
+          header.classList.toggle('on-dark', over);
+          if (over) header.setAttribute('data-theme', 'dark');
+          else header.removeAttribute('data-theme');
+        },
+        { rootMargin: '-56px 0px 0px 0px', threshold: 0 },
+      );
+      io.observe(band);
+    }
 
     function syncTheme() {
       const t = root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
       if (toggle) {
-        toggle.setAttribute(
-          'aria-label',
-          t === 'dark' ? 'Switch to light theme' : 'Switch to dark theme',
-        );
+        toggle.setAttribute('aria-label', t === 'dark' ? 'Switch to light theme' : 'Switch to dark theme');
       }
     }
     if (toggle) {

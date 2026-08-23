@@ -1,0 +1,26 @@
+---
+import Site from '../../layouts/Site.astro';
+import Doc from '../../components/site/Doc.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<Site title="Open your Obsidian vault files without opening Obsidian" description="Open an Obsidian vault as a folder in Writ: read any note from the hotkey, search the whole vault, and write edits back to the file." path="/guides/obsidian-vault-files/">
+  <Doc eyebrow="guide" title="Open your Obsidian vault files without opening Obsidian." shot="still-vault" shotAlt="An Obsidian vault open as a folder in Writ" shotOwed="a vault folder open in Writ (app capture, still-vault)" lead="A vault is a folder of markdown files. Writ opens folders. That is the whole trick; the rest is what to expect.">
+    <div class="doc-body">
+      <h2>1. Open the vault as a folder</h2>
+      <p>Drag the vault folder onto the Writ window, or run <code>writ ~/Documents/Vault</code> in a terminal, or pick it in Settings, Files. The sidebar shows the tree. Writ ignores <code>.obsidian/</code> and other dot-folders in the tree.</p>
+
+      <h2>2. Read a note</h2>
+      <p>Click it in the tree, or press <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">F</kbd> and type part of its name or a phrase from inside it. The note opens rendered beside its source. Frontmatter shows as text at the top. <code>[[Wikilinks]]</code> show as text too; wikilinks and backlinks are planned, not shipped yet. Standard relative links such as <code>[spec](notes/spec.md)</code> open inside Writ.</p>
+
+      <h2>3. Edit and hand it back</h2>
+      <p>Type in the source pane. The tab shows the file's name and a dot while there are edits Writ has not written. <kbd class="kc">⌘</kbd><kbd class="kc">S</kbd> writes them to the file; Obsidian sees the change the way it sees any change on disk. If Obsidian is open on the same note at the same time, the last save wins, so keep one of them closed on that note.</p>
+      <p>If something else changes the file while it is open in Writ, the status bar says so before you overwrite it.</p>
+
+      <h2>4. Search the whole vault</h2>
+      <p>With the folder open, <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">F</kbd> searches file names and file contents across the vault as you type, and the matching line opens on <kbd class="kc">Enter</kbd>. The same search also covers every scratch note you ever wrote in Writ, so a thought jotted in March and a vault note from last year come up in the same list.</p>
+
+      <h2>What stays in Obsidian</h2>
+      <p>Backlinks, the graph, daily notes, templates, plugins, Obsidian Sync and Publish. Writ does not replace any of it. See <a href={`${base}/vs/obsidian/`}>Writ next to Obsidian</a>.</p>
+    </div>
+  </Doc>
+</Site>

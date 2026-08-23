@@ -1,0 +1,91 @@
+---
+import Site from '../layouts/Site.astro';
+import Doc from '../components/site/Doc.astro';
+import { EDITOR_COMMAND_KEYS } from '../../../src/editor/editor-command-keys';
+import { keybindingSegments } from '../../../src/lib/keybinding-format';
+const seg = (b: string) => keybindingSegments(b, { isMac: true });
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const windowKeys = [
+  ['Bring up or put away the window', 'CmdOrCtrl+Shift+Space'],
+  ['Command palette', 'Shift+Shift'],
+  ['Search everywhere', 'CmdOrCtrl+Shift+F'],
+  ['Find in the note', 'CmdOrCtrl+F'],
+  ['New tab', 'CmdOrCtrl+T'],
+  ['Close tab', 'CmdOrCtrl+W'],
+  ['Reopen the last closed tab', 'CmdOrCtrl+Shift+T'],
+  ['Previous / next tab', 'CmdOrCtrl+['],
+  ['Save back to the opened file', 'CmdOrCtrl+S'],
+  ['Toggle sidebar', 'CmdOrCtrl+\\'],
+  ['Settings', 'CmdOrCtrl+,'],
+  ['Zoom in / out', 'CmdOrCtrl+='],
+];
+---
+<Site title="Writ docs" description="How Writ keeps notes, the hotkey, search, folders, the watched inbox, the command line, default-app setup, themes and every shortcut." path="/docs/">
+  <Doc eyebrow="docs" title="How Writ works." shot="still-split-note" shotAlt="Meeting notes in Writ, source on the left and the rendered note on the right" lead="Short, in the order you will meet things. The same facts in more detail live in the repo's docs folder.">
+    <nav class="doc-toc" aria-label="On this page">
+      <a href="#hotkey">Hotkey</a><a href="#notes">Where notes live</a><a href="#search">Search</a><a href="#render">Rendering</a><a href="#files">Files and folders</a><a href="#inbox">Watched inbox</a><a href="#cli">Command line</a><a href="#default-app">Default app</a><a href="#spelling">Spelling</a><a href="#rewrite">Rewrite</a><a href="#themes">Themes</a><a href="#shortcuts">Shortcuts</a><a href="#config">Config</a>
+    </nav>
+    <div class="doc-body">
+      <h2 id="hotkey">The hotkey</h2>
+      <p>Writ starts hidden and stays running. <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">Space</kbd> (<kbd class="kc">Ctrl</kbd><kbd class="kc">⇧</kbd><kbd class="kc">Space</kbd> on Windows and Linux) brings the window up over whatever is in front; the same keys put it away. The window comes back where it was, on the tab you were on. Change the key in Settings, Shortcuts.</p>
+
+      <h2 id="notes">Where notes live</h2>
+      <p>Every note is a plain text file under <code>~/.writ/buffers/</code>. Writ writes the file moments after you stop typing; there is no save command for notes. A new tab is a new file. Closing a tab keeps the file; the sidebar's history lists every note by the time you last touched it, and search covers all of them.</p>
+      <p>Next to the files, <code>writ.db</code> (SQLite) holds which note is which, tab order, and the full-text index. If the database is deleted, the text files are still there. Settings, Storage shows the path.</p>
+      <p>A file you opened from disk is different: the tab shows the file's name, edits stay in Writ until <kbd class="kc">⌘</kbd><kbd class="kc">S</kbd> writes them back, and the status bar says when the file on disk has changed under you.</p>
+
+      <h2 id="search">Search</h2>
+      <p><kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">F</kbd> opens one palette over commands, settings and the text of every note, open or in history. With a folder open it adds the folder's file names and greps file contents on each keystroke. Results are grouped by where they came from; <kbd class="kc">Enter</kbd> opens the match on its line.</p>
+      <ul>
+        <li><code>&gt;</code> limits the query to commands</li>
+        <li><code>#</code> limits it to note contents</li>
+        <li><code>:42</code> jumps to line 42 of the current note</li>
+      </ul>
+      <p><kbd class="kc">⌘</kbd><kbd class="kc">F</kbd> finds within the current note.</p>
+
+      <h2 id="render">Rendering</h2>
+      <p>Markdown, HTML, Mermaid diagrams and KaTeX math render in a pane beside the source, from runtimes bundled with the app. The status bar switches between Source, Split and Preview; the two panes scroll together. The preview has no network access: an HTML note cannot load anything from the web, and a link in it names its destination and asks before opening.</p>
+      <p>Lists continue on <kbd class="kc">Enter</kbd>, checkboxes toggle on click in either pane, and <kbd class="kc">⌘</kbd><kbd class="kc">B</kbd>, <kbd class="kc">⌘</kbd><kbd class="kc">I</kbd>, <kbd class="kc">⌘</kbd><kbd class="kc">K</kbd> wrap the selection. Code, configs and logs open as text with highlighting for the language; binary files open as hex; very large files open with highlighting off.</p>
+
+      <h2 id="files">Files and folders</h2>
+      <p>Drag a file onto the window, double-click it in Finder once Writ is the default app, or run <code>writ path</code>. Open a folder (Settings, Files, or drag it in) and the sidebar shows its tree; relative links such as <code>[spec](./notes/spec.md)</code> then open inside Writ.</p>
+
+      <h2 id="inbox">Watched inbox</h2>
+      <p>Point Settings, Files, Watched inbox at a folder. Any file that appears there after that moment opens by itself and the window comes forward. Files that were already in the folder are left alone, and more than three arrivals in two seconds collapse into one notice instead of a pile of tabs. Turn off "Focus window on inbox open" if you want arrivals to stay quiet.</p>
+
+      <h2 id="cli">Command line</h2>
+      <p>The <code>writ</code> command opens files in the running app. Install it from Settings, Files, Command-line tool (macOS asks for an administrator password once to link it into <code>/usr/local/bin</code>).</p>
+      <pre><code>writ notes.md            # open a file
+writ .                   # open the folder
+pbpaste | writ           # anything on stdin becomes a note
+make test 2>&1 | writ --title tests</code></pre>
+      <p>Piped text is written to <code>~/.writ/piped/</code> and opened like a file, so it stays after the terminal closes.</p>
+
+      <h2 id="default-app">Default app</h2>
+      <p>Settings, Files has a Make default row for each group: Markdown, plain text and logs, config and data, source code (macOS). macOS keeps the choice per file type; the guide on <a href={`${base}/guides/default-md-app/`}>making Writ the app for .md</a> walks through it.</p>
+
+      <h2 id="spelling">Spelling</h2>
+      <p>Off by default. Turn it on from the status bar or Settings, Editor. It runs on your machine. Double-click a flagged word to accept a correction, fix every occurrence, or add the word to your dictionary. Code, links and tokens like <code>API</code> are not flagged.</p>
+
+      <h2 id="rewrite">Rewrite</h2>
+      <p>Off by default. Select text, right-click, Rewrite: proofread, rephrase, polish, improve prompt, or your own instruction. The result shows as a diff you apply or discard. It uses a local model through Ollama if you have one, or any OpenAI-compatible endpoint with your own key, which is stored in the system keychain. Writ asks before the first request to any host off your machine and sends only the selected text.</p>
+
+      <h2 id="themes">Themes</h2>
+      <p>Six presets (Warp light and dark, Tokyo Night, Catppuccin Mocha, Dracula, Solarized dark), each with every color editable in Settings, Appearance. Zoom scales the editor and the rendered pane together.</p>
+
+      <h2 id="shortcuts">Shortcuts</h2>
+      <p>Every one of these can be changed in Settings, Shortcuts. macOS keys shown; Windows and Linux use Ctrl for ⌘.</p>
+      <table>
+        {windowKeys.map(([label, b]) => (
+          <tr><td>{label}</td><td><span class="kc-keys">{seg(b!).map((k) => <kbd class="kc">{k}</kbd>)}</span></td></tr>
+        ))}
+        {EDITOR_COMMAND_KEYS.map((c) => (
+          <tr><td>{c.label}</td><td><span class="kc-keys">{seg(c.keybinding).map((k) => <kbd class="kc">{k}</kbd>)}</span></td></tr>
+        ))}
+      </table>
+
+      <h2 id="config">Config</h2>
+      <p>Everything in Settings is also in <code>~/.writ/config.toml</code>. Logs are in <code>~/.writ/logs/</code> and record what the app did and which paths it opened, never the text. The update check runs on start and can be turned off.</p>
+    </div>
+  </Doc>
+</Site>

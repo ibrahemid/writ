@@ -12,17 +12,17 @@ import { describe, expect, it } from 'vitest';
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const HERO = readFileSync(resolve(here, '../Hero.astro'), 'utf8');
-const CSS = readFileSync(resolve(here, '../../../styles/site.css'), 'utf8');
+const CSS = readFileSync(resolve(here, '../../../styles/landing.css'), 'utf8');
 
 const cssNumber = (name: string): number => {
   const m = CSS.match(new RegExp(`${name}:\\s*([\\d.]+)`));
-  expect(m, `${name} is declared in site.css`).toBeTruthy();
+  expect(m, `${name} is declared in landing.css`).toBeTruthy();
   return Number(m![1]);
 };
 
 /** Every line the hero can put in the source pane, on every platform. */
 const canonLines = (): string[] => {
-  const canon = [...HERO.matchAll(/^\s*\d+:\s*'([^']*)',$/gm)].map((m) => m[1] ?? '');
+  const canon = [...HERO.matchAll(/^\s*\d+:\s*(?:'([^']*)'|"([^"]*)"),$/gm)].map((m) => m[1] ?? m[2] ?? '');
   expect(canon.length, 'canonical source lines found in Hero.astro').toBe(6);
   const labels = [...HERO.matchAll(/return '(Download[^']*)';/g)].map((m) => m[1] ?? '');
   expect(labels.length, 'platform download labels found in Hero.astro').toBeGreaterThanOrEqual(3);
@@ -67,11 +67,34 @@ describe('hero source pane column budget', () => {
   it('never sizes a page grid track with a bare 1fr', () => {
     // `1fr` floors at min-content, so one wide child pushes the whole page past
     // the viewport with no horizontal scroll to reach what fell off.
-    const tracks = [...CSS.matchAll(/\.v2-grid\s*\{[^}]*?grid-template-columns:([^;]+);/gs)];
-    expect(tracks.length, '.v2-grid declares its tracks').toBeGreaterThan(1);
+    const BASE = readFileSync(resolve(here, '../../../styles/base.css'), 'utf8');
+    const tracks = [...BASE.matchAll(/\.page\s*\{[^}]*?grid-template-columns:([^;]+);/gs)];
+    expect(tracks.length, '.page declares its tracks').toBeGreaterThanOrEqual(1);
+    // minmax() nests calc()/var(), so strip it with a balanced-paren walk.
+    const stripMinmax = (src: string): string => {
+      let out = '';
+      let i = 0;
+      while (i < src.length) {
+        if (src.startsWith('minmax(', i)) {
+          i += 'minmax'.length;
+          let depth = 0;
+          do {
+            if (src[i] === '(') depth++;
+            else if (src[i] === ')') depth--;
+            i++;
+          } while (i < src.length && depth > 0);
+        } else {
+          out += src[i];
+          i++;
+        }
+      }
+      return out;
+    };
     for (const t of tracks) {
-      const bare = t[1]!.replace(/minmax\([^)]*\)/g, '');
+      const bare = stripMinmax(t[1]!);
       expect(bare, `"${t[1]!.trim()}" floors every flexible track at 0`).not.toMatch(/\dfr/);
     }
+    // Every direct child of the grid has min-width: 0 for the same reason.
+    expect(BASE).toMatch(/\.page > \* \{[^}]*min-width: 0/);
   });
 });

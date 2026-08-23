@@ -1,0 +1,30 @@
+---
+import Site from '../../layouts/Site.astro';
+import Doc from '../../components/site/Doc.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<Site title="Writ next to Typora" description="Typora and Writ both render as you write. Writ adds the hotkey, notes that keep themselves, and search over everything, free and open source." path="/vs/typora/">
+  <Doc eyebrow="compare" title="Writ next to Typora." shot="still-split-note" shotAlt="Meeting notes in Writ, source on the left and the rendered note on the right" lead="Typora got the rendering right years ago: one pane, the markup disappears as you type. Writ shares the instinct and makes different choices around it.">
+    <div class="doc-body">
+      <table>
+        <tr><th></th><th>Typora</th><th>Writ</th></tr>
+        <tr><td>Rendering</td><td>One pane, source hidden as you write.</td><td>Source beside the rendered note, or either alone. Also HTML, Mermaid and KaTeX.</td></tr>
+        <tr><td>Getting to it</td><td>Open the app, open a file.</td><td>Already running. One hotkey over any app.</td></tr>
+        <tr><td>Untitled notes</td><td>Each one needs a name and a place on save.</td><td>Each one is a file already. Close the tab, it stays, search finds it.</td></tr>
+        <tr><td>Search</td><td>Within the open file.</td><td>Every note you ever opened, plus any folder you point it at.</td></tr>
+        <tr><td>Files from elsewhere</td><td>Open them.</td><td>Open them, watch a folder for new ones, pipe from a terminal, double-click as the default app.</td></tr>
+        <tr><td>Themes</td><td>CSS themes, a large catalogue.</td><td>Six presets, every color editable.</td></tr>
+        <tr><td>Platforms</td><td>macOS, Windows, Linux.</td><td>macOS, Windows, Linux.</td></tr>
+        <tr><td>Price</td><td>Paid license.</td><td>Free. MIT.</td></tr>
+      </table>
+
+      <h2>If you like Typora</h2>
+      <p>Keep it for long documents you shape with care; its single-pane writing view is something Writ does not copy. Use Writ for everything that happens before and around those documents: the note you take while reading, the draft you want to see rendered without naming it, the file you just want to look at.</p>
+
+      <div class="doc-cta">
+        <a href={`${base}/download/`} class="v2-btn-primary">Download Writ</a>
+        <a href={`${base}/`} class="v2-btn-ghost">What Writ does</a>
+      </div>
+    </div>
+  </Doc>
+</Site>

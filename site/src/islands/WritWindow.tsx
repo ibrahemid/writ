@@ -19,7 +19,7 @@ import {
   type BufferLang,
   type BufferMeta,
 } from './writ/buffers';
-import { escapeHtml, estimateTokens, mdToHtml } from './writ/render';
+import { escapeHtml, mdToHtml } from './writ/render';
 import { genHex } from './writ/hex';
 import { applyTransform } from './writ/transforms';
 import { checkSpelling } from './writ/spellcheck';
@@ -78,18 +78,6 @@ interface DemoCommand {
 type PaletteMode = 'commands' | 'all';
 
 const SEARCH_ALL_HINT = '> commands · # content · : line';
-
-// Matches src/stores/global/token-estimate.ts formatTokenCount.
-function formatTokens(count: number): string {
-  if (count < 1000) return String(count);
-  const thousands = count / 1000;
-  if (thousands < 10) {
-    const rounded = Math.round(thousands * 10) / 10;
-    if (rounded >= 10) return '10k';
-    return Number.isInteger(rounded) ? `${rounded}k` : `${rounded.toFixed(1)}k`;
-  }
-  return `${Math.round(thousands)}k`;
-}
 
 function currentPolarity(): Polarity {
   return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
@@ -913,7 +901,6 @@ export default function WritWindow() {
 
   const results = computeResults(query);
   const showResults = query.trim().length > 0;
-  const tokenText = lang === 'binary' ? null : formatTokens(estimateTokens(doc));
   const largeFileLabel =
     lang === 'binary' ? 'Binary · read-only' : lang === 'huge' ? 'Large file · syntax off' : null;
   const langLabelText = languageLabel(cmLangId(lang));
@@ -1240,7 +1227,6 @@ export default function WritWindow() {
                 )}
               </div>
             )}
-            {tokenText && <span className="wwx-tokens">≈ {tokenText} tok</span>}
             {zoom !== 1 && <span className="wwx-field">{Math.round(zoom * 100)}%</span>}
             {hasPreview && (
               <div className="wwx-viewtoggle" role="group" aria-label="Preview layout">
@@ -1263,9 +1249,7 @@ export default function WritWindow() {
         </div>
       </div>
       <p className="ww-caption">
-        The real editor. Type in <span className="ww-mono">report.md</span>, use <span className="ww-mono">⌘B</span> and{' '}
-        <span className="ww-mono">⌘D</span>, double-tap <span className="ww-mono">⇧</span> for commands,{' '}
-        <span className="ww-mono">⌘⇧F</span> to search everything.
+        The app's editor, not a mockup. The notes are a demo; nothing you type here is kept.
       </p>
     </div>
   );
