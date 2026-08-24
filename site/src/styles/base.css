@@ -204,6 +204,18 @@ body:has(.pagebar) .site-footer { padding-bottom: 84px; }
 .doc-body td:first-child { color: var(--foreground); }
 .doc-body .kc { vertical-align: -2px; }
 .doc-wide { margin-top: 40px; }
+
+/* Capture slots: real app stills and loops. Base rules live here (not
+   landing.css) because Capture is used on every doc/guide/changelog page,
+   not just the landing/download pages that load landing.css. Without a
+   width constraint the <img> renders at its native pixel size and blows
+   out the page horizontally. */
+.shot { display: block; position: relative; background: var(--card); overflow: hidden; }
+.shot img, .shot video, .shot picture { display: block; width: 100%; height: auto; }
+.shot-win { border: 1px solid var(--line); border-radius: 13px; box-shadow: var(--win-shadow); }
+.shot-bleed-l { border-radius: 0 13px 13px 0; border-left: 0; }
+.shot-bleed-r { border-radius: 13px 0 0 13px; border-right: 0; }
+.shot-owed { aspect-ratio: 16 / 10; }
 .doc-body hr { border: 0; border-top: 1px solid var(--line); margin-top: 40px; }
 .doc-cta { margin-top: 40px; display: flex; gap: 11px; flex-wrap: wrap; }
 .doc-toc { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }

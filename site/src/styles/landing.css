@@ -575,14 +575,8 @@ html[data-theme='dark'] .hero-band { background: var(--paper2); }
 .cap b { font-weight: 600; color: var(--foreground); }
 .cap .kc { margin: 0 1px; vertical-align: -2px; }
 
-/* Capture slots: real app stills and loops. No border radius on a strip, a
-   hairline and the window radius when one stands alone. */
-.shot { display: block; position: relative; background: var(--card); overflow: hidden; }
-.shot img, .shot video, .shot picture { display: block; width: 100%; height: auto; }
-.shot-win { border: 1px solid var(--line); border-radius: 13px; box-shadow: var(--win-shadow); }
-.shot-bleed-l { border-radius: 0 13px 13px 0; border-left: 0; }
-.shot-bleed-r { border-radius: 13px 0 0 13px; border-right: 0; }
-.shot-owed { aspect-ratio: 16 / 10; }
+/* Base .shot rules (sizing, .shot-win, .shot-bleed-*) now live in base.css —
+   Capture is used on pages that don't load this stylesheet. */
 
 /* Three beats, edge to edge, 2px gutters. */
 .strip {
