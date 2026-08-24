@@ -20,6 +20,7 @@ import { javascript } from '@codemirror/lang-javascript';
 import { html } from '@codemirror/lang-html';
 import { css } from '@codemirror/lang-css';
 import { json } from '@codemirror/lang-json';
+import { sql } from '@codemirror/lang-sql';
 
 import { editorThemeFor, writHighlight } from '@app/components/Editor/cm-theme';
 import { markdownTypographyPlugin } from '@app/editor/markdown-typography';
@@ -54,6 +55,7 @@ function registerDemoLanguages(): void {
   register('html', () => html());
   register('css', () => css());
   register('json', () => json());
+  register('sql', () => sql());
 }
 
 // Reconfigured on the site theme toggle and, for spelling, on the on/off switch.

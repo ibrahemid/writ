@@ -6,6 +6,7 @@ import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { php } from "@codemirror/lang-php";
+import { sql } from "@codemirror/lang-sql";
 import { register } from "./language-registry";
 
 export function registerBuiltinLanguages(): void {
@@ -18,4 +19,5 @@ export function registerBuiltinLanguages(): void {
   register("css", () => css());
   register("markdown", () => markdown({ base: markdownLanguage }));
   register("php", () => php());
+  register("sql", () => sql());
 }

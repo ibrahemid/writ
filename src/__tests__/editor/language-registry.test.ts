@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { LanguageSupport } from "@codemirror/language";
 import {
   register,
   getExtension,
@@ -51,7 +52,7 @@ describe("builtin language registration", () => {
     unregisterAll();
   });
 
-  it("registers all nine v1 languages on the first call and is idempotent", async () => {
+  it("registers every builtin language on the first call and is idempotent", async () => {
     const { registerBuiltinLanguages } = await import("../../editor/builtins");
     registerBuiltinLanguages();
     const first = listLanguageIds().sort();
@@ -64,9 +65,19 @@ describe("builtin language registration", () => {
       "php",
       "python",
       "rust",
+      "sql",
       "typescript",
     ]);
     registerBuiltinLanguages();
     expect(listLanguageIds().sort()).toEqual(first);
+  });
+
+  it("resolves a sql grammar rather than an empty extension", async () => {
+    const { registerBuiltinLanguages } = await import("../../editor/builtins");
+    registerBuiltinLanguages();
+    const ext = getExtension("sql");
+    expect(Array.isArray(ext)).toBe(false);
+    expect(ext).toBeInstanceOf(LanguageSupport);
+    expect((ext as LanguageSupport).language.name).toBe("sql");
   });
 });
