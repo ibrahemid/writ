@@ -123,7 +123,7 @@ describe('built output', () => {
     const noisy: string[] = [];
     for (const page of pages) {
       const html = readFileSync(page, 'utf8');
-      for (const [, body] of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)) {
+      for (const [, body] of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
         // Astro inlines its own island runtime, which logs when hydration
         // fails. That is the framework's, not ours.
         if (body.includes('astro-island')) continue;
