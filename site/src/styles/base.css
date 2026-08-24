@@ -61,14 +61,22 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    left: calc((100% - var(--content-w)) / 2 - 1px);
+    /* `.page > *` puts the spine in the content column, so its containing
+       block is that column and the edge is one pixel to its left. Deriving the
+       offset from --content-w instead re-resolves that variable's own 100%
+       against the column, which lands the line inside the text. */
+    left: -1px;
     width: 1px;
     background: var(--line);
-    transform-origin: top;
-    transform: scaleY(var(--spine-p, 0));
     pointer-events: none;
     z-index: 2;
+    /* Clipped rather than scaled: scaling would stretch the gaps below with
+       the line as it grows. */
+    clip-path: inset(0 0 calc((1 - var(--spine-p, 0)) * 100%) 0);
   }
+  /* Set per layout from index.astro: the same line, interrupted wherever
+     something crosses it. */
+  html[data-writ-intro] .spine[data-gaps] { background: var(--spine-fill); }
 }
 
 /* ─── Header ─────────────────────────────────────────────────────────────── */

@@ -342,6 +342,84 @@ const searchKeys = seg('CmdOrCtrl+Shift+F');
       });
     };
 
+    // The spine reads as one line threaded past the page rather than one drawn
+    // over it: anything that crosses its column interrupts it and it picks up
+    // again below. Purely visual, so a failure here leaves the plain line.
+    // Painted or text-bearing boxes only, never layout wrappers: a wrapper
+    // that merely spans the column would blank the line along its whole run.
+    // Anything in the content column starts on the line and is filtered out by
+    // the straddle test below, so in practice this catches what bleeds wider.
+    const CROSSERS = [
+      '.shot', '.plat-card', '.oneliners', '.kc-grid', '.mech', '.ledger',
+      '.from', '.wwx-win', '.band-tint', 'pre', 'table',
+      'h1', 'h2', 'h3', 'h4', 'p', 'li', 'figcaption', 'kbd', '.mark',
+    ].join(', ');
+    const GAP_PAD = 16;
+    const MIN_RUN = 40;
+
+    const measureGaps = () => {
+      if (!spine || !motion) return;
+      if (getComputedStyle(spine).display === 'none') {
+        spine.removeAttribute('data-gaps');
+        return;
+      }
+      const line = spine.getBoundingClientRect();
+      const x = line.left + line.width / 2;
+      const origin = line.top + window.scrollY;
+      const height = line.height;
+      if (height <= 0) return;
+
+      const spans: [number, number][] = [];
+      for (const el of Array.from(document.querySelectorAll<HTMLElement>(CROSSERS))) {
+        const r = el.getBoundingClientRect();
+        // Only something that genuinely straddles the column edge counts;
+        // a block that merely starts on it is what the line runs alongside.
+        if (r.width <= 0 || r.height <= 0) continue;
+        if (r.left > x - 4 || r.right < x + 4) continue;
+        const top = r.top + window.scrollY - origin - GAP_PAD;
+        const bottom = r.bottom + window.scrollY - origin + GAP_PAD;
+        spans.push([Math.max(0, top), Math.min(height, bottom)]);
+      }
+      if (spans.length === 0) {
+        spine.removeAttribute('data-gaps');
+        return;
+      }
+
+      spans.sort((a, b) => a[0] - b[0]);
+      const merged: [number, number][] = [];
+      for (const span of spans) {
+        const last = merged[merged.length - 1];
+        if (last && span[0] <= last[1]) last[1] = Math.max(last[1], span[1]);
+        else merged.push([span[0], span[1]]);
+      }
+
+      // A run too short to read as a line is noise; fold it into the gap
+      // beside it so what is left is a few deliberate strokes.
+      const runs: [number, number][] = [];
+      let at = 0;
+      for (const [top, bottom] of merged) {
+        if (top > at) runs.push([at, top]);
+        at = Math.max(at, bottom);
+      }
+      if (at < height) runs.push([at, height]);
+      const kept = runs.filter(([top, bottom]) => bottom - top >= MIN_RUN);
+      if (kept.length === 0) {
+        spine.removeAttribute('data-gaps');
+        return;
+      }
+
+      const stops: string[] = [];
+      let cursor = 0;
+      for (const [top, bottom] of kept) {
+        if (top > cursor) stops.push(`transparent ${cursor.toFixed(1)}px ${top.toFixed(1)}px`);
+        stops.push(`var(--line) ${top.toFixed(1)}px ${bottom.toFixed(1)}px`);
+        cursor = bottom;
+      }
+      if (cursor < height) stops.push(`transparent ${cursor.toFixed(1)}px ${height.toFixed(1)}px`);
+      spine.style.setProperty('--spine-fill', `linear-gradient(to bottom, ${stops.join(', ')})`);
+      spine.setAttribute('data-gaps', '');
+    };
+
     let queued = false;
     const onScroll = () => {
       if (queued) return;
@@ -351,8 +429,26 @@ const searchKeys = seg('CmdOrCtrl+Shift+F');
         measure();
       });
     };
+    let layoutQueued = false;
+    const onLayout = () => {
+      if (layoutQueued) return;
+      layoutQueued = true;
+      requestAnimationFrame(() => {
+        layoutQueued = false;
+        measureGaps();
+        measure();
+      });
+    };
     window.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('resize', onScroll, { passive: true });
+    window.addEventListener('resize', onLayout, { passive: true });
+    // Images and the demo island settle after first paint and move everything
+    // below them, so the gaps are taken again once the page stops changing.
+    if ('ResizeObserver' in window) {
+      const ro = new ResizeObserver(onLayout);
+      ro.observe(main);
+    }
+    window.addEventListener('load', onLayout);
+    measureGaps();
     measure();
   })();
 </script>
