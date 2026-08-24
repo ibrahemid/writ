@@ -24,7 +24,14 @@ function localRefs(html: string): string[] {
   const push = (raw: string): void => {
     let url = raw.trim();
     if (!url) return;
-    if (url.startsWith(SITE_ORIGIN)) url = url.slice(SITE_ORIGIN.length) || '/';
+    try {
+      const parsed = new URL(url);
+      if (parsed.origin === SITE_ORIGIN) {
+        url = `${parsed.pathname}${parsed.search}${parsed.hash}` || '/';
+      }
+    } catch {
+      // Not an absolute URL; keep relative reference handling unchanged.
+    }
     if (/^(https?:|mailto:|data:|blob:|javascript:|#)/i.test(url)) return;
     refs.push(url.split('#')[0].split('?')[0]);
   };
