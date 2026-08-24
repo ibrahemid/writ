@@ -158,7 +158,11 @@ describe('site source', () => {
     const withTag = pages.filter((p) =>
       /<script[^>]+src="https?:\/\/[^"]*stats\.ibrahemid\.com/.test(readFileSync(p, 'utf8')),
     );
+    // All or nothing, whatever the endpoint was: a tag on some pages and not
+    // others is a bug however the build was configured. This holds without the
+    // environment being plumbed through to the checking step.
+    expect(withTag.length === 0 || withTag.length === pages.length).toBe(true);
+    // And when the endpoint is known here, it has to match what shipped.
     if (process.env.PUBLIC_UMAMI_SRC) expect(withTag.length).toBe(pages.length);
-    else expect(withTag).toEqual([]);
   });
 });

@@ -123,6 +123,10 @@ jobs:
         run: pnpm build
 
       - name: Check the built output
+        # Same value as the build step: the check compares what shipped
+        # against what the build was asked to ship.
+        env:
+          PUBLIC_UMAMI_SRC: ${{ vars.UMAMI_SRC }}
         run: pnpm run test:dist
 
       - name: Setup Pages
