@@ -93,8 +93,22 @@ function mermaidThemeVars(isDark: boolean) {
   };
 }
 
-function Keys({ binding, showEmpty = false }: { binding?: string; showEmpty?: boolean }): ReactNode {
-  const segments = binding ? keybindingSegments(binding) : [];
+// The platform has to come in as a prop rather than be read at import time.
+// keybindingSegments falls back to `navigator`, which does not exist while the
+// page is being built: CI builds on Linux, so the markup would ship Ctrl and
+// then disagree with the glyphs a Mac browser renders on hydration. Every
+// keycap elsewhere on the page is written as mac at build time, so that is
+// what the first render uses here too, corrected once mounted.
+function Keys({
+  binding,
+  isMac,
+  showEmpty = false,
+}: {
+  binding?: string;
+  isMac: boolean;
+  showEmpty?: boolean;
+}): ReactNode {
+  const segments = binding ? keybindingSegments(binding, { isMac }) : [];
   if (segments.length === 0) {
     // Mirrors the app's Kbd: a muted em dash where a command has no shortcut.
     return showEmpty ? (
@@ -115,6 +129,12 @@ function Keys({ binding, showEmpty = false }: { binding?: string; showEmpty?: bo
 }
 
 export default function WritWindow() {
+  // Starts as mac to match the server-rendered markup, then tells the truth.
+  const [isMac, setIsMac] = useState(true);
+  useEffect(() => {
+    const uad = (navigator as unknown as { userAgentData?: { platform?: string } }).userAgentData;
+    setIsMac(/Mac|iPhone|iPad|iOS/i.test(uad?.platform || navigator.userAgent || ''));
+  }, []);
   const contentsRef = useRef<Map<string, string>>(new Map(Object.entries(DEFAULT_CONTENTS)));
   const dynamicRef = useRef<Record<string, BufferMeta>>({});
   const newCountRef = useRef(0);
@@ -990,7 +1010,7 @@ export default function WritWindow() {
             </button>
           </div>
           <div className="wwx-chord" title="Toggle Writ from anywhere">
-            <Keys binding={HOTKEY_TOGGLE} />
+            <Keys binding={HOTKEY_TOGGLE} isMac={isMac} />
           </div>
         </div>
 
@@ -1168,7 +1188,7 @@ export default function WritWindow() {
                             {cmd.meta ? (
                               <span className="wwx-pcmd-meta">{cmd.meta}</span>
                             ) : (
-                              <Keys binding={cmd.binding} showEmpty />
+                              <Keys binding={cmd.binding} isMac={isMac} showEmpty />
                             )}
 
                           </button>
@@ -1246,7 +1266,7 @@ export default function WritWindow() {
               </div>
             )}
             <button className="wwx-palette-cue" onClick={openPalette} aria-label="Open command palette" type="button">
-              <Keys binding="Shift+Shift" />
+              <Keys binding="Shift+Shift" isMac={isMac} />
               <span className="wwx-palette-cue-label">command palette</span>
             </button>
           </div>
