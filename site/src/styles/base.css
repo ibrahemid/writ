@@ -194,7 +194,7 @@ body:has(.pagebar) .site-footer { padding-bottom: 84px; }
 .doc-body p { margin-top: 14px; color: var(--muted); }
 .doc-body ul, .doc-body ol { margin-top: 12px; padding-left: 22px; color: var(--muted); }
 .doc-body li + li { margin-top: 6px; }
-.doc-body a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.doc-body a:not(.v2-btn-primary):not(.v2-btn-ghost) { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .doc-body code { font-family: var(--font-mono); font-size: 0.88em; background: var(--accent-soft); color: var(--accent); padding: 1px 5px; border-radius: 5px; }
 .doc-body pre { margin-top: 14px; padding: 13px 15px; background: var(--sunken); border: 1px solid var(--line); border-radius: 9px; overflow-x: auto; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6; color: var(--foreground); }
 .doc-body pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
