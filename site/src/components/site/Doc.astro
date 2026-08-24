@@ -7,9 +7,8 @@ interface Props {
   lead?: string;
   shot?: string;
   shotAlt?: string;
-  shotOwed?: string;
 }
-const { eyebrow, title, lead, shot, shotAlt = '', shotOwed } = Astro.props;
+const { eyebrow, title, lead, shot, shotAlt = '' } = Astro.props;
 ---
 <main class="page" id="top">
   <article class="band doc">
@@ -18,7 +17,7 @@ const { eyebrow, title, lead, shot, shotAlt = '', shotOwed } = Astro.props;
     {lead && <p class="doc-lead">{lead}</p>}
     {shot && (
       <div class="u-bleed-r doc-wide">
-        <Capture name={shot} alt={shotAlt} class="shot-win shot-bleed-r" sizes="(max-width: 880px) 100vw, 1200px" owed={shotOwed} />
+        <Capture name={shot} alt={shotAlt} class="shot-win shot-bleed-r" sizes="(max-width: 880px) 100vw, 1200px" />
       </div>
     )}
     <slot />

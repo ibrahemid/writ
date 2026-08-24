@@ -116,7 +116,14 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-workspace
 
       - name: Build Astro site
+        # Empty means no analytics tag in the output. A tag pointed at an
+        # unreachable host is a console error on every page load.
+        env:
+          PUBLIC_UMAMI_SRC: ${{ vars.UMAMI_SRC }}
         run: pnpm build
+
+      - name: Check the built output
+        run: pnpm run test:dist
 
       - name: Setup Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d  # v6.0.0

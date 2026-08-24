@@ -22,21 +22,19 @@ async function refreshIndexStatus(): Promise<IndexStatus> {
     const status = await tauri.workspaceIndexStatus();
     setIndexStatus(status);
     return status;
-  } catch (error) {
-    console.error("workspaceIndexStatus failed", error);
+  } catch {
+    // No status means no workspace rows: the palette's notice line already
+    // tells the user there is nothing indexed to search.
     setIndexStatus(EMPTY_STATUS);
     return EMPTY_STATUS;
   }
 }
 
+// A failed search rejects rather than resolving empty: "no matches" and "the
+// search never ran" are different answers, and the palette reports the second.
 async function searchFiles(query: string): Promise<FileHit[]> {
   if (!query) return [];
-  try {
-    return await tauri.searchWorkspaceFiles(query);
-  } catch (error) {
-    console.error("searchWorkspaceFiles failed", { query, error });
-    return [];
-  }
+  return await tauri.searchWorkspaceFiles(query);
 }
 
 export interface ContentBatch {
@@ -60,8 +58,9 @@ async function streamContent(
       onBatch({ hits: batch.hits, outcome: batch.outcome });
     });
   } catch (error) {
+    // An abort is this store cancelling a superseded query, not a failure.
     if (signal.aborted) return;
-    console.error("searchWorkspaceContent failed", { query, error });
+    throw error;
   }
 }
 

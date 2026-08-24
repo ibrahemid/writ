@@ -9,9 +9,8 @@ interface Props {
   sizes?: string;
   loading?: 'lazy' | 'eager';
   fetchpriority?: 'high' | 'auto';
-  owed?: string;
 }
-const { name, alt, class: cls = '', sizes = '(max-width: 720px) 100vw, 1200px', loading = 'lazy', fetchpriority = 'auto', owed } = Astro.props;
+const { name, alt, class: cls = '', sizes = '(max-width: 720px) 100vw, 1200px', loading = 'lazy', fetchpriority = 'auto' } = Astro.props;
 
 const all = import.meta.glob<ImageMetadata>('/src/assets/captures/*.{png,webp,jpg}', { eager: true, import: 'default' });
 const pick = (suffix: string): ImageMetadata | undefined => {
@@ -24,21 +23,29 @@ const widths = light ? [720, 1100, 1600].filter((w) => w < light.width).concat(l
 ---
 {light ? (
   <figure class:list={['shot', cls]}>
-    <Picture src={light} alt={alt} formats={['avif', 'webp']} widths={widths} sizes={sizes} loading={loading} fetchpriority={fetchpriority} class="shot-light" />
+    <Picture src={light} alt={alt} formats={['avif', 'webp']} widths={widths} sizes={sizes} loading={loading} fetchpriority={fetchpriority} pictureAttributes={{ class: 'shot-light' }} />
     {dark && dark !== light && (
-      <Picture src={dark} alt="" formats={['avif', 'webp']} widths={widths} sizes={sizes} loading="lazy" class="shot-dark" aria-hidden="true" />
+      <Picture src={dark} alt="" formats={['avif', 'webp']} widths={widths} sizes={sizes} loading="lazy" pictureAttributes={{ class: 'shot-dark' }} aria-hidden="true" />
     )}
   </figure>
 ) : (
   <figure class:list={['shot', 'shot-owed', cls]} data-owed={name}>
-    <figcaption class="owed-cap">{owed ?? alt}</figcaption>
+    <figcaption class="owed-cap">{alt}</figcaption>
   </figure>
 )}
 
 <style is:global>
+  /* The polarity class sits on the <picture>, not the <img>: hiding only the
+     img leaves its picture in flow, and where a rule gives it a height (the
+     hero's `.hero-media picture { height: 100% }`) the hidden pair pushes the
+     visible one out of the clipped box. */
   .shot .shot-dark { display: none; }
-  html[data-theme='dark'] .shot .shot-light { display: none; }
-  html[data-theme='dark'] .shot .shot-dark { display: block; }
+  /* Keyed on any [data-theme] ancestor, not just <html>: the hero, install and
+     footer bands stay dark in both polarities, and a light screenshot on a dark
+     stage reads as the wrong window. Only <html> is ever forced light, so the
+     nearest forced theme always wins. */
+  [data-theme='dark'] .shot .shot-light { display: none; }
+  [data-theme='dark'] .shot .shot-dark { display: block; }
   .shot-owed {
     display: flex;
     align-items: center;

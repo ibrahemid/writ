@@ -1,6 +1,8 @@
 import { createSignal, createRoot } from "solid-js";
 import type { WritConfig, CommandUsage } from "../../types/config";
 import * as api from "../../services/tauri";
+import { showToast } from "../../components/Notifications/Toast";
+import { logFailure } from "../../lib/log";
 
 // Singleton — app-global, not window-scoped (ADR-009 E3).
 // Config is shared by every window; mutations persist to disk for all.
@@ -98,14 +100,27 @@ function pruneUsage(
 function createConfigStore() {
   const [config, setConfig] = createSignal<WritConfig>(DEFAULT_CONFIG);
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  // Config reloads on every `config:changed` event and persists on a debounce,
+  // so a lasting failure would toast on repeat. Each is reported once and
+  // re-armed by the next success.
+  let loadFailureReported = false;
+  let persistFailureReported = false;
 
   async function load() {
     try {
       const loaded = await api.getConfig();
       setConfig(normalizeIncomingConfig(loaded));
-    } catch (err) {
-      console.error("[configStore] failed to load config", err);
+      loadFailureReported = false;
+    } catch {
       setConfig(DEFAULT_CONFIG);
+      if (loadFailureReported) return;
+      loadFailureReported = true;
+      logFailure("settings could not be read");
+      showToast(
+        "Couldn't read your settings. Writ is using defaults; saving now replaces the stored file.",
+        "error",
+        8000,
+      );
     }
   }
 
@@ -151,9 +166,17 @@ function createConfigStore() {
     if (flushTimer) clearTimeout(flushTimer);
     flushTimer = setTimeout(() => {
       flushTimer = null;
-      void api.updateConfig(config()).catch((err) => {
-        console.error("[configStore] failed to persist config", err);
-      });
+      void api.updateConfig(config()).then(
+        () => {
+          persistFailureReported = false;
+        },
+        () => {
+          if (persistFailureReported) return;
+          persistFailureReported = true;
+          logFailure("settings could not be written");
+          showToast("Couldn't save your settings. The change applies to this session only.", "error");
+        },
+      );
     }, PERSIST_DEBOUNCE_MS);
   }
 

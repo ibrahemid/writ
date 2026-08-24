@@ -1,6 +1,6 @@
 import type { TransformId } from './transforms';
 
-export type BufferLang = 'md' | 'ts' | 'html' | 'plain' | 'binary' | 'huge';
+export type BufferLang = 'md' | 'ts' | 'html' | 'sql' | 'plain' | 'binary' | 'huge';
 
 export interface BufferMeta {
   name: string;
@@ -19,6 +19,8 @@ export function cmLangId(lang: BufferLang): string | null {
       return 'typescript';
     case 'html':
       return 'html';
+    case 'sql':
+      return 'sql';
     default:
       return null;
   }
@@ -176,6 +178,21 @@ const newsletterHtml = join([
   '</section>',
 ]);
 
+const schemaSql = join([
+  'CREATE TABLE notes (',
+  '  id INTEGER PRIMARY KEY,',
+  '  path TEXT NOT NULL UNIQUE,',
+  '  updated_at INTEGER NOT NULL',
+  ');',
+  'CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);',
+  'CREATE TABLE note_tags (',
+  '  note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,',
+  '  tag_id INTEGER NOT NULL REFERENCES tags(id),',
+  '  PRIMARY KEY (note_id, tag_id)',
+  ');',
+  'CREATE INDEX note_tags_tag ON note_tags(tag_id);',
+]);
+
 const notesMd = join([
   '# scratch, notes',
   '',
@@ -260,6 +277,7 @@ export const BUFFERS: Record<string, BufferMeta> = {
   'reading-list.md': { name: 'reading-list.md', lang: 'md' },
   'newsletter.html': { name: 'newsletter.html', lang: 'html' },
   'settle.ts': { name: 'settle.ts', lang: 'ts' },
+  'schema.sql': { name: 'schema.sql', lang: 'sql' },
   'icon-256.png': {
     name: 'icon-256.png',
     lang: 'binary',
@@ -285,6 +303,7 @@ export const DEFAULT_CONTENTS: Record<string, string> = {
   'reading-list.md': readingListMd,
   'newsletter.html': newsletterHtml,
   'settle.ts': settleTs,
+  'schema.sql': schemaSql,
   'icon-256.png': '',
   'gateway-week.log': buildBigLog(),
   'writ-1559': writ1559,
@@ -299,7 +318,13 @@ export const FMT: Record<'md' | 'html' | 'mermaid' | 'math', string> = {
   math: 'writ-3182',
 };
 
-export const OPEN_FILES = ['report.md', 'trip-packing.md', 'recipe.md', 'draft-email.md'];
+export const OPEN_FILES = [
+  'report.md',
+  'trip-packing.md',
+  'recipe.md',
+  'draft-email.md',
+  'schema.sql',
+];
 
 export const HISTORY: { id: string; when: string }[] = [
   { id: 'notes.md', when: '1m' },

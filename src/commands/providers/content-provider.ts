@@ -28,13 +28,9 @@ export function createContentProvider(options: ContentProviderOptions = {}): Res
       if (!q) return [];
       const targets = bufferTargets();
       const kindById = new Map(targets.map((t) => [t.doc.id, t.kind]));
-      let results;
-      try {
-        results = await searchBuffers(q);
-      } catch (error) {
-        console.error("searchBuffers failed", { query: q, error });
-        return [];
-      }
+      // A rejection travels to the palette, which is the surface that can tell
+      // the user this section is missing rather than empty.
+      const results = await searchBuffers(q);
       return results.hits
         .filter((hit) => kindById.has(hit.buffer_id))
         .map((hit) => ({

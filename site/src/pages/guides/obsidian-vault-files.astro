@@ -4,7 +4,7 @@ import Doc from '../../components/site/Doc.astro';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 <Site title="Open your Obsidian vault files without opening Obsidian" description="Open an Obsidian vault as a folder in Writ: read any note from the hotkey, search the whole vault, and write edits back to the file." path="/guides/obsidian-vault-files/">
-  <Doc eyebrow="guide" title="Open your Obsidian vault files without opening Obsidian." shot="still-vault" shotAlt="An Obsidian vault open as a folder in Writ" shotOwed="a vault folder open in Writ (app capture, still-vault)" lead="A vault is a folder of markdown files. Writ opens folders. That is the whole trick; the rest is what to expect.">
+  <Doc eyebrow="guide" title="Open your Obsidian vault files without opening Obsidian." shot="still-vault" shotAlt="An Obsidian vault open as a folder in Writ" lead="A vault is a folder of markdown files. Writ opens folders. That is the whole trick; the rest is what to expect.">
     <div class="doc-body">
       <h2>1. Open the vault as a folder</h2>
       <p>Drag the vault folder onto the Writ window, or run <code>writ ~/Documents/Vault</code> in a terminal, or pick it in Settings, Files. The sidebar shows the tree. Writ ignores <code>.obsidian/</code> and other dot-folders in the tree.</p>

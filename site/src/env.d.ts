@@ -6,3 +6,8 @@ declare module 'katex/dist/contrib/auto-render' {
   import renderMathInElement from '@types/katex/contrib/auto-render';
   export default renderMathInElement;
 }
+
+// Set by the deploy workflow from the UMAMI_SRC repository variable.
+interface ImportMetaEnv {
+  readonly PUBLIC_UMAMI_SRC?: string;
+}

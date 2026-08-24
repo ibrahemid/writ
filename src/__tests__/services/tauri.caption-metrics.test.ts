@@ -29,15 +29,19 @@ describe("caption button metrics service", () => {
   });
 
   // Snap layouts are a nicety; a rejected measurement must not surface as an
-  // unhandled rejection in the titlebar's mount path.
-  it("warns and continues when the command rejects", async () => {
+  // unhandled rejection in the titlebar's mount path, nor as a console line the
+  // user cannot act on.
+  it("continues silently when the command rejects", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     hostInvoke.mockRejectedValue(new Error("no window"));
 
     await expect(
       reportCaptionButtonMetrics({ offsetFromRight: 46, top: 0, width: 46, height: 36 }),
     ).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
     warn.mockRestore();
+    error.mockRestore();
   });
 });

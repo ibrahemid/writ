@@ -1,5 +1,7 @@
 import { createSignal } from "solid-js";
 import type { Command } from "../types/commands";
+import { showToast } from "../components/Notifications/Toast";
+import { logFailure } from "../lib/log";
 
 const commands = new Map<string, Command>();
 const [version, setVersion] = createSignal(0);
@@ -63,8 +65,9 @@ export function executeCommand(id: string): boolean {
   let result: boolean | void | Promise<unknown>;
   try {
     result = cmd.execute();
-  } catch (err) {
-    console.error(`command "${id}" threw during execution`, err);
+  } catch {
+    logFailure(`the "${id}" command threw`);
+    showToast(`${cmd.label} failed`, "error");
     return true;
   }
   if (result === false) return false;
