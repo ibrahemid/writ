@@ -119,6 +119,23 @@ describe('built output', () => {
     expect(leaked, `internal capture notes rendered as copy:\n${leaked.join('\n')}`).toEqual([]);
   });
 
+  it('renders keycaps that do not depend on the machine that built the page', () => {
+    // keybindingSegments falls back to `navigator`, and node reports MacIntel on
+    // a mac and Linux on a CI runner, so the server-rendered glyphs used to
+    // follow the build host and then disagree with the visitor's browser on
+    // hydration. Every keycap on the page is written as mac.
+    const wrong: string[] = [];
+    for (const page of pages) {
+      const html = readFileSync(page, 'utf8');
+      for (const [, text] of html.matchAll(/<span class="wwx-key">([^<]*)</g)) {
+        if (/^(Ctrl|Alt|Shift|Cmd|Command|Option)$/i.test(text.trim())) {
+          wrong.push(`${page.slice(DIST.length)}: ${text.trim()}`);
+        }
+      }
+    }
+    expect(wrong, `keycaps rendered for the build host, not the reader:\n${wrong.join('\n')}`).toEqual([]);
+  });
+
   it('carries no inline script that writes to the console', () => {
     const noisy: string[] = [];
     for (const page of pages) {
