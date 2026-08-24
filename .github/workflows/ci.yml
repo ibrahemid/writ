@@ -155,6 +155,9 @@ jobs:
       - name: Site build
         run: pnpm build
 
+      - name: Check the built output
+        run: pnpm run test:dist
+
   gitleaks:
     name: Secret scan
     runs-on: ubuntu-latest

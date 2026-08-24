@@ -11,6 +11,8 @@ interface Props {
   path?: string;
   heroDark?: boolean;
   jsonLd?: Record<string, unknown>;
+  /** Pages that have no address of their own: 404 is served under any path. */
+  unlisted?: boolean;
 }
 
 const {
@@ -19,9 +21,19 @@ const {
   path = '/',
   heroDark = false,
   jsonLd,
+  unlisted = false,
 } = Astro.props;
 
 const SITE_URL = 'https://writ.ibrahemid.com';
+
+// The analytics tag ships only when the build is handed a script URL. A tag
+// pointed at a host that is down is a network error in every visitor's console
+// and nothing on the page can suppress it, so an unreachable endpoint is a
+// build-time decision rather than a runtime one. Set the repository variable
+// UMAMI_SRC to turn it back on; the workflow passes it through as
+// PUBLIC_UMAMI_SRC.
+const ANALYTICS_SITE_ID = '0707b80b-a533-44a9-9bdf-c1eee7576372';
+const analyticsSrc = import.meta.env.PUBLIC_UMAMI_SRC ?? '';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const canonical = SITE_URL + base + path;
 const ogImage = SITE_URL + base + '/brand/og-v2.png';
@@ -50,7 +62,7 @@ const ld = jsonLd ?? {
     <meta name="theme-color" content="#0b0b11" media="(prefers-color-scheme: dark)" />
     <title>{title}</title>
     <meta name="description" content={description} />
-    <link rel="canonical" href={canonical} />
+    {unlisted ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical} />}
 
     <link rel="icon" type="image/png" sizes="32x32" href={`${base}/brand/icon-32.png`} />
     <link rel="icon" type="image/png" sizes="128x128" href={`${base}/brand/icon-128.png`} />
@@ -69,7 +81,9 @@ const ld = jsonLd ?? {
     <meta name="twitter:image" content={ogImage} />
     <script type="application/ld+json" set:html={JSON.stringify(ld)} />
 
-    <script defer src="https://stats.ibrahemid.com/script.js" data-website-id="0707b80b-a533-44a9-9bdf-c1eee7576372" data-domains="writ.ibrahemid.com"></script>
+    {analyticsSrc && (
+      <script is:inline defer src={analyticsSrc} data-website-id={ANALYTICS_SITE_ID} data-domains="writ.ibrahemid.com" data-do-not-track="true"></script>
+    )}
 
     <script is:inline>
       (function () {

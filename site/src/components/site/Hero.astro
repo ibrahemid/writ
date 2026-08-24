@@ -185,7 +185,13 @@
     };
     measureAdvance();
     document.fonts?.ready.then(measureAdvance).catch(() => {});
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reduced = ((): boolean => {
+      try {
+        return window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
+      } catch (_) {
+        return false;
+      }
+    })();
     let statusLive = false;
     let restoring = false;
     let restoreToken = 0;

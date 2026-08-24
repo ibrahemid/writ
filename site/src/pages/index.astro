@@ -74,9 +74,9 @@ const searchKeys = seg('CmdOrCtrl+Shift+F');
         <p class="sec-p">Bring it up, read or write, put it away. Nothing to save, nothing to name, nothing to find again later.</p>
       </div>
       <div class="strip u-full mo-g">
-        <Capture name="beat-summon" alt="The Writ window on top of other apps, the last note still open" sizes="(max-width: 720px) 100vw, 33vw" owed="beat 1: the window arriving over other apps (site/docs/captures.md, shot 1 poster)" />
-        <Capture name="still-split-note" alt="Meeting notes in split view: source on the left, the rendered note with a ticked checkbox on the right" sizes="(max-width: 720px) 100vw, 33vw" owed="beat 2: meeting-notes.md in split view (shot 6, still-split-note)" />
-        <Capture name="still-sidebar-history" alt="The sidebar listing the open notes and every earlier note by time" sizes="(max-width: 720px) 100vw, 33vw" owed="beat 3: the sidebar history list (shot 6, still-sidebar-history)" />
+        <Capture name="beat-summon" alt="The Writ window on top of other apps, the last note still open" sizes="(max-width: 720px) 100vw, 33vw" />
+        <Capture name="still-split-note" alt="Meeting notes in split view: source on the left, the rendered note with a ticked checkbox on the right" sizes="(max-width: 720px) 100vw, 33vw" />
+        <Capture name="still-sidebar-history" alt="The sidebar listing the open notes and every earlier note by time" sizes="(max-width: 720px) 100vw, 33vw" />
       </div>
       <div class="beats u-wide mo-g">
         <div>
@@ -115,7 +115,7 @@ const searchKeys = seg('CmdOrCtrl+Shift+F');
     <section class="band sec" id="open">
       <span class="mark" aria-hidden="true"><span class="gm-h">##</span> open</span>
       <div class="twoup u-bleed-l">
-        <Capture name="still-html" alt="An HTML newsletter open in Writ, source on the left and the rendered page on the right" class="shot-win shot-bleed-l mo" sizes="(max-width: 880px) 100vw, 60vw" owed="newsletter.html in split view (shot 6, still-html)" />
+        <Capture name="still-html" alt="An HTML newsletter open in Writ, source on the left and the rendered page on the right" class="shot-win shot-bleed-l mo" sizes="(max-width: 880px) 100vw, 60vw" />
         <div class="mo">
           <h2 class="sec-h2">Open what lands on you.</h2>
           <p class="sec-p">A newsletter someone forwarded, a flowchart pasted from a chat, a formula from a course. Writ draws them as they are meant to look. Code, configs and logs open as plain text, and large files open without a wait.</p>
@@ -152,7 +152,7 @@ const searchKeys = seg('CmdOrCtrl+Shift+F');
             <div class="mech-row"><span class="mech-k">opened a file?</span><span><kbd class="kc">⌘</kbd><kbd class="kc">S</kbd> writes back to that file. Edits you have not saved stay in Writ.</span></div>
           </div>
         </div>
-        <Capture name="still-finder-buffers" alt="The buffers folder in Finder: one plain text file per note" class="shot-win shot-bleed-r mo" sizes="(max-width: 880px) 100vw, 45vw" owed="Finder on ~/.writ/buffers (app capture, still-finder-buffers)" />
+        <Capture name="still-finder-buffers" alt="The buffers folder in Finder: one plain text file per note" class="shot-win shot-bleed-r mo" sizes="(max-width: 880px) 100vw, 45vw" />
       </div>
     </section>
 
@@ -242,14 +242,22 @@ const searchKeys = seg('CmdOrCtrl+Shift+F');
 </script>
 
 <script>
-  // Loops: a poster is the default. On entering the viewport (motion on), the
-  // video gets its sources for the current theme and plays; only once it is
-  // actually playing does it cover the poster. A missing file or a refused
-  // play() leaves the poster in place.
+  // Loops: a poster is the default. `data-loop` is only on the page when the
+  // build found clips for both themes, so arming can never request a file that
+  // was not shipped. On entering the viewport (motion on) the video takes the
+  // sources for the theme in use and plays; only once it is actually playing
+  // does it cover the poster. A refused play() leaves the poster in place.
   (function () {
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduced || !('IntersectionObserver' in window)) return;
+    const prefers = (q: string): boolean => {
+      try {
+        return window.matchMedia ? window.matchMedia(q).matches : false;
+      } catch (_) {
+        return false;
+      }
+    };
+    if (prefers('(prefers-reduced-motion: reduce)') || !('IntersectionObserver' in window)) return;
     const loops = Array.from(document.querySelectorAll<HTMLElement>('[data-loop]'));
+    if (loops.length === 0) return;
     const theme = () => (document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
     const arm = (box: HTMLElement) => {
       const v = box.querySelector<HTMLVideoElement>('video[data-loop-video]');
@@ -260,11 +268,9 @@ const searchKeys = seg('CmdOrCtrl+Shift+F');
         const src = s.dataset.src || '';
         s.src = src.replace(/-light\.(webm|mp4)$/, `-${t}.$1`);
       });
-      const last = v.querySelector<HTMLSourceElement>('source:last-of-type');
-      last?.addEventListener('error', () => box.setAttribute('data-video-blocked', ''));
       v.addEventListener('playing', () => box.setAttribute('data-video-playing', ''), { once: true });
       v.load();
-      v.play().catch(() => box.setAttribute('data-video-blocked', ''));
+      v.play().catch(() => {});
     };
     const io = new IntersectionObserver(
       (entries) => {

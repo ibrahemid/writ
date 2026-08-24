@@ -440,7 +440,9 @@ export default function WritWindow() {
   const copyPrompt = useCallback(() => {
     const out = applyTransform('prompt', bufText(activeId));
     try {
-      void navigator.clipboard?.writeText(out);
+      // A denied clipboard rejects asynchronously, which the catch below never
+      // sees: without the handler it surfaces as an unhandled rejection.
+      void navigator.clipboard?.writeText(out).catch(() => {});
     } catch {
       /* clipboard unavailable */
     }
@@ -1002,6 +1004,8 @@ export default function WritWindow() {
                 </svg>
                 <input
                   ref={searchRef}
+                  id="wwx-buffer-search"
+                  name="buffer-search"
                   value={query}
                   onChange={(e) => runSearch(e.target.value)}
                   placeholder="Search buffers..."

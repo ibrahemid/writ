@@ -1,4 +1,6 @@
 ---
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import Capture from './Capture.astro';
 
 interface Props {
@@ -15,14 +17,35 @@ interface Props {
 }
 const { name, alt, poster, width, height, class: cls = '', preload = 'none', sizes, loading, fetchpriority } = Astro.props;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+// The clip files live in public/ and are not committed, so the build has to
+// look for them on disk: import.meta.glob only sees src/. A format ships only
+// when both polarities exist, because the client script swaps -light for -dark
+// on the theme in use — one without the other is a 404 in one theme.
+const mediaDir = fileURLToPath(new URL('../../../public/media/', import.meta.url));
+const formats = (['webm', 'mp4'] as const).filter(
+  (ext) => existsSync(`${mediaDir}${name}-light.${ext}`) && existsSync(`${mediaDir}${name}-dark.${ext}`),
+);
+
+// Capture renders its own placeholder when a still is missing, so the poster
+// carries the slot on its own. With neither a clip nor a still there is nothing
+// to show and the slot does not render at all.
+const posterStills = import.meta.glob('/src/assets/captures/*.{png,webp,jpg}', { eager: true });
+const hasPoster = Object.keys(posterStills).some((p) => p.includes(`/${poster}-light.`) || p.includes(`/${poster}-dark.`));
+const hasClip = formats.length > 0;
 ---
-<div class:list={['shot', 'loop', cls]} data-loop={name} style={`aspect-ratio:${width}/${height}`}>
-  <video muted playsinline loop preload={preload} width={width} height={height} aria-label={alt} data-loop-video data-base={`${base}/media/${name}`}>
-    <source data-src={`${base}/media/${name}-light.webm`} type="video/webm" />
-    <source data-src={`${base}/media/${name}-light.mp4`} type="video/mp4" />
-  </video>
-  <div class="loop-fallback"><Capture name={poster} alt={alt} sizes={sizes} loading={loading} fetchpriority={fetchpriority} /></div>
-</div>
+{(hasClip || hasPoster) && (
+  <div class:list={['shot', 'loop', cls]} data-loop={hasClip ? name : undefined} style={`aspect-ratio:${width}/${height}`}>
+    {hasClip && (
+      <video muted playsinline loop preload={preload} width={width} height={height} aria-label={alt} data-loop-video>
+        {formats.map((ext) => (
+          <source data-src={`${base}/media/${name}-light.${ext}`} type={`video/${ext}`} />
+        ))}
+      </video>
+    )}
+    <div class="loop-fallback"><Capture name={poster} alt={alt} sizes={sizes} loading={loading} fetchpriority={fetchpriority} /></div>
+  </div>
+)}
 
 <style is:global>
   .loop { position: relative; }
