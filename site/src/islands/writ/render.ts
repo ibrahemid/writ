@@ -79,7 +79,13 @@ export function mdToHtml(src: string): string {
     const heading = line.match(/^(#{1,6})\s+(.*)$/);
     if (heading) {
       const level = (heading[1] ?? '').length;
-      out.push('<h' + level + '>' + renderInline(heading[2] ?? '') + '</h' + level + '>');
+      // The page owns its <h1>; a note's top heading renders with the h1 look
+      // but as a paragraph-level heading so the document outline stays single.
+      if (level === 1) {
+        out.push('<p class="h1" role="heading" aria-level="2">' + renderInline(heading[2] ?? '') + '</p>');
+      } else {
+        out.push('<h' + level + '>' + renderInline(heading[2] ?? '') + '</h' + level + '>');
+      }
       i++;
       continue;
     }

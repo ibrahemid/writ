@@ -1,0 +1,45 @@
+---
+import Site from '../layouts/Site.astro';
+import Doc from '../components/site/Doc.astro';
+import release from '../data/release.json';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const repo = 'https://github.com/ibrahemid/writ';
+---
+<Site title="Writ press kit" description="Name, one-line description, icon files, screenshots and facts about Writ for articles and listings." path="/press/">
+  <Doc eyebrow="press" title="Press kit." shot="still-split-note" shotAlt="Meeting notes in Writ, source on the left and the rendered note on the right" lead="Everything needed to write about Writ accurately, in one place.">
+    <div class="doc-body">
+      <h2>The facts</h2>
+      <table>
+        <tr><td>Name</td><td>Writ. Capital W, no article, never "Writ app".</td></tr>
+        <tr><td>One line</td><td>A scratchpad that is already open: one hotkey over any app, saved as you type, every note searchable.</td></tr>
+        <tr><td>What it does</td><td>Brings up a notes window over whatever you are doing with a global hotkey. Notes are plain text files, written as you type and kept forever. Markdown, HTML, Mermaid and KaTeX render beside the source. One search covers every note ever opened and any folder you point it at.</td></tr>
+        <tr><td>Platforms</td><td>macOS 12+, Windows 10+, Linux (x86_64).</td></tr>
+        <tr><td>Price and license</td><td>Free. Open source under MIT.</td></tr>
+        <tr><td>Current version</td><td>{release.version}, released {release.publishedAt.slice(0, 10)}.</td></tr>
+        <tr><td>Public since</td><td>April 2026. Source, decision records and release history at <a href={repo}>github.com/ibrahemid/writ</a>.</td></tr>
+        <tr><td>Made by</td><td>Ibrahem (ibrahemid on GitHub), one person.</td></tr>
+        <tr><td>Built with</td><td>Rust and Tauri 2 for the shell; SolidJS and CodeMirror 6 for the editor; SQLite for metadata and search.</td></tr>
+        <tr><td>Privacy</td><td>Offline, no account, no telemetry. The one feature that can send text off the machine (rewrite with a hosted model) is off by default and asks before the first send.</td></tr>
+        <tr><td>Contact</td><td><a href="mailto:ibrahemid@gmail.com">ibrahemid@gmail.com</a></td></tr>
+      </table>
+
+      <h2>Icon</h2>
+      <div class="press-assets">
+        <a class="press-asset" href={`${base}/brand/icon-256.png`} download><img src={`${base}/brand/icon-256.png`} alt="Writ icon" width="64" height="64" /><span>icon-256.png</span></a>
+        <a class="press-asset" href={`${base}/brand/icon-128.png`} download><img src={`${base}/brand/icon-128.png`} alt="" width="64" height="64" /><span>icon-128.png</span></a>
+        <a class="press-asset" href={`${base}/brand/og-v2.png`} download><img src={`${base}/brand/icon-32.png`} alt="" width="64" height="64" /><span>og-v2.png · 1200×630</span></a>
+      </div>
+      <p>Use the icon on its own, unrotated, on any background. Do not recolor it or set it inside another shape.</p>
+
+      <h2>Screenshots</h2>
+      <p>Captures of the real app at 2×, light and dark, are in the repo under <a href={`${repo}/tree/main/docs/media`}>docs/media</a> and <a href={`${repo}/tree/main/docs/design`}>docs/design</a>. Take your own freely; the window is the product.</p>
+
+      <h2>How to describe it</h2>
+      <ul>
+        <li>"Scratchpad", "notes window", "always-open notes". Not "markdown editor" as the headline, not "IDE", not "second brain".</li>
+        <li>Next to Obsidian, not against it: Writ has no backlinks, plugins, mobile or sync, and does not claim to replace a vault.</li>
+        <li>No performance numbers have been published. Please do not cite one.</li>
+      </ul>
+    </div>
+  </Doc>
+</Site>

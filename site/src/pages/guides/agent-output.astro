@@ -1,0 +1,32 @@
+---
+import Site from '../../layouts/Site.astro';
+import Doc from '../../components/site/Doc.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<Site title="Read what an agent wrote, and find it again next week" description="Set a watched inbox so every report an agent or script writes opens in Writ as it lands, rendered, and stays searchable afterwards." path="/guides/agent-output/">
+  <Doc eyebrow="guide" title="Read what an agent wrote, and find it again next week." shot="still-inbox" shotAlt="The watched inbox folder in the sidebar with a report that just arrived, rendered" shotOwed="the watched inbox with an arrived report (site/docs/captures.md, shot 3 poster)" lead="An agent hands you a 200-line plan. You read fifteen lines, close it, and three days later cannot remember where it went. A watched inbox fixes both halves.">
+    <div class="doc-body">
+      <h2>1. Pick a folder</h2>
+      <p>Make one folder for agent output, for example <code>~/agent-out</code>. In Writ, Settings, Files, Watched inbox folder: choose it.</p>
+
+      <h2>2. Point the agent at it</h2>
+      <p>Have the agent or script write its reports there. A Claude Code hook, a Makefile target, a cron job: anything that writes a file.</p>
+      <pre><code># a shell step at the end of a task
+cp plan.md ~/agent-out/$(date +%H%M)-plan.md
+
+# or straight from a pipe, no folder needed
+some-command | writ --title "some-command"</code></pre>
+
+      <h2>3. Read it as it lands</h2>
+      <p>Each new file in the folder opens in a tab, rendered, and the window comes to the front. Files already in the folder when you set the inbox are left alone, and a burst of arrivals collapses into one notice instead of a tab storm. If the window coming forward while you type is unwelcome, turn off "Focus window on inbox open" and the tabs open quietly.</p>
+
+      <h2>4. Find it next week</h2>
+      <p><kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">F</kbd>, type a phrase you remember. Inbox files are in the same search as every other note, and the sidebar's history lists them by the time you last had them open.</p>
+
+      <h2>Why a plain folder</h2>
+      <p>No daemon to install, no integration to keep up with a tool that changes every month. Anything that can write a file can feed the inbox, and the files stay readable by everything else.</p>
+      <p>The preview has no network access, so an HTML report from a tool you do not fully trust renders without loading anything from the web. Scripts inside it run only if you turn that on.</p>
+      <p>Details: <a href={`${base}/docs/#inbox`}>the inbox in the docs</a>.</p>
+    </div>
+  </Doc>
+</Site>

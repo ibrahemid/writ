@@ -4,7 +4,9 @@
 
 # Writ
 
-A lightweight, always-ready text editor for developers.
+An always-open scratchpad. One hotkey brings the window back with everything you dropped in it still there.
+
+Buffers save themselves and stay searchable for good. Files render in place, offline.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/ibrahemid/writ/ci.yml?branch=main&label=CI&logo=github)](https://github.com/ibrahemid/writ/actions)
 [![Release](https://img.shields.io/github/v/release/ibrahemid/writ?include_prereleases&sort=semver)](https://github.com/ibrahemid/writ/releases/latest)
@@ -21,6 +23,9 @@ A lightweight, always-ready text editor for developers.
   <img src="docs/media/hero-light.gif" alt="Markdown typed in Writ's split pane, rendered live as it is written" width="100%">
 </picture>
 
+**How it's built.** The architecture was decided by hand and the reasoning is on record: 27 decision records in [docs/adr/](docs/adr/), crate and layer boundaries enforced by the build, and the commit history behind both.
+AI assistance was used to write code inside those decisions, not to make them.
+
 ## Why I built this
 
 Most of what I open in a day is not code. It is prompts, specs, plans, agent output, knowledge files, the occasional config. Markdown everywhere, half of it written by a machine, and all of it needs a quick look or a quick edit before I move on.
@@ -32,21 +37,17 @@ Writ extends that to how I work: resident and summoned, not launched. One hotkey
 ## Features
 
 - Global hotkey summons the window from anywhere: `Cmd+Shift+Space` on macOS, `Ctrl+Shift+Space` on Windows and Linux
-- Autosave on every keystroke; buffers persist across restarts; crash recovery restores the last session
-- Search everywhere on `Cmd+Shift+F`: commands, settings, and every buffer, open or from history, in one palette. With a workspace folder open it adds file names, and greps file contents on each query. Prefixes: `>` commands, `#` content, `:` go to line
-- Split-pane live preview: Markdown, HTML, Mermaid diagrams, and KaTeX math, rendered fully offline with scroll sync
-- Command palette on double-tap `Shift`
-- CodeMirror 6 editor with language auto-detection, live Markdown typography, and formatting shortcuts
-- `Cmd+click` (`Ctrl` elsewhere) opens `http`, `https`, and `mailto` links from the editor, underlined only while the modifier is held; a relative link like `[spec](./notes/spec.md)` opens in Writ when it resolves inside the workspace. A link clicked in the preview names its destination host and asks before opening
-- Right-click gets Writ's own menu rather than the webview's, everywhere but the preview pane: spelling corrections, link actions, clipboard, rewrite actions on a selection, and a workspace search seeded with it
-- Spell check runs locally, so nothing leaves the machine. Double-click a flagged word for corrections in place: accept one, fix all, or add the word to your dictionary. Code, URLs, and tokens like `API` or `useSignal` stay unflagged. Off by default
-- Rewrite a selection: proofread, rephrase, polish, improve prompt (instructed to leave `{{placeholders}}` intact), or your own instruction. A local model (Ollama) by default, or any OpenAI-compatible endpoint with your own key, kept in the OS keychain on macOS and Windows and in memory for the session elsewhere. Off until you turn it on; Writ asks before the first send to a host off your machine, and only the text you rewrite is sent
-- Prompt fill: placeholder variables, a live token estimate, copy as prompt
-- Text transforms such as Tidy Whitespace, built from small composable passes
+- Autosave on every keystroke; a restart or a crash brings the session back as it was
+- Search everywhere on `Cmd+Shift+F`: every buffer, open or from history, plus workspace file names and contents
+- Split-pane live preview for Markdown, HTML, Mermaid diagrams and KaTeX math, rendered offline with scroll sync
+- Command palette on double-tap `Shift`, reaching every command, setting and buffer
 - Workspace folders with a file tree, plus a watched inbox that opens new files as they arrive
-- `writ` CLI for opening files from the terminal; register Writ as the default app for text, config, and source files on macOS
-- Browser-style tabs with reopen-closed, light and dark themes, editor and preview font zoom
-- Local-only storage, no account, no telemetry; self-updates verify a signed manifest and can be turned off
+- A `writ` CLI, and Writ can register as the default app for text, config and source files
+- Local-only storage, no account, no telemetry
+
+Spell check, selection rewrites, prompt fill, text transforms, link handling and the rest are in [docs/FEATURES.md](docs/FEATURES.md).
+
+Wikilinks and backlinks are on the way. They are not in a release yet.
 
 ## Design decisions
 
@@ -105,13 +106,17 @@ flowchart LR
 
 ## See it in action
 
-<table>
-  <tr>
-    <td><img src="docs/media/html-split.png" alt="HTML file in split view, scripts on, the preview rendering the page offline"></td>
-    <td><img src="docs/media/search-all-buffers.png" alt="Full-text search matching across every open and historical buffer"></td>
-    <td><img src="docs/media/command-palette.png" alt="Command palette with recent commands and shortcuts"></td>
-  </tr>
-</table>
+**Search everywhere.** One query, every open buffer and everything in history.
+
+<img src="docs/media/search-all-buffers.png" alt="Full-text search matching across every open and historical buffer" width="100%">
+
+**Live preview.** An HTML file in split view, rendered by the app with the network blocked.
+
+<img src="docs/media/html-split.png" alt="HTML file in split view, scripts on, the preview rendering the page offline" width="100%">
+
+**Command palette.** Double-tap `Shift` for commands, settings and buffers.
+
+<img src="docs/media/command-palette.png" alt="Command palette with recent commands and shortcuts" width="100%">
 
 The [landing page](https://writ.ibrahemid.com) has a live editor you can try in the browser.
 

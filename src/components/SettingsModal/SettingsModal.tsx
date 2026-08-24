@@ -778,6 +778,7 @@ const AI_PRESET_BASE_URLS: Record<string, string> = {
 };
 
 function AiSection() {
+  const search = useSearch();
   const cfg = () => configStore.config().ai;
   const [keyState, setKeyState] = createSignal<AiKeyState | null>(null);
   const [keyInput, setKeyInput] = createSignal("");
@@ -1106,6 +1107,9 @@ function AiSection() {
           <div class="settings-ai-note">Key held in memory this session; it will be gone on restart.</div>
         </Show>
 
+        {/* Not a setting row, so it opts into the search filter by hand: while
+            searching it shows only when its own section does. */}
+        <Show when={search.sectionVisible("ai")}>
         <div class="settings-ai-connection">
           <span class="settings-ai-connection-status" data-tone={connection().tone} aria-live="polite">
             {connection().text}
@@ -1120,6 +1124,7 @@ function AiSection() {
             {aiConnectionStore.checking() ? "Checking…" : "Re-check"}
           </button>
         </div>
+        </Show>
 
     </div>
   );

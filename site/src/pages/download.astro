@@ -1,17 +1,38 @@
 ---
-const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-const target = base + '/#download';
+import Site from '../layouts/Site.astro';
+import '../styles/landing.css';
+import Install from '../components/site/Install.astro';
+import release from '../data/release.json';
+const repo = 'https://github.com/ibrahemid/writ';
+const sumsUrl = `${repo}/releases/download/${release.tag}/SHA256SUMS.txt`;
 ---
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta http-equiv="refresh" content={`0; url=${target}`} />
-    <title>Redirecting to download…</title>
-    <link rel="canonical" href={target} />
-  </head>
-  <body>
-    <p>Redirecting to <a href={target}>download</a>…</p>
-    <script define:vars={{ target }}>window.location.replace(target);</script>
-  </body>
-</html>
+<Site title="Download Writ" description="Writ for macOS, Windows and Linux. Signed builds, package-manager one-liners, SHA256 checksums." path="/download/">
+  <main class="page" id="top" style="padding-top:0">
+    <Install standalone />
+    <section class="band doc" style="padding-top:48px">
+      <div class="doc-body">
+        <h2 style="margin-top:0">Requirements</h2>
+        <table>
+          <tr><th>macOS</th><td>12 Monterey or later. One build for Apple silicon and Intel. Signed and notarized.</td></tr>
+          <tr><th>Windows</th><td>10 or later, 64-bit. The .msi is not code-signed yet, so SmartScreen shows a warning on first run: More info, then Run anyway. The checksum below is how to verify it instead.</td></tr>
+          <tr><th>Linux</th><td>x86_64. The AppImage runs anywhere with FUSE; the .deb targets Debian and Ubuntu. Arch has <code>writ-bin</code> on the AUR.</td></tr>
+        </table>
+        <h2>Verify a download</h2>
+        <p>Every release ships a <a href={sumsUrl}>SHA256SUMS.txt</a>. On macOS or Linux:</p>
+        <pre><code>shasum -a 256 Writ_{release.version}_universal.pkg</code></pre>
+        <p>Compare the output with the line for that file. The current sums:</p>
+        <table>
+          <tr><th>.pkg</th><td><code>{release.platforms.mac.sha256_pkg}</code></td></tr>
+          <tr><th>.dmg</th><td><code>{release.platforms.mac.sha256_dmg}</code></td></tr>
+          <tr><th>.msi</th><td><code>{release.platforms.win.sha256_msi}</code></td></tr>
+          <tr><th>.AppImage</th><td><code>{release.platforms.linux.sha256_appImage}</code></td></tr>
+          <tr><th>.deb</th><td><code>{release.platforms.linux.sha256_deb}</code></td></tr>
+        </table>
+        <h2>Updates</h2>
+        <p>Writ checks GitHub Releases on start and offers the new version; nothing installs without a click. The check verifies a signed manifest and can be turned off in Settings. Package-manager installs update through the package manager instead.</p>
+        <h2>Uninstall</h2>
+        <p>Delete the app. Your notes stay in <code>~/.writ</code> in your home folder until you delete that folder too.</p>
+      </div>
+    </section>
+  </main>
+</Site>

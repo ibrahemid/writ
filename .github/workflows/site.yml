@@ -68,6 +68,7 @@ jobs:
           sha_for(){ echo "$SUMS" | awk -v f="$1" '$2==f{print $1}' | head -1; }
           url_for(){ echo "$RELEASE_JSON" | jq -r --arg re "$1" '[.assets[]|select(.name|test($re))]|.[0].browser_download_url // ""'; }
           name_for(){ echo "$RELEASE_JSON" | jq -r --arg re "$1" '[.assets[]|select(.name|test($re))]|.[0].name // ""'; }
+          size_for(){ echo "$RELEASE_JSON" | jq -r --arg re "$1" '[.assets[]|select(.name|test($re))]|.[0].size // 0'; }
           DMG=$(url_for 'universal\.dmg$'); PKG=$(url_for 'universal\.pkg$')
           MSI=$(url_for '\.msi$'); DEB=$(url_for '\.deb$'); APP=$(url_for '\.AppImage$')
 
@@ -98,12 +99,14 @@ jobs:
             --arg smsi "$(sha_for "$(name_for '\.msi$')")" \
             --arg sdeb "$(sha_for "$(name_for '\.deb$')")" \
             --arg sapp "$(sha_for "$(name_for '\.AppImage$')")" \
+            --argjson zdmg "$(size_for 'universal\.dmg$')" --argjson zpkg "$(size_for 'universal\.pkg$')" \
+            --argjson zmsi "$(size_for '\.msi$')" --argjson zdeb "$(size_for '\.deb$')" --argjson zapp "$(size_for '\.AppImage$')" \
             '{version:$version,tag:$tag,publishedAt:$publishedAt,published:$published,notarized:$notarized,
               hasChecksums:$hasChecksums,
               platforms:{
-                mac:{dmg:(if $dmg==""then"#"else $dmg end),pkg:(if $pkg==""then"#"else $pkg end),sha256_dmg:$sdmg,sha256_pkg:$spkg},
-                win:{msi:(if $msi==""then"#"else $msi end),sha256_msi:$smsi},
-                linux:{deb:(if $deb==""then"#"else $deb end),appImage:(if $app==""then"#"else $app end),sha256_deb:$sdeb,sha256_appImage:$sapp}
+                mac:{dmg:(if $dmg==""then"#"else $dmg end),pkg:(if $pkg==""then"#"else $pkg end),sha256_dmg:$sdmg,sha256_pkg:$spkg,size_dmg:$zdmg,size_pkg:$zpkg},
+                win:{msi:(if $msi==""then"#"else $msi end),sha256_msi:$smsi,size_msi:$zmsi},
+                linux:{deb:(if $deb==""then"#"else $deb end),appImage:(if $app==""then"#"else $app end),sha256_deb:$sdeb,sha256_appImage:$sapp,size_deb:$zdeb,size_appImage:$zapp}
               }}' > src/data/release.json
 
           echo "Wrote release.json:"

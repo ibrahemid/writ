@@ -82,8 +82,22 @@ export function installFocusTrap(
     }
   }
 
+  // A click on a button does not focus it on macOS, so after any click inside
+  // the dialog the active element is the body and a keydown never bubbles
+  // through the container. The listener sits on the document and claims a key
+  // that started inside the container or from nowhere (body), as long as this
+  // trap is the live one (a stacked dialog inerts the ones beneath it).
+  function ownsEvent(e: KeyboardEvent): boolean {
+    if (container.closest("[inert]") !== null) return false;
+    const target = e.target;
+    if (!(target instanceof Node)) return true;
+    if (container.contains(target)) return true;
+    return target === document.body || target === document.documentElement;
+  }
+
   function onKeyDown(e: KeyboardEvent) {
     if (opts.isActive && !opts.isActive()) return;
+    if (!ownsEvent(e)) return;
     if (e.key === "Escape") {
       if (opts.onEscape) {
         e.preventDefault();
@@ -110,10 +124,10 @@ export function installFocusTrap(
     list[nextIdx].focus();
   }
 
-  container.addEventListener("keydown", onKeyDown);
+  document.addEventListener("keydown", onKeyDown);
 
   return () => {
-    container.removeEventListener("keydown", onKeyDown);
+    document.removeEventListener("keydown", onKeyDown);
     for (const el of inertedPeers) el.removeAttribute("inert");
     if (!popped) {
       popModal();

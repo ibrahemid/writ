@@ -6,7 +6,7 @@ fn default_config_has_expected_values() {
 
     assert_eq!(config.hotkey.toggle, "CmdOrCtrl+Shift+Space");
 
-    assert_eq!(config.sidebar.toggle, "CmdOrCtrl+S");
+    assert_eq!(config.sidebar.toggle, "CmdOrCtrl+\\");
     assert!(!config.sidebar.default_visible);
     assert!(!config.sidebar.open);
     assert_eq!(config.sidebar.position, SidebarPosition::Left);

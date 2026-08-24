@@ -1,0 +1,58 @@
+---
+import { Picture } from 'astro:assets';
+import type { ImageMetadata } from 'astro';
+
+interface Props {
+  name: string;
+  alt: string;
+  class?: string;
+  sizes?: string;
+  loading?: 'lazy' | 'eager';
+  fetchpriority?: 'high' | 'auto';
+  owed?: string;
+}
+const { name, alt, class: cls = '', sizes = '(max-width: 720px) 100vw, 1200px', loading = 'lazy', fetchpriority = 'auto', owed } = Astro.props;
+
+const all = import.meta.glob<ImageMetadata>('/src/assets/captures/*.{png,webp,jpg}', { eager: true, import: 'default' });
+const pick = (suffix: string): ImageMetadata | undefined => {
+  const hit = Object.entries(all).find(([p]) => p.endsWith(`/${name}-${suffix}.png`) || p.endsWith(`/${name}-${suffix}.webp`) || p.endsWith(`/${name}-${suffix}.jpg`));
+  return hit?.[1];
+};
+const light = pick('light');
+const dark = pick('dark') ?? light;
+const widths = light ? [720, 1100, 1600].filter((w) => w < light.width).concat(light.width) : [];
+---
+{light ? (
+  <figure class:list={['shot', cls]}>
+    <Picture src={light} alt={alt} formats={['avif', 'webp']} widths={widths} sizes={sizes} loading={loading} fetchpriority={fetchpriority} class="shot-light" />
+    {dark && dark !== light && (
+      <Picture src={dark} alt="" formats={['avif', 'webp']} widths={widths} sizes={sizes} loading="lazy" class="shot-dark" aria-hidden="true" />
+    )}
+  </figure>
+) : (
+  <figure class:list={['shot', 'shot-owed', cls]} data-owed={name}>
+    <figcaption class="owed-cap">{owed ?? alt}</figcaption>
+  </figure>
+)}
+
+<style is:global>
+  .shot .shot-dark { display: none; }
+  html[data-theme='dark'] .shot .shot-light { display: none; }
+  html[data-theme='dark'] .shot .shot-dark { display: block; }
+  .shot-owed {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--sunken);
+    border: 1px solid var(--line);
+  }
+  .owed-cap {
+    max-width: 36ch;
+    padding: 20px;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--subtle);
+  }
+</style>

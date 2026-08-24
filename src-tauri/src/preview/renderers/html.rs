@@ -20,6 +20,7 @@ use writ_core::preview::{
 };
 
 use super::theme;
+use writ_core::preview::ThemePolarity;
 
 /// Hard ceiling above which the HTML renderer refuses. Mirrors ADR-009's
 /// 50 MB surface refusal; the surface-level 1 MB / 5 MB thresholds are
@@ -62,7 +63,7 @@ impl ContentRenderer for HtmlRenderer {
         let used_fallback_stylesheet = !has_own_styles;
 
         let styled = if used_fallback_stylesheet {
-            inject_fallback_stylesheet(&request.buffer_text)
+            inject_fallback_stylesheet(&request.buffer_text, request.theme)
         } else {
             request.buffer_text.clone()
         };
@@ -131,8 +132,8 @@ fn has_author_styles(html: &str) -> bool {
 /// `<html ...>`, else prepended. The webview's permissive parser hoists a
 /// leading `<style>` into the head regardless, so the prepend fallback is
 /// safe; we still prefer the head for well-formed documents.
-fn inject_fallback_stylesheet(html: &str) -> String {
-    insert_into_head(html, &theme::style_tag())
+fn inject_fallback_stylesheet(html: &str, polarity: ThemePolarity) -> String {
+    insert_into_head(html, &theme::style_tag_for(polarity))
 }
 
 /// Insert `snippet` into the document head: right after `<head>`, else after a
@@ -225,6 +226,32 @@ mod tests {
             theme: Default::default(),
             zoom: 1.0,
         }
+    }
+
+    fn req_light(text: &str) -> RenderRequest {
+        RenderRequest {
+            content_type: HtmlRenderer::content_type_id(),
+            buffer_text: text.to_string(),
+            theme: ThemePolarity::Light,
+            zoom: 1.0,
+        }
+    }
+
+    #[test]
+    fn unstyled_document_follows_the_light_app_theme() {
+        let out = HtmlRenderer.render(req_light("<p>hello</p>")).unwrap();
+        assert!(out.used_fallback_stylesheet);
+        assert!(out.document_html.contains(":root{"));
+        assert!(out.document_html.contains("--writ-preview-bg: #fbfbfd"));
+    }
+
+    #[test]
+    fn author_styled_document_is_left_alone_in_light_too() {
+        let out = HtmlRenderer
+            .render(req_light("<style>p{color:red}</style><p>x</p>"))
+            .unwrap();
+        assert!(!out.used_fallback_stylesheet);
+        assert!(!out.document_html.contains("--writ-preview-bg"));
     }
 
     fn req_zoomed(text: &str, zoom: f64) -> RenderRequest {

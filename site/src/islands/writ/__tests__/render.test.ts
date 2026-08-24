@@ -18,7 +18,8 @@ describe('mdToHtml', () => {
   });
 
   it('renders headings', () => {
-    expect(mdToHtml('# Title')).toBe('<h1>Title</h1>');
+    expect(mdToHtml('# Title')).toBe('<p class="h1" role="heading" aria-level="2">Title</p>');
+    expect(mdToHtml('## Sub')).toBe('<h2>Sub</h2>');
   });
 
   it('renders a task list as indexed checkbox controls', () => {

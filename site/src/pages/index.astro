@@ -1,15 +1,14 @@
 ---
 import Site from '../layouts/Site.astro';
+import '../styles/landing.css';
 import Hero from '../components/site/Hero.astro';
+import Loop from '../components/site/Loop.astro';
+import Capture from '../components/site/Capture.astro';
 import WindowRow from '../components/site/WindowRow.astro';
-import Section from '../components/site/Section.astro';
-import SceneRender from '../components/site/SceneRender.astro';
-import SceneFind from '../components/site/SceneFind.astro';
-import SceneClean from '../components/site/SceneClean.astro';
-import SceneCatch from '../components/site/SceneCatch.astro';
 import Ledger from '../components/site/Ledger.astro';
 import Install from '../components/site/Install.astro';
 import StatusBar from '../components/site/StatusBar.astro';
+import release from '../data/release.json';
 import { EDITOR_COMMAND_KEYS } from '../../../src/editor/editor-command-keys';
 import { keybindingSegments } from '../../../src/lib/keybinding-format';
 import warpLight from '../../../src/styles/themes/warp-light.json';
@@ -20,6 +19,9 @@ import solarizedDark from '../../../src/styles/themes/solarized-dark.json';
 import catppuccinMocha from '../../../src/styles/themes/catppuccin-mocha.json';
 
 const presets = [warpLight, warpDark, tokyoNight, dracula, solarizedDark, catppuccinMocha];
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const published = release.published === true;
+const mb = (n: number | undefined) => (n ? `${Math.round(n / 1048576)} MB` : '');
 
 // Keycaps use the app's own segmenter so the sheet matches the window exactly.
 // isMac is forced: navigator is undefined at build time and would default to non-mac.
@@ -31,28 +33,168 @@ const appShortcuts = [
   { label: 'New tab', bindings: ['CmdOrCtrl+T'] },
   { label: 'Close tab', bindings: ['CmdOrCtrl+W'] },
   { label: 'Switch tabs', bindings: ['CmdOrCtrl+[', 'CmdOrCtrl+]'] },
-  { label: 'Save', bindings: ['CmdOrCtrl+S'] },
+  { label: 'Save to the file', bindings: ['CmdOrCtrl+S'] },
   { label: 'Toggle sidebar', bindings: ['CmdOrCtrl+\\'] },
-  { label: 'Find in document', bindings: ['CmdOrCtrl+F'] },
+  { label: 'Find in note', bindings: ['CmdOrCtrl+F'] },
   { label: 'Bold / italic / link', bindings: ['CmdOrCtrl+B', 'CmdOrCtrl+I', 'CmdOrCtrl+K'] },
 ];
 const kcCols = [
   { h: 'window & tabs', rows: appShortcuts.map((r) => ({ label: r.label, groups: r.bindings.map(seg) })) },
-  { h: 'editing', rows: EDITOR_COMMAND_KEYS.map((c) => ({ label: c.label, groups: [seg(c.keybinding)] })) },
+  { h: 'editing', rows: EDIT_KEYS_SUBSET(EDITOR_COMMAND_KEYS).map((c) => ({ label: c.label, groups: [seg(c.keybinding)] })) },
 ];
+function EDIT_KEYS_SUBSET<T>(all: readonly T[]): readonly T[] { return all.slice(0, 8); }
+const summon = seg('CmdOrCtrl+Shift+Space');
+const searchKeys = seg('CmdOrCtrl+Shift+F');
 ---
-<Site title="Writ — a fast scratchpad for everything you open" path="/">
-  <main id="top" class="v2-grid">
+<Site title="Already open. Still there next month. | Writ" path="/" heroDark>
+  <main id="top" class="page">
     <div class="spine" aria-hidden="true"></div>
-    <Hero />
-    <WindowRow />
-    <Section slug="why-writ">
-      <p class="sec-lead">A text editor opens fast but shows raw text. An IDE renders everything but is slow to reach for. Writ is the fast middle.</p>
-    </Section>
-    <SceneRender />
-    <SceneFind />
-    <SceneClean />
-    <SceneCatch />
+
+    <section class="band hero-band" data-theme="dark" id="hero">
+      <div class="hero-grid u-wide">
+        <div class="hero-copy">
+          <Hero>
+            <Fragment slot="meta">
+              {published
+                ? `v${release.version} · macOS 12+, Apple silicon and Intel, ${mb(release.platforms.mac.size_pkg)} · Windows 10+, ${mb(release.platforms.win.size_msi)} · Linux, ${mb(release.platforms.linux.size_appImage)}`
+                : 'macOS 12+ · Windows · Linux'}
+            </Fragment>
+          </Hero>
+        </div>
+        <div class="hero-media">
+          <Loop name="summon" poster="summon-poster" alt="Writ appearing over a browser and a chat window after the hotkey, four notes already open" width={1600} height={1100} preload="metadata" loading="eager" fetchpriority="high" sizes="(max-width: 1180px) 100vw, 56vw" />
+        </div>
+      </div>
+    </section>
+
+    <section class="band sec hero-after" id="loop">
+      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> loop</span>
+      <div class="mo">
+        <h2 class="sec-h2">Twenty seconds, start to finish.</h2>
+        <p class="sec-p">Bring it up, read or write, put it away. Nothing to save, nothing to name, nothing to find again later.</p>
+      </div>
+      <div class="strip u-full mo-g">
+        <Capture name="beat-summon" alt="The Writ window on top of other apps, the last note still open" sizes="(max-width: 720px) 100vw, 33vw" owed="beat 1: the window arriving over other apps (site/docs/captures.md, shot 1 poster)" />
+        <Capture name="still-split-note" alt="Meeting notes in split view: source on the left, the rendered note with a ticked checkbox on the right" sizes="(max-width: 720px) 100vw, 33vw" owed="beat 2: meeting-notes.md in split view (shot 6, still-split-note)" />
+        <Capture name="still-sidebar-history" alt="The sidebar listing the open notes and every earlier note by time" sizes="(max-width: 720px) 100vw, 33vw" owed="beat 3: the sidebar history list (shot 6, still-sidebar-history)" />
+      </div>
+      <div class="beats u-full mo-g">
+        <div>
+          <div class="beat-h"><span class="kc-keys">{summon.map((k) => <kbd class="kc">{k}</kbd>)}</span> Bring it up</div>
+          <p class="beat-p">It is already running. The window comes up over the browser, the call, the spreadsheet.</p>
+        </div>
+        <div>
+          <div class="beat-h">Read or write</div>
+          <p class="beat-p">Source on the left, the rendered note on the right. Lists continue on Enter, checkboxes tick on click.</p>
+        </div>
+        <div>
+          <div class="beat-h"><span class="kc-keys">{summon.map((k) => <kbd class="kc">{k}</kbd>)}</span> Put it away</div>
+          <p class="beat-p">The same key. It is there next time, and so is everything you put in it before.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="band sec" id="editor">
+      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> window</span>
+      <div class="mo">
+        <h2 class="sec-h2">Try it here.</h2>
+        <p class="sec-p">The app's own editor, running in this page. Type in it, switch tabs, press <kbd class="kc">⇧</kbd><kbd class="kc">⇧</kbd> for the command palette. Load something into it:</p>
+        <div class="trig-row">
+          <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="md"><span class="trig-g">#</span> Meeting notes</button>
+          <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="html"><span class="trig-g">&lt;/&gt;</span> A newsletter</button>
+          <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="mermaid"><span class="trig-g">A→B</span> A flowchart</button>
+          <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="math"><span class="trig-g">∑</span> A formula</button>
+          <button class="gtrig" type="button" data-cmd="searchAll" data-arg="radiator"><span class="trig-g">⌕</span> Search for “radiator”</button>
+        </div>
+      </div>
+      <div class="u-wide win-row mo">
+        <WindowRow />
+      </div>
+    </section>
+
+    <section class="band sec" id="open">
+      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> open</span>
+      <div class="twoup u-bleed-l">
+        <Capture name="still-html" alt="An HTML newsletter open in Writ, source on the left and the rendered page on the right" class="shot-win shot-bleed-l mo" sizes="(max-width: 880px) 100vw, 60vw" owed="newsletter.html in split view (shot 6, still-html)" />
+        <div class="mo">
+          <h2 class="sec-h2">Open what lands on you.</h2>
+          <p class="sec-p">A newsletter someone forwarded, a flowchart pasted from a chat, a formula from a course. Writ draws them as they are meant to look. Code, configs and logs open as plain text, and large files open without a wait.</p>
+        </div>
+      </div>
+      <div class="strip strip-2 u-full mo-g" style="margin-top:56px">
+        <Capture name="still-mermaid" alt="A moving-day flowchart drawn from a fenced mermaid block" sizes="(max-width: 720px) 100vw, 50vw" />
+        <Capture name="still-katex" alt="A loan repayment formula set as display math" sizes="(max-width: 720px) 100vw, 50vw" />
+      </div>
+    </section>
+
+    <section class="band band-tint" id="search">
+      <span class="mark" aria-hidden="true" style="padding-top:78px"><span class="gm-h">##</span> find</span>
+      <div class="sec mo" style="padding-top:72px">
+        <h2 class="sec-h2 sec-h2-lg">Find the thing you wrote in March.</h2>
+        <p class="sec-p"><span class="kc-keys">{searchKeys.map((k) => <kbd class="kc">{k}</kbd>)}</span> searches every note you ever opened here, and any folder you point it at. Results fill in as you type. Enter opens the note on the matching line.</p>
+      </div>
+      <div class="u-wide mo" style="margin-top:36px">
+        <Loop name="search" poster="still-search" alt="Search everywhere open with the query radiator, matches listed across notes and a folder" width={1200} height={750} class="shot-win" sizes="(max-width: 1440px) 100vw, 1340px" />
+      </div>
+    </section>
+
+    <section class="band sec" id="keeps">
+      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> keeps</span>
+      <div class="twoup u-bleed-r">
+        <div class="mo">
+          <h2 class="sec-h2 sec-h2-lg">It doesn't lose things.</h2>
+          <p class="sec-p">Not a feature you switch on. The way the files are kept.</p>
+          <div class="mech">
+            <div class="mech-row"><span class="mech-k">one file per note</span><span>Every note is a plain text file in <code>~/.writ/buffers</code>. Open the folder in anything.</span></div>
+            <div class="mech-row"><span class="mech-k">written as you type</span><span>The file is written moments after you stop typing. There is no save step to forget.</span></div>
+            <div class="mech-row"><span class="mech-k">an index beside them</span><span>SQLite keeps what you opened and when; a full-text index covers every note that was ever here.</span></div>
+            <div class="mech-row"><span class="mech-k">restart, crash, force quit</span><span>The session comes back as you left it, tabs and all.</span></div>
+            <div class="mech-row"><span class="mech-k">opened a file?</span><span><kbd class="kc">⌘</kbd><kbd class="kc">S</kbd> writes back to that file. Edits you have not saved stay in Writ.</span></div>
+          </div>
+        </div>
+        <Capture name="still-finder-buffers" alt="The buffers folder in Finder: one plain text file per note" class="shot-win shot-bleed-r mo" sizes="(max-width: 880px) 100vw, 45vw" owed="Finder on ~/.writ/buffers (app capture, still-finder-buffers)" />
+      </div>
+    </section>
+
+    <section class="band sec" id="from">
+      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> from</span>
+      <div class="mo">
+        <h2 class="sec-h2">Coming from somewhere else.</h2>
+      </div>
+      <div class="threeup u-wide mo-g">
+        <a class="from" href={`${base}/vs/obsidian/`}>
+          <div class="from-h">Obsidian</div>
+          <p class="from-p">Keep the vault. Writ is the scratchpad next to it: nothing to configure, nothing to file, and it opens the vault's own files.</p>
+          <div class="from-l">Writ next to Obsidian →</div>
+        </a>
+        <a class="from" href={`${base}/vs/typora/`}>
+          <div class="from-h">Typora</div>
+          <p class="from-p">The same instinct about rendering. Writ adds the hotkey, the persistence and search over everything, and it is free and open source.</p>
+          <div class="from-l">Writ next to Typora →</div>
+        </a>
+        <a class="from" href={`${base}/vs/apple-notes/`}>
+          <div class="from-h">Apple Notes</div>
+          <p class="from-p">Plain files you can open anywhere instead of a database. Markdown instead of rich text. And it opens files.</p>
+          <div class="from-l">Writ next to Apple Notes →</div>
+        </a>
+      </div>
+    </section>
+
+    <section class="band sec" id="private">
+      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> private</span>
+      <div class="mo">
+        <h2 class="sec-h2">Nothing leaves your machine.</h2>
+        <div class="facts">
+          <div class="fact"><b>Offline.</b> Rendering, search and spelling run locally.</div>
+          <div class="fact"><b>No account.</b> Download, open, type.</div>
+          <div class="fact"><b>No telemetry.</b> The app sends nothing. The update check can be turned off.</div>
+          <div class="fact"><b>Rewrite is off</b> until you turn it on, and asks before the first send to any host.</div>
+          <div class="fact"><b>Open source</b> under MIT, with the decision records in the repo.</div>
+          <div class="fact"><b>Checksums</b> published with every release; updates verify a signed manifest.</div>
+        </div>
+      </div>
+    </section>
+
     <Ledger kcCols={kcCols} presets={presets} />
     <Install />
   </main>
@@ -73,48 +215,83 @@ const kcCols = [
 </script>
 
 <script>
-  // Below the fold the page belongs to scroll: each section's gutter token paints
-  // first, then its block renders under it, echoing the source-then-preview loop.
-  // The hidden initial state is keyed on [data-writ-intro], which the hero's
-  // pre-paint script sets only when JS runs and reduced motion is off — so no-JS
-  // and reduced-motion visitors get the assembled page with the static gutter line.
+  // Additive motion: every section is visible from the first paint. With JS and
+  // motion on, a section gets `.in` as it enters the viewport, which plays a
+  // short staggered rise on its children. Sections already on screen at load
+  // skip the animation.
   (function () {
     const root = document.documentElement;
     if (!root.hasAttribute('data-writ-intro')) return;
-
-    const sections = Array.from(document.querySelectorAll<HTMLElement>('.rv'));
-    const reveal = (el: HTMLElement) => {
-      el.classList.add('in');
-      const gut = el.previousElementSibling;
-      if (gut && gut.classList.contains('rv-g')) gut.classList.add('in');
-    };
-    if (!('IntersectionObserver' in window)) {
-      sections.forEach(reveal);
-      return;
-    }
+    const sections = Array.from(document.querySelectorAll<HTMLElement>('.sec, .band-tint'));
+    if (!('IntersectionObserver' in window)) return;
+    const vh = window.innerHeight;
     const io = new IntersectionObserver(
       (entries) => {
         entries.forEach((e) => {
           if (!e.isIntersecting) return;
-          reveal(e.target as HTMLElement);
           io.unobserve(e.target);
+          const el = e.target as HTMLElement;
+          if (el.getBoundingClientRect().top < vh * 0.9 && performance.now() < 600) return;
+          el.classList.add('in');
         });
       },
-      { threshold: 0.12, rootMargin: '0px 0px -8% 0px' },
+      { threshold: 0.08, rootMargin: '0px 0px -6% 0px' },
     );
     sections.forEach((el) => io.observe(el));
   })();
 </script>
 
 <script>
+  // Loops: a poster is the default. On entering the viewport (motion on), the
+  // video gets its sources for the current theme and plays; only once it is
+  // actually playing does it cover the poster. A missing file or a refused
+  // play() leaves the poster in place.
+  (function () {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced || !('IntersectionObserver' in window)) return;
+    const loops = Array.from(document.querySelectorAll<HTMLElement>('[data-loop]'));
+    const theme = () => (document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
+    const arm = (box: HTMLElement) => {
+      const v = box.querySelector<HTMLVideoElement>('video[data-loop-video]');
+      if (!v || v.dataset.armed) return;
+      v.dataset.armed = '1';
+      const t = theme();
+      v.querySelectorAll<HTMLSourceElement>('source[data-src]').forEach((s) => {
+        const src = s.dataset.src || '';
+        s.src = src.replace(/-light\.(webm|mp4)$/, `-${t}.$1`);
+      });
+      const last = v.querySelector<HTMLSourceElement>('source:last-of-type');
+      last?.addEventListener('error', () => box.setAttribute('data-video-blocked', ''));
+      v.addEventListener('playing', () => box.setAttribute('data-video-playing', ''), { once: true });
+      v.load();
+      v.play().catch(() => box.setAttribute('data-video-blocked', ''));
+    };
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          const box = e.target as HTMLElement;
+          const v = box.querySelector<HTMLVideoElement>('video');
+          if (e.isIntersecting) {
+            arm(box);
+            if (v && box.hasAttribute('data-video-playing')) v.play().catch(() => {});
+          } else if (v && !v.paused) {
+            v.pause();
+          }
+        });
+      },
+      { threshold: 0.2 },
+    );
+    loops.forEach((l) => io.observe(l));
+  })();
+</script>
+
+<script>
   // One rAF-coalesced driver owns everything position-bound: the spine grows to
-  // the read position, and the page status bar tracks the active section and a
-  // line number derived from the page measured in editor lines (26px).
+  // the read position and the page status bar tracks the active section.
   (function () {
     const root = document.documentElement;
     const main = document.getElementById('top');
     const spine = document.querySelector<HTMLElement>('.spine');
-    const pos = document.querySelector<HTMLElement>('.pb-pos');
     const toks = Array.from(document.querySelectorAll<HTMLElement>('.pb-tok[data-sect]'));
     const targets = toks
       .map((t) => ({ t, el: document.getElementById(t.dataset.sect || '') }))
@@ -142,17 +319,11 @@ const kcCols = [
       target = rect.height > 0 ? read / rect.height : 1;
       if (!raf) raf = requestAnimationFrame(settle);
 
-      if (pos) {
-        const ln = Math.max(1, Math.round(window.scrollY / 26) + 1);
-        pos.textContent = 'Ln ' + ln;
-      }
       let active: HTMLElement | null = null;
       const cut = window.innerHeight * 0.4;
       for (const { t, el } of targets) {
         if (el.getBoundingClientRect().top <= cut) active = t;
       }
-      // At the end of the document the last section may be too short to reach
-      // the cut line; the bottom of the page is the bottom of the document.
       const maxScroll = root.scrollHeight - window.innerHeight;
       if (maxScroll - window.scrollY < 4 && targets.length > 0) {
         active = targets[targets.length - 1]!.t;
@@ -193,29 +364,26 @@ const kcCols = [
       return 'mac';
     };
     const plat = detectPlatform();
-
-    // The hero CTA label is owned by Hero.astro (it drives the source line too);
-    // here we only feature the visitor's download card.
     document.querySelectorAll<HTMLElement>('.plat-card').forEach((card) => {
       card.classList.toggle('featured', card.dataset.plat === plat);
     });
-
-    const oneliners = document.querySelector<HTMLElement>('.oneliners');
-    oneliners?.addEventListener('click', (e) => {
-      const btn = (e.target as HTMLElement | null)?.closest<HTMLElement>('.copybtn');
-      if (!btn) return;
-      const text = btn.dataset.copy;
-      const labelEl = btn.querySelector('span');
-      if (!text || !labelEl) return;
-      navigator.clipboard?.writeText(text).then(() => {
-        const prev = labelEl.textContent;
-        labelEl.textContent = 'copied';
-        btn.classList.add('copied');
-        window.setTimeout(() => {
-          labelEl.textContent = prev;
-          btn.classList.remove('copied');
-        }, 1400);
-      }).catch(() => {});
+    document.querySelectorAll<HTMLElement>('.oneliners').forEach((box) => {
+      box.addEventListener('click', (e) => {
+        const btn = (e.target as HTMLElement | null)?.closest<HTMLElement>('.copybtn');
+        if (!btn) return;
+        const text = btn.dataset.copy;
+        const labelEl = btn.querySelector('span');
+        if (!text || !labelEl) return;
+        navigator.clipboard?.writeText(text).then(() => {
+          const prev = labelEl.textContent;
+          labelEl.textContent = 'copied';
+          btn.classList.add('copied');
+          window.setTimeout(() => {
+            labelEl.textContent = prev;
+            btn.classList.remove('copied');
+          }, 1400);
+        }).catch(() => {});
+      });
     });
   })();
 </script>

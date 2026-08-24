@@ -1,11 +1,12 @@
 ---
 const sections = [
   { token: '# writ', href: '#top', sect: 'top' },
-  { token: '## editor', href: '#editor', sect: 'editor' },
-  { token: '## render', href: '#render', sect: 'render' },
+  { token: '## loop', href: '#loop', sect: 'loop' },
+  { token: '## window', href: '#editor', sect: 'editor' },
+  { token: '## open', href: '#open', sect: 'open' },
   { token: '## find', href: '#search', sect: 'search' },
-  { token: '## clean-up', href: '#text', sect: 'text' },
-  { token: '## terminal', href: '#terminal', sect: 'terminal' },
+  { token: '## keeps', href: '#keeps', sect: 'keeps' },
+  { token: '## from', href: '#from', sect: 'from' },
   { token: '## index', href: '#index', sect: 'index' },
   { token: '## install', href: '#download', sect: 'download' },
 ];
@@ -17,6 +18,5 @@ const sections = [
       <a href={s.href} class="pb-tok" data-sect={s.sect}>{s.token}</a>
     ))}
   </div>
-  <span class="pb-pos" aria-hidden="true"></span>
   <span class="pb-save" aria-hidden="true"><i class="pb-save-dot"></i>saved</span>
 </nav>

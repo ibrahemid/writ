@@ -1,0 +1,36 @@
+---
+import Capture from './Capture.astro';
+
+interface Props {
+  name: string;
+  alt: string;
+  poster: string;
+  width: number;
+  height: number;
+  class?: string;
+  preload?: 'none' | 'metadata';
+  sizes?: string;
+  loading?: 'lazy' | 'eager';
+  fetchpriority?: 'high' | 'auto';
+}
+const { name, alt, poster, width, height, class: cls = '', preload = 'none', sizes, loading, fetchpriority } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<div class:list={['shot', 'loop', cls]} data-loop={name} style={`aspect-ratio:${width}/${height}`}>
+  <video muted playsinline loop preload={preload} width={width} height={height} aria-label={alt} data-loop-video data-base={`${base}/media/${name}`}>
+    <source data-src={`${base}/media/${name}-light.webm`} type="video/webm" />
+    <source data-src={`${base}/media/${name}-light.mp4`} type="video/mp4" />
+  </video>
+  <div class="loop-fallback"><Capture name={poster} alt={alt} sizes={sizes} loading={loading} fetchpriority={fetchpriority} /></div>
+</div>
+
+<style is:global>
+  .loop { position: relative; }
+  .loop video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+  .loop .loop-fallback { position: absolute; inset: 0; }
+  .loop .loop-fallback .shot { height: 100%; border: 0; border-radius: 0; box-shadow: none; }
+  .loop .loop-fallback img { width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+  .loop video { opacity: 0; }
+  .loop[data-video-playing] video { opacity: 1; }
+  .loop[data-video-playing] .loop-fallback { display: none; }
+</style>

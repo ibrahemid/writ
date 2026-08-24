@@ -5,6 +5,12 @@ import { formatBytes } from "../../lib/format-bytes";
 import { basename } from "../../lib/path";
 import "./InboxSection.css";
 
+// "Inbox · Inbox" says nothing twice; the folder name only earns its place
+// when it differs from the feature's own name.
+export function inboxTitle(folder: string): string {
+  return folder.trim().toLowerCase() === "inbox" ? "Inbox" : `Inbox · ${folder}`;
+}
+
 export default function InboxSection() {
   const win = useWindow();
 
@@ -14,7 +20,7 @@ export default function InboxSection() {
         <div class="sidebar-section inbox-section">
           <div class="inbox-section-head">
             <div class="sidebar-section-title" title={root()}>
-              Inbox · {basename(root())}
+              {inboxTitle(basename(root()))}
             </div>
             <button
               type="button"
