@@ -110,12 +110,8 @@ export function rebuildKeyMap() {
     }
   }
 
-  if (import.meta.env.DEV) {
-    for (const [chord, ids] of findKeybindingConflicts(getAllCommands())) {
-      console.warn(`keybinding conflict: ${chord} claimed by ${ids.join(", ")}`);
-    }
-  }
-
+  // Conflicts are shown where they can be fixed: the shortcut editor marks
+  // every conflicting row with what it collides with.
   notifyRegistryChanged();
 }
 

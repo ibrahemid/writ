@@ -8,6 +8,7 @@ import { windowRegistry } from "../stores/global/window-registry";
 import { showToast } from "../components/Notifications/Toast";
 import { requestPlaceholderFill } from "../components/PromptFill/PromptFillModal";
 import { registerCommand } from "./registry";
+import { logFailure } from "../lib/log";
 
 const PREPARE_PROMPT_TRANSFORM_ID = "prepare_prompt";
 
@@ -40,8 +41,8 @@ async function copyAsPrompt(): Promise<void> {
     const stripped = await applyTransform(PREPARE_PROMPT_TRANSFORM_ID, read.text);
     await writeClipboardText(stripped);
     showToast("Copied as prompt", "success");
-  } catch (error) {
-    console.error("prompt.copyAsPrompt failed", error);
+  } catch {
+    logFailure("copy as prompt failed");
     showToast("Copy as prompt failed", "error");
   }
 }
@@ -56,8 +57,8 @@ async function fillPlaceholders(): Promise<void> {
     const filled = await promptFillPlaceholders(read.text, values);
     await writeClipboardText(filled);
     showToast("Filled prompt copied", "success");
-  } catch (error) {
-    console.error("prompt.fillPlaceholders failed", error);
+  } catch {
+    logFailure("filling placeholders failed");
     showToast("Fill placeholders failed", "error");
   }
 }

@@ -1,6 +1,8 @@
 import { windowRegistry } from "../../stores/global/window-registry";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
-import { pathKey } from "../../lib/path";
+import { basename, pathKey } from "../../lib/path";
+import { logFailure } from "../../lib/log";
+import { showToast } from "../../components/Notifications/Toast";
 import type { BufferDocument } from "../../types/buffer";
 
 export type OpenTarget =
@@ -54,7 +56,10 @@ export function openTarget(target: OpenTarget, line?: number): void {
       () => {
         if (line !== undefined) win.editor.requestReveal(target.id, line);
       },
-      (error) => console.error("palette restoreFromHistory failed", { id: target.id, error }),
+      () => {
+        logFailure("a history entry could not be restored");
+        showToast("Couldn't reopen that file", "error");
+      },
     );
     return;
   }
@@ -63,6 +68,9 @@ export function openTarget(target: OpenTarget, line?: number): void {
     (doc) => {
       if (line !== undefined) win.editor.requestReveal(doc.id, line);
     },
-    (error) => console.error("palette openFile failed", { path: target.path, error }),
+    () => {
+      logFailure("a file could not be opened from the palette");
+      showToast(`Couldn't open ${basename(target.path)}`, "error");
+    },
   );
 }

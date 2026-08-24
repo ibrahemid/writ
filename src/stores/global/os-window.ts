@@ -119,8 +119,9 @@ function createOsWindowStore() {
           ...configStore.config(),
           window: { ...existing, x, y, maximized: true },
         });
-      } catch (err) {
-        console.error("[osWindowStore] failed to persist window geometry", err);
+      } catch {
+        // Geometry is not the user's work: a failed write costs the next
+        // launch's window placement and nothing else.
       }
       return;
     }
@@ -147,8 +148,8 @@ function createOsWindowStore() {
     }
     try {
       await configStore.save({ ...configStore.config(), window: next });
-    } catch (err) {
-      console.error("[osWindowStore] failed to persist window geometry", err);
+    } catch {
+      // See above: a lost geometry write is not worth a line or a toast.
     }
   }
 

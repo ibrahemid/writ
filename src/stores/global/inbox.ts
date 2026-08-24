@@ -4,6 +4,8 @@ import * as tauri from "../../services/tauri";
 import { configStore } from "./config";
 import { windowRegistry } from "./window-registry";
 import { showToast } from "../../components/Notifications/Toast";
+import { basename } from "../../lib/path";
+import { logFailure } from "../../lib/log";
 
 // Burst cap (ADR-018): at most BURST_CAP auto-opens per BURST_WINDOW_MS;
 // further arrivals collapse into a single "N new files in inbox" toast.
@@ -62,13 +64,15 @@ async function handleFileArrived(filePath: string, nowMs: number = Date.now()): 
 
   const win = windowRegistry.getActive();
   if (!win) {
-    console.error("[inboxStore] no active window to open arrived file", filePath);
+    logFailure("an inbox file arrived with no window to open into");
+    showToast(`Couldn't open ${basename(filePath)} from the inbox`, "error");
     return;
   }
   try {
     await win.tabs.openFile(filePath);
-  } catch (err) {
-    console.error("[inboxStore] failed to open arrived file", filePath, err);
+  } catch {
+    logFailure("an inbox file could not be opened");
+    showToast(`Couldn't open ${basename(filePath)} from the inbox`, "error");
     return;
   }
   if (configStore.config().inbox.focus) {

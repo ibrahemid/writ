@@ -46,30 +46,43 @@ import {
   onWindowCloseRequested,
 } from "../tauri";
 
+// Everything that still reports goes through logFailure(), which writes one
+// string to console.error. A window operation the user drove writes nothing.
+let logSpy: ReturnType<typeof vi.spyOn>;
 let warnSpy: ReturnType<typeof vi.spyOn>;
 
+function expectOneBareLine() {
+  expect(logSpy).toHaveBeenCalledTimes(1);
+  const [line, ...rest] = logSpy.mock.calls[0];
+  expect(typeof line).toBe("string");
+  expect(rest).toEqual([]);
+}
+
 beforeEach(() => {
+  logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
   warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   for (const fn of Object.values(mockWindow)) fn.mockReset();
 });
 
 afterEach(() => {
+  logSpy.mockRestore();
   warnSpy.mockRestore();
 });
 
 describe("hideWindow", () => {
-  it("logs a warning when window.hide rejects", async () => {
+  it("stays silent when window.hide rejects", async () => {
     mockWindow.isFullscreen.mockResolvedValueOnce(false);
     mockWindow.hide.mockRejectedValueOnce(new Error("no window"));
     await hideWindow();
-    expect(warnSpy).toHaveBeenCalledWith("hideWindow failed:", expect.any(Error));
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it("does not log on the happy path", async () => {
     mockWindow.isFullscreen.mockResolvedValueOnce(false);
     mockWindow.hide.mockResolvedValueOnce(undefined);
     await hideWindow();
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
   });
 
   it("hides directly when not fullscreen", async () => {
@@ -97,11 +110,11 @@ describe("hideWindow", () => {
 });
 
 describe("minimizeWindow", () => {
-  it("logs a warning when window.minimize rejects", async () => {
+  it("stays silent when window.minimize rejects", async () => {
     mockWindow.isFullscreen.mockResolvedValueOnce(false);
     mockWindow.minimize.mockRejectedValueOnce(new Error("denied"));
     await minimizeWindow();
-    expect(warnSpy).toHaveBeenCalledWith("minimizeWindow failed:", expect.any(Error));
+    expect(logSpy).not.toHaveBeenCalled();
   });
 
   it("minimizes directly when not fullscreen", async () => {
@@ -150,10 +163,10 @@ describe("minimizeWindow", () => {
 });
 
 describe("startDraggingWindow", () => {
-  it("logs a warning when startDragging rejects", async () => {
+  it("stays silent when startDragging rejects", async () => {
     mockWindow.startDragging.mockRejectedValueOnce(new Error("not draggable"));
     await startDraggingWindow();
-    expect(warnSpy).toHaveBeenCalledWith("startDraggingWindow failed:", expect.any(Error));
+    expect(logSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -163,21 +176,21 @@ describe("maximizeWindow", () => {
     await maximizeWindow();
     expect(mockWindow.maximize).toHaveBeenCalledOnce();
     expect(mockWindow.isMaximized).not.toHaveBeenCalled();
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
   });
 
-  it("logs a warning when maximize rejects", async () => {
+  it("stays silent when maximize rejects", async () => {
     mockWindow.maximize.mockRejectedValueOnce(new Error("denied"));
     await maximizeWindow();
-    expect(warnSpy).toHaveBeenCalledWith("maximizeWindow failed:", expect.any(Error));
+    expect(logSpy).not.toHaveBeenCalled();
   });
 });
 
 describe("toggleMaximizeWindow", () => {
-  it("logs a warning when isMaximized rejects", async () => {
+  it("stays silent when isMaximized rejects", async () => {
     mockWindow.isMaximized.mockRejectedValueOnce(new Error("query failed"));
     await toggleMaximizeWindow();
-    expect(warnSpy).toHaveBeenCalledWith("toggleMaximizeWindow failed:", expect.any(Error));
+    expect(logSpy).not.toHaveBeenCalled();
   });
 
   it("maximizes when currently unmaximized", async () => {
@@ -205,10 +218,10 @@ describe("isWindowMaximized", () => {
 
   // The titlebar reads this on every resize; a rejection must not leave the
   // maximize button stuck, so it degrades to the restored icon.
-  it("warns and reports false when isMaximized rejects", async () => {
+  it("reports false without a console line when isMaximized rejects", async () => {
     mockWindow.isMaximized.mockRejectedValueOnce(new Error("query failed"));
     await expect(isWindowMaximized()).resolves.toBe(false);
-    expect(warnSpy).toHaveBeenCalledWith("isWindowMaximized failed:", expect.any(Error));
+    expect(logSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -218,10 +231,10 @@ describe("isWindowMinimized", () => {
     await expect(isWindowMinimized()).resolves.toBe(true);
   });
 
-  it("warns and reports false when isMinimized rejects", async () => {
+  it("reports false without a console line when isMinimized rejects", async () => {
     mockWindow.isMinimized.mockRejectedValueOnce(new Error("query failed"));
     await expect(isWindowMinimized()).resolves.toBe(false);
-    expect(warnSpy).toHaveBeenCalledWith("isWindowMinimized failed:", expect.any(Error));
+    expect(logSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -231,10 +244,10 @@ describe("isWindowFullscreen", () => {
     await expect(isWindowFullscreen()).resolves.toBe(true);
   });
 
-  it("warns and reports false when isFullscreen rejects", async () => {
+  it("reports false without a console line when isFullscreen rejects", async () => {
     mockWindow.isFullscreen.mockRejectedValueOnce(new Error("query failed"));
     await expect(isWindowFullscreen()).resolves.toBe(false);
-    expect(warnSpy).toHaveBeenCalledWith("isWindowFullscreen failed:", expect.any(Error));
+    expect(logSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -257,18 +270,18 @@ describe("getLogicalWindowSize", () => {
     await expect(getLogicalWindowSize()).resolves.toEqual({ width: 1201, height: 801 });
   });
 
-  it("warns and reports null when the measurement rejects", async () => {
+  it("reports null without a console line when the measurement rejects", async () => {
     mockWindow.innerSize.mockRejectedValueOnce(new Error("no window"));
     await expect(getLogicalWindowSize()).resolves.toBeNull();
-    expect(warnSpy).toHaveBeenCalledWith("getLogicalWindowSize failed:", expect.any(Error));
+    expect(logSpy).not.toHaveBeenCalled();
   });
 });
 
 describe("toggleFullscreenWindow", () => {
-  it("logs a warning when isFullscreen rejects", async () => {
+  it("stays silent when isFullscreen rejects", async () => {
     mockWindow.isFullscreen.mockRejectedValueOnce(new Error("query failed"));
     await toggleFullscreenWindow();
-    expect(warnSpy).toHaveBeenCalledWith("toggleFullscreenWindow failed:", expect.any(Error));
+    expect(logSpy).not.toHaveBeenCalled();
   });
 
   it("enters fullscreen when currently windowed", async () => {
@@ -287,13 +300,10 @@ describe("toggleFullscreenWindow", () => {
 });
 
 describe("onWindowFocusChange", () => {
-  it("returns a no-op and logs when subscription fails", async () => {
+  it("returns a no-op and logs one bare line when subscription fails", async () => {
     mockWindow.onFocusChanged.mockRejectedValueOnce(new Error("no listener"));
     const unlisten = await onWindowFocusChange(() => {});
-    expect(warnSpy).toHaveBeenCalledWith(
-      "onWindowFocusChange subscription failed:",
-      expect.any(Error),
-    );
+    expectOneBareLine();
     expect(typeof unlisten).toBe("function");
     expect(() => unlisten()).not.toThrow();
   });
@@ -388,13 +398,10 @@ describe("onWindowCloseRequested", () => {
     expect(mockWindow.destroy).toHaveBeenCalledOnce();
   });
 
-  it("returns a no-op and logs when subscription fails", async () => {
+  it("returns a no-op and logs one bare line when subscription fails", async () => {
     mockWindow.onCloseRequested.mockRejectedValueOnce(new Error("no window"));
     const unlisten = await onWindowCloseRequested(async () => {});
-    expect(warnSpy).toHaveBeenCalledWith(
-      "onWindowCloseRequested subscription failed:",
-      expect.any(Error),
-    );
+    expectOneBareLine();
     expect(typeof unlisten).toBe("function");
     expect(() => unlisten()).not.toThrow();
   });

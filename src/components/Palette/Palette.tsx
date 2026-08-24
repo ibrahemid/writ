@@ -5,6 +5,8 @@ import Kbd from "../Kbd/Kbd";
 import { composeSections, type ComposedSection } from "./compose";
 import { parsePaletteQuery } from "./query";
 import { providerModes, type PaletteResult, type ResultProvider } from "./types";
+import { showToast } from "../Notifications/Toast";
+import { logFailure } from "../../lib/log";
 import "./Palette.css";
 
 export interface PaletteProps {
@@ -47,6 +49,17 @@ export default function Palette(props: PaletteProps) {
 
   const parsed = createMemo(() => parsePaletteQuery(query()));
 
+  // A provider that fails fails on every keystroke, so each one is reported
+  // once per open. Empty rows and missing rows look the same otherwise.
+  const reportedFailures = new Set<string>();
+
+  function reportProviderFailure(provider: ResultProvider) {
+    if (reportedFailures.has(provider.id)) return;
+    reportedFailures.add(provider.id);
+    logFailure(`the "${provider.id}" palette provider failed`);
+    showToast(`Couldn't search ${provider.section.toLowerCase()}`, "error");
+  }
+
   // A bare prefix is a routing choice, not a failed search: no "nothing
   // matches" until there is a term to match. Commands list themselves on a
   // bare `>`, so only the term-requiring modes need a prompt.
@@ -87,6 +100,7 @@ export default function Palette(props: PaletteProps) {
       setStreamed({});
       setSelectedIndex(0);
       generation += 1;
+      reportedFailures.clear();
       return;
     }
     const seeded = untrack(() => {
@@ -139,14 +153,14 @@ export default function Palette(props: PaletteProps) {
       let produced: PaletteResult[] | Promise<PaletteResult[]>;
       try {
         produced = provider.query(text, controller.signal, parsed().mode);
-      } catch (error) {
-        console.error(`palette provider "${provider.id}" failed`, error);
+      } catch {
+        reportProviderFailure(provider);
         return;
       }
       if (produced instanceof Promise) {
         produced.then(
           (results) => replace(provider.id, results),
-          (error) => console.error(`palette provider "${provider.id}" failed`, error),
+          () => reportProviderFailure(provider),
         );
       } else {
         replace(provider.id, produced);
@@ -154,9 +168,7 @@ export default function Palette(props: PaletteProps) {
       if (provider.stream) {
         provider
           .stream(text, (results) => append(provider.id, results), controller.signal)
-          .catch((error) =>
-            console.error(`palette provider "${provider.id}" stream failed`, error),
-          );
+          .catch(() => reportProviderFailure(provider));
       }
     }
 

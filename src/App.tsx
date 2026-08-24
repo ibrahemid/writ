@@ -18,6 +18,8 @@ import UpdateBanner from "./components/UpdateBanner/UpdateBanner";
 import WindowProvider, { useWindow } from "./components/WindowProvider/WindowProvider";
 import { bufferRegistry } from "./stores/global/buffer-registry";
 import { formatSaveError } from "./lib/save-error";
+import { basename } from "./lib/path";
+import { logFailure } from "./lib/log";
 import { workspaceStore } from "./stores/global/workspace";
 import { inboxStore } from "./stores/global/inbox";
 import { updateStore } from "./stores/global/update";
@@ -68,20 +70,31 @@ function bufferName(bufferId: string): string {
 
 async function openPendingPaths(paths: string[]) {
   if (!Array.isArray(paths)) {
-    console.error("openPendingPaths: expected string[], got", paths);
+    logFailure("an open request arrived without a list of files");
+    showToast("Couldn't open the files", "error");
     return;
   }
   const win = windowRegistry.getActive();
   if (!win) {
-    console.error("openPendingPaths: no active window");
+    logFailure("an open request arrived with no window to open into");
+    showToast("Couldn't open the files", "error");
     return;
   }
+  // A drop of twenty unreadable files is one failure to the user, not twenty.
+  const failed: string[] = [];
   for (const path of paths) {
     try {
       await win.tabs.openFile(path);
-    } catch (err) {
-      console.error("openPendingPaths: failed to open", path, err);
+    } catch {
+      failed.push(basename(path));
     }
+  }
+  if (failed.length > 0) {
+    logFailure("a file could not be opened");
+    showToast(
+      failed.length === 1 ? `Couldn't open ${failed[0]}` : `Couldn't open ${failed.length} files`,
+      "error",
+    );
   }
 }
 
@@ -534,9 +547,9 @@ function AppShell() {
 
     try {
       await registerTransformCommands();
-    } catch (error) {
+    } catch {
       showToast("Failed to load transform commands", "error");
-      console.error("registerTransformCommands failed", error);
+      logFailure("transform commands could not be registered");
     }
 
     registerPromptCommands();
@@ -544,8 +557,9 @@ function AppShell() {
     try {
       const list = await previewListRenderers();
       rendererRegistry.setFromIpc(list);
-    } catch (error) {
-      console.error("previewListRenderers failed", error);
+    } catch {
+      logFailure("preview renderers could not be listed");
+      showToast("Preview is unavailable. Restart Writ to try again.", "error");
     }
 
     registerPreviewKeymap();

@@ -1,5 +1,6 @@
 import { onWindowCloseRequested } from "./tauri";
 import { flushAutosave } from "./autosave";
+import { logFailure } from "../lib/log";
 
 export async function installCloseFlush(
   extraFlushes: ReadonlyArray<() => Promise<void> | void> = [],
@@ -10,10 +11,7 @@ export async function installCloseFlush(
     // in an app that cannot save.
     const flushed = await flushAutosave();
     if (!flushed.ok) {
-      console.warn(
-        "save failed while closing:",
-        flushed.failures.map((f) => f.bufferId),
-      );
+      logFailure("a buffer could not be saved while closing");
     }
     for (const flush of extraFlushes) {
       await flush();

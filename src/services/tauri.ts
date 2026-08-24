@@ -5,6 +5,7 @@ import type { WritConfig } from "../types/config";
 import type { TransformDescriptor } from "../types/transforms";
 import type { ThemePolarity } from "../types/theme";
 import type { LinkVerdict } from "../types/link";
+import { logFailure } from "../lib/log";
 
 export async function listTransforms(): Promise<TransformDescriptor[]> {
   return invoke("list_transforms");
@@ -198,6 +199,11 @@ async function exitFullscreen(win: ReturnType<typeof getCurrentWindow>): Promise
   }
 }
 
+// Window operations and the two rules they follow when the platform refuses.
+// A failure the user drove shows itself — the window does not hide, does not
+// move, the button does nothing — so it is swallowed without a console line. A
+// failure that quietly drops a guarantee (an event subscription that never
+// attaches, a window that will not close) logs one short line and no detail.
 export async function hideWindow(): Promise<void> {
   try {
     const win = getCurrentWindow();
@@ -205,8 +211,8 @@ export async function hideWindow(): Promise<void> {
       await exitFullscreen(win);
     }
     await win.hide();
-  } catch (err) {
-    console.warn("hideWindow failed:", err);
+  } catch {
+    return;
   }
 }
 
@@ -218,8 +224,8 @@ export async function showWindow(): Promise<void> {
     const win = getCurrentWindow();
     await win.show();
     await win.setFocus();
-  } catch (err) {
-    console.warn("showWindow failed:", err);
+  } catch {
+    return;
   }
 }
 
@@ -230,8 +236,8 @@ export async function minimizeWindow(): Promise<void> {
       await exitFullscreen(win);
     }
     await win.minimize();
-  } catch (err) {
-    console.warn("minimizeWindow failed:", err);
+  } catch {
+    return;
   }
 }
 
@@ -239,8 +245,8 @@ export async function startDraggingWindow(): Promise<void> {
   try {
     const win = getCurrentWindow();
     await win.startDragging();
-  } catch (err) {
-    console.warn("startDraggingWindow failed:", err);
+  } catch {
+    return;
   }
 }
 
@@ -248,8 +254,8 @@ export async function maximizeWindow(): Promise<void> {
   try {
     const win = getCurrentWindow();
     await win.maximize();
-  } catch (err) {
-    console.warn("maximizeWindow failed:", err);
+  } catch {
+    return;
   }
 }
 
@@ -262,8 +268,8 @@ export async function toggleMaximizeWindow(): Promise<void> {
     } else {
       await win.maximize();
     }
-  } catch (err) {
-    console.warn("toggleMaximizeWindow failed:", err);
+  } catch {
+    return;
   }
 }
 
@@ -271,8 +277,7 @@ export async function isWindowMaximized(): Promise<boolean> {
   try {
     const win = getCurrentWindow();
     return await win.isMaximized();
-  } catch (err) {
-    console.warn("isWindowMaximized failed:", err);
+  } catch {
     return false;
   }
 }
@@ -281,8 +286,7 @@ export async function isWindowMinimized(): Promise<boolean> {
   try {
     const win = getCurrentWindow();
     return await win.isMinimized();
-  } catch (err) {
-    console.warn("isWindowMinimized failed:", err);
+  } catch {
     return false;
   }
 }
@@ -291,8 +295,7 @@ export async function isWindowFullscreen(): Promise<boolean> {
   try {
     const win = getCurrentWindow();
     return await win.isFullscreen();
-  } catch (err) {
-    console.warn("isWindowFullscreen failed:", err);
+  } catch {
     return false;
   }
 }
@@ -302,8 +305,8 @@ export async function toggleFullscreenWindow(): Promise<void> {
     const win = getCurrentWindow();
     const fullscreen = await win.isFullscreen();
     await win.setFullscreen(!fullscreen);
-  } catch (err) {
-    console.warn("toggleFullscreenWindow failed:", err);
+  } catch {
+    return;
   }
 }
 
@@ -314,8 +317,8 @@ export async function onWindowFocusChange(
     const win = getCurrentWindow();
     const unlisten = await win.onFocusChanged(({ payload }) => handler(payload));
     return unlisten;
-  } catch (err) {
-    console.warn("onWindowFocusChange subscription failed:", err);
+  } catch {
+    logFailure("window focus changes are not being tracked");
     return () => {};
   }
 }
@@ -333,8 +336,7 @@ export async function getLogicalWindowSize(): Promise<{ width: number; height: n
       width: Math.round(size.width / scale),
       height: Math.round(size.height / scale),
     };
-  } catch (err) {
-    console.warn("getLogicalWindowSize failed:", err);
+  } catch {
     return null;
   }
 }
@@ -343,8 +345,8 @@ export async function setLogicalWindowSize(width: number, height: number): Promi
   try {
     const win = getCurrentWindow();
     await win.setSize(new LogicalSize(width, height));
-  } catch (err) {
-    console.warn("setLogicalWindowSize failed:", err);
+  } catch {
+    return;
   }
 }
 
@@ -357,8 +359,7 @@ export async function getLogicalWindowPosition(): Promise<{ x: number; y: number
       x: Math.round(pos.x / scale),
       y: Math.round(pos.y / scale),
     };
-  } catch (err) {
-    console.warn("getLogicalWindowPosition failed:", err);
+  } catch {
     return null;
   }
 }
@@ -367,16 +368,16 @@ export async function setLogicalWindowPosition(x: number, y: number): Promise<vo
   try {
     const win = getCurrentWindow();
     await win.setPosition(new LogicalPosition(x, y));
-  } catch (err) {
-    console.warn("setLogicalWindowPosition failed:", err);
+  } catch {
+    return;
   }
 }
 
 export async function centerWindow(): Promise<void> {
   try {
     await getCurrentWindow().center();
-  } catch (err) {
-    console.warn("centerWindow failed:", err);
+  } catch {
+    return;
   }
 }
 
@@ -388,8 +389,7 @@ export async function computeWindowPlacement(
 ): Promise<{ x: number; y: number } | null> {
   try {
     return await invoke("compute_window_placement", { x, y, width, height });
-  } catch (err) {
-    console.warn("computeWindowPlacement failed:", err);
+  } catch {
     return null;
   }
 }
@@ -406,8 +406,8 @@ export interface CaptionButtonMetrics {
 export async function reportCaptionButtonMetrics(metrics: CaptionButtonMetrics): Promise<void> {
   try {
     await invoke("set_caption_button_metrics", { metrics });
-  } catch (err) {
-    console.warn("reportCaptionButtonMetrics failed:", err);
+  } catch {
+    return;
   }
 }
 
@@ -416,8 +416,8 @@ export async function onWindowResized(handler: () => void): Promise<() => void> 
     const win = getCurrentWindow();
     const unlisten = await win.onResized(() => handler());
     return unlisten;
-  } catch (err) {
-    console.warn("onWindowResized subscription failed:", err);
+  } catch {
+    logFailure("window resizes are not being tracked");
     return () => {};
   }
 }
@@ -427,8 +427,8 @@ export async function onWindowMoved(handler: () => void): Promise<() => void> {
     const win = getCurrentWindow();
     const unlisten = await win.onMoved(() => handler());
     return unlisten;
-  } catch (err) {
-    console.warn("onWindowMoved subscription failed:", err);
+  } catch {
+    logFailure("window moves are not being tracked");
     return () => {};
   }
 }
@@ -445,19 +445,19 @@ export async function onWindowCloseRequested(
       closing = true;
       try {
         await handler();
-      } catch (err) {
-        console.warn("onWindowCloseRequested handler threw:", err);
+      } catch {
+        logFailure("a close handler threw while quitting");
       } finally {
         try {
           await win.destroy();
-        } catch (err) {
-          console.warn("onWindowCloseRequested destroy failed:", err);
+        } catch {
+          logFailure("the window refused to close");
         }
       }
     });
     return unlisten;
-  } catch (err) {
-    console.warn("onWindowCloseRequested subscription failed:", err);
+  } catch {
+    logFailure("the close handler is not installed; unsaved work will not be flushed on quit");
     return () => {};
   }
 }
@@ -756,7 +756,7 @@ export async function showAndFocusWindow(): Promise<void> {
     }
     await win.show();
     await win.setFocus();
-  } catch (err) {
-    console.warn("showAndFocusWindow failed:", err);
+  } catch {
+    return;
   }
 }

@@ -67,9 +67,19 @@ describe("workspaceSearchStore", () => {
     expect(h.searchWorkspaceFiles).not.toHaveBeenCalled();
   });
 
-  it("returns an empty list when file search fails", async () => {
+  // "No matches" and "the search never ran" are different answers: the store
+  // rejects so the palette can tell the user which one it got.
+  it("rejects when file search fails", async () => {
     h.searchWorkspaceFiles.mockRejectedValue(new Error("boom"));
-    expect(await workspaceSearchStore.searchFiles("main")).toEqual([]);
+    await expect(workspaceSearchStore.searchFiles("main")).rejects.toThrow("boom");
+  });
+
+  it("rejects when the content search fails", async () => {
+    await withWorkspace();
+    h.searchWorkspaceContent.mockRejectedValue(new Error("grep died"));
+    await expect(
+      workspaceSearchStore.streamContent("todo", vi.fn(), new AbortController().signal),
+    ).rejects.toThrow("grep died");
   });
 
   it("does not grep when no workspace folder is open", async () => {
