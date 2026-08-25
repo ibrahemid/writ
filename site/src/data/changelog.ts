@@ -12,6 +12,23 @@ export interface ChangelogRelease {
 
 export const releases: ChangelogRelease[] = [
   {
+    version: "0.3.5",
+    date: "2026-08-25",
+    notes: [
+      { kind: 'added', text: ".sql files highlight; the language was detected and named in the status bar, but no grammar was registered." },
+      { kind: 'changed', text: "failures that only reached the developer console now say so in the app: a config that will not read, a settings write that fails, a file that will not open, a palette section whose search throws." },
+      { kind: 'changed', text: "a workspace search that fails reports as failed instead of as no matches." },
+      { kind: 'fixed', text: "showing the sidebar keeps the caret in the editor, and a collapsed sidebar takes no clicks or focus." },
+      { kind: 'fixed', text: "Escape closes a dialog after a click inside it." },
+      { kind: 'fixed', text: "context menus close on Escape or on typing, and use the readable foreground colour." },
+      { kind: 'fixed', text: "the status bar drops fields as the window narrows instead of clipping them." },
+      { kind: 'fixed', text: "mermaid diagrams follow the document's light or dark theme, and an HTML preview without its own styles follows the light theme." },
+      { kind: 'fixed', text: "the sidebar toggle in a fresh config defaults to Cmd+\\." },
+      { kind: 'fixed', text: "the inbox header no longer reads \"Inbox · Inbox\"." },
+      { kind: 'fixed', text: "the AI connection row in Settings hides while a search filters to other sections." },
+    ],
+  },
+  {
     version: "0.3.4",
     date: "2026-08-22",
     notes: [
