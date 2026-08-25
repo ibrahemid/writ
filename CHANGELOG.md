@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.5] - 2026-08-25
+
+### Added
+
+- `.sql` files highlight. The language was detected and named in the status bar, but no grammar was registered.
+
+### Changed
+
+- Failures that only reached the developer console now say so in the app: a config that will not read, a settings write that fails, a file that will not open, a palette section whose search throws. Log lines carry a fixed message and never a path, buffer text, or query.
+- A workspace search that fails reports as failed instead of as no matches.
+
+### Fixed
+
+- Showing the sidebar keeps the caret in the editor; Cmd+\ no longer moves focus to the search box. A collapsed sidebar takes no clicks or focus.
+- Escape closes a dialog after a click inside it. On macOS a click leaves nothing focused, so the key never reached the dialog.
+- Context menus close on Escape or on typing, and use the readable foreground colour.
+- The status bar drops fields as the window narrows instead of clipping them.
+- Mermaid diagrams follow the document's light or dark theme, and an HTML preview without its own styles follows the light theme.
+- The sidebar toggle in a fresh config defaults to Cmd+\, matching the shortcut 0.3.3 moved it to.
+- The inbox header no longer reads "Inbox · Inbox" when the folder is named inbox.
+- The AI connection row in Settings hides while a search filters to other sections.
+
 ## [0.3.4] - 2026-08-22
 
 ### Fixed
