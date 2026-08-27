@@ -2,11 +2,14 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-// Inter and JetBrains Mono carry no Arabic glyphs. Every font stack the app or
+// The Latin faces in the UI and mono stacks carry no Arabic glyphs. Every font stack the app or
 // the preview resolves must therefore name an Arabic-capable family before the
 // generic keyword, or per-glyph fallback lands on the platform default.
 
-const THEME_CSS = readFileSync(resolve(process.cwd(), "src/styles/theme.css"), "utf8");
+const THEME_CSS = readFileSync(
+  resolve(process.cwd(), "src/styles/generated/theme.css"),
+  "utf8",
+);
 const PREVIEW_CSS = readFileSync(
   resolve(process.cwd(), "src-tauri/assets/preview-base.css"),
   "utf8",
@@ -15,8 +18,8 @@ const PREVIEW_CSS = readFileSync(
 const ARABIC_FAMILIES = ['"SF Arabic"', '"Geeza Pro"', '"Noto Naskh Arabic"'];
 
 const STACKS: { name: string; css: string; token: string; generic: string }[] = [
-  { name: "app sans", css: THEME_CSS, token: "--writ-font-sans", generic: "system-ui" },
-  { name: "app mono", css: THEME_CSS, token: "--writ-font-mono", generic: "ui-monospace" },
+  { name: "app sans", css: THEME_CSS, token: "--writ-font-ui", generic: "system-ui" },
+  { name: "app mono", css: THEME_CSS, token: "--writ-font-mono", generic: "monospace" },
   {
     name: "preview sans",
     css: PREVIEW_CSS,
@@ -69,10 +72,12 @@ describe("Arabic font fallbacks", () => {
       const value = stackValue(css, token);
       for (const family of ARABIC_FAMILIES) {
         expect(value, `${token} is missing ${family}`).toContain(family);
+        // lastIndexOf: the generic family closes the stack, and "monospace"
+        // also occurs inside the ui-monospace keyword that opens it.
         expect(
           value.indexOf(family),
           `${family} must precede ${generic} in ${token}`,
-        ).toBeLessThan(value.indexOf(generic));
+        ).toBeLessThan(value.lastIndexOf(generic));
       }
     });
   }

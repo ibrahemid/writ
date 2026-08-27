@@ -1,0 +1,44 @@
+{
+  "id": "writ-light",
+  "name": "Writ Light",
+  "polarity": "light",
+  "surface": {
+    "background": "#ffffff",
+    "sunken": "#f7f6f3",
+    "raised": "#ffffff",
+    "elevated": "#ececeb",
+    "input": "#f1efeb",
+    "hover": "#f3f2f2"
+  },
+  "foreground": {
+    "default": "#1c1a17",
+    "muted": "#5d5850",
+    "subtle": "#8a847a"
+  },
+  "border": {
+    "default": "#e4e1db",
+    "soft": "#efede8",
+    "focus": "#1f6f5c",
+    "pill": "#e4e1db"
+  },
+  "accent": {
+    "default": "#1f6f5c",
+    "hover": "#1c6453",
+    "foreground": "#ffffff"
+  },
+  "status": {
+    "success": "#178035",
+    "warning": "#9a6b00",
+    "error": "#a6392e",
+    "foreground": "#ffffff"
+  },
+  "syntax": {
+    "keyword": "#8839ef",
+    "string": "#5c7a5a",
+    "comment": "#8a8aa0",
+    "function": "#3b5bdb",
+    "number": "#b8500a",
+    "type": "#1a7a8c",
+    "variable": "#2a2a38"
+  }
+}

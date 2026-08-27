@@ -1,0 +1,45 @@
+{
+  "color": {
+    "light": {
+      "$type": "color",
+      "bg": {
+        "canvas": { "$value": "#FFFFFF" },
+        "sidebar": { "$value": "#F7F6F3" },
+        "raised": { "$value": "#FFFFFF" },
+        "sunken": { "$value": "#F1EFEB" },
+        "hover": { "$value": "rgba(28, 26, 23, .055)" },
+        "selected": { "$value": "rgba(28, 26, 23, .085)" }
+      },
+      "border": {
+        "default": { "$value": "#E4E1DB", "$extensions": { "writ": { "cssName": "--writ-border" } } },
+        "soft": { "$value": "#EFEDE8" }
+      },
+      "fg": {
+        "default": { "$value": "#1C1A17", "$extensions": { "writ": { "cssName": "--writ-fg" } } },
+        "muted": { "$value": "#5D5850" },
+        "faint": { "$value": "#9A948B" }
+      },
+      "danger": { "$value": "#A6392E" },
+      "switch-off": { "$value": "#CFCAC1" },
+      "syn-string": { "$value": "#5C7A5A" },
+      "shadow": {
+        "$type": "shadow",
+        "popover": {
+          "$value": [
+            { "offsetX": "0", "offsetY": "1px", "blur": "6px", "color": "rgba(0,0,0,.05)" },
+            { "offsetX": "0", "offsetY": "6px", "blur": "24px", "color": "rgba(0,0,0,.09)" }
+          ]
+        },
+        "modal": {
+          "$value": [
+            { "offsetX": "0", "offsetY": "2px", "blur": "10px", "color": "rgba(0,0,0,.07)" },
+            { "offsetX": "0", "offsetY": "16px", "blur": "48px", "color": "rgba(0,0,0,.13)" }
+          ]
+        },
+        "chip": {
+          "$value": [{ "offsetX": "0", "offsetY": "1px", "blur": "3px", "color": "rgba(0,0,0,.06)" }]
+        }
+      }
+    }
+  }
+}

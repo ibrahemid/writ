@@ -104,9 +104,27 @@ describe("theme polarity and fast boot", () => {
     expect(themeStore.polarity()).toBe("light");
   });
 
+  it("writ-light and writ-dark are registered presets", () => {
+    const ids = themeStore.presets().map((p) => p.id);
+    expect(ids).toContain("writ-light");
+    expect(ids).toContain("writ-dark");
+    expect(themeStore.presets().find((p) => p.id === "writ-light")?.polarity).toBe("light");
+    expect(themeStore.presets().find((p) => p.id === "writ-dark")?.polarity).toBe("dark");
+  });
+
   it("ships a light preset selectable in the picker", () => {
     const light = themeStore.presets().find((p) => p.id === "warp-light");
     expect(light?.polarity).toBe("light");
+  });
+
+  it("applyToRoot writes the polarity onto the root as data-theme", () => {
+    const root = fakeRoot();
+    themeStore.setPreset("warp-dark");
+    themeStore.applyToRoot(root);
+    expect(root.getAttribute("data-theme")).toBe("dark");
+    themeStore.setPreset("warp-light");
+    themeStore.applyToRoot(root);
+    expect(root.getAttribute("data-theme")).toBe("light");
   });
 
   it("persists resolved variables for the pre-paint boot script", () => {

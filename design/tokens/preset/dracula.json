@@ -1,0 +1,110 @@
+{
+  "preset": {
+    "dracula": {
+      "$description": "Dracula",
+      "polarity": {
+        "$type": "other",
+        "$value": "dark"
+      },
+      "surface": {
+        "$type": "color",
+        "background": {
+          "$value": "#282a36"
+        },
+        "sunken": {
+          "$value": "#21222c"
+        },
+        "raised": {
+          "$value": "#2d2f3a"
+        },
+        "elevated": {
+          "$value": "#383a4a"
+        },
+        "input": {
+          "$value": "#2d2f3a"
+        },
+        "hover": {
+          "$value": "#44475a"
+        }
+      },
+      "foreground": {
+        "$type": "color",
+        "default": {
+          "$value": "#f8f8f2"
+        },
+        "muted": {
+          "$value": "#b6b8c2"
+        },
+        "subtle": {
+          "$value": "#8e99bd"
+        }
+      },
+      "border": {
+        "$type": "color",
+        "default": {
+          "$value": "#383a4a"
+        },
+        "soft": {
+          "$value": "#2d2f3a"
+        },
+        "focus": {
+          "$value": "#bd93f9"
+        },
+        "pill": {
+          "$value": "#44475a"
+        }
+      },
+      "accent": {
+        "$type": "color",
+        "default": {
+          "$value": "#bd93f9"
+        },
+        "hover": {
+          "$value": "#caa9fa"
+        },
+        "foreground": {
+          "$value": "#1a1b22"
+        }
+      },
+      "status": {
+        "$type": "color",
+        "success": {
+          "$value": "#50fa7b"
+        },
+        "warning": {
+          "$value": "#f1fa8c"
+        },
+        "error": {
+          "$value": "#ff5555"
+        },
+        "foreground": {
+          "$value": "#1a1b22"
+        }
+      },
+      "syntax": {
+        "$type": "color",
+        "keyword": {
+          "$value": "#ff79c6"
+        },
+        "string": {
+          "$value": "#f1fa8c"
+        },
+        "comment": {
+          "$value": "#6272a4"
+        },
+        "function": {
+          "$value": "#50fa7b"
+        },
+        "number": {
+          "$value": "#bd93f9"
+        },
+        "type": {
+          "$value": "#8be9fd"
+        },
+        "variable": {
+          "$value": "#f8f8f2"
+        }
+      }
+    }
+  }
+}

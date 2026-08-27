@@ -1,0 +1,243 @@
+{
+  "preview": {
+    "$description": "The preview iframe is a separate document and cannot read the app root, so it carries its own resolved --writ-preview-* layer.",
+    "light": {
+      "$type": "color",
+      "bg": {
+        "$value": "{color.light.bg.canvas}"
+      },
+      "bg-sunken": {
+        "$value": "{color.light.bg.sunken}"
+      },
+      "fg": {
+        "$value": "{color.light.fg.default}"
+      },
+      "muted": {
+        "$value": "{color.light.fg.muted}"
+      },
+      "subtle": {
+        "$value": "{color.light.fg.faint}"
+      },
+      "accent": {
+        "$value": "{accent.pine.light.base}"
+      },
+      "accent-hover": {
+        "$value": "{accent.pine.light.hover}"
+      },
+      "border": {
+        "$value": "{color.light.border.default}"
+      },
+      "border-soft": {
+        "$value": "{color.light.border.soft}"
+      },
+      "code-bg": {
+        "$value": "{color.light.bg.sunken}"
+      },
+      "code-fg": {
+        "$value": "{color.light.fg.default}"
+      },
+      "mark-bg": {
+        "$value": "#FDF2C4"
+      },
+      "mark-fg": {
+        "$value": "#4A3A08"
+      },
+      "selection": {
+        "$value": "rgba(31, 111, 92, 0.18)"
+      },
+      "rule": {
+        "$value": "{color.light.border.default}"
+      },
+      "table-stripe": {
+        "$value": "rgba(0, 0, 0, 0.02)"
+      },
+      "syntax": {
+        "keyword": {
+          "$value": "{color.light.fg.default}"
+        },
+        "string": {
+          "$value": "{color.light.syn-string}"
+        },
+        "comment": {
+          "$value": "{color.light.fg.faint}"
+        },
+        "function": {
+          "$value": "{color.light.fg.muted}"
+        },
+        "number": {
+          "$value": "{color.light.fg.default}"
+        }
+      },
+      "font-sans": {
+        "$type": "fontFamily",
+        "$value": "{base.font.ui}"
+      },
+      "font-mono": {
+        "$type": "fontFamily",
+        "$value": "{base.font.mono}"
+      },
+      "fs": {
+        "$type": "dimension",
+        "base": {
+          "$value": "1rem"
+        },
+        "sm": {
+          "$value": "0.8rem"
+        },
+        "h6": {
+          "$value": "0.94rem"
+        },
+        "h5": {
+          "$value": "1rem"
+        },
+        "h4": {
+          "$value": "1.25rem"
+        },
+        "h3": {
+          "$value": "1.563rem"
+        },
+        "h2": {
+          "$value": "1.953rem"
+        },
+        "h1": {
+          "$value": "2.441rem"
+        }
+      },
+      "measure": {
+        "$type": "dimension",
+        "$value": "{base.prose.measure}"
+      },
+      "leading": {
+        "$type": "number",
+        "$value": "{base.prose.lh}"
+      },
+      "pad-x": {
+        "$type": "dimension",
+        "$value": "{base.prose.pad-x}"
+      },
+      "pad-y": {
+        "$type": "dimension",
+        "$value": "{base.prose.pad-y}"
+      }
+    },
+    "dark": {
+      "$type": "color",
+      "bg": {
+        "$value": "{color.dark.bg.canvas}"
+      },
+      "bg-sunken": {
+        "$value": "{color.dark.bg.sunken}"
+      },
+      "fg": {
+        "$value": "{color.dark.fg.default}"
+      },
+      "muted": {
+        "$value": "{color.dark.fg.muted}"
+      },
+      "subtle": {
+        "$value": "{color.dark.fg.faint}"
+      },
+      "accent": {
+        "$value": "{accent.pine.dark.base}"
+      },
+      "accent-hover": {
+        "$value": "{accent.pine.dark.hover}"
+      },
+      "border": {
+        "$value": "{color.dark.border.default}"
+      },
+      "border-soft": {
+        "$value": "{color.dark.border.soft}"
+      },
+      "code-bg": {
+        "$value": "{color.dark.bg.sunken}"
+      },
+      "code-fg": {
+        "$value": "{color.dark.fg.default}"
+      },
+      "mark-bg": {
+        "$value": "#3A3220"
+      },
+      "mark-fg": {
+        "$value": "#F3E6C4"
+      },
+      "selection": {
+        "$value": "rgba(91, 197, 167, 0.28)"
+      },
+      "rule": {
+        "$value": "{color.dark.border.default}"
+      },
+      "table-stripe": {
+        "$value": "rgba(255, 255, 255, 0.025)"
+      },
+      "syntax": {
+        "keyword": {
+          "$value": "{color.dark.fg.default}"
+        },
+        "string": {
+          "$value": "{color.dark.syn-string}"
+        },
+        "comment": {
+          "$value": "{color.dark.fg.faint}"
+        },
+        "function": {
+          "$value": "{color.dark.fg.muted}"
+        },
+        "number": {
+          "$value": "{color.dark.fg.default}"
+        }
+      },
+      "font-sans": {
+        "$type": "fontFamily",
+        "$value": "{base.font.ui}"
+      },
+      "font-mono": {
+        "$type": "fontFamily",
+        "$value": "{base.font.mono}"
+      },
+      "fs": {
+        "$type": "dimension",
+        "base": {
+          "$value": "1rem"
+        },
+        "sm": {
+          "$value": "0.8rem"
+        },
+        "h6": {
+          "$value": "0.94rem"
+        },
+        "h5": {
+          "$value": "1rem"
+        },
+        "h4": {
+          "$value": "1.25rem"
+        },
+        "h3": {
+          "$value": "1.563rem"
+        },
+        "h2": {
+          "$value": "1.953rem"
+        },
+        "h1": {
+          "$value": "2.441rem"
+        }
+      },
+      "measure": {
+        "$type": "dimension",
+        "$value": "{base.prose.measure}"
+      },
+      "leading": {
+        "$type": "number",
+        "$value": "{base.prose.lh}"
+      },
+      "pad-x": {
+        "$type": "dimension",
+        "$value": "{base.prose.pad-x}"
+      },
+      "pad-y": {
+        "$type": "dimension",
+        "$value": "{base.prose.pad-y}"
+      }
+    }
+  }
+}

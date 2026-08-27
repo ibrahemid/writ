@@ -49,6 +49,9 @@ export const themeStore = {
   }),
 
   applyToRoot(root: HTMLElement = document.documentElement): void {
+    // The generated sheet keys its dark layer on the root attribute, so the
+    // polarity has to reach the DOM as well as the custom properties.
+    root.setAttribute("data-theme", polarity());
     const resolved = this.resolvedTokens();
     const snapshot: Record<string, string> = {};
     for (const [key, value] of Object.entries(resolved)) {

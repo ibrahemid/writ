@@ -1,5 +1,6 @@
 @import "./fonts.css";
-@import "./theme.css";
+@import "./generated/theme.css";
+@import "./generated/legacy-aliases.css";
 @import "./focus.css";
 
 *, *::before, *::after {

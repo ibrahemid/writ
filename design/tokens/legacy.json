@@ -1,0 +1,54 @@
+{
+  "legacy": {
+    "$type": "other",
+    "$description": "Every pre-ADR-030 custom property, mapped onto its new source. Each unit drops the aliases its files stop using; the last one deletes this file.",
+    "surface-background": { "$value": "var(--writ-bg-canvas)" },
+    "surface-sunken": { "$value": "var(--writ-bg-sidebar)" },
+    "surface-raised": { "$value": "var(--writ-bg-raised)" },
+    "surface-elevated": { "$value": "var(--writ-bg-selected)" },
+    "surface-input": { "$value": "var(--writ-bg-sunken)" },
+    "surface-hover": { "$value": "var(--writ-bg-hover)" },
+    "foreground-default": { "$value": "var(--writ-fg)" },
+    "foreground-muted": { "$value": "var(--writ-fg-muted)" },
+    "foreground-subtle": { "$value": "var(--writ-fg-faint)" },
+    "border-default": { "$value": "var(--writ-border)" },
+    "border-focus": { "$value": "var(--writ-accent)" },
+    "border-pill": { "$value": "var(--writ-border)" },
+    "accent-default": { "$value": "var(--writ-accent)" },
+    "accent-foreground": { "$value": "var(--writ-accent-fg)" },
+    "font-sans": { "$value": "var(--writ-font-ui)" },
+    "font-size": { "$value": "var(--writ-ui-md)" },
+    "font-size-sm": { "$value": "var(--writ-ui-sm)" },
+    "font-size-xs": { "$value": "var(--writ-ui-xs)" },
+    "line-height": { "$value": "1.5" },
+    "editor-font-size": {
+      "$value": "14px",
+      "$description": "Pre-paint default only. editorZoom writes the live value onto the root from editor.font_size."
+    },
+    "radius-1": { "$value": "var(--writ-r-control)" },
+    "radius-2": { "$value": "var(--writ-r-control)" },
+    "radius-3": { "$value": "var(--writ-r-popover)" },
+    "window-radius": { "$value": "var(--writ-r-window)" },
+    "statusbar-height": { "$value": "28px" },
+    "tabbar-height": { "$value": "36px" },
+    "titlebar-height": { "$value": "36px" },
+    "tab-pill-height": { "$value": "28px" },
+    "bg-tab-pill": { "$value": "transparent" },
+    "overlay-hover": { "$value": "var(--writ-bg-hover)" },
+    "overlay-subtle": { "$value": "var(--writ-bg-hover)" },
+    "overlay-scrim": { "$value": "rgba(0, 0, 0, 0.5)" },
+    "selection": {
+      "$value": "color-mix(in srgb, var(--writ-accent-default) 30%, transparent)",
+      "$description": "Composed from the alias the theme store writes, so the selection tint tracks the active preset for as long as the presets drive the old names."
+    },
+    "warning-foreground": {
+      "$value": "color-mix(in srgb, var(--writ-status-warning) 68%, var(--writ-foreground-default))"
+    },
+    "shadow-overlay": { "$value": "var(--writ-shadow-modal)" },
+    "shadow-dialog": { "$value": "var(--writ-shadow-modal)" },
+    "shadow-banner": { "$value": "var(--writ-shadow-modal)" },
+    "shadow-toast": { "$value": "var(--writ-shadow-popover)" },
+    "shadow-sidebar": { "$value": "none" },
+    "shadow-xs": { "$value": "var(--writ-shadow-chip)" }
+  }
+}

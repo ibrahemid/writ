@@ -1,0 +1,110 @@
+{
+  "preset": {
+    "warp-light": {
+      "$description": "Warp Light",
+      "polarity": {
+        "$type": "other",
+        "$value": "light"
+      },
+      "surface": {
+        "$type": "color",
+        "background": {
+          "$value": "#fbfbfd"
+        },
+        "sunken": {
+          "$value": "#edeef3"
+        },
+        "raised": {
+          "$value": "#ffffff"
+        },
+        "elevated": {
+          "$value": "#eef1f7"
+        },
+        "input": {
+          "$value": "#ffffff"
+        },
+        "hover": {
+          "$value": "#e7e9f1"
+        }
+      },
+      "foreground": {
+        "$type": "color",
+        "default": {
+          "$value": "#1a1a22"
+        },
+        "muted": {
+          "$value": "#5a5a6a"
+        },
+        "subtle": {
+          "$value": "#76768a"
+        }
+      },
+      "border": {
+        "$type": "color",
+        "default": {
+          "$value": "#e2e2ea"
+        },
+        "soft": {
+          "$value": "#ededf2"
+        },
+        "focus": {
+          "$value": "#3b5bdb"
+        },
+        "pill": {
+          "$value": "#d8d8e2"
+        }
+      },
+      "accent": {
+        "$type": "color",
+        "default": {
+          "$value": "#3b5bdb"
+        },
+        "hover": {
+          "$value": "#2843c0"
+        },
+        "foreground": {
+          "$value": "#ffffff"
+        }
+      },
+      "status": {
+        "$type": "color",
+        "success": {
+          "$value": "#178035"
+        },
+        "warning": {
+          "$value": "#9a6b00"
+        },
+        "error": {
+          "$value": "#d11a2a"
+        },
+        "foreground": {
+          "$value": "#ffffff"
+        }
+      },
+      "syntax": {
+        "$type": "color",
+        "keyword": {
+          "$value": "#8839ef"
+        },
+        "string": {
+          "$value": "#40803a"
+        },
+        "comment": {
+          "$value": "#8a8aa0"
+        },
+        "function": {
+          "$value": "#3b5bdb"
+        },
+        "number": {
+          "$value": "#b8500a"
+        },
+        "type": {
+          "$value": "#1a7a8c"
+        },
+        "variable": {
+          "$value": "#2a2a38"
+        }
+      }
+    }
+  }
+}

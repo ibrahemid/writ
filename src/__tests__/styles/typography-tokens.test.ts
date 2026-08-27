@@ -4,7 +4,8 @@ import { join, relative, resolve } from "node:path";
 
 const REPO_ROOT = process.cwd();
 const SRC = resolve(REPO_ROOT, "src");
-const THEME_CSS = resolve(SRC, "styles/theme.css");
+const THEME_CSS = resolve(SRC, "styles/generated/theme.css");
+const LEGACY_CSS = resolve(SRC, "styles/generated/legacy-aliases.css");
 const GLOBAL_CSS = resolve(SRC, "styles/global.css");
 
 const MONO_ALLOWED = new Set<string>([
@@ -21,6 +22,7 @@ function walk(dir: string, files: string[] = []): string[] {
     const st = statSync(full);
     if (st.isDirectory()) {
       if (entry === "node_modules" || entry === "__tests__" || entry === "dist") continue;
+      if (entry === "generated") continue;
       walk(full, files);
     } else if (entry.endsWith(".css") || entry.endsWith(".ts") || entry.endsWith(".tsx")) {
       if (entry.endsWith(".d.ts")) continue;
@@ -47,10 +49,14 @@ function isAllowedValue(value: string): boolean {
 }
 
 describe("typography tokens", () => {
-  it("theme.css declares both --writ-font-sans and --writ-font-mono tokens", () => {
+  it("the generated sheet declares both --writ-font-ui and --writ-font-mono tokens", () => {
     const theme = readFileSync(THEME_CSS, "utf8");
-    expect(theme).toMatch(/--writ-font-sans\s*:/);
+    expect(theme).toMatch(/--writ-font-ui\s*:/);
     expect(theme).toMatch(/--writ-font-mono\s*:/);
+  });
+
+  it("--writ-font-sans still resolves through the legacy alias", () => {
+    expect(readFileSync(LEGACY_CSS, "utf8")).toContain("--writ-font-sans: var(--writ-font-ui);");
   });
 
   it("body resolves to --writ-font-sans", () => {

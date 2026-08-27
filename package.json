@@ -21,6 +21,7 @@
         "build": "vite build",
         "tauri": "tauri",
         "test": "vitest run",
+        "tokens:build": "node scripts/tokens-build.mjs",
         "test:watch": "vitest",
         "typecheck": "tsc --noEmit"
     },
@@ -55,6 +56,7 @@
         "@testing-library/user-event": "^14.6.4",
         "@types/node": "^26.2.0",
         "jsdom": "^30.0.1",
+        "style-dictionary": "^5.5.2",
         "typescript": "^7.0.2",
         "vite": "^8.2.1",
         "vite-plugin-solid": "^2.11.14",

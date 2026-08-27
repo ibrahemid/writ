@@ -1,0 +1,110 @@
+{
+  "preset": {
+    "tokyo-night": {
+      "$description": "Tokyo Night",
+      "polarity": {
+        "$type": "other",
+        "$value": "dark"
+      },
+      "surface": {
+        "$type": "color",
+        "background": {
+          "$value": "#1a1b26"
+        },
+        "sunken": {
+          "$value": "#16161e"
+        },
+        "raised": {
+          "$value": "#1f2335"
+        },
+        "elevated": {
+          "$value": "#24283b"
+        },
+        "input": {
+          "$value": "#1f2335"
+        },
+        "hover": {
+          "$value": "#292e42"
+        }
+      },
+      "foreground": {
+        "$type": "color",
+        "default": {
+          "$value": "#c0caf5"
+        },
+        "muted": {
+          "$value": "#a9b1d6"
+        },
+        "subtle": {
+          "$value": "#747c9e"
+        }
+      },
+      "border": {
+        "$type": "color",
+        "default": {
+          "$value": "#292e42"
+        },
+        "soft": {
+          "$value": "#1f2335"
+        },
+        "focus": {
+          "$value": "#7aa2f7"
+        },
+        "pill": {
+          "$value": "#3b4261"
+        }
+      },
+      "accent": {
+        "$type": "color",
+        "default": {
+          "$value": "#7aa2f7"
+        },
+        "hover": {
+          "$value": "#89b4fa"
+        },
+        "foreground": {
+          "$value": "#16161e"
+        }
+      },
+      "status": {
+        "$type": "color",
+        "success": {
+          "$value": "#9ece6a"
+        },
+        "warning": {
+          "$value": "#e0af68"
+        },
+        "error": {
+          "$value": "#f7768e"
+        },
+        "foreground": {
+          "$value": "#16161e"
+        }
+      },
+      "syntax": {
+        "$type": "color",
+        "keyword": {
+          "$value": "#bb9af7"
+        },
+        "string": {
+          "$value": "#9ece6a"
+        },
+        "comment": {
+          "$value": "#565f89"
+        },
+        "function": {
+          "$value": "#7aa2f7"
+        },
+        "number": {
+          "$value": "#ff9e64"
+        },
+        "type": {
+          "$value": "#2ac3de"
+        },
+        "variable": {
+          "$value": "#c0caf5"
+        }
+      }
+    }
+  }
+}

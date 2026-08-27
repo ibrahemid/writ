@@ -111,7 +111,7 @@
 }
 
 .statusbar-chip--largefile {
-  background: var(--writ-surface-raised, rgba(128, 128, 128, 0.12));
+  background: var(--writ-surface-raised);
   color: var(--writ-foreground-muted);
   border: 1px solid var(--writ-border-soft);
 }
