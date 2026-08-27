@@ -17,12 +17,23 @@ const [overrides, setOverridesSignal] = createSignal<ThemeOverrides>({});
 const activePreset = createMemo<Theme>(() => getPreset(presetId()) ?? getDefaultPreset());
 const polarity = createMemo<ThemePolarity>(() => activePreset().polarity ?? "dark");
 
-function flattenTheme(theme: Theme): Record<string, string> {
+/**
+ * A preset's token groups as flat `group.token` keys. Only string leaves make
+ * it through: a nested object has no CSS declaration to become, and writing one
+ * anyway is how `--writ-site-traffic: [object Object]` used to reach `:root`.
+ * Exported for the contract test that holds that line.
+ */
+export function flattenTheme(theme: Theme): Record<string, string> {
   const flat: Record<string, string> = {};
   for (const [group, tokens] of Object.entries(theme)) {
     if (group === "id" || group === "name" || group === "polarity") continue;
+    // `site` was a block of website-only values that no app or site stylesheet
+    // ever read. It is gone from the presets; the guard keeps a hand-edited
+    // theme from putting it back on `:root`.
+    if (group === "site") continue;
     if (typeof tokens !== "object" || tokens === null) continue;
-    for (const [key, value] of Object.entries(tokens as Record<string, string>)) {
+    for (const [key, value] of Object.entries(tokens as Record<string, unknown>)) {
+      if (typeof value !== "string") continue;
       flat[`${group}.${key}`] = value;
     }
   }
@@ -30,7 +41,7 @@ function flattenTheme(theme: Theme): Record<string, string> {
 }
 
 function tokenKeyToCssVar(key: string): string {
-  return `--writ-${key.replace(".", "-")}`;
+  return `--writ-${key.replaceAll(".", "-")}`;
 }
 
 function isValidColor(value: string): boolean {

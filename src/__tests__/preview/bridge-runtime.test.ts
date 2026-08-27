@@ -93,14 +93,14 @@ describe("preview bridge runtime", () => {
     expect(env.scroller.scrollTop).toBe(400); // 0.5 * (1000 - 200)
   });
 
-  it("flips to the light reading palette on a setTheme message", () => {
-    env.sendDown({ type: "setTheme", theme: "light" } as unknown as Posted);
-    expect(env.attrs["data-writ-theme"]).toBe("light");
+  it("flips to the dark reading palette on a setTheme message", () => {
+    env.sendDown({ type: "setTheme", theme: "dark" } as unknown as Posted);
+    expect(env.attrs["data-writ-theme"]).toBe("dark");
   });
 
-  it("clears the light palette attribute when switched back to dark", () => {
-    env.sendDown({ type: "setTheme", theme: "light" } as unknown as Posted);
+  it("clears the dark palette attribute when switched back to light", () => {
     env.sendDown({ type: "setTheme", theme: "dark" } as unknown as Posted);
+    env.sendDown({ type: "setTheme", theme: "light" } as unknown as Posted);
     expect(env.attrs["data-writ-theme"]).toBeUndefined();
   });
 

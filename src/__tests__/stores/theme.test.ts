@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { themeStore } from "../../stores/global/theme";
+import { flattenTheme, themeStore } from "../../stores/global/theme";
+import type { Theme } from "../../types/theme";
 
 function fakeRoot(): HTMLElement {
   return document.createElement("div");
@@ -154,46 +155,54 @@ describe("preset integrity", () => {
     }
   });
 
-  // A handful of site tokens are composite CSS values by design (an rgba seam,
-  // multi-layer box-shadows, easing curves), not single colors. They are
-  // checked for presence, not for hex. Every other token must be a hex color;
-  // nested groups (e.g. site.traffic) have their leaf colors hex-checked.
-  const COMPOSITE_TOKENS = new Set([
-    "site.seam",
-    "site.winShadow",
-    "site.panelShadow",
-    "site.ease",
-    "site.spring",
-  ]);
-
+  // Every resolved token is a single hex colour, with no carve-out: a value
+  // the flattener cannot turn into a CSS declaration does not belong in a
+  // preset. Groups whose leaves are not colours live in design/tokens.
   it("every preset color parses as valid hex", () => {
     const hex = /^#[0-9a-fA-F]{3,8}$/;
     for (const preset of themeStore.presets()) {
       themeStore.setPreset(preset.id);
-      const tokens = themeStore.resolvedTokens();
-      for (const [key, rawValue] of Object.entries(tokens)) {
-        const value: unknown = rawValue;
-        if (COMPOSITE_TOKENS.has(key)) {
-          expect(
-            typeof value === "string" && value.trim().length > 0,
-            `${preset.id}.${key} = ${String(value)}`,
-          ).toBe(true);
-          continue;
-        }
-        if (value !== null && typeof value === "object") {
-          for (const [subKey, subValue] of Object.entries(value as Record<string, unknown>)) {
-            expect(
-              typeof subValue === "string" && hex.test(subValue),
-              `${preset.id}.${key}.${subKey} = ${String(subValue)}`,
-            ).toBe(true);
-          }
-          continue;
-        }
+      for (const [key, value] of Object.entries(themeStore.resolvedTokens())) {
         expect(
           typeof value === "string" && hex.test(value),
           `${preset.id}.${key} = ${String(value)}`,
         ).toBe(true);
       }
     }
+  });
+});
+
+describe("flattening a preset into CSS variables", () => {
+  beforeEach(() => {
+    themeStore.resetOverrides();
+    themeStore.setPreset("warp-dark");
+  });
+
+  it("ignores nested objects instead of stringifying them", () => {
+    const nested = {
+      ...themeStore.activePreset(),
+      extras: { traffic: { close: "#ff5f57" }, flat: "#123456" },
+    } as unknown as Theme;
+    const flat = flattenTheme(nested);
+    expect(Object.values(flat)).not.toContain("[object Object]");
+    expect(flat["extras.traffic"]).toBeUndefined();
+    expect(flat["extras.flat"]).toBe("#123456");
+  });
+
+  it("writes no --writ-site-* variable to the root", () => {
+    for (const preset of themeStore.presets()) {
+      const root = fakeRoot();
+      themeStore.setPreset(preset.id);
+      themeStore.applyToRoot(root);
+      const written = Array.from({ length: root.style.length }, (_, i) => root.style.item(i));
+      expect(written.filter((name) => name.startsWith("--writ-site-")), preset.id).toEqual([]);
+    }
+  });
+
+  it("maps a token key with several dots to a full kebab CSS name", () => {
+    const root = fakeRoot();
+    expect(themeStore.setOverride("syntax.tag.attribute", "#abcdef")).toBe(true);
+    themeStore.applyToRoot(root);
+    expect(root.style.getPropertyValue("--writ-syntax-tag-attribute")).toBe("#abcdef");
   });
 });

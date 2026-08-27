@@ -328,8 +328,8 @@
       // Live app-theme switch: flip the reading palette in place. New renders
       // already ship the attribute baked into the served HTML; this covers the
       // document already loaded when the user changes theme.
-      if (d.theme === "light") {
-        doc.documentElement.setAttribute("data-writ-theme", "light");
+      if (d.theme === "dark") {
+        doc.documentElement.setAttribute("data-writ-theme", "dark");
       } else {
         doc.documentElement.removeAttribute("data-writ-theme");
       }

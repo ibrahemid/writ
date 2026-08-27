@@ -39,14 +39,14 @@ pub const RUNTIME_URL: &str = "writ-preview://document/_assets/mermaid/mermaid.m
 /// iframes are forbidden by the document CSP's `frame-src 'none'`.
 ///
 /// The diagram theme follows the document's polarity: `theme::wrap_document_with`
-/// marks a light document with `data-writ-theme="light"` on `<html>`, and
-/// everything else is dark. Mermaid's `default` theme paints white nodes and a
+/// marks a dark document with `data-writ-theme="dark"` on `<html>`, and
+/// everything else is light. Mermaid's `default` theme paints white nodes and a
 /// light edge-label background, which on a dark page leaves edge labels
 /// unreadable; `dark` is its own palette for that case.
 pub fn runtime_tags() -> String {
     format!(
         "<script src=\"{RUNTIME_URL}\"></script>\n\
-         <script>window.mermaid.initialize({{startOnLoad:false,securityLevel:'strict',theme:document.documentElement.getAttribute('data-writ-theme')==='light'?'default':'dark'}});window.mermaid.run({{querySelector:'pre.mermaid'}});</script>"
+         <script>window.mermaid.initialize({{startOnLoad:false,securityLevel:'strict',theme:document.documentElement.getAttribute('data-writ-theme')==='dark'?'dark':'default'}});window.mermaid.run({{querySelector:'pre.mermaid'}});</script>"
     )
 }
 
@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn runtime_picks_the_diagram_theme_from_the_document_polarity() {
         let tags = runtime_tags();
-        assert!(tags.contains("getAttribute('data-writ-theme')==='light'?'default':'dark'"));
+        assert!(tags.contains("getAttribute('data-writ-theme')==='dark'?'dark':'default'"));
     }
 
     #[test]

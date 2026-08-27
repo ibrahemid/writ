@@ -1,80 +1,80 @@
 {
   "preview": {
-    "$description": "The preview iframe is a separate document and cannot read the app root, so it carries its own resolved --writ-preview-* layer.",
+    "$description": "The preview iframe is a separate document and cannot read the app root, so it carries its own resolved --writ-preview-* layer. Frozen at the palette 0.3.5 served from preview-base.css: this unit moves the layer into the pipeline without moving a value. The unit that repaints the app re-sources these from the neutrals and the accent, and adds the reading measure and padding the baseline calls for.",
     "light": {
       "$type": "color",
       "bg": {
-        "$value": "{color.light.bg.canvas}"
+        "$value": "#fbfbfd"
       },
       "bg-sunken": {
-        "$value": "{color.light.bg.sunken}"
+        "$value": "#f2f2f6"
       },
       "fg": {
-        "$value": "{color.light.fg.default}"
+        "$value": "#1a1a22"
       },
       "muted": {
-        "$value": "{color.light.fg.muted}"
+        "$value": "#5a5a6a"
       },
       "subtle": {
-        "$value": "{color.light.fg.faint}"
+        "$value": "#76768a"
       },
       "accent": {
-        "$value": "{accent.pine.light.base}"
+        "$value": "#3b5bdb"
       },
       "accent-hover": {
-        "$value": "{accent.pine.light.hover}"
+        "$value": "#2843c0"
       },
       "border": {
-        "$value": "{color.light.border.default}"
+        "$value": "#e2e2ea"
       },
       "border-soft": {
-        "$value": "{color.light.border.soft}"
+        "$value": "#ececf2"
       },
       "code-bg": {
-        "$value": "{color.light.bg.sunken}"
+        "$value": "#f0f0f4"
       },
       "code-fg": {
-        "$value": "{color.light.fg.default}"
+        "$value": "#2a2a38"
       },
       "mark-bg": {
-        "$value": "#FDF2C4"
+        "$value": "#fdf2c4"
       },
       "mark-fg": {
-        "$value": "#4A3A08"
+        "$value": "#4a3a08"
       },
       "selection": {
-        "$value": "rgba(31, 111, 92, 0.18)"
+        "$value": "rgba(59, 91, 219, 0.18)"
       },
       "rule": {
-        "$value": "{color.light.border.default}"
+        "$value": "#e2e2ea"
       },
       "table-stripe": {
         "$value": "rgba(0, 0, 0, 0.02)"
       },
       "syntax": {
         "keyword": {
-          "$value": "{color.light.fg.default}"
+          "$value": "#8839ef"
         },
         "string": {
-          "$value": "{color.light.syn-string}"
+          "$value": "#40803a"
         },
         "comment": {
-          "$value": "{color.light.fg.faint}"
+          "$value": "#8a8aa0"
         },
         "function": {
-          "$value": "{color.light.fg.muted}"
+          "$value": "#3b5bdb"
         },
         "number": {
-          "$value": "{color.light.fg.default}"
+          "$value": "#b8500a"
         }
       },
       "font-sans": {
         "$type": "fontFamily",
-        "$value": "{base.font.ui}"
+        "$value": "\"Inter\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"SF Arabic\", \"Geeza Pro\", \"Noto Naskh Arabic\", system-ui, sans-serif"
       },
       "font-mono": {
         "$type": "fontFamily",
-        "$value": "{base.font.mono}"
+        "$value": "\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", \"Cascadia Code\", \"SF Arabic\", \"Geeza Pro\", \"Noto Naskh Arabic\", ui-monospace, monospace"
       },
       "fs": {
         "$type": "dimension",
@@ -129,95 +129,90 @@
       },
       "measure": {
         "$type": "dimension",
-        "$value": "{base.prose.measure}"
+        "$value": {
+          "value": 72,
+          "unit": "ch"
+        }
       },
       "leading": {
         "$type": "number",
-        "$value": "{base.prose.lh}"
-      },
-      "pad-x": {
-        "$type": "dimension",
-        "$value": "{base.prose.pad-x}"
-      },
-      "pad-y": {
-        "$type": "dimension",
-        "$value": "{base.prose.pad-y}"
+        "$value": 1.7
       }
     },
     "dark": {
       "$type": "color",
       "bg": {
-        "$value": "{color.dark.bg.canvas}"
+        "$value": "#0e0e14"
       },
       "bg-sunken": {
-        "$value": "{color.dark.bg.sunken}"
+        "$value": "#0a0a10"
       },
       "fg": {
-        "$value": "{color.dark.fg.default}"
+        "$value": "#e0e0e0"
       },
       "muted": {
-        "$value": "{color.dark.fg.muted}"
+        "$value": "#9a9aac"
       },
       "subtle": {
-        "$value": "{color.dark.fg.faint}"
+        "$value": "#6a6a7c"
       },
       "accent": {
-        "$value": "{accent.pine.dark.base}"
+        "$value": "#7aa2f7"
       },
       "accent-hover": {
-        "$value": "{accent.pine.dark.hover}"
+        "$value": "#a9c2ff"
       },
       "border": {
-        "$value": "{color.dark.border.default}"
+        "$value": "#232334"
       },
       "border-soft": {
-        "$value": "{color.dark.border.soft}"
+        "$value": "#1a1a26"
       },
       "code-bg": {
-        "$value": "{color.dark.bg.sunken}"
+        "$value": "#16161e"
       },
       "code-fg": {
-        "$value": "{color.dark.fg.default}"
+        "$value": "#c0caf5"
       },
       "mark-bg": {
-        "$value": "#3A3220"
+        "$value": "#3a3220"
       },
       "mark-fg": {
-        "$value": "#F3E6C4"
+        "$value": "#f3e6c4"
       },
       "selection": {
-        "$value": "rgba(91, 197, 167, 0.28)"
+        "$value": "rgba(122, 162, 247, 0.28)"
       },
       "rule": {
-        "$value": "{color.dark.border.default}"
+        "$value": "#232334"
       },
       "table-stripe": {
         "$value": "rgba(255, 255, 255, 0.025)"
       },
       "syntax": {
         "keyword": {
-          "$value": "{color.dark.fg.default}"
+          "$value": "#bb9af7"
         },
         "string": {
-          "$value": "{color.dark.syn-string}"
+          "$value": "#9ece6a"
         },
         "comment": {
-          "$value": "{color.dark.fg.faint}"
+          "$value": "#565f89"
         },
         "function": {
-          "$value": "{color.dark.fg.muted}"
+          "$value": "#7aa2f7"
         },
         "number": {
-          "$value": "{color.dark.fg.default}"
+          "$value": "#ff9e64"
         }
       },
       "font-sans": {
         "$type": "fontFamily",
-        "$value": "{base.font.ui}"
+        "$value": "\"Inter\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"SF Arabic\", \"Geeza Pro\", \"Noto Naskh Arabic\", system-ui, sans-serif"
       },
       "font-mono": {
         "$type": "fontFamily",
-        "$value": "{base.font.mono}"
+        "$value": "\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", \"Cascadia Code\", \"SF Arabic\", \"Geeza Pro\", \"Noto Naskh Arabic\", ui-monospace, monospace"
       },
       "fs": {
         "$type": "dimension",
@@ -272,19 +267,14 @@
       },
       "measure": {
         "$type": "dimension",
-        "$value": "{base.prose.measure}"
+        "$value": {
+          "value": 72,
+          "unit": "ch"
+        }
       },
       "leading": {
         "$type": "number",
-        "$value": "{base.prose.lh}"
-      },
-      "pad-x": {
-        "$type": "dimension",
-        "$value": "{base.prose.pad-x}"
-      },
-      "pad-y": {
-        "$type": "dimension",
-        "$value": "{base.prose.pad-y}"
+        "$value": 1.7
       }
     }
   }

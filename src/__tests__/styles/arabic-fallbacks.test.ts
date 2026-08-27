@@ -14,6 +14,13 @@ const APP_SHEETS = [
   "src/styles/generated/legacy-aliases.css",
 ].map((file) => readFileSync(resolve(process.cwd(), file), "utf8"));
 
+// The preview's own layer is split the same way: generated tokens, hand-written
+// rules. The stacks are declared in the first, the bidi rules live in the second.
+const PREVIEW_TOKENS_CSS = readFileSync(
+  resolve(process.cwd(), "src-tauri/assets/generated/preview-tokens.css"),
+  "utf8",
+);
+
 const PREVIEW_CSS = readFileSync(
   resolve(process.cwd(), "src-tauri/assets/preview-base.css"),
   "utf8",
@@ -46,13 +53,13 @@ const STACKS: { name: string; css: string | null; token: string; generic: string
   { name: "app mono", css: null, token: "--writ-font-mono", generic: "monospace" },
   {
     name: "preview sans",
-    css: PREVIEW_CSS,
+    css: PREVIEW_TOKENS_CSS,
     token: "--writ-preview-font-sans",
     generic: "system-ui",
   },
   {
     name: "preview mono",
-    css: PREVIEW_CSS,
+    css: PREVIEW_TOKENS_CSS,
     token: "--writ-preview-font-mono",
     generic: "ui-monospace",
   },
