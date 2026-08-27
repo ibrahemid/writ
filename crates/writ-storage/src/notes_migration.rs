@@ -187,8 +187,10 @@ pub fn run_notes_migration(
     now: DateTime<Utc>,
 ) -> StorageResult<MigrationReport> {
     let conn = store.connection();
+    let rows = all_rows(store)?;
+    let piped_files = list_piped_files(roots.piped);
 
-    if is_settled(store)? {
+    if is_settled(store, &rows, &piped_files)? {
         return Ok(stored_report(store)?.unwrap_or_default());
     }
 
@@ -198,9 +200,6 @@ pub fn run_notes_migration(
         archive_folder: roots.archive.to_string_lossy().into_owned(),
         ..MigrationReport::default()
     };
-
-    let rows = all_rows(store)?;
-    let piped_files = list_piped_files(roots.piped);
 
     if !has_work(store, &rows, &piped_files)? {
         finish(store, &mut report)?;
@@ -245,14 +244,30 @@ pub fn stored_report(store: &BufferStore) -> StorageResult<Option<MigrationRepor
     }
 }
 
-/// Whether the migration has run and every file it recorded is still there.
+/// Whether the migration has run and left nothing behind.
 ///
-/// A recorded file that has gone missing is the one case that earns a re-run:
-/// the pass is idempotent, and a row it already placed is skipped on the way
-/// through (ADR-028 §4 step 6).
-fn is_settled(store: &BufferStore) -> StorageResult<bool> {
+/// Three things earn a re-run, and the pass is idempotent so each costs only
+/// the rows that still need it (ADR-028 §4 step 6). A file the pass recorded
+/// has gone missing. A row still has a copy under the retired folder, which is
+/// what a failed verification leaves: retrying is how that note stops reading
+/// as empty once whatever blocked the write is gone. Or piped input has
+/// arrived from a CLI that has not been updated yet.
+fn is_settled(
+    store: &BufferStore,
+    rows: &[BufferDocument],
+    piped_files: &[PathBuf],
+) -> StorageResult<bool> {
     let conn = store.connection();
     if schema_meta::get(conn, KEY_NOTES_MIGRATION_RAN_AT)?.is_none() {
+        return Ok(false);
+    }
+    if !piped_files.is_empty() {
+        return Ok(false);
+    }
+    if rows
+        .iter()
+        .any(|doc| store.buffers_dir().join(&doc.filename).exists())
+    {
         return Ok(false);
     }
     Ok(queries::list_migrated_paths(conn)?

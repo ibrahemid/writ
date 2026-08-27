@@ -549,3 +549,33 @@ fn a_row_whose_recorded_file_went_missing_is_written_again() {
         fixture.outcome(&report, "active-1")
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_row_that_failed_verification_is_tried_again_on_the_next_launch() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = Fixture::new();
+    fixture.add_scratch(
+        "blocked-1",
+        "Refused",
+        b"text worth keeping",
+        BufferStatus::Active,
+    );
+
+    let notes = fixture.notes();
+    std::fs::set_permissions(&notes, std::fs::Permissions::from_mode(0o500)).unwrap();
+    assert_eq!(fixture.run().failed, 1);
+    std::fs::set_permissions(&notes, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let second = fixture.run_at(day(2026, 9, 1));
+
+    assert_eq!(second.failed, 0);
+    assert_eq!(second.migrated, 1);
+    assert_eq!(
+        std::fs::read_to_string(fixture.notes().join("Refused.md")).unwrap(),
+        "text worth keeping",
+        "a copy left behind is what a retry is for"
+    );
+    assert!(!fixture.mirror("blocked-1").exists());
+}
