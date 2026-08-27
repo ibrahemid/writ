@@ -153,6 +153,9 @@ function SettingsRow(props: SettingsRowProps) {
         >
           <label class="settings-row-label" for={props.labelFor}>
             {props.label}
+            <Show when={props.caution}>
+              <span class="settings-row-caution">{props.caution}</span>
+            </Show>
           </label>
         </Show>
         {props.children}
@@ -1208,11 +1211,17 @@ function AppearanceSection() {
           ))}
         </select>
       </SettingsRow>
-      <SettingsRow id="appearance.accent" label="Accent colour" labelFor="setting-appearance-accent">
+      <SettingsRow
+        id="appearance.accent"
+        label="Accent colour"
+        labelFor="setting-appearance-accent"
+        caution={themeStore.accentApplies() ? undefined : "The current theme sets its own accent."}
+      >
         <select
           id="setting-appearance-accent"
           class="settings-select"
           data-setting="appearance_accent"
+          disabled={!themeStore.accentApplies()}
           value={appearance().accent}
           onChange={(e) => patchAppearance({ accent: e.currentTarget.value as AccentId })}
         >

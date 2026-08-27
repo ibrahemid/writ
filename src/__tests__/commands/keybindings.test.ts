@@ -438,10 +438,33 @@ describe("editor-focus gating", () => {
     expect(event.preventDefault).toHaveBeenCalled();
   });
 
-  it("still fires a deliberately-global app command (Cmd+T buffer.new) while typing", () => {
+  it("fires the note command from both its chord and the old one", () => {
+    // buffer.new is gone; ⌘T is an alias on note.new so a habit keeps working.
+    const fired: string[] = [];
+    registerCommand({
+      id: "note.new",
+      label: "New note",
+      scope: "app",
+      global: true,
+      keybinding: "CmdOrCtrl+N",
+      keybindingAliases: ["CmdOrCtrl+T"],
+      execute: () => {
+        fired.push("note.new");
+      },
+    });
+    rebuildKeyMap();
+    for (const key of ["n", "t"]) {
+      handleKeyDown(createKeyEvent({ key, metaKey: true }));
+    }
+    expect(fired).toEqual(["note.new", "note.new"]);
+    expect(findKeybindingConflicts(getAllCommands()).size).toBe(0);
+    unregisterCommand("note.new");
+  });
+
+  it("still fires a deliberately-global app command (Cmd+T note.new) while typing", () => {
     let executed = false;
     registerCommand({
-      id: "buffer.new",
+      id: "note.new",
       label: "New Tab",
       keybinding: "CmdOrCtrl+T",
       scope: "app",

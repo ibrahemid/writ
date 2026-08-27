@@ -147,7 +147,19 @@ function AppShell() {
     document.documentElement.setAttribute("data-platform", resolvePlatform());
     themeStore.applyToRoot();
     await configStore.load();
-    themeStore.loadConfig(configStore.config().theme, configStore.config().appearance);
+    // A config written before ADR-030 carries overrides in the old vocabulary.
+    // They are translated on load; writing the result back means the next
+    // launch reads a clean map.
+    const migratedOverrides = themeStore.loadConfig(
+      configStore.config().theme,
+      configStore.config().appearance,
+    );
+    if (migratedOverrides) {
+      const current = configStore.config();
+      configStore
+        .save({ ...current, theme: { ...current.theme, overrides: migratedOverrides } })
+        .catch(() => {});
+    }
     unlisteners.push(watchSystemPolarity());
     unlisteners.push(await osWindowStore.installFocusSync());
     // Only the Windows and Linux titlebars read maximized(); on macOS this
@@ -214,20 +226,13 @@ function AppShell() {
     void osWindowStore.reveal();
 
     registerCommand({
-      id: "buffer.new",
-      label: "New Tab",
-      description: "Create a new empty buffer",
-      keybinding: "CmdOrCtrl+T",
-      scope: "app",
-      global: true,
-      execute: () => windowRegistry.getActive()?.tabs.createTab(),
-    });
-
-    registerCommand({
       id: "note.new",
       label: "New note",
       description: "Start a new note",
       keybinding: "CmdOrCtrl+N",
+      // The chord this command answered to before it was named for the note
+      // rather than the buffer.
+      keybindingAliases: ["CmdOrCtrl+T"],
       scope: "app",
       global: true,
       execute: () => windowRegistry.getActive()?.tabs.createTab(),

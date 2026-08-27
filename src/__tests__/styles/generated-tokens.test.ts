@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { COLORS, LEGACY_FROZEN } from "../../styles/generated/tokens";
 
@@ -276,15 +276,20 @@ describe("legacy re-declarations", () => {
 });
 
 describe("DTCG preset sources", () => {
-  const PRESET_IDS = [
-    "warp-dark",
-    "warp-light",
-    "tokyo-night",
-    "dracula",
-    "solarized-dark",
-    "catppuccin-mocha",
-  ];
+  // Every preset src/styles/themes ships. A runtime preset with no DTCG source
+  // is a palette outside the token pipeline, which is the thing ADR-030 exists
+  // to stop, so this list is the file listing rather than a subset of it.
+  const PRESET_IDS = readdirSync(resolve(ROOT, "src/styles/themes"))
+    .filter((name) => name.endsWith(".json"))
+    .map((name) => name.replace(/\.json$/, ""))
+    .sort();
   const GROUPS = ["surface", "foreground", "border", "accent", "status", "syntax"] as const;
+
+  it("cover every preset the app ships", () => {
+    expect(PRESET_IDS).toContain("writ-light");
+    expect(PRESET_IDS).toContain("writ-dark");
+    expect(PRESET_IDS.length).toBe(8);
+  });
 
   it("carry the same values as the runtime preset JSON", () => {
     for (const id of PRESET_IDS) {

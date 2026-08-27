@@ -11,6 +11,7 @@ const TEST_CLAIMABLE_TYPE = {
 };
 
 const mocks = vi.hoisted(() => ({
+  accentApplies: vi.fn(() => true),
   save: vi.fn().mockResolvedValue(undefined),
   config: vi.fn(),
   focusEditor: vi.fn(),
@@ -113,6 +114,8 @@ vi.mock("../../components/ShortcutEditor/ShortcutEditor", () => ({
 vi.mock("../../stores/global/theme", () => ({
   themeStore: {
     setPreset: vi.fn(),
+    setAppearance: vi.fn(),
+    accentApplies: () => mocks.accentApplies(),
   },
 }));
 
@@ -156,6 +159,7 @@ function baseConfig(): WritConfig {
 describe("SettingsModal", () => {
   beforeEach(() => {
     mocks.save.mockReset().mockResolvedValue(undefined);
+    mocks.accentApplies.mockReset().mockReturnValue(true);
     mocks.config.mockReset().mockReturnValue(baseConfig());
     mocks.openThemeEditor.mockReset();
     mocks.openShortcutEditor.mockReset();
@@ -356,6 +360,45 @@ describe("SettingsModal", () => {
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
     const saved = mocks.save.mock.calls[0][0] as WritConfig;
     expect(saved.theme.preset).toBe("warp-light");
+  });
+
+  async function openAppearance(container: HTMLElement) {
+    openSettings();
+    await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
+    const navItems = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
+    const appearanceNav = Array.from(navItems).find((n) =>
+      n.textContent?.toLowerCase().includes("appearance"),
+    );
+    fireEvent.click(appearanceNav!);
+    await waitFor(() => expect(container.querySelector("[data-section='appearance']")).not.toBeNull());
+  }
+
+  it("offers the accent while the theme defers its highlight to the setting", async () => {
+    mocks.accentApplies.mockReturnValue(true);
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+    const accent = container.querySelector<HTMLSelectElement>("[data-setting='appearance_accent']");
+    expect(accent).not.toBeNull();
+    expect(accent!.disabled).toBe(false);
+    const row = container.querySelector("[data-setting-id='appearance.accent']");
+    expect(row!.querySelector(".settings-row-caution")).toBeNull();
+
+    fireEvent.change(accent!, { target: { value: "plum" } });
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
+    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    expect(saved.appearance.accent).toBe("plum");
+  });
+
+  it("disables the accent and says why while the theme sets its own", async () => {
+    mocks.accentApplies.mockReturnValue(false);
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+    const accent = container.querySelector<HTMLSelectElement>("[data-setting='appearance_accent']");
+    expect(accent!.disabled).toBe(true);
+    const row = container.querySelector("[data-setting-id='appearance.accent']");
+    expect(row!.querySelector(".settings-row-caution")!.textContent).toBe(
+      "The current theme sets its own accent.",
+    );
   });
 
   it("saves preview run_scripts toggle from Preview section", async () => {

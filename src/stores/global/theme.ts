@@ -1,6 +1,6 @@
 import { createSignal, createMemo } from "solid-js";
 import type { Theme, ThemeOverrides, ThemeConfig, ThemePolarity } from "../../types/theme";
-import { TOKEN_GROUPS } from "../../types/theme";
+import { migrateOverrideKey } from "../../types/theme";
 import type { AppearanceConfig } from "../../types/config";
 import type { AccentId } from "../../styles/generated/tokens";
 import { ACCENTS } from "../../styles/generated/tokens";
@@ -9,6 +9,7 @@ import {
   getPreset,
   getDefaultPreset,
   pairedPreset,
+  takesAccentSetting,
   DEFAULT_PRESET_ID,
 } from "../../styles/themes";
 
@@ -28,12 +29,6 @@ const DEFAULT_APPEARANCE: AppearanceConfig = {
   accent: "pine",
   prose_face: "system",
 };
-
-// Overrides are keyed by the pre-ADR-030 group names, which the token
-// vocabulary replaced. They no longer describe anything the new palette paints,
-// so they are dropped when a config loads rather than applied over it (ADR-030
-// Consequences). A live edit still applies until the app restarts.
-const RETIRED_OVERRIDE_GROUPS: ReadonlySet<string> = new Set(TOKEN_GROUPS);
 
 const [presetId, setPresetId] = createSignal<string>(DEFAULT_PRESET_ID);
 const [overrides, setOverridesSignal] = createSignal<ThemeOverrides>({});
@@ -59,6 +54,9 @@ const activePresetId = createMemo<string>(() => pairedPreset(presetId(), effecti
 const activePreset = createMemo<Theme>(() => getPreset(activePresetId()) ?? getDefaultPreset());
 const polarity = createMemo<ThemePolarity>(() => activePreset().polarity ?? "dark");
 const accent = createMemo<AccentId>(() => appearance().accent);
+
+/** Whether the active preset defers its highlight to the accent setting. */
+const accentApplies = createMemo<boolean>(() => takesAccentSetting(activePresetId()));
 
 /**
  * A preset's token groups as flat `group.token` keys. Only string leaves make
@@ -98,29 +96,32 @@ export const themeStore = {
   polarity,
   appearance,
   accent,
+  accentApplies,
   effectivePolarity,
 
   resolvedTokens: createMemo<Record<string, string>>(() => {
-    const triple = ACCENTS[accent()][polarity()];
-    return {
-      ...flattenTheme(activePreset()),
-      // The accent is its own axis: the chosen hue wins over the preset's, and
-      // a user override still wins over both.
-      "accent.default": triple.base,
-      "accent.hover": triple.hover,
-      "accent.foreground": triple.foreground,
-      ...overrides(),
-    };
+    const base = flattenTheme(activePreset());
+    // The accent is its own axis over a neutral preset: the chosen hue wins
+    // over the preset's, and a user override still wins over both. A preset
+    // that carries its own palette keeps its own accent.
+    if (accentApplies()) {
+      const triple = ACCENTS[accent()][polarity()];
+      base["accent.default"] = triple.base;
+      base["accent.hover"] = triple.hover;
+      base["accent.foreground"] = triple.foreground;
+    }
+    return { ...base, ...overrides() };
   }),
 
   applyToRoot(root: HTMLElement = document.documentElement): void {
     // The generated sheet keys its dark and accent layers on root attributes,
     // so both have to reach the DOM as well as the custom properties.
-    const attrs: Record<string, string> = {
-      "data-theme": polarity(),
-      "data-accent": accent(),
-    };
+    // data-accent selects the accent block in the generated sheet, so it only
+    // goes on the root when the accent setting is what paints the highlight.
+    const attrs: Record<string, string> = { "data-theme": polarity() };
+    if (accentApplies()) attrs["data-accent"] = accent();
     for (const [name, value] of Object.entries(attrs)) root.setAttribute(name, value);
+    if (!accentApplies()) root.removeAttribute("data-accent");
     const resolved = this.resolvedTokens();
     const vars: Record<string, string> = {};
     for (const [key, value] of Object.entries(resolved)) {
@@ -175,21 +176,41 @@ export const themeStore = {
     this.applyToRoot();
   },
 
-  loadConfig(config: ThemeConfig, nextAppearance?: AppearanceConfig): void {
+  /**
+   * Applies a stored theme config. Overrides written before ADR-030 are keyed
+   * by the old group names; each one with a successor is translated, and one
+   * naming a token the new vocabulary dropped is discarded.
+   *
+   * Returns the translated map when it differs from what was stored, so the
+   * caller can write it back and the next load has nothing to do. Returns
+   * `null` when the stored map was already current.
+   */
+  loadConfig(config: ThemeConfig, nextAppearance?: AppearanceConfig): ThemeOverrides | null {
     if (config.preset && getPreset(config.preset)) {
       setPresetId(config.preset);
     } else {
       setPresetId(DEFAULT_PRESET_ID);
     }
     if (nextAppearance) setAppearanceSignal({ ...nextAppearance });
+    const stored = config.overrides ?? {};
     const valid: ThemeOverrides = {};
-    for (const [k, v] of Object.entries(config.overrides ?? {})) {
-      if (typeof v !== "string" || !isValidColor(v)) continue;
-      if (RETIRED_OVERRIDE_GROUPS.has(k.split(".")[0])) continue;
-      valid[k] = v;
+    let changed = false;
+    for (const [key, value] of Object.entries(stored)) {
+      if (typeof value !== "string" || !isValidColor(value)) {
+        changed = true;
+        continue;
+      }
+      const current = migrateOverrideKey(key);
+      if (current === null) {
+        changed = true;
+        continue;
+      }
+      if (current !== key) changed = true;
+      valid[current] = value;
     }
     setOverridesSignal(valid);
     this.applyToRoot();
+    return changed ? valid : null;
   },
 
   toConfig(): ThemeConfig {

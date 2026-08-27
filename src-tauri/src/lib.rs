@@ -22,12 +22,7 @@ use tracing::info;
 use writ_core::startup::{StartupFailure, StartupStage};
 
 #[cfg(target_os = "macos")]
-const MENU_ACTION_IDS: &[&str] = &[
-    "app.check_updates",
-    "file.open",
-    "buffer.new",
-    "buffer.close",
-];
+const MENU_ACTION_IDS: &[&str] = &["app.check_updates", "file.open", "note.new", "buffer.close"];
 
 #[cfg(target_os = "macos")]
 fn menu_action_for_id(id: &str) -> Option<&'static str> {
@@ -56,11 +51,11 @@ fn dropped_paths_to_open(
 /// Builds the native macOS menu bar.
 ///
 /// macOS-only by design: it hosts the system menu bar that macOS apps are
-/// expected to provide, and its `CmdOrCtrl+O/T/W` accelerators are correct
+/// expected to provide, and its `CmdOrCtrl+O/N/W` accelerators are correct
 /// there. On Windows/Linux the window runs with `decorations: false`, so this
 /// menu would be invisible chrome while its accelerators collide with the
 /// platform translator. Every action it exposes (`app.check_updates`,
-/// `file.open`, `buffer.new`, `buffer.close`) is also registered as a command
+/// `file.open`, `note.new`, `buffer.close`) is also registered as a command
 /// palette entry and keyboard shortcut in the frontend, so gating it off those
 /// platforms removes dead chrome without removing any reachable action.
 #[cfg(target_os = "macos")]
@@ -84,8 +79,8 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let open_file = MenuItemBuilder::with_id("file.open", "Open File…")
         .accelerator("CmdOrCtrl+O")
         .build(app)?;
-    let new_tab = MenuItemBuilder::with_id("buffer.new", "New Tab")
-        .accelerator("CmdOrCtrl+T")
+    let new_note = MenuItemBuilder::with_id("note.new", "New Note")
+        .accelerator("CmdOrCtrl+N")
         .build(app)?;
     let close_tab = MenuItemBuilder::with_id("buffer.close", "Close Tab")
         .accelerator("CmdOrCtrl+W")
@@ -94,7 +89,7 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let file_menu = SubmenuBuilder::new(app, "File")
         .items(&[
             &open_file,
-            &new_tab,
+            &new_note,
             &PredefinedMenuItem::separator(app)?,
             &close_tab,
         ])

@@ -11,7 +11,7 @@ import { formatKeybinding } from "../../lib/keybinding-format";
  */
 const MENU_COMMAND_IDS = [
   "file.open",
-  "buffer.new",
+  "note.new",
   "buffer.close",
   "palette.open",
   "app.check_updates",

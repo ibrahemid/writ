@@ -56,6 +56,42 @@ describe("themeStore", () => {
     expect(themeStore.resolvedTokens()["accent.default"]).toBe(ACCENTS.gold.light.base);
   });
 
+  it("the accent setting reaches a paired preset", () => {
+    themeStore.setAppearance({ polarity: "dark", accent: "gold", prose_face: "system" });
+    for (const id of ["writ-dark", "warp-dark"]) {
+      themeStore.setPreset(id);
+      expect(themeStore.accentApplies(), id).toBe(true);
+      expect(themeStore.resolvedTokens()["accent.default"], id).toBe(ACCENTS.gold.dark.base);
+      expect(themeStore.resolvedTokens()["accent.hover"], id).toBe(ACCENTS.gold.dark.hover);
+      expect(themeStore.resolvedTokens()["accent.foreground"], id).toBe(
+        ACCENTS.gold.dark.foreground,
+      );
+    }
+  });
+
+  it("a preset that carries its own palette keeps its own accent", () => {
+    themeStore.setAppearance({ polarity: "dark", accent: "gold", prose_face: "system" });
+    themeStore.setPreset("dracula");
+    expect(themeStore.accentApplies()).toBe(false);
+    expect(themeStore.resolvedTokens()["accent.default"]).toBe("#bd93f9");
+    themeStore.setPreset("tokyo-night");
+    expect(themeStore.accentApplies()).toBe(false);
+    expect(themeStore.resolvedTokens()["accent.default"]).toBe("#7aa2f7");
+  });
+
+  it("data-accent is only on the root while the setting paints the highlight", () => {
+    const root = fakeRoot();
+    themeStore.setAppearance({ polarity: "dark", accent: "plum", prose_face: "system" });
+    themeStore.setPreset("writ-dark");
+    themeStore.applyToRoot(root);
+    expect(root.getAttribute("data-accent")).toBe("plum");
+    // Left behind, the attribute would select the accent block in the
+    // generated sheet and repaint a terminal preset's highlight.
+    themeStore.setPreset("tokyo-night");
+    themeStore.applyToRoot(root);
+    expect(root.getAttribute("data-accent")).toBeNull();
+  });
+
   it("a user override beats the accent choice", () => {
     themeStore.setAppearance({ polarity: "dark", accent: "gold", prose_face: "system" });
     expect(themeStore.setOverride("accent.default", "#ff7b00")).toBe(true);
@@ -123,24 +159,65 @@ describe("themeStore", () => {
     expect(root.style.getPropertyValue("--writ-font-prose")).toBe("");
   });
 
-  it("loadConfig drops overrides keyed by the retired group names", () => {
-    // ADR-030 Consequences: the schema change invalidates them, so they are
-    // dropped rather than painted over the new palette.
-    themeStore.loadConfig(
+  it("loadConfig translates an override written in the old vocabulary", () => {
+    // ADR-030 renamed the token groups. A stored override that still has a
+    // successor is moved onto its new key rather than thrown away, and the
+    // translated map comes back so the caller can persist it.
+    const migrated = themeStore.loadConfig(
       {
         preset: "dracula",
         overrides: {
-          "accent.default": "#ff7b00",
           "surface.background": "#123456",
-          "foreground.default": "not-a-color",
+          "foreground.subtle": "#abcdef",
+          "accent.default": "#ff7b00",
+          "syntax.keyword": "#0f0f0f",
         },
       },
       { polarity: "dark", accent: "pine", prose_face: "system" },
     );
     expect(themeStore.presetId()).toBe("dracula");
-    expect(themeStore.overrides()).toEqual({});
-    expect(themeStore.resolvedTokens()["surface.background"]).toBe("#282a36");
-    expect(themeStore.resolvedTokens()["foreground.default"]).toBe("#f8f8f2");
+    expect(migrated).toEqual({
+      "bg.canvas": "#123456",
+      "fg.faint": "#abcdef",
+      accent: "#ff7b00",
+      "syntax.keyword": "#0f0f0f",
+    });
+    expect(themeStore.overrides()).toEqual(migrated);
+
+    const root = fakeRoot();
+    themeStore.applyToRoot(root);
+    expect(root.style.getPropertyValue("--writ-bg-canvas")).toBe("#123456");
+    expect(root.style.getPropertyValue("--writ-fg-faint")).toBe("#abcdef");
+    expect(root.style.getPropertyValue("--writ-accent")).toBe("#ff7b00");
+    expect(root.style.getPropertyValue("--writ-syntax-keyword")).toBe("#0f0f0f");
+  });
+
+  it("loadConfig drops an override naming a token the new vocabulary lost", () => {
+    const migrated = themeStore.loadConfig(
+      {
+        preset: "dracula",
+        overrides: {
+          // border.focus is the accent now and border.pill is the border, so
+          // neither has a key of its own to move to.
+          "border.focus": "#ff0000",
+          "border.pill": "#00ff00",
+          "foreground.default": "not-a-color",
+          "bg.sidebar": "#101010",
+        },
+      },
+      { polarity: "dark", accent: "pine", prose_face: "system" },
+    );
+    expect(migrated).toEqual({ "bg.sidebar": "#101010" });
+    expect(themeStore.overrides()).toEqual({ "bg.sidebar": "#101010" });
+  });
+
+  it("loadConfig reports nothing to write back for an already-current map", () => {
+    const migrated = themeStore.loadConfig(
+      { preset: "dracula", overrides: { "bg.canvas": "#123456" } },
+      { polarity: "dark", accent: "pine", prose_face: "system" },
+    );
+    expect(migrated).toBeNull();
+    expect(themeStore.overrides()).toEqual({ "bg.canvas": "#123456" });
   });
 
   it("loadConfig falls back to default preset on unknown id", () => {

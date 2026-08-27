@@ -40,6 +40,16 @@ export function pairedPreset(id: string, want: "light" | "dark"): string {
   return PRESET_PAIRS[id]?.[want] ?? id;
 }
 
+/**
+ * Whether the accent setting reaches this preset. The paired presets are the
+ * neutral ones: they carry no hue of their own, so the accent is free to be a
+ * separate axis. A terminal preset is a whole palette, accent included, and
+ * repainting its highlight with pine would leave something that is neither.
+ */
+export function takesAccentSetting(id: string): boolean {
+  return id in PRESET_PAIRS;
+}
+
 export function getPreset(id: string): Theme | undefined {
   return presets.find((p) => p.id === id);
 }

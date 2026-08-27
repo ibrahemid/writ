@@ -481,3 +481,8 @@
 .settings-ai-connection-status[data-tone="error"] {
   color: var(--writ-status-error);
 }
+
+.settings-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
