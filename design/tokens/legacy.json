@@ -48,6 +48,10 @@
       "$value": "\"Inter\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"SF Arabic\", \"Geeza Pro\", \"Noto Naskh Arabic\", system-ui, sans-serif",
       "$description": "Inter is still bundled until the prose-face work lands, so the alias keeps the stack it had."
     },
+    "font-mono": {
+      "$value": "\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", \"Cascadia Code\", \"SF Arabic\", \"Geeza Pro\", \"Noto Naskh Arabic\", ui-monospace, monospace",
+      "$description": "Re-declared, not aliased: the name survives into the new vocabulary. The unit that migrates the mono surfaces drops this entry and lets the generated stack through."
+    },
     "font-size": {
       "$value": "14px"
     },

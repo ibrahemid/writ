@@ -36,6 +36,7 @@ const GENERATED = declarations(THEME_CSS);
 // not a colour the theme store overwrites from the active preset.
 const FROZEN = [
   "--writ-font-sans",
+  "--writ-font-mono",
   "--writ-font-size",
   "--writ-font-size-sm",
   "--writ-font-size-xs",
@@ -93,11 +94,17 @@ describe("token pipeline acceptance", () => {
     expect(missing, `dropped: ${missing.join(", ")}`).toEqual([]);
   });
 
-  it("the re-declared elevation names outrank the dark layer", () => {
-    // Same specificity as :root[data-theme="dark"], and the legacy sheet is
-    // imported after the generated one, so source order settles it.
+  it("the re-declared names outrank the dark and platform layers", () => {
+    // Same specificity as :root[data-theme="dark"] and :root[data-platform="win"],
+    // and the legacy sheet is imported after the generated one, so source order
+    // settles it.
     expect(LEGACY_CSS).toContain(":root,\n:root[data-theme] {");
-    for (const name of ["--writ-shadow-modal", "--writ-shadow-popover", "--writ-shadow-chip"]) {
+    for (const name of [
+      "--writ-shadow-modal",
+      "--writ-shadow-popover",
+      "--writ-shadow-chip",
+      "--writ-font-mono",
+    ]) {
       expect(GENERATED.has(name), `${name} should exist in both layers`).toBe(true);
       expect(LEGACY.has(name), `${name} should be re-declared`).toBe(true);
     }
