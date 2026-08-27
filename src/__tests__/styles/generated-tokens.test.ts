@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { COLORS } from "../../styles/generated/tokens";
+import { COLORS, LEGACY_FROZEN } from "../../styles/generated/tokens";
 
 const ROOT = process.cwd();
 
@@ -14,6 +14,7 @@ const GENERATED = [
 ];
 
 const THEME_CSS = readFileSync(resolve(ROOT, "src/styles/generated/theme.css"), "utf8");
+const LEGACY_CSS = readFileSync(resolve(ROOT, "src/styles/generated/legacy-aliases.css"), "utf8");
 
 const ACCENT_IDS = ["pine", "writ-blue", "terracotta", "slate", "plum", "gold"];
 
@@ -238,6 +239,20 @@ describe("generated token outputs", () => {
       expect(COLORS.light[key], `light ${name}`).toBe(ROOT_DECLS.get(name));
       expect(COLORS.dark[key], `dark ${name}`).toBe(DARK_DECLS.get(name));
     }
+  });
+});
+
+describe("legacy re-declarations", () => {
+  function declaredNames(css: string): Set<string> {
+    return new Set(
+      [...css.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]),
+    );
+  }
+
+  it("LEGACY_FROZEN lists exactly the names both generated sheets declare", () => {
+    const inTheme = declaredNames(THEME_CSS);
+    const overlap = [...declaredNames(LEGACY_CSS)].filter((name) => inTheme.has(name)).sort();
+    expect([...LEGACY_FROZEN].sort()).toEqual(overlap);
   });
 });
 

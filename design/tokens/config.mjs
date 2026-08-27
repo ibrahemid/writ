@@ -95,6 +95,22 @@ function objectKey(key) {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : quote(key);
 }
 
+// The groups css/writ-theme emits, in any of its blocks. Used both to build the
+// sheet and to work out which names the legacy layer re-declares.
+const THEME_GROUPS = ["base", "status", "syntax", "traffic", "winctrl", "color", "accent", "platform"];
+
+function themeCssNames(all) {
+  return new Set(THEME_GROUPS.flatMap((group) => under(all, group)).map((t) => cssName(t, "--writ-")));
+}
+
+/** Names declared by both generated sheets; the legacy declaration is what renders. */
+function legacyFrozenNames(all) {
+  const inTheme = themeCssNames(all);
+  return [...new Set(under(all, "legacy").map((t) => cssName(t, "--writ-")))]
+    .filter((name) => inTheme.has(name))
+    .sort();
+}
+
 const ACCENT_IDS = ["pine", "writ-blue", "terracotta", "slate", "plum", "gold"];
 const DEFAULT_ACCENT = "pine";
 const PLATFORM_IDS = ["mac", "win", "linux"];
@@ -544,6 +560,19 @@ export const CSS_VAR = {
   rMedia: "--writ-r-media",
   motion: "--writ-motion",
 } as const;
+
+/**
+ * Names the legacy layer re-declares at their pre-ADR-030 values. For these,
+ * what the app renders is the frozen value, not the one exported above: a
+ * COLORS, SHADOWS, SIDEBAR or TYPE entry whose name appears here does not
+ * describe the current paint until the unit that owns those consumers migrates
+ * them and drops the alias. Empty once the legacy layer is gone.
+ */
+export const LEGACY_FROZEN: readonly string[] = [
+${legacyFrozenNames(dictionary.allTokens)
+  .map((name) => `  ${quote(name)},`)
+  .join("\n")}
+];
 
 /** \`var(--name)\`, or \`var(--name, fallback)\`. */
 export function cssVar(name: string, fallback?: string): string {

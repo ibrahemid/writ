@@ -1,48 +1,56 @@
 {
   "legacy": {
     "$type": "other",
-    "$description": "Every pre-ADR-030 custom property. Colour names map onto their new source (the theme store overwrites them from the active preset anyway); every other name is frozen at the value origin/main declared, so an unmigrated stylesheet renders exactly as it did. Each unit drops the aliases its files stop using; the last one deletes this file.",
+    "$description": "Every pre-ADR-030 custom property, frozen at the value origin/main declared, so an unmigrated stylesheet renders exactly as it did with no script and no root attribute. Each unit drops the aliases its files stop using; the last one deletes this file.",
     "surface-background": {
-      "$value": "var(--writ-bg-canvas)"
+      "$value": "#0e0e14"
     },
     "surface-sunken": {
-      "$value": "var(--writ-bg-sidebar)"
+      "$value": "#0a0a10"
     },
     "surface-raised": {
-      "$value": "var(--writ-bg-raised)"
+      "$value": "#12121a"
     },
     "surface-elevated": {
-      "$value": "var(--writ-bg-selected)"
+      "$value": "#1a1a2e"
     },
     "surface-input": {
-      "$value": "var(--writ-bg-sunken)"
+      "$value": "#16161e"
     },
     "surface-hover": {
-      "$value": "var(--writ-bg-hover)"
+      "$value": "#1e1e2e"
     },
     "foreground-default": {
-      "$value": "var(--writ-fg)"
+      "$value": "#e0e0e0"
     },
     "foreground-muted": {
-      "$value": "var(--writ-fg-muted)"
+      "$value": "#888899"
     },
     "foreground-subtle": {
-      "$value": "var(--writ-fg-faint)"
+      "$value": "#6d6d7b"
     },
     "border-default": {
-      "$value": "var(--writ-border)"
+      "$value": "#1e1e2e"
+    },
+    "border-soft": {
+      "$value": "#16161f",
+      "$description": "Re-declared, not aliased: the name survives into the new vocabulary. The unit that migrates its consumers drops this entry."
     },
     "border-focus": {
-      "$value": "var(--writ-accent)"
+      "$value": "#7aa2f7"
     },
     "border-pill": {
-      "$value": "var(--writ-border)"
+      "$value": "#232334"
     },
     "accent-default": {
-      "$value": "var(--writ-accent)"
+      "$value": "#7aa2f7"
+    },
+    "accent-hover": {
+      "$value": "#89b4fa",
+      "$description": "Re-declared, not aliased: the name survives into the new vocabulary. The unit that migrates its consumers drops this entry."
     },
     "accent-foreground": {
-      "$value": "var(--writ-accent-fg)"
+      "$value": "#0a0a10"
     },
     "font-sans": {
       "$value": "\"Inter\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"SF Arabic\", \"Geeza Pro\", \"Noto Naskh Arabic\", system-ui, sans-serif",

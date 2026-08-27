@@ -2,20 +2,22 @@
 
 :root,
 :root[data-theme] {
-  --writ-surface-background: var(--writ-bg-canvas);
-  --writ-surface-sunken: var(--writ-bg-sidebar);
-  --writ-surface-raised: var(--writ-bg-raised);
-  --writ-surface-elevated: var(--writ-bg-selected);
-  --writ-surface-input: var(--writ-bg-sunken);
-  --writ-surface-hover: var(--writ-bg-hover);
-  --writ-foreground-default: var(--writ-fg);
-  --writ-foreground-muted: var(--writ-fg-muted);
-  --writ-foreground-subtle: var(--writ-fg-faint);
-  --writ-border-default: var(--writ-border);
-  --writ-border-focus: var(--writ-accent);
-  --writ-border-pill: var(--writ-border);
-  --writ-accent-default: var(--writ-accent);
-  --writ-accent-foreground: var(--writ-accent-fg);
+  --writ-surface-background: #0e0e14;
+  --writ-surface-sunken: #0a0a10;
+  --writ-surface-raised: #12121a;
+  --writ-surface-elevated: #1a1a2e;
+  --writ-surface-input: #16161e;
+  --writ-surface-hover: #1e1e2e;
+  --writ-foreground-default: #e0e0e0;
+  --writ-foreground-muted: #888899;
+  --writ-foreground-subtle: #6d6d7b;
+  --writ-border-default: #1e1e2e;
+  --writ-border-soft: #16161f;
+  --writ-border-focus: #7aa2f7;
+  --writ-border-pill: #232334;
+  --writ-accent-default: #7aa2f7;
+  --writ-accent-hover: #89b4fa;
+  --writ-accent-foreground: #0a0a10;
   --writ-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", system-ui, sans-serif;
   --writ-font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", ui-monospace, monospace;
   --writ-font-size: 14px;

@@ -77,6 +77,7 @@ jobs:
         run: |
           pnpm tokens:build
           git diff --exit-code -- src/styles/generated src-tauri/assets/generated site/design-system/generated
+          test -z "$(git status --porcelain -- src/styles/generated src-tauri/assets/generated site/design-system/generated)"
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2

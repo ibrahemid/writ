@@ -32,9 +32,26 @@ function declarations(css: string): Map<string, string> {
 const LEGACY = declarations(LEGACY_CSS);
 const GENERATED = declarations(THEME_CSS);
 
-// The names the legacy layer freezes: everything the old sheet declared that is
-// not a colour the theme store overwrites from the active preset.
+// Every name the legacy layer freezes at origin/main's value. The colour tiers
+// are here too: the theme store overwrites them inline from the active preset,
+// but with no script and no attribute the static fallback has to paint 0.3.5.
 const FROZEN = [
+  "--writ-surface-background",
+  "--writ-surface-sunken",
+  "--writ-surface-raised",
+  "--writ-surface-elevated",
+  "--writ-surface-input",
+  "--writ-surface-hover",
+  "--writ-foreground-default",
+  "--writ-foreground-muted",
+  "--writ-foreground-subtle",
+  "--writ-border-default",
+  "--writ-border-soft",
+  "--writ-border-focus",
+  "--writ-border-pill",
+  "--writ-accent-default",
+  "--writ-accent-hover",
+  "--writ-accent-foreground",
   "--writ-font-sans",
   "--writ-font-mono",
   "--writ-font-size",
