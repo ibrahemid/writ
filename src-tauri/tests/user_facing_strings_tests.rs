@@ -381,9 +381,11 @@ fn is_word_byte(byte: u8) -> bool {
 }
 
 /// Every spelling of a banned word this guard answers to. A hyphen reads as a
-/// space, so `syntax-highlighting` is the same violation as the phrase.
+/// space, so `syntax-highlighting` is the same violation as the phrase, and a
+/// word ending in `e` inflects off its stem, so "refusing" and "debouncing"
+/// count as much as "refused" and "debounced".
 fn word_forms(word: &str) -> Vec<String> {
-    let mut forms = vec![word.to_lowercase()];
+    let mut bases = vec![word.to_lowercase()];
     if word.eq_ignore_ascii_case("typography") {
         for extra in [
             "typographies",
@@ -391,17 +393,33 @@ fn word_forms(word: &str) -> Vec<String> {
             "typographical",
             "typographically",
         ] {
-            forms.push(extra.to_string());
+            bases.push(extra.to_string());
+        }
+    }
+
+    let mut forms = Vec::new();
+    for base in &bases {
+        let (head, last) = match base.rfind(' ') {
+            Some(at) => (&base[..=at], &base[at + 1..]),
+            None => ("", base.as_str()),
+        };
+        if let Some(stem) = last.strip_suffix('e') {
+            for suffix in ["e", "es", "ed", "ing"] {
+                forms.push(format!("{head}{stem}{suffix}"));
+            }
+        } else {
+            for suffix in ["", "s", "es", "ed", "ing", "d"] {
+                forms.push(format!("{head}{last}{suffix}"));
+            }
         }
     }
     forms
 }
 
-/// A case-insensitive whole-word match that also accepts an inflection:
-/// "Search buffers…" and "refused" are the same violations as "buffer" and
-/// "refuse".
+/// A case-insensitive whole-word match against every form of the word:
+/// "Search buffers…", "refusing" and "syntax-highlighting" are the same
+/// violations as "buffer", "refuse" and "syntax highlighting".
 fn contains_banned_word(text: &str, word: &str) -> bool {
-    const SUFFIXES: &[&str] = &["ing", "es", "ed", "s", "d", ""];
     let hay: String = text
         .to_lowercase()
         .chars()
@@ -418,17 +436,9 @@ fn contains_banned_word(text: &str, word: &str) -> bool {
             let start = from + rel;
             let end = start + needle.len();
             let before_ok = start == 0 || !is_word_byte(bytes[start - 1]);
-            if before_ok {
-                for suffix in SUFFIXES {
-                    let stop = end + suffix.len();
-                    if stop <= hay.len()
-                        && hay.is_char_boundary(stop)
-                        && &hay[end..stop] == *suffix
-                        && (stop == hay.len() || !is_word_byte(bytes[stop]))
-                    {
-                        return true;
-                    }
-                }
+            let after_ok = end == hay.len() || !is_word_byte(bytes[end]);
+            if before_ok && after_ok {
+                return true;
             }
             from = start + 1;
         }

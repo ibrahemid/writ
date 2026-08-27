@@ -39,17 +39,21 @@ const EXTRA_FORMS: Record<string, string[]> = {
 /**
  * Every spelling of a banned word this guard answers to: the inflections
  * ("buffers", "refused", "revealing") and the hyphenated form of a phrase
- * ("syntax-highlighting" is the same violation as "syntax highlighting").
+ * ("syntax-highlighting" is the same violation as "syntax highlighting"). A
+ * word ending in `e` inflects off its stem, so "refusing" and "debouncing"
+ * count too.
  */
 function patternFor(word: string): RegExp {
   const forms = [word, ...(EXTRA_FORMS[word] ?? [])];
-  const alternatives = forms.map((form) =>
-    form
-      .split(" ")
-      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-      .join("[\\s-]+"),
-  );
-  return new RegExp(`\\b(?:${alternatives.join("|")})(?:s|es|ed|ing|d)?\\b`, "i");
+  const alternatives = forms.map((form) => {
+    const parts = form.split(" ").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const last = parts[parts.length - 1];
+    parts[parts.length - 1] = last.endsWith("e")
+      ? `${last.slice(0, -1)}(?:e|es|ed|ing)`
+      : `${last}(?:s|es|ed|ing|d)?`;
+    return parts.join("[\\s-]+");
+  });
+  return new RegExp(`\\b(?:${alternatives.join("|")})\\b`, "i");
 }
 
 const WORD_RE = new Map(BANNED.map((word) => [word, patternFor(word)] as const));
