@@ -18,6 +18,10 @@
 //! - [`fts`]: FTS5 indexing and search over buffer content.
 //! - [`maintenance`]: WAL checkpointing and freelist reclamation.
 //! - [`recovery`]: session snapshots and dirty-shutdown detection.
+//! - [`rollback`]: the copy of the database taken before the notes
+//!   migration writes anything.
+//! - [`schema_meta`]: key/value rows recording what a one-time schema pass
+//!   did.
 //! - [`errors`]: crate-wide [`errors::StorageError`] /
 //!   [`errors::StorageResult`].
 
@@ -47,6 +51,10 @@ pub mod layout_state;
 pub mod maintenance;
 /// Session snapshots and dirty-shutdown detection.
 pub mod recovery;
+/// The copy of the database taken before the notes migration (ADR-028).
+pub mod rollback;
+/// Key/value rows recording what a one-time schema pass did.
+pub mod schema_meta;
 /// On-demand content grep over the workspace folder (ADR-026).
 pub mod workspace_grep;
 /// Workspace file-name index walk and the shared search ignore policy.

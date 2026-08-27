@@ -47,6 +47,51 @@ pub enum StorageError {
         message: String,
     },
 
+    /// A `schema_meta` row holds a value that is not the shape its key
+    /// requires, so the bookkeeping it carries cannot be trusted.
+    #[error("the recorded value for {key} is not a number: {value}")]
+    SchemaMetaValue {
+        /// The `schema_meta` key whose row was read.
+        key: String,
+        /// The value the row holds.
+        value: String,
+    },
+
+    /// A path could not be recorded in `schema_meta` because it is not valid
+    /// UTF-8 and would not survive the round trip back to a path.
+    #[error("the path {} cannot be recorded as text", path.display())]
+    UnrecordablePath {
+        /// The path that could not be recorded.
+        path: std::path::PathBuf,
+    },
+
+    /// The copy of the database taken before the notes migration could not be
+    /// written.
+    #[error("the database could not be copied to {}", path.display())]
+    RollbackCopyWrite {
+        /// Where the copy was being written.
+        path: std::path::PathBuf,
+        /// The underlying failure.
+        #[source]
+        cause: rusqlite::Error,
+    },
+
+    /// A copy of the database was asked for on a connection that is inside a
+    /// transaction, which cannot produce one.
+    #[error("the database cannot be copied while a transaction is open")]
+    RollbackCopyInTransaction,
+
+    /// The copy of the database taken before the notes migration could not be
+    /// deleted once it aged out.
+    #[error("the copy of the database at {} could not be deleted", path.display())]
+    RollbackCopyRemove {
+        /// The copy that could not be deleted.
+        path: std::path::PathBuf,
+        /// The underlying failure.
+        #[source]
+        cause: std::io::Error,
+    },
+
     /// The on-disk database was written by a newer build of Writ whose
     /// schema this binary does not understand.
     ///

@@ -10,6 +10,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
         include_str!("../../migrations/020_buffer_open_mode.sql"),
     ),
     (30, include_str!("../../migrations/030_fts_prefix.sql")),
+    (40, include_str!("../../migrations/040_notes_migration.sql")),
 ];
 
 /// Highest migration version embedded in this binary.
