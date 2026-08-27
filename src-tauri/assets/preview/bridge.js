@@ -327,12 +327,13 @@
     } else if (d.type === "setTheme") {
       // Live app-theme switch: flip the reading palette in place. New renders
       // already ship the attribute baked into the served HTML; this covers the
-      // document already loaded when the user changes theme.
-      if (d.theme === "dark") {
-        doc.documentElement.setAttribute("data-writ-theme", "dark");
-      } else {
-        doc.documentElement.removeAttribute("data-writ-theme");
-      }
+      // document already loaded when the user changes theme. Both polarities
+      // are set explicitly: an HTML buffer served dark carries a :root
+      // re-declaration that removing the attribute would not undo.
+      doc.documentElement.setAttribute(
+        "data-writ-theme",
+        d.theme === "dark" ? "dark" : "light",
+      );
     } else if (d.type === "setZoom") {
       applyZoom(d.factor);
     }

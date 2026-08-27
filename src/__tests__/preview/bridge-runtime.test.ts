@@ -98,10 +98,19 @@ describe("preview bridge runtime", () => {
     expect(env.attrs["data-writ-theme"]).toBe("dark");
   });
 
-  it("clears the dark palette attribute when switched back to light", () => {
+  it("names the light palette on the attribute rather than clearing it", () => {
+    // An HTML buffer served dark carries a :root re-declaration; only an
+    // explicit light attribute outranks it.
+    env.sendDown({ type: "setTheme", theme: "light" } as unknown as Posted);
+    expect(env.attrs["data-writ-theme"]).toBe("light");
+  });
+
+  it("switches back and forth between the two palettes", () => {
     env.sendDown({ type: "setTheme", theme: "dark" } as unknown as Posted);
     env.sendDown({ type: "setTheme", theme: "light" } as unknown as Posted);
-    expect(env.attrs["data-writ-theme"]).toBeUndefined();
+    expect(env.attrs["data-writ-theme"]).toBe("light");
+    env.sendDown({ type: "setTheme", theme: "dark" } as unknown as Posted);
+    expect(env.attrs["data-writ-theme"]).toBe("dark");
   });
 
   it("posts the scroll fraction on a genuine user scroll", () => {

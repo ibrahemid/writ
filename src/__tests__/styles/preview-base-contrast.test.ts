@@ -47,8 +47,11 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+// Light is both the `:root` default and an attribute block: a live theme
+// switch selects the attribute, so that block is asserted too.
 const PALETTES: { name: string; selector: string }[] = [
   { name: "light", selector: ":root" },
+  { name: "light (attribute)", selector: '[data-writ-theme="light"]' },
   { name: "dark", selector: '[data-writ-theme="dark"]' },
 ];
 
@@ -81,8 +84,9 @@ describe("preview-tokens.css contrast (WCAG AA)", () => {
     });
   }
 
-  it("defines both a light (:root) and a dark ([data-writ-theme=dark]) palette", () => {
+  it("defines a light :root default and an attribute block per polarity", () => {
     expect(css).toMatch(/:root\s*\{/);
+    expect(css).toMatch(/\[data-writ-theme="light"\]\s*\{/);
     expect(css).toMatch(/\[data-writ-theme="dark"\]\s*\{/);
   });
 });

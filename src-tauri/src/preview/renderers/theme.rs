@@ -29,7 +29,8 @@ use writ_core::preview::ThemePolarity;
 pub const PREVIEW_BASE_CSS: &str = include_str!("../../../assets/preview-base.css");
 
 /// The generated `--writ-preview-*` token layer the rules read, compiled into
-/// the binary. Light on `:root`, dark under `[data-writ-theme="dark"]`.
+/// the binary. Light on `:root`, and each polarity again under its own
+/// `[data-writ-theme]` block so a live switch can select either one.
 pub const PREVIEW_TOKENS_CSS: &str = include_str!("../../../assets/generated/preview-tokens.css");
 
 /// The base theme as an inline `<style>` element: tokens first, then the rules
@@ -40,23 +41,39 @@ pub fn style_tag() -> String {
 
 /// The base theme for a document that keeps its own `<html>` tag (an HTML
 /// buffer), where the polarity cannot be carried as an attribute on the root.
-/// The dark palette is re-declared on `:root` after the token layer so it wins
-/// without touching the author's markup; light is the layer's default.
+/// The dark palette is re-declared on `:root`, spliced in directly after the
+/// layer's own `:root` block: it has to outrank the light default without
+/// outranking the two `[data-writ-theme]` blocks, because the bridge flips an
+/// already-loaded document by setting that attribute. Light is the default and
+/// needs no splice.
 pub fn style_tag_for(polarity: ThemePolarity) -> String {
     match polarity {
         ThemePolarity::Light => style_tag(),
-        ThemePolarity::Dark => match dark_palette_block() {
-            Some(block) => {
-                format!("<style>{PREVIEW_TOKENS_CSS}\n:root{block}\n{PREVIEW_BASE_CSS}</style>")
-            }
-            None => style_tag(),
+        ThemePolarity::Dark => match (dark_palette_block(), root_block_end()) {
+            (Some(block), Some(at)) => format!(
+                "<style>{head}\n:root{block}{tail}\n{PREVIEW_BASE_CSS}</style>",
+                head = &PREVIEW_TOKENS_CSS[..at],
+                tail = &PREVIEW_TOKENS_CSS[at..],
+            ),
+            _ => style_tag(),
         },
     }
 }
 
 /// The `{ ... }` body of the `[data-writ-theme="dark"]` rule in the token layer.
 fn dark_palette_block() -> Option<&'static str> {
-    let start = PREVIEW_TOKENS_CSS.find("[data-writ-theme=\"dark\"] {")?;
+    block_body(PREVIEW_TOKENS_CSS.find("[data-writ-theme=\"dark\"] {")?)
+}
+
+/// One past the closing brace of the token layer's `:root` block.
+fn root_block_end() -> Option<usize> {
+    let start = PREVIEW_TOKENS_CSS.find(":root {")?;
+    let open = PREVIEW_TOKENS_CSS[start..].find('{')? + start;
+    Some(PREVIEW_TOKENS_CSS[open..].find('}')? + open + 1)
+}
+
+/// The `{ ... }` span of the rule that starts at `start`, braces included.
+fn block_body(start: usize) -> Option<&'static str> {
     let rest = &PREVIEW_TOKENS_CSS[start..];
     let open = rest.find('{')?;
     let close = rest[open..].find('}')? + open;
@@ -272,9 +289,45 @@ mod tests {
     #[test]
     fn dark_style_tag_redeclares_the_dark_palette_on_root() {
         let tag = style_tag_for(ThemePolarity::Dark);
-        let at = tag.rfind(":root{").expect("a :root override is appended");
+        let at = tag.find(":root{").expect("a :root override is spliced in");
         assert!(tag[at..].contains("--writ-preview-bg: #0e0e14"));
-        assert!(at > tag.find("[data-writ-theme=\"dark\"] {").unwrap());
+        // After the light default it overrides, before both attribute blocks
+        // so a live switch still wins.
+        assert!(at > tag.find(":root {").unwrap());
+        assert!(at < tag.find("[data-writ-theme=\"light\"] {").unwrap());
+        assert!(at < tag.find("[data-writ-theme=\"dark\"] {").unwrap());
+    }
+
+    #[test]
+    fn an_html_buffer_served_dark_follows_a_live_switch_to_light() {
+        // The bridge flips an already-loaded document by setting
+        // data-writ-theme; the `:root` splice must not outrank that.
+        let css = style_block(&style_tag_for(ThemePolarity::Dark));
+        assert_eq!(
+            palette(&css, &[":root", "[data-writ-theme=\"light\"]"]),
+            palette(ORIGIN_PALETTE, &[":root", "[data-writ-theme=\"light\"]"]),
+        );
+        assert_eq!(
+            palette(&css, &[":root", "[data-writ-theme=\"dark\"]"]),
+            palette(ORIGIN_PALETTE, &[":root"]),
+        );
+    }
+
+    #[test]
+    fn a_wrapped_document_follows_a_live_switch_in_both_directions() {
+        for polarity in [ThemePolarity::Dark, ThemePolarity::Light] {
+            let css = style_block(&wrap_document_with("", "<p>x</p>", "", polarity, 1.0));
+            assert_eq!(
+                palette(&css, &[":root", "[data-writ-theme=\"light\"]"]),
+                palette(ORIGIN_PALETTE, &[":root", "[data-writ-theme=\"light\"]"]),
+                "{polarity:?} switched to light"
+            );
+            assert_eq!(
+                palette(&css, &[":root", "[data-writ-theme=\"dark\"]"]),
+                palette(ORIGIN_PALETTE, &[":root"]),
+                "{polarity:?} switched to dark"
+            );
+        }
     }
 
     #[test]

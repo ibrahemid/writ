@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { readFileSync, readdirSync } from "node:fs";
+import { resolve } from "node:path";
 import { flattenTheme, themeStore } from "../../stores/global/theme";
+import { TOKEN_GROUPS } from "../../types/theme";
 import type { Theme } from "../../types/theme";
 
 function fakeRoot(): HTMLElement {
@@ -155,21 +158,57 @@ describe("preset integrity", () => {
     }
   });
 
-  // Every resolved token is a single hex colour, with no carve-out: a value
-  // the flattener cannot turn into a CSS declaration does not belong in a
-  // preset. Groups whose leaves are not colours live in design/tokens.
-  it("every preset color parses as valid hex", () => {
-    const hex = /^#[0-9a-fA-F]{3,8}$/;
-    for (const preset of themeStore.presets()) {
-      themeStore.setPreset(preset.id);
-      for (const [key, value] of Object.entries(themeStore.resolvedTokens())) {
-        expect(
-          typeof value === "string" && hex.test(value),
-          `${preset.id}.${key} = ${String(value)}`,
-        ).toBe(true);
-      }
-    }
+});
+
+// Asserted against the files, not against the store: the flattener now drops a
+// non-string leaf and a `site` group, so reading a preset through it would hide
+// exactly the shape this contract exists to forbid.
+describe("preset files", () => {
+  const DIR = resolve(process.cwd(), "src/styles/themes");
+  const FILES = readdirSync(DIR).filter((name) => name.endsWith(".json"));
+  const HEX = /^#[0-9a-fA-F]{3,8}$/;
+
+  function preset(file: string): Record<string, unknown> {
+    return JSON.parse(readFileSync(resolve(DIR, file), "utf8")) as Record<string, unknown>;
+  }
+
+  it("finds every registered preset on disk", () => {
+    expect(FILES.length).toBe(themeStore.presets().length);
   });
+
+  for (const file of FILES) {
+    describe(file, () => {
+      const json = preset(file);
+
+      it("declares the token groups and nothing else", () => {
+        expect(Object.keys(json).sort()).toEqual(
+          ["id", "name", "polarity", ...TOKEN_GROUPS].sort(),
+        );
+      });
+
+      it("names itself and its polarity", () => {
+        expect(typeof json.id === "string" && json.id.length > 0).toBe(true);
+        expect(typeof json.name === "string" && (json.name as string).length > 0).toBe(true);
+        expect(json.polarity === "light" || json.polarity === "dark").toBe(true);
+      });
+
+      it("carries a flat group of hex colours per token group", () => {
+        for (const group of TOKEN_GROUPS) {
+          const tokens: unknown = json[group];
+          expect(
+            typeof tokens === "object" && tokens !== null && !Array.isArray(tokens),
+            `${group} is not a token group`,
+          ).toBe(true);
+          for (const [key, value] of Object.entries(tokens as Record<string, unknown>)) {
+            expect(
+              typeof value === "string" && HEX.test(value),
+              `${group}.${key} = ${JSON.stringify(value)}`,
+            ).toBe(true);
+          }
+        }
+      });
+    });
+  }
 });
 
 describe("flattening a preset into CSS variables", () => {

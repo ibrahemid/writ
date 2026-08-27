@@ -187,8 +187,12 @@ StyleDictionary.registerFormat({
   name: "css/writ-preview",
   format: ({ dictionary }) => {
     const all = dictionary.allTokens;
+    // Light is the default, and both polarities also get an attribute block:
+    // the bridge flips an already-loaded document by setting the attribute, so
+    // light has to be reachable that way and not only by its absence.
     return sheet([
       block(":root", under(all, "preview", "light")),
+      block('[data-writ-theme="light"]', under(all, "preview", "light")),
       block('[data-writ-theme="dark"]', under(all, "preview", "dark")),
     ]);
   },
