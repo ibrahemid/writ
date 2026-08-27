@@ -4,6 +4,10 @@ import { join, relative, resolve } from "node:path";
 
 import allowlistJson from "./banned-words.allowlist.json";
 
+// Known limits. A prop whose value is a const identifier rather than a literal
+// escapes the scan: only literals carry the word. The Rust half stops reading a
+// file at the first line-leading `#[cfg(test)]`.
+
 const REPO_ROOT = process.cwd();
 const SRC = resolve(REPO_ROOT, "src");
 const SETTINGS_INDEX_FILE = resolve(SRC, "settings", "index.ts");
@@ -74,11 +78,16 @@ const TEXT_KEYS = [
   "tooltip",
   "heading",
   "description",
+  "caption",
+  "subtitle",
+  "emptyText",
+  "ariaLabel",
 ];
 
 // Characters a JSX text child never contains. Ordinary punctuation (commas,
-// parentheses, colons, apostrophes) is text; these are expression syntax.
-const JSX_TEXT_REJECT = "{}\"`=;&|[]$/\\+*#@";
+// parentheses, colons, apostrophes, slashes) is text; these are expression
+// syntax.
+const JSX_TEXT_REJECT = "{}\"`=;&|[]$\\+*#@";
 
 interface AllowlistRecord {
   file: string;

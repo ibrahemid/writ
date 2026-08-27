@@ -9,6 +9,11 @@
 //! `src-tauri` carries no `regex` and no `walkdir`, and this guard is not a
 //! reason to add one: the walk is `std::fs::read_dir` recursion over declared
 //! roots and the match is a `str::find` with its own word boundaries.
+//!
+//! Known limits. A message assembled from a `const` or a variable escapes the
+//! scan, because only the literal is read and the literal is where the word
+//! would be. The scan of a file stops at the first line-leading
+//! `#[cfg(test)]`, so a declaration written after the test module is invisible.
 
 use std::path::{Path, PathBuf};
 
@@ -40,12 +45,13 @@ const BANNED: &[&str] = &[
 /// test, so a sibling crate is reached with `..`); the second is how the file
 /// is named in an allowlist record, relative to the workspace root.
 const SCANNED_ROOTS: &[(&str, &str)] = &[
-    ("src/commands", "src-tauri/src/commands"),
-    ("src/startup_failure.rs", "src-tauri/src/startup_failure.rs"),
+    ("src", "src-tauri/src"),
     ("../crates/writ-core/src", "crates/writ-core/src"),
     ("../crates/writ-storage/src", "crates/writ-storage/src"),
     ("../crates/writ-render/src", "crates/writ-render/src"),
     ("../crates/writ-cli/src", "crates/writ-cli/src"),
+    ("../crates/writ-plugin/src", "crates/writ-plugin/src"),
+    ("../crates/writ-lint/src", "crates/writ-lint/src"),
 ];
 
 /// Directories inside a scanned root that hold no user message.
@@ -241,14 +247,49 @@ fn is_ident_byte(byte: Option<u8>) -> bool {
     matches!(byte, Some(b) if b.is_ascii_alphanumeric() || b == b'_')
 }
 
+/// A string literal, with the line it opens on and whatever its line says
+/// before it. The prefix is what tells a message from a log argument.
+struct Literal {
+    line: usize,
+    value: String,
+    prefix: String,
+}
+
+impl Literal {
+    fn new(starts: &[usize], src: &str, open: usize, body_start: usize, body_end: usize) -> Self {
+        let line = line_of(starts, open);
+        Self {
+            line,
+            value: src[body_start..body_end].to_string(),
+            prefix: src[starts[line - 1]..open].to_string(),
+        }
+    }
+
+    /// `true` when the literal is an argument to a log macro, wherever on the
+    /// line the call sits: `Ok(n) => info!(n, "…")` is as much a log line as
+    /// one that opens the line.
+    fn is_log_argument(&self) -> bool {
+        const MACROS: &[&str] = &[
+            "tracing::",
+            "log::",
+            "trace!",
+            "debug!",
+            "info!",
+            "warn!",
+            "error!",
+        ];
+        MACROS.iter().any(|m| self.prefix.contains(m))
+    }
+}
+
 /// The body of every string literal in a Rust source, with its line. Comments,
 /// char literals and lifetimes are stepped over; escapes are left as written,
 /// which is enough for a word match.
-fn string_literals(src: &str) -> Vec<(usize, String)> {
+fn string_literals(src: &str) -> Vec<Literal> {
     let starts = line_starts(src);
     let bytes = src.as_bytes();
     let n = bytes.len();
-    let mut out = Vec::new();
+    let mut out: Vec<Literal> = Vec::new();
     let mut i = 0usize;
 
     while i < n {
@@ -297,7 +338,7 @@ fn string_literals(src: &str) -> Vec<(usize, String)> {
                     }
                     k += 1;
                 };
-                out.push((line_of(&starts, i), src[body_start..end].to_string()));
+                out.push(Literal::new(&starts, src, i, body_start, end));
                 i = (end + 1 + hashes).min(n);
                 continue;
             }
@@ -335,7 +376,7 @@ fn string_literals(src: &str) -> Vec<(usize, String)> {
                 j += 1;
             }
             let end = j.min(n);
-            out.push((line_of(&starts, i), src[body_start..end].to_string()));
+            out.push(Literal::new(&starts, src, i, body_start, end));
             i = (end + 1).min(n);
             continue;
         }
@@ -494,16 +535,16 @@ fn collect_offenders() -> Vec<(String, usize, &'static str)> {
             .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
         let src = without_test_module(&src);
         let skipped = skipped_lines(src);
-        for (line, value) in string_literals(src) {
-            if skipped.get(line - 1).copied().unwrap_or(false) {
+        for literal in string_literals(src) {
+            if skipped.get(literal.line - 1).copied().unwrap_or(false) {
                 continue;
             }
-            if !is_user_message(&value) {
+            if literal.is_log_argument() || !is_user_message(&literal.value) {
                 continue;
             }
             for word in BANNED {
-                let found = (display.clone(), line, *word);
-                if contains_banned_word(&value, word) && !offenders.contains(&found) {
+                let found = (display.clone(), literal.line, *word);
+                if contains_banned_word(&literal.value, word) && !offenders.contains(&found) {
                     offenders.push(found);
                 }
             }
