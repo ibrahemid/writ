@@ -17,73 +17,158 @@ const ORIGIN_ROOT = JSON.parse(
   readFileSync(resolve(ROOT, "src/__tests__/fixtures/root-tokens-origin-main.json"), "utf8"),
 ) as Record<string, string>;
 
-const THEME_CSS = readFileSync(resolve(ROOT, "src/styles/generated/theme.css"), "utf8");
-const LEGACY_CSS = readFileSync(resolve(ROOT, "src/styles/generated/legacy-aliases.css"), "utf8");
+// global.css imports the generated sheet first and the legacy layer second, so
+// a name both declare resolves to the legacy declaration at equal specificity.
+const SHEETS = [
+  "src/styles/generated/theme.css",
+  "src/styles/generated/legacy-aliases.css",
+].map((file) => readFileSync(resolve(ROOT, file), "utf8"));
 
-function declarations(css: string): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const line of css.split("\n")) {
-    const m = /^\s*(--[a-z0-9-]+)\s*:\s*(.+);\s*$/.exec(line);
-    if (m && !out.has(m[1])) out.set(m[1], m[2]);
-  }
-  return out;
+const LEGACY_CSS = SHEETS[1];
+
+interface Rule {
+  selector: string;
+  declarations: Map<string, string>;
+  order: number;
 }
 
-const LEGACY = declarations(LEGACY_CSS);
-const GENERATED = declarations(THEME_CSS);
+function parseRules(css: string, order: number): Rule[] {
+  const rules: Rule[] = [];
+  const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const [, selectorList, body] of stripped.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+    if (selectorList.includes("@")) continue;
+    const declarations = new Map<string, string>();
+    for (const line of body.split("\n")) {
+      const m = /^\s*(--[a-z0-9-]+)\s*:\s*(.+);\s*$/.exec(line);
+      if (m) declarations.set(m[1], m[2].trim());
+    }
+    if (declarations.size === 0) continue;
+    for (const selector of selectorList.split(",")) {
+      rules.push({ selector: selector.trim(), declarations, order });
+    }
+  }
+  return rules;
+}
 
-// Every name the legacy layer freezes at origin/main's value. The colour tiers
-// are here too: the theme store overwrites them inline from the active preset,
-// but with no script and no attribute the static fallback has to paint 0.3.5.
+const RULES = SHEETS.flatMap((css, order) => parseRules(css, order));
+
+/** Specificity of a `:root[…][…]` selector, or null when the root does not match. */
+function specificity(selector: string, attributes: Record<string, string>): number | null {
+  if (!selector.startsWith(":root")) return null;
+  const conditions = [...selector.matchAll(/\[([a-z-]+)(?:="([^"]*)")?\]/g)];
+  for (const [, name, value] of conditions) {
+    const present = attributes[name];
+    if (present === undefined) return null;
+    if (value !== undefined && present !== value) return null;
+  }
+  return 1 + conditions.length;
+}
+
+/** What the root carries with the given attributes set, cascade order applied. */
+function rootWith(attributes: Record<string, string>): Map<string, string> {
+  const winners = new Map<string, { value: string; rank: number }>();
+  RULES.forEach((rule, index) => {
+    const spec = specificity(rule.selector, attributes);
+    if (spec === null) return;
+    const rank = spec * 100000 + rule.order * 1000 + index;
+    for (const [name, value] of rule.declarations) {
+      const current = winners.get(name);
+      if (!current || rank >= current.rank) winners.set(name, { value, rank });
+    }
+  });
+  return new Map([...winners].map(([name, { value }]) => [name, value]));
+}
+
+function deref(value: string, declarations: Map<string, string>, depth = 0): string {
+  if (depth > 16) throw new Error(`unresolved var() chain in ${value}`);
+  const m = /var\((--[a-z0-9-]+)(?:,\s*([^)]*))?\)/.exec(value);
+  if (!m) return value.replace(/\s+/g, " ").trim();
+  const target = declarations.get(m[1]) ?? m[2] ?? "";
+  const next = value.slice(0, m.index) + target + value.slice(m.index + m[0].length);
+  return deref(next, declarations, depth + 1);
+}
+
+const ORIGIN_DECLARATIONS = new Map(Object.entries(ORIGIN_ROOT));
+const NO_ATTRIBUTES = rootWith({});
+const DARK = rootWith({ "data-theme": "dark" });
+
+// Every property the old sheet declared. The colour tiers are here too: the
+// theme store overwrites them inline from the active preset, but with no script
+// and no attribute the static fallback still has to paint 0.3.5.
 const FROZEN = [
-  "--writ-surface-background",
-  "--writ-surface-sunken",
-  "--writ-surface-raised",
-  "--writ-surface-elevated",
-  "--writ-surface-input",
-  "--writ-surface-hover",
-  "--writ-foreground-default",
-  "--writ-foreground-muted",
-  "--writ-foreground-subtle",
+  "--writ-accent-default",
+  "--writ-accent-foreground",
+  "--writ-accent-hover",
+  "--writ-bg-tab-pill",
   "--writ-border-default",
-  "--writ-border-soft",
   "--writ-border-focus",
   "--writ-border-pill",
-  "--writ-accent-default",
-  "--writ-accent-hover",
-  "--writ-accent-foreground",
-  "--writ-font-sans",
+  "--writ-border-soft",
+  "--writ-editor-font-size",
   "--writ-font-mono",
+  "--writ-font-sans",
   "--writ-font-size",
   "--writ-font-size-sm",
   "--writ-font-size-xs",
+  "--writ-foreground-default",
+  "--writ-foreground-muted",
+  "--writ-foreground-subtle",
   "--writ-line-height",
-  "--writ-editor-font-size",
+  "--writ-overlay-hover",
+  "--writ-overlay-scrim",
+  "--writ-overlay-subtle",
   "--writ-radius-1",
   "--writ-radius-2",
   "--writ-radius-3",
-  "--writ-window-radius",
-  "--writ-sidebar-width",
-  "--writ-statusbar-height",
-  "--writ-tabbar-height",
-  "--writ-titlebar-height",
-  "--writ-tab-pill-height",
-  "--writ-bg-tab-pill",
-  "--writ-overlay-hover",
-  "--writ-overlay-subtle",
-  "--writ-overlay-scrim",
   "--writ-selection",
-  "--writ-warning-foreground",
+  "--writ-shadow-banner",
+  "--writ-shadow-chip",
+  "--writ-shadow-dialog",
   "--writ-shadow-modal",
   "--writ-shadow-overlay",
-  "--writ-shadow-dialog",
   "--writ-shadow-popover",
-  "--writ-shadow-banner",
-  "--writ-shadow-toast",
   "--writ-shadow-sidebar",
-  "--writ-shadow-chip",
+  "--writ-shadow-toast",
   "--writ-shadow-xs",
-];
+  "--writ-sidebar-width",
+  "--writ-space-1",
+  "--writ-space-2",
+  "--writ-space-3",
+  "--writ-space-4",
+  "--writ-space-5",
+  "--writ-space-6",
+  "--writ-status-error",
+  "--writ-status-foreground",
+  "--writ-status-success",
+  "--writ-status-warning",
+  "--writ-statusbar-height",
+  "--writ-surface-background",
+  "--writ-surface-elevated",
+  "--writ-surface-hover",
+  "--writ-surface-input",
+  "--writ-surface-raised",
+  "--writ-surface-sunken",
+  "--writ-syntax-comment",
+  "--writ-syntax-function",
+  "--writ-syntax-keyword",
+  "--writ-syntax-number",
+  "--writ-syntax-string",
+  "--writ-syntax-type",
+  "--writ-syntax-variable",
+  "--writ-tab-pill-height",
+  "--writ-tabbar-height",
+  "--writ-titlebar-height",
+  "--writ-traffic-blurred",
+  "--writ-traffic-close",
+  "--writ-traffic-close-glyph",
+  "--writ-traffic-maximize",
+  "--writ-traffic-maximize-glyph",
+  "--writ-traffic-minimize",
+  "--writ-traffic-minimize-glyph",
+  "--writ-warning-foreground",
+  "--writ-winctrl-danger-bg",
+  "--writ-winctrl-danger-fg",
+  "--writ-window-radius",];
 
 describe("token pipeline acceptance", () => {
   it("resolved token set is unchanged by the pipeline", () => {
@@ -98,18 +183,29 @@ describe("token pipeline acceptance", () => {
     expect(written).toEqual(RESOLVED_FIXTURE);
   });
 
-  it("chrome metrics and elevation keep the values origin/main declared", () => {
-    for (const name of FROZEN) {
-      expect(LEGACY.get(name), `${name} drifted`).toBe(ORIGIN_ROOT[name]);
-    }
+  it("covers every property origin/main declared on :root", () => {
+    expect([...FROZEN].sort()).toEqual(Object.keys(ORIGIN_ROOT).sort());
   });
 
-  it("every custom property origin/main declared is still declared", () => {
-    const missing = Object.keys(ORIGIN_ROOT).filter(
-      (name) => !LEGACY.has(name) && !GENERATED.has(name),
-    );
-    expect(missing, `dropped: ${missing.join(", ")}`).toEqual([]);
-  });
+  for (const [state, resolved] of [
+    ["no attribute", NO_ATTRIBUTES],
+    ['data-theme="dark"', DARK],
+  ] as const) {
+    it(`every frozen property resolves to its origin/main value with ${state}`, () => {
+      const drifted: string[] = [];
+      for (const name of FROZEN) {
+        const declaration = resolved.get(name);
+        if (declaration === undefined) {
+          drifted.push(`${name} is not declared`);
+          continue;
+        }
+        const before = deref(ORIGIN_ROOT[name], ORIGIN_DECLARATIONS);
+        const after = deref(declaration, resolved);
+        if (before !== after) drifted.push(`${name}\n  was: ${before}\n  now: ${after}`);
+      }
+      expect(drifted, drifted.join("\n")).toEqual([]);
+    });
+  }
 
   it("the re-declared names outrank the dark and platform layers", () => {
     // Same specificity as :root[data-theme="dark"] and :root[data-platform="win"],
@@ -122,8 +218,7 @@ describe("token pipeline acceptance", () => {
       "--writ-shadow-chip",
       "--writ-font-mono",
     ]) {
-      expect(GENERATED.has(name), `${name} should exist in both layers`).toBe(true);
-      expect(LEGACY.has(name), `${name} should be re-declared`).toBe(true);
+      expect(NO_ATTRIBUTES.get(name), name).toBe(DARK.get(name));
     }
   });
 });

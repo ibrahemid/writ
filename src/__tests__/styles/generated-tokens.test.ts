@@ -243,16 +243,32 @@ describe("generated token outputs", () => {
 });
 
 describe("legacy re-declarations", () => {
+  // Written out, not recomputed: a name that starts being declared by both
+  // sheets has to be added here on purpose, with the migration it implies.
+  const EXPECTED_LEGACY_FROZEN = [
+    "--writ-accent-hover",
+    "--writ-border-soft",
+    "--writ-font-mono",
+    "--writ-shadow-chip",
+    "--writ-shadow-modal",
+    "--writ-shadow-popover",
+    "--writ-sidebar-width",
+  ];
+
   function declaredNames(css: string): Set<string> {
-    return new Set(
-      [...css.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]),
-    );
+    return new Set([...css.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]));
   }
 
-  it("LEGACY_FROZEN lists exactly the names both generated sheets declare", () => {
+  it("the generated sheets declare exactly the reviewed set of names twice", () => {
     const inTheme = declaredNames(THEME_CSS);
     const overlap = [...declaredNames(LEGACY_CSS)].filter((name) => inTheme.has(name)).sort();
-    expect([...LEGACY_FROZEN].sort()).toEqual(overlap);
+    expect(overlap, "a name is declared by both sheets without being reviewed").toEqual(
+      EXPECTED_LEGACY_FROZEN,
+    );
+  });
+
+  it("LEGACY_FROZEN exports that set", () => {
+    expect([...LEGACY_FROZEN].sort()).toEqual(EXPECTED_LEGACY_FROZEN);
   });
 });
 
