@@ -1,4 +1,4 @@
-use writ_core::config::{CommandUsage, SidebarPosition, WritConfig};
+use writ_core::config::{Accent, CommandUsage, Polarity, ProseFace, SidebarPosition, WritConfig};
 
 #[test]
 fn default_config_has_expected_values() {
@@ -8,11 +8,12 @@ fn default_config_has_expected_values() {
 
     assert_eq!(config.sidebar.toggle, "CmdOrCtrl+\\");
     assert!(!config.sidebar.default_visible);
-    assert!(!config.sidebar.open);
+    // ADR-030: a first launch shows the notes list, not an empty canvas.
+    assert!(config.sidebar.open);
     assert_eq!(config.sidebar.position, SidebarPosition::Left);
 
     assert_eq!(config.editor.font_family, "monospace");
-    assert_eq!(config.editor.font_size, 14);
+    assert_eq!(config.editor.font_size, 16);
     assert!(config.editor.word_wrap);
     assert_eq!(config.editor.tab_size, 2);
     assert_eq!(config.editor.autosave_debounce_ms, 300);
@@ -53,7 +54,7 @@ fn config_roundtrips_through_toml() {
 fn sidebar_open_defaults_when_missing_from_toml() {
     let toml_str = "[sidebar]\ntoggle = \"CmdOrCtrl+S\"\n";
     let parsed: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
-    assert!(!parsed.sidebar.open);
+    assert!(parsed.sidebar.open);
 }
 
 #[test]
@@ -73,9 +74,9 @@ fn legacy_sidebar_mode_field_is_silently_ignored() {
 }
 
 #[test]
-fn theme_defaults_to_warp_dark() {
+fn theme_defaults_to_writ_light() {
     let config = WritConfig::default();
-    assert_eq!(config.theme.preset, "warp-dark");
+    assert_eq!(config.theme.preset, "writ-light");
     assert!(config.theme.overrides.is_empty());
 }
 
@@ -100,13 +101,30 @@ fn theme_section_round_trips() {
 fn missing_theme_section_uses_defaults() {
     let toml_str = "[sidebar]\ntoggle = \"CmdOrCtrl+S\"\n";
     let parsed: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
-    assert_eq!(parsed.theme.preset, "warp-dark");
+    assert_eq!(parsed.theme.preset, "writ-light");
 }
 
 #[test]
 fn config_serialization_emits_theme_section() {
     let toml_str = toml::to_string(&WritConfig::default()).expect("serialization failed");
     assert!(toml_str.contains("[theme]"));
+}
+
+#[test]
+fn config_round_trip_preserves_appearance_and_status_bar() {
+    // The IPC surface is get_config / set_config over this same serialization,
+    // so a round trip is what the frontend gets back after saving.
+    let mut config = WritConfig::default();
+    config.appearance.polarity = Polarity::Dark;
+    config.appearance.accent = Accent::Terracotta;
+    config.appearance.prose_face = ProseFace::Quattro;
+    config.editor.status_bar = true;
+
+    let toml_str = toml::to_string(&config).expect("serialization failed");
+    assert!(toml_str.contains("[appearance]"), "{toml_str}");
+    let restored: WritConfig = toml::from_str(&toml_str).expect("deserialization failed");
+    assert_eq!(restored.appearance, config.appearance);
+    assert!(restored.editor.status_bar);
 }
 
 #[test]

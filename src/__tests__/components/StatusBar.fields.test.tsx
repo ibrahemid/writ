@@ -18,7 +18,7 @@ const [language, setLanguage] = createSignal<string | null>(null);
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
-    editor: { largeFileMode: () => null, cursorLine, cursorCol, language },
+    editor: { largeFileMode: () => null, cursorLine, cursorCol, language, currentText: () => "one two three" },
   }),
 }));
 

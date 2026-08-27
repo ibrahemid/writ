@@ -21,7 +21,24 @@ const presets: Theme[] = [
 
 export const PRESETS: Readonly<Theme[]> = presets;
 
-export const DEFAULT_PRESET_ID = "warp-dark";
+export const DEFAULT_PRESET_ID = "writ-light";
+
+/**
+ * Presets that come as a light/dark pair. Following the system setting swaps
+ * within a pair; a preset that is not in this map has no counterpart to swap
+ * to, so it stays put whatever the system says.
+ */
+export const PRESET_PAIRS: Readonly<Record<string, { light: string; dark: string }>> = {
+  "writ-light": { light: "writ-light", dark: "writ-dark" },
+  "writ-dark": { light: "writ-light", dark: "writ-dark" },
+  "warp-light": { light: "warp-light", dark: "warp-dark" },
+  "warp-dark": { light: "warp-light", dark: "warp-dark" },
+};
+
+/** The `want` half of `id`'s pair, or `id` itself when it has no pair. */
+export function pairedPreset(id: string, want: "light" | "dark"): string {
+  return PRESET_PAIRS[id]?.[want] ?? id;
+}
 
 export function getPreset(id: string): Theme | undefined {
   return presets.find((p) => p.id === id);

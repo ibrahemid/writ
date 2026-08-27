@@ -32,7 +32,13 @@ import { modelOptions, defaultModelFor, resolveAutoModel } from "../../stores/gl
 import { copyStoragePath, fetchStorageInfo, revealStoragePath } from "../../stores/global/storage";
 import type { StorageInfo } from "../../stores/global/storage";
 import { openThirdPartyNoticesBuffer } from "../../stores/global/notices";
-import type { DefaultLayout } from "../../types/config";
+import type {
+  AccentId,
+  AppearanceConfig,
+  DefaultLayout,
+  Polarity,
+  ProseFaceId,
+} from "../../types/config";
 import {
   fetchDefaultAppTypes,
   fetchDefaultAppStatus,
@@ -197,6 +203,13 @@ function EditorSection() {
 
   const spelling = () => configStore.config().spelling;
 
+  function onStatusBarToggle() {
+    void patchConfig((prev) => ({
+      ...prev,
+      editor: { ...prev.editor, status_bar: !prev.editor.status_bar },
+    }));
+  }
+
   function onSpellingToggle() {
     void patchConfig((prev) => ({
       ...prev,
@@ -273,6 +286,20 @@ function EditorSection() {
           aria-checked={cfg().markdown_editing}
           aria-label="Markdown editing helpers"
           onClick={onMarkdownEditingToggle}
+        >
+          <span class="settings-toggle-thumb" />
+        </button>
+      </SettingsRow>
+      <SettingsRow id="editor.status_bar" label="Status bar">
+        <button
+          type="button"
+          class="settings-toggle"
+          classList={{ "settings-toggle-on": cfg().status_bar }}
+          data-setting="status_bar"
+          role="switch"
+          aria-checked={cfg().status_bar}
+          aria-label="Status bar"
+          onClick={onStatusBarToggle}
         >
           <span class="settings-toggle-thumb" />
         </button>
@@ -1130,17 +1157,87 @@ function AiSection() {
   );
 }
 
+const POLARITY_OPTIONS: { id: Polarity; label: string }[] = [
+  { id: "system", label: "Follow system" },
+  { id: "light", label: "Light" },
+  { id: "dark", label: "Dark" },
+];
+
+const ACCENT_OPTIONS: { id: AccentId; label: string }[] = [
+  { id: "pine", label: "Pine" },
+  { id: "writ-blue", label: "Writ blue" },
+  { id: "terracotta", label: "Terracotta" },
+  { id: "slate", label: "Slate" },
+  { id: "plum", label: "Plum" },
+  { id: "gold", label: "Gold" },
+];
+
+const PROSE_FACE_OPTIONS: { id: ProseFaceId; label: string }[] = [
+  { id: "system", label: "System" },
+  { id: "quattro", label: "iA Writer Quattro S" },
+];
+
 function AppearanceSection() {
   const currentPreset = () => configStore.config().theme.preset;
+  const appearance = () => configStore.config().appearance;
 
   function onPresetChange(id: string) {
     themeStore.setPreset(id);
     void patchConfig((prev) => ({ ...prev, theme: { ...prev.theme, preset: id } }));
   }
 
+  function patchAppearance(patch: Partial<AppearanceConfig>) {
+    const next = { ...appearance(), ...patch };
+    themeStore.setAppearance(next);
+    void patchConfig((prev) => ({ ...prev, appearance: next }));
+  }
+
   return (
     <div data-section="appearance">
       <SectionLabel section="appearance" />
+      <SettingsRow id="appearance.polarity" label="Appearance" labelFor="setting-appearance-polarity">
+        <select
+          id="setting-appearance-polarity"
+          class="settings-select"
+          data-setting="appearance_polarity"
+          value={appearance().polarity}
+          onChange={(e) => patchAppearance({ polarity: e.currentTarget.value as Polarity })}
+        >
+          {POLARITY_OPTIONS.map((option) => (
+            <option value={option.id}>{option.label}</option>
+          ))}
+        </select>
+      </SettingsRow>
+      <SettingsRow id="appearance.accent" label="Accent colour" labelFor="setting-appearance-accent">
+        <select
+          id="setting-appearance-accent"
+          class="settings-select"
+          data-setting="appearance_accent"
+          value={appearance().accent}
+          onChange={(e) => patchAppearance({ accent: e.currentTarget.value as AccentId })}
+        >
+          {ACCENT_OPTIONS.map((option) => (
+            <option value={option.id}>{option.label}</option>
+          ))}
+        </select>
+      </SettingsRow>
+      <SettingsRow
+        id="appearance.prose_face"
+        label="Prose typeface"
+        labelFor="setting-appearance-prose-face"
+      >
+        <select
+          id="setting-appearance-prose-face"
+          class="settings-select"
+          data-setting="appearance_prose_face"
+          value={appearance().prose_face}
+          onChange={(e) => patchAppearance({ prose_face: e.currentTarget.value as ProseFaceId })}
+        >
+          {PROSE_FACE_OPTIONS.map((option) => (
+            <option value={option.id}>{option.label}</option>
+          ))}
+        </select>
+      </SettingsRow>
       <SettingsRow id="appearance.theme" label="Theme" labelFor="setting-theme-preset">
         <select
           id="setting-theme-preset"

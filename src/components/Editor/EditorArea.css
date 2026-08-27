@@ -17,6 +17,20 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg-faint);
   font-size: 16px;
+}
+
+/* Word count, top right of the canvas, shown when the status bar is off.
+   Pointer-transparent so it never steals a click meant for the note. */
+.editor-wordcount {
+  position: absolute;
+  top: var(--writ-space-5);
+  right: var(--writ-space-6);
+  z-index: var(--writ-z-chrome);
+  pointer-events: none;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+  font-variant-numeric: tabular-nums;
 }

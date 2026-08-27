@@ -200,6 +200,14 @@ describe("generated token outputs", () => {
     }
   });
 
+  it("the syntax set is the neutrals, so it follows the polarity", () => {
+    // ADR-030 decision 3: only strings carry a hue. The names stay, so a
+    // terminal preset still paints its own syntax colours at runtime.
+    expect(ROOT_DECLS.get("--writ-syntax-keyword")).toBe("var(--writ-fg)");
+    expect(ROOT_DECLS.get("--writ-syntax-comment")).toBe("var(--writ-fg-faint)");
+    expect(ROOT_DECLS.get("--writ-syntax-string")).toBe("var(--writ-syn-string)");
+  });
+
   it("pine light hover is #1C6453 and dark hover is #6BCBB0", () => {
     expect(declarationsIn(blockBody(THEME_CSS, ':root[data-accent="pine"]')).get("--writ-accent-hover")).toBe("#1C6453");
     expect(
@@ -245,15 +253,10 @@ describe("generated token outputs", () => {
 describe("legacy re-declarations", () => {
   // Written out, not recomputed: a name that starts being declared by both
   // sheets has to be added here on purpose, with the migration it implies.
-  const EXPECTED_LEGACY_FROZEN = [
-    "--writ-accent-hover",
-    "--writ-border-soft",
-    "--writ-font-mono",
-    "--writ-shadow-chip",
-    "--writ-shadow-modal",
-    "--writ-shadow-popover",
-    "--writ-sidebar-width",
-  ];
+  // The visual flip took the last of these off the legacy layer: every name the
+  // new vocabulary also declares now resolves to the ADR-030 value. Adding one
+  // back means freezing a token the design system owns, which needs a reason.
+  const EXPECTED_LEGACY_FROZEN: string[] = [];
 
   function declaredNames(css: string): Set<string> {
     return new Set([...css.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]));

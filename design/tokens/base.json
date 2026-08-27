@@ -444,6 +444,18 @@
       "drag": {
         "$value": 600
       }
+    },
+    "editor": {
+      "$type": "other",
+      "font-size": {
+        "$value": "var(--writ-prose-size)",
+        "$description": "Pre-zoom default. editorZoom overwrites it on the root from editor.font_size."
+      }
+    },
+    "selection": {
+      "$type": "other",
+      "$value": "color-mix(in srgb, var(--writ-accent) 30%, transparent)",
+      "$description": "Host text selection in chrome surfaces."
     }
   }
 }

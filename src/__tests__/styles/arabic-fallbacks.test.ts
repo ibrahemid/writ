@@ -49,6 +49,8 @@ const ARABIC_FAMILIES = ['"SF Arabic"', '"Geeza Pro"', '"Noto Naskh Arabic"'];
 
 const STACKS: { name: string; css: string | null; token: string; generic: string }[] = [
   { name: "app ui", css: null, token: "--writ-font-ui", generic: "system-ui" },
+  { name: "app prose", css: null, token: "--writ-font-prose", generic: "system-ui" },
+  { name: "app prose alt", css: null, token: "--writ-font-prose-alt", generic: "system-ui" },
   { name: "app sans", css: null, token: "--writ-font-sans", generic: "system-ui" },
   { name: "app mono", css: null, token: "--writ-font-mono", generic: "monospace" },
   {
@@ -61,15 +63,26 @@ const STACKS: { name: string; css: string | null; token: string; generic: string
     name: "preview mono",
     css: PREVIEW_TOKENS_CSS,
     token: "--writ-preview-font-mono",
-    generic: "ui-monospace",
+    generic: "monospace",
   },
 ];
+
+// A stack can be declared as a reference to another (--writ-font-prose is
+// var(--writ-font-ui)), so the assertion runs on what the browser resolves.
+function deref(value: string, depth = 0): string {
+  if (depth > 8) throw new Error(`unresolved var() chain in ${value}`);
+  const m = /var\((--[a-z0-9-]+)\)/.exec(value);
+  if (!m) return value;
+  const target = APP_ROOT.get(m[1]);
+  if (!target) throw new Error(`token ${m[1]} is not declared on the app root`);
+  return deref(value.slice(0, m.index) + target + value.slice(m.index + m[0].length), depth + 1);
+}
 
 function stackValue(css: string | null, token: string): string {
   if (css === null) {
     const resolved = APP_ROOT.get(token);
     if (!resolved) throw new Error(`token ${token} is not declared on the app root`);
-    return resolved;
+    return deref(resolved);
   }
   const m = new RegExp(`${token}\\s*:\\s*([^;]+);`).exec(css);
   if (!m) throw new Error(`token ${token} not found`);

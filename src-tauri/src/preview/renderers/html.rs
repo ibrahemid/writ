@@ -253,7 +253,7 @@ mod tests {
         let out = HtmlRenderer.render(req_dark("<p>hello</p>")).unwrap();
         assert!(out.used_fallback_stylesheet);
         assert!(out.document_html.contains(":root{"));
-        assert!(out.document_html.contains("--writ-preview-bg: #0e0e14"));
+        assert!(out.document_html.contains("--writ-preview-bg: #1b1a18"));
     }
 
     #[test]
@@ -262,7 +262,7 @@ mod tests {
         let out = HtmlRenderer.render(req_light("<p>hello</p>")).unwrap();
         assert!(out.used_fallback_stylesheet);
         assert!(!out.document_html.contains(":root{"));
-        assert!(out.document_html.contains("--writ-preview-bg: #fbfbfd"));
+        assert!(out.document_html.contains("--writ-preview-bg: #ffffff"));
     }
 
     #[test]

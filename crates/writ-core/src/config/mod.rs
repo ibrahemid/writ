@@ -38,7 +38,7 @@ fn default_sidebar_position() -> SidebarPosition {
 }
 
 fn default_sidebar_open() -> bool {
-    false
+    true
 }
 
 fn default_font_family() -> String {
@@ -46,7 +46,7 @@ fn default_font_family() -> String {
 }
 
 fn default_font_size() -> u32 {
-    14
+    16
 }
 
 fn default_word_wrap() -> bool {
@@ -86,11 +86,91 @@ fn default_storage_path() -> String {
 }
 
 fn default_theme_preset() -> String {
-    "warp-dark".to_string()
+    "writ-light".to_string()
+}
+
+fn default_status_bar() -> bool {
+    false
+}
+
+fn default_polarity() -> Polarity {
+    Polarity::System
+}
+
+fn default_accent() -> Accent {
+    Accent::Pine
+}
+
+fn default_prose_face() -> ProseFace {
+    ProseFace::System
 }
 
 fn default_keybindings() -> HashMap<String, String> {
     HashMap::new()
+}
+
+/// Whether the app follows the OS light/dark setting or pins one polarity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Polarity {
+    /// Take the OS setting and follow it while the app runs.
+    System,
+    /// Always light.
+    Light,
+    /// Always dark.
+    Dark,
+}
+
+/// The accent hue, spent on links, the caret, focus and one primary button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Accent {
+    /// The default.
+    Pine,
+    /// The hue the app shipped with before ADR-030.
+    WritBlue,
+    /// Warm red-orange.
+    Terracotta,
+    /// Desaturated blue.
+    Slate,
+    /// Muted purple.
+    Plum,
+    /// Dark yellow.
+    Gold,
+}
+
+/// The face the note body is set in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProseFace {
+    /// The platform's own UI face.
+    System,
+    /// The bundled iA Writer Quattro S.
+    Quattro,
+}
+
+/// Appearance configuration (`[appearance]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppearanceConfig {
+    /// Follow the OS setting, or pin light or dark.
+    #[serde(default = "default_polarity")]
+    pub polarity: Polarity,
+    /// Which of the six accents is spent on interaction.
+    #[serde(default = "default_accent")]
+    pub accent: Accent,
+    /// Which face the note body is set in.
+    #[serde(default = "default_prose_face")]
+    pub prose_face: ProseFace,
+}
+
+impl Default for AppearanceConfig {
+    fn default() -> Self {
+        Self {
+            polarity: default_polarity(),
+            accent: default_accent(),
+            prose_face: default_prose_face(),
+        }
+    }
 }
 
 /// Which side of the window the sidebar is rendered on.
@@ -176,6 +256,10 @@ pub struct EditorConfig {
     /// selection.
     #[serde(default = "default_markdown_editing")]
     pub markdown_editing: bool,
+    /// Whether the editor shows the status bar. Off by default: the word count
+    /// sits at the top right of the canvas instead (ADR-030 decision 5).
+    #[serde(default = "default_status_bar")]
+    pub status_bar: bool,
 }
 
 impl Default for EditorConfig {
@@ -188,6 +272,7 @@ impl Default for EditorConfig {
             autosave_debounce_ms: default_autosave_debounce_ms(),
             markdown_typography: default_markdown_typography(),
             markdown_editing: default_markdown_editing(),
+            status_bar: default_status_bar(),
         }
     }
 }
@@ -413,6 +498,9 @@ pub struct WritConfig {
     /// UI theme configuration.
     #[serde(default)]
     pub theme: ThemeConfig,
+    /// Polarity, accent and prose face.
+    #[serde(default)]
+    pub appearance: AppearanceConfig,
     /// Command palette ranking state.
     #[serde(default)]
     pub commands: CommandsConfig,
@@ -447,6 +535,7 @@ impl Default for WritConfig {
             history: HistoryConfig::default(),
             storage: StorageConfig::default(),
             theme: ThemeConfig::default(),
+            appearance: AppearanceConfig::default(),
             commands: CommandsConfig::default(),
             preview: PreviewConfig::default(),
             workspace: WorkspaceConfig::default(),
@@ -461,6 +550,83 @@ impl Default for WritConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn appearance_defaults_to_system_pine_system_face() {
+        let appearance = AppearanceConfig::default();
+        assert_eq!(appearance.polarity, Polarity::System);
+        assert_eq!(appearance.accent, Accent::Pine);
+        assert_eq!(appearance.prose_face, ProseFace::System);
+    }
+
+    #[test]
+    fn editor_status_bar_defaults_off() {
+        let config: WritConfig = toml::from_str("").unwrap();
+        assert!(!config.editor.status_bar);
+    }
+
+    #[test]
+    fn missing_appearance_section_deserializes_to_defaults() {
+        let config: WritConfig = toml::from_str("[editor]\nfont_size = 18\n").unwrap();
+        assert_eq!(config.appearance, AppearanceConfig::default());
+    }
+
+    #[test]
+    fn polarity_round_trips_through_toml() {
+        for (written, expected) in [
+            ("system", Polarity::System),
+            ("light", Polarity::Light),
+            ("dark", Polarity::Dark),
+        ] {
+            let source = format!("[appearance]\npolarity = \"{written}\"\n");
+            let config: WritConfig = toml::from_str(&source).unwrap();
+            assert_eq!(config.appearance.polarity, expected);
+            let parsed: WritConfig = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+            assert_eq!(parsed.appearance.polarity, expected);
+        }
+    }
+
+    #[test]
+    fn accent_round_trips_through_toml() {
+        let config: WritConfig = toml::from_str("[appearance]\naccent = \"writ-blue\"\n").unwrap();
+        assert_eq!(config.appearance.accent, Accent::WritBlue);
+        let serialized = toml::to_string(&config).unwrap();
+        assert!(
+            serialized.contains("accent = \"writ-blue\""),
+            "{serialized}"
+        );
+        let parsed: WritConfig = toml::from_str(&serialized).unwrap();
+        assert_eq!(parsed.appearance.accent, Accent::WritBlue);
+    }
+
+    #[test]
+    fn default_theme_preset_is_writ_light() {
+        let config: WritConfig = toml::from_str("").unwrap();
+        assert_eq!(config.theme.preset, "writ-light");
+    }
+
+    #[test]
+    fn prose_face_round_trips_through_toml() {
+        let config: WritConfig =
+            toml::from_str("[appearance]\nprose_face = \"quattro\"\n").unwrap();
+        assert_eq!(config.appearance.prose_face, ProseFace::Quattro);
+        let parsed: WritConfig = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+        assert_eq!(parsed.appearance.prose_face, ProseFace::Quattro);
+    }
+
+    #[test]
+    fn an_existing_config_without_the_new_fields_still_loads() {
+        // Every field added by ADR-030 carries a serde default, so a config
+        // written by 0.3.5 deserializes without a migration.
+        let source =
+            "[editor]\nfont_size = 14\nword_wrap = false\n\n[theme]\npreset = \"warp-dark\"\n";
+        let config: WritConfig = toml::from_str(source).unwrap();
+        assert_eq!(config.editor.font_size, 14);
+        assert!(!config.editor.word_wrap);
+        assert!(!config.editor.status_bar);
+        assert_eq!(config.theme.preset, "warp-dark");
+        assert_eq!(config.appearance, AppearanceConfig::default());
+    }
 
     #[test]
     fn missing_inbox_section_defaults_to_no_path_and_focus() {

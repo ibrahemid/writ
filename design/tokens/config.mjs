@@ -229,6 +229,12 @@ function quote(text) {
   return JSON.stringify(String(text));
 }
 
+/** A TS array literal: `[]` when empty, one quoted entry per line otherwise. */
+function tsList(names) {
+  if (names.length === 0) return "[]";
+  return `[\n${names.map((name) => `  ${quote(name)},`).join("\n")}\n]`;
+}
+
 function colorTokens(get, polarity) {
   const at = (suffix) => quote(get(`color.${polarity}.${suffix}`));
   return [
@@ -572,11 +578,7 @@ export const CSS_VAR = {
  * describe the current paint until the unit that owns those consumers migrates
  * them and drops the alias. Empty once the legacy layer is gone.
  */
-export const LEGACY_FROZEN: readonly string[] = [
-${legacyFrozenNames(dictionary.allTokens)
-  .map((name) => `  ${quote(name)},`)
-  .join("\n")}
-];
+export const LEGACY_FROZEN: readonly string[] = ${tsList(legacyFrozenNames(dictionary.allTokens))};
 
 /** \`var(--name)\`, or \`var(--name, fallback)\`. */
 export function cssVar(name: string, fallback?: string): string {

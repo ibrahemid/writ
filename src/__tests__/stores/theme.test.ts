@@ -4,26 +4,38 @@ import { resolve } from "node:path";
 import { flattenTheme, themeStore } from "../../stores/global/theme";
 import { TOKEN_GROUPS } from "../../types/theme";
 import type { Theme } from "../../types/theme";
+import { ACCENTS } from "../../styles/generated/tokens";
+import { DEFAULT_PRESET_ID } from "../../styles/themes";
 
 function fakeRoot(): HTMLElement {
   return document.createElement("div");
 }
 
+// The store is an app-global singleton, so each block states the appearance it
+// asserts against rather than inheriting the previous one.
+function pin(polarity: "light" | "dark") {
+  themeStore.setAppearance({ polarity, accent: "pine", prose_face: "system" });
+}
+
 describe("themeStore", () => {
   beforeEach(() => {
     themeStore.resetOverrides();
+    pin("dark");
     themeStore.setPreset("warp-dark");
   });
 
-  it("starts on the warp-dark preset", () => {
-    expect(themeStore.presetId()).toBe("warp-dark");
-    expect(themeStore.activePreset().name).toBe("Warp Dark");
+  it("defaults to writ-light", () => {
+    expect(DEFAULT_PRESET_ID).toBe("writ-light");
+    themeStore.loadConfig({ preset: "", overrides: {} }, { polarity: "light", accent: "pine", prose_face: "system" });
+    expect(themeStore.presetId()).toBe("writ-light");
+    expect(themeStore.activePreset().name).toBe("Writ Light");
+    expect(themeStore.polarity()).toBe("light");
   });
 
   it("flattens preset tokens into dot-keyed CSS values", () => {
     const tokens = themeStore.resolvedTokens();
     expect(tokens["surface.background"]).toBe("#0e0e14");
-    expect(tokens["accent.default"]).toBe("#7aa2f7");
+    expect(tokens["border.focus"]).toBe("#7aa2f7");
     expect(tokens["syntax.keyword"]).toBe("#bb9af7");
   });
 
@@ -34,6 +46,39 @@ describe("themeStore", () => {
     expect(root.style.getPropertyValue("--writ-foreground-default")).toBe("#e0e0e0");
   });
 
+  it("resolves the accent triple for the effective polarity", () => {
+    pin("dark");
+    expect(themeStore.resolvedTokens()["accent.default"]).toBe(ACCENTS.pine.dark.base);
+    pin("light");
+    themeStore.setPreset("warp-light");
+    expect(themeStore.resolvedTokens()["accent.default"]).toBe(ACCENTS.pine.light.base);
+    themeStore.setAppearance({ polarity: "light", accent: "gold", prose_face: "system" });
+    expect(themeStore.resolvedTokens()["accent.default"]).toBe(ACCENTS.gold.light.base);
+  });
+
+  it("a user override beats the accent choice", () => {
+    themeStore.setAppearance({ polarity: "dark", accent: "gold", prose_face: "system" });
+    expect(themeStore.setOverride("accent.default", "#ff7b00")).toBe(true);
+    expect(themeStore.resolvedTokens()["accent.default"]).toBe("#ff7b00");
+  });
+
+  it("system polarity swaps within a preset pair", () => {
+    themeStore.setAppearance({ polarity: "system", accent: "pine", prose_face: "system" });
+    themeStore.setPreset("warp-dark");
+    themeStore.setSystemPolarity("light");
+    expect(themeStore.activePreset().id).toBe("warp-light");
+    themeStore.setSystemPolarity("dark");
+    expect(themeStore.activePreset().id).toBe("warp-dark");
+  });
+
+  it("a preset with no pair ignores system polarity", () => {
+    themeStore.setAppearance({ polarity: "system", accent: "pine", prose_face: "system" });
+    themeStore.setPreset("tokyo-night");
+    themeStore.setSystemPolarity("light");
+    expect(themeStore.activePreset().id).toBe("tokyo-night");
+    expect(themeStore.polarity()).toBe("dark");
+  });
+
   it("setOverride takes precedence over preset values", () => {
     expect(themeStore.setOverride("accent.default", "#ff7b00")).toBe(true);
     expect(themeStore.resolvedTokens()["accent.default"]).toBe("#ff7b00");
@@ -41,19 +86,19 @@ describe("themeStore", () => {
 
   it("setOverride rejects invalid color values", () => {
     expect(themeStore.setOverride("accent.default", "not-a-color")).toBe(false);
-    expect(themeStore.resolvedTokens()["accent.default"]).toBe("#7aa2f7");
+    expect(themeStore.resolvedTokens()["accent.default"]).toBe(ACCENTS.pine.dark.base);
   });
 
   it("resetOverrides clears all overrides", () => {
     themeStore.setOverride("accent.default", "#ff7b00");
     themeStore.resetOverrides();
-    expect(themeStore.resolvedTokens()["accent.default"]).toBe("#7aa2f7");
+    expect(themeStore.resolvedTokens()["accent.default"]).toBe(ACCENTS.pine.dark.base);
   });
 
   it("setPreset switches preset and re-applies", () => {
     themeStore.setPreset("dracula");
     expect(themeStore.presetId()).toBe("dracula");
-    expect(themeStore.resolvedTokens()["accent.default"]).toBe("#bd93f9");
+    expect(themeStore.resolvedTokens()["surface.background"]).toBe("#282a36");
   });
 
   it("setPreset preserves overrides on top of the new preset", () => {
@@ -68,22 +113,39 @@ describe("themeStore", () => {
     expect(themeStore.presetId()).toBe("warp-dark");
   });
 
-  it("loadConfig restores preset and validated overrides", () => {
-    themeStore.loadConfig({
-      preset: "dracula",
-      overrides: {
-        "accent.default": "#ff7b00",
-        "foreground.default": "not-a-color",
+  it("swaps the prose face token only when the alternate is chosen", () => {
+    const root = fakeRoot();
+    themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "quattro" });
+    themeStore.applyToRoot(root);
+    expect(root.style.getPropertyValue("--writ-font-prose")).toBe("var(--writ-font-prose-alt)");
+    themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "system" });
+    themeStore.applyToRoot(root);
+    expect(root.style.getPropertyValue("--writ-font-prose")).toBe("");
+  });
+
+  it("loadConfig drops overrides keyed by the retired group names", () => {
+    // ADR-030 Consequences: the schema change invalidates them, so they are
+    // dropped rather than painted over the new palette.
+    themeStore.loadConfig(
+      {
+        preset: "dracula",
+        overrides: {
+          "accent.default": "#ff7b00",
+          "surface.background": "#123456",
+          "foreground.default": "not-a-color",
+        },
       },
-    });
+      { polarity: "dark", accent: "pine", prose_face: "system" },
+    );
     expect(themeStore.presetId()).toBe("dracula");
-    expect(themeStore.resolvedTokens()["accent.default"]).toBe("#ff7b00");
+    expect(themeStore.overrides()).toEqual({});
+    expect(themeStore.resolvedTokens()["surface.background"]).toBe("#282a36");
     expect(themeStore.resolvedTokens()["foreground.default"]).toBe("#f8f8f2");
   });
 
   it("loadConfig falls back to default preset on unknown id", () => {
     themeStore.loadConfig({ preset: "ghost-theme", overrides: {} });
-    expect(themeStore.presetId()).toBe("warp-dark");
+    expect(themeStore.presetId()).toBe("writ-light");
   });
 
   it("toConfig serializes current state", () => {
@@ -98,12 +160,14 @@ describe("themeStore", () => {
 describe("theme polarity and fast boot", () => {
   beforeEach(() => {
     themeStore.resetOverrides();
+    pin("dark");
     themeStore.setPreset("warp-dark");
   });
 
   it("reports dark for dark presets and light for the light preset", () => {
     themeStore.setPreset("warp-dark");
     expect(themeStore.polarity()).toBe("dark");
+    pin("light");
     themeStore.setPreset("warp-light");
     expect(themeStore.polarity()).toBe("light");
   });
@@ -121,24 +185,41 @@ describe("theme polarity and fast boot", () => {
     expect(light?.polarity).toBe("light");
   });
 
-  it("applyToRoot writes the polarity onto the root as data-theme", () => {
+  it("applyToRoot writes data-theme and data-accent", () => {
     const root = fakeRoot();
     themeStore.setPreset("warp-dark");
     themeStore.applyToRoot(root);
     expect(root.getAttribute("data-theme")).toBe("dark");
+    expect(root.getAttribute("data-accent")).toBe("pine");
+    themeStore.setAppearance({ polarity: "light", accent: "plum", prose_face: "system" });
     themeStore.setPreset("warp-light");
     themeStore.applyToRoot(root);
     expect(root.getAttribute("data-theme")).toBe("light");
+    expect(root.getAttribute("data-accent")).toBe("plum");
   });
 
-  it("persists resolved variables for the pre-paint boot script", () => {
+  it("persists resolved variables and attributes for the pre-paint boot script", () => {
+    pin("light");
     themeStore.setPreset("warp-light");
     themeStore.applyToRoot(fakeRoot());
-    const raw = localStorage.getItem("writ-theme-vars");
+    const raw = localStorage.getItem("writ-theme-vars-v2");
     expect(raw).toBeTruthy();
-    const vars = JSON.parse(raw as string);
-    expect(vars["--writ-surface-background"]).toBe("#fbfbfd");
-    expect(vars["--writ-accent-foreground"]).toBe("#ffffff");
+    const saved = JSON.parse(raw as string) as {
+      vars: Record<string, string>;
+      attrs: Record<string, string>;
+    };
+    expect(saved.vars["--writ-surface-background"]).toBe("#fbfbfd");
+    expect(saved.vars["--writ-accent-foreground"]).toBe(ACCENTS.pine.light.foreground);
+    expect(saved.attrs).toEqual({ "data-theme": "light", "data-accent": "pine" });
+  });
+
+  it("keys the snapshot on a version 0.3.5 never wrote", () => {
+    // A 0.3.5 snapshot describes the pre-030 palette; replaying it would flash
+    // the old dark theme on the first launch after the update.
+    localStorage.setItem("writ-theme-vars", "{}");
+    themeStore.applyToRoot(fakeRoot());
+    expect(localStorage.getItem("writ-theme-vars")).toBe("{}");
+    expect(localStorage.getItem("writ-theme-vars-v2")).not.toBe("{}");
   });
 });
 
@@ -214,6 +295,7 @@ describe("preset files", () => {
 describe("flattening a preset into CSS variables", () => {
   beforeEach(() => {
     themeStore.resetOverrides();
+    pin("dark");
     themeStore.setPreset("warp-dark");
   });
 
@@ -231,6 +313,7 @@ describe("flattening a preset into CSS variables", () => {
   it("writes no --writ-site-* variable to the root", () => {
     for (const preset of themeStore.presets()) {
       const root = fakeRoot();
+      pin(preset.polarity);
       themeStore.setPreset(preset.id);
       themeStore.applyToRoot(root);
       const written = Array.from({ length: root.style.length }, (_, i) => root.style.item(i));

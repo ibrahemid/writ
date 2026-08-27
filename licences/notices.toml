@@ -146,3 +146,18 @@ licence = "MIT"
 [[unattributed]]
 crates = ["fxhash", "mac"]
 licence = "MIT"
+
+# Files shipped inside the app that no package manager declares. Each entry
+# names the files it covers; generation fails when one of them is gone.
+
+[[bundled]]
+name = "iA Writer Quattro S"
+licence = "OFL-1.1"
+file = "ia-writer-quattro.txt"
+files = [
+    "src/assets/fonts/iAWriterQuattroS-Bold.woff2",
+    "src/assets/fonts/iAWriterQuattroS-Regular.woff2",
+]
+sources = [
+    "https://raw.githubusercontent.com/iaolo/iA-Fonts/master/iA%20Writer%20Quattro/LICENSE.md",
+]

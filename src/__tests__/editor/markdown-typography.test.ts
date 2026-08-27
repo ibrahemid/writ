@@ -45,7 +45,10 @@ describe("heading line decorations", () => {
   it("emits a line decoration for ATXHeading1", () => {
     const specs = buildForDoc("# Hello\n");
     const lineSpec = specs.find(
-      (s) => s.from === 0 && s.to === 0 && (s.decoration as unknown as { spec: { class: string } }).spec.class === "cm-line-md-h1",
+      (s) =>
+        s.from === 0 &&
+        s.to === 0 &&
+        (s.decoration as unknown as { spec: { class: string } }).spec.class.split(" ").includes("cm-line-md-h1"),
     );
     expect(lineSpec).toBeDefined();
   });
@@ -55,7 +58,7 @@ describe("heading line decorations", () => {
     const specs = buildForDoc(doc);
     const classes = specs
       .filter((s) => s.from === s.to)
-      .map((s) => (s.decoration as unknown as { spec: { class: string } }).spec.class);
+      .flatMap((s) => (s.decoration as unknown as { spec: { class: string } }).spec.class.split(" "));
     expect(classes).toContain("cm-line-md-h2");
     expect(classes).toContain("cm-line-md-h3");
     expect(classes).toContain("cm-line-md-h4");
@@ -75,21 +78,38 @@ describe("heading line decorations", () => {
 // ─── Marker hide/reveal behaviour ─────────────────────────────────────────
 
 describe("syntax marker hiding", () => {
-  it("replaces heading markers on inactive lines", () => {
-    // Line 0 starts at pos 0. Cursor is on line 1 (pos 8+).
+  it("decorates heading markers rather than replacing them, on any line", () => {
+    // ADR-030 decision 3 narrows ADR-014: a '#' says what the block is, so it
+    // stays readable and hangs in the margin instead of vanishing.
     const doc = "# Hello\nsome text\n";
     const state = EditorState.create({ doc, extensions: [markdown()] });
     const cursorOnLine2 = state.doc.line(2).from;
+    for (const cursors of [[cursorOnLine2], [2]]) {
+      const specs = buildForDoc(doc, cursors);
+      const markerSpecs = specs.filter((s) => s.from === 0 && s.to === 1);
+      const classes = markerSpecs.map(
+        (s) => (s.decoration as unknown as { spec: { class?: string } }).spec.class,
+      );
+      expect(classes).toContain("cm-md-marker-hung");
+      const replaced = markerSpecs.filter(
+        (s) => (s.decoration as unknown as { spec: { class?: string } }).spec.class === undefined,
+      );
+      expect(replaced).toHaveLength(0);
+    }
+  });
+
+  it("still replaces emphasis markers on inactive lines", () => {
+    const doc = "**bold** text\nsecond line\n";
+    const state = EditorState.create({ doc, extensions: [markdown()] });
+    const cursorOnLine2 = state.doc.line(2).from;
     const specs = buildForDoc(doc, [cursorOnLine2]);
-    // HeaderMark '#' + space = positions 0..2 → should be replaced
     const replaces = specs.filter(
-      (s) => (s.decoration as unknown as { spec: Record<string, unknown> }).spec?.widget === undefined &&
-             s.from !== s.to &&
-             s.decoration.spec !== undefined &&
-             // Decoration.replace has a widget of null or undefined and no class
-             (s.decoration as unknown as { spec: { class?: string } }).spec.class === undefined,
+      (s) =>
+        s.from !== s.to &&
+        (s.decoration as unknown as { spec: { class?: string; widget?: unknown } }).spec.class ===
+          undefined &&
+        (s.decoration as unknown as { spec: { widget?: unknown } }).spec.widget === undefined,
     );
-    // At least one replace decoration exists for the marker
     expect(replaces.length).toBeGreaterThan(0);
   });
 

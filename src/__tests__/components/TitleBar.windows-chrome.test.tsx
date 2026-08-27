@@ -48,6 +48,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../lib/platform", () => ({
   detectPlatform: () => mocks.platform.current,
+  resolvePlatform: () => mocks.platform.current,
   IS_MAC: false,
 }));
 

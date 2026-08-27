@@ -27,8 +27,10 @@ html {
 
 body {
   margin: 0 auto;
-  max-width: var(--writ-preview-measure);
-  padding: clamp(1.5rem, 4vw, 3.5rem) clamp(1.25rem, 5vw, 2.5rem) 6rem;
+  /* The reading column is the measure; the padding sits outside it, so the box
+     is the measure plus both gutters (ADR-030 decision 3). */
+  max-width: calc(var(--writ-preview-measure) + 2 * var(--writ-preview-pad-x));
+  padding: var(--writ-preview-pad-y) var(--writ-preview-pad-x);
   background: var(--writ-preview-bg);
   color: var(--writ-preview-fg);
   font-family: var(--writ-preview-font-sans);

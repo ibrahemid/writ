@@ -15,12 +15,13 @@ const mockedUpdateConfig = vi.mocked(updateConfig);
 const MOCK_CONFIG: WritConfig = {
   hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
   sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false },
-  editor: { font_family: "JetBrains Mono", font_size: 16, word_wrap: true, tab_size: 4, autosave_debounce_ms: 500, markdown_typography: true, markdown_editing: true },
+  editor: { font_family: "JetBrains Mono", font_size: 18, word_wrap: true, tab_size: 4, autosave_debounce_ms: 500, markdown_typography: true, markdown_editing: true, status_bar: false },
   window: { width: 1200, height: 800, maximized: false },
   keybindings: {},
   history: { max_entries: 1000 },
   storage: { path: "~/.writ" },
   theme: { preset: "warp-dark", overrides: {} },
+  appearance: { polarity: "system", accent: "pine", prose_face: "system" },
   commands: { usage: {} },
   workspace: { root: null },
   inbox: { path: null, focus: true },
@@ -50,14 +51,14 @@ describe("configStore", () => {
       await configStore.load();
 
       expect(mockedGetConfig).toHaveBeenCalledOnce();
-      expect(configStore.config().editor.font_size).toBe(16);
+      expect(configStore.config().editor.font_size).toBe(18);
       expect(configStore.config().editor.tab_size).toBe(4);
     });
 
     it("resets to defaults on load failure", async () => {
       mockedGetConfig.mockResolvedValueOnce(MOCK_CONFIG);
       await configStore.load();
-      expect(configStore.config().editor.font_size).toBe(16);
+      expect(configStore.config().editor.font_size).toBe(18);
 
       mockedGetConfig.mockRejectedValueOnce(new Error("no file"));
       const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -65,7 +66,7 @@ describe("configStore", () => {
       await configStore.load();
 
       const resetConfig = configStore.config();
-      expect(resetConfig.editor.font_size).not.toBe(16);
+      expect(resetConfig.editor.font_size).not.toBe(18);
       expect(resetConfig.hotkey.toggle).toBeTruthy();
       expect(resetConfig.editor.autosave_debounce_ms).toBeGreaterThan(0);
       consoleSpy.mockRestore();
@@ -78,7 +79,7 @@ describe("configStore", () => {
 
       expect(mockedUpdateConfig).toHaveBeenCalledOnce();
       expect(mockedUpdateConfig).toHaveBeenCalledWith(MOCK_CONFIG);
-      expect(configStore.config().editor.font_size).toBe(16);
+      expect(configStore.config().editor.font_size).toBe(18);
     });
 
     it("propagates save errors", async () => {
@@ -216,7 +217,7 @@ describe("configStore", () => {
       expect(configStore.config().editor.font_size).toBe(19);
 
       configStore.setEditorFontSize(Number.NaN);
-      expect(configStore.config().editor.font_size).toBe(14);
+      expect(configStore.config().editor.font_size).toBe(16);
     });
 
     it("debounces persistence so a fast zoom coalesces into one updateConfig", async () => {

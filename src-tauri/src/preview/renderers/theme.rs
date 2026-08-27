@@ -152,12 +152,29 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
-    /// The `--writ-preview-*` palette 0.3.5 served, captured verbatim from
-    /// origin/main's `preview-base.css` before the token layer moved into
-    /// `design/tokens`. The served palette is compared against it so a change
-    /// to the token sources cannot silently repaint the reading surface.
-    const ORIGIN_PALETTE: &str =
-        include_str!("../../../tests/fixtures/preview-palette-origin-main.css");
+    /// The `--writ-preview-*` palette ADR-030 puts on the reading surface,
+    /// captured from the built token layer and committed separately from it.
+    /// The served palette is compared against it so a change to the token
+    /// sources cannot silently repaint the reading surface.
+    const BASELINE_PALETTE: &str =
+        include_str!("../../../tests/fixtures/preview-palette-adr-030.css");
+
+    /// The app canvas and ink of each polarity, from ADR-030 decision 3. The
+    /// preview is the same surface as the editor, so these are the values the
+    /// fixture has to carry; asserting them literally keeps the fixture from
+    /// drifting away from the record it was captured for.
+    const APP_CANVAS_AND_INK: [(&str, &str, &str); 2] = [
+        ("light", "#ffffff", "#1c1a17"),
+        ("dark", "#1b1a18", "#edeae3"),
+    ];
+
+    fn light(css: &str) -> BTreeMap<String, String> {
+        palette(css, &[":root", "[data-writ-theme=\"light\"]"])
+    }
+
+    fn dark(css: &str) -> BTreeMap<String, String> {
+        palette(css, &[":root", "[data-writ-theme=\"dark\"]"])
+    }
 
     fn strip_comments(css: &str) -> String {
         let mut out = String::new();
@@ -232,7 +249,7 @@ mod tests {
     }
 
     #[test]
-    fn a_dark_app_serves_the_palette_0_3_5_served() {
+    fn a_dark_app_serves_the_baseline_dark_palette() {
         assert_eq!(
             served_palette(&wrap_document_with(
                 "",
@@ -241,12 +258,12 @@ mod tests {
                 ThemePolarity::Dark,
                 1.0
             )),
-            palette(ORIGIN_PALETTE, &[":root"]),
+            dark(BASELINE_PALETTE),
         );
     }
 
     #[test]
-    fn a_light_app_serves_the_light_palette_0_3_5_served() {
+    fn a_light_app_serves_the_baseline_light_palette() {
         assert_eq!(
             served_palette(&wrap_document_with(
                 "",
@@ -255,7 +272,7 @@ mod tests {
                 ThemePolarity::Light,
                 1.0
             )),
-            palette(ORIGIN_PALETTE, &[":root", "[data-writ-theme=\"light\"]"]),
+            light(BASELINE_PALETTE),
         );
     }
 
@@ -264,11 +281,8 @@ mod tests {
         // An HTML buffer keeps its own <html>, so the polarity cannot ride an
         // attribute; the sheet re-declares the wanted layer on :root instead.
         for (polarity, expected) in [
-            (ThemePolarity::Dark, palette(ORIGIN_PALETTE, &[":root"])),
-            (
-                ThemePolarity::Light,
-                palette(ORIGIN_PALETTE, &[":root", "[data-writ-theme=\"light\"]"]),
-            ),
+            (ThemePolarity::Dark, dark(BASELINE_PALETTE)),
+            (ThemePolarity::Light, light(BASELINE_PALETTE)),
         ] {
             let css = style_block(&style_tag_for(polarity));
             assert_eq!(palette(&css, &[":root"]), expected, "{polarity:?}");
@@ -276,12 +290,33 @@ mod tests {
     }
 
     #[test]
+    fn the_reading_surface_carries_the_app_canvas_and_ink() {
+        let served = |polarity| match polarity {
+            "dark" => dark(BASELINE_PALETTE),
+            _ => light(BASELINE_PALETTE),
+        };
+        for (polarity, canvas, ink) in APP_CANVAS_AND_INK {
+            let resolved = served(polarity);
+            assert_eq!(
+                resolved.get("--writ-preview-bg").map(String::as_str),
+                Some(canvas),
+                "{polarity} background must be --writ-bg-canvas"
+            );
+            assert_eq!(
+                resolved.get("--writ-preview-fg").map(String::as_str),
+                Some(ink),
+                "{polarity} foreground must be --writ-fg"
+            );
+        }
+    }
+
+    #[test]
     fn dark_palette_block_is_found() {
         let block = dark_palette_block().expect("the token layer declares a dark block");
         assert!(block.starts_with('{') && block.ends_with('}'));
-        assert!(block.contains("--writ-preview-bg: #0e0e14"));
+        assert!(block.contains("--writ-preview-bg: #1b1a18"));
         assert!(
-            !block.contains("#fbfbfd"),
+            !block.contains("#ffffff"),
             "the block must not be the light :root layer"
         );
     }
@@ -290,7 +325,7 @@ mod tests {
     fn dark_style_tag_redeclares_the_dark_palette_on_root() {
         let tag = style_tag_for(ThemePolarity::Dark);
         let at = tag.find(":root{").expect("a :root override is spliced in");
-        assert!(tag[at..].contains("--writ-preview-bg: #0e0e14"));
+        assert!(tag[at..].contains("--writ-preview-bg: #1b1a18"));
         // After the light default it overrides, before both attribute blocks
         // so a live switch still wins.
         assert!(at > tag.find(":root {").unwrap());
@@ -305,11 +340,11 @@ mod tests {
         let css = style_block(&style_tag_for(ThemePolarity::Dark));
         assert_eq!(
             palette(&css, &[":root", "[data-writ-theme=\"light\"]"]),
-            palette(ORIGIN_PALETTE, &[":root", "[data-writ-theme=\"light\"]"]),
+            light(BASELINE_PALETTE)
         );
         assert_eq!(
             palette(&css, &[":root", "[data-writ-theme=\"dark\"]"]),
-            palette(ORIGIN_PALETTE, &[":root"]),
+            dark(BASELINE_PALETTE)
         );
     }
 
@@ -319,12 +354,12 @@ mod tests {
             let css = style_block(&wrap_document_with("", "<p>x</p>", "", polarity, 1.0));
             assert_eq!(
                 palette(&css, &[":root", "[data-writ-theme=\"light\"]"]),
-                palette(ORIGIN_PALETTE, &[":root", "[data-writ-theme=\"light\"]"]),
+                light(BASELINE_PALETTE),
                 "{polarity:?} switched to light"
             );
             assert_eq!(
                 palette(&css, &[":root", "[data-writ-theme=\"dark\"]"]),
-                palette(ORIGIN_PALETTE, &[":root"]),
+                dark(BASELINE_PALETTE),
                 "{polarity:?} switched to dark"
             );
         }

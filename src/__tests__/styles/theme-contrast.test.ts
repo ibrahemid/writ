@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { PRESETS } from "../../styles/themes";
+import { ACCENTS, COLORS } from "../../styles/generated/tokens";
 import type { Theme } from "../../types/theme";
 
 // Operator decision (2026-06-11): WCAG AA is enforced for EVERY shipped preset,
@@ -83,4 +84,27 @@ describe("app theme tokens contrast (WCAG AA, all presets)", () => {
   it("covers every shipped preset", () => {
     expect(PRESETS.length).toBeGreaterThanOrEqual(5);
   });
+});
+
+// The accent is its own axis (ADR-030 decision 5), so every hue has to clear
+// the bar against the canvas it sits on and the text it carries, in both
+// schemes, whichever preset is active.
+describe("accent contrast (WCAG AA, both schemes)", () => {
+  for (const [id, triple] of Object.entries(ACCENTS)) {
+    describe(id, () => {
+      for (const polarity of ["light", "dark"] as const) {
+        const { base, hover, foreground } = triple[polarity];
+        const canvas = COLORS[polarity].bgCanvas;
+
+        it(`reads as a UI element on the ${polarity} canvas (3.0:1)`, () => {
+          expect(contrast(base, canvas)).toBeGreaterThanOrEqual(AA_LARGE);
+        });
+
+        it(`carries its own ${polarity} foreground at 4.5:1`, () => {
+          expect(contrast(foreground, base)).toBeGreaterThanOrEqual(AA_TEXT);
+          expect(contrast(foreground, hover)).toBeGreaterThanOrEqual(AA_TEXT);
+        });
+      }
+    });
+  }
 });

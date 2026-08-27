@@ -17,10 +17,7 @@ const SKIP_DIRS = [
 export const RETOKENISE_ALLOWLIST: readonly string[] = [
   "src/components/ConfirmDialog/ConfirmDialog.css",
   "src/components/ContextMenu/ContextMenu.css",
-  "src/components/Editor/StatusBar.css",
   "src/components/Editor/SpellingPreview.css",
-  "src/components/Editor/TabBar.css",
-  "src/components/Editor/cm-markdown-typography.css",
   "src/components/ErrorBoundary/ErrorBoundary.css",
   "src/components/Find/FindOverlay.css",
   "src/components/Notifications/Toast.css",
@@ -41,7 +38,6 @@ export const RETOKENISE_ALLOWLIST: readonly string[] = [
   "src/components/ThemeEditor/ThemeEditor.css",
   "src/components/TitleBar/TitleBar.css",
   "src/components/UpdateBanner/UpdateBanner.css",
-  "src/styles/global.css",
 ];
 
 const RAW_RADIUS = /border-radius\s*:[^;}]*\b\d+(?:\.\d+)?px/g;

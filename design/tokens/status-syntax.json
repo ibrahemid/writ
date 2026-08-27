@@ -1,43 +1,44 @@
 {
   "status": {
     "$type": "color",
-    "$description": "Stylesheet defaults. A preset overwrites these at runtime through themeStore.applyToRoot.",
+    "$description": "Stylesheet defaults, light-first. A preset overwrites these at runtime through themeStore.applyToRoot.",
     "success": {
-      "$value": "#9ece6a"
+      "$value": "#178035"
     },
     "warning": {
-      "$value": "#e0af68"
+      "$value": "#9a6b00"
     },
     "error": {
-      "$value": "#f7768e"
+      "$value": "var(--writ-danger)"
     },
     "foreground": {
-      "$value": "#0a0a10"
+      "$value": "#ffffff"
     }
   },
   "syntax": {
     "$type": "color",
     "keyword": {
-      "$value": "#bb9af7"
+      "$value": "var(--writ-fg)"
     },
     "string": {
-      "$value": "#9ece6a"
+      "$value": "var(--writ-syn-string)"
     },
     "comment": {
-      "$value": "#565f89"
+      "$value": "var(--writ-fg-faint)"
     },
     "function": {
-      "$value": "#7aa2f7"
+      "$value": "var(--writ-fg-muted)"
     },
     "number": {
-      "$value": "#ff9e64"
+      "$value": "var(--writ-fg)"
     },
     "type": {
-      "$value": "#2ac3de"
+      "$value": "var(--writ-fg-muted)"
     },
     "variable": {
-      "$value": "#c0caf5"
-    }
+      "$value": "var(--writ-fg-muted)"
+    },
+    "$description": "ADR-030 decision 3: the syntax set is the neutrals at low saturation, so it follows the polarity without a second palette. Only strings carry a hue."
   },
   "traffic": {
     "$type": "color",

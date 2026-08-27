@@ -405,15 +405,7 @@ export const CSS_VAR = {
  * describe the current paint until the unit that owns those consumers migrates
  * them and drops the alias. Empty once the legacy layer is gone.
  */
-export const LEGACY_FROZEN: readonly string[] = [
-  "--writ-accent-hover",
-  "--writ-border-soft",
-  "--writ-font-mono",
-  "--writ-shadow-chip",
-  "--writ-shadow-modal",
-  "--writ-shadow-popover",
-  "--writ-sidebar-width",
-];
+export const LEGACY_FROZEN: readonly string[] = [];
 
 /** `var(--name)`, or `var(--name, fallback)`. */
 export function cssVar(name: string, fallback?: string): string {

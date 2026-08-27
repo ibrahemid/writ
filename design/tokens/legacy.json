@@ -1,7 +1,7 @@
 {
   "legacy": {
     "$type": "other",
-    "$description": "Every pre-ADR-030 custom property, frozen at the value origin/main declared, so an unmigrated stylesheet renders exactly as it did with no script and no root attribute. Each unit drops the aliases its files stop using; the last one deletes this file.",
+    "$description": "Every pre-ADR-030 custom property still read by an unmigrated stylesheet, frozen at the value origin/main declared. Each unit drops the aliases its files stop using; the last one deletes this file. The names the visual flip took off this layer are listed in src/__tests__/styles/resolved-token-snapshot.test.ts.",
     "surface-background": {
       "$value": "#0e0e14"
     },
@@ -32,10 +32,6 @@
     "border-default": {
       "$value": "#1e1e2e"
     },
-    "border-soft": {
-      "$value": "#16161f",
-      "$description": "Re-declared, not aliased: the name survives into the new vocabulary. The unit that migrates its consumers drops this entry."
-    },
     "border-focus": {
       "$value": "#7aa2f7"
     },
@@ -45,20 +41,12 @@
     "accent-default": {
       "$value": "#7aa2f7"
     },
-    "accent-hover": {
-      "$value": "#89b4fa",
-      "$description": "Re-declared, not aliased: the name survives into the new vocabulary. The unit that migrates its consumers drops this entry."
-    },
     "accent-foreground": {
       "$value": "#0a0a10"
     },
     "font-sans": {
       "$value": "\"Inter\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"SF Arabic\", \"Geeza Pro\", \"Noto Naskh Arabic\", system-ui, sans-serif",
       "$description": "Inter is still bundled until the prose-face work lands, so the alias keeps the stack it had."
-    },
-    "font-mono": {
-      "$value": "\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", \"Cascadia Code\", \"SF Arabic\", \"Geeza Pro\", \"Noto Naskh Arabic\", ui-monospace, monospace",
-      "$description": "Re-declared, not aliased: the name survives into the new vocabulary. The unit that migrates the mono surfaces drops this entry and lets the generated stack through."
     },
     "font-size": {
       "$value": "14px"
@@ -68,13 +56,6 @@
     },
     "font-size-xs": {
       "$value": "11px"
-    },
-    "line-height": {
-      "$value": "1.6"
-    },
-    "editor-font-size": {
-      "$value": "14px",
-      "$description": "Pre-paint default only. editorZoom writes the live value onto the root from editor.font_size."
     },
     "radius-1": {
       "$value": "4px"
@@ -87,9 +68,6 @@
     },
     "window-radius": {
       "$value": "10px"
-    },
-    "sidebar-width": {
-      "$value": "260px"
     },
     "statusbar-height": {
       "$value": "28px"
@@ -115,25 +93,14 @@
     "overlay-scrim": {
       "$value": "rgba(0, 0, 0, 0.5)"
     },
-    "selection": {
-      "$value": "color-mix(in srgb, var(--writ-accent-default) 30%, transparent)"
-    },
     "warning-foreground": {
       "$value": "color-mix(in srgb, var(--writ-status-warning) 68%, var(--writ-foreground-default))"
-    },
-    "shadow-modal": {
-      "$value": "0 12px 32px rgba(0, 0, 0, 0.32), 0 2px 6px rgba(0, 0, 0, 0.24)",
-      "$description": "Re-declared, not aliased: the name survives into the new vocabulary, so the unit that migrates its consumers drops this entry and lets the generated elevation through."
     },
     "shadow-overlay": {
       "$value": "0 14px 40px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4)"
     },
     "shadow-dialog": {
       "$value": "0 10px 26px rgba(0, 0, 0, 0.28)"
-    },
-    "shadow-popover": {
-      "$value": "0 8px 24px rgba(0, 0, 0, 0.4)",
-      "$description": "Re-declared, not aliased. See shadow-modal."
     },
     "shadow-banner": {
       "$value": "0 6px 24px rgba(0, 0, 0, 0.32)"
@@ -143,10 +110,6 @@
     },
     "shadow-sidebar": {
       "$value": "4px 0 12px -8px rgba(0, 0, 0, 0.6)"
-    },
-    "shadow-chip": {
-      "$value": "0 2px 8px rgba(0, 0, 0, 0.25)",
-      "$description": "Re-declared, not aliased. See shadow-modal."
     },
     "shadow-xs": {
       "$value": "0 1px 2px rgba(0, 0, 0, 0.2)"

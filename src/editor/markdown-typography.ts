@@ -28,13 +28,22 @@ interface SyntaxNodeFull extends SyntaxNodeRef {
 // ─── Decoration factories ──────────────────────────────────────────────────
 
 const lineDec: Record<string, Decoration> = {
-  ATXHeading1: Decoration.line({ class: "cm-line-md-h1" }),
-  ATXHeading2: Decoration.line({ class: "cm-line-md-h2" }),
-  ATXHeading3: Decoration.line({ class: "cm-line-md-h3" }),
-  ATXHeading4: Decoration.line({ class: "cm-line-md-h4" }),
-  ATXHeading5: Decoration.line({ class: "cm-line-md-h5" }),
-  ATXHeading6: Decoration.line({ class: "cm-line-md-h6" }),
+  ATXHeading1: Decoration.line({ class: "cm-line-md-h1 cm-line-md-hang" }),
+  ATXHeading2: Decoration.line({ class: "cm-line-md-h2 cm-line-md-hang" }),
+  ATXHeading3: Decoration.line({ class: "cm-line-md-h3 cm-line-md-hang" }),
+  ATXHeading4: Decoration.line({ class: "cm-line-md-h4 cm-line-md-hang" }),
+  ATXHeading5: Decoration.line({ class: "cm-line-md-h5 cm-line-md-hang" }),
+  ATXHeading6: Decoration.line({ class: "cm-line-md-h6 cm-line-md-hang" }),
 };
+
+// Fenced code keeps mono: prose sans is the writing face, and a fence is code
+// (ADR-030 decision 7). Applied per line so the fences read as part of it.
+const codeBlockLine = Decoration.line({ class: "cm-md-codeblock" });
+
+// Pulls a line's leading marker into the left margin without taking it out of
+// flow, so a wrapped line keeps one box and CodeMirror's height cache stays
+// right (an absolutely-positioned marker inside .cm-line does not).
+const hangLine = Decoration.line({ class: "cm-line-md-hang" });
 
 const markDecByNode: Record<string, Decoration> = {
   StrongEmphasis: Decoration.mark({ class: "cm-md-strong" }),
@@ -44,6 +53,9 @@ const markDecByNode: Record<string, Decoration> = {
 };
 
 const markerReplace  = Decoration.replace({});
+// Markers that stay in the text hang in the left margin at the formatting ink,
+// so the sentence itself never carries raw punctuation (ADR-030 decision 3).
+const hungMarkerMark = Decoration.mark({ class: "cm-md-marker-hung" });
 const urlDimMark     = Decoration.mark({ class: "cm-md-url-dim" });
 const linkTextMark   = Decoration.mark({ class: "cm-md-link-text" });
 const blockquoteMark = Decoration.mark({ class: "cm-md-blockquote" });
@@ -102,16 +114,19 @@ const TASK_LINE_PREFIX = /^(\s*(?:[-+*]|\d+[.)])\s+\[)([ xX])\]/;
 // The remainder of a list line that makes its marker a task item's marker.
 const TASK_AFTER_MARK = /^\s+\[[ xX]\]/;
 
-// Syntax marker node names — characters like '#', '**', '_', '`', '>', '[', ']',
-// '(', ')' that we dim/replace on inactive lines.
+// Inline noise: characters like '**', '_', '`', '[', ']' that carry no meaning
+// once the styling they describe is rendered. Replaced on inactive lines.
 const MARKER_NAMES = new Set([
-  "HeaderMark",
   "EmphasisMark",
   "CodeMark",
   "StrikethroughMark",
-  "QuoteMark",
   "LinkMark",
 ]);
+
+// Structure: the '#' of a heading and the '>' of a quote say what the block is,
+// so they stay readable and hang in the margin instead of being replaced. A
+// deliberate narrowing of ADR-014's replace-on-inactive rule.
+const HUNG_MARKER_NAMES = new Set(["HeaderMark", "QuoteMark"]);
 
 // ─── Pure decoration builder ───────────────────────────────────────────────
 
@@ -205,9 +220,36 @@ export function buildMarkdownDecorations(
       return;
     }
 
+    // ── Fenced code: mono, one line decoration per line in the block ──────
+    if (name === "FencedCode" || name === "CodeBlock") {
+      try {
+        let pos = from;
+        for (;;) {
+          const line = docLineAt(pos);
+          specs.push({ from: line.from, to: line.from, decoration: codeBlockLine });
+          if (line.to >= to) break;
+          pos = line.to + 1;
+        }
+      } catch {
+        // skip un-parseable positions
+      }
+      return;
+    }
+
     // ── Blockquote content ────────────────────────────────────────────────
     if (name === "Blockquote") {
       addMark(from, to, blockquoteMark);
+      try {
+        let pos = from;
+        for (;;) {
+          const line = docLineAt(pos);
+          specs.push({ from: line.from, to: line.from, decoration: hangLine });
+          if (line.to >= to) break;
+          pos = line.to + 1;
+        }
+      } catch {
+        // skip un-parseable positions
+      }
       return;
     }
 
@@ -267,6 +309,9 @@ export function buildMarkdownDecorations(
     if (name === "ListMark") {
       const text = docSlice(from, to);
       if (/^[-+*]$/.test(text)) {
+        // ADR-014's rule stands for a replace: hiding the character under the
+        // cursor would hide what the user is typing. Only the marks below are
+        // narrowed.
         const active = isActiveLine(from);
         if (active !== false) return;
         let lineTo: number;
@@ -275,11 +320,11 @@ export function buildMarkdownDecorations(
         } catch {
           return;
         }
-        // A task item shows only its checkbox; a plain item shows a dot.
         const rest = docSlice(to, lineTo);
         const taskRest = TASK_AFTER_MARK.exec(rest);
         if (taskRest) {
-          // Swallow the gap up to the checkbox so no stray indent remains.
+          // A task item shows only its checkbox; swallow the gap up to the box
+          // so no stray indent remains.
           addReplace(from, to + taskRest[0].indexOf("["));
         } else {
           addReplace(from, to, bulletReplace);
@@ -307,7 +352,13 @@ export function buildMarkdownDecorations(
       return;
     }
 
-    // ── Syntax markers: replace on inactive lines, reveal on active ───────
+    // ── Structural markers: hung in the margin, never replaced ────────────
+    if (HUNG_MARKER_NAMES.has(name)) {
+      addMark(from, to, hungMarkerMark);
+      return;
+    }
+
+    // ── Inline markers: replace on inactive lines, reveal on active ───────
     if (MARKER_NAMES.has(name)) {
       const active = isActiveLine(from);
       if (active !== false) return;

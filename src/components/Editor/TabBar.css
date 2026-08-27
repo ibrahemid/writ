@@ -36,7 +36,7 @@
   color: var(--writ-foreground-muted);
   font-size: var(--writ-font-size-sm);
   white-space: nowrap;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  transition: background var(--writ-motion-fast) var(--writ-ease), color var(--writ-motion-fast) var(--writ-ease), border-color var(--writ-motion-fast) var(--writ-ease), box-shadow var(--writ-motion-fast) var(--writ-ease);
   flex-shrink: 0;
   min-width: 116px;
 }
@@ -76,7 +76,7 @@
   border-radius: var(--writ-radius-1);
   line-height: 1;
   flex-shrink: 0;
-  transition: color 120ms ease, background 120ms ease;
+  transition: color var(--writ-motion-fast) var(--writ-ease), background var(--writ-motion-fast) var(--writ-ease);
 }
 
 .tab-close:focus-visible {
@@ -107,7 +107,7 @@
   align-items: center;
   justify-content: center;
   background: transparent;
-  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+  transition: color var(--writ-motion-fast) var(--writ-ease), background var(--writ-motion-fast) var(--writ-ease), border-color var(--writ-motion-fast) var(--writ-ease);
 }
 
 .tabbar-new:hover {

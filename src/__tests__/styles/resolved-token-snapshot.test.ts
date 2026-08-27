@@ -2,16 +2,20 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { themeStore } from "../../stores/global/theme";
+import { ACCENTS } from "../../styles/generated/tokens";
 
 // Two fixtures, both captured from origin/main before the pipeline existed: the
 // property map the theme store writes, and the :root block the hand-written
-// stylesheet declared. Moving both onto design/tokens must not move a value.
+// stylesheet declared. The pipeline moved them without moving a value; the
+// visual flip then moves the ones listed in REPAINTED, on purpose. Every other
+// name still has to resolve to what 0.3.5 painted, so an unmigrated stylesheet
+// keeps rendering as it did.
 
 const ROOT = process.cwd();
 
 const RESOLVED_FIXTURE = JSON.parse(
   readFileSync(resolve(ROOT, "src/__tests__/fixtures/resolved-tokens-warp-dark.json"), "utf8"),
-) as Record<string, unknown>;
+) as Record<string, string>;
 
 const ORIGIN_ROOT = JSON.parse(
   readFileSync(resolve(ROOT, "src/__tests__/fixtures/root-tokens-origin-main.json"), "utf8"),
@@ -92,62 +96,41 @@ const ORIGIN_DECLARATIONS = new Map(Object.entries(ORIGIN_ROOT));
 const NO_ATTRIBUTES = rootWith({});
 const DARK = rootWith({ "data-theme": "dark" });
 
-// Every property the old sheet declared. The colour tiers are here too: the
-// theme store overwrites them inline from the active preset, but with no script
-// and no attribute the static fallback still has to paint 0.3.5.
-const FROZEN = [
-  "--writ-accent-default",
-  "--writ-accent-foreground",
+/**
+ * Names the visual flip repaints, each for a stated reason:
+ *
+ * - `--writ-accent-hover`, `--writ-border-soft`, `--writ-font-mono`,
+ *   `--writ-shadow-chip`, `--writ-shadow-modal`, `--writ-shadow-popover`,
+ *   `--writ-sidebar-width`: the legacy layer froze the ADR-030 name at its
+ *   pre-030 value. The flip lets the generated value through.
+ * - `--writ-editor-font-size`: no longer a frozen alias. It is a token in the
+ *   new vocabulary, resolving to the prose size, and editorZoom still writes
+ *   the live value onto the root.
+ * - `--writ-selection`: same, derived from `--writ-accent` rather than the
+ *   retired `--writ-accent-default`.
+ * - `--writ-line-height`: removed. Its one reader, global.css, takes the UI
+ *   scale's own line height.
+ * - `--writ-status-*` and `--writ-syntax-*`: light-first defaults, with the
+ *   syntax set sourced from the neutrals (ADR-030 decision 3). A preset still
+ *   overwrites both groups at runtime.
+ * - `--writ-warning-foreground`: unchanged expression, new value, because it
+ *   is mixed from `--writ-status-warning`.
+ */
+const REPAINTED = [
   "--writ-accent-hover",
-  "--writ-bg-tab-pill",
-  "--writ-border-default",
-  "--writ-border-focus",
-  "--writ-border-pill",
   "--writ-border-soft",
   "--writ-editor-font-size",
   "--writ-font-mono",
-  "--writ-font-sans",
-  "--writ-font-size",
-  "--writ-font-size-sm",
-  "--writ-font-size-xs",
-  "--writ-foreground-default",
-  "--writ-foreground-muted",
-  "--writ-foreground-subtle",
   "--writ-line-height",
-  "--writ-overlay-hover",
-  "--writ-overlay-scrim",
-  "--writ-overlay-subtle",
-  "--writ-radius-1",
-  "--writ-radius-2",
-  "--writ-radius-3",
   "--writ-selection",
-  "--writ-shadow-banner",
   "--writ-shadow-chip",
-  "--writ-shadow-dialog",
   "--writ-shadow-modal",
-  "--writ-shadow-overlay",
   "--writ-shadow-popover",
-  "--writ-shadow-sidebar",
-  "--writ-shadow-toast",
-  "--writ-shadow-xs",
   "--writ-sidebar-width",
-  "--writ-space-1",
-  "--writ-space-2",
-  "--writ-space-3",
-  "--writ-space-4",
-  "--writ-space-5",
-  "--writ-space-6",
   "--writ-status-error",
   "--writ-status-foreground",
   "--writ-status-success",
   "--writ-status-warning",
-  "--writ-statusbar-height",
-  "--writ-surface-background",
-  "--writ-surface-elevated",
-  "--writ-surface-hover",
-  "--writ-surface-input",
-  "--writ-surface-raised",
-  "--writ-surface-sunken",
   "--writ-syntax-comment",
   "--writ-syntax-function",
   "--writ-syntax-keyword",
@@ -155,6 +138,51 @@ const FROZEN = [
   "--writ-syntax-string",
   "--writ-syntax-type",
   "--writ-syntax-variable",
+  "--writ-warning-foreground",
+];
+
+// Every other property the old sheet declared. The colour tiers are here too:
+// the theme store overwrites them inline from the active preset, but with no
+// script and no attribute the static fallback still has to paint 0.3.5.
+const FROZEN = [
+  "--writ-accent-default",
+  "--writ-accent-foreground",
+  "--writ-bg-tab-pill",
+  "--writ-border-default",
+  "--writ-border-focus",
+  "--writ-border-pill",
+  "--writ-font-sans",
+  "--writ-font-size",
+  "--writ-font-size-sm",
+  "--writ-font-size-xs",
+  "--writ-foreground-default",
+  "--writ-foreground-muted",
+  "--writ-foreground-subtle",
+  "--writ-overlay-hover",
+  "--writ-overlay-scrim",
+  "--writ-overlay-subtle",
+  "--writ-radius-1",
+  "--writ-radius-2",
+  "--writ-radius-3",
+  "--writ-shadow-banner",
+  "--writ-shadow-dialog",
+  "--writ-shadow-overlay",
+  "--writ-shadow-sidebar",
+  "--writ-shadow-toast",
+  "--writ-shadow-xs",
+  "--writ-space-1",
+  "--writ-space-2",
+  "--writ-space-3",
+  "--writ-space-4",
+  "--writ-space-5",
+  "--writ-space-6",
+  "--writ-statusbar-height",
+  "--writ-surface-background",
+  "--writ-surface-elevated",
+  "--writ-surface-hover",
+  "--writ-surface-input",
+  "--writ-surface-raised",
+  "--writ-surface-sunken",
   "--writ-tab-pill-height",
   "--writ-tabbar-height",
   "--writ-titlebar-height",
@@ -165,7 +193,6 @@ const FROZEN = [
   "--writ-traffic-maximize-glyph",
   "--writ-traffic-minimize",
   "--writ-traffic-minimize-glyph",
-  "--writ-warning-foreground",
   "--writ-winctrl-danger-bg",
   "--writ-winctrl-danger-fg",
   "--writ-window-radius",];
@@ -173,18 +200,32 @@ const FROZEN = [
 describe("token pipeline acceptance", () => {
   it("resolved token set is unchanged by the pipeline", () => {
     themeStore.resetOverrides();
+    // Pinned, not followed: warp-dark and warp-light are a pair, so a system
+    // polarity would resolve the light half on a light host.
+    themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "system" });
     themeStore.setPreset("warp-dark");
     themeStore.applyToRoot(document.createElement("div"));
-    const written = JSON.parse(localStorage.getItem("writ-theme-vars") as string) as Record<
-      string,
-      unknown
-    >;
-    expect(Object.keys(written).sort()).toEqual(Object.keys(RESOLVED_FIXTURE).sort());
-    expect(written).toEqual(RESOLVED_FIXTURE);
+    const snapshot = JSON.parse(localStorage.getItem("writ-theme-vars-v2") as string) as {
+      vars: Record<string, string>;
+      attrs: Record<string, string>;
+    };
+    // The accent is its own axis now, so the three accent properties carry the
+    // chosen hue rather than the preset's. Everything else is 0.3.5's warp-dark.
+    const pine = ACCENTS.pine.dark;
+    const expected = {
+      ...RESOLVED_FIXTURE,
+      "--writ-accent-default": pine.base,
+      "--writ-accent-hover": pine.hover,
+      "--writ-accent-foreground": pine.foreground,
+    };
+    expect(Object.keys(snapshot.vars).sort()).toEqual(Object.keys(expected).sort());
+    expect(snapshot.vars).toEqual(expected);
+    expect(snapshot.attrs).toEqual({ "data-theme": "dark", "data-accent": "pine" });
   });
 
-  it("covers every property origin/main declared on :root", () => {
-    expect([...FROZEN].sort()).toEqual(Object.keys(ORIGIN_ROOT).sort());
+  it("accounts for every property origin/main declared on :root", () => {
+    expect([...FROZEN, ...REPAINTED].sort()).toEqual(Object.keys(ORIGIN_ROOT).sort());
+    expect(FROZEN.filter((name) => REPAINTED.includes(name))).toEqual([]);
   });
 
   for (const [state, resolved] of [
@@ -207,18 +248,32 @@ describe("token pipeline acceptance", () => {
     });
   }
 
-  it("the re-declared names outrank the dark and platform layers", () => {
-    // Same specificity as :root[data-theme="dark"] and :root[data-platform="win"],
-    // and the legacy sheet is imported after the generated one, so source order
-    // settles it.
+  it("the legacy layer declares nothing the generated sheet also declares", () => {
+    // Keeps its selector list at the specificity of :root[data-theme="dark"],
+    // so a name it does re-declare would still win on source order — and none
+    // does any more.
     expect(LEGACY_CSS).toContain(":root,\n:root[data-theme] {");
-    for (const name of [
-      "--writ-shadow-modal",
-      "--writ-shadow-popover",
-      "--writ-shadow-chip",
-      "--writ-font-mono",
-    ]) {
-      expect(NO_ATTRIBUTES.get(name), name).toBe(DARK.get(name));
+    const legacyNames = new Set(
+      [...LEGACY_CSS.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]),
+    );
+    const themeNames = new Set(
+      [...SHEETS[0].matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]),
+    );
+    expect([...legacyNames].filter((name) => themeNames.has(name))).toEqual([]);
+  });
+
+  it("every repainted name still resolves to something", () => {
+    // A repaint is a new value, never a dangling var(): the one name this unit
+    // removes outright is --writ-line-height, whose reader went with it.
+    for (const name of REPAINTED) {
+      if (name === "--writ-line-height") {
+        expect(NO_ATTRIBUTES.has(name), name).toBe(false);
+        continue;
+      }
+      expect(NO_ATTRIBUTES.get(name), name).toBeDefined();
+      expect(deref(NO_ATTRIBUTES.get(name)!, NO_ATTRIBUTES)).not.toBe(
+        deref(ORIGIN_ROOT[name], ORIGIN_DECLARATIONS),
+      );
     }
   });
 });

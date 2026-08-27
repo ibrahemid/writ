@@ -10,7 +10,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import { syntaxHighlighting, bracketMatching, indentOnInput } from "@codemirror/language";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { search, highlightSelectionMatches } from "@codemirror/search";
-import { editorThemeFor, writHighlight } from "./cm-theme";
+import { editorThemeFor, writCodeFace, writHighlight } from "./cm-theme";
 import { themeStore } from "../../stores/global/theme";
 import { markdownTypographyPlugin } from "../../editor/markdown-typography";
 import { markdownEditingExtension } from "../../editor/markdown-editing";
@@ -102,6 +102,7 @@ export default function EditorInstance(props: Props) {
   const languageCompartment = new Compartment();
   const themeCompartment = new Compartment();
   const typographyCompartment = new Compartment();
+  const codeFaceCompartment = new Compartment();
   const editingCompartment = new Compartment();
   const readOnlyCompartment = new Compartment();
   const spellingCompartment = new Compartment();
@@ -214,6 +215,13 @@ export default function EditorInstance(props: Props) {
     return [];
   }
 
+  // Prose sans is the writing face; a source buffer is code all the way down,
+  // so it takes mono for the whole surface (ADR-030 decision 7). Markdown and
+  // an undetected buffer stay prose.
+  function codeFaceExtension(lang: string | null): Extension {
+    return lang === null || lang === "markdown" ? [] : writCodeFace;
+  }
+
   function editingExtension(lang: string | null, mode: FileOpenMode): Extension {
     if (mode.kind !== "Normal") return [];
     if (lang === "markdown" && configStore.config().editor.markdown_editing) {
@@ -231,6 +239,7 @@ export default function EditorInstance(props: Props) {
         languageCompartment.reconfigure(mode.kind === "Normal" ? languageExtension(lang) : []),
         typographyCompartment.reconfigure(typographyExtension(lang, mode)),
         editingCompartment.reconfigure(editingExtension(lang, mode)),
+        codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
       ],
     });
   }
@@ -281,6 +290,7 @@ export default function EditorInstance(props: Props) {
     return [
       languageCompartment.of(isRestricted ? [] : initialLang),
       typographyCompartment.of(isRestricted ? [] : typographyExtension(langId, mode)),
+      codeFaceCompartment.of(isRestricted ? [] : codeFaceExtension(langId)),
       editingCompartment.of(isRestricted ? [] : editingExtension(langId, mode)),
       // Configured by applySpelling() after the view mounts.
       spellingCompartment.of([]),
@@ -394,6 +404,7 @@ export default function EditorInstance(props: Props) {
           languageCompartment.reconfigure(languageExtension(lang)),
           typographyCompartment.reconfigure(typographyExtension(lang, mode)),
           editingCompartment.reconfigure(editingExtension(lang, mode)),
+          codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
         ],
       });
     }
@@ -597,6 +608,7 @@ export default function EditorInstance(props: Props) {
         typographyCompartment.reconfigure(
           lang === "markdown" && typographyEnabled ? markdownTypographyPlugin : [],
         ),
+        codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
         editingCompartment.reconfigure(
           lang === "markdown" && editingEnabled ? markdownEditingExtension : [],
         ),

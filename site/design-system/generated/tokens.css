@@ -78,6 +78,8 @@
   --writ-z-modal: 400;
   --writ-z-toast: 500;
   --writ-z-drag: 600;
+  --writ-editor-font-size: var(--writ-prose-size);
+  --writ-selection: color-mix(in srgb, var(--writ-accent) 30%, transparent);
   --writ-bg-canvas: #FFFFFF;
   --writ-bg-sidebar: #F7F6F3;
   --writ-bg-raised: #FFFFFF;

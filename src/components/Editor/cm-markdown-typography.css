@@ -1,56 +1,79 @@
 /* Live markdown typography decorations — scoped to .cm-editor so they
-   never bleed outside a CodeMirror instance. All colours use existing
-   --writ-* custom properties so the rules invert automatically between
-   warp-dark and warp-light presets. */
+   never bleed outside a CodeMirror instance. Every value is a --writ-*
+   token, so the rules follow the active preset and polarity. */
 
-/* Heading scale — applied as line decorations by the ViewPlugin. The
-   class on the line widget drives font-size; CodeMirror accounts for the
-   changed line height via its block-height cache. */
-.cm-editor .cm-line-md-h1 { font-size: 1.60em; line-height: 1.3; font-weight: 700; color: var(--writ-foreground-default); }
-.cm-editor .cm-line-md-h2 { font-size: 1.40em; line-height: 1.35; font-weight: 700; color: var(--writ-foreground-default); }
-.cm-editor .cm-line-md-h3 { font-size: 1.22em; line-height: 1.4; font-weight: 600; color: var(--writ-foreground-default); }
-.cm-editor .cm-line-md-h4 { font-size: 1.10em; line-height: 1.45; font-weight: 600; color: var(--writ-foreground-default); }
-.cm-editor .cm-line-md-h5 { font-size: 1.04em; line-height: 1.5; font-weight: 600; color: var(--writ-foreground-muted); }
-.cm-editor .cm-line-md-h6 { font-size: 1.00em; line-height: 1.5; font-weight: 600; color: var(--writ-foreground-subtle); }
+/* Heading scale — applied as line decorations by the ViewPlugin. The class on
+   the line widget drives size and weight from the type scale; CodeMirror
+   accounts for the changed line height via its block-height cache. Headings
+   inherit the body ink (ADR-030 decision 3). */
+.cm-editor .cm-line-md-h1 { font-size: var(--writ-h1-size); line-height: var(--writ-h1-lh); font-weight: var(--writ-h1-weight); }
+.cm-editor .cm-line-md-h2 { font-size: var(--writ-h2-size); line-height: var(--writ-h2-lh); font-weight: var(--writ-h2-weight); }
+.cm-editor .cm-line-md-h3 { font-size: var(--writ-h3-size); line-height: var(--writ-h3-lh); font-weight: var(--writ-h3-weight); }
+.cm-editor .cm-line-md-h4 { font-size: var(--writ-h4-size); line-height: var(--writ-h4-lh); font-weight: var(--writ-h4-weight); }
+.cm-editor .cm-line-md-h5 { font-size: var(--writ-h5-size); line-height: var(--writ-h5-lh); font-weight: var(--writ-h5-weight); }
+.cm-editor .cm-line-md-h6 { font-size: var(--writ-h6-size); line-height: var(--writ-h6-lh); font-weight: var(--writ-h6-weight); }
+
+/* Hung markers. A negative first-line indent plus matching padding pulls the
+   leading '#' or '>' into the left margin while the marker stays in flow, so a
+   wrapped line keeps one box. Widen --writ-md-hang per class if a marker ever
+   outgrows it; do not reach for absolute positioning, which loses the box and
+   mis-measures CodeMirror's block height. */
+.cm-editor .cm-line-md-hang {
+  text-indent: calc(-1 * var(--writ-md-hang, 1.6em));
+  padding-left: var(--writ-md-hang, 1.6em);
+}
+
+/* The marker itself: readable, quiet, never bold with the heading it opens. */
+.cm-editor .cm-md-marker-hung {
+  color: var(--writ-heading-formatting);
+  font-weight: 400;
+}
 
 /* Inline styling — mark decorations that do not touch cursor positions. */
 .cm-editor .cm-md-strong { font-weight: 700; }
 .cm-editor .cm-md-em     { font-style: italic; }
-.cm-editor .cm-md-strike { text-decoration: line-through; color: var(--writ-foreground-muted); }
+.cm-editor .cm-md-strike { text-decoration: line-through; color: var(--writ-fg-muted); }
 
-/* Inline code chip: subtle background, no added margin so cursor motion
-   is unaffected. */
+/* Inline code chip: sunken fill, no added margin so cursor motion is
+   unaffected. Mono is scoped to code and nothing else. */
 .cm-editor .cm-md-code {
-  background: color-mix(in srgb, var(--writ-foreground-default) 9%, transparent);
-  border-radius: 3px;
-  padding: 1px 3px;
-  font-size: 0.92em;
+  background: var(--writ-bg-sunken);
+  border-radius: var(--writ-r-media);
+  padding: 0.1em 0.35em;
+  font-family: var(--writ-font-mono);
+  font-size: 0.875em;
 }
 
-/* Blockquote left border + muted text. Applied to each content line. */
+/* Fenced blocks take the same fill with no border. */
+.cm-editor .cm-md-codeblock {
+  background: var(--writ-bg-sunken);
+  font-family: var(--writ-font-mono);
+  font-size: 0.875em;
+}
+
+/* Blockquote left rail + muted text. Applied to each content line. */
 .cm-editor .cm-md-blockquote {
-  border-left: 3px solid var(--writ-border-focus);
+  border-left: 2px solid var(--writ-border);
   padding-left: 0.75em;
-  color: var(--writ-foreground-muted);
-  font-style: italic;
+  color: var(--writ-fg-muted);
 }
 
-/* Link text — underlined accent colour.  The URL span is dimmed via
-   cm-md-url-dim on inactive lines (replaced when the cursor is present). */
+/* Link text — underlined accent. The URL span is dimmed via cm-md-url-dim on
+   inactive lines (replaced when the cursor is present). */
 .cm-editor .cm-md-link-text {
-  color: var(--writ-accent-default);
+  color: var(--writ-accent);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 .cm-editor .cm-md-url-dim {
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg-faint);
   font-size: 0.88em;
 }
 
-/* Dimmed syntax markers on inactive lines. Preserve monospace metrics so
-   replacing them (Decoration.replace) does not reflow adjacent text. */
+/* Dimmed inline markers on inactive lines. Preserve metrics so replacing them
+   (Decoration.replace) does not reflow adjacent text. */
 .cm-editor .cm-md-marker-dim {
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg-faint);
   opacity: 0.45;
 }
 
@@ -58,7 +81,7 @@
    Sized to the text so the swap does not change line height. */
 .cm-editor .cm-md-task-checkbox {
   appearance: auto;
-  accent-color: var(--writ-accent-default);
+  accent-color: var(--writ-accent);
   width: 0.95em;
   height: 0.95em;
   margin: 0 0.15em;
@@ -68,12 +91,12 @@
 
 /* Bullet dot — replaces -, + and * list marks on inactive lines. */
 .cm-editor .cm-md-bullet {
-  color: var(--writ-foreground-muted);
+  color: var(--writ-fg-muted);
 }
 
 /* Ordered list numbers stay as text, slightly muted. */
 .cm-editor .cm-md-list-num {
-  color: var(--writ-foreground-muted);
+  color: var(--writ-fg-muted);
 }
 
 /* Thematic break — replaces --- on inactive lines with a drawn rule. */
@@ -81,6 +104,6 @@
   display: inline-block;
   width: 100%;
   height: 0;
-  border-top: 1px solid var(--writ-border-default);
+  border-top: 1px solid var(--writ-border);
   vertical-align: middle;
 }

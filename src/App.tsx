@@ -10,7 +10,7 @@ import SettingsModal, { openSettings } from "./components/SettingsModal/Settings
 import { startRenameActiveTab } from "./components/Editor/TabBar";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
 import { installNativeContextMenuSuppressor } from "./lib/native-context-menu";
-import { IS_MAC } from "./lib/platform";
+import { IS_MAC, resolvePlatform } from "./lib/platform";
 import ToastContainer, { showToast } from "./components/Notifications/Toast";
 import ConfirmDialog, { requestConfirm } from "./components/ConfirmDialog/ConfirmDialog";
 import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
@@ -119,6 +119,21 @@ export default function App() {
   );
 }
 
+// Follow-system polarity. Registered in onMount and removed through the
+// onCleanup list below, never at module scope.
+function watchSystemPolarity(): UnlistenFn {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return () => {};
+  }
+  const query = window.matchMedia("(prefers-color-scheme: dark)");
+  const onChange = (event: MediaQueryListEvent) => {
+    themeStore.setSystemPolarity(event.matches ? "dark" : "light");
+  };
+  query.addEventListener("change", onChange);
+  themeStore.setSystemPolarity(query.matches ? "dark" : "light");
+  return () => query.removeEventListener("change", onChange);
+}
+
 function AppShell() {
   const win = useWindow();
   const unlisteners: UnlistenFn[] = [];
@@ -127,9 +142,13 @@ function AppShell() {
     measureFirstPaint("cold");
     // Writ owns every context menu; the engine's belongs to a browser.
     onCleanup(installNativeContextMenuSuppressor());
+    // The platform layer is a token overlay keyed off the root; Writ is
+    // single-window, so it is written once and never recomputed (ADR-030).
+    document.documentElement.setAttribute("data-platform", resolvePlatform());
     themeStore.applyToRoot();
     await configStore.load();
-    themeStore.loadConfig(configStore.config().theme);
+    themeStore.loadConfig(configStore.config().theme, configStore.config().appearance);
+    unlisteners.push(watchSystemPolarity());
     unlisteners.push(await osWindowStore.installFocusSync());
     // Only the Windows and Linux titlebars read maximized(); on macOS this
     // would be an IPC round-trip per resize feeding a signal nothing renders.
@@ -199,6 +218,16 @@ function AppShell() {
       label: "New Tab",
       description: "Create a new empty buffer",
       keybinding: "CmdOrCtrl+T",
+      scope: "app",
+      global: true,
+      execute: () => windowRegistry.getActive()?.tabs.createTab(),
+    });
+
+    registerCommand({
+      id: "note.new",
+      label: "New note",
+      description: "Start a new note",
+      keybinding: "CmdOrCtrl+N",
       scope: "app",
       global: true,
       execute: () => windowRegistry.getActive()?.tabs.createTab(),

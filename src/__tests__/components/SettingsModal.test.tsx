@@ -128,12 +128,13 @@ function baseConfig(): WritConfig {
   return {
     hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
     sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false },
-    editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true },
+    editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true, status_bar: false },
     window: { width: 1100, height: 720, maximized: false },
     keybindings: {},
     history: { max_entries: 500 },
     storage: { path: "~/.writ" },
     theme: { preset: "warp-dark", overrides: {} },
+    appearance: { polarity: "system", accent: "pine", prose_face: "system" },
     commands: { usage: {} },
   workspace: { root: null },
   inbox: { path: null, focus: true },
@@ -624,7 +625,7 @@ describe("SettingsModal", () => {
 
     it("shows only rows matching the query across sections", async () => {
       const { container } = render(() => <SettingsModal />);
-      await openAndSearch(container, "font");
+      await openAndSearch(container, "font size");
       await waitFor(() => {
         const rows = container.querySelectorAll("[data-setting-id]");
         expect(rows.length).toBe(1);

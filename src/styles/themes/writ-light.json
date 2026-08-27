@@ -33,12 +33,12 @@
     "foreground": "#ffffff"
   },
   "syntax": {
-    "keyword": "#8839ef",
+    "keyword": "#1c1a17",
     "string": "#5c7a5a",
-    "comment": "#8a8aa0",
-    "function": "#3b5bdb",
-    "number": "#b8500a",
-    "type": "#1a7a8c",
-    "variable": "#2a2a38"
+    "comment": "#8a847a",
+    "function": "#5d5850",
+    "number": "#1c1a17",
+    "type": "#5d5850",
+    "variable": "#5d5850"
   }
 }
