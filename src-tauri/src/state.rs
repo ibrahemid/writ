@@ -129,16 +129,19 @@ impl AppState {
             Err(e) => warn!(error = %e, "failed to reconcile buffer filenames"),
         }
 
-        // Recovery must run before reclaim_empty_scratch: a buffer that
-        // crashed before its autosave flushed is empty on disk but has
-        // content in the snapshot; reclaiming first would delete it.
+        // Recovery must run before reclaim_empty_scratch: a note that crashed
+        // before its autosave flushed holds nothing on disk but has text in
+        // the snapshot, and reclaiming first would delete it. A note that
+        // never reached a file gets one here, minted by the same policy the
+        // first keystroke would have used, because there is nowhere else the
+        // text can go now (ADR-028 §1).
         let was_dirty_shutdown = store.is_dirty_shutdown().unwrap_or(false);
         let recovered_buffers = if was_dirty_shutdown {
             info!("dirty shutdown detected; resolving recovery");
             let recovered = store.resolve_recovery().unwrap_or_default();
             info!(count = recovered.len(), "buffers eligible for recovery");
             for buf in &recovered {
-                if let Err(e) = store.save_content(&buf.id, &buf.content) {
+                if let Err(e) = restore_recovered_buffer(&store, &notes_root, buf) {
                     warn!(buffer_id = %buf.id, error = %e, "recovery write failed");
                 }
             }
@@ -146,6 +149,43 @@ impl AppState {
         } else {
             Vec::new()
         };
+
+        // Every note becomes a file (ADR-028 §4). After recovery, so the text
+        // the last session never flushed is in place before the pass reads
+        // it; before reclaim, so no row it is about to write gets deleted
+        // underneath it.
+        let archive_root = writ_dir.join("archive");
+        let piped_root = writ_dir.join("piped");
+        match writ_storage::notes_migration::run_notes_migration(
+            &store,
+            writ_storage::notes_migration::MigrationRoots {
+                db_path: &db_path,
+                notes: &notes_root,
+                archive: &archive_root,
+                piped: &piped_root,
+            },
+            chrono::Utc::now(),
+        ) {
+            Ok(report) => info!(
+                migrated = report.migrated,
+                archived = report.archived,
+                recovered = report.recovered,
+                piped = report.piped,
+                failed = report.failed,
+                deleted_empty = report.deleted_empty,
+                "notes migration finished"
+            ),
+            Err(e) => warn!(error = %e, "notes migration failed"),
+        }
+
+        // Counted on every launch, including the one that took the copy: the
+        // counter starts at 0. A failure here is a line in the log, never a
+        // reason a launch cannot open.
+        match store.age_out_rollback_copy(writ_storage::rollback::ROLLBACK_KEEP_LAUNCHES) {
+            Ok(true) => info!("deleted the database copy taken before the notes migration"),
+            Ok(false) => {}
+            Err(e) => warn!(error = %e, "could not age out the pre-migration database copy"),
+        }
 
         match store.reclaim_empty_scratch() {
             Ok(0) => {}
@@ -318,6 +358,32 @@ impl AppState {
         }
         path.starts_with(&self.notes_root)
     }
+}
+
+/// Writes a note restored from the crash snapshot back into its file, minting
+/// one first when the note never reached a file.
+///
+/// The mint is the same policy the first keystroke uses
+/// ([`crate::notes::attach_note_file`]), so a note recovered after a crash
+/// carries the name it would have had if the crash had not happened.
+fn restore_recovered_buffer(
+    store: &BufferStore,
+    notes_root: &std::path::Path,
+    recovered: &RecoveredBuffer,
+) -> Result<(), String> {
+    let doc = store.get(&recovered.id).map_err(|e| e.to_string())?;
+    if doc.source_path.is_none() {
+        crate::notes::attach_note_file(
+            store,
+            notes_root,
+            &recovered.id,
+            &doc.title,
+            chrono::Utc::now(),
+        )?;
+    }
+    store
+        .save_content(&recovered.id, &recovered.content)
+        .map_err(|e| e.to_string())
 }
 
 /// Re-blesses the source paths of every persisted buffer, returning how many.

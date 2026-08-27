@@ -201,3 +201,43 @@ fn update_replaces_content() {
     assert_eq!(new_results.len(), 1);
     assert_eq!(new_results[0], "buf-d");
 }
+
+#[test]
+fn reindex_reads_the_file_the_note_lives_in() {
+    // ADR-020 keeps its contract and ADR-028 §12 changes only which file the
+    // reindex reads: whatever is on disk now, not a copy Writ kept.
+    let dir = TempDir::new().expect("temp dir");
+    let conn = open_database(&dir.path().join("test.db")).expect("open db");
+    run_migrations(&conn).expect("migrations");
+
+    let file = dir.path().join("note.md");
+    std::fs::write(&file, "seeded body").expect("write the note");
+    let now = Utc::now();
+    let doc = BufferDocument {
+        id: "reindex-1".to_string(),
+        title: "note.md".to_string(),
+        filename: "reindex-1.txt".to_string(),
+        status: BufferStatus::Active,
+        language: None,
+        source_path: Some(file.to_string_lossy().into_owned()),
+        cursor_pos: 0,
+        scroll_pos: 0,
+        tab_order: 0,
+        created_at: now,
+        updated_at: now,
+        closed_at: None,
+        read_only: false,
+        size_bytes: 0,
+    };
+    let store = writ_storage::buffer_store::BufferStore::new(conn, dir.path().join("absent"));
+    store.insert(&doc).expect("insert");
+
+    std::fs::write(&file, "findableword written by somebody else").expect("external write");
+    store.reindex_buffer("reindex-1").expect("reindex");
+
+    assert_eq!(
+        store.search("findableword").expect("search"),
+        vec!["reindex-1".to_string()]
+    );
+    assert!(store.search("seeded").expect("search").is_empty());
+}

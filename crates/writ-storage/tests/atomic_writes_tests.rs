@@ -20,7 +20,16 @@ fn setup() -> (TempDir, BufferStore) {
     (dir, store)
 }
 
-fn make_doc(id: &str, title: &str) -> BufferDocument {
+/// A note and the file it lives in, created empty so the row is openable.
+fn make_note(dir: &Path, id: &str, title: &str) -> (BufferDocument, std::path::PathBuf) {
+    let notes = dir.join("notes");
+    fs::create_dir_all(&notes).expect("create notes dir");
+    let file = notes.join(format!("{title}.md"));
+    fs::write(&file, b"").expect("seed note file");
+    (make_doc(id, title, &file), file)
+}
+
+fn make_doc(id: &str, title: &str, source_path: &Path) -> BufferDocument {
     let now = Utc::now();
     BufferDocument {
         id: id.to_string(),
@@ -28,7 +37,7 @@ fn make_doc(id: &str, title: &str) -> BufferDocument {
         filename: format!("{}.txt", id),
         status: BufferStatus::Active,
         language: None,
-        source_path: None,
+        source_path: Some(source_path.to_string_lossy().into_owned()),
         cursor_pos: 0,
         scroll_pos: 0,
         tab_order: 0,
@@ -50,10 +59,10 @@ fn count_files_in_dir(dir: &Path) -> usize {
 #[test]
 fn save_content_leaves_no_temp_files_behind() {
     let (dir, store) = setup();
-    let doc = make_doc("atomic-1", "no-leftovers");
+    let (doc, _file) = make_note(dir.path(), "atomic-1", "no-leftovers");
     store.insert(&doc).expect("insert failed");
 
-    let buffers_dir = dir.path().join("buffers");
+    let notes_dir = dir.path().join("notes");
     store
         .save_content("atomic-1", "first write")
         .expect("save_content failed");
@@ -65,9 +74,13 @@ fn save_content_leaves_no_temp_files_behind() {
         .expect("save_content failed");
 
     assert_eq!(
-        count_files_in_dir(&buffers_dir),
+        count_files_in_dir(&notes_dir),
         1,
-        "buffers dir should contain only the destination file, no .tmp leftovers"
+        "the notes folder holds the note and no .tmp leftovers"
+    );
+    assert!(
+        count_files_in_dir(&dir.path().join("buffers")) == 0,
+        "a save copies the text nowhere"
     );
 
     let content = store.read_content("atomic-1").expect("read_content failed");
@@ -77,7 +90,7 @@ fn save_content_leaves_no_temp_files_behind() {
 #[test]
 fn save_content_does_not_truncate_destination_on_temp_failure() {
     let (dir, store) = setup();
-    let doc = make_doc("atomic-2", "preserve-original");
+    let (doc, dest) = make_note(dir.path(), "atomic-2", "preserve-original");
     store.insert(&doc).expect("insert failed");
 
     let original = "ORIGINAL CONTENT THAT MUST SURVIVE";
@@ -85,8 +98,6 @@ fn save_content_does_not_truncate_destination_on_temp_failure() {
         .save_content("atomic-2", original)
         .expect("initial save_content failed");
 
-    let buffers_dir = dir.path().join("buffers");
-    let dest = buffers_dir.join("atomic-2.txt");
     let original_bytes = fs::read(&dest).expect("read dest failed");
     assert_eq!(original_bytes, original.as_bytes());
 
@@ -212,11 +223,8 @@ fn save_content_swaps_inode_proving_rename_into_place() {
     use std::os::unix::fs::MetadataExt;
 
     let (dir, store) = setup();
-    let doc = make_doc("inode-1", "rename-proof");
+    let (doc, dest) = make_note(dir.path(), "inode-1", "rename-proof");
     store.insert(&doc).expect("insert failed");
-
-    let buffers_dir = dir.path().join("buffers");
-    let dest = buffers_dir.join("inode-1.txt");
 
     store
         .save_content("inode-1", "first version")

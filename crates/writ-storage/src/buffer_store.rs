@@ -18,12 +18,17 @@ use crate::maintenance::{self, DatabaseStats, MaintenanceOutcome};
 use crate::recovery::dirty_shutdown::check_dirty_shutdown;
 use crate::recovery::snapshot::SnapshotManager;
 
-/// Persistence facade over buffer metadata and on-disk content.
+/// Persistence facade over note metadata and the files the notes live in.
 ///
-/// The store owns a SQLite connection plus a per-Writ buffers directory.
-/// Buffer metadata lives in the database; buffer content lives as a
-/// plain file named after the buffer's `filename`. Both are kept in
-/// sync through the FTS index on write and delete.
+/// The store owns a SQLite connection plus the retired mirror directory.
+/// Metadata lives in the database; the text lives in the file named by
+/// `source_path`, and that file is the only copy of it (ADR-028 §1). A row
+/// with no `source_path` is a note that has not reached a file yet: it reads
+/// as empty and cannot be written until one is attached.
+///
+/// `buffers_dir` no longer holds note text. It survives so the notes
+/// migration can read what 0.3.5 left there and the consistency pass can
+/// report anything it failed to clear.
 pub struct BufferStore {
     conn: Connection,
     buffers_dir: PathBuf,
@@ -31,7 +36,7 @@ pub struct BufferStore {
 }
 
 impl BufferStore {
-    /// Constructs a store over the given connection and buffers directory.
+    /// Constructs a store over the given connection and mirror directory.
     pub fn new(conn: Connection, buffers_dir: PathBuf) -> Self {
         Self {
             conn,
@@ -40,9 +45,23 @@ impl BufferStore {
         }
     }
 
-    /// Returns the path to the directory holding buffer content files.
+    /// Returns the path to the retired mirror directory.
     pub fn buffers_dir(&self) -> &Path {
         &self.buffers_dir
+    }
+
+    /// Borrows the store's connection for the one-time passes that need to
+    /// reach the database directly (the notes migration and the rollback
+    /// bookkeeping beside it). Crate-internal: outside callers go through the
+    /// facade.
+    pub(crate) fn connection(&self) -> &Connection {
+        &self.conn
+    }
+
+    /// Counts one launch against the pre-migration copy of the database and
+    /// deletes it once it has survived `keep_launches` of them (ADR-028 §4).
+    pub fn age_out_rollback_copy(&self, keep_launches: u32) -> StorageResult<bool> {
+        crate::rollback::age_out_rollback_copy(&self.conn, keep_launches)
     }
 
     /// Inserts a new buffer row into the database and seeds its FTS entry.
@@ -98,37 +117,40 @@ impl BufferStore {
         queries::restore_buffer(&self.conn, id)
     }
 
-    /// Deletes the buffer row, its backing content file, and its FTS
-    /// row.
+    /// Deletes the buffer row and its FTS row.
     ///
-    /// The FTS row is removed first while the buffer row still exists
-    /// (the FTS lookup is keyed off `buffers.rowid`), then the content
-    /// file, then the buffer row itself. Failures to remove the FTS row
-    /// or content file are not allowed to block the database deletion:
-    /// the on-disk artifact is best-effort, but losing the buffer row
-    /// without losing the FTS row is what produces orphan hits, so the
-    /// FTS step propagates errors.
+    /// **It never unlinks `source_path`.** Closing a tab, reclaiming an
+    /// unwritten note and clearing history all reach this method, and none of
+    /// them is a request to delete the note: the file on disk is the note
+    /// (ADR-028 §1), and deleting a note is an explicit move to the Trash from
+    /// the sidebar. The only file touched here is a mirror the notes migration
+    /// left behind, cleared best-effort.
+    ///
+    /// The FTS row is removed first while the buffer row still exists (the FTS
+    /// lookup is keyed off `buffers.rowid`), then the row itself. Losing the
+    /// buffer row without losing the FTS row is what produces orphan hits, so
+    /// the FTS step propagates errors.
     pub fn delete(&self, id: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
         let fts = crate::fts::FtsIndex::new(&self.conn);
         fts.delete(id)?;
-        let file_path = self.buffers_dir.join(&doc.filename);
-        if file_path.exists() {
-            std::fs::remove_file(&file_path)?;
+        let mirror = self.buffers_dir.join(&doc.filename);
+        if mirror.exists() {
+            let _ = std::fs::remove_file(&mirror);
         }
         queries::delete_buffer(&self.conn, id)
     }
 
-    /// Deletes every buffer listed in `ids` — rows, FTS entries, and backing
-    /// content files — as a single all-or-nothing operation.
+    /// Deletes every buffer listed in `ids` — rows and FTS entries — as a
+    /// single all-or-nothing operation. Like [`Self::delete`], it never
+    /// unlinks a note's `source_path`; it only clears a mirror the notes
+    /// migration left behind.
     ///
     /// Filenames are resolved before the transaction opens, so an unknown id
     /// aborts the whole batch before any row is touched. A mid-batch SQL
     /// failure rolls back every prior delete; the caller never observes a
-    /// partially cleared set. Content files are removed only after the commit
-    /// succeeds — filesystem deletes cannot enlist in the transaction — so a
-    /// file-removal failure can orphan a file but never leaves a half-deleted
-    /// database.
+    /// partially cleared set. Mirrors are removed only after the commit
+    /// succeeds — filesystem deletes cannot enlist in the transaction.
     pub fn delete_many(&self, ids: &[String]) -> StorageResult<()> {
         if ids.is_empty() {
             return Ok(());
@@ -164,30 +186,21 @@ impl BufferStore {
         queries::list_buffers_by_status(&self.conn, status_str)
     }
 
-    /// Writes `content` to the buffer's backing file and refreshes the
-    /// FTS index.
+    /// Writes `content` to the note's file and refreshes the FTS index.
     ///
-    /// The content file is written atomically first. The `updated_at`
-    /// stamp and the FTS row are then updated inside a single transaction
-    /// (audit blocker #53.5): either both land or neither does, so the
-    /// timestamp can never advance past a stale index. FTS errors
-    /// propagate rather than being swallowed; a crash that still slips the
-    /// index out of sync is healed at the next boot by
-    /// [`Self::verify_and_repair_fts`].
+    /// The file is written atomically first. The `updated_at` stamp and the
+    /// FTS row are then updated inside a single transaction (audit blocker
+    /// #53.5): either both land or neither does, so the timestamp can never
+    /// advance past a stale index. FTS errors propagate rather than being
+    /// swallowed; a crash that still slips the index out of sync is healed at
+    /// the next boot by [`Self::verify_and_repair_fts`].
     ///
     /// Buffers with `size_bytes > THRESHOLD_NORMAL_BYTES` (large-file
     /// and binary tiers) are excluded from FTS indexing: the cost of
     /// indexing a 50 MiB log degrades search for all buffers with no
     /// practical benefit.
     pub fn save_content(&self, id: &str, content: &str) -> StorageResult<()> {
-        let doc = queries::get_buffer(&self.conn, id)?;
-        if doc.read_only {
-            return Err(crate::errors::StorageError::Consistency {
-                message: format!("buffer {} is read-only and cannot be saved", id),
-            });
-        }
-        let file_path = self.buffers_dir.join(&doc.filename);
-        write_atomic(&file_path, content.as_bytes())?;
+        let doc = self.write_source(id, content)?;
 
         let tx = self.conn.unchecked_transaction()?;
         queries::update_timestamp(&tx, id)?;
@@ -198,7 +211,7 @@ impl BufferStore {
         Ok(())
     }
 
-    /// Writes `content` to the buffer's backing file and stamps `updated_at`,
+    /// Writes `content` to the note's file and stamps `updated_at`,
     /// **without** touching the FTS index.
     ///
     /// This is the write half of the deferred-reindex path (ADR-020): the IPC
@@ -208,53 +221,65 @@ impl BufferStore {
     /// to [`Self::save_content`]; only the index is deferred. Callers that need
     /// search to reflect the write immediately must use [`Self::save_content`].
     pub fn save_content_without_index(&self, id: &str, content: &str) -> StorageResult<()> {
-        let doc = queries::get_buffer(&self.conn, id)?;
-        if doc.read_only {
-            return Err(crate::errors::StorageError::Consistency {
-                message: format!("buffer {} is read-only and cannot be saved", id),
-            });
-        }
-        let file_path = self.buffers_dir.join(&doc.filename);
-        write_atomic(&file_path, content.as_bytes())?;
+        self.write_source(id, content)?;
         queries::update_timestamp(&self.conn, id)?;
         Ok(())
     }
 
-    /// Rebuilds the FTS row for a single buffer from its current title and
-    /// on-disk content (the reindex half of the deferred path, ADR-020).
+    /// Rebuilds the FTS row for a single note from its current title and the
+    /// file on disk (the reindex half of the deferred path, ADR-020).
     ///
-    /// Reading content from disk rather than from a captured string means a
-    /// coalesced reindex always reflects the latest persisted bytes, so
-    /// collapsing several edits into one reindex can never index a stale
-    /// intermediate. Large-file and binary buffers
-    /// (`size_bytes > THRESHOLD_NORMAL_BYTES`) are skipped, matching the
-    /// write-time policy in [`Self::save_content`].
+    /// Reading the file rather than a captured string means a coalesced
+    /// reindex always reflects the latest persisted bytes, so collapsing
+    /// several edits into one reindex can never index a stale intermediate
+    /// (ADR-028 §12 keeps that argument and only changes which file is read).
+    /// Large-file and binary buffers (`size_bytes > THRESHOLD_NORMAL_BYTES`)
+    /// are skipped, matching the write-time policy in [`Self::save_content`].
     pub fn reindex_buffer(&self, id: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
         if doc.size_bytes > THRESHOLD_NORMAL_BYTES {
             return Ok(());
         }
-        let file_path = self.buffers_dir.join(&doc.filename);
-        let content = if file_path.exists() {
-            std::fs::read_to_string(&file_path).unwrap_or_default()
-        } else {
-            String::new()
-        };
+        let content = read_source_text(&doc);
         let fts = crate::fts::FtsIndex::new(&self.conn);
         fts.update(id, &doc.title, &content)
     }
 
-    /// Reads the textual content of a buffer from its backing file.
+    /// Reads a note's text from its file.
+    ///
+    /// A row with no `source_path` has not reached a file yet and reads as
+    /// empty: there is nowhere else the text could be (ADR-028 §1). A
+    /// read-only row holds a binary file, so the hex view is regenerated from
+    /// the file's bytes on every read rather than stored anywhere.
     pub fn read_content(&self, id: &str) -> StorageResult<String> {
         let doc = queries::get_buffer(&self.conn, id)?;
-        let file_path = self.buffers_dir.join(&doc.filename);
-        if !file_path.exists() {
-            return Err(StorageError::Consistency {
-                message: format!("content file not found for buffer: {}", id),
-            });
+        let Some(source_path) = doc.source_path.as_deref() else {
+            return Ok(String::new());
+        };
+        if doc.read_only {
+            let bytes = std::fs::read(source_path)?;
+            return Ok(writ_core::file_ops::generate_hex_dump(
+                &bytes,
+                doc.size_bytes as usize,
+            ));
         }
-        let content = std::fs::read_to_string(&file_path)?;
-        Ok(content)
+        Ok(std::fs::read_to_string(source_path)?)
+    }
+
+    /// Reads the bytes of a note's file.
+    ///
+    /// Reopening a file that is already open is how the user says "show me
+    /// this file", so the caller reloads the editor from what is on disk
+    /// rather than from what it read earlier.
+    pub fn read_source(&self, id: &str) -> StorageResult<Vec<u8>> {
+        let doc = queries::get_buffer(&self.conn, id)?;
+        let source_path = doc
+            .source_path
+            .as_ref()
+            .ok_or_else(|| StorageError::Consistency {
+                message: format!("note {id} has no file"),
+            })?;
+        Ok(std::fs::read(source_path)?)
     }
 
     /// Renames a buffer's title, stamps `updated_at`, and refreshes the
@@ -265,12 +290,7 @@ impl BufferStore {
     /// the index never diverge.
     pub fn rename(&self, id: &str, title: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
-        let file_path = self.buffers_dir.join(&doc.filename);
-        let content = if file_path.exists() {
-            std::fs::read_to_string(&file_path).unwrap_or_default()
-        } else {
-            String::new()
-        };
+        let content = read_source_text(&doc);
 
         let tx = self.conn.unchecked_transaction()?;
         queries::rename_buffer(&tx, id, title)?;
@@ -328,57 +348,67 @@ impl BufferStore {
         queries::find_history_by_source_path(&self.conn, source_path)
     }
 
-    /// Reports whether a buffer's backing content file is empty. A
-    /// missing file counts as empty (a freshly inserted buffer before
-    /// its first content write).
-    fn is_empty_on_disk(&self, doc: &BufferDocument) -> bool {
-        let file_path = self.buffers_dir.join(&doc.filename);
-        match std::fs::metadata(&file_path) {
-            Ok(meta) => meta.len() == 0,
-            Err(_) => true,
-        }
-    }
-
-    /// Finds an active, never-renamed scratch buffer with no content,
-    /// suitable for reuse instead of minting a new empty buffer.
+    /// Finds an active note that has not reached a file yet, suitable for
+    /// reuse instead of minting a second one.
     ///
-    /// "Empty" is read from disk; callers must flush any pending
-    /// frontend autosave before relying on this, since content lives on
-    /// disk and trails the live editor by the autosave debounce window.
+    /// A note acquires its file on the first keystroke (ADR-028 §2), so
+    /// "has no file" is exactly "holds nothing the user typed" and needs no
+    /// disk read. Callers must still flush any pending frontend autosave
+    /// first: the file is attached by that save, so an unflushed keystroke
+    /// leaves the row looking reusable.
     pub fn find_empty_scratch_active(&self) -> StorageResult<Option<BufferDocument>> {
-        let candidates = queries::list_scratch_candidates(&self.conn)?;
-        Ok(candidates
+        Ok(queries::list_unsaved_notes(&self.conn)?
             .into_iter()
-            .find(|doc| doc.status == BufferStatus::Active && self.is_empty_on_disk(doc)))
+            .find(|doc| doc.status == BufferStatus::Active))
     }
 
-    /// Deletes every empty, never-renamed scratch buffer regardless of
-    /// status, removing its row, backing file, and FTS entry. Returns
-    /// the number reclaimed.
+    /// Deletes every note that never reached a file, regardless of status,
+    /// removing its row and its FTS entry. Returns the number reclaimed.
     ///
-    /// Run once at startup to clear accumulated empty scratch rows.
-    /// Safe only when no buffer has unflushed content (true at launch).
+    /// Run once at startup to clear accumulated empty rows. Safe only when no
+    /// note has unflushed content (true at launch), and only after the notes
+    /// migration has run: a row it wrote into the archive keeps a `NULL`
+    /// `source_path` and is excluded by its `migrated_path`.
     pub fn reclaim_empty_scratch(&self) -> StorageResult<usize> {
-        let candidates = queries::list_scratch_candidates(&self.conn)?;
+        let candidates = queries::list_unsaved_notes(&self.conn)?;
         let mut reclaimed = 0;
         for doc in candidates {
-            if self.is_empty_on_disk(&doc) {
-                self.delete(&doc.id)?;
-                reclaimed += 1;
-            }
+            self.delete(&doc.id)?;
+            reclaimed += 1;
         }
         Ok(reclaimed)
     }
 
-    /// Opens a buffer that originated from an external file, inserting
-    /// its row and writing its content to disk in one step.
+    /// Attaches a file to a note that had none, and stamps `updated_at`.
     ///
-    /// FTS indexing is skipped when `doc.size_bytes > THRESHOLD_NORMAL_BYTES`
-    /// (large-file and binary tiers).
-    pub fn open_from_path(&self, doc: &BufferDocument, content: &str) -> StorageResult<()> {
-        let buffer_file = self.buffers_dir.join(&doc.filename);
-        std::fs::write(&buffer_file, content)?;
+    /// This is how a new note acquires the file the invariant requires
+    /// (ADR-028 §2). Fails with `Consistency` when the row already has one:
+    /// moving a note to another path is [`Self::update_source_path`], and
+    /// silently repointing a note at a second file is how a note gets lost.
+    pub fn attach_source_path(&self, id: &str, source_path: &str) -> StorageResult<()> {
+        let doc = queries::get_buffer(&self.conn, id)?;
+        if let Some(existing) = doc.source_path {
+            return Err(StorageError::Consistency {
+                message: format!("note {id} already has a file at {existing}"),
+            });
+        }
+        queries::update_source_path(&self.conn, id, source_path)?;
+        queries::update_timestamp(&self.conn, id)
+    }
 
+    /// Rewrites a note's file path after the file moved or was renamed.
+    pub fn update_source_path(&self, id: &str, source_path: &str) -> StorageResult<()> {
+        queries::update_source_path(&self.conn, id, source_path)
+    }
+
+    /// Opens a note that originated from an external file, inserting its row
+    /// and seeding the search index in one step.
+    ///
+    /// Nothing is written to disk: the file the row points at already holds
+    /// `content`, and it is the only copy of it (ADR-028 §1). FTS indexing is
+    /// skipped when `doc.size_bytes > THRESHOLD_NORMAL_BYTES` (large-file and
+    /// binary tiers).
+    pub fn open_from_path(&self, doc: &BufferDocument, content: &str) -> StorageResult<()> {
         let tx = self.conn.unchecked_transaction()?;
         queries::insert_buffer(&tx, doc)?;
         if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
@@ -388,106 +418,49 @@ impl BufferStore {
         Ok(())
     }
 
-    /// Persists content back to the buffer's originating file.
+    /// Persists content back to the note's file, refreshing the search index.
     ///
-    /// Both the source file and the mirrored buffer file under
-    /// `buffers_dir` are rewritten so Writ's copy remains in sync with
-    /// the external file. Fails when the buffer is read-only (binary
-    /// hex-view buffers must never write back to their source).
+    /// Identical in effect to [`Self::save_content`]; both names survive
+    /// because the callers read differently, and a note opened from outside
+    /// the notes folder still goes through this one. Fails when the row is
+    /// read-only (a binary hex view must never write back over its file).
     pub fn save_to_source(&self, id: &str, content: &str) -> StorageResult<()> {
-        let doc = self.write_source_and_mirror(id, content)?;
-
-        let tx = self.conn.unchecked_transaction()?;
-        queries::update_timestamp(&tx, id)?;
-        if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
-            crate::fts::FtsIndex::new(&tx).update(id, &doc.title, content)?;
-        }
-        tx.commit()?;
-        Ok(())
+        self.save_content(id, content)
     }
 
-    /// Persists content back to the buffer's originating file and its mirror,
-    /// **without** touching the FTS index.
+    /// Persists content back to the note's file **without** touching the FTS
+    /// index.
     ///
-    /// The source-backed half of the deferred-reindex path (ADR-020): autosave
-    /// writes through here on every debounce, then schedules one coalesced
-    /// [`Self::reindex_buffer`]. Both files are durable on return, exactly as
-    /// in [`Self::save_to_source`].
+    /// The externally-opened half of the deferred-reindex path (ADR-020):
+    /// autosave writes through here on every idle window, then schedules one
+    /// coalesced [`Self::reindex_buffer`]. The bytes are durable on return.
     pub fn save_to_source_without_index(&self, id: &str, content: &str) -> StorageResult<()> {
-        self.write_source_and_mirror(id, content)?;
-        queries::update_timestamp(&self.conn, id)?;
-        Ok(())
+        self.save_content_without_index(id, content)
     }
 
-    /// Writes `content` to the buffer's source file and to its mirror under
-    /// `buffers_dir`, returning the buffer row both writes were resolved from.
+    /// Writes `content` to the note's file, returning the row it resolved
+    /// from.
     ///
-    /// The source is written first: if it fails, the mirror still holds what
-    /// the file on disk holds, so the two never disagree about content Writ
-    /// failed to persist.
-    fn write_source_and_mirror(&self, id: &str, content: &str) -> StorageResult<BufferDocument> {
+    /// Every write path in the store funnels through here, so there is one
+    /// answer to where a note's text goes and one place the invariant can be
+    /// broken. A row with no `source_path` is refused rather than written
+    /// anywhere else: the caller has to attach a file first
+    /// ([`Self::attach_source_path`]).
+    fn write_source(&self, id: &str, content: &str) -> StorageResult<BufferDocument> {
         let doc = queries::get_buffer(&self.conn, id)?;
         if doc.read_only {
             return Err(StorageError::Consistency {
-                message: format!("buffer {} is read-only and cannot be saved to source", id),
+                message: format!("note {id} is read-only and cannot be saved"),
             });
         }
         let source_path = doc
             .source_path
             .as_ref()
             .ok_or_else(|| StorageError::Consistency {
-                message: format!("buffer {} has no source_path", id),
+                message: format!("note {id} has no file to save into"),
             })?;
         write_atomic(Path::new(source_path), content.as_bytes())?;
-        write_atomic(&self.buffers_dir.join(&doc.filename), content.as_bytes())?;
         Ok(doc)
-    }
-
-    /// Reads the buffer's source file when it has drifted from Writ's mirror
-    /// of it, or `None` when the two still agree.
-    ///
-    /// Reopening a file that is already open returns the existing buffer, and
-    /// the editor loads from the mirror — so without this, a file edited
-    /// elsewhere since it was opened would show Writ's stale copy, and the
-    /// next keystroke would write that copy back over the newer file. Pairs
-    /// with [`Self::refresh_mirror`], which the caller runs after stamping the
-    /// write against the watcher.
-    pub fn read_source_if_diverged(&self, id: &str) -> StorageResult<Option<Vec<u8>>> {
-        let doc = queries::get_buffer(&self.conn, id)?;
-        // A binary buffer's mirror holds the generated hex dump, not the file's
-        // bytes; the two are supposed to differ.
-        if doc.read_only {
-            return Ok(None);
-        }
-        let source_path = doc
-            .source_path
-            .as_ref()
-            .ok_or_else(|| StorageError::Consistency {
-                message: format!("buffer {} has no source_path", id),
-            })?;
-
-        let source_file = Path::new(source_path);
-        let buffer_file = self.buffers_dir.join(&doc.filename);
-        if !source_differs_from_mirror(source_file, &buffer_file, doc.size_bytes)? {
-            return Ok(None);
-        }
-        Ok(Some(std::fs::read(source_file)?))
-    }
-
-    /// Replaces the buffer's mirror with `source`, the bytes just read from
-    /// its originating file, and reindexes it.
-    pub fn refresh_mirror(&self, id: &str, source: &[u8]) -> StorageResult<()> {
-        let doc = queries::get_buffer(&self.conn, id)?;
-        write_atomic(&self.buffers_dir.join(&doc.filename), source)?;
-
-        let tx = self.conn.unchecked_transaction()?;
-        queries::update_timestamp(&tx, id)?;
-        if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
-            let text = String::from_utf8_lossy(source);
-            crate::fts::FtsIndex::new(&tx).update(id, &doc.title, &text)?;
-        }
-        tx.commit()?;
-        Ok(())
     }
 
     /// Updates the detected or user-assigned language for a buffer.
@@ -514,12 +487,7 @@ impl BufferStore {
                 if doc.size_bytes > THRESHOLD_NORMAL_BYTES {
                     continue;
                 }
-                let file_path = self.buffers_dir.join(&doc.filename);
-                let content = if file_path.exists() {
-                    std::fs::read_to_string(&file_path).unwrap_or_default()
-                } else {
-                    String::new()
-                };
+                let content = read_source_text(doc);
                 fts.insert(&doc.id, &doc.title, &content)?;
             }
         }
@@ -691,15 +659,16 @@ impl BufferStore {
         mgr.recover_buffers(&updated_at_map)
     }
 
-    /// Collects the current on-disk content for every active buffer.
+    /// Collects the current on-disk content of every active note.
     ///
-    /// Buffers whose content file is missing are silently skipped; the
-    /// snapshot will simply contain fewer entries.
+    /// Notes that have not reached a file, and notes whose file cannot be
+    /// read, are silently skipped; the snapshot simply contains fewer
+    /// entries.
     ///
     /// Buffers in the large-file or binary tiers (`size_bytes >
-    /// THRESHOLD_NORMAL_BYTES`) are excluded. Reading hundreds of MiB in
+    /// THRESHOLD_NORMAL_BYTES`) are excluded. Reading hundreds of megabytes in
     /// the periodic heartbeat would spike RAM and provide little recovery
-    /// value (the source file still exists on disk).
+    /// value (the file still exists on disk).
     pub fn collect_buffer_contents(&self) -> StorageResult<HashMap<String, String>> {
         let active = self.list_by_status(BufferStatus::Active)?;
         let mut map = HashMap::new();
@@ -707,8 +676,10 @@ impl BufferStore {
             if buf.size_bytes > THRESHOLD_NORMAL_BYTES {
                 continue;
             }
-            let path = self.buffers_dir.join(&buf.filename);
-            if let Ok(content) = std::fs::read_to_string(&path) {
+            let Some(source_path) = buf.source_path.as_deref() else {
+                continue;
+            };
+            if let Ok(content) = std::fs::read_to_string(source_path) {
                 map.insert(buf.id, content);
             }
         }
@@ -716,29 +687,15 @@ impl BufferStore {
     }
 }
 
-/// Whether an external file has drifted from Writ's mirror of it.
+/// A note's text as the index wants it: whatever the file holds, or nothing
+/// when the note has no file yet or its file has gone missing.
 ///
-/// Sizes are compared first so the common "nothing changed" answer costs two
-/// stats. Byte comparison settles a same-size difference, but only up to
-/// [`THRESHOLD_NORMAL_BYTES`]: reading a pair of hundred-megabyte files to
-/// answer a question raised by opening a tab is not worth the stall, and a
-/// same-size edit to a file that large stays with the mirror until the tab is
-/// reopened after a close.
-fn source_differs_from_mirror(
-    source: &Path,
-    mirror: &Path,
-    size_bytes: u64,
-) -> StorageResult<bool> {
-    let source_len = std::fs::metadata(source)?.len();
-    let mirror_len = match std::fs::metadata(mirror) {
-        Ok(meta) => meta.len(),
-        Err(_) => return Ok(true),
-    };
-    if source_len != mirror_len {
-        return Ok(true);
-    }
-    if size_bytes > THRESHOLD_NORMAL_BYTES {
-        return Ok(false);
-    }
-    Ok(std::fs::read(source)? != std::fs::read(mirror).unwrap_or_default())
+/// The index tolerates both. A note with no file holds no text to index, and
+/// a file that vanished under an open tab is recreated by the next save, so
+/// neither is a reason to fail a reindex.
+fn read_source_text(doc: &BufferDocument) -> String {
+    doc.source_path
+        .as_deref()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .unwrap_or_default()
 }

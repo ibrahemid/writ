@@ -3,6 +3,7 @@ pub mod events;
 pub mod fts_scheduler;
 pub mod hotkey;
 pub mod logging;
+pub mod notes;
 pub mod poison;
 pub mod preview;
 pub mod security;
@@ -231,7 +232,6 @@ pub fn run() {
         ),
     };
     let config_path = app_state.writ_dir.join("config.toml");
-    let buffers_dir = app_state.buffers_dir.clone();
     let watcher_ignore = app_state.watcher_ignore.clone();
 
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
@@ -480,12 +480,7 @@ pub fn run() {
             }
 
             let watcher_bus = app.state::<AppState>().event_bus.clone();
-            match watcher::handler::start_file_watcher(
-                watcher_bus,
-                config_path,
-                buffers_dir,
-                watcher_ignore,
-            ) {
+            match watcher::handler::start_file_watcher(watcher_bus, config_path, watcher_ignore) {
                 Ok(handle) => {
                     let state = app.state::<AppState>();
                     let mut slot =

@@ -5,6 +5,12 @@ use writ_storage::buffer_store::BufferStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 
+fn is_empty_dir(dir: &std::path::Path) -> bool {
+    std::fs::read_dir(dir)
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(true)
+}
+
 fn setup() -> (TempDir, BufferStore) {
     let dir = TempDir::new().expect("failed to create temp dir");
     let db_path = dir.path().join("test.db");
@@ -57,7 +63,7 @@ fn make_scratch_doc(id: &str, title: &str) -> BufferDocument {
 }
 
 #[test]
-fn open_from_path_creates_buffer_and_copies_content() {
+fn open_from_path_records_the_row_and_copies_nothing() {
     let (dir, store) = setup();
     let source_dir = TempDir::new().unwrap();
     let source_file = source_dir.path().join("main.rs");
@@ -74,10 +80,11 @@ fn open_from_path_creates_buffer_and_copies_content() {
     );
     assert_eq!(fetched.language.as_deref(), Some("rust"));
 
-    let buffer_copy = dir.path().join("buffers").join(&doc.filename);
-    assert!(buffer_copy.exists());
-    let content = std::fs::read_to_string(&buffer_copy).unwrap();
-    assert_eq!(content, "fn main() {}");
+    assert!(
+        is_empty_dir(&dir.path().join("buffers")),
+        "opening a file must copy it nowhere"
+    );
+    assert_eq!(store.read_content("open-1").unwrap(), "fn main() {}");
 }
 
 #[test]
@@ -129,7 +136,7 @@ fn find_active_by_source_path_ignores_history_buffers() {
 }
 
 #[test]
-fn save_to_source_writes_to_original_file_and_buffer_copy() {
+fn save_to_source_writes_the_file_and_nothing_else() {
     let (dir, store) = setup();
     let source_dir = TempDir::new().unwrap();
     let source_file = source_dir.path().join("notes.md");
@@ -142,10 +149,10 @@ fn save_to_source_writes_to_original_file_and_buffer_copy() {
 
     let source_content = std::fs::read_to_string(&source_file).unwrap();
     assert_eq!(source_content, "# Updated");
-
-    let buffer_copy = dir.path().join("buffers").join(&doc.filename);
-    let buffer_content = std::fs::read_to_string(&buffer_copy).unwrap();
-    assert_eq!(buffer_content, "# Updated");
+    assert!(
+        is_empty_dir(&dir.path().join("buffers")),
+        "the file is the only copy of the text"
+    );
 }
 
 #[test]
@@ -175,22 +182,25 @@ fn save_to_source_fails_for_scratch_buffer() {
     let (_dir, store) = setup();
     let doc = make_scratch_doc("scratch-1", "notes");
     store.insert(&doc).unwrap();
-    store.save_content("scratch-1", "scratch content").unwrap();
 
     let result = store.save_to_source("scratch-1", "content");
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("no source_path"), "error: {}", err);
+    assert!(err.contains("has no file"), "error: {}", err);
 }
 
 #[test]
-fn read_content_works_for_source_backed_buffer() {
+fn read_content_reads_the_file_the_note_lives_in() {
     let (_dir, store) = setup();
-    let doc = make_source_doc("read-src", "file.rs", "/fake/file.rs");
+    let source_dir = TempDir::new().unwrap();
+    let source_file = source_dir.path().join("file.rs");
+    std::fs::write(&source_file, "fn hello() {}").unwrap();
+
+    let doc = make_source_doc("read-src", "file.rs", source_file.to_str().unwrap());
     store.open_from_path(&doc, "fn hello() {}").unwrap();
 
-    let content = store.read_content("read-src").unwrap();
-    assert_eq!(content, "fn hello() {}");
+    std::fs::write(&source_file, "fn changed() {}").unwrap();
+    assert_eq!(store.read_content("read-src").unwrap(), "fn changed() {}");
 }
 
 #[test]
@@ -320,21 +330,27 @@ fn reopen_preserves_original_buffer_id() {
 }
 
 #[test]
-fn delete_source_backed_buffer_removes_buffer_copy() {
-    let (dir, store) = setup();
-    let doc = make_source_doc("del-src", "remove.md", "/fake/remove.md");
-    store.open_from_path(&doc, "will be deleted").unwrap();
+fn delete_source_backed_buffer_leaves_the_file_on_disk() {
+    let (_dir, store) = setup();
+    let source_dir = TempDir::new().unwrap();
+    let source_file = source_dir.path().join("remove.md");
+    std::fs::write(&source_file, "kept").unwrap();
 
-    let buffer_copy = dir.path().join("buffers").join(&doc.filename);
-    assert!(buffer_copy.exists());
+    let doc = make_source_doc("del-src", "remove.md", source_file.to_str().unwrap());
+    store.open_from_path(&doc, "kept").unwrap();
 
     store.delete("del-src").unwrap();
-    assert!(!buffer_copy.exists());
-    assert!(store.get("del-src").is_err());
+
+    assert!(store.get("del-src").is_err(), "the row is gone");
+    assert!(
+        source_file.exists(),
+        "closing or clearing a note never deletes the note"
+    );
+    assert_eq!(std::fs::read_to_string(&source_file).unwrap(), "kept");
 }
 
 #[test]
-fn save_to_source_without_index_writes_original_file_and_buffer_copy() {
+fn save_to_source_without_index_writes_the_file_and_nothing_else() {
     let (dir, store) = setup();
     let source_file = dir.path().join("deferred.md");
     std::fs::write(&source_file, "# Before").unwrap();
@@ -347,8 +363,7 @@ fn save_to_source_without_index_writes_original_file_and_buffer_copy() {
         .unwrap();
 
     assert_eq!(std::fs::read_to_string(&source_file).unwrap(), "# After");
-    let buffer_copy = dir.path().join("buffers").join(&doc.filename);
-    assert_eq!(std::fs::read_to_string(buffer_copy).unwrap(), "# After");
+    assert!(is_empty_dir(&dir.path().join("buffers")));
 }
 
 #[test]
@@ -387,79 +402,24 @@ fn save_to_source_without_index_refuses_a_scratch_buffer() {
 }
 
 #[test]
-fn read_source_if_diverged_reports_an_edit_made_outside_writ() {
+fn read_source_returns_what_the_file_holds_now() {
     let (_dir, store) = setup();
     let dir2 = TempDir::new().unwrap();
     let source_file = dir2.path().join("shared.md");
     std::fs::write(&source_file, "mine").unwrap();
 
-    let doc = make_source_doc("diverged-1", "shared.md", source_file.to_str().unwrap());
+    let doc = make_source_doc("shared-1", "shared.md", source_file.to_str().unwrap());
     store.open_from_path(&doc, "mine").unwrap();
 
-    assert_eq!(store.read_source_if_diverged("diverged-1").unwrap(), None);
-
     std::fs::write(&source_file, "theirs").unwrap();
-    assert_eq!(
-        store.read_source_if_diverged("diverged-1").unwrap(),
-        Some(b"theirs".to_vec())
-    );
+    assert_eq!(store.read_source("shared-1").unwrap(), b"theirs".to_vec());
 }
 
 #[test]
-fn read_source_if_diverged_catches_a_same_length_edit() {
+fn read_source_refuses_a_note_with_no_file() {
     let (_dir, store) = setup();
-    let dir2 = TempDir::new().unwrap();
-    let source_file = dir2.path().join("samelen.md");
-    std::fs::write(&source_file, "aaaa").unwrap();
+    let doc = make_scratch_doc("unwritten-1", "notes");
+    store.insert(&doc).unwrap();
 
-    let doc = make_source_doc("samelen-1", "samelen.md", source_file.to_str().unwrap());
-    store.open_from_path(&doc, "aaaa").unwrap();
-
-    std::fs::write(&source_file, "bbbb").unwrap();
-    assert_eq!(
-        store.read_source_if_diverged("samelen-1").unwrap(),
-        Some(b"bbbb".to_vec()),
-        "equal sizes still have to be compared byte for byte"
-    );
-}
-
-#[test]
-fn read_source_if_diverged_skips_a_binary_buffers_hex_view() {
-    let (_dir, store) = setup();
-    let dir2 = TempDir::new().unwrap();
-    let source_file = dir2.path().join("dump.bin");
-    std::fs::write(&source_file, [0u8, 1, 2, 3]).unwrap();
-
-    let mut doc = make_source_doc("binary-1", "dump.bin", source_file.to_str().unwrap());
-    doc.read_only = true;
-    store.open_from_path(&doc, "00000000  00 01 02 03").unwrap();
-
-    assert_eq!(
-        store.read_source_if_diverged("binary-1").unwrap(),
-        None,
-        "a hex dump is supposed to differ from the bytes it renders"
-    );
-}
-
-#[test]
-fn refresh_mirror_replaces_the_copy_and_reindexes() {
-    let (dir, store) = setup();
-    let dir2 = TempDir::new().unwrap();
-    let source_file = dir2.path().join("refresh.md");
-    std::fs::write(&source_file, "stale").unwrap();
-
-    let doc = make_source_doc("refresh-1", "refresh.md", source_file.to_str().unwrap());
-    store.open_from_path(&doc, "stale").unwrap();
-
-    store
-        .refresh_mirror("refresh-1", b"externally rewritten")
-        .unwrap();
-
-    let buffer_copy = dir.path().join("buffers").join(&doc.filename);
-    assert_eq!(
-        std::fs::read_to_string(buffer_copy).unwrap(),
-        "externally rewritten"
-    );
-    assert_eq!(store.search("externally").unwrap().len(), 1);
-    assert!(store.search("stale").unwrap().is_empty());
+    assert!(store.read_source("unwritten-1").is_err());
 }

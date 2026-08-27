@@ -252,32 +252,88 @@ fn autosave_writes_the_file_the_buffer_was_opened_from() {
     save_buffer_content_inner(&state, &opened.doc.id, "alias a=c\n").expect("save");
 
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "alias a=c\n");
+    assert!(
+        is_empty_dir(&dir.path().join("buffers")),
+        "the file is the only copy of the text"
+    );
+}
 
-    let mirror = dir.path().join("buffers").join(&opened.doc.filename);
+/// Mints a new note the way `create_buffer` does, writing nothing to disk.
+fn new_note(state: &AppState) -> writ_core::buffer::document::BufferDocument {
+    let store = state.store.lock().unwrap();
+    let mut mgr = writ_core::buffer::manager::BufferManager::new();
+    let doc = mgr.create_buffer(None).expect("mint");
+    store.insert(&doc).expect("persist");
+    doc
+}
+
+fn is_empty_dir(dir: &std::path::Path) -> bool {
+    std::fs::read_dir(dir)
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(true)
+}
+
+#[test]
+fn first_save_of_a_new_note_creates_a_dated_file_in_the_notes_folder() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let doc = new_note(&state);
+
+    save_buffer_content_inner(&state, &doc.id, "just notes").expect("save");
+
+    let expected = state.notes_root.join(format!(
+        "{}.md",
+        writ_core::notes::date_stem(doc.created_at)
+    ));
+    assert_eq!(std::fs::read_to_string(&expected).unwrap(), "just notes");
+    assert!(
+        is_empty_dir(&dir.path().join("buffers")),
+        "the note is a file in the notes folder and nowhere else"
+    );
+
+    let store = state.store.lock().unwrap();
     assert_eq!(
-        std::fs::read_to_string(mirror).unwrap(),
-        "alias a=c\n",
-        "the copy Writ reads back has to track the file"
+        store.get(&doc.id).unwrap().source_path.as_deref(),
+        expected.to_str(),
+        "the row points at the file from the first keystroke on"
     );
 }
 
 #[test]
-fn autosave_of_a_scratch_buffer_stays_in_the_buffers_dir() {
+fn the_dated_file_name_dedupes_when_todays_note_already_exists() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
+    let day = writ_core::notes::date_stem(chrono::Utc::now());
+    std::fs::write(state.notes_root.join(format!("{day}.md")), "yesterday's").unwrap();
 
-    let doc = {
-        let store = state.store.lock().unwrap();
-        let mut mgr = writ_core::buffer::manager::BufferManager::new();
-        let doc = mgr.create_buffer(None).expect("mint");
-        store.insert(&doc).expect("persist");
-        doc
-    };
+    let doc = new_note(&state);
+    save_buffer_content_inner(&state, &doc.id, "today's").expect("save");
 
-    save_buffer_content_inner(&state, &doc.id, "just notes").expect("save");
+    assert_eq!(
+        std::fs::read_to_string(state.notes_root.join(format!("{day} 2.md"))).unwrap(),
+        "today's"
+    );
+    assert_eq!(
+        std::fs::read_to_string(state.notes_root.join(format!("{day}.md"))).unwrap(),
+        "yesterday's",
+        "the note already there is never written over"
+    );
+}
 
-    let mirror = dir.path().join("buffers").join(&doc.filename);
-    assert_eq!(std::fs::read_to_string(mirror).unwrap(), "just notes");
+#[test]
+fn a_new_note_with_nothing_in_it_writes_no_file() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let doc = new_note(&state);
+
+    save_buffer_content_inner(&state, &doc.id, "").expect("an empty save is a no-op");
+
+    assert!(
+        is_empty_dir(&state.notes_root),
+        "opening a tab and changing your mind leaves the folder as it was"
+    );
+    let store = state.store.lock().unwrap();
+    assert!(store.get(&doc.id).unwrap().source_path.is_none());
 }
 
 #[test]
@@ -360,17 +416,18 @@ fn reopening_an_untouched_file_leaves_the_buffer_alone() {
     state.authorized_paths.record_for_open(canonical.clone());
     let opened = open_file_from_path(&state, &canonical).expect("open");
 
-    let mirror = dir.path().join("buffers").join(&opened.doc.filename);
-    let before = std::fs::metadata(&mirror).unwrap().modified().unwrap();
+    let before = std::fs::metadata(&file).unwrap().modified().unwrap();
 
     state.authorized_paths.record_for_open(canonical.clone());
     open_file_from_path(&state, &canonical).expect("reopen");
 
     assert_eq!(
-        std::fs::metadata(&mirror).unwrap().modified().unwrap(),
+        std::fs::metadata(&file).unwrap().modified().unwrap(),
         before,
-        "nothing changed on disk, so nothing should have been rewritten"
+        "reopening reads the file; it never writes it back"
     );
+    let store = state.store.lock().unwrap();
+    assert_eq!(store.read_content(&opened.doc.id).unwrap(), "unchanged");
 }
 
 #[test]

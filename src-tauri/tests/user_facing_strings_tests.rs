@@ -105,58 +105,10 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
         note: "startup failure remedy text, release 0.6",
     },
     AllowedString {
-        file: "crates/writ-storage/src/buffer_store.rs",
-        line: 186,
-        word: "buffer",
-        note: "read-only save error, release 0.6",
-    },
-    AllowedString {
-        file: "crates/writ-storage/src/buffer_store.rs",
-        line: 214,
-        word: "buffer",
-        note: "read-only save error, release 0.6",
-    },
-    AllowedString {
-        file: "crates/writ-storage/src/buffer_store.rs",
-        line: 253,
-        word: "buffer",
-        note: "missing content file error, release 0.6",
-    },
-    AllowedString {
-        file: "crates/writ-storage/src/buffer_store.rs",
-        line: 432,
-        word: "buffer",
-        note: "read-only save-to-source error, release 0.6",
-    },
-    AllowedString {
-        file: "crates/writ-storage/src/buffer_store.rs",
-        line: 432,
-        word: "source",
-        note: "read-only save-to-source error, release 0.6",
-    },
-    AllowedString {
-        file: "crates/writ-storage/src/buffer_store.rs",
-        line: 439,
-        word: "buffer",
-        note: "missing source path error, release 0.6",
-    },
-    AllowedString {
-        file: "crates/writ-storage/src/buffer_store.rs",
-        line: 466,
-        word: "buffer",
-        note: "missing source path error, release 0.6",
-    },
-    AllowedString {
         file: "crates/writ-storage/src/database/queries.rs",
         line: 106,
         word: "buffer",
         note: "row lookup error, release 0.6",
-    },
-    AllowedString {
-        file: "src-tauri/src/commands/buffer.rs",
-        line: 94,
-        word: "buffer",
-        note: "read-only save error, release 0.6",
     },
 ];
 

@@ -1,3 +1,6 @@
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
 use chrono::Utc;
 use tempfile::TempDir;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
@@ -16,7 +19,31 @@ fn setup() -> (TempDir, BufferStore) {
     (dir, store)
 }
 
+/// One notes folder for the whole test binary. Every note needs a file now
+/// (ADR-028 §1), and ids are unique across these tests, so one folder keyed by
+/// id costs less than threading a directory through every call site.
+fn notes_root() -> &'static Path {
+    static ROOT: OnceLock<TempDir> = OnceLock::new();
+    ROOT.get_or_init(|| TempDir::new().expect("notes root"))
+        .path()
+}
+
+fn note_path(id: &str) -> PathBuf {
+    notes_root().join(format!("{id}.md"))
+}
+
+/// A note with a file behind it, created empty so it is openable.
 fn make_doc(id: &str, title: &str) -> BufferDocument {
+    let file = note_path(id);
+    std::fs::write(&file, b"").expect("seed the note file");
+    let mut doc = make_unwritten(id, title);
+    doc.source_path = Some(file.to_string_lossy().into_owned());
+    doc
+}
+
+/// A note that has not reached a file yet: what a new tab is until the first
+/// keystroke.
+fn make_unwritten(id: &str, title: &str) -> BufferDocument {
     let now = Utc::now();
     BufferDocument {
         id: id.to_string(),
@@ -36,6 +63,12 @@ fn make_doc(id: &str, title: &str) -> BufferDocument {
     }
 }
 
+fn is_empty_dir(dir: &Path) -> bool {
+    std::fs::read_dir(dir)
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(true)
+}
+
 #[test]
 fn insert_and_get_buffer() {
     let (_dir, store) = setup();
@@ -47,15 +80,121 @@ fn insert_and_get_buffer() {
 }
 
 #[test]
-fn save_content_writes_file() {
-    let (_dir, store) = setup();
+fn save_content_writes_the_file_and_no_copy() {
+    let (dir, store) = setup();
     let doc = make_doc("buf-2", "Content Test");
     store.insert(&doc).expect("insert failed");
     store
         .save_content("buf-2", "Hello, file content!")
         .expect("save_content failed");
-    let content = store.read_content("buf-2").expect("read_content failed");
-    assert_eq!(content, "Hello, file content!");
+
+    assert_eq!(
+        std::fs::read_to_string(note_path("buf-2")).unwrap(),
+        "Hello, file content!"
+    );
+    assert!(
+        is_empty_dir(&dir.path().join("buffers")),
+        "a save copies the text nowhere"
+    );
+    assert_eq!(store.read_content("buf-2").unwrap(), "Hello, file content!");
+}
+
+#[test]
+fn read_content_reads_the_file_and_not_a_copy() {
+    // Structural: the store is built over a folder that does not exist, so
+    // no copy of the text could be served even if one were wanted.
+    let dir = TempDir::new().unwrap();
+    let conn = open_database(&dir.path().join("test.db")).unwrap();
+    run_migrations(&conn).unwrap();
+    let store = BufferStore::new(conn, dir.path().join("absent"));
+
+    let doc = make_doc("no-copies-1", "Only Copy");
+    store.insert(&doc).unwrap();
+    std::fs::write(note_path("no-copies-1"), "what the file says").unwrap();
+
+    assert_eq!(
+        store.read_content("no-copies-1").unwrap(),
+        "what the file says"
+    );
+}
+
+#[test]
+fn read_content_of_a_note_with_no_file_is_empty() {
+    let (_dir, store) = setup();
+    store
+        .insert(&make_unwritten("unwritten-1", "Untyped"))
+        .unwrap();
+
+    assert_eq!(store.read_content("unwritten-1").unwrap(), "");
+}
+
+#[test]
+fn save_on_a_note_with_no_file_is_a_consistency_error() {
+    let (_dir, store) = setup();
+    store
+        .insert(&make_unwritten("unwritten-2", "Untyped"))
+        .unwrap();
+
+    let err = store
+        .save_content("unwritten-2", "typed")
+        .expect_err("there is nowhere to write it")
+        .to_string();
+    assert!(err.contains("has no file"), "error: {err}");
+}
+
+#[test]
+fn attach_source_path_makes_the_next_read_return_the_file() {
+    let (_dir, store) = setup();
+    store
+        .insert(&make_unwritten("attach-1", "Untyped"))
+        .unwrap();
+    let file = note_path("attach-1");
+
+    store
+        .attach_source_path("attach-1", file.to_str().unwrap())
+        .unwrap();
+    store.save_content("attach-1", "first keystroke").unwrap();
+
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "first keystroke");
+    assert_eq!(store.read_content("attach-1").unwrap(), "first keystroke");
+    assert!(
+        store
+            .attach_source_path("attach-1", "/elsewhere.md")
+            .is_err(),
+        "a note already has one file; repointing it is a move, not an attach"
+    );
+}
+
+#[test]
+fn a_binary_note_regenerates_its_hex_view_from_the_file() {
+    let (_dir, store) = setup();
+    let mut doc = make_doc("binary-1", "dump.bin");
+    doc.read_only = true;
+    doc.size_bytes = 4;
+    store.insert(&doc).unwrap();
+    std::fs::write(note_path("binary-1"), [0xdeu8, 0xad, 0xbe, 0xef]).unwrap();
+
+    let view = store.read_content("binary-1").unwrap();
+    assert!(view.contains("de ad be ef"), "hex view: {view}");
+}
+
+#[test]
+fn collect_buffer_contents_reads_the_files() {
+    let (_dir, store) = setup();
+    store.insert(&make_doc("collect-1", "One")).unwrap();
+    store.insert(&make_unwritten("collect-2", "Two")).unwrap();
+    std::fs::write(note_path("collect-1"), "on disk").unwrap();
+
+    let collected = store.collect_buffer_contents().unwrap();
+
+    assert_eq!(
+        collected.get("collect-1").map(String::as_str),
+        Some("on disk")
+    );
+    assert!(
+        !collected.contains_key("collect-2"),
+        "a note with no file has nothing to snapshot"
+    );
 }
 
 #[test]
@@ -70,18 +209,22 @@ fn update_status_to_history() {
 }
 
 #[test]
-fn delete_removes_row_and_file() {
+fn delete_removes_the_row_but_never_the_file() {
     let (_dir, store) = setup();
     let doc = make_doc("buf-4", "Delete Me");
     store.insert(&doc).expect("insert failed");
     store
-        .save_content("buf-4", "temporary content")
+        .save_content("buf-4", "the note itself")
         .expect("save_content failed");
+
     store.delete("buf-4").expect("delete failed");
-    let get_result = store.get("buf-4");
-    assert!(get_result.is_err());
-    let read_result = store.read_content("buf-4");
-    assert!(read_result.is_err());
+
+    assert!(store.get("buf-4").is_err(), "the row is gone");
+    assert_eq!(
+        std::fs::read_to_string(note_path("buf-4")).unwrap(),
+        "the note itself",
+        "closing a tab is not a request to delete the note"
+    );
 }
 
 #[test]
@@ -370,7 +513,7 @@ fn close_many_rolls_back_every_buffer_when_a_close_fails_mid_transaction() {
 }
 
 #[test]
-fn delete_many_removes_rows_files_and_fts() {
+fn delete_many_removes_rows_and_index_entries_but_no_files() {
     let (dir, store) = setup();
     for id in ["dm-a", "dm-b", "dm-c"] {
         let doc = make_doc(id, id);
@@ -385,15 +528,13 @@ fn delete_many_removes_rows_files_and_fts() {
     assert!(store.get("dm-a").is_err(), "dm-a row must be gone");
     assert!(store.get("dm-c").is_err(), "dm-c row must be gone");
     assert!(store.get("dm-b").is_ok(), "dm-b must be untouched");
-    let buffers = dir.path().join("buffers");
-    assert!(
-        !buffers.join("dm-a.txt").exists() && !buffers.join("dm-c.txt").exists(),
-        "backing files of deleted buffers must be removed after commit"
-    );
-    assert!(
-        buffers.join("dm-b.txt").exists(),
-        "the surviving buffer's backing file must remain"
-    );
+    for id in ["dm-a", "dm-b", "dm-c"] {
+        assert!(
+            note_path(id).exists(),
+            "clearing rows never deletes the notes themselves"
+        );
+    }
+    assert!(is_empty_dir(&dir.path().join("buffers")));
     assert_eq!(
         store.search("needle").unwrap(),
         vec!["dm-b"],
@@ -492,7 +633,7 @@ fn rebuild_fts_indexes_both_active_and_history_buffers() {
 }
 
 #[test]
-fn rebuild_fts_tolerates_a_missing_backing_file() {
+fn rebuild_fts_tolerates_a_missing_file() {
     let (_dir, store) = setup();
     let present = make_doc("rf-present", "rf-present");
     let orphan = make_doc("rf-orphan", "rf-orphan");
@@ -501,12 +642,12 @@ fn rebuild_fts_tolerates_a_missing_backing_file() {
     store.save_content("rf-present", "findable body").unwrap();
     store.save_content("rf-orphan", "doomed body").unwrap();
 
-    // Simulate a row whose content file vanished out from under the store.
-    std::fs::remove_file(_dir.path().join("buffers").join("rf-orphan.txt")).unwrap();
+    // A row whose file vanished out from under the store.
+    std::fs::remove_file(note_path("rf-orphan")).unwrap();
 
     store
         .rebuild_fts()
-        .expect("a missing backing file must not abort the rebuild");
+        .expect("a missing file must not abort the rebuild");
 
     assert_eq!(store.search("findable").unwrap(), vec!["rf-present"]);
     assert!(
@@ -560,14 +701,6 @@ fn rename_preserves_content_searchability() {
     assert_eq!(hits, vec!["ren-fts-c"]);
 }
 
-/// Builds a never-renamed scratch buffer: `title == filename`, active,
-/// no `source_path`. Mirrors what `create_buffer` mints.
-fn make_scratch(id: &str) -> BufferDocument {
-    let mut doc = make_doc(id, "");
-    doc.title = doc.filename.clone();
-    doc
-}
-
 #[test]
 fn find_empty_scratch_active_returns_none_on_empty_store() {
     let (_dir, store) = setup();
@@ -575,100 +708,54 @@ fn find_empty_scratch_active_returns_none_on_empty_store() {
 }
 
 #[test]
-fn find_empty_scratch_active_returns_zero_byte_unnamed_scratch() {
+fn find_empty_scratch_active_returns_an_active_note_with_no_file() {
     let (_dir, store) = setup();
-    let doc = make_scratch("scratch-1");
-    store.insert(&doc).unwrap();
-    store.save_content("scratch-1", "").unwrap();
+    store
+        .insert(&make_unwritten("scratch-1", "2026-08-28"))
+        .unwrap();
 
     let found = store.find_empty_scratch_active().unwrap();
     assert_eq!(found.map(|d| d.id), Some("scratch-1".to_string()));
 }
 
 #[test]
-fn find_empty_scratch_active_skips_buffer_with_content() {
+fn find_empty_scratch_active_skips_a_note_that_has_a_file() {
     let (_dir, store) = setup();
-    let doc = make_scratch("scratch-2");
-    store.insert(&doc).unwrap();
-    store.save_content("scratch-2", "hello").unwrap();
+    store.insert(&make_doc("scratch-2", "2026-08-28")).unwrap();
+
+    assert!(
+        store.find_empty_scratch_active().unwrap().is_none(),
+        "a note reaches a file on the first keystroke, so having one means it holds text"
+    );
+}
+
+#[test]
+fn find_empty_scratch_active_skips_history_notes() {
+    let (_dir, store) = setup();
+    store
+        .insert(&make_unwritten("scratch-3", "2026-08-28"))
+        .unwrap();
+    store.close("scratch-3").unwrap();
 
     assert!(store.find_empty_scratch_active().unwrap().is_none());
 }
 
 #[test]
-fn find_empty_scratch_active_skips_renamed_scratch() {
-    let (_dir, store) = setup();
-    let mut doc = make_scratch("scratch-3");
-    doc.title = "My Notes".to_string();
-    store.insert(&doc).unwrap();
-    store.save_content("scratch-3", "").unwrap();
-
-    assert!(store.find_empty_scratch_active().unwrap().is_none());
-}
-
-#[test]
-fn find_empty_scratch_active_skips_buffer_with_source_path() {
-    let (_dir, store) = setup();
-    let mut doc = make_scratch("scratch-4");
-    doc.source_path = Some("/tmp/empty.txt".to_string());
-    store.insert(&doc).unwrap();
-    store.save_content("scratch-4", "").unwrap();
-
-    assert!(store.find_empty_scratch_active().unwrap().is_none());
-}
-
-#[test]
-fn find_empty_scratch_active_skips_history_buffer() {
-    let (_dir, store) = setup();
-    let doc = make_scratch("scratch-5");
-    store.insert(&doc).unwrap();
-    store.save_content("scratch-5", "").unwrap();
-    store.close("scratch-5").unwrap();
-
-    assert!(store.find_empty_scratch_active().unwrap().is_none());
-}
-
-#[test]
-fn find_empty_scratch_active_returns_uuid_filename_scratch_with_default_writ_title() {
-    let (_dir, store) = setup();
-    let mut doc = make_doc("scratch-uuid-1", "writ-1700000000000");
-    doc.filename = format!("{}.txt", doc.id);
-    store.insert(&doc).unwrap();
-    store.save_content("scratch-uuid-1", "").unwrap();
-
-    let found = store.find_empty_scratch_active().unwrap();
-    assert_eq!(found.map(|d| d.id), Some("scratch-uuid-1".to_string()));
-}
-
-#[test]
-fn find_empty_scratch_active_skips_uuid_filename_buffer_with_custom_title() {
-    let (_dir, store) = setup();
-    let mut doc = make_doc("scratch-uuid-2", "My Notes");
-    doc.filename = format!("{}.txt", doc.id);
-    store.insert(&doc).unwrap();
-    store.save_content("scratch-uuid-2", "").unwrap();
-
-    assert!(store.find_empty_scratch_active().unwrap().is_none());
-}
-
-#[test]
-fn reclaim_empty_scratch_deletes_empty_scratch_any_status_and_returns_count() {
+fn reclaim_empty_scratch_deletes_notes_with_no_file_in_any_status() {
     let (_dir, store) = setup();
 
-    let active_empty = make_scratch("re-active-empty");
-    store.insert(&active_empty).unwrap();
-    store.save_content("re-active-empty", "").unwrap();
-
-    let history_empty = make_scratch("re-history-empty");
-    store.insert(&history_empty).unwrap();
-    store.save_content("re-history-empty", "").unwrap();
+    store
+        .insert(&make_unwritten("re-active-empty", "2026-08-28"))
+        .unwrap();
+    store
+        .insert(&make_unwritten("re-history-empty", "2026-08-28"))
+        .unwrap();
     store.close("re-history-empty").unwrap();
-
-    let with_content = make_scratch("re-content");
-    store.insert(&with_content).unwrap();
+    store.insert(&make_doc("re-content", "Kept")).unwrap();
     store.save_content("re-content", "keep me").unwrap();
 
     let count = store.reclaim_empty_scratch().unwrap();
+
     assert_eq!(count, 2);
     assert!(store.get("re-active-empty").is_err());
     assert!(store.get("re-history-empty").is_err());
@@ -676,42 +763,32 @@ fn reclaim_empty_scratch_deletes_empty_scratch_any_status_and_returns_count() {
 }
 
 #[test]
-fn reclaim_empty_scratch_keeps_named_nonempty_and_sourced_buffers() {
+fn reclaim_empty_scratch_keeps_every_note_that_has_a_file() {
     let (_dir, store) = setup();
+    store.insert(&make_doc("kept-named", "Important")).unwrap();
+    store.insert(&make_doc("kept-sourced", "real.txt")).unwrap();
 
-    let named = make_doc("kept-named", "Important");
-    store.insert(&named).unwrap();
-    store.save_content("kept-named", "").unwrap();
-
-    let mut sourced = make_scratch("kept-sourced");
-    sourced.source_path = Some("/tmp/real.txt".to_string());
-    store.insert(&sourced).unwrap();
-    store.save_content("kept-sourced", "").unwrap();
-
-    let count = store.reclaim_empty_scratch().unwrap();
-    assert_eq!(count, 0);
+    assert_eq!(store.reclaim_empty_scratch().unwrap(), 0);
     assert!(store.get("kept-named").is_ok());
     assert!(store.get("kept-sourced").is_ok());
 }
 
 #[test]
-fn reclaim_empty_scratch_removes_backing_files() {
-    let (dir, store) = setup();
-    let doc = make_scratch("re-file");
-    store.insert(&doc).unwrap();
+fn reclaim_empty_scratch_never_deletes_a_file() {
+    let (_dir, store) = setup();
+    store.insert(&make_doc("re-file", "Kept")).unwrap();
     store.save_content("re-file", "").unwrap();
-    let file_path = dir.path().join("buffers").join(&doc.filename);
-    assert!(file_path.exists());
 
     store.reclaim_empty_scratch().unwrap();
 
-    assert!(!file_path.exists());
+    assert!(store.get("re-file").is_ok(), "the note has a file");
+    assert!(note_path("re-file").exists());
 }
 
 // Custom doc with a caller-chosen filename, to exercise legacy rows whose
 // mirror filename predates the UUID-derived naming (audit blocker #53.7).
 fn make_doc_with_filename(id: &str, title: &str, filename: &str) -> BufferDocument {
-    let mut doc = make_doc(id, title);
+    let mut doc = make_unwritten(id, title);
     doc.title = title.to_string();
     doc.filename = filename.to_string();
     doc
@@ -733,7 +810,11 @@ fn reconcile_renames_legacy_basename_filename_to_uuid() {
     assert_eq!(fetched.title, "notes.md");
     assert!(buffers.join("legacy-1.txt").exists());
     assert!(!buffers.join("notes.md").exists());
-    assert_eq!(store.read_content("legacy-1").unwrap(), "legacy content");
+    assert_eq!(
+        std::fs::read_to_string(buffers.join("legacy-1.txt")).unwrap(),
+        "legacy content",
+        "the copy is only moved here; the notes migration is what places it"
+    );
 }
 
 #[test]

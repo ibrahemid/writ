@@ -139,20 +139,12 @@ fn open_file_classified(
         .map_err(|e| e.to_string())?
     {
         store.restore(&history_buf.id).map_err(|e| e.to_string())?;
-        {
-            let mut ignore = recover_poison(
-                state.watcher_ignore.lock(),
-                "commands::file::open_file_from_path:history",
-            );
-            ignore.record(
-                history_buf.filename.clone(),
-                content.as_bytes(),
-                Instant::now(),
-            );
+        // Reopening reads the file; it never writes it back. The index is
+        // refreshed instead, which is the only thing the old write-back was
+        // achieving now that the file is the only copy (ADR-028 §1).
+        if let Err(e) = store.reindex_buffer(&history_buf.id) {
+            tracing::debug!(buffer_id = %history_buf.id, error = %e, "reindex on reopening failed");
         }
-        store
-            .save_content(&history_buf.id, &content)
-            .map_err(|e| e.to_string())?;
         state
             .authorized_paths
             .record_blessed_source(canonical.to_string());
@@ -178,14 +170,8 @@ fn open_file_classified(
         ..new_doc
     };
 
-    {
-        let mut ignore = recover_poison(
-            state.watcher_ignore.lock(),
-            "commands::file::open_file_from_path:new",
-        );
-        ignore.record(new_doc.filename.clone(), content.as_bytes(), Instant::now());
-    }
-
+    // No stamp: opening a file writes nothing, so there is no write of Writ's
+    // own for a watcher to mistake for somebody else's.
     store
         .open_from_path(&new_doc, &content)
         .map_err(|e| e.to_string())?;
@@ -276,10 +262,14 @@ pub async fn pick_files_to_open(app: tauri::AppHandle) -> Result<Vec<String>, St
 /// same event an external edit raises, which reloads a clean buffer and asks
 /// first when there are unsaved keystrokes to lose.
 ///
-/// Best-effort: a file that cannot be read here still opens its tab with the
-/// content Writ already has.
+/// Best-effort: a file that cannot be read here still opens its tab.
+///
+/// Nothing is copied. The editor reloads through `read_buffer_content`, which
+/// reads the file itself (ADR-028 §1), so the reload *is* the resync; the read
+/// here is what the watcher stamp needs to recognise those bytes as ones Writ
+/// already knows about.
 fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocument) {
-    let Ok(Some(source)) = store.read_source_if_diverged(&doc.id) else {
+    let Ok(source) = store.read_source(&doc.id) else {
         return;
     };
     {
@@ -287,10 +277,16 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
             state.watcher_ignore.lock(),
             "commands::file::resync_open_buffer",
         );
-        ignore.record(doc.filename.clone(), &source, Instant::now());
+        let now = Instant::now();
+        if let Some(path) = doc.source_path.as_deref() {
+            ignore.record(path.to_string(), &source, now);
+            if let Some(name) = Path::new(path).file_name() {
+                ignore.record(name.to_string_lossy().into_owned(), &source, now);
+            }
+        }
     }
-    if store.refresh_mirror(&doc.id, &source).is_err() {
-        return;
+    if let Err(e) = store.reindex_buffer(&doc.id) {
+        tracing::debug!(buffer_id = %doc.id, error = %e, "reindex after reopening failed");
     }
     state.event_bus.emit(WritEvent::BufferExternal {
         buffer_id: doc.id.clone(),

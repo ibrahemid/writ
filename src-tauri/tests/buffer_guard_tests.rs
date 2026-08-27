@@ -14,12 +14,13 @@ fn setup() -> (TempDir, BufferStore) {
     (dir, BufferStore::new(conn, buffers_dir))
 }
 
-/// Persists a fresh empty scratch buffer the way `create_buffer` does:
-/// mint via the manager, insert, write empty content.
+/// Persists a new note the way `create_buffer` does: mint via the manager and
+/// insert the row. Nothing is written to disk — a note reaches a file on its
+/// first keystroke (ADR-028 §2), and a note that has none is exactly the one a
+/// new-tab request reuses.
 fn persist_empty_scratch(store: &BufferStore, mgr: &mut BufferManager) -> String {
     let doc = mgr.create_buffer(None).expect("mint");
     store.insert(&doc).expect("insert");
-    store.save_content(&doc.id, "").expect("save empty");
     doc.id
 }
 

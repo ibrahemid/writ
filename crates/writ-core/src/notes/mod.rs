@@ -194,6 +194,34 @@ pub fn date_stem(now: DateTime<Utc>) -> String {
     now.with_timezone(&Local).format("%Y-%m-%d").to_string()
 }
 
+/// Whether `title` is one Writ minted rather than one a person typed.
+///
+/// Every note created before 0.4 was titled `writ-<millis>`, which names
+/// nothing and would mint a filename nobody recognises. The notes migration
+/// and the first save of a new note both replace such a title with the note's
+/// date, so the rule has to be one function.
+pub fn is_minted_title(title: &str) -> bool {
+    let Some(rest) = title.trim().strip_prefix("writ-") else {
+        return false;
+    };
+    rest.starts_with(|c: char| c.is_ascii_digit())
+}
+
+/// The filename stem a note earns from its title, dated when the title names
+/// nothing.
+///
+/// `dated_from` supplies the fallback: the moment the note reaches a file for
+/// a new note, the row's creation time for one the migration is writing out.
+/// The result is sanitised and never empty, so the caller only has to dedupe
+/// it against the folder it is going into.
+pub fn note_file_stem(title: &str, dated_from: DateTime<Utc>) -> String {
+    let fallback = date_stem(dated_from);
+    if title.trim().is_empty() || is_minted_title(title) {
+        return fallback;
+    }
+    sanitize_title_or(title, &fallback)
+}
+
 /// Finder-style dedupe: `stem`, `stem 2`, `stem 3`, and so on.
 ///
 /// `taken` holds lowercased file *names* including their extension, so the

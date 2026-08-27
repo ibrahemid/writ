@@ -17,7 +17,7 @@ const OPEN_10MB_BUDGET_MS: u128 = 500;
 const OPEN_50MB_BUDGET_MS: u128 = 4000;
 const HEX_DUMP_10MB_BUDGET_MS: u128 = 1000;
 
-fn make_doc(idx: usize) -> BufferDocument {
+fn make_doc(notes: &std::path::Path, idx: usize) -> BufferDocument {
     let id = format!("buf-{:04}", idx);
     let words = [
         "rust", "editor", "buffer", "text", "search", "index", "file",
@@ -30,7 +30,12 @@ fn make_doc(idx: usize) -> BufferDocument {
         filename: format!("{}.txt", id),
         status: BufferStatus::Active,
         language: None,
-        source_path: None,
+        source_path: Some(
+            notes
+                .join(format!("{id}.md"))
+                .to_string_lossy()
+                .into_owned(),
+        ),
         cursor_pos: 0,
         scroll_pos: 0,
         tab_order: idx as u32,
@@ -65,10 +70,12 @@ fn build_corpus() -> (TempDir, BufferStore) {
     run_migrations(&conn).expect("migrations");
     let buffers_dir = dir.path().join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("create buffers dir");
+    let notes_dir = dir.path().join("notes");
+    std::fs::create_dir_all(&notes_dir).expect("create notes dir");
     let store = BufferStore::new(conn, buffers_dir);
 
     for idx in 0..CORPUS_SIZE {
-        let doc = make_doc(idx);
+        let doc = make_doc(&notes_dir, idx);
         store.insert(&doc).expect("insert");
         let content_size = 512 + (idx % 8) * 512;
         let content = make_content(idx, content_size);
@@ -194,9 +201,11 @@ fn buffer_round_trip_budget() {
     run_migrations(&conn).expect("migrations");
     let buffers_dir = dir.path().join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("create buffers dir");
+    let notes_dir = dir.path().join("notes");
+    std::fs::create_dir_all(&notes_dir).expect("create notes dir");
     let store = BufferStore::new(conn, buffers_dir);
 
-    let doc = make_doc(0);
+    let doc = make_doc(&notes_dir, 0);
     store.insert(&doc).expect("insert");
     let content = make_content(0, 4096);
     store.save_content(&doc.id, &content).expect("initial save");

@@ -13,10 +13,12 @@
 //!   primitives.
 //! - [`buffer_store`]: high-level buffer CRUD on top of `database`.
 //! - [`config_store`]: TOML config load and save.
-//! - [`consistency`]: startup checks that reconcile the database with
-//!   the on-disk buffer directory.
+//! - [`consistency`]: startup checks that reconcile the database with the
+//!   files the notes live in.
 //! - [`fts`]: FTS5 indexing and search over buffer content.
 //! - [`maintenance`]: WAL checkpointing and freelist reclamation.
+//! - [`notes_migration`]: the one-time pass that turns every note into a
+//!   file.
 //! - [`recovery`]: session snapshots and dirty-shutdown detection.
 //! - [`rollback`]: the copy of the database taken before the notes
 //!   migration writes anything.
@@ -35,7 +37,7 @@ pub mod atomic;
 pub mod buffer_store;
 /// TOML configuration load and save.
 pub mod config_store;
-/// Startup consistency checker reconciling database and disk.
+/// Startup consistency checker reconciling the database with the files.
 pub mod consistency;
 /// Raw connection management, migrations, and query primitives.
 pub mod database;
@@ -49,6 +51,8 @@ pub mod inbox_store;
 pub mod layout_state;
 /// WAL checkpointing and freelist reclamation.
 pub mod maintenance;
+/// The one-time pass that turns every note into a file (ADR-028).
+pub mod notes_migration;
 /// Session snapshots and dirty-shutdown detection.
 pub mod recovery;
 /// The copy of the database taken before the notes migration (ADR-028).

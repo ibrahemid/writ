@@ -9,25 +9,24 @@ use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::buffer::manager::BufferManager;
 use writ_storage::buffer_store::BufferStore;
 
-/// Outcome of resolving a new-buffer request: either an existing empty
-/// scratch buffer to reuse, or a freshly minted (not yet persisted)
-/// buffer to create.
+/// Outcome of resolving a new-note request: either an existing note that has
+/// not reached a file to reuse, or a freshly minted (not yet persisted) one.
 pub enum CreateDecision {
-    /// Reuse this already-persisted empty scratch buffer; no new row,
-    /// no `updated_at` bump, no event is emitted.
+    /// Reuse this already-persisted note; no new row, no `updated_at` bump,
+    /// no event is emitted.
     Reuse(BufferDocument),
-    /// This buffer was just minted and must be persisted by the caller.
+    /// This note was just minted and must be persisted by the caller.
     Create(BufferDocument),
 }
 
-/// Decides whether a new-buffer request reuses an existing empty scratch
-/// buffer or mints a new one.
+/// Decides whether a new-note request reuses an existing note that never
+/// reached a file, or mints a new one.
 ///
-/// An untitled request reuses the first active, never-renamed, zero-byte
-/// scratch buffer if one exists, preventing empty buffers from piling up
-/// when "new tab" is pressed repeatedly. An explicit title always mints.
-/// Callers must flush pending autosave before calling so disk-read
-/// emptiness reflects the live editor.
+/// An untitled request reuses the first active note with no file if one
+/// exists, so pressing "new tab" repeatedly does not pile rows up. An explicit
+/// title always mints. Callers must flush any pending autosave first: that
+/// save is what attaches the file, so an unflushed keystroke leaves the row
+/// looking reusable.
 pub fn decide_create_buffer(
     store: &BufferStore,
     mgr: &mut BufferManager,
@@ -55,15 +54,10 @@ pub fn create_buffer(
     match decide_create_buffer(&store, &mut mgr, title)? {
         CreateDecision::Reuse(doc) => Ok(doc),
         CreateDecision::Create(doc) => {
+            // Nothing is written to disk here. A new note reaches a file on
+            // its first keystroke and not before (ADR-028 §2), so pressing
+            // Cmd+T and changing your mind leaves the notes folder as it was.
             store.insert(&doc).map_err(|e| e.to_string())?;
-            {
-                let mut ignore = recover_poison(
-                    state.watcher_ignore.lock(),
-                    "commands::buffer::create_buffer",
-                );
-                ignore.record(doc.filename.clone(), b"", Instant::now());
-            }
-            store.save_content(&doc.id, "").map_err(|e| e.to_string())?;
             Ok(doc)
         }
     }
@@ -75,39 +69,35 @@ pub fn get_buffer(state: State<'_, AppState>, id: String) -> Result<BufferDocume
     store.get(&id).map_err(|e| e.to_string())
 }
 
-/// Writes `content` for buffer `id`, to the file the buffer came from when it
-/// came from one, and to its buffer file otherwise.
+/// Writes `content` for note `id` into the file it lives in, giving it one
+/// first when it has none.
 ///
 /// The destination is decided here rather than by the caller: autosave, the
 /// flush on closing a tab, and the flush on quitting all arrive through the
-/// one IPC command, and a buffer opened from disk has to reach its file
-/// through every one of them. The frontend never names a path — the row in the
-/// database does, from the authorized path it was opened with.
+/// one IPC command, and every note has to reach its file through every one of
+/// them. The frontend never names a path — the row in the database does.
+///
+/// A note with nothing in it and no file yet writes nothing: a new tab the
+/// user opened and has not typed into is not a note, and minting a file for
+/// it would fill the folder with blank days.
 ///
 /// Writes and stamps immediately; the FTS reindex is deferred off the
 /// keystroke loop (ADR-020). The bytes on disk are durable on return; only
-/// search freshness lags, bounded by the debounce and the shutdown flush.
+/// search freshness lags, bounded by the idle window and the shutdown flush.
 pub fn save_buffer_content_inner(state: &AppState, id: &str, content: &str) -> Result<(), String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).map_err(|e| e.to_string())?;
     if doc.read_only {
-        return Err(format!("buffer {} is read-only", id));
+        return Err(format!("note {id} is read-only"));
     }
 
-    let Some(source_path) = doc.source_path.as_deref() else {
-        {
-            let mut ignore = recover_poison(
-                state.watcher_ignore.lock(),
-                "commands::buffer::save_buffer_content",
-            );
-            ignore.record(doc.filename.clone(), content.as_bytes(), Instant::now());
-        }
-        return store
-            .save_content_without_index(id, content)
-            .map_err(|e| e.to_string());
+    let source_path = match doc.source_path.as_deref() {
+        Some(path) => path.to_string(),
+        None if content.is_empty() => return Ok(()),
+        None => attach_new_note_file(state, &store, &doc)?,
     };
 
-    crate::commands::file::authorize_source_write(state, source_path)?;
+    crate::commands::file::authorize_source_write(state, &source_path)?;
     {
         let mut ignore = recover_poison(
             state.watcher_ignore.lock(),
@@ -115,22 +105,40 @@ pub fn save_buffer_content_inner(state: &AppState, id: &str, content: &str) -> R
         );
         let bytes = content.as_bytes();
         let now = Instant::now();
-        // Three keys for the two files this write touches, because each
-        // watcher recognizes its own: the buffers-dir watcher keys on the
-        // mirror's filename, the inbox watcher on the source's full path, and
-        // the config watcher on the config file's bare name. Missing one turns
-        // Writ's own save into an external-change event — a config reload, or
-        // an inbox arrival that reopens the tab and pulls the window forward,
-        // on every keystroke.
+        // Three keys for the one file this write touches, because each
+        // watcher recognizes its own: the retired mirror name, the inbox
+        // watcher's full-path key, and the config watcher's bare-name key.
+        // Missing one turns Writ's own save into an external-change event — a
+        // config reload, or an inbox arrival that reopens the tab and pulls
+        // the window forward, on every keystroke.
         ignore.record(doc.filename.clone(), bytes, now);
-        ignore.record(source_path.to_string(), bytes, now);
-        if let Some(name) = Path::new(source_path).file_name() {
+        ignore.record(source_path.clone(), bytes, now);
+        if let Some(name) = Path::new(&source_path).file_name() {
             ignore.record(name.to_string_lossy().into_owned(), bytes, now);
         }
     }
     store
         .save_to_source_without_index(id, content)
         .map_err(|e| e.to_string())
+}
+
+/// Gives a note with no file the file the invariant requires: a dated `.md`
+/// in the notes folder, deduped Finder-style, writable by containment.
+///
+/// The write then falls through to the ordinary path, so exactly one code
+/// path writes a note's text.
+fn attach_new_note_file(
+    state: &AppState,
+    store: &BufferStore,
+    doc: &BufferDocument,
+) -> Result<String, String> {
+    crate::notes::attach_note_file(
+        store,
+        &state.notes_root,
+        &doc.id,
+        &doc.title,
+        chrono::Utc::now(),
+    )
 }
 
 #[tauri::command]
@@ -155,9 +163,10 @@ pub fn save_buffer_content(
 /// would push their notes down every search result. `create_buffer` already
 /// indexed the title, so the tab stays findable by name.
 ///
-/// Destination follows the same rule as every other save: generated documents
-/// live in scratch buffers, so in practice this only ever writes the buffers
-/// dir.
+/// Destination follows the same rule as every other save: the file the note
+/// lives in, minted in the notes folder when it has none. A generated document
+/// is a note like any other once it exists (ADR-028 §1); the only thing that
+/// makes it different is that its text stays out of the index.
 #[tauri::command]
 pub fn save_buffer_content_unindexed(
     state: State<'_, AppState>,
