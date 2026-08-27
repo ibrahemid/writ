@@ -211,6 +211,12 @@
   },
   {
     "file": "src/stores/global/buffer-registry.ts",
+    "line": 137,
+    "word": "MiB",
+    "note": "size formatter unit, release 0.6"
+  },
+  {
+    "file": "src/stores/global/buffer-registry.ts",
     "line": 178,
     "word": "syntax highlighting",
     "note": "large-file confirm message, release 0.6"

@@ -31,12 +31,31 @@ const BANNED = [
   "typography",
 ] as const;
 
-// Plurals count: "Search buffers..." is the same violation as "buffer".
-const WORD_RE = new Map(
-  BANNED.map((word) => [word, new RegExp(`\\b${word}(?:e?s)?\\b`, "i")] as const),
-);
+// Forms a suffix cannot reach.
+const EXTRA_FORMS: Record<string, string[]> = {
+  typography: ["typographies", "typographic", "typographical", "typographically"],
+};
 
-// JSX attributes and object properties whose value is read out loud.
+/**
+ * Every spelling of a banned word this guard answers to: the inflections
+ * ("buffers", "refused", "revealing") and the hyphenated form of a phrase
+ * ("syntax-highlighting" is the same violation as "syntax highlighting").
+ */
+function patternFor(word: string): RegExp {
+  const forms = [word, ...(EXTRA_FORMS[word] ?? [])];
+  const alternatives = forms.map((form) =>
+    form
+      .split(" ")
+      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("[\\s-]+"),
+  );
+  return new RegExp(`\\b(?:${alternatives.join("|")})(?:s|es|ed|ing|d)?\\b`, "i");
+}
+
+const WORD_RE = new Map(BANNED.map((word) => [word, patternFor(word)] as const));
+
+// JSX attributes and object properties whose value is read out loud, whether
+// the key is bare (`label=`, `label:`) or quoted (`"aria-label":`).
 const TEXT_KEYS = [
   "placeholder",
   "title",
@@ -46,16 +65,16 @@ const TEXT_KEYS = [
   "confirmLabel",
   "cancelLabel",
   "message",
+  "text",
+  "hint",
+  "tooltip",
+  "heading",
+  "description",
 ];
-const TEXT_KEY_RE = new RegExp(
-  `(?:^|[^\\w$.])(?:${TEXT_KEYS.join("|")})\\s*[=:]\\s*\\{?\\s*$`,
-);
-const DESCRIPTION_KEY_RE = /(?:^|[^\w$.])description\s*:\s*\{?\s*$/;
-const CLASS_KEY_RE = /(?:^|[^\w$.])class(?:List)?\s*[=:]\s*\{?\s*$/;
 
-// Characters a JSX text child never contains. A run that holds one of these is
-// an expression, a comparison or a generic, not prose.
-const NOT_JSX_TEXT = /[{}()=;&|"'`[\]:,/\\$#@]/;
+// Characters a JSX text child never contains. Ordinary punctuation (commas,
+// parentheses, colons, apostrophes) is text; these are expression syntax.
+const JSX_TEXT_REJECT = "{}\"`=;&|[]$/\\+*#@";
 
 interface AllowlistRecord {
   file: string;
@@ -105,6 +124,10 @@ function opensRegex(prev: string): boolean {
  * expressions blanked out (newlines kept, so indices and line numbers still
  * line up). The blanked copy is what the JSX scan reads, so a `<` inside a
  * string or a comment cannot be mistaken for a tag.
+ *
+ * An apostrophe that follows a letter or a digit is text, not a quote: no
+ * valid expression puts a string start there, and JSX children are full of
+ * contractions.
  */
 function lex(text: string): { masked: string; literals: Literal[] } {
   const chars = text.split("");
@@ -133,6 +156,11 @@ function lex(text: string): { masked: string; literals: Literal[] } {
       const j = found === -1 ? text.length : found + 2;
       blank(i, j);
       i = j;
+      continue;
+    }
+    if (ch === "'" && /[A-Za-z0-9]/.test(text[i - 1] ?? "")) {
+      prev = ch;
+      i++;
       continue;
     }
     if (ch === '"' || ch === "'") {
@@ -172,8 +200,10 @@ function lex(text: string): { masked: string; literals: Literal[] } {
             else if (text[j] === "}") braces--;
             j++;
           }
-          // An interpolation carries identifiers, not prose.
-          value += " ";
+          // An interpolation carries identifiers, not prose. It stands in as a
+          // character that breaks a word without reading as whitespace, so an
+          // id like `content:buffer:${x}` never passes for a sentence.
+          value += "\u0000";
           continue;
         }
         value += text[j];
@@ -216,32 +246,15 @@ function lex(text: string): { masked: string; literals: Literal[] } {
   return { masked: chars.join(""), literals };
 }
 
-/** The index one past the `)` that closes the call whose `(` sits at `open`. */
-function endOfCall(masked: string, open: number): number {
-  let depth = 0;
-  for (let i = open; i < masked.length; i++) {
-    if (masked[i] === "(") depth++;
-    else if (masked[i] === ")") {
-      depth--;
-      if (depth === 0) return i + 1;
-    }
-  }
-  return masked.length;
-}
-
 /**
  * The end of the `return` statement starting at `from`: its `;`, or the end of
- * its first line. A multi-line return is JSX, and rule (a) already reads it.
+ * its line, whichever comes first. A return that opens a block or a call runs
+ * on for a whole callback body, and the strings in there belong to whatever
+ * rule covers them, not to this one.
  */
 function endOfStatement(masked: string, from: number): number {
-  let depth = 0;
   for (let i = from; i < masked.length; i++) {
-    const ch = masked[i];
-    if (ch === "(" || ch === "[" || ch === "{") depth++;
-    else if (ch === ")" || ch === "]" || ch === "}") {
-      depth--;
-      if (depth < 0) return i;
-    } else if ((ch === ";" || ch === "\n") && depth === 0) return i;
+    if (masked[i] === ";" || masked[i] === "\n") return i;
   }
   return masked.length;
 }
@@ -254,6 +267,35 @@ function isProse(value: string): boolean {
   return /\s/.test(value) || /^[A-Z]/.test(value);
 }
 
+/**
+ * The attribute or property name a literal is the value of, or `null`. Handles
+ * a bare key (`label: "x"`, `label="x"`, `title={"x"}`) and a quoted one
+ * (`"aria-label": "x"`), whose own body the lexer has already blanked, so the
+ * key is recovered from the literal that ends there.
+ */
+function keyBefore(masked: string, byEnd: Map<number, Literal>, start: number): string | null {
+  let j = start - 1;
+  const skipSpace = () => {
+    while (j >= 0 && /\s/.test(masked[j])) j--;
+  };
+  skipSpace();
+  if (masked[j] === "{") {
+    j--;
+    skipSpace();
+  }
+  if (masked[j] !== "=" && masked[j] !== ":") return null;
+  j--;
+  skipSpace();
+  if (masked[j] === '"' || masked[j] === "'") {
+    return byEnd.get(j + 1)?.value ?? null;
+  }
+  const end = j + 1;
+  while (j >= 0 && /[\w$-]/.test(masked[j])) j--;
+  if (masked[j] === ".") return null;
+  const key = masked.slice(j + 1, end);
+  return key === "" ? null : key;
+}
+
 interface Candidate {
   index: number;
   text: string;
@@ -261,13 +303,14 @@ interface Candidate {
 
 /**
  * Text a user reads: JSX children, the value of a spoken attribute or
- * property, the first argument of a toast, a command's description, and the
- * settings index's own titles and search terms, and the prose a `.tsx` helper
- * returns for a JSX expression child. Identifiers, ids, type names, comments
- * and log lines are all out of scope by construction.
+ * property, the first argument of a toast, the prose a helper returns for a
+ * JSX expression child, and the settings index's own titles and search terms.
+ * Identifiers, ids, type names, comments and log lines are all out of scope by
+ * construction.
  */
 function domStrings(file: string, text: string): Candidate[] {
   const { masked, literals } = lex(text);
+  const byEnd = new Map(literals.map((literal) => [literal.end, literal] as const));
   const candidates: Candidate[] = [];
 
   if (file.endsWith(".tsx")) {
@@ -280,14 +323,17 @@ function domStrings(file: string, text: string): Candidate[] {
       const close = masked.indexOf("<", i + 1);
       if (close === -1) continue;
       const run = masked.slice(i + 1, close);
-      if (!/[A-Za-z]/.test(run) || NOT_JSX_TEXT.test(run)) continue;
+      if (!/[A-Za-z]/.test(run)) continue;
+      if ([...run].some((ch) => JSX_TEXT_REJECT.includes(ch))) continue;
       candidates.push({ index: i + 1, text: run });
     }
   }
 
   for (const literal of literals) {
-    const before = masked.slice(Math.max(0, literal.start - 48), literal.start);
-    if (TEXT_KEY_RE.test(before)) candidates.push({ index: literal.start, text: literal.value });
+    const key = keyBefore(masked, byEnd, literal.start);
+    if (key !== null && TEXT_KEYS.includes(key)) {
+      candidates.push({ index: literal.start, text: literal.value });
+    }
   }
 
   for (const match of masked.matchAll(/\bshowToast\s*\(/g)) {
@@ -298,29 +344,15 @@ function domStrings(file: string, text: string): Candidate[] {
     candidates.push({ index: first.start, text: first.value });
   }
 
-  for (const match of masked.matchAll(/\bregisterCommand\s*\(/g)) {
-    const open = match.index + match[0].length - 1;
-    const end = endOfCall(masked, open);
+  for (const match of masked.matchAll(/(?:^|[^\w$.])return\b/g)) {
+    const from = match.index + match[0].length;
+    const end = endOfStatement(masked, from);
     for (const literal of literals) {
-      if (literal.start < open || literal.start >= end) continue;
-      const before = masked.slice(Math.max(0, literal.start - 48), literal.start);
-      if (DESCRIPTION_KEY_RE.test(before)) {
-        candidates.push({ index: literal.start, text: literal.value });
-      }
-    }
-  }
-
-  if (file.endsWith(".tsx")) {
-    for (const match of masked.matchAll(/(?:^|[^\w$.])return\b/g)) {
-      const from = match.index + match[0].length;
-      const end = endOfStatement(masked, from);
-      for (const literal of literals) {
-        if (literal.start < from || literal.start >= end) continue;
-        if (!isProse(literal.value)) continue;
-        const before = masked.slice(Math.max(0, literal.start - 48), literal.start);
-        if (CLASS_KEY_RE.test(before)) continue;
-        candidates.push({ index: literal.start, text: literal.value });
-      }
+      if (literal.start < from || literal.start >= end) continue;
+      if (!isProse(literal.value)) continue;
+      const key = keyBefore(masked, byEnd, literal.start);
+      if (key === "class" || key === "classList") continue;
+      candidates.push({ index: literal.start, text: literal.value });
     }
   }
 

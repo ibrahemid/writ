@@ -1,13 +1,16 @@
 //! Guards the vocabulary ADR-028 §10 retires from user-visible strings.
 //!
-//! The scope is the Rust half: strings that reach the frontend as a message a
-//! person reads. Type names, field names, comments, log lines, SQL and JSON
-//! keys stay legal, so the scan reads string literals through a small lexer
-//! rather than reading whole files.
+//! The scope is the Rust half: strings that reach a person as a message,
+//! including the `#[error("…")]` text every `thiserror` enum carries, which is
+//! what most IPC failures render. Type names, field names, comments, log
+//! lines, SQL and JSON keys stay legal, so the scan reads string literals
+//! through a small lexer rather than reading whole files.
 //!
 //! `src-tauri` carries no `regex` and no `walkdir`, and this guard is not a
-//! reason to add one: the walk is `std::fs::read_to_string` over a declared
-//! file list and the match is a `str::find` with its own word boundaries.
+//! reason to add one: the walk is `std::fs::read_dir` recursion over declared
+//! roots and the match is a `str::find` with its own word boundaries.
+
+use std::path::{Path, PathBuf};
 
 /// ADR-028 §10, verbatim. The operator's four (vault, buffer, scratchpad,
 /// second brain) are the first four.
@@ -32,25 +35,21 @@ const BANNED: &[&str] = &[
     "typography",
 ];
 
-/// Every file that builds a string the frontend shows. Paths resolve against
-/// `CARGO_MANIFEST_DIR`, which is the `src-tauri` crate root even from an
-/// integration test, so a sibling crate is reached with `..`.
-const USER_FACING_RUST_FILES: &[&str] = &[
-    "src/commands/file.rs",
-    "src/commands/buffer.rs",
-    "src/commands/workspace.rs",
-    "src/commands/history.rs",
-    "src/commands/cli.rs",
-    "src/commands/storage.rs",
-    "src/commands/inbox.rs",
-    "src/commands/link.rs",
-    "src/commands/default_app.rs",
-    "src/commands/notices.rs",
-    "src/commands/update.rs",
-    "src/commands/preview.rs",
-    "src/startup_failure.rs",
-    "../crates/writ-core/src/startup.rs",
+/// Where the messages are written. The first element is the path from
+/// `CARGO_MANIFEST_DIR` (the `src-tauri` crate root even from an integration
+/// test, so a sibling crate is reached with `..`); the second is how the file
+/// is named in an allowlist record, relative to the workspace root.
+const SCANNED_ROOTS: &[(&str, &str)] = &[
+    ("src/commands", "src-tauri/src/commands"),
+    ("src/startup_failure.rs", "src-tauri/src/startup_failure.rs"),
+    ("../crates/writ-core/src", "crates/writ-core/src"),
+    ("../crates/writ-storage/src", "crates/writ-storage/src"),
+    ("../crates/writ-render/src", "crates/writ-render/src"),
+    ("../crates/writ-cli/src", "crates/writ-cli/src"),
 ];
+
+/// Directories inside a scanned root that hold no user message.
+const SKIPPED_DIRS: &[&str] = &["tests", "benches", "target", "fixtures"];
 
 /// One string that already says a retired word. The file can only shrink: a
 /// record whose string is gone fails the staleness test, so a rename deletes
@@ -64,21 +63,100 @@ struct AllowedString {
 
 const RUST_ALLOWLIST: &[AllowedString] = &[
     AllowedString {
-        file: "src/commands/buffer.rs",
-        line: 94,
-        word: "buffer",
-        note: "read-only save error, release 0.6",
+        file: "crates/writ-core/src/default_app.rs",
+        line: 67,
+        word: "source",
+        note: "file-association group label, release 0.6",
     },
     AllowedString {
-        file: "../crates/writ-core/src/startup.rs",
+        file: "crates/writ-core/src/errors.rs",
+        line: 12,
+        word: "buffer",
+        note: "BufferNotFound message, release 0.6",
+    },
+    AllowedString {
+        file: "crates/writ-core/src/errors.rs",
+        line: 19,
+        word: "buffer",
+        note: "BufferAlreadyExists message, release 0.6",
+    },
+    AllowedString {
+        file: "crates/writ-core/src/errors.rs",
+        line: 37,
+        word: "buffer",
+        note: "InvalidTitle message, release 0.6",
+    },
+    AllowedString {
+        file: "crates/writ-core/src/file_ops.rs",
+        line: 152,
+        word: "MiB",
+        note: "size formatter unit, release 0.6",
+    },
+    AllowedString {
+        file: "crates/writ-core/src/startup.rs",
         line: 41,
         word: "buffer",
         note: "startup failure remedy text, release 0.6",
     },
+    AllowedString {
+        file: "crates/writ-storage/src/buffer_store.rs",
+        line: 186,
+        word: "buffer",
+        note: "read-only save error, release 0.6",
+    },
+    AllowedString {
+        file: "crates/writ-storage/src/buffer_store.rs",
+        line: 214,
+        word: "buffer",
+        note: "read-only save error, release 0.6",
+    },
+    AllowedString {
+        file: "crates/writ-storage/src/buffer_store.rs",
+        line: 253,
+        word: "buffer",
+        note: "missing content file error, release 0.6",
+    },
+    AllowedString {
+        file: "crates/writ-storage/src/buffer_store.rs",
+        line: 432,
+        word: "buffer",
+        note: "read-only save-to-source error, release 0.6",
+    },
+    AllowedString {
+        file: "crates/writ-storage/src/buffer_store.rs",
+        line: 432,
+        word: "source",
+        note: "read-only save-to-source error, release 0.6",
+    },
+    AllowedString {
+        file: "crates/writ-storage/src/buffer_store.rs",
+        line: 439,
+        word: "buffer",
+        note: "missing source path error, release 0.6",
+    },
+    AllowedString {
+        file: "crates/writ-storage/src/buffer_store.rs",
+        line: 466,
+        word: "buffer",
+        note: "missing source path error, release 0.6",
+    },
+    AllowedString {
+        file: "crates/writ-storage/src/database/queries.rs",
+        line: 106,
+        word: "buffer",
+        note: "row lookup error, release 0.6",
+    },
+    AllowedString {
+        file: "src-tauri/src/commands/buffer.rs",
+        line: 94,
+        word: "buffer",
+        note: "read-only save error, release 0.6",
+    },
 ];
 
 /// Lines whose first token opens a log macro or an attribute, plus the lines a
-/// multi-line one runs onto. A log line is not a user message.
+/// multi-line one runs onto. A log line is not a user message. `#[error(…)]`
+/// is the exception: it *is* the user message.
 fn skipped_lines(src: &str) -> Vec<bool> {
     const SKIP_PREFIXES: &[&str] = &[
         "tracing::",
@@ -95,7 +173,10 @@ fn skipped_lines(src: &str) -> Vec<bool> {
     let mut i = 0;
     while i < lines.len() {
         let head = lines[i].trim_start();
-        if SKIP_PREFIXES.iter().any(|p| head.starts_with(p)) {
+        let is_skip = SKIP_PREFIXES.iter().any(|p| head.starts_with(p))
+            && !head.starts_with("#[error(")
+            && !head.starts_with("#[doc");
+        if is_skip {
             let mut depth = 0i32;
             let mut j = i;
             loop {
@@ -126,6 +207,19 @@ fn delimiter_balance(line: &str) -> i32 {
     depth
 }
 
+/// The source up to the first line-leading `#[cfg(test)]`. A test module is
+/// test code and by convention it closes the file.
+fn without_test_module(src: &str) -> &str {
+    let mut offset = 0usize;
+    for line in src.split_inclusive('\n') {
+        if line.trim_start().starts_with("#[cfg(test)]") {
+            return &src[..offset];
+        }
+        offset += line.len();
+    }
+    src
+}
+
 fn line_starts(src: &str) -> Vec<usize> {
     let mut starts = vec![0usize];
     for (idx, byte) in src.bytes().enumerate() {
@@ -141,6 +235,10 @@ fn line_of(starts: &[usize], index: usize) -> usize {
         Ok(pos) => pos + 1,
         Err(pos) => pos,
     }
+}
+
+fn is_ident_byte(byte: Option<u8>) -> bool {
+    matches!(byte, Some(b) if b.is_ascii_alphanumeric() || b == b'_')
 }
 
 /// The body of every string literal in a Rust source, with its line. Comments,
@@ -248,80 +346,143 @@ fn string_literals(src: &str) -> Vec<(usize, String)> {
     out
 }
 
-fn is_ident_byte(byte: Option<u8>) -> bool {
-    matches!(byte, Some(b) if b.is_ascii_alphanumeric() || b == b'_')
+/// SQL is written in upper case here, and a message never is.
+fn looks_like_sql(value: &str) -> bool {
+    const SQL_WORDS: &[&str] = &[
+        "SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "REPLACE", "PRAGMA", "ALTER", "DROP",
+        "WHERE", "FROM", "INTO", "VALUES", "JOIN", "TABLE", "INDEX", "VACUUM", "ATTACH",
+    ];
+    value
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .any(|token| SQL_WORDS.contains(&token))
 }
 
-/// A message a person reads holds several words. A literal with no whitespace
-/// is a key, an id, a path or a column name, and SQL is not a message either.
+/// A message a person reads: several words, or one word that opens with a
+/// capital the way a label does. A lower-case literal with no whitespace is a
+/// key, an id, a path or a column name.
 fn is_user_message(value: &str) -> bool {
-    const SQL_HEADS: &[&str] = &[
-        "SELECT ", "INSERT ", "UPDATE ", "DELETE ", "CREATE ", "REPLACE ", "PRAGMA ", "ALTER ",
-        "DROP ", "WITH ", "BEGIN ",
-    ];
-    if !value.chars().any(char::is_whitespace) {
-        return false;
-    }
     if !value.chars().any(|c| c.is_ascii_alphabetic()) {
         return false;
     }
-    let head = value.trim_start();
-    !SQL_HEADS.iter().any(|kw| head.starts_with(kw))
+    let has_space = value.chars().any(char::is_whitespace);
+    let opens_with_capital = value
+        .trim_start()
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_uppercase());
+    if !has_space && !opens_with_capital {
+        return false;
+    }
+    !looks_like_sql(value)
 }
 
 fn is_word_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_' || byte >= 0x80
 }
 
-/// A case-insensitive whole-word match that also accepts a plural: "Search
-/// buffers…" is the same violation as "buffer".
-fn contains_banned_word(text: &str, word: &str) -> bool {
-    let hay = text.to_lowercase();
-    let needle = word.to_lowercase();
-    if needle.is_empty() {
-        return false;
+/// Every spelling of a banned word this guard answers to. A hyphen reads as a
+/// space, so `syntax-highlighting` is the same violation as the phrase.
+fn word_forms(word: &str) -> Vec<String> {
+    let mut forms = vec![word.to_lowercase()];
+    if word.eq_ignore_ascii_case("typography") {
+        for extra in [
+            "typographies",
+            "typographic",
+            "typographical",
+            "typographically",
+        ] {
+            forms.push(extra.to_string());
+        }
     }
+    forms
+}
+
+/// A case-insensitive whole-word match that also accepts an inflection:
+/// "Search buffers…" and "refused" are the same violations as "buffer" and
+/// "refuse".
+fn contains_banned_word(text: &str, word: &str) -> bool {
+    const SUFFIXES: &[&str] = &["ing", "es", "ed", "s", "d", ""];
+    let hay: String = text
+        .to_lowercase()
+        .chars()
+        .map(|c| if c == '-' { ' ' } else { c })
+        .collect();
     let bytes = hay.as_bytes();
-    let mut from = 0usize;
-    while let Some(rel) = hay[from..].find(&needle) {
-        let start = from + rel;
-        let end = start + needle.len();
-        let before_ok = start == 0 || !is_word_byte(bytes[start - 1]);
-        if before_ok {
-            for suffix in ["es", "s", ""] {
-                let stop = end + suffix.len();
-                if stop <= hay.len()
-                    && hay.is_char_boundary(stop)
-                    && &hay[end..stop] == suffix
-                    && (stop == hay.len() || !is_word_byte(bytes[stop]))
-                {
-                    return true;
+
+    for needle in word_forms(word) {
+        if needle.is_empty() {
+            continue;
+        }
+        let mut from = 0usize;
+        while let Some(rel) = hay[from..].find(&needle) {
+            let start = from + rel;
+            let end = start + needle.len();
+            let before_ok = start == 0 || !is_word_byte(bytes[start - 1]);
+            if before_ok {
+                for suffix in SUFFIXES {
+                    let stop = end + suffix.len();
+                    if stop <= hay.len()
+                        && hay.is_char_boundary(stop)
+                        && &hay[end..stop] == *suffix
+                        && (stop == hay.len() || !is_word_byte(bytes[stop]))
+                    {
+                        return true;
+                    }
                 }
             }
+            from = start + 1;
         }
-        from = start + 1;
     }
     false
 }
 
-fn read_scanned_file(relative: &str) -> String {
-    let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for part in relative.split('/') {
-        path.push(part);
-    }
-    std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {relative}: {err}"))
+fn manifest_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-fn collect_offenders() -> Vec<(&'static str, usize, &'static str)> {
-    let mut offenders: Vec<(&'static str, usize, &'static str)> = Vec::new();
-    for file in USER_FACING_RUST_FILES {
-        let src = read_scanned_file(file);
-        // A `#[cfg(test)]` module is test code, and by convention it closes the
-        // file, so the scan stops where it opens.
-        let src = match src.find("#[cfg(test)]") {
-            Some(at) => &src[..at],
-            None => &src[..],
-        };
+fn collect_rust_files(root: &Path, display: &str, out: &mut Vec<(String, PathBuf)>) {
+    if root.is_file() {
+        out.push((display.to_string(), root.to_path_buf()));
+        return;
+    }
+    let entries = std::fs::read_dir(root)
+        .unwrap_or_else(|err| panic!("read_dir {}: {err}", root.display()))
+        .filter_map(Result::ok);
+    let mut found: Vec<(String, PathBuf)> = Vec::new();
+    for entry in entries {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let path = entry.path();
+        if path.is_dir() {
+            if SKIPPED_DIRS.contains(&name.as_str()) || name.starts_with('.') {
+                continue;
+            }
+            collect_rust_files(&path, &format!("{display}/{name}"), &mut found);
+        } else if name.ends_with(".rs") {
+            found.push((format!("{display}/{name}"), path));
+        }
+    }
+    found.sort();
+    out.extend(found);
+}
+
+fn scanned_files() -> Vec<(String, PathBuf)> {
+    let mut files = Vec::new();
+    for (relative, display) in SCANNED_ROOTS {
+        let mut path = manifest_dir();
+        for part in relative.split('/') {
+            path.push(part);
+        }
+        collect_rust_files(&path, display, &mut files);
+    }
+    files
+}
+
+fn collect_offenders() -> Vec<(String, usize, &'static str)> {
+    let mut offenders: Vec<(String, usize, &'static str)> = Vec::new();
+    for (display, path) in scanned_files() {
+        let src = std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+        let src = without_test_module(&src);
         let skipped = skipped_lines(src);
         for (line, value) in string_literals(src) {
             if skipped.get(line - 1).copied().unwrap_or(false) {
@@ -331,13 +492,14 @@ fn collect_offenders() -> Vec<(&'static str, usize, &'static str)> {
                 continue;
             }
             for word in BANNED {
-                if contains_banned_word(&value, word) && !offenders.contains(&(file, line, word)) {
-                    offenders.push((file, line, word));
+                let found = (display.clone(), line, *word);
+                if contains_banned_word(&value, word) && !offenders.contains(&found) {
+                    offenders.push(found);
                 }
             }
         }
     }
-    offenders.sort_unstable();
+    offenders.sort();
     offenders
 }
 
@@ -353,13 +515,13 @@ fn banned_words_have_no_new_violations_in_rust_user_messages() {
         .collect();
     let new_violations: Vec<String> = collect_offenders()
         .into_iter()
-        .map(|(file, line, word)| key(file, line, word))
+        .map(|(file, line, word)| key(&file, line, word))
         .filter(|found| !allowed.contains(found))
         .collect();
     assert!(
         new_violations.is_empty(),
         "ADR-028 §10 retires this vocabulary from user-visible messages: {}",
-        new_violations.join(", ")
+        new_violations.join("\n")
     );
 }
 
@@ -367,7 +529,7 @@ fn banned_words_have_no_new_violations_in_rust_user_messages() {
 fn rust_banned_words_allowlist_has_no_stale_entries() {
     let live: Vec<String> = collect_offenders()
         .into_iter()
-        .map(|(file, line, word)| key(file, line, word))
+        .map(|(file, line, word)| key(&file, line, word))
         .collect();
     let stale: Vec<String> = RUST_ALLOWLIST
         .iter()
