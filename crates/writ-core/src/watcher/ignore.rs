@@ -17,7 +17,6 @@
 //! All time inputs are passed in explicitly so callers can test the
 //! decision deterministically without a real clock.
 
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -30,7 +29,7 @@ use std::time::{Duration, Instant};
 pub const DEFAULT_IGNORE_TTL: Duration = Duration::from_secs(5);
 
 /// SHA-256 digest of buffer file content.
-pub type ContentHash = [u8; 32];
+pub type ContentHash = crate::hash::Sha256Digest;
 
 /// A recorded "Writ is about to write these bytes" assertion for a single
 /// file, used to recognize the resulting filesystem event as internal.
@@ -166,13 +165,11 @@ impl IgnoreStamps {
 }
 
 /// Computes the SHA-256 fingerprint of `content`.
+///
+/// One digest is shared with the write guard and the notes migration, so a
+/// stamp and a verification can never disagree about what a file holds.
 pub fn hash_bytes(content: &[u8]) -> ContentHash {
-    let mut hasher = Sha256::new();
-    hasher.update(content);
-    let result = hasher.finalize();
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&result);
-    out
+    crate::hash::sha256_bytes(content)
 }
 
 #[cfg(test)]

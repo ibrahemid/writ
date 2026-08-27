@@ -24,6 +24,10 @@ fn make_state(dir: &TempDir) -> AppState {
     let buffers_dir = writ_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
+    let notes_root = writ_dir.join("Writ");
+    std::fs::create_dir_all(&notes_root).expect("notes folder");
+    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+
     let db_path = writ_dir.join("writ.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
@@ -38,6 +42,8 @@ fn make_state(dir: &TempDir) -> AppState {
         config: Mutex::new(WritConfig::default()),
         writ_dir,
         buffers_dir,
+        notes_root,
+        notes_root_fallback: None,
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
         pending_opens: Mutex::new(Vec::new()),
@@ -414,4 +420,160 @@ fn a_restored_tab_whose_file_was_deleted_recreates_it() {
 
     save_buffer_content_inner(&restarted, &opened.doc.id, "rewritten").expect("save");
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "rewritten");
+}
+
+#[test]
+fn file_created_in_the_notes_folder_by_another_program_opens() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    // Nothing recorded this path: it arrived the way a sync client delivers a
+    // note written on another machine.
+    let note = state.notes_root.join("from-another-machine.md");
+    std::fs::write(&note, "typed elsewhere").unwrap();
+
+    let opened = open_file_from_path(&state, &note.to_string_lossy())
+        .expect("a file in the notes folder opens without a dialog");
+    assert_eq!(
+        opened.doc.source_path.as_deref(),
+        Some(canonicalize_for_authorization(&note).unwrap().as_str())
+    );
+}
+
+#[test]
+fn save_into_the_notes_folder_is_authorized_without_a_dialog() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let note = state.notes_root.join("synced.md");
+    std::fs::write(&note, "arrived from a sync client").unwrap();
+    let canonical = canonicalize_for_authorization(&note).unwrap();
+
+    // The row exists with no blessing, which is what a restart plus a note
+    // that was never opened through a dialog leaves behind.
+    let doc = {
+        let store = state.store.lock().unwrap();
+        let mut mgr = writ_core::buffer::manager::BufferManager::new();
+        let doc = mgr.open_external(canonical.clone()).expect("mint");
+        store
+            .open_from_path(&doc, "arrived from a sync client")
+            .expect("persist");
+        doc
+    };
+    assert!(!state.authorized_paths.is_blessed_source(&canonical));
+
+    save_buffer_content_inner(&state, &doc.id, "edited in Writ").expect("save");
+    assert_eq!(std::fs::read_to_string(&note).unwrap(), "edited in Writ");
+}
+
+#[test]
+fn a_path_that_climbs_out_of_the_notes_folder_is_still_refused() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let outside = dir.path().join("outside.md");
+    std::fs::write(&outside, "original").unwrap();
+
+    let climbing = state
+        .notes_root
+        .join("..")
+        .join("outside.md")
+        .to_string_lossy()
+        .into_owned();
+
+    let doc = {
+        let store = state.store.lock().unwrap();
+        let mut mgr = writ_core::buffer::manager::BufferManager::new();
+        let doc = mgr.open_external(climbing).expect("mint");
+        store.open_from_path(&doc, "original").expect("persist");
+        doc
+    };
+
+    let result = save_buffer_content_inner(&state, &doc.id, "hijacked");
+    assert!(result.is_err(), "containment must not accept a traversal");
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "original");
+
+    // A traversal to a file that does not exist yet cannot be resolved, so the
+    // comparison falls back to the path as written; refusing `..` outright is
+    // what stops it creating a file outside the folder.
+    let unwritten = dir.path().join("planted-by-traversal.md");
+    let climbing_new = state
+        .notes_root
+        .join("..")
+        .join("planted-by-traversal.md")
+        .to_string_lossy()
+        .into_owned();
+    let new_doc = {
+        let store = state.store.lock().unwrap();
+        let mut mgr = writ_core::buffer::manager::BufferManager::new();
+        let doc = mgr.open_external(climbing_new).expect("mint");
+        store.open_from_path(&doc, "").expect("persist");
+        doc
+    };
+
+    assert!(save_buffer_content_inner(&state, &new_doc.id, "planted").is_err());
+    assert!(
+        !unwritten.exists(),
+        "nothing may be created outside the folder"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_linked_folder_inside_the_notes_folder_cannot_carry_a_save_outside() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let outside = TempDir::new().unwrap();
+    let link = state.notes_root.join("linked");
+    std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+
+    // The leaf does not exist, so only resolving the folders above it shows
+    // that the write would land outside the notes folder.
+    let planted = link.join("planted.md");
+    let doc = {
+        let store = state.store.lock().unwrap();
+        let mut mgr = writ_core::buffer::manager::BufferManager::new();
+        let doc = mgr
+            .open_external(planted.to_string_lossy().into_owned())
+            .expect("mint");
+        store.open_from_path(&doc, "").expect("persist");
+        doc
+    };
+
+    assert!(writ_tauri_lib::commands::file::authorize_source_write(
+        &state,
+        &planted.to_string_lossy()
+    )
+    .is_err());
+    assert!(save_buffer_content_inner(&state, &doc.id, "planted").is_err());
+    assert!(
+        !outside.path().join("planted.md").exists(),
+        "a linked folder must not carry the write out of the notes folder"
+    );
+}
+
+#[test]
+fn a_new_note_in_a_real_subfolder_of_the_notes_folder_is_authorized() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let subfolder = state.notes_root.join("projects");
+    std::fs::create_dir(&subfolder).unwrap();
+    let minted = subfolder.join("not-written-yet.md");
+
+    writ_tauri_lib::commands::file::authorize_source_write(&state, &minted.to_string_lossy())
+        .expect("a note about to be minted inside the folder is writable");
+}
+
+#[test]
+fn is_within_notes_refuses_a_path_that_climbs_out() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let inside = state.notes_root.join("note.md");
+    assert!(state.is_within_notes(&inside.to_string_lossy()));
+
+    let climbing = state.notes_root.join("..").join("note.md");
+    assert!(!state.is_within_notes(&climbing.to_string_lossy()));
 }

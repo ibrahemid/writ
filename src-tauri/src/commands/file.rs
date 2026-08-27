@@ -1,8 +1,8 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use crate::poison::recover_poison;
-use crate::security::canonicalize_for_authorization;
+use crate::security::{canonicalize_for_authorization, paths_equal_for_authorization};
 use crate::state::AppState;
 use serde::Serialize;
 use tauri::{Manager, State};
@@ -55,6 +55,9 @@ fn authorize_open(state: &AppState, raw_path: &str) -> Result<String, String> {
         return Ok(canonical);
     }
     if state.is_within_inbox(&canonical) {
+        return Ok(canonical);
+    }
+    if state.is_within_notes(&canonical) {
         return Ok(canonical);
     }
     Err(ERR_UNAUTHORIZED_PATH.to_string())
@@ -310,13 +313,73 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
 /// [`write_atomic`](writ_storage::atomic::write_atomic) renames onto the
 /// literal path rather than following a dangling link.
 pub fn authorize_source_write(state: &AppState, source_path: &str) -> Result<(), String> {
+    if notes_containment_authorizes(state, source_path) {
+        return Ok(());
+    }
     if !state.authorized_paths.is_blessed_source(source_path) {
         return Err(ERR_UNAUTHORIZED_PATH.to_string());
     }
     match canonicalize_for_authorization(Path::new(source_path)) {
-        Ok(canonical) if canonical == source_path => Ok(()),
+        Ok(canonical) if paths_equal_for_authorization(&canonical, source_path) => Ok(()),
         Ok(_) => Err(ERR_UNAUTHORIZED_PATH.to_string()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(_) => Err(ERR_UNAUTHORIZED_PATH.to_string()),
+    }
+}
+
+/// Containment half of the write gate: everything inside the notes folder is
+/// writable without a per-file blessing.
+///
+/// A note that a sync client dropped into the folder was never opened through
+/// a dialog, so nothing recorded it, and refusing its first save is the defect
+/// ADR-028 §2 names.
+///
+/// Containment is decided on the path with every existing part resolved, so a
+/// symlink cannot carry the write out of the folder — neither the file itself
+/// nor a linked directory above it, which is the case a check on the leaf
+/// alone misses. A path that does not exist yet is resolved as far as the
+/// filesystem allows and the rest is appended, which is what lets a new note
+/// be minted and a deleted note be recreated.
+fn notes_containment_authorizes(state: &AppState, source_path: &str) -> bool {
+    match resolve_for_containment(Path::new(source_path)) {
+        Some(resolved) => state.is_within_notes(&resolved),
+        None => false,
+    }
+}
+
+/// Resolves `path` against the filesystem as far as it exists, then appends
+/// the components that do not exist yet.
+///
+/// Walking up to the deepest existing ancestor is what makes the answer honest
+/// for a file Writ is about to create: every symlink and every `..` above the
+/// new name is resolved by `canonicalize`, and only names the filesystem has
+/// never seen are appended literally.
+///
+/// Returns `None` for a relative path, for a path whose unresolved tail is
+/// `..` or empty (`Path::file_name` yields nothing for either, so such a tail
+/// can never be appended), and for any resolution error other than a missing
+/// file.
+fn resolve_for_containment(path: &Path) -> Option<String> {
+    if !path.is_absolute() {
+        return None;
+    }
+
+    let mut unresolved: Vec<std::ffi::OsString> = Vec::new();
+    let mut cursor = path.to_path_buf();
+    loop {
+        match canonicalize_for_authorization(&cursor) {
+            Ok(base) => {
+                let mut resolved = PathBuf::from(base);
+                for name in unresolved.iter().rev() {
+                    resolved.push(name);
+                }
+                return resolved.into_os_string().into_string().ok();
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                unresolved.push(cursor.file_name()?.to_os_string());
+                cursor = cursor.parent()?.to_path_buf();
+            }
+            Err(_) => return None,
+        }
     }
 }

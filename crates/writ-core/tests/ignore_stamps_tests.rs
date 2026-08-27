@@ -101,3 +101,12 @@ fn record_evicts_expired_stamps_for_other_files() {
     assert_eq!(stamps.len(), 1);
     assert!(stamps.contains("writ-new"));
 }
+
+#[test]
+fn hash_bytes_delegates_to_sha256() {
+    let content = b"one digest for the watcher, the guard and the migration";
+    assert_eq!(
+        writ_core::watcher::ignore::hash_bytes(content),
+        writ_core::hash::sha256_bytes(content)
+    );
+}

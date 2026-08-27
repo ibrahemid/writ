@@ -24,6 +24,10 @@ fn make_state(dir: &TempDir) -> AppState {
     let buffers_dir = writ_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
+    let notes_root = writ_dir.join("Writ");
+    std::fs::create_dir_all(&notes_root).expect("notes folder");
+    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+
     let db_path = writ_dir.join("writ.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
@@ -38,6 +42,8 @@ fn make_state(dir: &TempDir) -> AppState {
         config: Mutex::new(WritConfig::default()),
         writ_dir,
         buffers_dir,
+        notes_root,
+        notes_root_fallback: None,
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
         pending_opens: Mutex::new(Vec::new()),

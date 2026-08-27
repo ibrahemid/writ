@@ -61,6 +61,34 @@ impl AuthorizedPaths {
     }
 }
 
+/// `true` on the platforms whose default filesystem is case-preserving but
+/// case-insensitive.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+const CASE_INSENSITIVE_FILESYSTEM: bool = true;
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const CASE_INSENSITIVE_FILESYSTEM: bool = false;
+
+/// Compares two already-canonical path strings for authorization.
+///
+/// Case-insensitive on macOS and Windows, where APFS and NTFS are
+/// case-preserving but case-insensitive by default, and byte-exact on Linux.
+/// Without this a case-only rename of a file that is open — `notes.md` to
+/// `Notes.md`, which APFS performs in place — makes the canonical round trip
+/// disagree with the stored path and turns every later save into an
+/// unauthorized write.
+///
+/// Unicode normalisation needs no handling here. Both sides come out of
+/// [`canonicalize_for_authorization`], which returns the filesystem's own
+/// normalisation of the name, so an NFC and an NFD spelling of the same file
+/// arrive already agreeing.
+pub fn paths_equal_for_authorization(a: &str, b: &str) -> bool {
+    if CASE_INSENSITIVE_FILESYSTEM {
+        a.to_lowercase() == b.to_lowercase()
+    } else {
+        a == b
+    }
+}
+
 pub fn canonicalize_for_authorization(path: &Path) -> std::io::Result<String> {
     let canonical: PathBuf = std::fs::canonicalize(path)?;
     let stripped = strip_unc_prefix(canonical);
@@ -175,6 +203,25 @@ mod tests {
             "candidate {candidate} must sit under root {}",
             root.display()
         );
+    }
+
+    #[test]
+    fn paths_equal_for_authorization_matches_an_identical_path() {
+        assert!(paths_equal_for_authorization(
+            "/home/u/Writ/note.md",
+            "/home/u/Writ/note.md"
+        ));
+        assert!(!paths_equal_for_authorization(
+            "/home/u/Writ/note.md",
+            "/home/u/Writ/other.md"
+        ));
+    }
+
+    #[test]
+    fn paths_equal_for_authorization_follows_the_platform_on_case() {
+        let differs_only_by_case =
+            paths_equal_for_authorization("/home/u/Writ/Note.md", "/home/u/Writ/note.md");
+        assert_eq!(differs_only_by_case, CASE_INSENSITIVE_FILESYSTEM);
     }
 
     #[test]
