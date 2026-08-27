@@ -36,6 +36,19 @@ function shadowToCss(layers) {
     .join(", ");
 }
 
+// DTCG 2025.10 carries a dimension or duration as { value, unit }; CSS wants the
+// two concatenated, with the unit the token declares rather than a forced px.
+StyleDictionary.registerTransform({
+  name: "value/dimension-css",
+  type: "value",
+  filter: (token) => ["dimension", "duration"].includes(token.$type ?? token.type),
+  transform: (token) => {
+    const raw = value(token);
+    if (raw === null || typeof raw !== "object") return raw;
+    return `${raw.value}${raw.unit ?? ""}`;
+  },
+});
+
 StyleDictionary.registerTransform({
   name: "value/shadow-css",
   type: "value",
@@ -146,7 +159,12 @@ StyleDictionary.registerFormat({
 
 StyleDictionary.registerFormat({
   name: "css/writ-legacy",
-  format: ({ dictionary }) => sheet([block(":root", under(dictionary.allTokens, "legacy"))]),
+  // Three names (shadow-modal, shadow-popover, shadow-chip) also belong to the
+  // new vocabulary and are re-declared here at their pre-030 values. `:root`
+  // alone loses to `:root[data-theme="dark"]` in theme.css, so the selector
+  // list matches that specificity and wins on source order.
+  format: ({ dictionary }) =>
+    sheet([block(":root,\n:root[data-theme]", under(dictionary.allTokens, "legacy"))]),
 });
 
 StyleDictionary.registerFormat({
@@ -544,27 +562,27 @@ export default {
   source: ["design/tokens/**/*.json"],
   platforms: {
     css: {
-      transforms: ["value/shadow-css", "name/writ-css"],
+      transforms: ["value/dimension-css", "value/shadow-css", "name/writ-css"],
       buildPath: "src/styles/generated/",
       files: [{ destination: "theme.css", format: "css/writ-theme" }],
     },
     "css-legacy": {
-      transforms: ["value/shadow-css", "name/writ-css"],
+      transforms: ["value/dimension-css", "value/shadow-css", "name/writ-css"],
       buildPath: "src/styles/generated/",
       files: [{ destination: "legacy-aliases.css", format: "css/writ-legacy" }],
     },
     ts: {
-      transforms: ["value/shadow-css", "name/writ-ts"],
+      transforms: ["value/dimension-css", "value/shadow-css", "name/writ-ts"],
       buildPath: "src/styles/generated/",
       files: [{ destination: "tokens.ts", format: "typescript/writ-tokens" }],
     },
     "preview-css": {
-      transforms: ["value/shadow-css", "name/writ-preview-css"],
+      transforms: ["value/dimension-css", "value/shadow-css", "name/writ-preview-css"],
       buildPath: "src-tauri/assets/generated/",
       files: [{ destination: "preview-tokens.css", format: "css/writ-preview" }],
     },
     "site-css": {
-      transforms: ["value/shadow-css", "name/writ-css"],
+      transforms: ["value/dimension-css", "value/shadow-css", "name/writ-css"],
       buildPath: "site/design-system/generated/",
       files: [{ destination: "tokens.css", format: "css/writ-site" }],
     },

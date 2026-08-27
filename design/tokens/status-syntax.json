@@ -2,35 +2,75 @@
   "status": {
     "$type": "color",
     "$description": "Stylesheet defaults. A preset overwrites these at runtime through themeStore.applyToRoot.",
-    "success": { "$value": "#9ece6a" },
-    "warning": { "$value": "#e0af68" },
-    "error": { "$value": "#f7768e" },
-    "foreground": { "$value": "#0a0a10" }
+    "success": {
+      "$value": "#9ece6a"
+    },
+    "warning": {
+      "$value": "#e0af68"
+    },
+    "error": {
+      "$value": "#f7768e"
+    },
+    "foreground": {
+      "$value": "#0a0a10"
+    }
   },
   "syntax": {
     "$type": "color",
-    "keyword": { "$value": "#bb9af7" },
-    "string": { "$value": "#9ece6a" },
-    "comment": { "$value": "#565f89" },
-    "function": { "$value": "#7aa2f7" },
-    "number": { "$value": "#ff9e64" },
-    "type": { "$value": "#2ac3de" },
-    "variable": { "$value": "#c0caf5" }
+    "keyword": {
+      "$value": "#bb9af7"
+    },
+    "string": {
+      "$value": "#9ece6a"
+    },
+    "comment": {
+      "$value": "#565f89"
+    },
+    "function": {
+      "$value": "#7aa2f7"
+    },
+    "number": {
+      "$value": "#ff9e64"
+    },
+    "type": {
+      "$value": "#2ac3de"
+    },
+    "variable": {
+      "$value": "#c0caf5"
+    }
   },
   "traffic": {
     "$type": "color",
     "$description": "Window controls mirror their host, so they are fixed across app themes.",
-    "close": { "$value": "#ff5f57" },
-    "minimize": { "$value": "#ffbd2e" },
-    "maximize": { "$value": "#28c840" },
-    "blurred": { "$value": "#4a4a52" },
-    "close-glyph": { "$value": "#4d0000" },
-    "minimize-glyph": { "$value": "#5a3300" },
-    "maximize-glyph": { "$value": "#003800" }
+    "close": {
+      "$value": "#ff5f57"
+    },
+    "minimize": {
+      "$value": "#ffbd2e"
+    },
+    "maximize": {
+      "$value": "#28c840"
+    },
+    "blurred": {
+      "$value": "#4a4a52"
+    },
+    "close-glyph": {
+      "$value": "#4d0000"
+    },
+    "minimize-glyph": {
+      "$value": "#5a3300"
+    },
+    "maximize-glyph": {
+      "$value": "#003800"
+    }
   },
   "winctrl": {
     "$type": "color",
-    "danger-fg": { "$value": "#ffffff" },
-    "danger-bg": { "$value": "#c42b1c" }
+    "danger-fg": {
+      "$value": "#ffffff"
+    },
+    "danger-bg": {
+      "$value": "#c42b1c"
+    }
   }
 }

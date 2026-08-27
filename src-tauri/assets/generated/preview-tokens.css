@@ -5,7 +5,7 @@
   --writ-preview-bg-sunken: #F1EFEB;
   --writ-preview-fg: #1C1A17;
   --writ-preview-muted: #5D5850;
-  --writ-preview-subtle: #9A948B;
+  --writ-preview-subtle: #8A847A;
   --writ-preview-accent: #1F6F5C;
   --writ-preview-accent-hover: #1C6453;
   --writ-preview-border: #E4E1DB;
@@ -19,7 +19,7 @@
   --writ-preview-table-stripe: rgba(0, 0, 0, 0.02);
   --writ-preview-syntax-keyword: #1C1A17;
   --writ-preview-syntax-string: #5C7A5A;
-  --writ-preview-syntax-comment: #9A948B;
+  --writ-preview-syntax-comment: #8A847A;
   --writ-preview-syntax-function: #5D5850;
   --writ-preview-syntax-number: #1C1A17;
   --writ-preview-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", system-ui, sans-serif;
@@ -43,7 +43,7 @@
   --writ-preview-bg-sunken: #171614;
   --writ-preview-fg: #EDEAE3;
   --writ-preview-muted: #A8A296;
-  --writ-preview-subtle: #6F6A60;
+  --writ-preview-subtle: #827C72;
   --writ-preview-accent: #5BC5A7;
   --writ-preview-accent-hover: #6BCBB0;
   --writ-preview-border: #333029;
@@ -57,7 +57,7 @@
   --writ-preview-table-stripe: rgba(255, 255, 255, 0.025);
   --writ-preview-syntax-keyword: #EDEAE3;
   --writ-preview-syntax-string: #8FAE8B;
-  --writ-preview-syntax-comment: #6F6A60;
+  --writ-preview-syntax-comment: #827C72;
   --writ-preview-syntax-function: #A8A296;
   --writ-preview-syntax-number: #EDEAE3;
   --writ-preview-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", system-ui, sans-serif;

@@ -55,8 +55,11 @@ describe("typography tokens", () => {
     expect(theme).toMatch(/--writ-font-mono\s*:/);
   });
 
-  it("--writ-font-sans still resolves through the legacy alias", () => {
-    expect(readFileSync(LEGACY_CSS, "utf8")).toContain("--writ-font-sans: var(--writ-font-ui);");
+  it("--writ-font-sans survives in the legacy layer, still Inter-first", () => {
+    const legacy = readFileSync(LEGACY_CSS, "utf8");
+    const m = /--writ-font-sans\s*:\s*([^;]+);/.exec(legacy);
+    expect(m, "legacy sheet no longer declares --writ-font-sans").not.toBeNull();
+    expect(m![1].startsWith('"Inter"')).toBe(true);
   });
 
   it("body resolves to --writ-font-sans", () => {

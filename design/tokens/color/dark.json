@@ -3,41 +3,107 @@
     "dark": {
       "$type": "color",
       "bg": {
-        "canvas": { "$value": "#1B1A18" },
-        "sidebar": { "$value": "#201F1C" },
-        "raised": { "$value": "#262521" },
-        "sunken": { "$value": "#171614" },
-        "hover": { "$value": "rgba(255, 252, 246, .06)" },
-        "selected": { "$value": "rgba(255, 252, 246, .10)" }
+        "canvas": {
+          "$value": "#1B1A18"
+        },
+        "sidebar": {
+          "$value": "#201F1C"
+        },
+        "raised": {
+          "$value": "#262521"
+        },
+        "sunken": {
+          "$value": "#171614"
+        },
+        "hover": {
+          "$value": "rgba(255, 252, 246, .06)"
+        },
+        "selected": {
+          "$value": "rgba(255, 252, 246, .10)"
+        }
       },
       "border": {
-        "default": { "$value": "#333029", "$extensions": { "writ": { "cssName": "--writ-border" } } },
-        "soft": { "$value": "#272521" }
+        "default": {
+          "$value": "#333029",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-border"
+            }
+          }
+        },
+        "soft": {
+          "$value": "#272521"
+        }
       },
       "fg": {
-        "default": { "$value": "#EDEAE3", "$extensions": { "writ": { "cssName": "--writ-fg" } } },
-        "muted": { "$value": "#A8A296" },
-        "faint": { "$value": "#6F6A60" }
+        "default": {
+          "$value": "#EDEAE3",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-fg"
+            }
+          }
+        },
+        "muted": {
+          "$value": "#A8A296"
+        },
+        "faint": {
+          "$value": "#827C72",
+          "$description": "Darkened from the baseline #6F6A60 so the faint tier clears 3:1 on every surface of its scheme, not only the canvas."
+        }
       },
-      "danger": { "$value": "#E08D82" },
-      "switch-off": { "$value": "#4A463F" },
-      "syn-string": { "$value": "#8FAE8B" },
+      "danger": {
+        "$value": "#E08D82"
+      },
+      "switch-off": {
+        "$value": "#4A463F"
+      },
+      "syn-string": {
+        "$value": "#8FAE8B"
+      },
       "shadow": {
         "$type": "shadow",
         "popover": {
           "$value": [
-            { "offsetX": "0", "offsetY": "1px", "blur": "6px", "color": "rgba(0,0,0,.16)" },
-            { "offsetX": "0", "offsetY": "6px", "blur": "24px", "color": "rgba(0,0,0,.28)" }
+            {
+              "offsetX": "0",
+              "offsetY": "1px",
+              "blur": "6px",
+              "color": "rgba(0,0,0,.16)"
+            },
+            {
+              "offsetX": "0",
+              "offsetY": "6px",
+              "blur": "24px",
+              "color": "rgba(0,0,0,.28)"
+            }
           ]
         },
         "modal": {
           "$value": [
-            { "offsetX": "0", "offsetY": "2px", "blur": "10px", "color": "rgba(0,0,0,.22)" },
-            { "offsetX": "0", "offsetY": "16px", "blur": "48px", "color": "rgba(0,0,0,.40)" }
+            {
+              "offsetX": "0",
+              "offsetY": "2px",
+              "blur": "10px",
+              "color": "rgba(0,0,0,.22)"
+            },
+            {
+              "offsetX": "0",
+              "offsetY": "16px",
+              "blur": "48px",
+              "color": "rgba(0,0,0,.40)"
+            }
           ]
         },
         "chip": {
-          "$value": [{ "offsetX": "0", "offsetY": "1px", "blur": "3px", "color": "rgba(0,0,0,.22)" }]
+          "$value": [
+            {
+              "offsetX": "0",
+              "offsetY": "1px",
+              "blur": "3px",
+              "color": "rgba(0,0,0,.22)"
+            }
+          ]
         }
       }
     }

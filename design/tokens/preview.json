@@ -79,28 +79,52 @@
       "fs": {
         "$type": "dimension",
         "base": {
-          "$value": "1rem"
+          "$value": {
+            "value": 1,
+            "unit": "rem"
+          }
         },
         "sm": {
-          "$value": "0.8rem"
+          "$value": {
+            "value": 0.8,
+            "unit": "rem"
+          }
         },
         "h6": {
-          "$value": "0.94rem"
+          "$value": {
+            "value": 0.94,
+            "unit": "rem"
+          }
         },
         "h5": {
-          "$value": "1rem"
+          "$value": {
+            "value": 1,
+            "unit": "rem"
+          }
         },
         "h4": {
-          "$value": "1.25rem"
+          "$value": {
+            "value": 1.25,
+            "unit": "rem"
+          }
         },
         "h3": {
-          "$value": "1.563rem"
+          "$value": {
+            "value": 1.563,
+            "unit": "rem"
+          }
         },
         "h2": {
-          "$value": "1.953rem"
+          "$value": {
+            "value": 1.953,
+            "unit": "rem"
+          }
         },
         "h1": {
-          "$value": "2.441rem"
+          "$value": {
+            "value": 2.441,
+            "unit": "rem"
+          }
         }
       },
       "measure": {
@@ -198,28 +222,52 @@
       "fs": {
         "$type": "dimension",
         "base": {
-          "$value": "1rem"
+          "$value": {
+            "value": 1,
+            "unit": "rem"
+          }
         },
         "sm": {
-          "$value": "0.8rem"
+          "$value": {
+            "value": 0.8,
+            "unit": "rem"
+          }
         },
         "h6": {
-          "$value": "0.94rem"
+          "$value": {
+            "value": 0.94,
+            "unit": "rem"
+          }
         },
         "h5": {
-          "$value": "1rem"
+          "$value": {
+            "value": 1,
+            "unit": "rem"
+          }
         },
         "h4": {
-          "$value": "1.25rem"
+          "$value": {
+            "value": 1.25,
+            "unit": "rem"
+          }
         },
         "h3": {
-          "$value": "1.563rem"
+          "$value": {
+            "value": 1.563,
+            "unit": "rem"
+          }
         },
         "h2": {
-          "$value": "1.953rem"
+          "$value": {
+            "value": 1.953,
+            "unit": "rem"
+          }
         },
         "h1": {
-          "$value": "2.441rem"
+          "$value": {
+            "value": 2.441,
+            "unit": "rem"
+          }
         }
       },
       "measure": {

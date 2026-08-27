@@ -6,102 +6,444 @@
         "$value": "-apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", \"SF Arabic\", \"Geeza Pro\", \"Noto Naskh Arabic\", system-ui, sans-serif",
         "$description": "System UI stack. The Arabic families sit after the Latin faces and before the generic keyword so per-glyph fallback reaches them before the platform default."
       },
-      "prose": { "$value": "var(--writ-font-ui)" },
-      "prose-alt": { "$value": "\"iA Writer Quattro S\", var(--writ-font-ui)" },
+      "prose": {
+        "$value": "var(--writ-font-ui)"
+      },
+      "prose-alt": {
+        "$value": "\"iA Writer Quattro S\", var(--writ-font-ui)"
+      },
       "mono": {
         "$value": "ui-monospace, SFMono-Regular, \"JetBrains Mono\", \"SF Mono\", \"SF Arabic\", \"Geeza Pro\", \"Noto Naskh Arabic\", Menlo, Consolas, monospace"
       }
     },
     "ui": {
       "$type": "dimension",
-      "xs": { "$value": "11px" },
-      "xs-lh": { "$value": "14px" },
-      "sm": { "$value": "12px" },
-      "sm-lh": { "$value": "15px" },
-      "md": { "$value": "13px" },
-      "md-lh": { "$value": "16px" },
-      "lg": { "$value": "15px" },
-      "lg-lh": { "$value": "20px" },
-      "tracking": { "$type": "number", "$value": "0", "$description": "UI labels are never letter-spaced." }
+      "xs": {
+        "$value": {
+          "value": 11,
+          "unit": "px"
+        }
+      },
+      "xs-lh": {
+        "$value": {
+          "value": 14,
+          "unit": "px"
+        }
+      },
+      "sm": {
+        "$value": {
+          "value": 12,
+          "unit": "px"
+        }
+      },
+      "sm-lh": {
+        "$value": {
+          "value": 15,
+          "unit": "px"
+        }
+      },
+      "md": {
+        "$value": {
+          "value": 13,
+          "unit": "px"
+        }
+      },
+      "md-lh": {
+        "$value": {
+          "value": 16,
+          "unit": "px"
+        }
+      },
+      "lg": {
+        "$value": {
+          "value": 15,
+          "unit": "px"
+        }
+      },
+      "lg-lh": {
+        "$value": {
+          "value": 20,
+          "unit": "px"
+        }
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": 0,
+        "$description": "UI labels are never letter-spaced."
+      }
     },
     "prose": {
       "$type": "dimension",
-      "size": { "$value": "16px" },
-      "lh": { "$type": "number", "$value": "1.6" },
-      "measure": { "$value": "44rem" },
-      "pad-x": { "$value": "32px" },
-      "pad-y": { "$value": "32px" },
-      "p-spacing": { "$value": "1.25rem" }
+      "size": {
+        "$value": {
+          "value": 16,
+          "unit": "px"
+        }
+      },
+      "lh": {
+        "$type": "number",
+        "$value": 1.6
+      },
+      "measure": {
+        "$value": {
+          "value": 44,
+          "unit": "rem"
+        }
+      },
+      "pad-x": {
+        "$value": {
+          "value": 32,
+          "unit": "px"
+        }
+      },
+      "pad-y": {
+        "$value": {
+          "value": 32,
+          "unit": "px"
+        }
+      },
+      "p-spacing": {
+        "$value": {
+          "value": 1.25,
+          "unit": "rem"
+        }
+      }
     },
     "heading": {
-      "spacing": { "$type": "dimension", "$value": "2em" },
-      "color": { "$type": "other", "$value": "inherit", "$description": "Headings inherit the body ink; the accent is never spent on them." },
-      "formatting": { "$type": "color", "$value": "var(--writ-fg-faint)", "$description": "The hung markdown markers." }
+      "spacing": {
+        "$type": "dimension",
+        "$value": {
+          "value": 2,
+          "unit": "em"
+        }
+      },
+      "color": {
+        "$type": "other",
+        "$value": "inherit",
+        "$description": "Headings inherit the body ink; the accent is never spent on them."
+      },
+      "formatting": {
+        "$type": "color",
+        "$value": "var(--writ-fg-faint)",
+        "$description": "The hung markdown markers."
+      }
     },
-    "h1": { "size": { "$type": "dimension", "$value": "1.75em" }, "weight": { "$type": "number", "$value": "700" }, "lh": { "$type": "number", "$value": "1.2" } },
-    "h2": { "size": { "$type": "dimension", "$value": "1.40em" }, "weight": { "$type": "number", "$value": "650" }, "lh": { "$type": "number", "$value": "1.25" } },
-    "h3": { "size": { "$type": "dimension", "$value": "1.20em" }, "weight": { "$type": "number", "$value": "600" }, "lh": { "$type": "number", "$value": "1.3" } },
-    "h4": { "size": { "$type": "dimension", "$value": "1.05em" }, "weight": { "$type": "number", "$value": "600" }, "lh": { "$type": "number", "$value": "1.4" } },
-    "h5": { "size": { "$type": "dimension", "$value": "1.00em" }, "weight": { "$type": "number", "$value": "600" }, "lh": { "$type": "number", "$value": "1.5" } },
-    "h6": { "size": { "$type": "dimension", "$value": "1.00em" }, "weight": { "$type": "number", "$value": "600" }, "lh": { "$type": "number", "$value": "1.5" } },
+    "h1": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1.75,
+          "unit": "em"
+        }
+      },
+      "weight": {
+        "$type": "number",
+        "$value": 700
+      },
+      "lh": {
+        "$type": "number",
+        "$value": 1.2
+      }
+    },
+    "h2": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1.4,
+          "unit": "em"
+        }
+      },
+      "weight": {
+        "$type": "number",
+        "$value": 650
+      },
+      "lh": {
+        "$type": "number",
+        "$value": 1.25
+      }
+    },
+    "h3": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1.2,
+          "unit": "em"
+        }
+      },
+      "weight": {
+        "$type": "number",
+        "$value": 600
+      },
+      "lh": {
+        "$type": "number",
+        "$value": 1.3
+      }
+    },
+    "h4": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1.05,
+          "unit": "em"
+        }
+      },
+      "weight": {
+        "$type": "number",
+        "$value": 600
+      },
+      "lh": {
+        "$type": "number",
+        "$value": 1.4
+      }
+    },
+    "h5": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1,
+          "unit": "em"
+        }
+      },
+      "weight": {
+        "$type": "number",
+        "$value": 600
+      },
+      "lh": {
+        "$type": "number",
+        "$value": 1.5
+      }
+    },
+    "h6": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1,
+          "unit": "em"
+        }
+      },
+      "weight": {
+        "$type": "number",
+        "$value": 600
+      },
+      "lh": {
+        "$type": "number",
+        "$value": 1.5
+      }
+    },
     "r": {
       "$type": "dimension",
-      "row": { "$value": "6px" },
-      "control": { "$value": "6px" },
-      "tab": { "$value": "6px" },
-      "popover": { "$value": "10px" },
-      "modal": { "$value": "12px" },
-      "card": { "$value": "12px" },
-      "media": { "$value": "6px" },
-      "pill": { "$value": "999px" },
-      "window": { "$value": "10px" }
+      "row": {
+        "$value": {
+          "value": 6,
+          "unit": "px"
+        }
+      },
+      "control": {
+        "$value": {
+          "value": 6,
+          "unit": "px"
+        }
+      },
+      "tab": {
+        "$value": {
+          "value": 6,
+          "unit": "px"
+        }
+      },
+      "popover": {
+        "$value": {
+          "value": 10,
+          "unit": "px"
+        }
+      },
+      "modal": {
+        "$value": {
+          "value": 12,
+          "unit": "px"
+        }
+      },
+      "card": {
+        "$value": {
+          "value": 12,
+          "unit": "px"
+        }
+      },
+      "media": {
+        "$value": {
+          "value": 6,
+          "unit": "px"
+        }
+      },
+      "pill": {
+        "$value": {
+          "value": 999,
+          "unit": "px"
+        }
+      },
+      "window": {
+        "$value": {
+          "value": 10,
+          "unit": "px"
+        }
+      }
     },
     "icon": {
-      "size": { "$type": "dimension", "$value": "20px" },
-      "color": { "$type": "color", "$value": "var(--writ-fg-muted)" },
-      "opacity": { "$type": "number", "$value": ".85" },
-      "opacity-hover": { "$type": "number", "$value": "1" }
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 20,
+          "unit": "px"
+        }
+      },
+      "color": {
+        "$type": "color",
+        "$value": "var(--writ-fg-muted)"
+      },
+      "opacity": {
+        "$type": "number",
+        "$value": 0.85
+      },
+      "opacity-hover": {
+        "$type": "number",
+        "$value": 1
+      }
     },
     "sidebar": {
       "$type": "dimension",
-      "width": { "$value": "240px" },
-      "min-width": { "$value": "200px" },
-      "max-width": { "$value": "320px" },
-      "row-pitch": { "$value": "28px" },
-      "row-fill": { "$value": "26px" }
+      "width": {
+        "$value": {
+          "value": 240,
+          "unit": "px"
+        }
+      },
+      "min-width": {
+        "$value": {
+          "value": 200,
+          "unit": "px"
+        }
+      },
+      "max-width": {
+        "$value": {
+          "value": 320,
+          "unit": "px"
+        }
+      },
+      "row-pitch": {
+        "$value": {
+          "value": 28,
+          "unit": "px"
+        }
+      },
+      "row-fill": {
+        "$value": {
+          "value": 26,
+          "unit": "px"
+        }
+      }
     },
     "space": {
-      "$type": "dimension",
-      "1": { "$value": "2px" },
-      "2": { "$value": "4px" },
-      "3": { "$value": "8px" },
-      "4": { "$value": "12px" },
-      "5": { "$value": "16px" },
-      "6": { "$value": "24px" },
-      "7": { "$value": "32px" }
+      "1": {
+        "$value": {
+          "value": 2,
+          "unit": "px"
+        }
+      },
+      "2": {
+        "$value": {
+          "value": 4,
+          "unit": "px"
+        }
+      },
+      "3": {
+        "$value": {
+          "value": 8,
+          "unit": "px"
+        }
+      },
+      "4": {
+        "$value": {
+          "value": 12,
+          "unit": "px"
+        }
+      },
+      "5": {
+        "$value": {
+          "value": 16,
+          "unit": "px"
+        }
+      },
+      "6": {
+        "$value": {
+          "value": 24,
+          "unit": "px"
+        }
+      },
+      "7": {
+        "$value": {
+          "value": 32,
+          "unit": "px"
+        }
+      },
+      "$type": "dimension"
     },
-    "ease": { "$type": "cubicBezier", "$value": "cubic-bezier(.33, 1, .68, 1)" },
+    "ease": {
+      "$type": "cubicBezier",
+      "$value": "cubic-bezier(.33, 1, .68, 1)"
+    },
     "motion": {
       "$type": "duration",
-      "fast": { "$value": "120ms" },
-      "duration": { "$value": "150ms" },
-      "slow": { "$value": "180ms" },
+      "fast": {
+        "$value": {
+          "value": 120,
+          "unit": "ms"
+        }
+      },
+      "duration": {
+        "$value": {
+          "value": 150,
+          "unit": "ms"
+        }
+      },
+      "slow": {
+        "$value": {
+          "value": 180,
+          "unit": "ms"
+        }
+      },
       "shorthand": {
         "$type": "other",
         "$value": "var(--writ-motion-duration) var(--writ-ease)",
-        "$extensions": { "writ": { "cssName": "--writ-motion" } }
+        "$extensions": {
+          "writ": {
+            "cssName": "--writ-motion"
+          }
+        }
       }
     },
     "z": {
       "$type": "number",
       "$description": "[derived] Seven named layers (ADR-030). A component picks a layer, never a number.",
-      "base": { "$value": "0" },
-      "chrome": { "$value": "100" },
-      "popover": { "$value": "200" },
-      "palette": { "$value": "300" },
-      "modal": { "$value": "400" },
-      "toast": { "$value": "500" },
-      "drag": { "$value": "600" }
+      "base": {
+        "$value": 0
+      },
+      "chrome": {
+        "$value": 100
+      },
+      "popover": {
+        "$value": 200
+      },
+      "palette": {
+        "$value": 300
+      },
+      "modal": {
+        "$value": 400
+      },
+      "toast": {
+        "$value": 500
+      },
+      "drag": {
+        "$value": 600
+      }
     }
   }
 }
