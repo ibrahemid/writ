@@ -719,7 +719,10 @@ function UpdatesSection() {
       const { doc, reused } = await openThirdPartyNoticesBuffer();
       win.tabs.setActiveTabId(doc.id);
       // Activating an already-active tab loads nothing, so the refreshed text
-      // has to be pulled into the view explicitly.
+      // has to be pulled into the view explicitly. The backend's own
+      // external-change event only fires when the regenerated file actually
+      // differs from what was there, so this direct call is what still
+      // covers the (more common) case where reopening rewrote identical text.
       if (reused) win.editor.requestExternalReload(doc.id);
       closeSettings();
     } catch {

@@ -101,6 +101,53 @@ fn open_from_path_indexes_content_for_fts() {
 }
 
 #[test]
+fn open_from_path_unindexed_records_the_row_and_copies_nothing() {
+    let (dir, store) = setup();
+    let source_dir = TempDir::new().unwrap();
+    let source_file = source_dir.path().join("licences.md");
+    std::fs::write(&source_file, "MIT License\n").unwrap();
+
+    let doc = make_source_doc(
+        "generated-1",
+        "Third-party licences",
+        source_file.to_str().unwrap(),
+    );
+    store.open_from_path_unindexed(&doc).unwrap();
+
+    let fetched = store.get("generated-1").unwrap();
+    assert_eq!(fetched.title, "Third-party licences");
+    assert_eq!(
+        fetched.source_path.as_deref(),
+        Some(source_file.to_str().unwrap())
+    );
+    assert!(
+        is_empty_dir(&dir.path().join("buffers")),
+        "opening a generated document must copy it nowhere"
+    );
+}
+
+#[test]
+fn open_from_path_unindexed_never_indexes_the_content() {
+    let (_dir, store) = setup();
+    let doc = make_source_doc("generated-2", "Third-party licences", "/fake/licences.md");
+    store.open_from_path_unindexed(&doc).unwrap();
+
+    assert!(
+        store.search("MIT").unwrap().is_empty(),
+        "licence text must never be searchable, unlike open_from_path"
+    );
+}
+
+#[test]
+fn open_from_path_unindexed_leaves_the_row_findable_by_title() {
+    let (_dir, store) = setup();
+    let doc = make_source_doc("generated-3", "Third-party licences", "/fake/licences.md");
+    store.open_from_path_unindexed(&doc).unwrap();
+
+    assert_eq!(store.search("licences").unwrap(), vec!["generated-3"]);
+}
+
+#[test]
 fn find_active_by_source_path_returns_existing_buffer() {
     let (_dir, store) = setup();
     let doc = make_source_doc("dedup-1", "config.toml", "/home/user/config.toml");

@@ -249,8 +249,12 @@ impl BufferStore {
     ///
     /// A row with no `source_path` has not reached a file yet and reads as
     /// empty: there is nowhere else the text could be (ADR-028 §1). A
-    /// read-only row holds a binary file, so the hex view is regenerated from
-    /// the file's bytes on every read rather than stored anywhere.
+    /// read-only row is not always binary — a generated document (ADR-028
+    /// §1's minted-nowhere case) is read-only text — so the hex view is only
+    /// substituted when the bytes actually sniff as binary, regenerated from
+    /// the file on every read rather than stored anywhere. Bytes that sniff
+    /// as text but are not valid UTF-8 fall back to a lossy decode rather
+    /// than failing the read.
     pub fn read_content(&self, id: &str) -> StorageResult<String> {
         let doc = queries::get_buffer(&self.conn, id)?;
         let Some(source_path) = doc.source_path.as_deref() else {
@@ -258,10 +262,13 @@ impl BufferStore {
         };
         if doc.read_only {
             let bytes = std::fs::read(source_path)?;
-            return Ok(writ_core::file_ops::generate_hex_dump(
-                &bytes,
-                doc.size_bytes as usize,
-            ));
+            if writ_core::file_ops::is_binary_bytes(&bytes) {
+                return Ok(writ_core::file_ops::generate_hex_dump(
+                    &bytes,
+                    doc.size_bytes as usize,
+                ));
+            }
+            return Ok(String::from_utf8_lossy(&bytes).into_owned());
         }
         Ok(std::fs::read_to_string(source_path)?)
     }
@@ -414,6 +421,23 @@ impl BufferStore {
         if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
             crate::fts::FtsIndex::new(&tx).insert(&doc.id, &doc.title, content)?;
         }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// [`Self::open_from_path`] without ever indexing the file's text.
+    ///
+    /// For a generated document (ADR-028 §1): its text is not the user's
+    /// writing, so it must never enter the search index no matter how small
+    /// the file is — unlike [`Self::open_from_path`], which indexes whenever
+    /// `size_bytes` is under [`THRESHOLD_NORMAL_BYTES`]. The title is still
+    /// seeded with empty content, matching [`Self::insert`], so the row
+    /// reads as fully indexed to [`Self::verify_and_repair_fts`] and the tab
+    /// stays findable by name.
+    pub fn open_from_path_unindexed(&self, doc: &BufferDocument) -> StorageResult<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        queries::insert_buffer(&tx, doc)?;
+        crate::fts::FtsIndex::new(&tx).insert(&doc.id, &doc.title, "")?;
         tx.commit()?;
         Ok(())
     }

@@ -67,6 +67,7 @@ fn make_state(dir: &TempDir) -> AppState {
             writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        last_disk_hash: Mutex::new(std::collections::HashMap::new()),
     }
 }
 

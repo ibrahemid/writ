@@ -127,11 +127,21 @@ fn open_file_classified(
 
     let is_binary = matches!(mode, FileOpenMode::Binary);
 
-    let content = if is_binary {
+    // The digest is carried alongside the content rather than recomputed from
+    // it: for the binary tier `content` is a hex dump, not the file's bytes,
+    // and for every tier re-reading a large file just to hash it would defeat
+    // the point of the large-file tiers existing at all.
+    let (content, digest) = if is_binary {
         let bytes = std::fs::read(file_path).map_err(|e| e.to_string())?;
-        file_ops::generate_hex_dump(&bytes, size_bytes as usize)
+        let digest = writ_core::hash::sha256_bytes(&bytes);
+        (
+            file_ops::generate_hex_dump(&bytes, size_bytes as usize),
+            digest,
+        )
     } else {
-        std::fs::read_to_string(file_path).map_err(|e| e.to_string())?
+        let text = std::fs::read_to_string(file_path).map_err(|e| e.to_string())?;
+        let digest = writ_core::hash::sha256_bytes(text.as_bytes());
+        (text, digest)
     };
 
     if let Some(history_buf) = store
@@ -148,6 +158,7 @@ fn open_file_classified(
         state
             .authorized_paths
             .record_blessed_source(canonical.to_string());
+        state.record_disk_hash(&history_buf.id, digest);
         let doc = store.get(&history_buf.id).map_err(|e| e.to_string())?;
         return Ok(FileOpenResult {
             mode,
@@ -179,6 +190,7 @@ fn open_file_classified(
     state
         .authorized_paths
         .record_blessed_source(canonical.to_string());
+    state.record_disk_hash(&new_doc.id, digest);
     Ok(FileOpenResult {
         mode,
         size_bytes,
@@ -260,7 +272,11 @@ pub async fn pick_files_to_open(app: tauri::AppHandle) -> Result<Vec<String>, St
 /// list of paths, the OS handing Writ a document, a drop onto the window — so
 /// disk wins over the copy Writ loaded earlier. The editor is told through the
 /// same event an external edit raises, which reloads a clean buffer and asks
-/// first when there are unsaved keystrokes to lose.
+/// first when there are unsaved keystrokes to lose. The event only fires when
+/// the file's digest actually moved since Writ last read or wrote it: a
+/// reopen of a file nothing touched is not an external change, and emitting
+/// for it anyway would reload (or prompt over) an editor that has nothing new
+/// to show.
 ///
 /// Best-effort: a file that cannot be read here still opens its tab.
 ///
@@ -268,6 +284,12 @@ pub async fn pick_files_to_open(app: tauri::AppHandle) -> Result<Vec<String>, St
 /// reads the file itself (ADR-028 §1), so the reload *is* the resync; the read
 /// here is what the watcher stamp needs to recognise those bytes as ones Writ
 /// already knows about.
+///
+/// The reindex is skipped for a read-only buffer. A binary one would not
+/// usefully index anyway (the file's bytes are not valid text), and a
+/// generated document must never index its body no matter how often it is
+/// reopened (ADR-028 §1) — [`open_generated_document`] seeds its title-only
+/// entry once and nothing here may overwrite that with the full text.
 fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocument) {
     let Ok(source) = store.read_source(&doc.id) else {
         return;
@@ -285,13 +307,87 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
             }
         }
     }
-    if let Err(e) = store.reindex_buffer(&doc.id) {
-        tracing::debug!(buffer_id = %doc.id, error = %e, "reindex after reopening failed");
+    if !doc.read_only {
+        if let Err(e) = store.reindex_buffer(&doc.id) {
+            tracing::debug!(buffer_id = %doc.id, error = %e, "reindex after reopening failed");
+        }
     }
-    state.event_bus.emit(WritEvent::BufferExternal {
-        buffer_id: doc.id.clone(),
-        change: ExternalChange::Modified,
-    });
+    if !state.disk_hash_matches(&doc.id, &source) {
+        state.event_bus.emit(WritEvent::BufferExternal {
+            buffer_id: doc.id.clone(),
+            change: ExternalChange::Modified,
+        });
+    }
+    state.record_disk_hash_bytes(&doc.id, &source);
+}
+
+/// Writes `content` to the fixed path a generated document titled `title`
+/// takes under the data directory, and opens it as a source-backed,
+/// read-only buffer.
+///
+/// A document Writ writes rather than the user must never mint a file in the
+/// notes folder (ADR-028 §1): unlike a plain note, its path is decided here,
+/// not by [`crate::notes::attach_note_file`], and `content` is written before
+/// the buffer exists rather than on a later first keystroke. The row is
+/// read-only, so [`write_source`](writ_storage::buffer_store::BufferStore)'s
+/// existing refusal is what stops a save of it — nothing new is checked for
+/// that.
+///
+/// A buffer already open for this path is resynced in place rather than
+/// duplicated, the same as reopening any other file that changed underneath
+/// it ([`resync_open_buffer`]); `content` overwrites whatever the file held
+/// before, so a second call regenerates the same file rather than minting a
+/// dedupe sibling.
+pub fn open_generated_document(
+    state: &AppState,
+    title: &str,
+    content: &str,
+) -> Result<FileOpenResult, String> {
+    let path = crate::generated::generated_document_path(&state.writ_dir, title);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, content).map_err(|e| e.to_string())?;
+    let canonical = canonicalize_for_authorization(&path).map_err(|e| e.to_string())?;
+    let size_bytes = content.len() as u64;
+
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+
+    if let Some(existing) = store
+        .find_active_by_source_path(&canonical)
+        .map_err(|e| e.to_string())?
+    {
+        state
+            .authorized_paths
+            .record_blessed_source(canonical.clone());
+        resync_open_buffer(state, &store, &existing);
+        return Ok(FileOpenResult {
+            mode: FileOpenMode::Normal,
+            size_bytes,
+            doc: existing,
+        });
+    }
+
+    let mut mgr = BufferManager::new().with_event_bus(state.event_bus.clone());
+    let new_doc = mgr
+        .open_external(canonical.clone())
+        .map_err(|e| e.to_string())?;
+    let new_doc = BufferDocument {
+        title: title.to_string(),
+        read_only: true,
+        size_bytes,
+        ..new_doc
+    };
+    store
+        .open_from_path_unindexed(&new_doc)
+        .map_err(|e| e.to_string())?;
+    state.authorized_paths.record_blessed_source(canonical);
+    state.record_disk_hash_bytes(&new_doc.id, content.as_bytes());
+    Ok(FileOpenResult {
+        mode: FileOpenMode::Normal,
+        size_bytes,
+        doc: new_doc,
+    })
 }
 
 /// Gate on writing back to a buffer's originating file.

@@ -210,6 +210,7 @@ function createBufferRegistry() {
     clearAllHistory,
     renameBuffer,
     openFile,
+    registerOpenResult,
     showOpenFileDialog,
     readContent,
   };

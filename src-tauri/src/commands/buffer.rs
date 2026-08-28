@@ -119,7 +119,9 @@ pub fn save_buffer_content_inner(state: &AppState, id: &str, content: &str) -> R
     }
     store
         .save_to_source_without_index(id, content)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    state.record_disk_hash_bytes(id, content.as_bytes());
+    Ok(())
 }
 
 /// Gives a note with no file the file the invariant requires: a dated `.md`
@@ -157,16 +159,17 @@ pub fn save_buffer_content(
 
 /// IPC: writes buffer content and leaves the search index alone.
 ///
-/// Generated documents are written through here rather than through
-/// [`save_buffer_content`]. The third-party notices listing is hundreds of
-/// kilobytes of licence text that is not the user's writing, so indexing it
-/// would push their notes down every search result. `create_buffer` already
-/// indexed the title, so the tab stays findable by name.
+/// The third-party notices listing used to be written through here after a
+/// plain [`create_buffer`], which minted it a file in the notes folder like
+/// any other note. It no longer is: a generated document opens read-only
+/// through [`crate::commands::file::open_generated_document`] instead, whose
+/// existing read-only refusal is what stops a save of one, so this command
+/// no longer has a caller that reaches it with no file yet to mint one for
+/// (ADR-028 §1). It is left in place as the unindexed counterpart of
+/// [`save_buffer_content`], for whichever caller needs it next.
 ///
 /// Destination follows the same rule as every other save: the file the note
-/// lives in, minted in the notes folder when it has none. A generated document
-/// is a note like any other once it exists (ADR-028 §1); the only thing that
-/// makes it different is that its text stays out of the index.
+/// lives in, minted in the notes folder when it has none.
 #[tauri::command]
 pub fn save_buffer_content_unindexed(
     state: State<'_, AppState>,
@@ -220,7 +223,15 @@ pub fn read_buffer_content(
     id: String,
 ) -> Result<tauri::ipc::Response, String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
+    let doc = store.get(&id).map_err(|e| e.to_string())?;
     let content = store.read_content(&id).map_err(|e| e.to_string())?;
+    // A read-only row's displayed text is not always the file's bytes (a
+    // binary file reads back as a hex dump), so only a writable row's read
+    // is trustworthy to record here. Read-only rows get their digest from
+    // wherever they were opened or resynced instead.
+    if !doc.read_only {
+        state.record_disk_hash_bytes(&id, content.as_bytes());
+    }
     Ok(tauri::ipc::Response::new(content.into_bytes()))
 }
 

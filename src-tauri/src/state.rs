@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex, RwLock};
@@ -18,6 +19,7 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 
 use crate::fts_scheduler::FtsScheduler;
+use crate::poison::recover_poison;
 use crate::preview::handler::RenderCache;
 use crate::security::{canonicalize_for_authorization, canonicalize_root, AuthorizedPaths};
 use crate::watcher::handler::{IgnoreSet, WatcherHandle};
@@ -72,6 +74,15 @@ pub struct AppState {
     /// call bumps it and captures its value; the walker's cancel closure
     /// compares against this so a newer query stops the older one (ADR-026).
     pub search_generation: Arc<AtomicU64>,
+    /// Digest of a buffer's file at the moment Writ last read or wrote it,
+    /// keyed by buffer id.
+    ///
+    /// Kept here for now, in memory only: a relaunch starts blank, which is
+    /// no worse than a relaunch already was. A later change moves this
+    /// record into the store as `last_known_disk_hash` so it survives one,
+    /// which is the name to reach for if this field is being generalised
+    /// rather than just relocated.
+    pub last_disk_hash: Mutex<HashMap<String, writ_core::hash::Sha256Digest>>,
 }
 
 impl AppState {
@@ -308,6 +319,7 @@ impl AppState {
             fts_scheduler: FtsScheduler::new(),
             workspace_index,
             search_generation: Arc::new(AtomicU64::new(0)),
+            last_disk_hash: Mutex::new(HashMap::new()),
         })
     }
 
@@ -357,6 +369,30 @@ impl AppState {
             return false;
         }
         path.starts_with(&self.notes_root)
+    }
+
+    /// Records the digest of a buffer's file at the moment Writ read or
+    /// wrote it.
+    pub fn record_disk_hash(&self, buffer_id: &str, digest: writ_core::hash::Sha256Digest) {
+        let mut map = recover_poison(self.last_disk_hash.lock(), "state::record_disk_hash");
+        map.insert(buffer_id.to_string(), digest);
+    }
+
+    /// [`Self::record_disk_hash`] for a caller holding bytes rather than an
+    /// already-computed digest.
+    pub fn record_disk_hash_bytes(&self, buffer_id: &str, bytes: &[u8]) {
+        self.record_disk_hash(buffer_id, writ_core::hash::sha256_bytes(bytes));
+    }
+
+    /// `true` when `bytes` hashes to the digest last recorded for
+    /// `buffer_id`.
+    ///
+    /// `false` for a buffer with no recorded digest — the honest answer for
+    /// one Writ has not read or written this launch, where nothing rules out
+    /// that the file changed underneath it.
+    pub fn disk_hash_matches(&self, buffer_id: &str, bytes: &[u8]) -> bool {
+        let map = recover_poison(self.last_disk_hash.lock(), "state::disk_hash_matches");
+        map.get(buffer_id) == Some(&writ_core::hash::sha256_bytes(bytes))
     }
 }
 

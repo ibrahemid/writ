@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod events;
 pub mod fts_scheduler;
+pub mod generated;
 pub mod hotkey;
 pub mod logging;
 pub mod notes;
@@ -358,7 +359,7 @@ pub fn run() {
             commands::link::classify_external_url,
             commands::storage::get_storage_info,
             commands::storage::reveal_storage_path,
-            commands::notices::read_third_party_notices,
+            commands::notices::open_third_party_notices,
             commands::ai::ai_rewrite,
             commands::ai::ai_cancel,
             commands::ai::ai_check_connection,

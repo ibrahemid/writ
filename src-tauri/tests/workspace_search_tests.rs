@@ -82,6 +82,7 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
         fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(WorkspaceIndex::new(ws_root))),
         search_generation: Arc::new(AtomicU64::new(0)),
+        last_disk_hash: Mutex::new(std::collections::HashMap::new()),
     }
 }
 

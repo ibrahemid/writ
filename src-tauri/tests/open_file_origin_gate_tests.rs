@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use tempfile::TempDir;
 use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
+use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
 use writ_plugin::transform::TransformRegistry;
@@ -66,6 +66,7 @@ fn make_state(dir: &TempDir) -> AppState {
             writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        last_disk_hash: Mutex::new(std::collections::HashMap::new()),
     }
 }
 
@@ -633,4 +634,69 @@ fn is_within_notes_refuses_a_path_that_climbs_out() {
 
     let climbing = state.notes_root.join("..").join("note.md");
     assert!(!state.is_within_notes(&climbing.to_string_lossy()));
+}
+
+fn count_external_events(state: &AppState) -> Arc<Mutex<u32>> {
+    let count = Arc::new(Mutex::new(0u32));
+    let count_clone = count.clone();
+    state.event_bus.subscribe(move |event| {
+        if let WritEvent::BufferExternal { .. } = event {
+            *count_clone.lock().unwrap() += 1;
+        }
+    });
+    count
+}
+
+#[test]
+fn reopening_an_unchanged_file_emits_nothing() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let file = dir.path().join("quiet.md");
+    std::fs::write(&file, "steady text").unwrap();
+    let canonical = canonicalize_for_authorization(&file).unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+    open_file_from_path(&state, &canonical).expect("open");
+
+    let count = count_external_events(&state);
+
+    state.authorized_paths.record_for_open(canonical.clone());
+    open_file_from_path(&state, &canonical).expect("reopen");
+
+    assert_eq!(
+        *count.lock().unwrap(),
+        0,
+        "an unchanged reopen must not emit an external-change event"
+    );
+}
+
+#[test]
+fn a_file_changed_out_of_band_emits_once_then_settles() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let file = dir.path().join("changing.md");
+    std::fs::write(&file, "first").unwrap();
+    let canonical = canonicalize_for_authorization(&file).unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+    open_file_from_path(&state, &canonical).expect("open");
+
+    let count = count_external_events(&state);
+
+    std::fs::write(&file, "second").unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+    open_file_from_path(&state, &canonical).expect("reopen after external change");
+    assert_eq!(
+        *count.lock().unwrap(),
+        1,
+        "a reopen with a changed digest must emit exactly once"
+    );
+
+    state.authorized_paths.record_for_open(canonical.clone());
+    open_file_from_path(&state, &canonical).expect("reopen again, unchanged since the last one");
+    assert_eq!(
+        *count.lock().unwrap(),
+        1,
+        "a second reopen with no further change must not emit again"
+    );
 }

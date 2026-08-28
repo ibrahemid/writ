@@ -662,8 +662,8 @@ export async function revealStoragePath(): Promise<void> {
 
 // --- Third-party licences ---
 
-export async function readThirdPartyNotices(): Promise<string> {
-  return invoke("read_third_party_notices");
+export async function openThirdPartyNotices(): Promise<FileOpenResult> {
+  return invoke("open_third_party_notices");
 }
 
 // --- Rewrite (opt-in) ---

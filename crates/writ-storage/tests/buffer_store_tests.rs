@@ -172,10 +172,30 @@ fn a_binary_note_regenerates_its_hex_view_from_the_file() {
     doc.read_only = true;
     doc.size_bytes = 4;
     store.insert(&doc).unwrap();
-    std::fs::write(note_path("binary-1"), [0xdeu8, 0xad, 0xbe, 0xef]).unwrap();
+    // A NUL byte is what the binary sniff keys on; 0xdeadbeef alone would
+    // read back as (lossy) text now that a read-only row is not assumed
+    // binary just because it cannot be saved.
+    std::fs::write(note_path("binary-1"), [0x00u8, 0xad, 0xbe, 0xef]).unwrap();
 
     let view = store.read_content("binary-1").unwrap();
-    assert!(view.contains("de ad be ef"), "hex view: {view}");
+    assert!(view.contains("00 ad be ef"), "hex view: {view}");
+}
+
+#[test]
+fn a_read_only_text_note_reads_back_as_text_not_a_hex_view() {
+    let (_dir, store) = setup();
+    let mut doc = make_doc("readonly-text-1", "Third-party licences");
+    doc.read_only = true;
+    let content = "# Third-party notices\n\nMIT License\n";
+    doc.size_bytes = content.len() as u64;
+    store.insert(&doc).unwrap();
+    std::fs::write(note_path("readonly-text-1"), content).unwrap();
+
+    let view = store.read_content("readonly-text-1").unwrap();
+    assert_eq!(
+        view, content,
+        "a read-only generated document is still text"
+    );
 }
 
 #[test]
