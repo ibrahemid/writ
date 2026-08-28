@@ -110,7 +110,7 @@ import type { MenuItem } from "../../components/ContextMenu/ContextMenu";
 
 const MENU_COMMANDS = [
   { id: "file.open", label: "Open File", keybinding: "CmdOrCtrl+O" },
-  { id: "note.new", label: "New note", keybinding: "CmdOrCtrl+N" },
+  { id: "note.new", label: "New Note", keybinding: "CmdOrCtrl+N" },
   { id: "buffer.close", label: "Close Tab", keybinding: "CmdOrCtrl+W" },
   { id: "palette.open", label: "Command Palette", keybinding: "Shift+Shift" },
   { id: "app.check_updates", label: "Check for Updates" },
@@ -173,7 +173,7 @@ describe("titlebar menu affordance carries the platforms with no menu bar", () =
     expect(mocks.showAnchoredMenu).toHaveBeenCalledTimes(1);
     expect(openedMenuItems().map((item) => item.label)).toEqual([
       "Open File",
-      "New note",
+      "New Note",
       "Close Tab",
       "Command Palette",
       "Check for Updates",
@@ -388,7 +388,7 @@ describe("Writ menu contents", () => {
     expect(mocks.showAnchoredMenu).toHaveBeenCalledTimes(1);
     expect(openedMenuItems().map((item) => item.label)).toEqual([
       "Open File",
-      "New note",
+      "New Note",
       "Close Tab",
       "Command Palette",
       "Check for Updates",

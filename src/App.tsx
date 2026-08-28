@@ -227,7 +227,7 @@ function AppShell() {
 
     registerCommand({
       id: "note.new",
-      label: "New note",
+      label: "New Note",
       description: "Start a new note",
       keybinding: "CmdOrCtrl+N",
       // The chord this command answered to before it was named for the note

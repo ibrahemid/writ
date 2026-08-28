@@ -443,7 +443,7 @@ describe("editor-focus gating", () => {
     const fired: string[] = [];
     registerCommand({
       id: "note.new",
-      label: "New note",
+      label: "New Note",
       scope: "app",
       global: true,
       keybinding: "CmdOrCtrl+N",

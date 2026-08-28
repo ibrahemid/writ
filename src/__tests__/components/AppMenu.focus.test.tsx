@@ -65,7 +65,7 @@ describe("AppMenu focus handoff", () => {
   it("returns focus to the menu button when the menu is dismissed without acting", async () => {
     registerCommand({
       id: "note.new",
-      label: "New note",
+      label: "New Note",
       scope: "app",
       execute: () => {},
     });

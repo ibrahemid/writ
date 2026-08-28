@@ -46,7 +46,7 @@
     },
     "font-sans": {
       "$value": "\"Inter\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"SF Arabic\", \"Geeza Pro\", \"Noto Naskh Arabic\", system-ui, sans-serif",
-      "$description": "Inter is still bundled until the prose-face work lands, so the alias keeps the stack it had."
+      "$description": "Inter left the app with the prose-face work; the alias keeps the old stack so unmigrated chrome falls back to the system face until its unit retokenises it."
     },
     "font-size": {
       "$value": "14px"
