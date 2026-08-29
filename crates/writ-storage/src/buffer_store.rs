@@ -647,10 +647,12 @@ impl BufferStore {
     /// note between the crash and the relaunch, and writing a pre-crash
     /// snapshot over it destroys work with nothing left to recover it from.
     ///
-    /// A file that is missing or already holds the recovered text is written.
-    /// A file that holds anything else is left untouched and the recovered
-    /// text is written beside it as `<stem> (recovered YYYY-MM-DD HH.MM.SS)`,
-    /// so both are on disk and the user chooses.
+    /// A file that is missing is written. One that already holds the
+    /// recovered text is left alone and reported as restored, because it is:
+    /// rewriting identical bytes only moves the modification time. A file that
+    /// holds anything else is left untouched too, and the recovered text is
+    /// written beside it as `<stem> (recovered YYYY-MM-DD HH.MM.SS)`, so both
+    /// are on disk and the user chooses.
     ///
     /// A file whose bytes are not on this machine is never opened. Reading one
     /// makes the provider daemon fetch it (ADR-028 §5), and a relaunch that
@@ -722,6 +724,12 @@ impl BufferStore {
                     copy,
                 });
             }
+            // The file already holds the recovered text, so there is nothing
+            // to restore. Writing it anyway would move the modification time
+            // and swap the inode for bytes that did not change, which a sync
+            // client reads as an edit and uploads. Same answer the save path
+            // gives ([`SaveDecision::AlreadyIdentical`]).
+            return Ok(RecoveredText::Restored(state));
         }
 
         write_guarded_by_stamp(path, content.as_bytes(), before_write)?;
@@ -1111,19 +1119,19 @@ fn write_beside(
 
 /// Stamps then writes, in that order.
 ///
-/// Every write this module performs goes through here, because a write the
+/// Every write this crate performs goes through here, because a write the
 /// caller has not been told about first is a write its watcher reads as
-/// somebody else's edit.
-fn write_guarded_by_stamp(
+/// somebody else's edit. [`write_atomic`] has this one call site so that no
+/// future write can skip the stamp by reaching past it.
+pub(crate) fn write_guarded_by_stamp(
     target: &Path,
     bytes: &[u8],
     before_write: BeforeWrite<'_>,
-) -> StorageResult<()> {
+) -> std::io::Result<()> {
     if let Some(stamp) = before_write {
         stamp(target, bytes);
     }
-    write_atomic(target, bytes)?;
-    Ok(())
+    write_atomic(target, bytes)
 }
 
 fn read_source_text(doc: &BufferDocument) -> String {

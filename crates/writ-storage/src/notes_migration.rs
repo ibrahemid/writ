@@ -27,7 +27,7 @@ use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::hash::sha256_bytes;
 use writ_core::notes;
 
-use crate::atomic::write_atomic;
+use crate::buffer_store::write_guarded_by_stamp;
 use crate::buffer_store::BufferStore;
 use crate::database::queries;
 use crate::errors::StorageResult;
@@ -708,7 +708,9 @@ fn extension_for(bytes: &[u8]) -> &'static str {
 /// mirror is unlinked on the strength of this answer (ADR-028 §4 step 4).
 fn write_and_verify(destination: &Path, bytes: &[u8], directory: &DirNames) -> std::io::Result<()> {
     directory.ensure()?;
-    write_atomic(destination, bytes)?;
+    // No stamp: the migration runs before any watcher is started, and it is
+    // the one write path that reads its own bytes back to check them.
+    write_guarded_by_stamp(destination, bytes, None)?;
     let written = std::fs::read(destination)?;
     if sha256_bytes(&written) != sha256_bytes(bytes) {
         return Err(std::io::Error::other(

@@ -292,22 +292,41 @@ fn a_file_changed_while_writ_was_down_keeps_its_text_and_the_snapshot_lands_besi
 }
 
 #[test]
-fn a_file_that_did_not_change_takes_the_recovered_text() {
+fn a_file_that_did_not_change_is_left_exactly_as_it_is() {
     let (_db, store) = setup();
     let notes = TempDir::new().unwrap();
     let path = open_recovered_note(&store, &notes, "# What the crash was holding");
+    let before = std::fs::metadata(&path).unwrap();
 
     let outcome = store
         .restore_recovered_content("guard-1", "# What the crash was holding", None, None)
         .expect("restore");
 
-    assert!(matches!(outcome, RecoveredText::Restored(_)));
+    let RecoveredText::Restored(state) = outcome else {
+        panic!("the file holds the recovered text, so it is restored: {outcome:?}");
+    };
+    assert_eq!(state.hash, sha256_bytes(b"# What the crash was holding"));
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),
         "# What the crash was holding"
     );
     assert!(conflict_copies(notes.path()).is_empty());
     assert!(recovered_copies(notes.path()).is_empty());
+
+    // Rewriting identical bytes would move the modification time and, because
+    // the write is a rename into place, swap the inode. A sync client reads
+    // either as an edit and uploads the file again.
+    let after = std::fs::metadata(&path).unwrap();
+    assert_eq!(
+        after.modified().unwrap(),
+        before.modified().unwrap(),
+        "nothing was written, so the modification time cannot have moved"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(after.ino(), before.ino(), "the file was never replaced");
+    }
 }
 
 #[test]

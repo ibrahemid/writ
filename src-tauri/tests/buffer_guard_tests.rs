@@ -265,8 +265,13 @@ fn the_copy_a_stopped_save_writes_is_not_an_arrival_in_the_watched_folder() {
     save_buffer_content_inner(&state, &id, "what the user typed")
         .expect_err("the save must not land");
 
-    let copies = conflict_copies(watched.path());
+    // Listed from the canonical root, not from the temp dir's own path: on
+    // macOS the two differ (/var against /private/var) and a path that is not
+    // under the root fails the containment check before the ignore set is ever
+    // consulted, which would make this test pass for the wrong reason.
+    let copies = conflict_copies(&root);
     assert_eq!(copies.len(), 1, "{copies:?}");
+    assert!(copies[0].starts_with(&root), "{:?}", copies[0]);
 
     let arrival = writ_tauri_lib::watcher::handler::classify_inbox_event(
         &copies[0],
