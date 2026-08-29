@@ -19,7 +19,7 @@ export interface ContentProviderOptions {
 export function createContentProvider(options: ContentProviderOptions = {}): ResultProvider {
   return {
     id: "content",
-    section: "Content",
+    section: "Text",
     order: options.order ?? 3,
     cap: options.cap ?? 12,
     modes: ["all", "content"],

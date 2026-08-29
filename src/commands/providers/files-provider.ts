@@ -1,8 +1,12 @@
 import { workspaceStore } from "../../stores/global/workspace";
 import { workspaceSearchStore } from "../../stores/global/workspace-search";
-import { joinPath, pathKey } from "../../lib/path";
+import { basename, joinPath, pathKey } from "../../lib/path";
 import { bufferPathKeys, bufferTargets, openTarget } from "./open-target";
-import type { PaletteResult, ResultProvider } from "../../components/Palette/types";
+import type {
+  PaletteResult,
+  PaletteResultSection,
+  ResultProvider,
+} from "../../components/Palette/types";
 
 export const FILES_DEBOUNCE_MS = 120;
 
@@ -28,6 +32,13 @@ export function createFilesProvider(options: FilesProviderOptions = {}): ResultP
     debounceMs: FILES_DEBOUNCE_MS,
     async query(q: string): Promise<PaletteResult[]> {
       const needle = q.toLowerCase();
+      // The head names the open folder, the way the sidebar names its own
+      // section; with none open the rows are buffers, headed generically.
+      const rootPath = workspaceStore.root();
+      const section: PaletteResultSection = {
+        kind: "files",
+        label: rootPath ? basename(rootPath) : "Files",
+      };
       const targets = bufferTargets();
       const results: PaletteResult[] = [];
 
@@ -36,27 +47,26 @@ export function createFilesProvider(options: FilesProviderOptions = {}): ResultP
         results.push({
           id: `file:buffer:${target.doc.id}`,
           icon: "file-text",
+          section,
           label: target.doc.title,
           detail: target.doc.source_path ?? (target.kind === "history" ? "History" : "Scratch"),
           execute: () => openTarget({ kind: target.kind, id: target.doc.id }),
         });
       }
 
-      if (!needle) return results;
-
-      const root = workspaceStore.root();
-      if (!root) return results;
+      if (!needle || !rootPath) return results;
 
       const taken = bufferPathKeys(targets);
       const hits = await workspaceSearchStore.searchFiles(q);
       for (const hit of hits) {
-        const absolute = joinPath(root, hit.path);
+        const absolute = joinPath(rootPath, hit.path);
         const key = pathKey(absolute);
         if (taken.has(key)) continue;
         taken.add(key);
         results.push({
           id: `file:workspace:${hit.path}`,
           icon: "file-text",
+          section,
           label: hit.name,
           detail: hit.path,
           execute: () => openTarget({ kind: "file", path: absolute }),

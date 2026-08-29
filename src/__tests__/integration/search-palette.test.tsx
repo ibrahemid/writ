@@ -211,6 +211,38 @@ describe("SearchPalette", () => {
     });
   });
 
+  describe("section heads", () => {
+    function headFor(kind: string): string | undefined {
+      return (
+        document.querySelector(`.palette-section-${kind} .palette-section-label`)?.textContent ??
+        undefined
+      );
+    }
+
+    it("names the file head after the open folder and the hits Text", async () => {
+      h.activeTabs = [doc("a", "zebra.md", "/repo/zebra.md")];
+      h.searchBuffers.mockResolvedValue({
+        hits: [{ buffer_id: "a", title: "zebra.md", line: 9, snippet: [] }],
+        total: 1,
+      });
+      await open();
+      await type("zebra");
+      await waitFor(() => {
+        expect(headFor("files")).toBe("repo");
+        expect(headFor("content")).toBe("Text");
+      });
+    });
+
+    it("heads buffer rows generically with no folder open", async () => {
+      h.root = null;
+      h.activeTabs = [doc("a", "zebra.md", null)];
+      await open();
+      await type("zebra");
+      await waitFor(() => expect(headFor("files")).toBe("Files"));
+      expect(h.searchFiles).not.toHaveBeenCalled();
+    });
+  });
+
   it("keeps streamed hits that arrive before the buffer search resolves", async () => {
     h.activeTabs = [doc("a", "zebra.md", "/repo/zebra.md")];
     h.streamContent.mockImplementation(
@@ -400,7 +432,7 @@ describe("SearchPalette", () => {
       await type("zebra");
       await waitFor(() => expect(items().length).toBeGreaterThan(1));
       const groups = Array.from(document.querySelectorAll('[role="group"]'));
-      expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual(["Commands", "Files"]);
+      expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual(["Commands", "repo"]);
     });
 
     it("tracks the selection with aria-activedescendant", async () => {
