@@ -158,6 +158,9 @@ describe("detectFromContent", () => {
   });
 
   describe("input cap (perf)", () => {
+    // A JSON body whose closing brace sits past the detection cap.
+    const hugeJsonBody = () => "{\n" + '  "k": "' + "v".repeat(MAX_DETECT_BYTES * 2) + '"\n}';
+
     it("detects from anchors inside the first 64 KiB even when the doc is huge", () => {
       const header = `use std::collections::HashMap;\n\nstruct Buffer { id: String }\n\nfn main() {\n    let buf = Buffer { id: String::new() };\n}`;
       const huge = header + "\n" + "x".repeat(MAX_DETECT_BYTES * 2);
@@ -168,7 +171,14 @@ describe("detectFromContent", () => {
       // A JSON object whose closing brace sits past the 64 KiB cap: the cheap
       // first/last-char structural check sees a non-`}` tail and bails before
       // any JSON.parse, so a giant doc is never fully parsed for detection.
-      const big = "{\n" + '  "k": "' + "v".repeat(MAX_DETECT_BYTES * 2) + '"\n}';
+      expect(detectFromContent(hugeJsonBody())).not.toBe("json");
+    });
+
+    // Wall-clock budget for the same input. A loaded machine misses it for
+    // reasons that have nothing to do with the code, so it runs only under
+    // `WRIT_PERF=1 pnpm test`, on an otherwise idle box.
+    it.skipIf(!process.env.WRIT_PERF)("bails out of the huge JSON body in under 16ms", () => {
+      const big = hugeJsonBody();
       const start = performance.now();
       const result = detectFromContent(big);
       const elapsedMs = performance.now() - start;
