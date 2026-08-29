@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { syntaxTree } from "@codemirror/language";
+import { ensureSyntaxTree } from "@codemirror/language";
 import {
   buildMarkdownDecorations,
   markdownTypographyPlugin,
@@ -13,12 +13,27 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
+// A fresh EditorState parses only within a 20 ms budget (Work.Apply in
+// @codemirror/language) and keeps whatever tree it reached when the budget
+// ran out. On a loaded machine that truncates the parse partway through the
+// document, so the decorations under test would cover the first line or two
+// only. Force the parse to the end of the doc, and prove it got there.
+const PARSE_TIMEOUT_MS = 30_000;
+
+type SyntaxTree = NonNullable<ReturnType<typeof ensureSyntaxTree>>;
+
+function treeFor(state: EditorState): SyntaxTree {
+  const tree = ensureSyntaxTree(state, state.doc.length, PARSE_TIMEOUT_MS);
+  expect(tree?.length).toBe(state.doc.length);
+  return tree!;
+}
+
 function buildForDoc(
   doc: string,
   cursorPositions: number[] = [],
 ): DecorationSpec[] {
   const state = EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage })] });
-  const tree = syntaxTree(state);
+  const tree = treeFor(state);
   const cursors = new ReadonlySet(cursorPositions);
   return buildMarkdownDecorations(
     (from, to, cb) => tree.iterate({ from, to, enter: cb }),
@@ -64,6 +79,39 @@ describe("heading line decorations", () => {
     expect(classes).toContain("cm-line-md-h4");
     expect(classes).toContain("cm-line-md-h5");
     expect(classes).toContain("cm-line-md-h6");
+  });
+
+  it("emits every heading class when the initial parse budget runs out", () => {
+    // Guards the flake this helper exists for: with the clock jumped past the
+    // 20 ms init budget, EditorState.create keeps only the tree it had reached,
+    // and the decorations covered the first heading or two. The stall is lifted
+    // before the tree is read, because treeFor's own timeout reads the clock.
+    const doc = "## H2\n### H3\n#### H4\n##### H5\n###### H6\n";
+    const realNow = Date.now.bind(Date);
+    let slices = 0;
+    Date.now = () => (slices++ > 1 ? realNow() + 10_000 : realNow());
+    let state: EditorState;
+    try {
+      state = EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage })] });
+    } finally {
+      Date.now = realNow;
+    }
+
+    const tree = treeFor(state);
+    const specs = buildMarkdownDecorations(
+      (from, to, cb) => tree.iterate({ from, to, enter: cb }),
+      (pos) => state.doc.lineAt(pos),
+      (from, to) => state.doc.sliceString(from, to),
+      new ReadonlySet([]),
+      0,
+      doc.length,
+    );
+    const classes = specs
+      .filter((s) => s.from === s.to)
+      .flatMap((s) => (s.decoration as unknown as { spec: { class: string } }).spec.class.split(" "));
+    for (const level of ["h2", "h3", "h4", "h5", "h6"]) {
+      expect(classes).toContain(`cm-line-md-${level}`);
+    }
   });
 
   it("does not emit heading decorations for plain text", () => {
@@ -193,7 +241,7 @@ describe("inline mark decorations", () => {
       doc,
       extensions: [markdown({ base: markdownLanguage })],
     });
-    const tree = syntaxTree(state);
+    const tree = treeFor(state);
     const specs = buildMarkdownDecorations(
       (from, to, cb) => tree.iterate({ from, to, enter: cb }),
       (pos) => state.doc.lineAt(pos),
@@ -257,7 +305,7 @@ describe("visible range scoping", () => {
   it("omits decorations outside the visible range", () => {
     const doc = "# H1 visible\n# H2 invisible\n";
     const state = EditorState.create({ doc, extensions: [markdown()] });
-    const tree = syntaxTree(state);
+    const tree = treeFor(state);
     const line1End = state.doc.line(1).to;
 
     const specs = buildMarkdownDecorations(
