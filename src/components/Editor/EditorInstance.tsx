@@ -2,8 +2,8 @@ import { onMount, onCleanup, createEffect, createMemo, on } from "solid-js";
 import { Annotation, Compartment, EditorState, type Extension } from "@codemirror/state";
 import { addCursorUp, addCursorDown } from "../../commands/multicursor";
 import {
-  EditorView, keymap, lineNumbers, highlightActiveLine,
-  drawSelection, highlightActiveLineGutter,
+  EditorView, keymap,
+  drawSelection,
   rectangularSelection, crosshairCursor,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
@@ -52,6 +52,7 @@ import { getExtension as languageExtension } from "../../editor/language-registr
 import { registerBuiltinLanguages } from "../../editor/builtins";
 import { editorModeForContent } from "../../editor/large-file";
 import { autoTextDirection } from "../../editor/bidi";
+import { codeChrome, codeChromeFor, isCodeBuffer } from "../../editor/code-chrome";
 import { stripOwnedBindings } from "../../editor/keymap-filter";
 import { registerEditorCommands, OWNED_CM_COMMANDS } from "../../editor/editor-commands";
 import "./EditorInstance.css";
@@ -103,6 +104,7 @@ export default function EditorInstance(props: Props) {
   const themeCompartment = new Compartment();
   const typographyCompartment = new Compartment();
   const codeFaceCompartment = new Compartment();
+  const codeChromeCompartment = new Compartment();
   const editingCompartment = new Compartment();
   const readOnlyCompartment = new Compartment();
   const spellingCompartment = new Compartment();
@@ -219,7 +221,7 @@ export default function EditorInstance(props: Props) {
   // so it takes mono for the whole surface (ADR-030 decision 7). Markdown and
   // an undetected buffer stay prose.
   function codeFaceExtension(lang: string | null): Extension {
-    return lang === null || lang === "markdown" ? [] : writCodeFace;
+    return isCodeBuffer(lang) ? writCodeFace : [];
   }
 
   function editingExtension(lang: string | null, mode: FileOpenMode): Extension {
@@ -240,6 +242,7 @@ export default function EditorInstance(props: Props) {
         typographyCompartment.reconfigure(typographyExtension(lang, mode)),
         editingCompartment.reconfigure(editingExtension(lang, mode)),
         codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
+        codeChromeCompartment.reconfigure(codeChromeFor(lang)),
       ],
     });
   }
@@ -291,6 +294,10 @@ export default function EditorInstance(props: Props) {
       languageCompartment.of(isRestricted ? [] : initialLang),
       typographyCompartment.of(isRestricted ? [] : typographyExtension(langId, mode)),
       codeFaceCompartment.of(isRestricted ? [] : codeFaceExtension(langId)),
+      // A large or binary buffer is a file being inspected, not a note: it
+      // wraps nothing and its language is never detected, so it keeps the
+      // numbers that are the only way to navigate it.
+      codeChromeCompartment.of(isRestricted ? codeChrome : codeChromeFor(langId)),
       editingCompartment.of(isRestricted ? [] : editingExtension(langId, mode)),
       // Configured by applySpelling() after the view mounts.
       spellingCompartment.of([]),
@@ -302,9 +309,6 @@ export default function EditorInstance(props: Props) {
           ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
           : [],
       ),
-      lineNumbers(),
-      highlightActiveLine(),
-      highlightActiveLineGutter(),
       EditorState.allowMultipleSelections.of(true),
       drawSelection(),
       rectangularSelection(),
@@ -405,6 +409,7 @@ export default function EditorInstance(props: Props) {
           typographyCompartment.reconfigure(typographyExtension(lang, mode)),
           editingCompartment.reconfigure(editingExtension(lang, mode)),
           codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
+          codeChromeCompartment.reconfigure(codeChromeFor(lang)),
         ],
       });
     }
@@ -609,6 +614,7 @@ export default function EditorInstance(props: Props) {
           lang === "markdown" && typographyEnabled ? markdownTypographyPlugin : [],
         ),
         codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
+        codeChromeCompartment.reconfigure(codeChromeFor(lang)),
         editingCompartment.reconfigure(
           lang === "markdown" && editingEnabled ? markdownEditingExtension : [],
         ),
