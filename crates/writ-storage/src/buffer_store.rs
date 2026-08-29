@@ -361,6 +361,35 @@ impl BufferStore {
         Ok(())
     }
 
+    /// Records a note's new file and the name that matches it, in one write.
+    ///
+    /// A rename moves the file and the name the tab shows together, so the two
+    /// are written in one transaction alongside the index refresh: two writes
+    /// leave a window where the row names one file and points at another, and
+    /// a crash inside that window is a note nobody can find.
+    ///
+    /// `source_path` is where the file is now, so the index is refreshed from
+    /// the file at its new name rather than from the one that is no longer
+    /// there. Buffers over [`THRESHOLD_NORMAL_BYTES`] stay out of the index,
+    /// matching [`Self::rename`].
+    pub fn rename_to_file(&self, id: &str, source_path: &str, title: &str) -> StorageResult<()> {
+        let doc = queries::get_buffer(&self.conn, id)?;
+        let renamed = BufferDocument {
+            source_path: Some(source_path.to_string()),
+            ..doc
+        };
+        let content = read_source_text(&renamed);
+
+        let tx = self.conn.unchecked_transaction()?;
+        queries::update_source_path(&tx, id, source_path)?;
+        queries::rename_buffer(&tx, id, title)?;
+        if renamed.size_bytes <= THRESHOLD_NORMAL_BYTES {
+            crate::fts::FtsIndex::new(&tx).update(id, title, &content)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Updates the persistent tab order for a buffer.
     pub fn update_tab_order(&self, id: &str, order: u32) -> StorageResult<()> {
         queries::update_tab_order(&self.conn, id, order)
@@ -977,14 +1006,14 @@ impl BufferStore {
 /// macOS is the only platform with `SF_DATALESS`; everywhere else this is a
 /// constant `None` and the check that reads it folds away.
 #[cfg(target_os = "macos")]
-fn dataless_flags(path: &Path) -> Option<u32> {
+pub(crate) fn dataless_flags(path: &Path) -> Option<u32> {
     use std::os::macos::fs::MetadataExt;
     std::fs::metadata(path).ok().map(|m| m.st_flags())
 }
 
 /// [`dataless_flags`] on a platform with no such flag.
 #[cfg(not(target_os = "macos"))]
-fn dataless_flags(_path: &Path) -> Option<u32> {
+pub(crate) fn dataless_flags(_path: &Path) -> Option<u32> {
     None
 }
 
@@ -993,7 +1022,7 @@ fn dataless_flags(_path: &Path) -> Option<u32> {
 /// The bytes are read once and both hashed and measured from that read, so the
 /// digest and the length can never describe two different versions of a file
 /// being written while this runs.
-fn read_disk_state(path: &Path) -> StorageResult<Option<DiskState>> {
+pub(crate) fn read_disk_state(path: &Path) -> StorageResult<Option<DiskState>> {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -1024,7 +1053,7 @@ fn written_state(path: &Path, hash: Sha256Digest, size: u64) -> DiskState {
 }
 
 /// The names `dir` already holds, lowercased the way the dedupe compares them.
-fn taken_names(dir: &Path) -> std::collections::HashSet<String> {
+pub(crate) fn taken_names(dir: &Path) -> std::collections::HashSet<String> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return std::collections::HashSet::new();
     };

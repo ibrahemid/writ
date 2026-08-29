@@ -71,7 +71,16 @@ pub fn reveal_storage_path(state: State<'_, AppState>) -> Result<(), String> {
     } else {
         state.writ_dir.clone()
     };
-    let (program, args) = reveal_command(HOST_OS, &target);
+    show_in_file_manager(&target)
+}
+
+/// Opens the platform's file manager with `target` selected.
+///
+/// Shared with the note commands, which put the same action on a note row:
+/// one place decides how each platform is asked, and one sentence comes back
+/// when it cannot be.
+pub(crate) fn show_in_file_manager(target: &Path) -> Result<(), String> {
+    let (program, args) = reveal_command(HOST_OS, target);
     std::process::Command::new(&program)
         .args(&args)
         .spawn()

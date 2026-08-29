@@ -76,6 +76,37 @@ pub enum StorageError {
         path: String,
     },
 
+    /// A note was asked to take a name with nothing in it.
+    ///
+    /// The wording here is for logs. What the editor says is written at the
+    /// command that catches this (`src-tauri/src/commands/notes.rs`).
+    #[error("a note name cannot be empty")]
+    NoteNameEmpty,
+
+    /// A note cannot take a name the folder already holds (ADR-028 section 3).
+    ///
+    /// Deduping instead would silently give the user a name they did not ask
+    /// for; the collision is named so they can pick another.
+    #[error("the name {name} is already taken in {}", folder.display())]
+    NoteNameTaken {
+        /// The file name, extension included, that is already there.
+        name: String,
+        /// The folder holding it.
+        folder: std::path::PathBuf,
+    },
+
+    /// A note could not be handed to the operating system's trash.
+    ///
+    /// The row stays and the file stays: a note is never unlinked to work
+    /// around this (ADR-028 section 3).
+    #[error("{} could not be moved to the trash: {message}", path.display())]
+    NoteTrash {
+        /// The note that is still on disk.
+        path: std::path::PathBuf,
+        /// What the platform reported.
+        message: String,
+    },
+
     /// A `schema_meta` row holds a value that is not the shape its key
     /// requires, so the bookkeeping it carries cannot be trusted.
     #[error("the recorded value for {key} is not a number: {value}")]

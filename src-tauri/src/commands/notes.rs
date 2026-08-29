@@ -1,0 +1,364 @@
+//! Creating, renaming, trashing and copying notes.
+//!
+//! Notes are managed from inside Writ and the files follow (ADR-028 §3). Each
+//! command here moves a real file first and touches the row second, so a
+//! failure leaves the note on disk rather than leaving a row pointing at
+//! nothing. The disk half is [`writ_storage::note_ops`]; the policy half —
+//! what a typed name becomes — is [`writ_core::notes`].
+
+use std::path::Path;
+
+use tauri::State;
+use writ_core::buffer::document::BufferDocument;
+use writ_core::buffer::manager::BufferManager;
+use writ_storage::errors::StorageError;
+use writ_storage::note_ops;
+
+use crate::commands::buffer::{ignore_stamper, save_failure_message};
+use crate::security::canonicalize_for_authorization;
+use crate::state::AppState;
+
+/// What the editor says when a rename arrives with nothing in it.
+const NAME_IS_EMPTY: &str = "That name is empty.";
+
+/// The name a note is known by: the file's own name, extension included, which
+/// is what Finder shows and what the tab shows.
+fn note_name(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string_lossy().into_owned())
+}
+
+/// The file the note lives in, or the failure to hand back when it has none.
+fn note_path(doc: &BufferDocument) -> Result<String, String> {
+    doc.source_path
+        .clone()
+        .ok_or_else(|| format!("note {} has no file yet", doc.id))
+}
+
+/// The filename stem a typed name earns, with the note's own extension
+/// removed first.
+///
+/// The tab shows a note by its file name, `Grocery list.md` and not
+/// `Grocery list`, so a user editing that name in place hands back a string
+/// that already ends in `.md`. Sanitising it whole would mint
+/// `Grocery list.md.md`. Only the note's current extension is stripped: a note
+/// renamed to `Recipes.2026` keeps the year, because that is not an extension
+/// this file has.
+///
+/// Returns `None` when nothing survives, which is the empty name.
+fn rename_stem(current: &Path, typed: &str) -> Option<String> {
+    let typed = typed.trim();
+    let base = match current.extension().and_then(|ext| ext.to_str()) {
+        Some(extension) => {
+            let suffix = format!(".{extension}");
+            match typed.len() > suffix.len()
+                && typed[typed.len() - suffix.len()..].eq_ignore_ascii_case(&suffix)
+            {
+                true => &typed[..typed.len() - suffix.len()],
+                false => typed,
+            }
+        }
+        None => typed,
+    };
+    writ_core::notes::sanitize_title(base)
+}
+
+/// Renders a note operation's failure for the editor.
+///
+/// The two the user can act on get a sentence naming what to do about them.
+/// A stopped rename carries the same stable code a stopped save does, so the
+/// editor has one place that answers "the file changed underneath you".
+fn note_failure_message(error: &StorageError) -> String {
+    match error {
+        StorageError::NoteNameEmpty => NAME_IS_EMPTY.to_string(),
+        StorageError::NoteNameTaken { name, .. } => {
+            format!("A note named \"{name}\" is already there.")
+        }
+        other => save_failure_message(other),
+    }
+}
+
+/// Creates a note, file first, and opens it.
+///
+/// The file exists in the notes folder before this returns, which is what
+/// `New Note` promises: it is in Finder immediately, not on the first
+/// keystroke and not at quit (ADR-028 §3). The first-keystroke mint stays for
+/// a note that somehow has no file, which after this is only one a recovery
+/// pass produced.
+pub fn new_note_inner(state: &AppState) -> Result<BufferDocument, String> {
+    let now = chrono::Utc::now();
+    let stem = writ_core::notes::note_file_stem("", now);
+
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    let stamp = ignore_stamper(state);
+    let path = note_ops::create_note(&state.notes_root, &stem, Some(&stamp))
+        .map_err(|e| note_failure_message(&e))?;
+    let canonical = canonicalize_for_authorization(&path).map_err(|e| e.to_string())?;
+
+    let mut mgr = BufferManager::new().with_event_bus(state.event_bus.clone());
+    let doc = mgr
+        .open_external(canonical.clone())
+        .map_err(|e| e.to_string())?;
+    store.open_from_path(&doc, "").map_err(|e| e.to_string())?;
+
+    state.authorized_paths.record_blessed_source(canonical);
+    state.record_disk_state_bytes(&doc.id, &path, b"");
+    Ok(doc)
+}
+
+/// IPC: [`new_note_inner`].
+#[tauri::command]
+pub fn new_note(state: State<'_, AppState>) -> Result<BufferDocument, String> {
+    new_note_inner(&state)
+}
+
+/// Renames a note's file and the row that points at it.
+///
+/// The move goes through the same guard a save does, so a rename cannot carry
+/// a file another process rewrote out from under Writ
+/// ([`note_ops::rename_note`]). The row's file and title are then written
+/// together, and the tab keeps its content, cursor and undo history because
+/// the note's id never changes and the editor is never reloaded.
+pub fn rename_note_inner(
+    state: &AppState,
+    id: &str,
+    title: &str,
+) -> Result<BufferDocument, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    let doc = store.get(id).map_err(|e| e.to_string())?;
+    let from = note_path(&doc)?;
+    let from = Path::new(&from);
+
+    let stem = rename_stem(from, title).ok_or_else(|| NAME_IS_EMPTY.to_string())?;
+
+    let stamp = ignore_stamper(state);
+    let to = note_ops::rename_note(from, &stem, state.disk_state(id), Some(&stamp))
+        .map_err(|e| note_failure_message(&e))?;
+    let to_text = to
+        .to_str()
+        .ok_or_else(|| format!("the file name {} cannot be recorded", to.display()))?;
+
+    store
+        .rename_to_file(id, to_text, &note_name(&to))
+        .map_err(|e| e.to_string())?;
+
+    if let Ok(canonical) = canonicalize_for_authorization(&to) {
+        state.authorized_paths.record_blessed_source(canonical);
+    }
+    // The bytes did not move, so the digest still describes the file; only the
+    // metadata around it is re-read. Nothing is recorded for a note Writ has
+    // not read this launch, which leaves its first save to read the file.
+    if let Some(previous) = state.disk_state(id) {
+        state.record_disk_state(id, &to, previous.hash, previous.size);
+    }
+
+    store.get(id).map_err(|e| e.to_string())
+}
+
+/// IPC: [`rename_note_inner`].
+#[tauri::command]
+pub fn rename_note(
+    state: State<'_, AppState>,
+    id: String,
+    title: String,
+) -> Result<BufferDocument, String> {
+    rename_note_inner(&state, &id, &title)
+}
+
+/// Moves a note to the operating system's trash and drops its row.
+///
+/// The row goes only after the file has gone, so a platform that refuses the
+/// move leaves the note both on disk and in Writ rather than leaving a row
+/// pointing at a file nobody can reach. A note with no file yet has nothing to
+/// trash and only loses its row.
+pub fn delete_note_inner(state: &AppState, id: &str) -> Result<(), String> {
+    let source_path = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        let doc = store.get(id).map_err(|e| e.to_string())?;
+        doc.source_path
+    };
+
+    if let Some(path) = source_path.as_deref() {
+        let path = Path::new(path);
+        note_ops::trash_note(path)
+            .map_err(|_| format!("Couldn't move \"{}\" to the Trash.", note_name(path)))?;
+    }
+
+    crate::commands::buffer::delete_buffer_inner(state, id)
+}
+
+/// IPC: [`delete_note_inner`].
+#[tauri::command]
+pub fn delete_note(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    delete_note_inner(&state, &id)
+}
+
+/// Writes `content` into the notes folder as a new note, leaving the file it
+/// came from untouched, and returns the path written.
+///
+/// This is how a file opened from anywhere else earns a place among the notes
+/// without moving. The caller opens the returned path, which is inside the
+/// notes folder and so needs no further permission.
+pub fn save_note_copy_inner(state: &AppState, id: &str, content: &str) -> Result<String, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    let doc = store.get(id).map_err(|e| e.to_string())?;
+    let stem = writ_core::notes::note_file_stem(&copy_stem(&doc), chrono::Utc::now());
+
+    let stamp = ignore_stamper(state);
+    let path = note_ops::save_copy(&state.notes_root, &stem, content, Some(&stamp))
+        .map_err(|e| note_failure_message(&e))?;
+    path.to_str()
+        .map(str::to_string)
+        .ok_or_else(|| format!("the file name {} cannot be recorded", path.display()))
+}
+
+/// The name a copy starts from: the file's own stem when it has one, so
+/// `report.md` copies to `report.md` and not `report.md.md`, and the title
+/// otherwise.
+fn copy_stem(doc: &BufferDocument) -> String {
+    doc.source_path
+        .as_deref()
+        .map(Path::new)
+        .and_then(|path| path.file_stem())
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| doc.title.clone())
+}
+
+/// IPC: [`save_note_copy_inner`].
+#[tauri::command]
+pub fn save_note_copy(
+    state: State<'_, AppState>,
+    id: String,
+    content: String,
+) -> Result<String, String> {
+    save_note_copy_inner(&state, &id, &content)
+}
+
+/// The notes folder as text.
+pub fn notes_root_text(state: &AppState) -> String {
+    state.notes_root.to_string_lossy().into_owned()
+}
+
+/// IPC: the absolute path of the notes folder.
+///
+/// The sidebar reads it to know which rows are notes, and Settings shows it as
+/// the answer to "where are my notes".
+#[tauri::command]
+pub fn get_notes_root(state: State<'_, AppState>) -> String {
+    notes_root_text(&state)
+}
+
+/// The file note `id` lives in, as its row records it.
+pub fn note_path_for_id(state: &AppState, id: &str) -> Result<String, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    let doc = store.get(id).map_err(|e| e.to_string())?;
+    note_path(&doc)
+}
+
+/// IPC: shows a note in the platform's file manager.
+///
+/// The folder is the product's answer to "where are my notes", so getting to
+/// it has to be one click from the note itself.
+#[tauri::command]
+pub fn show_note_in_file_manager(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let path = note_path_for_id(&state, &id)?;
+    crate::commands::storage::show_in_file_manager(Path::new(&path))
+}
+
+/// IPC: shows a file inside the notes folder in the platform's file manager.
+///
+/// The sidebar names a path rather than a note, because a row it lists need
+/// not be open. Only a path the notes folder contains is accepted: the webview
+/// picks the argument, and a file manager launched on any path it names is a
+/// way out of the app's own boundaries. Containment is decided on the resolved
+/// path, so a symlink cannot carry the answer out of the folder, which is the
+/// same resolution the write gate runs.
+#[tauri::command]
+pub fn show_notes_file_in_file_manager(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<(), String> {
+    if !notes_file_is_showable(&state, &path) {
+        return Err(ERR_NOT_A_NOTE.to_string());
+    }
+    crate::commands::storage::show_in_file_manager(Path::new(&path))
+}
+
+/// Code a request carries when it names a path the notes folder does not hold.
+///
+/// The frontend never shows this: the entry it comes from is only drawn on a
+/// row inside the folder, so reaching it means something else asked.
+pub const ERR_NOT_A_NOTE: &str = "ERR_NOT_A_NOTE";
+
+/// Whether `path` is a file the notes folder contains.
+pub fn notes_file_is_showable(state: &AppState, path: &str) -> bool {
+    match crate::commands::file::resolve_for_containment(Path::new(path)) {
+        Some(resolved) => state.is_within_notes(&resolved),
+        None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_typed_name_keeps_the_note_extension_once() {
+        let current = Path::new("/notes/2026-08-29.md");
+        assert_eq!(
+            rename_stem(current, "Grocery list").as_deref(),
+            Some("Grocery list")
+        );
+        assert_eq!(
+            rename_stem(current, "Grocery list.md").as_deref(),
+            Some("Grocery list")
+        );
+        assert_eq!(
+            rename_stem(current, "Grocery list.MD").as_deref(),
+            Some("Grocery list")
+        );
+    }
+
+    #[test]
+    fn a_name_that_is_only_the_extension_is_kept_whole() {
+        let current = Path::new("/notes/2026-08-29.md");
+        assert_eq!(rename_stem(current, ".md").as_deref(), Some("md"));
+    }
+
+    #[test]
+    fn a_suffix_that_is_not_this_files_extension_survives() {
+        let current = Path::new("/notes/2026-08-29.md");
+        assert_eq!(
+            rename_stem(current, "Recipes.2026").as_deref(),
+            Some("Recipes.2026")
+        );
+    }
+
+    #[test]
+    fn a_name_with_nothing_in_it_yields_nothing() {
+        let current = Path::new("/notes/2026-08-29.md");
+        assert_eq!(rename_stem(current, "   "), None);
+        assert_eq!(rename_stem(current, "///"), None);
+    }
+
+    #[test]
+    fn a_taken_name_is_named_back() {
+        let error = StorageError::NoteNameTaken {
+            name: "Grocery list.md".to_string(),
+            folder: std::path::PathBuf::from("/notes"),
+        };
+        assert_eq!(
+            note_failure_message(&error),
+            "A note named \"Grocery list.md\" is already there."
+        );
+    }
+
+    #[test]
+    fn an_empty_name_is_said_plainly() {
+        assert_eq!(
+            note_failure_message(&StorageError::NoteNameEmpty),
+            NAME_IS_EMPTY
+        );
+    }
+}

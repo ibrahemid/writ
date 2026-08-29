@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 
 const mocks = vi.hoisted(() => ({
-  createTab: vi.fn(),
+  newNote: vi.fn(),
   setActiveTabId: vi.fn(),
   closeTab: vi.fn(),
   closeOtherTabs: vi.fn(),
@@ -21,7 +21,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       closeTab: mocks.closeTab,
       closeOtherTabs: mocks.closeOtherTabs,
       closeAllTabs: mocks.closeAllTabs,
-      createTab: mocks.createTab,
+      newNote: mocks.newNote,
     },
   }),
 }));
@@ -47,24 +47,24 @@ vi.mock("../../components/ContextMenu/ContextMenu", () => ({
 
 import TabBar from "../../components/Editor/TabBar";
 
-describe("TabBar new-tab button (#46)", () => {
+describe("TabBar new-note button (#46)", () => {
   afterEach(() => {
-    mocks.createTab.mockClear();
+    mocks.newNote.mockClear();
     cleanup();
   });
 
-  it("exposes accessible name 'New tab'", () => {
+  it("exposes accessible name 'New note'", () => {
     const { container } = render(() => <TabBar />);
     const newTab = container.querySelector<HTMLButtonElement>(".tabbar-new");
     expect(newTab).not.toBeNull();
-    expect(newTab!.getAttribute("aria-label")).toBe("New tab");
+    expect(newTab!.getAttribute("aria-label")).toBe("New note");
     expect(newTab!.getAttribute("type")).toBe("button");
   });
 
-  it("clicking invokes createTab", () => {
+  it("clicking creates a note, which is a file in the notes folder", () => {
     const { container } = render(() => <TabBar />);
     const newTab = container.querySelector<HTMLButtonElement>(".tabbar-new")!;
     fireEvent.click(newTab);
-    expect(mocks.createTab).toHaveBeenCalledTimes(1);
+    expect(mocks.newNote).toHaveBeenCalledTimes(1);
   });
 });

@@ -49,6 +49,37 @@ export async function getBuffer(id: string): Promise<BufferDocument> {
   return invoke("get_buffer", { id });
 }
 
+// Notes: the file moves first, the row second (ADR-028 §3).
+
+export async function newNote(): Promise<BufferDocument> {
+  return invoke("new_note");
+}
+
+export async function renameNote(id: string, title: string): Promise<BufferDocument> {
+  return invoke("rename_note", { id, title });
+}
+
+export async function deleteNote(id: string): Promise<void> {
+  return invoke("delete_note", { id });
+}
+
+/** Writes a copy into the notes folder and returns the path it was written to. */
+export async function saveNoteCopy(id: string, content: string): Promise<string> {
+  return invoke("save_note_copy", { id, content });
+}
+
+export async function showNoteInFileManager(id: string): Promise<void> {
+  return invoke("show_note_in_file_manager", { id });
+}
+
+export async function showNotesFileInFileManager(path: string): Promise<void> {
+  return invoke("show_notes_file_in_file_manager", { path });
+}
+
+export async function getNotesRoot(): Promise<string> {
+  return invoke("get_notes_root");
+}
+
 export async function saveBufferContent(id: string, content: string): Promise<void> {
   return invoke("save_buffer_content", { id, content });
 }

@@ -8,6 +8,7 @@ import ThemeEditor, { openThemeEditor } from "./components/ThemeEditor/ThemeEdit
 import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/ShortcutEditor";
 import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
+import { confirmAndDeleteNote, saveCopyOfNote } from "./lib/note-actions";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
 import { installNativeContextMenuSuppressor } from "./lib/native-context-menu";
 import { IS_MAC } from "./lib/platform";
@@ -21,6 +22,7 @@ import { formatSaveError } from "./lib/save-error";
 import { basename } from "./lib/path";
 import { logFailure } from "./lib/log";
 import { workspaceStore } from "./stores/global/workspace";
+import { notesStore } from "./stores/global/notes";
 import { inboxStore } from "./stores/global/inbox";
 import { updateStore } from "./stores/global/update";
 import { configStore } from "./stores/global/config";
@@ -140,6 +142,7 @@ function AppShell() {
     await bufferRegistry.load();
     await workspaceStore.hydrate().catch(() => undefined);
     await inboxStore.hydrate().catch(() => undefined);
+    await notesStore.load();
 
     const recoveredBuffers = await getRecoveredBuffers().catch(() => []);
     if (recoveredBuffers.length > 0) {
@@ -195,13 +198,14 @@ function AppShell() {
     void osWindowStore.reveal();
 
     registerCommand({
-      id: "buffer.new",
-      label: "New Tab",
-      description: "Create a new empty buffer",
-      keybinding: "CmdOrCtrl+T",
+      id: "note.new",
+      label: "New Note",
+      description: "Create a note in the notes folder",
+      keybinding: "CmdOrCtrl+N",
+      keybindingAliases: ["CmdOrCtrl+T"],
       scope: "app",
       global: true,
-      execute: () => windowRegistry.getActive()?.tabs.createTab(),
+      execute: () => void windowRegistry.getActive()?.tabs.newNote(),
     });
 
     registerCommand({
@@ -445,13 +449,35 @@ function AppShell() {
     });
 
     registerCommand({
-      id: "tab.rename",
-      label: "Rename Tab",
-      description: "Rename the active tab",
+      id: "note.rename",
+      label: "Rename Note…",
+      description: "Rename the active note and its file",
       keybinding: "F2",
       keybindingAliases: ["CmdOrCtrl+Shift+S"],
       scope: "app",
       execute: () => startRenameActiveTab(),
+    });
+
+    registerCommand({
+      id: "note.delete",
+      label: "Delete Note",
+      description: "Move the active note to the Trash",
+      scope: "app",
+      execute: () => {
+        const id = windowRegistry.getActive()?.tabs.activeTabId();
+        if (id) void confirmAndDeleteNote(id);
+      },
+    });
+
+    registerCommand({
+      id: "note.saveCopy",
+      label: "Save a Copy…",
+      description: "Write a copy of the active note into the notes folder",
+      scope: "app",
+      execute: () => {
+        const id = windowRegistry.getActive()?.tabs.activeTabId();
+        if (id) void saveCopyOfNote(id);
+      },
     });
 
     registerCommand({

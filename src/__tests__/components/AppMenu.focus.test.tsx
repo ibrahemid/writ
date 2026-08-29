@@ -23,7 +23,7 @@ function renderMenu() {
 }
 
 afterEach(() => {
-  for (const id of ["palette.open", "buffer.new"]) unregisterCommand(id);
+  for (const id of ["palette.open", "note.new"]) unregisterCommand(id);
   cleanup();
 });
 
@@ -64,8 +64,8 @@ describe("AppMenu focus handoff", () => {
 
   it("returns focus to the menu button when the menu is dismissed without acting", async () => {
     registerCommand({
-      id: "buffer.new",
-      label: "New Tab",
+      id: "note.new",
+      label: "New Note",
       scope: "app",
       execute: () => {},
     });

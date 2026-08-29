@@ -53,6 +53,33 @@ function createBufferRegistry() {
     return doc;
   }
 
+  // A new note is a file in the notes folder before anything else happens, so
+  // it is in Finder immediately rather than on the first keystroke.
+  async function newNote(): Promise<BufferDocument> {
+    await flushAutosave();
+    const doc = await api.newNote();
+    setBuffers((prev) =>
+      prev.find((b) => b.id === doc.id) ? prev : [...prev, doc],
+    );
+    return doc;
+  }
+
+  // Trashing is not undoable from inside Writ, so the pending write is dropped
+  // rather than flushed: writing text into a file that is about to leave would
+  // put it in the Trash too.
+  async function deleteNote(id: string): Promise<void> {
+    cancelAutosave(id);
+    await api.deleteNote(id);
+    void api.previewClose(id).catch(() => {});
+    setBuffers((prev) => prev.filter((b) => b.id !== id));
+  }
+
+  // Returns the path the copy was written to, which the caller opens as a note
+  // of its own. The note the copy came from is left exactly where it is.
+  async function saveCopy(id: string, content: string): Promise<string> {
+    return api.saveNoteCopy(id, content);
+  }
+
   async function closeBuffer(id: string, options: CloseOptions = {}): Promise<CloseOutcome> {
     // Closing a tab whose text did not reach disk would destroy it: the tab is
     // the only place that text still exists. Report the failure instead so the
@@ -124,9 +151,12 @@ function createBufferRegistry() {
     setBuffers((prev) => prev.filter((b) => b.status !== "history"));
   }
 
+  // Renaming a note renames its file, so the row that comes back is the only
+  // honest source of the new title and path: the name on disk is sanitised and
+  // need not be the string that was typed.
   async function renameBuffer(id: string, title: string): Promise<void> {
-    await api.renameBuffer(id, title);
-    setBuffers((prev) => prev.map((b) => (b.id === id ? { ...b, title } : b)));
+    const doc = await api.renameNote(id, title);
+    setBuffers((prev) => prev.map((b) => (b.id === doc.id ? doc : b)));
   }
 
   function formatBytes(n: number): string {
@@ -203,6 +233,9 @@ function createBufferRegistry() {
     historyList,
     load,
     createBuffer,
+    newNote,
+    deleteNote,
+    saveCopy,
     closeBuffer,
     closeBuffers,
     restoreBuffer,

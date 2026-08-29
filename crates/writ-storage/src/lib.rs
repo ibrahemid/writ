@@ -17,6 +17,7 @@
 //!   files the notes live in.
 //! - [`fts`]: FTS5 indexing and search over buffer content.
 //! - [`maintenance`]: WAL checkpointing and freelist reclamation.
+//! - [`note_ops`]: creating, renaming, trashing and copying note files.
 //! - [`notes_migration`]: the one-time pass that turns every note into a
 //!   file.
 //! - [`recovery`]: session snapshots and dirty-shutdown detection.
@@ -51,6 +52,8 @@ pub mod inbox_store;
 pub mod layout_state;
 /// WAL checkpointing and freelist reclamation.
 pub mod maintenance;
+/// Creating, renaming, trashing and copying the files notes live in.
+pub mod note_ops;
 /// The one-time pass that turns every note into a file (ADR-028).
 pub mod notes_migration;
 /// Session snapshots and dirty-shutdown detection.

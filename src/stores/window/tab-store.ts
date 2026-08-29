@@ -33,6 +33,20 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
     return doc;
   }
 
+  async function newNote(): Promise<BufferDocument> {
+    const doc = await registry.newNote();
+    setActiveTabId(doc.id);
+    return doc;
+  }
+
+  // The tab goes with the note. Selection moves to the survivor first, for the
+  // same reason closeTab does it: a transient null active buffer recreates the
+  // preview iframe, which hard-freezes the macOS webview.
+  async function deleteNote(id: string): Promise<void> {
+    selectSurvivor(id);
+    await registry.deleteNote(id);
+  }
+
   // A buffer on a volume that never accepts a write would otherwise hold its
   // tab open for the rest of the session. Name what went wrong and let the user
   // decide, with the safe answer focused.
@@ -149,6 +163,8 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
     setActiveTabId,
     loadAndActivate,
     createTab,
+    newNote,
+    deleteNote,
     closeTab,
     closeOtherTabs,
     closeAllTabs,

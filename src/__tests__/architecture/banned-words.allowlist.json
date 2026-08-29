@@ -1,19 +1,13 @@
 [
   {
     "file": "src/App.tsx",
-    "line": 147,
+    "line": 150,
     "word": "buffer",
     "note": "recovery toast, release 0.6"
   },
   {
     "file": "src/App.tsx",
-    "line": 200,
-    "word": "buffer",
-    "note": "New Tab command description, release 0.6"
-  },
-  {
-    "file": "src/App.tsx",
-    "line": 220,
+    "line": 224,
     "word": "buffer",
     "note": "Save command description, release 0.6"
   },
@@ -211,19 +205,19 @@
   },
   {
     "file": "src/stores/global/buffer-registry.ts",
-    "line": 137,
+    "line": 167,
     "word": "MiB",
     "note": "size formatter unit, release 0.6"
   },
   {
     "file": "src/stores/global/buffer-registry.ts",
-    "line": 178,
+    "line": 208,
     "word": "syntax highlighting",
     "note": "large-file confirm message, release 0.6"
   },
   {
     "file": "src/stores/global/buffer-registry.ts",
-    "line": 178,
+    "line": 208,
     "word": "typography",
     "note": "large-file confirm message, release 0.6"
   },

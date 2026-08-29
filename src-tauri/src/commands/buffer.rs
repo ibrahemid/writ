@@ -160,7 +160,7 @@ pub fn save_buffer_content_inner(state: &AppState, id: &str, content: &str) -> R
 /// It is handed to the store rather than run before the call because the store
 /// writes more than the note: a save that cannot land writes the text it was
 /// carrying beside the note, and that file lands in the same watched folder.
-fn ignore_stamper(state: &AppState) -> impl Fn(&Path, &[u8]) + '_ {
+pub(crate) fn ignore_stamper(state: &AppState) -> impl Fn(&Path, &[u8]) + '_ {
     move |path: &Path, bytes: &[u8]| {
         let key =
             writ_core::watcher::ignore::source_key(&crate::watcher::handler::ignore_key_path(path));

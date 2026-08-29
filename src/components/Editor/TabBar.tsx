@@ -4,6 +4,12 @@ import { windowRegistry } from "../../stores/global/window-registry";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
 import { abbreviateTitle } from "../../lib/buffer-name";
+import {
+  confirmAndDeleteNote,
+  saveCopyOfNote,
+  showInFileManagerLabel,
+  showNoteInFileManager,
+} from "../../lib/note-actions";
 import "./TabBar.css";
 
 // Module-level singleton — TabBar mounts only in the main window (detached
@@ -53,9 +59,25 @@ export default function TabBar() {
 
   function handleContextMenu(e: MouseEvent, tabId: string) {
     e.preventDefault();
+    const onDisk = bufferRegistry.buffers().some((b) => b.id === tabId && b.source_path);
     showContextMenu(e.clientX, e.clientY, [
       { label: "Rename", action: () => setEditingTabId(tabId) },
-      { label: "Close Tab", action: () => void win.tabs.closeTab(tabId) },
+      {
+        label: showInFileManagerLabel(),
+        action: () => void showNoteInFileManager(tabId),
+        disabled: !onDisk,
+      },
+      {
+        label: "Save a Copy…",
+        action: () => void saveCopyOfNote(tabId),
+        separator: true,
+      },
+      {
+        label: "Delete",
+        action: () => void confirmAndDeleteNote(tabId),
+        danger: true,
+      },
+      { label: "Close Tab", action: () => void win.tabs.closeTab(tabId), separator: true },
       { label: "Close Other Tabs", action: () => void win.tabs.closeOtherTabs(tabId) },
       { label: "Close All Tabs", action: () => void win.tabs.closeAllTabs(), separator: true, danger: true },
     ]);
@@ -111,9 +133,9 @@ export default function TabBar() {
       <button
         type="button"
         class="tabbar-new"
-        aria-label="New tab"
-        title="New tab"
-        onClick={() => void win.tabs.createTab()}
+        aria-label="New note"
+        title="New note"
+        onClick={() => void win.tabs.newNote()}
       >+</button>
     </div>
   );
