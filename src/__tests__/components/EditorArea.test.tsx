@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../components/Preview/PreviewLayout", () => ({
   default: () => <div data-testid="preview-layout" />,
 }));
+vi.mock("../../components/Toolbar/Toolbar", () => ({ default: () => null }));
 vi.mock("../../components/Find/FindOverlay", () => ({ default: () => null }));
 vi.mock("../../components/Editor/SpellingPreview", () => ({ default: () => null }));
 vi.mock("../../components/Editor/StatusBar", () => ({

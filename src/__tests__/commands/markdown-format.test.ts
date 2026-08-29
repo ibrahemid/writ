@@ -8,6 +8,8 @@ import {
   toggleInlineCode,
   insertLink,
   wrapOnType,
+  toggleBulletList,
+  toggleTaskList,
 } from "../../commands/markdown-format";
 
 function stateWith(doc: string, anchor: number, head?: number): EditorState {
@@ -223,5 +225,59 @@ describe("wrapOnType", () => {
       extensions: [EditorState.allowMultipleSelections.of(true), markdown({ base: markdownLanguage })],
     });
     expect(wrapOnType(state, "*")).toBeNull();
+  });
+});
+
+describe("toggleBulletList", () => {
+  it("adds a dash to the line the cursor sits on", () => {
+    const next = apply(stateWith("groceries", 3), toggleBulletList);
+    expect(next.doc.toString()).toBe("- groceries");
+  });
+
+  it("strips the dash from a line that already has one", () => {
+    const next = apply(stateWith("- groceries", 5), toggleBulletList);
+    expect(next.doc.toString()).toBe("groceries");
+  });
+
+  it("keeps the indentation of an indented line", () => {
+    const next = apply(stateWith("    groceries", 6), toggleBulletList);
+    expect(next.doc.toString()).toBe("    - groceries");
+  });
+
+  it("covers every line a selection touches, and turns a mixed run on", () => {
+    const next = apply(stateWith("- one\ntwo\nthree", 0, 13), toggleBulletList);
+    expect(next.doc.toString()).toBe("- one\n- two\n- three");
+  });
+
+  it("turns a fully marked selection off", () => {
+    const next = apply(stateWith("- one\n- two", 0, 11), toggleBulletList);
+    expect(next.doc.toString()).toBe("one\ntwo");
+  });
+
+  it("drops a checkbox rather than nesting a second dash", () => {
+    const next = apply(stateWith("- [ ] one", 7), toggleBulletList);
+    expect(next.doc.toString()).toBe("- one");
+  });
+});
+
+describe("toggleTaskList", () => {
+  it("adds an unchecked box to a plain line", () => {
+    const next = apply(stateWith("send the sheet", 4), toggleTaskList);
+    expect(next.doc.toString()).toBe("- [ ] send the sheet");
+  });
+
+  it("promotes a bullet in one step", () => {
+    const next = apply(stateWith("- send the sheet", 4), toggleTaskList);
+    expect(next.doc.toString()).toBe("- [ ] send the sheet");
+  });
+
+  it("strips a checked box as readily as an unchecked one", () => {
+    const next = apply(stateWith("- [x] send the sheet", 8), toggleTaskList);
+    expect(next.doc.toString()).toBe("send the sheet");
+  });
+
+  it("starts a task on an empty line", () => {
+    const next = apply(stateWith("", 0), toggleTaskList);
+    expect(next.doc.toString()).toBe("- [ ] ");
   });
 });

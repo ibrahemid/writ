@@ -205,3 +205,65 @@ export function wrapOnType(state: EditorState, text: string): TransactionSpec | 
     userEvent: "input.type",
   };
 }
+
+type ListKind = "bullet" | "task";
+
+const LIST_MARKER_TEXT: Record<ListKind, string> = { bullet: "- ", task: "- [ ] " };
+
+// Indentation, an optional bullet, and an optional checkbox after it. Every
+// part is optional, so a plain line matches with an empty marker.
+const LIST_MARKER = /^([ \t]*)(?:([-*+])[ \t]+(\[[ xX]\][ \t]+)?)?/;
+
+interface LineMarker {
+  indent: string;
+  kind: ListKind | null;
+  /** Where the line's own text starts, past the indent and the marker. */
+  textStart: number;
+}
+
+function readListMarker(text: string): LineMarker {
+  const match = LIST_MARKER.exec(text);
+  if (!match) return { indent: "", kind: null, textStart: 0 };
+  const [whole, indent, bullet, checkbox] = match;
+  return {
+    indent,
+    kind: bullet ? (checkbox ? "task" : "bullet") : null,
+    textStart: whole.length,
+  };
+}
+
+/**
+ * Rewrites the list marker on every line the selection touches. A selection
+ * already carrying this marker throughout turns it off; anything else turns it
+ * on, replacing whichever marker a line carries so a bullet becomes a task in
+ * one step rather than gaining a second dash.
+ */
+function toggleListLines(kind: ListKind): StateCommand {
+  return ({ state, dispatch }) => {
+    const numbers = new Set<number>();
+    for (const range of state.selection.ranges) {
+      const first = state.doc.lineAt(range.from).number;
+      const last = state.doc.lineAt(range.to).number;
+      for (let n = first; n <= last; n += 1) numbers.add(n);
+    }
+
+    const lines = [...numbers].map((n) => state.doc.line(n));
+    const removing = lines.every((line) => readListMarker(line.text).kind === kind);
+    const changes: { from: number; to: number; insert: string }[] = [];
+
+    for (const line of lines) {
+      const marker = readListMarker(line.text);
+      const insert = removing ? marker.indent : marker.indent + LIST_MARKER_TEXT[kind];
+      const to = line.from + marker.textStart;
+      if (state.sliceDoc(line.from, to) === insert) continue;
+      changes.push({ from: line.from, to, insert });
+    }
+
+    if (changes.length === 0) return false;
+    dispatch(state.update({ changes, scrollIntoView: true, userEvent: "input" }));
+    return true;
+  };
+}
+
+export const toggleBulletList: StateCommand = toggleListLines("bullet");
+export const toggleTaskList: StateCommand = toggleListLines("task");

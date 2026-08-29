@@ -38,6 +38,8 @@ import {
   toggleStrikethrough,
   toggleInlineCode,
   insertLink,
+  toggleBulletList,
+  toggleTaskList,
 } from "../../commands/markdown-format";
 import type { BufferDocument, FileOpenMode } from "../../types/buffer";
 import { configStore } from "../../stores/global/config";
@@ -673,6 +675,8 @@ export default function EditorInstance(props: Props) {
     { id: "editor.toggleStrikethrough", label: "Toggle Strikethrough", keybinding: "CmdOrCtrl+Shift+X", run: toggleStrikethrough },
     { id: "editor.toggleInlineCode", label: "Toggle Inline Code", keybinding: "CmdOrCtrl+Shift+E", run: toggleInlineCode },
     { id: "editor.insertLink", label: "Insert Link", keybinding: "CmdOrCtrl+K", run: insertLink },
+    { id: "editor.toggleBulletList", label: "Toggle Bulleted List", keybinding: undefined, run: toggleBulletList },
+    { id: "editor.toggleTaskList", label: "Toggle Task List", keybinding: undefined, run: toggleTaskList },
   ] as const;
 
   createEffect(() => {

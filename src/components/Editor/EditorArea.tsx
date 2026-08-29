@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
 import StatusBar from "./StatusBar";
+import Toolbar from "../Toolbar/Toolbar";
 import WordCount from "./WordCount";
 import FindOverlay from "../Find/FindOverlay";
 import SpellingPreview from "./SpellingPreview";
@@ -14,6 +15,7 @@ export default function EditorArea() {
 
   return (
     <div class="editor-area">
+      <Toolbar />
       <div class="editor-content">
         {/* Always mounted, even with no active buffer, so the preview iframe
             element it owns is never torn down (#124 webview freeze). */}

@@ -21,6 +21,7 @@ const MIGRATED = [
   "src/components/Button/Button.tsx",
   "src/components/Kbd/Kbd.tsx",
   "src/components/Tooltip/Tooltip.tsx",
+  "src/components/Toolbar/Toolbar.tsx",
   ...sidebarComponents(),
 ];
 

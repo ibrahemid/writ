@@ -2,6 +2,7 @@ import { Show, createMemo, createSignal } from "solid-js";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { workspaceStore } from "../../stores/global/workspace";
+import { resolvePlatform } from "../../lib/platform";
 import { inboxStore } from "../../stores/global/inbox";
 import {
   configStore,
@@ -40,6 +41,9 @@ function setCapture(handle: Element, pointerId: number, capture: boolean) {
 
 export default function Sidebar() {
   const win = useWindow();
+  // GNOME keeps the search entry in the sidebar's own header segment; the
+  // other two shells carry it in the toolbar (ADR-030 decision 4).
+  const searchInSidebar = resolvePlatform() === "linux";
   const searching = createMemo(() => win.sidebar.searchQuery().trim().length > 0);
   const hasContent = createMemo(
     () =>
@@ -94,7 +98,9 @@ export default function Sidebar() {
       aria-hidden={win.sidebar.isOpen() ? undefined : "true"}
       inert={!win.sidebar.isOpen()}
     >
-      <SearchBar />
+      <Show when={searchInSidebar}>
+        <SearchBar />
+      </Show>
       <Show
         when={searching()}
         fallback={
