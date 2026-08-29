@@ -101,8 +101,16 @@ pub enum RowOutcome {
 /// the report panel.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MigrationReport {
-    /// When the run finished, RFC 3339.
+    /// When the latest run finished, RFC 3339.
     pub ran_at: String,
+    /// When the run that placed the first of these notes finished, RFC 3339.
+    ///
+    /// A re-run only revisits the rows that still need work, so it inherits
+    /// everything an earlier one placed ([`Self::merge_over`]). This is the
+    /// date those notes moved, which is the one the report has any reason to
+    /// name.
+    #[serde(default)]
+    pub first_ran_at: String,
     /// The notes folder the run wrote into.
     pub notes_folder: String,
     /// The archive folder the run wrote history rows into.
@@ -136,6 +144,34 @@ impl MigrationReport {
             Some(entry) => entry.1 = outcome,
             None => self.rows.push((key, outcome)),
         }
+    }
+
+    /// Folds `previous` under this run's outcomes.
+    ///
+    /// A re-run visits every row but only does work on the ones that still
+    /// need it; the rest come back [`RowOutcome::Skipped`], which says where a
+    /// note is but not what became of it. Storing those over the last run's
+    /// answers would tell a user with forty notes that one was migrated, so a
+    /// row keeps the last outcome that said something and only a real outcome
+    /// replaces it.
+    fn merge_over(&mut self, previous: MigrationReport) {
+        self.first_ran_at = if previous.first_ran_at.is_empty() {
+            previous.ran_at
+        } else {
+            previous.first_ran_at
+        };
+        let mut rows = previous.rows;
+        for (key, outcome) in self.rows.drain(..) {
+            match rows.iter_mut().find(|(existing, _)| *existing == key) {
+                Some(entry) => {
+                    if !matches!(outcome, RowOutcome::Skipped { .. }) {
+                        entry.1 = outcome;
+                    }
+                }
+                None => rows.push((key, outcome)),
+            }
+        }
+        self.rows = rows;
     }
 
     /// Recounts every total from [`Self::rows`].
@@ -209,6 +245,7 @@ pub fn run_notes_migration(
 
     let mut report = MigrationReport {
         ran_at: now.to_rfc3339(),
+        first_ran_at: now.to_rfc3339(),
         notes_folder: roots.notes.to_string_lossy().into_owned(),
         archive_folder: roots.archive.to_string_lossy().into_owned(),
         ..MigrationReport::default()
@@ -314,8 +351,12 @@ fn has_work(
     Ok(false)
 }
 
-/// Stamps the run and stores its report.
+/// Stamps the run and stores its report, folded over the one the last run
+/// left behind ([`MigrationReport::merge_over`]).
 fn finish(store: &BufferStore, report: &mut MigrationReport) -> StorageResult<()> {
+    if let Some(previous) = stored_report(store)? {
+        report.merge_over(previous);
+    }
     report.recount();
     let conn = store.connection();
     let json = serde_json::to_string(&report)?;

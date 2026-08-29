@@ -671,10 +671,20 @@ fn a_row_that_failed_verification_is_tried_again_on_the_next_launch() {
         b"text worth keeping",
         BufferStatus::Active,
     );
+    // The archive is writable, so this row is placed on the launch the other
+    // one fails on and has nothing left to do on the retry.
+    fixture.add_scratch(
+        "archived-1",
+        "Closed one",
+        b"a thought",
+        BufferStatus::History,
+    );
 
     let notes = fixture.notes();
     std::fs::set_permissions(&notes, std::fs::Permissions::from_mode(0o500)).unwrap();
-    assert_eq!(fixture.run().failed, 1);
+    let first = fixture.run();
+    assert_eq!(first.failed, 1);
+    assert_eq!(first.archived, 1);
     std::fs::set_permissions(&notes, std::fs::Permissions::from_mode(0o755)).unwrap();
 
     let second = fixture.run_at(day(2026, 9, 1));
@@ -687,4 +697,83 @@ fn a_row_that_failed_verification_is_tried_again_on_the_next_launch() {
         "a copy left behind is what a retry is for"
     );
     assert!(!fixture.mirror("blocked-1").exists());
+    assert_eq!(
+        fixture.outcome(&second, "blocked-1"),
+        RowOutcome::WrittenToNotes {
+            path: fixture
+                .notes()
+                .join("Refused.md")
+                .to_string_lossy()
+                .into_owned(),
+        },
+        "the retried row takes the outcome the retry earned it"
+    );
+    assert_eq!(
+        fixture.outcome(&second, "archived-1"),
+        RowOutcome::Archived {
+            path: fixture
+                .archive()
+                .join("Closed one.md")
+                .to_string_lossy()
+                .into_owned(),
+        },
+        "a row the retry had no work to do on keeps what the first run recorded"
+    );
+    assert_eq!(second.archived, 1);
+}
+
+#[test]
+fn a_re_run_keeps_what_the_earlier_run_placed() {
+    let fixture = Fixture::new();
+    for (id, title, body) in [
+        ("a", "Shopping", b"eggs".as_slice()),
+        ("b", "Ideas", b"a thought".as_slice()),
+        ("c", "Plans", b"a plan".as_slice()),
+    ] {
+        fixture.add_scratch(id, title, body, BufferStatus::Active);
+    }
+
+    let first = fixture.run();
+    assert_eq!(first.migrated, 3);
+
+    // A copy comes back under the retired folder, which is what a launch that
+    // could not finish leaves. The pass runs again over every row, and the two
+    // it has nothing to do for must not lose the answers they already have.
+    std::fs::write(fixture.mirror("b"), b"a thought").unwrap();
+
+    let second = fixture.run_at(day(2026, 9, 1));
+
+    assert_eq!(
+        second.migrated, 3,
+        "a re-run reports the notes that are files, not the ones it touched: {:?}",
+        second.rows
+    );
+    for id in ["a", "b", "c"] {
+        assert!(
+            matches!(
+                fixture.outcome(&second, id),
+                RowOutcome::WrittenToNotes { .. }
+            ),
+            "{id} came back as {:?}",
+            fixture.outcome(&second, id)
+        );
+    }
+    assert_eq!(
+        second.first_ran_at, first.ran_at,
+        "the date the notes moved is the first run's, not this one's"
+    );
+    assert_eq!(second.ran_at, day(2026, 9, 1).to_rfc3339());
+    assert!(
+        names_in(fixture.store.buffers_dir()).is_empty(),
+        "the copy the re-run was there for is cleared"
+    );
+    assert_eq!(
+        names_in(&fixture.notes()),
+        HashSet::from([
+            "Shopping.md".to_string(),
+            "Ideas.md".to_string(),
+            "Plans.md".to_string(),
+        ]),
+        "and nothing is written twice"
+    );
 }
