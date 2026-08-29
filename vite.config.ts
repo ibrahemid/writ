@@ -6,9 +6,12 @@ const host = process.env.TAURI_DEV_HOST;
 const devPort = Number(process.env.WRIT_DEV_PORT) || 1420;
 
 const SHARED_EXCLUDE = ["**/node_modules/**", "**/dist/**", "**/.claude/**", "site/**"];
+// Files that mount a component or an editor view, wherever they live.
 const MOUNT_TESTS = [
   "src/__tests__/components/**/*.{test,spec}.{ts,tsx}",
   "src/__tests__/editor/**/*.{test,spec}.{ts,tsx}",
+  "src/__tests__/integration/**/*.{test,spec}.{ts,tsx}",
+  "src/components/**/__tests__/**/*.{test,spec}.{ts,tsx}",
 ];
 
 export default defineConfig({

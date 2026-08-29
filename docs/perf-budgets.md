@@ -5,12 +5,12 @@ performance budget enforced by `scripts/perf-gate.sh`.
 
 ## How the gate works
 
-`scripts/perf-gate.sh` runs the budget tests in **release mode** with
-`WRIT_PERF_GATE=1`. The Rust budget tests and the frontend one read that same
-variable and skip without it, so `cargo test --workspace` and `pnpm test` stay
-fast and deterministic. One Rust probe
-(`builtin_perf_tests.rs::timing_100kb_builtins`) is held back by `#[ignore]`
-instead; the gate runs it with `--ignored`.
+`scripts/perf-gate.sh` runs every budget test with `WRIT_PERF_GATE=1`: the Rust
+ones in **release mode**, the frontend one under vitest, which has no such
+mode. Both read that same variable and skip without it, so
+`cargo test --workspace` and `pnpm test` stay fast and deterministic. One Rust
+probe (`builtin_perf_tests.rs::timing_100kb_builtins`) is held back by
+`#[ignore]` instead; the gate runs it with `--ignored`.
 
 ```
 bash scripts/perf-gate.sh            # budget tests only
@@ -20,6 +20,24 @@ bash scripts/perf-gate.sh --benches  # budget tests + criterion benches
 The gate exits non-zero on any budget violation. Run it before tagging a
 release or after a change that touches a transform, the FTS layer, or buffer
 I/O.
+
+---
+
+## Test projects (frontend)
+
+`vite.config.ts` splits the vitest suite into two projects, by path:
+
+- **mount**: `src/__tests__/components/**`, `src/__tests__/editor/**`,
+  `src/__tests__/integration/**`, and the co-located
+  `src/components/**/__tests__/**`. These files mount a component or an editor
+  view, which on a busy machine can take longer than vitest's 5 s default, so
+  the project sets `testTimeout: 15_000`.
+- **unit**: everything else, on the 5 s default. A unit test that needs more
+  than 5 s is a real finding, not a scheduling artifact.
+
+The two include sets are disjoint and cover the whole suite: every test file
+runs in exactly one project. A new mounting test placed outside those paths
+belongs in the `MOUNT_TESTS` globs.
 
 ---
 
