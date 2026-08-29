@@ -118,11 +118,13 @@
   white-space: pre;
 }
 
+/* Underlined rather than filled: a fill is the selected row's own signal, and
+   the two would cancel out on the row the user is standing on. */
 .palette-item-snippet .is-match {
   color: var(--writ-fg);
-  font-weight: 500;
-  background: var(--writ-bg-selected);
-  border-radius: var(--writ-r-indicator);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--writ-fg-muted);
 }
 
 .palette-item-line {

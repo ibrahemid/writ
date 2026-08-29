@@ -228,6 +228,7 @@ function AppShell() {
 
     registerCommand({
       id: "note.new",
+      icon: "note-pencil",
       label: "New Note",
       description: "Start a new note",
       keybinding: "CmdOrCtrl+N",
@@ -263,6 +264,7 @@ function AppShell() {
 
     registerCommand({
       id: "workspace.openFolder",
+      icon: "folder-open",
       label: "Open Folder…",
       description: "Open a folder as the workspace",
       scope: "app",
@@ -369,6 +371,7 @@ function AppShell() {
 
     registerCommand({
       id: "sidebar.toggle",
+      icon: "sidebar-simple",
       label: "Toggle Sidebar",
       description: "Show or hide the tabs + history rail",
       keybinding: "CmdOrCtrl+\\",
@@ -389,6 +392,7 @@ function AppShell() {
 
     registerCommand({
       id: "search.openEverywhere",
+      icon: "magnifying-glass",
       label: "Search Everywhere",
       description: "Search commands, settings, file names and file content",
       keybinding: "CmdOrCtrl+Shift+F",
@@ -564,6 +568,7 @@ function AppShell() {
 
     registerCommand({
       id: "settings.open",
+      icon: "gear",
       label: "Settings",
       description: "Open editor settings",
       keybinding: "CmdOrCtrl+,",

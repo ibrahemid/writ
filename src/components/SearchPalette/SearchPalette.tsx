@@ -45,7 +45,7 @@ const PROVIDERS: ResultProvider[] = [
   createContentProvider({ order: 3, cap: 12 }),
 ];
 
-const PREFIX_HINT = "> commands · # content · : line";
+const PREFIX_HINT = "> commands · # text · : line";
 
 // Caps are stated, never silent (ADR-026).
 export function searchNotice(): string | null {
@@ -56,7 +56,7 @@ export function searchNotice(): string | null {
   }
   const outcome = workspaceSearchStore.lastOutcome();
   if (outcome?.truncated) {
-    parts.push(`Content search stopped at ${outcome.hit_count} matches`);
+    parts.push(`Text search stopped at ${outcome.hit_count} matches`);
   }
   if (parts.length === 0) return PREFIX_HINT;
   return parts.join(" · ");

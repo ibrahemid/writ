@@ -32,13 +32,7 @@ export function createFilesProvider(options: FilesProviderOptions = {}): ResultP
     debounceMs: FILES_DEBOUNCE_MS,
     async query(q: string): Promise<PaletteResult[]> {
       const needle = q.toLowerCase();
-      // The head names the open folder, the way the sidebar names its own
-      // section; with none open the rows are buffers, headed generically.
       const rootPath = workspaceStore.root();
-      const section: PaletteResultSection = {
-        kind: "files",
-        label: rootPath ? basename(rootPath) : "Files",
-      };
       const targets = bufferTargets();
       const results: PaletteResult[] = [];
 
@@ -47,7 +41,6 @@ export function createFilesProvider(options: FilesProviderOptions = {}): ResultP
         results.push({
           id: `file:buffer:${target.doc.id}`,
           icon: "file-text",
-          section,
           label: target.doc.title,
           detail: target.doc.source_path ?? (target.kind === "history" ? "History" : "Scratch"),
           execute: () => openTarget({ kind: target.kind, id: target.doc.id }),
@@ -56,6 +49,10 @@ export function createFilesProvider(options: FilesProviderOptions = {}): ResultP
 
       if (!needle || !rootPath) return results;
 
+      // Rows out of the folder index sit under the folder's own name, the way
+      // the sidebar heads that section. Open tabs and history keep the generic
+      // head above: they are not in the folder, and may not be on disk at all.
+      const section: PaletteResultSection = { kind: "files", label: basename(rootPath) };
       const taken = bufferPathKeys(targets);
       const hits = await workspaceSearchStore.searchFiles(q);
       for (const hit of hits) {

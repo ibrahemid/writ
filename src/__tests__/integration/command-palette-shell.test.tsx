@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 
@@ -68,6 +70,13 @@ describe("CommandPalette over the shared shell", () => {
       execute: h.execute,
     });
     registerCommand({
+      id: "cmd.glyph",
+      icon: "note-pencil",
+      label: "Glyph command",
+      scope: "app",
+      execute: vi.fn(),
+    });
+    registerCommand({
       id: "cmd.editor",
       label: "Editor thing",
       scope: "editor",
@@ -93,6 +102,28 @@ describe("CommandPalette over the shared shell", () => {
       (el) => el.textContent,
     );
     expect(labels).toEqual(["Commands", "Editor"]);
+  });
+
+  it("gives a command with a glyph its icon and leaves the rest bare", async () => {
+    await open();
+    const glyph = items().find((el) => el.textContent?.includes("Glyph command"))!;
+    expect(glyph.querySelector(".writ-icon use")?.getAttribute("href")).toBe("#ph-note-pencil");
+    const alpha = items().find((el) => el.textContent?.includes("Alpha command"))!;
+    expect(alpha.querySelector(".writ-icon")).toBeNull();
+  });
+
+  it("declares a glyph for the commands the baseline draws with one", () => {
+    const app = readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8");
+    const expected: [string, string][] = [
+      ["note.new", "note-pencil"],
+      ["workspace.openFolder", "folder-open"],
+      ["sidebar.toggle", "sidebar-simple"],
+      ["settings.open", "gear"],
+      ["search.openEverywhere", "magnifying-glass"],
+    ];
+    for (const [id, icon] of expected) {
+      expect(app, `${id} is missing its glyph`).toContain(`id: "${id}",\n      icon: "${icon}",`);
+    }
   });
 
   it("never lists its own opener", async () => {

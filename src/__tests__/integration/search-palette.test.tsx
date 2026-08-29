@@ -135,6 +135,15 @@ function sectionLabels(kind: string): string[] {
   ).map((el) => el.textContent ?? "");
 }
 
+function sectionLabelsUnder(head: string): string[] {
+  const section = Array.from(document.querySelectorAll(".palette-section")).find(
+    (el) => el.querySelector(".palette-section-label")?.textContent === head,
+  );
+  return Array.from(section?.querySelectorAll(".palette-item-label") ?? []).map(
+    (el) => el.textContent ?? "",
+  );
+}
+
 async function type(value: string) {
   fireEvent.input(input(), { target: { value } });
   await Promise.resolve();
@@ -212,25 +221,37 @@ describe("SearchPalette", () => {
   });
 
   describe("section heads", () => {
-    function headFor(kind: string): string | undefined {
-      return (
-        document.querySelector(`.palette-section-${kind} .palette-section-label`)?.textContent ??
-        undefined
-      );
+    function headsFor(kind: string): string[] {
+      return Array.from(
+        document.querySelectorAll(`.palette-section-${kind} .palette-section-label`),
+      ).map((el) => el.textContent ?? "");
     }
 
-    it("names the file head after the open folder and the hits Text", async () => {
-      h.activeTabs = [doc("a", "zebra.md", "/repo/zebra.md")];
+    it("names the folder's own rows after it and heads the hits Text", async () => {
+      h.searchFiles.mockResolvedValue([fileHit("src/zebra.rs")]);
       h.searchBuffers.mockResolvedValue({
         hits: [{ buffer_id: "a", title: "zebra.md", line: 9, snippet: [] }],
         total: 1,
       });
+      h.activeTabs = [doc("a", "zebra.md", "/repo/zebra.md")];
       await open();
       await type("zebra");
       await waitFor(() => {
-        expect(headFor("files")).toBe("repo");
-        expect(headFor("content")).toBe("Text");
+        expect(headsFor("files")).toEqual(["Files", "repo"]);
+        expect(headsFor("content")).toEqual(["Text"]);
       });
+    });
+
+    it("keeps a scratch row off the folder head", async () => {
+      // No source path: the row is a buffer, not a file in the open folder.
+      h.activeTabs = [doc("a", "zebra", null)];
+      h.searchFiles.mockResolvedValue([fileHit("src/zebra.rs")]);
+      await open();
+      await type("zebra");
+      await waitFor(() => expect(labels()).toEqual(["Zebra command", "zebra", "zebra.rs"]));
+      expect(headsFor("files")).toEqual(["Files", "repo"]);
+      expect(sectionLabelsUnder("Files")).toEqual(["zebra"]);
+      expect(sectionLabelsUnder("repo")).toEqual(["zebra.rs"]);
     });
 
     it("heads buffer rows generically with no folder open", async () => {
@@ -238,7 +259,7 @@ describe("SearchPalette", () => {
       h.activeTabs = [doc("a", "zebra.md", null)];
       await open();
       await type("zebra");
-      await waitFor(() => expect(headFor("files")).toBe("Files"));
+      await waitFor(() => expect(headsFor("files")).toEqual(["Files"]));
       expect(h.searchFiles).not.toHaveBeenCalled();
     });
   });
@@ -404,7 +425,7 @@ describe("SearchPalette", () => {
     await open();
     await waitFor(() =>
       expect(document.querySelector(".palette-notice")?.textContent).toBe(
-        "Content search stopped at 500 matches",
+        "Text search stopped at 500 matches",
       ),
     );
   });
@@ -432,7 +453,11 @@ describe("SearchPalette", () => {
       await type("zebra");
       await waitFor(() => expect(items().length).toBeGreaterThan(1));
       const groups = Array.from(document.querySelectorAll('[role="group"]'));
-      expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual(["Commands", "repo"]);
+      expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual([
+        "Commands",
+        "Files",
+        "repo",
+      ]);
     });
 
     it("tracks the selection with aria-activedescendant", async () => {

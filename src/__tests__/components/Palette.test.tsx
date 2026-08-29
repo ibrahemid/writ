@@ -167,6 +167,14 @@ describe("the palette sheet", () => {
     expect(selected.declarations.get("font-weight")).toBe("500");
   });
 
+  it("marks a snippet hit without a fill, so the selected row still shows it", () => {
+    const match = ruleFor(".palette-item-snippet .is-match");
+    expect(match.declarations.has("background")).toBe(false);
+    expect(match.declarations.get("text-decoration")).toBe("underline");
+    expect(match.declarations.get("text-decoration-color")).toBe("var(--writ-fg-muted)");
+    expect(match.declarations.get("font-weight")).toBe("600");
+  });
+
   it("spends the accent nowhere", () => {
     expect(CSS).not.toContain("--writ-accent");
   });

@@ -22,7 +22,8 @@ export interface CommandProviderOptions {
   order?: number;
   cap?: number;
   // Heading over the ranked results. The command palette leaves it off; the
-  // search palette names the section so it reads against Files and Content.
+  // search palette names the section so it reads against the file and text
+  // headings.
   resultsLabel?: string | null;
 }
 
@@ -33,6 +34,7 @@ export interface CommandProviderOptions {
 function toResult(cmd: Command, section?: PaletteResultSection): PaletteResult {
   return {
     id: `command:${cmd.id}`,
+    icon: cmd.icon,
     label: cmd.label,
     detail: cmd.description,
     kbd: effectiveBinding(cmd.id, cmd.keybinding),
