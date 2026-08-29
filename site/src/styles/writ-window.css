@@ -25,7 +25,6 @@
   --writ-radius-2: 6px;
   --writ-radius-3: 10px;
 
-  --writ-bg-tab-pill: transparent;
 
   /* Derived treatments — color-mix against the live polarity tokens. */
   --writ-overlay-hover: color-mix(in srgb, var(--writ-foreground-default) 8%, transparent);

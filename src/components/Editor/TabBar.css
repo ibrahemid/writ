@@ -18,11 +18,19 @@
   background: var(--writ-bg-sidebar);
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* The list scrolls; the add control stays put at the end of the strip. */
+.tabbar-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--writ-space-1);
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
 }
 
-.tabbar::-webkit-scrollbar {
+.tabbar-tabs::-webkit-scrollbar {
   height: 0;
 }
 
@@ -107,7 +115,7 @@
 }
 
 .tab-rename-input {
-  width: 100%;
+  flex: 1;
   min-width: 0;
   padding: 0;
   border: 0;
@@ -158,6 +166,10 @@
    corners rather than seated on the page. */
 .tabbar[data-platform="linux"] {
   height: 46px;
+  align-items: center;
+}
+
+.tabbar[data-platform="linux"] .tabbar-tabs {
   align-items: center;
 }
 

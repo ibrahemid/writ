@@ -12,6 +12,12 @@ import "./Tooltip.css";
 interface TooltipProps {
   label: string;
   placement?: "top" | "bottom";
+  /**
+   * Role for the anchor itself. A composite widget that owns its children —
+   * a tablist owning its tabs — needs the wrapper out of the accessibility
+   * tree; everywhere else the anchor is a plain span.
+   */
+  anchorRole?: "none";
   children: JSX.Element;
 }
 
@@ -143,6 +149,7 @@ export default function Tooltip(props: TooltipProps) {
     <span
       ref={(el) => (anchorRef = el)}
       class="writ-tooltip-anchor"
+      role={props.anchorRole}
       onPointerEnter={scheduleShow}
       onPointerLeave={onPointerLeave}
       onFocusIn={onFocusIn}

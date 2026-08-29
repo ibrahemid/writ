@@ -53,6 +53,10 @@ export default function TabBar() {
   }
 
   function handleRenameKeyDown(e: KeyboardEvent, tabId: string) {
+    // The field is inside the strip, so every key it sees has to stop here:
+    // an arrow that reached the strip would switch tabs, blur the field, and
+    // commit a half-typed name.
+    e.stopPropagation();
     if (e.key === "Enter") {
       handleRenameSubmit(tabId, (e.target as HTMLInputElement).value);
     } else if (e.key === "Escape") {
@@ -74,6 +78,8 @@ export default function TabBar() {
   function handleArrowKey(e: KeyboardEvent, tabId: string) {
     const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
     if (step === 0) return;
+    // A tab being renamed is a text field: the arrows belong to the caret.
+    if (editingTabId() === tabId) return;
     const ids = tabs().map((tab) => tab.id);
     if (ids.length < 2) return;
     e.preventDefault();
@@ -110,33 +116,41 @@ export default function TabBar() {
   // already shows.
   return (
     <Show when={tabs().length > 1}>
-      <div class="tabbar" role="tablist" aria-label="Open notes" data-platform={platform}>
-        <For each={tabs()}>
-          {(tab) => {
-            const isActive = () => win.tabs.activeTabId() === tab.id;
-            return (
-              <Tooltip label={tab.title}>
-                <div
-                  class={`tab ${isActive() ? "tab-active" : ""}`}
-                  role="presentation"
-                  onContextMenu={(e) => handleContextMenu(e, tab.id)}
-                  onKeyDown={(e) => handleArrowKey(e, tab.id)}
-                >
-                  <button
-                    ref={(el) => {
-                      tabEls.set(tab.id, el);
-                      onCleanup(() => tabEls.delete(tab.id));
-                    }}
-                    type="button"
-                    class="tab-label"
-                    role="tab"
-                    aria-selected={isActive()}
-                    tabIndex={isActive() ? 0 : -1}
-                    onClick={() => win.tabs.setActiveTabId(tab.id)}
-                    onDblClick={(e) => { e.stopPropagation(); setEditingTabId(tab.id); }}
+      <div class="tabbar" data-platform={platform}>
+        {/* The tablist owns its tabs: the anchor and the slot around each one
+            are out of the accessibility tree, and the add control is a sibling
+            of the list rather than a stray child of it. */}
+        <div class="tabbar-tabs" role="tablist" aria-label="Open notes">
+          <For each={tabs()}>
+            {(tab) => {
+              const isActive = () => win.tabs.activeTabId() === tab.id;
+              const isEditing = () => editingTabId() === tab.id;
+              return (
+                <Tooltip label={tab.title} anchorRole="none">
+                  <div
+                    class={`tab ${isActive() ? "tab-active" : ""}`}
+                    role="presentation"
+                    onContextMenu={(e) => handleContextMenu(e, tab.id)}
+                    onKeyDown={(e) => handleArrowKey(e, tab.id)}
                   >
-                    <Show when={editingTabId() === tab.id} fallback={
-                      <span class="tab-title">{abbreviateTitle(tab.title)}</span>
+                    {/* The field replaces the tab rather than sitting inside
+                        it: a textbox is not a legal child of a tab. */}
+                    <Show when={isEditing()} fallback={
+                      <button
+                        ref={(el) => {
+                          tabEls.set(tab.id, el);
+                          onCleanup(() => tabEls.delete(tab.id));
+                        }}
+                        type="button"
+                        class="tab-label"
+                        role="tab"
+                        aria-selected={isActive()}
+                        tabIndex={isActive() ? 0 : -1}
+                        onClick={() => win.tabs.setActiveTabId(tab.id)}
+                        onDblClick={(e) => { e.stopPropagation(); setEditingTabId(tab.id); }}
+                      >
+                        <span class="tab-title">{abbreviateTitle(tab.title)}</span>
+                      </button>
                     }>
                       <input
                         ref={(el) => {
@@ -146,34 +160,34 @@ export default function TabBar() {
                           });
                         }}
                         class="tab-rename-input"
+                        aria-label="Rename note"
                         value={tab.title}
                         onBlur={(e) => handleRenameSubmit(tab.id, e.currentTarget.value)}
                         onKeyDown={(e) => handleRenameKeyDown(e, tab.id)}
-                        onClick={(e) => e.stopPropagation()}
                       />
                     </Show>
-                  </button>
-                  {/* A sibling of the tab, never a button nested inside one. */}
-                  <button
-                    type="button"
-                    class="tab-close"
-                    aria-label={`Close ${tab.title}`}
-                    tabIndex={isActive() ? 0 : -1}
-                    onClick={(e) => { e.stopPropagation(); void win.tabs.closeTab(tab.id); }}
-                    onKeyDown={(e) => {
-                      if (e.key !== "Enter" && e.key !== " ") return;
-                      e.preventDefault();
-                      e.stopPropagation();
-                      void closeFromKeyboard(tab.id);
-                    }}
-                  >
-                    <Icon name="x" size={12} />
-                  </button>
-                </div>
-              </Tooltip>
-            );
-          }}
-        </For>
+                    {/* A sibling of the tab, never a button nested inside one. */}
+                    <button
+                      type="button"
+                      class="tab-close"
+                      aria-label={`Close ${tab.title}`}
+                      tabIndex={isActive() ? 0 : -1}
+                      onClick={(e) => { e.stopPropagation(); void win.tabs.closeTab(tab.id); }}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter" && e.key !== " ") return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void closeFromKeyboard(tab.id);
+                      }}
+                    >
+                      <Icon name="x" size={12} />
+                    </button>
+                  </div>
+                </Tooltip>
+              );
+            }}
+          </For>
+        </div>
         <Tooltip label="New tab">
           <button
             type="button"

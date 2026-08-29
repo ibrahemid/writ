@@ -180,6 +180,9 @@ describe("tab appearance", () => {
     expect(bar.declarations.get("height")).toBe("36px");
     expect(bar.declarations.get("background")).toBe("var(--writ-bg-sidebar)");
     expect(bar.declarations.get("align-items")).toBe("flex-end");
+    // The list scrolls under the tabs; the add control never scrolls away.
+    expect(ruleFor(".tabbar-tabs").declarations.get("overflow-x")).toBe("auto");
+    expect(bar.declarations.get("overflow-x")).toBeUndefined();
   });
 
   it("draws a borderless 28px tab with only its top corners rounded", () => {
@@ -257,9 +260,9 @@ describe("tab strip accessibility", () => {
   it("is a tablist of tabs, one of them selected", () => {
     open(2);
     const { container } = render(() => <TabBar />);
-    const strip = container.querySelector(".tabbar")!;
-    expect(strip.getAttribute("role")).toBe("tablist");
-    expect(strip.getAttribute("aria-label")).toBe("Open notes");
+    const list = container.querySelector(".tabbar-tabs")!;
+    expect(list.getAttribute("role")).toBe("tablist");
+    expect(list.getAttribute("aria-label")).toBe("Open notes");
     const tabs = labels(container);
     expect(tabs.map((el) => el.getAttribute("role"))).toEqual(["tab", "tab"]);
     expect(tabs.map((el) => el.getAttribute("aria-selected"))).toEqual(["true", "false"]);
@@ -275,6 +278,36 @@ describe("tab strip accessibility", () => {
     expect(close.parentElement).toBe(tab.parentElement);
     expect(tab.querySelector(".tab-close")).toBeNull();
     expect(close.getAttribute("aria-label")).toBe("Close note-1.md");
+  });
+
+  it("lets the tablist own its tabs and nothing else", () => {
+    open(2);
+    const { container } = render(() => <TabBar />);
+    const list = container.querySelector<HTMLElement>('[role="tablist"]')!;
+
+    // Only the tabs and their own close controls live under the list; the add
+    // control is a sibling of it, not a stray child.
+    const interactive = Array.from(
+      list.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href], [tabindex]"),
+    );
+    expect(interactive.length).toBeGreaterThan(0);
+    for (const el of interactive) {
+      expect(
+        el.getAttribute("role") === "tab" || el.classList.contains("tab-close"),
+        el.outerHTML,
+      ).toBe(true);
+    }
+    const add = container.querySelector<HTMLElement>(".tab-add")!;
+    expect(list.contains(add)).toBe(false);
+    expect(container.querySelector(".tabbar")!.contains(add)).toBe(true);
+
+    // Every tab reaches the list through presentational wrappers only, so the
+    // list still owns it in the accessibility tree.
+    for (const tab of labels(container)) {
+      for (let el = tab.parentElement; el && el !== list; el = el.parentElement) {
+        expect(["none", "presentation"], el.outerHTML).toContain(el.getAttribute("role"));
+      }
+    }
   });
 
   it("moves the selection with the arrow keys", () => {
@@ -368,6 +401,34 @@ describe("platform layers", () => {
 });
 
 describe("renaming a tab", () => {
+  function startRename(container: HTMLElement): HTMLInputElement {
+    fireEvent.dblClick(container.querySelector<HTMLElement>(".tab-title")!);
+    return container.querySelector<HTMLInputElement>(".tab-rename-input")!;
+  }
+
+  it("replaces the tab with the field rather than nesting one in the other", () => {
+    open(2);
+    const { container } = render(() => <TabBar />);
+    const slot = container.querySelector<HTMLElement>(".tab")!;
+    const input = startRename(container);
+    expect(input.getAttribute("aria-label")).toBe("Rename note");
+    expect(input.parentElement).toBe(slot);
+    expect(input.closest("button")).toBeNull();
+    // The tab it stands in for is gone while the field is up.
+    expect(slot.querySelector('[role="tab"]')).toBeNull();
+    expect(slot.querySelector(".tab-close")).not.toBeNull();
+  });
+
+  it("leaves the arrow keys to the caret while the field is up", () => {
+    open(3);
+    const { container } = render(() => <TabBar />);
+    const input = startRename(container);
+    fireEvent.keyDown(input, { key: "ArrowLeft" });
+    expect(h.setActiveTabId).not.toHaveBeenCalled();
+    expect(h.renameBuffer).not.toHaveBeenCalled();
+    expect(container.querySelector(".tab-rename-input")).toBe(input);
+  });
+
   it("opens the field on a double-click and commits on Enter", () => {
     open(2);
     const { container } = render(() => <TabBar />);
