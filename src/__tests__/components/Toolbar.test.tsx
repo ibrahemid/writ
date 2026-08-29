@@ -239,6 +239,32 @@ describe("Toolbar pressed state", () => {
     expect(control(container, "Bulleted list").getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("paints a pressed toggle over the bar's own ink and over the ghost hover", () => {
+    h.formats = { bold: true, italic: false, code: false, bullet: false, task: false };
+    withMarkdownBuffer();
+    const { container } = render(() => <Toolbar />);
+    const bold = control(container, "Bold");
+    // The ink is decided by this exact class-and-attribute pair, so the rule
+    // has to name the pair rather than leaning on Button.css.
+    expect(bold.classList.contains("writ-toolbar-format")).toBe(true);
+    expect(bold.getAttribute("aria-pressed")).toBe("true");
+
+    const rules = TOOLBAR_CSS.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^}]*)\}/g);
+    const pressed = [...rules].find(([, list]) => list.includes('[aria-pressed="true"]'));
+    expect(pressed, "no pressed rule in Toolbar.css").toBeDefined();
+    const [, selectors, body] = pressed!;
+    const list = selectors.split(",").map((selector) => selector.trim());
+    expect(list).toContain(
+      ':root .writ-toolbar[data-platform] .writ-toolbar-format[aria-pressed="true"]',
+    );
+    // Hover on a pressed control must not fall back to the ghost hover.
+    expect(list).toContain(
+      ':root .writ-toolbar[data-platform] .writ-toolbar-format[aria-pressed="true"]:hover:not(:disabled)',
+    );
+    expect(body).toContain("background: var(--writ-bg-selected)");
+    expect(body).toContain("color: var(--writ-fg)");
+  });
+
   it("leaves Link unpressed: it inserts rather than toggles", () => {
     withMarkdownBuffer();
     const { container } = render(() => <Toolbar />);

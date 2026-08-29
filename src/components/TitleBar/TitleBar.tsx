@@ -1,5 +1,4 @@
 import { Show } from "solid-js";
-import TabBar from "../Editor/TabBar";
 import TrafficLights from "./TrafficLights";
 import AppMenu from "./AppMenu";
 import Kbd from "../Kbd/Kbd";
@@ -58,9 +57,9 @@ export default function TitleBar() {
       <Show when={platform === "win" || platform === "linux"}>
         <AppMenu />
       </Show>
-      <div class="titlebar-tabs">
-        <TabBar />
-      </div>
+      {/* The tab strip moved under the toolbar with the baseline layout; the
+          slot stays as the bar's flexible middle until U10 retires the bar. */}
+      <div class="titlebar-tabs" />
       <div class="titlebar-right" title="Toggle Writ from anywhere" data-no-drag>
         <Kbd binding={configStore.config().hotkey.toggle} />
       </div>

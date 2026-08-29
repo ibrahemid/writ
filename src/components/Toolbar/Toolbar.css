@@ -64,6 +64,15 @@
   color: var(--writ-fg-muted);
 }
 
+/* The bar sets its own muted ink at (0,4,0) and Button.css sets the pressed
+   ink at (0,2,0), so a toggle that is on has to say so at the bar's own weight
+   — hover included, or hovering an active toggle would read as inactive. */
+:root .writ-toolbar[data-platform] .writ-toolbar-format[aria-pressed="true"],
+:root .writ-toolbar[data-platform] .writ-toolbar-format[aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--writ-bg-selected);
+  color: var(--writ-fg);
+}
+
 /* Search moves out of the sidebar and sits at the right end of the bar. */
 .writ-toolbar .search-bar {
   margin-left: auto;

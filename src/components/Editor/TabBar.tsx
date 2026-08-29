@@ -1,9 +1,13 @@
-import { For, createSignal, createEffect, onCleanup, Show } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup } from "solid-js";
+import Icon from "../Icon/Icon";
+import Tooltip from "../Tooltip/Tooltip";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { windowRegistry } from "../../stores/global/window-registry";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
+import { showToast } from "../Notifications/Toast";
 import { abbreviateTitle } from "../../lib/buffer-name";
+import { resolvePlatform } from "../../lib/platform";
 import "./TabBar.css";
 
 // Module-level singleton — TabBar mounts only in the main window (detached
@@ -20,7 +24,10 @@ export function startRenameActiveTab() {
 
 export default function TabBar() {
   const win = useWindow();
+  // Read per mount: the platform layer is written once at boot (ADR-030).
+  const platform = resolvePlatform();
   const tabEls = new Map<string, HTMLButtonElement>();
+  const tabs = () => bufferRegistry.activeTabs();
 
   createEffect(() => {
     const id = win.tabs.activeTabId();
@@ -38,7 +45,9 @@ export default function TabBar() {
   function handleRenameSubmit(tabId: string, value: string) {
     const trimmed = value.trim();
     if (trimmed) {
-      void bufferRegistry.renameBuffer(tabId, trimmed);
+      void bufferRegistry
+        .renameBuffer(tabId, trimmed)
+        .catch(() => showToast("Could not rename the note", "error"));
     }
     setEditingTabId(null);
   }
@@ -61,60 +70,121 @@ export default function TabBar() {
     ]);
   }
 
+  /** One tab stop for the strip: the arrows move the selection inside it. */
+  function handleArrowKey(e: KeyboardEvent, tabId: string) {
+    const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    if (step === 0) return;
+    const ids = tabs().map((tab) => tab.id);
+    if (ids.length < 2) return;
+    e.preventDefault();
+    const from = ids.indexOf(tabId);
+    const next = ids[(Math.max(from, 0) + step + ids.length) % ids.length];
+    win.tabs.setActiveTabId(next);
+    tabEls.get(next)?.focus();
+  }
+
+  /**
+   * A close from the keyboard has to leave focus somewhere. The next tab takes
+   * it; when the close drops the strip below two notes there is no strip left,
+   * so the note takes it instead.
+   */
+  async function closeFromKeyboard(tabId: string) {
+    const ids = tabs().map((tab) => tab.id);
+    const index = ids.indexOf(tabId);
+    const successor = ids[index + 1] ?? ids[index - 1];
+    await win.tabs.closeTab(tabId);
+    const remaining = tabs();
+    // A refused close keeps the note open: focus stays on the tab holding it.
+    if (remaining.some((tab) => tab.id === tabId)) {
+      tabEls.get(tabId)?.focus();
+      return;
+    }
+    if (remaining.length < 2 || successor === undefined) {
+      win.editor.focusEditor();
+      return;
+    }
+    tabEls.get(successor)?.focus();
+  }
+
+  // Hidden at one note (ADR-030 §5): a strip of one tab names what the window
+  // already shows.
   return (
-    <div class="tabbar">
-      <div class="tabbar-tabs">
-        <For each={bufferRegistry.activeTabs()}>
-          {(tab) => (
-            <button
-              ref={(el) => {
-                tabEls.set(tab.id, el);
-                onCleanup(() => tabEls.delete(tab.id));
-              }}
-              class={`tab ${win.tabs.activeTabId() === tab.id ? "tab-active" : ""}`}
-              onClick={() => win.tabs.setActiveTabId(tab.id)}
-              onDblClick={(e) => { e.stopPropagation(); setEditingTabId(tab.id); }}
-              onContextMenu={(e) => handleContextMenu(e, tab.id)}
-              title={tab.title}
-            >
-              <Show when={editingTabId() === tab.id} fallback={
-                <span class="tab-title">{abbreviateTitle(tab.title)}</span>
-              }>
-                <input
-                  ref={(el) => {
-                    requestAnimationFrame(() => {
-                      el.focus();
-                      el.select();
-                    });
-                  }}
-                  class="tab-rename-input"
-                  value={tab.title}
-                  onBlur={(e) => handleRenameSubmit(tab.id, e.currentTarget.value)}
-                  onKeyDown={(e) => handleRenameKeyDown(e, tab.id)}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </Show>
-              <span
-                class="tab-close"
-                role="button"
-                tabIndex={0}
-                aria-label={`Close ${tab.title}`}
-                onClick={(e) => { e.stopPropagation(); void win.tabs.closeTab(tab.id); }}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); void win.tabs.closeTab(tab.id); } }}
-              >
-                ×
-              </span>
-            </button>
-          )}
+    <Show when={tabs().length > 1}>
+      <div class="tabbar" role="tablist" aria-label="Open notes" data-platform={platform}>
+        <For each={tabs()}>
+          {(tab) => {
+            const isActive = () => win.tabs.activeTabId() === tab.id;
+            return (
+              <Tooltip label={tab.title}>
+                <div
+                  class={`tab ${isActive() ? "tab-active" : ""}`}
+                  role="presentation"
+                  onContextMenu={(e) => handleContextMenu(e, tab.id)}
+                  onKeyDown={(e) => handleArrowKey(e, tab.id)}
+                >
+                  <button
+                    ref={(el) => {
+                      tabEls.set(tab.id, el);
+                      onCleanup(() => tabEls.delete(tab.id));
+                    }}
+                    type="button"
+                    class="tab-label"
+                    role="tab"
+                    aria-selected={isActive()}
+                    tabIndex={isActive() ? 0 : -1}
+                    onClick={() => win.tabs.setActiveTabId(tab.id)}
+                    onDblClick={(e) => { e.stopPropagation(); setEditingTabId(tab.id); }}
+                  >
+                    <Show when={editingTabId() === tab.id} fallback={
+                      <span class="tab-title">{abbreviateTitle(tab.title)}</span>
+                    }>
+                      <input
+                        ref={(el) => {
+                          requestAnimationFrame(() => {
+                            el.focus();
+                            el.select();
+                          });
+                        }}
+                        class="tab-rename-input"
+                        value={tab.title}
+                        onBlur={(e) => handleRenameSubmit(tab.id, e.currentTarget.value)}
+                        onKeyDown={(e) => handleRenameKeyDown(e, tab.id)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </Show>
+                  </button>
+                  {/* A sibling of the tab, never a button nested inside one. */}
+                  <button
+                    type="button"
+                    class="tab-close"
+                    aria-label={`Close ${tab.title}`}
+                    tabIndex={isActive() ? 0 : -1}
+                    onClick={(e) => { e.stopPropagation(); void win.tabs.closeTab(tab.id); }}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" && e.key !== " ") return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void closeFromKeyboard(tab.id);
+                    }}
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
+                </div>
+              </Tooltip>
+            );
+          }}
         </For>
+        <Tooltip label="New tab">
+          <button
+            type="button"
+            class="tab-add"
+            aria-label="New tab"
+            onClick={() => void win.tabs.createTab()}
+          >
+            <Icon name="plus" size={16} />
+          </button>
+        </Tooltip>
       </div>
-      <button
-        type="button"
-        class="tabbar-new"
-        aria-label="New tab"
-        title="New tab"
-        onClick={() => void win.tabs.createTab()}
-      >+</button>
-    </div>
+    </Show>
   );
 }

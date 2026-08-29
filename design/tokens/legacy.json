@@ -72,17 +72,8 @@
     "statusbar-height": {
       "$value": "28px"
     },
-    "tabbar-height": {
-      "$value": "36px"
-    },
     "titlebar-height": {
       "$value": "36px"
-    },
-    "tab-pill-height": {
-      "$value": "28px"
-    },
-    "bg-tab-pill": {
-      "$value": "transparent"
     },
     "overlay-hover": {
       "$value": "color-mix(in srgb, var(--writ-foreground-default) 8%, transparent)"

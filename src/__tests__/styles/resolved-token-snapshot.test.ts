@@ -147,7 +147,6 @@ const REPAINTED = [
 const FROZEN = [
   "--writ-accent-default",
   "--writ-accent-foreground",
-  "--writ-bg-tab-pill",
   "--writ-border-default",
   "--writ-border-focus",
   "--writ-border-pill",
@@ -182,8 +181,6 @@ const FROZEN = [
   "--writ-surface-input",
   "--writ-surface-raised",
   "--writ-surface-sunken",
-  "--writ-tab-pill-height",
-  "--writ-tabbar-height",
   "--writ-titlebar-height",
   "--writ-traffic-blurred",
   "--writ-traffic-close",
@@ -199,9 +196,15 @@ const FROZEN = [
 /**
  * Names the legacy layer no longer carries, because the last stylesheet that
  * read one dropped it. The sidebar took its shadow off with the baseline pass:
- * the surface is one hairline now.
+ * the surface is one hairline now. The three tab names went with the borderless
+ * strip, whose only reader was TabBar.css.
  */
-const RETIRED = ["--writ-shadow-sidebar"];
+const RETIRED = [
+  "--writ-bg-tab-pill",
+  "--writ-shadow-sidebar",
+  "--writ-tab-pill-height",
+  "--writ-tabbar-height",
+];
 
 describe("token pipeline acceptance", () => {
   it("resolved token set is unchanged by the pipeline", () => {

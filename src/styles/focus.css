@@ -12,11 +12,12 @@
   outline: none;
 }
 
-.tab:focus-visible,
+.tab-label:focus-visible,
+.tab-close:focus-visible,
 .tab-item:focus-visible,
 .palette-item:focus-visible,
 .statusbar-hint:focus-visible,
-.tabbar-new:focus-visible,
+.tab-add:focus-visible,
 .shortcut-row-btn:focus-visible,
 .theme-editor-btn:focus-visible,
 .theme-editor-close:focus-visible,

@@ -13,7 +13,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../components/Preview/PreviewLayout", () => ({
   default: () => <div data-testid="preview-layout" />,
 }));
-vi.mock("../../components/Toolbar/Toolbar", () => ({ default: () => null }));
+vi.mock("../../components/Toolbar/Toolbar", () => ({
+  default: () => <div data-testid="toolbar" />,
+}));
+vi.mock("../../components/Editor/TabBar", () => ({
+  default: () => <div data-testid="tabbar" />,
+}));
 vi.mock("../../components/Find/FindOverlay", () => ({ default: () => null }));
 vi.mock("../../components/Editor/SpellingPreview", () => ({ default: () => null }));
 vi.mock("../../components/Editor/StatusBar", () => ({
@@ -100,6 +105,13 @@ describe("EditorArea", () => {
     const { container } = render(() => <EditorArea />);
     expect(container.querySelector("[data-testid='statusbar']")).not.toBeNull();
     expect(container.querySelector(".editor-wordcount")).toBeNull();
+  });
+
+  it("seats the tab strip between the toolbar and the canvas", () => {
+    const { container } = render(() => <EditorArea />);
+    const area = container.querySelector(".editor-area")!;
+    expect(Array.from(area.children).map((el) => el.getAttribute("data-testid") ?? el.className))
+      .toEqual(["toolbar", "tabbar", "editor-content"]);
   });
 
   it("keeps the preview pane mounted in both states", () => {
