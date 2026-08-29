@@ -11,10 +11,37 @@
   transition: width var(--writ-motion);
 }
 
+/* The live width is the persisted one; the token stays the default. */
 .sidebar.is-open {
-  width: var(--writ-sidebar-width);
+  width: var(--writ-sidebar-live-width, var(--writ-sidebar-width));
   min-width: var(--writ-sidebar-min-width);
   max-width: var(--writ-sidebar-max-width);
+}
+
+.sidebar.is-resizing {
+  transition: none;
+}
+
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 4px;
+  z-index: var(--writ-z-sidebar);
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+  transition: background var(--writ-motion);
+}
+
+.sidebar-resizer:hover {
+  background: var(--writ-border);
+}
+
+.sidebar-resizer:focus-visible {
+  outline: 2px solid var(--writ-accent);
+  outline-offset: -2px;
 }
 
 .sidebar-scroll {

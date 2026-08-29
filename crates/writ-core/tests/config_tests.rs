@@ -11,6 +11,7 @@ fn default_config_has_expected_values() {
     // ADR-030: a first launch shows the notes list, not an empty canvas.
     assert!(config.sidebar.open);
     assert_eq!(config.sidebar.position, SidebarPosition::Left);
+    assert_eq!(config.sidebar.width, 240);
 
     assert_eq!(config.editor.font_family, "monospace");
     assert_eq!(config.editor.font_size, 16);
@@ -272,4 +273,28 @@ fn markdown_editing_missing_from_toml_uses_default() {
     let toml_str = "[editor]\nfont_size = 16\n";
     let config: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
     assert!(config.editor.markdown_editing);
+}
+
+#[test]
+fn sidebar_width_defaults_when_the_section_is_absent() {
+    // A config written before the sidebar could be resized has no width, and
+    // may have no [sidebar] table at all.
+    let config: WritConfig = toml::from_str("[editor]\nfont_size = 16\n").expect("no [sidebar]");
+    assert_eq!(config.sidebar.width, 240);
+
+    let partial: WritConfig =
+        toml::from_str("[sidebar]\nopen = false\n").expect("[sidebar] without width");
+    assert_eq!(partial.sidebar.width, 240);
+    assert!(!partial.sidebar.open);
+}
+
+#[test]
+fn sidebar_width_round_trips_through_toml() {
+    let toml_str = "[sidebar]\nwidth = 312\n";
+    let config: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert_eq!(config.sidebar.width, 312);
+
+    let serialized = toml::to_string(&config).expect("serialization failed");
+    let restored: WritConfig = toml::from_str(&serialized).expect("deserialization failed");
+    assert_eq!(restored.sidebar.width, 312);
 }

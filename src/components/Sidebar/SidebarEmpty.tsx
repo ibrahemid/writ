@@ -21,6 +21,7 @@ export default function SidebarEmpty() {
         <Kbd binding="CmdOrCtrl+N" />
       </div>
       <div class="sidebar-empty-line">
+        {/* No keycap: CmdOrCtrl+O opens a file, not a folder. */}
         <Button
           variant="secondary"
           icon="folder-open"
@@ -29,7 +30,6 @@ export default function SidebarEmpty() {
         >
           Open a folder
         </Button>
-        <Kbd binding="CmdOrCtrl+O" />
       </div>
     </div>
   );

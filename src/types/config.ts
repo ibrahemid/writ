@@ -67,6 +67,8 @@ export interface WritConfig {
     default_visible: boolean;
     position: "left" | "right";
     open: boolean;
+    /** Width in CSS pixels, clamped to the resize range. */
+    width: number;
   };
   editor: { font_family: string; font_size: number; word_wrap: boolean; tab_size: number; autosave_debounce_ms: number; markdown_typography: boolean; markdown_editing: boolean; status_bar: boolean };
   window: { width: number; height: number; x?: number | null; y?: number | null; maximized: boolean };

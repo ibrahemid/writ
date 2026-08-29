@@ -130,7 +130,7 @@ import { clearDefaultAppSupport, probeDefaultAppSupport } from "../../stores/glo
 function baseConfig(): WritConfig {
   return {
     hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
-    sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false },
+    sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false, width: 240 },
     editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true, status_bar: false },
     window: { width: 1100, height: 720, maximized: false },
     keybindings: {},

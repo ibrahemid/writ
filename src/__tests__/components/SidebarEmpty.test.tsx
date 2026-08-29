@@ -26,10 +26,11 @@ describe("SidebarEmpty", () => {
     expect(container.querySelector(".sidebar-empty-title")!.textContent).toBe("No notes yet.");
     expect(buttonNamed(container, "New note").classList).toContain("writ-btn-primary");
     expect(buttonNamed(container, "Open a folder").classList).toContain("writ-btn-secondary");
+    // Only New note has a binding; CmdOrCtrl+O still opens a file.
     const caps = Array.from(container.querySelectorAll(".kbd-chord")).map((el) =>
       el.getAttribute("aria-label"),
     );
-    expect(caps).toEqual(["CmdOrCtrl+N", "CmdOrCtrl+O"]);
+    expect(caps).toEqual(["CmdOrCtrl+N"]);
   });
 
   it("New note runs the note.new command", () => {

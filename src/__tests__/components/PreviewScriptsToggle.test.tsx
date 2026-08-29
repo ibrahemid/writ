@@ -35,7 +35,7 @@ import PreviewScriptsToggle from "../../components/Preview/PreviewScriptsToggle"
 function baseConfig(runScripts: boolean): WritConfig {
   return {
     hotkey: { toggle: "" },
-    sidebar: { toggle: "", default_visible: false, position: "left", open: false },
+    sidebar: { toggle: "", default_visible: false, position: "left", open: false, width: 240 },
     editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true, status_bar: false },
     window: { width: 800, height: 600, maximized: false },
     keybindings: {},

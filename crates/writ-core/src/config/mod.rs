@@ -41,6 +41,10 @@ fn default_sidebar_open() -> bool {
     true
 }
 
+fn default_sidebar_width() -> u16 {
+    240
+}
+
 fn default_font_family() -> String {
     "monospace".to_string()
 }
@@ -215,6 +219,10 @@ pub struct SidebarConfig {
     /// Whether the sidebar was open at last save; restored across launches.
     #[serde(default = "default_sidebar_open")]
     pub open: bool,
+    /// Sidebar width in CSS pixels, restored across launches. ADR-030 gives
+    /// the sidebar 240px, resizable between 200 and 320.
+    #[serde(default = "default_sidebar_width")]
+    pub width: u16,
 }
 
 impl Default for SidebarConfig {
@@ -224,6 +232,7 @@ impl Default for SidebarConfig {
             default_visible: default_sidebar_default_visible(),
             position: default_sidebar_position(),
             open: default_sidebar_open(),
+            width: default_sidebar_width(),
         }
     }
 }
