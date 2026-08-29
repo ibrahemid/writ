@@ -50,6 +50,8 @@ export default function HistorySection() {
 
   const visibleRows = createMemo(() => rows().slice(slice().start, slice().end));
 
+  const total = createMemo(() => rows().filter((row) => row.kind !== "header").length);
+
   // The sidebar scrolls as one outer container; the history list is only part
   // of it. Track where the list sits inside that scroller from live rects so
   // the window stays correct even as sections above it grow or shrink, without
@@ -117,7 +119,10 @@ export default function HistorySection() {
   return (
     <Show when={rows().length > 0}>
       <div class="sidebar-section history-section">
-        <div class="sidebar-section-title">History</div>
+        <div class="sidebar-section-title">
+          Recent
+          <span class="sidebar-section-count">{total()}</span>
+        </div>
         <div class="history-list" ref={listRef!}>
           <div style={{ height: `${slice().padTop}px` }} />
           <For each={visibleRows()}>
@@ -135,7 +140,8 @@ export default function HistorySection() {
                   ref={(el) => queueMicrotask(() => measure(el, itemHeight, setItemHeight))}
                 >
                   <TabItem
-                    title={row.item.title}
+                    label={row.item.title}
+                    icon="file-text"
                     trailing={row.trailing}
                     onClick={() => void win.tabs.restoreFromHistory(row.item.id)}
                     onRestore={() => void win.tabs.restoreFromHistory(row.item.id)}

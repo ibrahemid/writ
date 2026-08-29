@@ -68,7 +68,6 @@ export default function SearchResults() {
                 type="button"
                 class="search-result"
                 classList={{ "is-active": win.tabs.activeTabId() === row.id }}
-                title={row.title}
                 onClick={() => openRow(row)}
                 onContextMenu={(e) => contextMenu(e, row)}
               >

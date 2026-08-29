@@ -3,17 +3,18 @@
   flex-shrink: 0;
   width: 0;
   height: 100%;
-  background: var(--writ-surface-sunken);
+  background: var(--writ-bg-sidebar);
   border-right: 1px solid var(--writ-border-soft);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: width 180ms ease;
+  transition: width var(--writ-motion);
 }
 
 .sidebar.is-open {
   width: var(--writ-sidebar-width);
-  box-shadow: var(--writ-shadow-sidebar);
+  min-width: var(--writ-sidebar-min-width);
+  max-width: var(--writ-sidebar-max-width);
 }
 
 .sidebar-scroll {
@@ -21,6 +22,7 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  padding-bottom: var(--writ-space-3);
 }
 
 .sidebar-section {
@@ -30,12 +32,47 @@
 }
 
 .sidebar-section-title {
-  padding: 8px 12px 4px;
-  font-size: 11px;
-  color: var(--writ-foreground-subtle);
-  text-transform: uppercase;
-  letter-spacing: 1px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 12px 4px;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  letter-spacing: var(--writ-ui-tracking);
+  text-transform: none;
+  color: var(--writ-fg-muted);
   flex-shrink: 0;
+}
+
+.sidebar-section-count {
+  margin-left: auto;
+  color: var(--writ-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-section-action {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--writ-r-control);
+  color: var(--writ-fg-muted);
+  cursor: pointer;
+}
+
+.sidebar-section-action:hover {
+  background: var(--writ-bg-hover);
+  color: var(--writ-fg);
+}
+
+.sidebar-section-action:focus-visible {
+  outline: 2px solid var(--writ-accent);
+  outline-offset: -1px;
 }
 
 .tab-list {
@@ -44,14 +81,19 @@
 }
 
 .tab-list-empty {
-  padding: 8px 12px;
-  color: var(--writ-foreground-subtle);
-  font-size: var(--writ-font-size-sm);
-  font-style: italic;
+  padding: 4px 12px;
+  color: var(--writ-fg-faint);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .sidebar {
-    transition: none;
-  }
+:root[data-platform="win"] .sidebar-section-title {
+  padding: 14px 16px 6px;
+}
+
+:root[data-platform="linux"] .sidebar-section-title {
+  padding: 10px 14px 4px;
+  font-weight: 700;
+  color: var(--writ-fg);
+  opacity: 0.55;
 }

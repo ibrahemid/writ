@@ -45,7 +45,7 @@ export default function Sidebar() {
         }
       >
         <div class="sidebar-section">
-          <div class="sidebar-section-title">Results</div>
+          <div class="sidebar-section-title">Search results</div>
           <SearchResults />
         </div>
       </Show>

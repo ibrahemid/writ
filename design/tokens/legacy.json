@@ -108,9 +108,6 @@
     "shadow-toast": {
       "$value": "0 4px 16px rgba(0, 0, 0, 0.3)"
     },
-    "shadow-sidebar": {
-      "$value": "4px 0 12px -8px rgba(0, 0, 0, 0.6)"
-    },
     "shadow-xs": {
       "$value": "0 1px 2px rgba(0, 0, 0, 0.2)"
     }

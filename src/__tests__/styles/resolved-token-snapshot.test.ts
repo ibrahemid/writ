@@ -167,7 +167,6 @@ const FROZEN = [
   "--writ-shadow-banner",
   "--writ-shadow-dialog",
   "--writ-shadow-overlay",
-  "--writ-shadow-sidebar",
   "--writ-shadow-toast",
   "--writ-shadow-xs",
   "--writ-space-1",
@@ -197,6 +196,13 @@ const FROZEN = [
   "--writ-winctrl-danger-fg",
   "--writ-window-radius",];
 
+/**
+ * Names the legacy layer no longer carries, because the last stylesheet that
+ * read one dropped it. The sidebar took its shadow off with the baseline pass:
+ * the surface is one hairline now.
+ */
+const RETIRED = ["--writ-shadow-sidebar"];
+
 describe("token pipeline acceptance", () => {
   it("resolved token set is unchanged by the pipeline", () => {
     themeStore.resetOverrides();
@@ -224,7 +230,7 @@ describe("token pipeline acceptance", () => {
   });
 
   it("accounts for every property origin/main declared on :root", () => {
-    expect([...FROZEN, ...REPAINTED].sort()).toEqual(Object.keys(ORIGIN_ROOT).sort());
+    expect([...FROZEN, ...REPAINTED, ...RETIRED].sort()).toEqual(Object.keys(ORIGIN_ROOT).sort());
     expect(FROZEN.filter((name) => REPAINTED.includes(name))).toEqual([]);
   });
 
@@ -260,6 +266,13 @@ describe("token pipeline acceptance", () => {
       [...SHEETS[0].matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]),
     );
     expect([...legacyNames].filter((name) => themeNames.has(name))).toEqual([]);
+  });
+
+  it("a retired name is declared nowhere and read nowhere", () => {
+    for (const name of RETIRED) {
+      expect(NO_ATTRIBUTES.has(name), name).toBe(false);
+      expect(DARK.has(name), name).toBe(false);
+    }
   });
 
   it("every repainted name still resolves to something", () => {
