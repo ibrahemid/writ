@@ -50,9 +50,9 @@ pub enum StorageError {
     /// The file changed on disk since Writ last read it, and the new bytes
     /// are not what is being written (ADR-028 §5).
     ///
-    /// The message is what the frontend matches on to say this in the user's
-    /// own words (`src/lib/save-error.ts`), so the wording is part of the
-    /// contract rather than free to reword on its own.
+    /// The wording here is for logs. What the editor says is chosen from the
+    /// stable code the command puts in front of it
+    /// (`ERR_FILE_CHANGED_ON_DISK`, `src-tauri/src/commands/buffer.rs`).
     #[error("the file changed on disk: {path}")]
     SourceChangedOnDisk {
         /// The note's path.
@@ -63,6 +63,17 @@ pub enum StorageError {
         /// copy beside the note could be written. `None` means even that
         /// failed, and the caller is still holding the only copy of it.
         conflict_copy: Option<String>,
+    },
+
+    /// The file's bytes are not on this machine, so there is nothing to
+    /// compare a save against and nothing to write over (ADR-028 §5).
+    ///
+    /// Reading an evicted iCloud file makes the provider daemon fetch it, so
+    /// the guard asks before it reads and stops here instead.
+    #[error("the file has not finished downloading: {path}")]
+    SourceNotDownloaded {
+        /// The note's path.
+        path: String,
     },
 
     /// A `schema_meta` row holds a value that is not the shape its key

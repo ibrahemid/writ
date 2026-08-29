@@ -377,7 +377,7 @@ describe("autosave", () => {
 
     it("does not try a save the write guard stopped again until the document changes", async () => {
       mockedSave.mockRejectedValueOnce(
-        new Error("the file changed on disk: /Users/x/Writ/shared.md"),
+        new Error("ERR_FILE_CHANGED_ON_DISK: the file changed on disk: /Users/x/Writ/shared.md"),
       );
 
       debouncedSave("guarded", "mine", 300);
@@ -397,6 +397,18 @@ describe("autosave", () => {
       await vi.advanceTimersByTimeAsync(300);
       expect(mockedSave).toHaveBeenCalledTimes(2);
       expect(mockedSave).toHaveBeenLastCalledWith("guarded", "mine, edited");
+    });
+
+    it("does not try a save of a file still downloading again either", async () => {
+      mockedSave.mockRejectedValueOnce(
+        new Error("ERR_FILE_NOT_DOWNLOADED: the file has not finished downloading: /Users/x/a.md"),
+      );
+
+      debouncedSave("waiting", "mine", 300);
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(mockedSave).toHaveBeenCalledTimes(1);
+      expect(hasPendingAutosave("waiting")).toBe(false);
     });
 
     it("keeps the text of any other failed write for the next flush", async () => {

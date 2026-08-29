@@ -15,7 +15,8 @@ use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_tauri_lib::commands::buffer::{
-    decide_create_buffer, read_buffer_content_inner, save_buffer_content_inner, CreateDecision,
+    decide_create_buffer, read_buffer_content_inner, save_buffer_content_inner,
+    save_failure_message, CreateDecision, ERR_FILE_CHANGED_ON_DISK, ERR_FILE_NOT_DOWNLOADED,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::preview::handler::RenderCache;
@@ -185,8 +186,8 @@ fn a_save_over_a_file_changed_outside_writ_is_stopped_and_the_text_lands_beside_
     let refused = save_buffer_content_inner(&state, &id, "what the user typed")
         .expect_err("the save must not land");
     assert!(
-        refused.contains("the file changed on disk"),
-        "the frontend maps this text: {refused}"
+        refused.starts_with(ERR_FILE_CHANGED_ON_DISK),
+        "the frontend reads the code, not the wording: {refused}"
     );
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),
@@ -216,4 +217,32 @@ fn a_save_over_a_file_changed_outside_writ_is_stopped_and_the_text_lands_beside_
         1,
         "a save that lands writes no copy"
     );
+}
+
+#[test]
+fn a_stopped_save_comes_back_under_a_stable_code() {
+    let changed = writ_storage::errors::StorageError::SourceChangedOnDisk {
+        path: "/notes/shared.md".to_string(),
+        disk_hash: "deadbeef".to_string(),
+        conflict_copy: Some("/notes/shared (conflict 2026-08-29 09.41.07).md".to_string()),
+    };
+    let message = save_failure_message(&changed);
+    assert!(message.starts_with(ERR_FILE_CHANGED_ON_DISK), "{message}");
+    assert!(message.contains("/notes/shared.md"), "{message}");
+
+    let waiting = writ_storage::errors::StorageError::SourceNotDownloaded {
+        path: "/notes/evicted.md".to_string(),
+    };
+    let message = save_failure_message(&waiting);
+    assert!(message.starts_with(ERR_FILE_NOT_DOWNLOADED), "{message}");
+}
+
+#[test]
+fn every_other_failure_keeps_its_plain_message() {
+    let other = writ_storage::errors::StorageError::Consistency {
+        message: "note x has no file to save into".to_string(),
+    };
+    let message = save_failure_message(&other);
+    assert_eq!(message, other.to_string());
+    assert!(!message.starts_with("ERR_"), "{message}");
 }

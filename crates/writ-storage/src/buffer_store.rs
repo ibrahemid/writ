@@ -7,7 +7,7 @@ use rusqlite::Connection;
 use tracing::warn;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::hash::Sha256Digest;
-use writ_core::notes::guard::{decide_save, DiskState, SaveDecision};
+use writ_core::notes::guard::{decide_save, is_not_downloaded, DiskState, SaveDecision};
 use writ_core::recovery::{
     fingerprint_buffers, should_snapshot, RecoveredBuffer, SnapshotFingerprint,
 };
@@ -506,10 +506,15 @@ impl BufferStore {
     /// refusal never ends with the user's text nowhere (ADR-028 §5), and the
     /// error names where it went.
     ///
+    /// A file whose bytes are not on this machine is stopped before the
+    /// compare read, because that read is what would pull it down.
+    ///
     /// # Errors
     ///
     /// [`StorageError::SourceChangedOnDisk`] when the file changed under Writ
     /// and holds something other than what is being written;
+    /// [`StorageError::SourceNotDownloaded`] when the file has not finished
+    /// downloading;
     /// [`StorageError::Consistency`] for a read-only row or one with no file;
     /// [`StorageError::Io`] when the file cannot be read or written.
     pub fn write_source_guarded(
@@ -532,6 +537,10 @@ impl BufferStore {
             })?
             .clone();
         let path = Path::new(&source_path);
+
+        if is_not_downloaded(dataless_flags(path)) {
+            return Err(StorageError::SourceNotDownloaded { path: source_path });
+        }
 
         let incoming = writ_core::hash::sha256_bytes(content.as_bytes());
         let on_disk = read_disk_state(path)?;
@@ -795,6 +804,23 @@ impl BufferStore {
 /// The index tolerates both. A note with no file holds no text to index, and
 /// a file that vanished under an open tab is recreated by the next save, so
 /// neither is a reason to fail a reindex.
+/// The filesystem flags on `path`, or `None` when the platform has none to
+/// report or the file is gone.
+///
+/// macOS is the only platform with `SF_DATALESS`; everywhere else this is a
+/// constant `None` and the check that reads it folds away.
+#[cfg(target_os = "macos")]
+fn dataless_flags(path: &Path) -> Option<u32> {
+    use std::os::macos::fs::MetadataExt;
+    std::fs::metadata(path).ok().map(|m| m.st_flags())
+}
+
+/// [`dataless_flags`] on a platform with no such flag.
+#[cfg(not(target_os = "macos"))]
+fn dataless_flags(_path: &Path) -> Option<u32> {
+    None
+}
+
 /// What `path` holds right now, or `None` when there is no file there.
 ///
 /// The bytes are read once and both hashed and measured from that read, so the

@@ -1,26 +1,44 @@
-// What a save the write guard stopped comes back as: the Display text of
-// `StorageError::SourceChangedOnDisk` (crates/writ-storage/src/errors.rs).
-// Both sides are pinned by tests; change one and the other moves with it.
-const CHANGED_ON_DISK = "the file changed on disk";
+// Codes a failed save carries, minted in src-tauri/src/commands/buffer.rs. The
+// code is the contract; the message after it is for logs and is free to
+// change, so no wording a person reads crosses the boundary.
+const ERR_FILE_CHANGED_ON_DISK = "ERR_FILE_CHANGED_ON_DISK";
+const ERR_FILE_NOT_DOWNLOADED = "ERR_FILE_NOT_DOWNLOADED";
 
-const CHANGED_ON_DISK_MESSAGE =
-  "This file changed outside Writ, so your changes were not saved. A copy of your version is beside it.";
+// What each code says to the person whose save did not land. Both read as the
+// second half of "Couldn't save <name>: ".
+const CODE_MESSAGES: Record<string, string> = {
+  [ERR_FILE_CHANGED_ON_DISK]: "the file changed outside Writ. A copy of your version is beside it.",
+  [ERR_FILE_NOT_DOWNLOADED]:
+    "this file has not finished downloading, so your changes were not saved yet.",
+};
+
+// Writing again cannot help either of these: the same text is stopped the same
+// way, and a stopped save leaves another dated copy beside the note each time.
+const NOT_WORTH_REPEATING = new Set([ERR_FILE_CHANGED_ON_DISK, ERR_FILE_NOT_DOWNLOADED]);
 
 // Tauri rejects IPC with a plain string; a thrown Error carries its message.
 function rawMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error ?? "")).trim();
 }
 
-// True when the write was stopped because the file holds something Writ never
-// read. Trying that write again writes another copy beside the note and stops
-// again, so the caller waits for the document to change instead.
-export function isChangedOnDisk(error: unknown): boolean {
-  return rawMessage(error).includes(CHANGED_ON_DISK);
+function codeOf(error: unknown): string | undefined {
+  const text = rawMessage(error);
+  return Object.keys(CODE_MESSAGES).find(
+    (code) => text === code || text.startsWith(`${code}:`) || text.startsWith(`${code} `),
+  );
+}
+
+// False when writing the same text again would fail the same way, so the
+// caller drops it and waits for the document to change.
+export function isRetryableSaveError(error: unknown): boolean {
+  const code = codeOf(error);
+  return code === undefined || !NOT_WORTH_REPEATING.has(code);
 }
 
 export function formatSaveError(error: unknown): string {
+  const code = codeOf(error);
+  if (code !== undefined) return CODE_MESSAGES[code];
   const text = rawMessage(error);
-  if (text.includes(CHANGED_ON_DISK)) return CHANGED_ON_DISK_MESSAGE;
   return text.length > 0 ? text : "unknown error";
 }
 

@@ -74,3 +74,23 @@ pub fn decide_save(
     }
     SaveDecision::Refuse
 }
+
+/// macOS `SF_DATALESS`: the file's bytes are not on this machine.
+///
+/// The name and value are `sys/stat.h`'s. The constant is defined here rather
+/// than read from a libc binding so the policy compiles and is testable on
+/// every platform.
+pub const SF_DATALESS: u32 = 0x4000_0000;
+
+/// Whether the filesystem says the file's bytes have not been downloaded.
+///
+/// A file evicted by iCloud Drive still has a size and an mtime, and reading
+/// it makes the provider daemon fetch it over the network. The guard would do
+/// exactly that on every save (ADR-028 §5), so it asks first and refuses
+/// rather than reading, writing, or guessing what the file holds.
+///
+/// `st_flags` is what the platform reports, or `None` where there is no such
+/// flag; a platform without one never has a file that is not downloaded.
+pub fn is_not_downloaded(st_flags: Option<u32>) -> bool {
+    st_flags.is_some_and(|flags| flags & SF_DATALESS != 0)
+}

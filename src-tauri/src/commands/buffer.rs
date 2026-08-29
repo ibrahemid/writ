@@ -8,6 +8,34 @@ use tauri::{AppHandle, Manager, State};
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::buffer::manager::BufferManager;
 use writ_storage::buffer_store::BufferStore;
+use writ_storage::errors::StorageError;
+
+/// Code a save carries when the file changed under Writ and the write was
+/// stopped.
+///
+/// The frontend reads the code and writes its own sentence, so no wording a
+/// person sees is load-bearing across the boundary and the message after the
+/// code stays free to say whatever a log needs
+/// (`ERR_UNAUTHORIZED_PATH` in [`crate::commands::file`] is the same shape).
+pub const ERR_FILE_CHANGED_ON_DISK: &str = "ERR_FILE_CHANGED_ON_DISK";
+
+/// Code a save carries when the file's bytes are not on this machine yet.
+pub const ERR_FILE_NOT_DOWNLOADED: &str = "ERR_FILE_NOT_DOWNLOADED";
+
+/// Renders a failed save for the frontend: a stable code first when the
+/// failure is one the editor has something to say about, the plain message
+/// otherwise.
+pub fn save_failure_message(error: &StorageError) -> String {
+    match error {
+        StorageError::SourceChangedOnDisk { .. } => {
+            format!("{ERR_FILE_CHANGED_ON_DISK}: {error}")
+        }
+        StorageError::SourceNotDownloaded { .. } => {
+            format!("{ERR_FILE_NOT_DOWNLOADED}: {error}")
+        }
+        other => other.to_string(),
+    }
+}
 
 /// Outcome of resolving a new-note request: either an existing note that has
 /// not reached a file to reuse, or a freshly minted (not yet persisted) one.
@@ -90,7 +118,8 @@ pub fn get_buffer(state: State<'_, AppState>, id: String) -> Result<BufferDocume
 /// ([`writ_storage::buffer_store::BufferStore::write_source_guarded`]). What
 /// it compares against is this process's record for the tab, so a note whose
 /// tab was closed and reopened is measured against its file rather than
-/// against a record of what the file used to hold.
+/// against a record of what the file used to hold. Such a failure comes back
+/// under a stable code ([`save_failure_message`]).
 pub fn save_buffer_content_inner(state: &AppState, id: &str, content: &str) -> Result<(), String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).map_err(|e| e.to_string())?;
@@ -126,7 +155,7 @@ pub fn save_buffer_content_inner(state: &AppState, id: &str, content: &str) -> R
     }
     let written = store
         .save_to_source_without_index(id, content, state.disk_state(id))
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| save_failure_message(&e))?;
     state.set_disk_state(id, written);
     Ok(())
 }

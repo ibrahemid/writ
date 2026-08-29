@@ -1,4 +1,4 @@
-import { isChangedOnDisk } from "../lib/save-error";
+import { isRetryableSaveError } from "../lib/save-error";
 import { saveBufferContent } from "./tauri";
 
 type AutosaveErrorListener = (bufferId: string, error: unknown) => void;
@@ -193,10 +193,10 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     // still the newest text for this buffer.
     //
     // A write the guard stopped is the exception. Identical text is stopped
-    // again, and every attempt lands another dated copy beside the note, so
-    // this text leaves the queue and the next keystroke — which queues a new
-    // generation — is what tries again.
-    if (generations.get(bufferId) === queued.generation && !isChangedOnDisk(error)) {
+    // the same way, and a stopped save lands another dated copy beside the
+    // note each time, so this text leaves the queue and the next keystroke —
+    // which queues a new generation — is what writes again.
+    if (generations.get(bufferId) === queued.generation && isRetryableSaveError(error)) {
       pendingContent.set(bufferId, { source: content, generation: queued.generation });
     }
     for (const listener of errorListeners) {

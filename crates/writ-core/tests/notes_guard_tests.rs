@@ -1,7 +1,9 @@
 use std::time::{Duration, SystemTime};
 
 use writ_core::hash::sha256_bytes;
-use writ_core::notes::guard::{decide_save, DiskState, SaveDecision};
+use writ_core::notes::guard::{
+    decide_save, is_not_downloaded, DiskState, SaveDecision, SF_DATALESS,
+};
 
 fn state_of(content: &str) -> DiskState {
     DiskState {
@@ -98,4 +100,24 @@ fn mtime_change_alone_never_refuses() {
         ),
         SaveDecision::Proceed
     );
+}
+
+#[test]
+fn a_file_flagged_dataless_is_not_downloaded() {
+    assert!(is_not_downloaded(Some(SF_DATALESS)));
+    assert!(
+        is_not_downloaded(Some(SF_DATALESS | 0x0000_0002)),
+        "the flag counts alongside any other"
+    );
+}
+
+#[test]
+fn a_file_with_no_dataless_flag_is_downloaded() {
+    assert!(!is_not_downloaded(Some(0)));
+    assert!(!is_not_downloaded(Some(0x0000_0002)));
+}
+
+#[test]
+fn a_platform_with_no_such_flag_never_reports_a_file_as_not_downloaded() {
+    assert!(!is_not_downloaded(None));
 }
