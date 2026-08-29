@@ -35,6 +35,7 @@ export function createFilesProvider(options: FilesProviderOptions = {}): ResultP
         if (needle && !matchesBuffer(target.doc.title, target.doc.source_path, needle)) continue;
         results.push({
           id: `file:buffer:${target.doc.id}`,
+          icon: "file-text",
           label: target.doc.title,
           detail: target.doc.source_path ?? (target.kind === "history" ? "History" : "Scratch"),
           execute: () => openTarget({ kind: target.kind, id: target.doc.id }),
@@ -55,6 +56,7 @@ export function createFilesProvider(options: FilesProviderOptions = {}): ResultP
         taken.add(key);
         results.push({
           id: `file:workspace:${hit.path}`,
+          icon: "file-text",
           label: hit.name,
           detail: hit.path,
           execute: () => openTarget({ kind: "file", path: absolute }),

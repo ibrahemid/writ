@@ -1,4 +1,5 @@
 import type { SnippetSegment } from "../../types/search";
+import type { IconName } from "../Icon/sprite.generated";
 
 // Query prefixes route to a subset of providers. `all` is the unprefixed case.
 export type PaletteMode = "all" | "commands" | "content" | "line";
@@ -15,6 +16,9 @@ export interface PaletteResultSection {
 export interface PaletteResult {
   id: string;
   label: string;
+  // Leading glyph. Rows that stand for a file carry one; command and settings
+  // rows read as a list of actions and carry none.
+  icon?: IconName;
   detail?: string;
   snippet?: SnippetSegment[];
   line?: number;

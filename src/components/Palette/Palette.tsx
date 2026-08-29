@@ -1,6 +1,8 @@
 import { For, Show, createMemo, createEffect, createSignal, onCleanup, untrack } from "solid-js";
 import { installFocusTrap } from "../../lib/focus-trap";
+import { resolvePlatform } from "../../lib/platform";
 import { useWindow } from "../WindowProvider/WindowProvider";
+import Icon from "../Icon/Icon";
 import Kbd from "../Kbd/Kbd";
 import { composeSections, type ComposedSection } from "./compose";
 import { parsePaletteQuery } from "./query";
@@ -31,6 +33,8 @@ let paletteSeq = 0;
 
 export default function Palette(props: PaletteProps) {
   const win = useWindow();
+  // Read per mount: the platform layer is written once at boot (ADR-030).
+  const platform = resolvePlatform();
   const domId = `palette-${++paletteSeq}`;
   const listId = `${domId}-listbox`;
   const optionId = (index: number) => `${domId}-option-${index}`;
@@ -248,26 +252,30 @@ export default function Palette(props: PaletteProps) {
         <div
           ref={paletteRef}
           class="palette"
+          data-platform={platform}
           onClick={(e) => e.stopPropagation()}
           role="dialog"
           aria-modal="true"
           aria-label={props.label}
         >
-          <input
-            ref={inputRef}
-            type="text"
-            class="palette-input"
-            placeholder={props.placeholder}
-            value={query()}
-            onInput={(e) => setQuery(e.currentTarget.value)}
-            onKeyDown={handleKeyDown}
-            aria-label={props.inputLabel}
-            role="combobox"
-            aria-expanded={flat().length > 0}
-            aria-controls={listId}
-            aria-autocomplete="list"
-            aria-activedescendant={flat().length > 0 ? optionId(selected()) : undefined}
-          />
+          <div class="palette-search">
+            <Icon name="magnifying-glass" />
+            <input
+              ref={inputRef}
+              type="text"
+              class="palette-input"
+              placeholder={props.placeholder}
+              value={query()}
+              onInput={(e) => setQuery(e.currentTarget.value)}
+              onKeyDown={handleKeyDown}
+              aria-label={props.inputLabel}
+              role="combobox"
+              aria-expanded={flat().length > 0}
+              aria-controls={listId}
+              aria-autocomplete="list"
+              aria-activedescendant={flat().length > 0 ? optionId(selected()) : undefined}
+            />
+          </div>
           <Show
             when={flat().length > 0}
             fallback={
@@ -317,6 +325,9 @@ export default function Palette(props: PaletteProps) {
                             onClick={() => handleSelect(result)}
                             onMouseMove={() => setSelectedIndex(idx())}
                           >
+                            <Show when={result.icon}>
+                              {(name) => <Icon name={name()} />}
+                            </Show>
                             <div class="palette-item-text">
                               <span class="palette-item-label">{result.label}</span>
                               <Show when={result.snippet}>

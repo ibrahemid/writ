@@ -21,7 +21,6 @@ export const RETOKENISE_ALLOWLIST: readonly string[] = [
   "src/components/ErrorBoundary/ErrorBoundary.css",
   "src/components/Find/FindOverlay.css",
   "src/components/Notifications/Toast.css",
-  "src/components/Palette/Palette.css",
   "src/components/Preview/LinkConfirm.css",
   "src/components/Preview/preview-chrome.css",
   "src/components/Preview/preview-layout-toggle.css",

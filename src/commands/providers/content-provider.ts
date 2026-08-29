@@ -35,6 +35,7 @@ export function createContentProvider(options: ContentProviderOptions = {}): Res
         .filter((hit) => kindById.has(hit.buffer_id))
         .map((hit) => ({
           id: `content:buffer:${hit.buffer_id}:${hit.line ?? 0}`,
+          icon: "file-text",
           label: hit.title,
           snippet: hit.snippet,
           line: hit.line ?? undefined,
@@ -60,6 +61,7 @@ export function createContentProvider(options: ContentProviderOptions = {}): Res
             if (skip.has(pathKey(absolute))) continue;
             rows.push({
               id: `content:workspace:${hit.path}:${hit.line}`,
+              icon: "file-text",
               label: basename(hit.path),
               detail: hit.path,
               snippet: hit.snippet,

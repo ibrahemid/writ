@@ -68,7 +68,7 @@ export default function SearchPalette() {
       open={isOpen()}
       onClose={closeSearchPalette}
       providers={PROVIDERS}
-      placeholder="Search files, content, commands"
+      placeholder="Type a command or note name"
       label="Search everywhere"
       inputLabel="Search files, content, commands"
       notice={searchNotice}
