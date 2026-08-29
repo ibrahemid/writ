@@ -134,7 +134,7 @@ pub fn save_buffer_content_inner(state: &AppState, id: &str, content: &str) -> R
     };
 
     crate::commands::file::authorize_source_write(state, &source_path)?;
-    let stamp = ignore_stamper(state, &doc.filename);
+    let stamp = ignore_stamper(state);
     let written = store
         .save_to_source_without_index(id, content, state.disk_state(id), Some(&stamp))
         .map_err(|e| save_failure_message(&e))?;
@@ -145,28 +145,30 @@ pub fn save_buffer_content_inner(state: &AppState, id: &str, content: &str) -> R
 /// The hook the store calls immediately before each of its writes, which
 /// stamps the file in the watcher's ignore set.
 ///
-/// Three keys for the one file a write touches, because each watcher
-/// recognizes its own: the retired mirror name, the inbox watcher's full-path
-/// key, and the config watcher's bare-name key. Missing one turns Writ's own
-/// write into an external-change event — a config reload, or an arrival that
-/// reopens the tab and pulls the window forward, on every keystroke. (U6
-/// re-keys these; the count is what today's watchers read.)
+/// One key for the one file a write touches: that file's canonical path under
+/// the source namespace. A save used to stamp the bare name as well, which is
+/// a global key — a save of `a/index.md` suppressed a real change to
+/// `b/index.md` for as long as the stamp lived, and collided with the config
+/// watcher, which keyed on the bare `config.toml` (ADR-028 section 6).
+///
+/// The path is resolved as far as the filesystem knows it, so a file being
+/// created is keyed by its canonical folder plus its name and the event that
+/// creation produces still finds the stamp. Without a stamp the write comes
+/// back as an external change: a config reload, or an arrival that reopens the
+/// tab and pulls the window forward, on every keystroke.
 ///
 /// It is handed to the store rather than run before the call because the store
 /// writes more than the note: a save that cannot land writes the text it was
 /// carrying beside the note, and that file lands in the same watched folder.
-fn ignore_stamper<'a>(state: &'a AppState, mirror_name: &'a str) -> impl Fn(&Path, &[u8]) + 'a {
+fn ignore_stamper(state: &AppState) -> impl Fn(&Path, &[u8]) + '_ {
     move |path: &Path, bytes: &[u8]| {
+        let key =
+            writ_core::watcher::ignore::source_key(&crate::watcher::handler::ignore_key_path(path));
         let mut ignore = recover_poison(
             state.watcher_ignore.lock(),
             "commands::buffer::ignore_stamper",
         );
-        let now = Instant::now();
-        ignore.record(mirror_name.to_string(), bytes, now);
-        ignore.record(path.to_string_lossy().into_owned(), bytes, now);
-        if let Some(name) = path.file_name() {
-            ignore.record(name.to_string_lossy().into_owned(), bytes, now);
-        }
+        ignore.record(key, bytes, Instant::now());
     }
 }
 
@@ -312,6 +314,21 @@ pub fn list_active_buffers(state: State<'_, AppState>) -> Result<Vec<BufferDocum
         .map_err(|e| e.to_string())
 }
 
+/// Drops the stamp the note's last save left, so a stamp cannot outlive the
+/// tab that made it.
+///
+/// A note that never reached a file has nothing stamped.
+fn forget_ignore_stamp(state: &AppState, doc: &BufferDocument, context: &'static str) {
+    let Some(path) = doc.source_path.as_deref() else {
+        return;
+    };
+    let key = writ_core::watcher::ignore::source_key(&crate::watcher::handler::ignore_key_path(
+        Path::new(path),
+    ));
+    let mut ignore = recover_poison(state.watcher_ignore.lock(), context);
+    ignore.remove(&key);
+}
+
 /// IPC: closes one tab.
 ///
 /// What the file held is forgotten with the tab. The record exists to answer
@@ -321,13 +338,7 @@ pub fn list_active_buffers(state: State<'_, AppState>) -> Result<Vec<BufferDocum
 pub fn close_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).map_err(|e| e.to_string())?;
-    {
-        let mut ignore = recover_poison(
-            state.watcher_ignore.lock(),
-            "commands::buffer::close_buffer",
-        );
-        ignore.remove(&doc.filename);
-    }
+    forget_ignore_stamp(state, &doc, "commands::buffer::close_buffer");
     store.close(id).map_err(|e| e.to_string())?;
     state.forget_disk_state(id);
     Ok(())
@@ -356,11 +367,7 @@ pub fn delete_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).ok();
     if let Some(doc) = doc.as_ref() {
-        let mut ignore = recover_poison(
-            state.watcher_ignore.lock(),
-            "commands::buffer::delete_buffer",
-        );
-        ignore.remove(&doc.filename);
+        forget_ignore_stamp(state, doc, "commands::buffer::delete_buffer");
     }
     store.delete(id).map_err(|e| e.to_string())?;
     state.forget_disk_state(id);

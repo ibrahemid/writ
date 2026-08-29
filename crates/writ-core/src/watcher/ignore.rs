@@ -18,6 +18,7 @@
 //! decision deterministically without a real clock.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 /// Default lifetime of an ignore stamp before it is considered stale.
@@ -50,7 +51,8 @@ pub enum SuppressDecision {
     Emit,
 }
 
-/// Map of pending internal-write fingerprints, keyed by buffer filename.
+/// Map of pending internal-write fingerprints, keyed by a namespaced
+/// canonical path ([`source_key`], [`config_key`]).
 ///
 /// Insertion is performed by IPC commands immediately before issuing
 /// their write. Lookup is performed by the watcher when an event for a
@@ -72,29 +74,23 @@ impl IgnoreStamps {
         }
     }
 
-    /// Records the fingerprint of `content` for `filename` at `now`.
+    /// Records the fingerprint of `content` for `key` at `now`.
     ///
     /// Uses [`DEFAULT_IGNORE_TTL`]; pre-evicts any stamps older than that
     /// to bound the map size.
-    pub fn record(&mut self, filename: String, content: &[u8], now: Instant) {
-        self.record_with_ttl(filename, content, now, DEFAULT_IGNORE_TTL);
+    pub fn record(&mut self, key: String, content: &[u8], now: Instant) {
+        self.record_with_ttl(key, content, now, DEFAULT_IGNORE_TTL);
     }
 
-    /// Records the fingerprint of `content` for `filename` at `now`, with
+    /// Records the fingerprint of `content` for `key` at `now`, with
     /// an explicit `ttl` controlling the opportunistic eviction sweep.
-    pub fn record_with_ttl(
-        &mut self,
-        filename: String,
-        content: &[u8],
-        now: Instant,
-        ttl: Duration,
-    ) {
+    pub fn record_with_ttl(&mut self, key: String, content: &[u8], now: Instant, ttl: Duration) {
         self.evict_expired(now, ttl);
         let hash = hash_bytes(content);
-        self.inner.insert(filename, IgnoreStamp { hash, at: now });
+        self.inner.insert(key, IgnoreStamp { hash, at: now });
     }
 
-    /// Decides whether a delivered event for `filename` should be emitted
+    /// Decides whether a delivered event for `key` should be emitted
     /// or suppressed.
     ///
     /// `current_disk_content` is the file's current on-disk bytes as
@@ -110,36 +106,36 @@ impl IgnoreStamps {
     /// fingerprint (a genuine external edit).
     pub fn decide(
         &mut self,
-        filename: &str,
+        key: &str,
         current_disk_content: Option<&[u8]>,
         now: Instant,
         ttl: Duration,
     ) -> SuppressDecision {
-        let Some(stamp) = self.inner.get(filename).copied() else {
+        let Some(stamp) = self.inner.get(key).copied() else {
             return SuppressDecision::Emit;
         };
 
         if now.saturating_duration_since(stamp.at) > ttl {
-            self.inner.remove(filename);
+            self.inner.remove(key);
             return SuppressDecision::Emit;
         }
 
         let Some(bytes) = current_disk_content else {
-            self.inner.remove(filename);
+            self.inner.remove(key);
             return SuppressDecision::Emit;
         };
 
         if hash_bytes(bytes) == stamp.hash {
             SuppressDecision::Suppress
         } else {
-            self.inner.remove(filename);
+            self.inner.remove(key);
             SuppressDecision::Emit
         }
     }
 
-    /// Removes any stamp for `filename`. Used by close/delete commands.
-    pub fn remove(&mut self, filename: &str) {
-        self.inner.remove(filename);
+    /// Removes any stamp for `key`. Used by close/delete commands.
+    pub fn remove(&mut self, key: &str) {
+        self.inner.remove(key);
     }
 
     /// Drops every stamp older than `ttl` relative to `now`.
@@ -158,9 +154,54 @@ impl IgnoreStamps {
         self.inner.is_empty()
     }
 
-    /// Returns `true` if a stamp is currently recorded for `filename`.
-    pub fn contains(&self, filename: &str) -> bool {
-        self.inner.contains_key(filename)
+    /// Returns `true` if a stamp is currently recorded for `key`.
+    pub fn contains(&self, key: &str) -> bool {
+        self.inner.contains_key(key)
+    }
+}
+
+/// Namespace for the file a note's text lives in.
+const SOURCE_NAMESPACE: &str = "source";
+
+/// Namespace for the config file.
+const CONFIG_NAMESPACE: &str = "config";
+
+/// The stamp key for the file a note lives in.
+///
+/// `canonical` must be a path that came through [`std::fs::canonicalize`], or,
+/// for a file that does not exist yet, one whose existing ancestors did.
+/// Canonicalisation resolves symlinks and rewrites `/var` to `/private/var`,
+/// so a key built from an unresolved path can never match the path the watcher
+/// delivers for the same file, and every save would arrive as somebody else's
+/// edit.
+///
+/// The key carries a namespace because a bare filename is a global one: two
+/// notes named `index.md` in different folders share it, and so does the
+/// config file, so a save of one suppresses a real change to the other for as
+/// long as the stamp lives (ADR-028 section 6).
+///
+/// Lowercased on macOS and Windows, whose filesystems are case-preserving but
+/// case-insensitive, so a case-only rename APFS and NTFS perform in place does
+/// not orphan the stamp. Byte-exact on Linux, where two spellings are two
+/// files.
+pub fn source_key(canonical: &Path) -> String {
+    namespaced_key(SOURCE_NAMESPACE, canonical)
+}
+
+/// The stamp key for the config file, under its own namespace so a note
+/// named `config.toml` cannot suppress a real config reload.
+///
+/// Same canonicalisation contract as [`source_key`].
+pub fn config_key(canonical: &Path) -> String {
+    namespaced_key(CONFIG_NAMESPACE, canonical)
+}
+
+fn namespaced_key(namespace: &str, canonical: &Path) -> String {
+    let path = canonical.to_string_lossy();
+    if cfg!(any(target_os = "macos", target_os = "windows")) {
+        format!("{namespace}:{}", path.to_lowercase())
+    } else {
+        format!("{namespace}:{path}")
     }
 }
 

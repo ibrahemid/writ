@@ -136,9 +136,17 @@ fn open_note(
     name: &str,
     content: &str,
 ) -> (String, std::path::PathBuf) {
-    let path = dir.path().join(name);
-    std::fs::write(&path, content).expect("write");
-    let canonical = canonicalize_for_authorization(&path).expect("canonical");
+    open_note_at(state, &dir.path().join(name), content)
+}
+
+/// [`open_note`] for a path that is not directly under the temp dir.
+fn open_note_at(
+    state: &AppState,
+    path: &std::path::Path,
+    content: &str,
+) -> (String, std::path::PathBuf) {
+    std::fs::write(path, content).expect("write");
+    let canonical = canonicalize_for_authorization(path).expect("canonical");
     state.authorized_paths.record_for_open(canonical.clone());
     let opened = open_file_from_path(state, &canonical).expect("open");
     (opened.doc.id, std::path::PathBuf::from(canonical))
@@ -310,5 +318,42 @@ fn a_file_another_program_drops_in_the_watched_folder_still_arrives() {
     assert!(
         arrival.is_some(),
         "the stamp must not swallow a real arrival"
+    );
+}
+
+#[test]
+fn a_conflict_copy_in_one_folder_does_not_suppress_an_arrival_of_the_same_name_in_another() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let watched = TempDir::new().unwrap();
+    let root = writ_tauri_lib::security::canonicalize_root(watched.path()).expect("canonical");
+    std::fs::create_dir_all(root.join("a")).unwrap();
+    std::fs::create_dir_all(root.join("b")).unwrap();
+
+    let (id, path) = open_note_at(&state, &root.join("a").join("shared.md"), "what Writ read");
+    std::fs::write(&path, "what another program wrote").unwrap();
+    save_buffer_content_inner(&state, &id, "what the user typed").expect_err("the save is stopped");
+
+    let copies = conflict_copies(&root.join("a"));
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    let name = copies[0].file_name().expect("name").to_owned();
+
+    // Same name, same bytes, different folder: nothing but the key separates
+    // somebody else's file from the copy Writ just wrote.
+    let elsewhere = root.join("b").join(&name);
+    std::fs::write(&elsewhere, "what the user typed").unwrap();
+
+    let arrival = writ_tauri_lib::watcher::handler::classify_inbox_event(
+        &elsewhere,
+        &root,
+        &std::collections::HashSet::new(),
+        &state.watcher_ignore,
+        writ_core::watcher::ignore::DEFAULT_IGNORE_TTL,
+        std::time::Instant::now(),
+    );
+    assert!(
+        arrival.is_some(),
+        "a copy written into a/ must not swallow b/{}",
+        name.to_string_lossy()
     );
 }

@@ -308,10 +308,10 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
         );
         let now = Instant::now();
         if let Some(path) = doc.source_path.as_deref() {
-            ignore.record(path.to_string(), &source, now);
-            if let Some(name) = Path::new(path).file_name() {
-                ignore.record(name.to_string_lossy().into_owned(), &source, now);
-            }
+            let key = writ_core::watcher::ignore::source_key(
+                &crate::watcher::handler::ignore_key_path(Path::new(path)),
+            );
+            ignore.record(key, &source, now);
         }
     }
     if !doc.read_only {
@@ -468,6 +468,10 @@ fn notes_containment_authorizes(state: &AppState, source_path: &str) -> bool {
 /// Resolves `path` against the filesystem as far as it exists, then appends
 /// the components that do not exist yet.
 ///
+/// The watcher's ignore keys are built from this too
+/// ([`crate::watcher::handler::ignore_key_path`]), so a file being created is
+/// stamped under the path the watcher will deliver for it.
+///
 /// Walking up to the deepest existing ancestor is what makes the answer honest
 /// for a file Writ is about to create: every symlink and every `..` above the
 /// new name is resolved by `canonicalize`, and only names the filesystem has
@@ -477,7 +481,7 @@ fn notes_containment_authorizes(state: &AppState, source_path: &str) -> bool {
 /// `..` or empty (`Path::file_name` yields nothing for either, so such a tail
 /// can never be appended), and for any resolution error other than a missing
 /// file.
-fn resolve_for_containment(path: &Path) -> Option<String> {
+pub(crate) fn resolve_for_containment(path: &Path) -> Option<String> {
     if !path.is_absolute() {
         return None;
     }

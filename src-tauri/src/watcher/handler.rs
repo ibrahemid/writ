@@ -14,6 +14,24 @@ pub fn create_ignore_set() -> IgnoreSet {
     Arc::new(Mutex::new(IgnoreStamps::new()))
 }
 
+/// The path an ignore key is built from, for both the write that records the
+/// stamp and the event that looks it up.
+///
+/// Both sides go through this one function because they have to agree
+/// exactly: canonicalisation resolves symlinks and rewrites `/var` to
+/// `/private/var`, so a stamp keyed by an unresolved path is a stamp no event
+/// can ever match, and every save reads as somebody else's edit.
+///
+/// A file that does not exist yet resolves to its canonical folder plus its
+/// name, which is the path the watcher delivers once the write creates it. A
+/// path that resolves to nothing is used raw, which can only fail open: the
+/// key misses and the event is emitted.
+pub(crate) fn ignore_key_path(path: &Path) -> PathBuf {
+    crate::commands::file::resolve_for_containment(path)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| path.to_path_buf())
+}
+
 /// Opaque owner of the file watcher's debouncer.
 ///
 /// Held by `AppState` so the watcher lives as long as the application.
@@ -209,8 +227,10 @@ fn snapshot_files(root: &Path) -> std::collections::HashSet<PathBuf> {
 /// is a pre-existing file (possibly modified) and is suppressed (ADR-024).
 ///
 /// A file Writ has just saved is its own write, not an arrival: the ignore
-/// set is keyed by full path for source writes and fingerprints the bytes, so
-/// suppression here cannot swallow someone else's edit to the same file.
+/// set is keyed by the file's canonical path under the source namespace and
+/// fingerprints the bytes, so suppression here cannot swallow someone else's
+/// edit to the same file, nor a change to a file of the same name in another
+/// folder.
 pub fn classify_inbox_event(
     path: &Path,
     root: &Path,
@@ -226,7 +246,7 @@ pub fn classify_inbox_event(
     if !writ_core::inbox::qualifies_for_auto_open(root, path, preexisting) {
         return None;
     }
-    let key = path.to_string_lossy().into_owned();
+    let key = writ_core::watcher::ignore::source_key(&ignore_key_path(path));
     let decision = {
         let current_bytes = std::fs::read(path).ok();
         let mut set = recover_poison(ignore_set.lock(), "watcher::handler::inbox_event");
@@ -265,6 +285,9 @@ pub fn classify_workspace_event(path: &Path, root: &Path) -> Option<WritEvent> {
 /// it. Pure aside from a single `fs::read` to fingerprint the file against
 /// the ignore set; callers test it directly with a tempdir.
 ///
+/// The config file has its own key namespace: a note named `config.toml` that
+/// Writ saves must not suppress a real config reload (ADR-028 section 6).
+///
 /// Only the config file qualifies. Anything else is dropped, and dropping it
 /// early is a correctness rule rather than a tidiness one: `write_atomic`
 /// persists through a `NamedTempFile` created beside its target, so every
@@ -285,15 +308,12 @@ pub fn classify_watch_event(
         return None;
     }
 
-    let filename = config_path
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let key = writ_core::watcher::ignore::config_key(&ignore_key_path(config_path));
 
     let current_bytes = std::fs::read(path).ok();
     let decision = {
         let mut set = recover_poison(ignore_set.lock(), "watcher::handler::config_event");
-        set.decide(&filename, current_bytes.as_deref(), now, ttl)
+        set.decide(&key, current_bytes.as_deref(), now, ttl)
     };
 
     if decision == SuppressDecision::Suppress {
@@ -314,6 +334,17 @@ mod tests {
 
     fn make_set() -> IgnoreSet {
         create_ignore_set()
+    }
+
+    /// The key a save of `path` records, built the way the command layer
+    /// builds it.
+    fn source_stamp_key(path: &Path) -> String {
+        writ_core::watcher::ignore::source_key(&ignore_key_path(path))
+    }
+
+    /// The key a config write records.
+    fn config_stamp_key(path: &Path) -> String {
+        writ_core::watcher::ignore::config_key(&ignore_key_path(path))
     }
 
     /// Inbox classification with an empty ignore set — the case where every
@@ -398,7 +429,7 @@ mod tests {
         let now = Instant::now();
         {
             let mut guard = set.lock().unwrap();
-            guard.record("config.toml".to_string(), bytes, now);
+            guard.record(config_stamp_key(&cfg), bytes, now);
         }
 
         let event = classify_watch_event(&cfg, &cfg, &set, DEFAULT_IGNORE_TTL, now);
@@ -410,12 +441,13 @@ mod tests {
     fn emits_external_config_change_when_bytes_differ() {
         let dir = tempdir().unwrap();
         let cfg = dir.path().join("config.toml");
+        fs::write(&cfg, b"theme = \"dark\"\n").unwrap();
 
         let set = make_set();
         let now = Instant::now();
         {
             let mut guard = set.lock().unwrap();
-            guard.record("config.toml".to_string(), b"theme = \"dark\"\n", now);
+            guard.record(config_stamp_key(&cfg), b"theme = \"dark\"\n", now);
         }
 
         fs::write(&cfg, b"theme = \"light\"\n").unwrap();
@@ -592,7 +624,7 @@ mod tests {
         let now = Instant::now();
         {
             let mut guard = set.lock().unwrap();
-            guard.record(file.to_string_lossy().into_owned(), bytes, now);
+            guard.record(source_stamp_key(&file), bytes, now);
         }
 
         assert!(classify_inbox_event(
@@ -616,11 +648,7 @@ mod tests {
         let now = Instant::now();
         {
             let mut guard = set.lock().unwrap();
-            guard.record(
-                file.to_string_lossy().into_owned(),
-                b"# edited in writ",
-                now,
-            );
+            guard.record(source_stamp_key(&file), b"# edited in writ", now);
         }
         fs::write(&file, b"# rewritten by the agent").unwrap();
 
