@@ -34,9 +34,9 @@ if (typeof Range !== "undefined" && !Range.prototype.getClientRects) {
 // "localStorage.getItem is not a function". Install an in-memory Storage only
 // when the environment's own one is unusable.
 
-function createMemoryStorage(): Storage {
+export function createMemoryStorage(): Storage {
   const entries = new Map<string, string>();
-  return {
+  const api = {
     get length() {
       return entries.size;
     },
@@ -51,7 +51,51 @@ function createMemoryStorage(): Storage {
     clear: () => {
       entries.clear();
     },
-  } as unknown as Storage;
+  };
+
+  // A real Storage also exposes every stored key as a property, so
+  // `store.k = "v"`, `store.k`, `"k" in store` and `delete store.k` behave like
+  // the setItem/getItem/removeItem calls. The Proxy keeps that half of the
+  // contract; the named methods above always win over a stored key.
+  return new Proxy(api, {
+    get(target, prop, receiver) {
+      if (typeof prop === "string" && !(prop in target)) {
+        return entries.get(prop);
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+    set(target, prop, value, receiver) {
+      if (typeof prop === "string" && !(prop in target)) {
+        entries.set(prop, String(value));
+        return true;
+      }
+      return Reflect.set(target, prop, value, receiver);
+    },
+    has(target, prop) {
+      return (typeof prop === "string" && entries.has(prop)) || Reflect.has(target, prop);
+    },
+    deleteProperty(target, prop) {
+      if (typeof prop === "string" && entries.has(prop)) {
+        entries.delete(prop);
+        return true;
+      }
+      return Reflect.deleteProperty(target, prop);
+    },
+    ownKeys() {
+      return Array.from(entries.keys());
+    },
+    getOwnPropertyDescriptor(target, prop) {
+      if (typeof prop === "string" && entries.has(prop)) {
+        return {
+          value: entries.get(prop),
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        };
+      }
+      return Reflect.getOwnPropertyDescriptor(target, prop);
+    },
+  }) as unknown as Storage;
 }
 
 const globalWithStorage = globalThis as typeof globalThis & {

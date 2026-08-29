@@ -176,8 +176,9 @@ describe("detectFromContent", () => {
 
     // Wall-clock budget for the same input. A loaded machine misses it for
     // reasons that have nothing to do with the code, so it runs only under
-    // `WRIT_PERF=1 pnpm test`, on an otherwise idle box.
-    it.skipIf(!process.env.WRIT_PERF)("bails out of the huge JSON body in under 16ms", () => {
+    // WRIT_PERF_GATE=1: scripts/perf-gate.sh drives it, on an otherwise idle
+    // box (docs/perf-budgets.md).
+    it.skipIf(!process.env.WRIT_PERF_GATE)("bails out of the huge JSON body in under 16ms", () => {
       const big = hugeJsonBody();
       const start = performance.now();
       const result = detectFromContent(big);
