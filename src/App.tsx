@@ -9,6 +9,7 @@ import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/
 import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
+import IconSprite from "./components/Icon/IconSprite";
 import { installNativeContextMenuSuppressor } from "./lib/native-context-menu";
 import { IS_MAC, resolvePlatform } from "./lib/platform";
 import ToastContainer, { showToast } from "./components/Notifications/Toast";
@@ -694,6 +695,7 @@ function AppShell() {
 
   return (
     <div class="app-container">
+      <IconSprite />
       <TitleBar />
       <div class="app-body">
         <Sidebar />

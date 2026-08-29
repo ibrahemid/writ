@@ -1,0 +1,66 @@
+.writ-btn {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--writ-r-control);
+  font-family: inherit;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  cursor: pointer;
+  transition: background var(--writ-motion), color var(--writ-motion);
+}
+
+.writ-btn .writ-icon {
+  color: currentColor;
+  opacity: 1;
+}
+
+.writ-btn-primary {
+  background: var(--writ-accent);
+  color: var(--writ-accent-fg);
+}
+
+.writ-btn-primary:hover:not(:disabled) {
+  background: var(--writ-accent-hover);
+}
+
+.writ-btn-secondary {
+  background: var(--writ-bg-sunken);
+  color: var(--writ-fg);
+}
+
+.writ-btn-secondary:hover:not(:disabled) {
+  background: var(--writ-bg-hover);
+}
+
+.writ-btn-ghost {
+  background: transparent;
+  color: var(--writ-fg-muted);
+}
+
+.writ-btn-ghost:hover:not(:disabled) {
+  background: var(--writ-bg-hover);
+  color: var(--writ-fg);
+}
+
+.writ-btn-danger {
+  color: var(--writ-danger);
+}
+
+.writ-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+:root[data-platform="win"] .writ-btn {
+  height: 32px;
+}
+
+:root[data-platform="linux"] .writ-btn {
+  height: 34px;
+  padding: 0 17px;
+  font-weight: 700;
+}
