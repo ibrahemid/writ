@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use tempfile::TempDir;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::hash::{sha256_bytes, sha256_hex};
-use writ_core::notes::guard::DiskState;
+use writ_core::notes::guard::{DiskState, SF_DATALESS};
 use writ_storage::buffer_store::{write_conflict_copy, BufferStore, RecoveredText};
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
@@ -266,12 +266,13 @@ fn a_file_changed_while_writ_was_down_keeps_its_text_and_the_snapshot_lands_besi
     let path = open_recovered_note(&store, &notes, "# What a sync client delivered");
 
     let outcome = store
-        .restore_recovered_content("guard-1", "# What the crash was holding", None)
+        .restore_recovered_content("guard-1", "# What the crash was holding", None, None)
         .expect("recovery never fails on a file that moved on");
 
     let RecoveredText::SetAside { on_disk, copy } = outcome else {
         panic!("expected the snapshot to be set aside, got {outcome:?}");
     };
+    let on_disk = on_disk.expect("the file was read, so what it holds is known");
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),
         "# What a sync client delivered",
@@ -297,7 +298,7 @@ fn a_file_that_did_not_change_takes_the_recovered_text() {
     let path = open_recovered_note(&store, &notes, "# What the crash was holding");
 
     let outcome = store
-        .restore_recovered_content("guard-1", "# What the crash was holding", None)
+        .restore_recovered_content("guard-1", "# What the crash was holding", None, None)
         .expect("restore");
 
     assert!(matches!(outcome, RecoveredText::Restored(_)));
@@ -317,7 +318,7 @@ fn a_file_that_is_gone_is_recreated_from_the_recovered_text() {
     std::fs::remove_file(&path).unwrap();
 
     let outcome = store
-        .restore_recovered_content("guard-1", "# What the crash was holding", None)
+        .restore_recovered_content("guard-1", "# What the crash was holding", None, None)
         .expect("restore");
 
     match outcome {
@@ -371,4 +372,73 @@ fn every_write_is_announced_before_it_lands() {
     );
     assert!(!announced[0].1, "announced before the file existed");
     assert!(announced[0].0.is_file(), "and it exists afterwards");
+}
+
+#[test]
+fn an_evicted_file_is_never_read_and_the_snapshot_lands_beside_it() {
+    let (_db, store) = setup();
+    let notes = TempDir::new().unwrap();
+    let path = open_recovered_note(&store, &notes, "# Only a placeholder is here");
+
+    // The flag cannot be set on a test machine, so it is injected. Reading an
+    // evicted file is what makes the provider daemon fetch it, and a relaunch
+    // is the worst moment to download every note.
+    let evicted = |_: &Path| Some(SF_DATALESS);
+
+    let outcome = store
+        .restore_recovered_content(
+            "guard-1",
+            "# What the crash was holding",
+            None,
+            Some(&evicted),
+        )
+        .expect("an evicted file is not a failure");
+
+    let RecoveredText::SetAside { on_disk, copy } = outcome else {
+        panic!("expected the snapshot to be set aside, got {outcome:?}");
+    };
+    assert!(
+        on_disk.is_none(),
+        "nothing was read, so nothing can be claimed about the file"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "# Only a placeholder is here",
+        "the file is left exactly as it was"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&copy).unwrap(),
+        "# What the crash was holding"
+    );
+    assert!(
+        copy.file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("notes (recovered "),
+        "{copy:?}"
+    );
+}
+
+#[test]
+fn a_file_the_flags_call_downloaded_takes_the_ordinary_route() {
+    let (_db, store) = setup();
+    let notes = TempDir::new().unwrap();
+    let path = open_recovered_note(&store, &notes, "# What the crash was holding");
+    let downloaded = |_: &Path| Some(0u32);
+
+    let outcome = store
+        .restore_recovered_content(
+            "guard-1",
+            "# What the crash was holding",
+            None,
+            Some(&downloaded),
+        )
+        .expect("restore");
+
+    assert!(matches!(outcome, RecoveredText::Restored(_)));
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "# What the crash was holding"
+    );
+    assert!(recovered_copies(notes.path()).is_empty());
 }

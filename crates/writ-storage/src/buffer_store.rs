@@ -29,28 +29,41 @@ use crate::recovery::snapshot::SnapshotManager;
 /// is every test and the CLI.
 pub type BeforeWrite<'a> = Option<&'a dyn Fn(&Path, &[u8])>;
 
+/// How a path's filesystem flags are read, for the check that keeps Writ from
+/// pulling an evicted file down (`SF_DATALESS`, ADR-028 §5).
+///
+/// `None` asks the filesystem, which is what the app does. A test passes one
+/// so it can exercise the flag on a machine where the flag cannot be set.
+pub type DatalessProbe<'a> = Option<&'a dyn Fn(&Path) -> Option<u32>>;
+
 /// What became of the text a relaunch recovered from the crash snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecoveredText {
     /// The file was missing or already held this text, and holds it now.
     Restored(DiskState),
-    /// The file held something Writ never saw, so it was left exactly as it
-    /// was and the recovered text was written beside it.
+    /// The file held something Writ never saw, or its bytes are not on this
+    /// machine, so it was left exactly as it was and the recovered text was
+    /// written beside it.
     SetAside {
         /// What the note's file holds, which is not the recovered text.
-        on_disk: DiskState,
+        /// `None` for a file that was never read, which is what an evicted
+        /// one is: nothing was compared, so nothing is known.
+        on_disk: Option<DiskState>,
         /// Where the recovered text went instead.
         copy: PathBuf,
     },
 }
 
 impl RecoveredText {
-    /// What the note's file holds, either way. The caller records this as the
-    /// tab's disk state, so the first save after a relaunch is measured
-    /// against the file rather than against the snapshot.
-    pub fn disk_state(&self) -> DiskState {
+    /// What the note's file holds, when that was established.
+    ///
+    /// The caller records this as the tab's disk state, so the first save
+    /// after a relaunch is measured against the file. `None` records nothing,
+    /// which leaves that first save to read the file itself — the honest
+    /// outcome for a file Writ deliberately did not open.
+    pub fn disk_state(&self) -> Option<DiskState> {
         match self {
-            Self::Restored(state) => *state,
+            Self::Restored(state) => Some(*state),
             Self::SetAside { on_disk, .. } => *on_disk,
         }
     }
@@ -639,6 +652,13 @@ impl BufferStore {
     /// text is written beside it as `<stem> (recovered YYYY-MM-DD HH.MM.SS)`,
     /// so both are on disk and the user chooses.
     ///
+    /// A file whose bytes are not on this machine is never opened. Reading one
+    /// makes the provider daemon fetch it (ADR-028 §5), and a relaunch that
+    /// pulled down every evicted note to compare it against a snapshot would
+    /// be the worst moment to do that. It takes the same route as a file that
+    /// moved on: left alone, snapshot beside it, and nothing recorded about
+    /// what it holds, so the first save reads it then.
+    ///
     /// The index and the `updated_at` stamp are left alone: the relaunch
     /// reindexes what it restored through the ordinary path, and a note whose
     /// text was set aside has not changed.
@@ -652,6 +672,7 @@ impl BufferStore {
         id: &str,
         content: &str,
         before_write: BeforeWrite<'_>,
+        dataless: DatalessProbe<'_>,
     ) -> StorageResult<RecoveredText> {
         let doc = queries::get_buffer(&self.conn, id)?;
         if doc.read_only {
@@ -668,6 +689,23 @@ impl BufferStore {
             .clone();
         let path = Path::new(&source_path);
 
+        let flags = match dataless {
+            Some(probe) => probe(path),
+            None => dataless_flags(path),
+        };
+        if is_not_downloaded(flags) {
+            let copy = write_recovered_copy(path, content, chrono::Utc::now(), before_write)?;
+            warn!(
+                note = %path.display(),
+                recovered = %copy.display(),
+                "the file has not finished downloading; the recovered text was written beside it"
+            );
+            return Ok(RecoveredText::SetAside {
+                on_disk: None,
+                copy,
+            });
+        }
+
         let incoming = writ_core::hash::sha256_bytes(content.as_bytes());
         let on_disk = read_disk_state(path)?;
 
@@ -680,7 +718,7 @@ impl BufferStore {
                     "the file moved on while Writ was down; the recovered text was written beside it"
                 );
                 return Ok(RecoveredText::SetAside {
-                    on_disk: state,
+                    on_disk: Some(state),
                     copy,
                 });
             }

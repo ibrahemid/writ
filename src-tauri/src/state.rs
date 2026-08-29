@@ -177,9 +177,13 @@ impl AppState {
             info!(count = recovered.len(), "buffers eligible for recovery");
             for buf in &recovered {
                 match restore_recovered_buffer(&store, &notes_root, buf) {
-                    Ok(state) => {
+                    // Nothing is recorded for a note whose file was never
+                    // read, so its first save reads it rather than trusting a
+                    // record nobody took.
+                    Ok(Some(state)) => {
                         recovered_disk_states.insert(buf.id.clone(), state);
                     }
+                    Ok(None) => {}
                     Err(e) => warn!(buffer_id = %buf.id, error = %e, "recovery write failed"),
                 }
             }
@@ -460,7 +464,7 @@ impl AppState {
 
 /// Writes a note restored from the crash snapshot back into its file, minting
 /// one first when the note never reached a file, and returns what that file
-/// holds afterwards.
+/// holds afterwards, when that was established.
 ///
 /// The mint is the same policy the first keystroke uses
 /// ([`crate::notes::attach_note_file`]), so a note recovered after a crash
@@ -473,13 +477,18 @@ impl AppState {
 /// has had time to deliver a newer version, and the snapshot is the older
 /// text by definition.
 ///
+/// A note whose file was never opened, because its bytes are not on this
+/// machine, comes back with nothing: the first save reads it instead.
+///
 /// No stamp is passed: this runs while the app state is still being built, so
-/// no watcher exists yet to mistake the write for somebody else's.
+/// no watcher exists yet to mistake the write for somebody else's. The flags
+/// come from the filesystem for the same reason — there is no test double in
+/// the running app.
 fn restore_recovered_buffer(
     store: &BufferStore,
     notes_root: &std::path::Path,
     recovered: &RecoveredBuffer,
-) -> Result<DiskState, String> {
+) -> Result<Option<DiskState>, String> {
     let doc = store.get(&recovered.id).map_err(|e| e.to_string())?;
     if doc.source_path.is_none() {
         crate::notes::attach_note_file(
@@ -491,7 +500,7 @@ fn restore_recovered_buffer(
         )?;
     }
     store
-        .restore_recovered_content(&recovered.id, &recovered.content, None)
+        .restore_recovered_content(&recovered.id, &recovered.content, None, None)
         .map(|outcome| outcome.disk_state())
         .map_err(|e| e.to_string())
 }
