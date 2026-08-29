@@ -251,12 +251,13 @@ describe("SettingsModal", () => {
     expect(navItems.length).toBe(SECTION_ORDER.length);
   });
 
-  it("shows Editor section by default", async () => {
+  it("shows the section the nav rail leads with by default", async () => {
     const { container } = render(() => <SettingsModal />);
     openSettings();
     await waitFor(() => {
-      expect(container.querySelector("[data-section='editor']")).not.toBeNull();
+      expect(container.querySelector(`[data-section='${SECTION_ORDER[0]}']`)).not.toBeNull();
     });
+    expect(container.querySelector("[data-section='editor']")).toBeNull();
   });
 
   it("switches to Files section on nav click", async () => {
@@ -274,7 +275,7 @@ describe("SettingsModal", () => {
 
   it("saves font size change", async () => {
     const { container } = render(() => <SettingsModal />);
-    openSettings();
+    openSettings("editor");
     await waitFor(() => expect(container.querySelector("[data-section='editor']")).not.toBeNull());
     const fontSizeInput = container.querySelector<HTMLInputElement>("[data-setting='font_size']");
     expect(fontSizeInput).not.toBeNull();
@@ -286,7 +287,7 @@ describe("SettingsModal", () => {
 
   it("clamps font size to valid range", async () => {
     const { container } = render(() => <SettingsModal />);
-    openSettings();
+    openSettings("editor");
     await waitFor(() => expect(container.querySelector("[data-section='editor']")).not.toBeNull());
     const fontSizeInput = container.querySelector<HTMLInputElement>("[data-setting='font_size']");
     fireEvent.change(fontSizeInput!, { target: { value: "200" } });
@@ -297,7 +298,7 @@ describe("SettingsModal", () => {
 
   it("saves word wrap toggle", async () => {
     const { container } = render(() => <SettingsModal />);
-    openSettings();
+    openSettings("editor");
     await waitFor(() => expect(container.querySelector("[data-section='editor']")).not.toBeNull());
     const toggle = container.querySelector<HTMLButtonElement>("[data-setting='word_wrap']");
     expect(toggle).not.toBeNull();
@@ -309,7 +310,7 @@ describe("SettingsModal", () => {
 
   it("saves tab size change", async () => {
     const { container } = render(() => <SettingsModal />);
-    openSettings();
+    openSettings("editor");
     await waitFor(() => expect(container.querySelector("[data-section='editor']")).not.toBeNull());
     const tabSizeInput = container.querySelector<HTMLInputElement>("[data-setting='tab_size']");
     expect(tabSizeInput).not.toBeNull();

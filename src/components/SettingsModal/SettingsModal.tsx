@@ -54,14 +54,21 @@ import { isSettingAvailable } from "../../settings/availability";
 import "./SettingsModal.css";
 
 // Singleton state — Writ is single-window
+
+// Settings opens on the section the nav rail leads with, which is the one
+// answering "where are my notes" (ADR-028 section 2). Every caller that means
+// a particular section names it, so this only decides where a bare Cmd+, or
+// menu item lands.
+const DEFAULT_SECTION: SettingsSection = SECTION_ORDER[0];
+
 const [isOpen, setIsOpen] = createSignal(false);
-const [activeSection, setActiveSection] = createSignal<SettingsSection>("editor");
+const [activeSection, setActiveSection] = createSignal<SettingsSection>(DEFAULT_SECTION);
 const [query, setQuery] = createSignal("");
 const [highlightId, setHighlightId] = createSignal<string | null>(null);
 
 export function openSettings(section?: SettingsSection, settingId?: string) {
   setQuery("");
-  setActiveSection(section ?? "editor");
+  setActiveSection(section ?? DEFAULT_SECTION);
   setHighlightId(settingId ?? null);
   setIsOpen(true);
 }
