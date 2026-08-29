@@ -15,21 +15,39 @@ interface TooltipProps {
   children: JSX.Element;
 }
 
-/** Hover has to settle before a tip appears; focus does not. */
+/** Hover has to settle before a tip appears; keyboard focus does not. */
 const HOVER_DELAY_MS = 500;
 /** Space between the tip and the element it describes. */
 const GAP = 6;
 /** Keeps the tip off the very edge of the viewport. */
 const EDGE_GAP = 4;
 
+/** Why the tip is open. A pointer sweep may not close one the keyboard opened. */
+type OpenReason = "hover" | "focus";
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(value, max));
 }
 
+/**
+ * A pointer press focuses the control too, and that must not pop a tip. The
+ * browser already answers this with `:focus-visible`; WebKit before 15.4 has
+ * no such selector and throws, and there a tip on focus is the safer miss.
+ */
+function isKeyboardFocus(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  try {
+    return target.matches(":focus-visible");
+  } catch {
+    return true;
+  }
+}
+
 export default function Tooltip(props: TooltipProps) {
   const id = createUniqueId();
-  const [visible, setVisible] = createSignal(false);
+  const [reason, setReason] = createSignal<OpenReason | null>(null);
   const [size, setSize] = createSignal({ width: 0, height: 0 });
+  const visible = () => reason() !== null;
   const resolved = resolveChildren(() => props.children);
   let anchorRef: HTMLSpanElement | undefined;
   let tipRef: HTMLDivElement | undefined;
@@ -41,23 +59,30 @@ export default function Tooltip(props: TooltipProps) {
     timer = undefined;
   }
 
-  function show() {
-    cancelTimer();
-    setVisible(true);
-  }
-
   function hide() {
     cancelTimer();
-    setVisible(false);
+    setReason(null);
     setSize({ width: 0, height: 0 });
   }
 
   function scheduleShow() {
+    if (visible()) return;
     cancelTimer();
     timer = setTimeout(() => {
       timer = undefined;
-      setVisible(true);
+      setReason("hover");
     }, HOVER_DELAY_MS);
+  }
+
+  function onPointerLeave() {
+    cancelTimer();
+    if (reason() !== "focus") hide();
+  }
+
+  function onFocusIn(event: FocusEvent) {
+    if (!isKeyboardFocus(event.target)) return;
+    cancelTimer();
+    setReason("focus");
   }
 
   onCleanup(cancelTimer);
@@ -119,8 +144,8 @@ export default function Tooltip(props: TooltipProps) {
       ref={(el) => (anchorRef = el)}
       class="writ-tooltip-anchor"
       onPointerEnter={scheduleShow}
-      onPointerLeave={hide}
-      onFocusIn={show}
+      onPointerLeave={onPointerLeave}
+      onFocusIn={onFocusIn}
       onFocusOut={hide}
     >
       {resolved()}

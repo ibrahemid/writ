@@ -1,4 +1,3 @@
-import { Show } from "solid-js";
 import type { IconName } from "./sprite.generated";
 import "./Icon.css";
 
@@ -25,7 +24,6 @@ export default function Icon(props: IconProps) {
       aria-hidden={props.label ? undefined : "true"}
       aria-label={props.label}
     >
-      <Show when={props.label}>{(label) => <title>{label()}</title>}</Show>
       <use href={`#ph-${props.name}`} />
     </svg>
   );

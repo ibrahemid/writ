@@ -23,15 +23,20 @@ describe("Icon", () => {
     const svg = container.querySelector("svg");
     expect(svg?.getAttribute("aria-hidden")).toBe("true");
     expect(svg?.getAttribute("role")).toBeNull();
-    expect(svg?.querySelector("title")).toBeNull();
+    expect(svg?.getAttribute("aria-label")).toBeNull();
   });
 
-  it("exposes role=img and a title with a label", () => {
+  it("exposes role=img and the label as its accessible name", () => {
     const { container } = render(() => <Icon name="gear" label="Settings" />);
     const svg = container.querySelector("svg");
     expect(svg?.getAttribute("role")).toBe("img");
     expect(svg?.getAttribute("aria-hidden")).toBeNull();
-    expect(svg?.querySelector("title")?.textContent).toBe("Settings");
+    expect(svg?.getAttribute("aria-label")).toBe("Settings");
+  });
+
+  it("never renders an svg title, which the browser would show as a tooltip", () => {
+    const { container } = render(() => <Icon name="gear" label="Settings" />);
+    expect(container.querySelector("title")).toBeNull();
   });
 
   it("sizes through an inline style so the token stays the default", () => {

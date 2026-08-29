@@ -8,6 +8,42 @@ function tip(): HTMLElement | null {
   return document.querySelector('[role="tooltip"]');
 }
 
+function mount() {
+  const result = render(() => (
+    <Tooltip label="Toggle sidebar">
+      <button type="button">Sidebar</button>
+    </Tooltip>
+  ));
+  return {
+    ...result,
+    anchor: result.container.firstElementChild as HTMLElement,
+    button: result.container.querySelector("button") as HTMLButtonElement,
+  };
+}
+
+// jsdom answers `:focus-visible` false for every element, keyboard or not, so
+// a keyboard focus has to be stated rather than performed.
+function focusByKeyboard(anchor: HTMLElement) {
+  const real = Element.prototype.matches;
+  vi.spyOn(Element.prototype, "matches").mockImplementation(function (
+    this: Element,
+    selector: string,
+  ) {
+    return selector === ":focus-visible" ? true : real.call(this, selector);
+  });
+  fireEvent.focusIn(anchor);
+}
+
+function mockRects(anchorRect: Record<string, number>, tipRect: { width: number; height: number }) {
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    const box =
+      this.getAttribute("role") === "tooltip"
+        ? { left: 0, right: tipRect.width, top: 0, bottom: tipRect.height, ...tipRect }
+        : anchorRect;
+    return { ...box, x: box.left, y: box.top, toJSON: () => box } as DOMRect;
+  });
+}
+
 describe("Tooltip", () => {
   beforeEach(() => vi.useFakeTimers());
 
@@ -18,12 +54,7 @@ describe("Tooltip", () => {
   });
 
   it("waits out the hover delay before it appears", () => {
-    const { container } = render(() => (
-      <Tooltip label="Toggle sidebar">
-        <button type="button">Sidebar</button>
-      </Tooltip>
-    ));
-    const anchor = container.firstElementChild as HTMLElement;
+    const { anchor } = mount();
 
     fireEvent.pointerEnter(anchor);
     vi.advanceTimersByTime(HOVER_DELAY_MS - 1);
@@ -34,12 +65,7 @@ describe("Tooltip", () => {
   });
 
   it("leaving before the delay never shows it", () => {
-    const { container } = render(() => (
-      <Tooltip label="Toggle sidebar">
-        <button type="button">Sidebar</button>
-      </Tooltip>
-    ));
-    const anchor = container.firstElementChild as HTMLElement;
+    const { anchor } = mount();
 
     fireEvent.pointerEnter(anchor);
     vi.advanceTimersByTime(200);
@@ -48,19 +74,43 @@ describe("Tooltip", () => {
     expect(tip()).toBeNull();
   });
 
-  it("shows on focus without a delay and describes the control", () => {
-    const { container } = render(() => (
-      <Tooltip label="Toggle sidebar">
-        <button type="button">Sidebar</button>
-      </Tooltip>
-    ));
-    const anchor = container.firstElementChild as HTMLElement;
-    const button = container.querySelector("button") as HTMLButtonElement;
+  it("a pointer press that focuses the control shows nothing until the hover delay", () => {
+    const { anchor, button } = mount();
 
+    fireEvent.pointerEnter(anchor);
+    fireEvent.pointerDown(button);
     fireEvent.focusIn(anchor);
+    expect(tip()).toBeNull();
+
+    vi.advanceTimersByTime(HOVER_DELAY_MS);
+    expect(tip()).not.toBeNull();
+  });
+
+  it("keyboard focus shows it at once and describes the control", () => {
+    const { anchor, button } = mount();
+
+    focusByKeyboard(anchor);
     const shown = tip();
     expect(shown?.getAttribute("role")).toBe("tooltip");
+    expect(shown?.textContent).toBe("Toggle sidebar");
     expect(button.getAttribute("aria-describedby")).toBe(shown?.id);
+  });
+
+  it("a pointer sweep does not dismiss a keyboard-focused tip", () => {
+    const { anchor } = mount();
+
+    focusByKeyboard(anchor);
+    fireEvent.pointerEnter(anchor);
+    fireEvent.pointerLeave(anchor);
+    vi.advanceTimersByTime(HOVER_DELAY_MS);
+    expect(tip()).not.toBeNull();
+  });
+
+  it("blur dismisses it and drops the description", () => {
+    const { anchor, button } = mount();
+
+    focusByKeyboard(anchor);
+    expect(tip()).not.toBeNull();
 
     fireEvent.focusOut(anchor);
     expect(tip()).toBeNull();
@@ -68,14 +118,9 @@ describe("Tooltip", () => {
   });
 
   it("is removed on Escape", () => {
-    const { container } = render(() => (
-      <Tooltip label="Toggle sidebar">
-        <button type="button">Sidebar</button>
-      </Tooltip>
-    ));
-    const anchor = container.firstElementChild as HTMLElement;
+    const { anchor } = mount();
 
-    fireEvent.focusIn(anchor);
+    focusByKeyboard(anchor);
     expect(tip()).not.toBeNull();
 
     fireEvent.keyDown(document, { key: "Escape" });
@@ -85,22 +130,10 @@ describe("Tooltip", () => {
   it("clamps to the viewport instead of overflowing it", () => {
     const anchorRect = { left: 940, right: 1000, top: 300, bottom: 320, width: 60, height: 20 };
     const tipRect = { width: 160, height: 26 };
-    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
-      this: Element,
-    ) {
-      const box =
-        this.getAttribute("role") === "tooltip"
-          ? { left: 0, right: tipRect.width, top: 0, bottom: tipRect.height, ...tipRect }
-          : anchorRect;
-      return { ...box, x: box.left, y: box.top, toJSON: () => box } as DOMRect;
-    });
+    mockRects(anchorRect, tipRect);
 
-    const { container } = render(() => (
-      <Tooltip label="A label wide enough to overflow">
-        <button type="button">Sidebar</button>
-      </Tooltip>
-    ));
-    fireEvent.focusIn(container.firstElementChild as HTMLElement);
+    const { anchor } = mount();
+    focusByKeyboard(anchor);
 
     const shown = tip() as HTMLElement;
     // Centred would be 890px, which puts the right edge past window.innerWidth.
@@ -111,34 +144,19 @@ describe("Tooltip", () => {
   it("flips below the anchor when there is no room above", () => {
     const anchorRect = { left: 20, right: 80, top: 4, bottom: 24, width: 60, height: 20 };
     const tipRect = { width: 80, height: 26 };
-    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
-      this: Element,
-    ) {
-      const box =
-        this.getAttribute("role") === "tooltip"
-          ? { left: 0, right: tipRect.width, top: 0, bottom: tipRect.height, ...tipRect }
-          : anchorRect;
-      return { ...box, x: box.left, y: box.top, toJSON: () => box } as DOMRect;
-    });
+    mockRects(anchorRect, tipRect);
 
-    const { container } = render(() => (
-      <Tooltip label="Toggle sidebar">
-        <button type="button">Sidebar</button>
-      </Tooltip>
-    ));
-    fireEvent.focusIn(container.firstElementChild as HTMLElement);
+    const { anchor } = mount();
+    focusByKeyboard(anchor);
 
     expect((tip() as HTMLElement).style.top).toBe(`${anchorRect.bottom + 6}px`);
   });
 
   it("cleans up its listeners on unmount", () => {
     const remove = vi.spyOn(document, "removeEventListener");
-    const { container, unmount } = render(() => (
-      <Tooltip label="Toggle sidebar">
-        <button type="button">Sidebar</button>
-      </Tooltip>
-    ));
-    fireEvent.focusIn(container.firstElementChild as HTMLElement);
+    const { anchor, unmount } = mount();
+
+    focusByKeyboard(anchor);
     unmount();
 
     expect(remove).toHaveBeenCalledWith("keydown", expect.any(Function), true);
