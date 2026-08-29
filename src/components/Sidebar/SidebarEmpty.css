@@ -3,7 +3,10 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 10px;
-  width: 212px;
+  /* The baseline drew 212px against a fixed 240px sidebar; the sidebar now
+     resizes down to 200, so the card follows it. */
+  width: auto;
+  max-width: 212px;
   margin: var(--writ-space-3);
   padding: 20px 16px;
   background: var(--writ-bg-sidebar);
@@ -19,6 +22,7 @@
 
 .sidebar-empty-line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }

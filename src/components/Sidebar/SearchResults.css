@@ -23,7 +23,9 @@
     "file line"
     "hit  hit";
   gap: 1px 8px;
-  width: 100%;
+  /* A block-level grid fills its anchor minus the margins, the way .tab-item
+     does. A width here would add to them and push the row past the scroller. */
+  width: auto;
   margin: 1px 6px;
   padding: 5px 10px;
   border: none;

@@ -71,6 +71,29 @@ const SIDEBAR_CSS = readFileSync(
   resolve(process.cwd(), "src/components/Sidebar/Sidebar.css"),
   "utf8",
 );
+const SEARCH_RESULTS_CSS = readFileSync(
+  resolve(process.cwd(), "src/components/Sidebar/SearchResults.css"),
+  "utf8",
+);
+const SIDEBAR_EMPTY_CSS = readFileSync(
+  resolve(process.cwd(), "src/components/Sidebar/SidebarEmpty.css"),
+  "utf8",
+);
+
+/** The declarations of one rule, by selector, comments stripped. */
+function ruleFor(css: string, selector: string): Map<string, string> {
+  const body = new RegExp(`\\${selector}\\s*\\{([^}]*)\\}`).exec(
+    css.replace(/\/\*[\s\S]*?\*\//g, ""),
+  );
+  if (!body) throw new Error(`no rule for ${selector}`);
+  const declarations = new Map<string, string>();
+  for (const line of body[1].split(";")) {
+    const [property, ...rest] = line.split(":");
+    if (rest.length === 0) continue;
+    declarations.set(property.trim(), rest.join(":").trim());
+  }
+  return declarations;
+}
 
 function doc(id: string, title: string, sourcePath: string | null): BufferDocument {
   return {
@@ -161,6 +184,25 @@ describe("sidebar rows", () => {
     );
     const rowRule = /\.tab-item\s*\{[^}]*\}/.exec(TAB_ITEM_CSS)![0];
     expect(rowRule).not.toContain("--writ-accent");
+  });
+
+  it("gives a search result the same box as a note row", () => {
+    // A width beside the margins pushed the row past the scroller and clipped
+    // the line number: both rows fill their parent minus 6px a side.
+    const row = ruleFor(TAB_ITEM_CSS, ".tab-item");
+    const result = ruleFor(SEARCH_RESULTS_CSS, ".search-result");
+    expect(result.get("margin")).toBe(row.get("margin"));
+    expect(result.get("width") ?? "auto").toBe("auto");
+    expect(row.get("width") ?? "auto").toBe("auto");
+    expect(result.get("border-radius")).toBe(row.get("border-radius"));
+  });
+
+  it("lets the empty card follow a narrowed sidebar", () => {
+    const card = ruleFor(SIDEBAR_EMPTY_CSS, ".sidebar-empty");
+    expect(card.get("width")).toBe("auto");
+    expect(card.get("max-width")).toBe("212px");
+    expect(card.get("margin")).toBe("var(--writ-space-3)");
+    expect(ruleFor(SIDEBAR_EMPTY_CSS, ".sidebar-empty-line").get("flex-wrap")).toBe("wrap");
   });
 
   it("sits on the row pitch and radius tokens", () => {
