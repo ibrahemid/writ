@@ -323,7 +323,7 @@ describe("SearchPalette", () => {
       await type("#");
       await waitFor(() =>
         expect(document.querySelector(".palette-empty")?.textContent).toContain(
-          "Type to search file content.",
+          "Type to search file text.",
         ),
       );
       expect(document.body.textContent).not.toContain("Nothing matches");

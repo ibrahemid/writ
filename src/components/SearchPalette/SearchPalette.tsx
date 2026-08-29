@@ -70,7 +70,7 @@ export default function SearchPalette() {
       providers={PROVIDERS}
       placeholder="Type a command or note name"
       label="Search everywhere"
-      inputLabel="Search files, content, commands"
+      inputLabel="Search files, text, commands"
       notice={searchNotice}
       onOpen={() => void workspaceSearchStore.refreshIndexStatus()}
       initialQuery={seedQuery}

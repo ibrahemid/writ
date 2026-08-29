@@ -70,7 +70,7 @@ export default function Palette(props: PaletteProps) {
   function bareModeHint(): string | null {
     switch (parsed().mode) {
       case "content":
-        return "Type to search file content.";
+        return "Type to search file text.";
       case "line":
         return "Type a line number.";
       default:
