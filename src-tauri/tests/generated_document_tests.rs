@@ -53,7 +53,7 @@ fn make_state(dir: &TempDir) -> AppState {
         config: Mutex::new(WritConfig::default()),
         writ_dir,
         buffers_dir,
-        notes_root,
+        notes_root: RwLock::new(notes_root),
         notes_root_fallback: None,
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -107,7 +107,7 @@ fn opening_a_generated_document_creates_no_file_in_the_notes_folder() {
         .expect("open");
 
     assert!(
-        is_empty_dir(&state.notes_root),
+        is_empty_dir(&state.notes_root()),
         "a generated document must never mint into the notes folder"
     );
     let expected = state
@@ -202,7 +202,7 @@ fn a_plain_new_note_still_mints_a_dated_file_in_the_notes_folder() {
 
     save_buffer_content_inner(&state, &doc.id, "just notes").expect("save");
 
-    let expected = state.notes_root.join(format!(
+    let expected = state.notes_root().join(format!(
         "{}.md",
         writ_core::notes::date_stem(doc.created_at)
     ));

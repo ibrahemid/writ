@@ -128,7 +128,7 @@ fn a_launch_over_an_0_3_5_data_folder_turns_every_note_into_a_file() {
     std::env::remove_var("WRIT_DATA_DIR");
     std::env::remove_var("WRIT_NOTES_DIR");
 
-    let notes_root = state.notes_root.clone();
+    let notes_root = state.notes_root().clone();
     assert_eq!(
         notes_root,
         writ_tauri_lib::security::canonicalize_root(notes.path()).unwrap()

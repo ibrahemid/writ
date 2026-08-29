@@ -266,6 +266,45 @@ pub fn mark_migrated(
     Ok(())
 }
 
+/// Every row that names a file, as `(id, source_path)`.
+///
+/// Read whole rather than filtered in SQL: a prefix match belongs to
+/// `Path::starts_with`, which compares component by component, and a `LIKE`
+/// over a path would match `~/Writing` for a move out of `~/Writ`.
+pub fn list_source_paths(conn: &Connection) -> StorageResult<Vec<(String, String)>> {
+    let mut stmt =
+        conn.prepare("SELECT id, source_path FROM buffers WHERE source_path IS NOT NULL")?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+/// Every row the notes migration placed, as `(id, migrated_path)`.
+pub fn list_migrated_paths(conn: &Connection) -> StorageResult<Vec<(String, String)>> {
+    let mut stmt =
+        conn.prepare("SELECT id, migrated_path FROM buffers WHERE migrated_path IS NOT NULL")?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+/// Points a migrated row at where its file is now, leaving `migrated_at` as
+/// the moment the migration placed it.
+///
+/// A file the user moved is the same file the migration wrote; re-stamping the
+/// time would claim the pass ran again. Leaving the path stale would instead
+/// make the next launch read the row as unfinished work and run the whole pass
+/// over it (ADR-028 section 4 step 6).
+pub fn set_migrated_path(conn: &Connection, id: &str, migrated_path: &str) -> StorageResult<()> {
+    conn.execute(
+        "UPDATE buffers SET migrated_path = ?1 WHERE id = ?2",
+        params![migrated_path, id],
+    )?;
+    Ok(())
+}
+
 /// Returns where the notes migration wrote this row's text, if it has.
 pub fn get_migrated_path(conn: &Connection, id: &str) -> StorageResult<Option<String>> {
     let value = conn

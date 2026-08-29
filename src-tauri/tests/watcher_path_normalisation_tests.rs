@@ -47,7 +47,7 @@ fn make_state(dir: &TempDir) -> AppState {
         config: Mutex::new(WritConfig::default()),
         writ_dir,
         buffers_dir,
-        notes_root,
+        notes_root: RwLock::new(notes_root),
         notes_root_fallback: None,
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -95,7 +95,7 @@ fn save_a_new_note(state: &AppState, content: &str) -> std::path::PathBuf {
         .expect("insert the row");
     save_buffer_content_inner(state, &doc.id, content).expect("save");
 
-    let written: Vec<std::path::PathBuf> = std::fs::read_dir(&state.notes_root)
+    let written: Vec<std::path::PathBuf> = std::fs::read_dir(state.notes_root())
         .expect("read notes folder")
         .filter_map(Result::ok)
         .map(|entry| entry.path())
@@ -156,7 +156,7 @@ fn arabic_filename_stamp_matches_the_watcher_event_path() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
 
-    let note = state.notes_root.join("ملاحظات المشروع.md");
+    let note = state.notes_root().join("ملاحظات المشروع.md");
     std::fs::write(&note, "قبل").unwrap();
     save_through_writ(&state, &note, "بعد");
 
@@ -172,9 +172,9 @@ fn nfd_accented_filename_stamp_matches_the_watcher_event_path() {
     // Created decomposed, reached composed: APFS accepts both spellings for
     // the one file, and a key built from the spelling the caller happened to
     // use would not match the one the watcher delivers.
-    let decomposed = state.notes_root.join("cafe\u{0301}.md");
+    let decomposed = state.notes_root().join("cafe\u{0301}.md");
     std::fs::write(&decomposed, "avant").unwrap();
-    let composed = state.notes_root.join("caf\u{00e9}.md");
+    let composed = state.notes_root().join("caf\u{00e9}.md");
 
     save_through_writ(&state, &composed, "après");
 

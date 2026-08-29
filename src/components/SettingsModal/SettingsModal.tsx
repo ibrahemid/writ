@@ -19,6 +19,7 @@ import { PRESETS } from "../../styles/themes";
 import { openThemeEditor } from "../ThemeEditor/ThemeEditor";
 import { openShortcutEditor } from "../ShortcutEditor/ShortcutEditor";
 import { installFocusTrap } from "../../lib/focus-trap";
+import { SHOW_IN_FILE_MANAGER } from "../../lib/platform";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showToast } from "../Notifications/Toast";
 import { fetchCliStatus, installCli } from "../../stores/global/cli";
@@ -29,6 +30,7 @@ import {
 } from "../../stores/global/ai-rewrite";
 import { aiConnectionStore, connectionDisplay } from "../../stores/global/ai-connection";
 import { modelOptions, defaultModelFor, resolveAutoModel } from "../../stores/global/ai-models";
+import { notesStore } from "../../stores/global/notes";
 import { copyStoragePath, fetchStorageInfo, revealStoragePath } from "../../stores/global/storage";
 import type { StorageInfo } from "../../stores/global/storage";
 import { openThirdPartyNoticesBuffer } from "../../stores/global/notices";
@@ -540,6 +542,112 @@ function FilesSection() {
         >
           <span class="settings-toggle-thumb" />
         </button>
+      </SettingsRow>
+    </div>
+  );
+}
+
+/**
+ * Says where the notes went when the folder in the settings could not be used.
+ *
+ * The refused path is not named: it is the one the user typed or picked, it is
+ * on the same row above this line, and repeating it says nothing the reader
+ * does not already have.
+ */
+function fallbackLine(displayPath: string): string {
+  return `The folder in your settings could not be used, so notes are in ${displayPath}.`;
+}
+
+/** Names the files a move would have written over, at most three of them. */
+function collisionLine(names: string[]): string {
+  const shown = names.slice(0, 3).map((name) => `"${name}"`).join(", ");
+  const rest = names.length - 3;
+  const list = rest > 0 ? `${shown} and ${rest} more` : shown;
+  return `That folder already has ${list}. Nothing moved.`;
+}
+
+function NotesSection() {
+  const folder = () => notesStore.folder();
+
+  onMount(() => {
+    void notesStore.loadFolder().catch(() => {});
+  });
+
+  async function onShow() {
+    try {
+      await notesStore.showInFileManager();
+    } catch {
+      showToast("Could not open the file manager", "error");
+    }
+  }
+
+  async function onCopy() {
+    try {
+      await notesStore.copyPath();
+      showToast("Path copied", "success");
+    } catch {
+      showToast("Could not copy the path", "error");
+    }
+  }
+
+  async function onMove() {
+    try {
+      const outcome = await notesStore.move();
+      if (!outcome) return;
+      if (outcome.collided.length > 0) {
+        showToast(collisionLine(outcome.collided), "error");
+        return;
+      }
+      showToast(`Your notes are now in ${folder()?.display_path ?? outcome.new_root}.`, "success");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), "error");
+    }
+  }
+
+  return (
+    <div data-section="notes">
+      <SectionLabel section="notes" />
+      <SettingsRow id="notes.folder" label="Notes folder">
+        <span class="settings-notes">
+          <span class="settings-notes-controls">
+            <span class="settings-notes-path" data-notes-path title={folder()?.path ?? ""}>
+              {folder()?.display_path ?? "…"}
+            </span>
+            <button
+              type="button"
+              class="settings-action-btn"
+              data-action="notes-show"
+              onClick={() => void onShow()}
+            >
+              {SHOW_IN_FILE_MANAGER}
+            </button>
+            <button
+              type="button"
+              class="settings-action-btn"
+              data-action="notes-copy"
+              onClick={() => void onCopy()}
+            >
+              Copy path
+            </button>
+            <button
+              type="button"
+              class="settings-action-btn"
+              data-action="notes-move"
+              onClick={() => void onMove()}
+            >
+              Move…
+            </button>
+          </span>
+          <Show when={folder()?.fallback_from}>
+            <span class="settings-notes-note" data-notes-fallback>
+              {fallbackLine(folder()?.display_path ?? "")}
+            </span>
+          </Show>
+          <span class="settings-notes-note">
+            Writ has no sync. Put the notes folder in iCloud Drive, Dropbox or Google Drive and
+            your notes sync with it.
+          </span>
+        </span>
       </SettingsRow>
     </div>
   );
@@ -1198,6 +1306,7 @@ function ShortcutsSection() {
 function AllSections() {
   return (
     <>
+      <NotesSection />
       <EditorSection />
       <FilesSection />
       <StorageSection />
@@ -1360,6 +1469,7 @@ export default function SettingsModal() {
                   when={isSearching()}
                   fallback={
                     <Switch>
+                      <Match when={activeSection() === "notes"}><NotesSection /></Match>
                       <Match when={activeSection() === "editor"}><EditorSection /></Match>
                       <Match when={activeSection() === "files"}><FilesSection /></Match>
                       <Match when={activeSection() === "storage"}><StorageSection /></Match>

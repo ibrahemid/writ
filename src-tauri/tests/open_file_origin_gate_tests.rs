@@ -45,7 +45,7 @@ fn make_state(dir: &TempDir) -> AppState {
         config: Mutex::new(WritConfig::default()),
         writ_dir,
         buffers_dir,
-        notes_root,
+        notes_root: RwLock::new(notes_root),
         notes_root_fallback: None,
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -285,7 +285,7 @@ fn first_save_of_a_new_note_creates_a_dated_file_in_the_notes_folder() {
 
     save_buffer_content_inner(&state, &doc.id, "just notes").expect("save");
 
-    let expected = state.notes_root.join(format!(
+    let expected = state.notes_root().join(format!(
         "{}.md",
         writ_core::notes::date_stem(doc.created_at)
     ));
@@ -308,17 +308,17 @@ fn the_dated_file_name_dedupes_when_todays_note_already_exists() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
     let day = writ_core::notes::date_stem(chrono::Utc::now());
-    std::fs::write(state.notes_root.join(format!("{day}.md")), "yesterday's").unwrap();
+    std::fs::write(state.notes_root().join(format!("{day}.md")), "yesterday's").unwrap();
 
     let doc = new_note(&state);
     save_buffer_content_inner(&state, &doc.id, "today's").expect("save");
 
     assert_eq!(
-        std::fs::read_to_string(state.notes_root.join(format!("{day} 2.md"))).unwrap(),
+        std::fs::read_to_string(state.notes_root().join(format!("{day} 2.md"))).unwrap(),
         "today's"
     );
     assert_eq!(
-        std::fs::read_to_string(state.notes_root.join(format!("{day}.md"))).unwrap(),
+        std::fs::read_to_string(state.notes_root().join(format!("{day}.md"))).unwrap(),
         "yesterday's",
         "the note already there is never written over"
     );
@@ -333,7 +333,7 @@ fn a_new_note_with_nothing_in_it_writes_no_file() {
     save_buffer_content_inner(&state, &doc.id, "").expect("an empty save is a no-op");
 
     assert!(
-        is_empty_dir(&state.notes_root),
+        is_empty_dir(&state.notes_root()),
         "opening a tab and changing your mind leaves the folder as it was"
     );
     let store = state.store.lock().unwrap();
@@ -490,7 +490,7 @@ fn file_created_in_the_notes_folder_by_another_program_opens() {
 
     // Nothing recorded this path: it arrived the way a sync client delivers a
     // note written on another machine.
-    let note = state.notes_root.join("from-another-machine.md");
+    let note = state.notes_root().join("from-another-machine.md");
     std::fs::write(&note, "typed elsewhere").unwrap();
 
     let opened = open_file_from_path(&state, &note.to_string_lossy())
@@ -506,7 +506,7 @@ fn save_into_the_notes_folder_is_authorized_without_a_dialog() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
 
-    let note = state.notes_root.join("synced.md");
+    let note = state.notes_root().join("synced.md");
     std::fs::write(&note, "arrived from a sync client").unwrap();
     let canonical = canonicalize_for_authorization(&note).unwrap();
 
@@ -536,7 +536,7 @@ fn a_path_that_climbs_out_of_the_notes_folder_is_still_refused() {
     std::fs::write(&outside, "original").unwrap();
 
     let climbing = state
-        .notes_root
+        .notes_root()
         .join("..")
         .join("outside.md")
         .to_string_lossy()
@@ -559,7 +559,7 @@ fn a_path_that_climbs_out_of_the_notes_folder_is_still_refused() {
     // what stops it creating a file outside the folder.
     let unwritten = dir.path().join("planted-by-traversal.md");
     let climbing_new = state
-        .notes_root
+        .notes_root()
         .join("..")
         .join("planted-by-traversal.md")
         .to_string_lossy()
@@ -586,7 +586,7 @@ fn a_linked_folder_inside_the_notes_folder_cannot_carry_a_save_outside() {
     let state = make_state(&dir);
 
     let outside = TempDir::new().unwrap();
-    let link = state.notes_root.join("linked");
+    let link = state.notes_root().join("linked");
     std::os::unix::fs::symlink(outside.path(), &link).unwrap();
 
     // The leaf does not exist, so only resolving the folders above it shows
@@ -619,7 +619,7 @@ fn a_new_note_in_a_real_subfolder_of_the_notes_folder_is_authorized() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
 
-    let subfolder = state.notes_root.join("projects");
+    let subfolder = state.notes_root().join("projects");
     std::fs::create_dir(&subfolder).unwrap();
     let minted = subfolder.join("not-written-yet.md");
 
@@ -632,10 +632,10 @@ fn is_within_notes_refuses_a_path_that_climbs_out() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
 
-    let inside = state.notes_root.join("note.md");
+    let inside = state.notes_root().join("note.md");
     assert!(state.is_within_notes(&inside.to_string_lossy()));
 
-    let climbing = state.notes_root.join("..").join("note.md");
+    let climbing = state.notes_root().join("..").join("note.md");
     assert!(!state.is_within_notes(&climbing.to_string_lossy()));
 }
 

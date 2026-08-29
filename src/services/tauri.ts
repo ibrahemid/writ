@@ -80,6 +80,71 @@ export async function getNotesRoot(): Promise<string> {
   return invoke("get_notes_root");
 }
 
+/** Where the notes folder is, and whether it is the one the user asked for. */
+export interface NotesFolderInfo {
+  path: string;
+  /** The path with the home folder collapsed to `~`. */
+  display_path: string;
+  /** The folder the settings named, when Writ could not use it. */
+  fallback_from: string | null;
+}
+
+export async function getNotesFolder(): Promise<NotesFolderInfo> {
+  return invoke("get_notes_folder");
+}
+
+export async function showNotesFolderInFinder(): Promise<void> {
+  return invoke("show_notes_folder_in_finder");
+}
+
+/**
+ * What moving the notes folder did. `collided` is non-empty only when nothing
+ * moved: the destination already held those names.
+ */
+export interface MoveNotesOutcome {
+  new_root: string;
+  moved: number;
+  collided: string[];
+}
+
+/** Asks for a folder and moves the notes into it. `null` if nothing was picked. */
+export async function pickNotesFolder(): Promise<MoveNotesOutcome | null> {
+  return invoke("pick_notes_folder");
+}
+
+/** What the one-time pass that turned every note into a file did. */
+export interface NotesMigrationReport {
+  ran_at: string;
+  first_ran_at: string;
+  notes_folder: string;
+  archive_folder: string;
+  migrated: number;
+  archived: number;
+  recovered: number;
+  failed: number;
+  deleted_empty: number;
+  piped: number;
+}
+
+export async function getNotesMigrationReport(): Promise<NotesMigrationReport | null> {
+  return invoke("get_notes_migration_report");
+}
+
+export async function dismissNotesMigrationReport(): Promise<void> {
+  return invoke("dismiss_notes_migration_report");
+}
+
+/** What moving the archived notes into the notes folder did. */
+export interface MoveArchiveOutcome {
+  moved: number;
+  /** Names that were already taken, so the note arrived under a numbered one. */
+  collided: string[];
+}
+
+export async function moveArchivedNotes(): Promise<MoveArchiveOutcome> {
+  return invoke("move_archived_notes");
+}
+
 export async function saveBufferContent(id: string, content: string): Promise<void> {
   return invoke("save_buffer_content", { id, content });
 }

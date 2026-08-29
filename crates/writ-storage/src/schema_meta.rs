@@ -15,6 +15,10 @@ use crate::errors::StorageResult;
 pub const KEY_NOTES_MIGRATION_RAN_AT: &str = "notes_migration_ran_at";
 /// The JSON report of the last notes migration run.
 pub const KEY_NOTES_MIGRATION_REPORT: &str = "notes_migration_report";
+/// When the user dismissed the notes-migration report, as an RFC 3339
+/// timestamp. Present means dismissed; the report is shown once (ADR-028
+/// section 4 step 5).
+pub const KEY_NOTES_MIGRATION_REPORT_DISMISSED: &str = "notes_migration_report_dismissed";
 /// Absolute path of the pre-migration copy of the database.
 pub const KEY_ROLLBACK_COPY_PATH: &str = "notes_migration_rollback_path";
 /// How many launches the pre-migration copy has survived.

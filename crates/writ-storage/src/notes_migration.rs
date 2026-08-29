@@ -32,7 +32,10 @@ use crate::buffer_store::BufferStore;
 use crate::database::queries;
 use crate::errors::StorageResult;
 use crate::rollback;
-use crate::schema_meta::{self, KEY_NOTES_MIGRATION_RAN_AT, KEY_NOTES_MIGRATION_REPORT};
+use crate::schema_meta::{
+    self, KEY_NOTES_MIGRATION_RAN_AT, KEY_NOTES_MIGRATION_REPORT,
+    KEY_NOTES_MIGRATION_REPORT_DISMISSED,
+};
 
 /// Folder inside the notes folder that holds text the migration could not
 /// place with confidence.
@@ -174,6 +177,24 @@ impl MigrationReport {
         self.rows = rows;
     }
 
+    /// How many notes the run put in the notes folder.
+    ///
+    /// The three populations the report speaks about as one: a row that
+    /// already had a file or got one, a file of piped input that became a
+    /// note, and text that could only be placed under `Recovered/`. All three
+    /// are notes the user will find in the folder.
+    pub fn placed(&self) -> usize {
+        self.migrated + self.piped + self.recovered
+    }
+
+    /// Whether there is anything to tell the user.
+    ///
+    /// A launch with nothing to migrate stores a report of zeros so a re-run
+    /// is a no-op; showing that would announce a move nobody made.
+    pub fn is_worth_showing(&self) -> bool {
+        self.placed() > 0 || self.archived > 0 || self.failed > 0
+    }
+
     /// Recounts every total from [`Self::rows`].
     fn recount(&mut self) {
         let (mut migrated, mut archived, mut recovered) = (0, 0, 0);
@@ -287,6 +308,28 @@ pub fn stored_report(store: &BufferStore) -> StorageResult<Option<MigrationRepor
             Ok(None)
         }
     }
+}
+
+/// The report to put in front of the user, or `None` when there is none to
+/// show.
+///
+/// `None` once the report has been dismissed, which is what makes it show
+/// once (ADR-028 section 4 step 5), and `None` for a run that placed nothing.
+pub fn report_to_show(store: &BufferStore) -> StorageResult<Option<MigrationReport>> {
+    if schema_meta::get(store.connection(), KEY_NOTES_MIGRATION_REPORT_DISMISSED)?.is_some() {
+        return Ok(None);
+    }
+    Ok(stored_report(store)?.filter(MigrationReport::is_worth_showing))
+}
+
+/// Records that the user has read the report, so no later launch shows it
+/// again.
+pub fn dismiss_report(store: &BufferStore, now: DateTime<Utc>) -> StorageResult<()> {
+    schema_meta::set(
+        store.connection(),
+        KEY_NOTES_MIGRATION_REPORT_DISMISSED,
+        &now.to_rfc3339(),
+    )
 }
 
 /// Whether the migration has run and left nothing behind.

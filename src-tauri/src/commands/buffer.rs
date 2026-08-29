@@ -184,7 +184,7 @@ fn attach_new_note_file(
 ) -> Result<String, String> {
     crate::notes::attach_note_file(
         store,
-        &state.notes_root,
+        &state.notes_root(),
         &doc.id,
         &doc.title,
         chrono::Utc::now(),

@@ -29,6 +29,11 @@ const mocks = vi.hoisted(() => ({
   requestExternalReload: vi.fn(),
   aiEndpointState: vi.fn(),
   aiConsentHost: vi.fn(),
+  notesFolder: vi.fn(),
+  notesLoadFolder: vi.fn(),
+  notesShowInFileManager: vi.fn(),
+  notesCopyPath: vi.fn(),
+  notesMove: vi.fn(),
   aiCheckConnection: vi.fn().mockResolvedValue({
     reachable: true,
     model_listed: true,
@@ -75,6 +80,16 @@ vi.mock("../../stores/global/default-app", () => ({
 vi.mock("../../stores/global/cli", () => ({
   installCli: vi.fn().mockResolvedValue({ symlink_path: "/usr/local/bin/writ", manual_command: "" }),
   fetchCliStatus: mocks.fetchCliStatus,
+}));
+
+vi.mock("../../stores/global/notes", () => ({
+  notesStore: {
+    folder: mocks.notesFolder,
+    loadFolder: mocks.notesLoadFolder,
+    showInFileManager: mocks.notesShowInFileManager,
+    copyPath: mocks.notesCopyPath,
+    move: mocks.notesMove,
+  },
 }));
 
 vi.mock("../../stores/global/storage", () => ({
@@ -171,6 +186,13 @@ describe("SettingsModal", () => {
       .mockResolvedValue({ doc: { id: "notices-buffer" }, reused: false });
     mocks.setActiveTabId.mockReset();
     mocks.requestExternalReload.mockReset();
+    mocks.notesFolder
+      .mockReset()
+      .mockReturnValue({ path: "/home/user/Writ", display_path: "~/Writ", fallback_from: null });
+    mocks.notesLoadFolder.mockReset().mockResolvedValue(undefined);
+    mocks.notesShowInFileManager.mockReset().mockResolvedValue(undefined);
+    mocks.notesCopyPath.mockReset().mockResolvedValue(undefined);
+    mocks.notesMove.mockReset().mockResolvedValue(null);
     mocks.aiEndpointState.mockReset().mockResolvedValue(hostedEndpoint());
     mocks.aiConsentHost.mockReset().mockResolvedValue(hostedEndpoint({ is_consented: true }));
     clearDefaultAppSupport();
@@ -221,12 +243,12 @@ describe("SettingsModal", () => {
     await waitFor(() => expect(container.querySelector("[role='dialog']")).toBeNull());
   });
 
-  it("shows all 8 section nav items", async () => {
+  it("shows a nav item for every section", async () => {
     const { container } = render(() => <SettingsModal />);
     openSettings();
     await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
     const navItems = container.querySelectorAll(".settings-nav-item");
-    expect(navItems.length).toBe(8);
+    expect(navItems.length).toBe(SECTION_ORDER.length);
   });
 
   it("shows Editor section by default", async () => {
@@ -843,5 +865,76 @@ describe("AI consent notice", () => {
     expect(
       container.querySelector(".settings-ai-connection-status")!.getAttribute("data-tone"),
     ).toBe("warn");
+  });
+});
+
+// The Notes section is the answer to "where are my notes" (ADR-028 §2), so it
+// leads the nav rail and its row carries the path plus the three actions.
+describe("Notes section", () => {
+  beforeEach(() => {
+    mocks.config.mockReset().mockReturnValue(baseConfig());
+    mocks.notesFolder
+      .mockReset()
+      .mockReturnValue({ path: "/home/user/Writ", display_path: "~/Writ", fallback_from: null });
+    mocks.notesLoadFolder.mockReset().mockResolvedValue(undefined);
+    mocks.notesShowInFileManager.mockReset().mockResolvedValue(undefined);
+    mocks.notesCopyPath.mockReset().mockResolvedValue(undefined);
+    mocks.notesMove.mockReset().mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    closeSettings();
+    cleanup();
+  });
+
+  async function openNotes() {
+    const result = render(() => <SettingsModal />);
+    openSettings("notes");
+    await waitFor(() =>
+      expect(result.container.querySelector("[data-setting-id='notes.folder']")).not.toBeNull(),
+    );
+    return result;
+  }
+
+  it("leads the nav rail", async () => {
+    const { container } = await openNotes();
+    const first = container.querySelector(".settings-nav-item");
+    expect(first?.textContent).toBe("Notes");
+  });
+
+  it("shows the folder path with the home folder collapsed", async () => {
+    const { container } = await openNotes();
+    const path = container.querySelector("[data-notes-path]");
+    expect(path?.textContent).toBe("~/Writ");
+    expect(path?.getAttribute("title")).toBe("/home/user/Writ");
+  });
+
+  it("fires the folder actions", async () => {
+    const { container } = await openNotes();
+    fireEvent.click(container.querySelector("[data-action='notes-show']")!);
+    fireEvent.click(container.querySelector("[data-action='notes-copy']")!);
+    fireEvent.click(container.querySelector("[data-action='notes-move']")!);
+    await waitFor(() => {
+      expect(mocks.notesShowInFileManager).toHaveBeenCalledTimes(1);
+      expect(mocks.notesCopyPath).toHaveBeenCalledTimes(1);
+      expect(mocks.notesMove).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("says nothing about a fallback on an ordinary launch", async () => {
+    const { container } = await openNotes();
+    expect(container.querySelector("[data-notes-fallback]")).toBeNull();
+  });
+
+  it("names where the notes went when the folder in the settings was refused", async () => {
+    mocks.notesFolder.mockReturnValue({
+      path: "/home/user/Writ",
+      display_path: "~/Writ",
+      fallback_from: "/volumes/gone/Notes",
+    });
+    const { container } = await openNotes();
+    expect(container.querySelector("[data-notes-fallback]")?.textContent).toBe(
+      "The folder in your settings could not be used, so notes are in ~/Writ.",
+    );
   });
 });

@@ -6,14 +6,17 @@
 //! nothing. The disk half is [`writ_storage::note_ops`]; the policy half —
 //! what a typed name becomes — is [`writ_core::notes`].
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use serde::Serialize;
 use tauri::State;
 use writ_core::buffer::document::BufferDocument;
 use writ_core::buffer::manager::BufferManager;
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::errors::{StorageError, StorageResult};
 use writ_storage::note_ops;
+use writ_storage::notes_migration::{self, MigrationReport};
+use writ_storage::notes_move;
 
 use crate::commands::buffer::{ignore_stamper, save_failure_message};
 use crate::security::canonicalize_for_authorization;
@@ -93,7 +96,7 @@ pub fn new_note_inner(state: &AppState) -> Result<BufferDocument, String> {
 
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let stamp = ignore_stamper(state);
-    let path = note_ops::create_note(&state.notes_root, &stem, Some(&stamp))
+    let path = note_ops::create_note(&state.notes_root(), &stem, Some(&stamp))
         .map_err(|e| note_failure_message(&e))?;
     let canonical = canonicalize_for_authorization(&path).map_err(|e| e.to_string())?;
 
@@ -288,7 +291,7 @@ pub fn save_note_copy_inner(state: &AppState, id: &str, content: &str) -> Result
     let stem = writ_core::notes::note_file_stem(&copy_stem(&doc), chrono::Utc::now());
 
     let stamp = ignore_stamper(state);
-    let path = note_ops::save_copy(&state.notes_root, &stem, content, Some(&stamp))
+    let path = note_ops::save_copy(&state.notes_root(), &stem, content, Some(&stamp))
         .map_err(|e| note_failure_message(&e))?;
     path.to_str()
         .map(str::to_string)
@@ -319,7 +322,7 @@ pub fn save_note_copy(
 
 /// The notes folder as text.
 pub fn notes_root_text(state: &AppState) -> String {
-    state.notes_root.to_string_lossy().into_owned()
+    state.notes_root().to_string_lossy().into_owned()
 }
 
 /// IPC: the absolute path of the notes folder.
@@ -356,6 +359,9 @@ pub fn show_note_in_file_manager(state: State<'_, AppState>, id: String) -> Resu
 /// way out of the app's own boundaries. Containment is decided on the resolved
 /// path, so a symlink cannot carry the answer out of the folder, which is the
 /// same resolution the write gate runs.
+///
+/// A folder is opened rather than selected, which is what the report's link to
+/// `Recovered/` wants: the point of that link is the files inside it.
 #[tauri::command]
 pub fn show_notes_file_in_file_manager(
     state: State<'_, AppState>,
@@ -364,7 +370,11 @@ pub fn show_notes_file_in_file_manager(
     if !path_is_inside_notes(&state, &path) {
         return Err(ERR_NOT_A_NOTE.to_string());
     }
-    crate::commands::storage::show_in_file_manager(Path::new(&path))
+    let path = Path::new(&path);
+    if path.is_dir() {
+        return crate::commands::storage::open_folder_in_file_manager(path);
+    }
+    crate::commands::storage::show_in_file_manager(path)
 }
 
 /// Code a request carries when it names a path the notes folder does not hold.
@@ -383,6 +393,257 @@ pub fn path_is_inside_notes(state: &AppState, path: &str) -> bool {
         Some(resolved) => state.is_within_notes(&resolved),
         None => false,
     }
+}
+
+/// Where the notes folder is, what to call it, and whether it is the one the
+/// user asked for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NotesFolderInfo {
+    /// The absolute path, which is what `Copy path` puts on the clipboard.
+    pub path: String,
+    /// The same path with the home folder collapsed to `~`, which is what
+    /// Settings shows (ADR-028 section 2).
+    pub display_path: String,
+    /// The folder the config named, when startup could not use it and fell
+    /// back to the default. `None` on every ordinary launch.
+    pub fallback_from: Option<String>,
+}
+
+/// [`get_notes_folder`] without the IPC wrapper.
+pub fn notes_folder_info(state: &AppState) -> NotesFolderInfo {
+    let root = state.notes_root();
+    NotesFolderInfo {
+        display_path: writ_core::notes::display_path(&root, dirs::home_dir().as_deref()),
+        path: root.to_string_lossy().into_owned(),
+        fallback_from: state.notes_root_fallback.clone(),
+    }
+}
+
+/// IPC: [`notes_folder_info`].
+#[tauri::command]
+pub fn get_notes_folder(state: State<'_, AppState>) -> NotesFolderInfo {
+    notes_folder_info(&state)
+}
+
+/// IPC: opens the notes folder in the platform's file manager.
+#[tauri::command]
+pub fn show_notes_folder_in_finder(state: State<'_, AppState>) -> Result<(), String> {
+    crate::commands::storage::open_folder_in_file_manager(&state.notes_root())
+}
+
+/// What moving the notes folder did.
+///
+/// `collided` is non-empty only when nothing moved and `new_root` is still the
+/// old folder: the destination already held those names, and a note is never
+/// written over to make room for another (ADR-028 section 2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MoveNotesOutcome {
+    /// The notes folder in force after the call.
+    pub new_root: String,
+    /// Entries moved out of the old folder.
+    pub moved: usize,
+    /// Names the destination already held.
+    pub collided: Vec<String>,
+}
+
+/// What Writ says when the folder picked would swallow its own data folder.
+const WOULD_HOLD_WRIT_DATA: &str =
+    "Writ keeps its own data in that folder, so it cannot also be your notes folder.";
+
+/// What Writ says when the folder picked is inside the one being moved.
+const WOULD_HOLD_ITSELF: &str = "Pick a folder outside your notes folder.";
+
+/// Moves the notes folder to `destination` and points Writ at it.
+///
+/// One operation, in the order that leaves nothing half done: the files move
+/// first, then the config and this process learn where they went, then every
+/// row that named a file under the old folder is rewritten. A move that
+/// collides moves nothing and says which names clashed.
+///
+/// The watcher is not on the notes folder in 0.4, so nothing is re-stamped.
+/// What is re-recorded is the write guard's memory of each open note: its key
+/// is the note, but the record describes a file at a path that no longer
+/// exists, so it is dropped and taken again from the file in its new home.
+pub fn move_notes_folder_to(
+    state: &AppState,
+    destination: &Path,
+) -> Result<MoveNotesOutcome, String> {
+    let from = state.notes_root();
+    std::fs::create_dir_all(destination).map_err(|e| e.to_string())?;
+    let to = crate::security::canonicalize_root(destination).map_err(|e| e.to_string())?;
+
+    if to == from {
+        return Ok(MoveNotesOutcome {
+            new_root: path_text(&from),
+            moved: 0,
+            collided: Vec::new(),
+        });
+    }
+    if to.starts_with(&from) {
+        return Err(WOULD_HOLD_ITSELF.to_string());
+    }
+    if state.writ_dir.starts_with(&to) {
+        return Err(WOULD_HOLD_WRIT_DATA.to_string());
+    }
+
+    let outcome = notes_move::move_notes_folder(&from, &to).map_err(|e| e.to_string())?;
+    if !outcome.collided.is_empty() {
+        return Ok(MoveNotesOutcome {
+            new_root: path_text(&from),
+            moved: 0,
+            collided: outcome.collided,
+        });
+    }
+
+    let text = path_text(&to);
+    adopt_notes_root(state, &to, &text)?;
+    repoint_notes(state, &from, &to)?;
+
+    Ok(MoveNotesOutcome {
+        new_root: text,
+        moved: outcome.moved,
+        collided: Vec::new(),
+    })
+}
+
+/// Writes the new folder into the config and into this process.
+///
+/// The config is written first: a folder Writ forgets on the next launch is
+/// worse than one it has not started using yet, and every note is already in
+/// it by the time this runs.
+fn adopt_notes_root(state: &AppState, root: &Path, text: &str) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    let next = writ_core::config::WritConfig {
+        notes: writ_core::config::NotesConfig {
+            root: Some(text.to_string()),
+        },
+        ..config.clone()
+    };
+    crate::commands::config::persist_config(state, &next)?;
+    *config = next;
+    drop(config);
+
+    state.set_notes_root(root.to_path_buf());
+    Ok(())
+}
+
+/// Points every row and every disk-state record at the moved files.
+fn repoint_notes(state: &AppState, from: &Path, to: &Path) -> Result<(), String> {
+    let moved = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        notes_move::repoint_rows(&store, from, to).map_err(|e| e.to_string())?
+    };
+
+    for row in moved {
+        let path = PathBuf::from(&row.to);
+        if let Ok(canonical) = canonicalize_for_authorization(&path) {
+            state.authorized_paths.record_blessed_source(canonical);
+        }
+        // Only a note Writ has read or written this launch has a record to
+        // move. Reading every file in the folder to make one would be the one
+        // thing this operation must not do: in a sync folder it pulls down
+        // every note that is not on this machine (ADR-028 section 7).
+        if state.disk_state(&row.id).is_none() {
+            continue;
+        }
+        state.forget_disk_state(&row.id);
+        if let Ok(bytes) = std::fs::read(&path) {
+            state.record_disk_state_bytes(&row.id, &path, &bytes);
+        }
+    }
+    Ok(())
+}
+
+/// IPC: asks for a folder and moves the notes into it.
+///
+/// `Ok(None)` when the dialog was dismissed.
+#[tauri::command]
+pub async fn pick_notes_folder(app: tauri::AppHandle) -> Result<Option<MoveNotesOutcome>, String> {
+    use tauri::Manager;
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = std::sync::mpsc::channel::<Option<tauri_plugin_dialog::FilePath>>();
+    app.dialog()
+        .file()
+        .set_title("Choose a notes folder")
+        .pick_folder(move |path| {
+            let _ = tx.send(path);
+        });
+
+    let picked = rx.recv().map_err(|e| e.to_string())?;
+    let Some(file_path) = picked else {
+        return Ok(None);
+    };
+    let destination = file_path.into_path().map_err(|e| e.to_string())?;
+
+    let state = app.state::<AppState>();
+    move_notes_folder_to(&state, &destination).map(Some)
+}
+
+/// [`get_notes_migration_report`] without the IPC wrapper.
+pub fn notes_migration_report(state: &AppState) -> Result<Option<MigrationReport>, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    notes_migration::report_to_show(&store).map_err(|e| e.to_string())
+}
+
+/// IPC: the report the notes migration left, while it still has one to show.
+#[tauri::command]
+pub fn get_notes_migration_report(
+    state: State<'_, AppState>,
+) -> Result<Option<MigrationReport>, String> {
+    notes_migration_report(&state)
+}
+
+/// [`dismiss_notes_migration_report`] without the IPC wrapper.
+pub fn dismiss_notes_migration_report_inner(state: &AppState) -> Result<(), String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    notes_migration::dismiss_report(&store, chrono::Utc::now()).map_err(|e| e.to_string())
+}
+
+/// IPC: [`dismiss_notes_migration_report_inner`]. The report is shown once.
+#[tauri::command]
+pub fn dismiss_notes_migration_report(state: State<'_, AppState>) -> Result<(), String> {
+    dismiss_notes_migration_report_inner(&state)
+}
+
+/// What emptying the archive into the notes folder did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MoveArchiveOutcome {
+    /// Notes that arrived in the notes folder.
+    pub moved: usize,
+    /// The names that were already taken, so the note arrived under a
+    /// numbered one.
+    pub collided: Vec<String>,
+}
+
+/// [`move_archived_notes`] without the IPC wrapper.
+pub fn move_archived_notes_inner(state: &AppState) -> Result<MoveArchiveOutcome, String> {
+    let archive = state.writ_dir.join("archive");
+    let notes = state.notes_root();
+
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    let outcome = notes_move::move_archive_into_notes(&store, &archive, &notes, chrono::Utc::now())
+        .map_err(|e| e.to_string())?;
+    drop(store);
+
+    Ok(MoveArchiveOutcome {
+        moved: outcome.moved,
+        collided: outcome.collided,
+    })
+}
+
+/// IPC: moves the notes the migration archived into the notes folder.
+///
+/// The archive is where a closed note's text waited until the user asked for
+/// it, because writing a hundred of them into a folder that may be syncing is
+/// the user's call to make (ADR-028 section 4 step 3). This is that answer.
+#[tauri::command]
+pub fn move_archived_notes(state: State<'_, AppState>) -> Result<MoveArchiveOutcome, String> {
+    move_archived_notes_inner(&state)
+}
+
+fn path_text(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 #[cfg(test)]

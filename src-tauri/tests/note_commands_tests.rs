@@ -46,7 +46,7 @@ fn make_state(dir: &TempDir) -> AppState {
         config: Mutex::new(WritConfig::default()),
         writ_dir,
         buffers_dir,
-        notes_root,
+        notes_root: RwLock::new(notes_root),
         notes_root_fallback: None,
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -107,7 +107,7 @@ fn new_note_produces_a_file_on_disk_before_the_app_quits() {
         "{} was not created; nothing was written until quit",
         path.display()
     );
-    assert!(path.starts_with(&state.notes_root), "{}", path.display());
+    assert!(path.starts_with(state.notes_root()), "{}", path.display());
     assert_eq!(std::fs::read_to_string(&path).expect("read"), "");
     assert_eq!(doc.title, path.file_name().unwrap().to_string_lossy());
 
@@ -132,7 +132,7 @@ fn rename_note_keeps_the_buffer_id_so_the_tab_keeps_its_content() {
 
     assert_eq!(renamed.id, doc.id, "the note's id moved with the rename");
     let after = note_file(&state, &doc.id);
-    assert_eq!(after, state.notes_root.join("Grocery list.md"));
+    assert_eq!(after, state.notes_root().join("Grocery list.md"));
     assert!(!before.exists(), "the old name is still there");
     assert_eq!(std::fs::read_to_string(&after).expect("read"), "the text");
     assert_eq!(title_of(&state, &doc.id), "Grocery list.md");
@@ -153,7 +153,7 @@ fn rename_keeps_the_extension_a_typed_name_already_carries() {
 
     assert_eq!(
         note_file(&state, &doc.id),
-        state.notes_root.join("Grocery list.md")
+        state.notes_root().join("Grocery list.md")
     );
 }
 
@@ -162,7 +162,11 @@ fn rename_to_a_name_already_in_the_folder_says_which_one() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
     let doc = new_note_inner(&state).expect("new note");
-    std::fs::write(state.notes_root.join("Grocery list.md"), "somebody else's").expect("seed");
+    std::fs::write(
+        state.notes_root().join("Grocery list.md"),
+        "somebody else's",
+    )
+    .expect("seed");
     let before = note_file(&state, &doc.id);
 
     let error = rename_note_inner(&state, &doc.id, "Grocery list").expect_err("collision");
@@ -170,7 +174,7 @@ fn rename_to_a_name_already_in_the_folder_says_which_one() {
     assert_eq!(error, "A note named \"Grocery list.md\" is already there.");
     assert!(before.exists(), "the note was renamed anyway");
     assert_eq!(
-        std::fs::read_to_string(state.notes_root.join("Grocery list.md")).expect("read"),
+        std::fs::read_to_string(state.notes_root().join("Grocery list.md")).expect("read"),
         "somebody else's"
     );
 }
@@ -213,7 +217,7 @@ fn rename_refuses_when_the_file_changed_on_disk() {
         std::fs::read_to_string(&before).expect("read"),
         "what somebody else wrote"
     );
-    assert!(!state.notes_root.join("Grocery list.md").exists());
+    assert!(!state.notes_root().join("Grocery list.md").exists());
     assert_eq!(note_file(&state, &doc.id), before);
 }
 
@@ -247,7 +251,7 @@ fn save_copy_leaves_the_original_untouched() {
     let copy = save_note_copy_inner(&state, &id, "the text plus more").expect("copy");
     let copy = std::path::PathBuf::from(copy);
 
-    assert_eq!(copy, state.notes_root.join("report.md"));
+    assert_eq!(copy, state.notes_root().join("report.md"));
     assert_eq!(
         std::fs::read_to_string(&copy).expect("read"),
         "the text plus more"
@@ -281,7 +285,7 @@ fn the_notes_folder_is_reported_as_the_path_notes_are_written_to() {
 
     let root = notes_root_text(&state);
 
-    assert_eq!(root, state.notes_root.to_string_lossy());
+    assert_eq!(root, state.notes_root().to_string_lossy());
     assert!(
         doc.source_path.as_deref().expect("file").starts_with(&root),
         "a note landed outside the folder the sidebar is told about"
@@ -305,7 +309,7 @@ fn a_note_is_shown_by_the_file_its_row_names() {
 fn only_a_file_the_notes_folder_holds_is_inside_it() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
-    let inside = state.notes_root.join("2026-08-29.md");
+    let inside = state.notes_root().join("2026-08-29.md");
     std::fs::write(&inside, "the text").expect("seed");
     let outside = dir.path().join("elsewhere.md");
     std::fs::write(&outside, "somebody else's").expect("seed");
@@ -322,7 +326,7 @@ fn only_a_file_the_notes_folder_holds_is_inside_it() {
     assert!(!path_is_inside_notes(
         &state,
         state
-            .notes_root
+            .notes_root()
             .join("../elsewhere.md")
             .to_str()
             .expect("utf-8")
@@ -404,7 +408,7 @@ fn a_rename_the_row_cannot_follow_puts_the_file_back() {
         "the note came back without its text"
     );
     assert!(
-        !state.notes_root.join("Grocery list.md").exists(),
+        !state.notes_root().join("Grocery list.md").exists(),
         "the file was left under the name the row never took"
     );
     assert_eq!(note_file(&state, &doc.id), before);

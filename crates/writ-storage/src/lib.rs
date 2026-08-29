@@ -56,6 +56,8 @@ pub mod maintenance;
 pub mod note_ops;
 /// The one-time pass that turns every note into a file (ADR-028).
 pub mod notes_migration;
+/// Moving the notes folder, and emptying the archive into it.
+pub mod notes_move;
 /// Session snapshots and dirty-shutdown detection.
 pub mod recovery;
 /// The copy of the database taken before the notes migration (ADR-028).

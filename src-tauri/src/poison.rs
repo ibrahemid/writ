@@ -1,19 +1,19 @@
-use std::sync::{LockResult, MutexGuard};
+use std::sync::LockResult;
 
-/// Recovers a poisoned mutex guard while emitting a `tracing::error`
+/// Recovers a poisoned lock guard while emitting a `tracing::error`
 /// so the condition is observable in user reports.
+///
+/// Generic over the guard, so a `Mutex`, a `RwLock` read and a `RwLock` write
+/// all recover the same way and log the same line.
 ///
 /// Recovery behavior is unchanged from the previous inline
 /// `unwrap_or_else(|e| e.into_inner())` pattern: a panic that occurred
 /// while another thread held the lock leaves the data in a
 /// possibly-inconsistent state, but the editor continues rather than
 /// cascading the panic. The added log is the contract change.
-pub fn recover_poison<'a, T>(
-    result: LockResult<MutexGuard<'a, T>>,
-    location: &'static str,
-) -> MutexGuard<'a, T> {
+pub fn recover_poison<G>(result: LockResult<G>, location: &'static str) -> G {
     result.unwrap_or_else(|poisoned| {
-        tracing::error!(location = location, "recovered poisoned mutex");
+        tracing::error!(location = location, "recovered poisoned lock");
         poisoned.into_inner()
     })
 }

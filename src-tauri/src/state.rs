@@ -48,7 +48,13 @@ pub struct AppState {
     pub writ_dir: PathBuf,
     pub buffers_dir: PathBuf,
     /// Canonical root of the notes folder. Always exists; created at startup.
-    pub notes_root: PathBuf,
+    ///
+    /// Replaced in place when the user moves the folder from Settings, which
+    /// is the one thing that changes it while Writ runs. Read it through
+    /// [`AppState::notes_root`] rather than holding the guard: every write
+    /// gate and every note command asks for it, and a held read guard would
+    /// block the move for as long as the caller lives.
+    pub notes_root: RwLock<PathBuf>,
     /// The configured notes folder that could not be created, when startup
     /// fell back to the default one. `None` on every ordinary launch. The
     /// Settings surface reads this to tell the user which folder was refused
@@ -328,7 +334,7 @@ impl AppState {
             config: Mutex::new(config),
             writ_dir,
             buffers_dir,
-            notes_root,
+            notes_root: RwLock::new(notes_root),
             notes_root_fallback,
             watcher_ignore,
             watcher: Mutex::new(None),
@@ -352,6 +358,25 @@ impl AppState {
             search_generation: Arc::new(AtomicU64::new(0)),
             last_disk_hash: Mutex::new(recovered_disk_states),
         })
+    }
+
+    /// The notes folder as it stands now.
+    ///
+    /// Cloned rather than borrowed so no caller holds the lock across the work
+    /// it does with the path.
+    pub fn notes_root(&self) -> PathBuf {
+        recover_poison(self.notes_root.read(), "state::notes_root").clone()
+    }
+
+    /// Points Writ at a different notes folder, after its files have been
+    /// moved there.
+    ///
+    /// `root` is expected to be canonical: it is compared against canonical
+    /// paths by [`Self::is_within_notes`], and a spelling that differs would
+    /// lock every note in the folder out of saving.
+    pub fn set_notes_root(&self, root: PathBuf) {
+        let mut guard = recover_poison(self.notes_root.write(), "state::set_notes_root");
+        *guard = root;
     }
 
     /// Returns `true` when `canonical_path` sits inside the open workspace
@@ -399,7 +424,7 @@ impl AppState {
         {
             return false;
         }
-        path.starts_with(&self.notes_root)
+        path.starts_with(self.notes_root())
     }
 
     /// Records what a buffer's file held at the moment Writ read or wrote it,

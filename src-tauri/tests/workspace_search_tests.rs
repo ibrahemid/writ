@@ -60,7 +60,7 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
         config: Mutex::new(WritConfig::default()),
         writ_dir,
         buffers_dir,
-        notes_root,
+        notes_root: RwLock::new(notes_root),
         notes_root_fallback: None,
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),

@@ -7,6 +7,7 @@ import SearchPalette, { toggleSearchPalette } from "./components/SearchPalette/S
 import ThemeEditor, { openThemeEditor } from "./components/ThemeEditor/ThemeEditor";
 import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/ShortcutEditor";
 import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
+import NotesMigrationReport from "./components/NotesMigrationReport/NotesMigrationReport";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
 import { confirmAndDeleteNote, noteIsDeletable, saveCopyOfNote } from "./lib/note-actions";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
@@ -706,6 +707,7 @@ function AppShell() {
       <AiRewriteOverlay />
       <ToastContainer />
       <UpdateBanner />
+      <NotesMigrationReport />
     </div>
   );
 }
