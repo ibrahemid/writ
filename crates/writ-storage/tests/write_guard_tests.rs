@@ -7,7 +7,7 @@ use tempfile::TempDir;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::hash::{sha256_bytes, sha256_hex};
 use writ_core::notes::guard::DiskState;
-use writ_storage::buffer_store::{write_conflict_copy, BufferStore};
+use writ_storage::buffer_store::{write_conflict_copy, BufferStore, RecoveredText};
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::errors::StorageError;
@@ -73,6 +73,17 @@ fn conflict_copies(dir: &Path) -> Vec<String> {
     names
 }
 
+fn recovered_copies(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .expect("read_dir")
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains("(recovered "))
+        .collect();
+    names.sort();
+    names
+}
+
 fn fixed_now() -> DateTime<Utc> {
     DateTime::parse_from_rfc3339("2026-08-29T09:41:07Z")
         .unwrap()
@@ -88,7 +99,7 @@ fn save_after_an_out_of_band_write_refuses_with_source_changed_on_disk_and_leave
 
     std::fs::write(&path, "# What another program wrote").unwrap();
 
-    let result = store.save_to_source("guard-1", "# What the user typed", Some(last_known));
+    let result = store.save_to_source("guard-1", "# What the user typed", Some(last_known), None);
 
     match result {
         Err(StorageError::SourceChangedOnDisk {
@@ -120,7 +131,7 @@ fn refused_save_writes_a_dated_conflict_copy_beside_the_note() {
     let (path, last_known) = open_note(&store, &notes, "# What Writ read");
     std::fs::write(&path, "# What another program wrote").unwrap();
 
-    let result = store.save_to_source("guard-1", "# What the user typed", Some(last_known));
+    let result = store.save_to_source("guard-1", "# What the user typed", Some(last_known), None);
     assert!(result.is_err());
 
     let copies = conflict_copies(notes.path());
@@ -141,7 +152,7 @@ fn a_refused_save_names_the_conflict_copy_in_the_error() {
     let (path, last_known) = open_note(&store, &notes, "# What Writ read");
     std::fs::write(&path, "# What another program wrote").unwrap();
 
-    let result = store.save_to_source("guard-1", "# What the user typed", Some(last_known));
+    let result = store.save_to_source("guard-1", "# What the user typed", Some(last_known), None);
 
     let StorageError::SourceChangedOnDisk { conflict_copy, .. } = result.unwrap_err() else {
         panic!("expected a refusal");
@@ -164,7 +175,12 @@ fn identical_content_on_disk_saves_silently_with_no_error() {
     let before = recorded(&path);
 
     let after = store
-        .save_to_source("guard-1", "# The same edit, made twice", Some(last_known))
+        .save_to_source(
+            "guard-1",
+            "# The same edit, made twice",
+            Some(last_known),
+            None,
+        )
         .expect("an identical write is not a conflict");
 
     assert_eq!(after, before, "nothing was written, so nothing moved");
@@ -185,7 +201,7 @@ fn touching_the_file_without_changing_it_does_not_refuse() {
     std::fs::write(&path, "# What Writ read").unwrap();
 
     let after = store
-        .save_to_source("guard-1", "# What the user typed", Some(last_known))
+        .save_to_source("guard-1", "# What the user typed", Some(last_known), None)
         .expect("mtime is never the signal");
 
     assert_eq!(after.hash, sha256_bytes(b"# What the user typed"));
@@ -202,7 +218,7 @@ fn conflict_copy_name_matches_the_dated_pattern() {
     let path = notes.path().join("Meeting notes.md");
     std::fs::write(&path, "on disk").unwrap();
 
-    let written = write_conflict_copy(&path, "mine", fixed_now()).expect("copy");
+    let written = write_conflict_copy(&path, "mine", fixed_now(), None).expect("copy");
 
     let name = written.file_name().unwrap().to_string_lossy().into_owned();
     let stamp = fixed_now()
@@ -218,8 +234,8 @@ fn the_conflict_copy_dedupes_when_one_exists() {
     let path = notes.path().join("Meeting notes.md");
     std::fs::write(&path, "on disk").unwrap();
 
-    let first = write_conflict_copy(&path, "first", fixed_now()).expect("first copy");
-    let second = write_conflict_copy(&path, "second", fixed_now()).expect("second copy");
+    let first = write_conflict_copy(&path, "first", fixed_now(), None).expect("first copy");
+    let second = write_conflict_copy(&path, "second", fixed_now(), None).expect("second copy");
 
     assert_ne!(first, second, "the second copy never lands on the first");
     let stamp = fixed_now()
@@ -231,4 +247,128 @@ fn the_conflict_copy_dedupes_when_one_exists() {
     );
     assert_eq!(std::fs::read_to_string(&first).unwrap(), "first");
     assert_eq!(std::fs::read_to_string(&second).unwrap(), "second");
+}
+
+/// A note whose text the last session never flushed: the row and the file
+/// exist, the snapshot holds text, and nothing recorded what the file held.
+fn open_recovered_note(store: &BufferStore, dir: &TempDir, on_disk: &str) -> std::path::PathBuf {
+    let path = dir.path().join("notes.md");
+    std::fs::write(&path, on_disk).expect("write");
+    let doc = make_doc("guard-1", &path);
+    store.open_from_path(&doc, on_disk).expect("open");
+    path
+}
+
+#[test]
+fn a_file_changed_while_writ_was_down_keeps_its_text_and_the_snapshot_lands_beside_it() {
+    let (_db, store) = setup();
+    let notes = TempDir::new().unwrap();
+    let path = open_recovered_note(&store, &notes, "# What a sync client delivered");
+
+    let outcome = store
+        .restore_recovered_content("guard-1", "# What the crash was holding", None)
+        .expect("recovery never fails on a file that moved on");
+
+    let RecoveredText::SetAside { on_disk, copy } = outcome else {
+        panic!("expected the snapshot to be set aside, got {outcome:?}");
+    };
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "# What a sync client delivered",
+        "the newer version survives the relaunch"
+    );
+    assert_eq!(
+        on_disk.hash,
+        sha256_bytes(b"# What a sync client delivered")
+    );
+    assert_eq!(
+        std::fs::read_to_string(&copy).unwrap(),
+        "# What the crash was holding"
+    );
+    let name = copy.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(name.starts_with("notes (recovered "), "{name}");
+    assert!(name.ends_with(").md"), "{name}");
+}
+
+#[test]
+fn a_file_that_did_not_change_takes_the_recovered_text() {
+    let (_db, store) = setup();
+    let notes = TempDir::new().unwrap();
+    let path = open_recovered_note(&store, &notes, "# What the crash was holding");
+
+    let outcome = store
+        .restore_recovered_content("guard-1", "# What the crash was holding", None)
+        .expect("restore");
+
+    assert!(matches!(outcome, RecoveredText::Restored(_)));
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "# What the crash was holding"
+    );
+    assert!(conflict_copies(notes.path()).is_empty());
+    assert!(recovered_copies(notes.path()).is_empty());
+}
+
+#[test]
+fn a_file_that_is_gone_is_recreated_from_the_recovered_text() {
+    let (_db, store) = setup();
+    let notes = TempDir::new().unwrap();
+    let path = open_recovered_note(&store, &notes, "# Before the crash");
+    std::fs::remove_file(&path).unwrap();
+
+    let outcome = store
+        .restore_recovered_content("guard-1", "# What the crash was holding", None)
+        .expect("restore");
+
+    match outcome {
+        RecoveredText::Restored(state) => {
+            assert_eq!(state.hash, sha256_bytes(b"# What the crash was holding"));
+        }
+        other => panic!("expected the file to be recreated, got {other:?}"),
+    }
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "# What the crash was holding"
+    );
+    assert!(recovered_copies(notes.path()).is_empty());
+}
+
+#[test]
+fn every_write_is_announced_before_it_lands() {
+    let (_db, store) = setup();
+    let notes = TempDir::new().unwrap();
+    let (path, last_known) = open_note(&store, &notes, "# What Writ read");
+    std::fs::write(&path, "# What another program wrote").unwrap();
+
+    let announced = std::cell::RefCell::new(Vec::<(std::path::PathBuf, bool)>::new());
+    let stamp = |target: &Path, bytes: &[u8]| {
+        // The stamp has to be in place before the bytes are, or the folder's
+        // watcher reads Writ's own write as somebody else's edit.
+        announced
+            .borrow_mut()
+            .push((target.to_path_buf(), target.exists()));
+        assert_eq!(bytes, b"# What the user typed");
+    };
+
+    let result = store.save_to_source(
+        "guard-1",
+        "# What the user typed",
+        Some(last_known),
+        Some(&stamp),
+    );
+    assert!(result.is_err());
+
+    let announced = announced.into_inner();
+    assert_eq!(announced.len(), 1, "{announced:?}");
+    assert!(
+        announced[0]
+            .0
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains("(conflict "),
+        "the copy a stopped save writes is announced too: {announced:?}"
+    );
+    assert!(!announced[0].1, "announced before the file existed");
+    assert!(announced[0].0.is_file(), "and it exists afterwards");
 }

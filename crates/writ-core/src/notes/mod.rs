@@ -249,16 +249,32 @@ pub fn dedupe_file_name(stem: &str, extension: &str, taken: &HashSet<String>) ->
 /// The name a dated copy of one side of a conflict takes, beside the note it
 /// belongs to: `<stem> (conflict YYYY-MM-DD HH.MM.SS)` plus the extension.
 ///
-/// A refused save writes the text it was carrying under this name before it
-/// returns, so no refusal can end with the user's text nowhere (ADR-028 §5).
+/// A stopped save writes the text it was carrying under this name before it
+/// returns, so no such save can end with the user's text nowhere (ADR-028 §5).
+pub fn conflict_file_name(stem: &str, extension: &str, now: DateTime<Utc>) -> String {
+    dated_copy_name(stem, extension, "conflict", now)
+}
+
+/// The name text recovered from the crash snapshot takes when the file it
+/// belongs to has moved on: `<stem> (recovered YYYY-MM-DD HH.MM.SS)` plus the
+/// extension.
+///
+/// A relaunch must not write a pre-crash snapshot over a version a sync client
+/// delivered while Writ was down, and it must not drop the snapshot either, so
+/// the snapshot lands under this name and both are on disk.
+pub fn recovered_file_name(stem: &str, extension: &str, now: DateTime<Utc>) -> String {
+    dated_copy_name(stem, extension, "recovered", now)
+}
+
+/// The shared shape of both: `<stem> (<label> YYYY-MM-DD HH.MM.SS).<extension>`.
 ///
 /// The clock is the local one, because the name is read by a person looking at
 /// a folder, and it is written with dots: a colon is illegal in a filename on
 /// Windows and reads as a path separator in Finder. `extension` is given
 /// without a dot; pass an empty string for a name that has none.
-pub fn conflict_file_name(stem: &str, extension: &str, now: DateTime<Utc>) -> String {
+fn dated_copy_name(stem: &str, extension: &str, label: &str, now: DateTime<Utc>) -> String {
     let stamp = now.with_timezone(&Local).format("%Y-%m-%d %H.%M.%S");
-    join_name(&format!("{stem} (conflict {stamp})"), extension)
+    join_name(&format!("{stem} ({label} {stamp})"), extension)
 }
 
 fn join_name(stem: &str, extension: &str) -> String {

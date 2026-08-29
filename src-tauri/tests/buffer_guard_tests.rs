@@ -246,3 +246,64 @@ fn every_other_failure_keeps_its_plain_message() {
     assert_eq!(message, other.to_string());
     assert!(!message.starts_with("ERR_"), "{message}");
 }
+
+#[test]
+fn the_copy_a_stopped_save_writes_is_not_an_arrival_in_the_watched_folder() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let watched = TempDir::new().unwrap();
+    let root = writ_tauri_lib::security::canonicalize_root(watched.path()).expect("canonical");
+
+    // The folder Writ writes into is the one the inbox watcher is watching,
+    // which is the case that turns Writ's own write into an arrival: a toast,
+    // a reopened tab, and the window pulled forward.
+    let (id, path) = open_note(&state, &watched, "shared.md", "what Writ read");
+    let preexisting: std::collections::HashSet<std::path::PathBuf> =
+        std::iter::once(path.clone()).collect();
+
+    std::fs::write(&path, "what another program wrote").unwrap();
+    save_buffer_content_inner(&state, &id, "what the user typed")
+        .expect_err("the save must not land");
+
+    let copies = conflict_copies(watched.path());
+    assert_eq!(copies.len(), 1, "{copies:?}");
+
+    let arrival = writ_tauri_lib::watcher::handler::classify_inbox_event(
+        &copies[0],
+        &root,
+        &preexisting,
+        &state.watcher_ignore,
+        writ_core::watcher::ignore::DEFAULT_IGNORE_TTL,
+        std::time::Instant::now(),
+    );
+    assert!(
+        arrival.is_none(),
+        "Writ's own copy must not come back as somebody else's file: {arrival:?}"
+    );
+}
+
+#[test]
+fn a_file_another_program_drops_in_the_watched_folder_still_arrives() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let watched = TempDir::new().unwrap();
+    let root = writ_tauri_lib::security::canonicalize_root(watched.path()).expect("canonical");
+    let preexisting: std::collections::HashSet<std::path::PathBuf> =
+        std::collections::HashSet::new();
+
+    let dropped = root.join("from-somewhere-else.md");
+    std::fs::write(&dropped, "# not ours").unwrap();
+
+    let arrival = writ_tauri_lib::watcher::handler::classify_inbox_event(
+        &dropped,
+        &root,
+        &preexisting,
+        &state.watcher_ignore,
+        writ_core::watcher::ignore::DEFAULT_IGNORE_TTL,
+        std::time::Instant::now(),
+    );
+    assert!(
+        arrival.is_some(),
+        "the stamp must not swallow a real arrival"
+    );
+}

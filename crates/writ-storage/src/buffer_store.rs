@@ -20,6 +20,42 @@ use crate::maintenance::{self, DatabaseStats, MaintenanceOutcome};
 use crate::recovery::dirty_shutdown::check_dirty_shutdown;
 use crate::recovery::snapshot::SnapshotManager;
 
+/// Called with a path and the bytes about to land on it, immediately before
+/// every write this module performs.
+///
+/// The adapter passes one so a write of Writ's own is stamped in the watcher's
+/// ignore set before it happens; without it, the folder's watcher reads the
+/// write as somebody else's edit. `None` for a caller with no watcher, which
+/// is every test and the CLI.
+pub type BeforeWrite<'a> = Option<&'a dyn Fn(&Path, &[u8])>;
+
+/// What became of the text a relaunch recovered from the crash snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecoveredText {
+    /// The file was missing or already held this text, and holds it now.
+    Restored(DiskState),
+    /// The file held something Writ never saw, so it was left exactly as it
+    /// was and the recovered text was written beside it.
+    SetAside {
+        /// What the note's file holds, which is not the recovered text.
+        on_disk: DiskState,
+        /// Where the recovered text went instead.
+        copy: PathBuf,
+    },
+}
+
+impl RecoveredText {
+    /// What the note's file holds, either way. The caller records this as the
+    /// tab's disk state, so the first save after a relaunch is measured
+    /// against the file rather than against the snapshot.
+    pub fn disk_state(&self) -> DiskState {
+        match self {
+            Self::Restored(state) => *state,
+            Self::SetAside { on_disk, .. } => *on_disk,
+        }
+    }
+}
+
 /// Persistence facade over note metadata and the files the notes live in.
 ///
 /// The store owns a SQLite connection plus the retired mirror directory.
@@ -192,15 +228,23 @@ impl BufferStore {
     ///
     /// Passing no record is not a way around the guard: its question is
     /// whether the file changed since Writ last looked at it, and a caller
-    /// with no record has not looked.
+    /// with no record has not looked. The one caller in the app that is
+    /// genuinely in that position is the relaunch after an unclean shutdown,
+    /// which holds a snapshot of text and no record of the file it belongs to;
+    /// it does not come through here but through
+    /// [`Self::restore_recovered_content`], which compares against the file
+    /// itself and sets the snapshot aside rather than writing over a version
+    /// that arrived while Writ was down. What is left here is the plain write
+    /// for callers with no watcher and nothing to lose: tests, benches and
+    /// one-shot tools.
     pub fn save_content(&self, id: &str, content: &str) -> StorageResult<()> {
-        self.save_to_source(id, content, None).map(|_| ())
+        self.save_to_source(id, content, None, None).map(|_| ())
     }
 
     /// [`Self::save_to_source_without_index`] for a caller holding no record
     /// of the file.
     pub fn save_content_without_index(&self, id: &str, content: &str) -> StorageResult<()> {
-        self.save_to_source_without_index(id, content, None)
+        self.save_to_source_without_index(id, content, None, None)
             .map(|_| ())
     }
 
@@ -462,8 +506,9 @@ impl BufferStore {
         id: &str,
         content: &str,
         last_known: Option<DiskState>,
+        before_write: BeforeWrite<'_>,
     ) -> StorageResult<DiskState> {
-        let (doc, state) = self.write_source_guarded(id, content, last_known)?;
+        let (doc, state) = self.write_source_guarded(id, content, last_known, before_write)?;
 
         let tx = self.conn.unchecked_transaction()?;
         queries::update_timestamp(&tx, id)?;
@@ -485,8 +530,9 @@ impl BufferStore {
         id: &str,
         content: &str,
         last_known: Option<DiskState>,
+        before_write: BeforeWrite<'_>,
     ) -> StorageResult<DiskState> {
-        let (_doc, state) = self.write_source_guarded(id, content, last_known)?;
+        let (_doc, state) = self.write_source_guarded(id, content, last_known, before_write)?;
         queries::update_timestamp(&self.conn, id)?;
         Ok(state)
     }
@@ -522,6 +568,7 @@ impl BufferStore {
         id: &str,
         content: &str,
         last_known: Option<DiskState>,
+        before_write: BeforeWrite<'_>,
     ) -> StorageResult<(BufferDocument, DiskState)> {
         let doc = queries::get_buffer(&self.conn, id)?;
         if doc.read_only {
@@ -553,7 +600,12 @@ impl BufferStore {
         match (decision, on_disk) {
             (SaveDecision::AlreadyIdentical, Some(state)) => Ok((doc, state)),
             (SaveDecision::Refuse, Some(state)) => {
-                let conflict_copy = match write_conflict_copy(path, content, chrono::Utc::now()) {
+                let conflict_copy = match write_conflict_copy(
+                    path,
+                    content,
+                    chrono::Utc::now(),
+                    before_write,
+                ) {
                     Ok(written) => Some(written.to_string_lossy().into_owned()),
                     Err(e) => {
                         warn!(path = %path.display(), error = %e, "the copy beside the note could not be written");
@@ -567,10 +619,79 @@ impl BufferStore {
                 })
             }
             _ => {
-                write_atomic(path, content.as_bytes())?;
+                write_guarded_by_stamp(path, content.as_bytes(), before_write)?;
                 Ok((doc, written_state(path, incoming, content.len() as u64)))
             }
         }
+    }
+
+    /// Writes text recovered from the crash snapshot into the note's file,
+    /// unless the file moved on while Writ was down.
+    ///
+    /// The relaunch is the one caller that holds text and no record of the
+    /// file it belongs to, so [`decide_save`] has nothing to compare and would
+    /// proceed. It must not: a sync client can deliver a newer version of a
+    /// note between the crash and the relaunch, and writing a pre-crash
+    /// snapshot over it destroys work with nothing left to recover it from.
+    ///
+    /// A file that is missing or already holds the recovered text is written.
+    /// A file that holds anything else is left untouched and the recovered
+    /// text is written beside it as `<stem> (recovered YYYY-MM-DD HH.MM.SS)`,
+    /// so both are on disk and the user chooses.
+    ///
+    /// The index and the `updated_at` stamp are left alone: the relaunch
+    /// reindexes what it restored through the ordinary path, and a note whose
+    /// text was set aside has not changed.
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError::Consistency`] for a read-only row or one with no file,
+    /// and [`StorageError::Io`] when the file cannot be read or written.
+    pub fn restore_recovered_content(
+        &self,
+        id: &str,
+        content: &str,
+        before_write: BeforeWrite<'_>,
+    ) -> StorageResult<RecoveredText> {
+        let doc = queries::get_buffer(&self.conn, id)?;
+        if doc.read_only {
+            return Err(StorageError::Consistency {
+                message: format!("note {id} is read-only and cannot be saved"),
+            });
+        }
+        let source_path = doc
+            .source_path
+            .as_ref()
+            .ok_or_else(|| StorageError::Consistency {
+                message: format!("note {id} has no file to save into"),
+            })?
+            .clone();
+        let path = Path::new(&source_path);
+
+        let incoming = writ_core::hash::sha256_bytes(content.as_bytes());
+        let on_disk = read_disk_state(path)?;
+
+        if let Some(state) = on_disk {
+            if state.hash != incoming {
+                let copy = write_recovered_copy(path, content, chrono::Utc::now(), before_write)?;
+                warn!(
+                    note = %path.display(),
+                    recovered = %copy.display(),
+                    "the file moved on while Writ was down; the recovered text was written beside it"
+                );
+                return Ok(RecoveredText::SetAside {
+                    on_disk: state,
+                    copy,
+                });
+            }
+        }
+
+        write_guarded_by_stamp(path, content.as_bytes(), before_write)?;
+        Ok(RecoveredText::Restored(written_state(
+            path,
+            incoming,
+            content.len() as u64,
+        )))
     }
 
     /// Updates the detected or user-assigned language for a buffer.
@@ -883,6 +1004,51 @@ pub fn write_conflict_copy(
     note_path: &Path,
     content: &str,
     now: chrono::DateTime<chrono::Utc>,
+    before_write: BeforeWrite<'_>,
+) -> StorageResult<PathBuf> {
+    write_beside(
+        note_path,
+        content,
+        before_write,
+        |stem, now| writ_core::notes::conflict_file_name(stem, "", now),
+        now,
+    )
+}
+
+/// Writes `content` beside `note_path` as a dated copy the crash snapshot was
+/// holding, and returns the path written.
+///
+/// The relaunch counterpart of [`write_conflict_copy`]: same folder, same
+/// dedupe, a name that says where the text came from
+/// ([`writ_core::notes::recovered_file_name`]).
+///
+/// # Errors
+///
+/// [`StorageError::Consistency`] when the note has no folder to be written
+/// beside, and [`StorageError::Io`] when the copy cannot be written.
+pub fn write_recovered_copy(
+    note_path: &Path,
+    content: &str,
+    now: chrono::DateTime<chrono::Utc>,
+    before_write: BeforeWrite<'_>,
+) -> StorageResult<PathBuf> {
+    write_beside(
+        note_path,
+        content,
+        before_write,
+        |stem, now| writ_core::notes::recovered_file_name(stem, "", now),
+        now,
+    )
+}
+
+/// The shared half of both dated copies: name from `name_stem`, dedupe against
+/// the folder, stamp, write.
+fn write_beside(
+    note_path: &Path,
+    content: &str,
+    before_write: BeforeWrite<'_>,
+    name_stem: impl Fn(&str, chrono::DateTime<chrono::Utc>) -> String,
+    now: chrono::DateTime<chrono::Utc>,
 ) -> StorageResult<PathBuf> {
     let dir = note_path
         .parent()
@@ -898,11 +1064,28 @@ pub fn write_conflict_copy(
         .map(|ext| ext.to_string_lossy().into_owned())
         .unwrap_or_default();
 
-    let conflict_stem = writ_core::notes::conflict_file_name(&stem, "", now);
-    let name = writ_core::notes::dedupe_file_name(&conflict_stem, &extension, &taken_names(dir));
+    let name =
+        writ_core::notes::dedupe_file_name(&name_stem(&stem, now), &extension, &taken_names(dir));
     let target = dir.join(name);
-    write_atomic(&target, content.as_bytes())?;
+    write_guarded_by_stamp(&target, content.as_bytes(), before_write)?;
     Ok(target)
+}
+
+/// Stamps then writes, in that order.
+///
+/// Every write this module performs goes through here, because a write the
+/// caller has not been told about first is a write its watcher reads as
+/// somebody else's edit.
+fn write_guarded_by_stamp(
+    target: &Path,
+    bytes: &[u8],
+    before_write: BeforeWrite<'_>,
+) -> StorageResult<()> {
+    if let Some(stamp) = before_write {
+        stamp(target, bytes);
+    }
+    write_atomic(target, bytes)?;
+    Ok(())
 }
 
 fn read_source_text(doc: &BufferDocument) -> String {

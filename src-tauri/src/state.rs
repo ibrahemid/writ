@@ -166,13 +166,21 @@ impl AppState {
         // first keystroke would have used, because there is nowhere else the
         // text can go now (ADR-028 §1).
         let was_dirty_shutdown = store.is_dirty_shutdown().unwrap_or(false);
+        // What each recovered note's file holds once recovery is done, which
+        // seeds the write guard. Without it the first save after an unclean
+        // relaunch would have nothing to compare against and would write over
+        // whatever arrived while Writ was down.
+        let mut recovered_disk_states: HashMap<String, DiskState> = HashMap::new();
         let recovered_buffers = if was_dirty_shutdown {
             info!("dirty shutdown detected; resolving recovery");
             let recovered = store.resolve_recovery().unwrap_or_default();
             info!(count = recovered.len(), "buffers eligible for recovery");
             for buf in &recovered {
-                if let Err(e) = restore_recovered_buffer(&store, &notes_root, buf) {
-                    warn!(buffer_id = %buf.id, error = %e, "recovery write failed");
+                match restore_recovered_buffer(&store, &notes_root, buf) {
+                    Ok(state) => {
+                        recovered_disk_states.insert(buf.id.clone(), state);
+                    }
+                    Err(e) => warn!(buffer_id = %buf.id, error = %e, "recovery write failed"),
                 }
             }
             recovered
@@ -338,7 +346,7 @@ impl AppState {
             fts_scheduler: FtsScheduler::new(),
             workspace_index,
             search_generation: Arc::new(AtomicU64::new(0)),
-            last_disk_hash: Mutex::new(HashMap::new()),
+            last_disk_hash: Mutex::new(recovered_disk_states),
         })
     }
 
@@ -451,16 +459,27 @@ impl AppState {
 }
 
 /// Writes a note restored from the crash snapshot back into its file, minting
-/// one first when the note never reached a file.
+/// one first when the note never reached a file, and returns what that file
+/// holds afterwards.
 ///
 /// The mint is the same policy the first keystroke uses
 /// ([`crate::notes::attach_note_file`]), so a note recovered after a crash
 /// carries the name it would have had if the crash had not happened.
+///
+/// The write goes through
+/// [`restore_recovered_content`](BufferStore::restore_recovered_content),
+/// which leaves a file that moved on while Writ was down exactly as it is and
+/// writes the snapshot beside it. A relaunch is precisely when a sync client
+/// has had time to deliver a newer version, and the snapshot is the older
+/// text by definition.
+///
+/// No stamp is passed: this runs while the app state is still being built, so
+/// no watcher exists yet to mistake the write for somebody else's.
 fn restore_recovered_buffer(
     store: &BufferStore,
     notes_root: &std::path::Path,
     recovered: &RecoveredBuffer,
-) -> Result<(), String> {
+) -> Result<DiskState, String> {
     let doc = store.get(&recovered.id).map_err(|e| e.to_string())?;
     if doc.source_path.is_none() {
         crate::notes::attach_note_file(
@@ -472,7 +491,8 @@ fn restore_recovered_buffer(
         )?;
     }
     store
-        .save_content(&recovered.id, &recovered.content)
+        .restore_recovered_content(&recovered.id, &recovered.content, None)
+        .map(|outcome| outcome.disk_state())
         .map_err(|e| e.to_string())
 }
 

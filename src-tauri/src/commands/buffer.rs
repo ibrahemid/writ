@@ -134,30 +134,40 @@ pub fn save_buffer_content_inner(state: &AppState, id: &str, content: &str) -> R
     };
 
     crate::commands::file::authorize_source_write(state, &source_path)?;
-    {
-        let mut ignore = recover_poison(
-            state.watcher_ignore.lock(),
-            "commands::buffer::save_buffer_content:source",
-        );
-        let bytes = content.as_bytes();
-        let now = Instant::now();
-        // Three keys for the one file this write touches, because each
-        // watcher recognizes its own: the retired mirror name, the inbox
-        // watcher's full-path key, and the config watcher's bare-name key.
-        // Missing one turns Writ's own save into an external-change event — a
-        // config reload, or an inbox arrival that reopens the tab and pulls
-        // the window forward, on every keystroke.
-        ignore.record(doc.filename.clone(), bytes, now);
-        ignore.record(source_path.clone(), bytes, now);
-        if let Some(name) = Path::new(&source_path).file_name() {
-            ignore.record(name.to_string_lossy().into_owned(), bytes, now);
-        }
-    }
+    let stamp = ignore_stamper(state, &doc.filename);
     let written = store
-        .save_to_source_without_index(id, content, state.disk_state(id))
+        .save_to_source_without_index(id, content, state.disk_state(id), Some(&stamp))
         .map_err(|e| save_failure_message(&e))?;
     state.set_disk_state(id, written);
     Ok(())
+}
+
+/// The hook the store calls immediately before each of its writes, which
+/// stamps the file in the watcher's ignore set.
+///
+/// Three keys for the one file a write touches, because each watcher
+/// recognizes its own: the retired mirror name, the inbox watcher's full-path
+/// key, and the config watcher's bare-name key. Missing one turns Writ's own
+/// write into an external-change event — a config reload, or an arrival that
+/// reopens the tab and pulls the window forward, on every keystroke. (U6
+/// re-keys these; the count is what today's watchers read.)
+///
+/// It is handed to the store rather than run before the call because the store
+/// writes more than the note: a save that cannot land writes the text it was
+/// carrying beside the note, and that file lands in the same watched folder.
+fn ignore_stamper<'a>(state: &'a AppState, mirror_name: &'a str) -> impl Fn(&Path, &[u8]) + 'a {
+    move |path: &Path, bytes: &[u8]| {
+        let mut ignore = recover_poison(
+            state.watcher_ignore.lock(),
+            "commands::buffer::ignore_stamper",
+        );
+        let now = Instant::now();
+        ignore.record(mirror_name.to_string(), bytes, now);
+        ignore.record(path.to_string_lossy().into_owned(), bytes, now);
+        if let Some(name) = path.file_name() {
+            ignore.record(name.to_string_lossy().into_owned(), bytes, now);
+        }
+    }
 }
 
 /// Gives a note with no file the file the invariant requires: a dated `.md`
