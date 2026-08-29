@@ -63,6 +63,14 @@ pub enum RowOutcome {
         /// Where the text was written.
         path: String,
     },
+    /// The file the row named was gone or unreadable, so the mirror's text was
+    /// written into `Recovered/` and the row repointed at it.
+    RecoveredMissingFile {
+        /// The file the row used to name.
+        source: String,
+        /// The file the note now lives in.
+        path: String,
+    },
     /// A file of piped input, moved into the notes folder.
     PipedFile {
         /// Where the piped input was.
@@ -70,13 +78,15 @@ pub enum RowOutcome {
         /// The file it became.
         path: String,
     },
-    /// The written file did not read back as what was written; the mirror was
-    /// kept and nothing was deleted.
+    /// The written file did not read back as what was written, or could not be
+    /// written at all; the mirror was kept and nothing was deleted.
     VerificationFailed {
         /// Where the write was attempted.
         path: String,
         /// The mirror that was kept.
         mirror: String,
+        /// Where the text landed instead, when `Recovered/` would take it.
+        recovered: Option<String>,
     },
     /// The row held nothing and had no file; the row was deleted.
     DeletedEmpty,
@@ -101,7 +111,8 @@ pub struct MigrationReport {
     pub migrated: usize,
     /// Notes written into the archive folder.
     pub archived: usize,
-    /// Files written beside a note holding edits it never received.
+    /// Notes whose text could only be placed under `Recovered/`: edits a file
+    /// never received, or a file that was gone by the time the pass ran.
     pub recovered: usize,
     /// Rows whose written file did not verify.
     pub failed: usize,
@@ -137,7 +148,8 @@ impl MigrationReport {
                     migrated += 1
                 }
                 RowOutcome::Archived { .. } => archived += 1,
-                RowOutcome::RecoveredUnsavedEdits { .. } => recovered += 1,
+                RowOutcome::RecoveredUnsavedEdits { .. }
+                | RowOutcome::RecoveredMissingFile { .. } => recovered += 1,
                 RowOutcome::PipedFile { .. } => piped += 1,
                 RowOutcome::VerificationFailed { .. } => failed += 1,
                 RowOutcome::DeletedEmpty => deleted_empty += 1,
@@ -172,9 +184,10 @@ pub struct MigrationRoots<'a> {
 
 /// Runs the one-time notes migration.
 ///
-/// Idempotent: a run whose recorded files are all still present returns the
-/// report the earlier run stored and touches nothing. Otherwise the pass runs
-/// again, skipping each row that already has its file.
+/// Idempotent: a run that left no copy behind returns the report the earlier
+/// run stored and touches nothing, whatever became of the files afterwards
+/// ([`is_settled`]). Otherwise the pass runs again, skipping each row that
+/// already has its file.
 ///
 /// The rollback copy is written immediately before the first change, and only
 /// when there is one to make, so a launch with nothing to migrate leaves no
@@ -208,23 +221,18 @@ pub fn run_notes_migration(
 
     rollback::write_rollback_copy(conn, roots.db_path)?;
 
-    let mut notes_dir = DirNames::read(roots.notes);
-    let mut archive_dir = DirNames::read(roots.archive);
-    let mut recovered_dir = DirNames::read(&roots.notes.join(RECOVERED_FOLDER));
+    let mut dirs = Destinations {
+        notes: DirNames::read(roots.notes),
+        archive: DirNames::read(roots.archive),
+        recovered: DirNames::read(&roots.notes.join(RECOVERED_FOLDER)),
+    };
 
     for doc in &rows {
-        let outcome = migrate_row(
-            store,
-            doc,
-            &mut notes_dir,
-            &mut archive_dir,
-            &mut recovered_dir,
-            now,
-        )?;
+        let outcome = migrate_row(store, doc, &mut dirs, now)?;
         report.record(doc.id.clone(), outcome);
     }
 
-    migrate_piped_files(store, &rows, &piped_files, &mut notes_dir, now, &mut report)?;
+    migrate_piped_files(store, &rows, &piped_files, &mut dirs, now, &mut report)?;
 
     finish(store, &mut report)?;
     Ok(report)
@@ -246,33 +254,37 @@ pub fn stored_report(store: &BufferStore) -> StorageResult<Option<MigrationRepor
 
 /// Whether the migration has run and left nothing behind.
 ///
-/// Three things earn a re-run, and the pass is idempotent so each costs only
-/// the rows that still need it (ADR-028 §4 step 6). A file the pass recorded
-/// has gone missing. A row still has a copy under the retired folder, which is
-/// what a failed verification leaves: retrying is how that note stops reading
-/// as empty once whatever blocked the write is gone. Or piped input has
-/// arrived from a CLI that has not been updated yet.
+/// Two things earn a re-run, and the pass is idempotent so each costs only the
+/// rows that still need it (ADR-028 §4 step 6). A row still has a copy under
+/// the retired folder, which is what a failed verification leaves: retrying is
+/// how that note stops reading as empty once whatever blocked the write is
+/// gone, and it is the only state in which text exists somewhere the invariant
+/// does not allow. Or piped input has arrived from a CLI that has not been
+/// updated yet.
+///
+/// A file the pass placed and the user then deleted is not one of them. The
+/// user deleting a note is the note being deleted; re-running the pass over it
+/// would write the text back from a copy Writ no longer keeps, or, when the
+/// copy is already gone, do nothing but re-stamp the run and lose the report
+/// the first one left.
 fn is_settled(
     store: &BufferStore,
     rows: &[BufferDocument],
     piped_files: &[PathBuf],
 ) -> StorageResult<bool> {
-    let conn = store.connection();
-    if schema_meta::get(conn, KEY_NOTES_MIGRATION_RAN_AT)?.is_none() {
+    if schema_meta::get(store.connection(), KEY_NOTES_MIGRATION_RAN_AT)?.is_none() {
         return Ok(false);
     }
     if !piped_files.is_empty() {
         return Ok(false);
     }
-    if rows
-        .iter()
+    Ok(!any_mirror_left(store, rows))
+}
+
+/// Whether any row still has a copy under the retired mirror folder.
+fn any_mirror_left(store: &BufferStore, rows: &[BufferDocument]) -> bool {
+    rows.iter()
         .any(|doc| store.buffers_dir().join(&doc.filename).exists())
-    {
-        return Ok(false);
-    }
-    Ok(queries::list_migrated_paths(conn)?
-        .iter()
-        .all(|(_, path)| Path::new(path).exists()))
 }
 
 /// Whether the pass has anything to change.
@@ -286,6 +298,9 @@ fn has_work(
     piped_files: &[PathBuf],
 ) -> StorageResult<bool> {
     if !piped_files.is_empty() {
+        return Ok(true);
+    }
+    if any_mirror_left(store, rows) {
         return Ok(true);
     }
     let conn = store.connection();
@@ -319,41 +334,29 @@ fn all_rows(store: &BufferStore) -> StorageResult<Vec<BufferDocument>> {
 fn migrate_row(
     store: &BufferStore,
     doc: &BufferDocument,
-    notes_dir: &mut DirNames,
-    archive_dir: &mut DirNames,
-    recovered_dir: &mut DirNames,
+    dirs: &mut Destinations,
     now: DateTime<Utc>,
 ) -> StorageResult<RowOutcome> {
     let conn = store.connection();
+    let mirror = store.buffers_dir().join(&doc.filename);
 
     if let Some(path) = queries::get_migrated_path(conn, &doc.id)? {
         if Path::new(&path).exists() {
+            // The copy outlived the run that placed this note, which the
+            // settle check reads as unfinished work. It is safe to clear: the
+            // file it was compared against is still there.
+            remove_mirror(&mirror);
             return Ok(RowOutcome::Skipped { path });
         }
     }
 
-    let mirror = store.buffers_dir().join(&doc.filename);
     let mirror_bytes = std::fs::read(&mirror).ok();
 
     match doc.source_path.as_deref() {
-        Some(source_path) => migrate_source_backed_row(
-            store,
-            doc,
-            source_path,
-            &mirror,
-            mirror_bytes,
-            recovered_dir,
-            now,
-        ),
-        None => migrate_row_without_a_file(
-            store,
-            doc,
-            &mirror,
-            mirror_bytes,
-            notes_dir,
-            archive_dir,
-            now,
-        ),
+        Some(source_path) => {
+            migrate_source_backed_row(store, doc, source_path, &mirror, mirror_bytes, dirs, now)
+        }
+        None => migrate_row_without_a_file(store, doc, &mirror, mirror_bytes, dirs, now),
     }
 }
 
@@ -364,7 +367,7 @@ fn migrate_source_backed_row(
     source_path: &str,
     mirror: &Path,
     mirror_bytes: Option<Vec<u8>>,
-    recovered_dir: &mut DirNames,
+    dirs: &mut Destinations,
     now: DateTime<Utc>,
 ) -> StorageResult<RowOutcome> {
     let conn = store.connection();
@@ -392,9 +395,9 @@ fn migrate_source_backed_row(
         // defect in 0.3.0 through 0.3.2 produced. The file is left exactly as
         // it is and the copy is written beside it under its own name.
         let stem = recovered_stem(doc, source_path, now);
-        let destination = recovered_dir.allocate(&stem, extension_for(&mirror_bytes));
+        let destination = dirs.recovered.allocate(&stem, extension_for(&mirror_bytes));
         return Ok(
-            match write_and_verify(&destination, &mirror_bytes, recovered_dir) {
+            match write_and_verify(&destination, &mirror_bytes, &dirs.recovered) {
                 Ok(()) => {
                     queries::mark_migrated(conn, &doc.id, source_path, now.timestamp())?;
                     remove_mirror(mirror);
@@ -408,6 +411,7 @@ fn migrate_source_backed_row(
                     RowOutcome::VerificationFailed {
                         path: path_text(&destination),
                         mirror: path_text(mirror),
+                        recovered: recover_after_failure(&mut dirs.recovered, &stem, &mirror_bytes),
                     }
                 }
             },
@@ -418,20 +422,24 @@ fn migrate_source_backed_row(
     // goes into Recovered/ rather than the notes folder, because nobody chose
     // the name it would land under.
     let stem = recovered_stem(doc, source_path, now);
-    let destination = recovered_dir.allocate(&stem, extension_for(&mirror_bytes));
-    match write_and_verify(&destination, &mirror_bytes, recovered_dir) {
+    let destination = dirs.recovered.allocate(&stem, extension_for(&mirror_bytes));
+    match write_and_verify(&destination, &mirror_bytes, &dirs.recovered) {
         Ok(()) => {
             let text = path_text(&destination);
             store.update_source_path(&doc.id, &text)?;
             queries::mark_migrated(conn, &doc.id, &text, now.timestamp())?;
             remove_mirror(mirror);
-            Ok(RowOutcome::WrittenToNotes { path: text })
+            Ok(RowOutcome::RecoveredMissingFile {
+                source: source_path.to_string(),
+                path: text,
+            })
         }
         Err(error) => {
             warn!(path = %destination.display(), %error, "could not write the recovered text");
             Ok(RowOutcome::VerificationFailed {
                 path: path_text(&destination),
                 mirror: path_text(mirror),
+                recovered: recover_after_failure(&mut dirs.recovered, &stem, &mirror_bytes),
             })
         }
     }
@@ -443,8 +451,7 @@ fn migrate_row_without_a_file(
     doc: &BufferDocument,
     mirror: &Path,
     mirror_bytes: Option<Vec<u8>>,
-    notes_dir: &mut DirNames,
-    archive_dir: &mut DirNames,
+    dirs: &mut Destinations,
     now: DateTime<Utc>,
 ) -> StorageResult<RowOutcome> {
     let conn = store.connection();
@@ -460,7 +467,11 @@ fn migrate_row_without_a_file(
     let stem = note_stem(doc, now);
     let extension = extension_for(&bytes);
     let is_active = doc.status == BufferStatus::Active;
-    let directory = if is_active { notes_dir } else { archive_dir };
+    let directory = if is_active {
+        &mut dirs.notes
+    } else {
+        &mut dirs.archive
+    };
     let destination = directory.allocate(&stem, extension);
 
     match write_and_verify(&destination, &bytes, directory) {
@@ -486,6 +497,7 @@ fn migrate_row_without_a_file(
             Ok(RowOutcome::VerificationFailed {
                 path: path_text(&destination),
                 mirror: path_text(mirror),
+                recovered: recover_after_failure(&mut dirs.recovered, &stem, &bytes),
             })
         }
     }
@@ -500,7 +512,7 @@ fn migrate_piped_files(
     store: &BufferStore,
     rows: &[BufferDocument],
     piped_files: &[PathBuf],
-    notes_dir: &mut DirNames,
+    dirs: &mut Destinations,
     now: DateTime<Utc>,
     report: &mut MigrationReport,
 ) -> StorageResult<()> {
@@ -522,10 +534,10 @@ fn migrate_piped_files(
         }
 
         let stem = piped_stem(file, now);
-        let destination = notes_dir.allocate(&stem, extension_for(&bytes));
+        let destination = dirs.notes.allocate(&stem, extension_for(&bytes));
         let key = owner.clone().unwrap_or_else(|| file_name(file));
 
-        match write_and_verify(&destination, &bytes, notes_dir) {
+        match write_and_verify(&destination, &bytes, &dirs.notes) {
             Ok(()) => {
                 let text = path_text(&destination);
                 if let Some(id) = &owner {
@@ -548,6 +560,7 @@ fn migrate_piped_files(
                     RowOutcome::VerificationFailed {
                         path: path_text(&destination),
                         mirror: path_text(file),
+                        recovered: recover_after_failure(&mut dirs.recovered, &stem, &bytes),
                     },
                 );
             }
@@ -664,6 +677,25 @@ fn write_and_verify(destination: &Path, bytes: &[u8], directory: &DirNames) -> s
     Ok(())
 }
 
+/// Writes `bytes` into `Recovered/` after the write they were meant for
+/// failed, returning where they landed.
+///
+/// A write that could not be made is not a reason for a note's text to exist
+/// nowhere but a copy under a folder 0.4 retires. The copy is kept either way
+/// (ADR-028 §4 step 4), so this only adds a file the user can find; `None`
+/// when `Recovered/` will not take it either, which is what an unwritable
+/// notes folder looks like.
+fn recover_after_failure(recovered_dir: &mut DirNames, stem: &str, bytes: &[u8]) -> Option<String> {
+    let destination = recovered_dir.allocate(stem, extension_for(bytes));
+    match write_and_verify(&destination, bytes, recovered_dir) {
+        Ok(()) => Some(path_text(&destination)),
+        Err(error) => {
+            warn!(path = %destination.display(), %error, "could not place the text under Recovered either");
+            None
+        }
+    }
+}
+
 /// Clears a mirror, best-effort. A mirror that outlives the pass is reported
 /// by the startup consistency check and costs nothing but space.
 fn remove_mirror(mirror: &Path) {
@@ -682,6 +714,14 @@ fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default()
+}
+
+/// The three folders a run writes into, each carrying the names already taken
+/// in it so nothing written overwrites anything already there.
+struct Destinations {
+    notes: DirNames,
+    archive: DirNames,
+    recovered: DirNames,
 }
 
 /// The names already taken in one folder, so the next one deduped against it

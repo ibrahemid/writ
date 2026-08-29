@@ -120,7 +120,7 @@ pub fn save_buffer_content_inner(state: &AppState, id: &str, content: &str) -> R
     store
         .save_to_source_without_index(id, content)
         .map_err(|e| e.to_string())?;
-    state.record_disk_hash_bytes(id, content.as_bytes());
+    state.record_disk_state_bytes(id, Path::new(&source_path), content.as_bytes());
     Ok(())
 }
 
@@ -212,7 +212,38 @@ fn spawn_deferred_reindex(app: AppHandle, id: String, first_generation: u64) {
     });
 }
 
-/// Reads buffer content as raw bytes.
+/// Reads a note's text from its file, recording what the file held.
+///
+/// This read is what the reload of an externally changed note goes through,
+/// so it is where the record of the file moves: an event the editor declined
+/// must leave the record where it was, or the next reopen has nothing left to
+/// tell the user about ([`crate::commands::file::resync_open_buffer`]).
+///
+/// A read-only row's displayed text is not always the file's bytes — a binary
+/// file reads back as a hex dump — so its record comes from hashing the file
+/// itself. Skipping it instead is what made a generated document emit a
+/// change on its first reopen after a restart, having been read but never
+/// recorded.
+///
+/// A note with no file yet has nothing on disk to record.
+pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    let doc = store.get(id).map_err(|e| e.to_string())?;
+    let content = store.read_content(id).map_err(|e| e.to_string())?;
+    if let Some(source_path) = doc.source_path.as_deref() {
+        let path = Path::new(source_path);
+        if doc.read_only {
+            if let Ok(bytes) = std::fs::read(path) {
+                state.record_disk_state_bytes(id, path, &bytes);
+            }
+        } else {
+            state.record_disk_state_bytes(id, path, content.as_bytes());
+        }
+    }
+    Ok(content.into_bytes())
+}
+
+/// IPC: [`read_buffer_content_inner`] as the frontend sees it.
 ///
 /// Returns `tauri::ipc::Response` so the browser-side `invoke()` yields an
 /// `ArrayBuffer` directly, bypassing JSON string-escaping. The caller
@@ -222,17 +253,9 @@ pub fn read_buffer_content(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<tauri::ipc::Response, String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    let doc = store.get(&id).map_err(|e| e.to_string())?;
-    let content = store.read_content(&id).map_err(|e| e.to_string())?;
-    // A read-only row's displayed text is not always the file's bytes (a
-    // binary file reads back as a hex dump), so only a writable row's read
-    // is trustworthy to record here. Read-only rows get their digest from
-    // wherever they were opened or resynced instead.
-    if !doc.read_only {
-        state.record_disk_hash_bytes(&id, content.as_bytes());
-    }
-    Ok(tauri::ipc::Response::new(content.into_bytes()))
+    Ok(tauri::ipc::Response::new(read_buffer_content_inner(
+        &state, &id,
+    )?))
 }
 
 #[tauri::command]
@@ -243,10 +266,15 @@ pub fn list_active_buffers(state: State<'_, AppState>) -> Result<Vec<BufferDocum
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub fn close_buffer(state: State<'_, AppState>, id: String) -> Result<(), String> {
+/// IPC: closes one tab.
+///
+/// What the file held is forgotten with the tab. The record exists to answer
+/// "did this change since Writ last looked", and after a close Writ has not
+/// looked; keeping it would let a note edited elsewhere while its tab was
+/// closed reopen without a word.
+pub fn close_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
-    let doc = store.get(&id).map_err(|e| e.to_string())?;
+    let doc = store.get(id).map_err(|e| e.to_string())?;
     {
         let mut ignore = recover_poison(
             state.watcher_ignore.lock(),
@@ -254,19 +282,33 @@ pub fn close_buffer(state: State<'_, AppState>, id: String) -> Result<(), String
         );
         ignore.remove(&doc.filename);
     }
-    store.close(&id).map_err(|e| e.to_string())
+    store.close(id).map_err(|e| e.to_string())?;
+    state.forget_disk_state(id);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn close_buffer(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    close_buffer_inner(&state, &id)
+}
+
+pub fn close_buffers_inner(state: &AppState, ids: &[String]) -> Result<(), String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store.close_many(ids).map_err(|e| e.to_string())?;
+    for id in ids {
+        state.forget_disk_state(id);
+    }
+    Ok(())
 }
 
 #[tauri::command]
 pub fn close_buffers(state: State<'_, AppState>, ids: Vec<String>) -> Result<(), String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    store.close_many(&ids).map_err(|e| e.to_string())
+    close_buffers_inner(&state, &ids)
 }
 
-#[tauri::command]
-pub fn delete_buffer(state: State<'_, AppState>, id: String) -> Result<(), String> {
+pub fn delete_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
-    let doc = store.get(&id).ok();
+    let doc = store.get(id).ok();
     if let Some(doc) = doc.as_ref() {
         let mut ignore = recover_poison(
             state.watcher_ignore.lock(),
@@ -274,7 +316,14 @@ pub fn delete_buffer(state: State<'_, AppState>, id: String) -> Result<(), Strin
         );
         ignore.remove(&doc.filename);
     }
-    store.delete(&id).map_err(|e| e.to_string())
+    store.delete(id).map_err(|e| e.to_string())?;
+    state.forget_disk_state(id);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_buffer(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    delete_buffer_inner(&state, &id)
 }
 
 #[tauri::command]

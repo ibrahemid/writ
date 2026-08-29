@@ -279,21 +279,6 @@ pub fn get_migrated_path(conn: &Connection, id: &str) -> StorageResult<Option<St
     Ok(value)
 }
 
-/// Returns every `(id, migrated_path)` pair the notes migration recorded.
-///
-/// The re-run gate reads this: a recorded path whose file is gone means the
-/// migration's work did not survive, and the pass runs again (ADR-028 §4).
-pub fn list_migrated_paths(conn: &Connection) -> StorageResult<Vec<(String, String)>> {
-    let mut stmt =
-        conn.prepare("SELECT id, migrated_path FROM buffers WHERE migrated_path IS NOT NULL")?;
-    let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
-    let mut out = Vec::new();
-    for row in rows {
-        out.push(row?);
-    }
-    Ok(out)
-}
-
 /// Updates the detected or user-assigned language for a buffer.
 pub fn update_language(conn: &Connection, id: &str, language: Option<&str>) -> StorageResult<()> {
     conn.execute(

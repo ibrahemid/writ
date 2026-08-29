@@ -677,6 +677,39 @@ fn rebuild_fts_tolerates_a_missing_file() {
 }
 
 #[test]
+fn rebuild_fts_leaves_the_body_of_a_read_only_document_out_of_the_index() {
+    // ADR-028 §1: a document Writ wrote rather than the user is not something
+    // search may return. Its title is, so the tab stays findable by name.
+    let (_dir, store) = setup();
+    let mut doc = make_doc("rf-notice", "Third-party licences");
+    doc.read_only = true;
+    std::fs::write(
+        doc.source_path.as_ref().unwrap(),
+        "permission is hereby granted to any dweomerword holder",
+    )
+    .unwrap();
+    store.open_from_path_unindexed(&doc).unwrap();
+
+    store.rebuild_fts().expect("rebuild_fts must succeed");
+
+    assert!(
+        store.search("dweomerword").unwrap().is_empty(),
+        "a rebuild must not pull a generated document's text into the index"
+    );
+    assert_eq!(store.search("licences").unwrap(), vec!["rf-notice"]);
+
+    store.reindex_buffer("rf-notice").expect("reindex");
+    assert!(
+        store.search("dweomerword").unwrap().is_empty(),
+        "neither may a reindex"
+    );
+    assert!(
+        !store.verify_and_repair_fts().expect("verify"),
+        "a title-only entry is what the boot check expects to find"
+    );
+}
+
+#[test]
 fn rebuild_fts_drops_stale_rows_for_deleted_buffers() {
     let (dir, store) = setup();
     let doc = make_doc("rf-stale", "rf-stale");

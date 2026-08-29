@@ -235,14 +235,32 @@ impl BufferStore {
     /// (ADR-028 §12 keeps that argument and only changes which file is read).
     /// Large-file and binary buffers (`size_bytes > THRESHOLD_NORMAL_BYTES`)
     /// are skipped, matching the write-time policy in [`Self::save_content`].
+    /// A read-only row keeps its title-only entry: search is over what the
+    /// user wrote, and neither a hex view nor a document Writ generated is
+    /// that ([`Self::indexable_text`]).
     pub fn reindex_buffer(&self, id: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
         if doc.size_bytes > THRESHOLD_NORMAL_BYTES {
             return Ok(());
         }
-        let content = read_source_text(&doc);
+        let content = Self::indexable_text(&doc);
         let fts = crate::fts::FtsIndex::new(&self.conn);
         fts.update(id, &doc.title, &content)
+    }
+
+    /// The text of `doc` as the index may hold it.
+    ///
+    /// Empty for a read-only row, whatever its file holds otherwise. A
+    /// generated document must never enter the index no matter how often it
+    /// is opened or rebuilt (ADR-028 §1), and a binary row's file is not text
+    /// to search in the first place; both are read-only, and both keep the
+    /// title-only entry [`Self::open_from_path_unindexed`] and [`Self::insert`]
+    /// seed, so a rebuild leaves the index the same shape it found.
+    fn indexable_text(doc: &BufferDocument) -> String {
+        if doc.read_only {
+            return String::new();
+        }
+        read_source_text(doc)
     }
 
     /// Reads a note's text from its file.
@@ -501,7 +519,8 @@ impl BufferStore {
     ///
     /// Large-file and binary buffers (`size_bytes > THRESHOLD_NORMAL_BYTES`)
     /// are excluded, consistent with the write-time skip in
-    /// [`Self::save_content`] and [`Self::open_from_path`].
+    /// [`Self::save_content`] and [`Self::open_from_path`], and a read-only
+    /// row is rebuilt title-only ([`Self::indexable_text`]).
     pub fn rebuild_fts(&self) -> StorageResult<()> {
         self.conn.execute("DELETE FROM buffer_fts", [])?;
         let fts = crate::fts::FtsIndex::new(&self.conn);
@@ -511,7 +530,7 @@ impl BufferStore {
                 if doc.size_bytes > THRESHOLD_NORMAL_BYTES {
                     continue;
                 }
-                let content = read_source_text(doc);
+                let content = Self::indexable_text(doc);
                 fts.insert(&doc.id, &doc.title, &content)?;
             }
         }

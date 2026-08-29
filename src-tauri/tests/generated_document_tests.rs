@@ -19,7 +19,9 @@ use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
-use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
+use writ_tauri_lib::commands::buffer::{
+    close_buffer_inner, read_buffer_content_inner, save_buffer_content_inner,
+};
 use writ_tauri_lib::commands::file::open_generated_document;
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::security::AuthorizedPaths;
@@ -77,6 +79,17 @@ fn make_state(dir: &TempDir) -> AppState {
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
     }
+}
+
+fn count_external_events(state: &AppState) -> Arc<Mutex<u32>> {
+    let count = Arc::new(Mutex::new(0u32));
+    let count_clone = count.clone();
+    state.event_bus.subscribe(move |event| {
+        if let writ_core::events::bus::WritEvent::BufferExternal { .. } = event {
+            *count_clone.lock().unwrap() += 1;
+        }
+    });
+    count
 }
 
 fn is_empty_dir(dir: &std::path::Path) -> bool {
@@ -197,5 +210,59 @@ fn a_plain_new_note_still_mints_a_dated_file_in_the_notes_folder() {
     assert!(
         is_empty_dir(&state.writ_dir.join("generated")),
         "a user note has no business under the generated documents folder"
+    );
+}
+
+#[test]
+fn three_open_and_close_cycles_leave_one_row() {
+    // Closing the tab and opening the document again must find the row it
+    // left in History, or every open mints another and the user's History
+    // fills with a document they never wrote (ADR-028 §1).
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let mut ids = std::collections::HashSet::new();
+    for _ in 0..3 {
+        let opened = open_generated_document(&state, NOTICES_TITLE, "# Third-party notices\nMIT\n")
+            .expect("open");
+        ids.insert(opened.doc.id.clone());
+        close_buffer_inner(&state, &opened.doc.id).expect("close the tab");
+    }
+
+    assert_eq!(ids.len(), 1, "each open must reuse the one row: {ids:?}");
+
+    let store = state.store.lock().unwrap();
+    let active = store
+        .list_by_status(writ_core::buffer::document::BufferStatus::Active)
+        .unwrap();
+    let history = store
+        .list_by_status(writ_core::buffer::document::BufferStatus::History)
+        .unwrap();
+    assert!(active.is_empty(), "the last cycle left the tab closed");
+    assert_eq!(history.len(), 1, "one row, not one per open: {history:?}");
+}
+
+#[test]
+fn a_generated_document_reopened_after_a_restart_reports_no_outside_change() {
+    let dir = TempDir::new().unwrap();
+    let text = "# Third-party notices\nMIT\n";
+
+    let first_launch = make_state(&dir);
+    let opened = open_generated_document(&first_launch, NOTICES_TITLE, text).expect("open");
+    drop(first_launch);
+
+    // A relaunch over the same data folder: the row is restored, and the
+    // frontend loading its tab is the read that records what the file holds.
+    let state = make_state(&dir);
+    read_buffer_content_inner(&state, &opened.doc.id).expect("load the restored tab");
+
+    let count = count_external_events(&state);
+    let reopened = open_generated_document(&state, NOTICES_TITLE, text).expect("reopen");
+
+    assert_eq!(reopened.doc.id, opened.doc.id);
+    assert_eq!(
+        *count.lock().unwrap(),
+        0,
+        "nothing changed under the document, so nothing may be announced"
     );
 }

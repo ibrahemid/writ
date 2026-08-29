@@ -16,7 +16,7 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::notes_migration::{
     run_notes_migration, MigrationReport, MigrationRoots, RowOutcome, RECOVERED_FOLDER,
 };
-use writ_storage::rollback::ROLLBACK_COPY_SUFFIX;
+use writ_storage::rollback::{ROLLBACK_COPY_SUFFIX, ROLLBACK_KEEP_LAUNCHES};
 use writ_storage::schema_meta::{self, KEY_NOTES_MIGRATION_RAN_AT, KEY_NOTES_MIGRATION_REPORT};
 
 /// A data folder shaped the way 0.3.5 left one, plus the notes folder 0.4
@@ -188,9 +188,36 @@ fn four_row_shapes_produce_the_expected_file_set() {
         "every copy that was placed is unlinked"
     );
 
-    assert_eq!(report.migrated, 3, "two notes plus the orphan");
+    assert_eq!(
+        report.migrated, 2,
+        "the active note and the one already kept"
+    );
     assert_eq!(report.archived, 1);
+    assert_eq!(
+        report.recovered, 1,
+        "a row whose file went missing is text Writ salvaged, not a note it placed"
+    );
     assert_eq!(report.failed, 0);
+    assert_eq!(
+        fixture.outcome(&report, "absent-1"),
+        RowOutcome::RecoveredMissingFile {
+            source: fixture
+                .dir
+                .path()
+                .join("outside")
+                .join("lost.md")
+                .to_string_lossy()
+                .into_owned(),
+            path: fixture
+                .recovered()
+                .join(format!(
+                    "lost (unsaved edits {}).md",
+                    local_day(day(2026, 8, 28))
+                ))
+                .to_string_lossy()
+                .into_owned(),
+        }
+    );
 
     // The rows now open the files.
     assert_eq!(fixture.store.read_content("active-1").unwrap(), "eggs");
@@ -292,13 +319,19 @@ fn a_row_that_fails_verification_keeps_its_mirror_and_appears_in_the_report() {
 
     assert_eq!(report.failed, 1);
     assert_eq!(report.migrated, 0);
-    assert!(
-        matches!(
-            fixture.outcome(&report, "blocked-1"),
-            RowOutcome::VerificationFailed { .. }
-        ),
-        "got {:?}",
-        fixture.outcome(&report, "blocked-1")
+    assert_eq!(
+        fixture.outcome(&report, "blocked-1"),
+        RowOutcome::VerificationFailed {
+            path: fixture
+                .notes()
+                .join("Refused.md")
+                .to_string_lossy()
+                .into_owned(),
+            mirror: fixture.mirror("blocked-1").to_string_lossy().into_owned(),
+            recovered: None,
+        },
+        "Recovered/ sits inside the folder that refused the write, so there is \
+         nowhere left to put the text"
     );
     assert_eq!(
         std::fs::read_to_string(fixture.mirror("blocked-1")).unwrap(),
@@ -306,6 +339,51 @@ fn a_row_that_fails_verification_keeps_its_mirror_and_appears_in_the_report() {
         "a write that did not verify never licenses a delete"
     );
     assert!(fixture.store.get("blocked-1").is_ok(), "the row survives");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_write_that_fails_still_leaves_the_text_under_recovered() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = Fixture::new();
+    fixture.add_scratch(
+        "history-1",
+        "Closed one",
+        b"text worth keeping",
+        BufferStatus::History,
+    );
+
+    // The archive refuses the write; the notes folder beside it does not, so
+    // the text has somewhere to go.
+    let archive = fixture.archive();
+    std::fs::create_dir_all(&archive).unwrap();
+    std::fs::set_permissions(&archive, std::fs::Permissions::from_mode(0o500)).unwrap();
+
+    let report = fixture.run();
+
+    std::fs::set_permissions(&archive, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let RowOutcome::VerificationFailed { recovered, .. } = fixture.outcome(&report, "history-1")
+    else {
+        panic!("got {:?}", fixture.outcome(&report, "history-1"));
+    };
+    let recovered = recovered.expect("the text lands under Recovered when the archive refuses it");
+    assert_eq!(
+        std::fs::read_to_string(&recovered).unwrap(),
+        "text worth keeping"
+    );
+    assert!(
+        Path::new(&recovered).starts_with(fixture.recovered()),
+        "{recovered} is not under {}",
+        fixture.recovered().display()
+    );
+    assert_eq!(report.failed, 1);
+    assert_eq!(
+        std::fs::read_to_string(fixture.mirror("history-1")).unwrap(),
+        "text worth keeping",
+        "the copy is kept either way, so the next launch can still retry"
+    );
 }
 
 #[test]
@@ -529,24 +607,55 @@ fn deleting_the_database_and_reopening_leaves_every_note_openable() {
 }
 
 #[test]
-fn a_row_whose_recorded_file_went_missing_is_written_again() {
+fn a_note_deleted_after_the_pass_placed_it_never_runs_the_pass_again() {
     let fixture = Fixture::new();
     fixture.add_scratch("active-1", "Shopping", b"eggs", BufferStatus::Active);
-    fixture.run();
 
+    // Launch one migrates the note and takes the copy of the database.
+    let first = fixture.run();
     let file = fixture.notes().join("Shopping.md");
-    std::fs::remove_file(&file).unwrap();
-    // The mirror is gone too, so all the pass can do is repoint the row at the
-    // file it named; nothing is invented.
-    let report = fixture.run_at(day(2026, 9, 1));
+    let copy = fixture
+        .dir
+        .path()
+        .join(format!("writ.db{ROLLBACK_COPY_SUFFIX}"));
+    assert!(copy.exists());
 
-    assert!(
-        matches!(
-            fixture.outcome(&report, "active-1"),
-            RowOutcome::AlreadyOnDisk { .. }
-        ),
-        "the row keeps naming its file so the next save recreates it: {:?}",
-        fixture.outcome(&report, "active-1")
+    // The user deletes the note in Finder. That is the note being deleted, not
+    // work the pass left unfinished.
+    std::fs::remove_file(&file).unwrap();
+
+    let mut copy_deleted_on = None;
+    for launch in 1..=12u32 {
+        if launch > 1 {
+            assert_eq!(
+                fixture.run_at(day(2026, 9, 1)),
+                first,
+                "launch {launch} re-ran a pass that had nothing left to do"
+            );
+        }
+        if fixture
+            .store
+            .age_out_rollback_copy(ROLLBACK_KEEP_LAUNCHES)
+            .expect("age out")
+        {
+            copy_deleted_on = Some(launch);
+        }
+    }
+
+    assert_eq!(
+        copy_deleted_on,
+        Some(10),
+        "the copy is kept for ten launches"
+    );
+    assert!(!copy.exists(), "and no launch after it takes another");
+    assert!(!file.exists(), "nothing writes the deleted note back");
+    assert!(names_in(&fixture.recovered()).is_empty());
+
+    let conn = open_database(&fixture.db_path()).expect("read the meta rows");
+    assert_eq!(
+        schema_meta::get(&conn, KEY_NOTES_MIGRATION_RAN_AT).unwrap(),
+        Some(first.ran_at.clone()),
+        "the run keeps the timestamp it finished at"
     );
 }
 

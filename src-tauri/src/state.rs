@@ -1,7 +1,8 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::SystemTime;
 use tracing::{info, warn};
 use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
@@ -23,6 +24,36 @@ use crate::poison::recover_poison;
 use crate::preview::handler::RenderCache;
 use crate::security::{canonicalize_for_authorization, canonicalize_root, AuthorizedPaths};
 use crate::watcher::handler::{IgnoreSet, WatcherHandle};
+
+/// What Writ last saw on disk for one note.
+///
+/// `hash` is the answer to every question about whether the file changed:
+/// mtime moves on a touch, a sync round trip or a restore without the bytes
+/// changing, and size collides on an edit that keeps the length (ADR-028 §5).
+/// The other two are carried for diagnostics and for the cheap short-circuit
+/// the write guard takes before it reads a file back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiskState {
+    /// SHA-256 of the file's bytes.
+    pub hash: writ_core::hash::Sha256Digest,
+    /// The file's length in bytes.
+    pub size: u64,
+    /// The file's modification time, when the filesystem reports one.
+    pub mtime: Option<SystemTime>,
+}
+
+impl DiskState {
+    /// Reads `path`'s metadata to complete the record around an already
+    /// computed digest, falling back to `size` when the metadata is gone.
+    fn of(path: &Path, hash: writ_core::hash::Sha256Digest, size: u64) -> Self {
+        let metadata = std::fs::metadata(path).ok();
+        Self {
+            hash,
+            size: metadata.as_ref().map(|m| m.len()).unwrap_or(size),
+            mtime: metadata.as_ref().and_then(|m| m.modified().ok()),
+        }
+    }
+}
 
 pub struct AppState {
     pub store: Mutex<BufferStore>,
@@ -74,15 +105,17 @@ pub struct AppState {
     /// call bumps it and captures its value; the walker's cancel closure
     /// compares against this so a newer query stops the older one (ADR-026).
     pub search_generation: Arc<AtomicU64>,
-    /// Digest of a buffer's file at the moment Writ last read or wrote it,
+    /// What a buffer's file held at the moment Writ last read or wrote it,
     /// keyed by buffer id.
     ///
     /// Kept here for now, in memory only: a relaunch starts blank, which is
     /// no worse than a relaunch already was. A later change moves this
     /// record into the store as `last_known_disk_hash` so it survives one,
     /// which is the name to reach for if this field is being generalised
-    /// rather than just relocated.
-    pub last_disk_hash: Mutex<HashMap<String, writ_core::hash::Sha256Digest>>,
+    /// rather than just relocated. An entry lives as long as the tab does:
+    /// closing or deleting a note drops it, so a note reopened weeks later
+    /// is compared against the file, not against a stale record of it.
+    pub last_disk_hash: Mutex<HashMap<String, DiskState>>,
 }
 
 impl AppState {
@@ -371,17 +404,45 @@ impl AppState {
         path.starts_with(&self.notes_root)
     }
 
-    /// Records the digest of a buffer's file at the moment Writ read or
-    /// wrote it.
-    pub fn record_disk_hash(&self, buffer_id: &str, digest: writ_core::hash::Sha256Digest) {
-        let mut map = recover_poison(self.last_disk_hash.lock(), "state::record_disk_hash");
-        map.insert(buffer_id.to_string(), digest);
+    /// Records what a buffer's file held at the moment Writ read or wrote it,
+    /// reading the rest of the record from the file's metadata.
+    ///
+    /// `size` is what the caller believes the file's length to be, used only
+    /// when the metadata cannot be read.
+    pub fn record_disk_state(
+        &self,
+        buffer_id: &str,
+        path: &Path,
+        digest: writ_core::hash::Sha256Digest,
+        size: u64,
+    ) {
+        let state = DiskState::of(path, digest, size);
+        let mut map = recover_poison(self.last_disk_hash.lock(), "state::record_disk_state");
+        map.insert(buffer_id.to_string(), state);
     }
 
-    /// [`Self::record_disk_hash`] for a caller holding bytes rather than an
-    /// already-computed digest.
-    pub fn record_disk_hash_bytes(&self, buffer_id: &str, bytes: &[u8]) {
-        self.record_disk_hash(buffer_id, writ_core::hash::sha256_bytes(bytes));
+    /// [`Self::record_disk_state`] for a caller holding the file's bytes
+    /// rather than an already-computed digest.
+    pub fn record_disk_state_bytes(&self, buffer_id: &str, path: &Path, bytes: &[u8]) {
+        self.record_disk_state(
+            buffer_id,
+            path,
+            writ_core::hash::sha256_bytes(bytes),
+            bytes.len() as u64,
+        );
+    }
+
+    /// Drops the record for `buffer_id`, which the tab closing or the note
+    /// being deleted is the end of.
+    pub fn forget_disk_state(&self, buffer_id: &str) {
+        let mut map = recover_poison(self.last_disk_hash.lock(), "state::forget_disk_state");
+        map.remove(buffer_id);
+    }
+
+    /// What was last recorded for `buffer_id`, if anything.
+    pub fn disk_state(&self, buffer_id: &str) -> Option<DiskState> {
+        let map = recover_poison(self.last_disk_hash.lock(), "state::disk_state");
+        map.get(buffer_id).copied()
     }
 
     /// `true` when `bytes` hashes to the digest last recorded for
@@ -392,7 +453,7 @@ impl AppState {
     /// that the file changed underneath it.
     pub fn disk_hash_matches(&self, buffer_id: &str, bytes: &[u8]) -> bool {
         let map = recover_poison(self.last_disk_hash.lock(), "state::disk_hash_matches");
-        map.get(buffer_id) == Some(&writ_core::hash::sha256_bytes(bytes))
+        map.get(buffer_id).map(|state| state.hash) == Some(writ_core::hash::sha256_bytes(bytes))
     }
 }
 

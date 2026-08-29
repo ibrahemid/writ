@@ -158,7 +158,7 @@ fn open_file_classified(
         state
             .authorized_paths
             .record_blessed_source(canonical.to_string());
-        state.record_disk_hash(&history_buf.id, digest);
+        state.record_disk_state(&history_buf.id, file_path, digest, size_bytes);
         let doc = store.get(&history_buf.id).map_err(|e| e.to_string())?;
         return Ok(FileOpenResult {
             mode,
@@ -190,7 +190,7 @@ fn open_file_classified(
     state
         .authorized_paths
         .record_blessed_source(canonical.to_string());
-    state.record_disk_hash(&new_doc.id, digest);
+    state.record_disk_state(&new_doc.id, file_path, digest, size_bytes);
     Ok(FileOpenResult {
         mode,
         size_bytes,
@@ -285,6 +285,13 @@ pub async fn pick_files_to_open(app: tauri::AppHandle) -> Result<Vec<String>, St
 /// here is what the watcher stamp needs to recognise those bytes as ones Writ
 /// already knows about.
 ///
+/// What the file held is deliberately not recorded here. The event is an offer
+/// the editor can decline — it asks first when there are unsaved keystrokes to
+/// lose — and recording on the strength of having emitted would leave a user
+/// who said no with a tab Writ believes is current, and the next reopen
+/// silent. The record moves when the file is actually read, which the reload
+/// does through [`crate::commands::buffer::read_buffer_content`].
+///
 /// The reindex is skipped for a read-only buffer. A binary one would not
 /// usefully index anyway (the file's bytes are not valid text), and a
 /// generated document must never index its body no matter how often it is
@@ -318,7 +325,6 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
             change: ExternalChange::Modified,
         });
     }
-    state.record_disk_hash_bytes(&doc.id, &source);
 }
 
 /// Writes `content` to the fixed path a generated document titled `title`
@@ -333,11 +339,13 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
 /// existing refusal is what stops a save of it — nothing new is checked for
 /// that.
 ///
-/// A buffer already open for this path is resynced in place rather than
-/// duplicated, the same as reopening any other file that changed underneath
-/// it ([`resync_open_buffer`]); `content` overwrites whatever the file held
-/// before, so a second call regenerates the same file rather than minting a
-/// dedupe sibling.
+/// The row is found the same way [`open_file_classified`] finds one, by the
+/// canonical path: a tab still open is resynced in place, and a closed one is
+/// restored. Without the second lookup, closing the tab and opening the
+/// document again would mint a row per open and fill History with a document
+/// the user never wrote. `content` overwrites whatever the file held before,
+/// so a second call regenerates the same file rather than minting a dedupe
+/// sibling.
 pub fn open_generated_document(
     state: &AppState,
     title: &str,
@@ -368,6 +376,23 @@ pub fn open_generated_document(
         });
     }
 
+    if let Some(closed) = store
+        .find_history_by_source_path(&canonical)
+        .map_err(|e| e.to_string())?
+    {
+        store.restore(&closed.id).map_err(|e| e.to_string())?;
+        state
+            .authorized_paths
+            .record_blessed_source(canonical.clone());
+        state.record_disk_state_bytes(&closed.id, &path, content.as_bytes());
+        let doc = store.get(&closed.id).map_err(|e| e.to_string())?;
+        return Ok(FileOpenResult {
+            mode: FileOpenMode::Normal,
+            size_bytes,
+            doc,
+        });
+    }
+
     let mut mgr = BufferManager::new().with_event_bus(state.event_bus.clone());
     let new_doc = mgr
         .open_external(canonical.clone())
@@ -382,7 +407,7 @@ pub fn open_generated_document(
         .open_from_path_unindexed(&new_doc)
         .map_err(|e| e.to_string())?;
     state.authorized_paths.record_blessed_source(canonical);
-    state.record_disk_hash_bytes(&new_doc.id, content.as_bytes());
+    state.record_disk_state_bytes(&new_doc.id, &path, content.as_bytes());
     Ok(FileOpenResult {
         mode: FileOpenMode::Normal,
         size_bytes,

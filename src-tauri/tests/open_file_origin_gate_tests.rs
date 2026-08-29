@@ -12,7 +12,10 @@ use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
-use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
+use writ_tauri_lib::commands::buffer::{
+    close_buffer_inner, close_buffers_inner, delete_buffer_inner, read_buffer_content_inner,
+    save_buffer_content_inner,
+};
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
@@ -671,7 +674,10 @@ fn reopening_an_unchanged_file_emits_nothing() {
 }
 
 #[test]
-fn a_file_changed_out_of_band_emits_once_then_settles() {
+fn a_file_changed_out_of_band_keeps_being_announced_until_it_is_read() {
+    // The event is an offer the editor can decline: it asks before discarding
+    // unsaved keystrokes. Until the file is actually read, the tab still shows
+    // the old text, so every reopen has the same news to deliver.
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
 
@@ -679,7 +685,7 @@ fn a_file_changed_out_of_band_emits_once_then_settles() {
     std::fs::write(&file, "first").unwrap();
     let canonical = canonicalize_for_authorization(&file).unwrap();
     state.authorized_paths.record_for_open(canonical.clone());
-    open_file_from_path(&state, &canonical).expect("open");
+    let opened = open_file_from_path(&state, &canonical).expect("open");
 
     let count = count_external_events(&state);
 
@@ -689,14 +695,88 @@ fn a_file_changed_out_of_band_emits_once_then_settles() {
     assert_eq!(
         *count.lock().unwrap(),
         1,
-        "a reopen with a changed digest must emit exactly once"
+        "a reopen with a changed digest must emit"
     );
 
     state.authorized_paths.record_for_open(canonical.clone());
-    open_file_from_path(&state, &canonical).expect("reopen again, unchanged since the last one");
+    open_file_from_path(&state, &canonical).expect("reopen after the offer was declined");
     assert_eq!(
         *count.lock().unwrap(),
-        1,
-        "a second reopen with no further change must not emit again"
+        2,
+        "a reload nobody took must not leave the tab looking current"
     );
+
+    read_buffer_content_inner(&state, &opened.doc.id).expect("the editor takes the reload");
+
+    state.authorized_paths.record_for_open(canonical.clone());
+    open_file_from_path(&state, &canonical).expect("reopen with the file already read");
+    assert_eq!(
+        *count.lock().unwrap(),
+        2,
+        "once the file has been read there is nothing left to announce"
+    );
+}
+
+#[test]
+fn closing_a_tab_forgets_what_its_file_held() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let file = dir.path().join("closing.md");
+    std::fs::write(&file, "text").unwrap();
+    let canonical = canonicalize_for_authorization(&file).unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+    let opened = open_file_from_path(&state, &canonical).expect("open");
+    assert!(state.disk_state(&opened.doc.id).is_some());
+
+    close_buffer_inner(&state, &opened.doc.id).expect("close");
+
+    assert!(
+        state.disk_state(&opened.doc.id).is_none(),
+        "a closed tab is not a file Writ is still watching the bytes of"
+    );
+}
+
+#[test]
+fn closing_several_tabs_forgets_every_one_of_them() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let mut ids = Vec::new();
+    for name in ["one.md", "two.md"] {
+        let file = dir.path().join(name);
+        std::fs::write(&file, "text").unwrap();
+        let canonical = canonicalize_for_authorization(&file).unwrap();
+        state.authorized_paths.record_for_open(canonical.clone());
+        ids.push(
+            open_file_from_path(&state, &canonical)
+                .expect("open")
+                .doc
+                .id,
+        );
+    }
+
+    close_buffers_inner(&state, &ids).expect("close both");
+
+    for id in &ids {
+        assert!(state.disk_state(id).is_none(), "{id} was left recorded");
+    }
+}
+
+#[test]
+fn deleting_a_note_forgets_what_its_file_held() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let file = dir.path().join("doomed.md");
+    std::fs::write(&file, "text").unwrap();
+    let canonical = canonicalize_for_authorization(&file).unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+    let opened = open_file_from_path(&state, &canonical).expect("open");
+    assert!(state.disk_state(&opened.doc.id).is_some());
+
+    delete_buffer_inner(&state, &opened.doc.id).expect("delete the row");
+
+    assert!(state.disk_state(&opened.doc.id).is_none());
+    assert!(file.exists(), "deleting the row never deletes the file");
 }
