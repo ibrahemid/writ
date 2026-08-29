@@ -52,7 +52,7 @@ import { getExtension as languageExtension } from "../../editor/language-registr
 import { registerBuiltinLanguages } from "../../editor/builtins";
 import { editorModeForContent } from "../../editor/large-file";
 import { autoTextDirection } from "../../editor/bidi";
-import { codeChrome, codeChromeFor, isCodeBuffer } from "../../editor/code-chrome";
+import { codeChrome, codeChromeFor, isCodeBuffer, surfaceFollowsLanguage } from "../../editor/code-chrome";
 import { stripOwnedBindings } from "../../editor/keymap-filter";
 import { registerEditorCommands, OWNED_CM_COMMANDS } from "../../editor/editor-commands";
 import "./EditorInstance.css";
@@ -241,8 +241,14 @@ export default function EditorInstance(props: Props) {
         languageCompartment.reconfigure(mode.kind === "Normal" ? languageExtension(lang) : []),
         typographyCompartment.reconfigure(typographyExtension(lang, mode)),
         editingCompartment.reconfigure(editingExtension(lang, mode)),
-        codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
-        codeChromeCompartment.reconfigure(codeChromeFor(lang)),
+        // The face and the chrome follow the language only on a normal buffer.
+        // A restricted one keeps what it mounted with (see surfaceFollowsLanguage).
+        ...(surfaceFollowsLanguage(mode)
+          ? [
+              codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
+              codeChromeCompartment.reconfigure(codeChromeFor(lang)),
+            ]
+          : []),
       ],
     });
   }

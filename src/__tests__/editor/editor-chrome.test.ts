@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { codeChrome, codeChromeFor, isCodeBuffer } from "../../editor/code-chrome";
+import { codeChrome, codeChromeFor, isCodeBuffer, surfaceFollowsLanguage } from "../../editor/code-chrome";
+import type { FileOpenMode } from "../../types/buffer";
 
 const DOC = "fn main() {\n  println!(\"hi\");\n}\n";
 
@@ -100,5 +101,26 @@ describe("codeChromeFor", () => {
     expect(codeChromeFor("rust")).toBe(codeChrome);
     expect(codeChromeFor("markdown")).toEqual([]);
     expect(codeChromeFor(null)).toEqual([]);
+  });
+});
+
+describe("surfaceFollowsLanguage", () => {
+  it("lets a normal buffer follow its language", () => {
+    expect(surfaceFollowsLanguage({ kind: "Normal" })).toBe(true);
+  });
+
+  it("pins the surface of every restricted mode", () => {
+    // A restricted buffer never gets its language detected, so a late detection
+    // must not take the gutter off a file that does not wrap.
+    const restricted: FileOpenMode[] = [
+      { kind: "LargeFile" },
+      { kind: "LargeFileConfirm" },
+      { kind: "LongLines" },
+      { kind: "Binary" },
+      { kind: "Refused", reason: "too big" },
+    ];
+    for (const mode of restricted) {
+      expect(surfaceFollowsLanguage(mode), mode.kind).toBe(false);
+    }
   });
 });

@@ -85,9 +85,10 @@
         "$value": 1.6
       },
       "measure": {
+        "$description": "44rem at a 16px root. The app root is --writ-ui-md (13px), which would resolve 44rem to 572px, so the measure is absolute.",
         "$value": {
-          "value": 44,
-          "unit": "rem"
+          "value": 704,
+          "unit": "px"
         }
       },
       "pad-x": {

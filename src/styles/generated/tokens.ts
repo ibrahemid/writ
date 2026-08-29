@@ -187,7 +187,7 @@ export const TYPE: Readonly<Record<PlatformId, TypeTokens>> = {
     prose: {
       size: "16px",
       lineHeight: "1.6",
-      measure: "44rem",
+      measure: "704px",
       padX: "32px",
       padY: "32px",
       pSpacing: "1.25rem",
@@ -212,7 +212,7 @@ export const TYPE: Readonly<Record<PlatformId, TypeTokens>> = {
     prose: {
       size: "16px",
       lineHeight: "1.5",
-      measure: "44rem",
+      measure: "704px",
       padX: "32px",
       padY: "32px",
       pSpacing: "1.25rem",
@@ -237,7 +237,7 @@ export const TYPE: Readonly<Record<PlatformId, TypeTokens>> = {
     prose: {
       size: "16px",
       lineHeight: "1.4",
-      measure: "44rem",
+      measure: "704px",
       padX: "32px",
       padY: "32px",
       pSpacing: "1.25rem",

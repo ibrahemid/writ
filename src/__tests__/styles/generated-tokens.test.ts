@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { COLORS, LEGACY_FROZEN } from "../../styles/generated/tokens";
+import { COLORS, LEGACY_FROZEN, TYPE } from "../../styles/generated/tokens";
 
 const ROOT = process.cwd();
 
@@ -153,6 +153,17 @@ describe("generated token outputs", () => {
   it("theme.css defines the full baseline token set on :root", () => {
     const missing = BASELINE_ROOT_TOKENS.filter((name) => !ROOT_DECLS.has(name));
     expect(missing, `missing from :root: ${missing.join(", ")}`).toEqual([]);
+  });
+
+  it("states the prose measure in px, because the app root is not 16px", () => {
+    // global.css sets `html, body { font-size: var(--writ-ui-md) }`, so 1rem is
+    // 13px in this app and the baseline 44rem would draw a 572px column. The
+    // measure is absolute so the reading column is the 704px the baseline draws.
+    expect(ROOT_DECLS.get("--writ-ui-md")).toBe("13px");
+    expect(ROOT_DECLS.get("--writ-prose-measure")).toBe("704px");
+    for (const [platform, type] of Object.entries(TYPE)) {
+      expect(type.prose.measure, `${platform} prose measure`).toBe("704px");
+    }
   });
 
   it("dark scheme redefines every colour token light defines", () => {

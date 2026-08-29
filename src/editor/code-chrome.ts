@@ -1,4 +1,5 @@
 import type { Extension } from "@codemirror/state";
+import type { FileOpenMode } from "../types/buffer";
 import { lineNumbers, highlightActiveLine, highlightActiveLineGutter } from "@codemirror/view";
 
 /**
@@ -26,4 +27,16 @@ export const codeChrome: Extension = [
 
 export function codeChromeFor(lang: string | null): Extension {
   return isCodeBuffer(lang) ? codeChrome : [];
+}
+
+/**
+ * Whether a language change may re-dress the surface.
+ *
+ * A restricted buffer (large, long-lined or binary) mounts with the surface it
+ * needs and keeps it: its language is never detected, it does not wrap, and
+ * taking the gutter off it would leave nothing to navigate by. Normal buffers
+ * follow their language.
+ */
+export function surfaceFollowsLanguage(mode: FileOpenMode): boolean {
+  return mode.kind === "Normal";
 }
