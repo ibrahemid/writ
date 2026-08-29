@@ -12,6 +12,10 @@
   min-height: 0;
 }
 
+.search-result-list .writ-tooltip-anchor {
+  display: block;
+}
+
 .search-result {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -19,6 +23,7 @@
     "file line"
     "hit  hit";
   gap: 1px 8px;
+  width: 100%;
   margin: 1px 6px;
   padding: 5px 10px;
   border: none;
@@ -76,7 +81,9 @@
 
 .search-result-hit .is-match {
   color: var(--writ-fg);
-  background: color-mix(in srgb, var(--writ-accent) 24%, transparent);
+  background: var(--writ-bg-selected);
+  border-radius: var(--writ-r-media);
+  font-weight: 500;
 }
 
 .search-footer {

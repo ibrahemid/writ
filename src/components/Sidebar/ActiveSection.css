@@ -66,6 +66,10 @@
   padding-left: 42px;
 }
 
+:root[data-platform="win"] .active-group-caret {
+  margin: 0 0 0 4px;
+}
+
 :root[data-platform="win"] .active-group-items .tab-item {
   padding-left: 32px;
 }

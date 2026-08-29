@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 import { COLORS, LEGACY_FROZEN, TYPE } from "../../styles/generated/tokens";
 
 const ROOT = process.cwd();
@@ -316,5 +316,71 @@ describe("DTCG preset sources", () => {
         }
       }
     }
+  });
+});
+
+// A stylesheet may only spend a name the generated sheets or the legacy layer
+// declare. A reference that supplies its own fallback is exempt: that is how a
+// component-set property (--writ-sidebar-live-width) and a platform-only token
+// (--writ-r-tooltip) are read.
+describe("authored stylesheets reference declared tokens", () => {
+  const SRC = resolve(ROOT, "src");
+  const SKIP = [
+    resolve(SRC, "__tests__"),
+    resolve(SRC, "styles/generated"),
+    resolve(SRC, "styles/themes"),
+  ];
+
+  function stylesheets(dir: string, found: string[] = []): string[] {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) {
+        if (entry === "node_modules" || SKIP.includes(full)) continue;
+        stylesheets(full, found);
+      } else if (entry.endsWith(".css")) {
+        found.push(full);
+      }
+    }
+    return found;
+  }
+
+  const DECLARED = new Set(
+    [THEME_CSS, LEGACY_CSS].flatMap((css) =>
+      [...css.matchAll(/^\s*(--writ-[a-z0-9-]+)\s*:/gm)].map((m) => m[1]),
+    ),
+  );
+
+  /** Names one stylesheet spends that nothing declares and nothing falls back for. */
+  function undeclaredIn(css: string): string[] {
+    return [...css.matchAll(/var\(\s*(--writ-[a-z0-9-]+)\s*(,)?/g)]
+      .filter(([, name, fallback]) => !fallback && !DECLARED.has(name))
+      .map(([, name]) => name);
+  }
+
+  it("every token an authored stylesheet spends is declared", () => {
+    const offenders: string[] = [];
+    for (const file of stylesheets(SRC)) {
+      for (const name of undeclaredIn(readFileSync(file, "utf8"))) {
+        offenders.push(`${relative(ROOT, file)} -> ${name}`);
+      }
+    }
+    expect(offenders, `undeclared tokens:\n${offenders.join("\n")}`).toEqual([]);
+  });
+
+  it("catches a planted name no sheet declares", () => {
+    // The check is only worth having if a name nobody declares fails it, and
+    // only usable if a fallback still passes.
+    expect(undeclaredIn(".x { color: var(--writ-not-a-token) }")).toEqual(["--writ-not-a-token"]);
+    expect(undeclaredIn(".x { width: var(--writ-not-a-token, 4px) }")).toEqual([]);
+    expect(undeclaredIn(".x { color: var(--writ-fg) }")).toEqual([]);
+  });
+
+  it("counts the platform blocks as declarations, not just :root", () => {
+    // --writ-r-tooltip exists only under the Windows overlay.
+    expect(DECLARED.has("--writ-r-tooltip")).toBe(true);
+    expect(DECLARED.has("--writ-r-indicator")).toBe(true);
+    expect(DECLARED.has("--writ-r-action")).toBe(true);
+    expect(DECLARED.has("--writ-z-drag")).toBe(true);
+    expect(DECLARED.has("--writ-z-sidebar")).toBe(false);
   });
 });

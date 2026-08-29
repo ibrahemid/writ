@@ -299,7 +299,19 @@ function typeTokens(get, platform) {
 }
 
 function radiusTokens(get, platform) {
-  const keys = ["row", "control", "tab", "popover", "modal", "card", "media", "pill", "window"];
+  const keys = [
+    "row",
+    "control",
+    "tab",
+    "popover",
+    "modal",
+    "card",
+    "media",
+    "pill",
+    "action",
+    "indicator",
+    "window",
+  ];
   return keys
     .map(
       (key) =>
@@ -400,6 +412,8 @@ export interface RadiusTokens {
   card: string;
   media: string;
   pill: string;
+  action: string;
+  indicator: string;
   window: string;
 }
 

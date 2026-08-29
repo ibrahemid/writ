@@ -98,10 +98,7 @@ function TreeNode(props: TreeNodeProps) {
             <Icon name={expanded() ? "caret-down" : "caret-right"} size={12} />
           </Show>
         </span>
-        <Icon
-          name={props.entry.is_dir ? (expanded() ? "folder-open" : "folder") : "file-text"}
-          size={16}
-        />
+        <Icon name={props.entry.is_dir ? (expanded() ? "folder-open" : "folder") : "file-text"} />
         <span class="file-tree-item-name">{props.entry.name}</span>
       </div>
       <Show when={props.entry.is_dir && expanded()}>

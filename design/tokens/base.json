@@ -281,6 +281,20 @@
           "unit": "px"
         }
       },
+      "action": {
+        "$description": "The 18px icon button in a section header (baseline .sb-add), 4px on every platform.",
+        "$value": {
+          "value": 4,
+          "unit": "px"
+        }
+      },
+      "indicator": {
+        "$description": "The Windows 3 x 16px selection bar on a sidebar row (baseline .plat-win .row-sel::before).",
+        "$value": {
+          "value": 2,
+          "unit": "px"
+        }
+      },
       "window": {
         "$value": {
           "value": 10,

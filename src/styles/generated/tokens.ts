@@ -75,6 +75,8 @@ export interface RadiusTokens {
   card: string;
   media: string;
   pill: string;
+  action: string;
+  indicator: string;
   window: string;
 }
 
@@ -264,6 +266,8 @@ export const RADII: Readonly<Record<PlatformId, RadiusTokens>> = {
     card: "12px",
     media: "6px",
     pill: "999px",
+    action: "4px",
+    indicator: "2px",
     window: "10px",
   },
   win: {
@@ -275,6 +279,8 @@ export const RADII: Readonly<Record<PlatformId, RadiusTokens>> = {
     card: "8px",
     media: "4px",
     pill: "999px",
+    action: "4px",
+    indicator: "2px",
     window: "8px",
   },
   linux: {
@@ -286,6 +292,8 @@ export const RADII: Readonly<Record<PlatformId, RadiusTokens>> = {
     card: "12px",
     media: "9px",
     pill: "999px",
+    action: "4px",
+    indicator: "2px",
     window: "15px",
   },
 };

@@ -29,7 +29,7 @@ export default function InboxSection() {
                 aria-label="Stop watching folder"
                 onClick={() => void inboxStore.stopWatching()}
               >
-                <Icon name="x" size={14} />
+                <Icon name="x" size={16} />
               </button>
             </Tooltip>
           </div>

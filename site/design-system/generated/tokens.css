@@ -49,6 +49,8 @@
   --writ-r-card: 12px;
   --writ-r-media: 6px;
   --writ-r-pill: 999px;
+  --writ-r-action: 4px;
+  --writ-r-indicator: 2px;
   --writ-r-window: 10px;
   --writ-icon-size: 20px;
   --writ-icon-color: var(--writ-fg-muted);

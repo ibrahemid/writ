@@ -19,7 +19,7 @@ export default function FilesSection() {
                 aria-label="Close folder"
                 onClick={() => void workspaceStore.closeFolder()}
               >
-                <Icon name="x" size={14} />
+                <Icon name="x" size={16} />
               </button>
             </Tooltip>
           </div>

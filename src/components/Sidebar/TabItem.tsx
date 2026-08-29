@@ -41,7 +41,7 @@ export default function TabItem(props: Props) {
         <span class="tab-item-pill" aria-hidden="true" />
       </Show>
       <Show when={props.icon}>
-        {(name) => <Icon name={name()} size={16} />}
+        {(name) => <Icon name={name()} />}
       </Show>
       <Tooltip label={props.label}>
         <span class="tab-item-title">{abbreviateTitle(props.label)}</span>

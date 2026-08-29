@@ -3,7 +3,11 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 10px;
+  width: 212px;
+  margin: var(--writ-space-3);
   padding: 20px 16px;
+  background: var(--writ-bg-sidebar);
+  border-radius: var(--writ-r-media);
 }
 
 .sidebar-empty-title {

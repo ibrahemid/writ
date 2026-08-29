@@ -28,7 +28,7 @@
   right: 0;
   bottom: 0;
   width: 4px;
-  z-index: var(--writ-z-sidebar);
+  z-index: var(--writ-z-drag);
   cursor: col-resize;
   touch-action: none;
   background: transparent;
@@ -87,7 +87,7 @@
   padding: 0;
   border: none;
   background: transparent;
-  border-radius: var(--writ-r-control);
+  border-radius: var(--writ-r-action);
   color: var(--writ-fg-muted);
   cursor: pointer;
 }
@@ -114,8 +114,28 @@
   line-height: var(--writ-ui-md-lh);
 }
 
+/* Windows paints the sidebar as part of the window backdrop, GNOME as a
+   segment separated by an inset hairline rather than a border. */
+:root[data-platform="win"] .sidebar {
+  background: transparent;
+  border-right: 0;
+}
+
+:root[data-platform="win"] .sidebar-scroll {
+  padding-top: 4px;
+}
+
 :root[data-platform="win"] .sidebar-section-title {
   padding: 14px 16px 6px;
+}
+
+:root[data-platform="linux"] .sidebar {
+  border-right: 0;
+  box-shadow: inset -1px 0 var(--writ-border-soft);
+}
+
+:root[data-platform="linux"] .sidebar-scroll {
+  padding-top: 6px;
 }
 
 :root[data-platform="linux"] .sidebar-section-title {
