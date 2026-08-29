@@ -270,27 +270,6 @@ pub fn delete_note_inner(state: &AppState, id: &str) -> Result<(), String> {
     crate::commands::buffer::delete_buffer_inner(state, id)
 }
 
-/// IPC: [`note_is_deletable_inner`].
-#[tauri::command]
-pub fn note_is_deletable(state: State<'_, AppState>, id: String) -> Result<bool, String> {
-    note_is_deletable_inner(&state, &id)
-}
-
-/// Whether note `id` is one this app may move to the Trash.
-///
-/// The frontend asks before it draws the entry, so a file the user only opened
-/// never offers a Delete it would stop.
-pub fn note_is_deletable_inner(state: &AppState, id: &str) -> Result<bool, String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    let doc = store.get(id).map_err(|e| e.to_string())?;
-    drop(store);
-    Ok(match doc.source_path.as_deref() {
-        Some(path) => path_is_inside_notes(state, path),
-        // A note that never reached a file has nothing outside the folder.
-        None => true,
-    })
-}
-
 /// IPC: [`delete_note_inner`].
 #[tauri::command]
 pub fn delete_note(state: State<'_, AppState>, id: String) -> Result<(), String> {

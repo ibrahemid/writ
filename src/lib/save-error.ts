@@ -29,9 +29,13 @@ function rawMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error ?? "")).trim();
 }
 
-function codeOf(error: unknown): string | undefined {
+// The code `error` carries, looked for in the table that is about to answer.
+// Matching against one table and rendering from another is how a code gains
+// wording in one place and `undefined` in the other; the table is passed in so
+// that cannot happen.
+function codeOf(error: unknown, messages: Record<string, string>): string | undefined {
   const text = rawMessage(error);
-  return Object.keys(CODE_MESSAGES).find(
+  return Object.keys(messages).find(
     (code) => text === code || text.startsWith(`${code}:`) || text.startsWith(`${code} `),
   );
 }
@@ -39,22 +43,24 @@ function codeOf(error: unknown): string | undefined {
 // False when writing the same text again would fail the same way, so the
 // caller drops it and waits for the document to change.
 export function isRetryableSaveError(error: unknown): boolean {
-  const code = codeOf(error);
+  const code = codeOf(error, CODE_MESSAGES);
   return code === undefined || !NOT_WORTH_REPEATING.has(code);
 }
 
 export function formatSaveError(error: unknown): string {
-  const code = codeOf(error);
+  const code = codeOf(error, CODE_MESSAGES);
   if (code !== undefined) return CODE_MESSAGES[code];
   const text = rawMessage(error);
   return text.length > 0 ? text : "unknown error";
 }
 
-// What a stopped rename says. The two coded failures get their own wording;
-// everything else is already a plain sentence the backend wrote
-// (`That name is empty.`, `A note named "x.md" is already there.`).
+// What a stopped rename says. A code with rename wording gets it; a code
+// without one, and every uncoded failure, keeps the sentence the backend
+// wrote, which is already plain (`That name is empty.`, `A note named "x.md"
+// is already there.`). Nothing renders the save wording, which would name a
+// copy no rename writes.
 export function formatRenameError(error: unknown): string {
-  const code = codeOf(error);
+  const code = codeOf(error, RENAME_CODE_MESSAGES);
   if (code !== undefined) return RENAME_CODE_MESSAGES[code];
   const text = rawMessage(error);
   return text.length > 0 ? text : "The note could not be renamed.";

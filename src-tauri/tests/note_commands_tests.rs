@@ -19,8 +19,8 @@ use writ_storage::layout_state::LayoutStateStore;
 use writ_tauri_lib::commands::buffer::{save_buffer_content_inner, ERR_FILE_CHANGED_ON_DISK};
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::commands::notes::{
-    delete_note_inner, new_note_inner, note_is_deletable_inner, note_path_for_id, notes_root_text,
-    path_is_inside_notes, rename_note_inner, rename_note_recording, save_note_copy_inner,
+    delete_note_inner, new_note_inner, note_path_for_id, notes_root_text, path_is_inside_notes,
+    rename_note_inner, rename_note_recording, save_note_copy_inner,
 };
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
@@ -353,15 +353,23 @@ fn a_file_opened_from_elsewhere_is_never_moved_to_the_trash() {
 }
 
 #[test]
-fn the_frontend_is_told_which_notes_it_may_offer_a_delete_for() {
+fn a_note_that_never_reached_a_file_only_loses_its_row() {
+    // Containment has nothing to decide for a note with no file, and there is
+    // nothing to hand the Trash. The row still goes.
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
-    let mine = new_note_inner(&state).expect("new note");
-    let elsewhere = dir.path().join("somebody-elses.md");
-    let theirs = open_note_at(&state, &elsewhere, "not mine to delete");
+    let id = {
+        let store = state.store.lock().expect("lock");
+        let mut mgr = writ_core::buffer::manager::BufferManager::new();
+        let doc = mgr.create_buffer(None).expect("mint");
+        store.insert(&doc).expect("insert");
+        doc.id
+    };
 
-    assert!(note_is_deletable_inner(&state, &mine.id).expect("mine"));
-    assert!(!note_is_deletable_inner(&state, &theirs).expect("theirs"));
+    delete_note_inner(&state, &id).expect("delete");
+
+    let store = state.store.lock().expect("lock");
+    assert!(store.get(&id).is_err(), "the row outlived the note");
 }
 
 #[test]
