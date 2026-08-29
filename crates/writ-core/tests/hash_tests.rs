@@ -1,4 +1,4 @@
-use writ_core::hash::{sha256_bytes, sha256_hex};
+use writ_core::hash::{digest_hex, sha256_bytes, sha256_hex};
 
 /// The two published SHA-256 vectors, so a swap of the digest crate cannot
 /// silently change what Writ compares files by.
@@ -31,4 +31,11 @@ fn sha256_bytes_agrees_with_the_hex_form() {
 #[test]
 fn different_input_gives_a_different_digest() {
     assert_ne!(sha256_bytes(b"one"), sha256_bytes(b"two"));
+}
+
+#[test]
+fn digest_hex_renders_the_same_string_as_hashing_the_bytes() {
+    assert_eq!(digest_hex(sha256_bytes(b"abc")), ABC_HEX);
+    assert_eq!(digest_hex(sha256_bytes(b"")), EMPTY_HEX);
+    assert_eq!(digest_hex(sha256_bytes(b"writ")), sha256_hex(b"writ"));
 }

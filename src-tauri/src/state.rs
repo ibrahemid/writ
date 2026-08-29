@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::SystemTime;
 use tracing::{info, warn};
 use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
@@ -27,31 +26,18 @@ use crate::watcher::handler::{IgnoreSet, WatcherHandle};
 
 /// What Writ last saw on disk for one note.
 ///
-/// `hash` is the answer to every question about whether the file changed:
-/// mtime moves on a touch, a sync round trip or a restore without the bytes
-/// changing, and size collides on an edit that keeps the length (ADR-028 §5).
-/// The other two are carried for diagnostics and for the cheap short-circuit
-/// the write guard takes before it reads a file back.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DiskState {
-    /// SHA-256 of the file's bytes.
-    pub hash: writ_core::hash::Sha256Digest,
-    /// The file's length in bytes.
-    pub size: u64,
-    /// The file's modification time, when the filesystem reports one.
-    pub mtime: Option<SystemTime>,
-}
+/// The record is the policy's ([`writ_core::notes::guard`]); the map below is
+/// where this process keeps one per open tab.
+pub use writ_core::notes::guard::DiskState;
 
-impl DiskState {
-    /// Reads `path`'s metadata to complete the record around an already
-    /// computed digest, falling back to `size` when the metadata is gone.
-    fn of(path: &Path, hash: writ_core::hash::Sha256Digest, size: u64) -> Self {
-        let metadata = std::fs::metadata(path).ok();
-        Self {
-            hash,
-            size: metadata.as_ref().map(|m| m.len()).unwrap_or(size),
-            mtime: metadata.as_ref().and_then(|m| m.modified().ok()),
-        }
+/// Reads `path`'s metadata to complete a record around an already computed
+/// digest, falling back to `size` when the metadata is gone.
+fn disk_state_of(path: &Path, hash: writ_core::hash::Sha256Digest, size: u64) -> DiskState {
+    let metadata = std::fs::metadata(path).ok();
+    DiskState {
+        hash,
+        size: metadata.as_ref().map(|m| m.len()).unwrap_or(size),
+        mtime: metadata.as_ref().and_then(|m| m.modified().ok()),
     }
 }
 
@@ -416,8 +402,15 @@ impl AppState {
         digest: writ_core::hash::Sha256Digest,
         size: u64,
     ) {
-        let state = DiskState::of(path, digest, size);
-        let mut map = recover_poison(self.last_disk_hash.lock(), "state::record_disk_state");
+        self.set_disk_state(buffer_id, disk_state_of(path, digest, size));
+    }
+
+    /// Records a state the caller already holds, which is what a save hands
+    /// back: re-reading the file to learn what Writ just wrote to it would
+    /// read every note twice per keystroke window, and would record whatever
+    /// arrived in between as Writ's own.
+    pub fn set_disk_state(&self, buffer_id: &str, state: DiskState) {
+        let mut map = recover_poison(self.last_disk_hash.lock(), "state::set_disk_state");
         map.insert(buffer_id.to_string(), state);
     }
 

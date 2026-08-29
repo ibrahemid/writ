@@ -200,7 +200,7 @@ fn save_to_source_is_atomic_for_external_file() {
 
     let updated = "UPDATED EXTERNAL CONTENT".repeat(100);
     store
-        .save_to_source("atomic-src-1", &updated)
+        .save_to_source("atomic-src-1", &updated, None)
         .expect("save_to_source failed");
 
     let on_disk = fs::read_to_string(&source_file).expect("read source failed");

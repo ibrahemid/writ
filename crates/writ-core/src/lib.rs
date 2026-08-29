@@ -27,13 +27,14 @@
 //! - [`link`]: external-link allowlist policy (ADR-025).
 //! - [`maintenance`]: database bloat policy driving startup `VACUUM`.
 //! - [`notes`]: notes-folder policy — where the folder is, how a title
-//!   becomes a filename (ADR-028).
+//!   becomes a filename, and whether a save may land on the file it is aimed
+//!   at (ADR-028).
 //! - [`prompt`]: prompt-document helpers — token estimation, stripping,
 //!   placeholders (ADR-015).
 //! - [`recovery`]: crash-recovery policy types and resolution logic.
 //! - [`startup`]: startup-failure report formatting and location policy.
 //! - [`update`]: update lifecycle phases and transition policy.
-//! - [`watcher`]: external-change representation and conflict policy.
+//! - [`watcher`]: external-change representation and ignore stamps.
 //! - [`workspace`]: workspace-level state (reserved).
 
 #![forbid(unsafe_code)]

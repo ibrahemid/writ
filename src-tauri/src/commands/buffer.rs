@@ -84,6 +84,13 @@ pub fn get_buffer(state: State<'_, AppState>, id: String) -> Result<BufferDocume
 /// Writes and stamps immediately; the FTS reindex is deferred off the
 /// keystroke loop (ADR-020). The bytes on disk are durable on return; only
 /// search freshness lags, bounded by the idle window and the shutdown flush.
+///
+/// A write that would land over a change Writ never read is stopped and the
+/// text it was carrying is written beside the note instead
+/// ([`writ_storage::buffer_store::BufferStore::write_source_guarded`]). What
+/// it compares against is this process's record for the tab, so a note whose
+/// tab was closed and reopened is measured against its file rather than
+/// against a record of what the file used to hold.
 pub fn save_buffer_content_inner(state: &AppState, id: &str, content: &str) -> Result<(), String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).map_err(|e| e.to_string())?;
@@ -117,10 +124,10 @@ pub fn save_buffer_content_inner(state: &AppState, id: &str, content: &str) -> R
             ignore.record(name.to_string_lossy().into_owned(), bytes, now);
         }
     }
-    store
-        .save_to_source_without_index(id, content)
+    let written = store
+        .save_to_source_without_index(id, content, state.disk_state(id))
         .map_err(|e| e.to_string())?;
-    state.record_disk_state_bytes(id, Path::new(&source_path), content.as_bytes());
+    state.set_disk_state(id, written);
     Ok(())
 }
 

@@ -47,6 +47,24 @@ pub enum StorageError {
         message: String,
     },
 
+    /// The file changed on disk since Writ last read it, and the new bytes
+    /// are not what is being written (ADR-028 §5).
+    ///
+    /// The message is what the frontend matches on to say this in the user's
+    /// own words (`src/lib/save-error.ts`), so the wording is part of the
+    /// contract rather than free to reword on its own.
+    #[error("the file changed on disk: {path}")]
+    SourceChangedOnDisk {
+        /// The note's path.
+        path: String,
+        /// SHA-256 of the bytes now on disk, lowercase hex.
+        disk_hash: String,
+        /// Where the text that was being written went instead, when the dated
+        /// copy beside the note could be written. `None` means even that
+        /// failed, and the caller is still holding the only copy of it.
+        conflict_copy: Option<String>,
+    },
+
     /// A `schema_meta` row holds a value that is not the shape its key
     /// requires, so the bookkeeping it carries cannot be trusted.
     #[error("the recorded value for {key} is not a number: {value}")]

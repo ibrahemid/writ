@@ -1,9 +1,27 @@
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex, RwLock};
+
 use tempfile::TempDir;
 use writ_core::buffer::manager::BufferManager;
+use writ_core::config::WritConfig;
+use writ_core::events::bus::EventBus;
+use writ_core::hash::sha256_bytes;
+use writ_core::preview::ContentRendererRegistry;
+use writ_core::update::UpdatePhase;
+use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
+use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
-use writ_tauri_lib::commands::buffer::{decide_create_buffer, CreateDecision};
+use writ_storage::layout_state::LayoutStateStore;
+use writ_tauri_lib::commands::buffer::{
+    decide_create_buffer, read_buffer_content_inner, save_buffer_content_inner, CreateDecision,
+};
+use writ_tauri_lib::commands::file::open_file_from_path;
+use writ_tauri_lib::preview::handler::RenderCache;
+use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
+use writ_tauri_lib::state::AppState;
+use writ_tauri_lib::watcher::handler::create_ignore_set;
 
 fn setup() -> (TempDir, BufferStore) {
     let dir = TempDir::new().expect("temp dir");
@@ -58,4 +76,144 @@ fn create_buffer_with_explicit_title_always_mints() {
         CreateDecision::Create(doc) => assert_eq!(doc.title, "Named"),
         CreateDecision::Reuse(_) => panic!("explicit title must never reuse"),
     }
+}
+
+/// A whole app state over a temp data folder, which the guard needs because
+/// what a save compares against lives on it, not in the store.
+fn make_state(dir: &TempDir) -> AppState {
+    let writ_dir = dir.path().to_path_buf();
+    let buffers_dir = writ_dir.join("buffers");
+    std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
+
+    let notes_root = writ_dir.join("Writ");
+    std::fs::create_dir_all(&notes_root).expect("notes folder");
+    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+
+    let db_path = writ_dir.join("writ.db");
+    let conn = open_database(&db_path).expect("open db");
+    run_migrations(&conn).expect("migrations");
+
+    AppState {
+        store: Mutex::new(BufferStore::new(conn, buffers_dir.clone())),
+        config_store: ConfigStore::new(writ_dir.join("config.toml")),
+        config: Mutex::new(WritConfig::default()),
+        writ_dir,
+        buffers_dir,
+        notes_root,
+        notes_root_fallback: None,
+        watcher_ignore: create_ignore_set(),
+        watcher: Mutex::new(None),
+        pending_opens: Mutex::new(Vec::new()),
+        frontend_ready: AtomicBool::new(false),
+        transforms: RwLock::new(TransformRegistry::new()),
+        event_bus: Arc::new(EventBus::new()),
+        update_phase: Mutex::new(UpdatePhase::default()),
+        authorized_paths: AuthorizedPaths::new(),
+        preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
+        preview_render_cache: Arc::new(RenderCache::new()),
+        layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
+        recovered_buffers: Mutex::new(Vec::new()),
+        was_dirty_shutdown: false,
+        workspace_root: Mutex::new(None),
+        workspace_watcher: Mutex::new(None),
+        inbox_root: Mutex::new(None),
+        inbox_watcher: Mutex::new(None),
+        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        workspace_index: Arc::new(RwLock::new(
+            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+        )),
+        search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        last_disk_hash: Mutex::new(std::collections::HashMap::new()),
+    }
+}
+
+/// Opens `name` holding `content` through the command layer, the way the
+/// frontend reaches a file, and returns its note id and path.
+fn open_note(
+    state: &AppState,
+    dir: &TempDir,
+    name: &str,
+    content: &str,
+) -> (String, std::path::PathBuf) {
+    let path = dir.path().join(name);
+    std::fs::write(&path, content).expect("write");
+    let canonical = canonicalize_for_authorization(&path).expect("canonical");
+    state.authorized_paths.record_for_open(canonical.clone());
+    let opened = open_file_from_path(state, &canonical).expect("open");
+    (opened.doc.id, std::path::PathBuf::from(canonical))
+}
+
+fn conflict_copies(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut found: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .expect("read_dir")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().contains("(conflict "))
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+#[test]
+fn save_updates_the_recorded_disk_state_so_the_next_save_proceeds() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (id, path) = open_note(&state, &dir, "running.md", "first");
+
+    save_buffer_content_inner(&state, &id, "second").expect("first save");
+    assert_eq!(
+        state.disk_state(&id).expect("recorded").hash,
+        sha256_bytes(b"second"),
+        "a save records what it just wrote"
+    );
+
+    save_buffer_content_inner(&state, &id, "third").expect("a second save is not a conflict");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "third");
+}
+
+#[test]
+fn a_save_over_a_file_changed_outside_writ_is_stopped_and_the_text_lands_beside_it() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (id, path) = open_note(&state, &dir, "shared.md", "what Writ read");
+
+    std::fs::write(&path, "what another program wrote").unwrap();
+
+    let refused = save_buffer_content_inner(&state, &id, "what the user typed")
+        .expect_err("the save must not land");
+    assert!(
+        refused.contains("the file changed on disk"),
+        "the frontend maps this text: {refused}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "what another program wrote",
+        "the change on disk survives"
+    );
+
+    let copies = conflict_copies(dir.path());
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    assert_eq!(
+        std::fs::read_to_string(&copies[0]).unwrap(),
+        "what the user typed",
+        "the text the save was carrying is beside the note"
+    );
+
+    // Reading the file is how the tab catches up, and it moves the record.
+    let reloaded = read_buffer_content_inner(&state, &id).expect("read");
+    assert_eq!(reloaded, b"what another program wrote");
+
+    save_buffer_content_inner(&state, &id, "what the user typed next").expect("save after reading");
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "what the user typed next"
+    );
+    assert_eq!(
+        conflict_copies(dir.path()).len(),
+        1,
+        "a save that lands writes no copy"
+    );
 }

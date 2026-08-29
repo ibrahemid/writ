@@ -2,8 +2,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use writ_core::notes::{
-    date_stem, dedupe_file_name, display_path, resolve_notes_root, resolve_notes_root_from,
-    sanitize_title, sanitize_title_or, NotesRootError, NotesRootSources,
+    conflict_file_name, date_stem, dedupe_file_name, display_path, resolve_notes_root,
+    resolve_notes_root_from, sanitize_title, sanitize_title_or, NotesRootError, NotesRootSources,
 };
 
 fn home() -> PathBuf {
@@ -318,4 +318,30 @@ fn sanitize_title_or_falls_back_when_nothing_survives() {
         sanitize_title_or("Meeting notes", "2026-08-28"),
         "Meeting notes"
     );
+}
+
+#[test]
+fn conflict_file_name_is_the_stem_a_date_and_a_dotted_clock() {
+    let now = chrono::DateTime::parse_from_rfc3339("2026-08-29T09:41:07Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let name = conflict_file_name("Meeting notes", "md", now);
+
+    let local = now.with_timezone(&chrono::Local);
+    assert_eq!(
+        name,
+        format!(
+            "Meeting notes (conflict {}).md",
+            local.format("%Y-%m-%d %H.%M.%S")
+        )
+    );
+    assert!(!name.contains(':'), "{name}");
+}
+
+#[test]
+fn conflict_file_name_without_an_extension_has_no_trailing_dot() {
+    let now = chrono::Utc::now();
+    let name = conflict_file_name("Makefile", "", now);
+    assert!(name.starts_with("Makefile (conflict "), "{name}");
+    assert!(name.ends_with(')'), "{name}");
 }

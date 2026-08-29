@@ -7,6 +7,9 @@
 //! mechanism — creating the folder, listing it, writing the file — lives in
 //! `writ-storage` and `writ-tauri`.
 
+/// The write guard: whether a save may land on the file it is aimed at.
+pub mod guard;
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -241,6 +244,21 @@ pub fn dedupe_file_name(stem: &str, extension: &str, taken: &HashSet<String>) ->
         }
         counter += 1;
     }
+}
+
+/// The name a dated copy of one side of a conflict takes, beside the note it
+/// belongs to: `<stem> (conflict YYYY-MM-DD HH.MM.SS)` plus the extension.
+///
+/// A refused save writes the text it was carrying under this name before it
+/// returns, so no refusal can end with the user's text nowhere (ADR-028 §5).
+///
+/// The clock is the local one, because the name is read by a person looking at
+/// a folder, and it is written with dots: a colon is illegal in a filename on
+/// Windows and reads as a path separator in Finder. `extension` is given
+/// without a dot; pass an empty string for a name that has none.
+pub fn conflict_file_name(stem: &str, extension: &str, now: DateTime<Utc>) -> String {
+    let stamp = now.with_timezone(&Local).format("%Y-%m-%d %H.%M.%S");
+    join_name(&format!("{stem} (conflict {stamp})"), extension)
 }
 
 fn join_name(stem: &str, extension: &str) -> String {

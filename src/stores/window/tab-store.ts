@@ -2,7 +2,7 @@ import { createSignal } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
 import type { BufferRegistry } from "../global/buffer-registry";
 import type { SaveFailure } from "../../services/autosave";
-import { formatSaveError } from "../../lib/save-error";
+import { asSentence, formatSaveError } from "../../lib/save-error";
 import { requestConfirm } from "../../components/ConfirmDialog/ConfirmDialog";
 
 export type TabStore = ReturnType<typeof createTabStore>;
@@ -81,7 +81,7 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
       ids.length === 1
         ? await confirmDiscard(
             `Couldn't save ${names[0]}`,
-            `${formatSaveError(failures.find((f) => f.bufferId === ids[0])?.error)}. Closing the tab discards the unsaved text.`,
+            `${asSentence(formatSaveError(failures.find((f) => f.bufferId === ids[0])?.error))} Closing the tab discards the unsaved text.`,
           )
         : await confirmDiscard(
             `Couldn't save ${ids.length} tabs`,

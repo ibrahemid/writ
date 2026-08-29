@@ -192,7 +192,7 @@ fn save_to_source_writes_the_file_and_nothing_else() {
     let doc = make_source_doc("save-1", "notes.md", source_file.to_str().unwrap());
     store.open_from_path(&doc, "# Old").unwrap();
 
-    store.save_to_source("save-1", "# Updated").unwrap();
+    store.save_to_source("save-1", "# Updated", None).unwrap();
 
     let source_content = std::fs::read_to_string(&source_file).unwrap();
     assert_eq!(source_content, "# Updated");
@@ -213,7 +213,7 @@ fn save_to_source_updates_fts_index() {
     store.open_from_path(&doc, "old content").unwrap();
 
     store
-        .save_to_source("fts-save", "new unique findable content")
+        .save_to_source("fts-save", "new unique findable content", None)
         .unwrap();
 
     let results = store.search("findable").unwrap();
@@ -230,7 +230,7 @@ fn save_to_source_fails_for_scratch_buffer() {
     let doc = make_scratch_doc("scratch-1", "notes");
     store.insert(&doc).unwrap();
 
-    let result = store.save_to_source("scratch-1", "content");
+    let result = store.save_to_source("scratch-1", "content", None);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("has no file"), "error: {}", err);
@@ -406,7 +406,7 @@ fn save_to_source_without_index_writes_the_file_and_nothing_else() {
     store.open_from_path(&doc, "# Before").unwrap();
 
     store
-        .save_to_source_without_index("deferred-1", "# After")
+        .save_to_source_without_index("deferred-1", "# After", None)
         .unwrap();
 
     assert_eq!(std::fs::read_to_string(&source_file).unwrap(), "# After");
@@ -423,7 +423,7 @@ fn save_to_source_without_index_leaves_the_index_alone() {
     store.open_from_path(&doc, "seeded").unwrap();
 
     store
-        .save_to_source_without_index("indexless-1", "unindexed marker")
+        .save_to_source_without_index("indexless-1", "unindexed marker", None)
         .unwrap();
 
     let hits = store.search("marker").unwrap();
@@ -444,7 +444,7 @@ fn save_to_source_without_index_refuses_a_scratch_buffer() {
     store.insert(&doc).unwrap();
 
     assert!(store
-        .save_to_source_without_index("scratch-deferred", "content")
+        .save_to_source_without_index("scratch-deferred", "content", None)
         .is_err());
 }
 

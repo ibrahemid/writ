@@ -335,7 +335,8 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
 /// notes folder (ADR-028 §1): unlike a plain note, its path is decided here,
 /// not by [`crate::notes::attach_note_file`], and `content` is written before
 /// the buffer exists rather than on a later first keystroke. The row is
-/// read-only, so [`write_source`](writ_storage::buffer_store::BufferStore)'s
+/// read-only, so
+/// [`write_source_guarded`](writ_storage::buffer_store::BufferStore::write_source_guarded)'s
 /// existing refusal is what stops a save of it — nothing new is checked for
 /// that.
 ///

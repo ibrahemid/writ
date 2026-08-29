@@ -1,3 +1,4 @@
+import { isChangedOnDisk } from "../lib/save-error";
 import { saveBufferContent } from "./tauri";
 
 type AutosaveErrorListener = (bufferId: string, error: unknown) => void;
@@ -187,10 +188,15 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     return SAVE_OK;
   } catch (error) {
     // A failed write must not consume the text. It goes back on the queue as a
-    // plain string (the getter's document may be gone by the retry) so the next
-    // scheduled save or flush writes it again, but only while it is still the
-    // newest text for this buffer.
-    if (generations.get(bufferId) === queued.generation) {
+    // plain string (the getter's document may be gone by the next attempt) so
+    // the next scheduled save or flush writes it again, but only while it is
+    // still the newest text for this buffer.
+    //
+    // A write the guard stopped is the exception. Identical text is stopped
+    // again, and every attempt lands another dated copy beside the note, so
+    // this text leaves the queue and the next keystroke — which queues a new
+    // generation — is what tries again.
+    if (generations.get(bufferId) === queued.generation && !isChangedOnDisk(error)) {
       pendingContent.set(bufferId, { source: content, generation: queued.generation });
     }
     for (const listener of errorListeners) {

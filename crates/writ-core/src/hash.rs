@@ -28,7 +28,15 @@ pub fn sha256_bytes(bytes: &[u8]) -> Sha256Digest {
 /// This is the form stored in the database, where a digest has to survive a
 /// TEXT column and a JSON report.
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = sha256_bytes(bytes);
+    digest_hex(sha256_bytes(bytes))
+}
+
+/// Renders an already-computed digest in the same 64 lowercase hex characters
+/// [`sha256_hex`] produces.
+///
+/// The write guard holds a digest of bytes it has already dropped, and
+/// re-reading a file to name it in an error would read it twice.
+pub fn digest_hex(digest: Sha256Digest) -> String {
     let mut out = String::with_capacity(64);
     for byte in digest {
         out.push(HEX_DIGITS[(byte >> 4) as usize] as char);

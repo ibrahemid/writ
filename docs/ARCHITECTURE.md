@@ -64,7 +64,7 @@ Domain model and policy. Zero Tauri, no framework imports, no async runtime. Con
 - Buffer model: open/close lifecycle, dirty state, cursor positions
 - Config schema: typed structs for user preferences, keybindings, theme tokens
 - Domain events: `BufferOpened`, `BufferSaved`, `ConfigChanged`, etc.
-- Conflict policy: last-write-wins vs. prompt-on-conflict resolution logic
+- Write guard: whether a save may land on a file that changed under Writ (ADR-028)
 - Recovery policy: snapshot retention and which buffers to restore after an unclean launch
 - File classification: the open-mode ladder in `file_ops`, which decides whether a path opens
   normally, as a large file, or is refused
