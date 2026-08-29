@@ -77,6 +77,18 @@ describe("notes migration report store", () => {
 
     expect(outcome).toEqual({ moved: 2, collided: ["Meeting.md"] });
     expect(store.report()?.archived).toBe(0);
+    expect(store.report()?.migrated).toBe(5);
+  });
+
+  it("keeps the offer for a note that would not move", async () => {
+    h.getNotesMigrationReport.mockResolvedValue(report({ archived: 3 }));
+    h.moveArchivedNotes.mockResolvedValue({ moved: 2, collided: [] });
+    const store = await freshStore();
+    await store.load();
+
+    await store.moveArchived();
+
+    expect(store.report()?.archived).toBe(1);
   });
 
   it("shows nothing when the migration left no report", async () => {

@@ -1,7 +1,11 @@
+/* Left, clear of the toast stack: this panel's own buttons raise toasts, and
+   Toast.css anchors those bottom-right at a higher z-index, so a right-anchored
+   panel would be covered by the answer to its own button. Raised a row above
+   the update banner, which shares this left edge (UpdateBanner.css). */
 .notes-report {
   position: fixed;
-  right: 16px;
-  bottom: calc(var(--writ-statusbar-height, 28px) + 12px);
+  left: 16px;
+  bottom: calc(var(--writ-statusbar-height, 28px) + 12px + 64px);
   z-index: 150;
   display: flex;
   flex-direction: column;

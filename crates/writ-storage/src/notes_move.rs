@@ -8,8 +8,9 @@
 //! Two rules make a move safe to run against a folder holding somebody's
 //! notes. Nothing moves at all when the destination already holds a name the
 //! notes folder holds, so no file is ever written over. And a move that fails
-//! part way puts back everything it had already moved, so the notes are in one
-//! folder when it returns, never spread across two.
+//! part way puts back everything it had already moved and clears whatever the
+//! failed entry left behind, so the notes are in one folder when it returns,
+//! never spread across two.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -21,6 +22,7 @@ use writ_core::notes;
 use crate::buffer_store::BufferStore;
 use crate::database::queries;
 use crate::errors::StorageResult;
+use crate::notes_migration;
 
 /// What a move of the notes folder did.
 ///
@@ -35,6 +37,13 @@ pub struct MoveOutcome {
     pub collided: Vec<String>,
 }
 
+/// How an entry is moved, so the copy-across path can be exercised.
+///
+/// A seam of the same shape as `commands::notes::RecordRename`: the failure it
+/// answers is a rename the filesystem will not make, which on one volume
+/// nothing can provoke.
+pub type Rename<'a> = &'a dyn Fn(&Path, &Path) -> std::io::Result<()>;
+
 /// Moves every entry of `from` into `to`.
 ///
 /// `to` is created when it does not exist. An entry is moved with
@@ -42,12 +51,26 @@ pub struct MoveOutcome {
 /// cannot be made — a different volume is the ordinary reason — falls back to
 /// a copy followed by a delete of the original.
 ///
+/// Dotfiles are left where they are, the same filter
+/// [`move_archive_into_notes`] applies. `.DS_Store`, `.obsidian` and the rest
+/// belong to whatever wrote them, not to Writ, and a `.DS_Store` at both ends
+/// would otherwise refuse a move over a file nobody would miss.
+///
 /// # Errors
 ///
 /// [`crate::errors::StorageError::Io`] when the destination cannot be created
 /// or read, or when an entry can be neither renamed nor copied. In the last
 /// case every entry already moved is put back first.
 pub fn move_notes_folder(from: &Path, to: &Path) -> StorageResult<MoveOutcome> {
+    move_notes_folder_renaming(from, to, &|from, to| std::fs::rename(from, to))
+}
+
+/// [`move_notes_folder`] with the rename handed in.
+pub fn move_notes_folder_renaming(
+    from: &Path,
+    to: &Path,
+    rename: Rename<'_>,
+) -> StorageResult<MoveOutcome> {
     std::fs::create_dir_all(to)?;
 
     let entries = entry_names(from)?;
@@ -66,8 +89,8 @@ pub fn move_notes_folder(from: &Path, to: &Path) -> StorageResult<MoveOutcome> {
     for name in &entries {
         let source = from.join(name);
         let destination = to.join(name);
-        if let Err(error) = move_entry(&source, &destination) {
-            put_back(&done);
+        if let Err(error) = move_entry(rename, &source, &destination) {
+            put_back(rename, &done);
             return Err(error.into());
         }
         done.push((source, destination));
@@ -84,20 +107,29 @@ pub fn move_notes_folder(from: &Path, to: &Path) -> StorageResult<MoveOutcome> {
 /// Best effort: an entry that will not go back is logged and the rest are
 /// still tried, because stopping here would leave more of them stranded than
 /// carrying on does.
-fn put_back(done: &[(PathBuf, PathBuf)]) {
+fn put_back(rename: Rename<'_>, done: &[(PathBuf, PathBuf)]) {
     for (was, is) in done.iter().rev() {
-        if let Err(error) = move_entry(is, was) {
+        if let Err(error) = move_entry(rename, is, was) {
             warn!(path = %is.display(), %error, "an entry could not be put back after a failed move");
         }
     }
 }
 
 /// Renames one entry, copying it across when a rename cannot be made.
-fn move_entry(from: &Path, to: &Path) -> std::io::Result<()> {
-    match std::fs::rename(from, to) {
+///
+/// A copy that fails part way is cleared before the error is returned. Half a
+/// note at the destination is worse than none: the original is still where it
+/// was, and a truncated twin of it would read as the note.
+fn move_entry(rename: Rename<'_>, from: &Path, to: &Path) -> std::io::Result<()> {
+    match rename(from, to) {
         Ok(()) => Ok(()),
         Err(_) => {
-            copy_tree(from, to)?;
+            if let Err(error) = copy_tree(from, to) {
+                if let Err(cleanup) = remove_tree(to) {
+                    warn!(path = %to.display(), %cleanup, "a part-copied entry could not be cleared");
+                }
+                return Err(error);
+            }
             remove_tree(from)
         }
     }
@@ -116,6 +148,9 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
 }
 
 fn remove_tree(path: &Path) -> std::io::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
     if path.is_dir() {
         std::fs::remove_dir_all(path)
     } else {
@@ -123,7 +158,8 @@ fn remove_tree(path: &Path) -> std::io::Result<()> {
     }
 }
 
-/// Every entry directly inside `dir`, sorted so a move is repeatable.
+/// Every entry directly inside `dir` that is Writ's to move, sorted so a move
+/// is repeatable. Dotfiles are not.
 fn entry_names(dir: &Path) -> StorageResult<Vec<String>> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Ok(Vec::new());
@@ -131,6 +167,7 @@ fn entry_names(dir: &Path) -> StorageResult<Vec<String>> {
     let mut names: Vec<String> = entries
         .filter_map(Result::ok)
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| !name.starts_with('.'))
         .collect();
     names.sort();
     Ok(names)
@@ -222,7 +259,8 @@ pub struct ArchiveMoveOutcome {
 /// leave the archive half empty with nothing to do about it.
 ///
 /// Each moved file's row is pointed at it, which is what turns an archived
-/// note back into an ordinary one.
+/// note back into an ordinary one, and the stored report is re-counted so the
+/// offer to move them does not come back on the next launch.
 pub fn move_archive_into_notes(
     store: &BufferStore,
     archive: &Path,
@@ -238,6 +276,7 @@ pub fn move_archive_into_notes(
     let owners = owners_by_archived_path(store)?;
     let mut taken = lowercased_names(notes);
     let mut outcome = ArchiveMoveOutcome::default();
+    let mut placed: Vec<(String, String)> = Vec::new();
 
     for file in files {
         let was = file_name(&file);
@@ -246,7 +285,7 @@ pub fn move_archive_into_notes(
         taken.insert(name.to_lowercase());
         let destination = notes.join(&name);
 
-        if let Err(error) = move_entry(&file, &destination) {
+        if let Err(error) = move_entry(&|from, to| std::fs::rename(from, to), &file, &destination) {
             warn!(path = %file.display(), %error, "an archived note could not be moved");
             continue;
         }
@@ -255,14 +294,17 @@ pub fn move_archive_into_notes(
         }
         outcome.moved += 1;
 
+        let text = path_text(&destination);
+        placed.push((path_text(&file), text.clone()));
+
         let Some(id) = owners.get(&path_text(&file)) else {
             continue;
         };
-        let text = path_text(&destination);
         store.update_source_path(id, &text)?;
         queries::set_migrated_path(store.connection(), id, &text)?;
     }
 
+    notes_migration::record_archive_moved(store, &placed)?;
     outcome.collided.sort();
     Ok(outcome)
 }
@@ -352,6 +394,99 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(to.join("notes.md")).unwrap(),
             "theirs"
+        );
+    }
+
+    /// A rename the filesystem will not make, which is what a move across
+    /// volumes looks like.
+    fn refuse_rename(_: &Path, _: &Path) -> std::io::Result<()> {
+        Err(std::io::Error::from_raw_os_error(18))
+    }
+
+    #[test]
+    fn dotfiles_stay_where_they_are_and_never_refuse_a_move() {
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("from");
+        let to = dir.path().join("to");
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        std::fs::write(from.join(".DS_Store"), "theirs").unwrap();
+        std::fs::write(to.join(".DS_Store"), "theirs too").unwrap();
+        std::fs::write(from.join("Notes.md"), "mine").unwrap();
+
+        let outcome = move_notes_folder(&from, &to).unwrap();
+
+        assert!(outcome.collided.is_empty(), "{:?}", outcome.collided);
+        assert_eq!(outcome.moved, 1);
+        assert_eq!(
+            std::fs::read_to_string(to.join("Notes.md")).unwrap(),
+            "mine"
+        );
+        assert!(from.join(".DS_Store").exists(), "the dotfile stayed put");
+        assert_eq!(
+            std::fs::read_to_string(to.join(".DS_Store")).unwrap(),
+            "theirs too"
+        );
+    }
+
+    #[test]
+    fn a_rename_that_cannot_be_made_copies_and_then_deletes() {
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("from");
+        let to = dir.path().join("to");
+        std::fs::create_dir_all(from.join("projects")).unwrap();
+        std::fs::write(from.join("Notes.md"), "one").unwrap();
+        std::fs::write(from.join("projects").join("Deep.md"), "two").unwrap();
+
+        let outcome = move_notes_folder_renaming(&from, &to, &refuse_rename).unwrap();
+
+        assert_eq!(outcome.moved, 2);
+        assert_eq!(std::fs::read_to_string(to.join("Notes.md")).unwrap(), "one");
+        assert_eq!(
+            std::fs::read_to_string(to.join("projects").join("Deep.md")).unwrap(),
+            "two"
+        );
+        assert_eq!(entry_names(&from).unwrap(), Vec::<String>::new());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_copy_that_fails_part_way_leaves_neither_half_behind() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("from");
+        let to = dir.path().join("to");
+        std::fs::create_dir_all(from.join("projects")).unwrap();
+        // Sorted before "projects", so it is moved before the copy fails.
+        std::fs::write(from.join("Notes.md"), "one").unwrap();
+        std::fs::write(from.join("projects").join("ok.md"), "two").unwrap();
+        let unreadable = from.join("projects").join("locked.md");
+        std::fs::write(&unreadable, "three").unwrap();
+        std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let error = move_notes_folder_renaming(&from, &to, &refuse_rename).unwrap_err();
+
+        std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(
+            matches!(error, crate::errors::StorageError::Io(_)),
+            "{error}"
+        );
+        assert!(
+            !to.join("projects").exists(),
+            "the part-copied folder was cleared"
+        );
+        assert!(
+            !to.join("Notes.md").exists(),
+            "the entry already moved was put back"
+        );
+        assert_eq!(
+            std::fs::read_to_string(from.join("Notes.md")).unwrap(),
+            "one"
+        );
+        assert_eq!(
+            std::fs::read_to_string(from.join("projects").join("ok.md")).unwrap(),
+            "two"
         );
     }
 

@@ -20,6 +20,25 @@ function noteWord(count: number): string {
   return count === 1 ? "note" : "notes";
 }
 
+/** `1 note is now a file in ~/Writ.` / `4 notes are now files in ~/Writ.` */
+function placedLine(count: number, where: string): string {
+  return count === 1
+    ? `1 note is now a file in ${where}.`
+    : `${count} notes are now files in ${where}.`;
+}
+
+function archivedLine(count: number): string {
+  return count === 1
+    ? "1 older note is waiting in an archive folder."
+    : `${count} older notes are waiting in an archive folder.`;
+}
+
+function failedLine(count: number): string {
+  return count === 1
+    ? "1 note could not be checked."
+    : `${count} notes could not be checked.`;
+}
+
 /**
  * What the archive move did, including the notes that arrived under a
  * different name. Without that second sentence a user looking for
@@ -76,27 +95,27 @@ export default function NotesMigrationReport() {
     <Show when={report()}>
       {(current) => (
         <div class="notes-report" role="status" aria-live="polite" data-notes-report>
-          <div class="notes-report-line">
-            <span class="notes-report-text">
-              {placedCount(current())} {noteWord(placedCount(current()))} are now files in{" "}
-              {where() ?? current().notes_folder}.
-            </span>
-            <button
-              type="button"
-              class="notes-report-btn"
-              data-action="notes-report-show"
-              onClick={() => void onShow()}
-            >
-              {SHOW_IN_FILE_MANAGER}
-            </button>
-          </div>
+          {/* A run can place nothing and still have something to say: the
+              archive holds the closed notes, and a failure holds the rest. */}
+          <Show when={placedCount(current()) > 0}>
+            <div class="notes-report-line">
+              <span class="notes-report-text">
+                {placedLine(placedCount(current()), where() ?? current().notes_folder)}
+              </span>
+              <button
+                type="button"
+                class="notes-report-btn"
+                data-action="notes-report-show"
+                onClick={() => void onShow()}
+              >
+                {SHOW_IN_FILE_MANAGER}
+              </button>
+            </div>
+          </Show>
 
           <Show when={current().archived > 0}>
             <div class="notes-report-line">
-              <span class="notes-report-text">
-                {current().archived} older {noteWord(current().archived)} are waiting in an archive
-                folder.
-              </span>
+              <span class="notes-report-text">{archivedLine(current().archived)}</span>
               <button
                 type="button"
                 class="notes-report-btn"
@@ -110,9 +129,7 @@ export default function NotesMigrationReport() {
 
           <Show when={current().failed > 0}>
             <div class="notes-report-line">
-              <span class="notes-report-text">
-                {current().failed} {noteWord(current().failed)} could not be checked.
-              </span>
+              <span class="notes-report-text">{failedLine(current().failed)}</span>
               <button
                 type="button"
                 class="notes-report-btn"

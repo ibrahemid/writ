@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 const mocks = vi.hoisted(() => ({
   report: vi.fn(),
@@ -110,9 +112,64 @@ describe("NotesMigrationReport", () => {
     expect(text(container)).not.toContain("still inside Writ");
   });
 
+  it("agrees with itself on one of each", () => {
+    mocks.report.mockReturnValue(
+      report({ migrated: 1, recovered: 0, piped: 0, archived: 1, failed: 1 }),
+    );
+    const { container } = render(() => <NotesMigrationReport />);
+    expect(text(container)).toContain("1 note is now a file in ~/Writ.");
+    expect(text(container)).toContain("1 older note is waiting in an archive folder.");
+    expect(text(container)).toContain("1 note could not be checked.");
+  });
+
+  // A run can place nothing and still have something to say.
+  it("opens with the archive line when nothing was placed", () => {
+    mocks.report.mockReturnValue(
+      report({ migrated: 0, recovered: 0, piped: 0, archived: 4 }),
+    );
+    const { container } = render(() => <NotesMigrationReport />);
+    expect(text(container)).not.toContain("are now files");
+    expect(text(container)).not.toContain("is now a file");
+    expect(container.querySelector("[data-action='notes-report-show']")).toBeNull();
+    expect(text(container)).toContain("4 older notes are waiting in an archive folder.");
+  });
+
   it("dismisses", async () => {
     const { container } = render(() => <NotesMigrationReport />);
     fireEvent.click(container.querySelector("[data-action='notes-report-dismiss']")!);
     await waitFor(() => expect(mocks.dismiss).toHaveBeenCalledTimes(1));
+  });
+});
+
+// The panel's own buttons raise toasts, so a panel sharing the toast stack's
+// corner would be covered by the answer to the button that was just pressed.
+describe("NotesMigrationReport placement", () => {
+  const css = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
+
+  function declaration(source: string, selector: string, property: string): string | null {
+    const opens = source.indexOf(`${selector} {`);
+    if (opens === -1) return null;
+    const body = source.slice(opens, source.indexOf("}", opens));
+    const found = new RegExp(`(?:^|\\n)\\s*${property}\\s*:\\s*([^;]+);`).exec(body);
+    return found ? found[1].trim() : null;
+  }
+
+  const report = css("src/components/NotesMigrationReport/NotesMigrationReport.css");
+  const toast = css("src/components/Notifications/Toast.css");
+  const banner = css("src/components/UpdateBanner/UpdateBanner.css");
+
+  it("sits on the opposite edge to the toast stack", () => {
+    expect(declaration(toast, ".toast-container", "right")).not.toBeNull();
+    expect(declaration(toast, ".toast-container", "left")).toBeNull();
+    expect(declaration(report, ".notes-report", "left")).not.toBeNull();
+    expect(declaration(report, ".notes-report", "right")).toBeNull();
+  });
+
+  it("sits above the update banner, which shares its edge", () => {
+    const mine = declaration(report, ".notes-report", "bottom");
+    const theirs = declaration(banner, ".update-banner-live", "bottom");
+    expect(mine).not.toBeNull();
+    expect(theirs).not.toBeNull();
+    expect(mine).not.toBe(theirs);
   });
 });

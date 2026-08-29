@@ -47,10 +47,19 @@ function createNotesMigrationStore() {
     return api.showNotesFileInFileManager(joinPath(folder.path, "Recovered"));
   }
 
+  // The backend re-counts the stored report, so a note that would not move
+  // stays counted there. The panel follows the same arithmetic rather than
+  // clearing the offer outright, or a note left behind would lose its way back.
   async function moveArchived(): Promise<MoveArchiveOutcome> {
     const outcome = await api.moveArchivedNotes();
     const current = report();
-    if (current) setReport({ ...current, archived: 0 });
+    if (current) {
+      setReport({
+        ...current,
+        archived: Math.max(0, current.archived - outcome.moved),
+        migrated: current.migrated + outcome.moved,
+      });
+    }
     return outcome;
   }
 

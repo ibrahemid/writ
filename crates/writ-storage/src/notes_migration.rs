@@ -322,6 +322,43 @@ pub fn report_to_show(store: &BufferStore) -> StorageResult<Option<MigrationRepo
     Ok(stored_report(store)?.filter(MigrationReport::is_worth_showing))
 }
 
+/// Re-points the archived notes named in `placed` at where they are now and
+/// re-counts the report.
+///
+/// The counts the panel reads come off [`MigrationReport::rows`], so moving a
+/// note out of the archive has to change the row's outcome, not the total: a
+/// total edited on its own would disagree with the rows the next re-count
+/// reads. An archived note that has arrived in the notes folder is a note that
+/// is now a file there, which is [`RowOutcome::WrittenToNotes`].
+///
+/// `placed` is `(was, is)` pairs. A run that matches no row writes nothing.
+pub fn record_archive_moved(store: &BufferStore, placed: &[(String, String)]) -> StorageResult<()> {
+    let Some(mut report) = stored_report(store)? else {
+        return Ok(());
+    };
+
+    let mut changed = false;
+    for (was, is) in placed {
+        for (_, outcome) in report.rows.iter_mut() {
+            let archived_here = matches!(outcome, RowOutcome::Archived { path } if path == was);
+            if archived_here {
+                *outcome = RowOutcome::WrittenToNotes { path: is.clone() };
+                changed = true;
+            }
+        }
+    }
+    if !changed {
+        return Ok(());
+    }
+
+    report.recount();
+    schema_meta::set(
+        store.connection(),
+        KEY_NOTES_MIGRATION_REPORT,
+        &serde_json::to_string(&report)?,
+    )
+}
+
 /// Records that the user has read the report, so no later launch shows it
 /// again.
 pub fn dismiss_report(store: &BufferStore, now: DateTime<Utc>) -> StorageResult<()> {

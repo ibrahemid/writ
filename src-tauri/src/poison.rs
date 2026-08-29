@@ -21,7 +21,7 @@ pub fn recover_poison<G>(result: LockResult<G>, location: &'static str) -> G {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, RwLock};
 
     #[test]
     fn recover_poison_returns_inner_data_after_panicked_holder() {
@@ -35,6 +35,35 @@ mod tests {
 
         let guard = recover_poison(mutex.lock(), "test::poison_recovery");
         assert_eq!(*guard, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn recover_poison_returns_inner_data_after_a_poisoned_read_lock() {
+        let lock = Arc::new(RwLock::new(vec![1, 2, 3]));
+        let clone = lock.clone();
+        let join = std::thread::spawn(move || {
+            let _guard = clone.write().unwrap();
+            panic!("intentional panic to poison the lock");
+        });
+        assert!(join.join().is_err());
+
+        let guard = recover_poison(lock.read(), "test::rwlock_read");
+        assert_eq!(*guard, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn recover_poison_returns_inner_data_after_a_poisoned_write_lock() {
+        let lock = Arc::new(RwLock::new(String::from("~/Writ")));
+        let clone = lock.clone();
+        let join = std::thread::spawn(move || {
+            let _guard = clone.write().unwrap();
+            panic!("intentional panic to poison the lock");
+        });
+        assert!(join.join().is_err());
+
+        let mut guard = recover_poison(lock.write(), "test::rwlock_write");
+        *guard = String::from("~/Notes");
+        assert_eq!(*guard, "~/Notes");
     }
 
     #[test]

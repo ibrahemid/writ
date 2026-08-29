@@ -453,6 +453,18 @@ const WOULD_HOLD_WRIT_DATA: &str =
 /// What Writ says when the folder picked is inside the one being moved.
 const WOULD_HOLD_ITSELF: &str = "Pick a folder outside your notes folder.";
 
+/// Writ's own data folder in the spelling a canonical path can be compared
+/// against.
+///
+/// `writ_dir` is kept as it was configured, which on macOS means `/var/...`
+/// where the resolved path is `/private/var/...`. Comparing the two forms
+/// answers "no" for a folder that does hold the database, so the refusal below
+/// would never fire. A folder that cannot be resolved falls back to its own
+/// spelling: it does not exist yet, so it holds nothing either way.
+fn canonical_writ_dir(state: &AppState) -> PathBuf {
+    crate::security::canonicalize_root(&state.writ_dir).unwrap_or_else(|_| state.writ_dir.clone())
+}
+
 /// Moves the notes folder to `destination` and points Writ at it.
 ///
 /// One operation, in the order that leaves nothing half done: the files move
@@ -482,7 +494,7 @@ pub fn move_notes_folder_to(
     if to.starts_with(&from) {
         return Err(WOULD_HOLD_ITSELF.to_string());
     }
-    if state.writ_dir.starts_with(&to) {
+    if canonical_writ_dir(state).starts_with(&to) {
         return Err(WOULD_HOLD_WRIT_DATA.to_string());
     }
 

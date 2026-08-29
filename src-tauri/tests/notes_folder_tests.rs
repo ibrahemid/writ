@@ -312,6 +312,95 @@ fn move_archived_notes_dedupes_and_updates_rows() {
     );
 }
 
+// A destination is compared against paths Writ has resolved, and on macOS a
+// temporary folder is handed out as `/var/...` while its resolved form is
+// `/private/var/...`. Both refusals have to answer on the resolved pair or
+// they never fire on the platform Writ ships on first.
+#[test]
+fn a_folder_inside_the_notes_folder_is_refused_whichever_way_it_is_spelled() {
+    let dir = TempDir::new().expect("temp");
+    let state = make_state(&dir);
+    std::fs::write(state.notes_root().join("One.md"), "one").expect("seed");
+
+    let inside = dir.path().join("Writ").join("deeper");
+    let error = move_notes_folder_to(&state, &inside).expect_err("refused");
+
+    assert_eq!(error, "Pick a folder outside your notes folder.");
+    assert!(state.notes_root().join("One.md").exists(), "nothing moved");
+}
+
+#[test]
+fn a_folder_holding_writs_own_data_is_refused_whichever_way_it_is_spelled() {
+    let dir = TempDir::new().expect("temp");
+    let state = make_state(&dir);
+    std::fs::write(state.notes_root().join("One.md"), "one").expect("seed");
+    let before = state.notes_root();
+
+    let error = move_notes_folder_to(&state, dir.path()).expect_err("refused");
+
+    assert_eq!(
+        error,
+        "Writ keeps its own data in that folder, so it cannot also be your notes folder."
+    );
+    assert_eq!(state.notes_root(), before);
+    assert!(before.join("One.md").exists(), "nothing moved");
+}
+
+#[test]
+fn the_archive_offer_does_not_come_back_after_the_notes_have_been_moved() {
+    let dir = TempDir::new().expect("temp");
+    let state = make_state(&dir);
+    let archive = state.writ_dir.join("archive");
+    std::fs::create_dir_all(&archive).expect("archive");
+    std::fs::write(archive.join("Ideas.md"), "archived").expect("seed");
+
+    seed_row(&state, "ideas", None);
+    let archived_path = archive.join("Ideas.md").to_string_lossy().into_owned();
+    queries::mark_migrated(
+        &open_database(&db_path(&state)).expect("open db"),
+        "ideas",
+        &archived_path,
+        0,
+    )
+    .expect("mark");
+    put_report(
+        &state,
+        &MigrationReport {
+            ran_at: Utc::now().to_rfc3339(),
+            first_ran_at: Utc::now().to_rfc3339(),
+            notes_folder: state.notes_root().to_string_lossy().into_owned(),
+            archive_folder: archive.to_string_lossy().into_owned(),
+            archived: 1,
+            rows: vec![(
+                "ideas".to_string(),
+                RowOutcome::Archived {
+                    path: archived_path,
+                },
+            )],
+            ..MigrationReport::default()
+        },
+    );
+
+    assert_eq!(
+        notes_migration_report(&state)
+            .expect("report")
+            .map(|report| report.archived),
+        Some(1)
+    );
+
+    let outcome = move_archived_notes_inner(&state).expect("move the archive");
+    assert_eq!(outcome.moved, 1);
+
+    // A second launch over the same database, which is where an offer that was
+    // only cleared in memory would come back.
+    let relaunched = make_state(&dir);
+    let report = notes_migration_report(&relaunched)
+        .expect("report")
+        .expect("still worth showing");
+    assert_eq!(report.archived, 0, "the archive is empty and says so");
+    assert_eq!(report.migrated, 1, "the note is now a file in the folder");
+}
+
 #[test]
 fn dismissed_report_stays_dismissed_across_launches() {
     let dir = TempDir::new().expect("temp");
