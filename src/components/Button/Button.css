@@ -46,6 +46,11 @@
   color: var(--writ-fg);
 }
 
+.writ-btn[aria-pressed="true"] {
+  background: var(--writ-bg-selected);
+  color: var(--writ-fg);
+}
+
 .writ-btn-danger {
   color: var(--writ-danger);
 }

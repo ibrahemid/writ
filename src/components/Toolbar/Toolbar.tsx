@@ -3,6 +3,8 @@ import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
 import SearchBar from "../Sidebar/SearchBar";
 import type { IconName } from "../Icon/Icon";
+import type { ActiveFormats } from "../../types/editor";
+import { useWindow } from "../WindowProvider/WindowProvider";
 import { executeCommand, useCommand } from "../../commands/registry";
 import { useEffectiveBinding } from "../../commands/keybindings";
 import { formatKeybinding } from "../../lib/keybinding-format";
@@ -15,17 +17,22 @@ interface FormatControl {
   label: string;
   /** The chord the command carries when it is registered. */
   chord?: string;
+  /**
+   * The construct the control toggles. A control without one — Link, which
+   * inserts rather than toggles — carries no pressed state.
+   */
+  flag?: keyof ActiveFormats;
 }
 
 // Formatting applies to prose, so each control is live only while the editor
 // holds a markdown buffer — which is exactly when its command is registered.
 const FORMAT_CONTROLS: readonly FormatControl[] = [
-  { command: "editor.toggleBold", icon: "text-b", label: "Bold", chord: "CmdOrCtrl+B" },
-  { command: "editor.toggleItalic", icon: "text-italic", label: "Italic", chord: "CmdOrCtrl+I" },
-  { command: "editor.toggleInlineCode", icon: "code", label: "Code", chord: "CmdOrCtrl+Shift+E" },
+  { command: "editor.toggleBold", icon: "text-b", label: "Bold", chord: "CmdOrCtrl+B", flag: "bold" },
+  { command: "editor.toggleItalic", icon: "text-italic", label: "Italic", chord: "CmdOrCtrl+I", flag: "italic" },
+  { command: "editor.toggleInlineCode", icon: "code", label: "Code", chord: "CmdOrCtrl+Shift+E", flag: "code" },
   { command: "editor.insertLink", icon: "link-simple", label: "Link", chord: "CmdOrCtrl+K" },
-  { command: "editor.toggleBulletList", icon: "list-bullets", label: "Bulleted list" },
-  { command: "editor.toggleTaskList", icon: "list-checks", label: "Task list" },
+  { command: "editor.toggleBulletList", icon: "list-bullets", label: "Bulleted list", flag: "bullet" },
+  { command: "editor.toggleTaskList", icon: "list-checks", label: "Task list", flag: "task" },
 ];
 
 function tip(label: string, binding: string | undefined): string {
@@ -34,6 +41,7 @@ function tip(label: string, binding: string | undefined): string {
 }
 
 export default function Toolbar() {
+  const win = useWindow();
   // Read per mount: the platform layer is written once at boot (ADR-030), so a
   // reactive read would only cost a navigator lookup per render.
   const platform = resolvePlatform();
@@ -120,6 +128,7 @@ export default function Toolbar() {
                 class="writ-toolbar-format"
                 icon={control.icon}
                 aria-label={control.label}
+                pressed={control.flag ? win.editor.activeFormats()[control.flag] : undefined}
                 disabled={useCommand(control.command) === undefined}
                 onClick={() => executeCommand(control.command)}
               />

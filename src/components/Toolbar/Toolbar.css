@@ -3,6 +3,11 @@
    and the toolbar's controls have to win those. */
 
 .writ-toolbar {
+  /* The baseline's compose gap and GNOME's toolbar metric. 6px is not a step
+     on the ADR-030 spacing ramp, so the bar names it for itself rather than
+     forking the ramp, and every reader carries the fallback the token contract
+     asks of a component-set property. */
+  --writ-toolbar-tight: 6px;
   height: 44px;
   flex: none;
   display: flex;
@@ -26,8 +31,10 @@
 }
 
 :root .writ-toolbar[data-platform] .writ-toolbar-compose {
-  gap: var(--writ-space-2);
+  gap: var(--writ-toolbar-tight, 6px);
   padding: 0 10px 0 var(--writ-space-3);
+  /* GNOME sets its buttons in bold; the toolbar's compose label is not one. */
+  font-weight: 400;
   color: var(--writ-fg);
 }
 
@@ -115,8 +122,11 @@
   border-bottom: 2px solid var(--writ-accent);
 }
 
-/* Linux keeps the 44px row on the header-bar ground until U10 merges it. */
+/* Linux keeps the 44px row on the header-bar ground, on the AdwToolbarView
+   metrics, until U10 merges it into the header bar. */
 .writ-toolbar[data-platform="linux"] {
+  gap: var(--writ-toolbar-tight, 6px);
+  padding: var(--writ-toolbar-tight, 6px);
   background: var(--writ-lin-headerbar-bg);
   border-bottom: 0;
 }

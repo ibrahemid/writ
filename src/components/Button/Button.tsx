@@ -9,6 +9,8 @@ interface ButtonProps {
   iconSize?: number;
   danger?: boolean;
   disabled?: boolean;
+  /** Set only on a toggle: renders aria-pressed and the on state. */
+  pressed?: boolean;
   type?: "button" | "submit";
   onClick?: (event: MouseEvent) => void;
   "aria-label"?: string;
@@ -35,6 +37,7 @@ export default function Button(props: ButtonProps) {
       class={classes()}
       disabled={props.disabled}
       aria-label={props["aria-label"]}
+      aria-pressed={props.pressed}
       onClick={(event) => props.onClick?.(event)}
     >
       <Show when={props.icon}>

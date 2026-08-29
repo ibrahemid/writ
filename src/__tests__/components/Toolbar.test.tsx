@@ -7,6 +7,13 @@ import type { Platform } from "../../lib/platform";
 const h = vi.hoisted(() => ({
   platform: "mac" as "mac" | "win" | "linux",
   setSearchQuery: vi.fn(),
+  formats: {
+    bold: false,
+    italic: false,
+    code: false,
+    bullet: false,
+    task: false,
+  },
 }));
 
 vi.mock("../../lib/platform", () => ({
@@ -30,6 +37,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       closeTab: vi.fn(),
       restoreFromHistory: vi.fn(),
     },
+    editor: { activeFormats: () => h.formats },
   }),
 }));
 vi.mock("../../stores/global/buffer-registry", () => ({
@@ -94,6 +102,7 @@ afterEach(() => {
   cleanup();
   for (const id of registered.splice(0)) unregisterCommand(id);
   h.platform = "mac";
+  h.formats = { bold: false, italic: false, code: false, bullet: false, task: false };
   h.setSearchQuery.mockClear();
 });
 
@@ -140,6 +149,19 @@ describe("Toolbar shape", () => {
     const { container } = render(() => <Toolbar />);
     expect(bar(container).dataset.platform).toBe("linux");
     expect(container.querySelector("input.search-input")).toBeNull();
+    expect(TOOLBAR_CSS).toMatch(
+      /\.writ-toolbar\[data-platform="linux"\]\s*\{[^}]*gap:\s*var\(--writ-toolbar-tight, 6px\)[^}]*padding:\s*var\(--writ-toolbar-tight, 6px\)/,
+    );
+    expect(TOOLBAR_CSS).toMatch(/--writ-toolbar-tight:\s*6px/);
+  });
+
+  it("keeps New note on the baseline gap and out of the GNOME bold rule", () => {
+    const compose = /\.writ-toolbar-compose\s*\{([^}]*)\}/.exec(TOOLBAR_CSS)![1];
+    expect(compose).toMatch(/gap:\s*var\(--writ-toolbar-tight, 6px\)/);
+    expect(compose).toMatch(/font-weight:\s*400/);
+    expect(TOOLBAR_CSS).toMatch(
+      /\[data-platform="win"\] \.writ-toolbar-compose\s*\{[^}]*gap:\s*var\(--writ-space-3\)/,
+    );
   });
 });
 
@@ -195,6 +217,32 @@ describe("Toolbar commands", () => {
     expect(control(container, "Bold").disabled).toBe(true);
     withMarkdownBuffer();
     expect(control(container, "Bold").disabled).toBe(false);
+  });
+});
+
+describe("Toolbar pressed state", () => {
+  it("reports every toggle as off while the caret sits in plain prose", () => {
+    withMarkdownBuffer();
+    const { container } = render(() => <Toolbar />);
+    for (const label of ["Bold", "Italic", "Code", "Bulleted list", "Task list"]) {
+      expect(control(container, label).getAttribute("aria-pressed"), label).toBe("false");
+    }
+  });
+
+  it("presses the controls for the constructs the caret is inside", () => {
+    h.formats = { bold: true, italic: false, code: false, bullet: false, task: true };
+    withMarkdownBuffer();
+    const { container } = render(() => <Toolbar />);
+    expect(control(container, "Bold").getAttribute("aria-pressed")).toBe("true");
+    expect(control(container, "Task list").getAttribute("aria-pressed")).toBe("true");
+    expect(control(container, "Italic").getAttribute("aria-pressed")).toBe("false");
+    expect(control(container, "Bulleted list").getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("leaves Link unpressed: it inserts rather than toggles", () => {
+    withMarkdownBuffer();
+    const { container } = render(() => <Toolbar />);
+    expect(control(container, "Link").hasAttribute("aria-pressed")).toBe(false);
   });
 });
 

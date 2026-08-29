@@ -40,9 +40,11 @@ import {
   insertLink,
   toggleBulletList,
   toggleTaskList,
+  activeFormats,
 } from "../../commands/markdown-format";
 import type { BufferDocument, FileOpenMode } from "../../types/buffer";
 import { configStore } from "../../stores/global/config";
+import { NO_ACTIVE_FORMATS } from "../../types/editor";
 import { editorZoom } from "../../stores/global/editor-zoom";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { findStore } from "../../stores/global/find-store";
@@ -381,6 +383,7 @@ export default function EditorInstance(props: Props) {
         win.editor.setCursorLine(line.number);
         win.editor.setCursorCol(pos - line.from + 1);
         win.editor.setSelectionCount(sel.ranges.length);
+        win.editor.setActiveFormats(activeFormats(update.state));
       }),
       EditorView.domEventHandlers({
         paste: () => {
@@ -717,6 +720,7 @@ export default function EditorInstance(props: Props) {
       win.editor.cancelAutosave(currentBufferId);
     }
     clearRestrictedContentPublish();
+    win.editor.setActiveFormats(NO_ACTIVE_FORMATS);
     win.editor.setLargeFileMode(null);
     win.editor.registerView(null);
     win.editor.setCurrentBufferId(null);
