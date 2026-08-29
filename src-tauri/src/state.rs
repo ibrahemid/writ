@@ -544,43 +544,55 @@ pub fn bless_persisted_sources(store: &BufferStore, authorized_paths: &Authorize
 /// Resolves the notes folder, creates it, and returns it canonicalised.
 ///
 /// A folder the user chose can fail: it points at a file, it sits on a volume
-/// that is not mounted, the OS denies it. None of that is a reason to refuse
-/// to launch, so the failure is logged, the default folder is used instead,
-/// and the value that failed comes back as the second element for the Settings
+/// that is not mounted, it is written relative to a working directory that
+/// means nothing to a launched app, the OS denies it. None of that is a reason
+/// to refuse to launch, so each source is tried in turn — `WRIT_NOTES_DIR`,
+/// then `config.notes.root`, then the default — and the first that can be
+/// created wins. A bad environment variable therefore falls through to the
+/// folder the user actually chose in Settings rather than skipping past it to
+/// the default, which is the order the CLI resolves in
+/// (`writ_cli::resolve_notes_dir`).
+///
+/// The value that failed comes back as the second element for the Settings
 /// surface to show. Only the default failing is fatal, which is the existing
 /// startup-failure path.
-fn resolve_and_create_notes_root(
+pub(crate) fn resolve_and_create_notes_root(
     sources: writ_core::notes::NotesRootSources<'_>,
 ) -> Result<(PathBuf, Option<String>), Box<dyn std::error::Error>> {
-    let chosen = [sources.env_override, sources.configured]
-        .into_iter()
-        .flatten()
-        .map(str::trim)
-        .find(|value| !value.is_empty());
+    let mut refused: Option<String> = None;
 
-    if let Some(chosen) = chosen {
-        match writ_core::notes::resolve_notes_root_from(sources)
-            .map_err(|e| e.to_string())
-            .and_then(|root| create_and_canonicalize(&root).map_err(|e| e.to_string()))
+    for candidate in [sources.env_override, sources.configured] {
+        let Some(chosen) = candidate.map(str::trim).filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        match writ_core::notes::resolve_notes_root_from(writ_core::notes::NotesRootSources {
+            env_override: Some(chosen),
+            configured: None,
+            data_dir: None,
+            home: sources.home,
+        })
+        .map_err(|e| e.to_string())
+        .and_then(|root| create_and_canonicalize(&root).map_err(|e| e.to_string()))
         {
-            Ok(root) => return Ok((root, None)),
-            Err(error) => warn!(
-                folder = chosen,
-                error, "configured notes folder unusable; falling back to the default"
-            ),
+            Ok(root) => return Ok((root, refused)),
+            Err(error) => {
+                warn!(
+                    folder = chosen,
+                    error, "notes folder unusable; trying the next one"
+                );
+                // The first one that failed is the one in effect, and the one
+                // the Settings surface has to name.
+                refused.get_or_insert_with(|| chosen.to_string());
+            }
         }
-
-        let default =
-            writ_core::notes::resolve_notes_root_from(writ_core::notes::NotesRootSources {
-                env_override: None,
-                configured: None,
-                ..sources
-            })?;
-        return Ok((create_and_canonicalize(&default)?, Some(chosen.to_string())));
     }
 
-    let default = writ_core::notes::resolve_notes_root_from(sources)?;
-    Ok((create_and_canonicalize(&default)?, None))
+    let default = writ_core::notes::resolve_notes_root_from(writ_core::notes::NotesRootSources {
+        env_override: None,
+        configured: None,
+        ..sources
+    })?;
+    Ok((create_and_canonicalize(&default)?, refused))
 }
 
 fn create_and_canonicalize(root: &std::path::Path) -> std::io::Result<PathBuf> {
@@ -659,6 +671,55 @@ mod tests {
             std::fs::canonicalize(home.path().join("Writ")).unwrap()
         );
         assert_eq!(fallback.as_deref(), Some(chosen.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn a_relative_env_override_falls_through_to_the_configured_folder() {
+        // A path relative to nothing in particular is what a shell profile that
+        // exported `WRIT_NOTES_DIR=Writ` leaves behind, and a launched app has
+        // no working directory worth anchoring it to. The folder the user chose
+        // in Settings is a better answer than the default, and it is the answer
+        // the CLI gives (`writ_cli::resolve_notes_dir`).
+        let home = TempDir::new().unwrap();
+        let chosen = home.path().join("Documents").join("Notes");
+
+        let (root, fallback) = resolve_and_create_notes_root(NotesRootSources {
+            env_override: Some("Writ"),
+            configured: Some(&chosen.to_string_lossy()),
+            data_dir: None,
+            home: Some(home.path()),
+        })
+        .unwrap();
+
+        assert_eq!(root, std::fs::canonicalize(&chosen).unwrap());
+        assert_eq!(
+            fallback.as_deref(),
+            Some("Writ"),
+            "the value that was skipped is not named for Settings"
+        );
+        assert!(
+            !home.path().join("Writ").exists(),
+            "the default was created"
+        );
+    }
+
+    #[test]
+    fn a_relative_env_override_alone_falls_through_to_the_default() {
+        let home = TempDir::new().unwrap();
+
+        let (root, fallback) = resolve_and_create_notes_root(NotesRootSources {
+            env_override: Some("Writ"),
+            configured: None,
+            data_dir: None,
+            home: Some(home.path()),
+        })
+        .unwrap();
+
+        assert_eq!(
+            root,
+            std::fs::canonicalize(home.path().join("Writ")).unwrap()
+        );
+        assert_eq!(fallback.as_deref(), Some("Writ"));
     }
 
     #[test]

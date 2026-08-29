@@ -184,13 +184,39 @@ pub fn rename_note(
 ///
 /// # Errors
 ///
-/// [`StorageError::NoteTrash`] when the platform refuses the move, which a
-/// file on a volume with no trash and a file already gone both produce.
+/// [`StorageError::NoteTrash`] when the platform will not take the file, which
+/// a file on a volume with no trash and a file already gone both produce.
 pub fn trash_note(path: &Path) -> StorageResult<()> {
-    trash::delete(path).map_err(|error| StorageError::NoteTrash {
-        path: path.to_path_buf(),
-        message: error.to_string(),
-    })
+    trash_context()
+        .delete(path)
+        .map_err(|error| StorageError::NoteTrash {
+            path: path.to_path_buf(),
+            message: error.to_string(),
+        })
+}
+
+/// The trash the delete goes through, configured for the platform.
+///
+/// On macOS the crate defaults to driving Finder over `osascript`, which sends
+/// an Apple Event. A hardened, notarized build has no
+/// `com.apple.security.automation.apple-events` entitlement, so that route
+/// either prompts the user for automation permission or fails outright, and
+/// the note stays where it is. `NSFileManager` needs no permission and is the
+/// only route a shipped build can rely on. The cost is that the Finder's
+/// "Put Back" entry may be missing on some systems; the file is in the Trash
+/// either way, which is what the promise is.
+#[cfg(target_os = "macos")]
+fn trash_context() -> trash::TrashContext {
+    use trash::macos::{DeleteMethod, TrashContextExtMacos};
+    let mut context = trash::TrashContext::new();
+    context.set_delete_method(DeleteMethod::NsFileManager);
+    context
+}
+
+/// [`trash_context`] where the platform has one route and no choice to make.
+#[cfg(not(target_os = "macos"))]
+fn trash_context() -> trash::TrashContext {
+    trash::TrashContext::new()
 }
 
 /// Whether both paths name the same file, which a rename that only changes

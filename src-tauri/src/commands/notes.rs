@@ -11,7 +11,8 @@ use std::path::Path;
 use tauri::State;
 use writ_core::buffer::document::BufferDocument;
 use writ_core::buffer::manager::BufferManager;
-use writ_storage::errors::StorageError;
+use writ_storage::buffer_store::BufferStore;
+use writ_storage::errors::{StorageError, StorageResult};
 use writ_storage::note_ops;
 
 use crate::commands::buffer::{ignore_stamper, save_failure_message};
@@ -125,6 +126,41 @@ pub fn rename_note_inner(
     id: &str,
     title: &str,
 ) -> Result<BufferDocument, String> {
+    rename_note_recording(state, id, title, &record_rename)
+}
+
+/// How a rename records itself on the row.
+///
+/// A seam, so the compensating rename-back can be exercised: the failure it
+/// answers is a database write failing between the file moving and the row
+/// following it, which nothing else can provoke.
+pub type RecordRename<'a> = &'a dyn Fn(&BufferStore, &str, &str, &str) -> StorageResult<()>;
+
+/// The real recording: the row's file and title in one write.
+fn record_rename(
+    store: &BufferStore,
+    id: &str,
+    source_path: &str,
+    title: &str,
+) -> StorageResult<()> {
+    store.rename_to_file(id, source_path, title)
+}
+
+/// [`rename_note_inner`] with the row write handed in.
+///
+/// The file moves before the row does, so there is a moment where the row
+/// names a file that is no longer there. If the row write fails, the file is
+/// renamed back: leaving it moved would leave a note whose row points at
+/// nothing, which is a note nobody can open again. The compensating move is
+/// stamped like any other, and a failure of *it* is reported alongside the
+/// original, because at that point the two disagree and only a person can say
+/// which is right.
+pub fn rename_note_recording(
+    state: &AppState,
+    id: &str,
+    title: &str,
+    record: RecordRename<'_>,
+) -> Result<BufferDocument, String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).map_err(|e| e.to_string())?;
     let from = note_path(&doc)?;
@@ -139,9 +175,9 @@ pub fn rename_note_inner(
         .to_str()
         .ok_or_else(|| format!("the file name {} cannot be recorded", to.display()))?;
 
-    store
-        .rename_to_file(id, to_text, &note_name(&to))
-        .map_err(|e| e.to_string())?;
+    if let Err(error) = record(&store, id, to_text, &note_name(&to)) {
+        return Err(undo_rename(&to, from, &stamp, error));
+    }
 
     if let Ok(canonical) = canonicalize_for_authorization(&to) {
         state.authorized_paths.record_blessed_source(canonical);
@@ -156,6 +192,37 @@ pub fn rename_note_inner(
     store.get(id).map_err(|e| e.to_string())
 }
 
+/// Puts a renamed file back under the name its row still holds.
+fn undo_rename(
+    to: &Path,
+    from: &Path,
+    stamp: &impl Fn(&Path, &[u8]),
+    cause: StorageError,
+) -> String {
+    let bytes = std::fs::read(to).unwrap_or_default();
+    stamp(to, &bytes);
+    stamp(from, &bytes);
+    match std::fs::rename(to, from) {
+        Ok(()) => {
+            tracing::warn!(
+                path = %to.display(),
+                error = %cause,
+                "the row could not follow the rename; the file was put back"
+            );
+            cause.to_string()
+        }
+        Err(undo) => {
+            tracing::error!(
+                path = %to.display(),
+                error = %cause,
+                undo = %undo,
+                "the row could not follow the rename and the file could not be put back"
+            );
+            format!("{cause}; the file is now at {}", to.display())
+        }
+    }
+}
+
 /// IPC: [`rename_note_inner`].
 #[tauri::command]
 pub fn rename_note(
@@ -166,10 +233,22 @@ pub fn rename_note(
     rename_note_inner(&state, &id, &title)
 }
 
+/// What the editor says when a delete names a file the notes folder does not
+/// hold.
+const NOT_YOURS_TO_DELETE: &str =
+    "Only notes in your notes folder can be moved to the Trash from here.";
+
 /// Moves a note to the operating system's trash and drops its row.
 ///
-/// The row goes only after the file has gone, so a platform that refuses the
-/// move leaves the note both on disk and in Writ rather than leaving a row
+/// Only a file inside the notes folder. A tab can hold a file opened from
+/// anywhere — a colleague's repository, a mounted volume, a file the user is
+/// reading and not keeping — and a Delete on the tab bar has to mean "delete
+/// my note", never "delete somebody's file". The file the tab came from is
+/// closed rather than deleted; the containment check is the same resolution
+/// the write gate runs, so a symlink cannot carry a delete out of the folder.
+///
+/// The row goes only after the file has gone, so a platform that will not take
+/// the file leaves the note both on disk and in Writ rather than leaving a row
 /// pointing at a file nobody can reach. A note with no file yet has nothing to
 /// trash and only loses its row.
 pub fn delete_note_inner(state: &AppState, id: &str) -> Result<(), String> {
@@ -180,12 +259,36 @@ pub fn delete_note_inner(state: &AppState, id: &str) -> Result<(), String> {
     };
 
     if let Some(path) = source_path.as_deref() {
+        if !path_is_inside_notes(state, path) {
+            return Err(NOT_YOURS_TO_DELETE.to_string());
+        }
         let path = Path::new(path);
         note_ops::trash_note(path)
             .map_err(|_| format!("Couldn't move \"{}\" to the Trash.", note_name(path)))?;
     }
 
     crate::commands::buffer::delete_buffer_inner(state, id)
+}
+
+/// IPC: [`note_is_deletable_inner`].
+#[tauri::command]
+pub fn note_is_deletable(state: State<'_, AppState>, id: String) -> Result<bool, String> {
+    note_is_deletable_inner(&state, &id)
+}
+
+/// Whether note `id` is one this app may move to the Trash.
+///
+/// The frontend asks before it draws the entry, so a file the user only opened
+/// never offers a Delete it would stop.
+pub fn note_is_deletable_inner(state: &AppState, id: &str) -> Result<bool, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    let doc = store.get(id).map_err(|e| e.to_string())?;
+    drop(store);
+    Ok(match doc.source_path.as_deref() {
+        Some(path) => path_is_inside_notes(state, path),
+        // A note that never reached a file has nothing outside the folder.
+        None => true,
+    })
 }
 
 /// IPC: [`delete_note_inner`].
@@ -279,7 +382,7 @@ pub fn show_notes_file_in_file_manager(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<(), String> {
-    if !notes_file_is_showable(&state, &path) {
+    if !path_is_inside_notes(&state, &path) {
         return Err(ERR_NOT_A_NOTE.to_string());
     }
     crate::commands::storage::show_in_file_manager(Path::new(&path))
@@ -292,7 +395,11 @@ pub fn show_notes_file_in_file_manager(
 pub const ERR_NOT_A_NOTE: &str = "ERR_NOT_A_NOTE";
 
 /// Whether `path` is a file the notes folder contains.
-pub fn notes_file_is_showable(state: &AppState, path: &str) -> bool {
+///
+/// Resolution is the write gate's: every existing part of the path is
+/// canonicalised first, so neither the file nor a linked directory above it
+/// can carry an answer out of the folder.
+pub fn path_is_inside_notes(state: &AppState, path: &str) -> bool {
     match crate::commands::file::resolve_for_containment(Path::new(path)) {
         Some(resolved) => state.is_within_notes(&resolved),
         None => false,

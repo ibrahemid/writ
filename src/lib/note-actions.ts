@@ -1,4 +1,5 @@
 import { bufferRegistry } from "../stores/global/buffer-registry";
+import { notesStore } from "../stores/global/notes";
 import { windowRegistry } from "../stores/global/window-registry";
 import { requestConfirm } from "../components/ConfirmDialog/ConfirmDialog";
 import { showToast } from "../components/Notifications/Toast";
@@ -15,6 +16,22 @@ export function noteName(id: string): string {
   const doc = bufferRegistry.buffers().find((b) => b.id === id);
   if (!doc) return "this note";
   return doc.source_path?.split(/[\\/]/).pop() || doc.title;
+}
+
+/**
+ * Whether Writ may move this note to the Trash.
+ *
+ * A tab can hold a file opened from anywhere, and a Delete on it has to mean
+ * "delete my note", never "delete somebody's file". The backend decides the
+ * same way and stops the call regardless; this is what keeps the entry from
+ * being offered at all. A note that never reached a file has nothing outside
+ * the folder.
+ */
+export function noteIsDeletable(id: string): boolean {
+  const doc = bufferRegistry.buffers().find((b) => b.id === id);
+  if (!doc) return false;
+  if (!doc.source_path) return true;
+  return notesStore.contains(doc.source_path);
 }
 
 /** What the platform calls its file manager. */
@@ -37,6 +54,10 @@ export function showInFileManagerLabel(): string {
  */
 export async function confirmAndDeleteNote(id: string): Promise<void> {
   const name = noteName(id);
+  if (!noteIsDeletable(id)) {
+    showToast("Only notes in your notes folder can be moved to the Trash from here.", "error");
+    return;
+  }
   const confirmed = await requestConfirm({
     title: `Move "${name}" to the Trash?`,
     message: "You can get it back from the Trash.",

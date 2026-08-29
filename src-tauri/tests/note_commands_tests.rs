@@ -14,12 +14,13 @@ use writ_storage::buffer_store::BufferStore;
 use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
+use writ_storage::errors::StorageError;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_tauri_lib::commands::buffer::{save_buffer_content_inner, ERR_FILE_CHANGED_ON_DISK};
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::commands::notes::{
-    delete_note_inner, new_note_inner, note_path_for_id, notes_file_is_showable, notes_root_text,
-    rename_note_inner, save_note_copy_inner,
+    delete_note_inner, new_note_inner, note_is_deletable_inner, note_path_for_id, notes_root_text,
+    path_is_inside_notes, rename_note_inner, rename_note_recording, save_note_copy_inner,
 };
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
@@ -301,7 +302,7 @@ fn a_note_is_shown_by_the_file_its_row_names() {
 }
 
 #[test]
-fn only_a_file_the_notes_folder_holds_can_be_shown_by_path() {
+fn only_a_file_the_notes_folder_holds_is_inside_it() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
     let inside = state.notes_root.join("2026-08-29.md");
@@ -309,16 +310,16 @@ fn only_a_file_the_notes_folder_holds_can_be_shown_by_path() {
     let outside = dir.path().join("elsewhere.md");
     std::fs::write(&outside, "somebody else's").expect("seed");
 
-    assert!(notes_file_is_showable(
+    assert!(path_is_inside_notes(
         &state,
         inside.to_str().expect("utf-8")
     ));
-    assert!(!notes_file_is_showable(
+    assert!(!path_is_inside_notes(
         &state,
         outside.to_str().expect("utf-8")
     ));
     // A walk back out of the folder is not inside it.
-    assert!(!notes_file_is_showable(
+    assert!(!path_is_inside_notes(
         &state,
         state
             .notes_root
@@ -326,5 +327,81 @@ fn only_a_file_the_notes_folder_holds_can_be_shown_by_path() {
             .to_str()
             .expect("utf-8")
     ));
-    assert!(!notes_file_is_showable(&state, "elsewhere.md"));
+    assert!(!path_is_inside_notes(&state, "elsewhere.md"));
+}
+
+#[test]
+fn a_file_opened_from_elsewhere_is_never_moved_to_the_trash() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let elsewhere = dir.path().join("somebody-elses.md");
+    let id = open_note_at(&state, &elsewhere, "not mine to delete");
+
+    let error = delete_note_inner(&state, &id).expect_err("outside the notes folder");
+
+    assert_eq!(
+        error,
+        "Only notes in your notes folder can be moved to the Trash from here."
+    );
+    assert!(elsewhere.exists(), "somebody else's file was deleted");
+    assert_eq!(
+        std::fs::read_to_string(&elsewhere).expect("read"),
+        "not mine to delete"
+    );
+    let store = state.store.lock().expect("lock");
+    assert!(store.get(&id).is_ok(), "the tab was closed anyway");
+}
+
+#[test]
+fn the_frontend_is_told_which_notes_it_may_offer_a_delete_for() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let mine = new_note_inner(&state).expect("new note");
+    let elsewhere = dir.path().join("somebody-elses.md");
+    let theirs = open_note_at(&state, &elsewhere, "not mine to delete");
+
+    assert!(note_is_deletable_inner(&state, &mine.id).expect("mine"));
+    assert!(!note_is_deletable_inner(&state, &theirs).expect("theirs"));
+}
+
+#[test]
+fn a_rename_the_row_cannot_follow_puts_the_file_back() {
+    // The file moves before the row does. If the row write fails in that
+    // window, leaving the file moved would leave a row pointing at nothing,
+    // which is a note nobody can open again.
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "the text").expect("save");
+    let before = note_file(&state, &doc.id);
+
+    let refuse = |_: &writ_storage::buffer_store::BufferStore,
+                  _: &str,
+                  _: &str,
+                  _: &str|
+     -> Result<(), StorageError> {
+        Err(StorageError::Consistency {
+            message: "the row could not be written".to_string(),
+        })
+    };
+
+    let error =
+        rename_note_recording(&state, &doc.id, "Grocery list", &refuse).expect_err("row failed");
+
+    assert!(error.contains("the row could not be written"), "{error}");
+    assert!(before.exists(), "the note is not back under its own name");
+    assert_eq!(
+        std::fs::read_to_string(&before).expect("read"),
+        "the text",
+        "the note came back without its text"
+    );
+    assert!(
+        !state.notes_root.join("Grocery list.md").exists(),
+        "the file was left under the name the row never took"
+    );
+    assert_eq!(note_file(&state, &doc.id), before);
+
+    // The tab is still usable: the next save lands on the file the row names.
+    save_buffer_content_inner(&state, &doc.id, "more text").expect("save");
+    assert_eq!(std::fs::read_to_string(&before).expect("read"), "more text");
 }

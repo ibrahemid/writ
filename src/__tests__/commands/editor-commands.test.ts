@@ -28,8 +28,10 @@ const FORMAT_COMMANDS: Command[] = [
 ];
 
 // Every app/editor/preview chord registered outside this PR, mirroring the live
-// table so the boot-time conflict check is proven silent. Cmd+E is intentionally
-// absent: it now belongs to editor.deleteLine (inline code moved to Cmd+Shift+E).
+// table so the boot-time conflict check is proven silent. It has to keep
+// mirroring it: a stub whose id no longer exists proves nothing about the app
+// that ships. Cmd+E is intentionally absent: it belongs to editor.deleteLine
+// (inline code moved to Cmd+Shift+E).
 const OTHER_REGISTERED: Command[] = [
   stub("editor.addCursorUp", "Alt+ArrowUp"),
   stub("editor.addCursorDown", "Alt+ArrowDown"),
@@ -41,13 +43,12 @@ const OTHER_REGISTERED: Command[] = [
   stub("editor.zoomOut", "CmdOrCtrl+-"),
   stub("editor.zoomReset", "CmdOrCtrl+0"),
   stub("preview.resetRatio", "CmdOrCtrl+Shift+0"),
-  stub("buffer.new", "CmdOrCtrl+T"),
-  stub("buffer.newWindow", "CmdOrCtrl+N"),
-  stub("buffer.open", "CmdOrCtrl+O"),
+  stub("note.new", "CmdOrCtrl+N", ["CmdOrCtrl+T"]),
+  stub("file.open", "CmdOrCtrl+O"),
   stub("buffer.close", "CmdOrCtrl+W"),
   stub("tab.prev", "CmdOrCtrl+["),
   stub("tab.next", "CmdOrCtrl+]"),
-  stub("tab.rename", "F2", ["CmdOrCtrl+Shift+S"]),
+  stub("note.rename", "F2", ["CmdOrCtrl+Shift+S"]),
   stub("sidebar.toggle", "CmdOrCtrl+\\"),
   stub("buffer.save", "CmdOrCtrl+S"),
   stub("settings.open", "CmdOrCtrl+,"),

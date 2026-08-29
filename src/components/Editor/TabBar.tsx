@@ -6,10 +6,14 @@ import { showContextMenu } from "../ContextMenu/ContextMenu";
 import { abbreviateTitle } from "../../lib/buffer-name";
 import {
   confirmAndDeleteNote,
+  noteIsDeletable,
   saveCopyOfNote,
   showInFileManagerLabel,
   showNoteInFileManager,
 } from "../../lib/note-actions";
+import { formatRenameError } from "../../lib/save-error";
+import { showToast } from "../Notifications/Toast";
+import { logFailure } from "../../lib/log";
 import "./TabBar.css";
 
 // Module-level singleton — TabBar mounts only in the main window (detached
@@ -41,12 +45,16 @@ export default function TabBar() {
     });
   });
 
+  // Renaming a tab renames the note's file, so it can be stopped: an empty
+  // name, a name the folder already holds, a file something else rewrote. The
+  // backend decides all three, and the answer has to reach the person who
+  // typed the name rather than being dropped on the floor.
   function handleRenameSubmit(tabId: string, value: string) {
-    const trimmed = value.trim();
-    if (trimmed) {
-      void bufferRegistry.renameBuffer(tabId, trimmed);
-    }
     setEditingTabId(null);
+    void bufferRegistry.renameBuffer(tabId, value).catch((error) => {
+      logFailure("a note could not be renamed");
+      showToast(formatRenameError(error), "error");
+    });
   }
 
   function handleRenameKeyDown(e: KeyboardEvent, tabId: string) {
@@ -75,6 +83,7 @@ export default function TabBar() {
       {
         label: "Delete",
         action: () => void confirmAndDeleteNote(tabId),
+        disabled: !noteIsDeletable(tabId),
         danger: true,
       },
       { label: "Close Tab", action: () => void win.tabs.closeTab(tabId), separator: true },

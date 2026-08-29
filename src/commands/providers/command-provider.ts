@@ -53,7 +53,10 @@ export function createCommandProvider(options: CommandProviderOptions = {}): Res
 
   function visibleCommands(): Command[] {
     return getAllCommands().filter(
-      (cmd) => (cmd.scope === "app" || cmd.scope === "editor") && !excluded.has(cmd.id),
+      (cmd) =>
+        (cmd.scope === "app" || cmd.scope === "editor") &&
+        !excluded.has(cmd.id) &&
+        (cmd.isAvailable?.() ?? true),
     );
   }
 

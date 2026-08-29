@@ -323,6 +323,7 @@ pub fn run() {
             commands::notes::show_note_in_file_manager,
             commands::notes::show_notes_file_in_file_manager,
             commands::notes::get_notes_root,
+            commands::notes::note_is_deletable,
             commands::file::open_file,
             commands::file::open_file_confirmed,
             commands::file::pick_files_to_open,

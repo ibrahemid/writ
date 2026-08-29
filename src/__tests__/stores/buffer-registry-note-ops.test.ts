@@ -65,8 +65,16 @@ vi.mock("../../stores/global/window-registry", () => ({
   windowRegistry: { getActive: () => null },
 }));
 
+vi.mock("../../stores/global/notes", () => ({
+  notesStore: {
+    root: () => "/notes",
+    load: vi.fn(),
+    contains: (path: string) => path.startsWith("/notes/"),
+  },
+}));
+
 import { bufferRegistry } from "../../stores/global/buffer-registry";
-import { confirmAndDeleteNote } from "../../lib/note-actions";
+import { confirmAndDeleteNote, noteIsDeletable } from "../../lib/note-actions";
 import * as api from "../../services/tauri";
 import { cancelAutosave } from "../../services/autosave";
 
@@ -110,6 +118,25 @@ describe("note operations", () => {
     expect(mockedApi.deleteNote).toHaveBeenCalledWith("n-1");
     expect(vi.mocked(cancelAutosave)).toHaveBeenCalledWith("n-1");
     expect(bufferRegistry.buffers()).toEqual([]);
+  });
+
+  it("only_a_note_in_the_notes_folder_may_be_deleted", async () => {
+    mockedApi.listActiveBuffers.mockResolvedValue([
+      doc(),
+      doc({ id: "theirs", source_path: "/somebody/else.md" }),
+      doc({ id: "unwritten", source_path: null }),
+    ]);
+    await bufferRegistry.load();
+
+    expect(noteIsDeletable("n-1")).toBe(true);
+    expect(noteIsDeletable("theirs")).toBe(false);
+    // A note that never reached a file has nothing outside the folder.
+    expect(noteIsDeletable("unwritten")).toBe(true);
+    expect(noteIsDeletable("no-such-note")).toBe(false);
+
+    confirmed.mockResolvedValue(true);
+    await confirmAndDeleteNote("theirs");
+    expect(mockedApi.deleteNote).not.toHaveBeenCalled();
   });
 
   it("save_copy_returns_the_path_the_copy_was_written_to", async () => {

@@ -8,7 +8,7 @@ import ThemeEditor, { openThemeEditor } from "./components/ThemeEditor/ThemeEdit
 import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/ShortcutEditor";
 import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
-import { confirmAndDeleteNote, saveCopyOfNote } from "./lib/note-actions";
+import { confirmAndDeleteNote, noteIsDeletable, saveCopyOfNote } from "./lib/note-actions";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
 import { installNativeContextMenuSuppressor } from "./lib/native-context-menu";
 import { IS_MAC } from "./lib/platform";
@@ -463,6 +463,10 @@ function AppShell() {
       label: "Delete Note",
       description: "Move the active note to the Trash",
       scope: "app",
+      isAvailable: () => {
+        const id = windowRegistry.getActive()?.tabs.activeTabId();
+        return id !== null && id !== undefined && noteIsDeletable(id);
+      },
       execute: () => {
         const id = windowRegistry.getActive()?.tabs.activeTabId();
         if (id) void confirmAndDeleteNote(id);

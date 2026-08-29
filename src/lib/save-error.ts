@@ -12,6 +12,14 @@ const CODE_MESSAGES: Record<string, string> = {
     "this file has not finished downloading, so your changes were not saved yet.",
 };
 
+// The same codes as a stopped rename reads them. A rename carries no text of
+// its own, so nothing is set aside and the save wording would name a copy that
+// was never written.
+const RENAME_CODE_MESSAGES: Record<string, string> = {
+  [ERR_FILE_CHANGED_ON_DISK]: "The file changed outside Writ, so it was not renamed.",
+  [ERR_FILE_NOT_DOWNLOADED]: "This file has not finished downloading yet.",
+};
+
 // Writing again cannot help either of these: the same text is stopped the same
 // way, and a stopped save leaves another dated copy beside the note each time.
 const NOT_WORTH_REPEATING = new Set([ERR_FILE_CHANGED_ON_DISK, ERR_FILE_NOT_DOWNLOADED]);
@@ -40,6 +48,16 @@ export function formatSaveError(error: unknown): string {
   if (code !== undefined) return CODE_MESSAGES[code];
   const text = rawMessage(error);
   return text.length > 0 ? text : "unknown error";
+}
+
+// What a stopped rename says. The two coded failures get their own wording;
+// everything else is already a plain sentence the backend wrote
+// (`That name is empty.`, `A note named "x.md" is already there.`).
+export function formatRenameError(error: unknown): string {
+  const code = codeOf(error);
+  if (code !== undefined) return RENAME_CODE_MESSAGES[code];
+  const text = rawMessage(error);
+  return text.length > 0 ? text : "The note could not be renamed.";
 }
 
 // Ends `reason` so a caller can put another sentence after it. A mapped reason
