@@ -1222,10 +1222,10 @@ function AppearanceSection() {
   return (
     <div data-section="appearance">
       <SectionLabel section="appearance" />
-      <SettingsRow id="appearance.polarity" label="Appearance">
+      <SettingsRow id="appearance.polarity" label="Light and dark">
         <Segmented
           setting="appearance_polarity"
-          label="Appearance"
+          label="Light and dark"
           options={POLARITY_OPTIONS}
           value={appearance().polarity}
           onChange={(polarity) => patchAppearance({ polarity })}
@@ -1233,10 +1233,10 @@ function AppearanceSection() {
       </SettingsRow>
       <SettingsRow
         id="appearance.accent"
-        label="Accent colour"
+        label="Accent color"
         caution={themeStore.accentApplies() ? undefined : "The current theme sets its own accent."}
       >
-        <div class="settings-accents" role="group" aria-label="Accent colour" data-setting="appearance_accent">
+        <div class="settings-accents" role="group" aria-label="Accent color" data-setting="appearance_accent">
           <For each={ACCENT_OPTIONS}>
             {(option) => (
               <button

@@ -386,7 +386,7 @@ function AppShell() {
 
     registerCommand({
       id: "search.openContent",
-      label: "Search content…",
+      label: "Search text…",
       scope: "app",
       execute: openContentSearch,
     });
@@ -395,7 +395,7 @@ function AppShell() {
       id: "search.openEverywhere",
       icon: "magnifying-glass",
       label: "Search Everywhere",
-      description: "Search commands, settings, file names and file content",
+      description: "Search commands, settings, file names and text",
       keybinding: "CmdOrCtrl+Shift+F",
       scope: "app",
       // Global: the editor holds focus almost all the time, so a focus-gated

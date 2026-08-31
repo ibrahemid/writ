@@ -59,7 +59,7 @@ import { registerCommand, unregisterCommand } from "../../commands/registry";
 const FORMAT_CONTROLS = [
   ["editor.toggleBold", "Bold"],
   ["editor.toggleItalic", "Italic"],
-  ["editor.toggleInlineCode", "Code"],
+  ["editor.toggleInlineCode", "Inline code"],
   ["editor.insertLink", "Link"],
   ["editor.toggleBulletList", "Bulleted list"],
   ["editor.toggleTaskList", "Task list"],
@@ -224,7 +224,7 @@ describe("Toolbar pressed state", () => {
   it("reports every toggle as off while the caret sits in plain prose", () => {
     withMarkdownBuffer();
     const { container } = render(() => <Toolbar />);
-    for (const label of ["Bold", "Italic", "Code", "Bulleted list", "Task list"]) {
+    for (const label of ["Bold", "Italic", "Inline code", "Bulleted list", "Task list"]) {
       expect(control(container, label).getAttribute("aria-pressed"), label).toBe("false");
     }
   });

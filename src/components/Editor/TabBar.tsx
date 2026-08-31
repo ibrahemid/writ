@@ -188,11 +188,11 @@ export default function TabBar() {
             }}
           </For>
         </div>
-        <Tooltip label="New tab">
+        <Tooltip label="New note">
           <button
             type="button"
             class="tab-add"
-            aria-label="New tab"
+            aria-label="New note"
             onClick={() => void win.tabs.createTab()}
           >
             <Icon name="plus" size={16} />

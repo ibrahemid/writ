@@ -327,7 +327,7 @@ describe("tab strip accessibility", () => {
     open(2);
     const { container } = render(() => <TabBar />);
     expect(container.querySelector("[title]")).toBeNull();
-    expect(container.querySelector(".tab-add")!.getAttribute("aria-label")).toBe("New tab");
+    expect(container.querySelector(".tab-add")!.getAttribute("aria-label")).toBe("New note");
   });
 });
 

@@ -104,6 +104,8 @@ export const NON_EDITABLE_TOKENS: ReadonlySet<string> = new Set(["status.foregro
 /**
  * What each token paints, in the words a reader uses for it. The editor titles
  * every row from here, so a leaf missing an entry is a bug, not a fallback.
+ * Each row renders under its group heading, so the label leaves the group word
+ * to the head rather than repeating it.
  * Keyed by `tokenKey()`, checked against the presets in preset-schema.test.ts.
  */
 export const TOKEN_LABELS: Readonly<Record<string, string>> = {
@@ -113,13 +115,13 @@ export const TOKEN_LABELS: Readonly<Record<string, string>> = {
   "bg.sunken": "Recessed surfaces",
   "bg.hover": "Hovered row",
   "bg.selected": "Selected row",
-  fg: "Body text",
-  "fg.muted": "Muted text",
-  "fg.faint": "Faint text",
+  fg: "Body",
+  "fg.muted": "Muted",
+  "fg.faint": "Faint",
   border: "Border",
-  "border.soft": "Soft border",
+  "border.soft": "Soft",
   accent: "Accent",
-  "accent.hover": "Accent, hovered",
+  "accent.hover": "Hovered",
   "accent.fg": "Text on accent",
   "status.success": "Success",
   "status.warning": "Warning",

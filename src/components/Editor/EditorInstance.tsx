@@ -676,7 +676,7 @@ export default function EditorInstance(props: Props) {
     { id: "editor.toggleBold", label: "Toggle Bold", keybinding: "CmdOrCtrl+B", run: toggleBold },
     { id: "editor.toggleItalic", label: "Toggle Italic", keybinding: "CmdOrCtrl+I", run: toggleItalic },
     { id: "editor.toggleStrikethrough", label: "Toggle Strikethrough", keybinding: "CmdOrCtrl+Shift+X", run: toggleStrikethrough },
-    { id: "editor.toggleInlineCode", label: "Toggle Inline Code", keybinding: "CmdOrCtrl+Shift+E", run: toggleInlineCode },
+    { id: "editor.toggleInlineCode", label: "Inline code", keybinding: "CmdOrCtrl+Shift+E", run: toggleInlineCode },
     { id: "editor.insertLink", label: "Insert Link", keybinding: "CmdOrCtrl+K", run: insertLink },
     { id: "editor.toggleBulletList", label: "Toggle Bulleted List", keybinding: undefined, run: toggleBulletList },
     { id: "editor.toggleTaskList", label: "Toggle Task List", keybinding: undefined, run: toggleTaskList },

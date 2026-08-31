@@ -68,9 +68,9 @@ export default function SearchPalette() {
       open={isOpen()}
       onClose={closeSearchPalette}
       providers={PROVIDERS}
-      placeholder="Type a command or note name"
+      placeholder="Search files, text and commands"
       label="Search everywhere"
-      inputLabel="Search files, text, commands"
+      inputLabel="Search files, text and commands"
       notice={searchNotice}
       onOpen={() => void workspaceSearchStore.refreshIndexStatus()}
       initialQuery={seedQuery}

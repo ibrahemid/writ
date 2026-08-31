@@ -38,6 +38,12 @@ describe("settings index", () => {
     expect(results.map((e) => e.id)).toContain("appearance.custom_colors");
   });
 
+  it("finds the light-dark row under the words it used to be titled with", () => {
+    for (const query of ["appearance", "dark", "light", "system"]) {
+      expect(rankSettings(query).map((e) => e.id), query).toContain("appearance.polarity");
+    }
+  });
+
   it("matches by section label", () => {
     const results = rankSettings("preview");
     expect(results.every((e) => e.section === "preview")).toBe(true);
