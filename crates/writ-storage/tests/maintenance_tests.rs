@@ -124,3 +124,49 @@ fn checkpoint_truncates_the_write_ahead_log() {
         "the log must be truncated, not just folded in"
     );
 }
+
+/// The heartbeat runs for as long as Writ is open. Sixty passes over an
+/// unchanged set of notes is two hours of it, and it must leave the database
+/// the size it found it: the bloat this guards against was a snapshot row per
+/// pass, each one a full copy of every open note.
+#[test]
+fn sixty_identical_heartbeats_write_no_new_snapshot_rows_and_do_not_grow_the_database() {
+    let (dir, mut store) = setup_store();
+    let contents = HashMap::from([
+        ("note-a".to_string(), "x".repeat(64 * 1024)),
+        ("note-b".to_string(), "y".repeat(64 * 1024)),
+    ]);
+
+    assert!(
+        store
+            .write_session_snapshot_if_changed(&contents)
+            .expect("first heartbeat"),
+        "the first heartbeat has nothing to compare against and must record one"
+    );
+
+    let baseline = store.database_stats().expect("stats after the first pass");
+
+    for pass in 1..60 {
+        assert!(
+            !store
+                .write_session_snapshot_if_changed(&contents)
+                .expect("heartbeat"),
+            "heartbeat {pass} rewrote a snapshot the notes had not changed since"
+        );
+    }
+
+    let conn = open_database(&dir.path().join("writ.db")).expect("open db");
+    let rows: i64 = conn
+        .query_row("SELECT count(*) FROM session_snapshots", [], |row| {
+            row.get(0)
+        })
+        .expect("count snapshots");
+    assert_eq!(rows, 1, "sixty identical heartbeats left more than one row");
+
+    let after = writ_storage::maintenance::read_stats(&conn).expect("stats after sixty passes");
+    assert_eq!(
+        after.file_bytes(),
+        baseline.file_bytes(),
+        "sixty identical heartbeats grew the database file"
+    );
+}

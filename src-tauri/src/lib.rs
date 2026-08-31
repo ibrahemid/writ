@@ -23,6 +23,16 @@ use tauri::{Listener, Manager};
 use tracing::info;
 use writ_core::startup::{StartupFailure, StartupStage};
 
+/// How often the running app records a crash-recovery snapshot of the open
+/// notes.
+///
+/// The snapshot is a safety net behind autosave, not a second save path, so
+/// the interval trades recovery granularity against the writes it costs. A
+/// pass that finds nothing changed writes nothing
+/// ([`writ_storage::buffer_store::BufferStore::write_session_snapshot_if_changed`]),
+/// which is what keeps an idle session from growing the database.
+pub const SNAPSHOT_HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(120);
+
 #[cfg(target_os = "macos")]
 const MENU_ACTION_IDS: &[&str] = &[
     "app.check_updates",
@@ -661,7 +671,7 @@ pub fn run() {
 
             let snapshot_handle = handle.clone();
             std::thread::spawn(move || loop {
-                std::thread::sleep(std::time::Duration::from_secs(30));
+                std::thread::sleep(SNAPSHOT_HEARTBEAT);
                 let snapshot_error = {
                     let state = snapshot_handle.state::<AppState>();
                     state.store.lock().ok().map(|mut store| {
