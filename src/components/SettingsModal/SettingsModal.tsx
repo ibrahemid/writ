@@ -1203,7 +1203,9 @@ const PROSE_FACE_OPTIONS: { id: ProseFaceId; label: string }[] = [
 ];
 
 function AppearanceSection() {
-  const currentPreset = () => configStore.config().theme.preset;
+  // Not the stored preset: polarity picks which half of a pair renders, and a
+  // row that named the stored half read "Writ Light" over a dark app.
+  const renderedPreset = () => themeStore.activePreset().id;
   const appearance = () => configStore.config().appearance;
 
   function onPresetChange(id: string) {
@@ -1277,7 +1279,7 @@ function AppearanceSection() {
           id="setting-theme-preset"
           class="settings-select"
           data-setting="theme_preset"
-          value={currentPreset()}
+          value={renderedPreset()}
           onChange={(e) => onPresetChange(e.currentTarget.value)}
         >
           {PRESETS.map((p) => (

@@ -12,6 +12,7 @@ const TEST_CLAIMABLE_TYPE = {
 
 const mocks = vi.hoisted(() => ({
   accentApplies: vi.fn(() => true),
+  activePresetId: vi.fn(() => "warp-dark"),
   save: vi.fn().mockResolvedValue(undefined),
   config: vi.fn(),
   focusEditor: vi.fn(),
@@ -117,6 +118,7 @@ vi.mock("../../stores/global/theme", () => ({
     setAppearance: vi.fn(),
     accentApplies: () => mocks.accentApplies(),
     polarity: () => "light",
+    activePreset: () => ({ id: mocks.activePresetId() }),
   },
 }));
 
@@ -161,6 +163,7 @@ describe("SettingsModal", () => {
   beforeEach(() => {
     mocks.save.mockReset().mockResolvedValue(undefined);
     mocks.accentApplies.mockReset().mockReturnValue(true);
+    mocks.activePresetId.mockReset().mockReturnValue("warp-dark");
     mocks.config.mockReset().mockReturnValue(baseConfig());
     mocks.openThemeEditor.mockReset();
     mocks.openShortcutEditor.mockReset();
@@ -361,6 +364,37 @@ describe("SettingsModal", () => {
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
     const saved = mocks.save.mock.calls[0][0] as WritConfig;
     expect(saved.theme.preset).toBe("warp-light");
+  });
+
+  // The stored preset is one half of a pair; polarity picks the half that
+  // renders. The row named the stored half, so under a dark system the Theme
+  // row read "Writ Light" over a dark app.
+  it("the theme row names the half of the pair that renders", async () => {
+    mocks.config.mockReturnValue({
+      ...baseConfig(),
+      theme: { preset: "writ-light", overrides: {} },
+      appearance: { polarity: "dark", accent: "pine", prose_face: "system" },
+    });
+    mocks.activePresetId.mockReturnValue("writ-dark");
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+    const presetSelect = container.querySelector<HTMLSelectElement>("[data-setting='theme_preset']");
+    expect(presetSelect!.value).toBe("writ-dark");
+    expect(presetSelect!.selectedOptions[0].textContent).toBe("Writ Dark");
+  });
+
+  it("the theme row names the light half under a light polarity", async () => {
+    mocks.config.mockReturnValue({
+      ...baseConfig(),
+      theme: { preset: "writ-dark", overrides: {} },
+      appearance: { polarity: "light", accent: "pine", prose_face: "system" },
+    });
+    mocks.activePresetId.mockReturnValue("writ-light");
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+    const presetSelect = container.querySelector<HTMLSelectElement>("[data-setting='theme_preset']");
+    expect(presetSelect!.value).toBe("writ-light");
+    expect(presetSelect!.selectedOptions[0].textContent).toBe("Writ Light");
   });
 
   async function openAppearance(container: HTMLElement) {
