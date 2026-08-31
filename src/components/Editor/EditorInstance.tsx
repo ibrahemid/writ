@@ -675,11 +675,11 @@ export default function EditorInstance(props: Props) {
   const formatCommands = [
     { id: "editor.toggleBold", label: "Bold", keybinding: "CmdOrCtrl+B", run: toggleBold },
     { id: "editor.toggleItalic", label: "Italic", keybinding: "CmdOrCtrl+I", run: toggleItalic },
-    { id: "editor.toggleStrikethrough", label: "Toggle Strikethrough", keybinding: "CmdOrCtrl+Shift+X", run: toggleStrikethrough },
+    { id: "editor.toggleStrikethrough", label: "Strikethrough", keybinding: "CmdOrCtrl+Shift+X", run: toggleStrikethrough },
     { id: "editor.toggleInlineCode", label: "Inline code", keybinding: "CmdOrCtrl+Shift+E", run: toggleInlineCode },
-    { id: "editor.insertLink", label: "Insert Link", keybinding: "CmdOrCtrl+K", run: insertLink },
-    { id: "editor.toggleBulletList", label: "Toggle Bulleted List", keybinding: undefined, run: toggleBulletList },
-    { id: "editor.toggleTaskList", label: "Toggle Task List", keybinding: undefined, run: toggleTaskList },
+    { id: "editor.insertLink", label: "Insert link", keybinding: "CmdOrCtrl+K", run: insertLink },
+    { id: "editor.toggleBulletList", label: "Bulleted list", keybinding: undefined, run: toggleBulletList },
+    { id: "editor.toggleTaskList", label: "Task list", keybinding: undefined, run: toggleTaskList },
   ] as const;
 
   createEffect(() => {

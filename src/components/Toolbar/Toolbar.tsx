@@ -33,7 +33,7 @@ const FORMAT_CONTROLS: readonly FormatControl[] = [
   { command: "editor.toggleBold", icon: "text-b", label: "Bold", chord: "CmdOrCtrl+B", flag: "bold" },
   { command: "editor.toggleItalic", icon: "text-italic", label: "Italic", chord: "CmdOrCtrl+I", flag: "italic" },
   { command: "editor.toggleInlineCode", icon: "code", label: "Inline code", chord: "CmdOrCtrl+Shift+E", flag: "code" },
-  { command: "editor.insertLink", icon: "link-simple", label: "Link", chord: "CmdOrCtrl+K" },
+  { command: "editor.insertLink", icon: "link-simple", label: "Insert link", chord: "CmdOrCtrl+K" },
   { command: "editor.toggleBulletList", icon: "list-bullets", label: "Bulleted list", flag: "bullet" },
   { command: "editor.toggleTaskList", icon: "list-checks", label: "Task list", flag: "task" },
 ];

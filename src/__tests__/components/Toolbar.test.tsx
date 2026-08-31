@@ -60,7 +60,7 @@ const FORMAT_CONTROLS = [
   ["editor.toggleBold", "Bold"],
   ["editor.toggleItalic", "Italic"],
   ["editor.toggleInlineCode", "Inline code"],
-  ["editor.insertLink", "Link"],
+  ["editor.insertLink", "Insert link"],
   ["editor.toggleBulletList", "Bulleted list"],
   ["editor.toggleTaskList", "Task list"],
 ] as const;
@@ -268,7 +268,7 @@ describe("Toolbar pressed state", () => {
   it("leaves Link unpressed: it inserts rather than toggles", () => {
     withMarkdownBuffer();
     const { container } = render(() => <Toolbar />);
-    expect(control(container, "Link").hasAttribute("aria-pressed")).toBe(false);
+    expect(control(container, "Insert link").hasAttribute("aria-pressed")).toBe(false);
   });
 });
 
