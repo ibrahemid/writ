@@ -7,6 +7,7 @@ use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
+use writ_storage::notes_index::NotesIndexStore;
 
 fn setup() -> (TempDir, BufferStore) {
     let dir = TempDir::new().expect("failed to create temp dir");
@@ -15,8 +16,36 @@ fn setup() -> (TempDir, BufferStore) {
     run_migrations(&conn).expect("migrations failed");
     let buffers_dir = dir.path().join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("failed to create buffers dir");
-    let store = BufferStore::new(conn, buffers_dir);
+    let mut store = BufferStore::new(conn, buffers_dir);
+    store.set_notes_root(notes_root().to_path_buf());
     (dir, store)
+}
+
+/// The notes index over a second connection to the same database, which is how
+/// the app reads it: the store owns the write path, the index owns the queries
+/// (ADR-028 section 7).
+fn index(dir: &TempDir) -> NotesIndexStore {
+    NotesIndexStore::open(&dir.path().join("test.db")).expect("index db")
+}
+
+/// Note paths whose indexed text matches `raw`, through the same query policy
+/// the sidebar search box uses.
+fn search(dir: &TempDir, raw: &str) -> Vec<String> {
+    let Some(query) = writ_core::search::to_prefix_match(raw) else {
+        return Vec::new();
+    };
+    let terms = writ_core::search::search_terms(raw);
+    index(dir)
+        .search_hits(&query, &terms, 50)
+        .expect("search")
+        .into_iter()
+        .filter_map(|hit| hit.path)
+        .collect()
+}
+
+/// The key the index holds a note's file under.
+fn indexed_key(id: &str) -> String {
+    writ_storage::notes_index::index_key(&note_path(id))
 }
 
 /// One notes folder for the whole test binary. Every note needs a file now
@@ -282,17 +311,15 @@ fn update_tab_order() {
 }
 
 #[test]
-fn save_content_updates_fts_index() {
-    let (_dir, store) = setup();
+fn save_content_updates_the_notes_index() {
+    let (dir, store) = setup();
     let doc = make_doc("fts1", "fts-test");
     store.insert(&doc).unwrap();
     store
         .save_content("fts1", "searchable content about rust programming")
         .unwrap();
 
-    let results = store.search("rust programming").unwrap();
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0], "fts1");
+    assert_eq!(search(&dir, "rust programming"), vec![indexed_key("fts1")]);
 }
 
 #[test]
@@ -311,32 +338,29 @@ fn save_content_without_index_persists_bytes_but_skips_fts() {
         "bytes must be on disk immediately",
     );
     assert!(
-        store.search("uniqueterm").unwrap().is_empty(),
+        search(&_dir, "uniqueterm").is_empty(),
         "deferred write must not be searchable before reindex",
     );
 }
 
 #[test]
 fn reindex_buffer_makes_a_deferred_write_searchable() {
-    let (_dir, store) = setup();
+    let (dir, store) = setup();
     store.insert(&make_doc("deferred-2", "deferred")).unwrap();
     store
         .save_content_without_index("deferred-2", "alpha beta gamma")
         .unwrap();
-    assert!(store.search("beta").unwrap().is_empty());
+    assert!(search(&dir, "beta").is_empty());
 
     store.reindex_buffer("deferred-2").expect("reindex failed");
-    assert_eq!(
-        store.search("beta").unwrap(),
-        vec!["deferred-2".to_string()]
-    );
+    assert_eq!(search(&dir, "beta"), vec![indexed_key("deferred-2")]);
 }
 
 #[test]
 fn reindex_buffer_reflects_latest_disk_content_after_coalesced_writes() {
     // Two deferred writes then a single reindex (the coalescing case): the
     // index must reflect only the latest bytes, never a stale intermediate.
-    let (_dir, store) = setup();
+    let (dir, store) = setup();
     store.insert(&make_doc("deferred-3", "deferred")).unwrap();
     store
         .save_content_without_index("deferred-3", "staleword first version")
@@ -348,67 +372,31 @@ fn reindex_buffer_reflects_latest_disk_content_after_coalesced_writes() {
     store.reindex_buffer("deferred-3").expect("reindex failed");
 
     assert!(
-        store.search("staleword").unwrap().is_empty(),
+        search(&dir, "staleword").is_empty(),
         "reindex must not surface a superseded intermediate",
     );
-    assert_eq!(
-        store.search("freshword").unwrap(),
-        vec!["deferred-3".to_string()],
-    );
+    assert_eq!(search(&dir, "freshword"), vec![indexed_key("deferred-3")]);
 }
 
 #[test]
-fn delete_removes_buffer_from_fts_index() {
-    let (_dir, store) = setup();
+fn delete_leaves_the_note_in_the_index_because_the_file_is_still_there() {
+    // The index is keyed by file, not by row (ADR-028 section 7). Closing or
+    // deleting a tab does not delete the note, so the note stays findable; it
+    // leaves the index when its file leaves the folder, through the notes
+    // watcher or the reconcile walk.
+    let (dir, store) = setup();
     let doc = make_doc("orphan-1", "untitled");
     store.insert(&doc).unwrap();
     store.save_content("orphan-1", "foobar baseline").unwrap();
-    assert_eq!(store.search("foobar").unwrap(), vec!["orphan-1"]);
+    assert_eq!(search(&dir, "foobar"), vec![indexed_key("orphan-1")]);
 
     store.delete("orphan-1").expect("delete failed");
 
-    assert!(
-        store.search("foobar").unwrap().is_empty(),
-        "deleting a buffer must also drop its FTS row"
+    assert_eq!(
+        search(&dir, "foobar"),
+        vec![indexed_key("orphan-1")],
+        "the note's file survives the row, and so does its index entry"
     );
-}
-
-#[test]
-fn search_finds_only_live_buffers_after_reinsert() {
-    let (_dir, store) = setup();
-
-    let first = make_doc("recycle-a", "untitled");
-    store.insert(&first).unwrap();
-    store
-        .save_content("recycle-a", "foobar in first buffer")
-        .unwrap();
-    store.delete("recycle-a").unwrap();
-
-    let second = make_doc("recycle-b", "untitled");
-    store.insert(&second).unwrap();
-    store
-        .save_content("recycle-b", "foobar in second buffer")
-        .unwrap();
-
-    let hits = store.search("foobar").unwrap();
-    assert_eq!(hits, vec!["recycle-b"]);
-}
-
-#[test]
-fn rebuild_fts_recovers_index_from_buffers() {
-    let (_dir, store) = setup();
-    let doc = make_doc("rebuild-1", "untitled");
-    store.insert(&doc).unwrap();
-    store
-        .save_content("rebuild-1", "lorem ipsum dolor")
-        .unwrap();
-
-    store
-        .rebuild_fts()
-        .expect("rebuild_fts must succeed on a healthy store");
-
-    let hits = store.search("ipsum").unwrap();
-    assert_eq!(hits, vec!["rebuild-1"]);
 }
 
 #[test]
@@ -422,32 +410,44 @@ fn rename_buffer_updates_title() {
 }
 
 #[test]
-fn rename_refreshes_fts_title_so_new_title_is_searchable() {
-    let (_dir, store) = setup();
+fn rename_to_file_re_keys_the_note_in_the_index() {
+    // A title rename that moves the file moves the index entry with it: the
+    // old path goes and the new one comes in, in one call. Writ's own rename
+    // is stamped into the watcher's ignore set, so the notes watcher will not
+    // do this for it.
+    let (dir, store) = setup();
     let doc = make_doc("ren-fts-a", "alpha");
     store.insert(&doc).unwrap();
     store.save_content("ren-fts-a", "body text").unwrap();
+    assert_eq!(search(&dir, "body"), vec![indexed_key("ren-fts-a")]);
 
-    store.rename("ren-fts-a", "beta").unwrap();
+    let renamed = notes_root().join("beta.md");
+    std::fs::rename(note_path("ren-fts-a"), &renamed).expect("rename the file");
+    store
+        .rename_to_file("ren-fts-a", renamed.to_str().unwrap(), "beta")
+        .expect("rename_to_file");
 
-    let hits = store.search("beta").unwrap();
-    assert_eq!(hits, vec!["ren-fts-a"]);
+    let key = writ_storage::notes_index::index_key(&renamed);
+    assert_eq!(search(&dir, "body"), vec![key]);
+    assert!(
+        !search(&dir, "body").contains(&indexed_key("ren-fts-a")),
+        "the note must not be in the index twice after a rename"
+    );
 }
 
 #[test]
-fn rename_removes_old_title_from_fts_search_results() {
-    let (_dir, store) = setup();
+fn rename_alone_leaves_the_index_untouched() {
+    // The index is labelled by file name. A title that changes without the
+    // file moving changes nothing it holds.
+    let (dir, store) = setup();
     let doc = make_doc("ren-fts-b", "alpha");
     store.insert(&doc).unwrap();
     store.save_content("ren-fts-b", "body text").unwrap();
-    assert_eq!(store.search("alpha").unwrap(), vec!["ren-fts-b"]);
 
     store.rename("ren-fts-b", "beta").unwrap();
 
-    assert!(
-        store.search("alpha").unwrap().is_empty(),
-        "old title must not survive in the FTS index after rename"
-    );
+    assert_eq!(store.get("ren-fts-b").unwrap().title, "beta");
+    assert_eq!(search(&dir, "body"), vec![indexed_key("ren-fts-b")]);
 }
 
 #[test]
@@ -556,9 +556,9 @@ fn delete_many_removes_rows_and_index_entries_but_no_files() {
     }
     assert!(is_empty_dir(&dir.path().join("buffers")));
     assert_eq!(
-        store.search("needle").unwrap(),
-        vec!["dm-b"],
-        "FTS rows of deleted buffers must be removed"
+        search(&dir, "needle").len(),
+        3,
+        "the index follows the files, and clearing rows deletes no file"
     );
 }
 
@@ -571,11 +571,16 @@ fn delete_many_rolls_back_every_row_when_a_delete_fails_mid_transaction() {
         store.save_content(id, "in transaction").unwrap();
     }
 
-    // Drop the FTS table so the first in-transaction `fts.delete` fails. The
-    // failure must roll the whole transaction back, leaving both rows intact
-    // rather than deleting the first before the second errors.
+    // Refuse the second row's delete from inside the database, so the batch
+    // fails after the first delete has already run. The failure must roll the
+    // whole transaction back, leaving both rows intact rather than deleting
+    // the first before the second errors.
     second_conn(&dir)
-        .execute("DROP TABLE buffer_fts", [])
+        .execute_batch(
+            "CREATE TRIGGER refuse_dm_tx_2 BEFORE DELETE ON buffers
+             WHEN OLD.id = 'dm-tx-2'
+             BEGIN SELECT RAISE(ABORT, 'refused'); END;",
+        )
         .unwrap();
 
     let result = store.delete_many(&["dm-tx-1".to_string(), "dm-tx-2".to_string()]);
@@ -589,7 +594,7 @@ fn delete_many_rolls_back_every_row_when_a_delete_fails_mid_transaction() {
 
 #[test]
 fn delete_many_is_all_or_nothing_when_an_id_is_unknown() {
-    let (_dir, store) = setup();
+    let (dir, store) = setup();
     for id in ["dm-keep-1", "dm-keep-2"] {
         let doc = make_doc(id, id);
         store.insert(&doc).unwrap();
@@ -612,9 +617,9 @@ fn delete_many_is_all_or_nothing_when_an_id_is_unknown() {
         "no buffer may be deleted when the batch aborts"
     );
     assert_eq!(
-        store.search("persist").unwrap().len(),
+        search(&dir, "persist").len(),
         2,
-        "FTS must be untouched when the batch aborts"
+        "the index must be untouched when the batch aborts"
     );
 }
 
@@ -632,55 +637,10 @@ fn delete_many_is_noop_on_empty_input() {
 }
 
 #[test]
-fn rebuild_fts_indexes_both_active_and_history_buffers() {
-    let (_dir, store) = setup();
-    let active = make_doc("rf-active", "rf-active");
-    let history = make_doc("rf-history", "rf-history");
-    store.insert(&active).unwrap();
-    store.insert(&history).unwrap();
-    store.save_content("rf-active", "alpha sentinel").unwrap();
-    store.save_content("rf-history", "beta sentinel").unwrap();
-    store.close("rf-history").unwrap();
-
-    store.rebuild_fts().expect("rebuild_fts must succeed");
-
-    assert_eq!(store.search("alpha").unwrap(), vec!["rf-active"]);
-    assert_eq!(
-        store.search("beta").unwrap(),
-        vec!["rf-history"],
-        "history buffers must be reindexed, not just active ones"
-    );
-}
-
-#[test]
-fn rebuild_fts_tolerates_a_missing_file() {
-    let (_dir, store) = setup();
-    let present = make_doc("rf-present", "rf-present");
-    let orphan = make_doc("rf-orphan", "rf-orphan");
-    store.insert(&present).unwrap();
-    store.insert(&orphan).unwrap();
-    store.save_content("rf-present", "findable body").unwrap();
-    store.save_content("rf-orphan", "doomed body").unwrap();
-
-    // A row whose file vanished out from under the store.
-    std::fs::remove_file(note_path("rf-orphan")).unwrap();
-
-    store
-        .rebuild_fts()
-        .expect("a missing file must not abort the rebuild");
-
-    assert_eq!(store.search("findable").unwrap(), vec!["rf-present"]);
-    assert!(
-        store.search("doomed").unwrap().is_empty(),
-        "the orphan's old body must not survive once its file is gone"
-    );
-}
-
-#[test]
-fn rebuild_fts_leaves_the_body_of_a_read_only_document_out_of_the_index() {
-    // ADR-028 §1: a document Writ wrote rather than the user is not something
-    // search may return. Its title is, so the tab stays findable by name.
-    let (_dir, store) = setup();
+fn a_generated_document_never_enters_the_index() {
+    // ADR-028 section 1: a document Writ wrote rather than the user is not
+    // something search may return, no matter which path reaches it.
+    let (dir, store) = setup();
     let mut doc = make_doc("rf-notice", "Third-party licences");
     doc.read_only = true;
     std::fs::write(
@@ -690,58 +650,21 @@ fn rebuild_fts_leaves_the_body_of_a_read_only_document_out_of_the_index() {
     .unwrap();
     store.open_from_path_unindexed(&doc).unwrap();
 
-    store.rebuild_fts().expect("rebuild_fts must succeed");
-
     assert!(
-        store.search("dweomerword").unwrap().is_empty(),
-        "a rebuild must not pull a generated document's text into the index"
+        search(&dir, "dweomerword").is_empty(),
+        "opening a generated document must not index it"
     );
-    assert_eq!(store.search("licences").unwrap(), vec!["rf-notice"]);
 
     store.reindex_buffer("rf-notice").expect("reindex");
     assert!(
-        store.search("dweomerword").unwrap().is_empty(),
+        search(&dir, "dweomerword").is_empty(),
         "neither may a reindex"
-    );
-    assert!(
-        !store.verify_and_repair_fts().expect("verify"),
-        "a title-only entry is what the boot check expects to find"
-    );
-}
-
-#[test]
-fn rebuild_fts_drops_stale_rows_for_deleted_buffers() {
-    let (dir, store) = setup();
-    let doc = make_doc("rf-stale", "rf-stale");
-    store.insert(&doc).unwrap();
-    store.save_content("rf-stale", "ghost token").unwrap();
-
-    // Delete the buffer row directly, leaving its FTS row orphaned. The
-    // orphan is invisible to `search` (which inner-joins on `buffers.rowid`),
-    // so assert against the raw FTS row count instead.
-    let probe = second_conn(&dir);
-    probe
-        .execute("DELETE FROM buffers WHERE id = 'rf-stale'", [])
-        .unwrap();
-    let stale: i64 = probe
-        .query_row("SELECT count(*) FROM buffer_fts", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(stale, 1, "precondition: an orphan FTS row exists");
-
-    store.rebuild_fts().expect("rebuild_fts must succeed");
-
-    let after: i64 = probe
-        .query_row("SELECT count(*) FROM buffer_fts", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(
-        after, 0,
-        "rebuild_fts must purge FTS rows whose buffer no longer exists"
     );
 }
 
 #[test]
 fn rename_preserves_content_searchability() {
-    let (_dir, store) = setup();
+    let (dir, store) = setup();
     let doc = make_doc("ren-fts-c", "alpha");
     store.insert(&doc).unwrap();
     store
@@ -750,8 +673,7 @@ fn rename_preserves_content_searchability() {
 
     store.rename("ren-fts-c", "beta").unwrap();
 
-    let hits = store.search("ipsum").unwrap();
-    assert_eq!(hits, vec!["ren-fts-c"]);
+    assert_eq!(search(&dir, "ipsum"), vec![indexed_key("ren-fts-c")]);
 }
 
 #[test]
@@ -918,63 +840,6 @@ fn second_conn(dir: &TempDir) -> rusqlite::Connection {
 }
 
 #[test]
-fn save_content_propagates_fts_error_and_rolls_back_timestamp() {
-    let (dir, store) = setup();
-    let doc = make_doc("tx-1", "Title");
-    store.insert(&doc).unwrap();
-    store.save_content("tx-1", "first").unwrap();
-    let before = store.get("tx-1").unwrap().updated_at;
-
-    // Drop the FTS table so the next save's fts step fails; the timestamp
-    // update must roll back with it, never leaving the row advanced while
-    // the index is stale.
-    second_conn(&dir)
-        .execute("DROP TABLE buffer_fts", [])
-        .unwrap();
-
-    let result = store.save_content("tx-1", "second");
-    assert!(result.is_err(), "a failing FTS update must propagate");
-
-    let after = store.get("tx-1").unwrap().updated_at;
-    assert_eq!(before, after, "timestamp must roll back when FTS fails");
-}
-
-#[test]
-fn verify_and_repair_fts_rebuilds_after_drift() {
-    let (dir, store) = setup();
-    for (id, title) in [("p-1", "alpha"), ("p-2", "beta")] {
-        let doc = make_doc(id, title);
-        store.insert(&doc).unwrap();
-        store.save_content(id, "needle haystack").unwrap();
-    }
-    // Corrupt the index: drop one buffer's FTS row directly.
-    second_conn(&dir)
-        .execute(
-            "DELETE FROM buffer_fts WHERE rowid = (SELECT rowid FROM buffers WHERE id = 'p-1')",
-            [],
-        )
-        .unwrap();
-    assert!(!store.search("needle").unwrap().contains(&"p-1".to_string()));
-
-    let repaired = store.verify_and_repair_fts().unwrap();
-    assert!(repaired, "drift must trigger a rebuild");
-    assert!(store.search("needle").unwrap().contains(&"p-1".to_string()));
-}
-
-#[test]
-fn verify_and_repair_fts_is_noop_on_healthy_index() {
-    let (_dir, store) = setup();
-    let doc = make_doc("h-1", "Title");
-    store.insert(&doc).unwrap();
-    store.save_content("h-1", "content").unwrap();
-
-    assert!(
-        !store.verify_and_repair_fts().unwrap(),
-        "a consistent index must not be rebuilt"
-    );
-}
-
-#[test]
 fn reconcile_resolves_two_rows_sharing_one_backing_file() {
     // The exact corruption the fix exists for: two legacy rows that minted
     // the same mirror filename and overwrote one physical file. Both must
@@ -1002,15 +867,3 @@ fn reconcile_resolves_two_rows_sharing_one_backing_file() {
     );
 }
 
-#[test]
-fn insert_seeds_fts_so_a_fresh_buffer_is_not_seen_as_drift() {
-    // Audit blocker #53.5 hardening: an indexed-eligible buffer is in the
-    // FTS index from insert, so the boot parity check never rebuilds for a
-    // freshly inserted (never-content-saved) buffer.
-    let (_dir, store) = setup();
-    store.insert(&make_doc("seed-1", "Title")).unwrap();
-    assert!(
-        !store.verify_and_repair_fts().unwrap(),
-        "a freshly inserted buffer must already be indexed"
-    );
-}

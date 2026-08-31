@@ -4,6 +4,7 @@ use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
+use writ_storage::notes_index::NotesIndexStore;
 
 fn is_empty_dir(dir: &std::path::Path) -> bool {
     std::fs::read_dir(dir)
@@ -18,8 +19,32 @@ fn setup() -> (TempDir, BufferStore) {
     run_migrations(&conn).expect("migrations failed");
     let buffers_dir = dir.path().join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("failed to create buffers dir");
-    let store = BufferStore::new(conn, buffers_dir);
+    let mut store = BufferStore::new(conn, buffers_dir);
+    // Every file these tests create under the temp dir is a note, so the save
+    // path indexes it; the `/fake/...` rows stay out of the index because
+    // there is no file behind them.
+    store.set_notes_root(dir.path().to_path_buf());
     (dir, store)
+}
+
+/// The notes index over a second connection to the same database, which is how
+/// the app reads it (ADR-028 section 7).
+fn index(dir: &TempDir) -> NotesIndexStore {
+    NotesIndexStore::open(&dir.path().join("test.db")).expect("index db")
+}
+
+/// Note paths whose indexed text matches `raw`.
+fn search(dir: &TempDir, raw: &str) -> Vec<String> {
+    let Some(query) = writ_core::search::to_prefix_match(raw) else {
+        return Vec::new();
+    };
+    let terms = writ_core::search::search_terms(raw);
+    index(dir)
+        .search_hits(&query, &terms, 50)
+        .expect("search")
+        .into_iter()
+        .filter_map(|hit| hit.path)
+        .collect()
 }
 
 fn make_source_doc(id: &str, title: &str, source_path: &str) -> BufferDocument {
@@ -88,16 +113,19 @@ fn open_from_path_records_the_row_and_copies_nothing() {
 }
 
 #[test]
-fn open_from_path_indexes_content_for_fts() {
-    let (_dir, store) = setup();
-    let doc = make_source_doc("fts-open", "main.rs", "/fake/main.rs");
+fn open_from_path_indexes_the_file_it_opened() {
+    let (dir, store) = setup();
+    let file = dir.path().join("main.rs");
+    std::fs::write(&file, "fn search_me_please() {}").unwrap();
+    let doc = make_source_doc("fts-open", "main.rs", file.to_str().unwrap());
     store
         .open_from_path(&doc, "fn search_me_please() {}")
         .unwrap();
 
-    let results = store.search("search_me_please").unwrap();
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0], "fts-open");
+    assert_eq!(
+        search(&dir, "search_me_please"),
+        vec![writ_storage::notes_index::index_key(&file)]
+    );
 }
 
 #[test]
@@ -133,18 +161,9 @@ fn open_from_path_unindexed_never_indexes_the_content() {
     store.open_from_path_unindexed(&doc).unwrap();
 
     assert!(
-        store.search("MIT").unwrap().is_empty(),
+        search(&_dir, "MIT").is_empty(),
         "licence text must never be searchable, unlike open_from_path"
     );
-}
-
-#[test]
-fn open_from_path_unindexed_leaves_the_row_findable_by_title() {
-    let (_dir, store) = setup();
-    let doc = make_source_doc("generated-3", "Third-party licences", "/fake/licences.md");
-    store.open_from_path_unindexed(&doc).unwrap();
-
-    assert_eq!(store.search("licences").unwrap(), vec!["generated-3"]);
 }
 
 #[test]
@@ -205,10 +224,9 @@ fn save_to_source_writes_the_file_and_nothing_else() {
 }
 
 #[test]
-fn save_to_source_updates_fts_index() {
-    let (_dir, store) = setup();
-    let source_dir = TempDir::new().unwrap();
-    let source_file = source_dir.path().join("search.txt");
+fn save_to_source_updates_the_notes_index() {
+    let (dir, store) = setup();
+    let source_file = dir.path().join("search.txt");
     std::fs::write(&source_file, "old content").unwrap();
 
     let doc = make_source_doc("fts-save", "search.txt", source_file.to_str().unwrap());
@@ -218,12 +236,11 @@ fn save_to_source_updates_fts_index() {
         .save_to_source("fts-save", "new unique findable content", None, None)
         .unwrap();
 
-    let results = store.search("findable").unwrap();
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0], "fts-save");
-
-    let old_results = store.search("old content").unwrap();
-    assert!(old_results.is_empty());
+    assert_eq!(
+        search(&dir, "findable"),
+        vec![writ_storage::notes_index::index_key(&source_file)]
+    );
+    assert!(search(&dir, "old content").is_empty());
 }
 
 #[test]
@@ -428,15 +445,17 @@ fn save_to_source_without_index_leaves_the_index_alone() {
         .save_to_source_without_index("indexless-1", "unindexed marker", None, None)
         .unwrap();
 
-    let hits = store.search("marker").unwrap();
     assert!(
-        hits.is_empty(),
+        search(&dir, "marker").is_empty(),
         "the deferred path must not reindex; the scheduler does that later"
     );
 
     store.reindex_buffer("indexless-1").unwrap();
-    let hits = store.search("marker").unwrap();
-    assert_eq!(hits.len(), 1, "the deferred reindex picks the write up");
+    assert_eq!(
+        search(&dir, "marker").len(),
+        1,
+        "the deferred reindex picks the write up"
+    );
 }
 
 #[test]

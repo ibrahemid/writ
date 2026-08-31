@@ -2,9 +2,9 @@
 //!
 //! `writ-storage` owns every disk interaction Writ performs: the SQLite
 //! database, on-disk buffer content files, TOML configuration, session
-//! snapshots, and the FTS5 search index. It depends on `writ-core` for
-//! domain types and exposes higher-level stores that the Tauri adapter
-//! composes into IPC commands.
+//! snapshots, and the search index over the notes folder. It depends on
+//! `writ-core` for domain types and exposes higher-level stores that the Tauri
+//! adapter composes into IPC commands.
 //!
 //! # Module layout
 //!
@@ -15,7 +15,8 @@
 //! - [`config_store`]: TOML config load and save.
 //! - [`consistency`]: startup checks that reconcile the database with the
 //!   files the notes live in.
-//! - [`fts`]: FTS5 indexing and search over buffer content.
+//! - [`notes_index`]: the path-keyed index over the notes folder, and the
+//!   walk that reconciles it with what is on disk.
 //! - [`maintenance`]: WAL checkpointing and freelist reclamation.
 //! - [`note_ops`]: creating, renaming, trashing and copying note files.
 //! - [`notes_migration`]: the one-time pass that turns every note into a
@@ -44,8 +45,6 @@ pub mod consistency;
 pub mod database;
 /// Crate-wide error and result types.
 pub mod errors;
-/// FTS5 indexing and search over buffer content.
-pub mod fts;
 /// Watched-inbox file listing.
 pub mod inbox_store;
 /// Per-buffer preview layout persistence (ADR-009).
@@ -54,6 +53,8 @@ pub mod layout_state;
 pub mod maintenance;
 /// Creating, renaming, trashing and copying the files notes live in.
 pub mod note_ops;
+/// The path-keyed index over the notes folder (ADR-028 section 7).
+pub mod notes_index;
 /// The one-time pass that turns every note into a file (ADR-028).
 pub mod notes_migration;
 /// Moving the notes folder, and emptying the archive into it.

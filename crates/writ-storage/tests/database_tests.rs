@@ -49,9 +49,14 @@ fn run_migrations_creates_schema() {
     assert!(tables.contains(&"session_snapshots".to_string()));
     assert!(tables.contains(&"schema_version".to_string()));
 
+    // The index is keyed by path now (ADR-028 section 7): 040 creates
+    // files_fts and 041 drops the row-keyed buffer_fts it replaces.
     let fts_tables: Vec<String> = {
         let mut stmt = conn
-            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='buffer_fts'")
+            .prepare(
+                "SELECT name FROM sqlite_master
+                 WHERE type='table' AND name IN ('buffer_fts', 'files_fts')",
+            )
             .expect("failed to prepare statement");
         stmt.query_map([], |row| row.get(0))
             .expect("query failed")
@@ -59,7 +64,8 @@ fn run_migrations_creates_schema() {
             .collect()
     };
 
-    assert!(fts_tables.contains(&"buffer_fts".to_string()));
+    assert!(fts_tables.contains(&"files_fts".to_string()));
+    assert!(!fts_tables.contains(&"buffer_fts".to_string()));
 }
 
 #[test]
@@ -158,21 +164,15 @@ fn migration_040_creates_index_tables_empty() {
 }
 
 #[test]
-fn migration_040_files_fts_uses_the_same_tokenizer_as_buffer_fts() {
+fn migration_040_files_fts_keeps_the_tokenizer_buffer_fts_had() {
+    // buffer_fts is gone by 041, so the tokenizer and prefix set it carried
+    // after migration 030 are asserted literally here: search behaviour must
+    // not change when the index is re-keyed to paths.
     let (_dir, conn) = setup_temp_db();
     run_migrations(&conn).expect("migrations failed");
 
     let files_sql = table_sql(&conn, "files_fts");
-    let buffer_sql = table_sql(&conn, "buffer_fts");
 
-    assert_eq!(
-        quoted_option(&files_sql, "tokenize"),
-        quoted_option(&buffer_sql, "tokenize")
-    );
-    assert_eq!(
-        quoted_option(&files_sql, "prefix"),
-        quoted_option(&buffer_sql, "prefix")
-    );
     assert_eq!(
         quoted_option(&files_sql, "tokenize").as_deref(),
         Some("unicode61 remove_diacritics 2")
@@ -184,7 +184,7 @@ fn migration_040_files_fts_uses_the_same_tokenizer_as_buffer_fts() {
 }
 
 #[test]
-fn migration_040_is_idempotent_on_a_second_run() {
+fn the_schema_migrations_are_idempotent_on_a_second_run() {
     let dir = TempDir::new().expect("failed to create temp dir");
     let db_path = dir.path().join("test.db");
 
@@ -210,7 +210,7 @@ fn migration_040_is_idempotent_on_a_second_run() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 40);
+    assert_eq!(max_version, 41);
 }
 
 #[test]
@@ -299,9 +299,12 @@ fn a_0_3_5_database_migrates_to_040_with_its_rows_intact() {
     assert_eq!(titles, vec!["First".to_string(), "Second".to_string()]);
 
     let indexed: i64 = conn
-        .query_row("SELECT COUNT(*) FROM buffer_fts", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM files_fts", [], |row| row.get(0))
         .expect("failed to count indexed rows");
-    assert_eq!(indexed, 2);
+    assert_eq!(
+        indexed, 0,
+        "the path-keyed index starts empty; the reconcile walk fills it"
+    );
 
     let migrated_paths: i64 = conn
         .query_row(
@@ -317,7 +320,7 @@ fn a_0_3_5_database_migrates_to_040_with_its_rows_intact() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 40);
+    assert_eq!(max_version, 41);
 }
 
 /// Column names of the `buffers` table.

@@ -41,6 +41,19 @@ pub enum WritEvent {
         /// `true` when the entry no longer exists on disk.
         removed: bool,
     },
+    /// A file inside the notes folder was created, changed or removed on
+    /// disk by something other than Writ. Listeners refresh the notes tree
+    /// and the index patches the one path; the event carries no content.
+    ///
+    /// It must never route into a reload of the document registry. Recreating
+    /// a loaded `writ-preview://` iframe hard-freezes the macOS webview
+    /// (PR #127), and a blanket reload does exactly that.
+    NotesChanged {
+        /// Absolute path of the changed file.
+        path: String,
+        /// `true` when the file no longer exists on disk.
+        removed: bool,
+    },
     /// A qualifying new file appeared inside the watched inbox folder
     /// (ADR-018). The frontend opens it through the normal open path.
     InboxFileArrived {

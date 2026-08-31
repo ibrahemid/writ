@@ -11,12 +11,12 @@ use writ_core::notes::guard::{decide_save, is_not_downloaded, DiskState, SaveDec
 use writ_core::recovery::{
     fingerprint_buffers, should_snapshot, RecoveredBuffer, SnapshotFingerprint,
 };
-use writ_core::search::SearchHit;
 
 use crate::atomic::write_atomic;
 use crate::database::queries;
 use crate::errors::{StorageError, StorageResult};
 use crate::maintenance::{self, DatabaseStats, MaintenanceOutcome};
+use crate::notes_index;
 use crate::recovery::dirty_shutdown::check_dirty_shutdown;
 use crate::recovery::snapshot::SnapshotManager;
 
@@ -83,6 +83,13 @@ impl RecoveredText {
 pub struct BufferStore {
     conn: Connection,
     buffers_dir: PathBuf,
+    /// The folder whose files the notes index holds (ADR-028 section 7).
+    ///
+    /// `None` until the adapter names it, which is the case in tests and
+    /// one-shot tools that have no notes folder. A save then leaves the index
+    /// alone and [`notes_index::reconcile`] owns it outright, so a store with
+    /// no notes folder can never index a file that is not a note.
+    notes_root: Option<PathBuf>,
     last_snapshot_fingerprint: Option<SnapshotFingerprint>,
 }
 
@@ -92,8 +99,19 @@ impl BufferStore {
         Self {
             conn,
             buffers_dir,
+            notes_root: None,
             last_snapshot_fingerprint: None,
         }
+    }
+
+    /// Names the folder whose files this store keeps in the notes index.
+    ///
+    /// Writ's own writes are stamped into the watcher's ignore set before they
+    /// land, so the notes watcher never sees them: without this the note a user
+    /// just typed would stay unfindable until the next launch reconciled the
+    /// folder. Set once, at startup, from the resolved notes folder.
+    pub fn set_notes_root(&mut self, root: PathBuf) {
+        self.notes_root = Some(root);
     }
 
     /// Returns the path to the retired mirror directory.
@@ -115,24 +133,14 @@ impl BufferStore {
         crate::rollback::age_out_rollback_copy(&self.conn, keep_launches)
     }
 
-    /// Inserts a new buffer row into the database and seeds its FTS entry.
+    /// Inserts a new buffer row into the database.
     ///
-    /// Seeding an (empty-content) FTS row at insert time makes the
-    /// FTS-vs-buffers parity invariant structural rather than dependent on
-    /// every caller remembering to follow up with a content write: an
-    /// indexed-eligible buffer is in the index from the moment it exists,
-    /// so [`Self::verify_and_repair_fts`] never sees a freshly inserted row
-    /// as drift. Large-file and binary buffers (`size_bytes >
-    /// THRESHOLD_NORMAL_BYTES`) are excluded, matching every other write
-    /// site.
+    /// The search index is keyed by file path now, not by row (ADR-028
+    /// section 7), so a row on its own indexes nothing: a new note enters the
+    /// index when its file is written, through [`Self::save_to_source`] or the
+    /// reconcile walk.
     pub fn insert(&self, doc: &BufferDocument) -> StorageResult<()> {
-        let tx = self.conn.unchecked_transaction()?;
-        queries::insert_buffer(&tx, doc)?;
-        if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
-            crate::fts::FtsIndex::new(&tx).insert(&doc.id, &doc.title, "")?;
-        }
-        tx.commit()?;
-        Ok(())
+        queries::insert_buffer(&self.conn, doc)
     }
 
     /// Reads a buffer row by id.
@@ -177,14 +185,11 @@ impl BufferStore {
     /// the sidebar. The only file touched here is a mirror the notes migration
     /// left behind, cleared best-effort.
     ///
-    /// The FTS row is removed first while the buffer row still exists (the FTS
-    /// lookup is keyed off `buffers.rowid`), then the row itself. Losing the
-    /// buffer row without losing the FTS row is what produces orphan hits, so
-    /// the FTS step propagates errors.
+    /// The search index is untouched: closing a tab is not deleting a note, and
+    /// the file the index holds is still on disk. A note leaves the index when
+    /// its file does, through the notes watcher or the reconcile walk.
     pub fn delete(&self, id: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
-        let fts = crate::fts::FtsIndex::new(&self.conn);
-        fts.delete(id)?;
         let mirror = self.buffers_dir.join(&doc.filename);
         if mirror.exists() {
             let _ = std::fs::remove_file(&mirror);
@@ -192,8 +197,9 @@ impl BufferStore {
         queries::delete_buffer(&self.conn, id)
     }
 
-    /// Deletes every buffer listed in `ids` — rows and FTS entries — as a
-    /// single all-or-nothing operation. Like [`Self::delete`], it never
+    /// Deletes every buffer listed in `ids` as a single all-or-nothing
+    /// operation. Like [`Self::delete`], it leaves the search index alone
+    /// and never
     /// unlinks a note's `source_path`; it only clears a mirror the notes
     /// migration left behind.
     ///
@@ -212,12 +218,8 @@ impl BufferStore {
             files.push(self.buffers_dir.join(&doc.filename));
         }
         let tx = self.conn.unchecked_transaction()?;
-        {
-            let fts = crate::fts::FtsIndex::new(&tx);
-            for id in ids {
-                fts.delete(id)?;
-                queries::delete_buffer(&tx, id)?;
-            }
+        for id in ids {
+            queries::delete_buffer(&tx, id)?;
         }
         tx.commit()?;
         for file_path in &files {
@@ -261,26 +263,65 @@ impl BufferStore {
             .map(|_| ())
     }
 
-    /// Rebuilds the FTS row for a single note from its current title and the
-    /// file on disk (the reindex half of the deferred path, ADR-020).
+    /// Refreshes the notes index for a single note from the file on disk (the
+    /// reindex half of the deferred path, ADR-020).
     ///
     /// Reading the file rather than a captured string means a coalesced
     /// reindex always reflects the latest persisted bytes, so collapsing
     /// several edits into one reindex can never index a stale intermediate
-    /// (ADR-028 §12 keeps that argument and only changes which file is read).
+    /// (ADR-028 section 12 keeps that argument and only changes which file is
+    /// read). What changed with ADR-028 is the key and nothing else: the
+    /// generation counter, the coalescing and the shutdown drain are the
+    /// scheduler's, and they are untouched.
+    ///
     /// Large-file and binary buffers (`size_bytes > THRESHOLD_NORMAL_BYTES`)
     /// are skipped, matching the write-time policy in [`Self::save_content`].
-    /// A read-only row keeps its title-only entry: search is over what the
-    /// user wrote, and neither a hex view nor a document Writ generated is
-    /// that ([`Self::indexable_text`]).
+    /// A read-only row indexes nothing: search is over what the user wrote, and
+    /// neither a hex view nor a document Writ generated is that.
     pub fn reindex_buffer(&self, id: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
-        if doc.size_bytes > THRESHOLD_NORMAL_BYTES {
+        let content = Self::indexable_text(&doc);
+        self.index_note(&doc, &content)
+    }
+
+    /// Records `doc`'s file in the notes index, when the row is one the index
+    /// holds.
+    ///
+    /// A row is indexed when it has a file, that file is inside the notes
+    /// folder, it is not read-only, and it opens with the full feature set. A
+    /// read-only row is a hex view or a document Writ generated; a large or
+    /// binary file is not text to search. Nothing here is fatal to a save: the
+    /// bytes are already durable, and a file whose metadata cannot be read is
+    /// picked up by the next reconcile.
+    fn index_note(&self, doc: &BufferDocument, content: &str) -> StorageResult<()> {
+        if doc.read_only || doc.size_bytes > THRESHOLD_NORMAL_BYTES {
             return Ok(());
         }
-        let content = Self::indexable_text(&doc);
-        let fts = crate::fts::FtsIndex::new(&self.conn);
-        fts.update(id, &doc.title, &content)
+        let Some(source_path) = doc.source_path.as_deref() else {
+            return Ok(());
+        };
+        let path = Path::new(source_path);
+        if !self.is_within_notes(path) {
+            return Ok(());
+        }
+        let Some(note) = notes_index::IndexedNote::from_file(path) else {
+            return Ok(());
+        };
+        notes_index::NotesIndex::new(&self.conn).upsert(&note, content)
+    }
+
+    /// Whether `path` is inside the folder the notes index holds. Both sides
+    /// go through [`notes_index::index_key`], so one file has one spelling on
+    /// either side of the comparison.
+    fn is_within_notes(&self, path: &Path) -> bool {
+        let Some(root) = self.notes_root.as_deref() else {
+            return false;
+        };
+        let root_key = notes_index::index_key(root);
+        let path_key = notes_index::index_key(path);
+        path_key
+            .strip_prefix(&root_key)
+            .is_some_and(|rest| rest.starts_with(['/', '\\']))
     }
 
     /// The text of `doc` as the index may hold it.
@@ -342,23 +383,13 @@ impl BufferStore {
         Ok(std::fs::read(source_path)?)
     }
 
-    /// Renames a buffer's title, stamps `updated_at`, and refreshes the
-    /// FTS index so searches against the new title hit immediately.
+    /// Renames a buffer's title and stamps `updated_at`.
     ///
-    /// The rename and the FTS refresh run in a single transaction and FTS
-    /// errors propagate, matching [`Self::save_content`]: the title and
-    /// the index never diverge.
+    /// The search index is keyed by path and labelled by file name, so a title
+    /// that changes without the file moving changes nothing it holds. The
+    /// rename that does move the file is [`Self::rename_to_file`].
     pub fn rename(&self, id: &str, title: &str) -> StorageResult<()> {
-        let doc = queries::get_buffer(&self.conn, id)?;
-        let content = read_source_text(&doc);
-
-        let tx = self.conn.unchecked_transaction()?;
-        queries::rename_buffer(&tx, id, title)?;
-        if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
-            crate::fts::FtsIndex::new(&tx).update(id, title, &content)?;
-        }
-        tx.commit()?;
-        Ok(())
+        queries::rename_buffer(&self.conn, id, title)
     }
 
     /// Records a note's new file and the name that matches it, in one write.
@@ -368,12 +399,13 @@ impl BufferStore {
     /// leave a window where the row names one file and points at another, and
     /// a crash inside that window is a note nobody can find.
     ///
-    /// `source_path` is where the file is now, so the index is refreshed from
-    /// the file at its new name rather than from the one that is no longer
-    /// there. Buffers over [`THRESHOLD_NORMAL_BYTES`] stay out of the index,
-    /// matching [`Self::rename`].
+    /// `source_path` is where the file is now, so the index is re-keyed to it:
+    /// the row under the old path goes, and the file is indexed under the new
+    /// one. Writ's own rename is stamped into the watcher's ignore set, so the
+    /// notes watcher will not do this for it.
     pub fn rename_to_file(&self, id: &str, source_path: &str, title: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
+        let old_path = doc.source_path.clone();
         let renamed = BufferDocument {
             source_path: Some(source_path.to_string()),
             ..doc
@@ -383,41 +415,20 @@ impl BufferStore {
         let tx = self.conn.unchecked_transaction()?;
         queries::update_source_path(&tx, id, source_path)?;
         queries::rename_buffer(&tx, id, title)?;
-        if renamed.size_bytes <= THRESHOLD_NORMAL_BYTES {
-            crate::fts::FtsIndex::new(&tx).update(id, title, &content)?;
-        }
         tx.commit()?;
-        Ok(())
+
+        if let Some(old_path) = old_path {
+            let old = Path::new(&old_path);
+            if self.is_within_notes(old) {
+                notes_index::NotesIndex::new(&self.conn).remove(&notes_index::index_key(old))?;
+            }
+        }
+        self.index_note(&renamed, &content)
     }
 
     /// Updates the persistent tab order for a buffer.
     pub fn update_tab_order(&self, id: &str, order: u32) -> StorageResult<()> {
         queries::update_tab_order(&self.conn, id, order)
-    }
-
-    /// Runs a full-text search and returns matching buffer ids in
-    /// relevance order.
-    pub fn search(&self, query: &str) -> StorageResult<Vec<String>> {
-        let fts = crate::fts::FtsIndex::new(&self.conn);
-        fts.search(query)
-    }
-
-    /// Runs a full-text search and returns up to `limit` display hits (title,
-    /// matching line, highlighted snippet) in relevance order.
-    pub fn search_hits(
-        &self,
-        query: &str,
-        terms: &[String],
-        limit: usize,
-    ) -> StorageResult<Vec<SearchHit>> {
-        let fts = crate::fts::FtsIndex::new(&self.conn);
-        fts.search_hits(query, terms, limit)
-    }
-
-    /// Returns the total number of buffers matching `query`, ignoring any limit.
-    pub fn search_count(&self, query: &str) -> StorageResult<usize> {
-        let fts = crate::fts::FtsIndex::new(&self.conn);
-        fts.count(query)
     }
 
     /// Finds the active buffer whose `source_path` matches, if any.
@@ -491,37 +502,24 @@ impl BufferStore {
     }
 
     /// Opens a note that originated from an external file, inserting its row
-    /// and seeding the search index in one step.
+    /// and recording its file in the notes index.
     ///
     /// Nothing is written to disk: the file the row points at already holds
-    /// `content`, and it is the only copy of it (ADR-028 §1). FTS indexing is
-    /// skipped when `doc.size_bytes > THRESHOLD_NORMAL_BYTES` (large-file and
-    /// binary tiers).
+    /// `content`, and it is the only copy of it (ADR-028 section 1). A file
+    /// outside the notes folder, over [`THRESHOLD_NORMAL_BYTES`], or read-only
+    /// is not indexed.
     pub fn open_from_path(&self, doc: &BufferDocument, content: &str) -> StorageResult<()> {
-        let tx = self.conn.unchecked_transaction()?;
-        queries::insert_buffer(&tx, doc)?;
-        if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
-            crate::fts::FtsIndex::new(&tx).insert(&doc.id, &doc.title, content)?;
-        }
-        tx.commit()?;
-        Ok(())
+        queries::insert_buffer(&self.conn, doc)?;
+        self.index_note(doc, content)
     }
 
     /// [`Self::open_from_path`] without ever indexing the file's text.
     ///
-    /// For a generated document (ADR-028 §1): its text is not the user's
-    /// writing, so it must never enter the search index no matter how small
-    /// the file is — unlike [`Self::open_from_path`], which indexes whenever
-    /// `size_bytes` is under [`THRESHOLD_NORMAL_BYTES`]. The title is still
-    /// seeded with empty content, matching [`Self::insert`], so the row
-    /// reads as fully indexed to [`Self::verify_and_repair_fts`] and the tab
-    /// stays findable by name.
+    /// For a generated document (ADR-028 section 1): its text is not the user's
+    /// writing, so it must never enter the search index no matter how small the
+    /// file is, or where it sits.
     pub fn open_from_path_unindexed(&self, doc: &BufferDocument) -> StorageResult<()> {
-        let tx = self.conn.unchecked_transaction()?;
-        queries::insert_buffer(&tx, doc)?;
-        crate::fts::FtsIndex::new(&tx).insert(&doc.id, &doc.title, "")?;
-        tx.commit()?;
-        Ok(())
+        queries::insert_buffer(&self.conn, doc)
     }
 
     /// Persists content back to the note's file, refreshing the search index.
@@ -531,15 +529,14 @@ impl BufferStore {
     /// ([`Self::write_source_guarded`]). Returns what the file holds
     /// afterwards, which the caller records for the next save.
     ///
-    /// The file is written first. The `updated_at` stamp and the FTS row are
-    /// then updated inside a single transaction (audit blocker #53.5): either
-    /// both land or neither does, so the timestamp can never advance past a
-    /// stale index. FTS errors propagate rather than being swallowed; a crash
-    /// that still slips the index out of sync is healed at the next boot by
-    /// [`Self::verify_and_repair_fts`].
+    /// The file is written first, then the `updated_at` stamp, then the index.
+    /// Index errors propagate rather than being swallowed; a crash that still
+    /// slips the index out of sync is healed at the next launch by
+    /// [`notes_index::reconcile`], which compares every row against the file
+    /// behind it.
     ///
     /// Buffers with `size_bytes > THRESHOLD_NORMAL_BYTES` (large-file and
-    /// binary tiers) are excluded from FTS indexing: the cost of indexing a
+    /// binary tiers) are excluded from indexing: the cost of indexing a
     /// 50 MB log degrades search for all of them with no practical benefit.
     /// A read-only row is refused (a binary hex view must never write back
     /// over its file).
@@ -552,16 +549,12 @@ impl BufferStore {
     ) -> StorageResult<DiskState> {
         let (doc, state) = self.write_source_guarded(id, content, last_known, before_write)?;
 
-        let tx = self.conn.unchecked_transaction()?;
-        queries::update_timestamp(&tx, id)?;
-        if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
-            crate::fts::FtsIndex::new(&tx).update(id, &doc.title, content)?;
-        }
-        tx.commit()?;
+        queries::update_timestamp(&self.conn, id)?;
+        self.index_note(&doc, content)?;
         Ok(state)
     }
 
-    /// [`Self::save_to_source`] **without** touching the FTS index.
+    /// [`Self::save_to_source`] **without** touching the search index.
     ///
     /// The write half of the deferred-reindex path (ADR-020): autosave writes
     /// through here on every idle window, then schedules one coalesced
@@ -772,77 +765,6 @@ impl BufferStore {
     /// Updates the detected or user-assigned language for a buffer.
     pub fn update_language(&self, id: &str, language: Option<&str>) -> StorageResult<()> {
         queries::update_language(&self.conn, id, language)
-    }
-
-    /// Drops every FTS row and rebuilds the index from the buffers
-    /// table plus on-disk content.
-    ///
-    /// Intended as a recovery escape hatch when the index drifts from
-    /// the buffer set (orphaned rows, missing rows). Currently unwired;
-    /// will be exposed as a debug command.
-    ///
-    /// Large-file and binary buffers (`size_bytes > THRESHOLD_NORMAL_BYTES`)
-    /// are excluded, consistent with the write-time skip in
-    /// [`Self::save_content`] and [`Self::open_from_path`], and a read-only
-    /// row is rebuilt title-only ([`Self::indexable_text`]).
-    pub fn rebuild_fts(&self) -> StorageResult<()> {
-        self.conn.execute("DELETE FROM buffer_fts", [])?;
-        let fts = crate::fts::FtsIndex::new(&self.conn);
-        for status in [BufferStatus::Active, BufferStatus::History] {
-            let docs = self.list_by_status(status)?;
-            for doc in &docs {
-                if doc.size_bytes > THRESHOLD_NORMAL_BYTES {
-                    continue;
-                }
-                let content = Self::indexable_text(doc);
-                fts.insert(&doc.id, &doc.title, &content)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Reconciles the FTS index against the buffer set and rebuilds it on
-    /// any drift, returning `true` when a rebuild was performed.
-    ///
-    /// The transactional writes in [`Self::save_content`] keep the index in
-    /// step during normal operation, but a crash between the content-file
-    /// write and the commit, or a damaged index file, can still leave the
-    /// two out of sync. Run once at boot (audit blocker #53.5): the set of
-    /// indexed-eligible buffers (`size_bytes <= THRESHOLD_NORMAL_BYTES`,
-    /// either status) must match exactly the set of ids present in the FTS
-    /// table; otherwise the whole index is rebuilt from buffers + disk.
-    pub fn verify_and_repair_fts(&self) -> StorageResult<bool> {
-        let mut expected: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for status in [BufferStatus::Active, BufferStatus::History] {
-            for doc in self.list_by_status(status)? {
-                if doc.size_bytes <= THRESHOLD_NORMAL_BYTES {
-                    expected.insert(doc.id);
-                }
-            }
-        }
-
-        let indexed: std::collections::HashSet<String> = {
-            let mut stmt = self
-                .conn
-                .prepare("SELECT b.id FROM buffer_fts f JOIN buffers b ON b.rowid = f.rowid")?;
-            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
-            let mut set = std::collections::HashSet::new();
-            for row in rows {
-                set.insert(row?);
-            }
-            set
-        };
-
-        if expected == indexed {
-            return Ok(false);
-        }
-        warn!(
-            expected = expected.len(),
-            indexed = indexed.len(),
-            "fts index drift detected; rebuilding"
-        );
-        self.rebuild_fts()?;
-        Ok(true)
     }
 
     /// Normalizes every buffer's mirror `filename` to `{id}.txt` and then
