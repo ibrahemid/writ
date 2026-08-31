@@ -1,13 +1,13 @@
 [
   {
     "file": "src/App.tsx",
-    "line": 154,
+    "line": 155,
     "word": "buffer",
     "note": "recovery toast, release 0.6"
   },
   {
     "file": "src/App.tsx",
-    "line": 228,
+    "line": 229,
     "word": "buffer",
     "note": "Save command description, release 0.6"
   },

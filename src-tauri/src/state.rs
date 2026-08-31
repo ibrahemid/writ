@@ -114,6 +114,12 @@ pub struct AppState {
     /// thread polls it per entry, so a quit during a large walk does not wait
     /// for the walk.
     pub notes_index_cancel: Arc<AtomicBool>,
+    /// Set when the frontend confirms it has written everything it was still
+    /// holding inside the autosave debounce window, in answer to
+    /// [`writ_core::events::bus::WritEvent::FlushBeforeQuit`]. The shutdown
+    /// path waits on it, but only as far as
+    /// [`writ_core::recovery::QUIT_FLUSH_TIMEOUT`].
+    pub quit_flush_confirmed: Arc<AtomicBool>,
     /// Buffers restored from the crash snapshot on this launch.
     /// Consumed by the `get_recovered_buffers` command and cleared.
     pub recovered_buffers: Mutex<Vec<RecoveredBuffer>>,
@@ -391,6 +397,7 @@ impl AppState {
             layout_state,
             notes_index,
             notes_index_cancel: Arc::new(AtomicBool::new(false)),
+            quit_flush_confirmed: Arc::new(AtomicBool::new(false)),
             recovered_buffers: Mutex::new(recovered_buffers),
             was_dirty_shutdown,
             workspace_root: Mutex::new(workspace_root),

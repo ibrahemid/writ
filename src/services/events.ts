@@ -23,6 +23,7 @@ const EVENT_MAP: Record<EventKind, string> = {
   "preview:rendered": "writ://preview-rendered",
   "preview:error": "writ://preview-error",
   "preview:layout_changed": "writ://preview-layout-changed",
+  "quit:flush": "writ://flush-before-quit",
   "titlebar:maximize-hit": "writ://titlebar-maximize-hit",
 };
 

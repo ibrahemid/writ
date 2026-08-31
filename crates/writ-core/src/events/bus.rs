@@ -70,6 +70,11 @@ pub enum WritEvent {
         /// `command.id` registered in the frontend command palette.
         action: String,
     },
+    /// The application is shutting down and the frontend may still be holding
+    /// text inside the autosave debounce window. Listeners write everything
+    /// pending and confirm; the shutdown path waits for that confirmation, but
+    /// only as far as [`crate::recovery::QUIT_FLUSH_TIMEOUT`].
+    FlushBeforeQuit,
     /// A plugin-defined event payload.
     PluginEvent {
         /// Identifier of the plugin that emitted the event.

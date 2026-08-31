@@ -59,7 +59,7 @@ import { onEvent, emitFrontendReady } from "./services/events";
 import { onAutosaveError, hasPendingAutosave, cancelAutosave } from "./services/autosave";
 import { handleExternalEdit } from "./services/external-edit";
 import { reportFirstPaint } from "./services/tauri";
-import { installCloseFlush } from "./services/window-lifecycle";
+import { installCloseFlush, startWindowLifecycle } from "./services/window-lifecycle";
 import type { UnlistenFn } from "./services/events";
 import "./styles/global.css";
 import "./App.css";
@@ -142,6 +142,7 @@ function AppShell() {
     if (!IS_MAC) unlisteners.push(await osWindowStore.installMaximizeSync());
     unlisteners.push(await osWindowStore.installGeometryPersistence());
     unlisteners.push(await installCloseFlush([() => osWindowStore.flushGeometry()]));
+    unlisteners.push(...(await startWindowLifecycle()));
     win.sidebar.hydrateFromConfig();
     await bufferRegistry.load();
     await workspaceStore.hydrate().catch(() => undefined);

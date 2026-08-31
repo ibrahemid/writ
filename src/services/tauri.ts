@@ -231,6 +231,10 @@ export async function toggleWindow(): Promise<void> {
   return invoke("toggle_window");
 }
 
+export async function confirmQuitFlush(): Promise<void> {
+  return invoke("confirm_quit_flush");
+}
+
 export async function openFile(path: string): Promise<FileOpenResult> {
   return invoke("open_file", { path });
 }

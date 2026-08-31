@@ -81,6 +81,11 @@ pub enum WritFrontendEvent {
         ratio: Option<f32>,
     },
 
+    /// Empty struct rather than a unit variant: under `tag`/`content` a unit
+    /// variant serialises without the `payload` key the frontend unwraps.
+    #[serde(rename = "quit:flush")]
+    FlushBeforeQuit {},
+
     #[serde(rename = "titlebar:maximize-hit")]
     CaptionMaximizeHit { phase: CaptionHitPhase },
 }
@@ -102,6 +107,7 @@ fn event_name(event: &WritFrontendEvent) -> &'static str {
         WritFrontendEvent::PreviewRendered { .. } => "writ://preview-rendered",
         WritFrontendEvent::PreviewError { .. } => "writ://preview-error",
         WritFrontendEvent::LayoutChanged { .. } => "writ://preview-layout-changed",
+        WritFrontendEvent::FlushBeforeQuit { .. } => "writ://flush-before-quit",
         WritFrontendEvent::CaptionMaximizeHit { .. } => "writ://titlebar-maximize-hit",
     }
 }

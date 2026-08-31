@@ -7,6 +7,7 @@ pub mod logging;
 pub mod notes;
 pub mod poison;
 pub mod preview;
+pub mod quit;
 pub mod security;
 pub mod snap_overlay;
 pub mod startup;
@@ -32,6 +33,39 @@ use writ_core::startup::{StartupFailure, StartupStage};
 /// ([`writ_storage::buffer_store::BufferStore::write_session_snapshot_if_changed`]),
 /// which is what keeps an idle session from growing the database.
 pub const SNAPSHOT_HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Writes everything the next launch needs before the process goes away.
+///
+/// Deferred FTS reindexes go first: a reindex still inside its debounce window
+/// would otherwise be lost, leaving search stale, because the startup
+/// consistency check only removes orphan rows and never adds missing content
+/// (ADR-020). The clean-shutdown snapshot follows, and it must be the last
+/// thing written, so it records the notes as the flush left them.
+fn finish_shutdown(app_handle: &tauri::AppHandle) {
+    let state = app_handle.state::<AppState>();
+
+    let pending = state.fts_scheduler.drain_pending();
+    if !pending.is_empty() {
+        if let Ok(store) = state.store.lock() {
+            for id in pending {
+                if let Err(e) = store.reindex_buffer(&id) {
+                    tracing::debug!(buffer_id = %id, error = %e, "shutdown fts reindex failed");
+                }
+            }
+        }
+    }
+
+    let snapshot_result = state.store.lock().ok().map(|store| {
+        store
+            .collect_buffer_contents()
+            .and_then(|contents| store.write_session_snapshot(&contents, true))
+    });
+    match snapshot_result {
+        Some(Ok(())) => info!("clean-shutdown snapshot written"),
+        Some(Err(e)) => tracing::warn!(error = %e, "clean-shutdown snapshot failed"),
+        None => {}
+    }
+}
 
 #[cfg(target_os = "macos")]
 const MENU_ACTION_IDS: &[&str] = &[
@@ -353,6 +387,7 @@ pub fn run() {
             commands::history::search_notes_by_name,
             commands::config::get_config,
             commands::config::update_config,
+            commands::window::confirm_quit_flush,
             commands::window::toggle_window,
             commands::window::compute_window_placement,
             commands::window::set_caption_button_metrics,
@@ -723,42 +758,52 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build writ");
 
-    app.run(|app_handle, event| {
-        if let tauri::RunEvent::ExitRequested { .. } = &event {
-            // Flush deferred FTS reindexes before exit: a reindex still inside
-            // its debounce window would otherwise be lost, leaving search stale
-            // (the startup consistency check only removes orphan rows, it never
-            // adds missing content). ADR-020.
+    // Owned by the callback rather than shared: `AppHandle::exit` raises
+    // `ExitRequested` a second time, and only the first pass runs the flush
+    // handshake. The callback is the main thread's alone, so a plain flag is
+    // the whole of the synchronisation it needs.
+    let mut quit_started = false;
+
+    app.run(move |app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+            if quit_started {
+                return;
+            }
+            quit_started = true;
+
             let state = app_handle.state::<AppState>();
             // Stop the reconcile walk rather than waiting for it: a cancelled
             // pass removes nothing, and the next launch reconciles again.
             state
                 .notes_index_cancel
                 .store(true, std::sync::atomic::Ordering::Relaxed);
-            let pending = state.fts_scheduler.drain_pending();
-            if !pending.is_empty() {
-                if let Ok(store) = state.store.lock() {
-                    for id in pending {
-                        if let Err(e) = store.reindex_buffer(&id) {
-                            tracing::debug!(buffer_id = %id, error = %e, "shutdown fts reindex failed");
-                        }
+
+            // Nothing has asked the frontend to write what the user typed
+            // inside the last debounce window yet. Ask, and let the event loop
+            // run: the webview handles the request on this very thread, so
+            // waiting here is what would make the answer impossible.
+            if state
+                .frontend_ready
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                api.prevent_exit();
+                state
+                    .event_bus
+                    .emit(writ_core::events::bus::WritEvent::FlushBeforeQuit);
+
+                let confirmed = state.quit_flush_confirmed.clone();
+                let shutdown_handle = app_handle.clone();
+                std::thread::spawn(move || {
+                    if !quit::wait_for_quit_flush(&confirmed) {
+                        tracing::warn!("frontend did not confirm its flush before the timeout");
                     }
-                }
+                    finish_shutdown(&shutdown_handle);
+                    shutdown_handle.exit(0);
+                });
+                return;
             }
 
-            let snapshot_result = {
-                let state = app_handle.state::<AppState>();
-                state.store.lock().ok().map(|store| {
-                    store
-                        .collect_buffer_contents()
-                        .and_then(|contents| store.write_session_snapshot(&contents, true))
-                })
-            };
-            match snapshot_result {
-                Some(Ok(())) => info!("clean-shutdown snapshot written"),
-                Some(Err(e)) => tracing::warn!(error = %e, "clean-shutdown snapshot failed"),
-                None => {}
-            }
+            finish_shutdown(app_handle);
         }
 
         #[cfg(any(target_os = "macos", target_os = "ios"))]
