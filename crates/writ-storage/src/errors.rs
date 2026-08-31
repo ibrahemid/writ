@@ -95,6 +95,20 @@ pub enum StorageError {
         folder: std::path::PathBuf,
     },
 
+    /// The archive folder and the notes folder are the same folder, or one
+    /// holds the other, so emptying the archive would rename every note onto
+    /// a deduped copy of itself.
+    ///
+    /// The two are distinct folders on every ordinary launch; this is what a
+    /// hand-written config or an environment override can make of them.
+    #[error("the archive {} and the notes folder {} are not separate folders", archive.display(), notes.display())]
+    ArchiveHoldsNotes {
+        /// The archive folder as resolved.
+        archive: std::path::PathBuf,
+        /// The notes folder as resolved.
+        notes: std::path::PathBuf,
+    },
+
     /// A note could not be handed to the operating system's trash.
     ///
     /// The row stays and the file stays: a note is never unlinked to work

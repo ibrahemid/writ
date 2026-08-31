@@ -13,6 +13,7 @@ use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
+use writ_storage::errors::StorageError;
 use writ_storage::notes_migration::{
     run_notes_migration, MigrationReport, MigrationRoots, RowOutcome, RECOVERED_FOLDER,
 };
@@ -776,4 +777,63 @@ fn a_re_run_keeps_what_the_earlier_run_placed() {
         ]),
         "and nothing is written twice"
     );
+}
+
+#[test]
+fn emptying_the_archive_into_itself_renames_nothing_and_rewrites_no_row() {
+    let fixture = Fixture::new();
+    let archive = fixture.archive();
+    std::fs::create_dir_all(&archive).expect("archive");
+    let note = archive.join("Ideas.md");
+    std::fs::write(&note, "archived").expect("seed");
+
+    let path = note.to_string_lossy().into_owned();
+    fixture
+        .store
+        .insert(&row("one", "Ideas", Some(path.clone())))
+        .expect("insert");
+
+    let error = writ_storage::notes_move::move_archive_into_notes(
+        &fixture.store,
+        &archive,
+        &archive,
+        day(2026, 8, 28),
+    )
+    .expect_err("the archive cannot be emptied into itself");
+
+    assert!(
+        matches!(error, StorageError::ArchiveHoldsNotes { .. }),
+        "the two folders are named, not a generic failure: {error}"
+    );
+    assert!(note.exists(), "the note keeps its name");
+    assert_eq!(
+        std::fs::read_dir(&archive).expect("read").count(),
+        1,
+        "no numbered copy was minted"
+    );
+    assert_eq!(
+        fixture.store.get("one").expect("get").source_path,
+        Some(path),
+        "and the row still names it"
+    );
+}
+
+#[test]
+fn emptying_the_archive_into_a_folder_that_holds_it_is_turned_down() {
+    let fixture = Fixture::new();
+    let archive = fixture.archive();
+    std::fs::create_dir_all(&archive).expect("archive");
+    std::fs::write(archive.join("Ideas.md"), "archived").expect("seed");
+    let holding = archive.parent().expect("the folder above").to_path_buf();
+
+    let error = writ_storage::notes_move::move_archive_into_notes(
+        &fixture.store,
+        &archive,
+        &holding,
+        day(2026, 8, 28),
+    )
+    .expect_err("one folder holds the other");
+
+    assert!(matches!(error, StorageError::ArchiveHoldsNotes { .. }));
+    assert!(archive.join("Ideas.md").exists(), "nothing moved");
 }

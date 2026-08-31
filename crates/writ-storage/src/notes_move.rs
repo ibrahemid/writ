@@ -21,7 +21,7 @@ use writ_core::notes;
 
 use crate::buffer_store::BufferStore;
 use crate::database::queries;
-use crate::errors::StorageResult;
+use crate::errors::{StorageError, StorageResult};
 use crate::notes_migration;
 
 /// What a move of the notes folder did.
@@ -261,12 +261,19 @@ pub struct ArchiveMoveOutcome {
 /// Each moved file's row is pointed at it, which is what turns an archived
 /// note back into an ordinary one, and the stored report is re-counted so the
 /// offer to move them does not come back on the next launch.
+///
+/// Refuses outright when the two folders are one, or when either holds the
+/// other. Every name in the archive would then already be taken by the file
+/// itself, so the dedupe above would rename each note onto a numbered copy of
+/// itself and rewrite its row to match.
 pub fn move_archive_into_notes(
     store: &BufferStore,
     archive: &Path,
     notes: &Path,
     now: DateTime<Utc>,
 ) -> StorageResult<ArchiveMoveOutcome> {
+    refuse_overlap(archive, notes)?;
+
     let files = archived_files(archive);
     if files.is_empty() {
         return Ok(ArchiveMoveOutcome::default());
@@ -307,6 +314,24 @@ pub fn move_archive_into_notes(
     notes_migration::record_archive_moved(store, &placed)?;
     outcome.collided.sort();
     Ok(outcome)
+}
+
+/// Refuses when the archive and the notes folder are not two separate folders.
+///
+/// Both sides are resolved first, so the answer is about folders rather than
+/// spellings and a linked folder cannot hide one inside the other. A side that
+/// does not resolve does not exist, and an archive or a notes folder that is
+/// not there holds nothing either way, so its own spelling is compared.
+fn refuse_overlap(archive: &Path, notes: &Path) -> StorageResult<()> {
+    let resolved = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let (from, to) = (resolved(archive), resolved(notes));
+    if from.starts_with(&to) || to.starts_with(&from) {
+        return Err(StorageError::ArchiveHoldsNotes {
+            archive: from,
+            notes: to,
+        });
+    }
+    Ok(())
 }
 
 /// Every regular file directly inside the archive, sorted so a run is
