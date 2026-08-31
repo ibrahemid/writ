@@ -386,7 +386,13 @@ describe("SettingsModal", () => {
     await openAppearance(container);
     const swatches = accentSwatches(container);
     expect(swatches).toHaveLength(6);
-    expect(swatches.every((s) => s.disabled)).toBe(false);
+    const byAccent = (id: string) => swatches.find((s) => s.dataset.accent === id);
+    expect(byAccent("pine")!.disabled).toBe(false);
+    expect(byAccent("writ-blue")!.disabled).toBe(false);
+    expect(byAccent("terracotta")!.disabled).toBe(false);
+    expect(byAccent("slate")!.disabled).toBe(false);
+    expect(byAccent("plum")!.disabled).toBe(false);
+    expect(byAccent("gold")!.disabled).toBe(false);
     const row = container.querySelector("[data-setting-id='appearance.accent']");
     expect(row!.querySelector(".settings-row-caution")).toBeNull();
 

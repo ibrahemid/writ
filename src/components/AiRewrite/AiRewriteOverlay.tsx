@@ -56,7 +56,7 @@ export default function AiRewriteOverlay() {
           <span class="ai-overlay-status" data-status={store.status()} aria-live="polite">
             {STATUS_LABELS[store.status()] ?? ""}
           </span>
-          <Tooltip label="Discard rewrite">
+          <Tooltip label="Discard rewrite (Esc)">
             <Button
               variant="ghost"
               icon="x"
