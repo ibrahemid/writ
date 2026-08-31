@@ -23,6 +23,20 @@
 //! ```text
 //! WRIT_FSYNC_BENCH_DIR=/Volumes/usb cargo bench -p writ-storage --bench fullfsync
 //! ```
+//!
+//! Measured on internal APFS, Apple Silicon, 120 cadence samples, nothing else
+//! running:
+//!
+//! ```text
+//!   sync_all                p50 9.298ms  p95 10.415ms  p99 11.425ms  max 12.327ms
+//!   sync_all + F_FULLFSYNC  p50 9.369ms  p95 12.478ms  p99 16.587ms  max 18.351ms
+//! ```
+//!
+//! Criterion means over the same run: 7.659-7.781 ms against 7.822-8.101 ms.
+//! The barrier costs nothing measurable at the median and roughly 5 ms at the
+//! 99th percentile; the tail moves with what else is touching the drive, so a
+//! contended machine reports several times these figures. External USB and
+//! network volumes are unmeasured.
 
 use std::fs::File;
 use std::io::{self, Write};
