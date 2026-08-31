@@ -579,9 +579,9 @@ export default function WritWindow() {
       const fmt: [string, string, string, (v: EditorView) => boolean][] = [
         ['editor.toggleBold', 'Bold', 'CmdOrCtrl+B', toggleBold],
         ['editor.toggleItalic', 'Italic', 'CmdOrCtrl+I', toggleItalic],
-        ['editor.toggleStrikethrough', 'Toggle Strikethrough', 'CmdOrCtrl+Shift+X', toggleStrikethrough],
+        ['editor.toggleStrikethrough', 'Strikethrough', 'CmdOrCtrl+Shift+X', toggleStrikethrough],
         ['editor.toggleInlineCode', 'Inline code', 'CmdOrCtrl+Shift+E', toggleInlineCode],
-        ['editor.insertLink', 'Insert Link', 'CmdOrCtrl+K', insertLink],
+        ['editor.insertLink', 'Insert link', 'CmdOrCtrl+K', insertLink],
       ];
       for (const [id, name, binding, cmd] of fmt) {
         list.push({ id, name, binding, scope: 'editor', run: () => { runCm(cmd); setPaletteOpen(false); } });
