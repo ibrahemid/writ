@@ -27,6 +27,7 @@ use writ_tauri_lib::commands::notes::{
     notes_folder_info, notes_migration_report,
 };
 use writ_tauri_lib::preview::handler::RenderCache;
+use writ_tauri_lib::quit::QuitState;
 use writ_tauri_lib::security::AuthorizedPaths;
 use writ_tauri_lib::state::{
     resolve_and_create_notes_root, AppState, NotesRootFallback, NotesRootFallbackReason,
@@ -59,7 +60,7 @@ fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFall
         notes_watcher: Mutex::new(None),
         notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
-        quit_flush_confirmed: Arc::new(AtomicBool::new(false)),
+        quit: Arc::new(QuitState::new()),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
         transforms: RwLock::new(TransformRegistry::new()),

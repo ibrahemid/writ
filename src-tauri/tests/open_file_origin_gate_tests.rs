@@ -19,6 +19,7 @@ use writ_tauri_lib::commands::buffer::{
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::preview::handler::RenderCache;
+use writ_tauri_lib::quit::QuitState;
 use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
 use writ_tauri_lib::state::AppState;
 use writ_tauri_lib::watcher::handler::create_ignore_set;
@@ -53,7 +54,7 @@ fn make_state(dir: &TempDir) -> AppState {
         notes_watcher: Mutex::new(None),
         notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
-        quit_flush_confirmed: Arc::new(AtomicBool::new(false)),
+        quit: Arc::new(QuitState::new()),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
         transforms: RwLock::new(TransformRegistry::new()),

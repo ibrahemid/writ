@@ -67,6 +67,11 @@ fn finish_shutdown(app_handle: &tauri::AppHandle) {
     }
 }
 
+/// The Quit item's id. Not in [`MENU_ACTION_IDS`]: quitting is the exit path's
+/// own business, not an action forwarded to the frontend.
+#[cfg(target_os = "macos")]
+const QUIT_MENU_ID: &str = "app.quit";
+
 #[cfg(target_os = "macos")]
 const MENU_ACTION_IDS: &[&str] = &[
     "app.check_updates",
@@ -120,13 +125,22 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let check_updates =
         MenuItemBuilder::with_id("app.check_updates", "Check for Updates…").build(app)?;
 
+    // Not `PredefinedMenuItem::quit`: muda maps that to AppKit's `terminate:`,
+    // which tears the process down without ever reaching the event loop, so no
+    // exit request is raised and nothing gets a chance to write. A plain item
+    // that calls `AppHandle::exit` goes the long way round, through
+    // `RunEvent::ExitRequested` and the flush handshake.
+    let quit_item = MenuItemBuilder::with_id(QUIT_MENU_ID, "Quit Writ")
+        .accelerator("CmdOrCtrl+Q")
+        .build(app)?;
+
     let app_menu = SubmenuBuilder::new(app, "Writ")
         .items(&[
             &PredefinedMenuItem::about(app, Some("About Writ"), None)?,
             &PredefinedMenuItem::separator(app)?,
             &check_updates,
             &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::quit(app, Some("Quit Writ"))?,
+            &quit_item,
         ])
         .build()?;
 
@@ -178,6 +192,10 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     app.on_menu_event(move |app_handle, event| {
         let id = event.id().0.as_str();
+        if id == QUIT_MENU_ID {
+            app_handle.exit(0);
+            return;
+        }
         if let Some(action) = menu_action_for_id(id) {
             let state = app_handle.state::<AppState>();
             state.event_bus.emit(WritEvent::MenuAction {
@@ -758,20 +776,34 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build writ");
 
-    // Owned by the callback rather than shared: `AppHandle::exit` raises
-    // `ExitRequested` a second time, and only the first pass runs the flush
-    // handshake. The callback is the main thread's alone, so a plain flag is
-    // the whole of the synchronisation it needs.
-    let mut quit_started = false;
-
     app.run(move |app_handle, event| {
-        if let tauri::RunEvent::ExitRequested { api, .. } = &event {
-            if quit_started {
+        if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
+            // A restart is not a quit the handshake can hold: `prevent_exit`
+            // is a documented no-op for it, so asking the frontend to flush
+            // would leave the answer arriving after the runtime had gone.
+            // Write what Rust holds and let it through.
+            if *code == Some(tauri::RESTART_EXIT_CODE) {
+                let state = app_handle.state::<AppState>();
+                if state.quit.claim_final_shutdown() {
+                    finish_shutdown(app_handle);
+                    state.quit.finish();
+                }
                 return;
             }
-            quit_started = true;
 
             let state = app_handle.state::<AppState>();
+            match state.quit.begin(*code) {
+                // Already written, this is the exit the waiter asked for.
+                quit::QuitDecision::Proceed => return,
+                // A second Cmd+Q on top of a quit that is still writing. Hold
+                // it: letting this one through would end the process mid-write.
+                quit::QuitDecision::Wait => {
+                    api.prevent_exit();
+                    return;
+                }
+                quit::QuitDecision::StartFlush => {}
+            }
+
             // Stop the reconcile walk rather than waiting for it: a cancelled
             // pass removes nothing, and the next launch reconciles again.
             state
@@ -791,19 +823,39 @@ pub fn run() {
                     .event_bus
                     .emit(writ_core::events::bus::WritEvent::FlushBeforeQuit);
 
-                let confirmed = state.quit_flush_confirmed.clone();
+                let quit_state = state.quit.clone();
                 let shutdown_handle = app_handle.clone();
                 std::thread::spawn(move || {
-                    if !quit::wait_for_quit_flush(&confirmed) {
+                    if !quit_state.wait_for_flush() {
                         tracing::warn!("frontend did not confirm its flush before the timeout");
                     }
                     finish_shutdown(&shutdown_handle);
-                    shutdown_handle.exit(0);
+                    // Only now may a repeat request exit: until the writes are
+                    // on disk, one would take the process down mid-snapshot.
+                    quit_state.finish();
+                    shutdown_handle.exit(quit_state.exit_code());
                 });
                 return;
             }
 
             finish_shutdown(app_handle);
+            state.quit.finish();
+        }
+
+        // macOS quits that never raise a request still land here: `NSApp
+        // terminate:`, which the Dock and an `osascript quit` both send, runs
+        // this from inside `applicationWillTerminate:`. Nothing can be asked
+        // of the webview on that thread, but what Rust holds is still ours to
+        // write.
+        if matches!(event, tauri::RunEvent::Exit) {
+            let state = app_handle.state::<AppState>();
+            if state.quit.claim_final_shutdown() {
+                state
+                    .notes_index_cancel
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                finish_shutdown(app_handle);
+                state.quit.finish();
+            }
         }
 
         #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -904,6 +956,15 @@ mod tests {
     }
 
     #[cfg(target_os = "macos")]
+    #[test]
+    fn the_quit_item_is_not_forwarded_to_the_frontend() {
+        assert_eq!(
+            menu_action_for_id(QUIT_MENU_ID),
+            None,
+            "quit must reach the exit path, not the frontend's menu handler"
+        );
+    }
+
     #[test]
     fn menu_action_for_id_returns_none_for_unknown_ids() {
         assert_eq!(menu_action_for_id(""), None);

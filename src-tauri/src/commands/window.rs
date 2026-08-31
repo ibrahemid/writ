@@ -1,7 +1,6 @@
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
-use crate::quit;
 use crate::snap_overlay::{self, CaptionButtonMetrics};
 use crate::state::AppState;
 use crate::window_state::{
@@ -22,7 +21,7 @@ pub struct LogicalWindowPosition {
 /// exit taking the same course.
 #[tauri::command]
 pub fn confirm_quit_flush(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    quit::confirm_flush(&state.quit_flush_confirmed);
+    state.quit.confirm_flush();
     Ok(())
 }
 
