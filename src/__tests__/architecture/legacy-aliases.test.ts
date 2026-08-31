@@ -51,10 +51,11 @@ const REPO_ROOT = process.cwd();
 
 // The shipping surfaces: the app, the site's demo window, the preview assets
 // and the boot document. `src/__tests__` is excluded because two fixtures and
-// the resolved-token ledger record origin/main's names on purpose.
+// the resolved-token ledger record origin/main's names on purpose. `.astro` is in
+// the extension set because a site component carries its CSS in a `<style>` block.
 const ROOTS = ["src", "site/src", "src-tauri/assets", "src-tauri/src"];
 const SKIP_DIRS = [resolve(REPO_ROOT, "src/__tests__")];
-const EXTENSIONS = /\.(css|ts|tsx|rs|html)$/;
+const EXTENSIONS = /\.(astro|css|ts|tsx|rs|html)$/;
 
 function walk(dir: string, files: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
