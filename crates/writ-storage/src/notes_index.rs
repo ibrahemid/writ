@@ -28,7 +28,7 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use rusqlite::{params, Connection};
-use writ_core::file_ops::{classify_path, FileOpenMode};
+use writ_core::file_ops::{classify_path, FileOpenMode, THRESHOLD_NORMAL_BYTES};
 use writ_core::search::{build_hit, SearchHit};
 use writ_core::workspace::file_search::{rank_file_hits, FileHit};
 
@@ -38,11 +38,6 @@ use crate::workspace_search::build_walk;
 /// Extensions indexed without sniffing the file, so the common case never
 /// opens a file to decide whether to open it.
 const TEXT_EXTENSIONS: &[&str] = &["md", "markdown", "txt", "text"];
-
-/// Files reconciled between commits. A transaction per file makes a 5,000-note
-/// walk 5,000 fsyncs; one transaction for the whole walk holds the write lock
-/// for its duration and blocks every save. A batch bounds both.
-const RECONCILE_BATCH: usize = 200;
 
 /// macOS `SF_DATALESS`: the file has no local data behind it.
 const SF_DATALESS: u32 = 0x4000_0000;
@@ -339,7 +334,6 @@ pub fn reconcile(
 
     let mut outcome = ReconcileOutcome::default();
     let mut seen: Vec<String> = Vec::with_capacity(known.len());
-    let mut batch: Vec<(IndexedNote, String)> = Vec::with_capacity(RECONCILE_BATCH);
 
     for entry in build_walk(notes_root).build() {
         if cancelled() {
@@ -358,14 +352,21 @@ pub fn reconcile(
             outcome.skipped_dataless += 1;
             continue;
         }
-        if !should_index(path) {
-            continue;
-        }
-
         let Ok(metadata) = std::fs::metadata(path) else {
             continue;
         };
         let size = metadata.len();
+
+        // The same ceiling `BufferStore::index_note` applies. Indexing a file
+        // the save path will not re-index leaves its first contents in the
+        // index for good.
+        if size > THRESHOLD_NORMAL_BYTES {
+            continue;
+        }
+        if !should_index(path) {
+            continue;
+        }
+
         let mtime = mtime_millis(&metadata);
         let key = index_key(path);
 
@@ -391,23 +392,20 @@ pub fn reconcile(
 
         let name = entry.file_name().to_string_lossy().into_owned();
         seen.push(key.clone());
-        batch.push((
-            IndexedNote {
+
+        // One transaction per file. The walk runs on its own connection, so a
+        // long-held write lock would stall saves for the length of the walk.
+        index.upsert(
+            &IndexedNote {
                 path: key,
                 name,
                 size,
                 mtime,
                 hash: None,
             },
-            content,
-        ));
-
-        if batch.len() >= RECONCILE_BATCH {
-            flush(&index, &mut batch)?;
-        }
+            &content,
+        )?;
     }
-
-    flush(&index, &mut batch)?;
 
     if !outcome.cancelled {
         let seen: std::collections::HashSet<String> = seen.into_iter().collect();
@@ -423,19 +421,12 @@ pub fn reconcile(
     Ok(outcome)
 }
 
-fn flush(index: &NotesIndex<'_>, batch: &mut Vec<(IndexedNote, String)>) -> StorageResult<()> {
-    for (note, content) in batch.drain(..) {
-        index.upsert(&note, &content)?;
-    }
-    Ok(())
-}
-
 /// Whether `path` holds note text worth indexing.
 ///
 /// A known text extension is taken at its word so the common case never opens
-/// the file. Anything else is classified, and only a file that opens with the
-/// full feature set is indexed: a large file, a binary and a refused file are
-/// all excluded, matching every other write site.
+/// the file, which means this answers the *kind* question only: callers gate
+/// on size themselves. Anything without a known extension is classified, and
+/// only a file that opens with the full feature set is indexed.
 fn should_index(path: &Path) -> bool {
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         if TEXT_EXTENSIONS.iter().any(|t| t.eq_ignore_ascii_case(ext)) {
@@ -467,8 +458,8 @@ fn mtime_millis(metadata: &std::fs::Metadata) -> i64 {
 /// reconcile of a large notes folder would hold it for the whole walk, and a
 /// keystroke would wait for it, so the index that the walk and the search box
 /// use opens its own connection to the same database. WAL lets the two proceed
-/// together: readers do not block the writer, and the walk commits in batches
-/// so the write lock is never held for long.
+/// together: readers do not block the writer, and the walk commits one file at
+/// a time so the write lock is never held for long.
 pub struct NotesIndexStore {
     conn: Mutex<Connection>,
 }
@@ -516,15 +507,20 @@ impl NotesIndexStore {
     /// Records the file at `path` in the index, reading its text.
     ///
     /// The watcher's create-or-modify arm. A file the filesystem reports as not
-    /// downloaded, or one that is not note text, is left alone rather than
-    /// materialised or indexed as bytes; `false` says nothing was recorded.
+    /// downloaded, one over [`THRESHOLD_NORMAL_BYTES`], or one that is not note
+    /// text is left alone rather than materialised or indexed as bytes; `false`
+    /// says nothing was recorded.
     pub fn index_path(&self, path: &Path) -> StorageResult<bool> {
-        if is_dataless(path) || !should_index(path) {
+        if is_dataless(path) {
             return Ok(false);
         }
-        let (Some(note), Ok(content)) =
-            (IndexedNote::from_file(path), std::fs::read_to_string(path))
-        else {
+        let Some(note) = IndexedNote::from_file(path) else {
+            return Ok(false);
+        };
+        if note.size > THRESHOLD_NORMAL_BYTES || !should_index(path) {
+            return Ok(false);
+        }
+        let Ok(content) = std::fs::read_to_string(path) else {
             return Ok(false);
         };
         NotesIndex::new(&self.conn()).upsert(&note, &content)?;

@@ -5,7 +5,7 @@ use rusqlite::Connection;
 use tempfile::TempDir;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
-use writ_storage::notes_index::{self, IndexedNote, NotesIndex};
+use writ_storage::notes_index::{self, IndexedNote, NotesIndex, NotesIndexStore};
 
 fn never_cancelled() -> impl Fn() -> bool {
     || false
@@ -469,4 +469,32 @@ fn the_buffer_index_is_gone_after_migration() {
         )
         .expect("query sqlite_master");
     assert_eq!(remaining, 0, "migration 041 drops buffer_fts");
+}
+
+#[test]
+fn a_note_over_the_large_file_ceiling_is_left_out_of_the_index() {
+    let (dir, conn, notes) = fixture();
+    // The save path skips buffers over THRESHOLD_NORMAL_BYTES, so a walk that
+    // indexed them would hold their first contents for good: nothing would
+    // ever update the row.
+    let ceiling = writ_core::file_ops::THRESHOLD_NORMAL_BYTES as usize;
+    let body = format!("gargantuan{}", "x".repeat(ceiling));
+    write_note(&notes, "huge.md", &body);
+    write_note(&notes, "small.md", "gargantuan");
+
+    let outcome =
+        notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless()).expect("walk");
+
+    assert_eq!(outcome.added, 1);
+    assert_eq!(search(&conn, "gargantuan").len(), 1);
+
+    // The watcher arm answers the same way, or a later write would put back
+    // what the walk left out.
+    let store = NotesIndexStore::open(&dir.path().join("writ.db")).expect("open store");
+    assert!(!store
+        .index_path(&notes.join("huge.md"))
+        .expect("index huge"));
+    assert!(store
+        .index_path(&notes.join("small.md"))
+        .expect("index small"));
 }
