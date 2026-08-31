@@ -66,14 +66,8 @@
     "radius-3": {
       "$value": "10px"
     },
-    "window-radius": {
-      "$value": "10px"
-    },
     "statusbar-height": {
       "$value": "28px"
-    },
-    "titlebar-height": {
-      "$value": "36px"
     },
     "overlay-hover": {
       "$value": "color-mix(in srgb, var(--writ-foreground-default) 8%, transparent)"

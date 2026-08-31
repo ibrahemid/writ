@@ -115,6 +115,8 @@ const DARK = rootWith({ "data-theme": "dark" });
  *   overwrites both groups at runtime.
  * - `--writ-warning-foreground`: unchanged expression, new value, because it
  *   is mixed from `--writ-status-warning`.
+ * - `--writ-traffic-minimize`: the lights mirror their host, and the baseline
+ *   reads the system amber as #FEBC2E.
  */
 const REPAINTED = [
   "--writ-accent-hover",
@@ -138,6 +140,7 @@ const REPAINTED = [
   "--writ-syntax-string",
   "--writ-syntax-type",
   "--writ-syntax-variable",
+  "--writ-traffic-minimize",
   "--writ-warning-foreground",
 ];
 
@@ -179,24 +182,23 @@ const FROZEN = [
   "--writ-surface-input",
   "--writ-surface-raised",
   "--writ-surface-sunken",
-  "--writ-titlebar-height",
   "--writ-traffic-blurred",
   "--writ-traffic-close",
   "--writ-traffic-close-glyph",
   "--writ-traffic-maximize",
   "--writ-traffic-maximize-glyph",
-  "--writ-traffic-minimize",
   "--writ-traffic-minimize-glyph",
-  "--writ-winctrl-danger-bg",
-  "--writ-winctrl-danger-fg",
-  "--writ-window-radius",];
+];
 
 /**
  * Names the legacy layer no longer carries, because the last stylesheet that
  * read one dropped it. The sidebar took its shadow off with the baseline pass:
  * the surface is one hairline now. The three tab names went with the borderless
  * strip, whose only reader was TabBar.css. The dialog and toast shadows went
- * with the menus and dialogs pass: both surfaces read the ADR-030 shadows.
+ * with the menus and dialogs pass: both surfaces read the ADR-030 shadows. The
+ * three window names went with the platform chrome pass: the caption row is
+ * 32px on Windows and 47px on GNOME rather than one height, the close button
+ * reads `--writ-win-close-*`, and the frame radius is `--writ-r-window`.
  */
 const RETIRED = [
   "--writ-bg-tab-pill",
@@ -205,6 +207,10 @@ const RETIRED = [
   "--writ-shadow-toast",
   "--writ-tab-pill-height",
   "--writ-tabbar-height",
+  "--writ-titlebar-height",
+  "--writ-winctrl-danger-bg",
+  "--writ-winctrl-danger-fg",
+  "--writ-window-radius",
 ];
 
 describe("token pipeline acceptance", () => {

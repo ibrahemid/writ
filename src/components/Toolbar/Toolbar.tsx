@@ -9,6 +9,9 @@ import { executeCommand, useCommand } from "../../commands/registry";
 import { useEffectiveBinding } from "../../commands/keybindings";
 import { formatKeybinding } from "../../lib/keybinding-format";
 import { resolvePlatform } from "../../lib/platform";
+import { resolveChromeLayout, resolveLightsSlot } from "../../lib/window-chrome";
+import { osWindowStore } from "../../stores/global/os-window";
+import TrafficLights from "../TitleBar/TrafficLights";
 import "./Toolbar.css";
 
 interface FormatControl {
@@ -45,6 +48,10 @@ export default function Toolbar() {
   // Read per mount: the platform layer is written once at boot (ADR-030), so a
   // reactive read would only cost a navigator lookup per render.
   const platform = resolvePlatform();
+  const layout = resolveChromeLayout(platform);
+  // A closed sidebar takes its head with it, so the lights fall back to the
+  // toolbar's leading edge rather than leaving the window undismissable.
+  const lightsInToolbar = () => resolveLightsSlot(platform, win.sidebar.isOpen()) === "toolbar-lead";
   const [focusIndex, setFocusIndex] = createSignal(0);
   let barRef: HTMLDivElement | undefined;
 
@@ -52,10 +59,16 @@ export default function Toolbar() {
     FORMAT_CONTROLS.map((control) => useCommand(control.command) !== undefined).join(","),
   );
 
-  /** The roving stops: the search field keeps its own tab stop and its arrows. */
+  /**
+   * The roving stops: the search field keeps its own tab stop and its arrows,
+   * and the window lights are chrome rather than note actions, so neither joins
+   * the bar's single tab stop.
+   */
   function stops(): HTMLButtonElement[] {
     if (!barRef) return [];
-    return Array.from(barRef.querySelectorAll<HTMLButtonElement>("button:not([disabled])"));
+    return Array.from(
+      barRef.querySelectorAll<HTMLButtonElement>("button:not([disabled]):not(.maclight)"),
+    );
   }
 
   // One tab stop for the bar. Re-runs when a formatting control goes live or
@@ -96,6 +109,10 @@ export default function Toolbar() {
       data-tauri-drag-region={platform === "mac" ? "" : undefined}
       onKeyDown={handleKeyDown}
     >
+      <Show when={lightsInToolbar()}>
+        <TrafficLights focused={osWindowStore.focused()} />
+      </Show>
+
       <Tooltip label={tip("Toggle sidebar", useEffectiveBinding("sidebar.toggle", "CmdOrCtrl+\\"))}>
         <Button
           variant="ghost"
@@ -106,18 +123,21 @@ export default function Toolbar() {
         />
       </Tooltip>
 
-      <Tooltip label={tip("New note", useEffectiveBinding("note.new", "CmdOrCtrl+N"))}>
-        <Button
-          variant="ghost"
-          class="writ-toolbar-compose"
-          icon="note-pencil"
-          onClick={() => executeCommand("note.new")}
-        >
-          New note
-        </Button>
-      </Tooltip>
+      {/* GNOME merges compose into the header bar with the window title. */}
+      <Show when={!layout.composeInChrome}>
+        <Tooltip label={tip("New note", useEffectiveBinding("note.new", "CmdOrCtrl+N"))}>
+          <Button
+            variant="ghost"
+            class="writ-toolbar-compose"
+            icon="note-pencil"
+            onClick={() => executeCommand("note.new")}
+          >
+            New note
+          </Button>
+        </Tooltip>
 
-      <div class="writ-toolbar-divider" role="separator" aria-orientation="vertical" />
+        <div class="writ-toolbar-divider" role="separator" aria-orientation="vertical" />
+      </Show>
 
       <div class="writ-toolbar-cluster">
         <For each={FORMAT_CONTROLS}>
@@ -137,9 +157,8 @@ export default function Toolbar() {
         </For>
       </div>
 
-      {/* GNOME keeps search in the sidebar's own header segment; U10 moves the
-          rest of this row into the header bar. */}
-      <Show when={platform !== "linux"}>
+      {/* GNOME keeps search in the sidebar's own header segment. */}
+      <Show when={!layout.headerBar}>
         <SearchBar />
       </Show>
     </div>

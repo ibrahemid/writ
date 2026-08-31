@@ -1,8 +1,11 @@
 import { Show } from "solid-js";
-import TrafficLights from "./TrafficLights";
+import CaptionButtons from "./CaptionButtons";
 import AppMenu from "./AppMenu";
+import Button from "../Button/Button";
 import Kbd from "../Kbd/Kbd";
 import { resolvePlatform } from "../../lib/platform";
+import { resolveChromeLayout } from "../../lib/window-chrome";
+import { executeCommand } from "../../commands/registry";
 import { configStore } from "../../stores/global/config";
 import { osWindowStore } from "../../stores/global/os-window";
 import "./TitleBar.css";
@@ -23,11 +26,16 @@ export function isInteractiveTarget(target: EventTarget | null): boolean {
   return Boolean(target.closest(INTERACTIVE_SELECTOR));
 }
 
+/**
+ * The decorated shells only. macOS draws no title bar at all: its lights move
+ * into the sidebar head and the toolbar becomes the drag region, so
+ * `resolveChromeLayout("mac").titleBar` is false and this renders nothing.
+ */
 export default function TitleBar() {
   // Read per mount rather than at module load: a Solid component body runs once,
   // so this costs one navigator read and keeps the platform branch observable.
   const platform = resolvePlatform();
-  const trafficLightsOnLeft = platform === "mac";
+  const layout = resolveChromeLayout(platform);
 
   function handleMouseDown(e: MouseEvent) {
     if (e.button !== 0) return;
@@ -42,34 +50,37 @@ export default function TitleBar() {
   }
 
   return (
-    <div
-      class={`titlebar titlebar-${platform}`}
-      onMouseDown={handleMouseDown}
-      onDblClick={handleDblClick}
-    >
-      <Show when={trafficLightsOnLeft}>
-        <TrafficLights
-          platform={platform}
-          focused={osWindowStore.focused()}
-          maximized={osWindowStore.maximized()}
-        />
-      </Show>
-      <Show when={platform === "win" || platform === "linux"}>
-        <AppMenu />
-      </Show>
-      {/* The tab strip moved under the toolbar with the baseline layout; the
-          slot stays as the bar's flexible middle until U10 retires the bar. */}
-      <div class="titlebar-tabs" />
-      <div class="titlebar-right" title="Toggle Writ from anywhere" data-no-drag>
-        <Kbd binding={configStore.config().hotkey.toggle} />
+    <Show when={layout.titleBar}>
+      <div
+        class={`titlebar titlebar-${platform}`}
+        classList={{ headerbar: layout.headerBar, "is-blurred": !osWindowStore.focused() }}
+        onMouseDown={handleMouseDown}
+        onDblClick={handleDblClick}
+      >
+        <div class="titlebar-start">
+          <Show when={layout.composeInChrome}>
+            <Button
+              class="headerbar-compose"
+              icon="note-pencil"
+              onClick={() => executeCommand("note.new")}
+            >
+              New note
+            </Button>
+          </Show>
+          <AppMenu compact={layout.headerBar} />
+        </div>
+
+        <Show when={layout.headerBar} fallback={<div class="titlebar-drag" />}>
+          <div class="headerbar-title">Writ</div>
+        </Show>
+
+        <div class="titlebar-end">
+          <div class="titlebar-right" title="Toggle Writ from anywhere" data-no-drag>
+            <Kbd binding={configStore.config().hotkey.toggle} />
+          </div>
+          <CaptionButtons kind={layout.caption} maximized={osWindowStore.maximized()} />
+        </div>
       </div>
-      <Show when={!trafficLightsOnLeft}>
-        <TrafficLights
-          platform={platform}
-          focused={osWindowStore.focused()}
-          maximized={osWindowStore.maximized()}
-        />
-      </Show>
-    </div>
+    </Show>
   );
 }

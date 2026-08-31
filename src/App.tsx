@@ -699,7 +699,7 @@ function AppShell() {
   });
 
   return (
-    <div class="app-container">
+    <div class="app-container" classList={{ "is-maximized": osWindowStore.maximized() }}>
       <IconSprite />
       <TitleBar />
       <div class="app-body">

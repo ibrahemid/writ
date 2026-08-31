@@ -180,22 +180,46 @@ describe("titlebar menu affordance carries the platforms with no menu bar", () =
     ]);
   });
 
-  it("gives Linux the same caption controls, under its own titlebar class", () => {
+  // GNOME's button-layout is 'appmenu:close': one control, not three.
+  it("leaves Linux a single close control in its header bar", () => {
     const { container } = renderOn("linux");
     expect(container.querySelector(".titlebar-linux")).not.toBeNull();
-    expect(container.querySelectorAll(".winctrl")).toHaveLength(3);
-    expect(container.querySelector(".titlebar-controls-mac")).toBeNull();
+    expect(container.querySelector(".headerbar")).not.toBeNull();
+    expect(container.querySelectorAll(".gnomectrl")).toHaveLength(1);
+    expect(container.querySelector(".gnomectrl-close")!.getAttribute("aria-label")).toBe(
+      "Hide window",
+    );
+    expect(container.querySelector(".winctrl")).toBeNull();
   });
 
-  it("leaves the macOS titlebar on its traffic-light branch with no window controls added", () => {
+  it("centres the window title in the GNOME header bar", () => {
+    const { container } = renderOn("linux");
+    expect(container.querySelector(".headerbar-title")!.textContent).toBe("Writ");
+  });
+
+  it("moves New note into the GNOME header bar, ahead of the menu", () => {
+    const { container } = renderOn("linux");
+    const compose = container.querySelector(".headerbar-compose");
+    expect(compose).not.toBeNull();
+    expect(compose!.textContent).toContain("New note");
+    expect(
+      compose!.compareDocumentPosition(container.querySelector(".titlebar-appmenu")!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("keeps New note out of the chrome on the shells with a toolbar", () => {
+    expect(renderOn("win").container.querySelector(".headerbar-compose")).toBeNull();
+    cleanup();
+    expect(renderOn("mac").container.querySelector(".headerbar-compose")).toBeNull();
+  });
+
+  it("renders no title bar at all on macOS: the toolbar is the top row", () => {
     const { container } = renderOn("mac");
-    expect(container.querySelector(".titlebar-controls-mac")).not.toBeNull();
-    expect(container.querySelector(".titlebar-controls-win")).toBeNull();
+    expect(container.querySelector(".titlebar")).toBeNull();
     expect(container.querySelector(".winctrl")).toBeNull();
-    const labels = Array.from(container.querySelectorAll(".maclight")).map((el) =>
-      el.getAttribute("aria-label"),
-    );
-    expect(labels).toEqual(["Hide window", "Minimize window", "Toggle full screen"]);
+    expect(container.querySelector(".gnomectrl")).toBeNull();
+    expect(container.querySelector(".maclight")).toBeNull();
   });
 });
 

@@ -47,7 +47,7 @@
       "$value": "#ff5f57"
     },
     "minimize": {
-      "$value": "#ffbd2e"
+      "$value": "#FEBC2E"
     },
     "maximize": {
       "$value": "#28c840"
@@ -63,15 +63,6 @@
     },
     "maximize-glyph": {
       "$value": "#003800"
-    }
-  },
-  "winctrl": {
-    "$type": "color",
-    "danger-fg": {
-      "$value": "#ffffff"
-    },
-    "danger-bg": {
-      "$value": "#c42b1c"
     }
   }
 }

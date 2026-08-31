@@ -20,7 +20,6 @@ export const RETOKENISE_ALLOWLIST: readonly string[] = [
   "src/components/Preview/preview-chrome.css",
   "src/components/Preview/preview-layout-toggle.css",
   "src/components/ThemeEditor/ThemeEditor.css",
-  "src/components/TitleBar/TitleBar.css",
   "src/components/UpdateBanner/UpdateBanner.css",
 ];
 

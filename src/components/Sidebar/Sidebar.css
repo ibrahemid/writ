@@ -22,6 +22,16 @@
   transition: none;
 }
 
+/* The macOS window head. 44px lines it up with the toolbar beside it, and 20px
+   is the inset the system draws its own lights at. */
+.sidebar-head {
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+}
+
 .sidebar-resizer {
   position: absolute;
   top: 0;

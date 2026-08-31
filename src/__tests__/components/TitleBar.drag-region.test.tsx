@@ -101,11 +101,9 @@ describe("TitleBar drag region", () => {
     cleanup();
   });
 
-  it("collapses the tab slot: the strip moved under the toolbar", () => {
+  it("carries no tab strip: it lives under the toolbar", () => {
     const { container } = render(() => <TitleBar />);
-    const slot = container.querySelector<HTMLElement>(".titlebar-tabs");
-    expect(slot).not.toBeNull();
-    expect(slot!.childElementCount).toBe(0);
+    expect(container.querySelector(".titlebar-tabs")).toBeNull();
     expect(container.querySelector(".tabbar")).toBeNull();
   });
 

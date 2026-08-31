@@ -1,3 +1,4 @@
+import { Show } from "solid-js";
 import { getCommand, executeCommand } from "../../commands/registry";
 import { showAnchoredMenu, type MenuItem } from "../ContextMenu/ContextMenu";
 import { formatKeybinding } from "../../lib/keybinding-format";
@@ -57,7 +58,12 @@ export function appMenuItems(): MenuItem[] {
  * (the palette focuses in a requestAnimationFrame, the tab commands are async),
  * which is why the trigger is safe to pass today.
  */
-export default function AppMenu() {
+interface Props {
+  /** GNOME carries the primary menu as a glyph, not as the app name. */
+  compact?: boolean;
+}
+
+export default function AppMenu(props: Props) {
   let button: HTMLButtonElement | undefined;
 
   function openMenu() {
@@ -70,21 +76,38 @@ export default function AppMenu() {
       ref={button}
       type="button"
       class="titlebar-appmenu"
+      classList={{ "titlebar-appmenu-compact": props.compact }}
       aria-haspopup="menu"
       aria-label="Writ menu"
       onClick={openMenu}
     >
-      Writ
-      <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
-        <path
-          d="M1.5 3L4 5.5L6.5 3"
-          stroke="currentColor"
-          stroke-width="1"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          fill="none"
-        />
-      </svg>
+      <Show
+        when={props.compact}
+        fallback={
+          <>
+            Writ
+            <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
+              <path
+                d="M1.5 3L4 5.5L6.5 3"
+                stroke="currentColor"
+                stroke-width="1"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                fill="none"
+              />
+            </svg>
+          </>
+        }
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <path
+            d="M2.5 4.5H13.5M2.5 8H13.5M2.5 11.5H13.5"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+          />
+        </svg>
+      </Show>
     </button>
   );
 }

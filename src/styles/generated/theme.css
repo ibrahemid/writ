@@ -96,14 +96,12 @@
   --writ-syntax-type: var(--writ-fg-muted);
   --writ-syntax-variable: var(--writ-fg-muted);
   --writ-traffic-close: #ff5f57;
-  --writ-traffic-minimize: #ffbd2e;
+  --writ-traffic-minimize: #FEBC2E;
   --writ-traffic-maximize: #28c840;
   --writ-traffic-blurred: #4a4a52;
   --writ-traffic-close-glyph: #4d0000;
   --writ-traffic-minimize-glyph: #5a3300;
   --writ-traffic-maximize-glyph: #003800;
-  --writ-winctrl-danger-fg: #ffffff;
-  --writ-winctrl-danger-bg: #c42b1c;
   --writ-bg-canvas: #FFFFFF;
   --writ-bg-sidebar: #F7F6F3;
   --writ-bg-raised: #FFFFFF;
@@ -271,6 +269,7 @@
   --writ-icon-opacity: 1;
   --writ-sidebar-row-pitch: 38px;
   --writ-sidebar-row-fill: 36px;
+  --writ-shadow-csd: 0 0 14px 5px rgb(0 0 0 / 15%), 0 0 5px 2px rgb(0 0 0 / 10%), 0 0 0 1px rgb(0 0 0 / 5%);
   --writ-bg-canvas: #FFFFFF;
   --writ-bg-sidebar: #EEECE6;
   --writ-bg-raised: #FFFDF9;

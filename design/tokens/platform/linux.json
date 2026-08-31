@@ -224,6 +224,35 @@
               "unit": "px"
             }
           }
+        },
+        "shadow": {
+          "csd": {
+            "$value": [
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "14px",
+                "spread": "5px",
+                "color": "rgb(0 0 0 / 15%)"
+              },
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "5px",
+                "spread": "2px",
+                "color": "rgb(0 0 0 / 10%)"
+              },
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "0",
+                "spread": "1px",
+                "color": "rgb(0 0 0 / 5%)"
+              }
+            ],
+            "$description": "GNOME expects the app to paint the client-side-decoration shadow: Tauri's `shadow` field is unsupported on Linux."
+          },
+          "$type": "shadow"
         }
       },
       "light": {

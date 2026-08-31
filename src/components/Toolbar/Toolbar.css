@@ -131,11 +131,18 @@
   border-bottom: 2px solid var(--writ-accent);
 }
 
-/* Linux keeps the 44px row on the header-bar ground, on the AdwToolbarView
-   metrics, until U10 merges it into the header bar. */
+/* The second AdwToolbarView row under the header bar: same ground, no rule
+   between them, so the two read as one chrome stack. */
 .writ-toolbar[data-platform="linux"] {
   gap: var(--writ-toolbar-tight, 6px);
   padding: var(--writ-toolbar-tight, 6px);
   background: var(--writ-lin-headerbar-bg);
   border-bottom: 0;
+}
+
+/* The macOS lights fall back here when the sidebar head goes with the sidebar.
+   The bar's own 12px plus 8px is the 20px inset the system draws them at. */
+:root[data-platform="mac"] .writ-toolbar .window-lights {
+  margin-left: var(--writ-space-3);
+  margin-right: var(--writ-space-2);
 }

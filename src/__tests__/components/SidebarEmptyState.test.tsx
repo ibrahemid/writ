@@ -23,6 +23,15 @@ let activeRows: BufferDocument[] = [];
 let historyRows: BufferDocument[] = [];
 
 vi.mock("../../services/autosave", () => ({ flushAutosave: vi.fn() }));
+// The sidebar head reads the window's focus state for the macOS lights.
+vi.mock("../../stores/global/os-window", () => ({
+  osWindowStore: {
+    focused: () => true,
+    hide: vi.fn(),
+    minimize: vi.fn(),
+    toggleFullscreen: vi.fn(),
+  },
+}));
 vi.mock("../../components/ContextMenu/ContextMenu", () => ({
   showContextMenu: vi.fn(),
 }));

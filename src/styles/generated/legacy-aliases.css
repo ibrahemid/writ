@@ -23,9 +23,7 @@
   --writ-radius-1: 4px;
   --writ-radius-2: 6px;
   --writ-radius-3: 10px;
-  --writ-window-radius: 10px;
   --writ-statusbar-height: 28px;
-  --writ-titlebar-height: 36px;
   --writ-overlay-hover: color-mix(in srgb, var(--writ-foreground-default) 8%, transparent);
   --writ-overlay-subtle: color-mix(in srgb, var(--writ-foreground-default) 4%, transparent);
   --writ-warning-foreground: color-mix(in srgb, var(--writ-status-warning) 68%, var(--writ-foreground-default));

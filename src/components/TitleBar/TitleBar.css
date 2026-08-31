@@ -1,24 +1,31 @@
+/* The platform layer is one selector root: every metric below keys off
+   :root[data-platform="…"], which App.tsx writes once at boot. macOS declares
+   nothing here — it draws no title bar (ADR-030 decision 4). */
+
 .titlebar {
-  height: var(--writ-titlebar-height);
-  background: var(--writ-surface-raised);
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  flex-shrink: 0;
   user-select: none;
   -webkit-user-select: none;
+  background: var(--writ-bg-canvas);
   border-bottom: 1px solid var(--writ-border-soft);
+  z-index: var(--writ-z-chrome);
+}
+
+.titlebar-start,
+.titlebar-end {
+  display: flex;
+  align-items: center;
   flex-shrink: 0;
 }
 
-.titlebar-tabs {
+/* The documented Windows minimum: a caption row must keep a grabbable strip
+   between the app title and the caption buttons. */
+.titlebar-drag {
   flex: 1;
-  display: flex;
-  align-items: stretch;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.titlebar-mac .titlebar-tabs {
-  padding-left: 12px;
+  min-width: 48px;
+  align-self: stretch;
 }
 
 .titlebar-right {
@@ -27,71 +34,18 @@
   padding: 0 var(--writ-space-3);
   flex-shrink: 0;
   opacity: 0.7;
-  transition: opacity 100ms ease;
+  transition: opacity var(--writ-motion);
 }
 
 .titlebar-right:hover {
   opacity: 1;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .titlebar-right {
-    transition: none;
-  }
-}
+/* ---------- Windows ---------- */
 
-.titlebar-mac .titlebar-controls-mac {
-  padding-left: 20px;
-  padding-right: 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.maclight {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
-  overflow: hidden;
-  transition: filter 80ms ease;
-}
-
-.maclight svg {
-  width: 12px;
-  height: 12px;
-  opacity: 0;
-  transition: opacity 80ms ease;
-}
-
-.maclight-close { background: var(--writ-traffic-close); }
-.maclight-min   { background: var(--writ-traffic-minimize); }
-.maclight-max   { background: var(--writ-traffic-maximize); }
-
-.maclight-close svg path { stroke: var(--writ-traffic-close-glyph); }
-.maclight-min svg path   { stroke: var(--writ-traffic-minimize-glyph); }
-.maclight-max svg path   { fill: var(--writ-traffic-maximize-glyph); }
-
-.titlebar-controls-mac:hover .maclight svg {
-  opacity: 1;
-}
-
-.titlebar-controls-mac.is-blurred .maclight {
-  background: var(--writ-traffic-blurred);
-}
-
-.titlebar-controls-mac.is-blurred .maclight svg {
-  opacity: 0;
-}
-
-.maclight:hover {
-  filter: brightness(1.05);
+:root[data-platform="win"] .titlebar {
+  height: 32px;
+  padding-left: var(--writ-space-5);
 }
 
 /* Sized to its label and inset from the bar, the way a Fluent button sits in a
@@ -99,7 +53,6 @@
 .titlebar-appmenu {
   height: 24px;
   align-self: center;
-  margin-left: var(--writ-space-3);
   padding: 0 var(--writ-space-3);
   display: flex;
   align-items: center;
@@ -107,33 +60,32 @@
   flex-shrink: 0;
   background: transparent;
   border: none;
-  border-radius: var(--writ-radius-1);
-  color: var(--writ-foreground-muted);
-  font-family: inherit;
-  font-size: var(--writ-font-size-sm);
-  font-weight: 500;
+  border-radius: var(--writ-r-control);
+  color: var(--writ-fg-muted);
+  font-family: var(--writ-font-ui);
+  font-size: var(--writ-ui-sm);
   line-height: 1;
   cursor: pointer;
-  transition: background 80ms ease, color 80ms ease;
+  transition: background var(--writ-motion), color var(--writ-motion);
+}
+
+:root[data-platform="win"] .titlebar-appmenu {
+  margin-left: var(--writ-space-5);
 }
 
 .titlebar-appmenu svg {
   flex: none;
   opacity: 0.7;
-  transition: opacity 80ms ease;
+  transition: opacity var(--writ-motion);
 }
 
 .titlebar-appmenu:hover {
-  background: var(--writ-overlay-hover);
-  color: var(--writ-foreground-default);
+  background: var(--writ-bg-hover);
+  color: var(--writ-fg);
 }
 
 .titlebar-appmenu:hover svg {
   opacity: 1;
-}
-
-.titlebar-appmenu:active {
-  background: var(--writ-overlay-subtle);
 }
 
 .titlebar-appmenu:focus-visible {
@@ -148,16 +100,16 @@
 
 .winctrl {
   width: 46px;
-  height: var(--writ-titlebar-height);
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   background: transparent;
   border: none;
-  color: var(--writ-foreground-muted);
+  color: var(--writ-fg-muted);
   cursor: pointer;
-  transition: background 80ms ease, color 80ms ease;
+  transition: background var(--writ-motion), color var(--writ-motion);
 }
 
 /* Fluent's subtle fill weakens on press rather than deepening, so pressed is a
@@ -166,47 +118,176 @@
    state arrives from the OS as a class instead of :hover and :active. */
 .winctrl:hover,
 .winctrl.is-snap-hovered {
-  background: var(--writ-overlay-hover);
-  color: var(--writ-foreground-default);
+  background: var(--writ-bg-hover);
+  color: var(--writ-fg);
 }
 
 .winctrl:active,
 .winctrl.is-snap-pressed {
-  background: var(--writ-overlay-subtle);
-  color: var(--writ-foreground-muted);
+  background: color-mix(in srgb, var(--writ-bg-hover) 50%, transparent);
+  color: var(--writ-fg-muted);
 }
 
 .winctrl-close:hover {
-  background: var(--writ-winctrl-danger-bg);
-  color: var(--writ-winctrl-danger-fg);
+  background: var(--writ-win-close-bg);
+  color: var(--writ-win-close-fg);
 }
 
 /* Thinned rather than darkened, so the press lifts over a light caption and
    deepens over a dark one, the way the system control does. */
 .winctrl-close:active {
-  background: color-mix(in srgb, var(--writ-winctrl-danger-bg) 90%, transparent);
-  color: color-mix(in srgb, var(--writ-winctrl-danger-fg) 70%, transparent);
+  background: color-mix(in srgb, var(--writ-win-close-bg) 90%, transparent);
+  color: color-mix(in srgb, var(--writ-win-close-fg) 70%, transparent);
 }
 
 /* Drawn inside the button: a caption control runs to the window edge, where an
    offset ring would be clipped. */
 .winctrl:focus-visible {
-  outline: 2px solid var(--writ-accent-default);
+  outline: 2px solid var(--writ-win-focus-outer);
   outline-offset: -3px;
+  box-shadow: inset 0 0 0 4px var(--writ-win-focus-inner);
   border-radius: 0;
 }
 
-.titlebar-linux .winctrl,
-.titlebar-linux .titlebar-appmenu {
-  color: var(--writ-foreground-default);
+/* ---------- GNOME ---------- */
+
+/* One AdwHeaderBar: New note and the window title move up here, and the
+   toolbar below it becomes the second AdwToolbarView row. */
+:root[data-platform="linux"] .headerbar {
+  height: 47px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: var(--writ-space-3);
+  padding: 6px 7px 7px;
+  background: var(--writ-lin-headerbar-bg);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .maclight,
-  .maclight svg,
-  .winctrl,
-  .titlebar-appmenu,
-  .titlebar-appmenu svg {
-    transition: none;
-  }
+:root[data-platform="linux"] .titlebar-start {
+  gap: var(--writ-space-3);
+}
+
+:root[data-platform="linux"] .titlebar-end {
+  gap: var(--writ-space-3);
+  justify-content: flex-end;
+}
+
+.headerbar-title {
+  font-size: 14.67px;
+  line-height: 20.5px;
+  font-weight: 700;
+  color: var(--writ-fg);
+  white-space: nowrap;
+}
+
+:root[data-platform="linux"] .titlebar-appmenu {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  justify-content: center;
+  color: var(--writ-fg);
+}
+
+:root[data-platform="linux"] .titlebar-appmenu svg {
+  opacity: 1;
+}
+
+:root[data-platform="linux"] .headerbar-compose {
+  height: 34px;
+}
+
+/* button-layout 'appmenu:close': GNOME leaves one control on the right. */
+.gnomectrl {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--writ-fg);
+  cursor: pointer;
+  position: relative;
+}
+
+.gnomectrl::before {
+  content: "";
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--writ-r-pill);
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  transition: background var(--writ-motion);
+}
+
+.gnomectrl:hover::before {
+  background: color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.gnomectrl svg {
+  position: relative;
+}
+
+/* The backdrop state: GNOME dims header-bar controls when the window is not
+   the focused one. */
+:root[data-platform="linux"] .titlebar.is-blurred .titlebar-appmenu,
+:root[data-platform="linux"] .titlebar.is-blurred .gnomectrl {
+  filter: opacity(0.5);
+}
+
+/* ---------- macOS lights ---------- */
+
+/* No title bar hosts these: they sit in the sidebar head, or at the toolbar's
+   leading edge when the sidebar is closed. */
+.window-lights {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-3);
+  flex: none;
+}
+
+.maclight {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--writ-r-pill);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  overflow: hidden;
+  transition: filter var(--writ-motion);
+}
+
+.maclight svg {
+  width: 12px;
+  height: 12px;
+  opacity: 0;
+  transition: opacity var(--writ-motion);
+}
+
+.maclight-close { background: var(--writ-traffic-close); }
+.maclight-min   { background: var(--writ-traffic-minimize); }
+.maclight-max   { background: var(--writ-traffic-maximize); }
+
+.maclight-close svg path { stroke: var(--writ-traffic-close-glyph); }
+.maclight-min svg path   { stroke: var(--writ-traffic-minimize-glyph); }
+.maclight-max svg path   { fill: var(--writ-traffic-maximize-glyph); }
+
+.window-lights:hover .maclight svg {
+  opacity: 1;
+}
+
+.window-lights.is-blurred .maclight {
+  background: var(--writ-traffic-blurred);
+}
+
+.window-lights.is-blurred .maclight svg {
+  opacity: 0;
+}
+
+.maclight:hover {
+  filter: brightness(1.05);
 }

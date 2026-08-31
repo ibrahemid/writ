@@ -97,7 +97,7 @@ function objectKey(key) {
 
 // The groups css/writ-theme emits, in any of its blocks. Used both to build the
 // sheet and to work out which names the legacy layer re-declares.
-const THEME_GROUPS = ["base", "status", "syntax", "traffic", "winctrl", "color", "accent", "platform"];
+const THEME_GROUPS = ["base", "status", "syntax", "traffic", "color", "accent", "platform"];
 
 function themeCssNames(all) {
   return new Set(THEME_GROUPS.flatMap((group) => under(all, group)).map((t) => cssName(t, "--writ-")));
@@ -125,7 +125,6 @@ StyleDictionary.registerFormat({
         ...under(all, "status"),
         ...under(all, "syntax"),
         ...under(all, "traffic"),
-        ...under(all, "winctrl"),
         ...under(all, "color", "light"),
         ...under(all, "accent", DEFAULT_ACCENT, "light"),
       ]),
