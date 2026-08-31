@@ -323,6 +323,15 @@
         "$value": 1
       }
     },
+    "statusbar": {
+      "$type": "dimension",
+      "height": {
+        "$value": {
+          "value": 28,
+          "unit": "px"
+        }
+      }
+    },
     "sidebar": {
       "$type": "dimension",
       "width": {
@@ -404,6 +413,11 @@
     "ease": {
       "$type": "cubicBezier",
       "$value": "cubic-bezier(.33, 1, .68, 1)"
+    },
+    "ease-linear": {
+      "$type": "other",
+      "$value": "linear",
+      "$description": "Constant rate. What a spinner and a determinate progress fill need; every other motion takes --writ-ease."
     },
     "motion": {
       "$type": "duration",

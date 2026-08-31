@@ -204,9 +204,3 @@
 .palette[data-platform="linux"] .palette-search {
   height: 42px;
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .palette-item {
-    transition: none;
-  }
-}

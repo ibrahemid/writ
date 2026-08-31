@@ -413,7 +413,9 @@ export const CSS_VAR = {
  * describe the current paint until the unit that owns those consumers migrates
  * them and drops the alias. Empty once the legacy layer is gone.
  */
-export const LEGACY_FROZEN: readonly string[] = [];
+export const LEGACY_FROZEN: readonly string[] = [
+  "--writ-statusbar-height",
+];
 
 /** `var(--name)`, or `var(--name, fallback)`. */
 export function cssVar(name: string, fallback?: string): string {

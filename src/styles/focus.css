@@ -51,9 +51,3 @@
 .tab-rename-input:focus-visible {
   outline-offset: 0;
 }
-
-@media (prefers-reduced-motion: reduce) {
-  :focus-visible {
-    transition: none;
-  }
-}

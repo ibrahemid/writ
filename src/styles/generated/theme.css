@@ -56,6 +56,7 @@
   --writ-icon-color: var(--writ-fg-muted);
   --writ-icon-opacity: 0.85;
   --writ-icon-opacity-hover: 1;
+  --writ-statusbar-height: 28px;
   --writ-sidebar-width: 240px;
   --writ-sidebar-min-width: 200px;
   --writ-sidebar-max-width: 320px;
@@ -69,6 +70,7 @@
   --writ-space-6: 24px;
   --writ-space-7: 32px;
   --writ-ease: cubic-bezier(.33, 1, .68, 1);
+  --writ-ease-linear: linear;
   --writ-motion-fast: 120ms;
   --writ-motion-duration: 150ms;
   --writ-motion-slow: 180ms;

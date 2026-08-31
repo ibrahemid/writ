@@ -402,13 +402,6 @@
   .settings-row-highlight {
     background: var(--writ-bg-selected);
   }
-
-  .settings-switch,
-  .settings-switch-knob,
-  .settings-seg-option,
-  .settings-nav-item {
-    transition: none;
-  }
 }
 
 .settings-ai-note {
