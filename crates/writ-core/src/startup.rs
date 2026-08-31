@@ -214,6 +214,19 @@ pub enum DataDirVerdict {
         /// The provider's folder, as far up as it was recognised.
         root: PathBuf,
     },
+    /// The directory sits under a `Library/CloudStorage` container whose
+    /// vendor is not one of [`SyncProvider`]'s.
+    ///
+    /// Apple's File Provider area holds a container per vendor, so a Box or
+    /// pCloud folder lands there beside Dropbox's. The container names the
+    /// service, and that name is what the refusal has to say: telling a Box
+    /// user to move out of iCloud Drive sends them to the wrong place.
+    InsideSyncContainer {
+        /// The service, as the container folder names it.
+        name: String,
+        /// The container folder.
+        root: PathBuf,
+    },
     /// The data directory and the notes folder hold each other.
     InsideNotesFolder {
         /// The notes folder the two were compared against.
@@ -229,12 +242,6 @@ pub enum DataDirVerdict {
 #[error("{}", data_dir_refusal_message(.0))]
 pub struct DataDirRefused(pub DataDirVerdict);
 
-/// The folder names each platform's providers use, relative to the home
-/// directory, in path components.
-///
-/// macOS `Library/CloudStorage` is Apple's File Provider area rather than one
-/// vendor's folder, so the provider it maps to here is a default that
-/// [`provider_in_cloud_storage`] refines from the container name below it.
 /// Whether `platform`'s default filesystem treats two spellings that differ
 /// only in case as one name.
 ///
@@ -289,22 +296,28 @@ fn same_path(a: &Path, b: &Path, fold: bool) -> bool {
     a.components().count() == b.components().count() && is_within(a, b, fold)
 }
 
-fn sync_prefixes(platform: Platform) -> &'static [(&'static [&'static str], SyncProvider)] {
+/// The folder names each platform's providers use, relative to the home
+/// directory, in path components.
+///
+/// macOS `Library/CloudStorage` is Apple's File Provider area rather than one
+/// vendor's folder, so it carries no provider of its own: the container below
+/// it names the service, and [`provider_in_cloud_storage`] reads it.
+fn sync_prefixes(platform: Platform) -> &'static [(&'static [&'static str], Option<SyncProvider>)] {
     match platform {
         Platform::Macos => &[
-            (&["Library", "Mobile Documents"], SyncProvider::ICloud),
-            (&["Library", "CloudStorage"], SyncProvider::ICloud),
-            (&["Dropbox"], SyncProvider::Dropbox),
-            (&["Google Drive"], SyncProvider::GoogleDrive),
+            (&["Library", "Mobile Documents"], Some(SyncProvider::ICloud)),
+            (&["Library", "CloudStorage"], None),
+            (&["Dropbox"], Some(SyncProvider::Dropbox)),
+            (&["Google Drive"], Some(SyncProvider::GoogleDrive)),
         ],
         Platform::Windows => &[
-            (&["OneDrive"], SyncProvider::OneDrive),
-            (&["Dropbox"], SyncProvider::Dropbox),
-            (&["Google Drive"], SyncProvider::GoogleDrive),
+            (&["OneDrive"], Some(SyncProvider::OneDrive)),
+            (&["Dropbox"], Some(SyncProvider::Dropbox)),
+            (&["Google Drive"], Some(SyncProvider::GoogleDrive)),
         ],
         Platform::Linux => &[
-            (&["Dropbox"], SyncProvider::Dropbox),
-            (&["Google Drive"], SyncProvider::GoogleDrive),
+            (&["Dropbox"], Some(SyncProvider::Dropbox)),
+            (&["Google Drive"], Some(SyncProvider::GoogleDrive)),
         ],
     }
 }
@@ -313,9 +326,9 @@ fn sync_prefixes(platform: Platform) -> &'static [(&'static [&'static str], Sync
 ///
 /// The names are minted by the vendor's File Provider extension and carry an
 /// account suffix (`GoogleDrive-me@example.com`, `OneDrive-Personal`), so the
-/// match is on the leading name only. An unrecognised container is still a
-/// synced folder; it keeps the default the table gave it.
-fn provider_in_cloud_storage(container: &str, default: SyncProvider, fold: bool) -> SyncProvider {
+/// match is on the leading name only. `None` for a container no variant
+/// covers, which [`container_display_name`] then names from the folder.
+fn provider_in_cloud_storage(container: &str, fold: bool) -> Option<SyncProvider> {
     let container = if fold {
         container.to_lowercase()
     } else {
@@ -333,10 +346,24 @@ fn provider_in_cloud_storage(container: &str, default: SyncProvider, fold: bool)
             name.to_string()
         };
         if container.starts_with(&name) {
-            return provider;
+            return Some(provider);
         }
     }
-    default
+    None
+}
+
+/// The service name to show for a `Library/CloudStorage` container Writ has no
+/// variant for.
+///
+/// The vendor's File Provider extension mints the folder as `Vendor-account`
+/// (`Box-me@example.com`, `pCloud-Personal`), so the name is what stands
+/// before the first dash. A container with no dash is already the bare name,
+/// and one that starts with a dash is shown whole rather than emptied.
+fn container_display_name(container: &str) -> String {
+    match container.split_once('-') {
+        Some((name, _)) if !name.trim().is_empty() => name.trim().to_string(),
+        _ => container.to_string(),
+    }
 }
 
 /// Classifies a resolved data directory.
@@ -388,12 +415,28 @@ pub fn classify_data_dir(
             };
             let mut provider = *default;
             if components.last() == Some(&"CloudStorage") {
-                if let Some(container) = rest.components().next() {
-                    let container = container.as_os_str().to_string_lossy();
-                    provider = provider_in_cloud_storage(&container, provider, fold);
-                    root.push(container.as_ref());
+                // The container is what says which service owns the folder, so
+                // a data directory sitting at the bare `CloudStorage` root has
+                // nothing to read and is named after the folder itself.
+                let container = rest
+                    .components()
+                    .next()
+                    .map(|component| component.as_os_str().to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "CloudStorage".to_string());
+                provider = provider_in_cloud_storage(&container, fold);
+                if rest.components().next().is_some() {
+                    root.push(&container);
+                }
+                if provider.is_none() {
+                    return DataDirVerdict::InsideSyncContainer {
+                        name: container_display_name(&container),
+                        root,
+                    };
                 }
             }
+            let Some(provider) = provider else {
+                continue;
+            };
             return DataDirVerdict::InsideSyncProvider { provider, root };
         }
     }
@@ -412,6 +455,19 @@ pub fn classify_data_dir(
     DataDirVerdict::Ok
 }
 
+/// The refusal for a data folder inside a synced tree, whether the service came
+/// from [`SyncProvider`] or from a container's own name.
+fn sync_refusal_message(root: &Path, service: &str) -> String {
+    format!(
+        "Writ's data folder is inside {}, which {} syncs. A synced folder can damage the database \
+         and lose notes, so Writ will not start there. Set WRIT_DATA_DIR to a folder outside {}, \
+         then start Writ again.",
+        root.display(),
+        service,
+        service
+    )
+}
+
 /// The plain-language refusal shown to the user.
 ///
 /// [`DataDirVerdict::Ok`] has no message: the caller renders one only for a
@@ -419,14 +475,10 @@ pub fn classify_data_dir(
 pub fn data_dir_refusal_message(verdict: &DataDirVerdict) -> String {
     match verdict {
         DataDirVerdict::Ok => String::new(),
-        DataDirVerdict::InsideSyncProvider { provider, root } => format!(
-            "Writ's data folder is inside {}, which {} syncs. A synced folder can damage the \
-             database and lose notes, so Writ will not start there. Set WRIT_DATA_DIR to a folder \
-             outside {}, then start Writ again.",
-            root.display(),
-            provider.label(),
-            provider.label()
-        ),
+        DataDirVerdict::InsideSyncProvider { provider, root } => {
+            sync_refusal_message(root, provider.label())
+        }
+        DataDirVerdict::InsideSyncContainer { name, root } => sync_refusal_message(root, name),
         DataDirVerdict::InsideNotesFolder { notes_root } => format!(
             "Writ's data folder and your notes folder, {}, overlap. The database and your notes \
              cannot share a folder. Set WRIT_DATA_DIR to a folder outside your notes folder, or \

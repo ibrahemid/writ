@@ -330,6 +330,14 @@ fn the_refusal_message_contains_no_banned_words() {
             notes_root: PathBuf::from("/home/u/Writ"),
         },
     ));
+    for name in ["Box", "pCloud", "CloudStorage"] {
+        messages.push(data_dir_refusal_message(
+            &DataDirVerdict::InsideSyncContainer {
+                name: name.to_string(),
+                root: PathBuf::from("/home/u/Library/CloudStorage").join(name),
+            },
+        ));
+    }
     messages.extend(
         providers
             .iter()
@@ -456,4 +464,32 @@ fn the_default_notes_folder_inside_the_data_directory_is_ok_whatever_its_case() 
         &[],
     );
     assert_eq!(verdict, DataDirVerdict::Ok);
+}
+
+/// `Library/CloudStorage` is Apple's File Provider area, not iCloud Drive's
+/// folder: every vendor that ships a File Provider extension gets a container
+/// there. A container Writ has no variant for is still refused, and the
+/// refusal names the container rather than a service the user is not running.
+#[test]
+fn macos_cloudstorage_names_the_container_when_the_service_is_not_one_writ_knows() {
+    for (data_dir, name) in [
+        ("/home/u/Library/CloudStorage/Dropbox/.writ", "Dropbox"),
+        ("/home/u/Library/CloudStorage/Box/.writ", "Box"),
+        (
+            "/home/u/Library/CloudStorage/Box-me@example.com/.writ",
+            "Box",
+        ),
+        (
+            "/home/u/Library/CloudStorage/pCloud-Personal/.writ",
+            "pCloud",
+        ),
+        ("/home/u/Library/Mobile Documents/.writ", "iCloud Drive"),
+    ] {
+        let message = data_dir_refusal_message(&classify(Platform::Macos, data_dir));
+        assert!(
+            message.contains(&format!("which {name} syncs")),
+            "{data_dir} should be refused by name, got {message:?}"
+        );
+        assert!(message.contains(&format!("outside {name},")), "{message:?}");
+    }
 }
