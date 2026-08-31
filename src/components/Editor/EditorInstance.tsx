@@ -673,8 +673,8 @@ export default function EditorInstance(props: Props) {
   // markdown buffer is active with editing helpers enabled, so Cmd+B in a
   // rust file stays a plain keystroke and the palette never offers a no-op.
   const formatCommands = [
-    { id: "editor.toggleBold", label: "Toggle Bold", keybinding: "CmdOrCtrl+B", run: toggleBold },
-    { id: "editor.toggleItalic", label: "Toggle Italic", keybinding: "CmdOrCtrl+I", run: toggleItalic },
+    { id: "editor.toggleBold", label: "Bold", keybinding: "CmdOrCtrl+B", run: toggleBold },
+    { id: "editor.toggleItalic", label: "Italic", keybinding: "CmdOrCtrl+I", run: toggleItalic },
     { id: "editor.toggleStrikethrough", label: "Toggle Strikethrough", keybinding: "CmdOrCtrl+Shift+X", run: toggleStrikethrough },
     { id: "editor.toggleInlineCode", label: "Inline code", keybinding: "CmdOrCtrl+Shift+E", run: toggleInlineCode },
     { id: "editor.insertLink", label: "Insert Link", keybinding: "CmdOrCtrl+K", run: insertLink },
