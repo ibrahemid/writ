@@ -577,10 +577,10 @@ export default function WritWindow() {
     }
     if (editableMd) {
       const fmt: [string, string, string, (v: EditorView) => boolean][] = [
-        ['editor.toggleBold', 'Toggle Bold', 'CmdOrCtrl+B', toggleBold],
-        ['editor.toggleItalic', 'Toggle Italic', 'CmdOrCtrl+I', toggleItalic],
+        ['editor.toggleBold', 'Bold', 'CmdOrCtrl+B', toggleBold],
+        ['editor.toggleItalic', 'Italic', 'CmdOrCtrl+I', toggleItalic],
         ['editor.toggleStrikethrough', 'Toggle Strikethrough', 'CmdOrCtrl+Shift+X', toggleStrikethrough],
-        ['editor.toggleInlineCode', 'Toggle Inline Code', 'CmdOrCtrl+Shift+E', toggleInlineCode],
+        ['editor.toggleInlineCode', 'Inline code', 'CmdOrCtrl+Shift+E', toggleInlineCode],
         ['editor.insertLink', 'Insert Link', 'CmdOrCtrl+K', insertLink],
       ];
       for (const [id, name, binding, cmd] of fmt) {
@@ -1005,7 +1005,7 @@ export default function WritWindow() {
                 </span>
               </div>
             ))}
-            <button className="wwx-newtab" onClick={cmdNewTab} title="New tab" aria-label="New tab" type="button">
+            <button className="wwx-newtab" onClick={cmdNewTab} title="New note" aria-label="New note" type="button">
               +
             </button>
           </div>
