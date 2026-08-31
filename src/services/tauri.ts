@@ -666,6 +666,12 @@ export async function searchWorkspaceFiles(query: string): Promise<FileHit[]> {
   return invoke("search_workspace_files", { query });
 }
 
+// Ranked note names for quick open. Name-only, so the list stays the notes
+// themselves rather than the lines inside them.
+export async function searchNotesByName(query: string): Promise<FileHit[]> {
+  return invoke("search_notes_by_name", { query });
+}
+
 export async function workspaceIndexStatus(): Promise<IndexStatus> {
   return invoke("workspace_index_status");
 }

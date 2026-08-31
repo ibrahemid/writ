@@ -9,6 +9,29 @@ const COMPONENTS_DIR = resolve(SRC, "components");
 
 const IMPORT_RE = /import\s+(?:[\s\S]*?)\s+from\s+["']([^"']+)["']/g;
 
+// The text of every `onEvent("<kind>", …)` callback in `text`, taken from the
+// call to the balanced close of its argument list.
+function handlerBodies(text: string, kind: string): string[] {
+  const bodies: string[] = [];
+  const needle = `onEvent("${kind}"`;
+  let at = text.indexOf(needle);
+  while (at !== -1) {
+    let depth = 0;
+    let i = text.indexOf("(", at);
+    const start = i;
+    for (; i < text.length; i += 1) {
+      if (text[i] === "(") depth += 1;
+      else if (text[i] === ")") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    bodies.push(text.slice(start, i + 1));
+    at = text.indexOf(needle, i);
+  }
+  return bodies;
+}
+
 function walk(dir: string, files: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
@@ -82,5 +105,23 @@ describe("frontend layering", () => {
         .map((o) => `${o.file} -> ${o.spec}`)
         .join("; ")}`,
     ).toEqual([]);
+  });
+
+  // A notes:changed handler patches the notes tree and the index and nothing
+  // else. Reloading the document registry from a watcher event recreates a
+  // loaded writ-preview:// iframe, and removing a loaded one hard-freezes the
+  // macOS webview (PR #127).
+  it("no notes:changed handler reaches the buffer registry", () => {
+    const offenders: string[] = [];
+    for (const file of walk(SRC)) {
+      const text = readFileSync(file, "utf8");
+      if (!text.includes("notes:changed")) continue;
+      for (const block of handlerBodies(text, "notes:changed")) {
+        if (/bufferRegistry|handleExternalEdit/.test(block)) {
+          offenders.push(relative(REPO_ROOT, file));
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

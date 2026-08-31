@@ -2,7 +2,10 @@ import { onMount, onCleanup, createEffect } from "solid-js";
 import TitleBar from "./components/TitleBar/TitleBar";
 import EditorArea from "./components/Editor/EditorArea";
 import Sidebar from "./components/Sidebar/Sidebar";
-import CommandPalette, { toggleCommandPalette } from "./components/CommandPalette/CommandPalette";
+import CommandPalette, {
+  openNoteSearch,
+  toggleCommandPalette,
+} from "./components/CommandPalette/CommandPalette";
 import SearchPalette, { toggleSearchPalette } from "./components/SearchPalette/SearchPalette";
 import ThemeEditor, { openThemeEditor } from "./components/ThemeEditor/ThemeEditor";
 import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/ShortcutEditor";
@@ -447,6 +450,16 @@ function AppShell() {
       scope: "app",
       global: true,
       execute: () => toggleCommandPalette(),
+    });
+
+    registerCommand({
+      id: "notes.quickOpen",
+      label: "Open Note",
+      description: "Find a note by name and open it",
+      keybinding: "CmdOrCtrl+Shift+O",
+      scope: "app",
+      global: true,
+      execute: () => openNoteSearch(),
     });
 
     registerCommand({
