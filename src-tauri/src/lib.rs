@@ -972,6 +972,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn menu_action_for_id_returns_none_for_unknown_ids() {
         assert_eq!(menu_action_for_id(""), None);
