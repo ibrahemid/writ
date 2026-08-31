@@ -20,6 +20,7 @@
 //! a Cmd+Q pressed during a Dock quit waits on the flush already running rather
 //! than starting a second one.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -37,8 +38,13 @@ use crate::state::AppState;
 /// carries nothing of ours, so the handle has to be reachable from a static.
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 
+/// Set once the termination has been resumed. AppKit is owed exactly one
+/// answer, and two paths can be in a position to give it: the flush this
+/// module started, and a wait handed over from the exit-request path.
+static REPLIED: AtomicBool = AtomicBool::new(false);
+
 /// How long a termination that arrived on top of a running flush will wait for
-/// that flush before replying anyway. Twice the flush timeout, because the
+/// that flush before giving up on it. Twice the flush timeout, because the
 /// flush it is waiting on may itself be sitting out the whole of that.
 const HANDOVER_LIMIT: Duration = Duration::from_secs(4);
 
@@ -185,19 +191,32 @@ fn start_flush(app: tauri::AppHandle) {
 }
 
 /// Waits for a flush started elsewhere, then resumes the termination.
+///
+/// Answers only once that flush has actually finished. A wait that runs out
+/// answers nothing: the path that owns the shutdown ends the process itself,
+/// and telling AppKit to proceed while writes are still in flight is the one
+/// thing this must not do.
 fn reply_when_complete(app: tauri::AppHandle) {
     let quit_state = app.state::<AppState>().quit.clone();
     std::thread::spawn(move || {
         let started = Instant::now();
-        while !quit_state.is_complete() && started.elapsed() < HANDOVER_LIMIT {
+        while started.elapsed() < HANDOVER_LIMIT {
+            if quit_state.is_complete() {
+                reply_on_main();
+                return;
+            }
             std::thread::sleep(POLL_INTERVAL);
         }
-        reply_on_main();
+        tracing::warn!("a quit already running did not finish; leaving the exit to it");
     });
 }
 
-/// Answers AppKit on the main thread, which is the only thread that may.
+/// Answers AppKit on the main thread, which is the only thread that may, and
+/// only for whichever path gets there first.
 fn reply_on_main() {
+    if REPLIED.swap(true, Ordering::SeqCst) {
+        return;
+    }
     DispatchQueue::main().exec_async(|| {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
