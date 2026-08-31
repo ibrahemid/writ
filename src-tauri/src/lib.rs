@@ -288,6 +288,29 @@ pub fn run() {
                 None,
             ),
         };
+
+    // Runs before anything opens the database: SQLite's write-ahead log does
+    // not survive a sync provider. The report goes to the temporary directory
+    // because the logs directory is inside the folder being turned down.
+    let verdict = writ_core::startup::classify_data_dir(
+        startup::HOST_PLATFORM,
+        &writ_dir,
+        dirs::home_dir().as_deref(),
+        None,
+        &startup::stfolder_markers(&writ_dir),
+    );
+    if verdict != writ_core::startup::DataDirVerdict::Ok {
+        startup_failure::abort_with_report(
+            &StartupFailure::new(
+                StartupStage::DataDirectoryLocation,
+                writ_core::startup::data_dir_refusal_message(&verdict),
+                Some(writ_dir.clone()),
+                startup_failure::timestamp(),
+            ),
+            None,
+        );
+    }
+
     let logs_dir = writ_dir.join("logs");
     // Installed first: setting the hook touches nothing, while opening the
     // log file can fail on the same unwritable directory.

@@ -206,6 +206,20 @@ impl AppState {
         )?;
         info!(path = %notes_root.display(), "notes folder ready");
 
+        // The half of the data-folder guard that needs both paths. The sync
+        // provider half already ran in `run()`, before the database was
+        // opened; this one can only run once the notes folder is resolved.
+        let verdict = writ_core::startup::classify_data_dir(
+            crate::startup::HOST_PLATFORM,
+            &writ_dir,
+            home.as_deref(),
+            Some(&notes_root),
+            &[],
+        );
+        if verdict != writ_core::startup::DataDirVerdict::Ok {
+            return Err(Box::new(writ_core::startup::DataDirRefused(verdict)));
+        }
+
         let mut store = BufferStore::new(conn, buffers_dir.clone());
         // A save is stamped into the watcher's ignore set before it lands, so
         // the notes watcher never sees Writ's own writes: the store indexes

@@ -9,6 +9,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::notes::DEFAULT_NOTES_FOLDER;
+
 /// Title of the dialog shown when Writ cannot finish starting.
 pub const FAILURE_DIALOG_TITLE: &str = "Writ could not start";
 
@@ -17,6 +19,9 @@ pub const FAILURE_DIALOG_TITLE: &str = "Writ could not start";
 pub enum StartupStage {
     /// Resolving the directory Writ keeps its data in.
     DataDirectory,
+    /// Checking that the resolved data directory is somewhere a database can
+    /// live.
+    DataDirectoryLocation,
     /// Opening the data directory, database, and settings.
     AppState,
 }
@@ -26,6 +31,7 @@ impl StartupStage {
     pub fn describe(self) -> &'static str {
         match self {
             StartupStage::DataDirectory => "resolving the data directory",
+            StartupStage::DataDirectoryLocation => "checking where Writ keeps its data",
             StartupStage::AppState => "opening the data directory, database and settings",
         }
     }
@@ -36,6 +42,9 @@ impl StartupStage {
             StartupStage::DataDirectory => {
                 "Writ keeps its data under your home directory. Set HOME or WRIT_DATA_DIR to a \
                  directory Writ can write to, then start Writ again."
+            }
+            StartupStage::DataDirectoryLocation => {
+                "Set WRIT_DATA_DIR to a folder outside the synced folder, then start Writ again."
             }
             StartupStage::AppState => {
                 "Writ keeps its buffers, settings and database in that directory. Make it \
@@ -141,6 +150,215 @@ fn report_line(report_path: Option<&Path>) -> String {
     match report_path {
         Some(path) => format!("Report file: {}\n", path.display()),
         None => String::from("Report file: none, no writable location was found for it.\n"),
+    }
+}
+
+/// Which platform's table of synced folders applies.
+///
+/// Passed as data rather than read from `cfg!` inline so all three tables are
+/// exercised from one host, the way [`crate::default_app`] and the reveal
+/// command already do it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Platform {
+    /// macOS.
+    Macos,
+    /// Windows.
+    Windows,
+    /// Linux and the other Unixes.
+    Linux,
+}
+
+/// A sync provider whose tree must not hold Writ's database.
+///
+/// SQLite's write-ahead log needs the shared memory file, the log and the
+/// database to stay consistent with each other; a provider that uploads them
+/// separately, materialises them on demand, or resolves a conflict by keeping
+/// two copies breaks that. Every vendor documents the same warning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncProvider {
+    /// Apple iCloud Drive.
+    ICloud,
+    /// Dropbox.
+    Dropbox,
+    /// Google Drive.
+    GoogleDrive,
+    /// Microsoft OneDrive.
+    OneDrive,
+    /// Syncthing, found by its `.stfolder` marker rather than by a name.
+    Syncthing,
+}
+
+impl SyncProvider {
+    /// The provider's name, as the user knows it.
+    pub fn label(self) -> &'static str {
+        match self {
+            SyncProvider::ICloud => "iCloud Drive",
+            SyncProvider::Dropbox => "Dropbox",
+            SyncProvider::GoogleDrive => "Google Drive",
+            SyncProvider::OneDrive => "OneDrive",
+            SyncProvider::Syncthing => "Syncthing",
+        }
+    }
+}
+
+/// Why the data directory cannot be used.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DataDirVerdict {
+    /// The directory is usable.
+    Ok,
+    /// The directory sits under a sync provider's tree.
+    InsideSyncProvider {
+        /// The provider whose tree it is.
+        provider: SyncProvider,
+        /// The provider's folder, as far up as it was recognised.
+        root: PathBuf,
+    },
+    /// The data directory and the notes folder hold each other.
+    InsideNotesFolder {
+        /// The notes folder the two were compared against.
+        notes_root: PathBuf,
+    },
+}
+
+/// A data-directory verdict that stops the launch.
+///
+/// Carries the verdict so the caller renders one message; the `Display` text
+/// is [`data_dir_refusal_message`].
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{}", data_dir_refusal_message(.0))]
+pub struct DataDirRefused(pub DataDirVerdict);
+
+/// The folder names each platform's providers use, relative to the home
+/// directory, in path components.
+///
+/// macOS `Library/CloudStorage` is Apple's File Provider area rather than one
+/// vendor's folder, so the provider it maps to here is a default that
+/// [`provider_in_cloud_storage`] refines from the container name below it.
+fn sync_prefixes(platform: Platform) -> &'static [(&'static [&'static str], SyncProvider)] {
+    match platform {
+        Platform::Macos => &[
+            (&["Library", "Mobile Documents"], SyncProvider::ICloud),
+            (&["Library", "CloudStorage"], SyncProvider::ICloud),
+            (&["Dropbox"], SyncProvider::Dropbox),
+            (&["Google Drive"], SyncProvider::GoogleDrive),
+        ],
+        Platform::Windows => &[
+            (&["OneDrive"], SyncProvider::OneDrive),
+            (&["Dropbox"], SyncProvider::Dropbox),
+            (&["Google Drive"], SyncProvider::GoogleDrive),
+        ],
+        Platform::Linux => &[
+            (&["Dropbox"], SyncProvider::Dropbox),
+            (&["Google Drive"], SyncProvider::GoogleDrive),
+        ],
+    }
+}
+
+/// Reads the vendor out of a `Library/CloudStorage` container name.
+///
+/// The names are minted by the vendor's File Provider extension and carry an
+/// account suffix (`GoogleDrive-me@example.com`, `OneDrive-Personal`), so the
+/// match is on the leading name only. An unrecognised container is still a
+/// synced folder; it keeps the default the table gave it.
+fn provider_in_cloud_storage(container: &str, default: SyncProvider) -> SyncProvider {
+    for (name, provider) in [
+        ("Dropbox", SyncProvider::Dropbox),
+        ("GoogleDrive", SyncProvider::GoogleDrive),
+        ("Google Drive", SyncProvider::GoogleDrive),
+        ("OneDrive", SyncProvider::OneDrive),
+    ] {
+        if container.starts_with(name) {
+            return provider;
+        }
+    }
+    default
+}
+
+/// Classifies a resolved data directory.
+///
+/// `markers` is the set of directories found to hold a `.stfolder` marker
+/// (Syncthing), supplied by the adapter so this stays free of I/O. They are
+/// checked on every platform: Syncthing runs on all three and names its
+/// folders whatever the user named them, so the marker is the only signal.
+///
+/// `notes_root` is passed only once it has been resolved, which is later in
+/// the launch than the first call. `<data_dir>/`[`DEFAULT_NOTES_FOLDER`] is
+/// exempt from the containment check, because that is what
+/// [`crate::notes::resolve_notes_root_from`] resolves to whenever a data-folder
+/// override is in force; refusing it would stop every instance running against
+/// its own data folder from starting.
+pub fn classify_data_dir(
+    platform: Platform,
+    data_dir: &Path,
+    home: Option<&Path>,
+    notes_root: Option<&Path>,
+    stfolder_markers: &[PathBuf],
+) -> DataDirVerdict {
+    for marker in stfolder_markers {
+        if data_dir.starts_with(marker) {
+            return DataDirVerdict::InsideSyncProvider {
+                provider: SyncProvider::Syncthing,
+                root: marker.clone(),
+            };
+        }
+    }
+
+    if let Some(home) = home {
+        for (components, default) in sync_prefixes(platform) {
+            let mut root = home.to_path_buf();
+            for component in *components {
+                root.push(component);
+            }
+            let Ok(rest) = data_dir.strip_prefix(&root) else {
+                continue;
+            };
+            let mut provider = *default;
+            if components.last() == Some(&"CloudStorage") {
+                if let Some(container) = rest.components().next() {
+                    let container = container.as_os_str().to_string_lossy();
+                    provider = provider_in_cloud_storage(&container, provider);
+                    root.push(container.as_ref());
+                }
+            }
+            return DataDirVerdict::InsideSyncProvider { provider, root };
+        }
+    }
+
+    if let Some(notes_root) = notes_root {
+        let data_dir_inside = data_dir.starts_with(notes_root);
+        let notes_inside =
+            notes_root.starts_with(data_dir) && notes_root != data_dir.join(DEFAULT_NOTES_FOLDER);
+        if data_dir_inside || notes_inside {
+            return DataDirVerdict::InsideNotesFolder {
+                notes_root: notes_root.to_path_buf(),
+            };
+        }
+    }
+
+    DataDirVerdict::Ok
+}
+
+/// The plain-language refusal shown to the user.
+///
+/// [`DataDirVerdict::Ok`] has no message: the caller renders one only for a
+/// verdict that stops the launch.
+pub fn data_dir_refusal_message(verdict: &DataDirVerdict) -> String {
+    match verdict {
+        DataDirVerdict::Ok => String::new(),
+        DataDirVerdict::InsideSyncProvider { provider, root } => format!(
+            "Writ's data folder is inside {}, which {} syncs. A synced folder can damage the \
+             database and lose notes, so Writ will not start there. Set WRIT_DATA_DIR to a folder \
+             outside {}, then start Writ again.",
+            root.display(),
+            provider.label(),
+            provider.label()
+        ),
+        DataDirVerdict::InsideNotesFolder { notes_root } => format!(
+            "Writ's data folder and your notes folder, {}, overlap. The database and your notes \
+             cannot share a folder. Set WRIT_DATA_DIR to a folder outside your notes folder, or \
+             pick another notes folder in Settings, then start Writ again.",
+            notes_root.display()
+        ),
     }
 }
 
