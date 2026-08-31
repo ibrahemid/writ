@@ -101,6 +101,11 @@ impl QuitState {
             .is_ok()
     }
 
+    /// Whether the shutdown work has finished and the process may go.
+    pub fn is_complete(&self) -> bool {
+        self.phase.load(Ordering::SeqCst) == COMPLETE
+    }
+
     /// Records that the frontend has flushed every pending save.
     ///
     /// Idempotent: the frontend may confirm twice, or after the wait has

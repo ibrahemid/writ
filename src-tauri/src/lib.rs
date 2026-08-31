@@ -8,6 +8,8 @@ pub mod notes;
 pub mod poison;
 pub mod preview;
 pub mod quit;
+#[cfg(target_os = "macos")]
+mod quit_macos;
 pub mod security;
 pub mod snap_overlay;
 pub mod startup;
@@ -41,7 +43,7 @@ pub const SNAPSHOT_HEARTBEAT: std::time::Duration = std::time::Duration::from_se
 /// consistency check only removes orphan rows and never adds missing content
 /// (ADR-020). The clean-shutdown snapshot follows, and it must be the last
 /// thing written, so it records the notes as the flush left them.
-fn finish_shutdown(app_handle: &tauri::AppHandle) {
+pub(crate) fn finish_shutdown(app_handle: &tauri::AppHandle) {
     let state = app_handle.state::<AppState>();
 
     let pending = state.fts_scheduler.drain_pending();
@@ -596,6 +598,11 @@ pub fn run() {
             if let Err(e) = build_app_menu(app) {
                 tracing::warn!(error = %e, "failed to build application menu");
             }
+
+            // The Dock, an Apple Event quit and a logout all reach the app
+            // through `terminate:`, which never raises an exit request.
+            #[cfg(target_os = "macos")]
+            quit_macos::install(&handle);
 
             if let Err(e) = hotkey::setup_global_hotkey(&handle) {
                 tracing::warn!(error = %e, "failed to register global hotkey");
