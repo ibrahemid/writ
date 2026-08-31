@@ -14,6 +14,7 @@ import { installNativeContextMenuSuppressor } from "./lib/native-context-menu";
 import { IS_MAC, resolvePlatform } from "./lib/platform";
 import ToastContainer, { showToast } from "./components/Notifications/Toast";
 import ConfirmDialog, { requestConfirm } from "./components/ConfirmDialog/ConfirmDialog";
+import AppFrame from "./components/AppFrame/AppFrame";
 import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
 import UpdateBanner from "./components/UpdateBanner/UpdateBanner";
 import WindowProvider, { useWindow } from "./components/WindowProvider/WindowProvider";
@@ -699,7 +700,7 @@ function AppShell() {
   });
 
   return (
-    <div class="app-container" classList={{ "is-maximized": osWindowStore.maximized() }}>
+    <AppFrame>
       <IconSprite />
       <TitleBar />
       <div class="app-body">
@@ -717,6 +718,6 @@ function AppShell() {
       <AiRewriteOverlay />
       <ToastContainer />
       <UpdateBanner />
-    </div>
+    </AppFrame>
   );
 }

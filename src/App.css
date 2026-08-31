@@ -14,16 +14,28 @@
 }
 
 /* A maximized or tiled window meets the screen edge square. */
-:root[data-platform="win"] .app-container.is-maximized,
-:root[data-platform="linux"] .app-container.is-maximized {
+:root[data-platform="win"] .app-container.is-maximized {
   border-radius: 0;
 }
 
 /* GNOME expects the app to paint the CSD shadow; Tauri's `shadow` field is
-   unsupported on Linux. The window itself has to be transparent with room
-   around the frame for this to land, which is a host-side setting. */
+   unsupported on Linux. The window is already transparent, so the frame is
+   inset far enough for the shadow to land instead of being clipped at the
+   webview edge. Margin rather than padding on the root: the shadow is drawn
+   outside the frame's own box. */
 :root[data-platform="linux"] .app-container {
   box-shadow: var(--writ-shadow-csd);
+  margin: var(--writ-frame-shadow-inset);
+  height: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Flush against the screen edge: no room to make, nothing to cast into it. */
+:root[data-platform="linux"] .app-container.is-maximized {
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .app-body {

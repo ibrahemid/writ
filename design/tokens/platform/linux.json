@@ -253,6 +253,16 @@
             "$description": "GNOME expects the app to paint the client-side-decoration shadow: Tauri's `shadow` field is unsupported on Linux."
           },
           "$type": "shadow"
+        },
+        "frame": {
+          "$type": "dimension",
+          "shadow-inset": {
+            "$value": {
+              "value": 19,
+              "unit": "px"
+            },
+            "$description": "Room around the frame for the client-side-decoration shadow to land: its widest layer reaches spread 5px plus blur 14px, and the window is transparent, so anything narrower is clipped at the webview edge."
+          }
         }
       },
       "light": {

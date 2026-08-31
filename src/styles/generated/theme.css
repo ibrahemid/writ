@@ -270,6 +270,7 @@
   --writ-sidebar-row-pitch: 38px;
   --writ-sidebar-row-fill: 36px;
   --writ-shadow-csd: 0 0 14px 5px rgb(0 0 0 / 15%), 0 0 5px 2px rgb(0 0 0 / 10%), 0 0 0 1px rgb(0 0 0 / 5%);
+  --writ-frame-shadow-inset: 19px;
   --writ-bg-canvas: #FFFFFF;
   --writ-bg-sidebar: #EEECE6;
   --writ-bg-raised: #FFFDF9;

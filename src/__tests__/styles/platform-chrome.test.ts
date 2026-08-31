@@ -113,6 +113,45 @@ describe("GNOME header bar", () => {
       "var(--writ-shadow-csd)",
     );
   });
+
+  // The window is transparent and the frame fills it, so without room around
+  // the frame the shadow paints past the webview edge and is clipped away.
+  it("insets the frame far enough for the shadow to land", () => {
+    const frame = declarations(APP, ':root[data-platform="linux"] .app-container');
+    expect(frame.get("margin")).toBe("var(--writ-frame-shadow-inset)");
+    expect(THEME).toContain("--writ-frame-shadow-inset: 19px;");
+  });
+
+  // A maximized window meets the screen edge: no shadow to make room for, and
+  // no corners to round. Both follow the one class the frame already carries.
+  it("drops the inset, the radius and the shadow together when maximized", () => {
+    const maximized = declarations(
+      APP,
+      ':root[data-platform="linux"] .app-container.is-maximized',
+    );
+    expect(maximized.get("margin")).toBe("0");
+    expect(maximized.get("border-radius")).toBe("0");
+    expect(maximized.get("box-shadow")).toBe("none");
+    expect(
+      declarations(APP, ':root[data-platform="win"] .app-container.is-maximized').get(
+        "border-radius",
+      ),
+    ).toBe("0");
+  });
+
+  it("leaves the mac and Windows frames flush against the window", () => {
+    const rules = [...APP.matchAll(/([^{}]+)\{([^}]*)\}/g)].map(([, list, body]) => ({
+      selector: list.trim(),
+      body,
+    }));
+    for (const rule of rules) {
+      if (rule.selector.includes('data-platform="linux"')) continue;
+      expect(rule.body, rule.selector).not.toMatch(/(^|;)\s*margin\s*:/);
+      expect(rule.body, rule.selector).not.toContain("--writ-frame-shadow-inset");
+    }
+    // Declared for the one shell that needs it, so the other two cannot read it.
+    expect(THEME.match(/--writ-frame-shadow-inset:/g)).toHaveLength(1);
+  });
 });
 
 describe("macOS lights", () => {
