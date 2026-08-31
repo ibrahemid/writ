@@ -32,18 +32,23 @@ export function createContentProvider(options: ContentProviderOptions = {}): Res
       // the user this section is missing rather than empty.
       const results = await searchBuffers(q);
       return results.hits
-        .filter((hit) => kindById.has(hit.buffer_id))
-        .map((hit) => ({
-          id: `content:buffer:${hit.buffer_id}:${hit.line ?? 0}`,
-          label: hit.title,
-          snippet: hit.snippet,
-          line: hit.line ?? undefined,
-          execute: () =>
-            openTarget(
-              { kind: kindById.get(hit.buffer_id)!, id: hit.buffer_id },
-              hit.line ?? undefined,
-            ),
-        }));
+        .filter((hit) => kindById.has(hit.buffer_id) || Boolean(hit.path))
+        .map((hit) => {
+          const kind = kindById.get(hit.buffer_id);
+          // A note the index found on disk that no tab is showing has no id to
+          // open, so it is opened by its path.
+          const target =
+            kind === undefined
+              ? ({ kind: "file", path: hit.path! } as const)
+              : ({ kind, id: hit.buffer_id } as const);
+          return {
+            id: `content:buffer:${hit.buffer_id || hit.path}:${hit.line ?? 0}`,
+            label: hit.title,
+            snippet: hit.snippet,
+            line: hit.line ?? undefined,
+            execute: () => openTarget(target, hit.line ?? undefined),
+          };
+        });
     },
     async stream(q, onBatch, signal) {
       if (!q) return;
