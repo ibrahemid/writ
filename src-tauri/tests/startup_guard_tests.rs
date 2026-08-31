@@ -104,7 +104,8 @@ fn the_verdict_carries_the_marker_walk_to_the_policy() {
         data_dir_verdict(&data_dir, None, None),
         DataDirVerdict::InsideSyncProvider {
             provider: SyncProvider::Syncthing,
-            root: synced,
+            // Resolved, because that is the folder the database would land in.
+            root: std::fs::canonicalize(&synced).expect("synced folder"),
         }
     );
 
@@ -141,5 +142,69 @@ fn a_data_folder_symlinked_into_a_synced_folder_is_refused() {
             provider: SyncProvider::Dropbox,
             root: synced,
         }
+    );
+}
+
+/// The case the verifier reproduced: a data folder Writ has not created yet.
+///
+/// `canonicalize` fails on a path that does not exist, so a first launch has
+/// only the planned path to go on, and the guard has to judge where that path
+/// will land. Here the leaf is missing and the folder above it is a symlink
+/// to the synced folder, which no spelling of the path shows.
+///
+/// The guard must also leave the folder alone: it runs before `create_dir_all`
+/// in `AppState::initialize`, so nothing may appear under the synced tree.
+#[cfg(unix)]
+#[test]
+fn a_data_folder_writ_has_not_created_yet_is_refused() {
+    let root = TempDir::new().expect("temp dir");
+    let home = std::fs::canonicalize(root.path()).expect("home");
+    let synced = home.join("Dropbox");
+    std::fs::create_dir_all(&synced).expect("synced folder");
+
+    let spelled = home.join("sync-link");
+    std::os::unix::fs::symlink(&synced, &spelled).expect("symlink");
+    let planned = spelled.join("newdata");
+
+    assert_eq!(
+        classify_data_dir(HOST_PLATFORM, &planned, Some(&home), None, &[]),
+        DataDirVerdict::Ok,
+        "no spelling of the path shows the synced folder, which is why it is resolved"
+    );
+    assert_eq!(
+        data_dir_verdict(&planned, Some(&home), None),
+        DataDirVerdict::InsideSyncProvider {
+            provider: SyncProvider::Dropbox,
+            root: synced.clone(),
+        }
+    );
+    assert_eq!(
+        std::fs::read_dir(&synced).expect("synced folder").count(),
+        0,
+        "the guard must not create the folder it turns down"
+    );
+}
+
+/// A folder inside the synced tree that does not exist yet is refused by its
+/// planned location, and the guard leaves the tree empty.
+#[test]
+fn the_guard_creates_nothing_at_the_folder_it_turns_down() {
+    let root = TempDir::new().expect("temp dir");
+    let home = std::fs::canonicalize(root.path()).expect("home");
+    let synced = home.join("Dropbox");
+    std::fs::create_dir_all(&synced).expect("synced folder");
+    let planned = synced.join("newdata");
+
+    assert_eq!(
+        data_dir_verdict(&planned, Some(&home), None),
+        DataDirVerdict::InsideSyncProvider {
+            provider: SyncProvider::Dropbox,
+            root: synced.clone(),
+        }
+    );
+    assert!(!planned.exists());
+    assert_eq!(
+        std::fs::read_dir(&synced).expect("synced folder").count(),
+        0
     );
 }

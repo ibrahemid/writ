@@ -391,7 +391,7 @@ pub const ERR_NOT_A_NOTE: &str = "ERR_NOT_A_NOTE";
 /// canonicalised first, so neither the file nor a linked directory above it
 /// can carry an answer out of the folder.
 pub fn path_is_inside_notes(state: &AppState, path: &str) -> bool {
-    match crate::commands::file::resolve_for_containment(Path::new(path)) {
+    match crate::security::resolve_for_containment(Path::new(path)) {
         Some(resolved) => state.is_within_notes(&resolved),
         None => false,
     }
@@ -502,7 +502,7 @@ pub fn move_notes_folder_to(
     // down does not leave an empty folder behind at the path it named. A path
     // that will not resolve is turned down here rather than created and asked
     // about afterwards: the answer would arrive one folder too late.
-    let Some(planned) = crate::commands::file::resolve_for_containment(destination) else {
+    let Some(planned) = crate::security::resolve_for_containment(destination) else {
         return Err(CANNOT_BE_CHECKED.to_string());
     };
     refuse_destination(state, &from, Path::new(&planned))?;

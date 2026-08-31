@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Instant;
 
 use crate::poison::recover_poison;
@@ -459,49 +459,8 @@ pub fn authorize_source_write(state: &AppState, source_path: &str) -> Result<(),
 /// filesystem allows and the rest is appended, which is what lets a new note
 /// be minted and a deleted note be recreated.
 fn notes_containment_authorizes(state: &AppState, source_path: &str) -> bool {
-    match resolve_for_containment(Path::new(source_path)) {
+    match crate::security::resolve_for_containment(Path::new(source_path)) {
         Some(resolved) => state.is_within_notes(&resolved),
         None => false,
-    }
-}
-
-/// Resolves `path` against the filesystem as far as it exists, then appends
-/// the components that do not exist yet.
-///
-/// The watcher's ignore keys are built from this too
-/// ([`crate::watcher::handler::ignore_key_path`]), so a file being created is
-/// stamped under the path the watcher will deliver for it.
-///
-/// Walking up to the deepest existing ancestor is what makes the answer honest
-/// for a file Writ is about to create: every symlink and every `..` above the
-/// new name is resolved by `canonicalize`, and only names the filesystem has
-/// never seen are appended literally.
-///
-/// Returns `None` for a relative path, for a path whose unresolved tail is
-/// `..` or empty (`Path::file_name` yields nothing for either, so such a tail
-/// can never be appended), and for any resolution error other than a missing
-/// file.
-pub(crate) fn resolve_for_containment(path: &Path) -> Option<String> {
-    if !path.is_absolute() {
-        return None;
-    }
-
-    let mut unresolved: Vec<std::ffi::OsString> = Vec::new();
-    let mut cursor = path.to_path_buf();
-    loop {
-        match canonicalize_for_authorization(&cursor) {
-            Ok(base) => {
-                let mut resolved = PathBuf::from(base);
-                for name in unresolved.iter().rev() {
-                    resolved.push(name);
-                }
-                return resolved.into_os_string().into_string().ok();
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                unresolved.push(cursor.file_name()?.to_os_string());
-                cursor = cursor.parent()?.to_path_buf();
-            }
-            Err(_) => return None,
-        }
     }
 }

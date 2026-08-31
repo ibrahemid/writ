@@ -209,6 +209,9 @@ impl AppState {
         // The half of the data-folder guard that needs both paths. The sync
         // provider half already ran in `run()`, before the database was
         // opened; this one can only run once the notes folder is resolved.
+        // `usable_notes_root` carries the same overlap rule and diverts first,
+        // so this is the invariant behind that rule; `run()` reports the
+        // refusal under `StartupStage::DataDirectoryLocation`.
         let verdict =
             crate::startup::data_dir_verdict(&writ_dir, home.as_deref(), Some(&notes_root));
         if verdict != writ_core::startup::DataDirVerdict::Ok {

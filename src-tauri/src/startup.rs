@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use writ_core::file_ops::arg_paths_from_iter;
 use writ_core::startup::{classify_data_dir, DataDirVerdict, Platform};
 
-use crate::security::{canonicalize_for_authorization, canonicalize_root, AuthorizedPaths};
+use crate::security::{canonicalize_for_authorization, resolve_for_containment, AuthorizedPaths};
 
 pub fn push_arg_paths_into_pending<I>(
     pending: &Mutex<Vec<String>>,
@@ -93,25 +93,34 @@ pub fn stfolder_markers(dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Asks [`classify_data_dir`] about both spellings of `data_dir` and returns
-/// the first answer that stops the launch.
+/// Asks [`classify_data_dir`] where `data_dir` will land and returns the
+/// first answer that stops the launch.
 ///
-/// The policy compares paths as spelled, so the adapter has to hand it every
-/// spelling that matters. A data folder symlinked into a synced folder shows
-/// that only in its canonical form, and on macOS `resolve_writ_dir` yields
-/// `/var/...` where the canonical path is `/private/var/...`, which is also
-/// the form `notes_root` arrives in. `resolve_and_create_notes_root` compares
-/// against the same pair for the same reason.
+/// The policy compares paths as given, so the adapter has to resolve them
+/// first. [`resolve_for_containment`] resolves the deepest part of the path
+/// that exists and appends the rest, which is what makes the answer honest on
+/// a first launch: the folder Writ is about to create does not exist, so
+/// `canonicalize` alone says nothing, and a symlinked parent would carry the
+/// database into a synced folder unseen. On macOS it also settles the
+/// `/var` against `/private/var` spelling `notes_root` arrives in.
+///
+/// The resolved path is asked about first, so a refusal names the folder the
+/// database would land in. The path as given is asked about second, for the
+/// paths resolution has no answer for: a relative or non-UTF-8 `WRIT_DATA_DIR`
+/// returns `None` there, and so does a symlink whose target does not exist,
+/// which `create_dir_all` then turns down in `AppState::initialize` rather
+/// than following.
 pub fn data_dir_verdict(
     data_dir: &Path,
     home: Option<&Path>,
     notes_root: Option<&Path>,
 ) -> DataDirVerdict {
-    let mut spellings = vec![data_dir.to_path_buf()];
-    if let Ok(canonical) = canonicalize_root(data_dir) {
-        if canonical != data_dir {
-            spellings.push(canonical);
-        }
+    let mut spellings = Vec::with_capacity(2);
+    if let Some(planned) = resolve_for_containment(data_dir).map(PathBuf::from) {
+        spellings.push(planned);
+    }
+    if !spellings.iter().any(|known| known == data_dir) {
+        spellings.push(data_dir.to_path_buf());
     }
 
     for spelling in &spellings {

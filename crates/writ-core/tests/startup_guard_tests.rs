@@ -359,3 +359,101 @@ fn the_location_stage_describes_the_check_and_names_the_environment_variable() {
         .remedy()
         .contains("WRIT_DATA_DIR"));
 }
+
+/// APFS and NTFS are case-preserving but case-insensitive, so `~/dropbox` and
+/// `~/Dropbox` are one folder there and the guard has to see both spellings.
+/// The path is judged as data, so no case variant of it needs to exist on
+/// disk for this to hold.
+#[test]
+fn a_lowercase_provider_folder_is_refused_on_the_case_insensitive_platforms() {
+    for (platform, data_dir, provider, root) in [
+        (
+            Platform::Macos,
+            "/home/u/dropbox/newdata",
+            SyncProvider::Dropbox,
+            "/home/u/dropbox",
+        ),
+        (
+            Platform::Macos,
+            "/home/u/GOOGLE DRIVE/.writ",
+            SyncProvider::GoogleDrive,
+            "/home/u/GOOGLE DRIVE",
+        ),
+        (
+            Platform::Macos,
+            "/home/u/library/mobile documents/.writ",
+            SyncProvider::ICloud,
+            "/home/u/library/mobile documents",
+        ),
+        (
+            Platform::Windows,
+            "/home/u/onedrive/.writ",
+            SyncProvider::OneDrive,
+            "/home/u/onedrive",
+        ),
+        (
+            Platform::Windows,
+            "/home/u/DropBox/.writ",
+            SyncProvider::Dropbox,
+            "/home/u/DropBox",
+        ),
+    ] {
+        expect_provider(&classify(platform, data_dir), provider, root);
+    }
+}
+
+/// The same spellings on Linux, where `~/dropbox` really is a different
+/// folder from `~/Dropbox` and refusing it would be wrong.
+#[test]
+fn a_lowercase_provider_folder_is_ok_on_linux() {
+    for data_dir in [
+        "/home/u/dropbox/newdata",
+        "/home/u/google drive/.writ",
+        "/home/u/DROPBOX/.writ",
+    ] {
+        assert_eq!(classify(Platform::Linux, data_dir), DataDirVerdict::Ok);
+    }
+}
+
+/// The container name is what says which service owns a `Library/CloudStorage`
+/// folder, so a case difference there must not fall back to the table's
+/// default and send the user to the wrong service.
+#[test]
+fn macos_cloudstorage_names_the_provider_in_a_lowercase_container() {
+    for (data_dir, provider, root) in [
+        (
+            "/home/u/Library/CloudStorage/dropbox/.writ",
+            SyncProvider::Dropbox,
+            "/home/u/Library/CloudStorage/dropbox",
+        ),
+        (
+            "/home/u/library/cloudstorage/googledrive-me@example.com/.writ",
+            SyncProvider::GoogleDrive,
+            "/home/u/library/cloudstorage/googledrive-me@example.com",
+        ),
+        (
+            "/home/u/Library/CloudStorage/onedrive-Personal/.writ",
+            SyncProvider::OneDrive,
+            "/home/u/Library/CloudStorage/onedrive-Personal",
+        ),
+    ] {
+        expect_provider(&classify(Platform::Macos, data_dir), provider, root);
+    }
+}
+
+/// The exemption has to fold case for the same reason the provider table
+/// does: on macOS `<data dir>/writ` is the folder `resolve_notes_root_from`
+/// created as `<data dir>/Writ`, and refusing it would stop every instance
+/// running against its own data folder.
+#[test]
+fn the_default_notes_folder_inside_the_data_directory_is_ok_whatever_its_case() {
+    let notes = PathBuf::from("/home/u/.writ-dev/writ");
+    let verdict = classify_data_dir(
+        Platform::Macos,
+        Path::new("/home/u/.writ-dev"),
+        Some(&home()),
+        Some(&notes),
+        &[],
+    );
+    assert_eq!(verdict, DataDirVerdict::Ok);
+}

@@ -315,15 +315,30 @@ pub fn run() {
 
     let app_state = match AppState::initialize() {
         Ok(app_state) => app_state,
-        Err(error) => startup_failure::abort_with_report(
-            &StartupFailure::new(
-                StartupStage::AppState,
-                error.to_string(),
-                Some(writ_dir.clone()),
-                startup_failure::timestamp(),
-            ),
-            Some(&logs_dir),
-        ),
+        Err(error) => {
+            // A refusal from the data-folder guard is a location failure, not
+            // a permission one, and its report belongs outside the folder
+            // being turned down. The stage decides both the step the report
+            // names and the remedy under it, and `StartupStage::AppState`
+            // would tell the user to fix the folder's permissions.
+            let refused = error
+                .downcast_ref::<writ_core::startup::DataDirRefused>()
+                .is_some();
+            let (stage, report_dir) = if refused {
+                (StartupStage::DataDirectoryLocation, None)
+            } else {
+                (StartupStage::AppState, Some(logs_dir.as_path()))
+            };
+            startup_failure::abort_with_report(
+                &StartupFailure::new(
+                    stage,
+                    error.to_string(),
+                    Some(writ_dir.clone()),
+                    startup_failure::timestamp(),
+                ),
+                report_dir,
+            )
+        }
     };
     let config_path = app_state.writ_dir.join("config.toml");
     let watcher_ignore = app_state.watcher_ignore.clone();

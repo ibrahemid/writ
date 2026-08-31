@@ -18,7 +18,7 @@
 //! Both run against `WRIT_FSYNC_BENCH_DIR` (default: the system temporary
 //! directory), so the same binary measures internal APFS, an external USB
 //! volume and a network mount. `WRIT_FSYNC_BENCH_SAMPLES` sets the cadence
-//! pass sample count (default 30); `0` skips that pass.
+//! pass sample count (default 120); `0` skips that pass.
 //!
 //! ```text
 //! WRIT_FSYNC_BENCH_DIR=/Volumes/usb cargo bench -p writ-storage --bench fullfsync
@@ -40,7 +40,11 @@ const PAYLOAD_BYTES: usize = 4096;
 const CADENCE: Duration = Duration::from_secs(1);
 
 /// Cadence-pass sample count when `WRIT_FSYNC_BENCH_SAMPLES` is unset.
-const DEFAULT_SAMPLES: usize = 30;
+///
+/// A p99 needs at least a hundred samples to be a p99 rather than the largest
+/// sample under another name, and the tail is the number the barrier decision
+/// turns on. At one write per second this is a two-minute pass per barrier.
+const DEFAULT_SAMPLES: usize = 120;
 
 /// Whether the barrier is asked for on top of the ordinary flush.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -126,13 +130,26 @@ fn payload() -> Vec<u8> {
         .collect()
 }
 
+/// Linear interpolation between the two samples the rank falls between, the
+/// way `numpy.percentile` and the usual latency tooling do it.
+///
+/// Rounding to the nearest sample instead reports the largest sample as the
+/// p99 whenever there are fewer than a hundred of them, which reads as a
+/// tail measurement and is not one.
 fn percentile(sorted: &[Duration], fraction: f64) -> Duration {
     if sorted.is_empty() {
         return Duration::ZERO;
     }
     let last = sorted.len() - 1;
-    let idx = ((sorted.len() as f64 * fraction).ceil() as usize).saturating_sub(1);
-    sorted[idx.min(last)]
+    let rank = fraction.clamp(0.0, 1.0) * last as f64;
+    let lo = rank.floor() as usize;
+    let hi = rank.ceil() as usize;
+    if lo == hi {
+        return sorted[lo.min(last)];
+    }
+    let low = sorted[lo.min(last)];
+    let high = sorted[hi.min(last)];
+    low + Duration::from_secs_f64((high - low).as_secs_f64() * (rank - lo as f64))
 }
 
 /// Writes `samples` files one second apart and returns every write's duration.

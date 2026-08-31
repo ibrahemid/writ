@@ -7,6 +7,7 @@
 //! supplies the facts (the error text, the timestamp, the candidate
 //! directories) and performs the I/O.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use crate::notes::DEFAULT_NOTES_FOLDER;
@@ -234,6 +235,60 @@ pub struct DataDirRefused(pub DataDirVerdict);
 /// macOS `Library/CloudStorage` is Apple's File Provider area rather than one
 /// vendor's folder, so the provider it maps to here is a default that
 /// [`provider_in_cloud_storage`] refines from the container name below it.
+/// Whether `platform`'s default filesystem treats two spellings that differ
+/// only in case as one name.
+///
+/// APFS and NTFS are case-preserving but case-insensitive by default, so
+/// `~/dropbox` and `~/Dropbox` are the same folder there; ext4 and the rest of
+/// Linux keep them apart. This is the same rule
+/// `security::paths_equal_for_authorization` follows in the adapter, decided
+/// from the platform rather than from `cfg!` so every table stays testable
+/// from one host.
+fn folds_case(platform: Platform) -> bool {
+    match platform {
+        Platform::Macos | Platform::Windows => true,
+        Platform::Linux => false,
+    }
+}
+
+/// Compares one path component the way `folds_case` says the filesystem does.
+fn names_match(a: &OsStr, b: &OsStr, fold: bool) -> bool {
+    if fold {
+        a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+    } else {
+        a == b
+    }
+}
+
+/// Splits `path` at `prefix`, comparing component by component.
+///
+/// Returns the prefix as `path` spells it and the components below it, or
+/// `None` when `path` is not inside `prefix`. The matched half comes back in
+/// the caller's own spelling so a refusal names the folder the user typed
+/// rather than the table's capitalisation.
+fn split_prefix(path: &Path, prefix: &Path, fold: bool) -> Option<(PathBuf, PathBuf)> {
+    let mut rest = path.components();
+    let mut matched = PathBuf::new();
+    for want in prefix.components() {
+        let have = rest.next()?;
+        if !names_match(have.as_os_str(), want.as_os_str(), fold) {
+            return None;
+        }
+        matched.push(have);
+    }
+    Some((matched, rest.as_path().to_path_buf()))
+}
+
+/// Whether `path` is `prefix` or sits below it, folding case per platform.
+fn is_within(path: &Path, prefix: &Path, fold: bool) -> bool {
+    split_prefix(path, prefix, fold).is_some()
+}
+
+/// Whether two paths name the same folder, folding case per platform.
+fn same_path(a: &Path, b: &Path, fold: bool) -> bool {
+    a.components().count() == b.components().count() && is_within(a, b, fold)
+}
+
 fn sync_prefixes(platform: Platform) -> &'static [(&'static [&'static str], SyncProvider)] {
     match platform {
         Platform::Macos => &[
@@ -260,14 +315,24 @@ fn sync_prefixes(platform: Platform) -> &'static [(&'static [&'static str], Sync
 /// account suffix (`GoogleDrive-me@example.com`, `OneDrive-Personal`), so the
 /// match is on the leading name only. An unrecognised container is still a
 /// synced folder; it keeps the default the table gave it.
-fn provider_in_cloud_storage(container: &str, default: SyncProvider) -> SyncProvider {
+fn provider_in_cloud_storage(container: &str, default: SyncProvider, fold: bool) -> SyncProvider {
+    let container = if fold {
+        container.to_lowercase()
+    } else {
+        container.to_string()
+    };
     for (name, provider) in [
         ("Dropbox", SyncProvider::Dropbox),
         ("GoogleDrive", SyncProvider::GoogleDrive),
         ("Google Drive", SyncProvider::GoogleDrive),
         ("OneDrive", SyncProvider::OneDrive),
     ] {
-        if container.starts_with(name) {
+        let name = if fold {
+            name.to_lowercase()
+        } else {
+            name.to_string()
+        };
+        if container.starts_with(&name) {
             return provider;
         }
     }
@@ -281,8 +346,10 @@ fn provider_in_cloud_storage(container: &str, default: SyncProvider) -> SyncProv
 /// checked on every platform: Syncthing runs on all three and names its
 /// folders whatever the user named them, so the marker is the only signal.
 ///
-/// Paths are compared as spelled, so a caller that means folders rather than
-/// spellings hands over canonical ones: a data folder symlinked into a synced
+/// Path components are compared the way `platform`'s filesystem does: folding
+/// case on macOS and Windows, byte-exact on Linux. Beyond case, paths are
+/// compared as spelled, so a caller that means folders rather than
+/// spellings hands over resolved ones: a data folder symlinked into a synced
 /// folder, or a `WRIT_DATA_DIR` written through a symlink, is only visible in
 /// its canonical form. The adapter's `data_dir_verdict` asks about both.
 ///
@@ -299,8 +366,10 @@ pub fn classify_data_dir(
     notes_root: Option<&Path>,
     stfolder_markers: &[PathBuf],
 ) -> DataDirVerdict {
+    let fold = folds_case(platform);
+
     for marker in stfolder_markers {
-        if data_dir.starts_with(marker) {
+        if is_within(data_dir, marker, fold) {
             return DataDirVerdict::InsideSyncProvider {
                 provider: SyncProvider::Syncthing,
                 root: marker.clone(),
@@ -310,18 +379,18 @@ pub fn classify_data_dir(
 
     if let Some(home) = home {
         for (components, default) in sync_prefixes(platform) {
-            let mut root = home.to_path_buf();
+            let mut prefix = home.to_path_buf();
             for component in *components {
-                root.push(component);
+                prefix.push(component);
             }
-            let Ok(rest) = data_dir.strip_prefix(&root) else {
+            let Some((mut root, rest)) = split_prefix(data_dir, &prefix, fold) else {
                 continue;
             };
             let mut provider = *default;
             if components.last() == Some(&"CloudStorage") {
                 if let Some(container) = rest.components().next() {
                     let container = container.as_os_str().to_string_lossy();
-                    provider = provider_in_cloud_storage(&container, provider);
+                    provider = provider_in_cloud_storage(&container, provider, fold);
                     root.push(container.as_ref());
                 }
             }
@@ -330,9 +399,9 @@ pub fn classify_data_dir(
     }
 
     if let Some(notes_root) = notes_root {
-        let data_dir_inside = data_dir.starts_with(notes_root);
-        let notes_inside =
-            notes_root.starts_with(data_dir) && notes_root != data_dir.join(DEFAULT_NOTES_FOLDER);
+        let data_dir_inside = is_within(data_dir, notes_root, fold);
+        let notes_inside = is_within(notes_root, data_dir, fold)
+            && !same_path(notes_root, &data_dir.join(DEFAULT_NOTES_FOLDER), fold);
         if data_dir_inside || notes_inside {
             return DataDirVerdict::InsideNotesFolder {
                 notes_root: notes_root.to_path_buf(),

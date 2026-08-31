@@ -27,7 +27,7 @@ pub fn create_ignore_set() -> IgnoreSet {
 /// path that resolves to nothing is used raw, which can only fail open: the
 /// key misses and the event is emitted.
 pub(crate) fn ignore_key_path(path: &Path) -> PathBuf {
-    crate::commands::file::resolve_for_containment(path)
+    crate::security::resolve_for_containment(path)
         .map(PathBuf::from)
         .unwrap_or_else(|| path.to_path_buf())
 }
