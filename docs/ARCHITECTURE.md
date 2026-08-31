@@ -162,10 +162,10 @@ Every colour, radius, type step, shadow and duration is a DTCG token under `desi
 
 | Output | Consumer |
 |---|---|
-| `src/styles/generated/theme.css` | the app, imported first by `src/styles/global.css` |
+| `src/styles/generated/theme.css` | the app, imported by `src/styles/global.css` after `fonts.css` |
 | `src/styles/generated/tokens.ts` | TypeScript that needs a token value or an accent id |
 | `src-tauri/assets/generated/preview-tokens.css` | the `writ-preview://` iframe, inlined by `renderers/theme.rs` |
-| `site/design-system/generated/tokens.css` | the site |
+| `site/design-system/generated/tokens.css` | nothing yet: no page imports it, and the demo window declares its own `--writ-*` values in `site/src/styles/writ-window.css` |
 
 A component stylesheet spends `var(--writ-*)`; it never declares one. Three architecture tests
 hold the line: `no-literal-color`, `no-raw-radius-or-easing`, and `legacy-aliases`, which carries
