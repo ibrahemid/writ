@@ -61,7 +61,7 @@ fn default_tab_size() -> u32 {
 }
 
 fn default_autosave_debounce_ms() -> u32 {
-    300
+    1000
 }
 
 fn default_markdown_typography() -> bool {

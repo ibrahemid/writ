@@ -88,7 +88,7 @@ function queueContent(bufferId: string, content: ContentSource) {
   pendingContent.set(bufferId, { source: content, generation: bumpGeneration(bufferId) });
 }
 
-export function debouncedSave(bufferId: string, content: ContentSource, delayMs: number = 300) {
+export function debouncedSave(bufferId: string, content: ContentSource, delayMs: number = 1000) {
   clearTimer(bufferId);
   queueContent(bufferId, content);
 

@@ -15,7 +15,7 @@ fn default_config_has_expected_values() {
     assert_eq!(config.editor.font_size, 14);
     assert!(config.editor.word_wrap);
     assert_eq!(config.editor.tab_size, 2);
-    assert_eq!(config.editor.autosave_debounce_ms, 300);
+    assert_eq!(config.editor.autosave_debounce_ms, 1000);
 
     assert_eq!(config.window.width, 1100);
     assert_eq!(config.window.height, 720);
