@@ -394,7 +394,7 @@ function AppShell() {
     registerCommand({
       id: "search.openEverywhere",
       icon: "magnifying-glass",
-      label: "Search Everywhere",
+      label: "Search everywhere",
       description: "Search commands, settings, file names and text",
       keybinding: "CmdOrCtrl+Shift+F",
       scope: "app",

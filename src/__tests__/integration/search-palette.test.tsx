@@ -179,7 +179,7 @@ describe("SearchPalette", () => {
     });
     registerCommand({
       id: "search.openEverywhere",
-      label: "Search Everywhere",
+      label: "Search everywhere",
       scope: "app",
       execute: vi.fn(),
     });
@@ -199,7 +199,7 @@ describe("SearchPalette", () => {
   it("never offers its own opener", async () => {
     await open();
     await type("search");
-    await waitFor(() => expect(labels()).not.toContain("Search Everywhere"));
+    await waitFor(() => expect(labels()).not.toContain("Search everywhere"));
   });
 
   it("composes commands, files and content in one list", async () => {
