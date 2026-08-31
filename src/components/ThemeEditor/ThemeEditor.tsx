@@ -92,7 +92,7 @@ export default function ThemeEditor() {
             <div class="theme-editor-actions">
               <select
                 class="theme-editor-preset"
-                value={themeStore.presetId()}
+                value={themeStore.activePreset().id}
                 onChange={(e) => handlePresetChange(e.currentTarget.value)}
                 aria-label="Preset"
               >

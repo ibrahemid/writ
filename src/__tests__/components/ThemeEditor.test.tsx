@@ -108,6 +108,18 @@ describe("ThemeEditor", () => {
     expect(themeStore.overrides()).toEqual({ "bg.canvas": "#123456", "fg.faint": "#abcdef" });
   });
 
+  it("the preset select names the half of the pair that renders", () => {
+    // The swatches below it are the active preset's, so naming the stored half
+    // would label a dark palette "Writ Light".
+    const { container } = render(() => <ThemeEditor />);
+    themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "system" });
+    themeStore.loadConfig({ preset: "writ-light", overrides: {} });
+    openThemeEditor();
+    const select = container.querySelector<HTMLSelectElement>(".theme-editor-preset")!;
+    expect(select.value).toBe("writ-dark");
+    expect(select.selectedOptions[0].textContent).toBe("Writ Dark");
+  });
+
   it("says the accent setting drives the accent tokens", () => {
     const { container } = render(() => <ThemeEditor />);
     openThemeEditor();
