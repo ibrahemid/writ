@@ -41,6 +41,9 @@ pub enum WritFrontendEvent {
     #[serde(rename = "workspace:changed")]
     WorkspaceChanged { path: String, removed: bool },
 
+    #[serde(rename = "notes:changed")]
+    NotesChanged { path: String, removed: bool },
+
     #[serde(rename = "inbox:file-arrived")]
     InboxFileArrived { path: String },
 
@@ -93,6 +96,7 @@ fn event_name(event: &WritFrontendEvent) -> &'static str {
         WritFrontendEvent::MenuAction { .. } => "writ://menu-action",
         WritFrontendEvent::InboxFileArrived { .. } => "writ://inbox-file-arrived",
         WritFrontendEvent::WorkspaceChanged { .. } => "writ://workspace-changed",
+        WritFrontendEvent::NotesChanged { .. } => "writ://notes-changed",
         WritFrontendEvent::UpdateStatus(..) => "writ://update-status",
         WritFrontendEvent::AiRewrite { .. } => "writ://ai-rewrite",
         WritFrontendEvent::PreviewRendered { .. } => "writ://preview-rendered",

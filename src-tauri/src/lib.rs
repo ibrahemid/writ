@@ -336,6 +336,7 @@ pub fn run() {
             commands::history::restore_buffer,
             commands::history::clear_history,
             commands::history::search_buffers,
+            commands::history::search_notes_by_name,
             commands::config::get_config,
             commands::config::update_config,
             commands::window::toggle_window,
@@ -412,6 +413,38 @@ pub fn run() {
                 state.event_bus.subscribe(move |event| {
                     if let WritEvent::WorkspaceChanged { path, removed } = event {
                         workspace_index::on_workspace_changed(&index, path, *removed);
+                    }
+                });
+            }
+
+            // Keep the notes index honest about a file another program wrote
+            // (ADR-028 section 7). A separate subscriber from the frontend
+            // bridge, so both observe every NotesChanged.
+            //
+            // It patches the one path and nothing else. It must never reload
+            // the document registry: that recreates a loaded
+            // `writ-preview://` iframe and hard-freezes the macOS webview
+            // (PR #127).
+            {
+                use writ_core::events::bus::WritEvent;
+                let state = app.state::<AppState>();
+                let index = state.notes_index.clone();
+                state.event_bus.subscribe(move |event| {
+                    let WritEvent::NotesChanged { path, removed } = event else {
+                        return;
+                    };
+                    let path = std::path::Path::new(path);
+                    // A rename arrives as one delete and one create, so both
+                    // arms have to be replayable: forgetting a path the index
+                    // does not hold, and indexing one it already has, are both
+                    // no-ops rather than errors.
+                    let result = if *removed {
+                        index.forget_path(path)
+                    } else {
+                        index.index_path(path).map(|_| ())
+                    };
+                    if let Err(e) = result {
+                        tracing::warn!(path = %path.display(), error = %e, "notes index update failed");
                     }
                 });
             }
@@ -541,6 +574,55 @@ pub fn run() {
 
             {
                 let state = app.state::<AppState>();
+                let notes_root = state.notes_root();
+
+                // Bring the index in line with the folder before anything
+                // searches it, on a thread of its own: the walk reads every
+                // note, and a folder of a few thousand would hold the UI for
+                // seconds. An empty index reconciles to a full one, which is
+                // what makes deleting writ.db safe.
+                let index = state.notes_index.clone();
+                let cancel = state.notes_index_cancel.clone();
+                let reconcile_root = notes_root.clone();
+                std::thread::spawn(move || {
+                    let cancelled = || cancel.load(std::sync::atomic::Ordering::Relaxed);
+                    match index.reconcile(
+                        &reconcile_root,
+                        &cancelled,
+                        &writ_storage::notes_index::is_dataless,
+                    ) {
+                        Ok(outcome) => info!(
+                            added = outcome.added,
+                            updated = outcome.updated,
+                            removed = outcome.removed,
+                            skipped = outcome.skipped_dataless,
+                            cancelled = outcome.cancelled,
+                            "notes index reconciled"
+                        ),
+                        Err(e) => tracing::warn!(error = %e, "notes index reconcile failed"),
+                    }
+                });
+
+                match watcher::handler::start_notes_watcher(
+                    state.event_bus.clone(),
+                    notes_root,
+                    state.watcher_ignore.clone(),
+                ) {
+                    Ok(handle) => {
+                        let mut slot = recover_poison(
+                            state.notes_watcher.lock(),
+                            "lib::setup:notes_watcher_stash",
+                        );
+                        *slot = Some(handle);
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "failed to start notes watcher");
+                    }
+                }
+            }
+
+            {
+                let state = app.state::<AppState>();
                 let restored_inbox = state
                     .inbox_root
                     .lock()
@@ -627,6 +709,11 @@ pub fn run() {
             // (the startup consistency check only removes orphan rows, it never
             // adds missing content). ADR-020.
             let state = app_handle.state::<AppState>();
+            // Stop the reconcile walk rather than waiting for it: a cancelled
+            // pass removes nothing, and the next launch reconciles again.
+            state
+                .notes_index_cancel
+                .store(true, std::sync::atomic::Ordering::Relaxed);
             let pending = state.fts_scheduler.drain_pending();
             if !pending.is_empty() {
                 if let Ok(store) = state.store.lock() {

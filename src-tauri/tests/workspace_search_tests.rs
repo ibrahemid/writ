@@ -19,6 +19,7 @@ use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
+use writ_storage::notes_index::NotesIndexStore;
 use writ_storage::workspace_grep::{GrepLimits, ScanObserver};
 use writ_tauri_lib::commands::workspace::{
     run_content_search, search_workspace_files_inner, workspace_index_status_inner, SearchBatch,
@@ -64,6 +65,9 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
+        notes_watcher: Mutex::new(None),
+        notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
+        notes_index_cancel: Arc::new(AtomicBool::new(false)),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
         transforms: RwLock::new(TransformRegistry::new()),

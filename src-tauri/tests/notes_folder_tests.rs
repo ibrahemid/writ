@@ -18,6 +18,7 @@ use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::database::queries;
 use writ_storage::layout_state::LayoutStateStore;
+use writ_storage::notes_index::NotesIndexStore;
 use writ_storage::notes_migration::{MigrationReport, RowOutcome};
 use writ_storage::schema_meta::{self, KEY_NOTES_MIGRATION_REPORT};
 use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
@@ -55,6 +56,9 @@ fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFall
         notes_root_fallback: RwLock::new(fallback),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
+        notes_watcher: Mutex::new(None),
+        notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
+        notes_index_cancel: Arc::new(AtomicBool::new(false)),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
         transforms: RwLock::new(TransformRegistry::new()),

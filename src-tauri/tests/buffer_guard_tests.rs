@@ -14,6 +14,7 @@ use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
+use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::buffer::{
     decide_create_buffer, read_buffer_content_inner, save_buffer_content_inner,
     save_failure_message, CreateDecision, ERR_FILE_CHANGED_ON_DISK, ERR_FILE_NOT_DOWNLOADED,
@@ -104,6 +105,9 @@ fn make_state(dir: &TempDir) -> AppState {
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
+        notes_watcher: Mutex::new(None),
+        notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
+        notes_index_cancel: Arc::new(AtomicBool::new(false)),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
         transforms: RwLock::new(TransformRegistry::new()),

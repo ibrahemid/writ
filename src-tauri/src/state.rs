@@ -17,6 +17,7 @@ use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 
 use writ_storage::layout_state::LayoutStateStore;
+use writ_storage::notes_index::NotesIndexStore;
 
 use crate::fts_scheduler::FtsScheduler;
 use crate::poison::recover_poison;
@@ -91,6 +92,9 @@ pub struct AppState {
     pub notes_root_fallback: RwLock<Option<NotesRootFallback>>,
     pub watcher_ignore: IgnoreSet,
     pub watcher: Mutex<Option<WatcherHandle>>,
+    /// The recursive watcher over the notes folder. Held here so it lives as
+    /// long as the application; dropping it stops the watch.
+    pub notes_watcher: Mutex<Option<WatcherHandle>>,
     pub pending_opens: Mutex<Vec<String>>,
     pub frontend_ready: AtomicBool,
     pub transforms: RwLock<TransformRegistry>,
@@ -102,6 +106,14 @@ pub struct AppState {
     /// Per-buffer preview layout persistence. Holds its own SQLite
     /// connection (WAL permits concurrent connections to the same file).
     pub layout_state: LayoutStateStore,
+    /// The path-keyed index over the notes folder (ADR-028 section 7). Holds
+    /// its own connection so the startup reconcile never queues behind a save
+    /// and a keystroke never queues behind the reconcile.
+    pub notes_index: Arc<NotesIndexStore>,
+    /// Set when the reconcile thread should stop, which is shutdown. The
+    /// thread polls it per entry, so a quit during a large walk does not wait
+    /// for the walk.
+    pub notes_index_cancel: Arc<AtomicBool>,
     /// Buffers restored from the crash snapshot on this launch.
     /// Consumed by the `get_recovered_buffers` command and cleared.
     pub recovered_buffers: Mutex<Vec<RecoveredBuffer>>,
@@ -159,6 +171,8 @@ impl AppState {
         // Second connection for layout-state persistence; migrations have
         // already created the table on the primary connection above.
         let layout_state = LayoutStateStore::new(open_database(&db_path)?);
+        // Third connection, for the notes index, on the same grounds.
+        let notes_index = Arc::new(NotesIndexStore::open(&db_path)?);
 
         let config_path = writ_dir.join("config.toml");
         let config_store = ConfigStore::new(config_path);
@@ -185,7 +199,12 @@ impl AppState {
         )?;
         info!(path = %notes_root.display(), "notes folder ready");
 
-        let store = BufferStore::new(conn, buffers_dir.clone());
+        let mut store = BufferStore::new(conn, buffers_dir.clone());
+        // A save is stamped into the watcher's ignore set before it lands, so
+        // the notes watcher never sees Writ's own writes: the store indexes
+        // them itself, and needs to know which folder is the notes folder to
+        // tell a note from an external file someone opened.
+        store.set_notes_root(notes_root.clone());
 
         // Normalize legacy mirror filenames to `{id}.txt` and install the
         // UNIQUE(filename) index before any other store operation reads or
@@ -270,15 +289,6 @@ impl AppState {
             Ok(0) => {}
             Ok(count) => info!(count, "reclaimed empty scratch buffers at startup"),
             Err(e) => warn!(error = %e, "failed to reclaim empty scratch buffers"),
-        }
-
-        // Heal any FTS drift left by a crash mid-save or a damaged index
-        // (audit blocker #53.5). Runs after reclaim so deleted scratch rows
-        // never count as drift.
-        match store.verify_and_repair_fts() {
-            Ok(false) => {}
-            Ok(true) => info!("rebuilt drifted FTS index at startup"),
-            Err(e) => warn!(error = %e, "failed to verify FTS index"),
         }
 
         // Read-only consistency pass: surface backing files with no matching
@@ -369,6 +379,7 @@ impl AppState {
             notes_root_fallback: RwLock::new(notes_root_fallback),
             watcher_ignore,
             watcher: Mutex::new(None),
+            notes_watcher: Mutex::new(None),
             pending_opens: Mutex::new(Vec::new()),
             frontend_ready: AtomicBool::new(false),
             transforms: RwLock::new(transforms),
@@ -378,6 +389,8 @@ impl AppState {
             preview_registry: Arc::new(RwLock::new(preview_registry)),
             preview_render_cache: Arc::new(RenderCache::new()),
             layout_state,
+            notes_index,
+            notes_index_cancel: Arc::new(AtomicBool::new(false)),
             recovered_buffers: Mutex::new(recovered_buffers),
             was_dirty_shutdown,
             workspace_root: Mutex::new(workspace_root),

@@ -265,6 +265,109 @@ pub fn classify_inbox_event(
     })
 }
 
+/// Starts a recursive watcher on the notes `root`, emitting
+/// [`WritEvent::NotesChanged`] for a file another program created, changed or
+/// removed there.
+///
+/// This is the minimum needed to keep the index honest about a folder the user
+/// also edits from Obsidian, a phone, or a sync client. Watching an open note
+/// for a conflicting external edit is a separate job and is release 0.5.
+///
+/// Writ's own saves are stamped into `ignore_set` before they land, so they do
+/// not arrive back here as somebody else's edit; the store indexes them itself.
+pub fn start_notes_watcher(
+    bus: Arc<EventBus>,
+    root: PathBuf,
+    ignore_set: IgnoreSet,
+) -> Result<WatcherHandle, Box<dyn std::error::Error>> {
+    let (tx, rx) = mpsc::channel::<DebounceEventResult>();
+
+    let mut debouncer = new_debouncer(Duration::from_millis(500), tx)?;
+    debouncer.watcher().watch(&root, RecursiveMode::Recursive)?;
+
+    info!(root = %root.display(), "notes watcher started");
+
+    std::thread::spawn(move || {
+        while let Ok(result) = rx.recv() {
+            match result {
+                Ok(events) => {
+                    for event in events {
+                        if let Some(domain_event) = classify_notes_event(
+                            &event.path,
+                            &root,
+                            &ignore_set,
+                            DEFAULT_IGNORE_TTL,
+                            Instant::now(),
+                        ) {
+                            bus.emit(domain_event);
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("notes watcher error: {:?}", e);
+                }
+            }
+        }
+        info!("notes watcher thread exiting");
+    });
+
+    Ok(WatcherHandle {
+        _debouncer: debouncer,
+    })
+}
+
+/// Classifies a notes-folder event into a domain event, or suppresses it.
+///
+/// Suppressed: a path outside `root`, a path under a folder another client
+/// left behind (`.obsidian`, `.trash`, `.stfolder`, `.stversions`), the temp
+/// file every atomic write creates beside its target, and a write Writ itself
+/// made, which the ignore set recognises by canonical path and content
+/// fingerprint under the source namespace (ADR-028 section 6).
+///
+/// Filtering the temp files is a correctness rule rather than a tidiness one:
+/// `write_atomic` persists through a `NamedTempFile` created beside its target,
+/// so every internal save fans out into a create-and-delete pair for a `.tmp`
+/// path, and a watcher over a folder Writ writes into has to drop them before
+/// it emits anything.
+pub fn classify_notes_event(
+    path: &Path,
+    root: &Path,
+    ignore_set: &IgnoreSet,
+    ttl: Duration,
+    now: Instant,
+) -> Option<WritEvent> {
+    if !path.starts_with(root) {
+        return None;
+    }
+    if writ_core::workspace::path_has_ignored_component(root, path) {
+        return None;
+    }
+    let name = path.file_name()?.to_string_lossy().into_owned();
+    if name.starts_with(".tmp") || name.ends_with(".tmp") {
+        return None;
+    }
+
+    let removed = !path.exists();
+    if !removed && !std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
+        return None;
+    }
+
+    let key = writ_core::watcher::ignore::source_key(&ignore_key_path(path));
+    let decision = {
+        let current_bytes = std::fs::read(path).ok();
+        let mut set = recover_poison(ignore_set.lock(), "watcher::handler::notes_event");
+        set.decide(&key, current_bytes.as_deref(), now, ttl)
+    };
+    if decision == SuppressDecision::Suppress {
+        return None;
+    }
+
+    Some(WritEvent::NotesChanged {
+        path: path.to_string_lossy().into_owned(),
+        removed,
+    })
+}
+
 /// Classifies a workspace file-system event into a domain event, or
 /// suppresses it when the path is outside `root` or sits under an
 /// ignored directory.
