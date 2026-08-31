@@ -395,6 +395,30 @@ fn a_folder_inside_writs_own_data_folder_is_refused_and_nothing_is_created() {
 }
 
 #[test]
+fn a_folder_that_does_not_exist_yet_under_the_data_folder_is_refused_before_it_is_created() {
+    let dir = TempDir::new().expect("temp");
+    let state = make_state(&dir);
+    std::fs::write(state.notes_root().join("One.md"), "one").expect("seed");
+    let before = state.notes_root();
+
+    let archive = state.writ_dir.join("archive");
+    let two_levels_down = archive.join("new-notes");
+    let error = move_notes_folder_to(&state, &two_levels_down).expect_err("refused");
+
+    assert_eq!(
+        error,
+        "Writ keeps its own data in that folder, so it cannot also be your notes folder."
+    );
+    assert_eq!(state.notes_root(), before);
+    assert!(before.join("One.md").exists(), "nothing moved");
+    assert!(
+        !two_levels_down.exists(),
+        "the picked folder was not created"
+    );
+    assert!(!archive.exists(), "nor the level above it");
+}
+
+#[test]
 fn the_archive_can_never_become_its_own_destination() {
     let dir = TempDir::new().expect("temp");
     let state = make_state(&dir);
