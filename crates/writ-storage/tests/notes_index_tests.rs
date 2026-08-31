@@ -673,3 +673,24 @@ fn the_file_an_atomic_save_writes_before_the_rename_is_not_indexed() {
         vec![notes_index::index_key(&notes.join("whole.md"))]
     );
 }
+
+#[test]
+fn a_note_that_stops_being_indexable_loses_its_row() {
+    let (_dir, conn, notes) = fixture();
+    let binary = write_note(&notes, "turned-binary.md", "searchable words");
+    let grown = write_note(&notes, "grown.md", "searchable words");
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless()).expect("first");
+    assert_eq!(search(&conn, "searchable").len(), 2);
+
+    std::fs::write(&binary, [0xff, 0xfe, 0x00, 0x01]).expect("no longer text");
+    let ceiling = writ_core::file_ops::THRESHOLD_NORMAL_BYTES as usize;
+    std::fs::write(&grown, "x".repeat(ceiling + 1)).expect("past the ceiling");
+
+    let outcome = notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("second");
+
+    // A row kept for either would answer searches with text the file no longer
+    // holds, and open a file that does not contain the words that found it.
+    assert_eq!(outcome.removed, 2);
+    assert!(search(&conn, "searchable").is_empty());
+}

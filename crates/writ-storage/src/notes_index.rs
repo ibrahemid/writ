@@ -494,8 +494,9 @@ pub fn reconcile(
 
         let Ok(content) = std::fs::read_to_string(path) else {
             // Not text after all (or unreadable): leave it out rather than
-            // index bytes nobody can search.
-            seen.push(key);
+            // index bytes nobody can search, and let any row it already had be
+            // pruned. A row kept here would answer searches with text the file
+            // no longer holds. Same answer the size gate above gives.
             continue;
         };
 
