@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
-// Radii come from --writ-r-*, timing from var(--writ-motion). The allowlist is
-// what the retokenisation has not reached yet: each unit removes its own files,
-// and the last one leaves the list empty.
+// Radii come from --writ-r-*, timing from var(--writ-motion). The allowlist was
+// what the retokenisation had not reached yet; every unit removed its own files
+// and the last one emptied it. It stays empty.
 
 const REPO_ROOT = process.cwd();
 const SRC = resolve(REPO_ROOT, "src");
@@ -14,13 +14,7 @@ const SKIP_DIRS = [
   resolve(SRC, "styles/themes"),
 ];
 
-export const RETOKENISE_ALLOWLIST: readonly string[] = [
-  "src/components/Editor/SpellingPreview.css",
-  "src/components/Find/FindOverlay.css",
-  "src/components/Preview/preview-chrome.css",
-  "src/components/Preview/preview-layout-toggle.css",
-  "src/components/UpdateBanner/UpdateBanner.css",
-];
+export const RETOKENISE_ALLOWLIST: readonly string[] = [];
 
 const RAW_RADIUS = /border-radius\s*:[^;}]*\b\d+(?:\.\d+)?px/g;
 const BARE_EASING = /(?:^|[\s,:(])(ease|ease-in|ease-out|ease-in-out|linear)(?=[\s,;)]|$)/gm;
@@ -68,9 +62,7 @@ describe("no raw radius or easing outside the allowlist", () => {
     expect(offenders, `bare timing functions found:\n${offenders.join("\n")}`).toEqual([]);
   });
 
-  it("allowlist entries all still exist", () => {
-    for (const rel of RETOKENISE_ALLOWLIST) {
-      expect(() => statSync(resolve(REPO_ROOT, rel)), `${rel} is gone`).not.toThrow();
-    }
+  it("the retokenise allowlist is empty", () => {
+    expect(RETOKENISE_ALLOWLIST).toEqual([]);
   });
 });
