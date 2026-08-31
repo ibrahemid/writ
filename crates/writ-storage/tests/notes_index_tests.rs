@@ -498,3 +498,178 @@ fn a_note_over_the_large_file_ceiling_is_left_out_of_the_index() {
         .index_path(&notes.join("small.md"))
         .expect("index small"));
 }
+
+#[test]
+fn rekey_root_moves_rows_and_keeps_the_rows_that_cascade_from_them() {
+    let (dir, conn, notes) = fixture();
+    let path = write_note(&notes, "moved.md", "portable text");
+    let sibling = dir.path().join("Writing");
+    std::fs::create_dir_all(&sibling).expect("sibling folder");
+    let outsider = write_note(&sibling, "stays.md", "portable text");
+
+    let index = NotesIndex::new(&conn);
+    for file in [&path, &outsider] {
+        let note = IndexedNote::from_file(file).expect("note");
+        index.upsert(&note, "portable text").expect("upsert");
+    }
+    let key = notes_index::index_key(&path);
+    let outside_key = notes_index::index_key(&outsider);
+    conn.execute(
+        "INSERT INTO links (from_path, to_target, to_path, kind, line, col)
+         VALUES (?1, 'elsewhere', ?1, 'wiki', 1, 0)",
+        [&key],
+    )
+    .expect("insert link");
+    conn.execute(
+        "INSERT INTO tags (path, tag, line) VALUES (?1, 'draft', 0)",
+        [&key],
+    )
+    .expect("insert tag");
+
+    let rowid_before: i64 = conn
+        .query_row("SELECT rowid FROM files WHERE path = ?1", [&key], |row| {
+            row.get(0)
+        })
+        .expect("rowid");
+
+    let destination = dir.path().join("Moved");
+    std::fs::rename(&notes, &destination).expect("move the folder");
+    let to = std::fs::canonicalize(&destination).expect("canonical destination");
+
+    let changed = NotesIndex::new(&conn)
+        .rekey_root(&notes, &to)
+        .expect("rekey");
+
+    assert_eq!(
+        changed, 1,
+        "only the rows under the old folder are re-keyed"
+    );
+    let moved_key = notes_index::index_key(&destination.join("moved.md"));
+    assert_eq!(
+        search(&conn, "portable"),
+        vec![moved_key.clone(), outside_key]
+    );
+
+    let rowid_after: i64 = conn
+        .query_row(
+            "SELECT rowid FROM files WHERE path = ?1",
+            [&moved_key],
+            |row| row.get(0),
+        )
+        .expect("rowid");
+    assert_eq!(
+        rowid_before, rowid_after,
+        "re-keying must not reassign the rowid files_fts joins on"
+    );
+
+    let links: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM links WHERE from_path = ?1 AND to_path = ?1",
+            [&moved_key],
+            |row| row.get(0),
+        )
+        .expect("count links");
+    assert_eq!(links, 1, "both link columns follow the file");
+    let tags: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM tags WHERE path = ?1",
+            [&moved_key],
+            |row| row.get(0),
+        )
+        .expect("count tags");
+    assert_eq!(tags, 1, "the cascading rows follow the file");
+}
+
+#[test]
+fn a_reconcile_after_a_rekey_reads_nothing() {
+    let (dir, conn, notes) = fixture();
+    write_note(&notes, "one.md", "first");
+    write_note(&notes, "two.md", "second");
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless()).expect("walk");
+
+    let destination = dir.path().join("Elsewhere");
+    std::fs::rename(&notes, &destination).expect("move the folder");
+    let to = std::fs::canonicalize(&destination).expect("canonical destination");
+    NotesIndex::new(&conn)
+        .rekey_root(&notes, &to)
+        .expect("rekey");
+
+    let outcome =
+        notes_index::reconcile(&conn, &to, &never_cancelled(), &never_dataless()).expect("walk");
+
+    // Size and mtime survive the move, so the walk finds nothing to do. A
+    // rekey that dropped the rows instead would make every note look new, and
+    // in a sync folder reading every note pulls down every note.
+    assert_eq!((outcome.added, outcome.updated, outcome.removed), (0, 0, 0));
+}
+
+#[test]
+fn a_walk_gives_up_when_the_notes_folder_moves_under_it() {
+    let (dir, _conn, notes) = fixture();
+    write_note(&notes, "one.md", "first");
+    let store = NotesIndexStore::open(&dir.path().join("writ.db")).expect("open store");
+
+    let mine = store.generation();
+    store.bump_generation();
+    let cancelled = || store.generation() != mine;
+
+    let outcome = store
+        .reconcile(&notes, &cancelled, &notes_index::is_dataless)
+        .expect("walk");
+
+    assert!(outcome.cancelled, "a retired walk stops before it prunes");
+    assert_eq!(outcome.added, 0);
+}
+
+#[test]
+fn a_walk_does_not_overwrite_a_row_that_changed_while_it_was_reading() {
+    let (_dir, conn, notes) = fixture();
+    let path = write_note(&notes, "race.md", "first");
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless()).expect("first");
+
+    std::fs::write(&path, "second body, longer than the first").expect("rewrite");
+    let key = notes_index::index_key(&path);
+    let current = IndexedNote::from_file(&path).expect("note");
+
+    // The walk asks this of every file before it reads it, which is the window
+    // a save lands in: the row is brought up to date here, after the walk took
+    // its snapshot and before it writes.
+    let saved_first_instead = |candidate: &Path| {
+        if candidate == path {
+            NotesIndex::new(&conn)
+                .upsert(&current, "the save that got there first")
+                .expect("competing write");
+        }
+        false
+    };
+
+    let outcome = notes_index::reconcile(&conn, &notes, &never_cancelled(), &saved_first_instead)
+        .expect("second");
+
+    assert_eq!(
+        outcome.updated, 0,
+        "the walk declines a row it no longer recognises"
+    );
+    assert_eq!(search(&conn, "first"), vec![key], "the newer text stands");
+    assert!(
+        search(&conn, "longer").is_empty(),
+        "what the walk read is not written over it"
+    );
+}
+
+#[test]
+fn the_file_an_atomic_save_writes_before_the_rename_is_not_indexed() {
+    let (_dir, conn, notes) = fixture();
+    write_note(&notes, ".tmpAbCdEf", "half a note");
+    write_note(&notes, "whole.tmp", "half a note");
+    write_note(&notes, "whole.md", "half a note");
+
+    let outcome =
+        notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless()).expect("walk");
+
+    assert_eq!(outcome.added, 1);
+    assert_eq!(
+        search(&conn, "half"),
+        vec![notes_index::index_key(&notes.join("whole.md"))]
+    );
+}

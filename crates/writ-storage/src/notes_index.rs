@@ -25,6 +25,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use rusqlite::{params, Connection};
@@ -198,6 +199,60 @@ impl<'a> NotesIndex<'a> {
         Ok(())
     }
 
+    /// A walk's write, which loses every race it is in.
+    ///
+    /// A walk reads a file and writes the row some milliseconds later. A save
+    /// landing in that window would be overwritten by what the walk read
+    /// before it, and nothing would correct the row until the file changed
+    /// again. So the write is conditional on the row still holding `expected`
+    /// — the state the walk decided from, or `None` for a row it did not see —
+    /// and a walk that finds anything else leaves the newer entry alone.
+    /// `false` says the write was declined.
+    fn upsert_walked(
+        &self,
+        note: &IndexedNote,
+        content: &str,
+        expected: Option<(u64, i64)>,
+    ) -> StorageResult<bool> {
+        let tx = self.conn.unchecked_transaction()?;
+        let wrote = match expected {
+            None => tx.execute(
+                "INSERT INTO files (path, size, mtime, hash, indexed_at)
+                 VALUES (?1, ?2, ?3, ?4, datetime('now'))
+                 ON CONFLICT(path) DO NOTHING",
+                params![note.path, note.size as i64, note.mtime, note.hash],
+            )?,
+            Some((size, mtime)) => tx.execute(
+                "UPDATE files
+                    SET size = ?2, mtime = ?3, hash = ?4, indexed_at = datetime('now')
+                  WHERE path = ?1 AND size = ?5 AND mtime = ?6",
+                params![
+                    note.path,
+                    note.size as i64,
+                    note.mtime,
+                    note.hash,
+                    size as i64,
+                    mtime
+                ],
+            )?,
+        };
+        if wrote == 0 {
+            return Ok(false);
+        }
+        let rowid: i64 = tx.query_row(
+            "SELECT rowid FROM files WHERE path = ?1",
+            params![note.path],
+            |row| row.get(0),
+        )?;
+        tx.execute("DELETE FROM files_fts WHERE rowid = ?1", params![rowid])?;
+        tx.execute(
+            "INSERT INTO files_fts (rowid, name, content) VALUES (?1, ?2, ?3)",
+            params![rowid, note.name, content],
+        )?;
+        tx.commit()?;
+        Ok(true)
+    }
+
     /// Removes `path` from the index.
     ///
     /// The text entry goes first, while the `files` row it joins on still
@@ -214,6 +269,65 @@ impl<'a> NotesIndex<'a> {
         tx.execute("DELETE FROM files WHERE path = ?1", params![path])?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// Re-keys every row under `from` to the same file under `to`.
+    ///
+    /// The move already put the files there, so the rows describe the right
+    /// bytes at the wrong key. Rewriting the key rather than dropping the rows
+    /// is what keeps the following walk from reading anything: `size` and
+    /// `mtime` still match the file, so `reconcile` reports no work. Dropping
+    /// them would make every note in the folder look new, and in a sync folder
+    /// a walk that reads every note pulls down every note (ADR-028 section 7).
+    ///
+    /// `files.path` is the parent of `links`, `properties`, `tags` and
+    /// `headings`, which cascade on delete but have no `ON UPDATE`, so the
+    /// children are rewritten in the same transaction with the constraint
+    /// deferred to its commit. `files_fts` joins on rowid, which an `UPDATE`
+    /// leaves alone, so the text entries need no work at all.
+    ///
+    /// Both folders are spelled through [`index_key`], so a caller may pass
+    /// either folder's everyday path: `from` no longer exists by the time this
+    /// runs, and its key comes from its parent exactly as a deleted file's
+    /// does. Prefix comparison is against the folder plus a separator, so a
+    /// move out of `~/Writ` never claims a row in `~/Writing`. Returns the
+    /// rows re-keyed.
+    pub fn rekey_root(&self, from: &Path, to: &Path) -> StorageResult<usize> {
+        let old = root_prefix(from);
+        let new = root_prefix(to);
+        if old == new {
+            return Ok(0);
+        }
+        let width = old.chars().count() as i64;
+        let rest = width + 1;
+
+        let tx = self.conn.unchecked_transaction()?;
+        // Scoped to this transaction and reset at its commit: the children
+        // point at a parent key that does not exist yet for the length of the
+        // rewrite, which an immediate constraint would refuse.
+        tx.pragma_update(None, "defer_foreign_keys", "on")?;
+
+        let changed = tx.execute(
+            "UPDATE files SET path = ?1 || substr(path, ?2) WHERE substr(path, 1, ?3) = ?4",
+            params![new, rest, width, old],
+        )?;
+        for (table, column) in [
+            ("links", "from_path"),
+            ("links", "to_path"),
+            ("properties", "path"),
+            ("tags", "path"),
+            ("headings", "path"),
+        ] {
+            tx.execute(
+                &format!(
+                    "UPDATE {table} SET {column} = ?1 || substr({column}, ?2) \
+                     WHERE substr({column}, 1, ?3) = ?4"
+                ),
+                params![new, rest, width, old],
+            )?;
+        }
+        tx.commit()?;
+        Ok(changed)
     }
 
     /// Up to `limit` ranked content hits, each carrying the note's path, name,
@@ -370,41 +484,40 @@ pub fn reconcile(
         let mtime = mtime_millis(&metadata);
         let key = index_key(path);
 
-        match known.get(&key) {
-            Some(&(known_size, known_mtime)) if known_size == size && known_mtime == mtime => {
+        let expected = match known.get(&key) {
+            Some(&state) if state == (size, mtime) => {
                 seen.push(key);
                 continue;
             }
-            Some(_) => outcome.updated += 1,
-            None => outcome.added += 1,
-        }
+            other => other.copied(),
+        };
 
         let Ok(content) = std::fs::read_to_string(path) else {
             // Not text after all (or unreadable): leave it out rather than
             // index bytes nobody can search.
-            if known.contains_key(&key) {
-                outcome.updated -= 1;
-            } else {
-                outcome.added -= 1;
-            }
+            seen.push(key);
             continue;
         };
 
         let name = entry.file_name().to_string_lossy().into_owned();
         seen.push(key.clone());
+        let note = IndexedNote {
+            path: key,
+            name,
+            size,
+            mtime,
+            hash: None,
+        };
 
         // One transaction per file. The walk runs on its own connection, so a
         // long-held write lock would stall saves for the length of the walk.
-        index.upsert(
-            &IndexedNote {
-                path: key,
-                name,
-                size,
-                mtime,
-                hash: None,
-            },
-            &content,
-        )?;
+        if index.upsert_walked(&note, &content, expected)? {
+            if expected.is_some() {
+                outcome.updated += 1;
+            } else {
+                outcome.added += 1;
+            }
+        }
     }
 
     if !outcome.cancelled {
@@ -421,6 +534,17 @@ pub fn reconcile(
     Ok(outcome)
 }
 
+/// A folder's index key with a trailing separator, the form a prefix
+/// comparison needs so a folder never claims a sibling whose name it is a
+/// prefix of.
+fn root_prefix(path: &Path) -> String {
+    let mut text = index_key(path);
+    if !text.ends_with(std::path::MAIN_SEPARATOR) {
+        text.push(std::path::MAIN_SEPARATOR);
+    }
+    text
+}
+
 /// Whether `path` holds note text worth indexing.
 ///
 /// A known text extension is taken at its word so the common case never opens
@@ -428,6 +552,18 @@ pub fn reconcile(
 /// on size themselves. Anything without a known extension is classified, and
 /// only a file that opens with the full feature set is indexed.
 fn should_index(path: &Path) -> bool {
+    // The name `write_atomic` gives the file it writes before renaming it into
+    // place. A walk that runs while a note is being saved would otherwise index
+    // the half-written copy, and leave a row for a file that no longer exists.
+    // Same test the notes watcher applies to an event.
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .unwrap_or_default();
+    if name.starts_with(".tmp") || name.ends_with(".tmp") {
+        return false;
+    }
+
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         if TEXT_EXTENSIONS.iter().any(|t| t.eq_ignore_ascii_case(ext)) {
             return true;
@@ -462,6 +598,7 @@ fn mtime_millis(metadata: &std::fs::Metadata) -> i64 {
 /// a time so the write lock is never held for long.
 pub struct NotesIndexStore {
     conn: Mutex<Connection>,
+    generation: AtomicU64,
 }
 
 impl NotesIndexStore {
@@ -473,7 +610,31 @@ impl NotesIndexStore {
     pub fn open(db_path: &Path) -> StorageResult<Self> {
         Ok(Self {
             conn: Mutex::new(crate::database::connection::open_database(db_path)?),
+            generation: AtomicU64::new(0),
         })
+    }
+
+    /// Which folder the index is describing, as a number that changes whenever
+    /// it changes.
+    ///
+    /// A walk takes seconds. If the notes folder moves while one is running,
+    /// that walk finishes against the old folder and prunes every row it did
+    /// not see, which is every row the move re-keyed. A walk therefore captures
+    /// this value when it starts and gives up as soon as it differs.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
+    }
+
+    /// Retires every walk in flight. Called before the rows move, so no walk
+    /// started against the old folder can still be running when they do.
+    pub fn bump_generation(&self) {
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Re-keys the index from one notes folder to another. See
+    /// [`NotesIndex::rekey_root`].
+    pub fn rekey_root(&self, from: &Path, to: &Path) -> StorageResult<usize> {
+        NotesIndex::new(&self.conn()).rekey_root(from, to)
     }
 
     /// A poisoned index lock is recovered rather than cascaded: the index is
