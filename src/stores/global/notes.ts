@@ -1,13 +1,17 @@
 import { createSignal, createRoot } from "solid-js";
 import * as api from "../../services/tauri";
-import type { MoveNotesOutcome, NotesFolderInfo } from "../../services/tauri";
+import type {
+  MoveNotesOutcome,
+  NotesFallbackReason,
+  NotesFolderInfo,
+} from "../../services/tauri";
 import { writeClipboardText } from "../../services/clipboard";
 
 // Singleton state — Writ is single-window. The notes folder changes only when
 // the user moves it from Settings, which goes through `move` below and
 // refreshes both signals.
 
-export type { MoveNotesOutcome, NotesFolderInfo };
+export type { MoveNotesOutcome, NotesFallbackReason, NotesFolderInfo };
 
 function createNotesStore() {
   const [root, setRoot] = createSignal<string | null>(null);

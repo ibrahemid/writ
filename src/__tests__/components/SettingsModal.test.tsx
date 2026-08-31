@@ -188,7 +188,7 @@ describe("SettingsModal", () => {
     mocks.requestExternalReload.mockReset();
     mocks.notesFolder
       .mockReset()
-      .mockReturnValue({ path: "/home/user/Writ", display_path: "~/Writ", fallback_from: null });
+      .mockReturnValue({ path: "/home/user/Writ", display_path: "~/Writ", fallback: null });
     mocks.notesLoadFolder.mockReset().mockResolvedValue(undefined);
     mocks.notesShowInFileManager.mockReset().mockResolvedValue(undefined);
     mocks.notesCopyPath.mockReset().mockResolvedValue(undefined);
@@ -876,7 +876,7 @@ describe("Notes section", () => {
     mocks.config.mockReset().mockReturnValue(baseConfig());
     mocks.notesFolder
       .mockReset()
-      .mockReturnValue({ path: "/home/user/Writ", display_path: "~/Writ", fallback_from: null });
+      .mockReturnValue({ path: "/home/user/Writ", display_path: "~/Writ", fallback: null });
     mocks.notesLoadFolder.mockReset().mockResolvedValue(undefined);
     mocks.notesShowInFileManager.mockReset().mockResolvedValue(undefined);
     mocks.notesCopyPath.mockReset().mockResolvedValue(undefined);
@@ -931,11 +931,23 @@ describe("Notes section", () => {
     mocks.notesFolder.mockReturnValue({
       path: "/home/user/Writ",
       display_path: "~/Writ",
-      fallback_from: "/volumes/gone/Notes",
+      fallback: { from: "/volumes/gone/Notes", reason: "unusable" },
     });
     const { container } = await openNotes();
     expect(container.querySelector("[data-notes-fallback]")?.textContent).toBe(
       "The folder in your settings could not be used, so notes are in ~/Writ.",
+    );
+  });
+
+  it("says which folder holds Writ's own data", async () => {
+    mocks.notesFolder.mockReturnValue({
+      path: "/home/user/Writ",
+      display_path: "~/Writ",
+      fallback: { from: "/home/user/.writ/archive", reason: "holds_writ_data" },
+    });
+    const { container } = await openNotes();
+    expect(container.querySelector("[data-notes-fallback]")?.textContent).toBe(
+      "The folder in your settings holds Writ's own data, so notes are in ~/Writ.",
     );
   });
 });

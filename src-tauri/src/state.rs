@@ -41,6 +41,29 @@ fn disk_state_of(path: &Path, hash: writ_core::hash::Sha256Digest, size: u64) ->
     }
 }
 
+/// Why startup could not keep the notes folder it was asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotesRootFallbackReason {
+    /// The folder could not be created: it names a file, a volume that is not
+    /// mounted, a path the OS denies, or one written relative to a working
+    /// directory a launched app does not have.
+    Unusable,
+    /// The folder is Writ's own data folder, holds it, or sits inside it, so
+    /// the notes and the database would share a folder
+    /// ([`writ_core::notes::refuse_notes_root`]).
+    HoldsWritData,
+}
+
+/// The notes folder startup was asked for and did not keep.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct NotesRootFallback {
+    /// The folder as it was configured, in its own spelling.
+    pub from: String,
+    /// Why the notes are somewhere else.
+    pub reason: NotesRootFallbackReason,
+}
+
 pub struct AppState {
     pub store: Mutex<BufferStore>,
     pub config_store: ConfigStore,
@@ -55,11 +78,11 @@ pub struct AppState {
     /// gate and every note command asks for it, and a held read guard would
     /// block the move for as long as the caller lives.
     pub notes_root: RwLock<PathBuf>,
-    /// The configured notes folder that could not be created, when startup
-    /// fell back to the default one. `None` on every ordinary launch. The
-    /// Settings surface reads this to tell the user which folder was refused
-    /// and where the notes went instead.
-    pub notes_root_fallback: Option<String>,
+    /// The configured notes folder startup could not use, when it fell back to
+    /// the default one. `None` on every ordinary launch. The Settings surface
+    /// reads this to tell the user which folder was turned down, why, and
+    /// where the notes went instead.
+    pub notes_root_fallback: Option<NotesRootFallback>,
     pub watcher_ignore: IgnoreSet,
     pub watcher: Mutex<Option<WatcherHandle>>,
     pub pending_opens: Mutex<Vec<String>>,
@@ -145,13 +168,15 @@ impl AppState {
         // user reads.
         let notes_env_override = std::env::var("WRIT_NOTES_DIR").ok();
         let home = dirs::home_dir();
-        let (notes_root, notes_root_fallback) =
-            resolve_and_create_notes_root(writ_core::notes::NotesRootSources {
+        let (notes_root, notes_root_fallback) = resolve_and_create_notes_root(
+            writ_core::notes::NotesRootSources {
                 env_override: notes_env_override.as_deref(),
                 configured: config.notes.root.as_deref(),
                 data_dir: data_dir_override.as_ref().map(|_| writ_dir.as_path()),
                 home: home.as_deref(),
-            })?;
+            },
+            &writ_dir,
+        )?;
         info!(path = %notes_root.display(), "notes folder ready");
 
         let store = BufferStore::new(conn, buffers_dir.clone());
@@ -581,33 +606,35 @@ pub fn bless_persisted_sources(store: &BufferStore, authorized_paths: &Authorize
 /// The value that failed comes back as the second element for the Settings
 /// surface to show. Only the default failing is fatal, which is the existing
 /// startup-failure path.
-pub(crate) fn resolve_and_create_notes_root(
+pub fn resolve_and_create_notes_root(
     sources: writ_core::notes::NotesRootSources<'_>,
-) -> Result<(PathBuf, Option<String>), Box<dyn std::error::Error>> {
-    let mut refused: Option<String> = None;
+    writ_dir: &Path,
+) -> Result<(PathBuf, Option<NotesRootFallback>), Box<dyn std::error::Error>> {
+    // Both spellings of the data folder. On macOS `writ_dir` is `/var/...`
+    // where the resolved path is `/private/var/...`, so a candidate is
+    // compared against the form it shares a prefix with: as spelled before it
+    // exists, canonical once it does.
+    let canonical_writ_dir = canonicalize_root(writ_dir).unwrap_or_else(|_| writ_dir.to_path_buf());
+    let writ_dirs = [writ_dir, canonical_writ_dir.as_path()];
+    let mut fallback: Option<NotesRootFallback> = None;
 
     for candidate in [sources.env_override, sources.configured] {
         let Some(chosen) = candidate.map(str::trim).filter(|value| !value.is_empty()) else {
             continue;
         };
-        match writ_core::notes::resolve_notes_root_from(writ_core::notes::NotesRootSources {
-            env_override: Some(chosen),
-            configured: None,
-            data_dir: None,
-            home: sources.home,
-        })
-        .map_err(|e| e.to_string())
-        .and_then(|root| create_and_canonicalize(&root).map_err(|e| e.to_string()))
-        {
-            Ok(root) => return Ok((root, refused)),
-            Err(error) => {
+        match usable_notes_root(chosen, sources.home, &writ_dirs) {
+            Ok(root) => return Ok((root, fallback)),
+            Err((reason, error)) => {
                 warn!(
                     folder = chosen,
                     error, "notes folder unusable; trying the next one"
                 );
-                // The first one that failed is the one in effect, and the one
-                // the Settings surface has to name.
-                refused.get_or_insert_with(|| chosen.to_string());
+                // The first source that failed is the one in effect, and the
+                // one the Settings surface has to name.
+                fallback.get_or_insert_with(|| NotesRootFallback {
+                    from: chosen.to_string(),
+                    reason,
+                });
             }
         }
     }
@@ -617,7 +644,59 @@ pub(crate) fn resolve_and_create_notes_root(
         configured: None,
         ..sources
     })?;
-    Ok((create_and_canonicalize(&default)?, refused))
+    Ok((create_and_canonicalize(&default)?, fallback))
+}
+
+/// Resolves, creates and canonicalises one configured notes folder, or says
+/// why it cannot be the one.
+///
+/// The data folder is asked about twice: of the path as spelled, before
+/// anything is created, so a folder holding Writ's own data is never minted;
+/// and of the canonical path once it exists, which is the comparison that is
+/// true about folders rather than about spellings.
+fn usable_notes_root(
+    chosen: &str,
+    home: Option<&Path>,
+    writ_dirs: &[&Path],
+) -> Result<PathBuf, (NotesRootFallbackReason, String)> {
+    let unusable = |error: String| (NotesRootFallbackReason::Unusable, error);
+    let holds = || {
+        (
+            NotesRootFallbackReason::HoldsWritData,
+            "the folder holds Writ's own data".to_string(),
+        )
+    };
+
+    let root = writ_core::notes::resolve_notes_root_from(writ_core::notes::NotesRootSources {
+        env_override: Some(chosen),
+        configured: None,
+        data_dir: None,
+        home,
+    })
+    .map_err(|e| unusable(e.to_string()))?;
+    if holds_writ_data(&root, writ_dirs) {
+        return Err(holds());
+    }
+
+    let root = create_and_canonicalize(&root).map_err(|e| unusable(e.to_string()))?;
+    if holds_writ_data(&root, writ_dirs) {
+        return Err(holds());
+    }
+    Ok(root)
+}
+
+/// Whether `root` may not be the notes folder because of where Writ's data is.
+///
+/// `root` is passed as both the candidate and the folder in force: startup has
+/// no notes folder yet to be moved out of, so the only question
+/// [`writ_core::notes::refuse_notes_root`] can answer here is the data-folder
+/// one, and a candidate compared against itself asks exactly that. Every
+/// spelling of the data folder is asked, because a candidate matches the
+/// prefix of only the one it was written in.
+fn holds_writ_data(root: &Path, writ_dirs: &[&Path]) -> bool {
+    writ_dirs
+        .iter()
+        .any(|writ_dir| writ_core::notes::refuse_notes_root(root, root, writ_dir).is_some())
 }
 
 fn create_and_canonicalize(root: &std::path::Path) -> std::io::Result<PathBuf> {
@@ -650,7 +729,9 @@ pub(crate) fn resolve_writ_dir(
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_and_create_notes_root, resolve_writ_dir};
+    use super::{
+        resolve_and_create_notes_root, resolve_writ_dir, NotesRootFallback, NotesRootFallbackReason,
+    };
     use std::path::PathBuf;
     use tempfile::TempDir;
     use writ_core::notes::NotesRootSources;
@@ -660,12 +741,15 @@ mod tests {
         let home = TempDir::new().unwrap();
         let chosen = home.path().join("Documents").join("Notes");
 
-        let (root, fallback) = resolve_and_create_notes_root(NotesRootSources {
-            env_override: None,
-            configured: Some(&chosen.to_string_lossy()),
-            data_dir: None,
-            home: Some(home.path()),
-        })
+        let (root, fallback) = resolve_and_create_notes_root(
+            NotesRootSources {
+                env_override: None,
+                configured: Some(&chosen.to_string_lossy()),
+                data_dir: None,
+                home: Some(home.path()),
+            },
+            &writ_dir(home.path()),
+        )
         .unwrap();
 
         assert!(root.is_dir());
@@ -682,12 +766,15 @@ mod tests {
         std::fs::write(&blocked, "x").unwrap();
         let chosen = blocked.join("Notes");
 
-        let (root, fallback) = resolve_and_create_notes_root(NotesRootSources {
-            env_override: None,
-            configured: Some(&chosen.to_string_lossy()),
-            data_dir: None,
-            home: Some(home.path()),
-        })
+        let (root, fallback) = resolve_and_create_notes_root(
+            NotesRootSources {
+                env_override: None,
+                configured: Some(&chosen.to_string_lossy()),
+                data_dir: None,
+                home: Some(home.path()),
+            },
+            &writ_dir(home.path()),
+        )
         .unwrap();
 
         assert!(root.is_dir());
@@ -695,7 +782,13 @@ mod tests {
             root,
             std::fs::canonicalize(home.path().join("Writ")).unwrap()
         );
-        assert_eq!(fallback.as_deref(), Some(chosen.to_string_lossy().as_ref()));
+        assert_eq!(
+            fallback,
+            Some(NotesRootFallback {
+                from: chosen.to_string_lossy().into_owned(),
+                reason: NotesRootFallbackReason::Unusable,
+            })
+        );
     }
 
     #[test]
@@ -708,19 +801,25 @@ mod tests {
         let home = TempDir::new().unwrap();
         let chosen = home.path().join("Documents").join("Notes");
 
-        let (root, fallback) = resolve_and_create_notes_root(NotesRootSources {
-            env_override: Some("Writ"),
-            configured: Some(&chosen.to_string_lossy()),
-            data_dir: None,
-            home: Some(home.path()),
-        })
+        let (root, fallback) = resolve_and_create_notes_root(
+            NotesRootSources {
+                env_override: Some("Writ"),
+                configured: Some(&chosen.to_string_lossy()),
+                data_dir: None,
+                home: Some(home.path()),
+            },
+            &writ_dir(home.path()),
+        )
         .unwrap();
 
         assert_eq!(root, std::fs::canonicalize(&chosen).unwrap());
         assert_eq!(
-            fallback.as_deref(),
-            Some("Writ"),
-            "the value that was skipped is not named for Settings"
+            fallback,
+            Some(NotesRootFallback {
+                from: "Writ".to_string(),
+                reason: NotesRootFallbackReason::Unusable,
+            }),
+            "the value that was skipped is named for Settings"
         );
         assert!(
             !home.path().join("Writ").exists(),
@@ -732,19 +831,28 @@ mod tests {
     fn a_relative_env_override_alone_falls_through_to_the_default() {
         let home = TempDir::new().unwrap();
 
-        let (root, fallback) = resolve_and_create_notes_root(NotesRootSources {
-            env_override: Some("Writ"),
-            configured: None,
-            data_dir: None,
-            home: Some(home.path()),
-        })
+        let (root, fallback) = resolve_and_create_notes_root(
+            NotesRootSources {
+                env_override: Some("Writ"),
+                configured: None,
+                data_dir: None,
+                home: Some(home.path()),
+            },
+            &writ_dir(home.path()),
+        )
         .unwrap();
 
         assert_eq!(
             root,
             std::fs::canonicalize(home.path().join("Writ")).unwrap()
         );
-        assert_eq!(fallback.as_deref(), Some("Writ"));
+        assert_eq!(
+            fallback,
+            Some(NotesRootFallback {
+                from: "Writ".to_string(),
+                reason: NotesRootFallbackReason::Unusable,
+            })
+        );
     }
 
     #[test]
@@ -752,14 +860,126 @@ mod tests {
         let home = TempDir::new().unwrap();
         std::fs::write(home.path().join("Writ"), "x").unwrap();
 
-        let result = resolve_and_create_notes_root(NotesRootSources {
-            env_override: None,
-            configured: None,
-            data_dir: None,
-            home: Some(home.path()),
-        });
+        let result = resolve_and_create_notes_root(
+            NotesRootSources {
+                env_override: None,
+                configured: None,
+                data_dir: None,
+                home: Some(home.path()),
+            },
+            &writ_dir(home.path()),
+        );
 
         assert!(result.is_err(), "nothing is left to fall back to");
+    }
+
+    fn writ_dir(home: &std::path::Path) -> PathBuf {
+        home.join(".writ")
+    }
+
+    #[test]
+    fn an_env_override_inside_the_data_folder_falls_back_to_the_default() {
+        let home = TempDir::new().unwrap();
+        let archive = writ_dir(home.path()).join("archive");
+        std::fs::create_dir_all(&archive).unwrap();
+
+        let (root, fallback) = resolve_and_create_notes_root(
+            NotesRootSources {
+                env_override: Some(&archive.to_string_lossy()),
+                configured: None,
+                data_dir: None,
+                home: Some(home.path()),
+            },
+            &writ_dir(home.path()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            root,
+            std::fs::canonicalize(home.path().join("Writ")).unwrap()
+        );
+        assert_eq!(
+            fallback,
+            Some(NotesRootFallback {
+                from: archive.to_string_lossy().into_owned(),
+                reason: NotesRootFallbackReason::HoldsWritData,
+            })
+        );
+    }
+
+    #[test]
+    fn a_configured_folder_inside_the_data_folder_is_not_created() {
+        let home = TempDir::new().unwrap();
+        std::fs::create_dir_all(writ_dir(home.path())).unwrap();
+        let chosen = writ_dir(home.path()).join("Notes");
+
+        let (root, fallback) = resolve_and_create_notes_root(
+            NotesRootSources {
+                env_override: None,
+                configured: Some(&chosen.to_string_lossy()),
+                data_dir: None,
+                home: Some(home.path()),
+            },
+            &writ_dir(home.path()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            root,
+            std::fs::canonicalize(home.path().join("Writ")).unwrap()
+        );
+        assert_eq!(
+            fallback.map(|fallback| fallback.reason),
+            Some(NotesRootFallbackReason::HoldsWritData)
+        );
+        assert!(!chosen.exists(), "the folder was not created to be checked");
+    }
+
+    #[test]
+    fn the_default_beside_the_database_is_kept_when_it_is_named_outright() {
+        // The one folder inside the data folder that is allowed, reached
+        // through the candidate branch rather than the default one: a dev
+        // instance may name it in `WRIT_NOTES_DIR` instead of leaning on the
+        // default (`writ_core::notes::refuse_notes_root`).
+        let home = TempDir::new().unwrap();
+        let data = home.path().join("dev-instance");
+        std::fs::create_dir_all(&data).unwrap();
+        let chosen = data.join("Writ");
+
+        let (root, fallback) = resolve_and_create_notes_root(
+            NotesRootSources {
+                env_override: Some(&chosen.to_string_lossy()),
+                configured: None,
+                data_dir: Some(&data),
+                home: Some(home.path()),
+            },
+            &data,
+        )
+        .unwrap();
+
+        assert_eq!(root, std::fs::canonicalize(&chosen).unwrap());
+        assert_eq!(fallback, None);
+    }
+
+    #[test]
+    fn the_default_beside_the_database_is_kept_when_the_data_folder_is_overridden() {
+        let home = TempDir::new().unwrap();
+        let data = home.path().join("dev-instance");
+        std::fs::create_dir_all(&data).unwrap();
+
+        let (root, fallback) = resolve_and_create_notes_root(
+            NotesRootSources {
+                env_override: None,
+                configured: None,
+                data_dir: Some(&data),
+                home: Some(home.path()),
+            },
+            &data,
+        )
+        .unwrap();
+
+        assert_eq!(root, std::fs::canonicalize(data.join("Writ")).unwrap());
+        assert_eq!(fallback, None);
     }
 
     #[test]

@@ -31,6 +31,7 @@ import {
 import { aiConnectionStore, connectionDisplay } from "../../stores/global/ai-connection";
 import { modelOptions, defaultModelFor, resolveAutoModel } from "../../stores/global/ai-models";
 import { notesStore } from "../../stores/global/notes";
+import type { NotesFallbackReason } from "../../stores/global/notes";
 import { copyStoragePath, fetchStorageInfo, revealStoragePath } from "../../stores/global/storage";
 import type { StorageInfo } from "../../stores/global/storage";
 import { openThirdPartyNoticesBuffer } from "../../stores/global/notices";
@@ -561,8 +562,10 @@ function FilesSection() {
  * on the same row above this line, and repeating it says nothing the reader
  * does not already have.
  */
-function fallbackLine(displayPath: string): string {
-  return `The folder in your settings could not be used, so notes are in ${displayPath}.`;
+function fallbackLine(displayPath: string, reason: NotesFallbackReason): string {
+  const why =
+    reason === "holds_writ_data" ? "holds Writ's own data" : "could not be used";
+  return `The folder in your settings ${why}, so notes are in ${displayPath}.`;
 }
 
 /** Names the files a move would have written over, at most three of them. */
@@ -645,10 +648,12 @@ function NotesSection() {
               Move…
             </button>
           </span>
-          <Show when={folder()?.fallback_from}>
-            <span class="settings-notes-note" data-notes-fallback>
-              {fallbackLine(folder()?.display_path ?? "")}
-            </span>
+          <Show when={folder()?.fallback}>
+            {(fallback) => (
+              <span class="settings-notes-note" data-notes-fallback>
+                {fallbackLine(folder()?.display_path ?? "", fallback().reason)}
+              </span>
+            )}
           </Show>
           <span class="settings-notes-note">
             Writ has no sync. Put the notes folder in iCloud Drive, Dropbox or Google Drive and

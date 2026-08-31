@@ -67,7 +67,7 @@ describe("NotesMigrationReport", () => {
     mocks.moveArchived.mockReset().mockResolvedValue({ moved: 2, collided: [] });
     mocks.folder
       .mockReset()
-      .mockReturnValue({ path: "/home/user/Writ", display_path: "~/Writ", fallback_from: null });
+      .mockReturnValue({ path: "/home/user/Writ", display_path: "~/Writ", fallback: null });
     mocks.loadFolder.mockReset().mockResolvedValue(undefined);
     mocks.showToast.mockReset();
   });

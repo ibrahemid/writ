@@ -147,6 +147,12 @@ pub enum NotesRootRefusal {
 /// empty lives there, and a notes folder holding it makes the archive and its
 /// destination the same directory.
 ///
+/// One folder inside the data folder is allowed: `<writ_dir>/`[`DEFAULT_NOTES_FOLDER`],
+/// which is what [`resolve_notes_root_from`] resolves to when a data-folder
+/// override is in force. An instance pointed at its own data folder keeps its
+/// notes beside its own database, so the rule cannot answer "no" to the
+/// default the app itself picks.
+///
 /// The notes folder is compared one way only. A destination inside the folder
 /// being moved has nowhere to be once the move starts, while a destination
 /// that merely contains it is an ordinary move.
@@ -158,7 +164,9 @@ pub fn refuse_notes_root(
     current: &Path,
     writ_dir: &Path,
 ) -> Option<NotesRootRefusal> {
-    if destination.starts_with(writ_dir) || writ_dir.starts_with(destination) {
+    if (destination.starts_with(writ_dir) || writ_dir.starts_with(destination))
+        && destination != writ_dir.join(DEFAULT_NOTES_FOLDER)
+    {
         return Some(NotesRootRefusal::HoldsWritData);
     }
     if destination != current && destination.starts_with(current) {

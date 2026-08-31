@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use writ_core::notes::{
     conflict_file_name, date_stem, dedupe_file_name, display_path, recovered_file_name,
     refuse_notes_root, resolve_notes_root, resolve_notes_root_from, sanitize_title,
-    sanitize_title_or, NotesRootError, NotesRootRefusal, NotesRootSources,
+    sanitize_title_or, NotesRootError, NotesRootRefusal, NotesRootSources, DEFAULT_NOTES_FOLDER,
 };
 
 fn home() -> PathBuf {
@@ -434,5 +434,39 @@ fn a_folder_that_contains_the_notes_folder_is_an_ordinary_move() {
     assert_eq!(
         refuse_notes_root(current.parent().unwrap(), &current, &writ_dir()),
         None
+    );
+}
+
+#[test]
+fn the_default_folder_under_the_data_folder_is_accepted() {
+    let default_under_data = writ_dir().join(DEFAULT_NOTES_FOLDER);
+    assert_eq!(
+        refuse_notes_root(&default_under_data, &notes_root(), &writ_dir()),
+        None,
+        "an instance running against its own data folder keeps its notes there"
+    );
+    assert_eq!(
+        resolve_notes_root_from(NotesRootSources {
+            data_dir: Some(&writ_dir()),
+            home: Some(&home()),
+            ..NotesRootSources::default()
+        })
+        .unwrap(),
+        default_under_data,
+        "and that is the folder the resolver picks"
+    );
+    assert_eq!(
+        refuse_notes_root(&writ_dir().join("archive"), &notes_root(), &writ_dir()),
+        Some(NotesRootRefusal::HoldsWritData),
+        "every other folder inside the data folder stays out"
+    );
+    assert_eq!(
+        refuse_notes_root(
+            &writ_dir().join(DEFAULT_NOTES_FOLDER).join("deeper"),
+            &notes_root(),
+            &writ_dir()
+        ),
+        Some(NotesRootRefusal::HoldsWritData),
+        "and so does a folder under the accepted one"
     );
 }

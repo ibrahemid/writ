@@ -45,7 +45,7 @@ describe("notes migration report store", () => {
     h.getNotesFolder.mockReset().mockResolvedValue({
       path: "/home/user/Writ",
       display_path: "~/Writ",
-      fallback_from: null,
+      fallback: null,
     });
   });
 

@@ -27,10 +27,12 @@ use writ_tauri_lib::commands::notes::{
 };
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::security::AuthorizedPaths;
-use writ_tauri_lib::state::AppState;
+use writ_tauri_lib::state::{
+    resolve_and_create_notes_root, AppState, NotesRootFallback, NotesRootFallbackReason,
+};
 use writ_tauri_lib::watcher::handler::create_ignore_set;
 
-fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<String>) -> AppState {
+fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFallback>) -> AppState {
     let writ_dir = dir.path().join("data");
     let buffers_dir = writ_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
@@ -223,7 +225,7 @@ fn notes_folder_path_round_trips_spaces_apostrophe_and_arabic() {
         "{}",
         info.display_path
     );
-    assert_eq!(info.fallback_from, None);
+    assert_eq!(info.fallback, None);
 
     let moved = awkward.join("ملاحظة.md");
     assert_eq!(std::fs::read_to_string(&moved).expect("read"), "نص");
@@ -262,9 +264,22 @@ fn notes_folder_path_round_trips_spaces_apostrophe_and_arabic() {
 #[test]
 fn the_folder_row_names_the_one_that_could_not_be_used() {
     let dir = TempDir::new().expect("temp");
-    let state = make_state_at(&dir, "Writ", Some("/nope/Writ".to_string()));
+    let state = make_state_at(
+        &dir,
+        "Writ",
+        Some(NotesRootFallback {
+            from: "/nope/Writ".to_string(),
+            reason: NotesRootFallbackReason::Unusable,
+        }),
+    );
     let info = notes_folder_info(&state);
-    assert_eq!(info.fallback_from.as_deref(), Some("/nope/Writ"));
+    assert_eq!(
+        info.fallback,
+        Some(NotesRootFallback {
+            from: "/nope/Writ".to_string(),
+            reason: NotesRootFallbackReason::Unusable,
+        })
+    );
     assert_eq!(info.path, state.notes_root().to_string_lossy());
 }
 
@@ -588,4 +603,66 @@ fn put_report(state: &AppState, report: &MigrationReport) {
         &serde_json::to_string(report).expect("serialize"),
     )
     .expect("store the report");
+}
+
+#[test]
+fn a_notes_folder_set_to_the_archive_boots_with_the_default_one() {
+    let dir = TempDir::new().expect("temp");
+    let writ_dir = dir.path().join("data");
+    let archive = writ_dir.join("archive");
+    std::fs::create_dir_all(&archive).expect("archive");
+    std::fs::write(archive.join("Ideas.md"), "archived").expect("seed");
+
+    let (root, fallback) = resolve_and_create_notes_root(
+        writ_core::notes::NotesRootSources {
+            env_override: Some(&archive.to_string_lossy()),
+            configured: None,
+            data_dir: Some(&writ_dir),
+            home: Some(dir.path()),
+        },
+        &writ_dir,
+    )
+    .expect("startup resolves a notes folder");
+
+    assert_eq!(
+        root,
+        std::fs::canonicalize(writ_dir.join("Writ")).expect("the default under the data folder")
+    );
+    assert_eq!(
+        fallback,
+        Some(NotesRootFallback {
+            from: archive.to_string_lossy().into_owned(),
+            reason: NotesRootFallbackReason::HoldsWritData,
+        }),
+        "the Settings row can say which folder was turned down and why"
+    );
+    assert!(
+        archive.join("Ideas.md").exists(),
+        "the archive was left as it was"
+    );
+    assert_eq!(
+        std::fs::read_dir(&archive)
+            .expect("read the archive")
+            .count(),
+        1,
+        "and nothing was created inside it"
+    );
+}
+
+#[test]
+fn a_destination_that_climbs_back_into_the_data_folder_creates_nothing() {
+    let dir = TempDir::new().expect("temp");
+    let state = make_state(&dir);
+    let before = state.notes_root();
+
+    let archive = state.writ_dir.join("archive");
+    let climbing = archive.join("..");
+    let error = move_notes_folder_to(&state, &climbing).expect_err("turned down");
+
+    assert_eq!(error, "That folder cannot be your notes folder.");
+    assert_eq!(state.notes_root(), before);
+    assert!(
+        !archive.exists(),
+        "no folder was created inside the data folder"
+    );
 }

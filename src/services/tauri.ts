@@ -80,13 +80,23 @@ export async function getNotesRoot(): Promise<string> {
   return invoke("get_notes_root");
 }
 
+/** Why Writ is not using the notes folder the settings named. */
+export type NotesFallbackReason = "unusable" | "holds_writ_data";
+
+/** The notes folder Writ was asked for and did not keep. */
+export interface NotesFolderFallback {
+  /** The folder as it was written in the settings. */
+  from: string;
+  reason: NotesFallbackReason;
+}
+
 /** Where the notes folder is, and whether it is the one the user asked for. */
 export interface NotesFolderInfo {
   path: string;
   /** The path with the home folder collapsed to `~`. */
   display_path: string;
   /** The folder the settings named, when Writ could not use it. */
-  fallback_from: string | null;
+  fallback: NotesFolderFallback | null;
 }
 
 export async function getNotesFolder(): Promise<NotesFolderInfo> {

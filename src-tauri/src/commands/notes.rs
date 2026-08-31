@@ -21,7 +21,7 @@ use writ_storage::notes_move;
 
 use crate::commands::buffer::{ignore_stamper, save_failure_message};
 use crate::security::canonicalize_for_authorization;
-use crate::state::AppState;
+use crate::state::{AppState, NotesRootFallback};
 
 /// What the editor says when a rename arrives with nothing in it.
 const NAME_IS_EMPTY: &str = "That name is empty.";
@@ -405,9 +405,9 @@ pub struct NotesFolderInfo {
     /// The same path with the home folder collapsed to `~`, which is what
     /// Settings shows (ADR-028 section 2).
     pub display_path: String,
-    /// The folder the config named, when startup could not use it and fell
-    /// back to the default. `None` on every ordinary launch.
-    pub fallback_from: Option<String>,
+    /// The folder the settings named and why the notes are not in it, when
+    /// startup fell back to the default. `None` on every ordinary launch.
+    pub fallback: Option<NotesRootFallback>,
 }
 
 /// [`get_notes_folder`] without the IPC wrapper.
@@ -416,7 +416,7 @@ pub fn notes_folder_info(state: &AppState) -> NotesFolderInfo {
     NotesFolderInfo {
         display_path: writ_core::notes::display_path(&root, dirs::home_dir().as_deref()),
         path: root.to_string_lossy().into_owned(),
-        fallback_from: state.notes_root_fallback.clone(),
+        fallback: state.notes_root_fallback.clone(),
     }
 }
 
@@ -453,6 +453,11 @@ const WOULD_HOLD_WRIT_DATA: &str =
 
 /// What Writ says when the folder picked is inside the one being moved.
 const WOULD_HOLD_ITSELF: &str = "Pick a folder outside your notes folder.";
+
+/// What Writ says when the folder picked cannot be resolved to a path it can
+/// ask questions about: it is written relative to a working directory, or it
+/// ends in a `..` that names no folder. The OS folder dialog yields neither.
+const CANNOT_BE_CHECKED: &str = "That folder cannot be your notes folder.";
 
 /// Writ's own data folder in the spelling a canonical path can be compared
 /// against.
@@ -493,11 +498,14 @@ pub fn move_notes_folder_to(
 ) -> Result<MoveNotesOutcome, String> {
     let from = state.notes_root();
 
-    // Asked first of the folder the pick will resolve to, so a refused pick
-    // does not leave an empty folder behind at the path it named.
-    if let Some(planned) = crate::commands::file::resolve_for_containment(destination) {
-        refuse_destination(state, &from, Path::new(&planned))?;
-    }
+    // Asked first of the folder the pick will resolve to, so a pick Writ turns
+    // down does not leave an empty folder behind at the path it named. A path
+    // that will not resolve is turned down here rather than created and asked
+    // about afterwards: the answer would arrive one folder too late.
+    let Some(planned) = crate::commands::file::resolve_for_containment(destination) else {
+        return Err(CANNOT_BE_CHECKED.to_string());
+    };
+    refuse_destination(state, &from, Path::new(&planned))?;
 
     std::fs::create_dir_all(destination).map_err(|e| e.to_string())?;
     let to = crate::security::canonicalize_root(destination).map_err(|e| e.to_string())?;
