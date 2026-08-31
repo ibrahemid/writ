@@ -46,7 +46,7 @@ fn make_state(dir: &TempDir) -> AppState {
         writ_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
-        notes_root_fallback: None,
+        notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
         pending_opens: Mutex::new(Vec::new()),

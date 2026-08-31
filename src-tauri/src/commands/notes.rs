@@ -416,7 +416,7 @@ pub fn notes_folder_info(state: &AppState) -> NotesFolderInfo {
     NotesFolderInfo {
         display_path: writ_core::notes::display_path(&root, dirs::home_dir().as_deref()),
         path: root.to_string_lossy().into_owned(),
-        fallback: state.notes_root_fallback.clone(),
+        fallback: state.notes_root_fallback(),
     }
 }
 

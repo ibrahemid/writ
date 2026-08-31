@@ -82,7 +82,13 @@ pub struct AppState {
     /// the default one. `None` on every ordinary launch. The Settings surface
     /// reads this to tell the user which folder was turned down, why, and
     /// where the notes went instead.
-    pub notes_root_fallback: Option<NotesRootFallback>,
+    ///
+    /// Behind a lock beside [`AppState::notes_root`] and cleared by
+    /// [`AppState::set_notes_root`], because it describes the folder the
+    /// settings name: once the user has moved the notes somewhere Writ kept,
+    /// the settings name that folder and there is nothing left to say. Read it
+    /// through [`AppState::notes_root_fallback`].
+    pub notes_root_fallback: RwLock<Option<NotesRootFallback>>,
     pub watcher_ignore: IgnoreSet,
     pub watcher: Mutex<Option<WatcherHandle>>,
     pub pending_opens: Mutex<Vec<String>>,
@@ -360,7 +366,7 @@ impl AppState {
             writ_dir,
             buffers_dir,
             notes_root: RwLock::new(notes_root),
-            notes_root_fallback,
+            notes_root_fallback: RwLock::new(notes_root_fallback),
             watcher_ignore,
             watcher: Mutex::new(None),
             pending_opens: Mutex::new(Vec::new()),
@@ -402,6 +408,26 @@ impl AppState {
     pub fn set_notes_root(&self, root: PathBuf) {
         let mut guard = recover_poison(self.notes_root.write(), "state::set_notes_root");
         *guard = root;
+        drop(guard);
+        self.clear_notes_root_fallback();
+    }
+
+    /// The folder the settings named that startup could not use, or `None`.
+    pub fn notes_root_fallback(&self) -> Option<NotesRootFallback> {
+        recover_poison(
+            self.notes_root_fallback.read(),
+            "state::notes_root_fallback",
+        )
+        .clone()
+    }
+
+    /// Forgets that folder, which a move to one Writ kept makes stale.
+    fn clear_notes_root_fallback(&self) {
+        let mut guard = recover_poison(
+            self.notes_root_fallback.write(),
+            "state::clear_notes_root_fallback",
+        );
+        *guard = None;
     }
 
     /// Returns `true` when `canonical_path` sits inside the open workspace

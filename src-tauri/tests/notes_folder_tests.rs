@@ -52,7 +52,7 @@ fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFall
         writ_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
-        notes_root_fallback: fallback,
+        notes_root_fallback: RwLock::new(fallback),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
         pending_opens: Mutex::new(Vec::new()),
@@ -665,4 +665,43 @@ fn a_destination_that_climbs_back_into_the_data_folder_creates_nothing() {
         !archive.exists(),
         "no folder was created inside the data folder"
     );
+}
+
+#[test]
+fn moving_the_notes_folder_clears_the_row_naming_the_one_writ_could_not_use() {
+    let dir = TempDir::new().expect("temp");
+    let writ_dir = dir.path().join("data");
+    let archive = writ_dir.join("archive");
+    std::fs::create_dir_all(&archive).expect("archive");
+
+    // The fallback startup itself would leave behind, not a hand-written one.
+    let (_, fallback) = resolve_and_create_notes_root(
+        writ_core::notes::NotesRootSources {
+            env_override: Some(&archive.to_string_lossy()),
+            configured: None,
+            data_dir: Some(&writ_dir),
+            home: Some(dir.path()),
+        },
+        &writ_dir,
+    )
+    .expect("startup resolves a notes folder");
+    assert!(fallback.is_some(), "the launch this test starts from");
+
+    let state = make_state_at(&dir, "Writ", fallback);
+    std::fs::write(state.notes_root().join("One.md"), "one").expect("seed");
+    assert!(
+        notes_folder_info(&state).fallback.is_some(),
+        "the row says so before the move"
+    );
+
+    let destination = dir.path().join("Moved Notes");
+    let outcome = move_notes_folder_to(&state, &destination).expect("the move");
+    assert_eq!(outcome.moved, 1);
+
+    let info = notes_folder_info(&state);
+    assert_eq!(
+        info.fallback, None,
+        "the settings now name the folder in use, so there is nothing to say"
+    );
+    assert_eq!(info.path, state.notes_root().to_string_lossy());
 }
