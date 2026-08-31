@@ -246,6 +246,17 @@ fn notes_folder_path_round_trips_spaces_apostrophe_and_arabic() {
         "the row still names the file the save landed in"
     );
     assert_eq!(moved.parent(), Some(awkward.as_path()));
+
+    seed_row(&state, "minted", None);
+    save_buffer_content_inner(&state, "minted", "ملاحظة جديدة").expect("mint a file and save it");
+
+    let minted = source_path_of(&state, "minted").expect("the note was given a file");
+    let minted = std::path::Path::new(&minted);
+    assert_eq!(minted.parent(), Some(awkward.as_path()));
+    assert_eq!(
+        std::fs::read(minted).expect("read back"),
+        "ملاحظة جديدة".as_bytes()
+    );
 }
 
 #[test]
