@@ -39,6 +39,13 @@ criterion = { version = "0.8", features = ["html_reports"] }
 writ-core = { path = "../writ-core" }
 chrono = { version = "0.4", features = ["serde"] }
 
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+libc = "0.2"
+
 [[bench]]
 name = "storage"
+harness = false
+
+[[bench]]
+name = "fullfsync"
 harness = false

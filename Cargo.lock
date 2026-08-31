@@ -10011,6 +10011,7 @@ dependencies = [
  "grep-regex",
  "grep-searcher",
  "ignore",
+ "libc",
  "rusqlite",
  "serde",
  "serde_json",
