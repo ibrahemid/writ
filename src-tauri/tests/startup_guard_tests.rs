@@ -208,3 +208,64 @@ fn the_guard_creates_nothing_at_the_folder_it_turns_down() {
         0
     );
 }
+
+/// The repro from the verification report, end to end on the host: a
+/// lowercase provider folder, a leaf that does not exist, and a synced tree
+/// that has to be empty afterwards.
+///
+/// The `root` this asserts is what makes it discriminate. Folding case alone
+/// refuses the path but names `dropbox`, the spelling that was typed;
+/// resolving the planned path names `Dropbox`, the folder the database would
+/// land in.
+///
+/// macOS only: on a case-sensitive filesystem `dropbox` really is a different
+/// folder and `Ok` is the right answer there.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_lowercase_provider_folder_is_refused_before_anything_is_created() {
+    let root = TempDir::new().expect("temp dir");
+    let home = std::fs::canonicalize(root.path()).expect("home");
+    let synced = home.join("Dropbox");
+    std::fs::create_dir_all(&synced).expect("synced folder");
+    let planned = home.join("dropbox").join("newdata");
+
+    assert_eq!(
+        data_dir_verdict(&planned, Some(&home), None),
+        DataDirVerdict::InsideSyncProvider {
+            provider: SyncProvider::Dropbox,
+            root: synced.clone(),
+        }
+    );
+    assert!(!planned.exists());
+    assert_eq!(
+        std::fs::read_dir(&synced).expect("synced folder").count(),
+        0
+    );
+}
+
+/// What happens to the one path resolution has no answer for: a `WRIT_DATA_DIR`
+/// symlink whose target does not exist. `canonicalize` returns `ENOENT` at
+/// every level, so the guard judges the link's own path, and `create_dir_all`
+/// then refuses the link rather than following it into the synced folder.
+#[cfg(unix)]
+#[test]
+fn a_dangling_data_folder_symlink_creates_nothing_in_the_synced_folder() {
+    let root = TempDir::new().expect("temp dir");
+    let home = std::fs::canonicalize(root.path()).expect("home");
+    let synced = home.join("Dropbox");
+    std::fs::create_dir_all(&synced).expect("synced folder");
+
+    let spelled = home.join(".writ");
+    std::os::unix::fs::symlink(synced.join("data"), &spelled).expect("symlink");
+
+    assert_eq!(
+        data_dir_verdict(&spelled, Some(&home), None),
+        DataDirVerdict::Ok
+    );
+    assert!(std::fs::create_dir_all(&spelled).is_err());
+    assert!(!synced.join("data").exists());
+    assert_eq!(
+        std::fs::read_dir(&synced).expect("synced folder").count(),
+        0
+    );
+}
