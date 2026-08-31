@@ -82,7 +82,7 @@ external dependencies are `serde`, `serde_json`, `uuid`, `chrono`, `tracing`, `t
 ### writ-storage
 All persistence. Depends on `writ-core` for domain types, but not on Tauri. Contains:
 - SQLite layer via `rusqlite` with WAL mode enabled
-- FTS5 full-text search index over buffer content
+- FTS5 search index over the notes folder, keyed by canonical file path (ADR-028)
 - File I/O: reading and writing files to disk with atomic renames
 - TOML parsing for config files using `toml` crate
 - Crash recovery (wired): `recovery::snapshot` writes periodic session snapshots embedding

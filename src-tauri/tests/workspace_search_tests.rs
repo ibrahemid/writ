@@ -244,3 +244,156 @@ fn content_search_superseded_mid_flight_reports_cancelled() {
     assert_eq!(finals.len(), 1);
     assert_eq!(finals[0].generation, 1);
 }
+
+/// The notes watcher's subscriber, driven the way `lib.rs` wires it: one
+/// changed path becomes one upsert, one removed path becomes one removal, and
+/// a replayed event of either kind is a no-op rather than an error.
+///
+/// The event is classified directly rather than through a live watcher, so the
+/// test does not wait on a 500 ms debounce or on the platform's file-system
+/// notification latency.
+#[test]
+fn notes_watcher_upserts_one_path_and_removes_it_on_delete() {
+    use std::time::{Duration, Instant};
+    use writ_core::events::bus::WritEvent;
+    use writ_tauri_lib::watcher::handler::classify_notes_event;
+
+    let holder = TempDir::new().expect("tempdir");
+    let state = make_state(&holder, None);
+    let notes = state.notes_root();
+    let note = notes.join("watched.md");
+    std::fs::write(&note, "the kestrel hangs over the verge").expect("write note");
+
+    let ignore = create_ignore_set();
+    let ttl = Duration::from_secs(5);
+
+    let created = classify_notes_event(&note, &notes, &ignore, ttl, Instant::now())
+        .expect("a note another program wrote must be classified");
+    let WritEvent::NotesChanged { path, removed } = created else {
+        panic!("the notes watcher must emit NotesChanged");
+    };
+    assert!(!removed);
+    assert!(state
+        .notes_index
+        .index_path(Path::new(&path))
+        .expect("index_path"));
+
+    let query = writ_core::search::to_prefix_match("kestrel").expect("query");
+    let terms = writ_core::search::search_terms("kestrel");
+    let hits = state
+        .notes_index
+        .search_hits(&query, &terms, 10)
+        .expect("search");
+    assert_eq!(hits.len(), 1, "the watched note is in the index");
+    assert_eq!(
+        hits[0].path.as_deref(),
+        Some(writ_storage::notes_index::index_key(&note).as_str())
+    );
+
+    // Replaying the same event changes nothing.
+    assert!(state
+        .notes_index
+        .index_path(Path::new(&path))
+        .expect("replayed index_path"));
+    assert_eq!(state.notes_index.snapshot().expect("snapshot").len(), 1);
+
+    std::fs::remove_file(&note).expect("remove note");
+    let deleted = classify_notes_event(&note, &notes, &ignore, ttl, Instant::now())
+        .expect("a deleted note must be classified");
+    let WritEvent::NotesChanged { path, removed } = deleted else {
+        panic!("the notes watcher must emit NotesChanged");
+    };
+    assert!(removed, "a vanished file is reported as removed");
+    state
+        .notes_index
+        .forget_path(Path::new(&path))
+        .expect("forget_path");
+
+    assert!(state
+        .notes_index
+        .search_hits(&query, &terms, 10)
+        .expect("search")
+        .is_empty());
+    // A replayed delete is a no-op, which is what lets a rename arrive as one
+    // delete plus one create in either order.
+    state
+        .notes_index
+        .forget_path(Path::new(&path))
+        .expect("replayed forget_path");
+}
+
+/// Writ's own save is stamped into the ignore set before it lands, so the
+/// notes watcher never sees it: without the stamp the save would arrive back
+/// as somebody else's edit.
+#[test]
+fn the_notes_watcher_suppresses_writs_own_write() {
+    use std::time::{Duration, Instant};
+    use writ_tauri_lib::watcher::handler::classify_notes_event;
+
+    let holder = TempDir::new().expect("tempdir");
+    let state = make_state(&holder, None);
+    let notes = state.notes_root();
+    let note = notes.join("saved.md");
+    let body = b"written by writ";
+
+    let ignore = create_ignore_set();
+    let key = writ_core::watcher::ignore::source_key(
+        &std::fs::canonicalize(&notes)
+            .expect("canonical notes root")
+            .join("saved.md"),
+    );
+    let now = Instant::now();
+    ignore.lock().expect("ignore set").record(key, body, now);
+    std::fs::write(&note, body).expect("write note");
+
+    assert!(
+        classify_notes_event(&note, &notes, &ignore, Duration::from_secs(5), now).is_none(),
+        "a stamped write must not come back as an external change"
+    );
+}
+
+/// The folders another client leaves behind never reach the index.
+#[test]
+fn the_notes_watcher_ignores_a_sync_clients_own_folders() {
+    use std::time::{Duration, Instant};
+    use writ_tauri_lib::watcher::handler::classify_notes_event;
+
+    let holder = TempDir::new().expect("tempdir");
+    let state = make_state(&holder, None);
+    let notes = state.notes_root();
+    let ignore = create_ignore_set();
+
+    for folder in [".obsidian", ".trash", ".stfolder", ".stversions"] {
+        let path = notes.join(folder).join("leftover.md");
+        std::fs::create_dir_all(path.parent().unwrap()).expect("create folder");
+        std::fs::write(&path, "not a note").expect("write");
+        assert!(
+            classify_notes_event(
+                &path,
+                &notes,
+                &ignore,
+                Duration::from_secs(5),
+                Instant::now()
+            )
+            .is_none(),
+            "{folder} must never reach the index"
+        );
+    }
+
+    // The temp file every atomic write creates beside its target is dropped
+    // too: turning one into a change event would reload the document registry
+    // mid-edit.
+    let tmp = notes.join(".tmpABC123");
+    std::fs::write(&tmp, "half a write").expect("write");
+    assert!(
+        classify_notes_event(
+            &tmp,
+            &notes,
+            &ignore,
+            Duration::from_secs(5),
+            Instant::now()
+        )
+        .is_none(),
+        "an atomic write's temp file must never reach the index"
+    );
+}

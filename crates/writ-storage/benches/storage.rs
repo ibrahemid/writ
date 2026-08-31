@@ -5,13 +5,13 @@ use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
-use writ_storage::fts::FtsIndex;
+use writ_storage::notes_index::{IndexedNote, NotesIndex, NotesIndexStore};
 
 const CORPUS_SIZE: usize = 500;
 
 struct BenchDb {
     _dir: TempDir,
-    store: BufferStore,
+    index: NotesIndexStore,
 }
 
 fn make_doc(idx: usize) -> BufferDocument {
@@ -60,30 +60,36 @@ fn build_bench_db() -> BenchDb {
     let db_path = dir.path().join("bench.db");
     let conn = open_database(&db_path).expect("open_database");
     run_migrations(&conn).expect("migrations");
-    let buffers_dir = dir.path().join("buffers");
-    std::fs::create_dir_all(&buffers_dir).expect("create buffers dir");
-    let store = BufferStore::new(conn, buffers_dir);
 
+    let notes = dir.path().join("notes");
+    std::fs::create_dir_all(&notes).expect("create notes dir");
     for idx in 0..CORPUS_SIZE {
         let doc = make_doc(idx);
-        store.insert(&doc).expect("insert");
-        let content_size = 512 + (idx % 8) * 512;
-        let content = make_content(idx, content_size);
-        store.save_content(&doc.id, &content).expect("save_content");
+        std::fs::write(
+            notes.join(format!("{}.md", doc.id)),
+            make_content(idx, 512 + (idx % 8) * 512),
+        )
+        .expect("write note");
     }
+    drop(conn);
 
-    BenchDb { _dir: dir, store }
+    let index = NotesIndexStore::open(&db_path).expect("index db");
+    index
+        .reconcile(&notes, &|| false, &|_| false)
+        .expect("reconcile");
+
+    BenchDb { _dir: dir, index }
 }
 
-fn bench_fts_search(c: &mut Criterion) {
+fn bench_notes_search(c: &mut Criterion) {
     let db = build_bench_db();
 
     let queries = ["rust", "editor buffer", "search index", "text file"];
-    let mut group = c.benchmark_group("fts_search");
+    let mut group = c.benchmark_group("notes_search");
     for query in queries {
         group.bench_with_input(BenchmarkId::new("search", query), query, |b, q| {
             b.iter(|| {
-                db.store.search(q).expect("search must not fail");
+                db.index.count(q).expect("search must not fail");
             });
         });
     }
@@ -117,36 +123,33 @@ fn bench_buffer_round_trip(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_fts_update(c: &mut Criterion) {
+fn bench_notes_index_upsert(c: &mut Criterion) {
     let dir = TempDir::new().expect("tempdir");
     let db_path = dir.path().join("upd.db");
     let conn = open_database(&db_path).expect("open_database");
     run_migrations(&conn).expect("migrations");
-    let buffers_dir = dir.path().join("buffers");
-    std::fs::create_dir_all(&buffers_dir).expect("create buffers dir");
 
-    let doc = make_doc(0);
-    {
-        let store = BufferStore::new(open_database(&db_path).expect("open"), buffers_dir.clone());
-        store.insert(&doc).expect("insert");
-    }
-
-    let conn2 = open_database(&db_path).expect("open2");
-    let fts = FtsIndex::new(&conn2);
+    let note = IndexedNote {
+        path: dir.path().join("note.md").to_string_lossy().into_owned(),
+        name: "note.md".to_string(),
+        size: 4096,
+        mtime: 0,
+        hash: None,
+    };
     let content = make_content(0, 4096);
+    let index = NotesIndex::new(&conn);
 
-    c.bench_function("fts_update_4kb", |b| {
+    c.bench_function("notes_index_upsert_4kb", |b| {
         b.iter(|| {
-            fts.update(&doc.id, &doc.title, &content)
-                .expect("fts update");
+            index.upsert(&note, &content).expect("upsert");
         });
     });
 }
 
 criterion_group!(
     benches,
-    bench_fts_search,
+    bench_notes_search,
     bench_buffer_round_trip,
-    bench_fts_update
+    bench_notes_index_upsert
 );
 criterion_main!(benches);

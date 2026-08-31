@@ -290,7 +290,7 @@ fn buffer_round_trip_budget() {
     );
 }
 
-fn make_large_doc(id: &str, size_bytes: u64) -> BufferDocument {
+fn make_large_doc(notes: &std::path::Path, id: &str, size_bytes: u64) -> BufferDocument {
     let now = Utc::now();
     BufferDocument {
         id: id.to_string(),
@@ -298,7 +298,14 @@ fn make_large_doc(id: &str, size_bytes: u64) -> BufferDocument {
         filename: format!("{}.txt", id),
         status: BufferStatus::Active,
         language: None,
-        source_path: None,
+        // A note without a file has nowhere to save to (ADR-028 section 1),
+        // so the large-file rows carry one like every other row does.
+        source_path: Some(
+            notes
+                .join(format!("{id}.log"))
+                .to_string_lossy()
+                .into_owned(),
+        ),
         cursor_pos: 0,
         scroll_pos: 0,
         tab_order: 0,
@@ -322,11 +329,13 @@ fn open_read_10mb_budget() {
     run_migrations(&conn).expect("migrations");
     let buffers_dir = dir.path().join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("create buffers dir");
+    let notes = dir.path().join("notes");
+    std::fs::create_dir_all(&notes).expect("create notes dir");
     let store = BufferStore::new(conn, buffers_dir);
 
     let size = (THRESHOLD_NORMAL_BYTES + 1) as usize;
     let content = make_content(0, size);
-    let doc = make_large_doc("lg10", size as u64);
+    let doc = make_large_doc(&notes, "lg10", size as u64);
     store.insert(&doc).expect("insert");
     store.save_content(&doc.id, &content).expect("initial save");
 
@@ -357,11 +366,13 @@ fn open_read_50mb_budget() {
     run_migrations(&conn).expect("migrations");
     let buffers_dir = dir.path().join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("create buffers dir");
+    let notes = dir.path().join("notes");
+    std::fs::create_dir_all(&notes).expect("create notes dir");
     let store = BufferStore::new(conn, buffers_dir);
 
     let size = THRESHOLD_LARGE_BYTES as usize;
     let content = make_content(0, size);
-    let doc = make_large_doc("lg50", size as u64);
+    let doc = make_large_doc(&notes, "lg50", size as u64);
     store.insert(&doc).expect("insert");
     store.save_content(&doc.id, &content).expect("initial save");
 

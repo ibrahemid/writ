@@ -65,7 +65,10 @@ fn a_note_created_outside_writ_is_findable_by_its_text_after_reconcile() {
     assert_eq!(outcome.added, 1, "the new file must be added");
     assert!(!outcome.cancelled);
 
-    assert_eq!(search(&conn, "peregrine"), vec![notes_index::index_key(&path)]);
+    assert_eq!(
+        search(&conn, "peregrine"),
+        vec![notes_index::index_key(&path)]
+    );
 }
 
 #[test]
@@ -205,7 +208,8 @@ fn search_names_ranks_a_prefix_match_first() {
     write_note(&notes, "meeting-notes.md", "body");
     write_note(&notes, "the-meeting.md", "body");
     write_note(&notes, "unrelated.md", "body");
-    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless()).expect("reconcile");
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("reconcile");
 
     let hits = NotesIndex::new(&conn)
         .search_names("meeting", 10)
@@ -228,7 +232,10 @@ fn obsidian_folder_contents_are_not_indexed() {
     let outcome = notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
         .expect("reconcile");
 
-    assert_eq!(outcome.added, 1, "only the note outside .obsidian is indexed");
+    assert_eq!(
+        outcome.added, 1,
+        "only the note outside .obsidian is indexed"
+    );
     assert_eq!(search(&conn, "workspace").len(), 1);
 }
 
@@ -265,7 +272,9 @@ fn upsert_preserves_the_rowid_and_the_rows_that_cascade_from_it() {
         mtime: 2,
         ..note
     };
-    index.upsert(&updated, "second body").expect("second upsert");
+    index
+        .upsert(&updated, "second body")
+        .expect("second upsert");
 
     let rowid_after: i64 = conn
         .query_row("SELECT rowid FROM files WHERE path = ?1", [&key], |row| {
@@ -297,7 +306,8 @@ fn upsert_preserves_the_rowid_and_the_rows_that_cascade_from_it() {
 fn remove_takes_the_rows_that_cascade_from_the_file_with_it() {
     let (_dir, conn, notes) = fixture();
     let path = write_note(&notes, "doomed.md", "body text");
-    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless()).expect("reconcile");
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("reconcile");
     let key = notes_index::index_key(&path);
 
     conn.execute(
@@ -321,7 +331,8 @@ fn remove_takes_the_rows_that_cascade_from_the_file_with_it() {
 fn the_index_key_of_a_walked_path_matches_the_key_of_a_watcher_path() {
     let (_dir, conn, notes) = fixture();
     let path = write_note(&notes, "shared.md", "one key policy");
-    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless()).expect("reconcile");
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("reconcile");
 
     // The watcher hands back an event path built from the root it was given,
     // which on macOS is the pre-canonical spelling (`/var` for `/private/var`).
@@ -345,8 +356,8 @@ fn reconcile_stops_when_cancelled() {
         write_note(&notes, &format!("note-{idx:03}.md"), "cancellable body");
     }
 
-    let outcome = notes_index::reconcile(&conn, &notes, &|| true, &never_dataless())
-        .expect("reconcile");
+    let outcome =
+        notes_index::reconcile(&conn, &notes, &|| true, &never_dataless()).expect("reconcile");
 
     assert!(outcome.cancelled, "a cancelled reconcile reports it");
     assert!(
@@ -363,8 +374,13 @@ fn reconcile_stops_when_cancelled() {
 #[test]
 fn a_hit_carries_the_matching_line_number_and_a_highlighted_snippet() {
     let (_dir, conn, notes) = fixture();
-    write_note(&notes, "notes.md", "first line\nthe rerank ceiling here\ntail");
-    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless()).expect("reconcile");
+    write_note(
+        &notes,
+        "notes.md",
+        "first line\nthe rerank ceiling here\ntail",
+    );
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("reconcile");
 
     let hits = NotesIndex::new(&conn)
         .search_hits("\"rerank\"*", &["rerank".to_string()], 50)
@@ -387,7 +403,8 @@ fn count_reports_total_matches_independent_of_limit() {
     for idx in 0..5 {
         write_note(&notes, &format!("doc-{idx}.md"), "shared keyword body");
     }
-    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless()).expect("reconcile");
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("reconcile");
 
     let index = NotesIndex::new(&conn);
     let hits = index
@@ -406,7 +423,8 @@ fn a_prefix_query_matches_longer_tokens() {
     let (_dir, conn, notes) = fixture();
     let hit = write_note(&notes, "tokenizer.md", "the token stream is tokenized");
     write_note(&notes, "other.md", "nothing in common");
-    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless()).expect("reconcile");
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("reconcile");
 
     assert_eq!(search(&conn, "tok"), vec![notes_index::index_key(&hit)]);
 }
@@ -417,7 +435,8 @@ fn diacritics_are_folded_for_search() {
     // query finds an accented term and vice versa.
     let (_dir, conn, notes) = fixture();
     let path = write_note(&notes, "cafe.md", "résumé of the meeting");
-    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless()).expect("reconcile");
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("reconcile");
 
     let key = notes_index::index_key(&path);
     assert_eq!(search(&conn, "resume"), vec![key.clone()]);
@@ -434,7 +453,8 @@ fn migrations_are_idempotent_after_the_buffer_index_is_dropped() {
     run_migrations(&conn).expect("third migration run must be a no-op");
 
     write_note(&notes, "still-works.md", "token streams");
-    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless()).expect("reconcile");
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("reconcile");
     assert_eq!(search(&conn, "tok").len(), 1);
 }
 

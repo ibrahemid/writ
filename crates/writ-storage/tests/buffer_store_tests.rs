@@ -866,4 +866,3 @@ fn reconcile_resolves_two_rows_sharing_one_backing_file() {
         "UNIQUE(filename) must hold after a collision reconcile"
     );
 }
-

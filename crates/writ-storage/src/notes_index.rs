@@ -274,9 +274,9 @@ impl<'a> NotesIndex<'a> {
     /// so a prefix of a note's name outranks a match in the middle of one and
     /// the two surfaces order their results the same way.
     pub fn search_names(&self, query: &str, limit: usize) -> StorageResult<Vec<FileHit>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT f.path, x.name FROM files f JOIN files_fts x ON x.rowid = f.rowid",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT f.path, x.name FROM files f JOIN files_fts x ON x.rowid = f.rowid")?;
         let candidates = stmt
             .query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -389,10 +389,7 @@ pub fn reconcile(
             continue;
         };
 
-        let name = entry
-            .file_name()
-            .to_string_lossy()
-            .into_owned();
+        let name = entry.file_name().to_string_lossy().into_owned();
         seen.push(key.clone());
         batch.push((
             IndexedNote {
@@ -461,52 +458,6 @@ fn mtime_millis(metadata: &std::fs::Metadata) -> i64 {
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn dataless_from_flags_reads_the_sf_dataless_bit() {
-        assert!(dataless_from_flags(SF_DATALESS));
-        assert!(dataless_from_flags(SF_DATALESS | 0x0000_0002));
-    }
-
-    #[test]
-    fn dataless_from_flags_ignores_every_other_flag() {
-        assert!(!dataless_from_flags(0));
-        assert!(!dataless_from_flags(0x0000_0002));
-        assert!(!dataless_from_flags(0x0080_0000));
-    }
-
-    #[test]
-    fn a_file_with_local_data_is_not_dataless_on_any_platform() {
-        let dir = tempfile::TempDir::new().expect("tempdir");
-        let path = dir.path().join("here.md");
-        std::fs::write(&path, "local").expect("write");
-        assert!(!is_dataless(&path));
-    }
-
-    #[test]
-    fn index_key_of_a_missing_file_matches_the_key_it_had() {
-        let dir = tempfile::TempDir::new().expect("tempdir");
-        let path = dir.path().join("gone.md");
-        std::fs::write(&path, "body").expect("write");
-        let before = index_key(&path);
-        std::fs::remove_file(&path).expect("remove");
-        assert_eq!(before, index_key(&path));
-    }
-
-    #[test]
-    fn should_index_accepts_the_text_extensions() {
-        for name in ["a.md", "a.markdown", "a.txt", "a.text", "a.MD"] {
-            assert!(
-                should_index(Path::new(name)),
-                "{name} must be indexed without being opened"
-            );
-        }
-    }
 }
 
 /// The notes index over a connection of its own.
@@ -603,5 +554,51 @@ impl NotesIndexStore {
     /// Every indexed path with its size and mtime. See [`NotesIndex::snapshot`].
     pub fn snapshot(&self) -> StorageResult<Vec<(String, u64, i64)>> {
         NotesIndex::new(&self.conn()).snapshot()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dataless_from_flags_reads_the_sf_dataless_bit() {
+        assert!(dataless_from_flags(SF_DATALESS));
+        assert!(dataless_from_flags(SF_DATALESS | 0x0000_0002));
+    }
+
+    #[test]
+    fn dataless_from_flags_ignores_every_other_flag() {
+        assert!(!dataless_from_flags(0));
+        assert!(!dataless_from_flags(0x0000_0002));
+        assert!(!dataless_from_flags(0x0080_0000));
+    }
+
+    #[test]
+    fn a_file_with_local_data_is_not_dataless_on_any_platform() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let path = dir.path().join("here.md");
+        std::fs::write(&path, "local").expect("write");
+        assert!(!is_dataless(&path));
+    }
+
+    #[test]
+    fn index_key_of_a_missing_file_matches_the_key_it_had() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let path = dir.path().join("gone.md");
+        std::fs::write(&path, "body").expect("write");
+        let before = index_key(&path);
+        std::fs::remove_file(&path).expect("remove");
+        assert_eq!(before, index_key(&path));
+    }
+
+    #[test]
+    fn should_index_accepts_the_text_extensions() {
+        for name in ["a.md", "a.markdown", "a.txt", "a.text", "a.MD"] {
+            assert!(
+                should_index(Path::new(name)),
+                "{name} must be indexed without being opened"
+            );
+        }
     }
 }

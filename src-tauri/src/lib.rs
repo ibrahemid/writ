@@ -89,6 +89,9 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let open_file = MenuItemBuilder::with_id("file.open", "Open File…")
         .accelerator("CmdOrCtrl+O")
         .build(app)?;
+    let quick_open = MenuItemBuilder::with_id("notes.quickOpen", "Open Note…")
+        .accelerator("CmdOrCtrl+Shift+O")
+        .build(app)?;
     let new_note = MenuItemBuilder::with_id("note.new", "New Note")
         .accelerator("CmdOrCtrl+N")
         .build(app)?;
@@ -101,6 +104,7 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let file_menu = SubmenuBuilder::new(app, "File")
         .items(&[
             &new_note,
+            &quick_open,
             &open_file,
             &PredefinedMenuItem::separator(app)?,
             &rename_note,
