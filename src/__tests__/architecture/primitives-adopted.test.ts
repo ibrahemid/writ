@@ -22,6 +22,15 @@ const MIGRATED = [
   "src/components/Kbd/Kbd.tsx",
   "src/components/Tooltip/Tooltip.tsx",
   "src/components/Toolbar/Toolbar.tsx",
+  "src/components/AiRewrite/AiRewriteOverlay.tsx",
+  "src/components/ConfirmDialog/ConfirmDialog.tsx",
+  "src/components/ContextMenu/ContextMenu.tsx",
+  "src/components/ErrorBoundary/ErrorBoundary.tsx",
+  "src/components/Notifications/Toast.tsx",
+  "src/components/Preview/LinkConfirm.tsx",
+  "src/components/PromptFill/PromptFillModal.tsx",
+  "src/components/SettingsModal/SettingsModal.tsx",
+  "src/components/ShortcutEditor/ShortcutEditor.tsx",
   ...sidebarComponents(),
 ];
 

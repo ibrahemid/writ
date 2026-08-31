@@ -114,6 +114,20 @@ describe("EditorArea", () => {
       .toEqual(["toolbar", "tabbar", "editor-content"]);
   });
 
+  it("gives the toast stack its clearance from the root, since it is not a child", () => {
+    const root = document.documentElement;
+    const { unmount } = render(() => <EditorArea />);
+    expect(root.style.getPropertyValue("--writ-toast-bottom")).toBe("16px");
+    unmount();
+    expect(root.style.getPropertyValue("--writ-toast-bottom")).toBe("");
+  });
+
+  it("raises the toast clearance over the status bar when the bar is on", () => {
+    mocks.config.mockReturnValue(configWith(true));
+    render(() => <EditorArea />);
+    expect(document.documentElement.style.getPropertyValue("--writ-toast-bottom")).toBe("40px");
+  });
+
   it("keeps the preview pane mounted in both states", () => {
     // #124: removing a loaded writ-preview:// iframe freezes the webview, so
     // the pane is never behind a Show.

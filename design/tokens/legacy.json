@@ -81,23 +81,14 @@
     "overlay-subtle": {
       "$value": "color-mix(in srgb, var(--writ-foreground-default) 4%, transparent)"
     },
-    "overlay-scrim": {
-      "$value": "rgba(0, 0, 0, 0.5)"
-    },
     "warning-foreground": {
       "$value": "color-mix(in srgb, var(--writ-status-warning) 68%, var(--writ-foreground-default))"
     },
     "shadow-overlay": {
       "$value": "0 14px 40px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4)"
     },
-    "shadow-dialog": {
-      "$value": "0 10px 26px rgba(0, 0, 0, 0.28)"
-    },
     "shadow-banner": {
       "$value": "0 6px 24px rgba(0, 0, 0, 0.32)"
-    },
-    "shadow-toast": {
-      "$value": "0 4px 16px rgba(0, 0, 0, 0.3)"
     },
     "shadow-xs": {
       "$value": "0 1px 2px rgba(0, 0, 0, 0.2)"

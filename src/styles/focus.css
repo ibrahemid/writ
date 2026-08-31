@@ -18,10 +18,8 @@
 .palette-item:focus-visible,
 .statusbar-hint:focus-visible,
 .tab-add:focus-visible,
-.shortcut-row-btn:focus-visible,
 .theme-editor-btn:focus-visible,
-.theme-editor-close:focus-visible,
-.shortcut-editor-close:focus-visible {
+.theme-editor-close:focus-visible {
   outline-offset: 2px;
 }
 

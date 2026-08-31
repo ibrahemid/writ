@@ -1,5 +1,6 @@
 import { createSignal, Show, createEffect, onCleanup } from "solid-js";
 import { installFocusTrap } from "../../lib/focus-trap";
+import Button from "../Button/Button";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import "./ConfirmDialog.css";
 
@@ -79,22 +80,23 @@ export default function ConfirmDialog() {
               {req().message}
             </div>
             <div class="confirm-actions">
-              <button
+              <Button
                 ref={cancelRef}
-                type="button"
-                class="confirm-button confirm-cancel"
+                variant="secondary"
+                class="confirm-cancel"
                 onClick={() => settle(false)}
               >
                 {req().cancelLabel ?? "Cancel"}
-              </button>
-              <button
+              </Button>
+              <Button
                 ref={confirmRef}
-                type="button"
-                class={`confirm-button confirm-accept ${req().danger ? "is-danger" : ""}`}
+                variant="primary"
+                danger={req().danger}
+                class="confirm-accept"
                 onClick={() => settle(true)}
               >
                 {req().confirmLabel ?? "Confirm"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

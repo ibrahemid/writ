@@ -164,9 +164,7 @@ const FROZEN = [
   "--writ-radius-2",
   "--writ-radius-3",
   "--writ-shadow-banner",
-  "--writ-shadow-dialog",
   "--writ-shadow-overlay",
-  "--writ-shadow-toast",
   "--writ-shadow-xs",
   "--writ-space-1",
   "--writ-space-2",
@@ -197,11 +195,14 @@ const FROZEN = [
  * Names the legacy layer no longer carries, because the last stylesheet that
  * read one dropped it. The sidebar took its shadow off with the baseline pass:
  * the surface is one hairline now. The three tab names went with the borderless
- * strip, whose only reader was TabBar.css.
+ * strip, whose only reader was TabBar.css. The dialog and toast shadows went
+ * with the menus and dialogs pass: both surfaces read the ADR-030 shadows.
  */
 const RETIRED = [
   "--writ-bg-tab-pill",
+  "--writ-shadow-dialog",
   "--writ-shadow-sidebar",
+  "--writ-shadow-toast",
   "--writ-tab-pill-height",
   "--writ-tabbar-height",
 ];

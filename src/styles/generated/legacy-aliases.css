@@ -28,11 +28,8 @@
   --writ-titlebar-height: 36px;
   --writ-overlay-hover: color-mix(in srgb, var(--writ-foreground-default) 8%, transparent);
   --writ-overlay-subtle: color-mix(in srgb, var(--writ-foreground-default) 4%, transparent);
-  --writ-overlay-scrim: rgba(0, 0, 0, 0.5);
   --writ-warning-foreground: color-mix(in srgb, var(--writ-status-warning) 68%, var(--writ-foreground-default));
   --writ-shadow-overlay: 0 14px 40px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
-  --writ-shadow-dialog: 0 10px 26px rgba(0, 0, 0, 0.28);
   --writ-shadow-banner: 0 6px 24px rgba(0, 0, 0, 0.32);
-  --writ-shadow-toast: 0 4px 16px rgba(0, 0, 0, 0.3);
   --writ-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
 }

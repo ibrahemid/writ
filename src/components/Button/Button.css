@@ -55,6 +55,18 @@
   color: var(--writ-danger);
 }
 
+/* A destructive primary: the red carries the weight the accent would, and the
+   accent foreground already follows the polarity the danger tier does. */
+.writ-btn-primary.writ-btn-danger {
+  background: var(--writ-danger);
+  color: var(--writ-accent-fg);
+}
+
+.writ-btn-primary.writ-btn-danger:hover:not(:disabled) {
+  background: var(--writ-danger);
+  filter: brightness(1.08);
+}
+
 .writ-btn:disabled {
   opacity: 0.5;
   cursor: default;

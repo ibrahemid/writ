@@ -1,5 +1,7 @@
 import { Show, createEffect, onCleanup } from "solid-js";
 import { aiRewriteStore } from "../../stores/global/ai-rewrite";
+import Button from "../Button/Button";
+import Tooltip from "../Tooltip/Tooltip";
 import "./AiRewriteOverlay.css";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -54,17 +56,15 @@ export default function AiRewriteOverlay() {
           <span class="ai-overlay-status" data-status={store.status()} aria-live="polite">
             {STATUS_LABELS[store.status()] ?? ""}
           </span>
-          <button
-            type="button"
-            class="ai-overlay-close"
-            onClick={() => store.discard()}
-            aria-label="Discard rewrite"
-            title="Discard (Esc)"
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-              <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-            </svg>
-          </button>
+          <Tooltip label="Discard rewrite">
+            <Button
+              variant="ghost"
+              icon="x"
+              iconSize={14}
+              onClick={() => store.discard()}
+              aria-label="Discard rewrite"
+            />
+          </Tooltip>
         </div>
 
         <Show when={store.status() === "awaiting-instruction"}>
@@ -111,46 +111,29 @@ export default function AiRewriteOverlay() {
 
         <div class="ai-overlay-footer">
           <Show when={store.status() === "awaiting-instruction"}>
-            <button type="button" class="ai-overlay-btn" onClick={() => store.discard()}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              class="ai-overlay-btn ai-overlay-btn-primary"
+            <Button onClick={() => store.discard()}>Cancel</Button>
+            <Button
+              variant="primary"
               disabled={store.instruction().trim().length === 0}
               onClick={() => store.submitInstruction()}
             >
               Run
-            </button>
+            </Button>
           </Show>
           <Show when={store.status() === "streaming"}>
-            <button type="button" class="ai-overlay-btn" onClick={() => store.discard()}>
-              Cancel
-            </button>
+            <Button onClick={() => store.discard()}>Cancel</Button>
           </Show>
           <Show when={store.status() === "error"}>
-            <button type="button" class="ai-overlay-btn" onClick={() => store.discard()}>
-              Discard
-            </button>
-            <button
-              type="button"
-              class="ai-overlay-btn ai-overlay-btn-primary"
-              onClick={() => store.retry()}
-            >
+            <Button onClick={() => store.discard()}>Discard</Button>
+            <Button variant="primary" onClick={() => store.retry()}>
               Retry
-            </button>
+            </Button>
           </Show>
           <Show when={store.status() === "done"}>
-            <button type="button" class="ai-overlay-btn" onClick={() => store.discard()}>
-              Discard
-            </button>
-            <button
-              type="button"
-              class="ai-overlay-btn ai-overlay-btn-primary"
-              onClick={() => store.apply()}
-            >
+            <Button onClick={() => store.discard()}>Discard</Button>
+            <Button variant="primary" onClick={() => store.apply()}>
               Apply
-            </button>
+            </Button>
           </Show>
         </div>
       </div>

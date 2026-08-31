@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, fireEvent, cleanup } from "@solidjs/testing-library";
 import ContextMenu, {
@@ -124,6 +126,61 @@ describe("ContextMenu separator items stay clickable", () => {
   });
 });
 
+describe("ContextMenu rows", () => {
+  // ADR-027: `separator` draws a divider above the row. The row itself stays a
+  // normal entry, so retokenising the sheet must not turn it into a spacer.
+  it("keeps a separator row activatable by click and by keyboard", () => {
+    const click = vi.fn();
+    const keyboard = vi.fn();
+    const { container, getByText, unmount } = render(() => <ContextMenu />);
+    showContextMenu(0, 0, [
+      { label: "Plain", action: () => {} },
+      { label: "After a divider", action: click, separator: true },
+    ]);
+    const row = getByText("After a divider").closest("button")!;
+    expect(row.disabled).toBe(false);
+    expect(row.classList.contains("context-menu-item")).toBe(true);
+    expect(container.querySelector(".context-menu-separator")).not.toBeNull();
+    fireEvent.click(row);
+    expect(click).toHaveBeenCalledTimes(1);
+    unmount();
+
+    render(() => <ContextMenu />);
+    showContextMenu(0, 0, [
+      { label: "Plain", action: () => {} },
+      { label: "After a divider", action: keyboard, separator: true },
+    ]);
+    const menu = document.querySelector(".context-menu")!;
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    fireEvent.keyDown(menu, { key: "Enter" });
+    expect(keyboard).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks a destructive row with the danger class", () => {
+    const { getByText } = render(() => <ContextMenu />);
+    showContextMenu(0, 0, [
+      { label: "Rename", action: () => {} },
+      { label: "Delete", action: () => {}, danger: true },
+    ]);
+    expect(getByText("Rename").closest("button")!.classList.contains("context-menu-danger")).toBe(
+      false,
+    );
+    expect(getByText("Delete").closest("button")!.classList.contains("context-menu-danger")).toBe(
+      true,
+    );
+  });
+
+  it("renders a leading glyph only for a row that asks for one", () => {
+    const { getByText } = render(() => <ContextMenu />);
+    showContextMenu(0, 0, [
+      { label: "With glyph", action: () => {}, icon: "trash" },
+      { label: "Text only", action: () => {} },
+    ]);
+    expect(getByText("With glyph").closest("button")!.querySelector("svg")).not.toBeNull();
+    expect(getByText("Text only").closest("button")!.querySelector("svg")).toBeNull();
+  });
+});
+
 describe("ContextMenu viewport clamping", () => {
   it("flips back over the cursor near the right and bottom edges", () => {
     const { container } = render(() => <ContextMenu />);
@@ -244,5 +301,43 @@ describe("ContextMenu cursor open (right-click call site)", () => {
     vi.advanceTimersByTime(1);
     fireEvent.click(document.body);
     expect(container.querySelector(".context-menu")).toBeNull();
+  });
+});
+
+describe("ContextMenu platform chrome", () => {
+  const CSS = readFileSync(
+    resolve(__dirname, "../../components/ContextMenu/ContextMenu.css"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+
+  function declarations(selector: string): Map<string, string> {
+    for (const [, list, body] of CSS.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+      if (!list.split(",").some((s) => s.trim() === selector)) continue;
+      const found = new Map<string, string>();
+      for (const line of body.split(";")) {
+        const [property, ...rest] = line.split(":");
+        if (rest.length === 0) continue;
+        found.set(property.trim(), rest.join(":").trim());
+      }
+      return found;
+    }
+    throw new Error(`no rule for ${selector}`);
+  }
+
+  it("gives the Windows flyout its 1px stroke", () => {
+    expect(declarations(':root[data-platform="win"] .context-menu').get("border")).toBe(
+      "1px solid var(--writ-win-stroke)",
+    );
+  });
+
+  it("takes the sheet and row radii from the platform tokens", () => {
+    expect(declarations(".context-menu").get("border-radius")).toBe("var(--writ-r-popover)");
+    expect(declarations(".context-menu-item").get("border-radius")).toBe("var(--writ-r-row)");
+  });
+
+  it("keeps GNOME rows at the 32px minimum", () => {
+    const row = declarations(':root[data-platform="linux"] .context-menu-item');
+    expect(row.get("min-height")).toBe("32px");
+    expect(row.get("padding")).toBe("0 12px");
   });
 });

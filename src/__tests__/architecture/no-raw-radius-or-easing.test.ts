@@ -15,18 +15,10 @@ const SKIP_DIRS = [
 ];
 
 export const RETOKENISE_ALLOWLIST: readonly string[] = [
-  "src/components/ConfirmDialog/ConfirmDialog.css",
-  "src/components/ContextMenu/ContextMenu.css",
   "src/components/Editor/SpellingPreview.css",
-  "src/components/ErrorBoundary/ErrorBoundary.css",
   "src/components/Find/FindOverlay.css",
-  "src/components/Notifications/Toast.css",
-  "src/components/Preview/LinkConfirm.css",
   "src/components/Preview/preview-chrome.css",
   "src/components/Preview/preview-layout-toggle.css",
-  "src/components/PromptFill/PromptFillModal.css",
-  "src/components/SettingsModal/SettingsModal.css",
-  "src/components/ShortcutEditor/ShortcutEditor.css",
   "src/components/ThemeEditor/ThemeEditor.css",
   "src/components/TitleBar/TitleBar.css",
   "src/components/UpdateBanner/UpdateBanner.css",

@@ -467,6 +467,20 @@
         "$description": "Pre-zoom default. editorZoom overwrites it on the root from editor.font_size."
       }
     },
+    "switch": {
+      "$type": "color",
+      "$description": "[derived] The toggle knob is white in both schemes: it rides an accent or a neutral track, never a surface.",
+      "knob": {
+        "$value": "#FFFFFF"
+      }
+    },
+    "overlay": {
+      "$type": "color",
+      "scrim": {
+        "$value": "rgba(0, 0, 0, 0.5)",
+        "$description": "Behind a modal dialog. The palette sheet deliberately has none (ADR-030)."
+      }
+    },
     "selection": {
       "$type": "other",
       "$value": "color-mix(in srgb, var(--writ-accent) 30%, transparent)",

@@ -1,29 +1,41 @@
 .context-menu {
   position: fixed;
-  z-index: 200;
-  min-width: 180px;
-  background: var(--writ-surface-raised);
-  border: 1px solid var(--writ-border-default);
-  border-radius: 6px;
-  padding: 4px 0;
-  box-shadow: var(--writ-shadow-popover);
+  z-index: var(--writ-z-popover);
+  width: auto;
+  min-width: 196px;
   max-width: min(360px, calc(100vw - 16px));
+  background: var(--writ-bg-raised);
+  border: 0;
+  border-radius: var(--writ-r-popover);
+  padding: 4px;
+  box-shadow: var(--writ-shadow-popover);
 }
 
 .context-menu-item {
   display: flex;
-  align-items: baseline;
-  gap: 24px;
+  align-items: center;
+  gap: 8px;
   width: 100%;
-  padding: 6px 14px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--writ-r-row);
   text-align: left;
-  font-size: var(--writ-font-size-sm);
+  font-family: inherit;
+  font-size: var(--writ-ui-md);
   /* Default foreground: muted on the raised surface reads as disabled, and
      the real disabled state needs to look different from the live one. */
-  color: var(--writ-foreground-default);
+  color: var(--writ-fg);
   cursor: pointer;
   border: none;
   background: none;
+  transition: background var(--writ-motion), color var(--writ-motion);
+}
+
+.context-menu-item > .writ-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: currentColor;
 }
 
 .context-menu-label {
@@ -35,35 +47,59 @@
 
 .context-menu-kbd {
   flex: none;
-  font-size: var(--writ-font-size-xs);
-  color: var(--writ-foreground-subtle);
+  margin-left: 16px;
+  font-size: var(--writ-ui-xs);
+  color: var(--writ-fg-faint);
   font-variant-numeric: tabular-nums;
 }
 
 .context-menu-item:hover,
 .context-menu-item:focus-visible {
-  background: var(--writ-surface-hover);
-  color: var(--writ-foreground-default);
+  background: var(--writ-bg-hover);
+  color: var(--writ-fg);
   outline: none;
 }
 
 .context-menu-item:disabled {
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg-faint);
   cursor: default;
 }
 
 .context-menu-item:disabled:hover {
   background: none;
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg-faint);
 }
 
+.context-menu-danger,
 .context-menu-danger:hover {
-  background: color-mix(in srgb, var(--writ-status-error) 15%, transparent);
-  color: var(--writ-status-error);
+  color: var(--writ-danger);
 }
 
 .context-menu-separator {
   height: 1px;
-  background: var(--writ-border-default);
-  margin: 4px 0;
+  background: var(--writ-border-soft);
+  margin: 4px 8px;
+}
+
+/* Windows: a MenuFlyout is a 1px-stroked layer, and its rows carry Fluent's
+   own 11,8,11,9 padding rather than a fixed height. */
+:root[data-platform="win"] .context-menu {
+  border: 1px solid var(--writ-win-stroke);
+}
+
+:root[data-platform="win"] .context-menu-item {
+  height: auto;
+  padding: 11px 8px 11px 9px;
+}
+
+/* GNOME: 32px minimum row, 12px inset, and a selection at 10% of the ink. */
+:root[data-platform="linux"] .context-menu-item {
+  height: auto;
+  min-height: 32px;
+  padding: 0 12px;
+}
+
+:root[data-platform="linux"] .context-menu-item:hover,
+:root[data-platform="linux"] .context-menu-item:focus-visible {
+  background: color-mix(in srgb, var(--writ-fg) 10%, transparent);
 }

@@ -1,4 +1,4 @@
-import { Show } from "solid-js";
+import { Show, createEffect, onCleanup } from "solid-js";
 import StatusBar from "./StatusBar";
 import TabBar from "./TabBar";
 import Toolbar from "../Toolbar/Toolbar";
@@ -13,6 +13,16 @@ import "./EditorArea.css";
 export default function EditorArea() {
   const activeBuffer = useActiveBuffer();
   const statusBarOn = () => configStore.config().editor.status_bar;
+
+  // The toast stack is a sibling of this subtree, not a descendant, so the
+  // clearance the status bar needs has to reach it through the root.
+  createEffect(() => {
+    document.documentElement.style.setProperty(
+      "--writ-toast-bottom",
+      statusBarOn() ? "40px" : "16px",
+    );
+  });
+  onCleanup(() => document.documentElement.style.removeProperty("--writ-toast-bottom"));
 
   return (
     <div class="editor-area">

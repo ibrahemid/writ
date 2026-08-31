@@ -1,10 +1,13 @@
 import { createSignal, createEffect, Show, For, onCleanup } from "solid-js";
+import Icon, { type IconName } from "../Icon/Icon";
 import "./ContextMenu.css";
 
 export interface MenuItem {
   label: string;
   action: () => void;
   danger?: boolean;
+  /** Leading glyph. Omit it and the row is text only. */
+  icon?: IconName;
   /**
    * Draws a divider *above* this item. Purely presentational: the item is still
    * a normal, clickable entry. It is not "this row is a separator" — reading it
@@ -288,6 +291,7 @@ export default function ContextMenu() {
                   class={`context-menu-item ${item.danger ? "context-menu-danger" : ""}`}
                   onClick={() => activate(index())}
                 >
+                  {item.icon && <Icon name={item.icon} />}
                   <span class="context-menu-label">{item.label}</span>
                   {item.kbd && <span class="context-menu-kbd">{item.kbd}</span>}
                 </button>

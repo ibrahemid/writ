@@ -116,6 +116,7 @@ vi.mock("../../stores/global/theme", () => ({
     setPreset: vi.fn(),
     setAppearance: vi.fn(),
     accentApplies: () => mocks.accentApplies(),
+    polarity: () => "light",
   },
 }));
 
@@ -373,32 +374,86 @@ describe("SettingsModal", () => {
     await waitFor(() => expect(container.querySelector("[data-section='appearance']")).not.toBeNull());
   }
 
+  function accentSwatches(container: HTMLElement) {
+    return Array.from(
+      container.querySelectorAll<HTMLButtonElement>("[data-setting='appearance_accent'] .settings-accent"),
+    );
+  }
+
   it("offers the accent while the theme defers its highlight to the setting", async () => {
     mocks.accentApplies.mockReturnValue(true);
     const { container } = render(() => <SettingsModal />);
     await openAppearance(container);
-    const accent = container.querySelector<HTMLSelectElement>("[data-setting='appearance_accent']");
-    expect(accent).not.toBeNull();
-    expect(accent!.disabled).toBe(false);
+    const swatches = accentSwatches(container);
+    expect(swatches).toHaveLength(6);
+    expect(swatches.every((s) => s.disabled)).toBe(false);
     const row = container.querySelector("[data-setting-id='appearance.accent']");
     expect(row!.querySelector(".settings-row-caution")).toBeNull();
 
-    fireEvent.change(accent!, { target: { value: "plum" } });
+    fireEvent.click(swatches.find((s) => s.dataset.accent === "plum")!);
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
     const saved = mocks.save.mock.calls[0][0] as WritConfig;
     expect(saved.appearance.accent).toBe("plum");
+  });
+
+  it("marks the active accent with aria-pressed and leaves the rest unpressed", async () => {
+    mocks.accentApplies.mockReturnValue(true);
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+    const swatches = accentSwatches(container);
+    const pressed = swatches.filter((s) => s.getAttribute("aria-pressed") === "true");
+    expect(pressed).toHaveLength(1);
+    expect(pressed[0].dataset.accent).toBe("pine");
+    expect(pressed[0].getAttribute("aria-label")).toBe("Pine");
   });
 
   it("disables the accent and says why while the theme sets its own", async () => {
     mocks.accentApplies.mockReturnValue(false);
     const { container } = render(() => <SettingsModal />);
     await openAppearance(container);
-    const accent = container.querySelector<HTMLSelectElement>("[data-setting='appearance_accent']");
-    expect(accent!.disabled).toBe(true);
+    expect(accentSwatches(container).every((s) => s.disabled)).toBe(true);
     const row = container.querySelector("[data-setting-id='appearance.accent']");
     expect(row!.querySelector(".settings-row-caution")!.textContent).toBe(
       "The current theme sets its own accent.",
     );
+  });
+
+  it("writes appearance.polarity from the segmented control", async () => {
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+    const dark = container.querySelector<HTMLButtonElement>(
+      "[data-setting='appearance_polarity'] [data-option='dark']",
+    );
+    expect(dark).not.toBeNull();
+    fireEvent.click(dark!);
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
+    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    expect(saved.appearance.polarity).toBe("dark");
+  });
+
+  it("writes appearance.prose_face from the prose face select", async () => {
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+    const face = container.querySelector<HTMLSelectElement>("[data-setting='appearance_prose_face']");
+    expect(face).not.toBeNull();
+    fireEvent.change(face!, { target: { value: "quattro" } });
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
+    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    expect(saved.appearance.prose_face).toBe("quattro");
+  });
+
+  it("writes editor.status_bar from the status bar switch", async () => {
+    const { container } = render(() => <SettingsModal />);
+    openSettings();
+    await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
+    const statusBar = container.querySelector<HTMLButtonElement>("[data-setting='status_bar']");
+    expect(statusBar).not.toBeNull();
+    expect(statusBar!.getAttribute("role")).toBe("switch");
+    expect(statusBar!.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(statusBar!);
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
+    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    expect(saved.editor.status_bar).toBe(true);
   });
 
   it("saves preview run_scripts toggle from Preview section", async () => {

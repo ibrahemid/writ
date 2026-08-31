@@ -8,6 +8,8 @@ import {
 import { ShortcutRecorder, findConflicts } from "./recorder";
 import { keybindingSegments } from "../../lib/keybinding-format";
 import { configStore } from "../../stores/global/config";
+import Button from "../Button/Button";
+import Tooltip from "../Tooltip/Tooltip";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
 import { showToast } from "../Notifications/Toast";
@@ -219,21 +221,21 @@ export default function ShortcutEditor() {
           </Show>
         </div>
         <div class="shortcut-row-controls">
-          <button
-            type="button"
-            class="shortcut-row-btn"
+          <Button
+            variant="ghost"
+            data-action="record-shortcut"
             onClick={() => (isListening() ? stopRecording() : startRecording(cmd.id))}
           >
             {isListening() ? "Cancel" : "Record"}
-          </button>
-          <button
-            type="button"
-            class="shortcut-row-btn"
+          </Button>
+          <Button
+            variant="ghost"
+            data-action="reset-shortcut"
             onClick={() => handleReset(cmd.id)}
             disabled={isDefault()}
           >
             Reset
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -253,32 +255,21 @@ export default function ShortcutEditor() {
           <div class="shortcut-editor-header">
             <div class="shortcut-editor-title">Customize shortcuts</div>
             <div class="shortcut-editor-actions">
-              <button type="button" class="shortcut-editor-btn" onClick={handleResetAll}>
+              <Button data-action="reset-all-shortcuts" onClick={handleResetAll}>
                 Reset all
-              </button>
-              <button
-                type="button"
-                class="shortcut-editor-btn shortcut-editor-btn-primary"
-                onClick={handleSave}
-              >
+              </Button>
+              <Button data-action="save-shortcuts" variant="primary" onClick={handleSave}>
                 Save
-              </button>
-              <button
-                type="button"
-                class="shortcut-editor-close"
-                onClick={closeShortcutEditor}
-                aria-label="Close shortcut editor"
-                title="Close"
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-                  <path
-                    d="M2 2L10 10M10 2L2 10"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                  />
-                </svg>
-              </button>
+              </Button>
+              <Tooltip label="Close shortcut editor">
+                <Button
+                  variant="ghost"
+                  icon="x"
+                  iconSize={16}
+                  onClick={closeShortcutEditor}
+                  aria-label="Close shortcut editor"
+                />
+              </Tooltip>
             </div>
           </div>
 
