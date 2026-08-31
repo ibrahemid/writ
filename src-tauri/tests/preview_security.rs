@@ -278,3 +278,25 @@ fn legitimate_chrome_and_document_requests_are_allowed() {
         Disposition::Allowed,
     );
 }
+
+// --- Frontmatter is hidden, so its contents never reach the document ------
+
+#[test]
+fn frontmatter_is_not_rendered_as_html() {
+    use writ_core::preview::{ContentRenderer, RenderRequest};
+    use writ_tauri_lib::preview::renderers::MarkdownRenderer;
+
+    let out = MarkdownRenderer
+        .render(RenderRequest {
+            content_type: MarkdownRenderer::content_type_id(),
+            buffer_text: "---\ntitle: <script>alert('xss')</script>\n---\n\nordinary body\n"
+                .to_string(),
+            theme: Default::default(),
+            zoom: 1.0,
+        })
+        .expect("markdown render failed");
+
+    assert!(!out.document_html.contains("alert('xss')"));
+    assert!(!out.document_html.contains("<script>alert"));
+    assert!(out.document_html.contains("ordinary body"));
+}

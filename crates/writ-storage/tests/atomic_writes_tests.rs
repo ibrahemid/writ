@@ -298,3 +298,17 @@ fn write_atomic_creates_new_files_privately() {
     let mode = fs::metadata(&target).expect("stat").permissions().mode() & 0o777;
     assert_eq!(mode, 0o600, "a file with no predecessor stays owner-only");
 }
+
+#[test]
+fn write_atomic_round_trips_a_note_with_frontmatter_byte_for_byte() {
+    let dir = TempDir::new().expect("failed to create temp dir");
+    let target = dir.path().join("note.md");
+    // Comment line, quoted value, unsorted keys and trailing whitespace: the
+    // block must come back as authored, never reserialised (spec F3).
+    let note = "---\n# a comment\ntitle: \"Quoted  value\"   \ntags:\t[x]  \nz_last: 1\na_first: 2\n---\nBody text\n";
+
+    writ_storage::atomic::write_atomic(&target, note.as_bytes()).expect("atomic write failed");
+
+    let read_back = fs::read(&target).expect("read note back");
+    assert_eq!(read_back, note.as_bytes());
+}
