@@ -292,13 +292,7 @@ pub fn run() {
     // Runs before anything opens the database: SQLite's write-ahead log does
     // not survive a sync provider. The report goes to the temporary directory
     // because the logs directory is inside the folder being turned down.
-    let verdict = writ_core::startup::classify_data_dir(
-        startup::HOST_PLATFORM,
-        &writ_dir,
-        dirs::home_dir().as_deref(),
-        None,
-        &startup::stfolder_markers(&writ_dir),
-    );
+    let verdict = startup::data_dir_verdict(&writ_dir, dirs::home_dir().as_deref(), None);
     if verdict != writ_core::startup::DataDirVerdict::Ok {
         startup_failure::abort_with_report(
             &StartupFailure::new(

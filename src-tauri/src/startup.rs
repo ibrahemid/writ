@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use writ_core::file_ops::arg_paths_from_iter;
-use writ_core::startup::Platform;
+use writ_core::startup::{classify_data_dir, DataDirVerdict, Platform};
 
-use crate::security::{canonicalize_for_authorization, AuthorizedPaths};
+use crate::security::{canonicalize_for_authorization, canonicalize_root, AuthorizedPaths};
 
 pub fn push_arg_paths_into_pending<I>(
     pending: &Mutex<Vec<String>>,
@@ -91,6 +91,42 @@ pub fn stfolder_markers(dir: &Path) -> Vec<PathBuf> {
         .filter(|ancestor| ancestor.join(STFOLDER).exists())
         .map(Path::to_path_buf)
         .collect()
+}
+
+/// Asks [`classify_data_dir`] about both spellings of `data_dir` and returns
+/// the first answer that stops the launch.
+///
+/// The policy compares paths as spelled, so the adapter has to hand it every
+/// spelling that matters. A data folder symlinked into a synced folder shows
+/// that only in its canonical form, and on macOS `resolve_writ_dir` yields
+/// `/var/...` where the canonical path is `/private/var/...`, which is also
+/// the form `notes_root` arrives in. `resolve_and_create_notes_root` compares
+/// against the same pair for the same reason.
+pub fn data_dir_verdict(
+    data_dir: &Path,
+    home: Option<&Path>,
+    notes_root: Option<&Path>,
+) -> DataDirVerdict {
+    let mut spellings = vec![data_dir.to_path_buf()];
+    if let Ok(canonical) = canonicalize_root(data_dir) {
+        if canonical != data_dir {
+            spellings.push(canonical);
+        }
+    }
+
+    for spelling in &spellings {
+        let verdict = classify_data_dir(
+            HOST_PLATFORM,
+            spelling,
+            home,
+            notes_root,
+            &stfolder_markers(spelling),
+        );
+        if verdict != DataDirVerdict::Ok {
+            return verdict;
+        }
+    }
+    DataDirVerdict::Ok
 }
 
 #[cfg(test)]

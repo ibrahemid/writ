@@ -281,6 +281,11 @@ fn provider_in_cloud_storage(container: &str, default: SyncProvider) -> SyncProv
 /// checked on every platform: Syncthing runs on all three and names its
 /// folders whatever the user named them, so the marker is the only signal.
 ///
+/// Paths are compared as spelled, so a caller that means folders rather than
+/// spellings hands over canonical ones: a data folder symlinked into a synced
+/// folder, or a `WRIT_DATA_DIR` written through a symlink, is only visible in
+/// its canonical form. The adapter's `data_dir_verdict` asks about both.
+///
 /// `notes_root` is passed only once it has been resolved, which is later in
 /// the launch than the first call. `<data_dir>/`[`DEFAULT_NOTES_FOLDER`] is
 /// exempt from the containment check, because that is what

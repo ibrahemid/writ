@@ -209,13 +209,8 @@ impl AppState {
         // The half of the data-folder guard that needs both paths. The sync
         // provider half already ran in `run()`, before the database was
         // opened; this one can only run once the notes folder is resolved.
-        let verdict = writ_core::startup::classify_data_dir(
-            crate::startup::HOST_PLATFORM,
-            &writ_dir,
-            home.as_deref(),
-            Some(&notes_root),
-            &[],
-        );
+        let verdict =
+            crate::startup::data_dir_verdict(&writ_dir, home.as_deref(), Some(&notes_root));
         if verdict != writ_core::startup::DataDirVerdict::Ok {
             return Err(Box::new(writ_core::startup::DataDirRefused(verdict)));
         }
