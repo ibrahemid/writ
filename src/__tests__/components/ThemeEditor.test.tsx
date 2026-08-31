@@ -38,7 +38,7 @@ function groupTitles(container: HTMLElement): string[] {
 }
 
 function pickerFor(container: HTMLElement, key: string): HTMLInputElement {
-  const input = container.querySelector<HTMLInputElement>(`input[aria-label="${key}"]`);
+  const input = container.querySelector<HTMLInputElement>(`input[data-token="${key}"]`);
   if (!input) throw new Error(`no picker for ${key}`);
   return input;
 }
@@ -72,8 +72,8 @@ describe("ThemeEditor", () => {
   it("addresses a group's default leaf by the bare token name", () => {
     const { container } = render(() => <ThemeEditor />);
     openThemeEditor();
-    expect(container.querySelector('input[aria-label="fg"]')).not.toBeNull();
-    expect(container.querySelector('input[aria-label="fg.default"]')).toBeNull();
+    expect(container.querySelector('input[data-token="fg"]')).not.toBeNull();
+    expect(container.querySelector('input[data-token="fg.default"]')).toBeNull();
     expect(pickerFor(container, "fg").value).toBe("#1c1a17");
   });
 
@@ -126,6 +126,25 @@ describe("ThemeEditor", () => {
     const note = container.querySelector(".theme-editor-note");
     expect(note).not.toBeNull();
     expect(note!.textContent).toContain("Accent");
+  });
+
+  it("rows read as words, not token leaves", () => {
+    const { container } = render(() => <ThemeEditor />);
+    openThemeEditor();
+    const names = [...container.querySelectorAll(".theme-editor-name")].map((n) => n.textContent);
+    // The accent foreground row read "fg" beside a status row reading
+    // "foreground", two names for one idea and neither a word a reader uses.
+    expect(names).toContain("Text on accent");
+    expect(names).toContain("Text on status");
+    expect(names).not.toContain("fg");
+    expect(names).not.toContain("foreground");
+    expect(names).not.toContain("default");
+  });
+
+  it("labels the picker with the row's words", () => {
+    const { container } = render(() => <ThemeEditor />);
+    openThemeEditor();
+    expect(pickerFor(container, "accent.fg").getAttribute("aria-label")).toBe("Text on accent");
   });
 
   it("drops the accent note on a preset that carries its own accent", () => {

@@ -3,7 +3,7 @@ import { themeStore } from "../../stores/global/theme";
 import { configStore } from "../../stores/global/config";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
-import { TOKEN_GROUPS, GROUP_LABELS, tokenKey } from "../../types/theme";
+import { TOKEN_GROUPS, GROUP_LABELS, TOKEN_LABELS, tokenKey } from "../../types/theme";
 import type { TokenGroup, Theme, ThemeConfig } from "../../types/theme";
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
@@ -137,9 +137,12 @@ export default function ThemeEditor() {
                             class="theme-editor-picker"
                             value={valueFor(group, name)}
                             onInput={(e) => handleSwatchInput(group, name, e.currentTarget.value)}
-                            aria-label={tokenKey(group, name)}
+                            data-token={tokenKey(group, name)}
+                            aria-label={TOKEN_LABELS[tokenKey(group, name)]}
                           />
-                          <span class="theme-editor-name">{name}</span>
+                          <span class="theme-editor-name">
+                            {TOKEN_LABELS[tokenKey(group, name)]}
+                          </span>
                           <span class="theme-editor-hex">{valueFor(group, name)}</span>
                         </label>
                       )}

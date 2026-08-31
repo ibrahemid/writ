@@ -95,6 +95,39 @@ export function tokenKey(group: string, leaf: string): string {
 }
 
 /**
+ * What each token paints, in the words a reader uses for it. The editor titles
+ * every row from here, so a leaf missing an entry is a bug, not a fallback.
+ * Keyed by `tokenKey()`, checked against the presets in preset-schema.test.ts.
+ */
+export const TOKEN_LABELS: Readonly<Record<string, string>> = {
+  "bg.canvas": "Page",
+  "bg.sidebar": "Sidebar",
+  "bg.raised": "Panels",
+  "bg.sunken": "Input fields",
+  "bg.hover": "Hover",
+  "bg.selected": "Selection",
+  fg: "Body text",
+  "fg.muted": "Muted text",
+  "fg.faint": "Faint text",
+  border: "Border",
+  "border.soft": "Soft border",
+  accent: "Accent",
+  "accent.hover": "Accent, hovered",
+  "accent.fg": "Text on accent",
+  "status.success": "Success",
+  "status.warning": "Warning",
+  "status.error": "Error",
+  "status.foreground": "Text on status",
+  "syntax.keyword": "Keywords",
+  "syntax.string": "Strings",
+  "syntax.comment": "Comments",
+  "syntax.function": "Functions",
+  "syntax.number": "Numbers",
+  "syntax.type": "Types",
+  "syntax.variable": "Variables",
+};
+
+/**
  * The token keys a per-token override may name, in the ADR-030 vocabulary.
  * Each becomes `--writ-<key with dots as dashes>`, so this list is also the
  * set of custom properties a user is allowed to repaint.

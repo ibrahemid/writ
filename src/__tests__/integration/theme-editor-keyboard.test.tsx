@@ -50,6 +50,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 vi.mock("../../types/theme", () => ({
   TOKEN_GROUPS: ["bg", "fg"],
   GROUP_LABELS: { bg: "Background", fg: "Text" },
+  TOKEN_LABELS: { "bg.canvas": "Page", fg: "Body text" },
   tokenKey: (group: string, leaf: string) => (leaf === "default" ? group : `${group}.${leaf}`),
 }));
 
