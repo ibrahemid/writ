@@ -155,6 +155,24 @@ Two rules keep the DOM out of the reactive graph:
   removed in a matching `onCleanup`. A listener registered at module scope outlives the
   component that wanted it.
 
+### Design tokens
+
+Every colour, radius, type step, shadow and duration is a DTCG token under `design/tokens/`.
+`pnpm tokens:build` emits four files, all of them read-only:
+
+| Output | Consumer |
+|---|---|
+| `src/styles/generated/theme.css` | the app, imported first by `src/styles/global.css` |
+| `src/styles/generated/tokens.ts` | TypeScript that needs a token value or an accent id |
+| `src-tauri/assets/generated/preview-tokens.css` | the `writ-preview://` iframe, inlined by `renderers/theme.rs` |
+| `site/design-system/generated/tokens.css` | the site |
+
+A component stylesheet spends `var(--writ-*)`; it never declares one. Three architecture tests
+hold the line: `no-literal-color`, `no-raw-radius-or-easing`, and `legacy-aliases`, which carries
+the pre-ADR-030 names and fails any file that still reads one. A new token is added to
+`design/tokens/` and the outputs regenerated in the same commit, which CI checks by rebuilding
+and diffing.
+
 ## Design Principles
 
 1. **Compiler-enforced boundaries** — workspace dependency constraints prevent accidental coupling.
