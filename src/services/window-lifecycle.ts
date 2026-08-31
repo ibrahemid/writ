@@ -27,7 +27,7 @@ async function flushThenConfirm(): Promise<void> {
   try {
     const flushed = await flushAutosave();
     if (!flushed.ok) {
-      logFailure("a buffer could not be saved while quitting");
+      logFailure("a note could not be saved while quitting");
     }
   } finally {
     await confirmQuitFlush();
