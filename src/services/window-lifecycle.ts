@@ -43,7 +43,7 @@ export async function installCloseFlush(
     // in an app that cannot save.
     const flushed = await flushAutosave();
     if (!flushed.ok) {
-      logFailure("a buffer could not be saved while closing");
+      logFailure("a note could not be saved while closing");
     }
     for (const flush of extraFlushes) {
       await flush();
