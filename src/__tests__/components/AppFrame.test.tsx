@@ -40,6 +40,32 @@ describe("the window frame follows the maximized signal", () => {
     expect(frame.classList.contains("is-maximized")).toBe(false);
   });
 
+  it("keeps the same child node across maximize toggles", () => {
+    const [maximized, setMaximized] = createSignal(false);
+    h.maximized = maximized;
+
+    let factoryRuns = 0;
+    function Child() {
+      factoryRuns++;
+      return <div data-testid="preview" />;
+    }
+
+    const { container } = render(() => (
+      <AppFrame>
+        <Child />
+      </AppFrame>
+    ));
+    const node = container.querySelector('[data-testid="preview"]');
+
+    setMaximized(true);
+    setMaximized(false);
+    setMaximized(true);
+
+    expect(factoryRuns).toBe(1);
+    expect(container.querySelector('[data-testid="preview"]')).toBe(node);
+    expect(node!.isConnected).toBe(true);
+  });
+
   it("renders what it wraps", () => {
     const { container } = render(() => (
       <AppFrame>
