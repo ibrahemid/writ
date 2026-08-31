@@ -406,17 +406,6 @@ export const CSS_VAR = {
   motion: "--writ-motion",
 } as const;
 
-/**
- * Names the legacy layer re-declares at their pre-ADR-030 values. For these,
- * what the app renders is the frozen value, not the one exported above: a
- * COLORS, SHADOWS, SIDEBAR or TYPE entry whose name appears here does not
- * describe the current paint until the unit that owns those consumers migrates
- * them and drops the alias. Empty once the legacy layer is gone.
- */
-export const LEGACY_FROZEN: readonly string[] = [
-  "--writ-statusbar-height",
-];
-
 /** `var(--name)`, or `var(--name, fallback)`. */
 export function cssVar(name: string, fallback?: string): string {
   return fallback === undefined ? `var(${name})` : `var(${name}, ${fallback})`;

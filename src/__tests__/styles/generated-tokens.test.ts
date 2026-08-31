@@ -1,20 +1,18 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { COLORS, LEGACY_FROZEN, TYPE } from "../../styles/generated/tokens";
+import { COLORS, TYPE } from "../../styles/generated/tokens";
 
 const ROOT = process.cwd();
 
 const GENERATED = [
   "src/styles/generated/theme.css",
-  "src/styles/generated/legacy-aliases.css",
   "src/styles/generated/tokens.ts",
   "src-tauri/assets/generated/preview-tokens.css",
   "site/design-system/generated/tokens.css",
 ];
 
 const THEME_CSS = readFileSync(resolve(ROOT, "src/styles/generated/theme.css"), "utf8");
-const LEGACY_CSS = readFileSync(resolve(ROOT, "src/styles/generated/legacy-aliases.css"), "utf8");
 
 const ACCENT_IDS = ["pine", "writ-blue", "terracotta", "slate", "plum", "gold"];
 
@@ -93,6 +91,7 @@ const BASELINE_ROOT_TOKENS = [
   "--writ-icon-color",
   "--writ-icon-opacity",
   "--writ-icon-opacity-hover",
+  "--writ-statusbar-height",
   "--writ-sidebar-width",
   "--writ-sidebar-min-width",
   "--writ-sidebar-max-width",
@@ -106,6 +105,7 @@ const BASELINE_ROOT_TOKENS = [
   "--writ-space-6",
   "--writ-space-7",
   "--writ-ease",
+  "--writ-ease-linear",
   "--writ-motion-fast",
   "--writ-motion-duration",
   "--writ-motion-slow",
@@ -261,31 +261,6 @@ describe("generated token outputs", () => {
   });
 });
 
-describe("legacy re-declarations", () => {
-  // Written out, not recomputed: a name that starts being declared by both
-  // sheets has to be added here on purpose, with the migration it implies.
-  // The visual flip took the last of these off the legacy layer: every name the
-  // new vocabulary also declares now resolves to the ADR-030 value. Adding one
-  // back means freezing a token the design system owns, which needs a reason.
-  const EXPECTED_LEGACY_FROZEN: string[] = [];
-
-  function declaredNames(css: string): Set<string> {
-    return new Set([...css.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]));
-  }
-
-  it("the generated sheets declare exactly the reviewed set of names twice", () => {
-    const inTheme = declaredNames(THEME_CSS);
-    const overlap = [...declaredNames(LEGACY_CSS)].filter((name) => inTheme.has(name)).sort();
-    expect(overlap, "a name is declared by both sheets without being reviewed").toEqual(
-      EXPECTED_LEGACY_FROZEN,
-    );
-  });
-
-  it("LEGACY_FROZEN exports that set", () => {
-    expect([...LEGACY_FROZEN].sort()).toEqual(EXPECTED_LEGACY_FROZEN);
-  });
-});
-
 describe("DTCG preset sources", () => {
   // Every preset src/styles/themes ships. A runtime preset with no DTCG source
   // is a palette outside the token pipeline, which is the thing ADR-030 exists
@@ -345,9 +320,7 @@ describe("authored stylesheets reference declared tokens", () => {
   }
 
   const DECLARED = new Set(
-    [THEME_CSS, LEGACY_CSS].flatMap((css) =>
-      [...css.matchAll(/^\s*(--writ-[a-z0-9-]+)\s*:/gm)].map((m) => m[1]),
-    ),
+    [...THEME_CSS.matchAll(/^\s*(--writ-[a-z0-9-]+)\s*:/gm)].map((m) => m[1]),
   );
 
   /** Names one stylesheet spends that nothing declares and nothing falls back for. */

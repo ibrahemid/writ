@@ -6,13 +6,11 @@ import { resolve } from "node:path";
 // the preview resolves must therefore name an Arabic-capable family before the
 // generic keyword, or per-glyph fallback lands on the platform default.
 
-// The app sheet is imported first and the legacy layer second (global.css), so
-// a name declared by both resolves to the legacy declaration. These stacks are
-// what the root actually carries with no attribute set, not what one file says.
-const APP_SHEETS = [
-  "src/styles/generated/theme.css",
-  "src/styles/generated/legacy-aliases.css",
-].map((file) => readFileSync(resolve(process.cwd(), file), "utf8"));
+// These stacks are what the root actually carries with no attribute set, not
+// what one file says.
+const APP_SHEETS = ["src/styles/generated/theme.css"].map((file) =>
+  readFileSync(resolve(process.cwd(), file), "utf8"),
+);
 
 // The preview's own layer is split the same way: generated tokens, hand-written
 // rules. The stacks are declared in the first, the bidi rules live in the second.
@@ -51,7 +49,6 @@ const STACKS: { name: string; css: string | null; token: string; generic: string
   { name: "app ui", css: null, token: "--writ-font-ui", generic: "system-ui" },
   { name: "app prose", css: null, token: "--writ-font-prose", generic: "system-ui" },
   { name: "app prose alt", css: null, token: "--writ-font-prose-alt", generic: "system-ui" },
-  { name: "app sans", css: null, token: "--writ-font-sans", generic: "system-ui" },
   { name: "app mono", css: null, token: "--writ-font-mono", generic: "monospace" },
   {
     name: "preview sans",

@@ -5,7 +5,6 @@ import { join, relative, resolve } from "node:path";
 const REPO_ROOT = process.cwd();
 const SRC = resolve(REPO_ROOT, "src");
 const THEME_CSS = resolve(SRC, "styles/generated/theme.css");
-const LEGACY_CSS = resolve(SRC, "styles/generated/legacy-aliases.css");
 const GLOBAL_CSS = resolve(SRC, "styles/global.css");
 
 // Mono is for code (ADR-030 decision 7): the editor's code face and the two
@@ -51,9 +50,6 @@ const ALLOWED_FONT_VALUES = new Set([
   "var(--writ-font-ui)",
   "var(--writ-font-prose)",
   "var(--writ-font-mono)",
-  // Still declared by the legacy layer, still read by the files U3 did not
-  // migrate. It goes with the last of them.
-  "var(--writ-font-sans)",
 ]);
 
 function isAllowedValue(value: string): boolean {
@@ -70,11 +66,6 @@ describe("typography tokens", () => {
   it("the generated sheet declares the alternate prose face", () => {
     const theme = readFileSync(THEME_CSS, "utf8");
     expect(theme).toMatch(/--writ-font-prose-alt\s*:\s*"iA Writer Quattro S"/);
-  });
-
-  it("--writ-font-sans survives in the legacy layer for the files still reading it", () => {
-    const legacy = readFileSync(LEGACY_CSS, "utf8");
-    expect(legacy).toMatch(/--writ-font-sans\s*:/);
   });
 
   it("body resolves to --writ-font-ui", () => {

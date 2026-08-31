@@ -7,9 +7,10 @@ import { ACCENTS } from "../../styles/generated/tokens";
 // Two fixtures, both captured from origin/main before the pipeline existed: the
 // property map the theme store writes, and the :root block the hand-written
 // stylesheet declared. The pipeline moved them without moving a value; the
-// visual flip then moves the ones listed in REPAINTED, on purpose. Every other
-// name still has to resolve to what 0.3.5 painted, so an unmigrated stylesheet
-// keeps rendering as it did.
+// visual flip then moved the ones listed in REPAINTED, on purpose. The alias
+// layer that carried the rest is gone, so every name origin/main declared is
+// now one of three things: still declared and still painting 0.3.5's value
+// (FROZEN), still declared and repainted (REPAINTED), or retired (RETIRED).
 
 const ROOT = process.cwd();
 
@@ -21,14 +22,9 @@ const ORIGIN_ROOT = JSON.parse(
   readFileSync(resolve(ROOT, "src/__tests__/fixtures/root-tokens-origin-main.json"), "utf8"),
 ) as Record<string, string>;
 
-// global.css imports the generated sheet first and the legacy layer second, so
-// a name both declare resolves to the legacy declaration at equal specificity.
-const SHEETS = [
-  "src/styles/generated/theme.css",
-  "src/styles/generated/legacy-aliases.css",
-].map((file) => readFileSync(resolve(ROOT, file), "utf8"));
-
-const LEGACY_CSS = SHEETS[1];
+const SHEETS = ["src/styles/generated/theme.css"].map((file) =>
+  readFileSync(resolve(ROOT, file), "utf8"),
+);
 
 interface Rule {
   selector: string;
@@ -108,38 +104,17 @@ const DARK = rootWith({ "data-theme": "dark" });
  *   the live value onto the root.
  * - `--writ-selection`: same, derived from `--writ-accent` rather than the
  *   retired `--writ-accent-default`.
- * - `--writ-line-height`: removed. Its one reader, global.css, takes the UI
- *   scale's own line height.
  * - `--writ-status-*` and `--writ-syntax-*`: light-first defaults, with the
  *   syntax set sourced from the neutrals (ADR-030 decision 3). A preset still
  *   overwrites both groups at runtime.
- * - `--writ-warning-foreground`: unchanged expression, new value, because it
- *   is mixed from `--writ-status-warning`.
  * - `--writ-traffic-minimize`: the lights mirror their host, and the baseline
  *   reads the system amber as #FEBC2E.
- * - the `--writ-surface-*`, `--writ-foreground-*`, `--writ-border-*`,
- *   `--writ-accent-*` and `--writ-overlay-*` aliases: the store writes the
- *   ADR-030 names now, so a frozen hex would have left every unmigrated
- *   stylesheet painting 0.3.5 dark inside a light app. Each alias forwards to
- *   the token that replaced it (`border-focus` to the accent, `border-pill` to
- *   the border) and follows the live preset until its file is retokenised.
  */
 const REPAINTED = [
-  "--writ-accent-default",
-  "--writ-accent-foreground",
   "--writ-accent-hover",
-  "--writ-border-default",
-  "--writ-border-focus",
-  "--writ-border-pill",
   "--writ-border-soft",
   "--writ-editor-font-size",
   "--writ-font-mono",
-  "--writ-foreground-default",
-  "--writ-foreground-muted",
-  "--writ-foreground-subtle",
-  "--writ-line-height",
-  "--writ-overlay-hover",
-  "--writ-overlay-subtle",
   "--writ-selection",
   "--writ-shadow-chip",
   "--writ-shadow-modal",
@@ -149,12 +124,6 @@ const REPAINTED = [
   "--writ-status-foreground",
   "--writ-status-success",
   "--writ-status-warning",
-  "--writ-surface-background",
-  "--writ-surface-elevated",
-  "--writ-surface-hover",
-  "--writ-surface-input",
-  "--writ-surface-raised",
-  "--writ-surface-sunken",
   "--writ-syntax-comment",
   "--writ-syntax-function",
   "--writ-syntax-keyword",
@@ -163,24 +132,14 @@ const REPAINTED = [
   "--writ-syntax-type",
   "--writ-syntax-variable",
   "--writ-traffic-minimize",
-  "--writ-warning-foreground",
 ];
 
-// Every other property the old sheet declared, still resolving to what
-// origin/main painted. The colour tiers left this list when their aliases
-// started forwarding to the ADR-030 tokens.
+// Every other property the old sheet declared that the generated sheet still
+// declares, resolving to what origin/main painted. `--writ-statusbar-height`
+// is here rather than in RETIRED because the status bar and the update banner
+// both read it: it moved from the alias layer into design/tokens at 28px.
 const FROZEN = [
-  "--writ-font-sans",
-  "--writ-font-size",
-  "--writ-font-size-sm",
-  "--writ-font-size-xs",
   "--writ-overlay-scrim",
-  "--writ-radius-1",
-  "--writ-radius-2",
-  "--writ-radius-3",
-  "--writ-shadow-banner",
-  "--writ-shadow-overlay",
-  "--writ-shadow-xs",
   "--writ-space-1",
   "--writ-space-2",
   "--writ-space-3",
@@ -197,23 +156,53 @@ const FROZEN = [
 ];
 
 /**
- * Names the legacy layer no longer carries, because the last stylesheet that
- * read one dropped it. The sidebar took its shadow off with the baseline pass:
- * the surface is one hairline now. The three tab names went with the borderless
- * strip, whose only reader was TabBar.css. The dialog and toast shadows went
- * with the menus and dialogs pass: both surfaces read the ADR-030 shadows. The
- * three window names went with the platform chrome pass: the caption row is
- * 32px on Windows and 47px on GNOME rather than one height, the close button
- * reads `--writ-win-close-*`, and the frame radius is `--writ-r-window`.
+ * Names nothing declares any more. The sidebar took its shadow off with the
+ * baseline pass: the surface is one hairline now. The three tab names went with
+ * the borderless strip, whose only reader was TabBar.css. The dialog and toast
+ * shadows went with the menus and dialogs pass: both surfaces read the ADR-030
+ * shadows. The three window names went with the platform chrome pass: the
+ * caption row is 32px on Windows and 47px on GNOME rather than one height, the
+ * close button reads `--writ-win-close-*`, and the frame radius is
+ * `--writ-r-window`. The rest are the alias layer itself, deleted once the last
+ * stylesheet reading one was retokenised; the replacements are listed in
+ * `src/__tests__/architecture/legacy-aliases.test.ts`.
  */
 const RETIRED = [
+  "--writ-accent-default",
+  "--writ-accent-foreground",
   "--writ-bg-tab-pill",
+  "--writ-border-default",
+  "--writ-border-focus",
+  "--writ-border-pill",
+  "--writ-font-sans",
+  "--writ-font-size",
+  "--writ-font-size-sm",
+  "--writ-font-size-xs",
+  "--writ-foreground-default",
+  "--writ-foreground-muted",
+  "--writ-foreground-subtle",
+  "--writ-line-height",
+  "--writ-overlay-hover",
+  "--writ-overlay-subtle",
+  "--writ-radius-1",
+  "--writ-radius-2",
+  "--writ-radius-3",
+  "--writ-shadow-banner",
   "--writ-shadow-dialog",
+  "--writ-shadow-overlay",
   "--writ-shadow-sidebar",
   "--writ-shadow-toast",
+  "--writ-shadow-xs",
+  "--writ-surface-background",
+  "--writ-surface-elevated",
+  "--writ-surface-hover",
+  "--writ-surface-input",
+  "--writ-surface-raised",
+  "--writ-surface-sunken",
   "--writ-tab-pill-height",
   "--writ-tabbar-height",
   "--writ-titlebar-height",
+  "--writ-warning-foreground",
   "--writ-winctrl-danger-bg",
   "--writ-winctrl-danger-fg",
   "--writ-window-radius",
@@ -270,20 +259,6 @@ describe("token pipeline acceptance", () => {
     });
   }
 
-  it("the legacy layer declares nothing the generated sheet also declares", () => {
-    // Keeps its selector list at the specificity of :root[data-theme="dark"],
-    // so a name it does re-declare would still win on source order — and none
-    // does any more.
-    expect(LEGACY_CSS).toContain(":root,\n:root[data-theme] {");
-    const legacyNames = new Set(
-      [...LEGACY_CSS.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]),
-    );
-    const themeNames = new Set(
-      [...SHEETS[0].matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]),
-    );
-    expect([...legacyNames].filter((name) => themeNames.has(name))).toEqual([]);
-  });
-
   it("a retired name is declared nowhere and read nowhere", () => {
     for (const name of RETIRED) {
       expect(NO_ATTRIBUTES.has(name), name).toBe(false);
@@ -292,13 +267,8 @@ describe("token pipeline acceptance", () => {
   });
 
   it("every repainted name still resolves to something", () => {
-    // A repaint is a new value, never a dangling var(): the one name this unit
-    // removes outright is --writ-line-height, whose reader went with it.
+    // A repaint is a new value, never a dangling var().
     for (const name of REPAINTED) {
-      if (name === "--writ-line-height") {
-        expect(NO_ATTRIBUTES.has(name), name).toBe(false);
-        continue;
-      }
       expect(NO_ATTRIBUTES.get(name), name).toBeDefined();
       expect(deref(NO_ATTRIBUTES.get(name)!, NO_ATTRIBUTES)).not.toBe(
         deref(ORIGIN_ROOT[name], ORIGIN_DECLARATIONS),
