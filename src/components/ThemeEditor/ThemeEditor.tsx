@@ -145,7 +145,7 @@ export default function ThemeEditor() {
                       )}
                     </For>
                   </div>
-                  <Show when={group === "accent"}>
+                  <Show when={group === "accent" && themeStore.accentApplies()}>
                     <p class="theme-editor-note">
                       The Accent colour setting paints the accent tokens until one is set here.
                     </p>

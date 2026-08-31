@@ -127,4 +127,12 @@ describe("ThemeEditor", () => {
     expect(note).not.toBeNull();
     expect(note!.textContent).toContain("Accent");
   });
+
+  it("drops the accent note on a preset that carries its own accent", () => {
+    const { container } = render(() => <ThemeEditor />);
+    themeStore.loadConfig({ preset: "tokyo-night", overrides: {} });
+    openThemeEditor();
+    expect(themeStore.accentApplies()).toBe(false);
+    expect(container.querySelector(".theme-editor-note")).toBeNull();
+  });
 });
