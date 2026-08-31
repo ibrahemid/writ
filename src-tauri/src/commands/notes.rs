@@ -12,6 +12,7 @@ use serde::Serialize;
 use tauri::State;
 use writ_core::buffer::document::BufferDocument;
 use writ_core::buffer::manager::BufferManager;
+use writ_core::notes::NotesRootRefusal;
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::errors::{StorageError, StorageResult};
 use writ_storage::note_ops;
@@ -465,6 +466,16 @@ fn canonical_writ_dir(state: &AppState) -> PathBuf {
     crate::security::canonicalize_root(&state.writ_dir).unwrap_or_else(|_| state.writ_dir.clone())
 }
 
+/// Applies [`writ_core::notes::refuse_notes_root`] and puts the answer in the
+/// words Settings shows.
+fn refuse_destination(state: &AppState, from: &Path, candidate: &Path) -> Result<(), String> {
+    match writ_core::notes::refuse_notes_root(candidate, from, &canonical_writ_dir(state)) {
+        Some(NotesRootRefusal::HoldsWritData) => Err(WOULD_HOLD_WRIT_DATA.to_string()),
+        Some(NotesRootRefusal::InsideNotesFolder) => Err(WOULD_HOLD_ITSELF.to_string()),
+        None => Ok(()),
+    }
+}
+
 /// Moves the notes folder to `destination` and points Writ at it.
 ///
 /// One operation, in the order that leaves nothing half done: the files move
@@ -481,6 +492,13 @@ pub fn move_notes_folder_to(
     destination: &Path,
 ) -> Result<MoveNotesOutcome, String> {
     let from = state.notes_root();
+
+    // Asked first of the folder the pick will resolve to, so a refused pick
+    // does not leave an empty folder behind at the path it named.
+    if let Some(planned) = crate::commands::file::resolve_for_containment(destination) {
+        refuse_destination(state, &from, Path::new(&planned))?;
+    }
+
     std::fs::create_dir_all(destination).map_err(|e| e.to_string())?;
     let to = crate::security::canonicalize_root(destination).map_err(|e| e.to_string())?;
 
@@ -491,12 +509,7 @@ pub fn move_notes_folder_to(
             collided: Vec::new(),
         });
     }
-    if to.starts_with(&from) {
-        return Err(WOULD_HOLD_ITSELF.to_string());
-    }
-    if canonical_writ_dir(state).starts_with(&to) {
-        return Err(WOULD_HOLD_WRIT_DATA.to_string());
-    }
+    refuse_destination(state, &from, &to)?;
 
     let outcome = notes_move::move_notes_folder(&from, &to).map_err(|e| e.to_string())?;
     if !outcome.collided.is_empty() {

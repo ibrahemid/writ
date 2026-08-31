@@ -20,6 +20,7 @@ use writ_storage::database::queries;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_migration::{MigrationReport, RowOutcome};
 use writ_storage::schema_meta::{self, KEY_NOTES_MIGRATION_REPORT};
+use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
 use writ_tauri_lib::commands::notes::{
     dismiss_notes_migration_report_inner, move_archived_notes_inner, move_notes_folder_to,
     notes_folder_info, notes_migration_report,
@@ -231,6 +232,20 @@ fn notes_folder_path_round_trips_spaces_apostrophe_and_arabic() {
         Some(moved.to_string_lossy().as_ref())
     );
     assert!(state.is_within_notes(&moved.to_string_lossy()));
+
+    save_buffer_content_inner(&state, "arabic", "نص محفوظ").expect("save through the write gate");
+
+    assert_eq!(
+        std::fs::read(&moved).expect("read back"),
+        "نص محفوظ".as_bytes(),
+        "the bytes on disk are the ones that were saved"
+    );
+    assert_eq!(
+        source_path_of(&state, "arabic").as_deref(),
+        Some(moved.to_string_lossy().as_ref()),
+        "the row still names the file the save landed in"
+    );
+    assert_eq!(moved.parent(), Some(awkward.as_path()));
 }
 
 #[test]
@@ -344,6 +359,52 @@ fn a_folder_holding_writs_own_data_is_refused_whichever_way_it_is_spelled() {
     );
     assert_eq!(state.notes_root(), before);
     assert!(before.join("One.md").exists(), "nothing moved");
+}
+
+#[test]
+fn a_folder_inside_writs_own_data_folder_is_refused_and_nothing_is_created() {
+    let dir = TempDir::new().expect("temp");
+    let state = make_state(&dir);
+    std::fs::write(state.notes_root().join("One.md"), "one").expect("seed");
+    let before = state.notes_root();
+
+    let inside = state.writ_dir.join("archive");
+    let error = move_notes_folder_to(&state, &inside).expect_err("refused");
+
+    assert_eq!(
+        error,
+        "Writ keeps its own data in that folder, so it cannot also be your notes folder."
+    );
+    assert_eq!(state.notes_root(), before);
+    assert!(before.join("One.md").exists(), "nothing moved");
+    assert!(
+        !inside.exists(),
+        "a folder that is refused is not created on the way to refusing it"
+    );
+}
+
+#[test]
+fn the_archive_can_never_become_its_own_destination() {
+    let dir = TempDir::new().expect("temp");
+    let state = make_state(&dir);
+    let archive = state.writ_dir.join("archive");
+    std::fs::create_dir_all(&archive).expect("archive");
+    std::fs::write(archive.join("Ideas.md"), "archived").expect("seed");
+
+    move_notes_folder_to(&state, &archive).expect_err("the archive cannot be the notes folder");
+    assert_ne!(state.notes_root(), archive);
+
+    let outcome = move_archived_notes_inner(&state).expect("move the archive");
+    assert_eq!(outcome.moved, 1);
+    assert!(
+        outcome.collided.is_empty(),
+        "nothing was renamed onto itself"
+    );
+    assert_eq!(
+        std::fs::read_to_string(state.notes_root().join("Ideas.md")).expect("read"),
+        "archived"
+    );
+    assert!(!archive.join("Ideas.md").exists(), "the archive is empty");
 }
 
 #[test]

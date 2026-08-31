@@ -127,6 +127,46 @@ fn require_absolute(path: PathBuf) -> Result<PathBuf, NotesRootError> {
     }
 }
 
+/// Why a folder cannot become the notes folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotesRootRefusal {
+    /// The folder is Writ's own data folder, holds it, or sits inside it.
+    HoldsWritData,
+    /// The folder is inside the notes folder being moved out of.
+    InsideNotesFolder,
+}
+
+/// Whether a picked folder may become the notes folder.
+///
+/// The three paths are compared as spelled, so a caller hands over canonical
+/// spellings or gets an answer about paths rather than about folders.
+///
+/// Writ's data folder is compared both ways. An ancestor of it would pull the
+/// database into the notes folder, the folder itself is the same case, and one
+/// inside it is the case that does real damage: the archive Writ offers to
+/// empty lives there, and a notes folder holding it makes the archive and its
+/// destination the same directory.
+///
+/// The notes folder is compared one way only. A destination inside the folder
+/// being moved has nowhere to be once the move starts, while a destination
+/// that merely contains it is an ordinary move.
+///
+/// A `destination` equal to `current` is not a refusal; it is a move with
+/// nothing to do.
+pub fn refuse_notes_root(
+    destination: &Path,
+    current: &Path,
+    writ_dir: &Path,
+) -> Option<NotesRootRefusal> {
+    if destination.starts_with(writ_dir) || writ_dir.starts_with(destination) {
+        return Some(NotesRootRefusal::HoldsWritData);
+    }
+    if destination != current && destination.starts_with(current) {
+        return Some(NotesRootRefusal::InsideNotesFolder);
+    }
+    None
+}
+
 /// Collapses a leading home prefix back to `~` for display.
 pub fn display_path(path: &Path, home: Option<&Path>) -> String {
     if let Some(home) = home {

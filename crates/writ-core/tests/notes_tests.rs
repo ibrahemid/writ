@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use writ_core::notes::{
     conflict_file_name, date_stem, dedupe_file_name, display_path, recovered_file_name,
-    resolve_notes_root, resolve_notes_root_from, sanitize_title, sanitize_title_or, NotesRootError,
-    NotesRootSources,
+    refuse_notes_root, resolve_notes_root, resolve_notes_root_from, sanitize_title,
+    sanitize_title_or, NotesRootError, NotesRootRefusal, NotesRootSources,
 };
 
 fn home() -> PathBuf {
@@ -363,4 +363,76 @@ fn recovered_file_name_carries_the_same_dated_shape() {
         )
     );
     assert_ne!(name, conflict_file_name("Meeting notes", "md", now));
+}
+
+/// Writ's data folder in the tests below, with the notes folder beside it.
+fn writ_dir() -> PathBuf {
+    PathBuf::from("/home/tester/.local/share/writ")
+}
+
+fn notes_root() -> PathBuf {
+    PathBuf::from("/home/tester/Writ")
+}
+
+#[test]
+fn the_data_folder_itself_cannot_be_the_notes_folder() {
+    assert_eq!(
+        refuse_notes_root(&writ_dir(), &notes_root(), &writ_dir()),
+        Some(NotesRootRefusal::HoldsWritData)
+    );
+}
+
+#[test]
+fn a_folder_above_the_data_folder_cannot_be_the_notes_folder() {
+    let above = PathBuf::from("/home/tester/.local/share");
+    assert_eq!(
+        refuse_notes_root(&above, &notes_root(), &writ_dir()),
+        Some(NotesRootRefusal::HoldsWritData)
+    );
+}
+
+#[test]
+fn a_folder_inside_the_data_folder_cannot_be_the_notes_folder() {
+    let archive = writ_dir().join("archive");
+    assert_eq!(
+        refuse_notes_root(&archive, &notes_root(), &writ_dir()),
+        Some(NotesRootRefusal::HoldsWritData),
+        "the archive folder would become its own destination"
+    );
+}
+
+#[test]
+fn a_folder_beside_the_data_folder_is_accepted() {
+    let beside = PathBuf::from("/home/tester/.local/share/writing");
+    assert_eq!(refuse_notes_root(&beside, &notes_root(), &writ_dir()), None);
+    assert_eq!(
+        refuse_notes_root(
+            &PathBuf::from("/home/tester/Dropbox/Notes"),
+            &notes_root(),
+            &writ_dir()
+        ),
+        None
+    );
+}
+
+#[test]
+fn a_folder_inside_the_notes_folder_is_refused_and_the_notes_folder_itself_is_not() {
+    assert_eq!(
+        refuse_notes_root(&notes_root().join("deeper"), &notes_root(), &writ_dir()),
+        Some(NotesRootRefusal::InsideNotesFolder)
+    );
+    assert_eq!(
+        refuse_notes_root(&notes_root(), &notes_root(), &writ_dir()),
+        None,
+        "picking the folder it is already in has nothing to do"
+    );
+}
+
+#[test]
+fn a_folder_that_contains_the_notes_folder_is_an_ordinary_move() {
+    let current = PathBuf::from("/volumes/sync/Notes/Writ");
+    assert_eq!(
+        refuse_notes_root(current.parent().unwrap(), &current, &writ_dir()),
+        None
+    );
 }
