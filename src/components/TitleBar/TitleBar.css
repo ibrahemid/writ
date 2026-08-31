@@ -141,11 +141,15 @@
 }
 
 /* Drawn inside the button: a caption control runs to the window edge, where an
-   offset ring would be clipped. */
+   offset ring would be clipped. The stacking order is still Fluent's, the
+   contrast stroke outermost: the 2px outline hugs the edge and the inset shadow
+   shows 1px of the opposite polarity just inside it, since the outline paints
+   over the shadow. Both tokens swap with the theme, so reversing the two hides
+   whichever one carries the contrast against the caption ground. */
 .winctrl:focus-visible {
   outline: 2px solid var(--writ-win-focus-outer);
-  outline-offset: -3px;
-  box-shadow: inset 0 0 0 4px var(--writ-win-focus-inner);
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 3px var(--writ-win-focus-inner);
   border-radius: 0;
 }
 

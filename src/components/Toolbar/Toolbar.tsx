@@ -104,9 +104,10 @@ export default function Toolbar() {
       aria-label="Note actions"
       data-platform={platform}
       // The bar is the drag region on macOS, where the window has no title bar
-      // of its own. The attribute stays off the controls so a press on a button
-      // clicks it rather than moving the window.
-      data-tauri-drag-region={platform === "mac" ? "" : undefined}
+      // of its own. `deep` so the wrappers and the gaps between controls move
+      // the window too; the walk still stops at any button or input that
+      // carries no attribute of its own, so a press on a control clicks it.
+      data-tauri-drag-region={platform === "mac" ? "deep" : undefined}
       onKeyDown={handleKeyDown}
     >
       <Show when={lightsInToolbar()}>

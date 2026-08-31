@@ -106,7 +106,9 @@ export default function Sidebar() {
       inert={!win.sidebar.isOpen()}
     >
       <Show when={lightsInHead()}>
-        <div class="sidebar-head">
+        {/* The head sits outside the toolbar's drag region and only exists on
+            macOS, where nothing else moves the window from this column. */}
+        <div class="sidebar-head" data-tauri-drag-region="deep">
           <TrafficLights focused={osWindowStore.focused()} />
         </div>
       </Show>

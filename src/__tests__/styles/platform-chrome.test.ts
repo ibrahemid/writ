@@ -162,10 +162,28 @@ describe("focus rings follow the host", () => {
     expect(ring.get("--writ-focus-offset")).toBe("1px");
   });
 
-  it("keeps Fluent's inner ring on the caption buttons", () => {
-    expect(declarations(TITLEBAR, ".winctrl:focus-visible").get("box-shadow")).toBe(
-      "inset 0 0 0 4px var(--writ-win-focus-inner)",
-    );
+  // A caption control runs to the window edge, so the ring is drawn inward, but
+  // the stacking order is Fluent's: the contrast stroke outermost, a 1px band of
+  // the opposite polarity inside it. Both tokens swap with the theme, so drawing
+  // them the other way round hides whichever one carries the contrast.
+  it("stacks the caption ring contrast-outermost", () => {
+    const ring = declarations(TITLEBAR, ".winctrl:focus-visible");
+    const stroke = ring.get("outline")!.match(/^(\d+)px solid var\((--writ-win-focus-\w+)\)$/);
+    const band = ring.get("box-shadow")!.match(/^inset 0 0 0 (\d+)px var\((--writ-win-focus-\w+)\)$/);
+    expect(stroke, ring.get("outline")).not.toBeNull();
+    expect(band, ring.get("box-shadow")).not.toBeNull();
+
+    const width = Number(stroke![1]);
+    const depth = Math.abs(Number(ring.get("outline-offset")!.replace("px", "")));
+    const spread = Number(band![1]);
+
+    // Depths measured inward from the button's own edge. The outline is drawn
+    // outward from an edge `depth` inside the box; the inset shadow fills from
+    // the edge to `spread` and is painted under the outline.
+    expect([depth - width, depth]).toEqual([0, 2]);
+    expect([depth, spread]).toEqual([2, 3]);
+    expect(stroke![2]).toBe("--writ-win-focus-outer");
+    expect(band![2]).toBe("--writ-win-focus-inner");
   });
 
   it("draws the GNOME ring inside the control at half the accent", () => {
