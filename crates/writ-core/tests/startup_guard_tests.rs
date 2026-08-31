@@ -330,7 +330,12 @@ fn the_refusal_message_contains_no_banned_words() {
             notes_root: PathBuf::from("/home/u/Writ"),
         },
     ));
-    for name in ["Box", "pCloud", "CloudStorage"] {
+    for name in [
+        "Box",
+        "pCloud",
+        "CloudStorage",
+        "Apple's cloud storage service",
+    ] {
         messages.push(data_dir_refusal_message(
             &DataDirVerdict::InsideSyncContainer {
                 name: name.to_string(),
@@ -484,6 +489,15 @@ fn macos_cloudstorage_names_the_container_when_the_service_is_not_one_writ_knows
             "pCloud",
         ),
         ("/home/u/Library/Mobile Documents/.writ", "iCloud Drive"),
+        ("/home/u/Library/CloudStorage/box/.writ", "Box"),
+        (
+            "/home/u/Library/CloudStorage/box-me@example.com/.writ",
+            "Box",
+        ),
+        (
+            "/home/u/Library/CloudStorage/.writ",
+            "Apple's cloud storage service",
+        ),
     ] {
         let message = data_dir_refusal_message(&classify(Platform::Macos, data_dir));
         assert!(

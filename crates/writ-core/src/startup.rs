@@ -358,11 +358,30 @@ fn provider_in_cloud_storage(container: &str, fold: bool) -> Option<SyncProvider
 /// The vendor's File Provider extension mints the folder as `Vendor-account`
 /// (`Box-me@example.com`, `pCloud-Personal`), so the name is what stands
 /// before the first dash. A container with no dash is already the bare name,
-/// and one that starts with a dash is shown whole rather than emptied.
+/// and one that starts with a dash is kept whole rather than emptied.
+///
+/// A folder some File Provider extensions mint lower-case (`box`) is
+/// title-cased so the message reads as the vendor's name rather than a stray
+/// lowercase word; a name that already carries a capital of its own
+/// (`pCloud`, `CloudStorage`) is a vendor's own styling and is left alone. A
+/// dotfile (`.writ`, a data directory sitting straight in `CloudStorage`) or a
+/// name that is empty after the dash cut names no vendor at all, so the
+/// message falls back to naming the area rather than the folder.
 fn container_display_name(container: &str) -> String {
-    match container.split_once('-') {
-        Some((name, _)) if !name.trim().is_empty() => name.trim().to_string(),
-        _ => container.to_string(),
+    let name = match container.split_once('-') {
+        Some((name, _)) if !name.trim().is_empty() => name.trim(),
+        _ => container.trim(),
+    };
+    if name.is_empty() || name.starts_with('.') {
+        return "Apple's cloud storage service".to_string();
+    }
+    if name.chars().any(char::is_uppercase) {
+        return name.to_string();
+    }
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => "Apple's cloud storage service".to_string(),
     }
 }
 
