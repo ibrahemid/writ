@@ -412,6 +412,25 @@ mod tests {
     }
 
     #[test]
+    fn the_location_report_carries_the_verdict_and_the_remedy() {
+        let verdict = DataDirVerdict::InsideSyncProvider {
+            provider: SyncProvider::Dropbox,
+            root: PathBuf::from("/home/user/Dropbox"),
+        };
+        let failure = StartupFailure::new(
+            StartupStage::DataDirectoryLocation,
+            data_dir_refusal_message(&verdict),
+            Some(PathBuf::from("/home/user/Dropbox/.writ")),
+            "20260901-101500",
+        );
+        let report = format_failure_report(&failure, Some(Path::new("/tmp/writ-crash-1.txt")));
+        assert!(report.contains("Step: checking where Writ keeps its data"));
+        assert!(report.contains("Path: /home/user/Dropbox/.writ"));
+        assert!(report.contains("which Dropbox syncs"));
+        assert!(report.contains("Set WRIT_DATA_DIR to a folder outside the synced folder"));
+    }
+
+    #[test]
     fn report_states_where_it_was_written() {
         let report = format_failure_report(&failure(), Some(Path::new("/tmp/writ-crash-1.txt")));
         assert!(report.contains("Report file: /tmp/writ-crash-1.txt"));
