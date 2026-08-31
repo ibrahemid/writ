@@ -3,7 +3,13 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { PRESETS } from "../../styles/themes";
 import { flattenTheme } from "../../stores/global/theme";
-import { OVERRIDE_KEYS, TOKEN_GROUPS, TOKEN_LABELS } from "../../types/theme";
+import {
+  NON_EDITABLE_TOKENS,
+  OVERRIDE_KEYS,
+  TOKEN_GROUPS,
+  TOKEN_LABELS,
+  migrateOverrideKey,
+} from "../../types/theme";
 import type { Theme } from "../../types/theme";
 
 // A preset leaf and a user override on the same token have to land on the same
@@ -64,8 +70,18 @@ describe("preset schema", () => {
 describe("token labels", () => {
   const editable = new Set<string>();
   for (const preset of PRESETS) {
-    for (const key of Object.keys(flattenTheme(preset as Theme))) editable.add(key);
+    for (const key of Object.keys(flattenTheme(preset as Theme))) {
+      if (!NON_EDITABLE_TOKENS.has(key)) editable.add(key);
+    }
   }
+
+  it("a token nothing reads is not offered", () => {
+    expect([...NON_EDITABLE_TOKENS]).toContain("status.foreground");
+    expect(editable.has("status.foreground")).toBe(false);
+    // A stored override on it has nowhere to land, so the load discards it.
+    expect(migrateOverrideKey("status.foreground")).toBeNull();
+    expect(migrateOverrideKey("status.error")).toBe("status.error");
+  });
 
   it("every editable token has a label", () => {
     const missing = [...editable].filter((key) => !TOKEN_LABELS[key]);

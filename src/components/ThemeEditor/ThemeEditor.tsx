@@ -3,7 +3,13 @@ import { themeStore } from "../../stores/global/theme";
 import { configStore } from "../../stores/global/config";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
-import { TOKEN_GROUPS, GROUP_LABELS, TOKEN_LABELS, tokenKey } from "../../types/theme";
+import {
+  GROUP_LABELS,
+  NON_EDITABLE_TOKENS,
+  TOKEN_GROUPS,
+  TOKEN_LABELS,
+  tokenKey,
+} from "../../types/theme";
 import type { TokenGroup, Theme, ThemeConfig } from "../../types/theme";
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
@@ -124,7 +130,11 @@ export default function ThemeEditor() {
                 <section class="theme-editor-group">
                   <h3 class="theme-editor-group-title">{GROUP_LABELS[group]}</h3>
                   <div class="theme-editor-tokens">
-                    <For each={Object.keys(tokensForGroup(themeStore.activePreset(), group))}>
+                    <For
+                      each={Object.keys(tokensForGroup(themeStore.activePreset(), group)).filter(
+                        (leaf) => !NON_EDITABLE_TOKENS.has(tokenKey(group, leaf)),
+                      )}
+                    >
                       {(name) => (
                         <label class="theme-editor-row">
                           <span

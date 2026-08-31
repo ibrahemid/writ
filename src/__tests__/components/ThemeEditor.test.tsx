@@ -135,7 +135,11 @@ describe("ThemeEditor", () => {
     // The accent foreground row read "fg" beside a status row reading
     // "foreground", two names for one idea and neither a word a reader uses.
     expect(names).toContain("Text on accent");
-    expect(names).toContain("Text on status");
+    expect(names).toContain("Hovered row");
+    expect(names).toContain("Selected row");
+    expect(names).toContain("Recessed surfaces");
+    // --writ-status-foreground has no reader, so it is not a row.
+    expect(names).not.toContain("Text on status");
     expect(names).not.toContain("fg");
     expect(names).not.toContain("foreground");
     expect(names).not.toContain("default");

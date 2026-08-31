@@ -95,6 +95,13 @@ export function tokenKey(group: string, leaf: string): string {
 }
 
 /**
+ * Tokens a preset still carries that the editor does not offer. Nothing reads
+ * `var(--writ-status-foreground)` in the app or the site, so a row for it would
+ * be a picker that repaints nothing.
+ */
+export const NON_EDITABLE_TOKENS: ReadonlySet<string> = new Set(["status.foreground"]);
+
+/**
  * What each token paints, in the words a reader uses for it. The editor titles
  * every row from here, so a leaf missing an entry is a bug, not a fallback.
  * Keyed by `tokenKey()`, checked against the presets in preset-schema.test.ts.
@@ -103,9 +110,9 @@ export const TOKEN_LABELS: Readonly<Record<string, string>> = {
   "bg.canvas": "Page",
   "bg.sidebar": "Sidebar",
   "bg.raised": "Panels",
-  "bg.sunken": "Input fields",
-  "bg.hover": "Hover",
-  "bg.selected": "Selection",
+  "bg.sunken": "Recessed surfaces",
+  "bg.hover": "Hovered row",
+  "bg.selected": "Selected row",
   fg: "Body text",
   "fg.muted": "Muted text",
   "fg.faint": "Faint text",
@@ -117,7 +124,6 @@ export const TOKEN_LABELS: Readonly<Record<string, string>> = {
   "status.success": "Success",
   "status.warning": "Warning",
   "status.error": "Error",
-  "status.foreground": "Text on status",
   "syntax.keyword": "Keywords",
   "syntax.string": "Strings",
   "syntax.comment": "Comments",
@@ -185,6 +191,7 @@ const OVERRIDE_KEY_SET: ReadonlySet<string> = new Set<string>(OVERRIDE_KEYS);
  * run on every load.
  */
 export function migrateOverrideKey(key: string): string | null {
+  if (NON_EDITABLE_TOKENS.has(key)) return null;
   if (OVERRIDE_KEY_SET.has(key)) return key;
   if (OVERRIDE_PASSTHROUGH_GROUPS.has(key.split(".")[0])) return key;
   return OVERRIDE_MIGRATIONS[key] ?? null;
