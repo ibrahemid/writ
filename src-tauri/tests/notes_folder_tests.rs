@@ -709,3 +709,133 @@ fn moving_the_notes_folder_clears_the_row_naming_the_one_writ_could_not_use() {
     );
     assert_eq!(info.path, state.notes_root().to_string_lossy());
 }
+
+/// The index's paths for `text`, in rank order.
+fn index_paths(state: &AppState, text: &str) -> Vec<String> {
+    let query = writ_core::search::to_prefix_match(text).expect("query");
+    let terms = writ_core::search::search_terms(text);
+    state
+        .notes_index
+        .search_hits(&query, &terms, 50)
+        .expect("search_hits")
+        .into_iter()
+        .map(|hit| hit.path.expect("a notes-index hit carries its path"))
+        .collect()
+}
+
+#[test]
+fn moving_the_notes_folder_reindexes_under_the_new_root_and_forgets_the_old_paths() {
+    let dir = TempDir::new().expect("temp");
+    let state = make_state(&dir);
+    let from = state.notes_root();
+
+    std::fs::create_dir_all(from.join("projects")).expect("subfolder");
+    let before = from.join("projects").join("Kept.md");
+    std::fs::write(&before, "portable sentence").expect("seed");
+    state
+        .notes_index
+        .index_path(&before)
+        .expect("index the note where it started");
+    assert_eq!(
+        index_paths(&state, "portable"),
+        vec![writ_storage::notes_index::index_key(&before)]
+    );
+
+    let to = dir.path().join("Elsewhere");
+    move_notes_folder_to(&state, &to).expect("move");
+    let to = writ_tauri_lib::security::canonicalize_root(&to).expect("canonical");
+
+    let after = to.join("projects").join("Kept.md");
+    assert_eq!(
+        index_paths(&state, "portable"),
+        vec![writ_storage::notes_index::index_key(&after)],
+        "the hit opens the file where it now is"
+    );
+    let old_prefix = from.to_string_lossy().into_owned();
+    assert!(
+        !state
+            .notes_index
+            .snapshot()
+            .expect("snapshot")
+            .iter()
+            .any(|(path, _, _)| path.starts_with(&old_prefix)),
+        "no row is left naming the old folder"
+    );
+}
+
+#[test]
+fn a_save_after_a_move_is_indexed_under_the_new_root() {
+    let dir = TempDir::new().expect("temp");
+    let state = make_state(&dir);
+    let from = state.notes_root();
+    let seeded = from.join("Later.md");
+    std::fs::write(&seeded, "before").expect("seed");
+    seed_row(&state, "later", Some(&seeded.to_string_lossy()));
+
+    let to = dir.path().join("Elsewhere");
+    move_notes_folder_to(&state, &to).expect("move");
+    let to = writ_tauri_lib::security::canonicalize_root(&to).expect("canonical");
+
+    save_buffer_content_inner(&state, "later", "afterwards").expect("save");
+    // A save writes the file and defers the index write (ADR-020); the
+    // scheduler calls this when the typing stops.
+    state
+        .store
+        .lock()
+        .expect("lock")
+        .reindex_buffer("later")
+        .expect("the deferred index write");
+
+    assert_eq!(
+        index_paths(&state, "afterwards"),
+        vec![writ_storage::notes_index::index_key(&to.join("Later.md"))],
+        "the save path indexes under the folder the state names now"
+    );
+}
+
+#[test]
+fn the_notes_watcher_follows_the_folder_to_its_new_root() {
+    use std::time::{Duration, Instant};
+    use writ_tauri_lib::watcher::handler::classify_notes_event;
+
+    let dir = TempDir::new().expect("temp");
+    let state = make_state(&dir);
+    let from = state.notes_root();
+
+    let to = dir.path().join("Elsewhere");
+    move_notes_folder_to(&state, &to).expect("move");
+    let to = writ_tauri_lib::security::canonicalize_root(&to).expect("canonical");
+
+    assert!(
+        state.notes_watcher.lock().expect("lock").is_some(),
+        "the move leaves a watcher running"
+    );
+
+    // The debouncer's own thread is not driven here: what the restart has to
+    // get right is which root the events are judged against, and that is a
+    // pure function.
+    let arrived = to.join("Arrived.md");
+    std::fs::write(&arrived, "new").expect("seed");
+    assert!(
+        classify_notes_event(
+            &arrived,
+            &to,
+            &state.watcher_ignore,
+            Duration::from_secs(5),
+            Instant::now(),
+        )
+        .is_some(),
+        "a file created in the new folder is a notes change"
+    );
+    assert!(
+        classify_notes_event(
+            &from.join("Arrived.md"),
+            &to,
+            &state.watcher_ignore,
+            Duration::from_secs(5),
+            Instant::now(),
+        )
+        .is_none(),
+        "a file in the folder Writ left is not"
+    );
+}

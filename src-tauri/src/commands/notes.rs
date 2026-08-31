@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use tauri::State;
+use tracing::{info, warn};
 use writ_core::buffer::document::BufferDocument;
 use writ_core::buffer::manager::BufferManager;
 use writ_core::notes::NotesRootRefusal;
@@ -488,7 +489,6 @@ fn refuse_destination(state: &AppState, from: &Path, candidate: &Path) -> Result
 /// row that named a file under the old folder is rewritten. A move that
 /// collides moves nothing and says which names clashed.
 ///
-/// The watcher is not on the notes folder in 0.4, so nothing is re-stamped.
 /// What is re-recorded is the write guard's memory of each open note: its key
 /// is the note, but the record describes a file at a path that no longer
 /// exists, so it is dropped and taken again from the file in its new home.
@@ -528,9 +528,15 @@ pub fn move_notes_folder_to(
         });
     }
 
+    // Before any row moves, so no walk that started against the old folder is
+    // still running when they do: it would finish and prune every row this
+    // move re-keys.
+    state.notes_index.bump_generation();
+
     let text = path_text(&to);
     adopt_notes_root(state, &to, &text)?;
     repoint_notes(state, &from, &to)?;
+    follow_notes_root(state, &from, &to);
 
     Ok(MoveNotesOutcome {
         new_root: text,
@@ -557,7 +563,67 @@ fn adopt_notes_root(state: &AppState, root: &Path, text: &str) -> Result<(), Str
     drop(config);
 
     state.set_notes_root(root.to_path_buf());
+    // The store decides on its own whether a save belongs to the notes folder,
+    // so it needs the same answer as the state: a root captured at startup
+    // would stop indexing the moment the folder moved.
+    state
+        .store
+        .lock()
+        .map_err(|e| e.to_string())?
+        .set_notes_root(root.to_path_buf());
     Ok(())
+}
+
+/// Brings the notes index and the notes watcher to the folder Writ now uses.
+///
+/// Nothing here can fail the move: the files are already in their new home, so
+/// a failure is logged and left to the walk this spawns. The order matters.
+/// The index is re-keyed first, which is what makes the following walk read
+/// nothing; the watcher is armed next, before the walk, so a file that lands
+/// while the walk runs is still seen; the walk goes last and covers everything
+/// that preceded it.
+fn follow_notes_root(state: &AppState, from: &Path, to: &Path) {
+    match state.notes_index.rekey_root(from, to) {
+        Ok(rekeyed) => info!(rekeyed, "notes index followed the folder"),
+        Err(e) => warn!(error = %e, "notes index could not follow the folder"),
+    }
+
+    match crate::watcher::handler::start_notes_watcher(
+        state.event_bus.clone(),
+        to.to_path_buf(),
+        state.watcher_ignore.clone(),
+    ) {
+        Ok(handle) => {
+            let mut slot = state
+                .notes_watcher
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            // Assigning drops the old handle, which closes its channel and
+            // ends the thread watching the folder Writ left.
+            *slot = Some(handle);
+        }
+        Err(e) => warn!(error = %e, "notes watcher could not follow the folder"),
+    }
+
+    let index = state.notes_index.clone();
+    let cancel = state.notes_index_cancel.clone();
+    let generation = index.generation();
+    let root = to.to_path_buf();
+    std::thread::spawn(move || {
+        let cancelled = || {
+            cancel.load(std::sync::atomic::Ordering::Relaxed) || index.generation() != generation
+        };
+        match index.reconcile(&root, &cancelled, &writ_storage::notes_index::is_dataless) {
+            Ok(outcome) => info!(
+                added = outcome.added,
+                updated = outcome.updated,
+                removed = outcome.removed,
+                cancelled = outcome.cancelled,
+                "notes index reconciled after the move"
+            ),
+            Err(e) => warn!(error = %e, "notes index reconcile after the move failed"),
+        }
+    });
 }
 
 /// Points every row and every disk-state record at the moved files.

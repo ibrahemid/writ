@@ -588,8 +588,15 @@ pub fn run() {
                 let index = state.notes_index.clone();
                 let cancel = state.notes_index_cancel.clone();
                 let reconcile_root = notes_root.clone();
+                let generation = index.generation();
                 std::thread::spawn(move || {
-                    let cancelled = || cancel.load(std::sync::atomic::Ordering::Relaxed);
+                    // Retired the moment the notes folder moves: a walk that
+                    // finished against the old folder would prune every row
+                    // the move re-keyed.
+                    let cancelled = || {
+                        cancel.load(std::sync::atomic::Ordering::Relaxed)
+                            || index.generation() != generation
+                    };
                     match index.reconcile(
                         &reconcile_root,
                         &cancelled,
