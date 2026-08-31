@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use tempfile::TempDir;
 use writ_core::startup::{classify_data_dir, DataDirVerdict, Platform, SyncProvider};
-use writ_tauri_lib::startup::stfolder_markers;
+use writ_tauri_lib::startup::{data_dir_verdict, stfolder_markers, HOST_PLATFORM};
 use writ_tauri_lib::state::{AppState, NotesRootFallbackReason};
 
 #[test]
@@ -89,5 +89,57 @@ fn the_launch_keeps_its_notes_beside_its_own_data_folder() {
     assert_eq!(
         state.notes_root_fallback().map(|fallback| fallback.reason),
         Some(NotesRootFallbackReason::HoldsWritData)
+    );
+}
+
+#[test]
+fn the_verdict_carries_the_marker_walk_to_the_policy() {
+    let root = TempDir::new().expect("temp dir");
+    let synced = root.path().join("Sync");
+    let data_dir = synced.join("notes").join(".writ");
+    std::fs::create_dir_all(&data_dir).expect("data dir");
+    std::fs::create_dir_all(synced.join(".stfolder")).expect("marker");
+
+    assert_eq!(
+        data_dir_verdict(&data_dir, None, None),
+        DataDirVerdict::InsideSyncProvider {
+            provider: SyncProvider::Syncthing,
+            root: synced,
+        }
+    );
+
+    let plain = root.path().join("plain").join(".writ");
+    std::fs::create_dir_all(&plain).expect("data dir");
+    assert_eq!(data_dir_verdict(&plain, None, None), DataDirVerdict::Ok);
+}
+
+/// The case the as-spelled path alone cannot see: `~/.writ` is a symlink into
+/// a synced folder, so only the canonical spelling says where the database
+/// would actually land.
+#[cfg(unix)]
+#[test]
+fn a_data_folder_symlinked_into_a_synced_folder_is_refused() {
+    let root = TempDir::new().expect("temp dir");
+    // Canonical, because the temporary directory is reached through a symlink
+    // on macOS and the home prefix has to be the spelling the canonical data
+    // folder shares.
+    let home = std::fs::canonicalize(root.path()).expect("home");
+    let synced = home.join("Dropbox");
+    std::fs::create_dir_all(synced.join("real")).expect("synced folder");
+
+    let spelled = root.path().join(".writ");
+    std::os::unix::fs::symlink(synced.join("real"), &spelled).expect("symlink");
+
+    assert_eq!(
+        classify_data_dir(HOST_PLATFORM, &spelled, Some(&home), None, &[]),
+        DataDirVerdict::Ok,
+        "the spelling alone hides the synced folder, which is why both are asked"
+    );
+    assert_eq!(
+        data_dir_verdict(&spelled, Some(&home), None),
+        DataDirVerdict::InsideSyncProvider {
+            provider: SyncProvider::Dropbox,
+            root: synced,
+        }
     );
 }
