@@ -2,29 +2,27 @@
   "id": "writ-light",
   "name": "Writ Light",
   "polarity": "light",
-  "surface": {
-    "background": "#ffffff",
-    "sunken": "#f7f6f3",
+  "bg": {
+    "canvas": "#ffffff",
+    "sidebar": "#f7f6f3",
     "raised": "#ffffff",
-    "elevated": "#ececeb",
-    "input": "#f1efeb",
-    "hover": "#f3f2f2"
+    "sunken": "#f1efeb",
+    "hover": "#f3f2f2",
+    "selected": "#ececeb"
   },
-  "foreground": {
+  "fg": {
     "default": "#1c1a17",
     "muted": "#5d5850",
-    "subtle": "#8a847a"
+    "faint": "#8a847a"
   },
   "border": {
     "default": "#e4e1db",
-    "soft": "#efede8",
-    "focus": "#1f6f5c",
-    "pill": "#e4e1db"
+    "soft": "#efede8"
   },
   "accent": {
     "default": "#1f6f5c",
     "hover": "#1c6453",
-    "foreground": "#ffffff"
+    "fg": "#ffffff"
   },
   "status": {
     "success": "#178035",

@@ -1,48 +1,50 @@
 {
   "legacy": {
     "$type": "other",
-    "$description": "Every pre-ADR-030 custom property still read by an unmigrated stylesheet, frozen at the value origin/main declared. Each unit drops the aliases its files stop using; the last one deletes this file. The names the visual flip took off this layer are listed in src/__tests__/styles/resolved-token-snapshot.test.ts.",
+    "$description": "Every pre-ADR-030 custom property still read by an unmigrated stylesheet. A colour alias forwards to the token that replaced it, so an unmigrated stylesheet follows the live preset; the rest are frozen at the value origin/main declared. Each unit drops the aliases its files stop using; the last one deletes this file. The names the visual flip took off this layer are listed in src/__tests__/styles/resolved-token-snapshot.test.ts.",
     "surface-background": {
-      "$value": "#0e0e14"
+      "$value": "var(--writ-bg-canvas)"
     },
     "surface-sunken": {
-      "$value": "#0a0a10"
+      "$value": "var(--writ-bg-sidebar)"
     },
     "surface-raised": {
-      "$value": "#12121a"
+      "$value": "var(--writ-bg-raised)"
     },
     "surface-elevated": {
-      "$value": "#1a1a2e"
+      "$value": "var(--writ-bg-selected)"
     },
     "surface-input": {
-      "$value": "#16161e"
+      "$value": "var(--writ-bg-sunken)"
     },
     "surface-hover": {
-      "$value": "#1e1e2e"
+      "$value": "var(--writ-bg-hover)"
     },
     "foreground-default": {
-      "$value": "#e0e0e0"
+      "$value": "var(--writ-fg)"
     },
     "foreground-muted": {
-      "$value": "#888899"
+      "$value": "var(--writ-fg-muted)"
     },
     "foreground-subtle": {
-      "$value": "#6d6d7b"
+      "$value": "var(--writ-fg-faint)"
     },
     "border-default": {
-      "$value": "#1e1e2e"
+      "$value": "var(--writ-border)"
     },
     "border-focus": {
-      "$value": "#7aa2f7"
+      "$value": "var(--writ-accent)",
+      "$description": "The focus ring is the accent in the new vocabulary."
     },
     "border-pill": {
-      "$value": "#232334"
+      "$value": "var(--writ-border)",
+      "$description": "The pill outline is the ordinary border in the new vocabulary."
     },
     "accent-default": {
-      "$value": "#7aa2f7"
+      "$value": "var(--writ-accent)"
     },
     "accent-foreground": {
-      "$value": "#0a0a10"
+      "$value": "var(--writ-accent-fg)"
     },
     "font-sans": {
       "$value": "\"Inter\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"SF Arabic\", \"Geeza Pro\", \"Noto Naskh Arabic\", system-ui, sans-serif",

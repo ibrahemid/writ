@@ -1,6 +1,6 @@
 import { createSignal, createMemo } from "solid-js";
 import type { Theme, ThemeOverrides, ThemeConfig, ThemePolarity } from "../../types/theme";
-import { migrateOverrideKey } from "../../types/theme";
+import { migrateOverrideKey, tokenKey } from "../../types/theme";
 import type { AppearanceConfig } from "../../types/config";
 import type { AccentId } from "../../styles/generated/tokens";
 import { ACCENTS } from "../../styles/generated/tokens";
@@ -20,9 +20,10 @@ const HEX_PATTERN = /^#[0-9a-fA-F]{3,8}$/;
 
 // Mirror of the resolved CSS variables and root attributes, read by the inline
 // boot script in index.html to paint the saved theme before the bundle loads
-// (no FOUC). Versioned: a 0.3.5 snapshot describes the pre-ADR-030 palette and
-// would flash the old dark theme on the first launch after the update.
-const FAST_BOOT_KEY = "writ-theme-vars-v2";
+// (no FOUC). Versioned: a snapshot from an older property set paints names the
+// stylesheets no longer read, so it would flash the wrong palette on the first
+// launch after an update. v3 is the ADR-030 vocabulary.
+const FAST_BOOT_KEY = "writ-theme-vars-v3";
 
 const DEFAULT_APPEARANCE: AppearanceConfig = {
   polarity: "system",
@@ -59,7 +60,8 @@ const accent = createMemo<AccentId>(() => appearance().accent);
 const accentApplies = createMemo<boolean>(() => takesAccentSetting(activePresetId()));
 
 /**
- * A preset's token groups as flat `group.token` keys. Only string leaves make
+ * A preset's token groups as flat token keys (`tokenKey`, so a `default` leaf
+ * is the bare group name). Only string leaves make
  * it through: a nested object has no CSS declaration to become, and writing one
  * anyway is how `--writ-site-traffic: [object Object]` used to reach `:root`.
  * Exported for the contract test that holds that line.
@@ -73,9 +75,9 @@ export function flattenTheme(theme: Theme): Record<string, string> {
     // theme from putting it back on `:root`.
     if (group === "site") continue;
     if (typeof tokens !== "object" || tokens === null) continue;
-    for (const [key, value] of Object.entries(tokens as Record<string, unknown>)) {
+    for (const [leaf, value] of Object.entries(tokens as Record<string, unknown>)) {
       if (typeof value !== "string") continue;
-      flat[`${group}.${key}`] = value;
+      flat[tokenKey(group, leaf)] = value;
     }
   }
   return flat;
@@ -106,9 +108,9 @@ export const themeStore = {
     // that carries its own palette keeps its own accent.
     if (accentApplies()) {
       const triple = ACCENTS[accent()][polarity()];
-      base["accent.default"] = triple.base;
+      base["accent"] = triple.base;
       base["accent.hover"] = triple.hover;
-      base["accent.foreground"] = triple.foreground;
+      base["accent.fg"] = triple.foreground;
     }
     return { ...base, ...overrides() };
   }),

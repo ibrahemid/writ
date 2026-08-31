@@ -6,28 +6,28 @@
         "$type": "other",
         "$value": "dark"
       },
-      "surface": {
+      "bg": {
         "$type": "color",
-        "background": {
+        "canvas": {
           "$value": "#1b1a18"
         },
-        "sunken": {
+        "sidebar": {
           "$value": "#201f1c"
         },
         "raised": {
           "$value": "#262521"
         },
-        "elevated": {
-          "$value": "#32312e"
-        },
-        "input": {
+        "sunken": {
           "$value": "#171614"
         },
         "hover": {
           "$value": "#292825"
+        },
+        "selected": {
+          "$value": "#32312e"
         }
       },
-      "foreground": {
+      "fg": {
         "$type": "color",
         "default": {
           "$value": "#edeae3"
@@ -35,7 +35,7 @@
         "muted": {
           "$value": "#a8a296"
         },
-        "subtle": {
+        "faint": {
           "$value": "#827c72"
         }
       },
@@ -46,12 +46,6 @@
         },
         "soft": {
           "$value": "#272521"
-        },
-        "focus": {
-          "$value": "#5bc5a7"
-        },
-        "pill": {
-          "$value": "#333029"
         }
       },
       "accent": {
@@ -62,7 +56,7 @@
         "hover": {
           "$value": "#6bcbb0"
         },
-        "foreground": {
+        "fg": {
           "$value": "#10221d"
         }
       },

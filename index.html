@@ -9,10 +9,10 @@
       // Pre-paint theme restore: apply the last resolved token set and the root
       // attributes the generated sheet keys its dark and accent layers on,
       // before the module bundle runs, so a saved theme never flashes the
-      // default. Mirror written by themeStore.applyToRoot (writ-theme-vars-v2).
+      // default. Mirror written by themeStore.applyToRoot (writ-theme-vars-v3).
       (function () {
         try {
-          var raw = localStorage.getItem("writ-theme-vars-v2");
+          var raw = localStorage.getItem("writ-theme-vars-v3");
           if (!raw) return;
           var saved = JSON.parse(raw);
           var root = document.documentElement;

@@ -2,29 +2,27 @@
   "id": "warp-dark",
   "name": "Warp Dark",
   "polarity": "dark",
-  "surface": {
-    "background": "#0e0e14",
-    "sunken": "#0a0a10",
+  "bg": {
+    "canvas": "#0e0e14",
+    "sidebar": "#0a0a10",
     "raised": "#12121a",
-    "elevated": "#1a1a2e",
-    "input": "#16161e",
-    "hover": "#1e1e2e"
+    "sunken": "#16161e",
+    "hover": "#1e1e2e",
+    "selected": "#1a1a2e"
   },
-  "foreground": {
+  "fg": {
     "default": "#e0e0e0",
     "muted": "#888899",
-    "subtle": "#6d6d7b"
+    "faint": "#6d6d7b"
   },
   "border": {
     "default": "#1e1e2e",
-    "soft": "#16161f",
-    "focus": "#7aa2f7",
-    "pill": "#232334"
+    "soft": "#16161f"
   },
   "accent": {
     "default": "#7aa2f7",
     "hover": "#89b4fa",
-    "foreground": "#0a0a10"
+    "fg": "#0a0a10"
   },
   "status": {
     "success": "#9ece6a",

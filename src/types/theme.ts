@@ -1,27 +1,31 @@
+/**
+ * A preset's colour groups, in the ADR-030 vocabulary. The leaf named `default`
+ * collapses onto the bare group name when the store flattens a preset, so
+ * `fg.default` becomes the token `fg` and the custom property `--writ-fg`.
+ * `tokenKey` is that rule; nothing else may build a key by hand.
+ */
 export interface ThemeTokens {
-  surface: {
-    background: string;
-    sunken: string;
+  bg: {
+    canvas: string;
+    sidebar: string;
     raised: string;
-    elevated: string;
-    input: string;
+    sunken: string;
     hover: string;
+    selected: string;
   };
-  foreground: {
+  fg: {
     default: string;
     muted: string;
-    subtle: string;
+    faint: string;
   };
   border: {
     default: string;
     soft: string;
-    focus: string;
-    pill: string;
   };
   accent: {
     default: string;
     hover: string;
-    foreground: string;
+    fg: string;
   };
   status: {
     success: string;
@@ -62,8 +66,8 @@ export interface ThemeConfig {
 }
 
 export const TOKEN_GROUPS = [
-  "surface",
-  "foreground",
+  "bg",
+  "fg",
   "border",
   "accent",
   "status",
@@ -71,6 +75,24 @@ export const TOKEN_GROUPS = [
 ] as const;
 
 export type TokenGroup = (typeof TOKEN_GROUPS)[number];
+
+/** Sentence-case titles for the editor's group headings. */
+export const GROUP_LABELS: Readonly<Record<TokenGroup, string>> = {
+  bg: "Background",
+  fg: "Text",
+  border: "Borders",
+  accent: "Accent",
+  status: "Status",
+  syntax: "Syntax",
+};
+
+/**
+ * The token a group's leaf resolves to. `default` is the group itself, so the
+ * store, the editor and an override all address `--writ-fg` by the same name.
+ */
+export function tokenKey(group: string, leaf: string): string {
+  return leaf === "default" ? group : `${group}.${leaf}`;
+}
 
 /**
  * The token keys a per-token override may name, in the ADR-030 vocabulary.

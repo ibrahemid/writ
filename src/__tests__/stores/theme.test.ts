@@ -34,26 +34,35 @@ describe("themeStore", () => {
 
   it("flattens preset tokens into dot-keyed CSS values", () => {
     const tokens = themeStore.resolvedTokens();
-    expect(tokens["surface.background"]).toBe("#0e0e14");
-    expect(tokens["border.focus"]).toBe("#7aa2f7");
+    expect(tokens["bg.canvas"]).toBe("#0e0e14");
     expect(tokens["syntax.keyword"]).toBe("#bb9af7");
+  });
+
+  it("collapses a group's default leaf onto the group name", () => {
+    // --writ-fg and --writ-border are what the generated sheet declares, so a
+    // preset leaf has to land there and not on --writ-fg-default.
+    const tokens = themeStore.resolvedTokens();
+    expect(tokens["fg"]).toBe("#e0e0e0");
+    expect(tokens["border"]).toBe("#1e1e2e");
+    expect(tokens["fg.default"]).toBeUndefined();
+    expect(tokens["border.default"]).toBeUndefined();
   });
 
   it("applies tokens to the root element as CSS variables", () => {
     const root = fakeRoot();
     themeStore.applyToRoot(root);
-    expect(root.style.getPropertyValue("--writ-surface-background")).toBe("#0e0e14");
-    expect(root.style.getPropertyValue("--writ-foreground-default")).toBe("#e0e0e0");
+    expect(root.style.getPropertyValue("--writ-bg-canvas")).toBe("#0e0e14");
+    expect(root.style.getPropertyValue("--writ-fg")).toBe("#e0e0e0");
   });
 
   it("resolves the accent triple for the effective polarity", () => {
     pin("dark");
-    expect(themeStore.resolvedTokens()["accent.default"]).toBe(ACCENTS.pine.dark.base);
+    expect(themeStore.resolvedTokens()["accent"]).toBe(ACCENTS.pine.dark.base);
     pin("light");
     themeStore.setPreset("warp-light");
-    expect(themeStore.resolvedTokens()["accent.default"]).toBe(ACCENTS.pine.light.base);
+    expect(themeStore.resolvedTokens()["accent"]).toBe(ACCENTS.pine.light.base);
     themeStore.setAppearance({ polarity: "light", accent: "gold", prose_face: "system" });
-    expect(themeStore.resolvedTokens()["accent.default"]).toBe(ACCENTS.gold.light.base);
+    expect(themeStore.resolvedTokens()["accent"]).toBe(ACCENTS.gold.light.base);
   });
 
   it("the accent setting reaches a paired preset", () => {
@@ -61,9 +70,9 @@ describe("themeStore", () => {
     for (const id of ["writ-dark", "warp-dark"]) {
       themeStore.setPreset(id);
       expect(themeStore.accentApplies(), id).toBe(true);
-      expect(themeStore.resolvedTokens()["accent.default"], id).toBe(ACCENTS.gold.dark.base);
+      expect(themeStore.resolvedTokens()["accent"], id).toBe(ACCENTS.gold.dark.base);
       expect(themeStore.resolvedTokens()["accent.hover"], id).toBe(ACCENTS.gold.dark.hover);
-      expect(themeStore.resolvedTokens()["accent.foreground"], id).toBe(
+      expect(themeStore.resolvedTokens()["accent.fg"], id).toBe(
         ACCENTS.gold.dark.foreground,
       );
     }
@@ -73,10 +82,10 @@ describe("themeStore", () => {
     themeStore.setAppearance({ polarity: "dark", accent: "gold", prose_face: "system" });
     themeStore.setPreset("dracula");
     expect(themeStore.accentApplies()).toBe(false);
-    expect(themeStore.resolvedTokens()["accent.default"]).toBe("#bd93f9");
+    expect(themeStore.resolvedTokens()["accent"]).toBe("#bd93f9");
     themeStore.setPreset("tokyo-night");
     expect(themeStore.accentApplies()).toBe(false);
-    expect(themeStore.resolvedTokens()["accent.default"]).toBe("#7aa2f7");
+    expect(themeStore.resolvedTokens()["accent"]).toBe("#7aa2f7");
   });
 
   it("data-accent is only on the root while the setting paints the highlight", () => {
@@ -94,8 +103,8 @@ describe("themeStore", () => {
 
   it("a user override beats the accent choice", () => {
     themeStore.setAppearance({ polarity: "dark", accent: "gold", prose_face: "system" });
-    expect(themeStore.setOverride("accent.default", "#ff7b00")).toBe(true);
-    expect(themeStore.resolvedTokens()["accent.default"]).toBe("#ff7b00");
+    expect(themeStore.setOverride("accent", "#ff7b00")).toBe(true);
+    expect(themeStore.resolvedTokens()["accent"]).toBe("#ff7b00");
   });
 
   it("system polarity swaps within a preset pair", () => {
@@ -116,32 +125,32 @@ describe("themeStore", () => {
   });
 
   it("setOverride takes precedence over preset values", () => {
-    expect(themeStore.setOverride("accent.default", "#ff7b00")).toBe(true);
-    expect(themeStore.resolvedTokens()["accent.default"]).toBe("#ff7b00");
+    expect(themeStore.setOverride("accent", "#ff7b00")).toBe(true);
+    expect(themeStore.resolvedTokens()["accent"]).toBe("#ff7b00");
   });
 
   it("setOverride rejects invalid color values", () => {
-    expect(themeStore.setOverride("accent.default", "not-a-color")).toBe(false);
-    expect(themeStore.resolvedTokens()["accent.default"]).toBe(ACCENTS.pine.dark.base);
+    expect(themeStore.setOverride("accent", "not-a-color")).toBe(false);
+    expect(themeStore.resolvedTokens()["accent"]).toBe(ACCENTS.pine.dark.base);
   });
 
   it("resetOverrides clears all overrides", () => {
-    themeStore.setOverride("accent.default", "#ff7b00");
+    themeStore.setOverride("accent", "#ff7b00");
     themeStore.resetOverrides();
-    expect(themeStore.resolvedTokens()["accent.default"]).toBe(ACCENTS.pine.dark.base);
+    expect(themeStore.resolvedTokens()["accent"]).toBe(ACCENTS.pine.dark.base);
   });
 
   it("setPreset switches preset and re-applies", () => {
     themeStore.setPreset("dracula");
     expect(themeStore.presetId()).toBe("dracula");
-    expect(themeStore.resolvedTokens()["surface.background"]).toBe("#282a36");
+    expect(themeStore.resolvedTokens()["bg.canvas"]).toBe("#282a36");
   });
 
   it("setPreset preserves overrides on top of the new preset", () => {
-    themeStore.setOverride("accent.default", "#ff7b00");
+    themeStore.setOverride("accent", "#ff7b00");
     themeStore.setPreset("tokyo-night");
-    expect(themeStore.resolvedTokens()["accent.default"]).toBe("#ff7b00");
-    expect(themeStore.resolvedTokens()["surface.background"]).toBe("#1a1b26");
+    expect(themeStore.resolvedTokens()["accent"]).toBe("#ff7b00");
+    expect(themeStore.resolvedTokens()["bg.canvas"]).toBe("#1a1b26");
   });
 
   it("ignores unknown preset ids", () => {
@@ -227,10 +236,10 @@ describe("themeStore", () => {
 
   it("toConfig serializes current state", () => {
     themeStore.setPreset("solarized-dark");
-    themeStore.setOverride("accent.default", "#ff7b00");
+    themeStore.setOverride("accent", "#ff7b00");
     const config = themeStore.toConfig();
     expect(config.preset).toBe("solarized-dark");
-    expect(config.overrides["accent.default"]).toBe("#ff7b00");
+    expect(config.overrides["accent"]).toBe("#ff7b00");
   });
 });
 
@@ -279,38 +288,40 @@ describe("theme polarity and fast boot", () => {
     pin("light");
     themeStore.setPreset("warp-light");
     themeStore.applyToRoot(fakeRoot());
-    const raw = localStorage.getItem("writ-theme-vars-v2");
+    const raw = localStorage.getItem("writ-theme-vars-v3");
     expect(raw).toBeTruthy();
     const saved = JSON.parse(raw as string) as {
       vars: Record<string, string>;
       attrs: Record<string, string>;
     };
-    expect(saved.vars["--writ-surface-background"]).toBe("#fbfbfd");
-    expect(saved.vars["--writ-accent-foreground"]).toBe(ACCENTS.pine.light.foreground);
+    expect(saved.vars["--writ-bg-canvas"]).toBe("#fbfbfd");
+    expect(saved.vars["--writ-accent-fg"]).toBe(ACCENTS.pine.light.foreground);
     expect(saved.attrs).toEqual({ "data-theme": "light", "data-accent": "pine" });
   });
 
-  it("keys the snapshot on a version 0.3.5 never wrote", () => {
-    // A 0.3.5 snapshot describes the pre-030 palette; replaying it would flash
-    // the old dark theme on the first launch after the update.
+  it("keys the snapshot on a version no earlier build wrote", () => {
+    // An older snapshot describes a property set the stylesheets no longer
+    // read; replaying it would flash the wrong palette after an update.
     localStorage.setItem("writ-theme-vars", "{}");
+    localStorage.setItem("writ-theme-vars-v2", "{}");
     themeStore.applyToRoot(fakeRoot());
     expect(localStorage.getItem("writ-theme-vars")).toBe("{}");
-    expect(localStorage.getItem("writ-theme-vars-v2")).not.toBe("{}");
+    expect(localStorage.getItem("writ-theme-vars-v2")).toBe("{}");
+    expect(localStorage.getItem("writ-theme-vars-v3")).not.toBe("{}");
   });
 });
 
 describe("preset integrity", () => {
   it("every preset declares every required token group", () => {
     for (const preset of themeStore.presets()) {
-      expect(preset.surface).toBeDefined();
-      expect(preset.foreground).toBeDefined();
+      expect(preset.bg).toBeDefined();
+      expect(preset.fg).toBeDefined();
       expect(preset.border).toBeDefined();
       expect(preset.accent).toBeDefined();
       expect(preset.status).toBeDefined();
       expect(preset.syntax).toBeDefined();
       // On-fill text tokens and polarity are required for AA + light support.
-      expect(preset.accent.foreground).toBeDefined();
+      expect(preset.accent.fg).toBeDefined();
       expect(preset.status.foreground).toBeDefined();
       expect(preset.polarity === "light" || preset.polarity === "dark").toBe(true);
     }

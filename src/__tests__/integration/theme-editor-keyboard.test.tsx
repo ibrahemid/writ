@@ -19,8 +19,8 @@ vi.mock("../../stores/global/theme", () => ({
     toConfig: () => ({ preset: "default", overrides: {} }),
     loadConfig: vi.fn(),
     resolvedTokens: () => ({
-      "surface.background": "#000",
-      "foreground.default": "#fff",
+      "bg.canvas": "#000",
+      fg: "#fff",
     }),
     setOverride: h.setOverride,
     setPreset: vi.fn(),
@@ -28,8 +28,8 @@ vi.mock("../../stores/global/theme", () => ({
     presetId: () => "default",
     presets: () => [{ id: "default", name: "Default" }],
     activePreset: () => ({
-      surface: { background: "#000" },
-      foreground: { default: "#fff" },
+      bg: { canvas: "#000" },
+      fg: { default: "#fff" },
     }),
   },
 }));
@@ -48,7 +48,9 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 }));
 
 vi.mock("../../types/theme", () => ({
-  TOKEN_GROUPS: ["surface", "foreground"],
+  TOKEN_GROUPS: ["bg", "fg"],
+  GROUP_LABELS: { bg: "Background", fg: "Text" },
+  tokenKey: (group: string, leaf: string) => (leaf === "default" ? group : `${group}.${leaf}`),
 }));
 
 vi.mock("../Notifications/Toast", () => ({

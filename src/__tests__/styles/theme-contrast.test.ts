@@ -37,38 +37,38 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-// Every surface a foreground tier can render on.
-const SURFACE_KEYS = ["background", "sunken", "raised", "elevated", "input", "hover"] as const;
+// Every surface a text tier can render on.
+const SURFACE_KEYS = ["canvas", "sidebar", "raised", "selected", "sunken", "hover"] as const;
 
 describe("app theme tokens contrast (WCAG AA, all presets)", () => {
   for (const preset of PRESETS as Theme[]) {
     describe(preset.name, () => {
       for (const surf of SURFACE_KEYS) {
-        const bg = preset.surface[surf];
+        const bg = preset.bg[surf];
 
-        it(`default text meets 4.5:1 on surface.${surf}`, () => {
-          expect(contrast(preset.foreground.default, bg)).toBeGreaterThanOrEqual(AA_TEXT);
+        it(`default text meets 4.5:1 on bg.${surf}`, () => {
+          expect(contrast(preset.fg.default, bg)).toBeGreaterThanOrEqual(AA_TEXT);
         });
 
-        it(`muted text meets 4.5:1 on surface.${surf}`, () => {
-          expect(contrast(preset.foreground.muted, bg)).toBeGreaterThanOrEqual(AA_TEXT);
+        it(`muted text meets 4.5:1 on bg.${surf}`, () => {
+          expect(contrast(preset.fg.muted, bg)).toBeGreaterThanOrEqual(AA_TEXT);
         });
 
-        it(`subtle text meets 3.0:1 on surface.${surf}`, () => {
-          expect(contrast(preset.foreground.subtle, bg)).toBeGreaterThanOrEqual(AA_LARGE);
+        it(`faint text meets 3.0:1 on bg.${surf}`, () => {
+          expect(contrast(preset.fg.faint, bg)).toBeGreaterThanOrEqual(AA_LARGE);
         });
       }
 
       it("accent reads as a UI element on the background (3.0:1)", () => {
-        expect(contrast(preset.accent.default, preset.surface.background)).toBeGreaterThanOrEqual(AA_LARGE);
+        expect(contrast(preset.accent.default, preset.bg.canvas)).toBeGreaterThanOrEqual(AA_LARGE);
       });
 
-      it("accent-foreground text meets 4.5:1 on the accent fill", () => {
-        expect(contrast(preset.accent.foreground, preset.accent.default)).toBeGreaterThanOrEqual(AA_TEXT);
+      it("accent-fg text meets 4.5:1 on the accent fill", () => {
+        expect(contrast(preset.accent.fg, preset.accent.default)).toBeGreaterThanOrEqual(AA_TEXT);
       });
 
-      it("accent-foreground text meets 4.5:1 on the accent hover fill", () => {
-        expect(contrast(preset.accent.foreground, preset.accent.hover)).toBeGreaterThanOrEqual(AA_TEXT);
+      it("accent-fg text meets 4.5:1 on the accent hover fill", () => {
+        expect(contrast(preset.accent.fg, preset.accent.hover)).toBeGreaterThanOrEqual(AA_TEXT);
       });
 
       // status-foreground is the label color for the filled danger control

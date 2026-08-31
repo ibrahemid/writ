@@ -3,7 +3,7 @@ import { themeStore } from "../../stores/global/theme";
 import { configStore } from "../../stores/global/config";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
-import { TOKEN_GROUPS } from "../../types/theme";
+import { TOKEN_GROUPS, tokenKey } from "../../types/theme";
 import type { TokenGroup, Theme, ThemeConfig } from "../../types/theme";
 import { showToast } from "../Notifications/Toast";
 import "./ThemeEditor.css";
@@ -32,10 +32,6 @@ function tokensForGroup(theme: Theme, group: TokenGroup): Record<string, string>
 export default function ThemeEditor() {
   const win = useWindow();
   let modalRef: HTMLDivElement | undefined;
-
-  function tokenKey(group: TokenGroup, name: string): string {
-    return `${group}.${name}`;
-  }
 
   function valueFor(group: TokenGroup, name: string): string {
     return themeStore.resolvedTokens()[tokenKey(group, name)];

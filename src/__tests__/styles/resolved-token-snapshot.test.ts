@@ -117,13 +117,29 @@ const DARK = rootWith({ "data-theme": "dark" });
  *   is mixed from `--writ-status-warning`.
  * - `--writ-traffic-minimize`: the lights mirror their host, and the baseline
  *   reads the system amber as #FEBC2E.
+ * - the `--writ-surface-*`, `--writ-foreground-*`, `--writ-border-*`,
+ *   `--writ-accent-*` and `--writ-overlay-*` aliases: the store writes the
+ *   ADR-030 names now, so a frozen hex would have left every unmigrated
+ *   stylesheet painting 0.3.5 dark inside a light app. Each alias forwards to
+ *   the token that replaced it (`border-focus` to the accent, `border-pill` to
+ *   the border) and follows the live preset until its file is retokenised.
  */
 const REPAINTED = [
+  "--writ-accent-default",
+  "--writ-accent-foreground",
   "--writ-accent-hover",
+  "--writ-border-default",
+  "--writ-border-focus",
+  "--writ-border-pill",
   "--writ-border-soft",
   "--writ-editor-font-size",
   "--writ-font-mono",
+  "--writ-foreground-default",
+  "--writ-foreground-muted",
+  "--writ-foreground-subtle",
   "--writ-line-height",
+  "--writ-overlay-hover",
+  "--writ-overlay-subtle",
   "--writ-selection",
   "--writ-shadow-chip",
   "--writ-shadow-modal",
@@ -133,6 +149,12 @@ const REPAINTED = [
   "--writ-status-foreground",
   "--writ-status-success",
   "--writ-status-warning",
+  "--writ-surface-background",
+  "--writ-surface-elevated",
+  "--writ-surface-hover",
+  "--writ-surface-input",
+  "--writ-surface-raised",
+  "--writ-surface-sunken",
   "--writ-syntax-comment",
   "--writ-syntax-function",
   "--writ-syntax-keyword",
@@ -144,25 +166,15 @@ const REPAINTED = [
   "--writ-warning-foreground",
 ];
 
-// Every other property the old sheet declared. The colour tiers are here too:
-// the theme store overwrites them inline from the active preset, but with no
-// script and no attribute the static fallback still has to paint 0.3.5.
+// Every other property the old sheet declared, still resolving to what
+// origin/main painted. The colour tiers left this list when their aliases
+// started forwarding to the ADR-030 tokens.
 const FROZEN = [
-  "--writ-accent-default",
-  "--writ-accent-foreground",
-  "--writ-border-default",
-  "--writ-border-focus",
-  "--writ-border-pill",
   "--writ-font-sans",
   "--writ-font-size",
   "--writ-font-size-sm",
   "--writ-font-size-xs",
-  "--writ-foreground-default",
-  "--writ-foreground-muted",
-  "--writ-foreground-subtle",
-  "--writ-overlay-hover",
   "--writ-overlay-scrim",
-  "--writ-overlay-subtle",
   "--writ-radius-1",
   "--writ-radius-2",
   "--writ-radius-3",
@@ -176,12 +188,6 @@ const FROZEN = [
   "--writ-space-5",
   "--writ-space-6",
   "--writ-statusbar-height",
-  "--writ-surface-background",
-  "--writ-surface-elevated",
-  "--writ-surface-hover",
-  "--writ-surface-input",
-  "--writ-surface-raised",
-  "--writ-surface-sunken",
   "--writ-traffic-blurred",
   "--writ-traffic-close",
   "--writ-traffic-close-glyph",
@@ -221,7 +227,7 @@ describe("token pipeline acceptance", () => {
     themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "system" });
     themeStore.setPreset("warp-dark");
     themeStore.applyToRoot(document.createElement("div"));
-    const snapshot = JSON.parse(localStorage.getItem("writ-theme-vars-v2") as string) as {
+    const snapshot = JSON.parse(localStorage.getItem("writ-theme-vars-v3") as string) as {
       vars: Record<string, string>;
       attrs: Record<string, string>;
     };
@@ -230,9 +236,9 @@ describe("token pipeline acceptance", () => {
     const pine = ACCENTS.pine.dark;
     const expected = {
       ...RESOLVED_FIXTURE,
-      "--writ-accent-default": pine.base,
+      "--writ-accent": pine.base,
       "--writ-accent-hover": pine.hover,
-      "--writ-accent-foreground": pine.foreground,
+      "--writ-accent-fg": pine.foreground,
     };
     expect(Object.keys(snapshot.vars).sort()).toEqual(Object.keys(expected).sort());
     expect(snapshot.vars).toEqual(expected);

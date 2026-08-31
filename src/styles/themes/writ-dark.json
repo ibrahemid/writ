@@ -2,29 +2,27 @@
   "id": "writ-dark",
   "name": "Writ Dark",
   "polarity": "dark",
-  "surface": {
-    "background": "#1b1a18",
-    "sunken": "#201f1c",
+  "bg": {
+    "canvas": "#1b1a18",
+    "sidebar": "#201f1c",
     "raised": "#262521",
-    "elevated": "#32312e",
-    "input": "#171614",
-    "hover": "#292825"
+    "sunken": "#171614",
+    "hover": "#292825",
+    "selected": "#32312e"
   },
-  "foreground": {
+  "fg": {
     "default": "#edeae3",
     "muted": "#a8a296",
-    "subtle": "#827c72"
+    "faint": "#827c72"
   },
   "border": {
     "default": "#333029",
-    "soft": "#272521",
-    "focus": "#5bc5a7",
-    "pill": "#333029"
+    "soft": "#272521"
   },
   "accent": {
     "default": "#5bc5a7",
     "hover": "#6bcbb0",
-    "foreground": "#10221d"
+    "fg": "#10221d"
   },
   "status": {
     "success": "#9ece6a",

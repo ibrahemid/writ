@@ -2,29 +2,27 @@
   "id": "warp-light",
   "name": "Warp Light",
   "polarity": "light",
-  "surface": {
-    "background": "#fbfbfd",
-    "sunken": "#edeef3",
+  "bg": {
+    "canvas": "#fbfbfd",
+    "sidebar": "#edeef3",
     "raised": "#ffffff",
-    "elevated": "#eef1f7",
-    "input": "#ffffff",
-    "hover": "#e7e9f1"
+    "sunken": "#ffffff",
+    "hover": "#e7e9f1",
+    "selected": "#eef1f7"
   },
-  "foreground": {
+  "fg": {
     "default": "#1a1a22",
     "muted": "#5a5a6a",
-    "subtle": "#76768a"
+    "faint": "#76768a"
   },
   "border": {
     "default": "#e2e2ea",
-    "soft": "#ededf2",
-    "focus": "#3b5bdb",
-    "pill": "#d8d8e2"
+    "soft": "#ededf2"
   },
   "accent": {
     "default": "#3b5bdb",
     "hover": "#2843c0",
-    "foreground": "#ffffff"
+    "fg": "#ffffff"
   },
   "status": {
     "success": "#178035",

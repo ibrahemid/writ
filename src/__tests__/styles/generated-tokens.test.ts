@@ -294,7 +294,7 @@ describe("DTCG preset sources", () => {
     .filter((name) => name.endsWith(".json"))
     .map((name) => name.replace(/\.json$/, ""))
     .sort();
-  const GROUPS = ["surface", "foreground", "border", "accent", "status", "syntax"] as const;
+  const GROUPS = ["bg", "fg", "border", "accent", "status", "syntax"] as const;
 
   it("cover every preset the app ships", () => {
     expect(PRESET_IDS).toContain("writ-light");
