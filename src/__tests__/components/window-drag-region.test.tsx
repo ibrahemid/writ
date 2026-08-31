@@ -44,10 +44,6 @@ vi.mock("../../stores/global/buffer-registry", () => ({
 }));
 vi.mock("../../stores/global/workspace", () => ({ workspaceStore: { root: () => null } }));
 vi.mock("../../stores/global/inbox", () => ({ inboxStore: { path: () => null } }));
-vi.mock("../../components/Sidebar/SearchBar", () => ({
-  default: () => <input class="sidebar-search-input" />,
-  focusSearchBar: vi.fn(),
-}));
 vi.mock("../../components/Sidebar/ActiveSection", () => ({ default: () => null }));
 vi.mock("../../components/Sidebar/FilesSection", () => ({ default: () => null }));
 vi.mock("../../components/Sidebar/InboxSection", () => ({ default: () => null }));
@@ -159,6 +155,17 @@ describe("the macOS drag region covers the whole chrome row", () => {
     for (const light of lights) {
       expect(light.hasAttribute(ATTR)).toBe(false);
       expect(dragsFrom(light)).toBe(false);
+    }
+  });
+
+  // The field's icon, its result count and its own padding are the interior of
+  // a text control, not window chrome. Without the opt-out the subtree region
+  // would move the window from inside the search box.
+  it("stops at the search field rather than dragging from inside it", () => {
+    const { container } = render(() => <Toolbar />);
+    expect(pick(container, ".search-bar").getAttribute(ATTR)).toBe("false");
+    for (const selector of [".search-bar", ".search-field", ".search-icon", ".search-input"]) {
+      expect(dragsFrom(pick(container, selector)), selector).toBe(false);
     }
   });
 

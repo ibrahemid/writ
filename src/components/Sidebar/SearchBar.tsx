@@ -29,7 +29,9 @@ export default function SearchBar() {
   });
 
   return (
-    <div class="search-bar">
+    // The macOS toolbar is a subtree drag region; the icon, the result count and
+    // the field's own padding are the control's interior, not window chrome.
+    <div class="search-bar" data-tauri-drag-region="false">
       <div class="search-field">
         <Icon name="magnifying-glass" size={16} class="search-icon" />
         <input
