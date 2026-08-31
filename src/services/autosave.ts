@@ -49,7 +49,16 @@ interface InFlightWrite {
   generation: number;
 }
 
+// A burst of sub-second pauses (paste, dictation, a macro) fires the idle
+// debounce over and over, and every fire is a whole-note rewrite. The cap
+// bounds that to one write per note per second. Only the scheduled path is
+// capped: a flush and an explicit save are the deterministic "it is on disk"
+// paths, and deferring those would lose text the process is about to stop
+// being able to write.
+const MIN_WRITE_INTERVAL_MS = 1000;
+
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
+const lastWriteAt = new Map<string, number>();
 const pendingContent = new Map<string, QueuedContent>();
 const generations = new Map<string, number>();
 const inFlight = new Map<string, InFlightWrite>();
@@ -92,12 +101,29 @@ export function debouncedSave(bufferId: string, content: ContentSource, delayMs:
   clearTimer(bufferId);
   queueContent(bufferId, content);
 
+  armTimer(bufferId, delayMs);
+}
+
+function armTimer(bufferId: string, delayMs: number) {
   const timer = setTimeout(() => {
     timers.delete(bufferId);
-    void runPendingSave(bufferId);
+    runScheduledSave(bufferId);
   }, delayMs);
 
   timers.set(bufferId, timer);
+}
+
+// A write that would land inside the cap is re-armed for the remainder of the
+// window, never dropped: the text is still the newest the user typed, and a
+// dropped write is the one failure autosave may not have.
+function runScheduledSave(bufferId: string) {
+  const last = lastWriteAt.get(bufferId);
+  const waited = last === undefined ? MIN_WRITE_INTERVAL_MS : Date.now() - last;
+  if (waited < MIN_WRITE_INTERVAL_MS) {
+    armTimer(bufferId, MIN_WRITE_INTERVAL_MS - waited);
+    return;
+  }
+  void runPendingSave(bufferId);
 }
 
 export function hasPendingAutosave(bufferId: string): boolean {
@@ -107,9 +133,23 @@ export function hasPendingAutosave(bufferId: string): boolean {
 export function cancelAutosave(bufferId: string) {
   clearTimer(bufferId);
   pendingContent.delete(bufferId);
+  lastWriteAt.delete(bufferId);
   // Retire the current generation so a write already in flight cannot put the
   // discarded text back on the queue when it fails.
   bumpGeneration(bufferId);
+}
+
+// Drops every scheduled save, queued edit and write-rate record at once.
+// Autosave is a process-wide singleton (Writ is single-window), so a caller
+// that drives the module in isolation — a test case, or a teardown — has no
+// other way back to the start state; `cancelAutosave` is the per-note sibling.
+export function resetAutosave() {
+  for (const timer of timers.values()) clearTimeout(timer);
+  timers.clear();
+  pendingContent.clear();
+  lastWriteAt.clear();
+  generations.clear();
+  inFlight.clear();
 }
 
 export async function flushAutosave(bufferId?: string): Promise<SaveResult> {
@@ -180,6 +220,7 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     return saveFailed(bufferId, error);
   }
 
+  lastWriteAt.set(bufferId, Date.now());
   try {
     await saveBufferContent(bufferId, content);
     for (const listener of successListeners) {

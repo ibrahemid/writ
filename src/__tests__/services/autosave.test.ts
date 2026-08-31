@@ -12,6 +12,7 @@ import {
   flushAutosave,
   hasPendingAutosave,
   saveNow,
+  resetAutosave,
 } from "../../services/autosave";
 import { saveBufferContent } from "../../services/tauri";
 
@@ -21,6 +22,7 @@ describe("autosave", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    resetAutosave();
   });
 
   afterEach(() => {
@@ -392,9 +394,10 @@ describe("autosave", () => {
       expect(flushed.ok).toBe(true);
       expect(mockedSave).toHaveBeenCalledTimes(1);
 
-      // The next keystroke is a new document, and it is written.
+      // The next keystroke is a new document, and it is written once the
+      // per-note write cap lets the scheduled save through.
       debouncedSave("guarded", "mine, edited", 300);
-      await vi.advanceTimersByTimeAsync(300);
+      await vi.advanceTimersByTimeAsync(1100);
       expect(mockedSave).toHaveBeenCalledTimes(2);
       expect(mockedSave).toHaveBeenLastCalledWith("guarded", "mine, edited");
     });
