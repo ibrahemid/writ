@@ -410,6 +410,7 @@ pub fn run() {
             commands::buffer::save_buffer_content,
             commands::buffer::save_buffer_content_unindexed,
             commands::buffer::read_buffer_content,
+            commands::buffer::note_disk_state,
             commands::buffer::list_active_buffers,
             commands::buffer::close_buffer,
             commands::buffer::close_buffers,

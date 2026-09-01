@@ -1,12 +1,14 @@
 use std::path::Path;
-use std::time::Instant;
+use std::time::{Instant, UNIX_EPOCH};
 
 use crate::fts_scheduler::{PollOutcome, FTS_REINDEX_DEBOUNCE};
 use crate::poison::recover_poison;
 use crate::state::AppState;
+use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::buffer::manager::BufferManager;
+use writ_core::notes::guard::{is_not_downloaded, DiskState};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::errors::StorageError;
 
@@ -120,7 +122,15 @@ pub fn get_buffer(state: State<'_, AppState>, id: String) -> Result<BufferDocume
 /// tab was closed and reopened is measured against its file rather than
 /// against a record of what the file used to hold. Such a failure comes back
 /// under a stable code ([`save_failure_message`]).
-pub fn save_buffer_content_inner(state: &AppState, id: &str, content: &str) -> Result<(), String> {
+///
+/// Returns what the file holds once the write has landed, so the tab can stop
+/// reading dirty without going back to disk for the answer. A note with
+/// nothing in it and no file yet wrote nothing and has no state to report.
+pub fn save_buffer_content_inner(
+    state: &AppState,
+    id: &str,
+    content: &str,
+) -> Result<Option<String>, String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).map_err(|e| e.to_string())?;
     if doc.read_only {
@@ -129,7 +139,7 @@ pub fn save_buffer_content_inner(state: &AppState, id: &str, content: &str) -> R
 
     let source_path = match doc.source_path.as_deref() {
         Some(path) => path.to_string(),
-        None if content.is_empty() => return Ok(()),
+        None if content.is_empty() => return Ok(None),
         None => attach_new_note_file(state, &store, &doc)?,
     };
 
@@ -139,7 +149,7 @@ pub fn save_buffer_content_inner(state: &AppState, id: &str, content: &str) -> R
         .save_to_source_without_index(id, content, state.disk_state(id), Some(&stamp))
         .map_err(|e| save_failure_message(&e))?;
     state.set_disk_state(id, written);
-    Ok(())
+    Ok(Some(writ_core::hash::digest_hex(written.hash)))
 }
 
 /// The hook the store calls immediately before each of its writes, which
@@ -197,12 +207,12 @@ pub fn save_buffer_content(
     state: State<'_, AppState>,
     id: String,
     content: String,
-) -> Result<(), String> {
-    save_buffer_content_inner(&state, &id, &content)?;
+) -> Result<Option<String>, String> {
+    let disk_hash = save_buffer_content_inner(&state, &id, &content)?;
     if let Some(generation) = state.fts_scheduler.on_edit(&id) {
         spawn_deferred_reindex(app, id, generation);
     }
-    Ok(())
+    Ok(disk_hash)
 }
 
 /// IPC: writes buffer content and leaves the search index alone.
@@ -223,7 +233,7 @@ pub fn save_buffer_content_unindexed(
     state: State<'_, AppState>,
     id: String,
     content: String,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     save_buffer_content_inner(&state, &id, &content)
 }
 
@@ -304,6 +314,69 @@ pub fn read_buffer_content(
     Ok(tauri::ipc::Response::new(read_buffer_content_inner(
         &state, &id,
     )?))
+}
+
+/// What a note's file holds right now, as the editor reads it.
+///
+/// `hash` is the only field a decision may rest on; `size` and `mtime_ms` are
+/// carried for the same diagnostic reasons [`DiskState`] carries them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DiskStateDto {
+    pub hash: String,
+    pub size: u64,
+    pub mtime_ms: Option<i64>,
+}
+
+impl From<DiskState> for DiskStateDto {
+    fn from(state: DiskState) -> Self {
+        Self {
+            hash: writ_core::hash::digest_hex(state.hash),
+            size: state.size,
+            mtime_ms: state.mtime.and_then(|mtime| {
+                mtime
+                    .duration_since(UNIX_EPOCH)
+                    .ok()
+                    .and_then(|since| i64::try_from(since.as_millis()).ok())
+            }),
+        }
+    }
+}
+
+/// [`note_disk_state`] once the file's path and flags are known.
+///
+/// `None` covers both files there is nothing to say about: one that is not
+/// there, and one whose bytes are not on this machine. Reading the second
+/// makes the provider daemon fetch it over the network (ADR-028 §5), which is
+/// the one thing a re-check after a failed save must not set off.
+fn note_disk_state_of(path: &Path, st_flags: Option<u32>) -> Result<Option<DiskStateDto>, String> {
+    if is_not_downloaded(st_flags) {
+        return Ok(None);
+    }
+    Ok(writ_storage::buffer_store::read_disk_state(path)
+        .map_err(|e| e.to_string())?
+        .map(DiskStateDto::from))
+}
+
+/// IPC: what the file behind note `id` holds now.
+///
+/// The tab whose save was stopped is the caller: the reason it was stopped is
+/// a difference between the file and what Writ last read, and this is how the
+/// tab reads that difference again after the person has looked at it.
+///
+/// The path is resolved from the note's row rather than passed in, for the
+/// same reason a save's destination is ([`save_buffer_content_inner`]).
+#[tauri::command]
+pub fn note_disk_state(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Option<DiskStateDto>, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    let doc = store.get(&id).map_err(|e| e.to_string())?;
+    let Some(source_path) = doc.source_path.as_deref() else {
+        return Ok(None);
+    };
+    let path = Path::new(source_path);
+    note_disk_state_of(path, writ_storage::buffer_store::dataless_flags(path))
 }
 
 #[tauri::command]
@@ -391,4 +464,61 @@ pub fn update_tab_order(state: State<'_, AppState>, id: String, order: u32) -> R
 pub fn rename_buffer(state: State<'_, AppState>, id: String, title: String) -> Result<(), String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     store.rename(&id, &title).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use writ_core::notes::guard::SF_DATALESS;
+
+    #[test]
+    fn a_file_that_is_not_there_has_no_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("gone.md");
+        assert_eq!(note_disk_state_of(&missing, None).unwrap(), None);
+    }
+
+    #[test]
+    fn a_normal_file_reports_the_digest_and_the_length_of_its_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note.md");
+        std::fs::write(&path, b"one line\n").unwrap();
+
+        let state = note_disk_state_of(&path, None).unwrap().unwrap();
+        assert_eq!(state.hash, writ_core::hash::sha256_hex(b"one line\n"));
+        assert_eq!(state.size, 9);
+        assert!(state.mtime_ms.is_some());
+    }
+
+    #[test]
+    fn a_file_that_is_not_downloaded_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("evicted.md");
+        std::fs::write(&path, b"placeholder").unwrap();
+
+        assert_eq!(note_disk_state_of(&path, Some(SF_DATALESS)).unwrap(), None);
+    }
+
+    #[test]
+    fn the_dto_renders_the_digest_as_hex_and_the_time_in_milliseconds() {
+        let state = DiskState {
+            hash: writ_core::hash::sha256_bytes(b"writ"),
+            size: 4,
+            mtime: Some(UNIX_EPOCH + std::time::Duration::from_millis(1_500)),
+        };
+        let dto = DiskStateDto::from(state);
+        assert_eq!(dto.hash, writ_core::hash::sha256_hex(b"writ"));
+        assert_eq!(dto.size, 4);
+        assert_eq!(dto.mtime_ms, Some(1_500));
+    }
+
+    #[test]
+    fn a_time_the_filesystem_could_not_report_is_carried_as_none() {
+        let state = DiskState {
+            hash: writ_core::hash::sha256_bytes(b""),
+            size: 0,
+            mtime: None,
+        };
+        assert_eq!(DiskStateDto::from(state).mtime_ms, None);
+    }
 }

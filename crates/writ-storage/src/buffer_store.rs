@@ -928,14 +928,14 @@ impl BufferStore {
 /// macOS is the only platform with `SF_DATALESS`; everywhere else this is a
 /// constant `None` and the check that reads it folds away.
 #[cfg(target_os = "macos")]
-pub(crate) fn dataless_flags(path: &Path) -> Option<u32> {
+pub fn dataless_flags(path: &Path) -> Option<u32> {
     use std::os::macos::fs::MetadataExt;
     std::fs::metadata(path).ok().map(|m| m.st_flags())
 }
 
 /// [`dataless_flags`] on a platform with no such flag.
 #[cfg(not(target_os = "macos"))]
-pub(crate) fn dataless_flags(_path: &Path) -> Option<u32> {
+pub fn dataless_flags(_path: &Path) -> Option<u32> {
     None
 }
 
@@ -944,7 +944,7 @@ pub(crate) fn dataless_flags(_path: &Path) -> Option<u32> {
 /// The bytes are read once and both hashed and measured from that read, so the
 /// digest and the length can never describe two different versions of a file
 /// being written while this runs.
-pub(crate) fn read_disk_state(path: &Path) -> StorageResult<Option<DiskState>> {
+pub fn read_disk_state(path: &Path) -> StorageResult<Option<DiskState>> {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),

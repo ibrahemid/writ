@@ -160,12 +160,37 @@ export async function moveArchivedNotes(): Promise<MoveArchiveOutcome> {
   return invoke("move_archived_notes");
 }
 
-export async function saveBufferContent(id: string, content: string): Promise<void> {
+/** What a note's file holds, as the backend reports it. */
+export interface DiskState {
+  hash: string;
+  size: number;
+  mtime_ms: number | null;
+}
+
+/**
+ * Writes the note and reports the digest of what its file now holds, or null
+ * when the note had nothing in it and no file to write it to.
+ */
+export async function saveBufferContent(id: string, content: string): Promise<string | null> {
   return invoke("save_buffer_content", { id, content });
 }
 
-export async function saveBufferContentUnindexed(id: string, content: string): Promise<void> {
+export async function saveBufferContentUnindexed(
+  id: string,
+  content: string,
+): Promise<string | null> {
   return invoke("save_buffer_content_unindexed", { id, content });
+}
+
+/**
+ * What the note's file holds right now.
+ *
+ * Null for a note with no file, a file that is not there, and a file whose
+ * bytes have not been downloaded — reading the last would make the sync
+ * provider fetch it.
+ */
+export async function noteDiskState(id: string): Promise<DiskState | null> {
+  return invoke("note_disk_state", { id });
 }
 
 export async function readBufferContent(id: string): Promise<string> {
