@@ -250,9 +250,9 @@ pub fn path_has_ignored_component(root: &Path, path: &Path) -> bool {
 /// a file inside a folder a sync client keeps for itself (`.dropbox.cache`) is
 /// as invisible as the folder is.
 ///
-/// [`path_has_ignored_component`] answers the narrower workspace question and
-/// stays as it is: a source tree is not a notes folder, and a directory named
-/// `build~` there is somebody's code.
+/// [`path_has_ignored_component`] answers the narrower question and stays as
+/// it is: the workspace grep, the inbox and the workspace watcher still walk
+/// into a directory named `build~`.
 pub fn path_has_ignored_name(root: &Path, path: &Path) -> bool {
     let Ok(relative) = path.strip_prefix(root) else {
         return false;

@@ -708,7 +708,7 @@ pub fn run() {
                             added = outcome.added,
                             updated = outcome.updated,
                             removed = outcome.removed,
-                            skipped = outcome.skipped_dataless,
+                            name_only = outcome.skipped_dataless,
                             cancelled = outcome.cancelled,
                             "notes index reconciled"
                         ),
