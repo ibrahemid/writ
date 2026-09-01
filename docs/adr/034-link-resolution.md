@@ -96,7 +96,9 @@ and opens nothing.
 most links are broken is the normal case, and a save that re-resolved every
 pending link in the database would do that work on the connection every save
 queues behind. One note arriving or leaving can only change the links that
-named *it*, so the backfill takes the folded name keys of the file that moved.
+named *it* — a `to_path` is a function of the set of indexed paths and nothing
+else, never of any note's text — so the backfill takes the folded name keys of
+the file that moved.
 A walk passes no keys and re-resolves everything, which is also where a file
 that vanished while Writ was not running loses its target.
 
