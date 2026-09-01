@@ -230,7 +230,7 @@ function AppShell() {
     registerCommand({
       id: "note.new",
       icon: "note-pencil",
-      label: "New Note",
+      label: "New note",
       description: "Start a new note",
       keybinding: "CmdOrCtrl+N",
       // The chord this command answered to before it was named for the note
@@ -243,7 +243,7 @@ function AppShell() {
 
     registerCommand({
       id: "file.open",
-      label: "Open File",
+      label: "Open file",
       description: "Open a file from disk into a new tab",
       keybinding: "CmdOrCtrl+O",
       scope: "app",
@@ -254,7 +254,7 @@ function AppShell() {
     registerCommand({
       id: "buffer.save",
       label: "Save",
-      description: "Write the active buffer to disk now",
+      description: "Write the active note to disk now",
       keybinding: "CmdOrCtrl+S",
       scope: "app",
       // Global: the editor holds focus while writing, so a focus-gated save
@@ -266,7 +266,7 @@ function AppShell() {
     registerCommand({
       id: "workspace.openFolder",
       icon: "folder-open",
-      label: "Open Folder…",
+      label: "Open folder…",
       description: "Open a folder as the workspace",
       scope: "app",
       execute: () => {
@@ -281,7 +281,7 @@ function AppShell() {
 
     registerCommand({
       id: "workspace.closeFolder",
-      label: "Close Folder",
+      label: "Close folder",
       description: "Close the open workspace folder",
       scope: "app",
       execute: () => void workspaceStore.closeFolder(),
@@ -289,7 +289,7 @@ function AppShell() {
 
     registerCommand({
       id: "inbox.watchFolder",
-      label: "Watch Folder…",
+      label: "Watch folder…",
       description: "Auto-open new files that appear in a folder",
       scope: "app",
       execute: () => void inboxStore.watchFolder(),
@@ -297,7 +297,7 @@ function AppShell() {
 
     registerCommand({
       id: "inbox.stopWatching",
-      label: "Stop Watching Folder",
+      label: "Stop watching folder",
       description: "Stop auto-opening files from the watched folder",
       scope: "app",
       execute: () => void inboxStore.stopWatching(),
@@ -305,7 +305,7 @@ function AppShell() {
 
     registerCommand({
       id: "buffer.close",
-      label: "Close Tab",
+      label: "Close tab",
       description: "Close the active tab",
       keybinding: "CmdOrCtrl+W",
       scope: "app",
@@ -319,7 +319,7 @@ function AppShell() {
 
     registerCommand({
       id: "buffer.nextTab",
-      label: "Next Tab",
+      label: "Next tab",
       description: "Cycle to the next open tab",
       keybinding: "CmdOrCtrl+]",
       scope: "app",
@@ -338,7 +338,7 @@ function AppShell() {
 
     registerCommand({
       id: "buffer.prevTab",
-      label: "Previous Tab",
+      label: "Previous tab",
       description: "Cycle to the previous open tab",
       keybinding: "CmdOrCtrl+[",
       scope: "app",
@@ -357,7 +357,7 @@ function AppShell() {
 
     registerCommand({
       id: "history.restoreLast",
-      label: "Reopen Closed Tab",
+      label: "Reopen closed tab",
       description: "Restore the most recently closed tab",
       keybinding: "CmdOrCtrl+Shift+T",
       scope: "app",
@@ -373,7 +373,7 @@ function AppShell() {
     registerCommand({
       id: "sidebar.toggle",
       icon: "sidebar-simple",
-      label: "Toggle Sidebar",
+      label: "Toggle sidebar",
       description: "Show or hide the tabs + history rail",
       keybinding: "CmdOrCtrl+\\",
       scope: "app",
@@ -415,7 +415,7 @@ function AppShell() {
 
     registerCommand({
       id: "editor.findNext",
-      label: "Find Next",
+      label: "Find next",
       description: "Move to the next match",
       keybinding: "CmdOrCtrl+G",
       scope: "editor",
@@ -424,7 +424,7 @@ function AppShell() {
 
     registerCommand({
       id: "editor.findPrevious",
-      label: "Find Previous",
+      label: "Find previous",
       description: "Move to the previous match",
       keybinding: "CmdOrCtrl+Shift+G",
       scope: "editor",
@@ -443,7 +443,7 @@ function AppShell() {
 
     registerCommand({
       id: "editor.zoomIn",
-      label: "Increase Editor Font Size",
+      label: "Increase editor font size",
       description: "Make the editor text larger",
       keybinding: "CmdOrCtrl+=",
       keybindingAliases: ["CmdOrCtrl+Shift++"],
@@ -456,7 +456,7 @@ function AppShell() {
 
     registerCommand({
       id: "editor.zoomOut",
-      label: "Decrease Editor Font Size",
+      label: "Decrease editor font size",
       description: "Make the editor text smaller",
       keybinding: "CmdOrCtrl+-",
       scope: "app",
@@ -466,7 +466,7 @@ function AppShell() {
 
     registerCommand({
       id: "editor.zoomReset",
-      label: "Reset Editor Font Size",
+      label: "Reset editor font size",
       description: "Restore the editor text to its default size",
       keybinding: "CmdOrCtrl+0",
       scope: "app",
@@ -476,7 +476,7 @@ function AppShell() {
 
     registerCommand({
       id: "palette.open",
-      label: "Command Palette",
+      label: "Command palette",
       description: "Search and run any command",
       keybinding: "Shift+Shift",
       scope: "app",
@@ -486,7 +486,7 @@ function AppShell() {
 
     registerCommand({
       id: "tab.rename",
-      label: "Rename Tab",
+      label: "Rename tab",
       description: "Rename the active tab",
       keybinding: "F2",
       keybindingAliases: ["CmdOrCtrl+Shift+S"],
@@ -496,7 +496,7 @@ function AppShell() {
 
     registerCommand({
       id: "buffer.closeAll",
-      label: "Close All Tabs",
+      label: "Close all tabs",
       description: "Move every open tab into history",
       scope: "app",
       execute: async () => {
@@ -516,7 +516,7 @@ function AppShell() {
 
     registerCommand({
       id: "history.clear",
-      label: "Clear History",
+      label: "Clear history",
       description: "Permanently remove all history entries",
       scope: "app",
       execute: async () => {
@@ -580,7 +580,7 @@ function AppShell() {
 
     registerCommand({
       id: "app.check_updates",
-      label: "Check for Updates…",
+      label: "Check for updates…",
       description: "Check whether a newer version of Writ is available",
       scope: "app",
       execute: () => updateStore.checkForUpdate(),

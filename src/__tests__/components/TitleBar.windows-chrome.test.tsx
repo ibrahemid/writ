@@ -109,10 +109,10 @@ import { registerCommand, unregisterCommand } from "../../commands/registry";
 import type { MenuItem } from "../../components/ContextMenu/ContextMenu";
 
 const MENU_COMMANDS = [
-  { id: "file.open", label: "Open File", keybinding: "CmdOrCtrl+O" },
-  { id: "note.new", label: "New Note", keybinding: "CmdOrCtrl+N" },
-  { id: "buffer.close", label: "Close Tab", keybinding: "CmdOrCtrl+W" },
-  { id: "palette.open", label: "Command Palette", keybinding: "Shift+Shift" },
+  { id: "file.open", label: "Open file", keybinding: "CmdOrCtrl+O" },
+  { id: "note.new", label: "New note", keybinding: "CmdOrCtrl+N" },
+  { id: "buffer.close", label: "Close tab", keybinding: "CmdOrCtrl+W" },
+  { id: "palette.open", label: "Command palette", keybinding: "Shift+Shift" },
   { id: "app.check_updates", label: "Check for Updates" },
 ];
 
@@ -172,10 +172,10 @@ describe("titlebar menu affordance carries the platforms with no menu bar", () =
 
     expect(mocks.showAnchoredMenu).toHaveBeenCalledTimes(1);
     expect(openedMenuItems().map((item) => item.label)).toEqual([
-      "Open File",
-      "New Note",
-      "Close Tab",
-      "Command Palette",
+      "Open file",
+      "New note",
+      "Close tab",
+      "Command palette",
       "Check for Updates",
     ]);
   });
@@ -411,10 +411,10 @@ describe("Writ menu contents", () => {
 
     expect(mocks.showAnchoredMenu).toHaveBeenCalledTimes(1);
     expect(openedMenuItems().map((item) => item.label)).toEqual([
-      "Open File",
-      "New Note",
-      "Close Tab",
-      "Command Palette",
+      "Open file",
+      "New note",
+      "Close tab",
+      "Command palette",
       "Check for Updates",
     ]);
   });
@@ -470,7 +470,7 @@ describe("Writ menu contents", () => {
     for (const cmd of MENU_COMMANDS) unregisterCommand(cmd.id);
     registerCommand({
       id: "buffer.close",
-      label: "Close Tab",
+      label: "Close tab",
       scope: "app",
       execute: () => {},
     });

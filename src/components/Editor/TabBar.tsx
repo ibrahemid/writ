@@ -68,9 +68,9 @@ export default function TabBar() {
     e.preventDefault();
     showContextMenu(e.clientX, e.clientY, [
       { label: "Rename", action: () => setEditingTabId(tabId) },
-      { label: "Close Tab", action: () => void win.tabs.closeTab(tabId) },
-      { label: "Close Other Tabs", action: () => void win.tabs.closeOtherTabs(tabId) },
-      { label: "Close All Tabs", action: () => void win.tabs.closeAllTabs(), separator: true, danger: true },
+      { label: "Close tab", action: () => void win.tabs.closeTab(tabId) },
+      { label: "Close other tabs", action: () => void win.tabs.closeOtherTabs(tabId) },
+      { label: "Close all tabs", action: () => void win.tabs.closeAllTabs(), separator: true, danger: true },
     ]);
   }
 
@@ -160,6 +160,7 @@ export default function TabBar() {
                           });
                         }}
                         class="tab-rename-input"
+                        data-writ-focus-silent
                         aria-label="Rename note"
                         value={tab.title}
                         onBlur={(e) => handleRenameSubmit(tab.id, e.currentTarget.value)}

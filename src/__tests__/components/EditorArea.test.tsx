@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createSignal, type Accessor } from "solid-js";
 import { render, cleanup } from "@solidjs/testing-library";
 import { configStore } from "../../stores/global/config";
 import type { WritConfig } from "../../types/config";
+import type { BufferDocument } from "../../types/buffer";
 
 const mocks = vi.hoisted(() => ({
   config: vi.fn(),
   currentText: vi.fn(() => "one two three"),
+  activeBuffer: (() => ({ id: "b1" }) as unknown as BufferDocument | null) as Accessor<
+    BufferDocument | null
+  >,
 }));
 
 // The pane, the overlays and the bar each own their own IPC surface; this test
@@ -24,7 +29,7 @@ vi.mock("../../components/Editor/SpellingPreview", () => ({ default: () => null 
 vi.mock("../../components/Editor/StatusBar", () => ({
   default: () => <div data-testid="statusbar" />,
 }));
-vi.mock("../../lib/use-active-buffer", () => ({ useActiveBuffer: () => () => null }));
+vi.mock("../../lib/use-active-buffer", () => ({ useActiveBuffer: () => mocks.activeBuffer }));
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({ editor: { currentText: mocks.currentText } }),
 }));
@@ -32,6 +37,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 vi.spyOn(configStore, "config").mockImplementation(mocks.config);
 
 import EditorArea from "../../components/Editor/EditorArea";
+import { findStore } from "../../stores/global/find-store";
 
 function configWith(statusBar: boolean): WritConfig {
   return {
@@ -80,10 +86,12 @@ function configWith(statusBar: boolean): WritConfig {
 describe("EditorArea", () => {
   beforeEach(() => {
     mocks.config.mockReturnValue(configWith(false));
+    mocks.activeBuffer = () => ({ id: "b1" }) as unknown as BufferDocument;
   });
 
   afterEach(() => {
     cleanup();
+    findStore.close();
   });
 
   it("hides the status bar by default", () => {
@@ -137,5 +145,24 @@ describe("EditorArea", () => {
       expect(container.querySelector("[data-testid='preview-layout']")).not.toBeNull();
       unmount();
     }
+  });
+
+  it("hides the word count when no note is open", () => {
+    mocks.activeBuffer = () => null;
+    const { container } = render(() => <EditorArea />);
+    expect(container.querySelector(".editor-wordcount")).toBeNull();
+  });
+
+  it("closes the find overlay once the active buffer closes", () => {
+    const [buffer, setBuffer] = createSignal<BufferDocument | null>(
+      { id: "b1" } as unknown as BufferDocument,
+    );
+    mocks.activeBuffer = buffer;
+    render(() => <EditorArea />);
+    findStore.open();
+    expect(findStore.isOpen()).toBe(true);
+
+    setBuffer(null);
+    expect(findStore.isOpen()).toBe(false);
   });
 });

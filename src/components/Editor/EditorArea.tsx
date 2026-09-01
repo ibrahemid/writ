@@ -8,6 +8,7 @@ import SpellingPreview from "./SpellingPreview";
 import PreviewLayout from "../Preview/PreviewLayout";
 import { useActiveBuffer } from "../../lib/use-active-buffer";
 import { configStore } from "../../stores/global/config";
+import { findStore } from "../../stores/global/find-store";
 import "./EditorArea.css";
 
 export default function EditorArea() {
@@ -24,6 +25,12 @@ export default function EditorArea() {
   });
   onCleanup(() => document.documentElement.style.removeProperty("--writ-toast-bottom"));
 
+  // Find targets the active buffer's text; once it closes there is nothing
+  // left to search, so the panel should not linger open over an empty canvas.
+  createEffect(() => {
+    if (!activeBuffer()) findStore.close();
+  });
+
   return (
     <div class="editor-area">
       <Toolbar />
@@ -32,7 +39,7 @@ export default function EditorArea() {
         {/* Always mounted, even with no active buffer, so the preview iframe
             element it owns is never torn down (#124 webview freeze). */}
         <PreviewLayout buffer={activeBuffer()} />
-        <Show when={!statusBarOn()}>
+        <Show when={!statusBarOn() && activeBuffer()}>
           <WordCount class="editor-wordcount" />
         </Show>
         <FindOverlay />

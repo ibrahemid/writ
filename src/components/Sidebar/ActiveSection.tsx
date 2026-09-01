@@ -37,7 +37,7 @@ export default function ActiveSection() {
     showContextMenu(e.clientX, e.clientY, [
       { label: "Close", action: () => void win.tabs.closeTab(id) },
       {
-        label: "Close Others",
+        label: "Close others",
         action: () => void win.tabs.closeOtherTabs(id),
       },
     ]);

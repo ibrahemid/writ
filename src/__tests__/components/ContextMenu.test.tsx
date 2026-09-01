@@ -68,7 +68,7 @@ describe("ContextMenu anchored open", () => {
 describe("ContextMenu separator items stay clickable", () => {
   // `separator: true` draws a divider above an item; it never meant the item
   // itself is a divider. Reading it that way made every group-opening item dead
-  // on arrival: Spelling settings, Close All Tabs, Clear All History.
+  // on arrival: Spelling settings, Close all tabs, Clear all history.
   it("closes on Escape even when focus stayed outside the menu", () => {
     const { getByText, container } = render(() => <Harness />);
     fireEvent.click(getByText("open"));

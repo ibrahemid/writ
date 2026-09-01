@@ -108,7 +108,7 @@ export default function HistorySection() {
         danger: true,
       },
       {
-        label: "Clear All History",
+        label: "Clear all history",
         action: () => void bufferRegistry.clearAllHistory(),
         separator: true,
         danger: true,

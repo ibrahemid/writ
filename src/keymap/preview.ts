@@ -30,7 +30,7 @@ function bufferPath(bufferId: string): string | null {
 export function registerPreviewKeymap(): void {
   registerCommand({
     id: "preview.cycleLayout",
-    label: "Preview: Cycle Layout",
+    label: "Preview: Cycle layout",
     description: "Source → Split → Preview → Source",
     keybinding: "CmdOrCtrl+Shift+V",
     scope: "app",
@@ -56,7 +56,7 @@ export function registerPreviewKeymap(): void {
 
   registerCommand({
     id: "preview.toggleFullscreen",
-    label: "Preview: Toggle Fullscreen",
+    label: "Preview: Toggle fullscreen",
     description: "Show the preview pane only / return to split",
     keybinding: "CmdOrCtrl+Shift+R",
     scope: "app",
@@ -77,7 +77,7 @@ export function registerPreviewKeymap(): void {
 
   registerCommand({
     id: "preview.exitFullscreen",
-    label: "Preview: Exit Fullscreen",
+    label: "Preview: Exit fullscreen",
     description: "Return from fullscreen preview to the prior layout",
     keybinding: "Escape",
     scope: "app",
@@ -93,7 +93,7 @@ export function registerPreviewKeymap(): void {
 
   registerCommand({
     id: "preview.swapOrientation",
-    label: "Preview: Swap Split Orientation",
+    label: "Preview: Swap split orientation",
     description: "Toggle vertical / horizontal split",
     keybinding: "CmdOrCtrl+Shift+\\",
     scope: "app",
@@ -114,7 +114,7 @@ export function registerPreviewKeymap(): void {
 
   registerCommand({
     id: "preview.resetRatio",
-    label: "Preview: Reset Split Ratio",
+    label: "Preview: Reset split ratio",
     description: "Reset the split divider to 50/50",
     // Cmd+0 is the conventional "reset zoom" chord (editor.zoomReset owns it);
     // this stays on the preview family's Cmd+Shift+… prefix like its siblings.
@@ -136,7 +136,7 @@ export function registerPreviewKeymap(): void {
 
   registerCommand({
     id: "preview.toggleRunScripts",
-    label: "Preview: Toggle Run Scripts",
+    label: "Preview: Toggle run scripts",
     description:
       "Kill switch: when off, the document CSP becomes script-src 'none'. Network stays off regardless.",
     scope: "app",

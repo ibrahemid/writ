@@ -84,7 +84,7 @@ describe("CommandPalette over the shared shell", () => {
     });
     registerCommand({
       id: "palette.open",
-      label: "Command Palette",
+      label: "Command palette",
       scope: "app",
       execute: vi.fn(),
     });
@@ -129,7 +129,7 @@ describe("CommandPalette over the shared shell", () => {
   it("never lists its own opener", async () => {
     await open();
     const rows = items().map((el) => el.textContent ?? "");
-    expect(rows.some((t) => t.includes("Command Palette"))).toBe(false);
+    expect(rows.some((t) => t.includes("Command palette"))).toBe(false);
   });
 
   it("records usage exactly once for a command run from the palette", async () => {

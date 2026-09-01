@@ -36,6 +36,8 @@
   /* GNOME sets its buttons in bold; the toolbar's compose label is not one. */
   font-weight: 400;
   color: var(--writ-fg);
+  white-space: nowrap;
+  flex: none;
 }
 
 .writ-toolbar-divider {
@@ -76,8 +78,8 @@
 /* Search moves out of the sidebar and sits at the right end of the bar. */
 .writ-toolbar .search-bar {
   margin-left: auto;
-  flex: none;
-  width: 180px;
+  flex: 0 1 180px;
+  min-width: 120px;
   padding: 0;
 }
 

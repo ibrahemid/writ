@@ -183,14 +183,14 @@ describe("Toolbar drag region", () => {
 
 describe("Toolbar commands", () => {
   it("runs sidebar.toggle from the toggle", () => {
-    const run = stub("sidebar.toggle", "Toggle Sidebar");
+    const run = stub("sidebar.toggle", "Toggle sidebar");
     const { container } = render(() => <Toolbar />);
     fireEvent.click(control(container, "Toggle sidebar"));
     expect(run).toHaveBeenCalledOnce();
   });
 
   it("runs note.new from New note", () => {
-    const run = stub("note.new", "New Note");
+    const run = stub("note.new", "New note");
     const { container } = render(() => <Toolbar />);
     fireEvent.click(container.querySelector<HTMLButtonElement>(".writ-toolbar-compose")!);
     expect(run).toHaveBeenCalledOnce();

@@ -12,7 +12,7 @@ export interface MenuItem {
    * Draws a divider *above* this item. Purely presentational: the item is still
    * a normal, clickable entry. It is not "this row is a separator" — reading it
    * that way silently killed every item that opened a group (Spelling settings,
-   * Close All Tabs, Clear All History).
+   * Close all tabs, Clear all history).
    */
   separator?: boolean;
   /** The only flag that makes an item non-actionable. */

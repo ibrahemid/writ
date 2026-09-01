@@ -45,8 +45,8 @@ export default function SearchResults() {
     e.preventDefault();
     if (row.source === "active") {
       showContextMenu(e.clientX, e.clientY, [
-        { label: "Close Tab", action: () => void win.tabs.closeTab(row.id) },
-        { label: "Close Other Tabs", action: () => void win.tabs.closeOtherTabs(row.id) },
+        { label: "Close tab", action: () => void win.tabs.closeTab(row.id) },
+        { label: "Close other tabs", action: () => void win.tabs.closeOtherTabs(row.id) },
       ]);
     } else if (row.source === "history") {
       showContextMenu(e.clientX, e.clientY, [

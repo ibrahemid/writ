@@ -120,7 +120,7 @@ describe("TabBar close button (#47)", () => {
   it("lets Cmd+W through to the close-tab command while the close control holds focus", () => {
     registerCommand({
       id: "buffer.close",
-      label: "Close Tab",
+      label: "Close tab",
       keybinding: "CmdOrCtrl+W",
       scope: "app",
       global: true,
