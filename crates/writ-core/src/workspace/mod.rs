@@ -103,11 +103,22 @@ const IGNORE_GLOBS: &[&str] = &[
     ".*.sw?",
     // Emacs and friends: a backup of the file next to it.
     "*~",
-    // The temp file `write_atomic` creates beside its target, in both the
-    // prefix form `NamedTempFile` produces and the suffix form.
+    // The temp file `write_atomic` creates beside its target. The first is
+    // Writ's own, named from `TEMP_FILE_PREFIX`; the other two are the shapes
+    // other tools leave behind.
+    ".writ-tmp-*",
     ".tmp*",
     "*.tmp",
 ];
+
+/// The start of the name of every temp file Writ writes beside a note.
+///
+/// `write_atomic` writes a sibling and renames it into place, so the notes
+/// folder sees a create and a delete on every save. A random `.tmpXXXXXX`
+/// cannot be matched by anyone: with a fixed prefix, the ignore rules for the
+/// user's sync client can skip it as well as [`is_ignored_name`] does, and the
+/// churn stops being uploaded.
+pub const TEMP_FILE_PREFIX: &str = ".writ-tmp-";
 
 /// Returns `true` if `name` is in the default ignore set and should be
 /// excluded from workspace directory listings.
@@ -397,12 +408,13 @@ mod tests {
     }
 
     #[test]
-    fn writ_temp_file_names_are_ignored_in_both_spellings() {
-        // `write_atomic` persists through a `NamedTempFile` created beside its
-        // target, so the prefix form is the one every internal save produces;
-        // the suffix form is what other tools leave. The watcher and the index
-        // walk both go through this predicate, so both forms have to answer
-        // here (ADR-028 section 6).
+    fn writ_temp_file_names_are_ignored_in_every_spelling() {
+        // `write_atomic` names its sibling from `TEMP_FILE_PREFIX`, so that is
+        // the form every internal save produces; the other two are what other
+        // tools leave. The watcher and the index walk both go through this
+        // predicate, so every form has to answer here (ADR-028 section 6).
+        assert!(is_ignored_name(&format!("{TEMP_FILE_PREFIX}A1b2C3")));
+        assert!(is_ignored_name(TEMP_FILE_PREFIX));
         assert!(is_ignored_name(".tmpABC"));
         assert!(is_ignored_name(".tmp"));
         assert!(is_ignored_name("foo.tmp"));
