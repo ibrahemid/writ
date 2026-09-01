@@ -327,7 +327,7 @@ impl<'a> NotesIndex<'a> {
         )?;
         let names = self.name_index()?;
         self.write_facts(&note.path, content, &names)?;
-        self.resolve_pending_links(&names, Some(&links::candidate_name_keys(&note.path)))?;
+        self.resolve_links(&names, Some(&links::candidate_name_keys(&note.path)))?;
         tx.commit()?;
         Ok(())
     }
@@ -413,7 +413,7 @@ impl<'a> NotesIndex<'a> {
     /// that resolves to nothing, or to several notes, stores `NULL`: an
     /// ambiguous target is not a link to the alphabetically first candidate
     /// (ADR-034), and a target with no note behind it yet is picked up by
-    /// [`NotesIndex::resolve_pending_links`] when that note arrives.
+    /// [`NotesIndex::resolve_links`] when that note arrives.
     fn write_facts(&self, path: &str, content: &str, names: &NameIndex) -> StorageResult<()> {
         for sql in [
             "DELETE FROM links WHERE from_path = ?1",
@@ -483,65 +483,62 @@ impl<'a> NotesIndex<'a> {
         Ok(index)
     }
 
-    /// Fills in the links that had no note behind them, and empties the ones
-    /// whose note has gone.
+    /// Recomputes `to_path` for the links a change to the set of indexed paths
+    /// can have moved. Returns the number of links whose target changed.
     ///
-    /// A note is often linked before it is written, and during a walk a note is
-    /// often linked before the walk reaches it. Both leave `to_path` at `NULL`,
-    /// and both are corrected here rather than by a second walk. Returns the
-    /// number of links that gained a target.
+    /// Every visited row is resolved from scratch and written back, including
+    /// back to `NULL`. A link is stored with no target both when the note it
+    /// names does not exist yet and when two notes answer to that name, and
+    /// either can become the other: a note arriving fills in the links that
+    /// waited for it, a second note of the same name makes an answered link
+    /// ambiguous again, and a note leaving empties the links that reached it.
+    /// A pass that only looked at `to_path IS NULL` would do the first and
+    /// miss the other two, and the stale target would then survive every walk,
+    /// because a walk re-reads a note only when its bytes moved.
     ///
-    /// `only` is the set of folded names whose pending links are worth
-    /// revisiting: a single note arriving or leaving can only change the links
-    /// that named *it*, so a save re-resolves that note's own name keys and
-    /// leaves the rest of a vault's broken links alone. `None` re-resolves
-    /// everything, which is what a walk wants and what also drops the targets
-    /// of files that vanished while Writ was not running.
-    fn resolve_pending_links(
-        &self,
-        names: &NameIndex,
-        only: Option<&[String]>,
-    ) -> StorageResult<usize> {
-        if only.is_none() {
-            self.conn.execute(
-                "UPDATE links SET to_path = NULL
-                  WHERE to_path IS NOT NULL
-                    AND NOT EXISTS (SELECT 1 FROM files f WHERE f.path = links.to_path)",
-                [],
-            )?;
-        }
-
-        let pending: Vec<(i64, String, String)> = {
+    /// `only` is the set of folded names whose links are worth revisiting: a
+    /// single note arriving or leaving can only change the links that named
+    /// *it*, so a save re-resolves that note's own name keys and leaves the
+    /// rest of a vault alone. `None` revisits every link, which is what a walk
+    /// wants and what also drops the targets of files that vanished while Writ
+    /// was not running.
+    fn resolve_links(&self, names: &NameIndex, only: Option<&[String]>) -> StorageResult<usize> {
+        let stored: Vec<(i64, String, String, Option<String>)> = {
             let mut stmt = self
                 .conn
-                .prepare("SELECT rowid, from_path, to_target FROM links WHERE to_path IS NULL")?;
+                .prepare("SELECT rowid, from_path, to_target, to_path FROM links")?;
             let rows = stmt.query_map([], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
                 ))
             })?;
             rows.collect::<Result<Vec<_>, _>>()?
         };
 
-        let mut filled = 0usize;
-        for (rowid, from_path, to_target) in pending {
+        let mut changed = 0usize;
+        for (rowid, from_path, to_target, was) in stored {
             let target = links::parse_target(&to_target);
             if let Some(keys) = only {
                 if !keys.contains(&links::name_key(&target.name)) {
                     continue;
                 }
             }
-            if let Resolution::Resolved(path) = names.resolve(&target, &from_path) {
-                self.conn.execute(
-                    "UPDATE links SET to_path = ?2 WHERE rowid = ?1",
-                    params![rowid, path],
-                )?;
-                filled += 1;
+            let now = match names.resolve(&target, &from_path) {
+                Resolution::Resolved(path) => Some(path),
+                Resolution::Ambiguous(_) | Resolution::Missing => None,
+            };
+            if now == was {
+                continue;
             }
+            self.conn
+                .prepare_cached("UPDATE links SET to_path = ?2 WHERE rowid = ?1")?
+                .execute(params![rowid, now])?;
+            changed += 1;
         }
-        Ok(filled)
+        Ok(changed)
     }
 
     /// Removes `path` from the index.
@@ -1068,7 +1065,7 @@ pub fn reconcile(
     // emptied rather than left pointing at a row that is gone. A cancelled pass
     // still runs it: what it wrote is real, and the links it left unresolved
     // are the ones it can resolve.
-    index.resolve_pending_links(&index.name_index()?, None)?;
+    index.resolve_links(&index.name_index()?, None)?;
 
     // Only a complete pass may speak for the whole folder. A cancelled one has
     // written fewer derived rows than the folder holds, and recording that
@@ -1314,7 +1311,7 @@ impl NotesIndexStore {
         let index = NotesIndex::new(&conn);
         index.remove(&key)?;
         let names = index.name_index()?;
-        index.resolve_pending_links(&names, Some(&links::candidate_name_keys(&key)))?;
+        index.resolve_links(&names, Some(&links::candidate_name_keys(&key)))?;
         Ok(())
     }
 

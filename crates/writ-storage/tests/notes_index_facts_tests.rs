@@ -296,6 +296,89 @@ fn emptying_the_four_tables_and_reconciling_rebuilds_them() {
         before,
         "reconcile must rebuild what it derived"
     );
+    assert_every_target_matches_a_fresh_resolve(&conn);
+}
+
+/// Every stored `to_path` must be what resolving that link again answers.
+///
+/// The column and the resolver are read by different surfaces — backlinks read
+/// the column, the editor resolves — and ADR-034 exists to stop the two
+/// disagreeing.
+fn assert_every_target_matches_a_fresh_resolve(conn: &Connection) {
+    let index = NotesIndex::new(conn);
+    let stored: Vec<(String, String, Option<String>)> = {
+        let mut stmt = conn
+            .prepare("SELECT from_path, to_target, to_path FROM links")
+            .expect("prepare");
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .expect("query")
+            .collect::<Result<_, _>>()
+            .expect("rows")
+    };
+    for (from_path, to_target, to_path) in stored {
+        let fresh = match index.resolve_link(&from_path, &to_target).expect("resolve") {
+            Resolution::Resolved(path) => Some(path),
+            Resolution::Ambiguous(_) | Resolution::Missing => None,
+        };
+        assert_eq!(
+            to_path, fresh,
+            "the stored target for [[{to_target}]] in {from_path} disagrees with the resolver"
+        );
+    }
+}
+
+#[test]
+fn a_second_note_of_the_same_name_takes_the_target_off_a_resolved_link() {
+    let (dir, conn, notes) = fixture();
+    let store = NotesIndexStore::open(&dir.path().join("writ.db")).expect("store");
+    let source = write_note(&notes, "z/A.md", "see [[Note]]\n");
+    write_note(&notes, "one/Note.md", "one\n");
+    walk(&conn, &notes);
+
+    let key = notes_index::index_key(&source);
+    assert!(store.links_from(&key).expect("links")[0].to_path.is_some());
+
+    let second = write_note(&notes, "two/Note.md", "two\n");
+    assert!(store.index_path(&second).expect("index"));
+
+    assert_eq!(
+        store.links_from(&key).expect("links")[0].to_path,
+        None,
+        "an ambiguous link must not keep the target it had while it was the only one"
+    );
+    walk(&conn, &notes);
+    assert_eq!(
+        store.links_from(&key).expect("links")[0].to_path,
+        None,
+        "and a walk must not put it back"
+    );
+    assert_every_target_matches_a_fresh_resolve(&conn);
+}
+
+#[test]
+fn a_nearer_note_of_the_same_name_takes_the_link_from_the_deeper_one() {
+    let (dir, conn, notes) = fixture();
+    let store = NotesIndexStore::open(&dir.path().join("writ.db")).expect("store");
+    let source = write_note(&notes, "A.md", "see [[Note]]\n");
+    let deep = write_note(&notes, "archive/Note.md", "old\n");
+    walk(&conn, &notes);
+
+    let key = notes_index::index_key(&source);
+    assert_eq!(
+        store.links_from(&key).expect("links")[0].to_path.as_deref(),
+        Some(notes_index::index_key(&deep).as_str())
+    );
+
+    let near = write_note(&notes, "Note.md", "new\n");
+    assert!(store.index_path(&near).expect("index"));
+
+    assert_eq!(
+        store.links_from(&key).expect("links")[0].to_path.as_deref(),
+        Some(notes_index::index_key(&near).as_str()),
+        "the note beside the link outranks the one in a folder"
+    );
+    walk(&conn, &notes);
+    assert_every_target_matches_a_fresh_resolve(&conn);
 }
 
 #[test]
