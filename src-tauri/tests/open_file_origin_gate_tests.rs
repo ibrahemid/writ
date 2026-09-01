@@ -727,6 +727,62 @@ fn a_file_changed_out_of_band_keeps_being_announced_until_it_is_read() {
 }
 
 #[test]
+fn reopening_a_tab_whose_file_writ_never_read_announces_nothing() {
+    // The tab restored at launch and never brought to the front. Its editor is
+    // not mounted, so nothing has read the file and no digest was recorded. An
+    // empty record is what a fresh process starts with, which
+    // `forget_disk_state` reproduces here.
+    //
+    // Reopening it — `writ <path>`, an OS document open, a drop on the window —
+    // used to compare against a record that was not there, read the miss as a
+    // change, and announce one. The frontend fails closed on a note it holds no
+    // record of, so that announcement arrives as a prompt asking whether to
+    // discard work, over a document nobody typed into and a file nobody
+    // touched.
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let file = dir.path().join("background.md");
+    std::fs::write(&file, "as it was").unwrap();
+    let canonical = canonicalize_for_authorization(&file).unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+    let opened = open_file_from_path(&state, &canonical).expect("open");
+    state.forget_disk_state(&opened.doc.id);
+
+    let count = count_external_events(&state);
+
+    state.authorized_paths.record_for_open(canonical.clone());
+    open_file_from_path(&state, &canonical).expect("reopen");
+    assert_eq!(
+        *count.lock().unwrap(),
+        0,
+        "a reopen with nothing to compare against must not claim a change"
+    );
+
+    // Even where the file did move on, Writ has no basis to say so and no need
+    // to: the editor reads the file itself the moment the tab is mounted.
+    std::fs::write(&file, "moved on while nobody was looking").unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+    open_file_from_path(&state, &canonical).expect("reopen after an out-of-band write");
+    assert_eq!(
+        *count.lock().unwrap(),
+        0,
+        "an unread file's contents are not something Writ can report a change to"
+    );
+
+    // The record arrives with the read, and from there the announcement works.
+    read_buffer_content_inner(&state, &opened.doc.id).expect("the editor mounts and reads");
+    std::fs::write(&file, "and again").unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+    open_file_from_path(&state, &canonical).expect("reopen after the read");
+    assert_eq!(
+        *count.lock().unwrap(),
+        1,
+        "a change against a recorded digest is still announced"
+    );
+}
+
+#[test]
 fn closing_a_tab_forgets_what_its_file_held() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);

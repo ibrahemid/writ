@@ -334,7 +334,17 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
             tracing::debug!(buffer_id = %doc.id, error = %e, "reindex after reopening failed");
         }
     }
-    if !state.disk_hash_matches(&doc.id, &source) {
+    // A change is only reportable against a record of what the file held. A
+    // note Writ has not read this launch has none, and saying it changed would
+    // be an assertion about bytes nobody looked at. It lands on the tab least
+    // able to answer for itself: one restored at launch and never brought to
+    // the front, whose editor is not mounted and which reads the file itself
+    // the moment it is. Silence costs nothing there and a claim costs a prompt
+    // over a document nobody touched.
+    let Some(known) = state.disk_state(&doc.id) else {
+        return;
+    };
+    if known.hash != writ_core::hash::sha256_bytes(&source) {
         // The digest is the file's own, computed from the bytes just read, in
         // the form the editor compares its document against. A reopen is the
         // one place the file has already been read, so leaving it out and

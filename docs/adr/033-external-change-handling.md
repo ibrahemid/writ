@@ -86,6 +86,12 @@ drops anything that is not a regular file, and the root is a directory. The
 listener tells one from the other by the path alone, with no second field to
 keep in step (`notes_sweep_marker` / `is_notes_sweep_marker`).
 
+The marker rides the same bus as every other notes change, so it also reaches
+the webview as `writ://notes-changed`. Nothing on the frontend reads that event
+today. Whatever adds the first listener has to apply `is_notes_sweep_marker`
+before treating the path as a file, since this is the one event whose path is a
+directory.
+
 The budget is spent only on changes that survived classification. A burst of
 Writ's own saves is suppressed before it reaches the budget, so it cannot make
 the folder look like it moved.
@@ -148,6 +154,15 @@ change for.
 
 `src/__tests__/architecture/dirty-predicate-authority.test.ts` holds this: the
 autosave queue has one reader, its own module.
+
+Failing closed makes the backend's side of the question stricter, not looser.
+Nothing may announce a change it cannot demonstrate, because the announcement
+now reaches a predicate that will read an unknown note as unsaved and ask the
+user whether to discard work. So `resync_open_buffer` reports only against a
+digest Writ recorded from a read of its own; a note with no record is passed
+over rather than treated as changed. `disk_hash_matches` keeps the opposite
+reading, which is right for the guard it exists for: a save with nothing to
+compare against is refused.
 
 ### 7. A change never reloads the document registry
 

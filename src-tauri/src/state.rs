@@ -636,9 +636,13 @@ impl AppState {
     /// `true` when `bytes` hashes to the digest last recorded for
     /// `buffer_id`.
     ///
-    /// `false` for a buffer with no recorded digest — the honest answer for
-    /// one Writ has not read or written this launch, where nothing rules out
-    /// that the file changed underneath it.
+    /// `false` for a buffer with no recorded digest, which makes this a guard
+    /// rather than a test for whether a file changed. A caller about to write,
+    /// or about to trust bytes it is holding, wants that refusal. A caller
+    /// deciding whether to tell the user their file moved underneath them does
+    /// not: with nothing to compare against, reporting a change is a claim
+    /// about bytes nobody read. Ask [`Self::disk_state`] and stay quiet when it
+    /// answers `None`.
     pub fn disk_hash_matches(&self, buffer_id: &str, bytes: &[u8]) -> bool {
         let map = recover_poison(self.last_disk_hash.lock(), "state::disk_hash_matches");
         map.get(buffer_id).map(|state| state.hash) == Some(writ_core::hash::sha256_bytes(bytes))
