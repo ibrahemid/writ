@@ -5,7 +5,7 @@ use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
-use writ_storage::notes_index::{IndexedNote, NotesIndex, NotesIndexStore};
+use writ_storage::notes_index::{IndexedBy, IndexedNote, NotesIndex, NotesIndexStore};
 
 const CORPUS_SIZE: usize = 500;
 
@@ -135,6 +135,7 @@ fn bench_notes_index_upsert(c: &mut Criterion) {
         size: 4096,
         mtime: 0,
         hash: None,
+        indexed_by: IndexedBy::Content,
     };
     let content = make_content(0, 4096);
     let index = NotesIndex::new(&conn);

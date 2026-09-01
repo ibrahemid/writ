@@ -44,9 +44,31 @@ const TEXT_EXTENSIONS: &[&str] = &["md", "markdown", "txt", "text"];
 /// macOS `SF_DATALESS`: the file has no local data behind it.
 const SF_DATALESS: u32 = 0x4000_0000;
 
-/// The `files.hash` value of a row indexed by name alone. Not a digest, so no
-/// content can ever produce it.
-const NAME_ONLY_HASH: &str = "name-only";
+/// How much of a file the index holds, stored in `files.indexed_by`
+/// (migration 042).
+///
+/// A placeholder with no local data is recorded without being read, so its row
+/// carries its name and nothing else. [`reconcile`] reads this back to find
+/// those rows once the file has data: a download leaves size and mtime where
+/// they were, so no other column can tell it happened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IndexedBy {
+    /// The row was written from the file's text.
+    #[default]
+    Content,
+    /// The row was written from the file's name, with no read.
+    Name,
+}
+
+impl IndexedBy {
+    /// The value stored in `files.indexed_by`.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Content => "content",
+            Self::Name => "name",
+        }
+    }
+}
 
 /// One indexed note.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +83,8 @@ pub struct IndexedNote {
     pub mtime: i64,
     /// Content hash, when the caller has one to record.
     pub hash: Option<String>,
+    /// Whether the row holds the file's text or only its name.
+    pub indexed_by: IndexedBy,
 }
 
 impl IndexedNote {
@@ -77,6 +101,7 @@ impl IndexedNote {
             size: metadata.len(),
             mtime: mtime_millis(&metadata),
             hash: None,
+            indexed_by: IndexedBy::Content,
         })
     }
 }
@@ -182,14 +207,21 @@ impl<'a> NotesIndex<'a> {
     pub fn upsert(&self, note: &IndexedNote, content: &str) -> StorageResult<()> {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
-            "INSERT INTO files (path, size, mtime, hash, indexed_at)
-             VALUES (?1, ?2, ?3, ?4, datetime('now'))
+            "INSERT INTO files (path, size, mtime, hash, indexed_by, indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))
              ON CONFLICT(path) DO UPDATE SET
                  size = excluded.size,
                  mtime = excluded.mtime,
                  hash = excluded.hash,
+                 indexed_by = excluded.indexed_by,
                  indexed_at = excluded.indexed_at",
-            params![note.path, note.size as i64, note.mtime, note.hash],
+            params![
+                note.path,
+                note.size as i64,
+                note.mtime,
+                note.hash,
+                note.indexed_by.as_str()
+            ],
         )?;
         let rowid: i64 = tx.query_row(
             "SELECT rowid FROM files WHERE path = ?1",
@@ -223,20 +255,28 @@ impl<'a> NotesIndex<'a> {
         let tx = self.conn.unchecked_transaction()?;
         let wrote = match expected {
             None => tx.execute(
-                "INSERT INTO files (path, size, mtime, hash, indexed_at)
-                 VALUES (?1, ?2, ?3, ?4, datetime('now'))
+                "INSERT INTO files (path, size, mtime, hash, indexed_by, indexed_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))
                  ON CONFLICT(path) DO NOTHING",
-                params![note.path, note.size as i64, note.mtime, note.hash],
-            )?,
-            Some((size, mtime)) => tx.execute(
-                "UPDATE files
-                    SET size = ?2, mtime = ?3, hash = ?4, indexed_at = datetime('now')
-                  WHERE path = ?1 AND size = ?5 AND mtime = ?6",
                 params![
                     note.path,
                     note.size as i64,
                     note.mtime,
                     note.hash,
+                    note.indexed_by.as_str()
+                ],
+            )?,
+            Some((size, mtime)) => tx.execute(
+                "UPDATE files
+                    SET size = ?2, mtime = ?3, hash = ?4, indexed_by = ?5,
+                        indexed_at = datetime('now')
+                  WHERE path = ?1 AND size = ?6 AND mtime = ?7",
+                params![
+                    note.path,
+                    note.size as i64,
+                    note.mtime,
+                    note.hash,
+                    note.indexed_by.as_str(),
                     size as i64,
                     mtime
                 ],
@@ -423,17 +463,20 @@ impl<'a> NotesIndex<'a> {
         Ok(rows)
     }
 
-    /// The paths indexed by name alone, marked by [`NAME_ONLY_HASH`].
+    /// The paths whose row holds a name and no text ([`IndexedBy::Name`]).
     ///
     /// Materialising a placeholder leaves its size and mtime where they were,
     /// so [`reconcile`]'s unchanged shortcut cannot tell a downloaded note from
-    /// the placeholder it replaced. This is how it tells.
+    /// the placeholder it replaced. This is how it tells, and it reads a column
+    /// of its own so that a writer recording a digest cannot disturb it.
     fn name_only_paths(&self) -> StorageResult<std::collections::HashSet<String>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT path FROM files WHERE hash = ?1")?;
+            .prepare("SELECT path FROM files WHERE indexed_by = ?1")?;
         let rows = stmt
-            .query_map(params![NAME_ONLY_HASH], |row| row.get::<_, String>(0))?
+            .query_map(params![IndexedBy::Name.as_str()], |row| {
+                row.get::<_, String>(0)
+            })?
             .collect::<Result<std::collections::HashSet<_>, _>>()?;
         Ok(rows)
     }
@@ -560,7 +603,14 @@ pub fn reconcile(
             name,
             size,
             mtime,
-            hash: dataless.then(|| NAME_ONLY_HASH.to_string()),
+            // No read happened for a placeholder, so there is no digest to
+            // record and the row says so in `indexed_by`.
+            hash: None,
+            indexed_by: if dataless {
+                IndexedBy::Name
+            } else {
+                IndexedBy::Content
+            },
         };
 
         // One transaction per file. The walk runs on its own connection, so a

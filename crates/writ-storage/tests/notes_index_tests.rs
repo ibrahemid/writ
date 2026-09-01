@@ -5,7 +5,7 @@ use rusqlite::Connection;
 use tempfile::TempDir;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
-use writ_storage::notes_index::{self, IndexedNote, NotesIndex, NotesIndexStore};
+use writ_storage::notes_index::{self, IndexedBy, IndexedNote, NotesIndex, NotesIndexStore};
 
 fn never_cancelled() -> impl Fn() -> bool {
     || false
@@ -213,8 +213,51 @@ fn a_file_downloaded_outside_writ_gets_its_text_into_the_index() {
     assert_eq!(outcome.updated, 1);
     assert_eq!(
         search(&conn, "sundial"),
-        vec![key],
+        vec![key.clone()],
         "the text of a downloaded note joins the index"
+    );
+
+    let indexed_by: String = conn
+        .query_row(
+            "SELECT indexed_by FROM files WHERE path = ?1",
+            [&key],
+            |r| r.get(0),
+        )
+        .expect("indexed_by");
+    assert_eq!(indexed_by, "content", "the row holds text now, and says so");
+}
+
+#[test]
+fn a_digest_written_over_a_name_only_row_does_not_cost_it_its_text() {
+    // A later writer recording a content hash is the obvious thing to do with
+    // `files.hash`, and it used to be where the name-only mark lived. Recovery
+    // reads `indexed_by`, so a digest landing on the row changes nothing about
+    // it.
+    let (_dir, conn, notes) = fixture();
+    let note = write_note(&notes, "cloud.md", "sundial marker");
+    let key = notes_index::index_key(&note);
+
+    let stub = {
+        let target = note.clone();
+        move |candidate: &Path| candidate == target.as_path()
+    };
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &stub).expect("first");
+
+    conn.execute(
+        "UPDATE files SET hash = ?2 WHERE path = ?1",
+        rusqlite::params![
+            key,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        ],
+    )
+    .expect("a later writer records a digest");
+
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless()).expect("second");
+
+    assert_eq!(
+        search(&conn, "sundial"),
+        vec![key],
+        "the download is still recognised with a digest on the row"
     );
 }
 
@@ -390,6 +433,7 @@ fn upsert_preserves_the_rowid_and_the_rows_that_cascade_from_it() {
         size: 10,
         mtime: 1,
         hash: None,
+        indexed_by: IndexedBy::Content,
     };
     index.upsert(&note, "first body").expect("first upsert");
 
