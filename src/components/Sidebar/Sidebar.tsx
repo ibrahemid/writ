@@ -105,34 +105,36 @@ export default function Sidebar() {
       aria-hidden={win.sidebar.isOpen() ? undefined : "true"}
       inert={!win.sidebar.isOpen()}
     >
-      <Show when={lightsInHead()}>
-        {/* The head sits outside the toolbar's drag region and only exists on
-            macOS, where nothing else moves the window from this column. */}
-        <div class="sidebar-head" data-tauri-drag-region="deep">
-          <TrafficLights focused={osWindowStore.focused()} />
-        </div>
-      </Show>
-      <Show when={searchInSidebar}>
-        <SearchBar />
-      </Show>
-      <Show
-        when={searching()}
-        fallback={
-          <div class="sidebar-scroll">
-            <Show when={hasContent()} fallback={<SidebarEmpty />}>
-              <ActiveSection />
-              <FilesSection />
-              <InboxSection />
-              <HistorySection />
-            </Show>
+      <div class="sidebar-inner">
+        <Show when={lightsInHead()}>
+          {/* The head sits outside the toolbar's drag region and only exists on
+              macOS, where nothing else moves the window from this column. */}
+          <div class="sidebar-head" data-tauri-drag-region="deep">
+            <TrafficLights focused={osWindowStore.focused()} />
           </div>
-        }
-      >
-        <div class="sidebar-section">
-          <div class="sidebar-section-title">Search results</div>
-          <SearchResults />
-        </div>
-      </Show>
+        </Show>
+        <Show when={searchInSidebar}>
+          <SearchBar />
+        </Show>
+        <Show
+          when={searching()}
+          fallback={
+            <div class="sidebar-scroll">
+              <Show when={hasContent()} fallback={<SidebarEmpty />}>
+                <ActiveSection />
+                <FilesSection />
+                <InboxSection />
+                <HistorySection />
+              </Show>
+            </div>
+          }
+        >
+          <div class="sidebar-section">
+            <div class="sidebar-section-title">Search results</div>
+            <SearchResults />
+          </div>
+        </Show>
+      </div>
       <div
         class="sidebar-resizer"
         role="separator"

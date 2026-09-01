@@ -18,6 +18,12 @@ interface TooltipProps {
    * tree; everywhere else the anchor is a plain span.
    */
   anchorRole?: "none";
+  /**
+   * Gate the tip on the content actually overflowing (scrollWidth >
+   * clientWidth). Used where the label is a title that already reads in
+   * full most of the time, so a tip would just repeat it.
+   */
+  requiresTruncation?: boolean;
   children: JSX.Element;
 }
 
@@ -71,8 +77,24 @@ export default function Tooltip(props: TooltipProps) {
     setSize({ width: 0, height: 0 });
   }
 
+  /** Dismisses an already-open tip, but never cancels a still-pending hover. */
+  function hideIfVisible() {
+    if (reason() !== null) hide();
+  }
+
+  function findTarget(): Element | undefined {
+    return resolved.toArray().find((node): node is Element => node instanceof Element);
+  }
+
+  /** Whether the anchored content is actually clipped right now. */
+  function isTruncated(): boolean {
+    const target = findTarget();
+    return target !== undefined && target.scrollWidth > target.clientWidth;
+  }
+
   function scheduleShow() {
     if (visible()) return;
+    if (props.requiresTruncation && !isTruncated()) return;
     cancelTimer();
     timer = setTimeout(() => {
       timer = undefined;
@@ -87,6 +109,7 @@ export default function Tooltip(props: TooltipProps) {
 
   function onFocusIn(event: FocusEvent) {
     if (!isKeyboardFocus(event.target)) return;
+    if (props.requiresTruncation && !isTruncated()) return;
     cancelTimer();
     setReason("focus");
   }
@@ -107,8 +130,8 @@ export default function Tooltip(props: TooltipProps) {
   // The description belongs on the control itself, not on the wrapper, so a
   // screen reader announces it with the control's own name.
   createEffect(() => {
-    const target = resolved.toArray().find((node) => node instanceof Element);
-    if (!(target instanceof Element)) return;
+    const target = findTarget();
+    if (!target) return;
     if (visible()) target.setAttribute("aria-describedby", id);
     else target.removeAttribute("aria-describedby");
   });
@@ -152,6 +175,8 @@ export default function Tooltip(props: TooltipProps) {
       role={props.anchorRole}
       onPointerEnter={scheduleShow}
       onPointerLeave={onPointerLeave}
+      onPointerDown={hideIfVisible}
+      onContextMenu={hide}
       onFocusIn={onFocusIn}
       onFocusOut={hide}
     >

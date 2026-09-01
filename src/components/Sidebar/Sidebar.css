@@ -11,15 +11,26 @@
   transition: width var(--writ-motion);
 }
 
-/* The live width is the persisted one; the token stays the default. */
+/* The live width is the persisted one; the token stays the default. Bounds
+   are clamped in JS (clampSidebarWidth), so nothing here needs a min/max-width
+   floor that would otherwise make expand pop straight to it. */
 .sidebar.is-open {
   width: var(--writ-sidebar-live-width, var(--writ-sidebar-width));
-  min-width: var(--writ-sidebar-min-width);
-  max-width: var(--writ-sidebar-max-width);
 }
 
 .sidebar.is-resizing {
   transition: none;
+}
+
+/* Content is laid out at its settled width for the whole open/close motion;
+   the outer element clips it instead of reflowing it. */
+.sidebar-inner {
+  flex: 1;
+  flex-shrink: 0;
+  min-height: 0;
+  width: var(--writ-sidebar-live-width, var(--writ-sidebar-width));
+  display: flex;
+  flex-direction: column;
 }
 
 /* The macOS window head. 44px lines it up with the toolbar beside it, and 20px

@@ -108,6 +108,28 @@ describe("sidebar resize handle", () => {
     );
   });
 
+  it("never floors the outer element's width, so expand doesn't pop to a min-width", () => {
+    const openBlock = SIDEBAR_CSS.slice(
+      SIDEBAR_CSS.indexOf(".sidebar.is-open {"),
+      SIDEBAR_CSS.indexOf("}", SIDEBAR_CSS.indexOf(".sidebar.is-open {")),
+    );
+    expect(openBlock).not.toContain("min-width");
+    expect(openBlock).not.toContain("max-width");
+  });
+
+  it("wraps the content in an inner element fixed at the live width", () => {
+    const { sidebar } = mount();
+    const inner = sidebar.querySelector<HTMLElement>(".sidebar-inner")!;
+    expect(inner).not.toBeNull();
+    // The head/search/scroll children live inside it, not as direct siblings
+    // of the resizer, so they never reflow while the outer box animates.
+    expect(inner.querySelector(".sidebar-scroll")).not.toBeNull();
+    expect(sidebar.querySelector(":scope > .sidebar-resizer")).not.toBeNull();
+    expect(SIDEBAR_CSS).toContain(
+      "width: var(--writ-sidebar-live-width, var(--writ-sidebar-width));\n  display: flex;",
+    );
+  });
+
   it("follows the pointer during a drag without writing settings per frame", () => {
     const { sidebar, handle } = mount();
     drag(handle, 240, 280);

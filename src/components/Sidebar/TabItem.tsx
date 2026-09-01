@@ -43,7 +43,7 @@ export default function TabItem(props: Props) {
       <Show when={props.icon}>
         {(name) => <Icon name={name()} />}
       </Show>
-      <Tooltip label={props.label}>
+      <Tooltip label={props.label} requiresTruncation>
         <span class="tab-item-title">{abbreviateTitle(props.label)}</span>
       </Tooltip>
       {props.secondary && <span class="tab-item-secondary">{props.secondary}</span>}

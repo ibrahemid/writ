@@ -152,6 +152,48 @@ describe("Tooltip", () => {
     expect((tip() as HTMLElement).style.top).toBe(`${anchorRect.bottom + 6}px`);
   });
 
+  it("a context menu on the trigger hides it, even mid pending-hover", () => {
+    const { anchor } = mount();
+
+    fireEvent.pointerEnter(anchor);
+    vi.advanceTimersByTime(200);
+    fireEvent.contextMenu(anchor);
+    vi.advanceTimersByTime(HOVER_DELAY_MS);
+    expect(tip()).toBeNull();
+  });
+
+  it("a context menu hides an already-visible tip", () => {
+    const { anchor } = mount();
+
+    focusByKeyboard(anchor);
+    expect(tip()).not.toBeNull();
+
+    fireEvent.contextMenu(anchor);
+    expect(tip()).toBeNull();
+  });
+
+  it("only shows a title tip when the label is actually truncated", () => {
+    const { container } = render(() => (
+      <Tooltip label="Full title text" requiresTruncation>
+        <span>Full title text</span>
+      </Tooltip>
+    ));
+    const anchor = container.firstElementChild as HTMLElement;
+    const span = anchor.querySelector("span") as HTMLElement;
+    Object.defineProperty(span, "scrollWidth", { value: 100, configurable: true });
+    Object.defineProperty(span, "clientWidth", { value: 100, configurable: true });
+
+    fireEvent.pointerEnter(anchor);
+    vi.advanceTimersByTime(HOVER_DELAY_MS);
+    expect(tip()).toBeNull();
+
+    Object.defineProperty(span, "scrollWidth", { value: 200, configurable: true });
+    fireEvent.pointerLeave(anchor);
+    fireEvent.pointerEnter(anchor);
+    vi.advanceTimersByTime(HOVER_DELAY_MS);
+    expect(tip()?.textContent).toBe("Full title text");
+  });
+
   it("cleans up its listeners on unmount", () => {
     const remove = vi.spyOn(document, "removeEventListener");
     const { anchor, unmount } = mount();
