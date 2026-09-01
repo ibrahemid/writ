@@ -1,0 +1,17 @@
+.save-marker {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--writ-foreground-muted);
+  border-radius: 50%;
+}
+
+.save-marker--failed {
+  width: 9px;
+  height: 8px;
+  border: none;
+  border-radius: 0;
+  background: var(--writ-status-error);
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+}

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 
 import {
   asSentence,
+  describeSaveFailure,
   formatRenameError,
   formatSaveError,
   isRetryableSaveError,
@@ -43,10 +44,55 @@ describe("formatSaveError", () => {
     expect(message).not.toContain("ERR_");
   });
 
-  it("passes an unmapped reason through", () => {
-    expect(formatSaveError(new Error("permission denied"))).toBe("permission denied");
-    expect(formatSaveError("  ")).toBe("unknown error");
-    expect(formatSaveError(undefined)).toBe("unknown error");
+  it("maps every io kind Writ mints a code for to plain words", () => {
+    expect(formatSaveError(new Error("ERR_PERMISSION_DENIED: io error (os error 13)"))).toBe(
+      "you do not have permission to change this file.",
+    );
+    expect(formatSaveError(new Error("ERR_FILE_MISSING: io error (os error 2)"))).toBe(
+      "the folder this file was in is no longer there.",
+    );
+    expect(formatSaveError(new Error("ERR_WRITE_TIMED_OUT: io error (os error 60)"))).toBe(
+      "the disk stopped responding. Check that the drive is still connected.",
+    );
+    expect(formatSaveError(new Error("ERR_WRITE_FAILED: io error (os error 28)"))).toBe(
+      "the disk would not take the write.",
+    );
+    expect(formatSaveError(new Error("ERR_NOTE_READ_ONLY: note 9f1c0f6e is read-only"))).toBe(
+      "this file opened read-only, so it cannot be written to.",
+    );
+  });
+
+  it("says the one thing that is true for a failure with no code, rather than the raw text", () => {
+    // The raw text is the operating system's or names a note by its id, and a
+    // person handed either learns nothing.
+    const raw = "io error: Permission denied (os error 13) on 9f1c0f6e-3b2a-4d51-9a77-2c1f0b8e5d33";
+    const message = formatSaveError(new Error(raw));
+
+    expect(message).toBe("the disk would not take the write.");
+    expect(message).not.toMatch(/os error/i);
+    expect(message).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    expect(formatSaveError("  ")).toBe("the disk would not take the write.");
+    expect(formatSaveError(undefined)).toBe("the disk would not take the write.");
+  });
+});
+
+describe("describeSaveFailure", () => {
+  it("carries the code, the sentence and whether pressing save again could help", () => {
+    expect(describeSaveFailure(new Error("ERR_PERMISSION_DENIED: io error"))).toEqual({
+      code: "ERR_PERMISSION_DENIED",
+      message: "you do not have permission to change this file.",
+      retryable: true,
+    });
+  });
+
+  it("marks a read-only note as not worth a second press", () => {
+    expect(describeSaveFailure(new Error("ERR_NOTE_READ_ONLY: note x is read-only")).retryable).toBe(
+      false,
+    );
+  });
+
+  it("reports no code for a failure that carried none", () => {
+    expect(describeSaveFailure(new Error("something the disk said")).code).toBeNull();
   });
 });
 

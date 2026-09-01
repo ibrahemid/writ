@@ -24,7 +24,9 @@ let historyRows: BufferDocument[] = [];
 
 vi.mock("../../services/autosave", () => ({
   flushAutosave: vi.fn(),
+  onAutosaveStart: vi.fn(() => () => {}),
   onAutosaveSuccess: vi.fn(() => () => {}),
+  onAutosaveError: vi.fn(() => () => {}),
 }));
 vi.mock("../../components/ContextMenu/ContextMenu", () => ({
   showContextMenu: vi.fn(),

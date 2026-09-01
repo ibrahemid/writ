@@ -13,6 +13,7 @@ import {
 } from "../../lib/note-actions";
 import { formatRenameError } from "../../lib/save-error";
 import { showToast } from "../Notifications/Toast";
+import SaveMarker from "../SaveMarker/SaveMarker";
 import { logFailure } from "../../lib/log";
 import "./TabBar.css";
 
@@ -125,6 +126,7 @@ export default function TabBar() {
                   onClick={(e) => e.stopPropagation()}
                 />
               </Show>
+              <SaveMarker noteId={tab.id} />
               <span
                 class="tab-close"
                 role="button"

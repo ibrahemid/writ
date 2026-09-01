@@ -17,10 +17,14 @@ function turn(ms = 0): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Waits out the idle debounce and the digest behind it. */
-async function hashed(): Promise<void> {
-  await turn(DOC_HASH_IDLE_MS + 20);
-  await turn();
+/** Waits until the note's document digest is the one `text` hashes to. */
+async function hashedAs(
+  store: { docHash: (id: string) => string | undefined },
+  id: string,
+  text: string,
+): Promise<void> {
+  const want = await hashDocument(text);
+  await vi.waitFor(() => expect(store.docHash(id)).toBe(want), { timeout: 2000 });
 }
 
 let stores: Array<{ stopSaveListener: () => void }> = [];
@@ -51,9 +55,8 @@ describe("editorStore dirty contract", () => {
   it("is clean once a freshly opened note has been hashed", async () => {
     const store = newStore();
     store.noteOpened("a", "hello");
-    await turn();
+    await hashedAs(store, "a", "hello");
 
-    expect(store.docHash("a")).toBe(await hashDocument("hello"));
     expect(store.lastKnownDiskHash("a")).toBe(store.docHash("a"));
     expect(store.isDirty("a")).toBe(false);
   });
@@ -61,7 +64,7 @@ describe("editorStore dirty contract", () => {
   it("reads dirty for a character typed inside the idle window, before the hash lands", async () => {
     const store = newStore();
     store.noteOpened("a", "hello");
-    await turn();
+    await hashedAs(store, "a", "hello");
     expect(store.isDirty("a")).toBe(false);
 
     store.noteEdited("a", "hello!");
@@ -73,40 +76,39 @@ describe("editorStore dirty contract", () => {
   it("stays dirty while the edit differs from the file, before and after the hash", async () => {
     const store = newStore();
     store.noteOpened("a", "hello");
-    await turn();
+    await hashedAs(store, "a", "hello");
 
     store.noteEdited("a", "hello!");
     expect(store.isDirty("a")).toBe(true);
-    await hashed();
+    await hashedAs(store, "a", "hello!");
 
-    expect(store.docHash("a")).toBe(await hashDocument("hello!"));
     expect(store.isDirty("a")).toBe(true);
   });
 
   it("goes clean again when the document is typed back to what the file holds", async () => {
     const store = newStore();
     store.noteOpened("a", "hello");
-    await turn();
+    await hashedAs(store, "a", "hello");
 
     store.noteEdited("a", "hello!");
-    await hashed();
+    await hashedAs(store, "a", "hello!");
     expect(store.isDirty("a")).toBe(true);
 
     store.noteEdited("a", "hello");
-    await hashed();
+    await hashedAs(store, "a", "hello");
     expect(store.isDirty("a")).toBe(false);
   });
 
   it("counts a differing document as dirty with the queue empty and a write just resolved", async () => {
     const store = newStore();
     store.noteOpened("a", "hello");
-    await turn();
+    await hashedAs(store, "a", "hello");
 
     mockedSave.mockResolvedValue(await hashDocument("written"));
     debouncedSave("a", "written", 0);
     await flushAutosave("a");
     store.noteEdited("a", "typed after the write");
-    await hashed();
+    await hashedAs(store, "a", "typed after the write");
 
     expect(store.lastKnownDiskHash("a")).toBe(await hashDocument("written"));
     expect(store.isDirty("a")).toBe(true);
@@ -115,10 +117,10 @@ describe("editorStore dirty contract", () => {
   it("is clean after a write of exactly what the document holds", async () => {
     const store = newStore();
     store.noteOpened("a", "hello");
-    await turn();
+    await hashedAs(store, "a", "hello");
 
     store.noteEdited("a", "hello!");
-    await hashed();
+    await hashedAs(store, "a", "hello!");
 
     mockedSave.mockResolvedValue(await hashDocument("hello!"));
     debouncedSave("a", "hello!", 0);
@@ -132,10 +134,11 @@ describe("editorStore dirty contract", () => {
     const store = newStore();
     store.noteOpened("a", "one");
     store.noteOpened("b", "two");
-    await turn();
+    await hashedAs(store, "a", "one");
+    await hashedAs(store, "b", "two");
 
     store.noteEdited("b", "two edited");
-    await hashed();
+    await hashedAs(store, "b", "two edited");
 
     expect(store.isDirty("a")).toBe(false);
     expect(store.isDirty("b")).toBe(true);
@@ -144,20 +147,20 @@ describe("editorStore dirty contract", () => {
   it("reads a reloaded note as clean again", async () => {
     const store = newStore();
     store.noteOpened("a", "hello");
-    await turn();
+    await hashedAs(store, "a", "hello");
     store.noteEdited("a", "typed");
-    await hashed();
+    await hashedAs(store, "a", "typed");
     expect(store.isDirty("a")).toBe(true);
 
     store.noteOpened("a", "what the file now holds");
-    await turn();
+    await hashedAs(store, "a", "what the file now holds");
     expect(store.isDirty("a")).toBe(false);
   });
 
   it("forgets a note whose tab has gone", async () => {
     const store = newStore();
     store.noteOpened("a", "hello");
-    await turn();
+    await hashedAs(store, "a", "hello");
     store.noteClosed("a");
 
     expect(store.docHash("a")).toBeUndefined();
@@ -167,7 +170,7 @@ describe("editorStore dirty contract", () => {
   it("drops a hash that lands after a newer edit", async () => {
     const store = newStore();
     store.noteOpened("a", "hello");
-    await turn();
+    await hashedAs(store, "a", "hello");
 
     const firstHash = await hashDocument("first");
     let release = () => {};
@@ -197,7 +200,7 @@ describe("editorStore dirty contract", () => {
   it("does not move the record of the file when a save wrote nothing", async () => {
     const store = newStore();
     store.noteOpened("a", "hello");
-    await turn();
+    await hashedAs(store, "a", "hello");
     const before = store.lastKnownDiskHash("a");
 
     store.noteSaved("a", null);

@@ -12,6 +12,9 @@ function hit(id: string) {
 
 vi.mock("../../services/autosave", () => ({
   flushAutosave: vi.fn().mockResolvedValue({ ok: true, failures: [] }),
+  onAutosaveStart: vi.fn(() => () => {}),
+  onAutosaveSuccess: vi.fn(() => () => {}),
+  onAutosaveError: vi.fn(() => () => {}),
 }));
 
 import { createSidebarStore, type SidebarStore } from "../../stores/window/sidebar-store";

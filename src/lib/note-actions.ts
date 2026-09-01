@@ -4,19 +4,16 @@ import { windowRegistry } from "../stores/global/window-registry";
 import { requestConfirm } from "../components/ConfirmDialog/ConfirmDialog";
 import { showToast } from "../components/Notifications/Toast";
 import { logFailure } from "./log";
+import { noteName } from "./note-name";
 import { detectPlatform } from "./platform";
 import * as api from "../services/tauri";
+
+export { noteName };
 
 // The note operations three surfaces share: the command palette, the tab
 // context menu and the file tree. Keeping them here is what stops the same
 // confirmation being worded three ways.
 
-/** The name a person knows the note by: its file name, else the tab title. */
-export function noteName(id: string): string {
-  const doc = bufferRegistry.buffers().find((b) => b.id === id);
-  if (!doc) return "this note";
-  return doc.source_path?.split(/[\\/]/).pop() || doc.title;
-}
 
 /**
  * Whether Writ may move this note to the Trash.

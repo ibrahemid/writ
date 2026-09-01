@@ -87,7 +87,7 @@ describe("Cmd+S saves the active buffer", () => {
     expect(event.preventDefault).toHaveBeenCalled();
 
     await vi.waitFor(() => expect(mockedSave).toHaveBeenCalledWith("buf-1", "hello disk"));
-    expect(saveStatusStore.status()).toBe("saved");
+    expect(saveStatusStore.forNote("buf-1").state).toBe("saved");
   });
 
   it("writes once when an autosave was already scheduled", async () => {
@@ -113,7 +113,7 @@ describe("Cmd+S saves the active buffer", () => {
 
     expect(handleKeyDown(keyEvent({ key: "s", metaKey: true }))).toBe(true);
 
-    await vi.waitFor(() => expect(saveStatusStore.status()).toBe("failed"));
+    await vi.waitFor(() => expect(saveStatusStore.forNote("buf-1").state).toBe("failed"));
   });
 
   it("does not write when no buffer is loaded into the view", async () => {

@@ -4,6 +4,7 @@ import type { BufferRegistry } from "../global/buffer-registry";
 import type { SaveFailure } from "../../services/autosave";
 import { asSentence, formatSaveError } from "../../lib/save-error";
 import { requestConfirm } from "../../components/ConfirmDialog/ConfirmDialog";
+import { saveStatusStore } from "../global/save-status";
 
 export type TabStore = ReturnType<typeof createTabStore>;
 
@@ -25,10 +26,11 @@ export function createTabStore(deps: {
   // Called after every close path, on the ids that path aimed at. A tab the
   // registry refused to close is still open and keeps its record.
   function forgetClosed(ids: readonly string[]) {
-    if (!editor) return;
     const open = new Set(registry.activeTabs().map((b) => b.id));
     for (const id of ids) {
-      if (!open.has(id)) editor.noteClosed(id);
+      if (open.has(id)) continue;
+      editor?.noteClosed(id);
+      saveStatusStore.forgetNote(id);
     }
   }
 

@@ -24,18 +24,55 @@ pub const ERR_FILE_CHANGED_ON_DISK: &str = "ERR_FILE_CHANGED_ON_DISK";
 /// Code a save carries when the file's bytes are not on this machine yet.
 pub const ERR_FILE_NOT_DOWNLOADED: &str = "ERR_FILE_NOT_DOWNLOADED";
 
-/// Renders a failed save for the frontend: a stable code first when the
-/// failure is one the editor has something to say about, the plain message
-/// otherwise.
+/// Code a save carries when the note itself is not writable, which a
+/// generated document and a binary file both are.
+pub const ERR_NOTE_READ_ONLY: &str = "ERR_NOTE_READ_ONLY";
+
+/// Code a save carries when the filesystem refused the write.
+pub const ERR_PERMISSION_DENIED: &str = "ERR_PERMISSION_DENIED";
+
+/// Code a save carries when the file, or the folder above it, is gone.
+pub const ERR_FILE_MISSING: &str = "ERR_FILE_MISSING";
+
+/// Code a save carries when the filesystem stopped answering, which is what a
+/// disconnected network volume looks like.
+pub const ERR_WRITE_TIMED_OUT: &str = "ERR_WRITE_TIMED_OUT";
+
+/// Code a save carries when the write failed for a reason with no sentence of
+/// its own.
+///
+/// The message after the code is the operating system's, so the editor renders
+/// the code and never the message: `Os error 28` and a note's id are the two
+/// things a person must not be handed instead of an explanation.
+pub const ERR_WRITE_FAILED: &str = "ERR_WRITE_FAILED";
+
+/// Renders a failed save for the frontend as a stable code the editor writes
+/// its own sentence from, followed by the message a log wants.
+///
+/// Every arm carries a code. A failure with no code would reach the editor as
+/// whatever the layer beneath happened to say, which is where an errno or a
+/// note's id gets shown to a person.
 pub fn save_failure_message(error: &StorageError) -> String {
-    match error {
-        StorageError::SourceChangedOnDisk { .. } => {
-            format!("{ERR_FILE_CHANGED_ON_DISK}: {error}")
-        }
-        StorageError::SourceNotDownloaded { .. } => {
-            format!("{ERR_FILE_NOT_DOWNLOADED}: {error}")
-        }
-        other => other.to_string(),
+    let code = match error {
+        StorageError::SourceChangedOnDisk { .. } => ERR_FILE_CHANGED_ON_DISK,
+        StorageError::SourceNotDownloaded { .. } => ERR_FILE_NOT_DOWNLOADED,
+        StorageError::Io(io) => io_failure_code(io.kind()),
+        _ => ERR_WRITE_FAILED,
+    };
+    format!("{code}: {error}")
+}
+
+/// The code for an `io::ErrorKind` a save can come back with.
+///
+/// Only kinds with something specific to tell the person get one of their own;
+/// the rest share [`ERR_WRITE_FAILED`], whose sentence says what happened
+/// without repeating the operating system's wording.
+fn io_failure_code(kind: std::io::ErrorKind) -> &'static str {
+    match kind {
+        std::io::ErrorKind::PermissionDenied => ERR_PERMISSION_DENIED,
+        std::io::ErrorKind::NotFound => ERR_FILE_MISSING,
+        std::io::ErrorKind::TimedOut => ERR_WRITE_TIMED_OUT,
+        _ => ERR_WRITE_FAILED,
     }
 }
 
@@ -134,7 +171,7 @@ pub fn save_buffer_content_inner(
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).map_err(|e| e.to_string())?;
     if doc.read_only {
-        return Err(format!("note {id} is read-only"));
+        return Err(format!("{ERR_NOTE_READ_ONLY}: note {id} is read-only"));
     }
 
     let source_path = match doc.source_path.as_deref() {
