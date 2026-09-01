@@ -416,6 +416,30 @@ pub fn note_disk_state(
     note_disk_state_of(path, writ_storage::buffer_store::dataless_flags(path))
 }
 
+/// One note's text as the editor holds it, for a save that could not land.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct UnsavedNote {
+    pub id: String,
+    pub content: String,
+}
+
+/// IPC: keeps text a save could not write until the shutdown snapshot takes
+/// it (spec S2, the quit-with-a-failed-save case).
+///
+/// Writ is quitting by the time this is called and the file is the one place
+/// the text could not go, so the snapshot is where it goes instead; the next
+/// launch restores it ([`crate::finish_shutdown`]).
+#[tauri::command]
+pub fn record_unsaved_notes(
+    state: State<'_, AppState>,
+    notes: Vec<UnsavedNote>,
+) -> Result<(), String> {
+    for note in notes {
+        state.record_unsaved_on_exit(&note.id, note.content);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn list_active_buffers(state: State<'_, AppState>) -> Result<Vec<BufferDocument>, String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;

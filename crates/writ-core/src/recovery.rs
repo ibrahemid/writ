@@ -103,6 +103,25 @@ pub fn should_snapshot(
     previous != Some(current)
 }
 
+/// The snapshot a shutdown records, and whether that shutdown counts as clean.
+///
+/// `on_disk` is what each open note's file holds; `unsaved` is text a save
+/// could not write, keyed the same way. The unsaved text wins every collision,
+/// because the file it never reached is exactly the copy that is behind.
+///
+/// A shutdown that left text nowhere but here is not a clean one. Only a
+/// snapshot marked unclean is read back on the next launch
+/// ([`resolve_recovery`] is reached through it), so marking this one clean
+/// would discard the text the overlay exists to keep.
+pub fn shutdown_snapshot(
+    mut on_disk: HashMap<String, String>,
+    unsaved: HashMap<String, String>,
+) -> (HashMap<String, String>, bool) {
+    let is_clean = unsaved.is_empty();
+    on_disk.extend(unsaved);
+    (on_disk, is_clean)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,5 +192,29 @@ mod tests {
         let previous = fingerprint_buffers(&map(&[("buf-1", "alpha")]));
         let current = fingerprint_buffers(&map(&[("buf-1", "alpha beta")]));
         assert!(should_snapshot(Some(previous), current));
+    }
+
+    #[test]
+    fn a_shutdown_with_nothing_unsaved_is_clean_and_records_the_files() {
+        let (contents, is_clean) = shutdown_snapshot(map(&[("a", "on disk")]), HashMap::new());
+        assert!(is_clean);
+        assert_eq!(contents, map(&[("a", "on disk")]));
+    }
+
+    #[test]
+    fn text_a_save_could_not_write_replaces_what_the_file_holds() {
+        let (contents, is_clean) = shutdown_snapshot(
+            map(&[("a", "on disk"), ("b", "kept")]),
+            map(&[("a", "typed")]),
+        );
+        assert!(!is_clean);
+        assert_eq!(contents, map(&[("a", "typed"), ("b", "kept")]));
+    }
+
+    #[test]
+    fn a_note_with_no_readable_file_still_reaches_the_snapshot() {
+        let (contents, is_clean) = shutdown_snapshot(HashMap::new(), map(&[("a", "typed")]));
+        assert!(!is_clean);
+        assert_eq!(contents, map(&[("a", "typed")]));
     }
 }

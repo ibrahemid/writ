@@ -82,6 +82,7 @@ fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFall
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
+        unsaved_on_exit: Mutex::new(std::collections::HashMap::new()),
     }
 }
 

@@ -41,8 +41,12 @@ pub const SNAPSHOT_HEARTBEAT: std::time::Duration = std::time::Duration::from_se
 /// Deferred FTS reindexes go first: a reindex still inside its debounce window
 /// would otherwise be lost, leaving search stale, because the startup
 /// consistency check only removes orphan rows and never adds missing content
-/// (ADR-020). The clean-shutdown snapshot follows, and it must be the last
-/// thing written, so it records the notes as the flush left them.
+/// (ADR-020). The shutdown snapshot follows, and it must be the last thing
+/// written, so it records the notes as the flush left them.
+///
+/// Text the flush could not write is folded in over the files
+/// ([`writ_core::recovery::shutdown_snapshot`]), which is what keeps a quit
+/// with a failed save from ending with that text nowhere.
 pub(crate) fn finish_shutdown(app_handle: &tauri::AppHandle) {
     let state = app_handle.state::<AppState>();
 
@@ -57,14 +61,20 @@ pub(crate) fn finish_shutdown(app_handle: &tauri::AppHandle) {
         }
     }
 
+    let unsaved = state.take_unsaved_on_exit();
+    let unsaved_count = unsaved.len();
     let snapshot_result = state.store.lock().ok().map(|store| {
-        store
-            .collect_buffer_contents()
-            .and_then(|contents| store.write_session_snapshot(&contents, true))
+        store.collect_buffer_contents().and_then(|on_disk| {
+            let (contents, is_clean) = writ_core::recovery::shutdown_snapshot(on_disk, unsaved);
+            store.write_session_snapshot(&contents, is_clean)
+        })
     });
     match snapshot_result {
+        Some(Ok(())) if unsaved_count > 0 => {
+            info!(notes = unsaved_count, "shutdown snapshot kept unsaved text")
+        }
         Some(Ok(())) => info!("clean-shutdown snapshot written"),
-        Some(Err(e)) => tracing::warn!(error = %e, "clean-shutdown snapshot failed"),
+        Some(Err(e)) => tracing::warn!(error = %e, "shutdown snapshot failed"),
         None => {}
     }
 }
@@ -411,6 +421,7 @@ pub fn run() {
             commands::buffer::save_buffer_content_unindexed,
             commands::buffer::read_buffer_content,
             commands::buffer::note_disk_state,
+            commands::buffer::record_unsaved_notes,
             commands::buffer::list_active_buffers,
             commands::buffer::close_buffer,
             commands::buffer::close_buffers,

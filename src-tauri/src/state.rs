@@ -156,6 +156,14 @@ pub struct AppState {
     /// closing or deleting a note drops it, so a note reopened weeks later
     /// is compared against the file, not against a stale record of it.
     pub last_disk_hash: Mutex<HashMap<String, DiskState>>,
+    /// Text a save could not write, handed over by the editor on its way out,
+    /// keyed by buffer id.
+    ///
+    /// The shutdown snapshot is the last thing written and it reads every open
+    /// note's file, so a note whose write failed would otherwise contribute
+    /// the stale bytes on disk and the text the person typed would be nowhere.
+    /// Emptied by [`Self::take_unsaved_on_exit`] as the snapshot is composed.
+    pub unsaved_on_exit: Mutex<HashMap<String, String>>,
 }
 
 impl AppState {
@@ -421,6 +429,7 @@ impl AppState {
             workspace_index,
             search_generation: Arc::new(AtomicU64::new(0)),
             last_disk_hash: Mutex::new(recovered_disk_states),
+            unsaved_on_exit: Mutex::new(HashMap::new()),
         })
     }
 
@@ -568,6 +577,22 @@ impl AppState {
     pub fn disk_hash_matches(&self, buffer_id: &str, bytes: &[u8]) -> bool {
         let map = recover_poison(self.last_disk_hash.lock(), "state::disk_hash_matches");
         map.get(buffer_id).map(|state| state.hash) == Some(writ_core::hash::sha256_bytes(bytes))
+    }
+
+    /// Records text a save could not write, for the shutdown snapshot to keep.
+    ///
+    /// The editor hands the same note over on both ways out (the quit flush
+    /// and the window closing), so a later handover replaces an earlier one:
+    /// it carries the newer text.
+    pub fn record_unsaved_on_exit(&self, buffer_id: &str, content: String) {
+        let mut map = recover_poison(self.unsaved_on_exit.lock(), "state::record_unsaved_on_exit");
+        map.insert(buffer_id.to_string(), content);
+    }
+
+    /// Takes everything recorded, leaving the map empty.
+    pub fn take_unsaved_on_exit(&self) -> HashMap<String, String> {
+        let mut map = recover_poison(self.unsaved_on_exit.lock(), "state::take_unsaved_on_exit");
+        std::mem::take(&mut *map)
     }
 }
 

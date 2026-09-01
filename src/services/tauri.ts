@@ -193,6 +193,23 @@ export async function noteDiskState(id: string): Promise<DiskState | null> {
   return invoke("note_disk_state", { id });
 }
 
+/** One note's text, for a save that could not reach the file. */
+export interface UnsavedNote {
+  id: string;
+  content: string;
+}
+
+/**
+ * Hands text no save could write to the shutdown snapshot.
+ *
+ * Called on the way out, once, after the last flush: the file has already
+ * refused this text, so the snapshot is the only place left that the next
+ * launch reads.
+ */
+export async function recordUnsavedNotes(notes: readonly UnsavedNote[]): Promise<void> {
+  return invoke("record_unsaved_notes", { notes });
+}
+
 export async function readBufferContent(id: string): Promise<string> {
   const bytes = await invoke<ArrayBuffer>("read_buffer_content", { id });
   return new TextDecoder().decode(bytes);

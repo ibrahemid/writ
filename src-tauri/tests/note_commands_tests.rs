@@ -77,6 +77,7 @@ fn make_state(dir: &TempDir) -> AppState {
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
+        unsaved_on_exit: Mutex::new(std::collections::HashMap::new()),
     }
 }
 

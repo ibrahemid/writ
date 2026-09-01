@@ -18,6 +18,7 @@ use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::buffer::{
     decide_create_buffer, read_buffer_content_inner, save_buffer_content_inner,
     save_failure_message, CreateDecision, ERR_FILE_CHANGED_ON_DISK, ERR_FILE_NOT_DOWNLOADED,
+    ERR_WRITE_FAILED,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::preview::handler::RenderCache;
@@ -131,6 +132,7 @@ fn make_state(dir: &TempDir) -> AppState {
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
+        unsaved_on_exit: Mutex::new(std::collections::HashMap::new()),
     }
 }
 
@@ -252,13 +254,14 @@ fn a_stopped_save_comes_back_under_a_stable_code() {
 }
 
 #[test]
-fn every_other_failure_keeps_its_plain_message() {
+fn every_other_failure_comes_back_under_the_catch_all_code() {
     let other = writ_storage::errors::StorageError::Consistency {
         message: "note x has no file to save into".to_string(),
     };
     let message = save_failure_message(&other);
-    assert_eq!(message, other.to_string());
-    assert!(!message.starts_with("ERR_"), "{message}");
+    // The editor writes its sentence from the code, so a failure carrying none
+    // would reach a person as whatever the layer underneath happened to say.
+    assert_eq!(message, format!("{ERR_WRITE_FAILED}: {other}"));
 }
 
 #[test]
@@ -362,4 +365,27 @@ fn a_conflict_copy_in_one_folder_does_not_suppress_an_arrival_of_the_same_name_i
         "a copy written into a/ must not swallow b/{}",
         name.to_string_lossy()
     );
+}
+
+#[test]
+fn text_a_save_could_not_write_is_held_for_the_shutdown_snapshot() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    state.record_unsaved_on_exit("note-1", "first pass".to_string());
+    // Both ways out hand the same note over, and the later one carries the
+    // newer text.
+    state.record_unsaved_on_exit("note-1", "what the person last typed".to_string());
+    state.record_unsaved_on_exit("note-2", "another note".to_string());
+
+    let held = state.take_unsaved_on_exit();
+    assert_eq!(
+        held.get("note-1").map(String::as_str),
+        Some("what the person last typed")
+    );
+    assert_eq!(held.get("note-2").map(String::as_str), Some("another note"));
+
+    // Taken once: a second snapshot pass must not write the text again over a
+    // file that has since been saved.
+    assert!(state.take_unsaved_on_exit().is_empty());
 }
