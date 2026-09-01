@@ -399,3 +399,60 @@ fn the_notes_watcher_ignores_a_sync_clients_own_folders() {
         "an atomic write's temp file must never reach the index"
     );
 }
+
+/// The files a sync client and another editor leave in a notes folder are not
+/// changes to anything: a catch-up would otherwise fan out into an event per
+/// temp file.
+#[test]
+fn the_notes_watcher_drops_the_files_nobody_wrote_on_purpose() {
+    use std::time::{Duration, Instant};
+    use writ_core::events::bus::WritEvent;
+    use writ_tauri_lib::watcher::handler::classify_notes_event;
+
+    let holder = TempDir::new().expect("tempdir");
+    let state = make_state(&holder, None);
+    let notes = state.notes_root();
+    let ignore = create_ignore_set();
+
+    for name in [
+        ".syncthing.note.md.tmp",
+        "~syncthing~note.md.tmp",
+        ".note.md.icloud",
+        ".note.md.swp",
+        "note.md~",
+        "note.md.crdownload",
+        ".obsidian.vimrc",
+    ] {
+        let path = notes.join(name);
+        std::fs::write(&path, "not a note").expect("write");
+        assert!(
+            classify_notes_event(
+                &path,
+                &notes,
+                &ignore,
+                Duration::from_secs(5),
+                Instant::now()
+            )
+            .is_none(),
+            "{name} must never reach the index"
+        );
+    }
+
+    // The copy a sync client kept is somebody's text, so it is a change like
+    // any other.
+    let copy = notes.join("note.sync-conflict-20260822-120000-ABCD.md");
+    std::fs::write(&copy, "both devices wrote").expect("write");
+    assert!(
+        matches!(
+            classify_notes_event(
+                &copy,
+                &notes,
+                &ignore,
+                Duration::from_secs(5),
+                Instant::now()
+            ),
+            Some(WritEvent::NotesChanged { removed: false, .. })
+        ),
+        "a copy that holds somebody's text is a change like any other"
+    );
+}

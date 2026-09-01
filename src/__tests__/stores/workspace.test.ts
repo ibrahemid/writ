@@ -22,7 +22,7 @@ const mockedList = vi.mocked(listWorkspaceDir);
 const mockedGetRoot = vi.mocked(getWorkspaceRoot);
 
 function entry(name: string, dir: string, isDir = false): WorkspaceEntry {
-  return { name, path: `${dir}/${name}`, is_dir: isDir };
+  return { name, path: `${dir}/${name}`, is_dir: isDir, conflict_copy: null };
 }
 
 describe("workspaceStore", () => {

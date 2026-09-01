@@ -319,16 +319,19 @@ pub fn start_notes_watcher(
 /// Classifies a notes-folder event into a domain event, or suppresses it.
 ///
 /// Suppressed: a path outside `root`, a path under a folder another client
-/// left behind (`.obsidian`, `.trash`, `.stfolder`, `.stversions`), the temp
-/// file every atomic write creates beside its target, and a write Writ itself
+/// left behind (`.obsidian`, `.trash`, `.stfolder`, `.stversions`), a name
+/// `writ_core::workspace::is_ignored_name` answers for — the temp file every
+/// atomic write creates beside its target, a sync client's in-flight file, an
+/// undownloaded placeholder, an editor swap file — and a write Writ itself
 /// made, which the ignore set recognises by canonical path and content
 /// fingerprint under the source namespace (ADR-028 section 6).
 ///
-/// Filtering the temp files is a correctness rule rather than a tidiness one:
+/// Filtering those names is a correctness rule rather than a tidiness one:
 /// `write_atomic` persists through a `NamedTempFile` created beside its target,
 /// so every internal save fans out into a create-and-delete pair for a `.tmp`
 /// path, and a watcher over a folder Writ writes into has to drop them before
-/// it emits anything.
+/// it emits anything. A sync client catching up fans out the same way over its
+/// own temp names.
 pub fn classify_notes_event(
     path: &Path,
     root: &Path,
@@ -343,7 +346,7 @@ pub fn classify_notes_event(
         return None;
     }
     let name = path.file_name()?.to_string_lossy().into_owned();
-    if name.starts_with(".tmp") || name.ends_with(".tmp") {
+    if writ_core::workspace::is_ignored_name(&name) {
         return None;
     }
 

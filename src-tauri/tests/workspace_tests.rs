@@ -164,6 +164,30 @@ fn list_dir_inside_root_returns_sorted_entries() {
 }
 
 #[test]
+fn a_listed_entry_carries_the_conflict_flag_over_the_wire() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let ws = TempDir::new().unwrap();
+    std::fs::write(ws.path().join("a.md"), "x").unwrap();
+    std::fs::write(
+        ws.path().join("a.sync-conflict-20260822-120000-ABCD.md"),
+        "x",
+    )
+    .unwrap();
+    std::fs::write(ws.path().join(".a.md.icloud"), "").unwrap();
+
+    let root = set_workspace_root_from_path(&state, ws.path()).expect("set root");
+    let entries = list_workspace_dir_inner(&state, &root).expect("list");
+
+    let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, ["a.md", "a.sync-conflict-20260822-120000-ABCD.md"]);
+
+    let payload = serde_json::to_value(&entries).expect("serialize");
+    assert_eq!(payload[0]["conflict_copy"], serde_json::Value::Null);
+    assert_eq!(payload[1]["conflict_copy"], "sync_client");
+}
+
+#[test]
 fn list_dir_outside_root_is_rejected() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
