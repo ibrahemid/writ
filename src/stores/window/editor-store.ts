@@ -7,10 +7,12 @@ import {
   cancelAutosave as cancelAutosaveService,
   flushAutosave as flushAutosaveService,
   onAutosaveSuccess,
+  peekUnsavedContent,
   saveNow as saveNowService,
   type ContentSource,
   type SaveResult,
 } from "../../services/autosave";
+import { noteDiskState, type DiskState } from "../../services/tauri";
 import { hashDocument } from "../../lib/doc-hash";
 import {
   detectLanguage as detectLanguageService,
@@ -341,6 +343,27 @@ export function createEditorStore() {
     return saveNowService(bufferId, () => view.state.doc.toString());
   }
 
+  /**
+   * Writes the note's outstanding text again, after a failure.
+   *
+   * The text comes from autosave rather than the view: a write the guard
+   * stopped leaves the queue empty on purpose, and the note whose bar is on
+   * screen is not always the one loaded into the editor.
+   */
+  function retrySave(id: string): Promise<SaveResult> {
+    const content = peekUnsavedContent(id);
+    if (content === undefined) return Promise.resolve(NOTHING_TO_SAVE);
+    return saveNowService(id, content);
+  }
+
+  /**
+   * What the note's file holds now, or null when there is nothing to read:
+   * no file, no such file, or a file whose bytes are not on this machine.
+   */
+  function readDiskState(id: string): Promise<DiskState | null> {
+    return noteDiskState(id);
+  }
+
   function detectLanguage(content: string, filename?: string): string | null {
     return detectLanguageService(content, filename);
   }
@@ -366,6 +389,7 @@ export function createEditorStore() {
     replaceRange,
     applyEditToActiveBuffer,
     scheduleAutosave, cancelAutosave, flushAutosave, saveActiveBuffer,
+    retrySave, readDiskState,
     detectLanguage, detectFromContent,
     noteOpened, noteEdited, noteSaved, noteClosed,
     isDirty, docHash, lastKnownDiskHash,

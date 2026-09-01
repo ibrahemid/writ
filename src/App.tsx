@@ -22,7 +22,6 @@ import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
 import UpdateBanner from "./components/UpdateBanner/UpdateBanner";
 import WindowProvider, { useWindow } from "./components/WindowProvider/WindowProvider";
 import { bufferRegistry } from "./stores/global/buffer-registry";
-import { formatSaveError } from "./lib/save-error";
 import { basename } from "./lib/path";
 import { logFailure } from "./lib/log";
 import { workspaceStore } from "./stores/global/workspace";
@@ -56,7 +55,7 @@ import {
   pruneLegacyDefaultOverrides,
 } from "./commands/keybindings";
 import { onEvent, emitFrontendReady } from "./services/events";
-import { onAutosaveError, hasPendingAutosave, cancelAutosave } from "./services/autosave";
+import { hasPendingAutosave, cancelAutosave } from "./services/autosave";
 import { handleExternalEdit } from "./services/external-edit";
 import { reportFirstPaint } from "./services/tauri";
 import { installCloseFlush, startWindowLifecycle } from "./services/window-lifecycle";
@@ -67,13 +66,6 @@ import "./App.css";
 const MAIN_WINDOW_ID = 1;
 
 // A save failure names the file the user knows, never the buffer UUID.
-function bufferName(bufferId: string): string {
-  const doc = bufferRegistry.buffers().find((b) => b.id === bufferId);
-  if (!doc) return "the file";
-  const base = doc.source_path?.split(/[\\/]/).pop();
-  return base || doc.title || doc.filename;
-}
-
 async function openPendingPaths(paths: string[]) {
   if (!Array.isArray(paths)) {
     logFailure("an open request arrived without a list of files");
@@ -669,11 +661,6 @@ function AppShell() {
       void openPendingPaths(payload.paths);
     });
     unlisteners.push(unlisten4);
-
-    const offAutosaveError = onAutosaveError((bufferId, error) => {
-      showToast(`Couldn't save ${bufferName(bufferId)}: ${formatSaveError(error)}`, "error");
-    });
-    unlisteners.push(offAutosaveError);
 
     const unlistenUpdate = await updateStore.subscribe();
     unlisteners.push(unlistenUpdate);
