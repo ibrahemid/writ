@@ -39,6 +39,23 @@ function notesChangedHandler(): (payload: { path: string; removed: boolean }) =>
   return call![1] as (payload: { path: string; removed: boolean }) => void;
 }
 
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason: Error) => void;
+}
+
+/** A read the test finishes when it chooses, so two can overlap. */
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 /** Lets the store's fire-and-forget reads settle. */
 async function settle(): Promise<void> {
   await Promise.resolve();
@@ -148,6 +165,72 @@ describe("backlinksStore", () => {
     await settle();
 
     expect(mockedApi.noteBacklinks).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps an accessor taken before a release wired to the list", async () => {
+    const list = backlinksStore.backlinksFor(NOTE);
+    await settle();
+    backlinksStore.release(NOTE);
+    expect(list()).toEqual([]);
+
+    const rows = [backlink()];
+    mockedApi.noteBacklinks.mockResolvedValueOnce(rows);
+    backlinksStore.backlinksFor(NOTE);
+    await settle();
+
+    expect(list()).toEqual(rows);
+  });
+
+  it("stops re-reading a released note when a note changes", async () => {
+    backlinksStore.backlinksFor(NOTE);
+    await settle();
+    backlinksStore.release(NOTE);
+
+    notesChangedHandler()({ path: "/notes/Source.md", removed: false });
+    await settle();
+
+    expect(mockedApi.noteBacklinks).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the newest read when two overlap, whichever answers first", async () => {
+    const stale = [backlink({ from_name: "Stale" })];
+    const fresh = [backlink({ from_name: "Fresh" })];
+    const first = deferred<Backlink[]>();
+    const second = deferred<Backlink[]>();
+    mockedApi.noteBacklinks
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+
+    const list = backlinksStore.backlinksFor(NOTE);
+    const changed = notesChangedHandler();
+    changed({ path: "/notes/Source.md", removed: false });
+
+    second.resolve(fresh);
+    await settle();
+    first.resolve(stale);
+    await settle();
+
+    expect(list()).toEqual(fresh);
+  });
+
+  it("does not report a failure a newer read has already answered", async () => {
+    const fresh = [backlink({ from_name: "Fresh" })];
+    const first = deferred<Backlink[]>();
+    const second = deferred<Backlink[]>();
+    mockedApi.noteBacklinks
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+
+    const list = backlinksStore.backlinksFor(NOTE);
+    notesChangedHandler()({ path: "/notes/Source.md", removed: false });
+
+    second.resolve(fresh);
+    await settle();
+    first.reject(new Error("index closed"));
+    await settle();
+
+    expect(backlinksStore.errorFor(NOTE)()).toBeNull();
+    expect(list()).toEqual(fresh);
   });
 
   it("carries the alias and the ambiguity flag through untouched", async () => {

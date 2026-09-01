@@ -17,6 +17,10 @@ interface Entry {
   setRows: (rows: Backlink[]) => void;
   error: Accessor<string | null>;
   setError: (message: string | null) => void;
+  /** Bumped per read, so a slow earlier read cannot land after a later one. */
+  generation: number;
+  /** Whether something is showing this list. A released note stops refreshing. */
+  held: boolean;
 }
 
 function createBacklinksStore() {
@@ -28,7 +32,7 @@ function createBacklinksStore() {
     if (held) return held;
     const [rows, setRows] = createSignal<Backlink[]>([]);
     const [error, setError] = createSignal<string | null>(null);
-    const created: Entry = { rows, setRows, error, setError };
+    const created: Entry = { rows, setRows, error, setError, generation: 0, held: false };
     entries.set(path, created);
     return created;
   }
@@ -50,11 +54,14 @@ function createBacklinksStore() {
    *
    * The first call starts a read; every later one is served from the cache
    * until a note changes on disk.
+   *
+   * The same accessor comes back for the life of the store, so a caller that
+   * kept one across a [`release`] keeps seeing the list.
    */
   function backlinksFor(path: string): Accessor<Backlink[]> {
-    const held = entries.has(path);
     const found = entry(path);
-    if (!held) {
+    if (!found.held) {
+      found.held = true;
       void subscribe();
       void refresh(path);
     }
@@ -72,14 +79,21 @@ function createBacklinksStore() {
    * A failed read leaves the rows where they were: a list that empties itself
    * because one call failed reads as "nothing links here", which is the one
    * thing it must not say by accident.
+   *
+   * A burst of changes starts overlapping reads of the same note. Only the
+   * newest one may write, in success and in failure alike, so the list cannot
+   * settle on an older answer or wear an error a newer read cleared.
    */
   async function refresh(path: string): Promise<void> {
     const found = entry(path);
+    const ticket = ++found.generation;
     try {
       const rows = await noteBacklinks(path);
+      if (ticket !== found.generation) return;
       found.setRows(rows);
       found.setError(null);
     } catch {
+      if (ticket !== found.generation) return;
       found.setError(READ_FAILED_MESSAGE);
     }
   }
@@ -92,12 +106,22 @@ function createBacklinksStore() {
    * cached path is re-read.
    */
   async function refreshAll(): Promise<void> {
-    await Promise.all([...entries.keys()].map((path) => refresh(path)));
+    const held = [...entries.entries()].filter(([, found]) => found.held);
+    await Promise.all(held.map(([path]) => refresh(path)));
   }
 
-  /** Forgets `path`, for a surface that has stopped showing it. */
+  /**
+   * Stops following `path`, for a surface that has stopped showing it. The
+   * list empties and the next ask reads it again; a caller still holding the
+   * accessor is not left on a signal nothing writes to.
+   */
   function release(path: string): void {
-    entries.delete(path);
+    const found = entries.get(path);
+    if (!found) return;
+    found.held = false;
+    found.generation += 1;
+    found.setRows([]);
+    found.setError(null);
   }
 
   /** Drops the cache and the listener. */
