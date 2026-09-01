@@ -117,6 +117,24 @@ export function peekUnsavedContent(bufferId: string): string | undefined {
   return lastFailedContent.get(bufferId);
 }
 
+/**
+ * Every note holding text that is not known to be on disk, with that text.
+ *
+ * The queue is not enough on its own: a write stopped by the guard empties the
+ * queue on purpose, because writing the same text again is stopped the same
+ * way, so the note whose failure is still on screen is exactly the one a
+ * queue-only walk would miss.
+ */
+export function collectUnsavedContent(): Array<{ id: string; content: string }> {
+  const ids = new Set([...pendingContent.keys(), ...lastFailedContent.keys()]);
+  const notes: Array<{ id: string; content: string }> = [];
+  for (const id of ids) {
+    const content = peekUnsavedContent(id);
+    if (content !== undefined) notes.push({ id, content });
+  }
+  return notes;
+}
+
 function bumpGeneration(bufferId: string): number {
   const next = (generations.get(bufferId) ?? 0) + 1;
   generations.set(bufferId, next);

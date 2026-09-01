@@ -103,16 +103,30 @@ export function formatSaveError(error: unknown): string {
   return describeSaveFailure(error).message;
 }
 
-// What a stopped rename says. A code with rename wording gets it; a code
-// without one, and every uncoded failure, keeps the sentence the backend
-// wrote, which is already plain (`That name is empty.`, `A note named "x.md"
-// is already there.`). Nothing renders the save wording, which would name a
-// copy no rename writes.
+// A rename that was stopped renders on its own, in a toast, so what comes back
+// is a whole sentence.
+const RENAME_FAILED = "The note could not be renamed.";
+
+/**
+ * What a stopped rename says.
+ *
+ * A code with rename wording of its own gets it, because the save wording for
+ * a changed file names a copy no rename writes. A code without rename wording
+ * borrows the save sentence, which is true of a rename too (`you do not have
+ * permission to change this file.`). Only the sentences the backend writes
+ * itself pass through, and they are already plain (`That name is empty.`); a
+ * code never reaches a person as itself.
+ */
 export function formatRenameError(error: unknown): string {
-  const code = codeOf(error, RENAME_CODE_MESSAGES);
-  if (code !== undefined) return RENAME_CODE_MESSAGES[code];
+  const renameCode = codeOf(error, RENAME_CODE_MESSAGES);
+  if (renameCode !== undefined) return RENAME_CODE_MESSAGES[renameCode];
+
+  const saveCode = codeOf(error, CODE_MESSAGES);
+  if (saveCode !== undefined) return `${RENAME_FAILED.slice(0, -1)}: ${CODE_MESSAGES[saveCode]}`;
+
   const text = rawMessage(error);
-  return text.length > 0 ? text : "The note could not be renamed.";
+  if (text.length === 0 || /^ERR_[A-Z_]+/.test(text)) return RENAME_FAILED;
+  return text;
 }
 
 // Ends `reason` so a caller can put another sentence after it. A mapped reason

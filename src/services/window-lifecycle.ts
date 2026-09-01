@@ -5,7 +5,7 @@ import {
   recordUnsavedNotes,
   type UnsavedNote,
 } from "./tauri";
-import { flushAutosave, peekUnsavedContent, type SaveResult } from "./autosave";
+import { collectUnsavedContent, flushAutosave, type SaveResult } from "./autosave";
 import { onEvent, type UnlistenFn } from "./events";
 import { logFailure } from "../lib/log";
 
@@ -37,16 +37,19 @@ export async function startWindowLifecycle(): Promise<UnlistenFn[]> {
  * the files it reads and marks the shutdown unclean, which is what makes the
  * next launch offer it back. Failing here must not hold the exit: the process
  * leaves either way, and a held quit only trades lost text for a hung app.
+ *
+ * What the flush just reported is not the question asked. A save that failed
+ * minutes ago left the queue empty and the bar on screen, so this flush finds
+ * nothing to write and comes back ok while that text is still only in the
+ * editor; everything outstanding after the last flush is kept, whatever this
+ * one returned.
  */
 async function keepUnsavedText(flushed: SaveResult, when: string): Promise<void> {
-  if (flushed.ok) return;
-  logFailure(`a note could not be saved while ${when}`);
-
-  const notes: UnsavedNote[] = [];
-  for (const failure of flushed.failures) {
-    const content = peekUnsavedContent(failure.bufferId);
-    if (content !== undefined) notes.push({ id: failure.bufferId, content });
+  if (!flushed.ok) {
+    logFailure(`a note could not be saved while ${when}`);
   }
+
+  const notes: UnsavedNote[] = collectUnsavedContent();
   if (notes.length === 0) return;
 
   try {

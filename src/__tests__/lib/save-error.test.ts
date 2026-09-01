@@ -32,16 +32,35 @@ describe("formatSaveError", () => {
   });
 
   it("no_mapped_reason_contains_os_error_or_a_uuid", () => {
-    const message = formatSaveError(
-      new Error(
-        "ERR_FILE_CHANGED_ON_DISK: the file changed on disk: /Users/x/Writ/9f1c0f6e-3b2a-4d51-9a77-2c1f0b8e5d33.md (os error 2)",
-      ),
-    );
+    // Every code Writ mints, each carrying the worst text the layer beneath
+    // could put after it: an errno, a note's id, a path, the code itself.
+    const codes = [
+      "ERR_FILE_CHANGED_ON_DISK",
+      "ERR_FILE_NOT_DOWNLOADED",
+      "ERR_NOTE_READ_ONLY",
+      "ERR_PERMISSION_DENIED",
+      "ERR_FILE_MISSING",
+      "ERR_WRITE_TIMED_OUT",
+      "ERR_WRITE_FAILED",
+      "Consistency error: note has no file",
+    ];
 
-    expect(message).not.toMatch(/os error/i);
-    expect(message).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
-    expect(message).not.toContain("/Users/x/Writ");
-    expect(message).not.toContain("ERR_");
+    for (const code of codes) {
+      const message = formatSaveError(
+        new Error(
+          `${code}: /Users/x/Writ/9f1c0f6e-3b2a-4d51-9a77-2c1f0b8e5d33.md (os error 2), errno 13`,
+        ),
+      );
+
+      expect(message, code).not.toMatch(/os error/i);
+      expect(message, code).not.toMatch(/errno/i);
+      expect(message, code).not.toMatch(
+        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+      );
+      expect(message, code).not.toContain("/Users/x/Writ");
+      expect(message, code).not.toContain("ERR_");
+      expect(message.length, code).toBeGreaterThan(0);
+    }
   });
 
   it("maps every io kind Writ mints a code for to plain words", () => {
@@ -133,12 +152,16 @@ describe("formatRenameError", () => {
     expect(formatRenameError(NOT_DOWNLOADED)).toBe("This file has not finished downloading yet.");
   });
 
-  it("a_coded_failure_with_no_rename_wording_keeps_the_plain_message", () => {
-    // Every code is matched against the table that is about to answer, so a
-    // code that gains save wording and not rename wording renders the sentence
-    // the backend wrote rather than `undefined`.
-    const unmapped = "ERR_SOMETHING_ELSE: the file is busy";
-    expect(formatRenameError(unmapped)).toBe(unmapped);
+  it("a_coded_failure_with_no_rename_wording_borrows_the_save_sentence", () => {
+    // Every failed note operation now carries a code, so this is the ordinary
+    // case rather than the odd one. A code must never reach a person as
+    // itself, and the save sentence for these is true of a rename too.
+    expect(formatRenameError("ERR_PERMISSION_DENIED: rename failed (os error 13)")).toBe(
+      "The note could not be renamed: you do not have permission to change this file.",
+    );
+    expect(formatRenameError("ERR_SOMETHING_ELSE: the file is busy")).toBe(
+      "The note could not be renamed.",
+    );
   });
 
   it("the_backends_own_sentences_are_passed_through", () => {

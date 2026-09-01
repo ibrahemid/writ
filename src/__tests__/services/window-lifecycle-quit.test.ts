@@ -121,6 +121,25 @@ describe("window lifecycle", () => {
     );
   });
 
+  it("a_save_that_failed_earlier_is_kept_even_though_the_quit_flush_finds_nothing", async () => {
+    await startWindowLifecycle();
+    // The guard stops this one, so autosave drops it from the queue rather
+    // than writing the same text into the same refusal. Its bar is what the
+    // person is looking at when they quit.
+    mockedSave.mockRejectedValueOnce(new Error("ERR_FILE_CHANGED_ON_DISK: /notes/a.md"));
+    debouncedSave("lifecycle-stale", "the version the guard stopped", 10);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(mockedSave).toHaveBeenCalledOnce();
+
+    eventHandlers.get("quit:flush")!({});
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockedSave).toHaveBeenCalledOnce();
+    expect(mockedRecord).toHaveBeenCalledWith([
+      { id: "lifecycle-stale", content: "the version the guard stopped" },
+    ]);
+  });
+
   it("a_flush_that_landed_keeps_nothing", async () => {
     await startWindowLifecycle();
 
