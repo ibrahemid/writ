@@ -2,11 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("../../services/tauri", () => ({
   saveBufferContent: vi.fn().mockResolvedValue(undefined),
+  recordUnsavedNotes: vi.fn().mockResolvedValue(undefined),
 }));
 
 import {
   debouncedSave,
   cancelAutosave,
+  collectUnsavedContent,
+  keepUnsavedForRecovery,
   onAutosaveError,
   onAutosaveSuccess,
   flushAutosave,
@@ -14,9 +17,10 @@ import {
   saveNow,
   resetAutosave,
 } from "../../services/autosave";
-import { saveBufferContent } from "../../services/tauri";
+import { recordUnsavedNotes, saveBufferContent } from "../../services/tauri";
 
 const mockedSave = vi.mocked(saveBufferContent);
+const mockedRecord = vi.mocked(recordUnsavedNotes);
 
 describe("autosave", () => {
   beforeEach(() => {
@@ -221,6 +225,43 @@ describe("autosave", () => {
       expect(listener).toHaveBeenCalledWith("buf-1", expect.any(Error));
       unsubscribe();
       cancelAutosave("buf-1");
+    });
+  });
+
+  describe("keepUnsavedForRecovery", () => {
+    it("hands a closing note's unwritten text over and stops holding it", async () => {
+      // The guard refuses this one, so autosave deliberately does not queue it
+      // again. The flush a close runs finds nothing, the tab goes, and without
+      // this the text would sit here until the next quit snapshotted a note
+      // the person had closed.
+      mockedSave.mockRejectedValueOnce(new Error("ERR_FILE_CHANGED_ON_DISK: /notes/a.md"));
+      await saveNow("buf-closing", "text the file refused");
+      expect(collectUnsavedContent()).toEqual([
+        { id: "buf-closing", content: "text the file refused" },
+      ]);
+
+      await keepUnsavedForRecovery("buf-closing");
+
+      expect(mockedRecord).toHaveBeenCalledWith([
+        { id: "buf-closing", content: "text the file refused" },
+      ]);
+      expect(collectUnsavedContent()).toEqual([]);
+    });
+
+    it("keeps holding the text when the handover fails", async () => {
+      mockedSave.mockRejectedValueOnce(new Error("ERR_FILE_CHANGED_ON_DISK: /notes/a.md"));
+      await saveNow("buf-stuck", "still only here");
+      mockedRecord.mockRejectedValueOnce(new Error("database is locked"));
+
+      await keepUnsavedForRecovery("buf-stuck");
+
+      expect(collectUnsavedContent()).toEqual([{ id: "buf-stuck", content: "still only here" }]);
+      cancelAutosave("buf-stuck");
+    });
+
+    it("asks for nothing when the note has nothing outstanding", async () => {
+      await keepUnsavedForRecovery("buf-quiet");
+      expect(mockedRecord).not.toHaveBeenCalled();
     });
   });
 

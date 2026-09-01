@@ -1,5 +1,6 @@
 import { isRetryableSaveError } from "../lib/save-error";
-import { saveBufferContent } from "./tauri";
+import { logFailure } from "../lib/log";
+import { recordUnsavedNotes, saveBufferContent } from "./tauri";
 
 type AutosaveErrorListener = (bufferId: string, error: unknown) => void;
 // `diskHash` is the digest of what the note's file holds now, or null when the
@@ -184,6 +185,33 @@ function runScheduledSave(bufferId: string) {
 
 export function hasPendingAutosave(bufferId: string): boolean {
   return pendingContent.has(bufferId) || timers.has(bufferId) || inFlight.has(bufferId);
+}
+
+/**
+ * Hands a closing note's unwritten text to the recovery snapshot, then drops
+ * the record of it.
+ *
+ * A save the guard refused does not go back on the queue — writing the same
+ * text into the same refusal is stopped the same way — so closing that tab
+ * finds nothing to flush and closes without a word, while the text is still
+ * only in this module. Left there it would be snapshotted at the next quit,
+ * long after the tab went, and restored as a note the person had closed.
+ * Handed over here it survives as itself.
+ *
+ * The record is kept when the handover fails: text nobody can read again is a
+ * worse outcome than a note restored twice.
+ */
+export async function keepUnsavedForRecovery(bufferId: string): Promise<void> {
+  const content = peekUnsavedContent(bufferId);
+  if (content !== undefined) {
+    try {
+      await recordUnsavedNotes([{ id: bufferId, content }]);
+    } catch {
+      logFailure("the text of a closed note could not be kept");
+      return;
+    }
+  }
+  cancelAutosave(bufferId);
 }
 
 export function cancelAutosave(bufferId: string) {
