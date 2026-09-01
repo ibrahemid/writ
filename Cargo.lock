@@ -9965,9 +9965,11 @@ dependencies = [
  "thiserror 2.0.19",
  "toml 1.1.0+spec-1.1.0",
  "tracing",
+ "unicode-normalization",
  "unicode-segmentation",
  "url",
  "uuid",
+ "writ-render",
 ]
 
 [[package]]
