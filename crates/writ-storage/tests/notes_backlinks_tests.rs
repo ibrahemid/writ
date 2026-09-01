@@ -44,6 +44,26 @@ fn walk(conn: &Connection, notes: &Path) {
     notes_index::reconcile(conn, notes, &never_cancelled(), &never_dataless()).expect("reconcile");
 }
 
+/// A walk that finds `evicted` to be a placeholder, the way an iCloud-evicted
+/// note is found: named on the filesystem, with no data behind it to read.
+fn walk_dataless(conn: &Connection, notes: &Path, evicted: &Path) {
+    let evicted = evicted.to_path_buf();
+    notes_index::reconcile(conn, notes, &never_cancelled(), &|path: &Path| {
+        path == evicted
+    })
+    .expect("reconcile");
+}
+
+/// How the index says it learned about the note at `path`.
+fn indexed_by(conn: &Connection, path: &Path) -> String {
+    conn.query_row(
+        "SELECT indexed_by FROM files WHERE path = ?1",
+        [notes_index::index_key(path)],
+        |row| row.get::<_, String>(0),
+    )
+    .expect("indexed_by")
+}
+
 fn backlinks(conn: &Connection, path: &Path) -> Vec<BacklinkRow> {
     NotesIndex::new(conn)
         .backlinks(&notes_index::index_key(path))
@@ -259,27 +279,48 @@ fn a_removed_note_has_no_backlinks_left_to_ask_for() {
 }
 
 #[test]
-fn a_note_the_index_holds_by_name_alone_is_listed_without_a_sentence() {
+fn a_note_evicted_to_a_placeholder_takes_its_links_out_of_the_list() {
     let (_dir, conn, notes) = fixture();
     let target = write_note(&notes, "Target.md", "# Target\n");
-    write_note(&notes, "Evicted.md", "Refers to [[Target]] here.\n");
+    let evicted = write_note(&notes, "Evicted.md", "Refers to [[Target]] here.\n");
     walk(&conn, &notes);
     assert_eq!(
         backlinks(&conn, &target)[0].context,
         "Refers to [[Target]] here."
     );
 
-    // The file goes back to being a placeholder: its rows stay, its text does
-    // not. The link is still on record, so the row is still in the list.
+    // The data goes and the name stays, which is what eviction leaves behind.
+    // The size change is what makes the walk look at the file again: an
+    // unchanged size and mtime is the one case it skips.
+    std::fs::write(&evicted, "").expect("evict");
+    walk_dataless(&conn, &notes, &evicted);
+
+    assert_eq!(indexed_by(&conn, &evicted), "name");
+    assert!(
+        backlinks(&conn, &target).is_empty(),
+        "a note indexed by name alone has no links on record, so it claims none"
+    );
+}
+
+#[test]
+fn a_row_whose_text_the_index_does_not_hold_keeps_its_place_without_a_sentence() {
+    let (_dir, conn, notes) = fixture();
+    let target = write_note(&notes, "Target.md", "# Target\n");
+    write_note(&notes, "Source.md", "Refers to [[Target]] here.\n");
+    walk(&conn, &notes);
+
+    // Not a state any walk leaves: a link on record whose note has no indexed
+    // text. The query has to answer it anyway rather than panic or drop the
+    // row, since it reads the two tables separately.
     conn.execute(
         "UPDATE files_fts SET content = '' WHERE rowid =
-           (SELECT rowid FROM files WHERE path LIKE '%Evicted.md')",
+           (SELECT rowid FROM files WHERE path LIKE '%Source.md')",
         [],
     )
     .expect("empty the text");
 
     let rows = backlinks(&conn, &target);
-    assert_eq!(names(&rows), ["Evicted"]);
+    assert_eq!(names(&rows), ["Source"]);
     assert_eq!(rows[0].context, "", "no text to quote is no quote");
     assert_eq!(rows[0].line, 1, "the row still says where the link is");
 }

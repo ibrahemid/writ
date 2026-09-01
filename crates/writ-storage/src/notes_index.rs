@@ -185,7 +185,7 @@ pub struct BacklinkRow {
     /// 0-based character offset of the link inside that line.
     pub col: u32,
     /// The sentence the link sits in, cut from the text the index holds. Empty
-    /// for a note indexed by name alone, which has no text to cut from.
+    /// when the index holds no text for the linking note.
     pub context: String,
     /// Whether the link means this note for certain.
     pub certainty: BacklinkCertainty,
@@ -820,8 +820,9 @@ impl<'a> NotesIndex<'a> {
     ///
     /// The snippet is cut from the text `files_fts` holds, so no note is read
     /// off disk to answer this and a placeholder is not materialised by a list
-    /// being opened. A note the index holds by name alone has no text and its
-    /// rows carry an empty snippet rather than being left out.
+    /// being opened. A note indexed by name alone therefore links to nothing:
+    /// indexing it drops the facts derived from its text, the links among them,
+    /// and it leaves every list until something downloads it.
     pub fn backlinks(&self, path: &str) -> StorageResult<Vec<BacklinkRow>> {
         let mut found: Vec<(LinkRow, BacklinkCertainty)> = self
             .links_to(path)?

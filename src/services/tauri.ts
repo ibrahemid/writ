@@ -178,10 +178,8 @@ export interface Backlink {
   line: number;
   /** 0-based character offset of the link inside that line. */
   col: number;
-  /**
-   * The sentence the link sits in. Empty for a note the index holds by name
-   * alone, which has no text to quote.
-   */
+  /** The sentence the link sits in. Empty when the index holds no text for
+   * the linking note. */
   context: string;
   /** `ambiguous` when the link names this note and another one, and picks
    * neither. */
