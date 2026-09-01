@@ -365,10 +365,10 @@ fn scan_segment(line: &BodyLine<'_>, offset: usize, segment: &str, out: &mut Vec
         // `![alt](x)` is an image, not a link to a note.
         let is_image = index > 0 && bytes[index - 1] == b'!';
 
-        if segment[index..].starts_with("[[") {
-            match segment[index + 2..].find("]]") {
+        if let Some(after) = segment[index..].strip_prefix("[[") {
+            match after.find("]]") {
                 Some(found) => {
-                    let inner = &segment[index + 2..index + 2 + found];
+                    let inner = &after[..found];
                     let end = index + 2 + found + 2;
                     let target = parse_wikilink(inner);
                     if !target.name.is_empty() {
@@ -485,8 +485,8 @@ fn note_destination(inside: &str) -> Option<WikilinkTarget> {
         return None;
     }
 
-    let (path, heading) = match dest.find('#') {
-        Some(at) => (&dest[..at], Some(&dest[at + 1..])),
+    let (path, heading) = match dest.split_once('#') {
+        Some((path, heading)) => (path, Some(heading)),
         None => (dest, None),
     };
     let path = percent_decode(path);
@@ -547,13 +547,9 @@ fn split_destination(inside: &str) -> String {
 
 /// Whether `dest` opens with a URL scheme, which makes it not a path.
 fn has_scheme(dest: &str) -> bool {
-    let Some(colon) = dest.find(':') else {
+    let Some((scheme, _)) = dest.split_once(':') else {
         return false;
     };
-    if colon == 0 {
-        return false;
-    }
-    let scheme = &dest[..colon];
     scheme.starts_with(|c: char| c.is_ascii_alphabetic())
         && scheme
             .chars()
@@ -602,12 +598,12 @@ fn hex_pair(high: Option<&u8>, low: Option<&u8>) -> Option<u8> {
 /// of what is left, in that order, so `[[Note#Heading|Label]]` and
 /// `[[Note|Label#not a heading]]` both read the way they look.
 pub fn parse_wikilink(inner: &str) -> WikilinkTarget {
-    let (left, alias) = match inner.find('|') {
-        Some(at) => (&inner[..at], Some(inner[at + 1..].trim().to_string())),
+    let (left, alias) = match inner.split_once('|') {
+        Some((left, alias)) => (left, Some(alias.trim().to_string())),
         None => (inner, None),
     };
-    let (path, heading) = match left.find('#') {
-        Some(at) => (&left[..at], Some(left[at + 1..].trim().to_string())),
+    let (path, heading) = match left.split_once('#') {
+        Some((path, heading)) => (path, Some(heading.trim().to_string())),
         None => (left, None),
     };
 

@@ -69,9 +69,72 @@ fn pathological() -> Vec<String> {
 #[test]
 fn no_pathological_input_panics_the_scanner() {
     for case in pathological() {
-        let _ = links::scan(&case);
-        let _ = facts::extract(&case);
+        read_every_way(&case);
     }
+}
+
+/// The shapes every reported panic has had: a markdown destination, a
+/// frontmatter block scalar, an indented block, a fence, a tag, a heading, an
+/// anchor. The generated corpus below rebuilds each of them around a character
+/// at every position.
+const SHAPES: &[&str] = &[
+    "---\nnote: |\n a\n b\n---\nbody\n",
+    "---\nnote: >\n a\n\n b\n---\n",
+    "---\nkey: value\nlist:\n - one\n---\n",
+    "---\n---\n",
+    "[a](%ab.md)",
+    "[a](<my note.md> \"Title\")",
+    "[a](note.md#anchor)",
+    "see [[Note#Heading|Label]] and [[folder/Note]]",
+    "text\n\n    [[Note]]\n\nback\n",
+    "```rust\n[[Note]]\n```\n",
+    "`code` #tag [see](#anchor)\n",
+    "# Heading\n\n## Heading\n",
+    "- item\n\n    [[Note]]\n",
+];
+
+/// Characters that have to survive being dropped anywhere: whitespace that is
+/// not a space, and letters of one, two, three and four bytes.
+const FILLERS: &[&str] = &[
+    "\u{a0}", "\u{2003}", "\u{3000}", "\u{feff}", "\u{200b}", "\u{2028}", "\t", " ", "é", "ع", "﷽",
+    "🎉", "\u{0301}", "%", "\\", "<", "|", "#",
+];
+
+/// Reads `text` every way the index reads a note, and checks the one call that
+/// does all four agrees with the four that do one each.
+fn read_every_way(text: &str) {
+    let facts = facts::extract(text);
+    assert_eq!(facts.links.len(), links::scan(text).len());
+    assert_eq!(facts.properties, facts::properties(text));
+    assert_eq!(facts.tags, facts::tags(text));
+    assert_eq!(facts.headings.len(), facts::headings(text).len());
+}
+
+#[test]
+fn no_character_at_any_position_of_any_shape_panics_the_scanner() {
+    let mut cases = 0usize;
+    for shape in SHAPES {
+        let chars: Vec<char> = shape.chars().collect();
+        for filler in FILLERS {
+            for at in 0..=chars.len() {
+                let mut case: String = chars[..at].iter().collect();
+                case.push_str(filler);
+                case.extend(&chars[at..]);
+                read_every_way(&case);
+                cases += 1;
+            }
+        }
+    }
+    assert!(cases > 5_000, "the corpus shrank to {cases} cases");
+}
+
+#[test]
+fn a_block_scalar_whose_blank_line_is_a_multibyte_space_reads() {
+    let props = facts::properties("---\nnote: |\n a\n\u{a0}\n b\n---\n");
+    assert_eq!(props.len(), 1);
+    assert_eq!(props[0].0, "note");
+    let props = facts::properties("---\nnote: >\n\u{3000}\n a\n---\n");
+    assert_eq!(props.len(), 1);
 }
 
 #[test]

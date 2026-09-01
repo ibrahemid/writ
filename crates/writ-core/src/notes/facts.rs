@@ -149,17 +149,19 @@ fn block_scalar(rest: &str) -> Option<char> {
 /// The common indentation is stripped, which is the part of YAML's rule that
 /// changes the text a reader sees. Chomping indicators are not modelled; a
 /// trailing blank line is not worth a second parser.
+///
+/// The indent is counted and dropped in **characters**. A line's leading
+/// whitespace can be a non-breaking space, which is two bytes and is what a
+/// paste from a web page leaves behind, so a byte count taken from one line
+/// lands inside a character of another.
 fn block_text(marker: char, block: &[&str]) -> Value {
     let indent = block
         .iter()
         .filter(|line| !line.trim().is_empty())
-        .map(|line| line.len() - line.trim_start().len())
+        .map(|line| indent_chars(line))
         .min()
         .unwrap_or(0);
-    let lines = block.iter().map(|line| match line.len() >= indent {
-        true => &line[indent..],
-        false => line.trim_start(),
-    });
+    let lines = block.iter().map(|line| drop_indent(line, indent));
 
     if marker == '|' {
         return Value::String(lines.collect::<Vec<_>>().join("\n"));
@@ -178,15 +180,32 @@ fn block_text(marker: char, block: &[&str]) -> Value {
     Value::String(folded)
 }
 
+/// How many characters of leading whitespace `line` carries.
+fn indent_chars(line: &str) -> usize {
+    line.chars().take_while(|c| c.is_whitespace()).count()
+}
+
+/// `line` without `indent` characters of leading whitespace, or without all of
+/// it when the line is shorter than that.
+fn drop_indent(line: &str, indent: usize) -> &str {
+    let mut chars = line.chars();
+    for _ in 0..indent {
+        if !chars.next().is_some_and(char::is_whitespace) {
+            return line.trim_start();
+        }
+    }
+    chars.as_str()
+}
+
 /// The key and the rest of a `key: value` line, or `None` when the line has no
 /// key at all.
 fn split_key(line: &str) -> Option<(&str, &str)> {
-    let colon = line.find(':')?;
-    let key = line[..colon].trim();
+    let (key, rest) = line.split_once(':')?;
+    let key = key.trim();
     if key.is_empty() || key.contains(['[', ']', '{', '}']) {
         return None;
     }
-    Some((key.trim_matches(['"', '\'']), &line[colon + 1..]))
+    Some((key.trim_matches(['"', '\'']), rest))
 }
 
 /// One YAML scalar, or a `[a, b]` flow sequence of them.
@@ -262,8 +281,9 @@ pub fn tags(text: &str) -> Vec<(String, u32)> {
                 if ch != '#' || !opens_a_tag(&line.raw[..offset + at]) {
                     continue;
                 }
-                let body: String = segment[at + 1..]
+                let body: String = segment[at..]
                     .chars()
+                    .skip(1)
                     .take_while(|c| is_tag_char(*c))
                     .collect();
                 if is_tag(&body) {
@@ -318,11 +338,11 @@ pub fn headings(text: &str) -> Vec<Heading> {
         if line.raw.len() - trimmed.len() > 3 || !trimmed.starts_with('#') {
             continue;
         }
-        let level = trimmed.chars().take_while(|c| *c == '#').count();
+        let rest = trimmed.trim_start_matches('#');
+        let level = trimmed.len() - rest.len();
         if !(1..=6).contains(&level) {
             continue;
         }
-        let rest = &trimmed[level..];
         if !rest.is_empty() && !rest.starts_with([' ', '\t']) {
             continue;
         }
