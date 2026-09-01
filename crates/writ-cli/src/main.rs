@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::process;
 
 use clap::Parser;
+use writ_cli::verbs;
 use writ_cli::{
     is_empty_payload, no_path_action, piped_note_path, read_notes_root_from_config,
     resolve_notes_dir, resolve_targets, NoPathAction, OpenTarget,
@@ -21,7 +22,7 @@ use writ_cli::{is_failed_startup, resolve_gui_binary, GuiLaunch, GUI_BIN_ENV};
 #[cfg(target_os = "macos")]
 const MACOS_BUNDLE_ID: &str = "com.writ.editor";
 
-const ENV_HELP: &str = "Environment:\n  WRIT_GUI_BIN  Path to the Writ application binary. Read on Linux and Windows,\n                where it takes precedence over the binary installed next to\n                this one.";
+const ENV_HELP: &str = "Environment:\n  WRIT_GUI_BIN  Path to the Writ application binary. Read on Linux and Windows,\n                where it takes precedence over the binary installed next to\n                this one.\n  WRIT_NOTES_DIR  The notes folder to read and write, overriding the setting.\n  WRIT_DATA_DIR   The folder holding writ.db and config.toml.";
 
 #[derive(Parser)]
 #[command(
@@ -41,6 +42,11 @@ struct Cli {
 }
 
 fn main() {
+    let argv: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if let Some(parsed) = verbs::parse(&argv) {
+        run_verb(parsed);
+    }
+
     let cli = Cli::parse();
 
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -118,6 +124,15 @@ fn main() {
 /// sources in the same order, so the CLI and the app never disagree about
 /// where a note goes.
 fn notes_dir() -> PathBuf {
+    writ_paths().1
+}
+
+/// The data folder holding `writ.db` and `config.toml`, and the notes folder.
+///
+/// Both are resolved from the same three sources in the same order the app
+/// resolves them from, so the CLI and the app never disagree about where a note
+/// goes or which index describes it.
+fn writ_paths() -> (PathBuf, PathBuf) {
     let data_dir_override = std::env::var("WRIT_DATA_DIR")
         .ok()
         .map(PathBuf::from)
@@ -131,12 +146,39 @@ fn notes_dir() -> PathBuf {
     let configured = read_notes_root_from_config(&writ_dir);
     let env_override = std::env::var("WRIT_NOTES_DIR").ok();
 
-    resolve_notes_dir(
+    let notes = resolve_notes_dir(
         env_override.as_deref(),
         configured.as_deref(),
         data_dir_override.as_deref(),
         home.as_deref(),
-    )
+    );
+    (writ_dir, notes)
+}
+
+/// Runs a note verb and exits. Never returns: the verbs are a surface of their
+/// own and none of them falls through to the file-opening path.
+fn run_verb(parsed: Result<verbs::Verb, verbs::UsageError>) -> ! {
+    let verb = match parsed {
+        Ok(verb) => verb,
+        Err(error) => {
+            eprintln!("writ: {error}");
+            eprintln!("{}", verbs::usage());
+            process::exit(verbs::EXIT_USAGE);
+        }
+    };
+
+    let (writ_dir, notes_dir) = writ_paths();
+    let context = verbs::Context {
+        cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+        notes_dir,
+        db_path: writ_dir.join("writ.db"),
+        now: chrono::Utc::now(),
+    };
+
+    let outcome = verbs::run(verb, &context);
+    print!("{}", outcome.stdout);
+    eprint!("{}", outcome.stderr);
+    process::exit(outcome.code);
 }
 
 /// Open `paths` in Writ, or launch Writ with no document when `paths` is empty.

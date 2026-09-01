@@ -1424,11 +1424,14 @@ impl NotesIndexStore {
     /// Opens the database at `db_path` for reading only.
     ///
     /// For a process that is not the app: the `writ` command reads the index
-    /// this way so it can never create a database, run a migration or leave a
-    /// write-ahead log behind for the app to find. Every write method on this
-    /// type will fail on the connection it returns, which is the point.
+    /// this way so it can never create a database, run a migration or change a
+    /// row. Every write method on this type fails on the connection it returns,
+    /// which is the point.
     ///
-    /// An absent file is an error rather than an empty database.
+    /// An absent file is an error rather than an empty database. An existing
+    /// one in WAL mode still gets its `-shm` and `-wal` companions created if
+    /// they are not already there: SQLite needs the shared-memory index to read
+    /// a WAL database at all, and it writes no frame into either.
     pub fn open_read_only(db_path: &Path) -> StorageResult<Self> {
         Ok(Self {
             conn: Mutex::new(crate::database::connection::open_database_read_only(

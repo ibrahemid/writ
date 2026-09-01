@@ -1,13 +1,19 @@
-//! Argument resolution and launch plumbing for the `writ` command.
+//! Argument resolution, note verbs and launch plumbing for the `writ` command.
 //!
-//! The crate links no workspace crate on purpose (`docs/ARCHITECTURE.md`): the
-//! CLI ships as a standalone binary and must build and run without the editor.
-//! The cost is a small amount of duplication with `writ-core` — the notes
-//! folder is resolved here in the same order the app resolves it, and the
-//! Finder-style dedupe is re-implemented. `writ_core::notes::sanitize_title`
-//! is the authority on what a title may become as a filename; the sanitiser
-//! here is the conservative subset the CLI has always applied, and the app
-//! re-sanitises anything it opens.
+//! The crate links `writ-core` and `writ-storage` and no Tauri, so it builds
+//! and runs without the editor while answering from the same policy and the
+//! same note index the app uses (`docs/ARCHITECTURE.md`, ADR-017). The verbs in
+//! [`verbs`] read that index; the launch path below shells out to the app.
+//!
+//! The launch path predates the link and keeps its own notes-folder resolution
+//! and Finder-style dedupe, which mirror `writ_core::notes` rather than calling
+//! it. `writ_core::notes::sanitize_title` is the authority on what a title may
+//! become as a filename; the sanitiser here is the conservative subset the CLI
+//! has always applied, and the app re-sanitises anything it opens.
+
+/// The note verbs: `links`, `backlinks`, `properties`, `tags`, `new`, `rename`
+/// and `trash`.
+pub mod verbs;
 
 use std::collections::HashSet;
 use std::ffi::OsString;

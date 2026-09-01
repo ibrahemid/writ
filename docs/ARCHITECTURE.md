@@ -50,8 +50,8 @@ src-tauri ─┬─▶ writ-core
            ├─▶ writ-lint ─────▶ writ-core
            └─▶ writ-render        (no workspace dependencies)
 
-writ-cli                          (no workspace dependencies; ships beside the
-                                   app binary as a Tauri sidecar, not linked in)
+writ-cli  ─┬─▶ writ-core        (no Tauri; ships beside the app binary as a
+           └─▶ writ-storage      Tauri sidecar, not linked into it)
 ```
 
 `writ-storage`, `writ-plugin` and `writ-lint` are siblings on `writ-core`. None of
@@ -116,12 +116,18 @@ Writ flags mistakes, not prose taste. Harper reports character offsets and CodeM
 UTF-16 code units, so the crate converts every span before returning.
 
 ### writ-cli
-The `writ` command line binary. Parses argv and stdin into an open target (a file list, a
-workspace directory, or piped text written under `~/.writ/piped/`) and hands it to the app:
-by bundle id on macOS, by the sibling app binary elsewhere, with the OS default handler as
-the fallback. Depends on no workspace crate and has no Tauri dependency, so it is testable
-without an app handle. Bundled as a Tauri sidecar that ships beside the app executable.
-See [ADR-017](./adr/017-command-line-surface.md).
+The `writ` command line binary. Two surfaces. The open path parses argv and stdin into an
+open target (a file list, a workspace directory, or piped text written into the notes
+folder) and hands it to the app: by bundle id on macOS, by the sibling app binary
+elsewhere, with the OS default handler as the fallback. The note verbs (`links`,
+`backlinks`, `properties`, `tags`, `new`, `rename`, `trash`) answer from the notes folder
+and from a read-only connection to the note index, and open no window.
+
+Depends on `writ-core` and `writ-storage` so link resolution, note naming and the note
+operations have one definition each rather than a copy in the CLI; it has no Tauri
+dependency, so it is testable without an app handle. Bundled as a Tauri sidecar that ships
+beside the app executable. See [ADR-017](./adr/017-command-line-surface.md) and
+[the verb record](./cli-verbs.md).
 
 ### src-tauri
 The only crate that imports `tauri`. Thin adapter responsibilities only:
