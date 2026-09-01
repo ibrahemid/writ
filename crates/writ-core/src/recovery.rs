@@ -106,20 +106,23 @@ pub fn should_snapshot(
 /// The snapshot a shutdown records, and whether that shutdown counts as clean.
 ///
 /// `on_disk` is what each open note's file holds; `unsaved` is text a save
-/// could not write, keyed the same way. The unsaved text wins every collision,
-/// because the file it never reached is exactly the copy that is behind.
+/// could not write, keyed the same way.
 ///
-/// A shutdown that left text nowhere but here is not a clean one. Only a
-/// snapshot marked unclean is read back on the next launch
-/// ([`resolve_recovery`] is reached through it), so marking this one clean
-/// would discard the text the overlay exists to keep.
+/// With nothing unsaved this is the ordinary clean-shutdown record of every
+/// open note. With anything unsaved the snapshot narrows to those notes alone
+/// and is marked unclean, because an unclean snapshot is read back on the next
+/// launch and every entry in it is written back over its file: carrying the
+/// other notes would restore files nothing had gone wrong with, and any of
+/// them edited outside Writ in the meantime would collect a dated copy beside
+/// it for no reason.
 pub fn shutdown_snapshot(
-    mut on_disk: HashMap<String, String>,
+    on_disk: HashMap<String, String>,
     unsaved: HashMap<String, String>,
 ) -> (HashMap<String, String>, bool) {
-    let is_clean = unsaved.is_empty();
-    on_disk.extend(unsaved);
-    (on_disk, is_clean)
+    if unsaved.is_empty() {
+        return (on_disk, true);
+    }
+    (unsaved, false)
 }
 
 #[cfg(test)]
@@ -202,13 +205,16 @@ mod tests {
     }
 
     #[test]
-    fn text_a_save_could_not_write_replaces_what_the_file_holds() {
+    fn only_the_notes_a_save_could_not_write_are_kept_for_the_next_launch() {
+        // `b` is on disk and was never at risk. Restoring it would rewrite a
+        // file nothing had gone wrong with, and if somebody edited it while
+        // Writ was closed the restore leaves a dated copy beside it.
         let (contents, is_clean) = shutdown_snapshot(
             map(&[("a", "on disk"), ("b", "kept")]),
             map(&[("a", "typed")]),
         );
         assert!(!is_clean);
-        assert_eq!(contents, map(&[("a", "typed"), ("b", "kept")]));
+        assert_eq!(contents, map(&[("a", "typed")]));
     }
 
     #[test]

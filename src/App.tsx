@@ -141,10 +141,14 @@ function AppShell() {
     await inboxStore.hydrate().catch(() => undefined);
     await notesStore.load();
 
-    const recoveredBuffers = await getRecoveredBuffers().catch(() => []);
-    if (recoveredBuffers.length > 0) {
+    // Only notes whose text never reached their file are restored, so the
+    // count is how many of those there were, not how many tabs were open.
+    const restored = await getRecoveredBuffers().catch(() => []);
+    if (restored.length > 0) {
       showToast(
-        `${recoveredBuffers.length} buffer${recoveredBuffers.length === 1 ? "" : "s"} recovered from last session`,
+        restored.length === 1
+          ? "Restored 1 note that could not be saved last time"
+          : `Restored ${restored.length} notes that could not be saved last time`,
         "info",
         6000,
       );
