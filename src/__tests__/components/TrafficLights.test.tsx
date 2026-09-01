@@ -61,6 +61,18 @@ vi.mock("../../components/Sidebar/SidebarEmpty", () => ({ default: () => null })
 
 import Sidebar from "../../components/Sidebar/Sidebar";
 import Toolbar from "../../components/Toolbar/Toolbar";
+import WindowLights from "../../components/TitleBar/WindowLights";
+
+/** The chrome row as the window builds it, so the count is the real one. */
+function Chrome() {
+  return (
+    <div class="app-body">
+      <Sidebar />
+      <Toolbar />
+      <WindowLights />
+    </div>
+  );
+}
 
 afterEach(() => {
   cleanup();
@@ -70,12 +82,12 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("macOS lights in the sidebar head", () => {
-  it("renders the three lights in the head while the sidebar is open", () => {
-    const { container } = render(() => <Sidebar />);
-    const head = container.querySelector(".sidebar-head");
-    expect(head).not.toBeNull();
-    const labels = Array.from(head!.querySelectorAll(".maclight")).map((el) =>
+describe("the macOS lights have one host", () => {
+  it("renders the three lights in the window layer", () => {
+    const { container } = render(() => <WindowLights />);
+    const layer = container.querySelector(".window-lights-layer");
+    expect(layer).not.toBeNull();
+    const labels = Array.from(layer!.querySelectorAll(".maclight")).map((el) =>
       el.getAttribute("aria-label"),
     );
     expect(labels).toEqual(["Hide window", "Minimize window", "Toggle full screen"]);
@@ -83,58 +95,78 @@ describe("macOS lights in the sidebar head", () => {
 
   it("dims the lights when the window is not focused", () => {
     h.focused = false;
-    const { container } = render(() => <Sidebar />);
+    const { container } = render(() => <WindowLights />);
     expect(container.querySelector(".window-lights")!.classList.contains("is-blurred")).toBe(true);
   });
 
-  it("gives the head no lights once the sidebar closes", () => {
-    h.sidebarOpen = false;
-    const { container } = render(() => <Sidebar />);
-    expect(container.querySelector(".sidebar-head")).toBeNull();
+  // A slot that swapped with the sidebar state moved the lights on the first
+  // frame of the width animation. One host, owned by neither animated box, is
+  // what holds them still.
+  it.each([true, false])("keeps that host alone and outside both panes (open: %s)", (open) => {
+    h.sidebarOpen = open;
+    const { container } = render(() => <Chrome />);
+    const lights = container.querySelectorAll(".window-lights");
+    expect(lights).toHaveLength(1);
+    expect(lights[0].closest(".sidebar")).toBeNull();
+    expect(lights[0].closest(".writ-toolbar")).toBeNull();
+    expect(lights[0].closest(".window-lights-layer")).not.toBeNull();
   });
 
-  it.each(["win", "linux"] as const)("builds no head on %s, which has caption buttons", (p) => {
+  it.each(["win", "linux"] as const)("draws no lights on %s, which has caption buttons", (p) => {
     h.platform = p;
-    const { container } = render(() => <Sidebar />);
-    expect(container.querySelector(".sidebar-head")).toBeNull();
+    const { container } = render(() => <Chrome />);
+    expect(container.querySelector(".window-lights-layer")).toBeNull();
     expect(container.querySelector(".maclight")).toBeNull();
   });
 });
 
-describe("macOS lights fall back to the toolbar", () => {
-  // A closed sidebar is zero-width, clipped and inert. With no native
-  // decorations, lights left in its head would leave no way to hide the window.
-  it("moves the lights to the toolbar lead when the sidebar is closed", () => {
+describe("the panes the lights sit over", () => {
+  // Unmounting the head on close would drop the sidebar's content 44px while
+  // the sidebar is still visibly sliding out.
+  it.each([true, false])("keeps the macOS sidebar head in both states (open: %s)", (open) => {
+    h.sidebarOpen = open;
+    const { container } = render(() => <Sidebar />);
+    expect(container.querySelector(".sidebar-head")).not.toBeNull();
+    expect(container.querySelector(".maclight")).toBeNull();
+  });
+
+  it.each(["win", "linux"] as const)("builds no head on %s", (p) => {
+    h.platform = p;
+    const { container } = render(() => <Sidebar />);
+    expect(container.querySelector(".sidebar-head")).toBeNull();
+  });
+
+  it("reserves the toolbar's lead only while the sidebar is closed", () => {
     h.sidebarOpen = false;
-    const { container } = render(() => <Toolbar />);
-    const lights = container.querySelector(".writ-toolbar > .window-lights");
-    expect(lights).not.toBeNull();
-    expect(lights!.querySelectorAll(".maclight")).toHaveLength(3);
+    const closed = render(() => <Toolbar />);
+    expect(closed.container.querySelector(".writ-toolbar")!.classList).toContain("leads-lights");
+    cleanup();
+    h.sidebarOpen = true;
+    const open = render(() => <Toolbar />);
+    expect(open.container.querySelector(".writ-toolbar")!.classList).not.toContain("leads-lights");
   });
 
-  it("leaves the toolbar clear while the head is carrying them", () => {
-    const { container } = render(() => <Toolbar />);
-    expect(container.querySelector(".window-lights")).toBeNull();
-  });
-
-  // The lights are window chrome, not note actions: the bar's roving group
-  // never claims them, so they keep their own tab stops and the bar keeps one.
-  it("keeps the lights out of the toolbar's roving tab order", () => {
-    h.sidebarOpen = false;
-    const { container } = render(() => <Toolbar />);
-    for (const light of container.querySelectorAll<HTMLButtonElement>(".maclight")) {
-      expect(light.hasAttribute("tabindex")).toBe(false);
-    }
-    const roving = container.querySelectorAll<HTMLButtonElement>("button[tabindex]");
-    expect(roving.length).toBeGreaterThan(0);
-    expect(Array.from(roving).filter((el) => el.tabIndex === 0)).toHaveLength(1);
-    expect(Array.from(roving).some((el) => el.classList.contains("maclight"))).toBe(false);
-  });
-
-  it.each(["win", "linux"] as const)("draws no lights in the %s toolbar", (p) => {
+  it.each(["win", "linux"] as const)("reserves no lead on %s", (p) => {
     h.platform = p;
     h.sidebarOpen = false;
     const { container } = render(() => <Toolbar />);
-    expect(container.querySelector(".window-lights")).toBeNull();
+    expect(container.querySelector(".writ-toolbar")!.classList).not.toContain("leads-lights");
+  });
+
+  // The lights are window chrome, not note actions: the bar's roving group
+  // never claimed them, and now they are not in the bar at all.
+  it("leaves the toolbar's roving tab order to the bar's own controls", () => {
+    h.sidebarOpen = false;
+    const { container } = render(() => <Toolbar />);
+    const roving = container.querySelectorAll<HTMLButtonElement>("button[tabindex]");
+    expect(roving.length).toBeGreaterThan(0);
+    expect(Array.from(roving).filter((el) => el.tabIndex === 0)).toHaveLength(1);
+  });
+
+  it("gives the lights no tab stop of their own", () => {
+    const { container } = render(() => <WindowLights />);
+    for (const light of container.querySelectorAll<HTMLButtonElement>(".maclight")) {
+      expect(light.hasAttribute("tabindex")).toBe(false);
+    }
   });
 });

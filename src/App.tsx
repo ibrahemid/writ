@@ -1,5 +1,6 @@
 import { onMount, onCleanup, createEffect } from "solid-js";
 import TitleBar from "./components/TitleBar/TitleBar";
+import WindowLights from "./components/TitleBar/WindowLights";
 import EditorArea from "./components/Editor/EditorArea";
 import Sidebar from "./components/Sidebar/Sidebar";
 import CommandPalette, { toggleCommandPalette } from "./components/CommandPalette/CommandPalette";
@@ -706,6 +707,9 @@ function AppShell() {
       <div class="app-body">
         <Sidebar />
         <EditorArea />
+        {/* Last in the row and over both panes: the lights sit at the window's
+            leading edge whatever the sidebar is doing under them. */}
+        <WindowLights />
       </div>
       <CommandPalette />
       <SearchPalette />

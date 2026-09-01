@@ -5,10 +5,9 @@ interface Props {
 }
 
 /**
- * The macOS lights. The window carries no title bar, so these render in the
- * sidebar head while the sidebar is open and at the toolbar's leading edge
- * while it is closed (`resolveLightsSlot`) — never nowhere, since a window
- * with no native decorations has no other way left to hide itself.
+ * The macOS lights. The window carries no title bar, so `WindowLights` pins
+ * these to its leading edge for good — never nowhere, since a window with no
+ * native decorations has no other way left to hide itself.
  */
 export default function TrafficLights(props: Props) {
   return (

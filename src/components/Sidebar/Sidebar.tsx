@@ -4,8 +4,6 @@ import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { workspaceStore } from "../../stores/global/workspace";
 import { resolvePlatform } from "../../lib/platform";
 import { resolveLightsSlot } from "../../lib/window-chrome";
-import { osWindowStore } from "../../stores/global/os-window";
-import TrafficLights from "../TitleBar/TrafficLights";
 import { inboxStore } from "../../stores/global/inbox";
 import {
   configStore,
@@ -48,9 +46,11 @@ export default function Sidebar() {
   // other two shells carry it in the toolbar (ADR-030 decision 4).
   const platform = resolvePlatform();
   const searchInSidebar = platform === "linux";
-  // macOS has no title bar: the head is where the lights sit while the sidebar
-  // is open, and it is also what lines the sidebar up with the 44px toolbar.
-  const lightsInHead = () => resolveLightsSlot(platform, win.sidebar.isOpen()) === "sidebar-head";
+  // macOS has no title bar: the head spans the inset the window lights are
+  // pinned over, and lines the sidebar up with the 44px toolbar beside it. It
+  // does not track the open state — unmounting it would drop the content 44px
+  // while the sidebar is still visibly sliding out.
+  const hasWindowHead = resolveLightsSlot(platform) === "window-lead";
   const searching = createMemo(() => win.sidebar.searchQuery().trim().length > 0);
   const hasContent = createMemo(
     () =>
@@ -106,12 +106,10 @@ export default function Sidebar() {
       inert={!win.sidebar.isOpen()}
     >
       <div class="sidebar-inner">
-        <Show when={lightsInHead()}>
+        <Show when={hasWindowHead}>
           {/* The head sits outside the toolbar's drag region and only exists on
               macOS, where nothing else moves the window from this column. */}
-          <div class="sidebar-head" data-tauri-drag-region="deep">
-            <TrafficLights focused={osWindowStore.focused()} />
-          </div>
+          <div class="sidebar-head" data-tauri-drag-region="deep" />
         </Show>
         <Show when={searchInSidebar}>
           <SearchBar />

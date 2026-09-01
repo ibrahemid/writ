@@ -30,6 +30,7 @@ const TITLEBAR = sheet("src/components/TitleBar/TitleBar.css");
 const FOCUS = sheet("src/styles/focus.css");
 const APP = sheet("src/App.css");
 const SIDEBAR = sheet("src/components/Sidebar/Sidebar.css");
+const TOOLBAR = sheet("src/components/Toolbar/Toolbar.css");
 const THEME = sheet("src/styles/generated/theme.css");
 
 describe("the platform layer keys off one selector root", () => {
@@ -164,6 +165,31 @@ describe("macOS lights", () => {
   it("spaces the 12px lights by 8px", () => {
     expect(declarations(TITLEBAR, ".window-lights").get("gap")).toBe("var(--writ-space-3)");
     expect(declarations(TITLEBAR, ".maclight").get("width")).toBe("12px");
+  });
+
+  // The lights used to change parent with the sidebar state, so the first
+  // frame of the width animation moved them. The layer is parented to neither
+  // pane and positioned against the window, which is what holds them still.
+  it("pins the layer to the window's leading edge over both panes", () => {
+    const layer = declarations(TITLEBAR, ".window-lights-layer");
+    expect(layer.get("position")).toBe("absolute");
+    expect(layer.get("top")).toBe("0");
+    expect(layer.get("left")).toBe("0");
+    expect(layer.get("height")).toBe(declarations(SIDEBAR, ".sidebar-head").get("height"));
+    expect(layer.get("padding-left")).toBe("20px");
+    expect(layer.get("z-index")).toBe("var(--writ-z-chrome)");
+    expect(layer.get("pointer-events")).toBe("none");
+    expect(declarations(TITLEBAR, ".window-lights").get("pointer-events")).toBe("auto");
+  });
+
+  // Reserved on the same motion token as the sidebar width, so the leading
+  // control tracks the sidebar instead of crossing under the pinned lights.
+  it("eases the toolbar's reservation on the sidebar's own motion token", () => {
+    const bar = declarations(TOOLBAR, ':root[data-platform="mac"] .writ-toolbar');
+    expect(bar.get("transition")).toBe("padding-left var(--writ-motion)");
+    expect(declarations(SIDEBAR, ".sidebar").get("transition")).toBe("width var(--writ-motion)");
+    const lead = declarations(TOOLBAR, ':root[data-platform="mac"] .writ-toolbar.leads-lights');
+    expect(lead.get("padding-left")).toBe("var(--writ-window-lights-lead, 84px)");
   });
 
   it("takes the amber from the baseline value the host paints", () => {

@@ -242,13 +242,40 @@
 
 /* ---------- macOS lights ---------- */
 
-/* No title bar hosts these: they sit in the sidebar head, or at the toolbar's
-   leading edge when the sidebar is closed. */
+/* Everything the lights occupy measured from the window edge: the 20px inset
+   the system draws them at, three 12px lights spaced by 8px, and the chrome
+   row's own gap before whatever comes next. The toolbar reads it to leave them
+   room while the sidebar is closed. */
+:root[data-platform="mac"] {
+  --writ-window-lights-lead: calc(20px + 3 * 12px + 2 * var(--writ-space-3) + var(--writ-space-4));
+}
+
+/* No title bar hosts these. The layer is pinned to the window's leading edge
+   over both panes, so the sidebar's width animation moves the ground under the
+   lights and never the lights themselves. 20px is the inset the system draws
+   them at and 44px the chrome row they centre in, matching `.sidebar-head`.
+   The layer passes pointer events through to the drag region below; the lights
+   row takes its own back, and `deep` on the layer keeps the gaps inside it
+   dragging the window. Chrome-level z, last in `.app-body`: over the toolbar
+   at the same weight, under every palette, modal and toast above it. */
+.window-lights-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding-left: 20px;
+  z-index: var(--writ-z-chrome);
+  pointer-events: none;
+}
+
 .window-lights {
   display: flex;
   align-items: center;
   gap: var(--writ-space-3);
   flex: none;
+  pointer-events: auto;
 }
 
 .maclight {

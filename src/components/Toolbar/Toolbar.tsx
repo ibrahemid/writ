@@ -9,9 +9,7 @@ import { executeCommand, useCommand } from "../../commands/registry";
 import { useEffectiveBinding } from "../../commands/keybindings";
 import { formatKeybinding } from "../../lib/keybinding-format";
 import { resolvePlatform } from "../../lib/platform";
-import { resolveChromeLayout, resolveLightsSlot } from "../../lib/window-chrome";
-import { osWindowStore } from "../../stores/global/os-window";
-import TrafficLights from "../TitleBar/TrafficLights";
+import { resolveChromeLayout, toolbarLeadsLights } from "../../lib/window-chrome";
 import "./Toolbar.css";
 
 interface FormatControl {
@@ -49,9 +47,10 @@ export default function Toolbar() {
   // reactive read would only cost a navigator lookup per render.
   const platform = resolvePlatform();
   const layout = resolveChromeLayout(platform);
-  // A closed sidebar takes its head with it, so the lights fall back to the
-  // toolbar's leading edge rather than leaving the window undismissable.
-  const lightsInToolbar = () => resolveLightsSlot(platform, win.sidebar.isOpen()) === "toolbar-lead";
+  // A closed sidebar takes its head with it, so the bar itself has to leave the
+  // window lights their inset. The class eases the padding on the sidebar's own
+  // motion token, which keeps the first control clear of them throughout.
+  const leadsLights = () => toolbarLeadsLights(platform, win.sidebar.isOpen());
   const [focusIndex, setFocusIndex] = createSignal(0);
   let barRef: HTMLDivElement | undefined;
 
@@ -100,6 +99,7 @@ export default function Toolbar() {
     <div
       ref={(el) => (barRef = el)}
       class="writ-toolbar"
+      classList={{ "leads-lights": leadsLights() }}
       role="toolbar"
       aria-label="Note actions"
       data-platform={platform}
@@ -110,10 +110,6 @@ export default function Toolbar() {
       data-tauri-drag-region={platform === "mac" ? "deep" : undefined}
       onKeyDown={handleKeyDown}
     >
-      <Show when={lightsInToolbar()}>
-        <TrafficLights focused={osWindowStore.focused()} />
-      </Show>
-
       <Tooltip label={tip("Toggle sidebar", useEffectiveBinding("sidebar.toggle", "CmdOrCtrl+\\"))}>
         <Button
           variant="ghost"

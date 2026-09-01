@@ -142,9 +142,15 @@
   border-bottom: 0;
 }
 
-/* The macOS lights fall back here when the sidebar head goes with the sidebar.
-   The bar's own 12px plus 8px is the 20px inset the system draws them at. */
-:root[data-platform="mac"] .writ-toolbar .window-lights {
-  margin-left: var(--writ-space-3);
-  margin-right: var(--writ-space-2);
+/* The macOS lights are pinned to the window edge, so the bar leaves them their
+   inset whenever no sidebar head is there to span it. The padding eases on the
+   sidebar's own motion token: both move together, and the leading control stays
+   clear of the lights for the whole open and close rather than crossing under
+   them. Reduced motion zeroes the duration at the token layer. */
+:root[data-platform="mac"] .writ-toolbar {
+  transition: padding-left var(--writ-motion);
+}
+
+:root[data-platform="mac"] .writ-toolbar.leads-lights {
+  padding-left: var(--writ-window-lights-lead, 84px);
 }

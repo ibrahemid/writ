@@ -53,6 +53,7 @@ vi.mock("../../components/Sidebar/SidebarEmpty", () => ({ default: () => null })
 
 import Sidebar from "../../components/Sidebar/Sidebar";
 import Toolbar from "../../components/Toolbar/Toolbar";
+import WindowLights from "../../components/TitleBar/WindowLights";
 
 const ATTR = "data-tauri-drag-region";
 
@@ -126,15 +127,23 @@ describe("the macOS drag region covers the whole chrome row", () => {
   it("drags from the wrappers inside the toolbar", () => {
     h.sidebarOpen = false;
     const { container } = render(() => <Toolbar />);
-    for (const selector of [".writ-toolbar", ".window-lights", ".writ-toolbar-cluster"]) {
+    for (const selector of [".writ-toolbar", ".writ-toolbar-cluster"]) {
       expect(dragsFrom(pick(container, selector)), selector).toBe(true);
     }
   });
 
-  it("drags from the sidebar head and the lights wrapper it holds", () => {
+  it("drags from the sidebar head", () => {
     const { container } = render(() => <Sidebar />);
     expect(dragsFrom(pick(container, ".sidebar-head"))).toBe(true);
-    expect(dragsFrom(pick(container, ".sidebar-head .window-lights"))).toBe(true);
+  });
+
+  // The layer takes no pointer events, so the band around the lights reaches
+  // the head or the toolbar below. The gaps inside the lights row do take them,
+  // and `deep` on the layer is what keeps those dragging the window.
+  it("drags from the lights layer and the row inside it", () => {
+    const { container } = render(() => <WindowLights />);
+    expect(dragsFrom(pick(container, ".window-lights-layer"))).toBe(true);
+    expect(dragsFrom(pick(container, ".window-lights-layer > .window-lights"))).toBe(true);
   });
 
   it("leaves the controls clickable rather than draggable", () => {
@@ -149,7 +158,7 @@ describe("the macOS drag region covers the whole chrome row", () => {
   });
 
   it("leaves the lights clickable rather than draggable", () => {
-    const { container } = render(() => <Sidebar />);
+    const { container } = render(() => <WindowLights />);
     const lights = container.querySelectorAll<HTMLElement>(".maclight");
     expect(lights).toHaveLength(3);
     for (const light of lights) {
