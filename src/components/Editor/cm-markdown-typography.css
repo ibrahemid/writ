@@ -23,8 +23,13 @@
   padding-left: var(--writ-md-hang, 1.6em);
 }
 
-/* The marker itself: readable, quiet, never bold with the heading it opens. */
-.cm-editor .cm-md-marker-hung {
+/* The marker itself: readable, quiet, never bold with the heading it opens.
+   The lezer grammar tags '#' and '>' as processing instructions, and the
+   highlight style paints that tag inside this span, so the ink is restated on
+   the descendant it wraps or the muted token wins. Every rule below that
+   shares a range with a highlighted token does the same. */
+.cm-editor .cm-md-marker-hung,
+.cm-editor .cm-md-marker-hung span {
   color: var(--writ-heading-formatting);
   font-weight: 400;
 }
@@ -44,49 +49,124 @@
   font-size: 0.875em;
 }
 
-/* Fenced blocks take the same fill with no border. */
+/* Fenced blocks take the same fill with no border. The fill runs per line, so
+   the corner radius and the block padding land on the edge lines only and the
+   run reads as one slab. */
 .cm-editor .cm-md-codeblock {
   background: var(--writ-bg-sunken);
   font-family: var(--writ-font-mono);
   font-size: 0.875em;
+  line-height: 1.6;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+.cm-editor .cm-md-codeblock-first {
+  padding-top: 14px;
+  border-top-left-radius: var(--writ-r-media);
+  border-top-right-radius: var(--writ-r-media);
+}
+.cm-editor .cm-md-codeblock-last {
+  padding-bottom: 14px;
+  border-bottom-left-radius: var(--writ-r-media);
+  border-bottom-right-radius: var(--writ-r-media);
 }
 
-/* Blockquote left rail + muted text. Applied to each content line. */
+/* Fence info string, sized to 0.75em of the prose face from inside the
+   0.875em code line. */
+.cm-editor .cm-md-code-info {
+  font-size: 0.857em;
+}
+.cm-editor .cm-md-code-info,
+.cm-editor .cm-md-code-info span {
+  color: var(--writ-fg-faint);
+}
+
+/* Blockquote left rail + muted text. Applied per content line, starting after
+   the '>' so the rail keeps its column while the marker hangs. */
 .cm-editor .cm-md-blockquote {
   border-left: 2px solid var(--writ-border);
   padding-left: 0.75em;
+}
+.cm-editor .cm-md-blockquote,
+.cm-editor .cm-md-blockquote span {
   color: var(--writ-fg-muted);
 }
 
 /* Link text — underlined accent. The URL span is dimmed via cm-md-url-dim on
-   inactive lines (replaced when the cursor is present). */
-.cm-editor .cm-md-link-text {
+   inactive lines, where the brackets collapse and the two would otherwise
+   abut. */
+.cm-editor .cm-md-link-text,
+.cm-editor .cm-md-link-text span {
   color: var(--writ-accent);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 .cm-editor .cm-md-url-dim {
-  color: var(--writ-fg-faint);
   font-size: 0.88em;
+  margin-left: 0.35em;
+}
+.cm-editor .cm-md-url-dim,
+.cm-editor .cm-md-url-dim span {
+  color: var(--writ-fg-faint);
+  text-decoration: none;
 }
 
-/* Dimmed inline markers on inactive lines. Preserve metrics so replacing them
-   (Decoration.replace) does not reflow adjacent text. */
-.cm-editor .cm-md-marker-dim {
+/* Dimmed markers on inactive lines. The ink alone carries the demotion: the
+   fence markers sit on the sunken fill, where fg-faint at a fraction of its
+   opacity stops being legible. */
+.cm-editor .cm-md-marker-dim,
+.cm-editor .cm-md-marker-dim span {
   color: var(--writ-fg-faint);
-  opacity: 0.45;
 }
 
 /* Task checkbox widget — replaces the [ ]/[x] marker on inactive lines.
-   Sized to the text so the swap does not change line height. */
-.cm-editor .cm-md-task-checkbox {
-  appearance: auto;
-  accent-color: var(--writ-accent);
+   Sized to the text so the swap does not change line height. The wrapper draws
+   the box; the input sits over it at zero opacity to take the click. */
+.cm-editor .cm-md-task-box {
+  position: relative;
+  display: inline-block;
+  box-sizing: border-box;
   width: 0.95em;
   height: 0.95em;
   margin: 0 0.15em;
   vertical-align: -0.1em;
+  border: 1px solid var(--writ-border);
+  border-radius: calc(var(--writ-r-control) * 2 / 3);
+  background: var(--writ-bg-sunken);
+}
+.cm-editor .cm-md-task-box[data-checked] {
+  border-color: var(--writ-accent);
+  background: var(--writ-accent);
+}
+/* Covers the wrapper's border ring too: a click landing on it would otherwise
+   move the cursor and dissolve the widget instead of toggling. */
+.cm-editor .cm-md-task-checkbox {
+  appearance: none;
+  position: absolute;
+  inset: -1px;
+  width: calc(100% + 2px);
+  height: calc(100% + 2px);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  opacity: 0;
   cursor: pointer;
+}
+.cm-editor .cm-md-task-check {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--writ-accent-fg);
+  pointer-events: none;
+}
+.cm-editor .cm-md-task-done {
+  text-decoration: line-through;
+}
+.cm-editor .cm-md-task-done,
+.cm-editor .cm-md-task-done span {
+  color: var(--writ-fg-muted);
 }
 
 /* Bullet dot — replaces -, + and * list marks on inactive lines. */

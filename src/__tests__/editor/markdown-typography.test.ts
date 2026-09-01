@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { ensureSyntaxTree } from "@codemirror/language";
+import { ensureSyntaxTree, syntaxHighlighting } from "@codemirror/language";
+import { writHighlight } from "../../components/Editor/cm-theme";
 import {
   buildMarkdownDecorations,
   markdownTypographyPlugin,
@@ -43,6 +44,31 @@ function buildForDoc(
     0,
     doc.length,
   );
+}
+
+function classesOf(spec: DecorationSpec): string[] {
+  const cls = (spec.decoration as unknown as { spec: { class?: string } }).spec?.class;
+  return cls ? cls.split(" ") : [];
+}
+
+// The decoration specs alone proved too little: a mark whose range is right
+// still loses its ink when the highlight style's own span nests inside it. The
+// DOM helper renders the same extensions the editor ships so the tests can see
+// which span wraps which.
+function renderDoc(doc: string, cursor: number): EditorView {
+  const view = new EditorView({
+    state: EditorState.create({
+      doc,
+      extensions: [
+        markdown({ base: markdownLanguage }),
+        syntaxHighlighting(writHighlight),
+        markdownTypographyPlugin,
+      ],
+      selection: { anchor: cursor },
+    }),
+    parent: document.body,
+  });
+  return view;
 }
 
 function widgetSpecs(specs: DecorationSpec[]): DecorationSpec[] {
@@ -330,14 +356,38 @@ describe("visible range scoping", () => {
 // ─── Blockquote ───────────────────────────────────────────────────────────
 
 describe("blockquote decoration", () => {
-  it("applies cm-md-blockquote mark to blockquote span", () => {
+  it("starts the cm-md-blockquote mark after the quote marker", () => {
     const doc = "> quoted text\n";
     const specs = buildForDoc(doc);
     const bq = specs.find(
       (s) => (s.decoration as unknown as { spec: { class: string } }).spec?.class === "cm-md-blockquote",
     );
     expect(bq).toBeDefined();
-    expect(bq!.from).toBe(0);
+    // The rail is this mark's left border: including the '>' would drag it into
+    // the hang margin with the marker.
+    expect(bq!.from).toBe(1);
+    expect(bq!.to).toBe(doc.indexOf("\n"));
+  });
+
+  it("hangs the quote marker on every quoted line", () => {
+    const doc = "> first\n> second\n";
+    const specs = buildForDoc(doc);
+    const hangs = specs.filter(
+      (s) =>
+        s.from === s.to &&
+        classesOf(s).includes("cm-line-md-hang"),
+    );
+    expect(hangs.map((s) => s.from)).toEqual([0, doc.indexOf("> second")]);
+
+    const markers = specs.filter((s) => classesOf(s).includes("cm-md-marker-hung"));
+    expect(markers.map((s) => s.from)).toEqual([0, doc.indexOf("> second")]);
+  });
+
+  it("marks each quoted line separately", () => {
+    const doc = "> first\n> second\n";
+    const specs = buildForDoc(doc);
+    const quotes = specs.filter((s) => classesOf(s).includes("cm-md-blockquote"));
+    expect(quotes.map((s) => s.from)).toEqual([1, doc.indexOf("> second") + 1]);
   });
 });
 
@@ -503,6 +553,134 @@ describe("autolink decorations", () => {
     );
     expect(link).toBeDefined();
     expect(link!.from).toBe(doc.indexOf("https://"));
+  });
+});
+
+// ─── Inline links ─────────────────────────────────────────────────────────
+
+describe("inline link decorations", () => {
+  const doc = "See [Writ](https://example.com) now\ncursor\n";
+
+  it("dims the url and styles only the label on an inactive line", () => {
+    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    const label = specs.find((s) => classesOf(s).includes("cm-md-link-text"));
+    const url = specs.find((s) => classesOf(s).includes("cm-md-url-dim"));
+    expect(label).toEqual(
+      expect.objectContaining({ from: doc.indexOf("Writ"), to: doc.indexOf("Writ") + 4 }),
+    );
+    expect(url).toEqual(
+      expect.objectContaining({
+        from: doc.indexOf("https://"),
+        to: doc.indexOf("https://") + "https://example.com".length,
+      }),
+    );
+  });
+
+  it("stops dimming the url on the active line", () => {
+    const specs = buildForDoc(doc, [0]);
+    expect(specs.some((s) => classesOf(s).includes("cm-md-url-dim"))).toBe(false);
+  });
+
+  it("wraps the highlighted url token so the dim ink wins the cascade", () => {
+    // The grammar tags every Link descendant, url included, with tags.link, and
+    // the theme paints that accent and underlined. The dim mark only shows if
+    // its span is the outer one.
+    const view = renderDoc(doc, doc.indexOf("cursor"));
+    const dim = view.contentDOM.querySelector(".cm-md-url-dim");
+    expect(dim?.textContent).toBe("https://example.com");
+    expect(dim!.querySelector("span")?.textContent).toBe("https://example.com");
+    expect(view.contentDOM.querySelector(".cm-md-link-text")?.textContent).toBe("Writ");
+    view.destroy();
+  });
+
+  it("wraps the highlighted quote marker so the formatting ink wins", () => {
+    const quoted = "> quoted line\ncursor\n";
+    const view = renderDoc(quoted, quoted.indexOf("cursor"));
+    const marker = view.contentDOM.querySelector(".cm-md-marker-hung");
+    expect(marker?.textContent).toBe(">");
+    expect(marker!.querySelector("span")?.textContent).toBe(">");
+    expect(view.contentDOM.querySelector(".cm-line")?.classList.contains("cm-line-md-hang")).toBe(true);
+    view.destroy();
+  });
+});
+
+// ─── Fenced code ──────────────────────────────────────────────────────────
+
+describe("fenced code decorations", () => {
+  const doc = "```sh\necho hi\nmore\n```\ncursor\n";
+
+  it("rounds the first and last line of the block only", () => {
+    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    const lines = specs.filter((s) => classesOf(s).includes("cm-md-codeblock"));
+    expect(lines).toHaveLength(4);
+    expect(lines.map((s) => classesOf(s).includes("cm-md-codeblock-first"))).toEqual([
+      true, false, false, false,
+    ]);
+    expect(lines.map((s) => classesOf(s).includes("cm-md-codeblock-last"))).toEqual([
+      false, false, false, true,
+    ]);
+  });
+
+  it("dims the fences and the info string instead of removing them", () => {
+    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    const dimmed = specs.filter((s) => classesOf(s).includes("cm-md-marker-dim"));
+    expect(dimmed.map((s) => s.from)).toEqual([0, doc.indexOf("```\n")]);
+    expect(widgetSpecs(specs).some((s) => s.from === 0)).toBe(false);
+
+    const info = specs.find((s) => classesOf(s).includes("cm-md-code-info"));
+    expect(info).toEqual(expect.objectContaining({ from: 3, to: 5 }));
+  });
+
+  it("leaves the fence plain on the active line", () => {
+    const specs = buildForDoc(doc, [1]);
+    const dimmed = specs.filter((s) => classesOf(s).includes("cm-md-marker-dim"));
+    expect(dimmed.map((s) => s.from)).toEqual([doc.indexOf("```\n")]);
+    expect(specs.some((s) => classesOf(s).includes("cm-md-code-info"))).toBe(false);
+  });
+
+  it("still replaces the backticks of inline code", () => {
+    const inline = "a `code` b\ncursor\n";
+    const specs = buildForDoc(inline, [inline.indexOf("cursor")]);
+    expect(specs.some((s) => classesOf(s).includes("cm-md-marker-dim"))).toBe(false);
+    const replaced = specs.filter(
+      (s) =>
+        classesOf(s).length === 0 &&
+        (s.decoration as unknown as { spec: { widget?: unknown } }).spec.widget === undefined,
+    );
+    expect(replaced.map((s) => [s.from, s.to])).toEqual([
+      [2, 3],
+      [7, 8],
+    ]);
+  });
+});
+
+// ─── Task item state ──────────────────────────────────────────────────────
+
+describe("task item state", () => {
+  const doc = "- [x] done\n- [ ] open\ncursor\n";
+
+  it("strikes the text of a checked item and leaves an open one alone", () => {
+    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    const struck = specs.filter((s) => classesOf(s).includes("cm-md-task-done"));
+    expect(struck).toHaveLength(1);
+    expect(struck[0]).toEqual(
+      expect.objectContaining({ from: doc.indexOf("done"), to: doc.indexOf("done") + 4 }),
+    );
+  });
+
+  it("draws the box rather than the platform checkbox", () => {
+    const view = renderDoc(doc, doc.indexOf("cursor"));
+    const boxes = view.contentDOM.querySelectorAll(".cm-md-task-box");
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0].hasAttribute("data-checked")).toBe(true);
+    expect(boxes[1].hasAttribute("data-checked")).toBe(false);
+    expect(boxes[0].querySelector("svg.cm-md-task-check")).not.toBeNull();
+    expect(boxes[1].querySelector("svg.cm-md-task-check")).toBeNull();
+    // The real control stays, so the click handler and a11y are unchanged.
+    const input = boxes[0].querySelector("input.cm-md-task-checkbox") as HTMLInputElement;
+    expect(input.checked).toBe(true);
+    expect(input.getAttribute("aria-label")).toBe("Completed task");
+    view.destroy();
   });
 });
 

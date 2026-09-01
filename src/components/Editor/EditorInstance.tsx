@@ -405,13 +405,35 @@ export default function EditorInstance(props: Props) {
     }
   }
 
+  // An untitled note (created by New Note; no on-disk path) keeps its surface
+  // as markdown no matter what its content looks like — a fenced ```sh block
+  // must not turn it into a shell code buffer (F05/F17). Two things still
+  // override that: an explicit extension the user typed into the title (a
+  // rename to "main.rs" is a deliberate signal, not content-sniffing — see
+  // editor-instance-chrome.test.tsx), checked here with empty content so it
+  // can only match the filename map, never a heuristic; and a note that opens
+  // with a shebang, where that shebang's own detection stands. A file opened
+  // from disk is untouched: it keeps today's filename+content detection.
+  function detectLanguageForBuffer(buffer: BufferDocument, content: string, name: string): string | null {
+    if (buffer.source_path !== null) {
+      return win.editor.detectLanguage(content, name);
+    }
+    const byExtension = win.editor.detectLanguage("", name);
+    if (byExtension !== null) return byExtension;
+    const firstLine = content.split("\n")[0] || "";
+    if (firstLine.startsWith("#!")) {
+      return win.editor.detectLanguage(content, name);
+    }
+    return "markdown";
+  }
+
   function applyLanguageFromBuffer(buffer: BufferDocument, content: string) {
     const mode = editorModeForContent(buffer, content);
     if (mode.kind !== "Normal") return;
     const name = nameForDetection(buffer);
     if (name === appliedNameForLang && view) return;
     appliedNameForLang = name;
-    const lang = win.editor.detectLanguage(content, name);
+    const lang = detectLanguageForBuffer(buffer, content, name);
     win.editor.setLanguage(lang);
     if (view) {
       view.dispatch({
@@ -453,7 +475,7 @@ export default function EditorInstance(props: Props) {
     const name = nameForDetection(buffer);
     let lang: string | null = null;
     if (mode.kind === "Normal") {
-      lang = win.editor.detectLanguage(content, name);
+      lang = detectLanguageForBuffer(buffer, content, name);
       appliedNameForLang = name;
     }
     win.editor.setLanguage(lang);
