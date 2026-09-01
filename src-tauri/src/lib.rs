@@ -784,6 +784,26 @@ pub fn run() {
                         tracing::warn!(error = %e, "failed to start notes watcher");
                     }
                 }
+
+                // Files opened from anywhere else. It watches nothing until a
+                // tab asks for a folder, so starting it here costs one channel
+                // and two idle backends.
+                match watcher::open_files::start_open_file_watcher(
+                    state.event_bus.clone(),
+                    state.watcher_ignore.clone(),
+                    &state.notes_root(),
+                ) {
+                    Ok(handle) => {
+                        let mut slot = recover_poison(
+                            state.open_file_watcher.lock(),
+                            "lib::setup:open_file_watcher_stash",
+                        );
+                        *slot = Some(handle);
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "failed to start open file watcher");
+                    }
+                }
             }
 
             {

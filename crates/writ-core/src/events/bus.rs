@@ -25,12 +25,31 @@ pub enum WritEvent {
         /// Dotted config paths that changed (for example `editor.font_size`).
         keys: Vec<String>,
     },
-    /// A buffer's backing file was modified or deleted externally.
+    /// An open note's file was changed or removed by something other than
+    /// Writ.
+    ///
+    /// It carries what the file now holds rather than the file's text: the
+    /// editor decides whether to take the change, and reads the bytes itself
+    /// if it does. It must never route into a reload of the document
+    /// registry, which recreates a loaded `writ-preview://` iframe and
+    /// hard-freezes the macOS webview (PR #127).
     BufferExternal {
-        /// Identifier of the buffer that observed the change.
+        /// Identifier of the note that observed the change.
         buffer_id: String,
+        /// The file the change was seen on.
+        path: String,
         /// Nature of the external change.
         change: ExternalChange,
+        /// Where the file went, for a change that is a move. Nothing sets
+        /// this yet; the identity work that decides a move from a delete is
+        /// its own unit.
+        new_path: Option<String>,
+        /// The digest of what the file holds now, in the form the editor
+        /// compares its document against
+        /// ([`crate::hash::comparison_digest_hex`]). Absent when there was
+        /// nothing to read: the file is gone, or its bytes are not on this
+        /// machine.
+        disk_hash: Option<String>,
     },
     /// A file or directory inside the open workspace folder changed on
     /// disk. Listeners refresh the affected directory listing; the event

@@ -32,8 +32,18 @@ pub enum WritFrontendEvent {
     #[serde(rename = "config:changed")]
     ConfigChanged { keys: Vec<String> },
 
+    /// An open note's file changed outside Writ. `bufferId` names the tab,
+    /// `diskHash` is what the file holds now, and `newPath` is where it went
+    /// for a change that is a move.
     #[serde(rename = "buffer:external")]
-    BufferExternal { buffer_id: String, change: String },
+    #[serde(rename_all = "camelCase")]
+    BufferExternal {
+        buffer_id: String,
+        path: String,
+        change: String,
+        new_path: Option<String>,
+        disk_hash: Option<String>,
+    },
 
     #[serde(rename = "menu:action")]
     MenuAction { action: String },

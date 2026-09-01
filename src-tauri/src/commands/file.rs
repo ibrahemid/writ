@@ -106,6 +106,21 @@ fn open_file_classified(
     mode: FileOpenMode,
     size_bytes: u64,
 ) -> Result<FileOpenResult, String> {
+    let opened = open_file_classified_inner(state, canonical, mode, size_bytes)?;
+    // A file opened from anywhere but the notes folder is followed from here
+    // on, so an edit another program makes to it reaches the tab instead of
+    // being found the hard way on the next save.
+    state.follow_note_file(&opened.doc);
+    Ok(opened)
+}
+
+/// [`open_file_classified`] without the watch, which is the whole of the open.
+fn open_file_classified_inner(
+    state: &AppState,
+    canonical: &str,
+    mode: FileOpenMode,
+    size_bytes: u64,
+) -> Result<FileOpenResult, String> {
     let file_path = Path::new(canonical);
     let store = state.store.lock().map_err(|e| e.to_string())?;
 
@@ -320,9 +335,17 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
         }
     }
     if !state.disk_hash_matches(&doc.id, &source) {
+        // The digest is the file's own, computed from the bytes just read, in
+        // the form the editor compares its document against. A reopen is the
+        // one place the file has already been read, so leaving it out and
+        // making the editor go back to disk would be an IPC round trip for an
+        // answer already in hand.
         state.event_bus.emit(WritEvent::BufferExternal {
             buffer_id: doc.id.clone(),
+            path: doc.source_path.clone().unwrap_or_default(),
             change: ExternalChange::Modified,
+            new_path: None,
+            disk_hash: Some(writ_core::hash::comparison_digest_hex(&source)),
         });
     }
 }

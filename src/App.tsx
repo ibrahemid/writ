@@ -55,7 +55,7 @@ import {
   pruneLegacyDefaultOverrides,
 } from "./commands/keybindings";
 import { onEvent, emitFrontendReady } from "./services/events";
-import { hasPendingAutosave, cancelAutosave } from "./services/autosave";
+import { cancelAutosave } from "./services/autosave";
 import { handleExternalEdit } from "./services/external-edit";
 import { reportFirstPaint } from "./services/tauri";
 import { installCloseFlush, startWindowLifecycle } from "./services/window-lifecycle";
@@ -634,13 +634,23 @@ function AppShell() {
         return;
       }
       void handleExternalEdit(
-        { bufferId: payload.bufferId, change: payload.change },
+        {
+          bufferId: payload.bufferId,
+          change: payload.change,
+          path: payload.path,
+          newPath: payload.newPath,
+          diskHash: payload.diskHash,
+        },
         {
           findBuffer: (key) =>
             bufferRegistry
               .buffers()
               .find((b) => b.filename === key || b.id === key),
-          hasUnsaved: (id) => hasPendingAutosave(id),
+          // Whether the document differs from its file, not whether a save is
+          // queued: a note whose autosave already landed still has unsaved
+          // work the moment the next keystroke lands, and a note whose save
+          // was refused has an empty queue and everything to lose.
+          hasUnsaved: (id) => win.editor.isDirty(id),
           reload: (id) => win.editor.requestExternalReload(id),
           cancelAutosave: (id) => cancelAutosave(id),
           toast: (message, level) => showToast(message, level),

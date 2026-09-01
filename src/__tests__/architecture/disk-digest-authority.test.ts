@@ -18,6 +18,9 @@ const DISK_HASH_SOURCES = new Set([
   "diskHash",
   // The `described` answer `noteDiskState` came back with.
   "answer.disk.hash",
+  // What the `buffer:external` event carried, which Rust computed from the
+  // bytes it read off the file.
+  "payload.diskHash",
 ]);
 
 // `diskHash: string` in a signature is a type, not a value, and a type cannot

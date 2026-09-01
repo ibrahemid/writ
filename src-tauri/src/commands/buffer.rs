@@ -473,12 +473,24 @@ pub fn record_unsaved_notes(
     Ok(())
 }
 
+/// IPC: the tabs the last session left open.
+///
+/// This is also where a restored tab starts being followed. A tab nobody has
+/// brought to the front is the one most likely to be sitting on a file that
+/// moved on, so waiting for the user to click it would leave the whole
+/// restored session unwatched.
 #[tauri::command]
 pub fn list_active_buffers(state: State<'_, AppState>) -> Result<Vec<BufferDocument>, String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    store
-        .list_by_status(BufferStatus::Active)
-        .map_err(|e| e.to_string())
+    let docs = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        store
+            .list_by_status(BufferStatus::Active)
+            .map_err(|e| e.to_string())?
+    };
+    for doc in &docs {
+        state.follow_note_file(doc);
+    }
+    Ok(docs)
 }
 
 /// Drops the stamp the note's last save left, so a stamp cannot outlive the
@@ -503,11 +515,14 @@ fn forget_ignore_stamp(state: &AppState, doc: &BufferDocument, context: &'static
 /// looked; keeping it would let a note edited elsewhere while its tab was
 /// closed reopen without a word.
 pub fn close_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    let doc = store.get(id).map_err(|e| e.to_string())?;
-    forget_ignore_stamp(state, &doc, "commands::buffer::close_buffer");
-    store.close(id).map_err(|e| e.to_string())?;
+    {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        let doc = store.get(id).map_err(|e| e.to_string())?;
+        forget_ignore_stamp(state, &doc, "commands::buffer::close_buffer");
+        store.close(id).map_err(|e| e.to_string())?;
+    }
     state.forget_disk_state(id);
+    state.stop_following_note(id);
     Ok(())
 }
 
@@ -517,10 +532,13 @@ pub fn close_buffer(state: State<'_, AppState>, id: String) -> Result<(), String
 }
 
 pub fn close_buffers_inner(state: &AppState, ids: &[String]) -> Result<(), String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    store.close_many(ids).map_err(|e| e.to_string())?;
+    {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        store.close_many(ids).map_err(|e| e.to_string())?;
+    }
     for id in ids {
         state.forget_disk_state(id);
+        state.stop_following_note(id);
     }
     Ok(())
 }
@@ -531,13 +549,16 @@ pub fn close_buffers(state: State<'_, AppState>, ids: Vec<String>) -> Result<(),
 }
 
 pub fn delete_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    let doc = store.get(id).ok();
-    if let Some(doc) = doc.as_ref() {
-        forget_ignore_stamp(state, doc, "commands::buffer::delete_buffer");
+    {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        let doc = store.get(id).ok();
+        if let Some(doc) = doc.as_ref() {
+            forget_ignore_stamp(state, doc, "commands::buffer::delete_buffer");
+        }
+        store.delete(id).map_err(|e| e.to_string())?;
     }
-    store.delete(id).map_err(|e| e.to_string())?;
     state.forget_disk_state(id);
+    state.stop_following_note(id);
     Ok(())
 }
 

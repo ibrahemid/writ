@@ -54,6 +54,7 @@ fn make_state(dir: &TempDir) -> AppState {
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
         notes_watcher: Mutex::new(None),
+        open_file_watcher: Mutex::new(None),
         notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
         notes_index_reconciling: Arc::new(AtomicBool::new(false)),

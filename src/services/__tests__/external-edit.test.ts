@@ -77,4 +77,48 @@ describe("handleExternalEdit", () => {
     expect(deps.reload).not.toHaveBeenCalled();
     expect(deps.toast).not.toHaveBeenCalled();
   });
+
+  it("never replaces a document that differs from its file without asking", async () => {
+    // The one guarantee the watcher must not break: a folder watcher now
+    // raises this for any file opened from anywhere, so a note being edited
+    // while a sync client pulls its file is an ordinary Tuesday.
+    const deps = makeDeps({
+      hasUnsaved: vi.fn(() => true),
+      confirmReload: vi.fn(async () => false),
+    });
+
+    await handleExternalEdit(
+      {
+        bufferId: "buf-1.txt",
+        change: "modified",
+        path: "/repo/notes.md",
+        newPath: null,
+        diskHash: "deadbeef",
+      },
+      deps,
+    );
+
+    expect(deps.reload).not.toHaveBeenCalled();
+    expect(deps.cancelAutosave).not.toHaveBeenCalled();
+  });
+
+  it("carries what the file now holds without letting it change the decision", async () => {
+    // The extra fields are for the reload and the move handling further down
+    // the stack. They must not become a second input to a decision that rests
+    // on the dirty predicate alone.
+    const deps = makeDeps({ hasUnsaved: vi.fn(() => false) });
+
+    await handleExternalEdit(
+      {
+        bufferId: "buf-1.txt",
+        change: "modified",
+        path: "/repo/notes.md",
+        newPath: null,
+        diskHash: null,
+      },
+      deps,
+    );
+
+    expect(deps.reload).toHaveBeenCalledWith("buf-1");
+  });
 });

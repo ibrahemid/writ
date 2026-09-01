@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex, RwLock};
 use tracing::{info, warn};
+use writ_core::buffer::document::BufferDocument;
 use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
 use writ_core::preview::ContentRendererRegistry;
@@ -25,6 +26,7 @@ use crate::preview::handler::RenderCache;
 use crate::quit::QuitState;
 use crate::security::{canonicalize_for_authorization, canonicalize_root, AuthorizedPaths};
 use crate::watcher::handler::{IgnoreSet, WatcherHandle};
+use crate::watcher::open_files::OpenFileWatcher;
 
 /// What Writ last saw on disk for one note.
 ///
@@ -96,6 +98,10 @@ pub struct AppState {
     /// The recursive watcher over the notes folder. Held here so it lives as
     /// long as the application; dropping it stops the watch.
     pub notes_watcher: Mutex<Option<WatcherHandle>>,
+    /// The watcher over the folders holding files opened from outside the
+    /// notes tree. Held here for the same reason, and reached through
+    /// [`AppState::follow_note_file`] and [`AppState::stop_following_note`].
+    pub open_file_watcher: Mutex<Option<OpenFileWatcher>>,
     pub pending_opens: Mutex<Vec<String>>,
     pub frontend_ready: AtomicBool,
     pub transforms: RwLock<TransformRegistry>,
@@ -413,6 +419,7 @@ impl AppState {
             watcher_ignore,
             watcher: Mutex::new(None),
             notes_watcher: Mutex::new(None),
+            open_file_watcher: Mutex::new(None),
             pending_opens: Mutex::new(Vec::new()),
             frontend_ready: AtomicBool::new(false),
             transforms: RwLock::new(transforms),
@@ -456,9 +463,60 @@ impl AppState {
     /// lock every note in the folder out of saving.
     pub fn set_notes_root(&self, root: PathBuf) {
         let mut guard = recover_poison(self.notes_root.write(), "state::set_notes_root");
-        *guard = root;
+        *guard = root.clone();
         drop(guard);
         self.clear_notes_root_fallback();
+        // The open-file watcher skips folders the notes watcher already
+        // covers, so it has to be told where the notes are now.
+        let watcher = recover_poison(
+            self.open_file_watcher.lock(),
+            "state::set_notes_root:open_files",
+        );
+        if let Some(watcher) = watcher.as_ref() {
+            let mut registry = recover_poison(
+                watcher.registry().lock(),
+                "state::set_notes_root:open_files_registry",
+            );
+            registry.set_notes_root(&root);
+        }
+    }
+
+    /// Watches the folder holding `doc`'s file, so a change another program
+    /// makes to it reaches the tab.
+    ///
+    /// A note with no file yet is skipped: there is nothing to follow, and by
+    /// the time a first save gives it one the file is inside the notes folder,
+    /// which the notes watcher already covers. Called on every path that puts
+    /// a source-backed tab on screen, including the restore at launch — a tab
+    /// nobody has brought to the front is exactly the one that would otherwise
+    /// sit on a stale file.
+    pub fn follow_note_file(&self, doc: &BufferDocument) {
+        let Some(path) = doc.source_path.as_deref() else {
+            return;
+        };
+        let watcher = recover_poison(self.open_file_watcher.lock(), "state::follow_note_file");
+        let Some(watcher) = watcher.as_ref() else {
+            return;
+        };
+        let mut registry = recover_poison(
+            watcher.registry().lock(),
+            "state::follow_note_file:registry",
+        );
+        registry.watch_parent_of(&doc.id, Path::new(path));
+    }
+
+    /// Releases the folder watch a note was holding, which the last tab in a
+    /// folder closing is the end of.
+    pub fn stop_following_note(&self, note_id: &str) {
+        let watcher = recover_poison(self.open_file_watcher.lock(), "state::stop_following_note");
+        let Some(watcher) = watcher.as_ref() else {
+            return;
+        };
+        let mut registry = recover_poison(
+            watcher.registry().lock(),
+            "state::stop_following_note:registry",
+        );
+        registry.unwatch_parent_of(note_id);
     }
 
     /// The folder the settings named that startup could not use, or `None`.
