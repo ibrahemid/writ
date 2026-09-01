@@ -6,10 +6,12 @@ import {
   debouncedSave,
   cancelAutosave as cancelAutosaveService,
   flushAutosave as flushAutosaveService,
+  onAutosaveSuccess,
   saveNow as saveNowService,
   type ContentSource,
   type SaveResult,
 } from "../../services/autosave";
+import { hashDocument } from "../../lib/doc-hash";
 import {
   detectLanguage as detectLanguageService,
   detectFromContent as detectFromContentService,
@@ -29,6 +31,32 @@ export type ApplyEditResult =
 export type EditorStore = ReturnType<typeof createEditorStore>;
 
 const NOTHING_TO_SAVE: SaveResult = { ok: true, failures: [] };
+
+/**
+ * How long a note has to stop changing before its document is hashed.
+ *
+ * Hashing is O(document) and a keystroke is not, so it waits for a pause
+ * rather than running on every transaction. Nothing waits on the hash: a
+ * document that has changed since its last one already reads dirty
+ * ([`isDirty`]).
+ */
+export const DOC_HASH_IDLE_MS = 150;
+
+/**
+ * What is known about one note's text against the file behind it.
+ *
+ * `docGeneration` counts transactions; `hashedGeneration` records the one
+ * `docHash` was taken at. They diverge for as long as an edit has not been
+ * hashed, which is what makes an unhashed edit read dirty rather than clean.
+ */
+interface NoteHashes {
+  docGeneration: number;
+  hashedGeneration: number;
+  docHash?: string;
+  diskHash?: string;
+}
+
+const FRESH: NoteHashes = { docGeneration: 0, hashedGeneration: 0 };
 
 export function createEditorStore() {
   const [cursorLine, setCursorLine] = createSignal(1);
@@ -81,6 +109,127 @@ export function createEditorStore() {
   function clearReveal() {
     setPendingReveal(null);
   }
+
+  // Keyed by note, not by the view: a tab in the background has no view and
+  // still has to answer whether it differs from its file (U3-U5 read this per
+  // tab). A tab switch leaves these entries where they are.
+  const [noteHashes, setNoteHashes] = createSignal<ReadonlyMap<string, NoteHashes>>(new Map());
+  const hashTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function hashesOf(id: string): NoteHashes {
+    return noteHashes().get(id) ?? FRESH;
+  }
+
+  function patchHashes(id: string, patch: Partial<NoteHashes>) {
+    setNoteHashes((current) => {
+      const next = new Map(current);
+      next.set(id, { ...(current.get(id) ?? FRESH), ...patch });
+      return next;
+    });
+  }
+
+  function clearHashTimer(id: string) {
+    const timer = hashTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      hashTimers.delete(id);
+    }
+  }
+
+  async function hashNow(id: string, content: ContentSource) {
+    const generation = hashesOf(id).docGeneration;
+    let text: string;
+    try {
+      text = typeof content === "function" ? content() : content;
+    } catch {
+      // The view was torn down between the edit and the timer. The note keeps
+      // reading dirty, which is the honest answer for text nobody can measure.
+      return;
+    }
+    const hash = await hashDocument(text);
+    // A transaction that arrived while the digest was being computed has
+    // already bumped the generation; stamping this one would call the note
+    // clean on the strength of text it no longer holds.
+    if (hashesOf(id).docGeneration !== generation) return;
+    patchHashes(id, { docHash: hash, hashedGeneration: generation });
+  }
+
+  /**
+   * Records what a note holds the moment it is loaded or reloaded from disk:
+   * the document and the file agree, so it is clean.
+   */
+  function noteOpened(id: string, content: string) {
+    clearHashTimer(id);
+    setNoteHashes((current) => {
+      const next = new Map(current);
+      next.set(id, { docGeneration: 0, hashedGeneration: 0 });
+      return next;
+    });
+    void hashDocument(content).then((hash) => {
+      if (hashesOf(id).docGeneration !== 0) return;
+      patchHashes(id, { docHash: hash, diskHash: hash, hashedGeneration: 0 });
+    });
+  }
+
+  /**
+   * Records that a note's document changed, and hashes it once the edits
+   * settle. Until that lands the note reads dirty.
+   */
+  function noteEdited(id: string, content: ContentSource) {
+    patchHashes(id, { docGeneration: hashesOf(id).docGeneration + 1 });
+    clearHashTimer(id);
+    hashTimers.set(
+      id,
+      setTimeout(() => {
+        hashTimers.delete(id);
+        void hashNow(id, content);
+      }, DOC_HASH_IDLE_MS),
+    );
+  }
+
+  /** Records what the note's file holds after a write landed on it. */
+  function noteSaved(id: string, diskHash: string | null) {
+    if (diskHash === null) return;
+    patchHashes(id, { diskHash });
+  }
+
+  /** Drops everything held for a note whose tab has gone. */
+  function noteClosed(id: string) {
+    clearHashTimer(id);
+    setNoteHashes((current) => {
+      if (!current.has(id)) return current;
+      const next = new Map(current);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  /**
+   * Whether the note's document differs from the file behind it.
+   *
+   * The autosave queue is never consulted: a write that just resolved empties
+   * it while the document has moved on again, and a note with nothing queued
+   * can still hold text no file has.
+   */
+  function isDirty(id: string): boolean {
+    const state = noteHashes().get(id);
+    if (state === undefined) return false;
+    if (state.docGeneration !== state.hashedGeneration) return true;
+    return state.docHash !== state.diskHash;
+  }
+
+  function docHash(id: string): string | undefined {
+    return noteHashes().get(id)?.docHash;
+  }
+
+  function lastKnownDiskHash(id: string): string | undefined {
+    return noteHashes().get(id)?.diskHash;
+  }
+
+  // A landed write is the one thing that moves the record of the file without
+  // the editor doing anything, so the store listens for it rather than making
+  // every save path remember to report back.
+  const stopSaveListener = onAutosaveSuccess(noteSaved);
 
   let activeView: EditorView | null = null;
 
@@ -218,5 +367,8 @@ export function createEditorStore() {
     applyEditToActiveBuffer,
     scheduleAutosave, cancelAutosave, flushAutosave, saveActiveBuffer,
     detectLanguage, detectFromContent,
+    noteOpened, noteEdited, noteSaved, noteClosed,
+    isDirty, docHash, lastKnownDiskHash,
+    stopSaveListener,
   };
 }

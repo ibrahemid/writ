@@ -22,7 +22,10 @@ const histDoc: BufferDocument = {
 let activeRows: BufferDocument[] = [];
 let historyRows: BufferDocument[] = [histDoc];
 
-vi.mock("../../services/autosave", () => ({ flushAutosave: vi.fn() }));
+vi.mock("../../services/autosave", () => ({
+  flushAutosave: vi.fn(),
+  onAutosaveSuccess: vi.fn(() => () => {}),
+}));
 vi.mock("../../components/ContextMenu/ContextMenu", () => ({
   showContextMenu: vi.fn(),
 }));

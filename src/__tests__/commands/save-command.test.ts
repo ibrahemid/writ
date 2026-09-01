@@ -38,7 +38,7 @@ describe("Cmd+S saves the active buffer", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedSave.mockResolvedValue(undefined);
+    mockedSave.mockResolvedValue(null);
     for (const c of [...getAllCommands()]) unregisterCommand(c.id);
 
     container = document.createElement("div");

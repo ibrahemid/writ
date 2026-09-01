@@ -213,6 +213,7 @@ describe("tabStore (per-window factory)", () => {
       mockedApi.saveBufferContent.mockReset();
       mockedApi.saveBufferContent.mockImplementation(async (id: string, content: string) => {
         callLog.push(`saveBufferContent:${id}:${content}`);
+        return null;
       });
     });
 
@@ -235,6 +236,7 @@ describe("tabStore (per-window factory)", () => {
       mockedApi.saveBufferContent.mockReset();
       mockedApi.saveBufferContent.mockImplementation(async (id: string, content: string) => {
         callLog.push(`saveBufferContent:${id}:${content}`);
+        return null;
       });
     });
   });
@@ -292,6 +294,7 @@ describe("tabStore (per-window factory)", () => {
       mockedApi.saveBufferContent.mockImplementation(async (id: string, content: string) => {
         if (id === stuckA.id || id === stuckB.id) throw new Error("disk full");
         callLog.push(`saveBufferContent:${id}:${content}`);
+        return null;
       });
       debouncedSave(stuckA.id, "a", 0);
       debouncedSave(stuckB.id, "b", 0);
@@ -314,6 +317,7 @@ describe("tabStore (per-window factory)", () => {
       mockedApi.saveBufferContent.mockReset();
       mockedApi.saveBufferContent.mockImplementation(async (id: string, content: string) => {
         callLog.push(`saveBufferContent:${id}:${content}`);
+        return null;
       });
     });
   });

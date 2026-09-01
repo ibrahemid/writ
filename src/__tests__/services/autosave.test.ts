@@ -82,16 +82,18 @@ describe("autosave", () => {
   });
 
   describe("onAutosaveSuccess", () => {
-    it("notifies success listeners with the buffer id after a save lands", async () => {
+    it("notifies success listeners with the buffer id and the file's digest", async () => {
       const listener = vi.fn();
       const unsubscribe = onAutosaveSuccess(listener);
+      mockedSave.mockResolvedValue("abc123");
 
       debouncedSave("buf-ok", "content", 50);
       await vi.advanceTimersByTimeAsync(50);
 
       expect(listener).toHaveBeenCalledOnce();
-      expect(listener).toHaveBeenCalledWith("buf-ok");
+      expect(listener).toHaveBeenCalledWith("buf-ok", "abc123");
       unsubscribe();
+      mockedSave.mockResolvedValue(null);
     });
 
     it("does not notify success listeners when the save fails", async () => {
@@ -322,6 +324,7 @@ describe("autosave", () => {
         peak = Math.max(peak, inFlightCount);
         await Promise.resolve();
         inFlightCount--;
+        return null;
       });
 
       debouncedSave("p2", "a", 300);
@@ -333,7 +336,7 @@ describe("autosave", () => {
       expect(peak).toBe(1);
       expect(mockedSave).toHaveBeenLastCalledWith("p2", "b");
       mockedSave.mockReset();
-      mockedSave.mockResolvedValue(undefined);
+      mockedSave.mockResolvedValue(null);
     });
 
     it("reports the in-flight failure to a flush that arrives during the write", async () => {

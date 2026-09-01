@@ -13,13 +13,13 @@ const mockedSave = vi.mocked(saveBufferContent);
 afterEach(() => {
   vi.useRealTimers();
   mockedSave.mockReset();
-  mockedSave.mockResolvedValue(undefined);
+  mockedSave.mockResolvedValue(null);
 });
 
 describe("saveStatusStore", () => {
   it("shows 'saved' on autosave success then returns to idle after the visible window", async () => {
     vi.useFakeTimers();
-    mockedSave.mockResolvedValue(undefined);
+    mockedSave.mockResolvedValue(null);
 
     debouncedSave("buf-saved", "hello", 0);
     await flushAutosave("buf-saved");

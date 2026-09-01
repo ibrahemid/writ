@@ -331,13 +331,16 @@ export default function EditorInstance(props: Props) {
             // Autosave gets a lazy getter so its flush reads the live document
             // rather than a value captured keystrokes ago (ADR-020).
             if (!isBinary && !isExternalReload) {
-              win.editor.scheduleAutosave(bufferId, () => view?.state.doc.toString() ?? "", autosaveDebounce);
+              const liveText = () => view?.state.doc.toString() ?? "";
+              win.editor.scheduleAutosave(bufferId, liveText, autosaveDebounce);
+              win.editor.noteEdited(bufferId, liveText);
             }
             scheduleRestrictedContentPublish();
           } else {
             const content = update.state.doc.toString();
             if (!isExternalReload) {
               win.editor.scheduleAutosave(bufferId, content, autosaveDebounce);
+              win.editor.noteEdited(bufferId, content);
             }
             win.editor.setCurrentText(content);
             maybeDetectFromContent(content, false);
@@ -451,7 +454,9 @@ export default function EditorInstance(props: Props) {
     // One bounded materialization on open keeps currentText consistent with the
     // id published below; the per-keystroke materialization (the real jank for
     // restricted buffers) is what's deferred, on the update path.
-    win.editor.setCurrentText(view.state.doc.toString());
+    const loaded = view.state.doc.toString();
+    win.editor.setCurrentText(loaded);
+    win.editor.noteOpened(buffer.id, loaded);
     // Publish the loaded id last so it never leads currentText: a preview pane
     // gating on this id is guaranteed to read the matching buffer's text.
     win.editor.setCurrentBufferId(buffer.id);
@@ -478,6 +483,7 @@ export default function EditorInstance(props: Props) {
       annotations: ExternalReloadTxn.of(true),
     });
     win.editor.setCurrentText(content);
+    win.editor.noteOpened(id, content);
     win.editor.setLineCount(view.state.doc.lines);
   }
 
