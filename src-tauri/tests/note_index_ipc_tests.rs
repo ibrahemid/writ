@@ -1,5 +1,5 @@
-//! IPC coverage for the notes-index reads: `resolve_note_link`, `note_facts`
-//! and `note_name_candidates` (ADR-034).
+//! IPC coverage for the notes-index reads: `resolve_note_link`, `note_facts`,
+//! `note_name_candidates` and `note_backlinks` (ADR-034).
 //!
 //! Each command is exercised through its Tauri-free inner function against a
 //! real index over a real folder, so the assertions cover the path spelling and
@@ -10,7 +10,7 @@ use std::path::Path;
 use tempfile::TempDir;
 use writ_storage::notes_index::{self, NotesIndexStore};
 use writ_tauri_lib::commands::note_index::{
-    note_facts_inner, note_name_candidates_inner, resolve_note_link_inner,
+    note_backlinks_inner, note_facts_inner, note_name_candidates_inner, resolve_note_link_inner,
 };
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
@@ -154,6 +154,91 @@ fn note_facts_on_a_note_the_index_does_not_hold_is_empty_rather_than_an_error() 
 }
 
 #[test]
+fn note_backlinks_names_the_notes_that_link_here_and_quotes_each_link() {
+    let (_dir, root, index) = indexed(&[
+        ("Target.md", "# Target\n"),
+        (
+            "Source.md",
+            "Preamble here. Agreed in [[Target|the plan]] today. After.\n",
+        ),
+    ]);
+
+    let rows = note_backlinks_inner(&index, root.join("Target.md").to_str().expect("utf-8 path"))
+        .expect("backlinks");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].from_name, "Source");
+    assert_eq!(
+        rows[0].from_path,
+        notes_index::index_key(&root.join("Source.md")),
+        "the list opens a note by the key the walk gave it"
+    );
+    assert_eq!(rows[0].to_target, "Target");
+    assert_eq!(rows[0].alias.as_deref(), Some("the plan"));
+    assert_eq!(rows[0].kind, "wikilink");
+    assert_eq!(rows[0].line, 1);
+    assert_eq!(rows[0].certainty, "resolved");
+    assert_eq!(rows[0].context, "Agreed in [[Target|the plan]] today.");
+}
+
+#[test]
+fn note_backlinks_flags_a_link_that_names_this_note_and_another() {
+    let (_dir, root, index) = indexed(&[
+        ("projects/Meeting.md", "# Meeting\n"),
+        ("archive/Meeting.md", "# Meeting\n"),
+        ("Diary.md", "Wrote up [[Meeting]] after.\n"),
+    ]);
+
+    for folder in ["projects", "archive"] {
+        let rows = note_backlinks_inner(
+            &index,
+            root.join(folder)
+                .join("Meeting.md")
+                .to_str()
+                .expect("utf-8 path"),
+        )
+        .expect("backlinks");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].certainty, "ambiguous");
+    }
+}
+
+#[test]
+fn note_backlinks_on_a_note_nothing_links_to_is_an_empty_list() {
+    let (_dir, root, index) = indexed(&[("Lonely.md", "# Lonely\n"), ("Other.md", "nothing\n")]);
+
+    let rows = note_backlinks_inner(&index, root.join("Lonely.md").to_str().expect("utf-8 path"))
+        .expect("backlinks");
+    assert!(rows.is_empty(), "zero backlinks is nothing to render");
+}
+
+#[test]
+fn note_backlinks_on_a_note_the_index_does_not_hold_is_empty_rather_than_an_error() {
+    let (_dir, root, index) = indexed(&[("note.md", "body\n")]);
+    let rows = note_backlinks_inner(
+        &index,
+        root.join("never-indexed.md").to_str().expect("utf-8 path"),
+    )
+    .expect("backlinks");
+    assert!(rows.is_empty());
+}
+
+#[test]
+fn note_backlinks_keys_a_path_the_way_the_walk_did() {
+    let (_dir, root, index) = indexed(&[
+        ("Target.md", "# Target\n"),
+        ("Source.md", "Links to [[Target]].\n"),
+    ]);
+
+    // The spelling a tab hands back: through the folder and out again, which
+    // canonicalisation has to undo before it keys the same rows.
+    let roundabout = root.join("sub").join("..").join("Target.md");
+    std::fs::create_dir_all(root.join("sub")).expect("create sub");
+    let rows =
+        note_backlinks_inner(&index, roundabout.to_str().expect("utf-8 path")).expect("backlinks");
+    assert_eq!(rows.len(), 1, "the path spelling must not lose the list");
+}
+
+#[test]
 fn note_name_candidates_ranks_the_note_names_and_honours_the_limit() {
     let (_dir, _root, index) = indexed(&[
         ("Weekly review.md", "one\n"),
@@ -178,11 +263,12 @@ fn note_name_candidates_answers_an_empty_query_with_nothing() {
 }
 
 #[test]
-fn all_three_note_index_commands_are_registered() {
+fn every_note_index_command_is_registered() {
     for command in [
         "commands::note_index::resolve_note_link",
         "commands::note_index::note_facts",
         "commands::note_index::note_name_candidates",
+        "commands::note_index::note_backlinks",
     ] {
         assert!(
             LIB_RS.contains(command),
