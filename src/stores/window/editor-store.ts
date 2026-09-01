@@ -145,6 +145,15 @@ export function createEditorStore() {
     });
   }
 
+  function forgetHashes(id: string) {
+    setNoteHashes((current) => {
+      if (!current.has(id)) return current;
+      const next = new Map(current);
+      next.delete(id);
+      return next;
+    });
+  }
+
   function clearHashTimer(id: string) {
     const timer = hashTimers.get(id);
     if (timer) {
@@ -172,8 +181,21 @@ export function createEditorStore() {
   }
 
   /**
-   * Records what a note holds the moment it is loaded or reloaded from disk:
-   * the document and the file agree, so it is clean.
+   * Records what a note holds the moment it is loaded or reloaded from disk.
+   *
+   * Two digests, from the two sides they describe: the document's is computed
+   * here, the file's comes from Rust, which read the file
+   * (`writ_core::hash::comparison_digest_hex`). The frontend never computes a
+   * digest for a file. It could compute one that agrees, since both sides
+   * normalise line endings the same way, but then the number the dirty
+   * predicate rests on would have two authors and only one of them would ever
+   * see the file change under it.
+   *
+   * A note with no file to read, whether it is new or its bytes are not on
+   * this machine, records neither digest. The two sides then agree that
+   * nothing is known to differ, which is right for a new empty note; the first
+   * keystroke moves the generation and the note reads dirty from there until a
+   * save gives it a file.
    */
   function noteOpened(id: string, content: string) {
     clearHashTimer(id);
@@ -182,10 +204,29 @@ export function createEditorStore() {
       next.set(id, { docGeneration: 0, hashedGeneration: 0 });
       return next;
     });
-    void hashDocument(content).then((hash) => {
+    void (async () => {
+      let disk: DiskState | null;
+      try {
+        disk = await noteDiskState(id);
+      } catch {
+        // Nothing came back, so nothing is known about the file. Drop the
+        // record rather than leave one that says the two sides agree:
+        // `isDirty` answers dirty for a note it holds no record of, which is
+        // the safe answer for a note whose file nobody could read.
+        forgetHashes(id);
+        return;
+      }
+      if (disk === null) return;
+      const documentHash = await hashDocument(content);
+      // An edit that landed while either answer was in flight has moved the
+      // generation, and this pair describes a document that is already gone.
       if (hashesOf(id).docGeneration !== 0) return;
-      patchHashes(id, { docHash: hash, diskHash: hash, hashedGeneration: 0 });
-    });
+      patchHashes(id, {
+        docHash: documentHash,
+        diskHash: disk.hash,
+        hashedGeneration: 0,
+      });
+    })();
   }
 
   /**
@@ -204,7 +245,13 @@ export function createEditorStore() {
     );
   }
 
-  /** Records what the note's file holds after a write landed on it. */
+  /**
+   * Records what the note's file holds after a write landed on it.
+   *
+   * `diskHash` is the digest the save command computed over what it wrote, so
+   * the file's side of the comparison comes from Rust here too. Null when the
+   * note had nothing in it and no file to mint one for.
+   */
   function noteSaved(id: string, diskHash: string | null) {
     if (diskHash === null) return;
     patchHashes(id, { diskHash });
@@ -213,12 +260,7 @@ export function createEditorStore() {
   /** Drops everything held for a note whose tab has gone. */
   function noteClosed(id: string) {
     clearHashTimer(id);
-    setNoteHashes((current) => {
-      if (!current.has(id)) return current;
-      const next = new Map(current);
-      next.delete(id);
-      return next;
-    });
+    forgetHashes(id);
   }
 
   /**

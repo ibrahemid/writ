@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+// The file's digest comes from Rust, so the test plays that part: whatever a
+// note's file is said to hold is what `noteDiskState` answers with.
+const backend = vi.hoisted(() => ({ hashes: new Map<string, string>() }));
+
 vi.mock("../../services/tauri", () => ({
   saveBufferContent: vi.fn().mockResolvedValue(null),
+  noteDiskState: vi.fn(async (id: string) => {
+    const hash = backend.hashes.get(id);
+    return hash === undefined ? null : { hash, size: 0, mtime_ms: null };
+  }),
 }));
 
 import { createEditorStore, DOC_HASH_IDLE_MS } from "../../stores/window/editor-store";
@@ -27,6 +35,16 @@ async function hashedAs(
   await vi.waitFor(() => expect(store.docHash(id)).toBe(want), { timeout: 2000 });
 }
 
+/** Opens a note whose file holds exactly `text`, the ordinary case. */
+async function openNote(
+  store: { noteOpened: (id: string, content: string) => void },
+  id: string,
+  text: string,
+): Promise<void> {
+  backend.hashes.set(id, await hashDocument(text));
+  store.noteOpened(id, text);
+}
+
 let stores: Array<{ stopSaveListener: () => void }> = [];
 
 function newStore() {
@@ -36,6 +54,7 @@ function newStore() {
 }
 
 beforeEach(() => {
+  backend.hashes.clear();
   resetAutosave();
   mockedSave.mockReset();
   mockedSave.mockResolvedValue(null);
@@ -59,16 +78,46 @@ describe("editorStore dirty contract", () => {
 
   it("is clean once a freshly opened note has been hashed", async () => {
     const store = newStore();
-    store.noteOpened("a", "hello");
+    await openNote(store, "a", "hello");
     await hashedAs(store, "a", "hello");
 
     expect(store.lastKnownDiskHash("a")).toBe(store.docHash("a"));
     expect(store.isDirty("a")).toBe(false);
   });
 
+  it("takes the file's digest from the backend rather than minting one", async () => {
+    // The file is not what the editor was handed. Only a digest that came
+    // from the file itself can say so, and the frontend has no way to compute
+    // one; minting it from the loaded text would call this note clean.
+    const store = newStore();
+    backend.hashes.set("a", "0".repeat(64));
+    store.noteOpened("a", "hello");
+    await vi.waitFor(() => expect(store.lastKnownDiskHash("a")).toBe("0".repeat(64)));
+
+    expect(store.docHash("a")).toBe(await hashDocument("hello"));
+    expect(store.isDirty("a")).toBe(true);
+  });
+
+  it("records nothing for a note with no file, and reads it clean until it is typed into", async () => {
+    // A new note, or one whose bytes are not on this machine: there is no
+    // digest to be measured against, and an empty new tab is not unsaved work.
+    const store = newStore();
+    store.noteOpened("new", "");
+    await turn();
+
+    expect(store.lastKnownDiskHash("new")).toBeUndefined();
+    expect(store.docHash("new")).toBeUndefined();
+    expect(store.isDirty("new")).toBe(false);
+
+    store.noteEdited("new", "first words");
+    expect(store.isDirty("new")).toBe(true);
+    await hashedAs(store, "new", "first words");
+    expect(store.isDirty("new")).toBe(true);
+  });
+
   it("reads dirty for a character typed inside the idle window, before the hash lands", async () => {
     const store = newStore();
-    store.noteOpened("a", "hello");
+    await openNote(store, "a", "hello");
     await hashedAs(store, "a", "hello");
     expect(store.isDirty("a")).toBe(false);
 
@@ -80,7 +129,7 @@ describe("editorStore dirty contract", () => {
 
   it("stays dirty while the edit differs from the file, before and after the hash", async () => {
     const store = newStore();
-    store.noteOpened("a", "hello");
+    await openNote(store, "a", "hello");
     await hashedAs(store, "a", "hello");
 
     store.noteEdited("a", "hello!");
@@ -92,7 +141,7 @@ describe("editorStore dirty contract", () => {
 
   it("goes clean again when the document is typed back to what the file holds", async () => {
     const store = newStore();
-    store.noteOpened("a", "hello");
+    await openNote(store, "a", "hello");
     await hashedAs(store, "a", "hello");
 
     store.noteEdited("a", "hello!");
@@ -106,7 +155,7 @@ describe("editorStore dirty contract", () => {
 
   it("counts a differing document as dirty with the queue empty and a write just resolved", async () => {
     const store = newStore();
-    store.noteOpened("a", "hello");
+    await openNote(store, "a", "hello");
     await hashedAs(store, "a", "hello");
 
     mockedSave.mockResolvedValue(await hashDocument("written"));
@@ -121,7 +170,7 @@ describe("editorStore dirty contract", () => {
 
   it("is clean after a write of exactly what the document holds", async () => {
     const store = newStore();
-    store.noteOpened("a", "hello");
+    await openNote(store, "a", "hello");
     await hashedAs(store, "a", "hello");
 
     store.noteEdited("a", "hello!");
@@ -137,8 +186,8 @@ describe("editorStore dirty contract", () => {
 
   it("tracks two notes apart, including the one that is not in front", async () => {
     const store = newStore();
-    store.noteOpened("a", "one");
-    store.noteOpened("b", "two");
+    await openNote(store, "a", "one");
+    await openNote(store, "b", "two");
     await hashedAs(store, "a", "one");
     await hashedAs(store, "b", "two");
 
@@ -151,20 +200,20 @@ describe("editorStore dirty contract", () => {
 
   it("reads a reloaded note as clean again", async () => {
     const store = newStore();
-    store.noteOpened("a", "hello");
+    await openNote(store, "a", "hello");
     await hashedAs(store, "a", "hello");
     store.noteEdited("a", "typed");
     await hashedAs(store, "a", "typed");
     expect(store.isDirty("a")).toBe(true);
 
-    store.noteOpened("a", "what the file now holds");
+    await openNote(store, "a", "what the file now holds");
     await hashedAs(store, "a", "what the file now holds");
     expect(store.isDirty("a")).toBe(false);
   });
 
   it("forgets a note whose tab has gone", async () => {
     const store = newStore();
-    store.noteOpened("a", "hello");
+    await openNote(store, "a", "hello");
     await hashedAs(store, "a", "hello");
     store.noteClosed("a");
 
@@ -175,7 +224,7 @@ describe("editorStore dirty contract", () => {
 
   it("drops a hash that lands after a newer edit", async () => {
     const store = newStore();
-    store.noteOpened("a", "hello");
+    await openNote(store, "a", "hello");
     await hashedAs(store, "a", "hello");
 
     const firstHash = await hashDocument("first");
@@ -205,7 +254,7 @@ describe("editorStore dirty contract", () => {
 
   it("does not move the record of the file when a save wrote nothing", async () => {
     const store = newStore();
-    store.noteOpened("a", "hello");
+    await openNote(store, "a", "hello");
     await hashedAs(store, "a", "hello");
     const before = store.lastKnownDiskHash("a");
 
