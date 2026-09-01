@@ -3,6 +3,7 @@ import { useWindow } from "../WindowProvider/WindowProvider";
 import { workspaceStore } from "../../stores/global/workspace";
 import { notesStore } from "../../stores/global/notes";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
+import { ConflictCopyBadge } from "./ConflictCopyBadge";
 import {
   confirmAndDeleteNote,
   showInFileManagerLabel,
@@ -136,6 +137,10 @@ function TreeNode(props: TreeNodeProps) {
           {props.entry.is_dir ? (expanded() ? "▾" : "▸") : "·"}
         </span>
         <span class="file-tree-item-name">{props.entry.name}</span>
+        <ConflictCopyBadge
+          kind={props.entry.conflict_copy}
+          provider={notesStore.folder()?.sync_provider ?? null}
+        />
       </div>
       <Show when={props.entry.is_dir && expanded()}>
         <div
