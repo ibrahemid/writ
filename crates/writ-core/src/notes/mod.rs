@@ -13,6 +13,8 @@ pub mod facts;
 pub mod guard;
 /// Link syntax and link resolution (ADR-034).
 pub mod links;
+/// The sentence a link sits in, for the backlink list.
+pub mod snippet;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
