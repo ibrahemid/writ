@@ -290,6 +290,25 @@ fn the_folder_row_names_the_one_that_could_not_be_used() {
 }
 
 #[test]
+fn the_folder_row_carries_the_sync_service_over_the_wire() {
+    let dir = TempDir::new().expect("temp");
+    let state = make_state(&dir);
+
+    let info = notes_folder_info(&state);
+    assert_eq!(
+        info.sync_provider, None,
+        "a folder in no synced tree names no service"
+    );
+
+    let payload = serde_json::to_value(&info).expect("serialize");
+    assert!(
+        payload.get("sync_provider").is_some(),
+        "the field is always on the payload, so the row can render from it"
+    );
+    assert_eq!(payload["sync_provider"], serde_json::Value::Null);
+}
+
+#[test]
 fn move_archived_notes_dedupes_and_updates_rows() {
     let dir = TempDir::new().expect("temp");
     let state = make_state(&dir);

@@ -97,6 +97,11 @@ export interface NotesFolderInfo {
   display_path: string;
   /** The folder the settings named, when Writ could not use it. */
   fallback: NotesFolderFallback | null;
+  /**
+   * The sync service whose folder the notes are in, as the user knows it
+   * ("iCloud Drive", "Dropbox"), or `null` when they are not in one.
+   */
+  sync_provider: string | null;
 }
 
 export async function getNotesFolder(): Promise<NotesFolderInfo> {

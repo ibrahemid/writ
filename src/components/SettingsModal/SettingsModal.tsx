@@ -32,6 +32,7 @@ import { aiConnectionStore, connectionDisplay } from "../../stores/global/ai-con
 import { modelOptions, defaultModelFor, resolveAutoModel } from "../../stores/global/ai-models";
 import { notesStore } from "../../stores/global/notes";
 import type { NotesFallbackReason } from "../../stores/global/notes";
+import { NotesSyncNote } from "./NotesSyncNote";
 import { copyStoragePath, fetchStorageInfo, revealStoragePath } from "../../stores/global/storage";
 import type { StorageInfo } from "../../stores/global/storage";
 import { openThirdPartyNoticesBuffer } from "../../stores/global/notices";
@@ -655,10 +656,7 @@ function NotesSection() {
               </span>
             )}
           </Show>
-          <span class="settings-notes-note">
-            Writ has no sync. Put the notes folder in iCloud Drive, Dropbox or Google Drive and
-            your notes sync with it.
-          </span>
+          <NotesSyncNote provider={folder()?.sync_provider ?? null} />
         </span>
       </SettingsRow>
     </div>

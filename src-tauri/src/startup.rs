@@ -138,6 +138,32 @@ pub fn data_dir_verdict(
     DataDirVerdict::Ok
 }
 
+/// The sync service whose tree `dir` sits in, as the user knows it, or `None`
+/// when the folder is not in one.
+///
+/// The same classifier that refuses a data folder in a synced tree
+/// ([`classify_data_dir`]), asked about the notes folder, where the answer is
+/// the opposite: notes in a synced folder are the point, and the name is what
+/// Settings reports. `notes_root` is not passed, because the overlap between
+/// the two folders is the data folder's question and is answered at launch.
+pub fn sync_provider_for(dir: &Path, home: Option<&Path>) -> Option<String> {
+    let resolved = resolve_for_containment(dir)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| dir.to_path_buf());
+
+    match classify_data_dir(
+        HOST_PLATFORM,
+        &resolved,
+        home,
+        None,
+        &stfolder_markers(&resolved),
+    ) {
+        DataDirVerdict::InsideSyncProvider { provider, .. } => Some(provider.label().to_string()),
+        DataDirVerdict::InsideSyncContainer { name, .. } => Some(name),
+        DataDirVerdict::Ok | DataDirVerdict::InsideNotesFolder { .. } => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,6 +232,43 @@ mod tests {
         let stored = pending.lock().unwrap();
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0], "preexisting");
+    }
+
+    #[test]
+    fn a_notes_folder_under_a_syncthing_marker_names_syncthing() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let synced = dir.path().join("Sync");
+        std::fs::create_dir_all(synced.join(".stfolder")).unwrap();
+        let notes = synced.join("Writ");
+        std::fs::create_dir_all(&notes).unwrap();
+
+        assert_eq!(
+            sync_provider_for(&notes, None),
+            Some("Syncthing".to_string())
+        );
+    }
+
+    #[test]
+    fn a_notes_folder_under_a_provider_folder_names_the_provider() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let home = std::fs::canonicalize(dir.path()).unwrap();
+        let notes = home.join("Dropbox").join("Writ");
+        std::fs::create_dir_all(&notes).unwrap();
+
+        assert_eq!(
+            sync_provider_for(&notes, Some(&home)),
+            Some("Dropbox".to_string())
+        );
+    }
+
+    #[test]
+    fn a_notes_folder_outside_a_synced_tree_names_nothing() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let home = std::fs::canonicalize(dir.path()).unwrap();
+        let notes = home.join("Writ");
+        std::fs::create_dir_all(&notes).unwrap();
+
+        assert_eq!(sync_provider_for(&notes, Some(&home)), None);
     }
 
     #[test]

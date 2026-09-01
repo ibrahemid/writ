@@ -409,13 +409,19 @@ pub struct NotesFolderInfo {
     /// The folder the settings named and why the notes are not in it, when
     /// startup fell back to the default. `None` on every ordinary launch.
     pub fallback: Option<NotesRootFallback>,
+    /// The sync service whose folder the notes are in, as the user knows it,
+    /// or `None` when they are not in one. Writ syncs nothing itself, so this
+    /// is the whole answer to "are my notes on my other machine".
+    pub sync_provider: Option<String>,
 }
 
 /// [`get_notes_folder`] without the IPC wrapper.
 pub fn notes_folder_info(state: &AppState) -> NotesFolderInfo {
     let root = state.notes_root();
+    let home = dirs::home_dir();
     NotesFolderInfo {
-        display_path: writ_core::notes::display_path(&root, dirs::home_dir().as_deref()),
+        display_path: writ_core::notes::display_path(&root, home.as_deref()),
+        sync_provider: crate::startup::sync_provider_for(&root, home.as_deref()),
         path: root.to_string_lossy().into_owned(),
         fallback: state.notes_root_fallback(),
     }
