@@ -31,10 +31,13 @@ use std::sync::{Mutex, MutexGuard};
 
 use rusqlite::{params, Connection};
 use writ_core::file_ops::{classify_path, FileOpenMode, THRESHOLD_NORMAL_BYTES};
+use writ_core::notes::facts;
+use writ_core::notes::links::{self, Resolution, WikilinkTarget};
 use writ_core::search::{build_hit, SearchHit};
 use writ_core::workspace::file_search::{rank_file_hits, FileHit};
 
 use crate::errors::StorageResult;
+use crate::schema_meta;
 use crate::workspace_search::build_walk;
 
 /// Extensions indexed without sniffing the file, so the common case never
@@ -103,6 +106,88 @@ impl IndexedNote {
             hash: None,
             indexed_by: IndexedBy::Content,
         })
+    }
+}
+
+/// One row of the `links` table, mirroring migration 040's columns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkRow {
+    /// Canonical path of the note the link is written in.
+    pub from_path: String,
+    /// The link's target as it was written: no alias, no heading.
+    pub to_target: String,
+    /// The note the target resolved to, or `None` when it resolved to nothing
+    /// or to more than one note.
+    pub to_path: Option<String>,
+    /// `wikilink` or `markdown` ([`writ_core::notes::links::LinkKind`]).
+    pub kind: String,
+    /// 1-based line the link is on.
+    pub line: u32,
+    /// 0-based character offset of the link inside that line.
+    pub col: u32,
+}
+
+/// One row of the `headings` table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeadingRow {
+    /// `1` for `#` through `6` for `######`.
+    pub level: u8,
+    /// The heading text.
+    pub text: String,
+    /// 1-based line the heading is on.
+    pub line: u32,
+    /// The anchor `[[Note#Heading]]` matches.
+    pub slug: String,
+}
+
+/// Everything the index holds about one note beyond its `files` row.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NoteFactsRow {
+    /// Links written in the note.
+    pub links: Vec<LinkRow>,
+    /// Frontmatter properties, each value as the JSON it is stored as.
+    pub properties: Vec<(String, String)>,
+    /// Each `#tag` and the line it is on.
+    pub tags: Vec<(String, u32)>,
+    /// Headings, in document order.
+    pub headings: Vec<HeadingRow>,
+}
+
+/// Every indexed path, grouped by the names a link can call it by.
+///
+/// Resolution compares a target against every note that shares its name, so
+/// reading `files` once per note and grouping it here is what keeps a walk over
+/// a large folder from re-reading the table for every link it finds. The group
+/// keys come from [`writ_core::notes::links::candidate_name_keys`], the same
+/// function the resolver matches with, so the prefilter can never hide a
+/// candidate the resolver would have accepted.
+#[derive(Debug, Default)]
+struct NameIndex {
+    by_key: HashMap<String, Vec<String>>,
+}
+
+impl NameIndex {
+    /// Records `path` under every name it answers to.
+    fn insert(&mut self, path: &str) {
+        for key in links::candidate_name_keys(path) {
+            let group = self.by_key.entry(key).or_default();
+            if !group.iter().any(|held| held == path) {
+                group.push(path.to_string());
+            }
+        }
+    }
+
+    /// The indexed paths a link naming `name` could mean.
+    fn candidates(&self, name: &str) -> &[String] {
+        const NONE: &[String] = &[];
+        self.by_key
+            .get(&links::name_key(name))
+            .map_or(NONE, Vec::as_slice)
+    }
+
+    /// Resolves `target` as seen from the note at `from`.
+    fn resolve(&self, target: &WikilinkTarget, from: &str) -> Resolution {
+        links::resolve(target, from, self.candidates(&target.name))
     }
 }
 
@@ -204,6 +289,13 @@ impl<'a> NotesIndex<'a> {
     /// cascade from `files(path)`, so an `INSERT OR REPLACE` would reassign the
     /// rowid, orphan the text entry and delete every derived row a save is not
     /// entitled to touch (migration 040 records the same constraint).
+    ///
+    /// The four derived tables are rewritten in the same transaction, so a note
+    /// and the facts read out of it are never a save apart. A note whose file
+    /// was never read — a placeholder indexed by name — has no text to read
+    /// facts from and gets none, which is what its empty `content` says.
+    /// Finally, links elsewhere that named this note before it existed are
+    /// resolved (`to_path` backfill, ADR-034).
     pub fn upsert(&self, note: &IndexedNote, content: &str) -> StorageResult<()> {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
@@ -233,6 +325,9 @@ impl<'a> NotesIndex<'a> {
             "INSERT INTO files_fts (rowid, name, content) VALUES (?1, ?2, ?3)",
             params![rowid, note.name, content],
         )?;
+        let names = self.name_index()?;
+        self.write_facts(&note.path, content, &names)?;
+        self.resolve_pending_links(&names)?;
         tx.commit()?;
         Ok(())
     }
@@ -246,11 +341,17 @@ impl<'a> NotesIndex<'a> {
     /// — the state the walk decided from, or `None` for a row it did not see —
     /// and a walk that finds anything else leaves the newer entry alone.
     /// `false` says the write was declined.
+    ///
+    /// The four derived tables are written under the same condition. Writing
+    /// them for a declined row would attach the text the walk read minutes ago
+    /// to the row a save just wrote, and nothing would correct it until the
+    /// file changed again.
     fn upsert_walked(
         &self,
         note: &IndexedNote,
         content: &str,
         expected: Option<(u64, i64)>,
+        names: &NameIndex,
     ) -> StorageResult<bool> {
         let tx = self.conn.unchecked_transaction()?;
         let wrote = match expected {
@@ -295,8 +396,134 @@ impl<'a> NotesIndex<'a> {
             "INSERT INTO files_fts (rowid, name, content) VALUES (?1, ?2, ?3)",
             params![rowid, note.name, content],
         )?;
+        self.write_facts(&note.path, content, names)?;
         tx.commit()?;
         Ok(true)
+    }
+
+    /// Rewrites `links`, `properties`, `tags` and `headings` for `path` from
+    /// `content`.
+    ///
+    /// Runs inside the caller's transaction on the caller's connection. The
+    /// four tables cascade on a deleted `files` row, which covers
+    /// [`NotesIndex::remove`] and nothing else, so an update has to clear them
+    /// itself or a note's old links outlive the text that held them.
+    ///
+    /// A link that resolves to exactly one note stores that note's path. One
+    /// that resolves to nothing, or to several notes, stores `NULL`: an
+    /// ambiguous target is not a link to the alphabetically first candidate
+    /// (ADR-034), and a target with no note behind it yet is picked up by
+    /// [`NotesIndex::resolve_pending_links`] when that note arrives.
+    fn write_facts(&self, path: &str, content: &str, names: &NameIndex) -> StorageResult<()> {
+        for sql in [
+            "DELETE FROM links WHERE from_path = ?1",
+            "DELETE FROM properties WHERE path = ?1",
+            "DELETE FROM tags WHERE path = ?1",
+            "DELETE FROM headings WHERE path = ?1",
+        ] {
+            self.conn.prepare_cached(sql)?.execute(params![path])?;
+        }
+
+        let facts = facts::extract(content);
+        for link in &facts.links {
+            let to_path = match names.resolve(&link.wikilink_target(), path) {
+                Resolution::Resolved(target) => Some(target),
+                Resolution::Ambiguous(_) | Resolution::Missing => None,
+            };
+            self.conn
+                .prepare_cached(
+                    "INSERT INTO links (from_path, to_target, to_path, kind, line, col)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                )?
+                .execute(params![
+                    path,
+                    link.target,
+                    to_path,
+                    link.kind.as_str(),
+                    link.line,
+                    link.col
+                ])?;
+        }
+        for (key, value) in &facts.properties {
+            self.conn
+                .prepare_cached(
+                    "INSERT INTO properties (path, key, value_json) VALUES (?1, ?2, ?3)",
+                )?
+                .execute(params![path, key, value.to_string()])?;
+        }
+        for (tag, line) in &facts.tags {
+            self.conn
+                .prepare_cached("INSERT INTO tags (path, tag, line) VALUES (?1, ?2, ?3)")?
+                .execute(params![path, tag, line])?;
+        }
+        for heading in &facts.headings {
+            self.conn
+                .prepare_cached(
+                    "INSERT INTO headings (path, level, text, line, slug)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                )?
+                .execute(params![
+                    path,
+                    heading.level,
+                    heading.text,
+                    heading.line,
+                    heading.slug
+                ])?;
+        }
+        Ok(())
+    }
+
+    /// Every indexed path, grouped by the names a link can call it by.
+    fn name_index(&self) -> StorageResult<NameIndex> {
+        let mut stmt = self.conn.prepare("SELECT path FROM files")?;
+        let mut index = NameIndex::default();
+        for path in stmt.query_map([], |row| row.get::<_, String>(0))? {
+            index.insert(&path?);
+        }
+        Ok(index)
+    }
+
+    /// Fills in the links that had no note behind them, and empties the ones
+    /// whose note has gone.
+    ///
+    /// A note is often linked before it is written, and during a walk a note is
+    /// often linked before the walk reaches it. Both leave `to_path` at `NULL`,
+    /// and both are corrected here rather than by a second walk. Returns the
+    /// number of links that gained a target.
+    fn resolve_pending_links(&self, names: &NameIndex) -> StorageResult<usize> {
+        self.conn.execute(
+            "UPDATE links SET to_path = NULL
+              WHERE to_path IS NOT NULL
+                AND NOT EXISTS (SELECT 1 FROM files f WHERE f.path = links.to_path)",
+            [],
+        )?;
+
+        let pending: Vec<(i64, String, String)> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT rowid, from_path, to_target FROM links WHERE to_path IS NULL")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+
+        let mut filled = 0usize;
+        for (rowid, from_path, to_target) in pending {
+            let target = links::parse_target(&to_target);
+            if let Resolution::Resolved(path) = names.resolve(&target, &from_path) {
+                self.conn.execute(
+                    "UPDATE links SET to_path = ?2 WHERE rowid = ?1",
+                    params![rowid, path],
+                )?;
+                filled += 1;
+            }
+        }
+        Ok(filled)
     }
 
     /// Removes `path` from the index.
@@ -463,6 +690,153 @@ impl<'a> NotesIndex<'a> {
         Ok(rows)
     }
 
+    /// Every link written in the note at `path`.
+    pub fn links_from(&self, path: &str) -> StorageResult<Vec<LinkRow>> {
+        self.link_rows(
+            "SELECT from_path, to_target, to_path, kind, line, col FROM links
+              WHERE from_path = ?1 ORDER BY line, col",
+            path,
+        )
+    }
+
+    /// Every link that resolved to the note at `path`.
+    ///
+    /// An unresolved link and an ambiguous one are absent by construction:
+    /// their `to_path` is `NULL`, which is the honest record of a link that
+    /// points at no one note.
+    pub fn links_to(&self, path: &str) -> StorageResult<Vec<LinkRow>> {
+        self.link_rows(
+            "SELECT from_path, to_target, to_path, kind, line, col FROM links
+              WHERE to_path = ?1 ORDER BY from_path, line, col",
+            path,
+        )
+    }
+
+    /// Runs a one-parameter query over `links`.
+    fn link_rows(&self, sql: &str, path: &str) -> StorageResult<Vec<LinkRow>> {
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = stmt
+            .query_map(params![path], |row| {
+                Ok(LinkRow {
+                    from_path: row.get(0)?,
+                    to_target: row.get(1)?,
+                    to_path: row.get(2)?,
+                    kind: row.get(3)?,
+                    line: row.get::<_, i64>(4)? as u32,
+                    col: row.get::<_, i64>(5)? as u32,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Everything the index holds about the note at `path`.
+    pub fn facts(&self, path: &str) -> StorageResult<NoteFactsRow> {
+        Ok(NoteFactsRow {
+            links: self.links_from(path)?,
+            properties: self.property_rows(path)?,
+            tags: self.tag_rows(path)?,
+            headings: self.heading_rows(path)?,
+        })
+    }
+
+    /// The note's frontmatter properties, each value as the JSON it is stored
+    /// as, in the order they were written.
+    fn property_rows(&self, path: &str) -> StorageResult<Vec<(String, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT key, value_json FROM properties WHERE path = ?1 ORDER BY rowid")?;
+        let rows = stmt
+            .query_map(params![path], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// The note's tags with the line each is on.
+    fn tag_rows(&self, path: &str) -> StorageResult<Vec<(String, u32)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT tag, line FROM tags WHERE path = ?1 ORDER BY line, rowid")?;
+        let rows = stmt
+            .query_map(params![path], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as u32))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// The note's headings, in document order.
+    fn heading_rows(&self, path: &str) -> StorageResult<Vec<HeadingRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT level, text, line, slug FROM headings WHERE path = ?1 ORDER BY line, rowid",
+        )?;
+        let rows = stmt
+            .query_map(params![path], |row| {
+                Ok(HeadingRow {
+                    level: row.get::<_, i64>(0)? as u8,
+                    text: row.get(1)?,
+                    line: row.get::<_, i64>(2)? as u32,
+                    slug: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Every indexed note a link naming `name` could mean, in byte order.
+    ///
+    /// The list [`Resolution::Ambiguous`] hands the user, and the input the
+    /// resolver ranks. Nothing here picks one.
+    pub fn candidate_paths(&self, name: &str) -> StorageResult<Vec<String>> {
+        let mut found = self.name_index()?.candidates(name).to_vec();
+        found.sort_unstable();
+        Ok(found)
+    }
+
+    /// Resolves `target` — the inside of a `[[…]]`, alias and heading included
+    /// — as seen from the note at `from_path`.
+    pub fn resolve_link(&self, from_path: &str, target: &str) -> StorageResult<Resolution> {
+        let parsed = links::parse_wikilink(target);
+        Ok(self.name_index()?.resolve(&parsed, from_path))
+    }
+
+    /// The line the heading `slug` is on in the note at `path`, or `None` when
+    /// the note has no such heading.
+    ///
+    /// A heading a link names but the note does not have leaves the link
+    /// resolved and the heading unreported: the note still opens.
+    pub fn heading_line(&self, path: &str, slug: &str) -> StorageResult<Option<u32>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT line FROM headings WHERE path = ?1 AND slug = ?2 LIMIT 1")?;
+        let mut rows = stmt.query_map(params![path, slug], |row| row.get::<_, i64>(0))?;
+        Ok(match rows.next() {
+            Some(line) => Some(line? as u32),
+            None => None,
+        })
+    }
+
+    /// How many rows the four derived tables hold, and how many files they were
+    /// derived from.
+    ///
+    /// The pair [`reconcile`] records at the end of a pass and compares against
+    /// at the start of the next one, which is how it notices that the derived
+    /// tables were emptied out from under it.
+    fn facts_census(&self) -> StorageResult<(i64, i64)> {
+        let census = self.conn.query_row(
+            "SELECT (SELECT count(*) FROM links)
+                  + (SELECT count(*) FROM properties)
+                  + (SELECT count(*) FROM tags)
+                  + (SELECT count(*) FROM headings),
+                    (SELECT count(*) FROM files)",
+            [],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )?;
+        Ok(census)
+    }
+
     /// The paths whose row holds a name and no text ([`IndexedBy::Name`]).
     ///
     /// Materialising a placeholder leaves its size and mtime where they were,
@@ -497,6 +871,16 @@ impl<'a> NotesIndex<'a> {
 ///
 /// `is_dataless` is injected rather than called directly so the skip is
 /// testable without a real sync placeholder; production passes [`is_dataless`].
+///
+/// # Rebuilding the derived tables
+///
+/// `links`, `properties`, `tags` and `headings` are derived: emptying them and
+/// running this rebuilds them (ADR-034). The size-and-mtime shortcut is what
+/// would stop that — every file still matches its row, so nothing would be
+/// re-read — so a pass that finds fewer derived rows than the last complete
+/// pass left behind, over a file count that has not shrunk, re-reads every
+/// file. The census is kept in `schema_meta`, so an index written before the
+/// four tables were filled at all rebuilds on its first pass.
 pub fn reconcile(
     conn: &Connection,
     notes_root: &Path,
@@ -510,6 +894,23 @@ pub fn reconcile(
         .map(|(path, size, mtime)| (path, (size, mtime)))
         .collect();
     let name_only = index.name_only_paths()?;
+    let census = index.facts_census()?;
+    let rebuild_facts = match read_facts_census(conn)? {
+        // Nothing recorded: either the index is empty, or it was written before
+        // this pass knew how to derive anything, and those rows need one read.
+        None => census.1 > 0,
+        // Fewer derived rows than the last complete pass left, over at least as
+        // many files. Notes deleted outside Writ take their rows with them and
+        // shrink both numbers, which is not this.
+        Some((rows, files)) => census.0 < rows && census.1 >= files,
+    };
+    // Built once from what the index already holds and grown as the walk finds
+    // notes it did not. A note linked before the walk reaches it resolves to
+    // nothing here and is filled in by the backfill at the end.
+    let mut names = NameIndex::default();
+    for path in known.keys() {
+        names.insert(path);
+    }
 
     let mut outcome = ReconcileOutcome::default();
     let mut seen: Vec<String> = Vec::with_capacity(known.len());
@@ -573,7 +974,7 @@ pub fn reconcile(
         let downloaded = !dataless && name_only.contains(&key);
 
         let expected = match known.get(&key) {
-            Some(&state) if state == (size, mtime) && !downloaded => {
+            Some(&state) if state == (size, mtime) && !downloaded && !rebuild_facts => {
                 seen.push(key);
                 continue;
             }
@@ -598,6 +999,7 @@ pub fn reconcile(
 
         let name = entry.file_name().to_string_lossy().into_owned();
         seen.push(key.clone());
+        names.insert(&key);
         let note = IndexedNote {
             path: key,
             name,
@@ -615,7 +1017,7 @@ pub fn reconcile(
 
         // One transaction per file. The walk runs on its own connection, so a
         // long-held write lock would stall saves for the length of the walk.
-        if index.upsert_walked(&note, &content, expected)? {
+        if index.upsert_walked(&note, &content, expected, &names)? {
             if expected.is_some() {
                 outcome.updated += 1;
             } else {
@@ -635,7 +1037,40 @@ pub fn reconcile(
         }
     }
 
+    // After the removals, so a link pointing at a note this pass deleted is
+    // emptied rather than left pointing at a row that is gone. A cancelled pass
+    // still runs it: what it wrote is real, and the links it left unresolved
+    // are the ones it can resolve.
+    index.resolve_pending_links(&index.name_index()?)?;
+
+    // Only a complete pass may speak for the whole folder. A cancelled one has
+    // written fewer derived rows than the folder holds, and recording that
+    // would tell the next pass the tables had been emptied.
+    if !outcome.cancelled {
+        let after = index.facts_census()?;
+        schema_meta::set(
+            conn,
+            schema_meta::KEY_NOTES_FACTS_CENSUS,
+            &format!("{}:{}", after.0, after.1),
+        )?;
+    }
+
     Ok(outcome)
+}
+
+/// The derived-row census the last complete [`reconcile`] recorded, or `None`
+/// when there is none or the row is not the pair it should be.
+fn read_facts_census(conn: &Connection) -> StorageResult<Option<(i64, i64)>> {
+    let Some(value) = schema_meta::get(conn, schema_meta::KEY_NOTES_FACTS_CENSUS)? else {
+        return Ok(None);
+    };
+    let Some((rows, files)) = value.split_once(':') else {
+        return Ok(None);
+    };
+    Ok(match (rows.parse(), files.parse()) {
+        (Ok(rows), Ok(files)) => Some((rows, files)),
+        _ => None,
+    })
 }
 
 /// A folder's index key with a trailing separator, the form a prefix
@@ -780,6 +1215,37 @@ impl NotesIndexStore {
     /// Up to `limit` ranked name hits. See [`NotesIndex::search_names`].
     pub fn search_names(&self, query: &str, limit: usize) -> StorageResult<Vec<FileHit>> {
         NotesIndex::new(&self.conn()).search_names(query, limit)
+    }
+
+    /// Every link written in the note at `path`. See [`NotesIndex::links_from`].
+    pub fn links_from(&self, path: &str) -> StorageResult<Vec<LinkRow>> {
+        NotesIndex::new(&self.conn()).links_from(path)
+    }
+
+    /// Every link that resolved to `path`. See [`NotesIndex::links_to`].
+    pub fn links_to(&self, path: &str) -> StorageResult<Vec<LinkRow>> {
+        NotesIndex::new(&self.conn()).links_to(path)
+    }
+
+    /// Everything the index holds about `path`. See [`NotesIndex::facts`].
+    pub fn facts(&self, path: &str) -> StorageResult<NoteFactsRow> {
+        NotesIndex::new(&self.conn()).facts(path)
+    }
+
+    /// The notes a link naming `name` could mean. See
+    /// [`NotesIndex::candidate_paths`].
+    pub fn candidate_paths(&self, name: &str) -> StorageResult<Vec<String>> {
+        NotesIndex::new(&self.conn()).candidate_paths(name)
+    }
+
+    /// Resolves a link target. See [`NotesIndex::resolve_link`].
+    pub fn resolve_link(&self, from_path: &str, target: &str) -> StorageResult<Resolution> {
+        NotesIndex::new(&self.conn()).resolve_link(from_path, target)
+    }
+
+    /// The line a heading anchor is on. See [`NotesIndex::heading_line`].
+    pub fn heading_line(&self, path: &str, slug: &str) -> StorageResult<Option<u32>> {
+        NotesIndex::new(&self.conn()).heading_line(path, slug)
     }
 
     /// Records the file at `path` in the index, reading its text.

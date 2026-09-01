@@ -443,19 +443,15 @@ fn upsert_preserves_the_rowid_and_the_rows_that_cascade_from_it() {
         hash: None,
         indexed_by: IndexedBy::Content,
     };
-    index.upsert(&note, "first body").expect("first upsert");
+    index
+        .upsert(&note, "first body [[elsewhere]]")
+        .expect("first upsert");
 
     let rowid_before: i64 = conn
         .query_row("SELECT rowid FROM files WHERE path = ?1", [&key], |row| {
             row.get(0)
         })
         .expect("rowid");
-    conn.execute(
-        "INSERT INTO links (from_path, to_target, to_path, kind, line, col)
-         VALUES (?1, 'elsewhere', NULL, 'wiki', 1, 0)",
-        [&key],
-    )
-    .expect("insert link");
 
     let updated = IndexedNote {
         size: 20,
@@ -463,7 +459,7 @@ fn upsert_preserves_the_rowid_and_the_rows_that_cascade_from_it() {
         ..note
     };
     index
-        .upsert(&updated, "second body")
+        .upsert(&updated, "second body [[somewhere]]")
         .expect("second upsert");
 
     let rowid_after: i64 = conn
@@ -476,14 +472,17 @@ fn upsert_preserves_the_rowid_and_the_rows_that_cascade_from_it() {
         "an upsert must not reassign the rowid files_fts joins on"
     );
 
-    let links: i64 = conn
-        .query_row(
-            "SELECT count(*) FROM links WHERE from_path = ?1",
-            [&key],
-            |row| row.get(0),
-        )
-        .expect("count links");
-    assert_eq!(links, 1, "an upsert must not cascade the derived rows away");
+    let links: Vec<String> = NotesIndex::new(&conn)
+        .links_from(&key)
+        .expect("links from")
+        .into_iter()
+        .map(|link| link.to_target)
+        .collect();
+    assert_eq!(
+        links,
+        vec!["somewhere".to_string()],
+        "the derived rows describe the text that was just written"
+    );
 
     assert_eq!(search(&conn, "second"), vec![key.clone()]);
     assert!(

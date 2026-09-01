@@ -19,6 +19,11 @@ pub const KEY_NOTES_MIGRATION_REPORT: &str = "notes_migration_report";
 /// timestamp. Present means dismissed; the report is shown once (ADR-028
 /// section 4 step 5).
 pub const KEY_NOTES_MIGRATION_REPORT_DISMISSED: &str = "notes_migration_report_dismissed";
+/// How many rows the notes index's four derived tables held, and how many
+/// files they were derived from, at the end of the last complete reconcile:
+/// `"<facts rows>:<file rows>"`. See
+/// [`crate::notes_index::reconcile`] for what the pair is compared against.
+pub const KEY_NOTES_FACTS_CENSUS: &str = "notes_facts_census";
 /// Absolute path of the pre-migration copy of the database.
 pub const KEY_ROLLBACK_COPY_PATH: &str = "notes_migration_rollback_path";
 /// How many launches the pre-migration copy has survived.
