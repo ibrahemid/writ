@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import type { NoteSaveStatus } from "../../stores/global/save-status";
 
 const fixtures = await vi.hoisted(async () => {
@@ -102,6 +103,30 @@ describe("SaveFailureBar", () => {
 
     expect(readDiskState).toHaveBeenCalledWith("one");
     expect(retrySave).not.toHaveBeenCalled();
+  });
+
+  it("tells only the note it asked about that its file is still downloading", async () => {
+    // One bar serves every tab. Note two failed for an unrelated reason and
+    // must not inherit note one's answer when the person switches to it.
+    const [noteId, setNoteId] = createSignal("one");
+    fixtures.setStatuses({
+      one: failure({
+        code: "ERR_FILE_NOT_DOWNLOADED",
+        message: "this file has not finished downloading, so your changes were not saved yet.",
+      }),
+      two: failure(),
+    });
+    readDiskState.mockResolvedValueOnce(null);
+    const { getByText, container } = render(() => <SaveFailureBar noteId={noteId()} />);
+
+    fireEvent.click(getByText("Try again"));
+    await vi.waitFor(() => expect(container.textContent).toContain("Still downloading."));
+
+    setNoteId("two");
+    expect(container.textContent).not.toContain("Still downloading.");
+
+    setNoteId("one");
+    expect(container.textContent).toContain("Still downloading.");
   });
 
   it("writes again once the file has arrived", async () => {

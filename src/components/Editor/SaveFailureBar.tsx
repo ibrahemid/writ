@@ -19,8 +19,16 @@ const ERR_FILE_NOT_DOWNLOADED = "ERR_FILE_NOT_DOWNLOADED";
  */
 export default function SaveFailureBar(props: { noteId: string | null }) {
   const win = useWindow();
-  const [retrying, setRetrying] = createSignal(false);
-  const [stillWaiting, setStillWaiting] = createSignal(false);
+  // Held as the note each answer is about rather than as a flag, because one
+  // bar serves every tab: a flag set for the note in front is still set when
+  // the next tab's failure renders through the same component, and that tab
+  // would be told about a download that is not its own.
+  const [retryingNote, setRetryingNote] = createSignal<string | null>(null);
+  const [waitingNote, setWaitingNote] = createSignal<string | null>(null);
+  const retrying = () =>
+    retryingNote() !== null && retryingNote() === props.noteId;
+  const stillWaiting = () =>
+    waitingNote() !== null && waitingNote() === props.noteId;
 
   const status = () => {
     const id = props.noteId;
@@ -32,16 +40,19 @@ export default function SaveFailureBar(props: { noteId: string | null }) {
   };
 
   async function tryAgain(id: string, code: string | null) {
-    setRetrying(true);
-    setStillWaiting(false);
+    setRetryingNote(id);
+    setWaitingNote(null);
     try {
-      if (code === ERR_FILE_NOT_DOWNLOADED && (await win.editor.readDiskState(id)) === null) {
-        setStillWaiting(true);
+      if (
+        code === ERR_FILE_NOT_DOWNLOADED &&
+        (await win.editor.readDiskState(id)) === null
+      ) {
+        setWaitingNote(id);
         return;
       }
       await win.editor.retrySave(id);
     } finally {
-      setRetrying(false);
+      setRetryingNote((current) => (current === id ? null : current));
     }
   }
 
@@ -62,7 +73,9 @@ export default function SaveFailureBar(props: { noteId: string | null }) {
                 type="button"
                 class="save-failure-bar-action"
                 disabled={retrying()}
-                onClick={() => void tryAgain(props.noteId!, current().reason?.code ?? null)}
+                onClick={() =>
+                  void tryAgain(props.noteId!, current().reason?.code ?? null)
+                }
               >
                 Try again
               </button>
