@@ -400,11 +400,16 @@ fn the_notes_watcher_ignores_a_sync_clients_own_folders() {
     );
 }
 
-/// The files a sync client and another editor leave in a notes folder are not
-/// changes to anything: a catch-up would otherwise fan out into an event per
-/// temp file.
+/// The watcher is silent for the files nobody wrote on purpose and for nothing
+/// else: temp files, half-finished downloads, the stub standing in for a file
+/// that is not downloaded, and the folders a sync client keeps for itself. A
+/// catch-up would otherwise fan out into an event per temp file.
+///
+/// A copy a sync service kept is never ignored, here or anywhere else: it holds
+/// text somebody wrote, it is listed and flagged, and a change to it is
+/// reported like a change to any other note.
 #[test]
-fn the_notes_watcher_drops_the_files_nobody_wrote_on_purpose() {
+fn the_notes_watcher_is_silent_for_the_files_nobody_wrote_and_no_others() {
     use std::time::{Duration, Instant};
     use writ_core::events::bus::WritEvent;
     use writ_tauri_lib::watcher::handler::classify_notes_event;
