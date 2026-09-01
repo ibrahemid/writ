@@ -154,10 +154,11 @@ pub(crate) struct BodyLine<'a> {
 
 /// Every line of `text` that carries note body.
 ///
-/// The frontmatter block, fenced code blocks and the fence lines themselves are
-/// left out, so a caller scanning for links, tags or headings never has to know
-/// about any of them. Inline code is per-line and is removed by
-/// [`code_free_segments`].
+/// The frontmatter block, code blocks and the fence lines themselves are left
+/// out, so a caller scanning for links, tags or headings never has to know
+/// about any of them. Both kinds of code block count: a fenced one, and the
+/// indented one a pasted four-space example makes. Inline code is per-line and
+/// is removed by [`code_free_segments`].
 pub(crate) fn body_lines(text: &str) -> Vec<BodyLine<'_>> {
     let (frontmatter, _) = split_frontmatter(text);
     let skip_until = frontmatter.map_or(0, str::len);
@@ -165,6 +166,12 @@ pub(crate) fn body_lines(text: &str) -> Vec<BodyLine<'_>> {
     let mut out = Vec::new();
     let mut offset = 0usize;
     let mut fence: Option<(char, usize)> = None;
+    // An indented code block opens on a blank line and cannot interrupt a
+    // paragraph, and indented text under a list item is the item's content
+    // rather than code, so both are tracked.
+    let mut indented_code = false;
+    let mut after_blank = true;
+    let mut in_list = false;
 
     for (index, line) in text.split_inclusive('\n').enumerate() {
         let start = offset;
@@ -174,6 +181,11 @@ pub(crate) fn body_lines(text: &str) -> Vec<BodyLine<'_>> {
         }
         let raw = line.trim_end_matches('\n').trim_end_matches('\r');
         let trimmed = raw.trim_start();
+        let body = BodyLine {
+            line: (index as u32) + 1,
+            start,
+            raw,
+        };
 
         match fence {
             Some((marker, width)) => {
@@ -183,17 +195,67 @@ pub(crate) fn body_lines(text: &str) -> Vec<BodyLine<'_>> {
                     fence = None;
                 }
             }
-            None => match is_fence(trimmed, None) {
-                Some(opened) => fence = Some(opened),
-                None => out.push(BodyLine {
-                    line: (index as u32) + 1,
-                    start,
-                    raw,
-                }),
-            },
+            None => {
+                if trimmed.is_empty() {
+                    after_blank = true;
+                    out.push(body);
+                    continue;
+                }
+                let indented = indent_columns(raw) >= 4;
+                if indented && (indented_code || (after_blank && !in_list)) {
+                    indented_code = true;
+                    after_blank = false;
+                    continue;
+                }
+                indented_code = false;
+                after_blank = false;
+                if !indented {
+                    in_list = opens_a_list_item(trimmed);
+                }
+                match is_fence(trimmed, None) {
+                    Some(opened) => fence = Some(opened),
+                    None => out.push(body),
+                }
+            }
         }
     }
     out
+}
+
+/// How far `raw` is indented, counting a tab as the four columns CommonMark
+/// gives it.
+fn indent_columns(raw: &str) -> usize {
+    let mut columns = 0usize;
+    for ch in raw.chars() {
+        match ch {
+            ' ' => columns += 1,
+            '\t' => columns += 4 - (columns % 4),
+            _ => break,
+        }
+    }
+    columns
+}
+
+/// Whether `trimmed` opens a list item, whose indented continuation lines are
+/// its content and not a code block.
+fn opens_a_list_item(trimmed: &str) -> bool {
+    let rest = match trimmed.split_once(' ') {
+        Some((marker, rest)) => {
+            if matches!(marker, "-" | "*" | "+") {
+                return !rest.trim().is_empty();
+            }
+            match marker.strip_suffix(['.', ')']) {
+                Some(digits)
+                    if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) =>
+                {
+                    rest
+                }
+                _ => return false,
+            }
+        }
+        None => return false,
+    };
+    !rest.trim().is_empty()
 }
 
 /// The fence character and its width when `trimmed` opens or closes a fenced
@@ -465,6 +527,11 @@ fn has_scheme(dest: &str) -> bool {
 
 /// `%20` and friends, the only escaping a markdown destination carries that
 /// changes which file it names.
+///
+/// The two digits are read as bytes, never as a string slice: `%a` followed by
+/// a multi-byte character puts the end of that slice inside the character, and
+/// slicing a `str` off a character boundary panics. `[a](%aé.md)` is a note
+/// like any other and this runs on every save, in a build that aborts on panic.
 fn percent_decode(text: &str) -> String {
     if !text.contains('%') {
         return text.to_string();
@@ -473,9 +540,8 @@ fn percent_decode(text: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0usize;
     while index < bytes.len() {
-        if bytes[index] == b'%' && index + 2 < bytes.len() {
-            let hex = &text[index + 1..index + 3];
-            if let Ok(byte) = u8::from_str_radix(hex, 16) {
+        if bytes[index] == b'%' {
+            if let Some(byte) = hex_pair(bytes.get(index + 1), bytes.get(index + 2)) {
                 out.push(byte);
                 index += 3;
                 continue;
@@ -485,6 +551,14 @@ fn percent_decode(text: &str) -> String {
         index += 1;
     }
     String::from_utf8(out).unwrap_or_else(|_| text.to_string())
+}
+
+/// The byte two hex digits spell, or `None` when either is missing or is not a
+/// hex digit.
+fn hex_pair(high: Option<&u8>, low: Option<&u8>) -> Option<u8> {
+    let high = char::from(*high?).to_digit(16)?;
+    let low = char::from(*low?).to_digit(16)?;
+    Some((high * 16 + low) as u8)
 }
 
 /// Splits the inside of a `[[…]]` into its parts.

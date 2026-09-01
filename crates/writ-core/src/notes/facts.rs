@@ -57,9 +57,10 @@ pub fn extract(text: &str) -> NoteFacts {
 
 /// The frontmatter properties of `text`.
 ///
-/// Flat YAML only: `key: scalar`, `key: [a, b]`, and a `key:` followed by `-`
-/// items. A key whose value is a nested mapping keeps the block it was written
-/// as, as a JSON string, so nothing the user wrote disappears from the index.
+/// Flat YAML only: `key: scalar`, `key: [a, b]`, a `key:` followed by `-`
+/// items, and a `key: |` or `key: >` block scalar, whose text is the value. A
+/// key whose value is a nested mapping keeps the block it was written as, as a
+/// JSON string, so nothing the user wrote disappears from the index.
 pub fn properties(text: &str) -> Vec<(String, Value)> {
     let (Some(block), _) = split_frontmatter(text) else {
         return Vec::new();
@@ -84,6 +85,21 @@ pub fn properties(text: &str) -> Vec<(String, Value)> {
             continue;
         };
         let rest = rest.trim();
+        if let Some(marker) = block_scalar(rest) {
+            let start = index;
+            while index < inner.len()
+                && (inner[index].trim().is_empty() || inner[index].starts_with([' ', '\t']))
+            {
+                index += 1;
+            }
+            // Blank lines after the last indented one close the block; they
+            // belong to whatever comes next.
+            while index > start && inner[index - 1].trim().is_empty() {
+                index -= 1;
+            }
+            out.push((key.to_string(), block_text(marker, &inner[start..index])));
+            continue;
+        }
         if !rest.is_empty() {
             out.push((key.to_string(), scalar(rest)));
             continue;
@@ -110,6 +126,56 @@ pub fn properties(text: &str) -> Vec<(String, Value)> {
         out.push((key.to_string(), value));
     }
     out
+}
+
+/// The `|` or `>` of a block scalar header, or `None` when `rest` is an
+/// ordinary value.
+///
+/// A chomping or indentation indicator may follow the marker: `|-`, `>+`, `|2`.
+fn block_scalar(rest: &str) -> Option<char> {
+    let mut chars = rest.chars();
+    let marker = chars.next()?;
+    if marker != '|' && marker != '>' {
+        return None;
+    }
+    chars
+        .all(|c| matches!(c, '-' | '+') || c.is_ascii_digit())
+        .then_some(marker)
+}
+
+/// The text of a block scalar: `|` keeps its line breaks, `>` folds each
+/// paragraph onto one line.
+///
+/// The common indentation is stripped, which is the part of YAML's rule that
+/// changes the text a reader sees. Chomping indicators are not modelled; a
+/// trailing blank line is not worth a second parser.
+fn block_text(marker: char, block: &[&str]) -> Value {
+    let indent = block
+        .iter()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| line.len() - line.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    let lines = block.iter().map(|line| match line.len() >= indent {
+        true => &line[indent..],
+        false => line.trim_start(),
+    });
+
+    if marker == '|' {
+        return Value::String(lines.collect::<Vec<_>>().join("\n"));
+    }
+    let mut folded = String::new();
+    for line in lines {
+        if line.trim().is_empty() {
+            folded.push('\n');
+            continue;
+        }
+        if !folded.is_empty() && !folded.ends_with('\n') {
+            folded.push(' ');
+        }
+        folded.push_str(line);
+    }
+    Value::String(folded)
 }
 
 /// The key and the rest of a `key: value` line, or `None` when the line has no
@@ -192,37 +258,41 @@ pub fn tags(text: &str) -> Vec<(String, u32)> {
     for line in body_lines(text) {
         for (offset, segment) in code_free_segments(line.raw) {
             let mut chars = segment.char_indices().peekable();
-            let mut previous: Option<char> = if offset == 0 {
-                None
-            } else {
-                line.raw[..offset].chars().next_back()
-            };
             while let Some((at, ch)) = chars.next() {
-                if ch == '#' && opens_a_tag(previous) {
-                    let rest = &segment[at + 1..];
-                    let body: String = rest.chars().take_while(|c| is_tag_char(*c)).collect();
-                    if is_tag(&body) {
-                        out.push((body.clone(), line.line));
-                        for _ in 0..body.chars().count() {
-                            chars.next();
-                        }
-                        previous = body.chars().next_back();
-                        continue;
+                if ch != '#' || !opens_a_tag(&line.raw[..offset + at]) {
+                    continue;
+                }
+                let body: String = segment[at + 1..]
+                    .chars()
+                    .take_while(|c| is_tag_char(*c))
+                    .collect();
+                if is_tag(&body) {
+                    out.push((body.clone(), line.line));
+                    for _ in 0..body.chars().count() {
+                        chars.next();
                     }
                 }
-                previous = Some(ch);
             }
         }
     }
     out
 }
 
-/// Whether a `#` preceded by `previous` can open a tag.
-fn opens_a_tag(previous: Option<char>) -> bool {
-    match previous {
-        None => true,
-        Some(ch) => ch.is_whitespace() || matches!(ch, '(' | '[' | '{' | '>' | '"' | '\''),
+/// Whether a `#` written after `before` can open a tag.
+///
+/// The character in front of it decides, with one exception: `](#anchor)` is a
+/// markdown link to a heading in this note, never a tag. Reading those as tags
+/// puts the section names of every note that carries a table of contents into
+/// the tag list.
+fn opens_a_tag(before: &str) -> bool {
+    let mut back = before.chars().rev();
+    let Some(previous) = back.next() else {
+        return true;
+    };
+    if previous == '(' {
+        return back.next() != Some(']');
     }
+    previous.is_whitespace() || matches!(previous, '[' | '{' | '>' | '"' | '\'')
 }
 
 /// Whether `ch` can appear in a tag.
