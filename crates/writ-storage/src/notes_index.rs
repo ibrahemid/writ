@@ -327,7 +327,7 @@ impl<'a> NotesIndex<'a> {
         )?;
         let names = self.name_index()?;
         self.write_facts(&note.path, content, &names)?;
-        self.resolve_pending_links(&names)?;
+        self.resolve_pending_links(&names, Some(&links::candidate_name_keys(&note.path)))?;
         tx.commit()?;
         Ok(())
     }
@@ -490,13 +490,26 @@ impl<'a> NotesIndex<'a> {
     /// often linked before the walk reaches it. Both leave `to_path` at `NULL`,
     /// and both are corrected here rather than by a second walk. Returns the
     /// number of links that gained a target.
-    fn resolve_pending_links(&self, names: &NameIndex) -> StorageResult<usize> {
-        self.conn.execute(
-            "UPDATE links SET to_path = NULL
-              WHERE to_path IS NOT NULL
-                AND NOT EXISTS (SELECT 1 FROM files f WHERE f.path = links.to_path)",
-            [],
-        )?;
+    ///
+    /// `only` is the set of folded names whose pending links are worth
+    /// revisiting: a single note arriving or leaving can only change the links
+    /// that named *it*, so a save re-resolves that note's own name keys and
+    /// leaves the rest of a vault's broken links alone. `None` re-resolves
+    /// everything, which is what a walk wants and what also drops the targets
+    /// of files that vanished while Writ was not running.
+    fn resolve_pending_links(
+        &self,
+        names: &NameIndex,
+        only: Option<&[String]>,
+    ) -> StorageResult<usize> {
+        if only.is_none() {
+            self.conn.execute(
+                "UPDATE links SET to_path = NULL
+                  WHERE to_path IS NOT NULL
+                    AND NOT EXISTS (SELECT 1 FROM files f WHERE f.path = links.to_path)",
+                [],
+            )?;
+        }
 
         let pending: Vec<(i64, String, String)> = {
             let mut stmt = self
@@ -515,6 +528,11 @@ impl<'a> NotesIndex<'a> {
         let mut filled = 0usize;
         for (rowid, from_path, to_target) in pending {
             let target = links::parse_target(&to_target);
+            if let Some(keys) = only {
+                if !keys.contains(&links::name_key(&target.name)) {
+                    continue;
+                }
+            }
             if let Resolution::Resolved(path) = names.resolve(&target, &from_path) {
                 self.conn.execute(
                     "UPDATE links SET to_path = ?2 WHERE rowid = ?1",
@@ -532,6 +550,11 @@ impl<'a> NotesIndex<'a> {
     /// exists; the row itself follows, and `links`, `properties`, `tags` and
     /// `headings` cascade with it. Losing the row without losing the text entry
     /// is what produces a hit nothing can open, so both steps propagate errors.
+    ///
+    /// The cascade only reaches the links written *in* the removed note. The
+    /// links written in other notes that resolved *to* it are a plain column
+    /// with no foreign key behind it, so they are emptied here: a link left
+    /// pointing at a deleted file reads as resolved and opens nothing.
     pub fn remove(&self, path: &str) -> StorageResult<()> {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
@@ -540,6 +563,10 @@ impl<'a> NotesIndex<'a> {
             params![path],
         )?;
         tx.execute("DELETE FROM files WHERE path = ?1", params![path])?;
+        tx.execute(
+            "UPDATE links SET to_path = NULL WHERE to_path = ?1",
+            params![path],
+        )?;
         tx.commit()?;
         Ok(())
     }
@@ -1041,7 +1068,7 @@ pub fn reconcile(
     // emptied rather than left pointing at a row that is gone. A cancelled pass
     // still runs it: what it wrote is real, and the links it left unresolved
     // are the ones it can resolve.
-    index.resolve_pending_links(&index.name_index()?)?;
+    index.resolve_pending_links(&index.name_index()?, None)?;
 
     // Only a complete pass may speak for the whole folder. A cancelled one has
     // written fewer derived rows than the folder holds, and recording that
@@ -1276,8 +1303,19 @@ impl NotesIndexStore {
     /// The watcher's delete arm, and the second half of a rename. Removing a
     /// path the index does not hold is not an error, which is what lets the
     /// subscriber replay an event without checking first.
+    ///
+    /// The links that pointed at the removed note lose their target in
+    /// [`NotesIndex::remove`]; they are re-resolved here, so a second note of
+    /// the same name left standing picks them up rather than waiting for a
+    /// walk.
     pub fn forget_path(&self, path: &Path) -> StorageResult<()> {
-        NotesIndex::new(&self.conn()).remove(&index_key(path))
+        let key = index_key(path);
+        let conn = self.conn();
+        let index = NotesIndex::new(&conn);
+        index.remove(&key)?;
+        let names = index.name_index()?;
+        index.resolve_pending_links(&names, Some(&links::candidate_name_keys(&key)))?;
+        Ok(())
     }
 
     /// Walks `notes_root` and brings the index in line with it. See

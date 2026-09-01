@@ -163,6 +163,56 @@ fn a_link_to_a_note_that_is_gone_stops_pointing_at_it() {
 }
 
 #[test]
+fn the_watchers_delete_arm_empties_the_links_that_pointed_at_the_note() {
+    let (dir, _conn, notes) = fixture();
+    let store = NotesIndexStore::open(&dir.path().join("writ.db")).expect("store");
+    let target = write_note(&notes, "Target.md", "# Target\n");
+    let source = write_note(&notes, "source.md", "see [[Target]]\n");
+    assert!(store.index_path(&target).expect("index target"));
+    assert!(store.index_path(&source).expect("index source"));
+
+    let key = notes_index::index_key(&source);
+    assert!(store.links_from(&key).expect("links")[0].to_path.is_some());
+
+    std::fs::remove_file(&target).expect("remove");
+    store.forget_path(&target).expect("forget");
+
+    assert_eq!(
+        store.links_from(&key).expect("links")[0].to_path,
+        None,
+        "a deleted note must not leave links resolved to it until the next walk"
+    );
+}
+
+#[test]
+fn deleting_one_of_two_notes_of_the_same_name_resolves_the_link_to_the_other() {
+    let (dir, _conn, notes) = fixture();
+    let store = NotesIndexStore::open(&dir.path().join("writ.db")).expect("store");
+    let first = write_note(&notes, "a/Note.md", "one\n");
+    let second = write_note(&notes, "b/Note.md", "two\n");
+    let source = write_note(&notes, "source.md", "see [[Note]]\n");
+    for path in [&first, &second, &source] {
+        assert!(store.index_path(path).expect("index"));
+    }
+
+    let key = notes_index::index_key(&source);
+    assert_eq!(
+        store.links_from(&key).expect("links")[0].to_path,
+        None,
+        "two notes of that name is ambiguous, and ambiguous stores nothing"
+    );
+
+    std::fs::remove_file(&first).expect("remove");
+    store.forget_path(&first).expect("forget");
+
+    assert_eq!(
+        store.links_from(&key).expect("links")[0].to_path.as_deref(),
+        Some(notes_index::index_key(&second).as_str()),
+        "one candidate left is no longer ambiguous"
+    );
+}
+
+#[test]
 fn an_ambiguous_target_stores_no_target_and_reports_both_notes() {
     let (_dir, conn, notes) = fixture();
     let source = write_note(&notes, "from/source.md", "see [[Note]]\n");

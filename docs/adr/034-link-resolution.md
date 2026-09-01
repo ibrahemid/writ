@@ -88,9 +88,17 @@ than one of the candidates, precisely so that no code path can quietly turn
 A note is usually linked before it is written. That link is stored with
 `to_path = NULL`, not dropped, and it is resolved when the note it names
 arrives — on the next single-file index of that note, or at the end of the next
-walk. A link whose note is gone loses its `to_path` on the same pass. The
-column is a cache of the policy's answer, never a second source of truth: it is
-recomputed, never migrated.
+walk. A link whose note is gone loses its `to_path` on the same pass, and a
+delete does it immediately rather than leaving a link that reads as resolved
+and opens nothing.
+
+**A save re-resolves only the names the saved note answers to.** A vault where
+most links are broken is the normal case, and a save that re-resolved every
+pending link in the database would do that work on the connection every save
+queues behind. One note arriving or leaving can only change the links that
+named *it*, so the backfill takes the folded name keys of the file that moved.
+A walk passes no keys and re-resolves everything, which is also where a file
+that vanished while Writ was not running loses its target.
 
 An ambiguous link is stored `NULL` too, and is re-resolved with the rest; it
 becomes resolved as soon as a rename or a delete leaves one candidate.
