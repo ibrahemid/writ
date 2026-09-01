@@ -115,6 +115,12 @@ pub struct AppState {
     /// thread polls it per entry, so a quit during a large walk does not wait
     /// for the walk.
     pub notes_index_cancel: Arc<AtomicBool>,
+    /// Set while a reconcile walk is running, so a second one is not started
+    /// over the same folder. The watcher raises a sweep whenever more changed
+    /// in one window than is worth listing, and a sync catch-up raises it
+    /// again while the last walk is still reading; a walk already under way
+    /// covers what lands while it runs.
+    pub notes_index_reconciling: Arc<AtomicBool>,
     /// How far the shutdown path has got, and whether the frontend has
     /// answered [`writ_core::events::bus::WritEvent::FlushBeforeQuit`] by
     /// writing everything it was holding inside the autosave debounce window.
@@ -418,6 +424,7 @@ impl AppState {
             layout_state,
             notes_index,
             notes_index_cancel: Arc::new(AtomicBool::new(false)),
+            notes_index_reconciling: Arc::new(AtomicBool::new(false)),
             quit: Arc::new(QuitState::new()),
             recovered_buffers: Mutex::new(recovered_buffers),
             was_dirty_shutdown,

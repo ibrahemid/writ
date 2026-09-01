@@ -219,6 +219,51 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Walks the notes folder and brings the index in line with it, on a thread of
+/// its own.
+///
+/// The walk reads every note, and a folder of a few thousand would hold the
+/// caller for seconds. An empty index reconciles to a full one, which is what
+/// makes deleting `writ.db` safe.
+///
+/// `in_flight` keeps one walk at a time. The sweep marker the notes watcher
+/// raises during a sync catch-up can arrive again while the last walk is still
+/// running, and starting a second walk over the same folder would read every
+/// note twice for one answer. A walk already under way covers whatever landed
+/// while it ran, because it reads the folder as it finds it.
+///
+/// The walk retires itself the moment the notes folder moves: one that
+/// finished against the old folder would prune every row the move re-keyed.
+fn spawn_notes_reconcile(
+    index: std::sync::Arc<writ_storage::notes_index::NotesIndexStore>,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    in_flight: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    root: std::path::PathBuf,
+) {
+    use std::sync::atomic::Ordering;
+
+    if in_flight.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let generation = index.generation();
+    std::thread::spawn(move || {
+        let cancelled = || cancel.load(Ordering::Relaxed) || index.generation() != generation;
+        let outcome = index.reconcile(&root, &cancelled, &writ_storage::notes_index::is_dataless);
+        in_flight.store(false, Ordering::SeqCst);
+        match outcome {
+            Ok(outcome) => info!(
+                added = outcome.added,
+                updated = outcome.updated,
+                removed = outcome.removed,
+                name_only = outcome.skipped_dataless,
+                cancelled = outcome.cancelled,
+                "notes index reconciled"
+            ),
+            Err(e) => tracing::warn!(error = %e, "notes index reconcile failed"),
+        }
+    });
+}
+
 /// Applies the saved window geometry to the (hidden) main window before it is
 /// first shown, so the frontend never has to await IPC to resize on the cold
 /// path. The saved size is fitted to the work area of the monitor the window
@@ -542,11 +587,31 @@ pub fn run() {
                 use writ_core::events::bus::WritEvent;
                 let state = app.state::<AppState>();
                 let index = state.notes_index.clone();
+                let cancel = state.notes_index_cancel.clone();
+                let reconciling = state.notes_index_reconciling.clone();
+                // The live root, read per event rather than captured: moving
+                // the notes folder restarts the watcher, and a marker carrying
+                // the new root has to still read as a marker.
+                let handle = app.handle().clone();
                 state.event_bus.subscribe(move |event| {
                     let WritEvent::NotesChanged { path, removed } = event else {
                         return;
                     };
                     let path = std::path::Path::new(path);
+                    let root = handle.state::<AppState>().notes_root();
+                    // The folder itself, rather than a note in it, is the
+                    // watcher's sweep marker: more changed in one window than
+                    // was worth listing, so the index walks the folder instead
+                    // of patching a path.
+                    if watcher::handler::is_notes_sweep_marker(path, &root) {
+                        spawn_notes_reconcile(
+                            index.clone(),
+                            cancel.clone(),
+                            reconciling.clone(),
+                            root,
+                        );
+                        return;
+                    }
                     // A rename arrives as one delete and one create, so both
                     // arms have to be replayable: forgetting a path the index
                     // does not hold, and indexing one it already has, are both
@@ -695,38 +760,13 @@ pub fn run() {
                 let notes_root = state.notes_root();
 
                 // Bring the index in line with the folder before anything
-                // searches it, on a thread of its own: the walk reads every
-                // note, and a folder of a few thousand would hold the UI for
-                // seconds. An empty index reconciles to a full one, which is
-                // what makes deleting writ.db safe.
-                let index = state.notes_index.clone();
-                let cancel = state.notes_index_cancel.clone();
-                let reconcile_root = notes_root.clone();
-                let generation = index.generation();
-                std::thread::spawn(move || {
-                    // Retired the moment the notes folder moves: a walk that
-                    // finished against the old folder would prune every row
-                    // the move re-keyed.
-                    let cancelled = || {
-                        cancel.load(std::sync::atomic::Ordering::Relaxed)
-                            || index.generation() != generation
-                    };
-                    match index.reconcile(
-                        &reconcile_root,
-                        &cancelled,
-                        &writ_storage::notes_index::is_dataless,
-                    ) {
-                        Ok(outcome) => info!(
-                            added = outcome.added,
-                            updated = outcome.updated,
-                            removed = outcome.removed,
-                            name_only = outcome.skipped_dataless,
-                            cancelled = outcome.cancelled,
-                            "notes index reconciled"
-                        ),
-                        Err(e) => tracing::warn!(error = %e, "notes index reconcile failed"),
-                    }
-                });
+                // searches it.
+                spawn_notes_reconcile(
+                    state.notes_index.clone(),
+                    state.notes_index_cancel.clone(),
+                    state.notes_index_reconciling.clone(),
+                    notes_root.clone(),
+                );
 
                 match watcher::handler::start_notes_watcher(
                     state.event_bus.clone(),

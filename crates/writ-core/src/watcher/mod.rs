@@ -5,6 +5,9 @@
 //! like, independent of how the change was observed. What a save may do when
 //! the file changed underneath it is [`crate::notes::guard`].
 
+/// How much one debounce window may report before a storm is summarised
+/// rather than listed file by file.
+pub mod budget;
 /// Typed representation of externally-observed file changes.
 pub mod change_event;
 /// Content-fingerprinted ignore stamps for distinguishing internal writes

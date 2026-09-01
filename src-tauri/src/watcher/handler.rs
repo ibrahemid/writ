@@ -6,6 +6,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{error, info};
 use writ_core::events::bus::{EventBus, WritEvent};
+use writ_core::watcher::budget::{Emission, EmissionBudget};
 use writ_core::watcher::ignore::{IgnoreStamps, SuppressDecision, DEFAULT_IGNORE_TTL};
 
 pub type IgnoreSet = Arc<Mutex<IgnoreStamps>>;
@@ -275,6 +276,15 @@ pub fn classify_inbox_event(
 ///
 /// Writ's own saves are stamped into `ignore_set` before they land, so they do
 /// not arrive back here as somebody else's edit; the store indexes them itself.
+///
+/// What one window may say is capped ([`EmissionBudget`]). A sync client
+/// catching up, or a plugin another editor left running, rewrites hundreds of
+/// files inside a single debounce window; naming each one is a message the
+/// frontend has to receive and act on. Over the cap the watcher stops naming
+/// files and emits the folder itself once ([`notes_sweep_marker`]), and the
+/// index walks it. The budget is spent only on changes that survived
+/// classification, so a burst of Writ's own saves cannot make the folder look
+/// like it moved.
 pub fn start_notes_watcher(
     bus: Arc<EventBus>,
     root: PathBuf,
@@ -288,18 +298,31 @@ pub fn start_notes_watcher(
     info!(root = %root.display(), "notes watcher started");
 
     std::thread::spawn(move || {
+        let mut budget = EmissionBudget::new();
         while let Ok(result) = rx.recv() {
             match result {
                 Ok(events) => {
                     for event in events {
-                        if let Some(domain_event) = classify_notes_event(
+                        let now = Instant::now();
+                        let Some(domain_event) = classify_notes_event(
                             &event.path,
                             &root,
                             &ignore_set,
                             DEFAULT_IGNORE_TTL,
-                            Instant::now(),
-                        ) {
-                            bus.emit(domain_event);
+                            now,
+                        ) else {
+                            continue;
+                        };
+                        match budget.admit(now) {
+                            Emission::Name => bus.emit(domain_event),
+                            Emission::Sweep => {
+                                info!(
+                                    root = %root.display(),
+                                    "notes folder changed faster than it can be listed; sweeping"
+                                );
+                                bus.emit(notes_sweep_marker(&root));
+                            }
+                            Emission::Drop => {}
                         }
                     }
                 }
@@ -314,6 +337,29 @@ pub fn start_notes_watcher(
     Ok(WatcherHandle {
         _debouncer: debouncer,
     })
+}
+
+/// The event that stands for "more changed in the notes folder than is worth
+/// listing": the folder itself, rather than a file in it.
+///
+/// The root is the marker because no file event can ever carry it —
+/// [`classify_notes_event`] drops anything that is not a regular file, and the
+/// root is a directory — so a listener can tell a sweep from a note by the
+/// path alone without a second field to keep in step.
+///
+/// [`is_notes_sweep_marker`] is the other half; the two are here together so
+/// the sender and the receiver cannot drift.
+pub fn notes_sweep_marker(root: &Path) -> WritEvent {
+    WritEvent::NotesChanged {
+        path: root.to_string_lossy().into_owned(),
+        removed: false,
+    }
+}
+
+/// Whether a [`WritEvent::NotesChanged`] path is the sweep marker for `root`
+/// rather than a note inside it.
+pub fn is_notes_sweep_marker(path: &Path, root: &Path) -> bool {
+    path == root
 }
 
 /// Classifies a notes-folder event into a domain event, or suppresses it.
@@ -508,6 +554,49 @@ mod tests {
             <RecommendedWatcher as Watcher>::kind(),
             WatcherKind::PollWatcher,
             "notify resolved to PollWatcher: a native filesystem backend is missing for this target"
+        );
+    }
+
+    #[test]
+    fn the_sweep_marker_is_the_folder_and_a_note_in_it_never_is() {
+        // The listener tells one from the other by the path alone, so a note
+        // must never be mistaken for a sweep, and the marker must always be
+        // recognised as one.
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let note = root.join("today.md");
+
+        match notes_sweep_marker(root) {
+            WritEvent::NotesChanged { path, removed } => {
+                assert_eq!(path, root.to_string_lossy());
+                assert!(!removed);
+                assert!(is_notes_sweep_marker(Path::new(&path), root));
+            }
+            other => panic!("expected NotesChanged, got {other:?}"),
+        }
+
+        assert!(!is_notes_sweep_marker(&note, root));
+        assert!(!is_notes_sweep_marker(&root.join("sub"), root));
+    }
+
+    #[test]
+    fn a_note_event_can_never_carry_the_folder_itself() {
+        // The marker rests on the root being a path no file event produces.
+        // A directory event has to stay suppressed for that to hold.
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let sub = root.join("archive");
+        fs::create_dir(&sub).unwrap();
+
+        assert!(
+            classify_notes_event(root, root, &make_set(), DEFAULT_IGNORE_TTL, Instant::now())
+                .is_none(),
+            "the notes root must never surface as a note change"
+        );
+        assert!(
+            classify_notes_event(&sub, root, &make_set(), DEFAULT_IGNORE_TTL, Instant::now())
+                .is_none(),
+            "a folder inside the notes root must never surface as a note change"
         );
     }
 
