@@ -54,9 +54,13 @@ answer has to change the module and face every other consumer's tests.
 - `[label](path)` where the path ends in `.md` or `.markdown`, or carries no
   extension at all
 
-A URL, an image, and a same-document `#anchor` are not links to a note. Code
-fences, inline code and the frontmatter block are not scanned, so a link inside
-an example stays an example.
+A URL, an image, and a same-document `#anchor` are not links to a note, and an
+anchor is not a tag either: `[contents](#setup)` names a heading in this note,
+so a note with a table of contents does not file its own section names under
+tags. Code blocks, inline code and the frontmatter block are not scanned, so a
+link inside an example stays an example. Both kinds of code block count — the
+fenced one and the four-space indented one a pasted example makes — with the
+CommonMark conditions that keep a list item's indented content out of it.
 
 ### 3. Resolution order, and where it stops
 
@@ -83,7 +87,7 @@ work refuses an ambiguous target outright, and the index stores `NULL` rather
 than one of the candidates, precisely so that no code path can quietly turn
 "one of these two" into "this one".
 
-### 4. `to_path` is nullable and backfilled
+### 4. `to_path` is a cache, recomputed in both directions
 
 A note is usually linked before it is written. That link is stored with
 `to_path = NULL`, not dropped, and it is resolved when the note it names
@@ -92,18 +96,26 @@ walk. A link whose note is gone loses its `to_path` on the same pass, and a
 delete does it immediately rather than leaving a link that reads as resolved
 and opens nothing.
 
-**A save re-resolves only the names the saved note answers to.** A vault where
-most links are broken is the normal case, and a save that re-resolved every
-pending link in the database would do that work on the connection every save
-queues behind. One note arriving or leaving can only change the links that
-named *it* — a `to_path` is a function of the set of indexed paths and nothing
-else, never of any note's text — so the backfill takes the folded name keys of
-the file that moved.
-A walk passes no keys and re-resolves everything, which is also where a file
-that vanished while Writ was not running loses its target.
+**A revisited link is resolved from scratch and written back, including back to
+`NULL`.** The moves run both ways: a note arriving answers the links that
+waited for it, a second note of the same name makes an answered link ambiguous
+again, and a nearer note of the same name takes a link off a deeper one. A pass
+that visited only `to_path IS NULL` would do the first and miss the rest, and
+the stale target would outlive every walk, because a walk re-reads a note only
+when its bytes moved. It would also break the rule §3 puts in bold — not by
+picking a candidate at write time, but by keeping a target that stopped being
+the only answer — and the two consumers would then disagree: the editor opens
+the note the resolver names, while the backlink list, which reads the column,
+says nothing links to it.
 
-An ambiguous link is stored `NULL` too, and is re-resolved with the rest; it
-becomes resolved as soon as a rename or a delete leaves one candidate.
+**A save revisits only the names the saved note answers to.** A vault where
+most links are broken is the normal case, and a save that re-resolved every
+link in the database would do that work on the connection every save queues
+behind. A `to_path` is a function of the set of indexed paths and nothing else,
+never of any note's text, so one note arriving or leaving can only move the
+links that named *it*: the pass takes the folded name keys of the file that
+moved. A walk passes no keys and revisits everything, which is also where a
+file that vanished while Writ was not running loses its target.
 
 ### 5. The four tables are derived, and rebuilding them is a walk
 
@@ -136,7 +148,15 @@ A heading a note does not have leaves the link resolved and the heading
 unreported: the note opens, and the reader is not stopped by a typo in an
 anchor.
 
-### 7. Frontmatter is split in three places, on purpose
+### 7. A property is never dropped
+
+`key: scalar`, `key: [a, b]`, a `key:` with `-` items, and a `key: |` or
+`key: >` block scalar are read as what they are. Anything else — a nested
+mapping — is kept as the text it was written as. A property the user can see in
+their editor and cannot see in Writ is worse than an ugly one, and a
+multi-line `summary:` is the common case of both.
+
+### 8. Frontmatter is split in three places, on purpose
 
 `writ-render` compiles to wasm for the site and depends on nothing else in the
 workspace, so it carries its own splitter. The prompt stripper next door
