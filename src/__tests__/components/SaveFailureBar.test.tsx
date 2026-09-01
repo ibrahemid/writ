@@ -19,7 +19,13 @@ vi.mock("../../stores/global/save-status", () => ({
 const stubs = vi.hoisted(() => ({
   saveCopyOfNote: vi.fn(async () => {}),
   retrySave: vi.fn(async () => ({ ok: true, failures: [] })),
-  readDiskState: vi.fn(async () => null as { hash: string } | null),
+  readDiskState: vi.fn(
+    async () =>
+      ({ state: "undescribed" }) as
+        | { state: "described"; disk: { hash: string; size: number; mtime_ms: number | null } }
+        | { state: "no_file" }
+        | { state: "undescribed" },
+  ),
 }));
 const { saveCopyOfNote, retrySave, readDiskState } = stubs;
 
@@ -93,7 +99,7 @@ describe("SaveFailureBar", () => {
         message: "this file has not finished downloading, so your changes were not saved yet.",
       }),
     });
-    readDiskState.mockResolvedValueOnce(null);
+    readDiskState.mockResolvedValueOnce({ state: "undescribed" });
     const { getByText, container } = render(() => <SaveFailureBar noteId="one" />);
 
     fireEvent.click(getByText("Try again"));
@@ -116,7 +122,7 @@ describe("SaveFailureBar", () => {
       }),
       two: failure(),
     });
-    readDiskState.mockResolvedValueOnce(null);
+    readDiskState.mockResolvedValueOnce({ state: "undescribed" });
     const { getByText, container } = render(() => <SaveFailureBar noteId={noteId()} />);
 
     fireEvent.click(getByText("Try again"));
@@ -136,7 +142,10 @@ describe("SaveFailureBar", () => {
         message: "this file has not finished downloading, so your changes were not saved yet.",
       }),
     });
-    readDiskState.mockResolvedValueOnce({ hash: "abc" });
+    readDiskState.mockResolvedValueOnce({
+      state: "described",
+      disk: { hash: "abc", size: 3, mtime_ms: null },
+    });
     const { getByText } = render(() => <SaveFailureBar noteId="one" />);
 
     fireEvent.click(getByText("Try again"));

@@ -45,7 +45,7 @@ export default function SaveFailureBar(props: { noteId: string | null }) {
     try {
       if (
         code === ERR_FILE_NOT_DOWNLOADED &&
-        (await win.editor.readDiskState(id)) === null
+        (await win.editor.readDiskState(id)).state !== "described"
       ) {
         setWaitingNote(id);
         return;

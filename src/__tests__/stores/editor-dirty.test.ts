@@ -1,14 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // The file's digest comes from Rust, so the test plays that part: whatever a
-// note's file is said to hold is what `noteDiskState` answers with.
-const backend = vi.hoisted(() => ({ hashes: new Map<string, string>() }));
+// note's file is said to hold is what `noteDiskState` answers with. A note the
+// map says nothing about is a new note with no file.
+const backend = vi.hoisted(() => ({
+  answers: new Map<string, { state: string; disk?: { hash: string } }>(),
+  throwFor: new Set<string>(),
+}));
 
 vi.mock("../../services/tauri", () => ({
   saveBufferContent: vi.fn().mockResolvedValue(null),
   noteDiskState: vi.fn(async (id: string) => {
-    const hash = backend.hashes.get(id);
-    return hash === undefined ? null : { hash, size: 0, mtime_ms: null };
+    if (backend.throwFor.has(id)) throw new Error("no answer");
+    return backend.answers.get(id) ?? { state: "no_file" };
   }),
 }));
 
@@ -35,13 +39,18 @@ async function hashedAs(
   await vi.waitFor(() => expect(store.docHash(id)).toBe(want), { timeout: 2000 });
 }
 
+/** Says the note's file was read and holds bytes hashing to `hash`. */
+function fileHolds(id: string, hash: string): void {
+  backend.answers.set(id, { state: "described", disk: { hash } });
+}
+
 /** Opens a note whose file holds exactly `text`, the ordinary case. */
 async function openNote(
   store: { noteOpened: (id: string, content: string) => void },
   id: string,
   text: string,
 ): Promise<void> {
-  backend.hashes.set(id, await hashDocument(text));
+  fileHolds(id, await hashDocument(text));
   store.noteOpened(id, text);
 }
 
@@ -54,7 +63,8 @@ function newStore() {
 }
 
 beforeEach(() => {
-  backend.hashes.clear();
+  backend.answers.clear();
+  backend.throwFor.clear();
   resetAutosave();
   mockedSave.mockReset();
   mockedSave.mockResolvedValue(null);
@@ -90,7 +100,7 @@ describe("editorStore dirty contract", () => {
     // from the file itself can say so, and the frontend has no way to compute
     // one; minting it from the loaded text would call this note clean.
     const store = newStore();
-    backend.hashes.set("a", "0".repeat(64));
+    fileHolds("a", "0".repeat(64));
     store.noteOpened("a", "hello");
     await vi.waitFor(() => expect(store.lastKnownDiskHash("a")).toBe("0".repeat(64)));
 
@@ -98,9 +108,33 @@ describe("editorStore dirty contract", () => {
     expect(store.isDirty("a")).toBe(true);
   });
 
+  it("reads a note whose file could not be described as dirty, not clean", async () => {
+    // The file is missing, or its bytes are not on this machine. The editor
+    // holds a document with nothing to compare it against, which is the same
+    // position the error path leaves it in, so it gets the same answer: no
+    // record, and dirty. Reading it clean would let a reload replace text no
+    // file holds.
+    const store = newStore();
+    backend.answers.set("evicted", { state: "undescribed" });
+    store.noteOpened("evicted", "text only this tab has");
+    await vi.waitFor(() => expect(store.isTracked("evicted")).toBe(false));
+
+    expect(store.isDirty("evicted")).toBe(true);
+    expect(store.lastKnownDiskHash("evicted")).toBeUndefined();
+  });
+
+  it("reads a note whose file could not be read at all as dirty", async () => {
+    const store = newStore();
+    backend.throwFor.add("unreadable");
+    store.noteOpened("unreadable", "text only this tab has");
+    await vi.waitFor(() => expect(store.isTracked("unreadable")).toBe(false));
+
+    expect(store.isDirty("unreadable")).toBe(true);
+  });
+
   it("records nothing for a note with no file, and reads it clean until it is typed into", async () => {
-    // A new note, or one whose bytes are not on this machine: there is no
-    // digest to be measured against, and an empty new tab is not unsaved work.
+    // A new note nothing has saved yet: there is no digest to be measured
+    // against, and an empty new tab is not unsaved work.
     const store = newStore();
     store.noteOpened("new", "");
     await turn();

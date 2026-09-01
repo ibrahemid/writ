@@ -12,7 +12,7 @@ import {
   type ContentSource,
   type SaveResult,
 } from "../../services/autosave";
-import { noteDiskState, type DiskState } from "../../services/tauri";
+import { noteDiskState, type NoteDiskAnswer } from "../../services/tauri";
 import { hashDocument } from "../../lib/doc-hash";
 import {
   detectLanguage as detectLanguageService,
@@ -191,11 +191,16 @@ export function createEditorStore() {
    * predicate rests on would have two authors and only one of them would ever
    * see the file change under it.
    *
-   * A note with no file to read, whether it is new or its bytes are not on
-   * this machine, records neither digest. The two sides then agree that
-   * nothing is known to differ, which is right for a new empty note; the first
-   * keystroke moves the generation and the note reads dirty from there until a
-   * save gives it a file.
+   * A note with no file yet records neither digest. The two sides then agree
+   * that nothing is known to differ, which is right for a new empty note; the
+   * first keystroke moves the generation and the note reads dirty from there
+   * until a save gives it a file.
+   *
+   * A note whose file could not be described — not there, or its bytes not on
+   * this machine — drops its record instead, the same as the call failing
+   * outright. Either way the editor holds a document with nothing to compare
+   * it against, and `isDirty` answers dirty for a note it holds no record of,
+   * which is what stops a later reload replacing text no file holds.
    */
   function noteOpened(id: string, content: string) {
     clearHashTimer(id);
@@ -205,25 +210,25 @@ export function createEditorStore() {
       return next;
     });
     void (async () => {
-      let disk: DiskState | null;
+      let answer: NoteDiskAnswer;
       try {
-        disk = await noteDiskState(id);
+        answer = await noteDiskState(id);
       } catch {
-        // Nothing came back, so nothing is known about the file. Drop the
-        // record rather than leave one that says the two sides agree:
-        // `isDirty` answers dirty for a note it holds no record of, which is
-        // the safe answer for a note whose file nobody could read.
         forgetHashes(id);
         return;
       }
-      if (disk === null) return;
+      if (answer.state === "undescribed") {
+        forgetHashes(id);
+        return;
+      }
+      if (answer.state === "no_file") return;
       const documentHash = await hashDocument(content);
       // An edit that landed while either answer was in flight has moved the
       // generation, and this pair describes a document that is already gone.
       if (hashesOf(id).docGeneration !== 0) return;
       patchHashes(id, {
         docHash: documentHash,
-        diskHash: disk.hash,
+        diskHash: answer.disk.hash,
         hashedGeneration: 0,
       });
     })();
@@ -447,11 +452,8 @@ export function createEditorStore() {
     return saveNowService(id, content);
   }
 
-  /**
-   * What the note's file holds now, or null when there is nothing to read:
-   * no file, no such file, or a file whose bytes are not on this machine.
-   */
-  function readDiskState(id: string): Promise<DiskState | null> {
+  /** What the backend can say about the note's file right now. */
+  function readDiskState(id: string): Promise<NoteDiskAnswer> {
     return noteDiskState(id);
   }
 

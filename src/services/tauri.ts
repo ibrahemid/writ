@@ -183,13 +183,20 @@ export async function saveBufferContentUnindexed(
 }
 
 /**
- * What the note's file holds right now.
+ * What the backend can say about a note's file.
  *
- * Null for a note with no file, a file that is not there, and a file whose
- * bytes have not been downloaded — reading the last would make the sync
- * provider fetch it.
+ * `no_file` is a new note nothing has saved yet. `undescribed` is a note that
+ * names a file Writ could not read: it is not there, or its bytes have not
+ * been downloaded (reading the second would make the sync provider fetch it).
+ * The two are kept apart because only the first is safe to read as clean.
  */
-export async function noteDiskState(id: string): Promise<DiskState | null> {
+export type NoteDiskAnswer =
+  | { state: "described"; disk: DiskState }
+  | { state: "no_file" }
+  | { state: "undescribed" };
+
+/** What the note's file holds right now. */
+export async function noteDiskState(id: string): Promise<NoteDiskAnswer> {
   return invoke("note_disk_state", { id });
 }
 

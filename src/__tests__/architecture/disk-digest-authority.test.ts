@@ -16,8 +16,8 @@ const SRC = resolve(process.cwd(), "src");
 const DISK_HASH_SOURCES = new Set([
   // The store's own field name, threaded through from a service result.
   "diskHash",
-  // What `noteDiskState` answered with.
-  "disk.hash",
+  // The `described` answer `noteDiskState` came back with.
+  "answer.disk.hash",
 ]);
 
 // `diskHash: string` in a signature is a type, not a value, and a type cannot

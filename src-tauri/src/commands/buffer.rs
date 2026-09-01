@@ -389,38 +389,61 @@ impl From<NoteFileState> for DiskStateDto {
     }
 }
 
+/// What Writ can say about the file behind a note.
+///
+/// The three answers are kept apart because the editor acts on them
+/// differently and collapsing them loses text. A note with no file yet is a
+/// new note: nothing is known to differ, so it reads clean. A note whose row
+/// names a file that cannot be described is the same situation as this call
+/// failing outright — the editor holds a document with nothing to compare it
+/// against — and the dirty predicate has to fail closed for it, or a later
+/// reload replaces text no file holds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum NoteDiskAnswer {
+    /// The file was read, and `disk` describes it.
+    Described { disk: DiskStateDto },
+    /// The note has no file: nothing has saved it yet.
+    NoFile,
+    /// The note names a file and nothing could be said about it — it is not
+    /// there, or its bytes are not on this machine.
+    Undescribed,
+}
+
 /// [`note_disk_state`] once the file's path and flags are known.
 ///
-/// `None` covers both files there is nothing to say about: one that is not
-/// there, and one whose bytes are not on this machine. Reading the second
-/// makes the provider daemon fetch it over the network (ADR-028 §5), which is
-/// the one thing a re-check after a failed save must not set off.
-fn note_disk_state_of(path: &Path, st_flags: Option<u32>) -> Result<Option<DiskStateDto>, String> {
+/// A file whose bytes are not on this machine is reported undescribed without
+/// being read: reading it makes the provider daemon fetch it over the network
+/// (ADR-028 §5), which is the one thing a re-check after a failed save must
+/// not set off.
+fn note_disk_state_of(path: &Path, st_flags: Option<u32>) -> Result<NoteDiskAnswer, String> {
     if is_not_downloaded(st_flags) {
-        return Ok(None);
+        return Ok(NoteDiskAnswer::Undescribed);
     }
     Ok(writ_storage::buffer_store::read_note_file_state(path)
         .map_err(|e| e.to_string())?
-        .map(DiskStateDto::from))
+        .map(|state| NoteDiskAnswer::Described {
+            disk: DiskStateDto::from(state),
+        })
+        .unwrap_or(NoteDiskAnswer::Undescribed))
 }
 
 /// IPC: what the file behind note `id` holds now.
 ///
 /// The tab whose save was stopped is the caller: the reason it was stopped is
 /// a difference between the file and what Writ last read, and this is how the
-/// tab reads that difference again after the person has looked at it.
+/// tab reads that difference again after the person has looked at it. The
+/// editor also asks on open, to take the file's digest from the side that
+/// read the file.
 ///
 /// The path is resolved from the note's row rather than passed in, for the
 /// same reason a save's destination is ([`save_buffer_content_inner`]).
 #[tauri::command]
-pub fn note_disk_state(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<Option<DiskStateDto>, String> {
+pub fn note_disk_state(state: State<'_, AppState>, id: String) -> Result<NoteDiskAnswer, String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(&id).map_err(|e| e.to_string())?;
     let Some(source_path) = doc.source_path.as_deref() else {
-        return Ok(None);
+        return Ok(NoteDiskAnswer::NoFile);
     };
     let path = Path::new(source_path);
     note_disk_state_of(path, writ_storage::buffer_store::dataless_flags(path))
@@ -543,11 +566,26 @@ mod tests {
     use std::time::SystemTime;
     use writ_core::notes::guard::{DiskState, SF_DATALESS};
 
+    /// The description in a `Described` answer, or a panic naming what came
+    /// back instead.
+    fn described(answer: NoteDiskAnswer) -> DiskStateDto {
+        match answer {
+            NoteDiskAnswer::Described { disk } => disk,
+            other => panic!("expected a described file, got {other:?}"),
+        }
+    }
+
     #[test]
-    fn a_file_that_is_not_there_has_no_state() {
+    fn a_file_that_is_not_there_is_undescribed_rather_than_fileless() {
+        // Undescribed, not `NoFile`: the note names a file and Writ cannot
+        // say what it holds, which is the answer the editor has to fail
+        // closed on. `NoFile` means a new note, and reads clean.
         let dir = tempfile::tempdir().unwrap();
         let missing = dir.path().join("gone.md");
-        assert_eq!(note_disk_state_of(&missing, None).unwrap(), None);
+        assert_eq!(
+            note_disk_state_of(&missing, None).unwrap(),
+            NoteDiskAnswer::Undescribed
+        );
     }
 
     #[test]
@@ -556,7 +594,7 @@ mod tests {
         let path = dir.path().join("note.md");
         std::fs::write(&path, b"one line\n").unwrap();
 
-        let state = note_disk_state_of(&path, None).unwrap().unwrap();
+        let state = described(note_disk_state_of(&path, None).unwrap());
         assert_eq!(state.hash, writ_core::hash::sha256_hex(b"one line\n"));
         assert_eq!(state.size, 9);
         assert!(state.mtime_ms.is_some());
@@ -568,7 +606,10 @@ mod tests {
         let path = dir.path().join("evicted.md");
         std::fs::write(&path, b"placeholder").unwrap();
 
-        assert_eq!(note_disk_state_of(&path, Some(SF_DATALESS)).unwrap(), None);
+        assert_eq!(
+            note_disk_state_of(&path, Some(SF_DATALESS)).unwrap(),
+            NoteDiskAnswer::Undescribed
+        );
     }
 
     #[test]
@@ -580,11 +621,38 @@ mod tests {
         let path = dir.path().join("windows.md");
         std::fs::write(&path, b"one\r\ntwo\r\n").unwrap();
 
-        let state = note_disk_state_of(&path, None).unwrap().unwrap();
+        let state = described(note_disk_state_of(&path, None).unwrap());
         assert_eq!(state.hash, writ_core::hash::sha256_hex(b"one\ntwo\n"));
         assert_ne!(state.hash, writ_core::hash::sha256_hex(b"one\r\ntwo\r\n"));
         // The length is the file's, not the normalised text's.
         assert_eq!(state.size, 10);
+    }
+
+    #[test]
+    fn the_three_answers_carry_a_state_the_frontend_can_branch_on() {
+        // The editor's fail-closed rule rests on telling a new note apart
+        // from a file nobody could read, so the tag has to survive
+        // serialisation and the two undescribable cases must not share a
+        // name with the fileless one.
+        let described = serde_json::to_value(NoteDiskAnswer::Described {
+            disk: DiskStateDto {
+                hash: "abc".to_string(),
+                size: 3,
+                mtime_ms: None,
+            },
+        })
+        .unwrap();
+        assert_eq!(described["state"], "described");
+        assert_eq!(described["disk"]["hash"], "abc");
+
+        assert_eq!(
+            serde_json::to_value(NoteDiskAnswer::NoFile).unwrap()["state"],
+            "no_file"
+        );
+        assert_eq!(
+            serde_json::to_value(NoteDiskAnswer::Undescribed).unwrap()["state"],
+            "undescribed"
+        );
     }
 
     fn file_state(
