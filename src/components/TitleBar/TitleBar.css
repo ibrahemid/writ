@@ -256,8 +256,8 @@
    them at and 44px the chrome row they centre in, matching `.sidebar-head`.
    The layer passes pointer events through to the drag region below; the lights
    row takes its own back, and `deep` on the layer keeps the gaps inside it
-   dragging the window. Chrome-level z, last in `.app-body`: over the toolbar
-   at the same weight, under every palette, modal and toast above it. */
+   dragging the window. Its own layer above chrome, so the toolbar stays under
+   it however `.app-body` is ordered, and under every palette, modal and toast. */
 .window-lights-layer {
   position: absolute;
   top: 0;
@@ -266,7 +266,7 @@
   display: flex;
   align-items: center;
   padding-left: 20px;
-  z-index: var(--writ-z-chrome);
+  z-index: var(--writ-z-window-lights);
   pointer-events: none;
 }
 

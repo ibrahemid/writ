@@ -60,14 +60,11 @@ export default function Toolbar() {
 
   /**
    * The roving stops: the search field keeps its own tab stop and its arrows,
-   * and the window lights are chrome rather than note actions, so neither joins
-   * the bar's single tab stop.
+   * so it never joins the bar's single tab stop.
    */
   function stops(): HTMLButtonElement[] {
     if (!barRef) return [];
-    return Array.from(
-      barRef.querySelectorAll<HTMLButtonElement>("button:not([disabled]):not(.maclight)"),
-    );
+    return Array.from(barRef.querySelectorAll<HTMLButtonElement>("button:not([disabled])"));
   }
 
   // One tab stop for the bar. Re-runs when a formatting control goes live or

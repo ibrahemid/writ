@@ -451,12 +451,16 @@
     },
     "z": {
       "$type": "number",
-      "$description": "[derived] Seven named layers (ADR-030). A component picks a layer, never a number.",
+      "$description": "[derived] Eight named layers (ADR-030). A component picks a layer, never a number.",
       "base": {
         "$value": 0
       },
       "chrome": {
         "$value": 100
+      },
+      "window-lights": {
+        "$value": 150,
+        "$description": "The window's own controls, above the app chrome they overlap and below every overlay."
       },
       "popover": {
         "$value": 200

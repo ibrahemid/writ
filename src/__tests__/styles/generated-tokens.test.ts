@@ -112,6 +112,7 @@ const BASELINE_ROOT_TOKENS = [
   "--writ-motion",
   "--writ-z-base",
   "--writ-z-chrome",
+  "--writ-z-window-lights",
   "--writ-z-popover",
   "--writ-z-palette",
   "--writ-z-modal",

@@ -177,7 +177,7 @@ describe("macOS lights", () => {
     expect(layer.get("left")).toBe("0");
     expect(layer.get("height")).toBe(declarations(SIDEBAR, ".sidebar-head").get("height"));
     expect(layer.get("padding-left")).toBe("20px");
-    expect(layer.get("z-index")).toBe("var(--writ-z-chrome)");
+    expect(layer.get("z-index")).toBe("var(--writ-z-window-lights)");
     expect(layer.get("pointer-events")).toBe("none");
     expect(declarations(TITLEBAR, ".window-lights").get("pointer-events")).toBe("auto");
   });

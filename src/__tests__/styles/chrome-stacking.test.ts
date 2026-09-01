@@ -14,6 +14,23 @@ const TOOLBAR_CSS = readFileSync(
   resolve(process.cwd(), "src/components/Toolbar/Toolbar.css"),
   "utf8",
 );
+const TITLEBAR_CSS = readFileSync(
+  resolve(process.cwd(), "src/components/TitleBar/TitleBar.css"),
+  "utf8",
+);
+const THEME_CSS = readFileSync(resolve(process.cwd(), "src/styles/generated/theme.css"), "utf8");
+
+const layer = (name: string): number => {
+  const m = THEME_CSS.match(new RegExp(`--writ-z-${name}:\\s*(\\d+)`));
+  expect(m, `--writ-z-${name} is declared`).toBeTruthy();
+  return Number(m![1]);
+};
+
+const zToken = (css: string, selector: string): string => {
+  const m = block(css, selector).match(/z-index:\s*var\((--writ-z-[a-z-]+)\)/);
+  expect(m, `${selector} spends a z-index token`).toBeTruthy();
+  return m![1]!;
+};
 
 const block = (css: string, selector: string): string => {
   const m = css.match(new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`));
@@ -32,6 +49,22 @@ describe("find panel stacking", () => {
 
   it("never hardcodes a z-index number", () => {
     expect(FIND_CSS).not.toMatch(/z-index:\s*\d/);
+  });
+});
+
+// The lights overlap the toolbar, so their order cannot rest on DOM position:
+// a reorder of `.app-body` would put the toolbar's opaque background over them.
+describe("window lights stacking", () => {
+  it("puts the lights layer on a named layer above the toolbar's", () => {
+    const lights = zToken(TITLEBAR_CSS, ".window-lights-layer");
+    const toolbar = zToken(TOOLBAR_CSS, ".writ-toolbar");
+    expect(lights).toBe("--writ-z-window-lights");
+    expect(toolbar).toBe("--writ-z-chrome");
+    expect(layer("window-lights")).toBeGreaterThan(layer("chrome"));
+  });
+
+  it("keeps that layer under the overlays", () => {
+    expect(layer("window-lights")).toBeLessThan(layer("popover"));
   });
 });
 

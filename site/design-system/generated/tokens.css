@@ -77,6 +77,7 @@
   --writ-motion: var(--writ-motion-duration) var(--writ-ease);
   --writ-z-base: 0;
   --writ-z-chrome: 100;
+  --writ-z-window-lights: 150;
   --writ-z-popover: 200;
   --writ-z-palette: 300;
   --writ-z-modal: 400;
