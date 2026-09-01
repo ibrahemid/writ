@@ -125,6 +125,11 @@ fn a_markdown_link_is_a_backlink_too() {
     let rows = backlinks(&conn, &target);
     assert_eq!(names(&rows), ["Source"]);
     assert_eq!(rows[0].kind, "markdown");
+    assert_eq!(
+        rows[0].alias, None,
+        "a markdown label is not an alias; the sentence carries it"
+    );
+    assert_eq!(rows[0].context, "See [the plan](Target.md) for it.");
 }
 
 #[test]

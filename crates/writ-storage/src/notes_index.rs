@@ -174,7 +174,8 @@ pub struct BacklinkRow {
     pub from_name: String,
     /// The link's target as it was written: no alias, no heading.
     pub to_target: String,
-    /// The text the link is displayed as, when it carries one.
+    /// A wikilink's `|alias`. `None` for a markdown link: the parser keeps the
+    /// destination, not the `[label]`, which [`BacklinkRow::context`] quotes.
     pub alias: Option<String>,
     /// `wikilink` or `markdown` ([`writ_core::notes::links::LinkKind`]).
     pub kind: String,

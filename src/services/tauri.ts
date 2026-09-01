@@ -170,7 +170,8 @@ export interface Backlink {
   from_name: string;
   /** The link's target as it was written: no alias, no heading. */
   to_target: string;
-  /** The text the link is displayed as, when it carries one. */
+  /** A wikilink's `|alias`. Null for a markdown link, whose label the parser
+   * does not carry; `context` quotes it. */
   alias: string | null;
   kind: string;
   /** 1-based line the link is on. */
