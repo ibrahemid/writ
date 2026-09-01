@@ -475,12 +475,9 @@ fn markdown_link(segment: &str, open: usize) -> Option<(usize, &str)> {
 
 /// The target a markdown link's destination names, or `None` when it names
 /// something that is not a note in the folder.
-fn note_destination(dest: &str) -> Option<WikilinkTarget> {
-    let dest = dest.trim();
-    let dest = dest.strip_prefix('<').unwrap_or(dest);
-    let dest = dest.strip_suffix('>').unwrap_or(dest);
-    // A title after the destination: `[a](b.md "Title")`.
-    let dest = dest.split_whitespace().next()?;
+fn note_destination(inside: &str) -> Option<WikilinkTarget> {
+    let dest = split_destination(inside.trim());
+    let dest = dest.as_str();
     if dest.is_empty() || dest.starts_with('#') {
         return None;
     }
@@ -508,6 +505,44 @@ fn note_destination(dest: &str) -> Option<WikilinkTarget> {
         .map(|h| percent_decode(h).trim().to_string())
         .filter(|h| !h.is_empty());
     Some(target)
+}
+
+/// The destination of a `[label](…)`, with the optional title dropped.
+///
+/// A destination in angle brackets runs to its closing `>` and may hold the
+/// spaces a file name is allowed to have, with `\>` for a literal one:
+/// `[a](<my note.md> "Title")` names `my note.md`, and cutting that at the
+/// first space named `my`. Any other destination ends at the first whitespace,
+/// which is where a title begins. An opening `<` with no closing `>` is not a
+/// bracketed destination at all, so it is read the plain way.
+fn split_destination(inside: &str) -> String {
+    let unbracketed = || {
+        inside
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string()
+    };
+    let Some(rest) = inside.strip_prefix('<') else {
+        return unbracketed();
+    };
+    let mut out = String::new();
+    let mut chars = rest.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '>' => return out,
+            '\\' => match chars.next() {
+                Some(escaped @ ('<' | '>' | '\\')) => out.push(escaped),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => out.push('\\'),
+            },
+            _ => out.push(ch),
+        }
+    }
+    unbracketed()
 }
 
 /// Whether `dest` opens with a URL scheme, which makes it not a path.

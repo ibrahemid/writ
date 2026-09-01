@@ -88,6 +88,60 @@ fn a_complete_percent_escape_still_decodes() {
     assert_eq!(links[0].target, "Café notes");
 }
 
+/// The single target of the one link in `text`.
+fn only_target(text: &str) -> String {
+    let scanned = links::scan(text);
+    assert_eq!(
+        scanned.len(),
+        1,
+        "expected one link in {text:?}: {scanned:?}"
+    );
+    scanned[0].target.clone()
+}
+
+#[test]
+fn an_angle_bracketed_destination_keeps_its_spaces() {
+    assert_eq!(only_target("see [a](<my note.md>)\n"), "my note");
+    assert_eq!(
+        only_target("see [a](<folder name/my note.md>)\n"),
+        "folder name/my note"
+    );
+}
+
+#[test]
+fn an_angle_bracketed_destination_drops_the_title_after_it() {
+    assert_eq!(only_target("see [a](<my note.md> \"Title\")\n"), "my note");
+    assert_eq!(only_target("see [a](<my note.md> 'Title')\n"), "my note");
+}
+
+#[test]
+fn an_escaped_bracket_is_part_of_an_angle_bracketed_destination() {
+    assert_eq!(only_target("see [a](<odd\\>name.md>)\n"), "odd>name");
+}
+
+#[test]
+fn an_unbracketed_destination_still_ends_at_its_title() {
+    assert_eq!(only_target("see [a](note.md \"Title\")\n"), "note");
+    assert_eq!(only_target("see [a](folder/note.md 'T')\n"), "folder/note");
+}
+
+#[test]
+fn a_destination_with_parentheses_in_the_name_survives() {
+    assert_eq!(only_target("see [a](notes(2).md)\n"), "notes(2)");
+    assert_eq!(only_target("see [a](<notes (2).md>)\n"), "notes (2)");
+}
+
+#[test]
+fn an_angle_bracket_with_no_closing_one_is_not_a_bracketed_destination() {
+    assert_eq!(only_target("see [a](<note.md)\n"), "<note");
+}
+
+#[test]
+fn an_empty_angle_bracketed_destination_is_not_a_link() {
+    assert!(links::scan("see [a](<>)\n").is_empty());
+    assert!(links::scan("see [a](<> \"Title\")\n").is_empty());
+}
+
 #[test]
 fn links_in_an_indented_code_block_are_not_links() {
     let scanned = links::scan("text\n\n    [[Note]]\n\n    [a](b.md)\n");
