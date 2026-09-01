@@ -194,9 +194,14 @@ export function hasPendingAutosave(bufferId: string): boolean {
  * A save the guard refused does not go back on the queue — writing the same
  * text into the same refusal is stopped the same way — so closing that tab
  * finds nothing to flush and closes without a word, while the text is still
- * only in this module. Left there it would be snapshotted at the next quit,
- * long after the tab went, and restored as a note the person had closed.
- * Handed over here it survives as itself.
+ * only in this module. Left there it is lost when the process goes.
+ *
+ * What happens to it after the handover: the next quit writes it into the
+ * shutdown snapshot, and the launch after that writes it back to the note's
+ * file through the guarded path, which leaves a dated copy beside the file
+ * rather than over it if the file has moved on
+ * (`BufferStore::restore_recovered_content`). The note stays closed; the text
+ * comes back as a file, and the toast counts it.
  *
  * The record is kept when the handover fails: text nobody can read again is a
  * worse outcome than a note restored twice.

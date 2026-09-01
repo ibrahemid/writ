@@ -870,19 +870,27 @@ impl BufferStore {
         maintenance::run_maintenance(&self.conn)
     }
 
-    /// Resolves which active buffers should be restored from the latest
-    /// dirty snapshot.
+    /// Resolves which buffers should be restored from the latest dirty
+    /// snapshot.
     ///
     /// Reads current `updated_at` timestamps from the database, then
     /// delegates to [`SnapshotManager::recover_buffers`].
+    ///
+    /// Closed notes are considered as well as open ones. A note whose save was
+    /// refused and whose tab was then closed hands its text to the shutdown
+    /// snapshot on the way out; the row has moved to `history` by then, and
+    /// looking at open notes alone would drop the one entry the snapshot was
+    /// written for. A note whose row is gone entirely is still dropped: there
+    /// is no file left to write it to.
     pub fn resolve_recovery(&self) -> StorageResult<Vec<RecoveredBuffer>> {
-        let active = self.list_by_status(BufferStatus::Active)?;
         let mut updated_at_map: HashMap<String, String> = HashMap::new();
-        for buf in &active {
-            updated_at_map.insert(
-                buf.id.clone(),
-                buf.updated_at.format("%Y-%m-%d %H:%M:%S").to_string(),
-            );
+        for status in [BufferStatus::Active, BufferStatus::History] {
+            for buf in self.list_by_status(status)? {
+                updated_at_map.insert(
+                    buf.id.clone(),
+                    buf.updated_at.format("%Y-%m-%d %H:%M:%S").to_string(),
+                );
+            }
         }
         let mgr = SnapshotManager::new(&self.conn);
         mgr.recover_buffers(&updated_at_map)
