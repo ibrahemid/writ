@@ -245,6 +245,23 @@ pub fn path_has_ignored_component(root: &Path, path: &Path) -> bool {
         .any(|c| is_ignored(&c.as_os_str().to_string_lossy()))
 }
 
+/// Returns `true` when any component of `path` below `root` is a name
+/// [`is_ignored_name`] answers for, which is the notes folder's question:
+/// a file inside a folder a sync client keeps for itself (`.dropbox.cache`) is
+/// as invisible as the folder is.
+///
+/// [`path_has_ignored_component`] answers the narrower workspace question and
+/// stays as it is: a source tree is not a notes folder, and a directory named
+/// `build~` there is somebody's code.
+pub fn path_has_ignored_name(root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    relative
+        .components()
+        .any(|c| is_ignored_name(&c.as_os_str().to_string_lossy()))
+}
+
 /// Sorts `entries` in-place: directories first, then files, each group
 /// ordered case-insensitively by name.
 pub fn sort_entries(entries: &mut [WorkspaceEntry]) {
@@ -330,6 +347,24 @@ mod tests {
         ] {
             assert!(is_ignored_name(name), "{name} should be ignored");
         }
+    }
+
+    #[test]
+    fn a_file_inside_a_sync_clients_own_folder_is_ignored_by_path() {
+        let root = Path::new("/notes");
+        assert!(path_has_ignored_name(
+            root,
+            Path::new("/notes/.dropbox.cache/copy.md")
+        ));
+        assert!(path_has_ignored_name(
+            root,
+            Path::new("/notes/.obsidian/workspace.json")
+        ));
+        assert!(!path_has_ignored_name(root, Path::new("/notes/day/one.md")));
+        assert!(!path_has_ignored_name(
+            Path::new("/notes"),
+            Path::new("/elsewhere/.dropbox.cache/copy.md")
+        ));
     }
 
     #[test]

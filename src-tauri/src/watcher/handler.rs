@@ -342,13 +342,12 @@ pub fn classify_notes_event(
     if !path.starts_with(root) {
         return None;
     }
-    if writ_core::workspace::path_has_ignored_component(root, path) {
+    if writ_core::workspace::path_has_ignored_name(root, path) {
         return None;
     }
-    let name = path.file_name()?.to_string_lossy().into_owned();
-    if writ_core::workspace::is_ignored_name(&name) {
-        return None;
-    }
+    // A path with no file name is the root itself, which is not a change to a
+    // note.
+    path.file_name()?;
 
     let removed = !path.exists();
     if !removed && !std::fs::metadata(path).is_ok_and(|m| m.is_file()) {

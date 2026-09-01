@@ -244,6 +244,21 @@ fn reconcile_leaves_out_the_files_a_sync_client_or_editor_left_behind() {
 }
 
 #[test]
+fn reconcile_leaves_out_a_file_inside_a_sync_clients_own_folder() {
+    let (_dir, conn, notes) = fixture();
+    let note = write_note(&notes, "note.md", "kestrel marker");
+    write_note(&notes, ".dropbox.cache/stale.md", "kestrel marker");
+
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("reconcile");
+
+    assert_eq!(
+        indexed_paths(&conn).into_iter().collect::<Vec<_>>(),
+        vec![notes_index::index_key(&note)]
+    );
+}
+
+#[test]
 fn reconcile_is_idempotent() {
     let (_dir, conn, notes) = fixture();
     write_note(&notes, "one.md", "first body");

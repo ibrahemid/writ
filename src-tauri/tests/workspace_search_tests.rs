@@ -438,6 +438,23 @@ fn the_notes_watcher_drops_the_files_nobody_wrote_on_purpose() {
         );
     }
 
+    // A folder a sync client keeps for itself churns with copies of notes; a
+    // path through one is as invisible as the folder is.
+    let cached = notes.join(".dropbox.cache").join("stale.md");
+    std::fs::create_dir_all(cached.parent().unwrap()).expect("create folder");
+    std::fs::write(&cached, "a copy of a note").expect("write");
+    assert!(
+        classify_notes_event(
+            &cached,
+            &notes,
+            &ignore,
+            Duration::from_secs(5),
+            Instant::now()
+        )
+        .is_none(),
+        "a sync client's own folder must never reach the index"
+    );
+
     // The copy a sync client kept is somebody's text, so it is a change like
     // any other.
     let copy = notes.join("note.sync-conflict-20260822-120000-ABCD.md");

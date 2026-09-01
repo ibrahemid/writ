@@ -462,9 +462,10 @@ pub fn reconcile(
         }
         let path = entry.path();
 
-        // A name no listing, index or watcher event carries. Decided from the
-        // name alone, before anything touches the file.
-        if is_ignored_path(path) {
+        // A name no listing, index or watcher event carries, on the file or on
+        // a folder above it. Decided from the path alone, before anything
+        // touches the file.
+        if writ_core::workspace::path_has_ignored_name(notes_root, path) {
             continue;
         }
 
