@@ -28,7 +28,11 @@ export interface ApplyEditOptions {
 
 export type ApplyEditResult =
   | { applied: true; usedSelection: boolean; outputLength: number }
-  | { applied: false; reason: "no-active-view" | "transform-error"; error?: unknown };
+  | {
+      applied: false;
+      reason: "no-active-view" | "transform-error";
+      error?: unknown;
+    };
 
 export type EditorStore = ReturnType<typeof createEditorStore>;
 
@@ -66,7 +70,9 @@ export function createEditorStore() {
   const [lineCount, setLineCount] = createSignal(0);
   const [language, setLanguage] = createSignal<string | null>(null);
   const [selectionCount, setSelectionCount] = createSignal(1);
-  const [largeFileMode, setLargeFileMode] = createSignal<FileOpenMode | null>(null);
+  const [largeFileMode, setLargeFileMode] = createSignal<FileOpenMode | null>(
+    null,
+  );
   // Live text of the active editor view, updated on every document change.
   // The preview pane tracks this and debounces it into a render request.
   const [currentText, setCurrentText] = createSignal("");
@@ -77,13 +83,17 @@ export function createEditorStore() {
   // props.buffer.id flips reactively while the editor is still mid-load on the
   // outgoing buffer, and rendering then would cache the wrong buffer's HTML
   // under the incoming id (the #97 stale-cache flash).
-  const [currentBufferId, setCurrentBufferId] = createSignal<string | null>(null);
+  const [currentBufferId, setCurrentBufferId] = createSignal<string | null>(
+    null,
+  );
   // A monotonically-keyed request to reload the active buffer's content from
   // disk, raised when the file changed externally (audit blocker #53.4).
   // EditorInstance consumes it; the seq makes repeated external edits to the
   // same buffer each fire a fresh reload.
-  const [externalReload, setExternalReload] =
-    createSignal<{ id: string; seq: number } | null>(null);
+  const [externalReload, setExternalReload] = createSignal<{
+    id: string;
+    seq: number;
+  } | null>(null);
   let reloadSeq = 0;
 
   function requestExternalReload(bufferId: string) {
@@ -96,8 +106,11 @@ export function createEditorStore() {
   // buffer is loaded (gating on currentBufferId), so a reveal fired before an
   // async tab switch finishes still lands on the right line. The seq makes
   // repeated reveals of the same buffer/line each fire.
-  const [pendingReveal, setPendingReveal] =
-    createSignal<{ bufferId: string; line: number; seq: number } | null>(null);
+  const [pendingReveal, setPendingReveal] = createSignal<{
+    bufferId: string;
+    line: number;
+    seq: number;
+  } | null>(null);
   let revealSeq = 0;
 
   function requestReveal(bufferId: string, line: number) {
@@ -115,7 +128,9 @@ export function createEditorStore() {
   // Keyed by note, not by the view: a tab in the background has no view and
   // still has to answer whether it differs from its file (U3-U5 read this per
   // tab). A tab switch leaves these entries where they are.
-  const [noteHashes, setNoteHashes] = createSignal<ReadonlyMap<string, NoteHashes>>(new Map());
+  const [noteHashes, setNoteHashes] = createSignal<
+    ReadonlyMap<string, NoteHashes>
+  >(new Map());
   const hashTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   function hashesOf(id: string): NoteHashes {
@@ -212,12 +227,23 @@ export function createEditorStore() {
    * The autosave queue is never consulted: a write that just resolved empties
    * it while the document has moved on again, and a note with nothing queued
    * can still hold text no file has.
+   *
+   * Fail closed. A note with no record — a tab restored at launch that has
+   * never been opened, one whose record was dropped — answers `true`, because
+   * the callers of this are deciding whether a file may be reloaded over the
+   * document, and "no idea" has to stop that. Ask [`isTracked`] first when the
+   * question is whether there is anything to tell the person about.
    */
   function isDirty(id: string): boolean {
     const state = noteHashes().get(id);
-    if (state === undefined) return false;
+    if (state === undefined) return true;
     if (state.docGeneration !== state.hashedGeneration) return true;
     return state.docHash !== state.diskHash;
+  }
+
+  /** Whether the store holds a record of what this note and its file hold. */
+  function isTracked(id: string): boolean {
+    return noteHashes().has(id);
   }
 
   function docHash(id: string): string | undefined {
@@ -256,7 +282,10 @@ export function createEditorStore() {
     const useSelection = useSelectionIfPresent && !main.empty;
     const from = useSelection ? main.from : 0;
     const to = useSelection ? main.to : view.state.doc.length;
-    return { text: view.state.doc.sliceString(from, to), usedSelection: useSelection };
+    return {
+      text: view.state.doc.sliceString(from, to),
+      usedSelection: useSelection,
+    };
   }
 
   // Reads the range a rewrite would act on: the selection when one is present,
@@ -271,7 +300,12 @@ export function createEditorStore() {
     const usedSelection = useSelectionIfPresent && !main.empty;
     const from = usedSelection ? main.from : 0;
     const to = usedSelection ? main.to : view.state.doc.length;
-    return { from, to, text: view.state.doc.sliceString(from, to), usedSelection };
+    return {
+      from,
+      to,
+      text: view.state.doc.sliceString(from, to),
+      usedSelection,
+    };
   }
 
   // Replaces an anchored range in a single dispatch (one undo step), selects
@@ -285,13 +319,18 @@ export function createEditorStore() {
     const clampedTo = Math.max(clampedFrom, Math.min(to, docLen));
     view.dispatch({
       changes: { from: clampedFrom, to: clampedTo, insert },
-      selection: EditorSelection.single(clampedFrom, clampedFrom + insert.length),
+      selection: EditorSelection.single(
+        clampedFrom,
+        clampedFrom + insert.length,
+      ),
     });
     view.focus();
     return true;
   }
 
-  async function applyEditToActiveBuffer(options: ApplyEditOptions): Promise<ApplyEditResult> {
+  async function applyEditToActiveBuffer(
+    options: ApplyEditOptions,
+  ): Promise<ApplyEditResult> {
     const view = activeView;
     if (!view) return { applied: false, reason: "no-active-view" };
 
@@ -314,12 +353,20 @@ export function createEditorStore() {
     });
     view.focus();
 
-    return { applied: true, usedSelection: useSelection, outputLength: output.length };
+    return {
+      applied: true,
+      usedSelection: useSelection,
+      outputLength: output.length,
+    };
   }
 
   // Autosave and language detection are services; the editor component routes
   // through these so it only ever talks to its store (layering rule).
-  function scheduleAutosave(bufferId: string, content: ContentSource, delayMs: number) {
+  function scheduleAutosave(
+    bufferId: string,
+    content: ContentSource,
+    delayMs: number,
+  ) {
     debouncedSave(bufferId, content, delayMs);
   }
 
@@ -338,8 +385,10 @@ export function createEditorStore() {
   function saveActiveBuffer(): Promise<SaveResult> {
     const bufferId = currentBufferId();
     const view = activeView;
-    if (bufferId === null || view === null) return Promise.resolve(NOTHING_TO_SAVE);
-    if (largeFileMode()?.kind === "Binary") return Promise.resolve(NOTHING_TO_SAVE);
+    if (bufferId === null || view === null)
+      return Promise.resolve(NOTHING_TO_SAVE);
+    if (largeFileMode()?.kind === "Binary")
+      return Promise.resolve(NOTHING_TO_SAVE);
     return saveNowService(bufferId, () => view.state.doc.toString());
   }
 
@@ -373,26 +422,50 @@ export function createEditorStore() {
   }
 
   return {
-    cursorLine, setCursorLine,
-    cursorCol, setCursorCol,
-    lineCount, setLineCount,
-    language, setLanguage,
-    selectionCount, setSelectionCount,
-    currentText, setCurrentText,
-    currentBufferId, setCurrentBufferId,
-    externalReload, requestExternalReload,
-    pendingReveal, requestReveal, clearReveal,
-    largeFileMode, setLargeFileMode,
-    registerView, getView, focusEditor,
+    cursorLine,
+    setCursorLine,
+    cursorCol,
+    setCursorCol,
+    lineCount,
+    setLineCount,
+    language,
+    setLanguage,
+    selectionCount,
+    setSelectionCount,
+    currentText,
+    setCurrentText,
+    currentBufferId,
+    setCurrentBufferId,
+    externalReload,
+    requestExternalReload,
+    pendingReveal,
+    requestReveal,
+    clearReveal,
+    largeFileMode,
+    setLargeFileMode,
+    registerView,
+    getView,
+    focusEditor,
     getActiveText,
     getSelectionRange,
     replaceRange,
     applyEditToActiveBuffer,
-    scheduleAutosave, cancelAutosave, flushAutosave, saveActiveBuffer,
-    retrySave, readDiskState,
-    detectLanguage, detectFromContent,
-    noteOpened, noteEdited, noteSaved, noteClosed,
-    isDirty, docHash, lastKnownDiskHash,
+    scheduleAutosave,
+    cancelAutosave,
+    flushAutosave,
+    saveActiveBuffer,
+    retrySave,
+    readDiskState,
+    detectLanguage,
+    detectFromContent,
+    noteOpened,
+    noteEdited,
+    noteSaved,
+    noteClosed,
+    isDirty,
+    isTracked,
+    docHash,
+    lastKnownDiskHash,
     stopSaveListener,
   };
 }

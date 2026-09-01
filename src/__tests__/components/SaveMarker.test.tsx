@@ -63,8 +63,21 @@ describe("SaveMarker", () => {
     expect(container.querySelector(".tab-two .save-marker")).toBeNull();
   });
 
-  it("leaves a note being written alone: a write in flight is not a warning", () => {
+  it("keeps the mark while the write is in flight", () => {
+    // The text is not on disk until the write lands. A mark that blinks out
+    // for the length of every autosave is exactly the transient marker S1 was
+    // written to get rid of.
     fixtures.setStates({ one: "saving" });
+    const { container } = render(() => <SaveMarker noteId="one" />);
+
+    const mark = container.querySelector<HTMLElement>(".save-marker")!;
+    expect(mark).not.toBeNull();
+    expect(mark.getAttribute("aria-label")).toBe("unsaved changes");
+    expect(mark.classList.contains("save-marker--failed")).toBe(false);
+  });
+
+  it("drops the mark once the write has landed", () => {
+    fixtures.setStates({ one: "saved" });
     const { container } = render(() => <SaveMarker noteId="one" />);
     expect(container.querySelector(".save-marker")).toBeNull();
   });

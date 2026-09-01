@@ -48,8 +48,13 @@ afterEach(() => {
 });
 
 describe("editorStore dirty contract", () => {
-  it("reads a note it has never seen as clean", () => {
-    expect(newStore().isDirty("unknown")).toBe(false);
+  it("reads a note it has never seen as dirty, not clean", () => {
+    // Fail closed. The callers of this decide whether a file may be reloaded
+    // over the document, so "no idea" has to stop the reload. A tab restored
+    // at launch and never brought to the front is the ordinary case.
+    const store = newStore();
+    expect(store.isDirty("unknown")).toBe(true);
+    expect(store.isTracked("unknown")).toBe(false);
   });
 
   it("is clean once a freshly opened note has been hashed", async () => {
@@ -164,8 +169,9 @@ describe("editorStore dirty contract", () => {
     store.noteClosed("a");
 
     expect(store.docHash("a")).toBeUndefined();
-    expect(store.isDirty("a")).toBe(false);
+    expect(store.isTracked("a")).toBe(false);
   });
+
 
   it("drops a hash that lands after a newer edit", async () => {
     const store = newStore();

@@ -19,12 +19,18 @@ vi.mock("../../stores/global/buffer-registry", () => ({
 const dirtyNotes = await vi.hoisted(async () => {
   const { createSignal } = await import("solid-js");
   const [ids, setIds] = createSignal<ReadonlySet<string>>(new Set<string>());
-  return { ids, setIds };
+  const [tracked, setTracked] = createSignal<ReadonlySet<string>>(new Set<string>());
+  return { ids, setIds, tracked, setTracked };
 });
 
 vi.mock("../../stores/global/window-registry", () => ({
   windowRegistry: {
-    getActive: () => ({ editor: { isDirty: (id: string) => dirtyNotes.ids().has(id) } }),
+    getActive: () => ({
+      editor: {
+        isDirty: (id: string) => dirtyNotes.ids().has(id),
+        isTracked: (id: string) => dirtyNotes.tracked().has(id),
+      },
+    }),
   },
 }));
 
@@ -45,6 +51,7 @@ beforeEach(() => {
     { id: "two", title: "two", source_path: "/notes/two.md" },
   ]);
   dirtyNotes.setIds(new Set<string>());
+  dirtyNotes.setTracked(new Set(["one", "two"]));
 });
 
 afterEach(() => {
@@ -83,6 +90,33 @@ describe("saveStatusStore", () => {
     expect(saveStatusStore.forNote("one").state).toBe("saved");
 
     await vi.advanceTimersByTimeAsync(1);
+    expect(saveStatusStore.forNote("one").state).toBe("clean");
+  });
+
+  it("never reads saved over a document that differs from its file", async () => {
+    vi.useFakeTimers();
+
+    debouncedSave("one", "hello", 0);
+    await flushAutosave("one");
+    expect(saveStatusStore.forNote("one").state).toBe("saved");
+
+    // Typing resumes inside the window the `Saved` label is visible for. The
+    // file no longer holds what the person is looking at, and saying it does
+    // is the one thing this state may not do.
+    dirtyNotes.setIds(new Set(["one"]));
+    expect(saveStatusStore.forNote("one").state).toBe("dirty");
+
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(saveStatusStore.forNote("one").state).toBe("dirty");
+  });
+
+  it("reads a note it holds no record of as clean, whatever the fail-closed predicate says", () => {
+    // `isDirty` answers `true` for an untracked note so a reload cannot run
+    // over it. A tab restored at launch and never opened is untracked and has
+    // nothing unsaved, so it must not wear a mark.
+    dirtyNotes.setTracked(new Set<string>());
+    dirtyNotes.setIds(new Set(["one"]));
+
     expect(saveStatusStore.forNote("one").state).toBe("clean");
   });
 
