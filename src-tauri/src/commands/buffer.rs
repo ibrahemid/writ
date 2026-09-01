@@ -8,8 +8,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::buffer::manager::BufferManager;
-use writ_core::notes::guard::{is_not_downloaded, DiskState};
-use writ_storage::buffer_store::BufferStore;
+use writ_core::notes::guard::is_not_downloaded;
+use writ_storage::buffer_store::{BufferStore, NoteFileState};
 use writ_storage::errors::StorageError;
 
 /// Code a save carries when the file changed under Writ and the write was
@@ -186,7 +186,12 @@ pub fn save_buffer_content_inner(
         .save_to_source_without_index(id, content, state.disk_state(id), Some(&stamp))
         .map_err(|e| save_failure_message(&e))?;
     state.set_disk_state(id, written);
-    Ok(Some(writ_core::hash::digest_hex(written.hash)))
+    // The digest the editor compares its document against, not the guard's
+    // raw one: the bytes just written are the document, so this is the answer
+    // that makes the tab read clean.
+    Ok(Some(writ_core::hash::comparison_digest_hex(
+        content.as_bytes(),
+    )))
 }
 
 /// The hook the store calls immediately before each of its writes, which
@@ -357,6 +362,11 @@ pub fn read_buffer_content(
 ///
 /// `hash` is the only field a decision may rest on; `size` and `mtime_ms` are
 /// carried for the same diagnostic reasons [`DiskState`] carries them.
+///
+/// It is the comparison digest ([`writ_core::hash::comparison_digest_hex`]),
+/// not the write guard's raw one: this is the number the editor holds the
+/// document up against, and the document's line endings are CodeMirror's
+/// rather than the file's.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DiskStateDto {
     pub hash: String,
@@ -364,12 +374,12 @@ pub struct DiskStateDto {
     pub mtime_ms: Option<i64>,
 }
 
-impl From<DiskState> for DiskStateDto {
-    fn from(state: DiskState) -> Self {
+impl From<NoteFileState> for DiskStateDto {
+    fn from(state: NoteFileState) -> Self {
         Self {
-            hash: writ_core::hash::digest_hex(state.hash),
-            size: state.size,
-            mtime_ms: state.mtime.and_then(|mtime| {
+            hash: state.comparison_hash,
+            size: state.disk.size,
+            mtime_ms: state.disk.mtime.and_then(|mtime| {
                 mtime
                     .duration_since(UNIX_EPOCH)
                     .ok()
@@ -389,7 +399,7 @@ fn note_disk_state_of(path: &Path, st_flags: Option<u32>) -> Result<Option<DiskS
     if is_not_downloaded(st_flags) {
         return Ok(None);
     }
-    Ok(writ_storage::buffer_store::read_disk_state(path)
+    Ok(writ_storage::buffer_store::read_note_file_state(path)
         .map_err(|e| e.to_string())?
         .map(DiskStateDto::from))
 }
@@ -530,7 +540,8 @@ pub fn rename_buffer(state: State<'_, AppState>, id: String, title: String) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use writ_core::notes::guard::SF_DATALESS;
+    use std::time::SystemTime;
+    use writ_core::notes::guard::{DiskState, SF_DATALESS};
 
     #[test]
     fn a_file_that_is_not_there_has_no_state() {
@@ -561,13 +572,39 @@ mod tests {
     }
 
     #[test]
+    fn a_crlf_file_reports_the_digest_the_editor_will_compute() {
+        // CodeMirror converts the line endings on load, so the document the
+        // editor hashes is the LF form. Reporting the raw digest here would
+        // make every CRLF file read as changed on disk for ever.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("windows.md");
+        std::fs::write(&path, b"one\r\ntwo\r\n").unwrap();
+
+        let state = note_disk_state_of(&path, None).unwrap().unwrap();
+        assert_eq!(state.hash, writ_core::hash::sha256_hex(b"one\ntwo\n"));
+        assert_ne!(state.hash, writ_core::hash::sha256_hex(b"one\r\ntwo\r\n"));
+        // The length is the file's, not the normalised text's.
+        assert_eq!(state.size, 10);
+    }
+
+    fn file_state(
+        hash: writ_core::hash::Sha256Digest,
+        size: u64,
+        mtime: Option<SystemTime>,
+    ) -> NoteFileState {
+        NoteFileState {
+            comparison_hash: writ_core::hash::digest_hex(hash),
+            disk: DiskState { hash, size, mtime },
+        }
+    }
+
+    #[test]
     fn the_dto_renders_the_digest_as_hex_and_the_time_in_milliseconds() {
-        let state = DiskState {
-            hash: writ_core::hash::sha256_bytes(b"writ"),
-            size: 4,
-            mtime: Some(UNIX_EPOCH + std::time::Duration::from_millis(1_500)),
-        };
-        let dto = DiskStateDto::from(state);
+        let dto = DiskStateDto::from(file_state(
+            writ_core::hash::sha256_bytes(b"writ"),
+            4,
+            Some(UNIX_EPOCH + std::time::Duration::from_millis(1_500)),
+        ));
         assert_eq!(dto.hash, writ_core::hash::sha256_hex(b"writ"));
         assert_eq!(dto.size, 4);
         assert_eq!(dto.mtime_ms, Some(1_500));
@@ -575,11 +612,7 @@ mod tests {
 
     #[test]
     fn a_time_the_filesystem_could_not_report_is_carried_as_none() {
-        let state = DiskState {
-            hash: writ_core::hash::sha256_bytes(b""),
-            size: 0,
-            mtime: None,
-        };
-        assert_eq!(DiskStateDto::from(state).mtime_ms, None);
+        let dto = DiskStateDto::from(file_state(writ_core::hash::sha256_bytes(b""), 0, None));
+        assert_eq!(dto.mtime_ms, None);
     }
 }
