@@ -31,9 +31,9 @@ use std::sync::{Mutex, MutexGuard};
 
 use rusqlite::{params, Connection};
 use writ_core::file_ops::{classify_path, FileOpenMode, THRESHOLD_NORMAL_BYTES};
-use writ_core::notes::facts;
 use writ_core::notes::links::{self, Resolution, WikilinkTarget};
 use writ_core::notes::snippet;
+use writ_core::notes::{self, facts};
 use writ_core::search::{build_hit, SearchHit};
 use writ_core::workspace::file_search::{rank_file_hits, FileHit};
 
@@ -169,8 +169,9 @@ impl BacklinkCertainty {
 pub struct BacklinkRow {
     /// Canonical path of the note the link is written in.
     pub from_path: String,
-    /// What that note is called: its file name without a note extension, which
-    /// is both what a link names it by and what the list shows.
+    /// What that note is called, taken from `from_path` by
+    /// [`writ_core::notes::note_display_name`]: the file name without a note
+    /// extension, which is both what a link names it by and what a list shows.
     pub from_name: String,
     /// The link's target as it was written: no alias, no heading.
     pub to_target: String,
@@ -867,7 +868,10 @@ impl<'a> NotesIndex<'a> {
                 .position(|(row, _)| row.from_path != from_path)
                 .map_or(found.len(), |offset| start + offset);
 
-            let (name, content) = self.note_text(&from_path)?;
+            let content = self.note_text(&from_path)?;
+            // Taken from the path, not from the indexed name: the path is the
+            // note's identity and is spelled the same on every row.
+            let from_name = notes::note_display_name(&from_path);
             // The same parser that wrote the rows, so the alias and the row can
             // never disagree about which link is which.
             let scanned = links::scan(&content);
@@ -877,7 +881,7 @@ impl<'a> NotesIndex<'a> {
                     .find(|link| link.line == row.line && link.col == row.col);
                 described.push(BacklinkRow {
                     from_path: from_path.clone(),
-                    from_name: links::parse_target(&name).name,
+                    from_name: from_name.clone(),
                     to_target: row.to_target.clone(),
                     alias: written.and_then(|link| link.alias.clone()),
                     kind: row.kind.clone(),
@@ -915,26 +919,18 @@ impl<'a> NotesIndex<'a> {
         Ok(rows)
     }
 
-    /// The name and indexed text of the note at `path`, or its file name and
-    /// no text when the index does not hold it.
-    fn note_text(&self, path: &str) -> StorageResult<(String, String)> {
+    /// The indexed text of the note at `path`: empty when the index holds the
+    /// note by name alone, and empty when it does not hold it at all.
+    fn note_text(&self, path: &str) -> StorageResult<String> {
         let mut stmt = self.conn.prepare(
-            "SELECT x.name, x.content FROM files_fts x
+            "SELECT x.content FROM files_fts x
              JOIN files f ON f.rowid = x.rowid
              WHERE f.path = ?1",
         )?;
-        let mut rows = stmt.query_map(params![path], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
+        let mut rows = stmt.query_map(params![path], |row| row.get::<_, String>(0))?;
         Ok(match rows.next() {
             Some(row) => row?,
-            None => (
-                path.rsplit(['/', '\\'])
-                    .next()
-                    .unwrap_or_default()
-                    .to_string(),
-                String::new(),
-            ),
+            None => String::new(),
         })
     }
 
