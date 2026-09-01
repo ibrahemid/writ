@@ -79,6 +79,11 @@ export default function ThemeEditor() {
         return null;
       },
     });
+    // The trap above lands initial focus on the first focusable descendant
+    // (the preset select), which draws a ring on open. Hand focus to the
+    // container instead, in the same tick so nothing paints in between.
+    // Tab still reaches the select first, with its ring, from here.
+    modalRef.focus();
     onCleanup(teardown);
   });
 
@@ -88,6 +93,7 @@ export default function ThemeEditor() {
         <div
           ref={modalRef}
           class="theme-editor"
+          tabIndex={-1}
           onClick={(e) => e.stopPropagation()}
           role="dialog"
           aria-modal="true"

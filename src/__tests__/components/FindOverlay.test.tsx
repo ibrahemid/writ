@@ -38,6 +38,15 @@ describe("FindOverlay", () => {
     expect(getByLabelText("Find")).toBeTruthy();
   });
 
+  it("keeps the find and replace inputs silent on a mouse click", () => {
+    const find = makeStore(makeView("foo foo"));
+    const { getByLabelText } = render(() => <FindOverlay store={find} />);
+    find.open();
+    fireEvent.click(getByLabelText("Toggle replace"));
+    expect(getByLabelText("Find").hasAttribute("data-writ-focus-silent")).toBe(true);
+    expect(getByLabelText("Replace").hasAttribute("data-writ-focus-silent")).toBe(true);
+  });
+
   it("renders the match count and updates on navigation", () => {
     const find = makeStore(makeView("foo bar foo baz foo"));
     const { getByText, getByLabelText } = render(() => <FindOverlay store={find} />);

@@ -209,6 +209,12 @@ describe("the palette contents", () => {
     ).toBe("#ph-magnifying-glass");
   });
 
+  it("keeps the input silent on a mouse click", () => {
+    const { container } = harness();
+    const input = container.querySelector<HTMLInputElement>(".palette-input")!;
+    expect(input.hasAttribute("data-writ-focus-silent")).toBe(true);
+  });
+
   it("gives a file row its icon and a command row its keycap", () => {
     const { container } = harness();
     const items = Array.from(container.querySelectorAll(".palette-item"));
@@ -216,6 +222,22 @@ describe("the palette contents", () => {
     const command = items.find((el) => el.textContent?.includes("New note"))!;
     expect(command.querySelector(".kbd-chord")).not.toBeNull();
     expect(command.querySelector(".writ-icon")).toBeNull();
+  });
+
+  it("renders no dash in the shortcut slot for a row without a binding", () => {
+    const UNBOUND: ResultProvider = {
+      id: "unbound-commands",
+      section: "Commands",
+      order: 1,
+      cap: 10,
+      showKbd: true,
+      query: () => [row("Close all tabs")],
+    };
+    const { container } = harness([NOTES, UNBOUND, SETTINGS]);
+    const items = Array.from(container.querySelectorAll(".palette-item"));
+    const command = items.find((el) => el.textContent?.includes("Close all tabs"))!;
+    expect(command.querySelector(".kbd-chord")).toBeNull();
+    expect(command.textContent).not.toContain("—");
   });
 
   it("keyboard selection still moves through sections", () => {

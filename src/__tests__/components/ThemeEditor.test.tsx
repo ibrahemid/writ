@@ -56,6 +56,15 @@ describe("ThemeEditor", () => {
     cleanup();
   });
 
+  it("opens with focus on the dialog, not the preset select", async () => {
+    const { container } = render(() => <ThemeEditor />);
+    openThemeEditor();
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
+    expect(document.activeElement?.tagName).not.toBe("SELECT");
+  });
+
   it("renders every token group", () => {
     const { container } = render(() => <ThemeEditor />);
     openThemeEditor();

@@ -45,9 +45,3 @@
 .theme-editor-close:focus-visible {
   outline-offset: 2px;
 }
-
-.search-input:focus-visible,
-.palette-input:focus-visible,
-.tab-rename-input:focus-visible {
-  outline-offset: 0;
-}

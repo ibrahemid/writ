@@ -264,6 +264,7 @@ export default function Palette(props: PaletteProps) {
               ref={inputRef}
               type="text"
               class="palette-input"
+              data-writ-focus-silent
               placeholder={props.placeholder}
               value={query()}
               onInput={(e) => setQuery(e.currentTarget.value)}
@@ -346,8 +347,8 @@ export default function Palette(props: PaletteProps) {
                             <Show when={result.line !== undefined}>
                               <span class="palette-item-line">L{result.line}</span>
                             </Show>
-                            <Show when={section.showKbd}>
-                              <Kbd binding={result.kbd} muted={!result.kbd} />
+                            <Show when={section.showKbd && result.kbd}>
+                              <Kbd binding={result.kbd} />
                             </Show>
                           </button>
                         );
