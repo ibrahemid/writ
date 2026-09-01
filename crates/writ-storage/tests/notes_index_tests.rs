@@ -55,15 +55,24 @@ fn search_names(conn: &Connection, raw: &str) -> Vec<String> {
         .collect()
 }
 
-/// Takes every read permission off `path`, returning `false` when the platform
-/// or the user running the test can read it anyway.
+/// Takes every read permission off `path`, returning `false` only on a
+/// platform where permission bits do not stop a read.
+///
+/// On unix it must work, and it panics when it does not rather than returning
+/// `false`: root ignores the bits, and a caller that quietly took the `false`
+/// branch there would report a green test that asserted nothing.
 fn deny_reads(path: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000))
             .expect("set permissions");
-        return std::fs::read_to_string(path).is_err();
+        assert!(
+            std::fs::read_to_string(path).is_err(),
+            "a file with mode 000 was still readable, so this test proves \
+             nothing about reads; run the suite as a normal user"
+        );
+        return true;
     }
     #[cfg(not(unix))]
     {
