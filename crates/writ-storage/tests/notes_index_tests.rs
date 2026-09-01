@@ -46,6 +46,32 @@ fn search(conn: &Connection, raw: &str) -> Vec<String> {
         .collect()
 }
 
+fn search_names(conn: &Connection, raw: &str) -> Vec<String> {
+    NotesIndex::new(conn)
+        .search_names(raw, 50)
+        .expect("search_names")
+        .into_iter()
+        .map(|hit| hit.path)
+        .collect()
+}
+
+/// Takes every read permission off `path`, returning `false` when the platform
+/// or the user running the test can read it anyway.
+fn deny_reads(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000))
+            .expect("set permissions");
+        return std::fs::read_to_string(path).is_err();
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        false
+    }
+}
+
 fn indexed_paths(conn: &Connection) -> HashSet<String> {
     NotesIndex::new(conn)
         .snapshot()
@@ -119,7 +145,7 @@ fn deleting_the_database_and_relaunching_rebuilds_the_index_and_returns_the_same
 }
 
 #[test]
-fn reconcile_skips_files_reported_as_not_downloaded() {
+fn reconcile_indexes_a_file_reported_as_not_downloaded_by_name_only() {
     let (_dir, conn, notes) = fixture();
     let downloaded = write_note(&notes, "here.md", "sundial marker");
     let dataless = write_note(&notes, "cloud.md", "sundial marker");
@@ -134,18 +160,86 @@ fn reconcile_skips_files_reported_as_not_downloaded() {
         notes_index::reconcile(&conn, &notes, &never_cancelled(), &stub).expect("reconcile");
 
     assert_eq!(outcome.skipped_dataless, 1);
-    assert_eq!(outcome.added, 1);
+    assert_eq!(outcome.added, 2);
 
     let indexed = indexed_paths(&conn);
     assert!(indexed.contains(&notes_index::index_key(&downloaded)));
     assert!(
-        !indexed.contains(&dataless_key),
-        "a file reported as not downloaded must never be indexed"
+        indexed.contains(&dataless_key),
+        "a file reported as not downloaded is still one of the notes"
     );
     assert_eq!(
         search(&conn, "sundial"),
         vec![notes_index::index_key(&downloaded)],
         "only the downloaded file's content was read"
+    );
+    assert_eq!(
+        search_names(&conn, "cloud"),
+        vec![dataless_key.clone()],
+        "the name is what an undownloaded note is findable by"
+    );
+
+    let second =
+        notes_index::reconcile(&conn, &notes, &never_cancelled(), &stub).expect("second pass");
+    assert_eq!(
+        second.removed, 0,
+        "the name-only row survives a second pass"
+    );
+    assert_eq!(second.added, 0);
+    assert!(indexed_paths(&conn).contains(&dataless_key));
+}
+
+#[test]
+fn reconcile_never_reads_a_file_reported_as_not_downloaded() {
+    // Reading a placeholder is what asks the provider to materialise it, so
+    // the walk has to decide from metadata alone. The file is made unreadable
+    // first: a walk that opened it would fail the read and drop the file, so
+    // the row proves the read never happened.
+    let (_dir, conn, notes) = fixture();
+    let dataless = write_note(&notes, "evicted.md", "sundial marker");
+    if !deny_reads(&dataless) {
+        return;
+    }
+
+    let stub = {
+        let target = dataless.clone();
+        move |candidate: &Path| candidate == target.as_path()
+    };
+    let outcome =
+        notes_index::reconcile(&conn, &notes, &never_cancelled(), &stub).expect("reconcile");
+
+    assert_eq!(outcome.added, 1);
+    assert!(indexed_paths(&conn).contains(&notes_index::index_key(&dataless)));
+    assert!(
+        search(&conn, "sundial").is_empty(),
+        "no text can have been read out of an unreadable file"
+    );
+}
+
+#[test]
+fn reconcile_leaves_out_the_files_a_sync_client_or_editor_left_behind() {
+    let (_dir, conn, notes) = fixture();
+    let note = write_note(&notes, "note.md", "kestrel marker");
+    write_note(&notes, ".syncthing.note.md.tmp", "kestrel marker");
+    write_note(&notes, ".note.md.icloud", "kestrel marker");
+    write_note(&notes, ".note.md.swp", "kestrel marker");
+    write_note(&notes, "note.md~", "kestrel marker");
+    let copy = write_note(
+        &notes,
+        "note.sync-conflict-20260822-120000-ABCD.md",
+        "kestrel marker",
+    );
+
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("reconcile");
+
+    let mut indexed: Vec<String> = indexed_paths(&conn).into_iter().collect();
+    indexed.sort();
+    let mut expected = vec![notes_index::index_key(&note), notes_index::index_key(&copy)];
+    expected.sort();
+    assert_eq!(
+        indexed, expected,
+        "only the note and the copy that holds somebody's text are indexed"
     );
 }
 
