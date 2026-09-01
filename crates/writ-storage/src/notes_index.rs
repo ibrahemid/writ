@@ -44,6 +44,10 @@ const TEXT_EXTENSIONS: &[&str] = &["md", "markdown", "txt", "text"];
 /// macOS `SF_DATALESS`: the file has no local data behind it.
 const SF_DATALESS: u32 = 0x4000_0000;
 
+/// The `files.hash` value of a row indexed by name alone. Not a digest, so no
+/// content can ever produce it.
+const NAME_ONLY_HASH: &str = "name-only";
+
 /// One indexed note.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexedNote {
@@ -418,6 +422,21 @@ impl<'a> NotesIndex<'a> {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
+
+    /// The paths indexed by name alone, marked by [`NAME_ONLY_HASH`].
+    ///
+    /// Materialising a placeholder leaves its size and mtime where they were,
+    /// so [`reconcile`]'s unchanged shortcut cannot tell a downloaded note from
+    /// the placeholder it replaced. This is how it tells.
+    fn name_only_paths(&self) -> StorageResult<std::collections::HashSet<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path FROM files WHERE hash = ?1")?;
+        let rows = stmt
+            .query_map(params![NAME_ONLY_HASH], |row| row.get::<_, String>(0))?
+            .collect::<Result<std::collections::HashSet<_>, _>>()?;
+        Ok(rows)
+    }
 }
 
 /// Walks `notes_root` and brings the index in line with it: new files are
@@ -447,6 +466,7 @@ pub fn reconcile(
         .into_iter()
         .map(|(path, size, mtime)| (path, (size, mtime)))
         .collect();
+    let name_only = index.name_only_paths()?;
 
     let mut outcome = ReconcileOutcome::default();
     let mut seen: Vec<String> = Vec::with_capacity(known.len());
@@ -504,8 +524,13 @@ pub fn reconcile(
         let mtime = mtime_millis(&metadata);
         let key = index_key(path);
 
+        // A download leaves size and mtime alone, so an unchanged file whose
+        // row holds nothing but its name is read now: this is the pass where a
+        // placeholder became a note.
+        let downloaded = !dataless && name_only.contains(&key);
+
         let expected = match known.get(&key) {
-            Some(&state) if state == (size, mtime) => {
+            Some(&state) if state == (size, mtime) && !downloaded => {
                 seen.push(key);
                 continue;
             }
@@ -535,7 +560,7 @@ pub fn reconcile(
             name,
             size,
             mtime,
-            hash: None,
+            hash: dataless.then(|| NAME_ONLY_HASH.to_string()),
         };
 
         // One transaction per file. The walk runs on its own connection, so a

@@ -190,6 +190,35 @@ fn reconcile_indexes_a_file_reported_as_not_downloaded_by_name_only() {
 }
 
 #[test]
+fn a_file_downloaded_outside_writ_gets_its_text_into_the_index() {
+    // Materialising a placeholder leaves the size and the mtime where they
+    // were: that is what makes it a placeholder. The size and mtime shortcut
+    // would therefore keep the name-only row for good, and the note would stay
+    // unsearchable by its text forever.
+    let (_dir, conn, notes) = fixture();
+    let note = write_note(&notes, "cloud.md", "sundial marker");
+    let key = notes_index::index_key(&note);
+
+    let stub = {
+        let target = note.clone();
+        move |candidate: &Path| candidate == target.as_path()
+    };
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &stub).expect("first");
+    assert!(search(&conn, "sundial").is_empty());
+
+    // The file is not touched: only the provider's answer changes.
+    let outcome = notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("second");
+
+    assert_eq!(outcome.updated, 1);
+    assert_eq!(
+        search(&conn, "sundial"),
+        vec![key],
+        "the text of a downloaded note joins the index"
+    );
+}
+
+#[test]
 fn reconcile_never_reads_a_file_reported_as_not_downloaded() {
     // Reading a placeholder is what asks the provider to materialise it, so
     // the walk has to decide from metadata alone. The file is made unreadable
