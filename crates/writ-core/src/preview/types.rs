@@ -155,6 +155,28 @@ pub struct RenderRequest {
     /// are applied over the bridge, not by re-rendering.
     #[serde(default = "default_zoom")]
     pub zoom: f64,
+    /// Where the renderer may resolve files embedded in the document, and
+    /// under which buffer id the asset URLs are keyed. `None` for a buffer
+    /// with no file on disk (a scratch note), which leaves every embedded
+    /// reference untouched. ADR-035.
+    #[serde(default)]
+    pub assets: Option<AssetScope>,
+}
+
+/// The two containment roots an embedded file may resolve under, plus the
+/// buffer the render belongs to.
+///
+/// Held beside the rendered HTML so the protocol handler re-resolves an
+/// incoming asset URL against the same roots the render used, rather than
+/// trusting the path in the URL.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssetScope {
+    /// The notes folder.
+    pub notes_root: std::path::PathBuf,
+    /// Folder holding the file being previewed.
+    pub note_dir: std::path::PathBuf,
+    /// Buffer id the asset URLs carry.
+    pub buffer_id: String,
 }
 
 /// Default render zoom: native size.

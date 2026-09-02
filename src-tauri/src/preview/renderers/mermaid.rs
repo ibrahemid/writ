@@ -108,6 +108,7 @@ mod tests {
                 buffer_text: text.to_string(),
                 theme: Default::default(),
                 zoom: 1.0,
+                assets: None,
             })
             .unwrap()
     }
@@ -171,6 +172,7 @@ mod tests {
                 buffer_text: big,
                 theme: Default::default(),
                 zoom: 1.0,
+                assets: None,
             })
             .unwrap_err();
         assert!(matches!(err, RenderError::DocumentTooLarge { .. }));

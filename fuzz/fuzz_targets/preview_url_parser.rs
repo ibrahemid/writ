@@ -2,15 +2,21 @@
 //! scope boundary.
 //!
 //! The parser is the security gate that decides whether a request crosses
-//! into the chrome scope. This target asserts two invariants over arbitrary
-//! input:
+//! into the chrome scope. This target asserts three invariants over
+//! arbitrary input:
 //!
-//! 1. **No panic.** `parse` must never panic, on any byte sequence — a
-//!    panic in a release protocol handler is a denial-of-service.
+//! 1. **No panic.** `parse` and `split_asset_request` must never panic, on
+//!    any byte sequence — a panic in a release protocol handler is a
+//!    denial-of-service.
 //! 2. **No traversal survives.** Any `Ok(ParsedRequest)` the parser returns
 //!    has a canonical path with no `..` segment and no backslash. A request
 //!    that would cross the scope boundary must be `Err`, never an `Ok` whose
 //!    path escapes the scope.
+//! 3. **The note-asset sub-path splits cleanly.** `split_asset_request` is
+//!    the other pure gate on the route ADR-035 adds under the document
+//!    scope; the relative path it hands the resolver carries no traversal
+//!    segment and no leading separator. Only the pure split is fuzzed — the
+//!    containment check needs a real notes folder.
 //!
 //! Run: `cargo +nightly fuzz run preview_url_parser`
 //! Seed corpus: `fuzz/corpus/preview_url_parser/`
@@ -18,7 +24,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use writ_core::preview::protocol::parse;
+use writ_core::preview::protocol::{parse, split_asset_request, PreviewScope};
 
 fuzz_target!(|data: &[u8]| {
     // The handler only ever receives valid UTF-8 URLs from the webview;
@@ -46,6 +52,19 @@ fuzz_target!(|data: &[u8]| {
                 "non-canonical separators survived: path={:?}",
                 req.path
             );
+            if req.scope == PreviewScope::Document {
+                if let Some(asset) = split_asset_request(&req.path) {
+                    assert!(
+                        !asset.relative.split('/').any(|seg| seg == ".." || seg == "."),
+                        "traversal segment survived the asset split: url={url:?} relative={:?}",
+                        asset.relative
+                    );
+                    assert!(
+                        !asset.relative.starts_with('/') && !asset.buffer_id.is_empty(),
+                        "malformed asset request accepted: url={url:?}",
+                    );
+                }
+            }
         }
     }
 });

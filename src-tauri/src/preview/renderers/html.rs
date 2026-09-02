@@ -225,6 +225,7 @@ mod tests {
             buffer_text: text.to_string(),
             theme: Default::default(),
             zoom: 1.0,
+            assets: None,
         }
     }
 
@@ -234,6 +235,7 @@ mod tests {
             buffer_text: text.to_string(),
             theme: ThemePolarity::Light,
             zoom: 1.0,
+            assets: None,
         }
     }
 
@@ -260,6 +262,7 @@ mod tests {
             buffer_text: text.to_string(),
             theme: Default::default(),
             zoom,
+            assets: None,
         }
     }
 
