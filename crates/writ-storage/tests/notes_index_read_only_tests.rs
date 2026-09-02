@@ -101,12 +101,29 @@ fn a_database_with_no_migration_run_reports_zero() {
 }
 
 #[test]
-fn a_database_with_no_schema_version_table_reports_zero() {
+fn a_database_with_no_schema_version_table_is_a_failure_not_version_zero() {
+    // The two mean different things to whoever is told about them: version 0
+    // is an index the app brings up to date on its next run, and a database
+    // that cannot be queried is one no migration helps. Reporting the second
+    // as the first sends the reader off to do something that cannot work.
     let dir = TempDir::new().expect("tempdir");
     let db_path = dir.path().join("writ.db");
     let conn = Connection::open(&db_path).expect("open");
 
-    assert_eq!(applied_schema_version(&conn).expect("version"), 0);
+    assert!(
+        applied_schema_version(&conn).is_err(),
+        "a database with no schema_version table reported a version"
+    );
+}
+
+#[test]
+fn a_file_that_is_not_a_database_is_a_failure() {
+    let dir = TempDir::new().expect("tempdir");
+    let db_path = dir.path().join("writ.db");
+    std::fs::write(&db_path, "not a database at all\n").expect("write");
+    let conn = Connection::open(&db_path).expect("open is lazy");
+
+    assert!(applied_schema_version(&conn).is_err());
 }
 
 #[test]
