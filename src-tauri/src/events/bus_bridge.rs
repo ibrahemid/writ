@@ -69,6 +69,9 @@ fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
             path: path.clone(),
             removed: *removed,
         }),
+        WritEvent::NotesSwept { root } => {
+            Some(WritFrontendEvent::NotesSwept { root: root.clone() })
+        }
         WritEvent::InboxFileArrived { path } => {
             Some(WritFrontendEvent::InboxFileArrived { path: path.clone() })
         }

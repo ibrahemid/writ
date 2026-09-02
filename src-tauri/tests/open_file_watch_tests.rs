@@ -15,7 +15,7 @@ use tempfile::TempDir;
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::watcher::ignore::DEFAULT_IGNORE_TTL;
 use writ_tauri_lib::security::resolve_for_containment;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
+use writ_tauri_lib::watcher::handler::{create_ignore_set, start_notes_watcher};
 use writ_tauri_lib::watcher::open_files::{start_open_file_watcher, WatchOutcome, WatcherKind};
 
 /// Long enough for the 500 ms debounce plus the platform's own notification
@@ -27,6 +27,14 @@ const SETTLE: Duration = Duration::from_secs(3);
 /// resolution, reached through the function it delegates to.
 fn resolved(path: &Path) -> String {
     resolve_for_containment(path).unwrap_or_else(|| path.to_string_lossy().into_owned())
+}
+
+/// The notes folder as the app holds it: canonical, the way startup stores it
+/// and the way the platform's watcher reports paths under it. A watcher rooted
+/// at an uncanonical path drops every event, because the containment check
+/// misses.
+fn canonical(dir: &Path) -> std::path::PathBuf {
+    std::path::PathBuf::from(resolved(dir))
 }
 
 /// Writes `bytes` to `path` the way a careful program does: into a sibling
@@ -243,5 +251,161 @@ fn a_folder_full_of_churn_never_names_a_file_that_is_not_open() {
         seen.len() <= ceiling,
         "120 writes must cost at most {ceiling} events, saw {}",
         seen.len()
+    );
+}
+
+#[test]
+fn a_note_inside_the_notes_folder_reaches_its_tab_when_another_program_rewrites_it() {
+    // W1's headline behaviour on the folder that holds nearly every note.
+    // The notes watcher is the only thing watching in there — the open-file
+    // registry deliberately arms nothing over the notes tree — so the route
+    // from a change to the tab holding that file runs through it. Before this,
+    // the change reached the index and stopped: the tab went on showing text
+    // its file no longer held, and its next save was refused by the write
+    // guard.
+    let notes = TempDir::new().expect("notes dir");
+    let note = notes.path().join("today.md");
+    std::fs::write(&note, b"original text\n").expect("seed note");
+
+    let (bus, rx) = bus_with_channel();
+    let ignore = create_ignore_set();
+    let open_files = start_open_file_watcher(bus.clone(), ignore.clone(), notes.path())
+        .expect("start the open file watcher");
+
+    let outcome = open_files
+        .registry()
+        .lock()
+        .expect("registry")
+        .watch_parent_of("note-1", &note);
+    assert_eq!(
+        outcome,
+        WatchOutcome::AlreadyCovered,
+        "the notes watcher covers this folder; a second watch would double every event"
+    );
+
+    let _notes_watcher = start_notes_watcher(
+        bus,
+        canonical(notes.path()),
+        ignore,
+        open_files.open_notes(),
+    )
+    .expect("start the notes watcher");
+
+    write_by_temp_and_rename(&note, b"rewritten by another program\n");
+
+    let seen = collect_external(&rx);
+    assert_eq!(seen.len(), 1, "the tab must be told once, saw {seen:?}");
+    match &seen[0] {
+        WritEvent::BufferExternal {
+            buffer_id,
+            path,
+            change,
+            new_path,
+            disk_hash,
+        } => {
+            assert_eq!(buffer_id, "note-1");
+            assert_eq!(resolved(Path::new(path)), resolved(&note));
+            assert_eq!(
+                *change,
+                writ_core::watcher::change_event::ExternalChange::Modified
+            );
+            assert_eq!(*new_path, None);
+            assert_eq!(
+                disk_hash.as_deref(),
+                Some(
+                    writ_core::hash::comparison_digest_hex(b"rewritten by another program\n")
+                        .as_str()
+                ),
+                "the tab compares its document against this digest, so it has to be the file's"
+            );
+        }
+        other => panic!("expected BufferExternal, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_save_writ_made_inside_the_notes_folder_never_comes_back_to_the_tab() {
+    // The same round trip on the notes side. Writ stamps a write before it
+    // lands; if the stamp missed, every save would return as somebody else's
+    // edit and the user would be asked whether to discard their own keystrokes.
+    assert!(
+        DEFAULT_IGNORE_TTL > SETTLE,
+        "the stamp has to outlive the wait, or this passes for the wrong reason"
+    );
+
+    let notes = TempDir::new().expect("notes dir");
+    let note = notes.path().join("today.md");
+    std::fs::write(&note, b"before\n").expect("seed note");
+
+    let (bus, rx) = bus_with_channel();
+    let ignore = create_ignore_set();
+    let open_files = start_open_file_watcher(bus.clone(), ignore.clone(), notes.path())
+        .expect("start the open file watcher");
+    open_files
+        .registry()
+        .lock()
+        .expect("registry")
+        .watch_parent_of("note-1", &note);
+
+    let _notes_watcher = start_notes_watcher(
+        bus,
+        canonical(notes.path()),
+        ignore.clone(),
+        open_files.open_notes(),
+    )
+    .expect("start the notes watcher");
+
+    let saved = b"what writ itself wrote\n";
+    {
+        let mut set = ignore.lock().expect("ignore set");
+        set.record(
+            writ_core::watcher::ignore::source_key(Path::new(&resolved(&note))),
+            saved,
+            Instant::now(),
+        );
+    }
+    write_by_temp_and_rename(&note, saved);
+
+    let seen = collect_external(&rx);
+    assert!(
+        seen.is_empty(),
+        "a stamped write must not be reported to the tab that made it, saw {seen:?}"
+    );
+}
+
+#[test]
+fn a_note_nobody_has_open_tells_no_tab() {
+    // The registry is the whole filter. A notes folder holds every note the
+    // user has; only the ones with a tab may produce an event.
+    let notes = TempDir::new().expect("notes dir");
+    let open = notes.path().join("open.md");
+    let closed = notes.path().join("closed.md");
+    std::fs::write(&open, b"x\n").expect("seed");
+    std::fs::write(&closed, b"x\n").expect("seed");
+
+    let (bus, rx) = bus_with_channel();
+    let ignore = create_ignore_set();
+    let open_files = start_open_file_watcher(bus.clone(), ignore.clone(), notes.path())
+        .expect("start the open file watcher");
+    open_files
+        .registry()
+        .lock()
+        .expect("registry")
+        .watch_parent_of("note-1", &open);
+
+    let _notes_watcher = start_notes_watcher(
+        bus,
+        canonical(notes.path()),
+        ignore,
+        open_files.open_notes(),
+    )
+    .expect("start the notes watcher");
+
+    write_by_temp_and_rename(&closed, b"changed by another program\n");
+
+    let seen = collect_external(&rx);
+    assert!(
+        seen.is_empty(),
+        "a note with no tab open on it has nobody to tell, saw {seen:?}"
     );
 }

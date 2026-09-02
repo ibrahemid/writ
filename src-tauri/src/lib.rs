@@ -594,24 +594,24 @@ pub fn run() {
                 // the new root has to still read as a marker.
                 let handle = app.handle().clone();
                 state.event_bus.subscribe(move |event| {
-                    let WritEvent::NotesChanged { path, removed } = event else {
-                        return;
-                    };
-                    let path = std::path::Path::new(path);
-                    let root = handle.state::<AppState>().notes_root();
-                    // The folder itself, rather than a note in it, is the
-                    // watcher's sweep marker: more changed in one window than
-                    // was worth listing, so the index walks the folder instead
-                    // of patching a path.
-                    if watcher::handler::is_notes_sweep_marker(path, &root) {
+                    // More changed in one window than was worth listing, so
+                    // the index walks the folder instead of patching a path.
+                    // The root is read live rather than captured: moving the
+                    // notes folder restarts the watcher, and the walk has to
+                    // follow.
+                    if let WritEvent::NotesSwept { .. } = event {
                         spawn_notes_reconcile(
                             index.clone(),
                             cancel.clone(),
                             reconciling.clone(),
-                            root,
+                            handle.state::<AppState>().notes_root(),
                         );
                         return;
                     }
+                    let WritEvent::NotesChanged { path, removed } = event else {
+                        return;
+                    };
+                    let path = std::path::Path::new(path);
                     // A rename arrives as one delete and one create, so both
                     // arms have to be replayable: forgetting a path the index
                     // does not hold, and indexing one it already has, are both
@@ -768,10 +768,38 @@ pub fn run() {
                     notes_root.clone(),
                 );
 
+                // The registry of open files goes up first: it is how the
+                // notes watcher answers "which tab holds this file", and that
+                // watcher is the only route by which a note inside the notes
+                // folder reaches its tab. It watches no folder until a tab
+                // asks for one, so starting it here costs one channel and two
+                // idle backends.
+                let open_notes: std::sync::Arc<dyn watcher::open_files::OpenNotes> =
+                    match watcher::open_files::start_open_file_watcher(
+                        state.event_bus.clone(),
+                        state.watcher_ignore.clone(),
+                        &notes_root,
+                    ) {
+                        Ok(handle) => {
+                            let lookup = handle.open_notes();
+                            let mut slot = recover_poison(
+                                state.open_file_watcher.lock(),
+                                "lib::setup:open_file_watcher_stash",
+                            );
+                            *slot = Some(handle);
+                            lookup
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "failed to start open file watcher");
+                            std::sync::Arc::new(watcher::open_files::NoOpenNotes)
+                        }
+                    };
+
                 match watcher::handler::start_notes_watcher(
                     state.event_bus.clone(),
                     notes_root,
                     state.watcher_ignore.clone(),
+                    open_notes,
                 ) {
                     Ok(handle) => {
                         let mut slot = recover_poison(
@@ -782,26 +810,6 @@ pub fn run() {
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "failed to start notes watcher");
-                    }
-                }
-
-                // Files opened from anywhere else. It watches nothing until a
-                // tab asks for a folder, so starting it here costs one channel
-                // and two idle backends.
-                match watcher::open_files::start_open_file_watcher(
-                    state.event_bus.clone(),
-                    state.watcher_ignore.clone(),
-                    &state.notes_root(),
-                ) {
-                    Ok(handle) => {
-                        let mut slot = recover_poison(
-                            state.open_file_watcher.lock(),
-                            "lib::setup:open_file_watcher_stash",
-                        );
-                        *slot = Some(handle);
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "failed to start open file watcher");
                     }
                 }
             }

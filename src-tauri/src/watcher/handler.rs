@@ -1,6 +1,8 @@
 use crate::poison::recover_poison;
+use crate::watcher::open_files::OpenNotes;
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -268,27 +270,39 @@ pub fn classify_inbox_event(
 
 /// Starts a recursive watcher on the notes `root`, emitting
 /// [`WritEvent::NotesChanged`] for a file another program created, changed or
-/// removed there.
+/// removed there, and [`WritEvent::BufferExternal`] as well when that file is
+/// open in a tab.
 ///
-/// This is the minimum needed to keep the index honest about a folder the user
-/// also edits from Obsidian, a phone, or a sync client. Watching an open note
-/// for a conflicting external edit is a separate job and is release 0.5.
+/// This keeps the index honest about a folder the user also edits from
+/// Obsidian, a phone, or a sync client, and it is the whole route by which a
+/// note *inside* the notes folder tells its tab that somebody else rewrote it.
+/// Files opened from anywhere else take the same news through
+/// [`super::open_files`], which is why the two build the event with the same
+/// function: which folder a file happens to sit in must not change what its
+/// tab is told.
 ///
 /// Writ's own saves are stamped into `ignore_set` before they land, so they do
 /// not arrive back here as somebody else's edit; the store indexes them itself.
 ///
-/// What one window may say is capped ([`EmissionBudget`]). A sync client
-/// catching up, or a plugin another editor left running, rewrites hundreds of
-/// files inside a single debounce window; naming each one is a message the
-/// frontend has to receive and act on. Over the cap the watcher stops naming
-/// files and emits the folder itself once ([`notes_sweep_marker`]), and the
-/// index walks it. The budget is spent only on changes that survived
-/// classification, so a burst of Writ's own saves cannot make the folder look
-/// like it moved.
+/// How much one window may say about the folder is capped ([`EmissionBudget`]).
+/// A sync client catching up, or a plugin another editor left running,
+/// rewrites hundreds of files inside a single debounce window; naming each one
+/// is a message the frontend has to receive and act on. Over the cap the
+/// watcher stops naming files and emits [`WritEvent::NotesSwept`] once, and
+/// every listener re-checks what it holds. The budget is spent only on changes
+/// that survived classification, so a burst of Writ's own saves cannot make the
+/// folder look like it moved.
+///
+/// Telling an open tab is outside that cap and bounded another way: by how many
+/// tabs are open, deduplicated per batch, so a folder being churned through
+/// costs at most one message per open tab per window however many files moved.
+/// Capping it would mean a tab losing the one change its user cares about
+/// because five hundred files they have never opened moved in the same second.
 pub fn start_notes_watcher(
     bus: Arc<EventBus>,
     root: PathBuf,
     ignore_set: IgnoreSet,
+    open_notes: Arc<dyn OpenNotes>,
 ) -> Result<WatcherHandle, Box<dyn std::error::Error>> {
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
 
@@ -302,6 +316,9 @@ pub fn start_notes_watcher(
         while let Ok(result) = rx.recv() {
             match result {
                 Ok(events) => {
+                    // One tab message per note per delivered batch, the same
+                    // rule the open-file watcher runs on.
+                    let mut told: HashSet<String> = HashSet::new();
                     for event in events {
                         let now = Instant::now();
                         let Some(domain_event) = classify_notes_event(
@@ -313,6 +330,13 @@ pub fn start_notes_watcher(
                         ) else {
                             continue;
                         };
+                        if let Some(for_tab) = route_notes_change_to_open_tab(
+                            &domain_event,
+                            open_notes.as_ref(),
+                            &mut told,
+                        ) {
+                            bus.emit(for_tab);
+                        }
                         match budget.admit(now) {
                             Emission::Name => bus.emit(domain_event),
                             Emission::Sweep => {
@@ -320,7 +344,7 @@ pub fn start_notes_watcher(
                                     root = %root.display(),
                                     "notes folder changed faster than it can be listed; sweeping"
                                 );
-                                bus.emit(notes_sweep_marker(&root));
+                                bus.emit(notes_swept(&root));
                             }
                             Emission::Drop => {}
                         }
@@ -339,27 +363,37 @@ pub fn start_notes_watcher(
     })
 }
 
-/// The event that stands for "more changed in the notes folder than is worth
-/// listing": the folder itself, rather than a file in it.
+/// The tab event a classified notes change becomes, when the file it names is
+/// open and has not already been reported in this batch.
 ///
-/// The root is the marker because no file event can ever carry it —
-/// [`classify_notes_event`] drops anything that is not a regular file, and the
-/// root is a directory — so a listener can tell a sweep from a note by the
-/// path alone without a second field to keep in step.
-///
-/// [`is_notes_sweep_marker`] is the other half; the two are here together so
-/// the sender and the receiver cannot drift.
-pub fn notes_sweep_marker(root: &Path) -> WritEvent {
-    WritEvent::NotesChanged {
-        path: root.to_string_lossy().into_owned(),
-        removed: false,
+/// `told` is the batch's record of which notes have been named, and this
+/// updates it. Splitting the decision out of the watcher thread is what makes
+/// it testable without a filesystem: the caller supplies the lookup and the
+/// batch state.
+pub fn route_notes_change_to_open_tab(
+    event: &WritEvent,
+    open_notes: &dyn OpenNotes,
+    told: &mut HashSet<String>,
+) -> Option<WritEvent> {
+    let WritEvent::NotesChanged { path, removed } = event else {
+        return None;
+    };
+    let path = Path::new(path);
+    let note_id = open_notes.note_at(path)?;
+    if !told.insert(note_id.clone()) {
+        return None;
     }
+    Some(super::open_files::open_note_change(
+        &note_id, path, *removed,
+    ))
 }
 
-/// Whether a [`WritEvent::NotesChanged`] path is the sweep marker for `root`
-/// rather than a note inside it.
-pub fn is_notes_sweep_marker(path: &Path, root: &Path) -> bool {
-    path == root
+/// The event that stands for "more changed in the notes folder than is worth
+/// listing".
+pub fn notes_swept(root: &Path) -> WritEvent {
+    WritEvent::NotesSwept {
+        root: root.to_string_lossy().into_owned(),
+    }
 }
 
 /// Classifies a notes-folder event into a domain event, or suppresses it.
@@ -480,6 +514,7 @@ pub fn classify_watch_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::fs;
     use tempfile::tempdir;
 
@@ -558,31 +593,174 @@ mod tests {
     }
 
     #[test]
-    fn the_sweep_marker_is_the_folder_and_a_note_in_it_never_is() {
-        // The listener tells one from the other by the path alone, so a note
-        // must never be mistaken for a sweep, and the marker must always be
-        // recognised as one.
+    fn a_sweep_is_its_own_event_and_names_the_folder() {
+        // A listener discriminates on the variant rather than comparing a path
+        // against a root it would have to fetch and normalise itself.
         let dir = tempdir().unwrap();
         let root = dir.path();
-        let note = root.join("today.md");
 
-        match notes_sweep_marker(root) {
-            WritEvent::NotesChanged { path, removed } => {
-                assert_eq!(path, root.to_string_lossy());
-                assert!(!removed);
-                assert!(is_notes_sweep_marker(Path::new(&path), root));
+        match notes_swept(root) {
+            WritEvent::NotesSwept { root: named } => {
+                assert_eq!(named, root.to_string_lossy());
             }
-            other => panic!("expected NotesChanged, got {other:?}"),
+            other => panic!("expected NotesSwept, got {other:?}"),
+        }
+    }
+
+    /// A fixed set of open notes, so the routing can be tested without opening
+    /// a file or standing up a registry.
+    struct FixedNotes(HashMap<PathBuf, String>);
+
+    impl OpenNotes for FixedNotes {
+        fn note_at(&self, path: &Path) -> Option<String> {
+            self.0.get(path).cloned()
+        }
+    }
+
+    fn open_as(path: &Path, note_id: &str) -> FixedNotes {
+        FixedNotes(HashMap::from([(path.to_path_buf(), note_id.to_string())]))
+    }
+
+    #[test]
+    fn a_change_to_a_note_that_is_open_is_routed_to_its_tab() {
+        // The core of W1 on the folder that holds nearly every note. A change
+        // in the notes folder used to reach the index and stop there, so a tab
+        // showed text its file no longer held until it was closed and
+        // reopened.
+        let dir = tempdir().unwrap();
+        let note = dir.path().join("today.md");
+        fs::write(&note, b"rewritten by another program").unwrap();
+
+        let change = WritEvent::NotesChanged {
+            path: note.to_string_lossy().into_owned(),
+            removed: false,
+        };
+        let mut told = HashSet::new();
+
+        match route_notes_change_to_open_tab(&change, &open_as(&note, "note-1"), &mut told) {
+            Some(WritEvent::BufferExternal {
+                buffer_id,
+                path,
+                change,
+                disk_hash,
+                new_path,
+            }) => {
+                assert_eq!(buffer_id, "note-1");
+                assert_eq!(path, note.to_string_lossy());
+                assert_eq!(
+                    change,
+                    writ_core::watcher::change_event::ExternalChange::Modified
+                );
+                assert_eq!(
+                    disk_hash.as_deref(),
+                    Some(
+                        writ_core::hash::comparison_digest_hex(b"rewritten by another program")
+                            .as_str()
+                    ),
+                    "the tab compares its document against this digest, so it has to be the file's"
+                );
+                assert_eq!(new_path, None);
+            }
+            other => panic!("expected BufferExternal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_change_to_a_note_nobody_has_open_is_routed_nowhere() {
+        let dir = tempdir().unwrap();
+        let note = dir.path().join("today.md");
+        let unopened = dir.path().join("archive.md");
+        fs::write(&note, b"x").unwrap();
+        fs::write(&unopened, b"x").unwrap();
+
+        let change = WritEvent::NotesChanged {
+            path: unopened.to_string_lossy().into_owned(),
+            removed: false,
+        };
+        let mut told = HashSet::new();
+
+        assert!(
+            route_notes_change_to_open_tab(&change, &open_as(&note, "note-1"), &mut told).is_none()
+        );
+    }
+
+    #[test]
+    fn a_deleted_note_tells_its_tab_the_file_is_gone() {
+        let dir = tempdir().unwrap();
+        let note = dir.path().join("today.md");
+
+        let change = WritEvent::NotesChanged {
+            path: note.to_string_lossy().into_owned(),
+            removed: true,
+        };
+        let mut told = HashSet::new();
+
+        match route_notes_change_to_open_tab(&change, &open_as(&note, "note-1"), &mut told) {
+            Some(WritEvent::BufferExternal {
+                buffer_id,
+                change,
+                disk_hash,
+                ..
+            }) => {
+                assert_eq!(buffer_id, "note-1");
+                assert_eq!(
+                    change,
+                    writ_core::watcher::change_event::ExternalChange::Deleted
+                );
+                assert_eq!(disk_hash, None, "there is nothing left to hash");
+            }
+            other => panic!("expected BufferExternal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn one_batch_tells_a_tab_once_however_often_its_file_was_written() {
+        // A program rewriting a file in a loop lands several events in one
+        // debounce batch. The tab needs the news once.
+        let dir = tempdir().unwrap();
+        let note = dir.path().join("today.md");
+        fs::write(&note, b"x").unwrap();
+
+        let change = WritEvent::NotesChanged {
+            path: note.to_string_lossy().into_owned(),
+            removed: false,
+        };
+        let open = open_as(&note, "note-1");
+        let mut told = HashSet::new();
+
+        assert!(route_notes_change_to_open_tab(&change, &open, &mut told).is_some());
+        for _ in 0..10 {
+            assert!(route_notes_change_to_open_tab(&change, &open, &mut told).is_none());
         }
 
-        assert!(!is_notes_sweep_marker(&note, root));
-        assert!(!is_notes_sweep_marker(&root.join("sub"), root));
+        // A new batch starts a new record, because the file may well have
+        // changed again.
+        let mut next_batch = HashSet::new();
+        assert!(route_notes_change_to_open_tab(&change, &open, &mut next_batch).is_some());
+    }
+
+    #[test]
+    fn a_sweep_is_not_routed_to_any_tab() {
+        // The sweep says the folder moved, not that any one file did. The
+        // frontend re-checks every open file on it; turning it into a change
+        // to whichever note happens to sit at the root path would be a claim
+        // about a file nothing looked at.
+        let dir = tempdir().unwrap();
+        let note = dir.path().join("today.md");
+        fs::write(&note, b"x").unwrap();
+        let mut told = HashSet::new();
+
+        assert!(route_notes_change_to_open_tab(
+            &notes_swept(dir.path()),
+            &open_as(&note, "note-1"),
+            &mut told
+        )
+        .is_none());
     }
 
     #[test]
     fn a_note_event_can_never_carry_the_folder_itself() {
-        // The marker rests on the root being a path no file event produces.
-        // A directory event has to stay suppressed for that to hold.
+        // A directory is not a note change, whichever folder it is.
         let dir = tempdir().unwrap();
         let root = dir.path();
         let sub = root.join("archive");

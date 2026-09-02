@@ -73,6 +73,24 @@ pub enum WritEvent {
         /// `true` when the file no longer exists on disk.
         removed: bool,
     },
+    /// More changed in the notes folder in one window than was worth listing.
+    /// Nothing is named; everything holding a copy of what the folder contains
+    /// re-checks instead. The index walks the folder and the editor asks after
+    /// each open file.
+    ///
+    /// A distinct event rather than a [`Self::NotesChanged`] carrying the root
+    /// path. The root served while the only listener sat beside the sender in
+    /// Rust; a listener across the IPC boundary would have to fetch the notes
+    /// root and normalise it the same way to recognise one, which is several
+    /// chances to drift for a distinction a type can make once.
+    ///
+    /// Like [`Self::NotesChanged`], it must never route into a reload of the
+    /// document registry (PR #127).
+    NotesSwept {
+        /// Absolute path of the notes folder that changed faster than it could
+        /// be listed.
+        root: String,
+    },
     /// A qualifying new file appeared inside the watched inbox folder
     /// (ADR-018). The frontend opens it through the normal open path.
     InboxFileArrived {

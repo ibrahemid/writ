@@ -26,7 +26,7 @@ use crate::preview::handler::RenderCache;
 use crate::quit::QuitState;
 use crate::security::{canonicalize_for_authorization, canonicalize_root, AuthorizedPaths};
 use crate::watcher::handler::{IgnoreSet, WatcherHandle};
-use crate::watcher::open_files::OpenFileWatcher;
+use crate::watcher::open_files::{NoOpenNotes, OpenFileWatcher, OpenNotes};
 
 /// What Writ last saw on disk for one note.
 ///
@@ -503,6 +503,18 @@ impl AppState {
             "state::follow_note_file:registry",
         );
         registry.watch_parent_of(&doc.id, Path::new(path));
+    }
+
+    /// Which note a path is open as, for a watcher routing a change to a tab.
+    ///
+    /// Answers nothing while the open-file watcher is not running, which reads
+    /// the same as no file being open: nothing is routed.
+    pub fn open_notes(&self) -> Arc<dyn OpenNotes> {
+        let watcher = recover_poison(self.open_file_watcher.lock(), "state::open_notes");
+        match watcher.as_ref() {
+            Some(watcher) => watcher.open_notes(),
+            None => Arc::new(NoOpenNotes),
+        }
     }
 
     /// Releases the folder watch a note was holding, which the last tab in a

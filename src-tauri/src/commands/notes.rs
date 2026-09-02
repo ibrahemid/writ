@@ -598,6 +598,7 @@ fn follow_notes_root(state: &AppState, from: &Path, to: &Path) {
         state.event_bus.clone(),
         to.to_path_buf(),
         state.watcher_ignore.clone(),
+        state.open_notes(),
     ) {
         Ok(handle) => {
             let mut slot = state
