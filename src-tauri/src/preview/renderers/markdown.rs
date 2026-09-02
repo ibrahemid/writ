@@ -18,14 +18,75 @@
 //! fallback stylesheet always applies (unconditionally, unlike the HTML
 //! renderer's presence-conditional check).
 
+use tracing::debug;
+use writ_core::preview::protocol::{resolve_asset_reference, ASSET_PREFIX};
 use writ_core::preview::{
-    ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest, RendererCapabilities,
+    AssetScope, ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest,
+    RendererCapabilities,
 };
 
 use super::{katex, mermaid, theme};
 
 /// Hard ceiling, mirroring the HTML renderer and ADR-009's 50 MB refusal.
 const MAX_SAFE_BYTES: u64 = 50 * 1024 * 1024;
+
+/// True when a reference points at a file rather than somewhere else.
+///
+/// A scheme (`https:`, `data:`, `writ-preview:`) or a protocol-relative
+/// prefix names a resource the preview does not own, and a bare fragment
+/// names a place in the document itself. A one-letter prefix is a Windows
+/// drive, not a scheme.
+fn is_file_reference(reference: &str) -> bool {
+    let reference = reference.trim();
+    if reference.is_empty() || reference.starts_with('#') || reference.starts_with("//") {
+        return false;
+    }
+    match reference.split_once(':') {
+        Some((scheme, _)) => {
+            scheme.len() < 2
+                || !scheme
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
+        }
+        None => true,
+    }
+}
+
+/// The resolver the renderer hands `writ-render`: a reference in, an asset
+/// URL out, nothing when the file lies outside both containment roots.
+///
+/// The URL carries the root's discriminator and the path relative to it, so
+/// the handler re-resolves rather than trusts it. ADR-035.
+fn asset_resolver(scope: &AssetScope) -> impl Fn(&str) -> Option<String> + '_ {
+    let buffer_id_is_safe = !scope.buffer_id.is_empty()
+        && scope
+            .buffer_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'));
+    move |reference: &str| {
+        if !buffer_id_is_safe || !is_file_reference(reference) {
+            return None;
+        }
+        match resolve_asset_reference(&scope.notes_root, &scope.note_dir, reference) {
+            Ok(found) => Some(format!(
+                "writ-preview://document/{ASSET_PREFIX}/{}/{}/{}",
+                scope.buffer_id,
+                found.root.as_str(),
+                found.url_path
+            )),
+            Err(reason) => {
+                // Left as authored, so it renders as a broken image rather
+                // than as something served from outside the notes folder.
+                debug!(
+                    reason = reason.as_str(),
+                    buffer_id = scope.buffer_id,
+                    "preview asset reference not resolved"
+                );
+                None
+            }
+        }
+    }
+}
 
 /// The Markdown content renderer.
 pub struct MarkdownRenderer;
@@ -58,7 +119,13 @@ impl ContentRenderer for MarkdownRenderer {
                 limit: MAX_SAFE_BYTES,
             });
         }
-        let fragment = writ_render::render_markdown_fragment(&request.buffer_text);
+        let fragment = match &request.assets {
+            Some(scope) => {
+                let resolver = asset_resolver(scope);
+                writ_render::render_markdown_fragment_with(&request.buffer_text, Some(&resolver))
+            }
+            None => writ_render::render_markdown_fragment(&request.buffer_text),
+        };
         let head_extra = if fragment.has_math {
             katex::head_tags()
         } else {
@@ -97,6 +164,7 @@ mod tests {
             buffer_text: text.to_string(),
             theme: Default::default(),
             zoom: 1.0,
+            assets: None,
         }
     }
 

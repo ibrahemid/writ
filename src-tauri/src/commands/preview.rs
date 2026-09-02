@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
 use writ_core::preview::{
-    ContentTypeId, RenderError, RenderRequest, RendererCapabilities, ThemePolarity,
+    AssetScope, ContentTypeId, RenderError, RenderRequest, RendererCapabilities, ThemePolarity,
 };
 
 use writ_storage::layout_state::LayoutStateRecord;
@@ -154,6 +154,24 @@ pub enum PreviewRenderResult {
     },
 }
 
+/// Where a buffer's embedded files may be read from: the notes folder and
+/// the folder holding the buffer's own file.
+///
+/// `None` for a buffer with no file on disk — a scratch note embeds nothing,
+/// because there is no folder to resolve a relative reference against.
+/// ADR-035.
+fn asset_scope(state: &AppState, buffer_id: &str) -> Option<AssetScope> {
+    let source_path = {
+        let store = state.store.lock().ok()?;
+        store.get(buffer_id).ok()?.source_path?
+    };
+    Some(AssetScope {
+        notes_root: state.notes_root(),
+        note_dir: std::path::Path::new(&source_path).parent()?.to_path_buf(),
+        buffer_id: buffer_id.to_string(),
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_render(
     app: &AppHandle,
@@ -177,11 +195,13 @@ fn run_render(
 
     // Lean scope: one fixed CSP, no per-document policy. The scripts kill
     // switch is applied at serve time, not here.
+    let assets = asset_scope(state, &buffer_id);
     let result = renderer.render(RenderRequest {
         content_type: ctype,
         buffer_text: text,
         theme,
         zoom,
+        assets: assets.clone(),
     });
     drop(registry);
 
@@ -191,6 +211,7 @@ fn run_render(
                 buffer_id.clone(),
                 RenderedDoc {
                     html: output.document_html,
+                    assets,
                 },
             );
             let _ = emit_event(
