@@ -610,3 +610,24 @@ fn open_tabs_follow_their_files_when_the_notes_folder_moves() {
         "the tab still answers for a file that is not there"
     );
 }
+
+#[test]
+fn a_file_opened_from_outside_the_notes_folder_survives_the_move() {
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let workspace = TempDir::new().expect("a folder Writ does not own");
+    let outside = workspace.path().join("outside.md");
+    let id = open_note_at(&state, &outside, "opened from elsewhere");
+
+    let elsewhere = TempDir::new().expect("somewhere else");
+    move_notes_folder_to(&state, &elsewhere.path().join("Moved")).expect("move the notes folder");
+
+    rewrite_from_outside(&outside, b"another program got there first");
+
+    let events = external_events(&rx);
+    assert!(
+        events.iter().any(|event| named_by(event).0 == id),
+        "the move took a watch on a folder that has nothing to do with it: {events:?}"
+    );
+}
