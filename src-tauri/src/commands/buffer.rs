@@ -229,18 +229,24 @@ pub(crate) fn ignore_stamper(state: &AppState) -> impl Fn(&Path, &[u8]) + '_ {
 ///
 /// The write then falls through to the ordinary path, so exactly one code
 /// path writes a note's text.
+///
+/// The tab starts following the file here rather than in the caller: this is
+/// the moment the note gets one, and a note that reached its file this way and
+/// was never followed heard nothing about it for the rest of the session.
 fn attach_new_note_file(
     state: &AppState,
     store: &BufferStore,
     doc: &BufferDocument,
 ) -> Result<String, String> {
-    crate::notes::attach_note_file(
+    let path = crate::notes::attach_note_file(
         store,
         &state.notes_root(),
         &doc.id,
         &doc.title,
         chrono::Utc::now(),
-    )
+    )?;
+    state.follow_note_path(&doc.id, Path::new(&path));
+    Ok(path)
 }
 
 #[tauri::command]

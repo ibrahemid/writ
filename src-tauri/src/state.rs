@@ -482,27 +482,42 @@ impl AppState {
     }
 
     /// Watches the folder holding `doc`'s file, so a change another program
-    /// makes to it reaches the tab.
-    ///
-    /// A note with no file yet is skipped: there is nothing to follow, and by
-    /// the time a first save gives it one the file is inside the notes folder,
-    /// which the notes watcher already covers. Called on every path that puts
-    /// a source-backed tab on screen, including the restore at launch — a tab
-    /// nobody has brought to the front is exactly the one that would otherwise
-    /// sit on a stale file.
+    /// makes to it reaches the tab. A note with no file yet is skipped.
     pub fn follow_note_file(&self, doc: &BufferDocument) {
         let Some(path) = doc.source_path.as_deref() else {
             return;
         };
-        let watcher = recover_poison(self.open_file_watcher.lock(), "state::follow_note_file");
+        self.follow_note_path(&doc.id, Path::new(path));
+    }
+
+    /// The one place a tab's file starts being followed.
+    ///
+    /// Every path that gives a tab a file calls this, whatever the file's
+    /// folder: opening one from outside the notes folder, restoring a tab at
+    /// launch or from history, creating a note, giving a note its file on
+    /// first save, renaming one, and moving the notes folder. A file inside
+    /// the notes folder is recorded here too, without arming a second watch —
+    /// the notes watcher covers the folder, and this is how it learns which
+    /// tab a changed path belongs to. Skipping it there is what left a note
+    /// created or renamed in the session unable to hear about its own file.
+    ///
+    /// Three paths deliberately do not call it, because none of them puts a
+    /// file behind a tab: `save_note_copy_inner` writes a copy the caller then
+    /// opens through the open path, `create_buffer` makes a note with no file
+    /// at all, and `get_buffer` only reads a row.
+    ///
+    /// Asking twice for the same note and file costs nothing, so a path that
+    /// cannot tell whether the tab is new should call it anyway.
+    pub fn follow_note_path(&self, note_id: &str, path: &Path) {
+        let watcher = recover_poison(self.open_file_watcher.lock(), "state::follow_note_path");
         let Some(watcher) = watcher.as_ref() else {
             return;
         };
         let mut registry = recover_poison(
             watcher.registry().lock(),
-            "state::follow_note_file:registry",
+            "state::follow_note_path:registry",
         );
-        registry.watch_parent_of(&doc.id, Path::new(path));
+        registry.watch_parent_of(note_id, path);
     }
 
     /// Which note a path is open as, for a watcher routing a change to a tab.
