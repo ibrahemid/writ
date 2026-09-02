@@ -19,30 +19,33 @@ pub struct CliStatus {
 /// Follows the link: a symlink left behind by an app bundle that has since been
 /// moved or deleted resolves to nothing, and reporting that as installed leaves
 /// the user with a shell that answers `command not found`.
-#[cfg(not(windows))]
 fn is_installed(target: &Path) -> bool {
     target.metadata().is_ok()
+}
+
+/// Whether this platform has somewhere for the app to put the command.
+///
+/// A runtime test rather than a `cfg`, so the install path is compiled on every
+/// platform and nothing in this module falls out of the build as dead code.
+fn install_supported() -> bool {
+    !cfg!(windows)
 }
 
 /// IPC: report whether the `writ` command is already installed.
 #[tauri::command]
 pub fn cli_status() -> CliStatus {
-    #[cfg(windows)]
-    {
-        CliStatus {
+    if !install_supported() {
+        return CliStatus {
             supported: false,
             installed: false,
             path: String::new(),
-        }
+        };
     }
-    #[cfg(not(windows))]
-    {
-        let target = std::path::PathBuf::from(INSTALL_TARGET);
-        CliStatus {
-            supported: true,
-            installed: is_installed(&target),
-            path: INSTALL_TARGET.to_string(),
-        }
+    let target = std::path::PathBuf::from(INSTALL_TARGET);
+    CliStatus {
+        supported: true,
+        installed: is_installed(&target),
+        path: INSTALL_TARGET.to_string(),
     }
 }
 
@@ -55,11 +58,9 @@ const SIDECAR_NOT_FOUND: &str = "The writ command line tool could not be located
 /// of `/usr/local/bin`; [`cli_status`] reports the platform as unsupported and
 /// the settings row is hidden rather than offering an install that would land
 /// nowhere on the user's PATH.
-#[cfg(not(windows))]
 const INSTALL_TARGET: &str = "/usr/local/bin/writ";
 
 /// What [`install_cli`] answers on a platform with nowhere to put the command.
-#[cfg(windows)]
 const INSTALL_UNSUPPORTED: &str =
     "The writ command is already on your PATH; Writ's installer puts it there.";
 
@@ -174,15 +175,11 @@ fn link_with_privileges(sidecar: &Path, target: &Path) -> Result<(), String> {
     }
 }
 
-#[cfg(windows)]
 #[tauri::command]
 pub fn install_cli() -> Result<InstallCliResult, String> {
-    Err(INSTALL_UNSUPPORTED.to_string())
-}
-
-#[cfg(not(windows))]
-#[tauri::command]
-pub fn install_cli() -> Result<InstallCliResult, String> {
+    if !install_supported() {
+        return Err(INSTALL_UNSUPPORTED.to_string());
+    }
     let target = std::path::PathBuf::from(INSTALL_TARGET);
     let sidecar = resolve_sidecar_path().ok_or_else(|| SIDECAR_NOT_FOUND.to_string())?;
     let manual = format!("ln -sf \"{}\" \"{}\"", sidecar.display(), target.display());
@@ -241,6 +238,11 @@ mod tests {
         }
     }
 
+    #[test]
+    fn only_windows_has_nowhere_to_install() {
+        assert_eq!(install_supported(), !cfg!(windows));
+    }
+
     #[cfg(windows)]
     #[test]
     fn installing_where_there_is_nowhere_to_install_is_refused() {
@@ -249,7 +251,11 @@ mod tests {
 
     #[test]
     fn user_facing_strings_have_no_developer_internals() {
-        for msg in [SIDECAR_NOT_FOUND, "Installation was cancelled."] {
+        for msg in [
+            SIDECAR_NOT_FOUND,
+            INSTALL_UNSUPPORTED,
+            "Installation was cancelled.",
+        ] {
             let lower = msg.to_ascii_lowercase();
             for token in ["cargo", "build", "tauri", "bundle", "sidecar", "symlink"] {
                 assert!(
@@ -310,7 +316,6 @@ mod tests {
         assert_eq!(applescript_escape("say \"hi\""), "say \\\"hi\\\"");
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn is_installed_reflects_presence() {
         let dir = tempfile::tempdir().unwrap();
