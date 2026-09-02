@@ -78,6 +78,9 @@ the candidate paths joined by `, ` when it is `ambiguous`, and nothing when it i
 
 Tags are printed as the index stores them, without the leading `#`.
 
+For `properties`, `value` is printed as the JSON below, quotes and all, so a
+string is told apart from a number and a multi-line value stays on one record.
+
 ### The line a name-only note earns
 
 A note whose bytes are not on this machine is indexed by its name alone, so its
@@ -155,10 +158,10 @@ linking note.
  "properties": [{"key": "title", "value": "One"}, {"key": "tags", "value": ["a", "b"]}]}
 ```
 
-`value` is the property's value as JSON — a string, a number, a boolean, `null`
-or an array, matching what the frontmatter held. A block the parser could not
-reduce to one of those is carried as the string of the block as written.
-Properties are listed in the order they were written.
+`value` is the property's value as JSON: a string, a number, a boolean, `null`
+or an array, matching what the frontmatter held. A nested mapping is not reduced
+to a JSON object; it arrives as the string of the block as written, line breaks
+included. Properties are listed in the order they were written.
 
 ### `writ tags <note> --json`
 

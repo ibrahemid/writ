@@ -287,6 +287,59 @@ fn a_property_value_crosses_json_as_json() {
 }
 
 #[test]
+fn a_value_that_is_not_a_string_crosses_json_as_what_it_is() {
+    let fixture = Fixture::new();
+    write(
+        &fixture.notes.join("Shapes.md"),
+        "---\ncount: 3\ndone: true\nlist: [a, b]\nblank:\nmeta:\n  a: 1\n  b: 2\n---\n\nbody\n",
+    );
+    let output = fixture.indexed().run(&["properties", "Shapes", "--json"]);
+
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let rows = json(&output)["properties"]
+        .as_array()
+        .expect("rows")
+        .clone();
+    let value = |key: &str| {
+        rows.iter()
+            .find(|row| row["key"] == key)
+            .unwrap_or_else(|| panic!("no {key} row"))["value"]
+            .clone()
+    };
+    assert_eq!(value("count"), serde_json::json!(3));
+    assert_eq!(value("done"), serde_json::json!(true));
+    assert_eq!(value("list"), serde_json::json!(["a", "b"]));
+    assert_eq!(value("blank"), serde_json::Value::Null);
+    // A nested mapping is one the parser does not reduce: it arrives as the
+    // text of the block, not as an object.
+    assert_eq!(value("meta"), serde_json::json!("  a: 1\n  b: 2"));
+}
+
+#[test]
+fn a_value_that_is_not_a_string_prints_as_json_on_one_line() {
+    let fixture = Fixture::new();
+    write(
+        &fixture.notes.join("Shapes.md"),
+        "---\nlist: [a, b]\nmeta:\n  a: 1\n  b: 2\n---\n\nbody\n",
+    );
+    let output = fixture.indexed().run(&["properties", "Shapes"]);
+
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let rows = records(&output);
+    assert_eq!(rows.len(), 2, "one record per property: {rows:?}");
+    assert_eq!(
+        rows[0],
+        vec!["list".to_string(), "[\"a\",\"b\"]".to_string()]
+    );
+    // The block's line break is already escaped by the JSON the value is
+    // printed as, so a multi-line property still occupies one record.
+    assert_eq!(
+        rows[1],
+        vec!["meta".to_string(), "\"  a: 1\\n  b: 2\"".to_string()]
+    );
+}
+
+#[test]
 fn a_note_with_no_frontmatter_lists_nothing() {
     let fixture = Fixture::new();
     let output = fixture.indexed().run(&["properties", "Two"]);
