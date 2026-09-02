@@ -16,6 +16,7 @@ use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::watcher::ignore::DEFAULT_IGNORE_TTL;
 use writ_tauri_lib::security::resolve_for_containment;
 use writ_tauri_lib::watcher::handler::{create_ignore_set, start_notes_watcher};
+use writ_tauri_lib::watcher::moves::FileTracking;
 use writ_tauri_lib::watcher::open_files::{
     start_open_file_watcher, NoOpenNotes, WatchOutcome, WatcherKind,
 };
@@ -80,8 +81,13 @@ fn a_file_opened_from_anywhere_reports_one_change_when_another_program_rewrites_
     std::fs::write(&file, b"as another program left it\n").expect("seed file");
 
     let (bus, rx) = bus_with_channel();
-    let watcher = start_open_file_watcher(bus, create_ignore_set(), notes.path())
-        .expect("start the open file watcher");
+    let watcher = start_open_file_watcher(
+        bus,
+        create_ignore_set(),
+        notes.path(),
+        FileTracking::untracked(),
+    )
+    .expect("start the open file watcher");
 
     let outcome = watcher
         .registry()
@@ -143,8 +149,9 @@ fn a_write_writ_stamped_never_comes_back_as_somebody_elses_edit() {
 
     let ignore = create_ignore_set();
     let (bus, rx) = bus_with_channel();
-    let watcher = start_open_file_watcher(bus, ignore.clone(), notes.path())
-        .expect("start the open file watcher");
+    let watcher =
+        start_open_file_watcher(bus, ignore.clone(), notes.path(), FileTracking::untracked())
+            .expect("start the open file watcher");
     watcher
         .registry()
         .lock()
@@ -180,8 +187,13 @@ fn a_folder_stops_being_watched_when_the_last_tab_in_it_closes() {
     std::fs::write(&file, b"before\n").expect("seed file");
 
     let (bus, rx) = bus_with_channel();
-    let watcher = start_open_file_watcher(bus, create_ignore_set(), notes.path())
-        .expect("start the open file watcher");
+    let watcher = start_open_file_watcher(
+        bus,
+        create_ignore_set(),
+        notes.path(),
+        FileTracking::untracked(),
+    )
+    .expect("start the open file watcher");
     {
         let mut registry = watcher.registry().lock().expect("registry");
         registry.watch_parent_of("note-1", &file);
@@ -211,8 +223,13 @@ fn a_folder_full_of_churn_never_names_a_file_that_is_not_open() {
     std::fs::write(&two, b"before\n").expect("seed two");
 
     let (bus, rx) = bus_with_channel();
-    let watcher = start_open_file_watcher(bus, create_ignore_set(), notes.path())
-        .expect("start the open file watcher");
+    let watcher = start_open_file_watcher(
+        bus,
+        create_ignore_set(),
+        notes.path(),
+        FileTracking::untracked(),
+    )
+    .expect("start the open file watcher");
     {
         let mut registry = watcher.registry().lock().expect("registry");
         registry.watch_parent_of("note-1", &one);
@@ -271,8 +288,13 @@ fn a_note_inside_the_notes_folder_reaches_its_tab_when_another_program_rewrites_
 
     let (bus, rx) = bus_with_channel();
     let ignore = create_ignore_set();
-    let open_files = start_open_file_watcher(bus.clone(), ignore.clone(), notes.path())
-        .expect("start the open file watcher");
+    let open_files = start_open_file_watcher(
+        bus.clone(),
+        ignore.clone(),
+        notes.path(),
+        FileTracking::untracked(),
+    )
+    .expect("start the open file watcher");
 
     let outcome = open_files
         .registry()
@@ -290,6 +312,7 @@ fn a_note_inside_the_notes_folder_reaches_its_tab_when_another_program_rewrites_
         canonical(notes.path()),
         ignore,
         open_files.open_notes(),
+        FileTracking::untracked(),
     )
     .expect("start the notes watcher");
 
@@ -341,8 +364,13 @@ fn a_save_writ_made_inside_the_notes_folder_never_comes_back_to_the_tab() {
 
     let (bus, rx) = bus_with_channel();
     let ignore = create_ignore_set();
-    let open_files = start_open_file_watcher(bus.clone(), ignore.clone(), notes.path())
-        .expect("start the open file watcher");
+    let open_files = start_open_file_watcher(
+        bus.clone(),
+        ignore.clone(),
+        notes.path(),
+        FileTracking::untracked(),
+    )
+    .expect("start the open file watcher");
     open_files
         .registry()
         .lock()
@@ -354,6 +382,7 @@ fn a_save_writ_made_inside_the_notes_folder_never_comes_back_to_the_tab() {
         canonical(notes.path()),
         ignore.clone(),
         open_files.open_notes(),
+        FileTracking::untracked(),
     )
     .expect("start the notes watcher");
 
@@ -387,8 +416,13 @@ fn a_note_nobody_has_open_tells_no_tab() {
 
     let (bus, rx) = bus_with_channel();
     let ignore = create_ignore_set();
-    let open_files = start_open_file_watcher(bus.clone(), ignore.clone(), notes.path())
-        .expect("start the open file watcher");
+    let open_files = start_open_file_watcher(
+        bus.clone(),
+        ignore.clone(),
+        notes.path(),
+        FileTracking::untracked(),
+    )
+    .expect("start the open file watcher");
     open_files
         .registry()
         .lock()
@@ -400,6 +434,7 @@ fn a_note_nobody_has_open_tells_no_tab() {
         canonical(notes.path()),
         ignore,
         open_files.open_notes(),
+        FileTracking::untracked(),
     )
     .expect("start the notes watcher");
 
@@ -442,6 +477,7 @@ fn a_burst_that_stops_while_a_sweep_stands_is_swept_once_more() {
         canonical(notes.path()),
         create_ignore_set(),
         Arc::new(NoOpenNotes),
+        FileTracking::untracked(),
     )
     .expect("start the notes watcher");
 

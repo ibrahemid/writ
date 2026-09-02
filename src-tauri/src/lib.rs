@@ -786,11 +786,25 @@ pub fn run() {
                 // folder reaches its tab. It watches no folder until a tab
                 // asks for one, so starting it here costs one channel and two
                 // idle backends.
+                // What a file leaving its path means, and where the answer
+                // is recorded. Both watchers take the same one, so a note that
+                // moves between the notes folder and anywhere else is decided
+                // the same way whichever watcher sees it go.
+                let tracking = watcher::moves::FileTracking::of_app(app.handle().clone());
+                {
+                    let mut slot = recover_poison(
+                        state.file_tracking.lock(),
+                        "lib::setup:file_tracking_stash",
+                    );
+                    *slot = Some(tracking.clone());
+                }
+
                 let open_notes: std::sync::Arc<dyn watcher::open_files::OpenNotes> =
                     match watcher::open_files::start_open_file_watcher(
                         state.event_bus.clone(),
                         state.watcher_ignore.clone(),
                         &notes_root,
+                        tracking.clone(),
                     ) {
                         Ok(handle) => {
                             let lookup = handle.open_notes();
@@ -812,6 +826,7 @@ pub fn run() {
                     notes_root,
                     state.watcher_ignore.clone(),
                     open_notes,
+                    tracking,
                 ) {
                     Ok(handle) => {
                         let mut slot = recover_poison(

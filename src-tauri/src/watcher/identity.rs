@@ -96,8 +96,8 @@ fn platform_identity(path: &Path) -> Option<FileIdentity> {
 fn platform_identity(path: &Path) -> Option<FileIdentity> {
     use std::os::windows::io::AsRawHandle;
     use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::Storage::FileSystem::{FileIdInfo, GetFileInformationByHandleEx};
     use windows::Win32::Storage::FileSystem::FILE_ID_INFO;
+    use windows::Win32::Storage::FileSystem::{FileIdInfo, GetFileInformationByHandleEx};
 
     let file = std::fs::File::open(path).ok()?;
     if !file.metadata().ok()?.is_file() {

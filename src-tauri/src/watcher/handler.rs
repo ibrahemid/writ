@@ -1,5 +1,6 @@
 use crate::poison::recover_poison;
-use crate::watcher::open_files::OpenNotes;
+use crate::watcher::moves::FileTracking;
+use crate::watcher::open_files::{OpenNotes, VanishedContext};
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 use std::collections::HashSet;
@@ -303,6 +304,7 @@ pub fn start_notes_watcher(
     root: PathBuf,
     ignore_set: IgnoreSet,
     open_notes: Arc<dyn OpenNotes>,
+    tracking: FileTracking,
 ) -> Result<WatcherHandle, Box<dyn std::error::Error>> {
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
 
@@ -344,7 +346,12 @@ pub fn start_notes_watcher(
                     // One tab message per note per delivered batch, the same
                     // rule the open-file watcher runs on.
                     let mut told: HashSet<String> = HashSet::new();
-                    for event in events {
+                    // A note moved inside the notes folder arrives as its old
+                    // path leaving and its new one appearing in the same
+                    // window, which is how the tab is kept on the file.
+                    let batch: Vec<PathBuf> =
+                        events.iter().map(|event| event.path.clone()).collect();
+                    for event in &events {
                         let now = Instant::now();
                         let Some(domain_event) = classify_notes_event(
                             &event.path,
@@ -359,6 +366,10 @@ pub fn start_notes_watcher(
                             &domain_event,
                             open_notes.as_ref(),
                             &mut told,
+                            &VanishedContext {
+                                batch: &batch,
+                                tracking: &tracking,
+                            },
                         ) {
                             bus.emit(for_tab);
                         }
@@ -399,6 +410,7 @@ pub fn route_notes_change_to_open_tab(
     event: &WritEvent,
     open_notes: &dyn OpenNotes,
     told: &mut HashSet<String>,
+    vanished: &VanishedContext<'_>,
 ) -> Option<WritEvent> {
     let WritEvent::NotesChanged { path, removed } = event else {
         return None;
@@ -408,9 +420,7 @@ pub fn route_notes_change_to_open_tab(
     if !told.insert(note_id.clone()) {
         return None;
     }
-    Some(super::open_files::open_note_change(
-        &note_id, path, *removed,
-    ))
+    super::open_files::open_note_change(&note_id, path, *removed, vanished)
 }
 
 /// The event that stands for "more changed in the notes folder than is worth
@@ -646,6 +656,12 @@ mod tests {
         FixedNotes(HashMap::from([(path.to_path_buf(), note_id.to_string())]))
     }
 
+    /// A batch of one path with nothing recorded about any tab's file, which
+    /// is what these tests ask the routing about.
+    fn lone(path: &Path) -> Vec<PathBuf> {
+        vec![path.to_path_buf()]
+    }
+
     #[test]
     fn a_change_to_a_note_that_is_open_is_routed_to_its_tab() {
         // The core of W1 on the folder that holds nearly every note. A change
@@ -662,7 +678,15 @@ mod tests {
         };
         let mut told = HashSet::new();
 
-        match route_notes_change_to_open_tab(&change, &open_as(&note, "note-1"), &mut told) {
+        match route_notes_change_to_open_tab(
+            &change,
+            &open_as(&note, "note-1"),
+            &mut told,
+            &VanishedContext {
+                batch: &lone(&note),
+                tracking: &FileTracking::untracked(),
+            },
+        ) {
             Some(WritEvent::BufferExternal {
                 buffer_id,
                 path,
@@ -704,9 +728,16 @@ mod tests {
         };
         let mut told = HashSet::new();
 
-        assert!(
-            route_notes_change_to_open_tab(&change, &open_as(&note, "note-1"), &mut told).is_none()
-        );
+        assert!(route_notes_change_to_open_tab(
+            &change,
+            &open_as(&note, "note-1"),
+            &mut told,
+            &VanishedContext {
+                batch: &lone(&note),
+                tracking: &FileTracking::untracked(),
+            },
+        )
+        .is_none());
     }
 
     #[test]
@@ -720,7 +751,15 @@ mod tests {
         };
         let mut told = HashSet::new();
 
-        match route_notes_change_to_open_tab(&change, &open_as(&note, "note-1"), &mut told) {
+        match route_notes_change_to_open_tab(
+            &change,
+            &open_as(&note, "note-1"),
+            &mut told,
+            &VanishedContext {
+                batch: &lone(&note),
+                tracking: &FileTracking::untracked(),
+            },
+        ) {
             Some(WritEvent::BufferExternal {
                 buffer_id,
                 change,
@@ -730,7 +769,7 @@ mod tests {
                 assert_eq!(buffer_id, "note-1");
                 assert_eq!(
                     change,
-                    writ_core::watcher::change_event::ExternalChange::Deleted
+                    writ_core::watcher::change_event::ExternalChange::Removed
                 );
                 assert_eq!(disk_hash, None, "there is nothing left to hash");
             }
@@ -753,15 +792,42 @@ mod tests {
         let open = open_as(&note, "note-1");
         let mut told = HashSet::new();
 
-        assert!(route_notes_change_to_open_tab(&change, &open, &mut told).is_some());
+        assert!(route_notes_change_to_open_tab(
+            &change,
+            &open,
+            &mut told,
+            &VanishedContext {
+                batch: &lone(&note),
+                tracking: &FileTracking::untracked(),
+            },
+        )
+        .is_some());
         for _ in 0..10 {
-            assert!(route_notes_change_to_open_tab(&change, &open, &mut told).is_none());
+            assert!(route_notes_change_to_open_tab(
+                &change,
+                &open,
+                &mut told,
+                &VanishedContext {
+                    batch: &lone(&note),
+                    tracking: &FileTracking::untracked(),
+                },
+            )
+            .is_none());
         }
 
         // A new batch starts a new record, because the file may well have
         // changed again.
         let mut next_batch = HashSet::new();
-        assert!(route_notes_change_to_open_tab(&change, &open, &mut next_batch).is_some());
+        assert!(route_notes_change_to_open_tab(
+            &change,
+            &open,
+            &mut next_batch,
+            &VanishedContext {
+                batch: &lone(&note),
+                tracking: &FileTracking::untracked(),
+            },
+        )
+        .is_some());
     }
 
     #[test]
@@ -778,7 +844,11 @@ mod tests {
         assert!(route_notes_change_to_open_tab(
             &notes_swept(dir.path()),
             &open_as(&note, "note-1"),
-            &mut told
+            &mut told,
+            &VanishedContext {
+                batch: &lone(&note),
+                tracking: &FileTracking::untracked(),
+            },
         )
         .is_none());
     }

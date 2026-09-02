@@ -6,6 +6,7 @@ use tracing::{info, warn};
 use writ_core::buffer::document::BufferDocument;
 use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
+use writ_core::notes::identity::{FileIdentity, SourceState};
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::recovery::RecoveredBuffer;
 use writ_core::update::UpdatePhase;
@@ -27,6 +28,7 @@ use crate::preview::handler::RenderCache;
 use crate::quit::QuitState;
 use crate::security::{canonicalize_for_authorization, canonicalize_root, AuthorizedPaths};
 use crate::watcher::handler::{IgnoreSet, WatcherHandle};
+use crate::watcher::moves::FileTracking;
 use crate::watcher::open_files::{NoOpenNotes, OpenFileWatcher, OpenNotes};
 
 /// What Writ last saw on disk for one note.
@@ -44,6 +46,20 @@ fn disk_state_of(path: &Path, hash: writ_core::hash::Sha256Digest, size: u64) ->
         size: metadata.as_ref().map(|m| m.len()).unwrap_or(size),
         mtime: metadata.as_ref().and_then(|m| m.modified().ok()),
     }
+}
+
+/// What Writ knows about the file behind one note, beyond its bytes.
+///
+/// The bytes are [`DiskState`]'s half; this is the file itself — what the
+/// filesystem calls it, and whether it is still there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceRecord {
+    /// What the filesystem calls the file, when it could be read. `None` for a
+    /// file that is not there, and for a volume that has no id to give and no
+    /// bytes that may be read (an undownloaded file).
+    pub identity: Option<FileIdentity>,
+    /// Whether the file is where the note says it is.
+    pub state: SourceState,
 }
 
 /// Why startup could not keep the notes folder it was asked for.
@@ -103,6 +119,12 @@ pub struct AppState {
     /// notes tree. Held here for the same reason, and reached through
     /// [`AppState::follow_note_file`] and [`AppState::stop_following_note`].
     pub open_file_watcher: Mutex<Option<OpenFileWatcher>>,
+    /// How a watcher decides what a file leaving its path means, and where it
+    /// records the answer. Set once at startup, and read by every watcher
+    /// started after that — the notes watcher is restarted whenever the notes
+    /// folder moves, and one started without this would classify every delete
+    /// as a delete.
+    pub file_tracking: Mutex<Option<FileTracking>>,
     pub pending_opens: Mutex<Vec<String>>,
     pub frontend_ready: AtomicBool,
     pub transforms: RwLock<TransformRegistry>,
@@ -170,6 +192,19 @@ pub struct AppState {
     /// closing or deleting a note drops it, so a note reopened weeks later
     /// is compared against the file, not against a stale record of it.
     pub last_disk_hash: Mutex<HashMap<String, DiskState>>,
+    /// What the filesystem calls a buffer's file, and whether that file is
+    /// still there, keyed by buffer id.
+    ///
+    /// The identity is what tells a move from a delete when the path stops
+    /// holding anything ([`writ_core::notes::identity`]). It is read at the
+    /// moment a tab takes a file and again after every save, because an atomic
+    /// replace writes a new file and renames it over the old one: a record
+    /// taken before the save names an inode that no longer exists.
+    ///
+    /// In memory only, for the length of the session, because it describes the
+    /// filesystem as it is now. A relaunch reads it back from the file when
+    /// the tab is restored.
+    pub source_records: Mutex<HashMap<String, SourceRecord>>,
     /// Text a save could not write, handed over by the editor on its way out,
     /// keyed by buffer id.
     ///
@@ -422,6 +457,7 @@ impl AppState {
             watcher: Mutex::new(None),
             notes_watcher: Mutex::new(None),
             open_file_watcher: Mutex::new(None),
+            file_tracking: Mutex::new(None),
             pending_opens: Mutex::new(Vec::new()),
             frontend_ready: AtomicBool::new(false),
             transforms: RwLock::new(transforms),
@@ -445,6 +481,7 @@ impl AppState {
             workspace_index,
             search_generation: Arc::new(AtomicU64::new(0)),
             last_disk_hash: Mutex::new(recovered_disk_states),
+            source_records: Mutex::new(HashMap::new()),
             unsaved_on_exit: Mutex::new(HashMap::new()),
         })
     }
@@ -484,12 +521,118 @@ impl AppState {
     }
 
     /// Watches the folder holding `doc`'s file, so a change another program
-    /// makes to it reaches the tab. A note with no file yet is skipped.
+    /// makes to it reaches the tab, and reads what the file is. A note with no
+    /// file yet is skipped.
+    ///
+    /// This is also where a tab restored at launch learns that its file is not
+    /// there any more. The record is not carried across a relaunch, so a note
+    /// whose file was deleted while Writ was closed would otherwise come back
+    /// looking ordinary and recreate the file on its first save.
     pub fn follow_note_file(&self, doc: &BufferDocument) {
         let Some(path) = doc.source_path.as_deref() else {
             return;
         };
-        self.follow_note_path(&doc.id, Path::new(path));
+        let path = Path::new(path);
+        self.follow_note_path(&doc.id, path);
+        self.observe_source_file(&doc.id, path);
+    }
+
+    /// Records what the file at `path` is, and whether it is there at all.
+    ///
+    /// A file that is there clears a removed-on-disk mark: a note restored
+    /// from the Trash re-attaches to it without the user doing anything, which
+    /// is the whole of the restore case in spec W4.
+    pub fn observe_source_file(&self, note_id: &str, path: &Path) {
+        let identity = crate::watcher::identity::read_identity(path);
+        let state = if identity.is_some() || path.exists() {
+            SourceState::Present
+        } else {
+            SourceState::RemovedOnDisk
+        };
+        let mut map = recover_poison(self.source_records.lock(), "state::observe_source_file");
+        map.insert(note_id.to_string(), SourceRecord { identity, state });
+    }
+
+    /// What is recorded about `note_id`'s file, for a test to read back.
+    pub fn source_record(&self, note_id: &str) -> Option<SourceRecord> {
+        let map = recover_poison(self.source_records.lock(), "state::source_record");
+        map.get(note_id).cloned()
+    }
+
+    /// Re-reads the file's identity after a write, leaving its state alone.
+    ///
+    /// Every save writes a temporary file and renames it over the note, so the
+    /// file behind a tab is a new file after each one. Without this the first
+    /// delete after a save is measured against an identity nothing carries any
+    /// more, and a move reads as a delete.
+    pub fn refresh_source_identity(&self, note_id: &str, path: &Path) {
+        let identity = crate::watcher::identity::read_identity(path);
+        let mut map = recover_poison(self.source_records.lock(), "state::refresh_source_identity");
+        match map.get_mut(note_id) {
+            Some(record) => record.identity = identity,
+            None => {
+                map.insert(
+                    note_id.to_string(),
+                    SourceRecord {
+                        identity,
+                        state: SourceState::Present,
+                    },
+                );
+            }
+        }
+    }
+
+    /// What the filesystem last called `note_id`'s file.
+    pub fn source_identity(&self, note_id: &str) -> Option<FileIdentity> {
+        let map = recover_poison(self.source_records.lock(), "state::source_identity");
+        map.get(note_id).and_then(|record| record.identity.clone())
+    }
+
+    /// Records that `note_id`'s file was deleted. `true` when this is news.
+    ///
+    /// The answer is what keeps a tab from being told twice about one delete:
+    /// two watchers can see the same file leave a folder.
+    pub fn mark_removed_on_disk(&self, note_id: &str) -> bool {
+        let mut map = recover_poison(self.source_records.lock(), "state::mark_removed_on_disk");
+        let record = map.entry(note_id.to_string()).or_insert(SourceRecord {
+            identity: None,
+            state: SourceState::Present,
+        });
+        let news = record.state != SourceState::RemovedOnDisk;
+        record.state = SourceState::RemovedOnDisk;
+        record.identity = None;
+        news
+    }
+
+    /// Records that `note_id`'s file is there again. `true` when it had been
+    /// marked removed, which is a file coming back from the Trash.
+    pub fn clear_removed_on_disk(&self, note_id: &str) -> bool {
+        let mut map = recover_poison(self.source_records.lock(), "state::clear_removed_on_disk");
+        let Some(record) = map.get_mut(note_id) else {
+            return false;
+        };
+        let was_removed = record.state == SourceState::RemovedOnDisk;
+        record.state = SourceState::Present;
+        was_removed
+    }
+
+    /// Whether `note_id`'s file was deleted and not replaced.
+    ///
+    /// The save path asks this: a note in that state keeps its text in the tab
+    /// and writes nothing, because recreating the file would put back what the
+    /// user threw away, and in a synced folder it would put it back on every
+    /// device (spec W4).
+    pub fn is_removed_on_disk(&self, note_id: &str) -> bool {
+        let map = recover_poison(self.source_records.lock(), "state::is_removed_on_disk");
+        map.get(note_id)
+            .is_some_and(|record| record.state == SourceState::RemovedOnDisk)
+    }
+
+    /// Drops what was recorded about `note_id`'s file, which the tab closing
+    /// or the note being deleted is the end of.
+    pub fn forget_source_record(&self, note_id: &str) {
+        let mut map = recover_poison(self.source_records.lock(), "state::forget_source_record");
+        map.remove(note_id);
     }
 
     /// The one place a tab's file starts being followed.
@@ -518,15 +661,33 @@ impl AppState {
     /// Asking twice for the same note and file costs nothing, so a path that
     /// cannot tell whether the tab is new should call it anyway.
     pub fn follow_note_path(&self, note_id: &str, path: &Path) {
-        let watcher = recover_poison(self.open_file_watcher.lock(), "state::follow_note_path");
-        let Some(watcher) = watcher.as_ref() else {
-            return;
-        };
-        let mut registry = recover_poison(
-            watcher.registry().lock(),
-            "state::follow_note_path:registry",
-        );
-        registry.watch_parent_of(note_id, path);
+        {
+            let watcher = recover_poison(self.open_file_watcher.lock(), "state::follow_note_path");
+            if let Some(watcher) = watcher.as_ref() {
+                let mut registry = recover_poison(
+                    watcher.registry().lock(),
+                    "state::follow_note_path:registry",
+                );
+                registry.watch_parent_of(note_id, path);
+            }
+        }
+        // What the filesystem calls this file, taken at the moment the tab
+        // takes it. Without it, the first time the path stops holding anything
+        // there is nothing to compare against and a move reads as a delete.
+        // Recorded whether or not a watcher is running, because the save path
+        // reads it too.
+        self.refresh_source_identity(note_id, path);
+    }
+
+    /// How this process decides what a file leaving its path means.
+    ///
+    /// Untracked before startup has set it, and in a test that builds a state
+    /// with no application around it: every delete then reads as a delete,
+    /// which is the pre-identity behaviour rather than a wrong answer.
+    pub fn file_tracking(&self) -> FileTracking {
+        recover_poison(self.file_tracking.lock(), "state::file_tracking")
+            .clone()
+            .unwrap_or_else(FileTracking::untracked)
     }
 
     /// Which note a path is open as, for a watcher routing a change to a tab.

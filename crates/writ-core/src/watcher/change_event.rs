@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 pub enum ExternalChange {
     /// The file's contents were modified.
     Modified,
-    /// The file was deleted from disk.
-    Deleted,
+    /// The file is gone and nothing carrying its identity was found, so the
+    /// tab keeps its text and stops writing to the path (spec W4).
+    Removed,
+    /// The same file is at another path now. The tab follows it there; the
+    /// text is untouched, because a move changes no bytes.
+    Moved,
 }

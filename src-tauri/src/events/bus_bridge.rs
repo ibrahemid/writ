@@ -51,7 +51,8 @@ fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
             path: path.clone(),
             change: match change {
                 ExternalChange::Modified => "modified".to_string(),
-                ExternalChange::Deleted => "deleted".to_string(),
+                ExternalChange::Removed => "removed".to_string(),
+                ExternalChange::Moved => "moved".to_string(),
             },
             new_path: new_path.clone(),
             disk_hash: disk_hash.clone(),
@@ -162,14 +163,14 @@ mod tests {
     }
 
     #[test]
-    fn bridge_translates_buffer_external_deleted_to_frontend_event() {
+    fn bridge_translates_buffer_external_removed_to_frontend_event() {
         let bus = EventBus::new();
         let captured = capture(&bus);
 
         bus.emit(WritEvent::BufferExternal {
             buffer_id: "draft-2.txt".to_string(),
             path: "/repo/draft-2.txt".to_string(),
-            change: ExternalChange::Deleted,
+            change: ExternalChange::Removed,
             new_path: None,
             disk_hash: None,
         });
@@ -181,11 +182,67 @@ mod tests {
             WritFrontendEvent::BufferExternal {
                 buffer_id: "draft-2.txt".to_string(),
                 path: "/repo/draft-2.txt".to_string(),
-                change: "deleted".to_string(),
+                change: "removed".to_string(),
                 new_path: None,
                 disk_hash: None,
             }
         );
+    }
+
+    #[test]
+    fn bridge_translates_buffer_external_moved_to_frontend_event() {
+        let bus = EventBus::new();
+        let captured = capture(&bus);
+
+        bus.emit(WritEvent::BufferExternal {
+            buffer_id: "draft-3.txt".to_string(),
+            path: "/repo/draft-3.txt".to_string(),
+            change: ExternalChange::Moved,
+            new_path: Some("/elsewhere/draft-3.txt".to_string()),
+            disk_hash: Some("abc".to_string()),
+        });
+
+        let events = captured.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0],
+            WritFrontendEvent::BufferExternal {
+                buffer_id: "draft-3.txt".to_string(),
+                path: "/repo/draft-3.txt".to_string(),
+                change: "moved".to_string(),
+                new_path: Some("/elsewhere/draft-3.txt".to_string()),
+                disk_hash: Some("abc".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn every_kind_of_change_reaches_the_wire_as_the_word_the_frontend_branches_on() {
+        // The words, not just the field names. `ExternalChange` carries no
+        // serde renaming of its own, so a variant whose arm went missing in
+        // the bridge would arrive as some other word and the frontend's guard
+        // would drop the event without a sound.
+        for (variant, word) in [
+            (ExternalChange::Modified, "modified"),
+            (ExternalChange::Removed, "removed"),
+            (ExternalChange::Moved, "moved"),
+        ] {
+            let bus = EventBus::new();
+            let captured = capture(&bus);
+            bus.emit(WritEvent::BufferExternal {
+                buffer_id: "note-1".to_string(),
+                path: "/notes/one.md".to_string(),
+                change: variant.clone(),
+                new_path: None,
+                disk_hash: None,
+            });
+            let events = captured.lock().unwrap();
+            let json = serde_json::to_value(&events[0]).expect("serialise");
+            assert_eq!(
+                json["payload"]["change"], word,
+                "{variant:?} must reach the frontend as {word}"
+            );
+        }
     }
 
     #[test]

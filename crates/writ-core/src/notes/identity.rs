@@ -94,7 +94,7 @@ pub enum DeleteVerdict {
 /// The seam between this module and the syscalls. A test supplies identities
 /// directly and never touches a disk, which is how the verdict is covered on
 /// a machine that has no FAT volume and no Windows.
-pub trait IdentityProbe {
+pub trait IdentityProbe: Send + Sync {
     /// The identity of the file at `path`, or `None` when there is nothing to
     /// read there.
     fn identity_of(&self, path: &Path) -> Option<FileIdentity>;

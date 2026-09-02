@@ -24,6 +24,14 @@ pub const ERR_FILE_CHANGED_ON_DISK: &str = "ERR_FILE_CHANGED_ON_DISK";
 /// Code a save carries when the file's bytes are not on this machine yet.
 pub const ERR_FILE_NOT_DOWNLOADED: &str = "ERR_FILE_NOT_DOWNLOADED";
 
+/// Code a save carries when the note's file was deleted and nothing carrying
+/// its identity was found.
+///
+/// Writing would recreate a file the user threw away, and in a synced folder
+/// it would put it back on every device. The text stays in the tab and the
+/// person decides where it goes (spec W4).
+pub const ERR_FILE_REMOVED_ON_DISK: &str = "ERR_FILE_REMOVED_ON_DISK";
+
 /// Code a save carries when the note itself is not writable, which a
 /// generated document and a binary file both are.
 pub const ERR_NOTE_READ_ONLY: &str = "ERR_NOTE_READ_ONLY";
@@ -173,6 +181,15 @@ pub fn save_buffer_content_inner(
     if doc.read_only {
         return Err(format!("{ERR_NOTE_READ_ONLY}: note {id} is read-only"));
     }
+    // A file the user deleted is not recreated by the next keystroke. The
+    // write gate cannot answer this on its own: a path that is not there
+    // resolves and passes, which is what lets a new note be minted and is
+    // right everywhere except here (spec W4).
+    if state.is_removed_on_disk(id) {
+        return Err(format!(
+            "{ERR_FILE_REMOVED_ON_DISK}: note {id} has no file on disk any more"
+        ));
+    }
 
     let source_path = match doc.source_path.as_deref() {
         Some(path) => path.to_string(),
@@ -186,6 +203,11 @@ pub fn save_buffer_content_inner(
         .save_to_source_without_index(id, content, state.disk_state(id), Some(&stamp))
         .map_err(|e| save_failure_message(&e))?;
     state.set_disk_state(id, written);
+    // Every save writes a temporary file and renames it over the note, so the
+    // file behind this tab is a new file now. A record taken before the save
+    // names one nothing carries any more, and the first delete after it would
+    // read a move as a delete.
+    state.refresh_source_identity(id, Path::new(&source_path));
     // The digest the editor compares its document against, not the guard's
     // raw one: the bytes just written are the document, so this is the answer
     // that makes the tab read clean.
@@ -528,6 +550,7 @@ pub fn close_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
         store.close(id).map_err(|e| e.to_string())?;
     }
     state.forget_disk_state(id);
+    state.forget_source_record(id);
     state.stop_following_note(id);
     Ok(())
 }
@@ -544,6 +567,7 @@ pub fn close_buffers_inner(state: &AppState, ids: &[String]) -> Result<(), Strin
     }
     for id in ids {
         state.forget_disk_state(id);
+        state.forget_source_record(id);
         state.stop_following_note(id);
     }
     Ok(())
@@ -564,6 +588,7 @@ pub fn delete_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
         store.delete(id).map_err(|e| e.to_string())?;
     }
     state.forget_disk_state(id);
+    state.forget_source_record(id);
     state.stop_following_note(id);
     Ok(())
 }

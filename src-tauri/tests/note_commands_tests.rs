@@ -11,6 +11,7 @@ use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::hash::sha256_bytes;
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
+use writ_core::watcher::change_event::ExternalChange;
 use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
@@ -20,7 +21,9 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::errors::StorageError;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::buffer::{save_buffer_content_inner, ERR_FILE_CHANGED_ON_DISK};
+use writ_tauri_lib::commands::buffer::{
+    save_buffer_content_inner, ERR_FILE_CHANGED_ON_DISK, ERR_FILE_REMOVED_ON_DISK,
+};
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::commands::notes::{
     delete_note_inner, move_notes_folder_to, new_note_inner, note_path_for_id, notes_root_text,
@@ -31,6 +34,7 @@ use writ_tauri_lib::quit::QuitState;
 use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
 use writ_tauri_lib::state::AppState;
 use writ_tauri_lib::watcher::handler::{create_ignore_set, start_notes_watcher};
+use writ_tauri_lib::watcher::moves::FileTracking;
 use writ_tauri_lib::watcher::open_files::start_open_file_watcher;
 
 fn make_state(dir: &TempDir) -> AppState {
@@ -58,6 +62,7 @@ fn make_state(dir: &TempDir) -> AppState {
         watcher: Mutex::new(None),
         notes_watcher: Mutex::new(None),
         open_file_watcher: Mutex::new(None),
+        file_tracking: Mutex::new(None),
         notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
         notes_reconcile: Arc::new(ReconcileGate::new()),
@@ -83,6 +88,7 @@ fn make_state(dir: &TempDir) -> AppState {
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
+        source_records: Mutex::new(std::collections::HashMap::new()),
         unsaved_on_exit: Mutex::new(std::collections::HashMap::new()),
     }
 }
@@ -444,17 +450,23 @@ const APART: Duration = Duration::from_millis(700);
 /// holds this file", then the notes watcher over the notes folder.
 ///
 /// The handles are held by the state, so they live as long as it does.
-fn watching_state(dir: &TempDir) -> (AppState, mpsc::Receiver<WritEvent>) {
-    let state = make_state(dir);
+fn watching_state(dir: &TempDir) -> (Arc<AppState>, mpsc::Receiver<WritEvent>) {
+    let state = Arc::new(make_state(dir));
     let (tx, rx) = mpsc::channel();
     state.event_bus.subscribe(move |event| {
         let _ = tx.send(event.clone());
     });
 
+    // The real tracking, reached through the state rather than through an
+    // application: a delete here is decided exactly as it is in the app, and
+    // the row and the marks it moves are this state's.
+    *state.file_tracking.lock().expect("tracking slot") = Some(FileTracking::of_state(&state));
+
     let open_files = start_open_file_watcher(
         state.event_bus.clone(),
         state.watcher_ignore.clone(),
         &state.notes_root(),
+        state.file_tracking(),
     )
     .expect("start the open file watcher");
     *state.open_file_watcher.lock().expect("watcher slot") = Some(open_files);
@@ -464,6 +476,7 @@ fn watching_state(dir: &TempDir) -> (AppState, mpsc::Receiver<WritEvent>) {
         state.notes_root(),
         state.watcher_ignore.clone(),
         state.open_notes(),
+        state.file_tracking(),
     )
     .expect("start the notes watcher");
     *state.notes_watcher.lock().expect("notes watcher slot") = Some(notes);
@@ -629,5 +642,247 @@ fn a_file_opened_from_outside_the_notes_folder_survives_the_move() {
     assert!(
         events.iter().any(|event| named_by(event).0 == id),
         "the move took a watch on a folder that has nothing to do with it: {events:?}"
+    );
+}
+
+/// The change one `BufferExternal` reports, and where it says the file went.
+fn change_of(event: &WritEvent) -> (&ExternalChange, Option<&str>) {
+    match event {
+        WritEvent::BufferExternal {
+            change, new_path, ..
+        } => (change, new_path.as_deref()),
+        other => panic!("not an external change: {other:?}"),
+    }
+}
+
+#[test]
+fn a_note_moved_inside_the_notes_folder_keeps_its_tab_and_leaves_nothing_behind() {
+    // The headline of W4. Moving a note in Finder must not make the tab a
+    // stale window onto a path nothing holds: the next autosave would put the
+    // file back where it was, and in a synced folder every device would get
+    // the duplicate.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    let sub = state.notes_root().join("archive");
+    std::fs::create_dir_all(&sub).expect("subfolder");
+    let after = sub.join("moved-by-finder.md");
+    std::thread::sleep(APART);
+
+    std::fs::rename(&before, &after).expect("move the file the way Finder does");
+
+    let seen = external_events(&rx);
+    assert_eq!(
+        seen.len(),
+        1,
+        "exactly one path update, and no other news, saw {seen:?}"
+    );
+    let (buffer_id, named) = named_by(&seen[0]);
+    assert_eq!(buffer_id, doc.id);
+    assert_eq!(
+        std::path::Path::new(named),
+        before,
+        "the message names the path the tab knows, so the tab can recognise it"
+    );
+    let (change, new_path) = change_of(&seen[0]);
+    assert_eq!(change, &ExternalChange::Moved);
+    assert_eq!(new_path.map(std::path::Path::new), Some(after.as_path()));
+
+    assert_eq!(
+        note_file(&state, &doc.id),
+        after,
+        "the row still points at the path the file left"
+    );
+    assert_eq!(
+        title_of(&state, &doc.id),
+        "moved-by-finder.md",
+        "the tab keeps the name the file had before it moved"
+    );
+
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping, edited").expect("save again");
+    assert!(
+        !before.exists(),
+        "the save recreated the note at the path the user moved it away from"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&after).expect("read the moved file"),
+        "text worth keeping, edited"
+    );
+}
+
+#[test]
+fn a_note_deleted_outside_writ_is_not_recreated_by_the_next_save() {
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    std::fs::remove_file(&path).expect("delete the note the way Finder does");
+
+    let seen = external_events(&rx);
+    assert_eq!(seen.len(), 1, "the tab must be told once, saw {seen:?}");
+    assert_eq!(named_by(&seen[0]).0, doc.id);
+    assert_eq!(change_of(&seen[0]), (&ExternalChange::Removed, None));
+
+    let refused = save_buffer_content_inner(&state, &doc.id, "text worth keeping, edited")
+        .expect_err("the save must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the refusal has to carry its own code, got {refused}"
+    );
+    assert!(
+        !path.exists(),
+        "the save put back the file the user threw away"
+    );
+}
+
+#[test]
+fn a_sync_client_replacing_a_file_is_an_external_modification_and_not_a_move() {
+    // Delete plus create at the same path, which is how more than one sync
+    // client lands an update. The file is a different file, and the tab is
+    // told what every other rewrite tells it.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "as writ left it").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    std::fs::remove_file(&path).expect("remove");
+    std::fs::write(&path, b"as the sync client left it\n").expect("create in its place");
+
+    let seen = external_events(&rx);
+    assert!(!seen.is_empty(), "the tab heard nothing about the rewrite");
+    for event in &seen {
+        assert_eq!(named_by(event).0, doc.id);
+        assert_eq!(
+            change_of(event).0,
+            &ExternalChange::Modified,
+            "a replaced file is a modification, not a move and not a delete: {event:?}"
+        );
+    }
+    assert!(
+        !state.is_removed_on_disk(&doc.id),
+        "the tab must still be writing to the file that took the path"
+    );
+    // And W2 governs from here, which is the whole of what the verdict
+    // decides: the write guard stops the save, writes the text beside the note
+    // and says why, rather than the tab refusing to write at all.
+    let refused = save_buffer_content_inner(&state, &doc.id, "edited after the sync landed")
+        .expect_err("a file rewritten under writ is the write guard's business");
+    assert!(
+        refused.starts_with(ERR_FILE_CHANGED_ON_DISK),
+        "got {refused}"
+    );
+}
+
+#[test]
+fn a_note_put_back_from_the_trash_re_attaches_to_its_file() {
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    let trash = dir.path().join("trash-stand-in.md");
+    std::thread::sleep(APART);
+
+    std::fs::rename(&path, &trash).expect("move to the trash");
+    let removal = external_events(&rx);
+    assert_eq!(
+        removal.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Removed],
+        "saw {removal:?}"
+    );
+    assert!(state.is_removed_on_disk(&doc.id));
+
+    std::fs::rename(&trash, &path).expect("put it back");
+    let restored = external_events(&rx);
+    assert!(
+        restored
+            .iter()
+            .any(|event| change_of(event).0 == &ExternalChange::Modified),
+        "a file that came back must reach its tab, saw {restored:?}"
+    );
+    assert!(
+        !state.is_removed_on_disk(&doc.id),
+        "the tab is still refusing to write to a file that is there"
+    );
+    save_buffer_content_inner(&state, &doc.id, "edited after the restore").expect("save");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read"),
+        "edited after the restore"
+    );
+}
+
+#[test]
+fn a_tab_restored_at_launch_onto_a_file_that_is_gone_writes_nothing() {
+    // Nothing about a deleted file survives a relaunch, so the state is read
+    // back from the file when the tab is restored. Without that, a note whose
+    // file was deleted while Writ was closed comes back looking ordinary and
+    // recreates the file on its first save.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, _rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::fs::remove_file(&path).expect("delete while writ is not looking");
+    state.forget_source_record(&doc.id);
+
+    let row = {
+        let store = state.store.lock().expect("lock");
+        store.get(&doc.id).expect("row")
+    };
+    state.follow_note_file(&row);
+
+    let refused = save_buffer_content_inner(&state, &doc.id, "edited after the relaunch")
+        .expect_err("the save must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "got {refused}"
+    );
+    assert!(!path.exists());
+}
+
+#[test]
+fn a_file_opened_from_outside_the_notes_folder_follows_its_move_too() {
+    // The other watcher, and the case the notes watcher cannot see: a file in
+    // a folder Writ follows only because a tab holds it.
+    let dir = TempDir::new().expect("temp dir");
+    let elsewhere = TempDir::new().expect("some other folder");
+    let (state, rx) = watching_state(&dir);
+
+    let file = elsewhere.path().join("shared.md");
+    std::fs::write(&file, b"as another program left it\n").expect("seed");
+    let canonical = canonicalize_for_authorization(&file).expect("canonical");
+    state.authorized_paths.record_for_open(canonical.clone());
+    let opened = open_file_from_path(&state, &canonical).expect("open");
+    let renamed = elsewhere.path().join("renamed-by-somebody.md");
+    std::thread::sleep(APART);
+
+    std::fs::rename(&file, &renamed).expect("rename");
+
+    let seen = external_events(&rx);
+    assert_eq!(seen.len(), 1, "the tab must be told once, saw {seen:?}");
+    assert_eq!(named_by(&seen[0]).0, opened.doc.id);
+    let (change, new_path) = change_of(&seen[0]);
+    assert_eq!(change, &ExternalChange::Moved);
+    let landed = new_path.expect("a move names where the file went");
+    assert_eq!(
+        canonicalize_for_authorization(std::path::Path::new(landed)).expect("canonical"),
+        canonicalize_for_authorization(&renamed).expect("canonical")
+    );
+    assert_eq!(
+        canonicalize_for_authorization(&note_file(&state, &opened.doc.id)).expect("canonical"),
+        canonicalize_for_authorization(&renamed).expect("canonical"),
+        "the row still points at the path the file left"
     );
 }
