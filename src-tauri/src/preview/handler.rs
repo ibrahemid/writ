@@ -1084,7 +1084,7 @@ mod asset_tests {
     }
 
     #[test]
-    fn an_unknown_root_token_is_refused() {
+    fn an_unknown_root_token_is_not_an_asset_request() {
         let f = Fixture::new();
         // No root discriminator: the path is not an asset request at all, so
         // it falls through to the document lookup and 404s on the buffer id.
