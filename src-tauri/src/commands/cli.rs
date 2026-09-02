@@ -8,8 +8,6 @@ pub struct InstallCliResult {
 
 #[derive(Debug, serde::Serialize)]
 pub struct CliStatus {
-    /// Whether this platform has somewhere for the app to put the command.
-    pub supported: bool,
     pub installed: bool,
     pub path: String,
 }
@@ -36,14 +34,12 @@ fn install_supported() -> bool {
 pub fn cli_status() -> CliStatus {
     if !install_supported() {
         return CliStatus {
-            supported: false,
             installed: false,
             path: String::new(),
         };
     }
     let target = std::path::PathBuf::from(INSTALL_TARGET);
     CliStatus {
-        supported: true,
         installed: is_installed(&target),
         path: INSTALL_TARGET.to_string(),
     }
@@ -227,10 +223,9 @@ mod tests {
     }
 
     #[test]
-    fn the_status_reports_the_platform_before_anything_else() {
+    fn a_platform_with_nowhere_to_install_reports_no_target() {
         let status = cli_status();
-        assert_eq!(status.supported, !cfg!(windows));
-        if status.supported {
+        if install_supported() {
             assert!(!status.path.is_empty());
         } else {
             assert!(status.path.is_empty());
