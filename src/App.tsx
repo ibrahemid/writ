@@ -22,6 +22,7 @@ import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
 import UpdateBanner from "./components/UpdateBanner/UpdateBanner";
 import WindowProvider, { useWindow } from "./components/WindowProvider/WindowProvider";
 import { bufferRegistry } from "./stores/global/buffer-registry";
+import { saveStatusStore } from "./stores/global/save-status";
 import { basename } from "./lib/path";
 import { logFailure } from "./lib/log";
 import { workspaceStore } from "./stores/global/workspace";
@@ -640,7 +641,18 @@ function AppShell() {
       hasUnsaved: (id: string) => win.editor.isDirty(id),
       reload: (id: string) => win.editor.requestExternalReload(id),
       cancelAutosave: (id: string) => cancelAutosave(id),
-      toast: (message: string, level: "warning") => showToast(message, level),
+      // A move changes no bytes, so nothing is read and nothing is asked: the
+      // row already names the new path, and this is the tab catching up to it.
+      followMove: (id: string) => {
+        void bufferRegistry.refreshBuffer(id).catch(() => {});
+        win.editor.clearRemovedOnDisk(id);
+      },
+      // The failure of a save that raced the deletion is about a file that is
+      // no longer there, and its bar would sit under the one replacing it.
+      markRemoved: (id: string) => {
+        saveStatusStore.forgetNote(id);
+        win.editor.markRemovedOnDisk(id);
+      },
       confirmReload: (title: string) =>
         requestConfirm({
           title: "File changed on disk",

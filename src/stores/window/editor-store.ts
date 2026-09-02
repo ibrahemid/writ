@@ -145,6 +145,39 @@ export function createEditorStore() {
     });
   }
 
+  // The notes whose file was deleted while their tab stayed open. The text is
+  // still in the editor and still the only copy of it, so the tab keeps it and
+  // writes nothing: recreating the file would put back what the person threw
+  // away, and in a synced folder it would put it back on every device (W4).
+  // The backend refuses such a save under ERR_FILE_REMOVED_ON_DISK whatever
+  // this holds; this is what stops the tab asking in the first place and what
+  // the bar reads.
+  const [removedOnDisk, setRemovedOnDisk] = createSignal<ReadonlySet<string>>(
+    new Set(),
+  );
+
+  function markRemovedOnDisk(id: string) {
+    setRemovedOnDisk((current) => {
+      if (current.has(id)) return current;
+      const next = new Set(current);
+      next.add(id);
+      return next;
+    });
+  }
+
+  function clearRemovedOnDisk(id: string) {
+    setRemovedOnDisk((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  function isRemovedOnDisk(id: string): boolean {
+    return removedOnDisk().has(id);
+  }
+
   function forgetHashes(id: string) {
     setNoteHashes((current) => {
       if (!current.has(id)) return current;
@@ -266,6 +299,7 @@ export function createEditorStore() {
   function noteClosed(id: string) {
     clearHashTimer(id);
     forgetHashes(id);
+    clearRemovedOnDisk(id);
   }
 
   /**
@@ -414,6 +448,10 @@ export function createEditorStore() {
     content: ContentSource,
     delayMs: number,
   ) {
+    // A note whose file was deleted writes nothing until the person says where
+    // it goes. Without this every keystroke queues a save the backend refuses,
+    // and the bar's reason is replaced by a fresh failure each time.
+    if (isRemovedOnDisk(bufferId)) return;
     debouncedSave(bufferId, content, delayMs);
   }
 
@@ -434,6 +472,7 @@ export function createEditorStore() {
     const view = activeView;
     if (bufferId === null || view === null)
       return Promise.resolve(NOTHING_TO_SAVE);
+    if (isRemovedOnDisk(bufferId)) return Promise.resolve(NOTHING_TO_SAVE);
     if (largeFileMode()?.kind === "Binary")
       return Promise.resolve(NOTHING_TO_SAVE);
     return saveNowService(bufferId, () => view.state.doc.toString());
@@ -508,6 +547,10 @@ export function createEditorStore() {
     noteClosed,
     isDirty,
     isTracked,
+    removedOnDisk,
+    markRemovedOnDisk,
+    clearRemovedOnDisk,
+    isRemovedOnDisk,
     docHash,
     lastKnownDiskHash,
     stopSaveListener,

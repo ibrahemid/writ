@@ -11,7 +11,7 @@ export type WritEvent =
       payload: {
         bufferId: string;
         path: string;
-        change: "modified" | "deleted";
+        change: "modified" | "removed" | "moved";
         newPath: string | null;
         diskHash: string | null;
       };

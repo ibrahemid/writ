@@ -227,6 +227,19 @@ function createBufferRegistry() {
     return api.readBufferContent(id);
   }
 
+  /**
+   * Re-reads one note's row and patches that entry.
+   *
+   * What a tab needs after its file moved: the row already names the new path
+   * and the name it now has, and this is how the tab bar and the save path
+   * catch up. One entry, never `load()` — reloading every buffer re-creates
+   * the always-mounted preview iframe and freezes the macOS webview (#127).
+   */
+  async function refreshBuffer(id: string): Promise<void> {
+    const doc = await api.getBuffer(id);
+    setBuffers((prev) => prev.map((b) => (b.id === doc.id ? doc : b)));
+  }
+
   return {
     buffers,
     activeTabs,
@@ -246,6 +259,7 @@ function createBufferRegistry() {
     registerOpenResult,
     showOpenFileDialog,
     readContent,
+    refreshBuffer,
   };
 }
 

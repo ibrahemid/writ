@@ -1,5 +1,6 @@
 import StatusBar from "./StatusBar";
 import SaveFailureBar from "./SaveFailureBar";
+import RemovedOnDiskBar from "./RemovedOnDiskBar";
 import FindOverlay from "../Find/FindOverlay";
 import SpellingPreview from "./SpellingPreview";
 import PreviewLayout from "../Preview/PreviewLayout";
@@ -11,6 +12,7 @@ export default function EditorArea() {
 
   return (
     <div class="editor-area">
+      <RemovedOnDiskBar noteId={activeBuffer()?.id ?? null} />
       <SaveFailureBar noteId={activeBuffer()?.id ?? null} />
       <div class="editor-content">
         {/* Always mounted, even with no active buffer, so the preview iframe

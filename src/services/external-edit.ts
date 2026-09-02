@@ -1,6 +1,11 @@
-export type ExternalChange = "modified" | "deleted";
+export type ExternalChange = "modified" | "removed" | "moved";
 
-export type ExternalEditAction = "ignore" | "toast" | "reload" | "prompt";
+export type ExternalEditAction =
+  | "ignore"
+  | "follow"
+  | "mark-removed"
+  | "reload"
+  | "prompt";
 
 export interface ExternalEditInputs {
   change: ExternalChange;
@@ -8,15 +13,19 @@ export interface ExternalEditInputs {
   hasUnsaved: boolean;
 }
 
-// Decides how to respond to an external change to a buffer's backing file
-// (audit blocker #53.4). An unknown file is ignored; a deletion only
-// notifies (the in-memory buffer keeps its content and recreates the file
-// on the next save); a modification reloads the editor from disk when there
-// is nothing to lose, and prompts first when the user has unsaved edits that
-// the reload would discard.
+// Decides how to respond to an external change to a buffer's backing file.
+//
+// An unknown file is ignored. A file that moved changes no bytes, so the tab
+// follows it to its new path and nothing is read, reloaded or asked: putting a
+// move through the dirty gate would throw away unsaved text over a rename. A
+// file that was deleted marks the tab, which keeps the text and stops the next
+// save recreating the file (spec W4). A modification reloads the editor from
+// disk when there is nothing to lose, and asks first when there are unsaved
+// edits the reload would discard.
 export function planExternalEdit(inputs: ExternalEditInputs): ExternalEditAction {
   if (!inputs.known) return "ignore";
-  if (inputs.change === "deleted") return "toast";
+  if (inputs.change === "moved") return "follow";
+  if (inputs.change === "removed") return "mark-removed";
   return inputs.hasUnsaved ? "prompt" : "reload";
 }
 
@@ -30,8 +39,12 @@ export interface ExternalEditDeps {
   hasUnsaved: (id: string) => boolean;
   reload: (id: string) => void;
   cancelAutosave: (id: string) => void;
-  toast: (message: string, level: "warning") => void;
   confirmReload: (title: string) => Promise<boolean>;
+  // Repoints the tab at the file's new path: its name, the path it saves to,
+  // and the folder it is watched in. The text is untouched.
+  followMove: (id: string, newPath: string) => void;
+  // Marks the tab as having no file on disk. Its text stays where it is.
+  markRemoved: (id: string) => void;
 }
 
 // What the backend says about a file that changed outside Writ. `path` names
@@ -61,7 +74,13 @@ export function readExternalEditPayload(payload: {
   diskHash?: string | null;
 }): ExternalEditPayload | null {
   if (!payload.bufferId) return null;
-  if (payload.change !== "modified" && payload.change !== "deleted") return null;
+  if (
+    payload.change !== "modified" &&
+    payload.change !== "removed" &&
+    payload.change !== "moved"
+  ) {
+    return null;
+  }
   return {
     bufferId: payload.bufferId,
     change: payload.change,
@@ -92,8 +111,14 @@ export async function handleExternalEdit(
   if (!buffer || action === "ignore") return;
 
   switch (action) {
-    case "toast":
-      deps.toast(`File "${buffer.title}" deleted externally`, "warning");
+    case "follow":
+      // A move that names nowhere is not a move anything can follow. It cannot
+      // happen from the backend, and silence beats repointing a tab at "".
+      if (payload.newPath) deps.followMove(buffer.id, payload.newPath);
+      return;
+    case "mark-removed":
+      deps.cancelAutosave(buffer.id);
+      deps.markRemoved(buffer.id);
       return;
     case "reload":
       deps.reload(buffer.id);

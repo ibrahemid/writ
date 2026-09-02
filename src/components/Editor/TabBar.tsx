@@ -104,10 +104,11 @@ export default function TabBar() {
                 onCleanup(() => tabEls.delete(tab.id));
               }}
               class={`tab ${win.tabs.activeTabId() === tab.id ? "tab-active" : ""}`}
+              classList={{ "tab-removed": win.editor.isRemovedOnDisk(tab.id) }}
               onClick={() => win.tabs.setActiveTabId(tab.id)}
               onDblClick={(e) => { e.stopPropagation(); setEditingTabId(tab.id); }}
               onContextMenu={(e) => handleContextMenu(e, tab.id)}
-              title={tab.title}
+              title={win.editor.isRemovedOnDisk(tab.id) ? `${tab.title} (deleted)` : tab.title}
             >
               <Show when={editingTabId() === tab.id} fallback={
                 <span class="tab-title">{abbreviateTitle(tab.title)}</span>

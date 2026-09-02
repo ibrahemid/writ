@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { render, cleanup, fireEvent } from "@solidjs/testing-library";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
+import { render, cleanup } from "@solidjs/testing-library";
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -23,6 +23,7 @@ beforeAll(() => {
 const mocks = vi.hoisted(() => ({
   activeTabs: vi.fn(() => [
     { id: "buf-1", title: "alpha.md", filename: "alpha.md", source_path: null },
+    { id: "buf-2", title: "beta.md", filename: "beta.md", source_path: null },
   ]),
   activeTabId: vi.fn(() => "buf-1"),
   setActiveTabId: vi.fn(),
@@ -32,11 +33,12 @@ const mocks = vi.hoisted(() => ({
   createTab: vi.fn(),
   renameBuffer: vi.fn(),
   showContextMenu: vi.fn(),
+  removed: new Set<string>(),
 }));
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
-    editor: { isRemovedOnDisk: () => false },
+    editor: { isRemovedOnDisk: (id: string) => mocks.removed.has(id) },
     tabs: {
       activeTabId: mocks.activeTabId,
       setActiveTabId: mocks.setActiveTabId,
@@ -57,11 +59,7 @@ vi.mock("../../stores/global/buffer-registry", () => ({
 
 vi.mock("../../stores/global/window-registry", () => ({
   windowRegistry: {
-    getActive: () => ({
-      tabs: {
-        activeTabId: mocks.activeTabId,
-      },
-    }),
+    getActive: () => ({ tabs: { activeTabId: mocks.activeTabId } }),
   },
 }));
 
@@ -71,37 +69,34 @@ vi.mock("../../components/ContextMenu/ContextMenu", () => ({
 
 import TabBar from "../../components/Editor/TabBar";
 
-describe("TabBar close button (#47)", () => {
-  afterEach(() => {
-    mocks.closeTab.mockClear();
-    mocks.setActiveTabId.mockClear();
-    cleanup();
+beforeEach(() => {
+  mocks.removed.clear();
+});
+
+afterEach(cleanup);
+
+describe("a tab whose file is gone", () => {
+  it("carries no mark while the file is there", () => {
+    const { container } = render(() => <TabBar />);
+    expect(container.querySelectorAll(".tab-removed")).toHaveLength(0);
   });
 
-  it("exposes role=button, tabIndex=0, and aria-label='Close <title>'", () => {
+  it("marks the one tab that lost its file", () => {
+    mocks.removed.add("buf-2");
     const { container } = render(() => <TabBar />);
-    const close = container.querySelector<HTMLElement>(".tab-close");
-    expect(close).not.toBeNull();
-    expect(close!.getAttribute("role")).toBe("button");
-    expect(close!.tabIndex).toBe(0);
-    expect(close!.getAttribute("aria-label")).toBe("Close alpha.md");
+
+    const marked = container.querySelectorAll<HTMLElement>(".tab-removed");
+    expect(marked).toHaveLength(1);
+    expect(marked[0].textContent).toContain("beta.md");
   });
 
-  it("clicking close invokes closeTab and does not re-select the tab", () => {
+  it("says so in the tab's own words, not in a colour alone", () => {
+    // The strike-through is CSS; the title is what a pointer and a screen
+    // reader both get.
+    mocks.removed.add("buf-1");
     const { container } = render(() => <TabBar />);
-    const close = container.querySelector<HTMLElement>(".tab-close")!;
-    fireEvent.click(close);
-    expect(mocks.closeTab).toHaveBeenCalledWith("buf-1");
-    expect(mocks.setActiveTabId).not.toHaveBeenCalled();
-  });
 
-  it("Enter and Space on the close element invoke closeTab", () => {
-    const { container } = render(() => <TabBar />);
-    const close = container.querySelector<HTMLElement>(".tab-close")!;
-    fireEvent.keyDown(close, { key: "Enter" });
-    fireEvent.keyDown(close, { key: " " });
-    expect(mocks.closeTab).toHaveBeenCalledTimes(2);
-    expect(mocks.closeTab).toHaveBeenNthCalledWith(1, "buf-1");
-    expect(mocks.closeTab).toHaveBeenNthCalledWith(2, "buf-1");
+    const marked = container.querySelector<HTMLElement>(".tab-removed")!;
+    expect(marked.getAttribute("title")).toBe("alpha.md (deleted)");
   });
 });
