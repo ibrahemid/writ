@@ -13,6 +13,11 @@ order the app uses — `WRIT_NOTES_DIR`, then `[notes] root` in `config.toml`,
 then `<WRIT_DATA_DIR>/Writ` or `<home>/Writ` — and reads the note index in
 `<WRIT_DATA_DIR or ~/.writ>/writ.db`.
 
+A source that names a relative folder is skipped and the next one is tried,
+which is what the app does with the same config. The command creates nothing,
+so a configured folder that is not there is still the folder named, and the
+verb that needs it says it could not be read.
+
 The index is opened read-only. The command runs no migration, writes no row and
 creates no database. Reading a WAL database does make SQLite create the `-shm`
 and `-wal` companions when they are absent; no frame is written into either.

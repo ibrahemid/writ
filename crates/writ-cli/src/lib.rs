@@ -261,13 +261,22 @@ pub fn read_notes_root_from_config(writ_dir: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Resolves the notes folder the way the app does, because it is the same
-/// function the app calls.
+/// Resolves the notes folder the way the app does: `WRIT_NOTES_DIR`, then
+/// `config.toml`, then the default, and a source that resolves to nothing
+/// usable falls through to the next rather than ending the run.
 ///
-/// Precedence, expansion of a leading `~/` and the refusal of a relative path
-/// all live in [`writ_core::notes::resolve_notes_root_from`]; this wrapper only
-/// carries the CLI's `&Path` config value across. A folder the CLI resolved and
-/// one the app resolved cannot drift, because there is nothing here to drift.
+/// Expansion of a leading `~/` and the refusal of a relative path live in
+/// [`writ_core::notes::resolve_notes_root_from`], which is asked about one
+/// source at a time so the fall-through here is the one
+/// `resolve_and_create_notes_root` takes in the app. A `notes.root` of `Notes`
+/// therefore names the default folder in both, rather than working in the app
+/// and refusing here. Only the default failing is fatal, which is the app's
+/// rule too.
+///
+/// The app additionally skips a folder it cannot create and one holding Writ's
+/// own data, both of which it learns by creating the folder. Nothing here
+/// creates anything, so a configured folder that is absent is named, and the
+/// verb that needs it says it could not be read.
 ///
 /// `data_dir` is the data folder, passed only when `WRIT_DATA_DIR` is set: a
 /// dev or recording instance keeps its notes beside its own database rather
@@ -279,9 +288,23 @@ pub fn resolve_notes_dir(
     home: Option<&Path>,
 ) -> Result<PathBuf, NotesRootError> {
     let configured = configured.and_then(Path::to_str);
+    for candidate in [env_override, configured] {
+        let Some(chosen) = candidate.map(str::trim).filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        if let Ok(root) = resolve_notes_root_from(NotesRootSources {
+            env_override: Some(chosen),
+            configured: None,
+            data_dir: None,
+            home,
+        }) {
+            return Ok(root);
+        }
+    }
+
     resolve_notes_root_from(NotesRootSources {
-        env_override,
-        configured,
+        env_override: None,
+        configured: None,
         data_dir,
         home,
     })
@@ -583,24 +606,44 @@ mod tests {
     }
 
     #[test]
-    fn a_relative_notes_folder_is_refused_rather_than_guessed() {
-        // The app refuses it, because a relative folder would follow whichever
-        // directory the process happened to start in. Falling through to the
-        // default instead would put a note somewhere the user did not ask for
-        // and the app would not look.
+    fn a_relative_source_falls_through_to_the_next_one() {
+        // A relative folder would follow whichever directory the process
+        // started in, so neither surface uses it. The app skips the source and
+        // tries the next; refusing outright here would name a different folder
+        // than the app for the same config.
         let dir = TempDir::new().unwrap();
+        let configured = dir.path().join("Configured");
         for relative in ["Notes", "./Notes", "../Notes"] {
-            let refusal = resolve_notes_dir(Some(relative), None, None, Some(dir.path()))
-                .expect_err("a relative folder is refused");
-            assert!(
-                matches!(refusal, NotesRootError::NotAbsolute { .. }),
-                "{relative} gave {refusal:?}"
+            assert_eq!(
+                resolve_notes_dir(Some(relative), Some(&configured), None, Some(dir.path()))
+                    .expect("the config resolves"),
+                configured,
+                "{relative} did not fall through to the config"
             );
-            assert!(
-                refusal.to_string().contains(relative),
-                "the refusal names the path: {refusal}"
+            assert_eq!(
+                resolve_notes_dir(Some(relative), None, None, Some(dir.path()))
+                    .expect("the default resolves"),
+                dir.path().join("Writ"),
+                "{relative} did not fall through to the default"
             );
         }
+    }
+
+    #[test]
+    fn a_relative_config_falls_through_to_the_default() {
+        let dir = TempDir::new().unwrap();
+        assert_eq!(
+            resolve_notes_dir(None, Some(Path::new("Notes")), None, Some(dir.path()))
+                .expect("the default resolves"),
+            dir.path().join("Writ")
+        );
+    }
+
+    #[test]
+    fn only_the_default_failing_ends_the_run() {
+        let refusal = resolve_notes_dir(Some("Notes"), None, None, None)
+            .expect_err("no home and no usable source is fatal");
+        assert!(matches!(refusal, NotesRootError::NoHome), "{refusal:?}");
     }
 
     fn touch(path: &Path) {
