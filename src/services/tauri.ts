@@ -733,6 +733,8 @@ export interface InstallCliResult {
 }
 
 export interface CliStatus {
+  /** Whether this platform has somewhere for the app to put the command. */
+  supported: boolean;
   installed: boolean;
   path: string;
 }

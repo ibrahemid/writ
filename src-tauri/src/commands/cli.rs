@@ -8,6 +8,8 @@ pub struct InstallCliResult {
 
 #[derive(Debug, serde::Serialize)]
 pub struct CliStatus {
+    /// Whether this platform has somewhere for the app to put the command.
+    pub supported: bool,
     pub installed: bool,
     pub path: String,
 }
@@ -17,6 +19,7 @@ pub struct CliStatus {
 /// Follows the link: a symlink left behind by an app bundle that has since been
 /// moved or deleted resolves to nothing, and reporting that as installed leaves
 /// the user with a shell that answers `command not found`.
+#[cfg(not(windows))]
 fn is_installed(target: &Path) -> bool {
     target.metadata().is_ok()
 }
@@ -24,15 +27,41 @@ fn is_installed(target: &Path) -> bool {
 /// IPC: report whether the `writ` command is already installed.
 #[tauri::command]
 pub fn cli_status() -> CliStatus {
-    let target = std::path::PathBuf::from(INSTALL_TARGET);
-    CliStatus {
-        installed: is_installed(&target),
-        path: INSTALL_TARGET.to_string(),
+    #[cfg(windows)]
+    {
+        CliStatus {
+            supported: false,
+            installed: false,
+            path: String::new(),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let target = std::path::PathBuf::from(INSTALL_TARGET);
+        CliStatus {
+            supported: true,
+            installed: is_installed(&target),
+            path: INSTALL_TARGET.to_string(),
+        }
     }
 }
 
 const SIDECAR_NOT_FOUND: &str = "The writ command line tool could not be located.";
+
+/// Where the app puts the `writ` command.
+///
+/// Unix only. The Windows installer puts `writ.exe` on the PATH itself, so
+/// there is nothing for the app to do and no directory that is the equivalent
+/// of `/usr/local/bin`; [`cli_status`] reports the platform as unsupported and
+/// the settings row is hidden rather than offering an install that would land
+/// nowhere on the user's PATH.
+#[cfg(not(windows))]
 const INSTALL_TARGET: &str = "/usr/local/bin/writ";
+
+/// What [`install_cli`] answers on a platform with nowhere to put the command.
+#[cfg(windows)]
+const INSTALL_UNSUPPORTED: &str =
+    "The writ command is already on your PATH; Writ's installer puts it there.";
 
 /// Name of the bundled CLI sidecar as it sits next to the app executable.
 fn sidecar_name() -> &'static str {
@@ -145,6 +174,13 @@ fn link_with_privileges(sidecar: &Path, target: &Path) -> Result<(), String> {
     }
 }
 
+#[cfg(windows)]
+#[tauri::command]
+pub fn install_cli() -> Result<InstallCliResult, String> {
+    Err(INSTALL_UNSUPPORTED.to_string())
+}
+
+#[cfg(not(windows))]
 #[tauri::command]
 pub fn install_cli() -> Result<InstallCliResult, String> {
     let target = std::path::PathBuf::from(INSTALL_TARGET);
@@ -191,6 +227,24 @@ mod tests {
             PathBuf::from("/Applications/Writ.app/Contents/MacOS/writ")
         };
         assert_eq!(sidecar_candidate(dir), expected);
+    }
+
+    #[test]
+    fn the_status_reports_the_platform_before_anything_else() {
+        let status = cli_status();
+        assert_eq!(status.supported, !cfg!(windows));
+        if status.supported {
+            assert!(!status.path.is_empty());
+        } else {
+            assert!(status.path.is_empty());
+            assert!(!status.installed);
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn installing_where_there_is_nowhere_to_install_is_refused() {
+        assert_eq!(install_cli().unwrap_err(), INSTALL_UNSUPPORTED);
     }
 
     #[test]
