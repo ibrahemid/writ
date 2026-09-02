@@ -117,17 +117,35 @@ where
     }
 }
 
-/// One watched folder and the open notes whose files live in it.
+/// Who reports a folder's changes.
+///
+/// The registry records the folder of every open file, including folders it
+/// does not watch itself. Which file belongs to which tab is a different
+/// question from who is watching for changes to it, and the notes watcher
+/// needs the first answer for the folders it owns the second half of. Keeping
+/// only the folders this registry armed is what left a change inside the notes
+/// folder with no way to find the tab holding that file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Coverage {
+    /// This registry armed a backend for the folder and has to release it.
+    Own(WatcherKind),
+    /// Inside the notes tree, which `start_notes_watcher` already reports
+    /// recursively. Recorded for the lookup and never armed: a second watch
+    /// would report every change in it twice.
+    NotesWatcher,
+}
+
+/// One folder and the open notes whose files live in it.
 #[derive(Debug)]
 struct WatchedDir {
-    kind: WatcherKind,
+    coverage: Coverage,
     /// Note id to the file it was opened from. Its length is the folder's
     /// reference count, which is why it is a map of notes rather than a
     /// number: the same note asking twice cannot count twice.
     notes: HashMap<String, PathBuf>,
 }
 
-/// Which folders are watched, which notes put them there, and by which
+/// Where every open file lives, which folders are watched, and by which
 /// backend.
 ///
 /// Every path stored here has been through [`ignore_key_path`], the same
@@ -156,63 +174,108 @@ impl OpenFileRegistry {
         }
     }
 
-    /// Points the registry at a new notes folder.
+    /// Points the registry at a new notes folder, moving every folder that
+    /// changed sides.
     ///
-    /// Folders already watched are left alone: a folder that has become part
-    /// of the notes tree is now reported by two watchers, which costs a
-    /// duplicate event and never a missed one, and the tabs that put it there
-    /// will release it as they close.
+    /// Both directions have to be handled. A folder that has just become part
+    /// of the notes tree must give up its own watch, or every change in it is
+    /// reported twice. A folder that has just left it has been relying on the
+    /// notes watcher, which no longer reaches it, so it needs a watch of its
+    /// own — without this, moving the notes folder left every tab in the old
+    /// one hearing nothing until it was closed and reopened.
     pub fn set_notes_root(&mut self, notes_root: &Path) {
-        self.notes_root = ignore_key_path(notes_root);
+        let root = ignore_key_path(notes_root);
+        if root == self.notes_root {
+            return;
+        }
+        self.notes_root = root;
+
+        let moved_in: Vec<PathBuf> = self
+            .dirs
+            .iter()
+            .filter(|(dir, watched)| {
+                matches!(watched.coverage, Coverage::Own(_)) && dir.starts_with(&self.notes_root)
+            })
+            .map(|(dir, _)| dir.clone())
+            .collect();
+        for dir in moved_in {
+            if let Some(watched) = self.dirs.get_mut(&dir) {
+                let Coverage::Own(kind) = watched.coverage else {
+                    continue;
+                };
+                watched.coverage = Coverage::NotesWatcher;
+                self.release_backend(kind, &dir);
+            }
+        }
+
+        let moved_out: Vec<PathBuf> = self
+            .dirs
+            .iter()
+            .filter(|(dir, watched)| {
+                watched.coverage == Coverage::NotesWatcher && !dir.starts_with(&self.notes_root)
+            })
+            .map(|(dir, _)| dir.clone())
+            .collect();
+        for dir in moved_out {
+            match self.arm(&dir) {
+                Some(kind) => {
+                    if let Some(watched) = self.dirs.get_mut(&dir) {
+                        watched.coverage = Coverage::Own(kind);
+                    }
+                }
+                None => {
+                    // Nothing will watch it. The notes are still open and
+                    // still resolvable by path, they just get no events, which
+                    // is what `Unwatchable` means everywhere else here.
+                    self.forget_dir(&dir);
+                }
+            }
+        }
     }
 
-    /// Watches the folder `file` lives in, on behalf of `note_id`.
+    /// Records the folder `file` lives in as `note_id`'s home, watching it if
+    /// nothing else already does.
     ///
     /// Asking again for a note already counted is a no-op, so the open path
-    /// can call this without knowing whether the tab is new.
+    /// can call this without knowing whether the tab is new. Asking with a
+    /// different file releases the note's previous folder first: a note whose
+    /// path moved used to stay counted in the folder it left, holding that
+    /// watch open for the life of the process and still answering to its old
+    /// path.
     pub fn watch_parent_of(&mut self, note_id: &str, file: &Path) -> WatchOutcome {
         let file = ignore_key_path(file);
         let Some(dir) = file.parent().map(Path::to_path_buf) else {
             return WatchOutcome::NoFile;
         };
-        if dir.starts_with(&self.notes_root) {
-            return WatchOutcome::AlreadyCovered;
+        if self.homes.get(note_id).is_some_and(|home| home != &dir) {
+            self.unwatch_parent_of(note_id);
         }
 
         if let Some(existing) = self.dirs.get_mut(&dir) {
             existing.notes.insert(note_id.to_string(), file);
+            let coverage = existing.coverage;
             self.homes.insert(note_id.to_string(), dir);
-            return WatchOutcome::Watching(existing.kind);
+            return match coverage {
+                Coverage::Own(kind) => WatchOutcome::Watching(kind),
+                Coverage::NotesWatcher => WatchOutcome::AlreadyCovered,
+            };
         }
 
-        let kind = match self.native.watch_dir(&dir) {
-            Ok(()) => WatcherKind::Native,
-            Err(native_error) => match self.poll.watch_dir(&dir) {
-                Ok(()) => {
-                    info!(
-                        dir = %dir.display(),
-                        error = %native_error,
-                        "folder cannot be watched natively; polling it instead"
-                    );
-                    WatcherKind::Poll
-                }
-                Err(poll_error) => {
-                    warn!(
-                        dir = %dir.display(),
-                        native_error = %native_error,
-                        poll_error = %poll_error,
-                        "folder cannot be watched at all"
-                    );
-                    return WatchOutcome::Unwatchable;
-                }
-            },
+        let (coverage, outcome) = if dir.starts_with(&self.notes_root) {
+            (Coverage::NotesWatcher, WatchOutcome::AlreadyCovered)
+        } else {
+            match self.arm(&dir) {
+                Some(kind) => (Coverage::Own(kind), WatchOutcome::Watching(kind)),
+                None => return WatchOutcome::Unwatchable,
+            }
         };
 
         let mut notes = HashMap::new();
         notes.insert(note_id.to_string(), file);
-        self.dirs.insert(dir.clone(), WatchedDir { kind, notes });
+        self.dirs
+            .insert(dir.clone(), WatchedDir { coverage, notes });
         self.homes.insert(note_id.to_string(), dir);
-        WatchOutcome::Watching(kind)
+        outcome
     }
 
     /// Releases whatever `note_id` was holding. The folder's watch goes when
@@ -228,25 +291,72 @@ impl OpenFileRegistry {
         if !watched.notes.is_empty() {
             return;
         }
-        let kind = watched.kind;
-        self.dirs.remove(&dir);
+        self.forget_dir(&dir);
+    }
+
+    /// Takes `dir` on whichever backend will have it, native first.
+    ///
+    /// `None` when neither will: the tab still works, it just hears nothing
+    /// until something asks the file directly.
+    fn arm(&mut self, dir: &Path) -> Option<WatcherKind> {
+        match self.native.watch_dir(dir) {
+            Ok(()) => Some(WatcherKind::Native),
+            Err(native_error) => match self.poll.watch_dir(dir) {
+                Ok(()) => {
+                    info!(
+                        dir = %dir.display(),
+                        error = %native_error,
+                        "folder cannot be watched natively; polling it instead"
+                    );
+                    Some(WatcherKind::Poll)
+                }
+                Err(poll_error) => {
+                    warn!(
+                        dir = %dir.display(),
+                        native_error = %native_error,
+                        poll_error = %poll_error,
+                        "folder cannot be watched at all"
+                    );
+                    None
+                }
+            },
+        }
+    }
+
+    /// Drops `dir` from the registry, releasing its watch if it had one.
+    fn forget_dir(&mut self, dir: &Path) {
+        let Some(watched) = self.dirs.remove(dir) else {
+            return;
+        };
+        if let Coverage::Own(kind) = watched.coverage {
+            self.release_backend(kind, dir);
+        }
+    }
+
+    /// Hands the release to the backend that took the folder.
+    fn release_backend(&mut self, kind: WatcherKind, dir: &Path) {
         let backend: &mut Box<dyn DirWatcher> = match kind {
             WatcherKind::Native => &mut self.native,
             WatcherKind::Poll => &mut self.poll,
         };
-        if let Err(e) = backend.unwatch_dir(&dir) {
+        if let Err(e) = backend.unwatch_dir(dir) {
             // The folder being gone is the ordinary way this fails, and the
             // registry has already forgotten it either way.
             info!(dir = %dir.display(), error = %e, "releasing a folder watch failed");
         }
     }
 
-    /// Which backend is watching `dir`, if anything is.
+    /// Which backend is watching `dir`, if this registry is watching it.
     ///
     /// Per folder rather than per watcher: the fallback is chosen one folder
-    /// at a time, so there is no single answer for the process.
+    /// at a time, so there is no single answer for the process. `None` for a
+    /// folder inside the notes tree, which is recorded here but watched by
+    /// [`super::handler::start_notes_watcher`].
     pub fn kind(&self, dir: &Path) -> Option<WatcherKind> {
-        self.dirs.get(&ignore_key_path(dir)).map(|d| d.kind)
+        match self.dirs.get(&ignore_key_path(dir))?.coverage {
+            Coverage::Own(kind) => Some(kind),
+            Coverage::NotesWatcher => None,
+        }
     }
 
     /// The note `path` is open as, if any.
@@ -267,9 +377,43 @@ impl OpenFileRegistry {
             .map(|(id, _)| id.clone())
     }
 
-    /// Every folder currently watched.
+    /// Every folder this registry has armed a backend for.
+    ///
+    /// Folders inside the notes tree are recorded but not armed, so they are
+    /// not here; [`Self::note_at`] answers for them all the same.
     pub fn watched_dirs(&self) -> Vec<PathBuf> {
-        self.dirs.keys().cloned().collect()
+        self.dirs
+            .iter()
+            .filter(|(_, watched)| matches!(watched.coverage, Coverage::Own(_)))
+            .map(|(dir, _)| dir.clone())
+            .collect()
+    }
+}
+
+/// Which note a path is open as.
+///
+/// The seam the notes watcher asks through. It keeps
+/// [`super::handler::start_notes_watcher`] independent of the registry, and it
+/// is how a test gives that watcher a fixed set of open notes without opening
+/// any files.
+pub trait OpenNotes: Send + Sync {
+    /// The note `path` is open as, if any.
+    fn note_at(&self, path: &Path) -> Option<String>;
+}
+
+impl OpenNotes for Arc<Mutex<OpenFileRegistry>> {
+    fn note_at(&self, path: &Path) -> Option<String> {
+        recover_poison(self.lock(), "watcher::open_files::OpenNotes::note_at").note_at(path)
+    }
+}
+
+/// The answer when there is no registry to ask, which is what a failed
+/// open-file watcher leaves behind. Nothing is open, so nothing is routed.
+pub struct NoOpenNotes;
+
+impl OpenNotes for NoOpenNotes {
+    fn note_at(&self, _path: &Path) -> Option<String> {
+        None
     }
 }
 
@@ -286,6 +430,11 @@ impl OpenFileWatcher {
     /// The registry, for the open and close paths to add to and take from.
     pub fn registry(&self) -> &Arc<Mutex<OpenFileRegistry>> {
         &self.registry
+    }
+
+    /// The same registry seen as a lookup, for the notes watcher to route by.
+    pub fn open_notes(&self) -> Arc<dyn OpenNotes> {
+        Arc::new(self.registry.clone())
     }
 }
 
@@ -390,28 +539,14 @@ pub fn classify_open_file_event(
     ttl: Duration,
     now: Instant,
 ) -> Option<WritEvent> {
-    let removed = !path.exists();
-    if removed {
-        return Some(WritEvent::BufferExternal {
-            buffer_id: note_id.to_string(),
-            path: path.to_string_lossy().into_owned(),
-            change: ExternalChange::Deleted,
-            new_path: None,
-            disk_hash: None,
-        });
+    if !path.exists() {
+        return Some(open_note_removed(note_id, path));
     }
     if !std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
         return None;
     }
 
-    let evicted = writ_core::notes::guard::is_not_downloaded(
-        writ_storage::buffer_store::dataless_flags(path),
-    );
-    let current_bytes = if evicted {
-        None
-    } else {
-        std::fs::read(path).ok()
-    };
+    let current_bytes = readable_bytes(path);
 
     let key = writ_core::watcher::ignore::source_key(&ignore_key_path(path));
     let decision = {
@@ -422,15 +557,59 @@ pub fn classify_open_file_event(
         return None;
     }
 
-    Some(WritEvent::BufferExternal {
+    Some(open_note_modified(note_id, path, current_bytes.as_deref()))
+}
+
+/// The file's bytes, or `None` where reading them is the wrong thing to do.
+///
+/// A file whose bytes are not on this machine is reported without being read:
+/// reading it would make the sync provider fetch it (ADR-028 §5).
+fn readable_bytes(path: &Path) -> Option<Vec<u8>> {
+    if writ_core::notes::guard::is_not_downloaded(writ_storage::buffer_store::dataless_flags(path))
+    {
+        return None;
+    }
+    std::fs::read(path).ok()
+}
+
+/// The event telling `note_id`'s tab its file now holds `bytes`.
+///
+/// Shared by both watchers so a tab cannot get a different payload depending
+/// on which side of the notes folder its file happens to sit
+/// ([`super::handler::route_notes_change_to_open_tab`]).
+pub fn open_note_modified(note_id: &str, path: &Path, bytes: Option<&[u8]>) -> WritEvent {
+    WritEvent::BufferExternal {
         buffer_id: note_id.to_string(),
         path: path.to_string_lossy().into_owned(),
         change: ExternalChange::Modified,
         new_path: None,
-        disk_hash: current_bytes
-            .as_deref()
-            .map(writ_core::hash::comparison_digest_hex),
-    })
+        disk_hash: bytes.map(writ_core::hash::comparison_digest_hex),
+    }
+}
+
+/// The event telling `note_id`'s tab its file is gone.
+pub fn open_note_removed(note_id: &str, path: &Path) -> WritEvent {
+    WritEvent::BufferExternal {
+        buffer_id: note_id.to_string(),
+        path: path.to_string_lossy().into_owned(),
+        change: ExternalChange::Deleted,
+        new_path: None,
+        disk_hash: None,
+    }
+}
+
+/// The event a change the notes watcher already classified becomes for the tab
+/// holding that file.
+///
+/// The notes watcher has done the filtering by this point — ignored names,
+/// other clients' folders, and Writ's own stamped writes are all gone — so
+/// this reads the file for its digest and builds the event, without asking the
+/// ignore set a second question it has already answered.
+pub fn open_note_change(note_id: &str, path: &Path, removed: bool) -> WritEvent {
+    if removed {
+        return open_note_removed(note_id, path);
+    }
+    open_note_modified(note_id, path, readable_bytes(path).as_deref())
 }
 
 #[cfg(test)]
@@ -476,19 +655,21 @@ mod tests {
         }
     }
 
-    /// A registry over two recording backends, with the log of what each was
-    /// asked to watch.
-    #[allow(clippy::type_complexity)]
-    fn registry_with(
-        native_refuses: bool,
-        poll_refuses: bool,
-        notes_root: &Path,
-    ) -> (
-        OpenFileRegistry,
-        Arc<Mutex<Vec<PathBuf>>>,
-        Arc<Mutex<Vec<PathBuf>>>,
-        Arc<Mutex<Vec<PathBuf>>>,
-    ) {
+    /// A registry over two recording backends, with what each was asked to
+    /// watch and to release.
+    ///
+    /// Both backends' release logs are here on purpose: asserting only the
+    /// native one is how the release path for a polled folder went untested
+    /// while reading as if it were covered.
+    struct Harness {
+        registry: OpenFileRegistry,
+        native_watched: Arc<Mutex<Vec<PathBuf>>>,
+        native_released: Arc<Mutex<Vec<PathBuf>>>,
+        poll_watched: Arc<Mutex<Vec<PathBuf>>>,
+        poll_released: Arc<Mutex<Vec<PathBuf>>>,
+    }
+
+    fn registry_with(native_refuses: bool, poll_refuses: bool, notes_root: &Path) -> Harness {
         let native = if native_refuses {
             FakeBackend::refusing()
         } else {
@@ -499,15 +680,17 @@ mod tests {
         } else {
             FakeBackend::default()
         };
-        let native_log = native.watched.clone();
+        let native_watched = native.watched.clone();
         let native_released = native.released.clone();
-        let poll_log = poll.watched.clone();
-        (
-            OpenFileRegistry::new(Box::new(native), Box::new(poll), notes_root),
-            native_log,
-            poll_log,
+        let poll_watched = poll.watched.clone();
+        let poll_released = poll.released.clone();
+        Harness {
+            registry: OpenFileRegistry::new(Box::new(native), Box::new(poll), notes_root),
+            native_watched,
             native_released,
-        )
+            poll_watched,
+            poll_released,
+        }
     }
 
     fn make_set() -> IgnoreSet {
@@ -521,7 +704,12 @@ mod tests {
         let file = elsewhere.path().join("README.md");
         fs::write(&file, b"x").unwrap();
 
-        let (mut registry, native_log, poll_log, _) = registry_with(false, false, notes.path());
+        let Harness {
+            mut registry,
+            native_watched: native_log,
+            poll_watched: poll_log,
+            ..
+        } = registry_with(false, false, notes.path());
 
         assert_eq!(
             registry.watch_parent_of("note-1", &file),
@@ -545,7 +733,12 @@ mod tests {
         let note = notes.path().join("today.md");
         fs::write(&note, b"x").unwrap();
 
-        let (mut registry, native_log, poll_log, _) = registry_with(false, false, notes.path());
+        let Harness {
+            mut registry,
+            native_watched: native_log,
+            poll_watched: poll_log,
+            ..
+        } = registry_with(false, false, notes.path());
 
         assert_eq!(
             registry.watch_parent_of("note-1", &note),
@@ -564,7 +757,7 @@ mod tests {
         let note = nested.join("plan.md");
         fs::write(&note, b"x").unwrap();
 
-        let (mut registry, _, _, _) = registry_with(false, false, notes.path());
+        let Harness { mut registry, .. } = registry_with(false, false, notes.path());
 
         assert_eq!(
             registry.watch_parent_of("note-1", &note),
@@ -581,7 +774,12 @@ mod tests {
         let file = share.path().join("shared.md");
         fs::write(&file, b"x").unwrap();
 
-        let (mut registry, native_log, poll_log, _) = registry_with(true, false, notes.path());
+        let Harness {
+            mut registry,
+            native_watched: native_log,
+            poll_watched: poll_log,
+            ..
+        } = registry_with(true, false, notes.path());
 
         assert_eq!(
             registry.watch_parent_of("note-1", &file),
@@ -652,7 +850,7 @@ mod tests {
         let file = gone.path().join("nowhere.md");
         fs::write(&file, b"x").unwrap();
 
-        let (mut registry, _, _, _) = registry_with(true, true, notes.path());
+        let Harness { mut registry, .. } = registry_with(true, true, notes.path());
 
         assert_eq!(
             registry.watch_parent_of("note-1", &file),
@@ -673,7 +871,11 @@ mod tests {
         fs::write(&one, b"x").unwrap();
         fs::write(&two, b"x").unwrap();
 
-        let (mut registry, native_log, _, _) = registry_with(false, false, notes.path());
+        let Harness {
+            mut registry,
+            native_watched: native_log,
+            ..
+        } = registry_with(false, false, notes.path());
 
         registry.watch_parent_of("note-1", &one);
         registry.watch_parent_of("note-2", &two);
@@ -691,7 +893,11 @@ mod tests {
         fs::write(&one, b"x").unwrap();
         fs::write(&two, b"x").unwrap();
 
-        let (mut registry, _, _, released) = registry_with(false, false, notes.path());
+        let Harness {
+            mut registry,
+            native_released: released,
+            ..
+        } = registry_with(false, false, notes.path());
 
         registry.watch_parent_of("note-1", &one);
         registry.watch_parent_of("note-2", &two);
@@ -712,7 +918,11 @@ mod tests {
         let file = repo.path().join("one.md");
         fs::write(&file, b"x").unwrap();
 
-        let (mut registry, _, _, released) = registry_with(false, false, notes.path());
+        let Harness {
+            mut registry,
+            native_released: released,
+            ..
+        } = registry_with(false, false, notes.path());
 
         registry.watch_parent_of("note-1", &file);
         registry.watch_parent_of("note-1", &file);
@@ -726,9 +936,93 @@ mod tests {
     }
 
     #[test]
+    fn a_polled_folder_is_released_on_the_backend_that_took_it() {
+        // The release has to reach the backend holding the folder. Asserting
+        // only the native log left this half reading as covered while nothing
+        // checked it, and a poller nobody stops keeps reading every file in a
+        // folder no tab is open on for the life of the process.
+        let notes = tempdir().unwrap();
+        let share = tempdir().unwrap();
+        let file = share.path().join("shared.md");
+        fs::write(&file, b"x").unwrap();
+
+        let Harness {
+            mut registry,
+            native_released,
+            poll_released,
+            ..
+        } = registry_with(true, false, notes.path());
+
+        assert_eq!(
+            registry.watch_parent_of("note-1", &file),
+            WatchOutcome::Watching(WatcherKind::Poll)
+        );
+        registry.unwatch_parent_of("note-1");
+
+        assert_eq!(
+            poll_released.lock().unwrap().len(),
+            1,
+            "the poller must be told to stop"
+        );
+        assert!(
+            native_released.lock().unwrap().is_empty(),
+            "the native backend never had it"
+        );
+        assert!(registry.watched_dirs().is_empty());
+    }
+
+    #[test]
+    fn a_note_whose_file_moves_to_another_folder_lets_the_old_one_go() {
+        // A note's path changes when its file is renamed or moved. The old
+        // folder used to keep the note counted in it, so its watch outlived
+        // every tab in it, and a write to the file left behind still resolved
+        // to a tab that had stopped editing it.
+        let notes = tempdir().unwrap();
+        let from = tempdir().unwrap();
+        let to = tempdir().unwrap();
+        let before = from.path().join("note.md");
+        let after = to.path().join("note.md");
+        fs::write(&before, b"x").unwrap();
+        fs::write(&after, b"x").unwrap();
+
+        let Harness {
+            mut registry,
+            native_released: released,
+            ..
+        } = registry_with(false, false, notes.path());
+
+        registry.watch_parent_of("note-1", &before);
+        registry.watch_parent_of("note-1", &after);
+
+        assert_eq!(
+            registry.watched_dirs(),
+            vec![ignore_key_path(to.path())],
+            "only the folder the file is in now is watched"
+        );
+        assert_eq!(
+            released.lock().unwrap().len(),
+            1,
+            "the old folder was let go"
+        );
+        assert_eq!(registry.note_at(&after).as_deref(), Some("note-1"));
+        assert_eq!(
+            registry.note_at(&before),
+            None,
+            "the file it no longer edits must not resolve to it"
+        );
+
+        registry.unwatch_parent_of("note-1");
+        assert!(registry.watched_dirs().is_empty());
+    }
+
+    #[test]
     fn releasing_a_note_that_was_never_watched_does_nothing() {
         let notes = tempdir().unwrap();
-        let (mut registry, _, _, released) = registry_with(false, false, notes.path());
+        let Harness {
+            mut registry,
+            native_released: released,
+            ..
+        } = registry_with(false, false, notes.path());
 
         registry.unwatch_parent_of("never-opened");
 
@@ -747,7 +1041,7 @@ mod tests {
         fs::write(&file, b"x").unwrap();
         fs::write(&sibling, b"x").unwrap();
 
-        let (mut registry, _, _, _) = registry_with(false, false, notes.path());
+        let Harness { mut registry, .. } = registry_with(false, false, notes.path());
         registry.watch_parent_of("note-1", &file);
 
         assert_eq!(registry.note_at(&file).as_deref(), Some("note-1"));
@@ -765,7 +1059,7 @@ mod tests {
         fs::write(&file, b"x").unwrap();
         fs::write(&namesake, b"x").unwrap();
 
-        let (mut registry, _, _, _) = registry_with(false, false, notes.path());
+        let Harness { mut registry, .. } = registry_with(false, false, notes.path());
         registry.watch_parent_of("note-1", &file);
 
         assert_eq!(registry.note_at(&namesake), None);
@@ -905,7 +1199,7 @@ mod tests {
         let file = repo.path().join("one.md");
         fs::write(&file, b"x").unwrap();
 
-        let (mut registry, _, _, _) = registry_with(false, false, notes.path());
+        let Harness { mut registry, .. } = registry_with(false, false, notes.path());
         registry.watch_parent_of("note-1", &file);
         registry.set_notes_root(moved_to.path());
 
@@ -918,5 +1212,121 @@ mod tests {
             registry.watch_parent_of("note-2", &inside_new_root),
             WatchOutcome::AlreadyCovered
         );
+    }
+
+    #[test]
+    fn a_folder_the_notes_root_moved_onto_gives_up_its_own_watch() {
+        // Two watchers over one folder report every change in it twice. The
+        // notes watcher is recursive and arrives with the new root, so this
+        // one steps back.
+        let notes = tempdir().unwrap();
+        let elsewhere = tempdir().unwrap();
+        let file = elsewhere.path().join("one.md");
+        fs::write(&file, b"x").unwrap();
+
+        let Harness {
+            mut registry,
+            native_released: released,
+            ..
+        } = registry_with(false, false, notes.path());
+        registry.watch_parent_of("note-1", &file);
+        assert_eq!(registry.watched_dirs().len(), 1);
+
+        registry.set_notes_root(elsewhere.path());
+
+        assert!(
+            registry.watched_dirs().is_empty(),
+            "the notes watcher covers it now"
+        );
+        assert_eq!(released.lock().unwrap().len(), 1);
+        assert_eq!(
+            registry.note_at(&file).as_deref(),
+            Some("note-1"),
+            "the tab is still open and the notes watcher has to find it"
+        );
+    }
+
+    #[test]
+    fn a_folder_the_notes_root_moved_away_from_takes_a_watch_of_its_own() {
+        // The regression this closes: a tab open on a file in the old notes
+        // folder was covered by the notes watcher and never registered here.
+        // Moving the folder left it watched by nothing, and the tab heard
+        // nothing about its file until it was closed and reopened.
+        let notes = tempdir().unwrap();
+        let moved_to = tempdir().unwrap();
+        let note = notes.path().join("today.md");
+        fs::write(&note, b"x").unwrap();
+
+        let Harness {
+            mut registry,
+            native_watched: native_log,
+            ..
+        } = registry_with(false, false, notes.path());
+
+        assert_eq!(
+            registry.watch_parent_of("note-1", &note),
+            WatchOutcome::AlreadyCovered
+        );
+        assert!(native_log.lock().unwrap().is_empty());
+
+        registry.set_notes_root(moved_to.path());
+
+        assert_eq!(
+            registry.kind(notes.path()),
+            Some(WatcherKind::Native),
+            "the folder the notes left needs a watcher of its own"
+        );
+        assert_eq!(native_log.lock().unwrap().len(), 1);
+        assert_eq!(registry.note_at(&note).as_deref(), Some("note-1"));
+    }
+
+    #[test]
+    fn a_folder_the_notes_root_moved_away_from_that_cannot_be_watched_is_dropped() {
+        let notes = tempdir().unwrap();
+        let moved_to = tempdir().unwrap();
+        let note = notes.path().join("today.md");
+        fs::write(&note, b"x").unwrap();
+
+        let Harness { mut registry, .. } = registry_with(true, true, notes.path());
+        registry.watch_parent_of("note-1", &note);
+
+        registry.set_notes_root(moved_to.path());
+
+        assert!(registry.watched_dirs().is_empty());
+        assert_eq!(
+            registry.note_at(&note),
+            None,
+            "a folder nothing will watch is not recorded as one that is"
+        );
+    }
+
+    #[test]
+    fn a_note_inside_the_notes_folder_is_still_findable_by_its_path() {
+        // The notes watcher owns the watch on this folder and asks the
+        // registry which tab a changed file belongs to. Recording only the
+        // folders this registry armed is what left a change inside the notes
+        // folder with no tab to deliver it to.
+        let notes = tempdir().unwrap();
+        let note = notes.path().join("today.md");
+        let other = notes.path().join("untitled.md");
+        fs::write(&note, b"x").unwrap();
+        fs::write(&other, b"x").unwrap();
+
+        let Harness { mut registry, .. } = registry_with(false, false, notes.path());
+        registry.watch_parent_of("note-1", &note);
+
+        assert_eq!(registry.note_at(&note).as_deref(), Some("note-1"));
+        assert_eq!(
+            registry.note_at(&other),
+            None,
+            "a file in the notes folder that no tab holds is still not an open note"
+        );
+        assert!(
+            registry.watched_dirs().is_empty(),
+            "findable is not the same as watched here"
+        );
+
+        registry.unwatch_parent_of("note-1");
+        assert_eq!(registry.note_at(&note), None);
     }
 }
