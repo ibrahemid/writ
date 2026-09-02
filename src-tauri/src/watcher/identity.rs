@@ -85,21 +85,37 @@ fn platform_identity(path: &Path) -> Option<FileIdentity> {
 /// Windows: `FILE_ID_INFO`, which needs a handle on the file.
 ///
 /// `std`'s `file_index` is the older 64-bit id and is still unstable, so the
-/// call is made directly. The handle asks for no access rights beyond metadata
-/// and shares the file with everything, so opening it cannot stop another
-/// program writing it, and `FILE_FLAG_BACKUP_SEMANTICS` lets the same call
-/// answer for a directory rather than failing.
+/// call is made directly. `File::open` is not what opens it: that asks for read
+/// access and shares the file for reading and writing but not deleting, so a
+/// probe running while Explorer renames or deletes the file would fail the very
+/// operation this exists to classify. The handle here asks only to read
+/// attributes, shares the file for everything including delete, and carries
+/// `FILE_FLAG_BACKUP_SEMANTICS` so the call answers for a directory rather than
+/// failing on it.
 ///
 /// A volume with no file id — FAT, exFAT, some SMB servers — fails the call,
 /// and the caller falls back to describing the file.
 #[cfg(windows)]
 fn platform_identity(path: &Path) -> Option<FileIdentity> {
+    use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::AsRawHandle;
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::Storage::FileSystem::FILE_ID_INFO;
     use windows::Win32::Storage::FileSystem::{FileIdInfo, GetFileInformationByHandleEx};
 
-    let file = std::fs::File::open(path).ok()?;
+    /// `FILE_READ_ATTRIBUTES`: metadata, and nothing that reads the bytes.
+    const READ_ATTRIBUTES: u32 = 0x0000_0080;
+    /// `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE`.
+    const SHARE_EVERYTHING: u32 = 0x0000_0007;
+    /// `FILE_FLAG_BACKUP_SEMANTICS`, which is what lets a directory open.
+    const BACKUP_SEMANTICS: u32 = 0x0200_0000;
+
+    let file = std::fs::OpenOptions::new()
+        .access_mode(READ_ATTRIBUTES)
+        .share_mode(SHARE_EVERYTHING)
+        .custom_flags(BACKUP_SEMANTICS)
+        .open(path)
+        .ok()?;
     if !file.metadata().ok()?.is_file() {
         return None;
     }
