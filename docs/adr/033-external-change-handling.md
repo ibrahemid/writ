@@ -239,6 +239,50 @@ prompt over a document nobody has typed into (decision 6). One whose file cannot
 be described is either gone or not downloaded yet, and telling those apart is
 the write guard's job.
 
+### 9. One place arms the follow, and it names the paths that do not
+
+`AppState::follow_note_path` is the only caller of `watch_parent_of`, and every
+path that gives a tab a file goes through it: opening a file from outside the
+notes folder, restoring a tab at launch or from history, creating a note,
+giving a note its file on first save, renaming one, and moving the notes
+folder. Its doc comment names the three that deliberately do not, because none
+of them puts a file behind a tab: `save_note_copy_inner` writes a copy the
+caller then opens through the open path, `create_buffer` makes a note with no
+file, and `get_buffer` only reads a row.
+
+Recording a file inside the notes folder matters as much as arming a watch
+outside it. The registry is what answers "which tab holds this path", so a note
+created with New Note, renamed, or given its file on first save and never
+recorded was invisible to decision 8 for the rest of the session: the change
+reached the index and stopped, exactly the failure that decision closes.
+
+A rename releases the old folder and records the new path before it returns, so
+a later note taking the freed name is never delivered to the renamed note's
+tab.
+
+### 10. A burst that stops is swept once more
+
+Both coalescing rules drop work on the reasoning that something already under
+way covers it, and both are wrong at the end of a burst.
+
+A change arriving while a sweep still stands is dropped because the walk that
+sweep started reads the folder as it finds it. That is true only for files the
+walk has not reached yet. So the budget records that it dropped something and
+names when the sweep for it is due (`owed_sweep_at`); the watcher thread waits
+until then rather than blocking on its channel, and sweeps once
+(`take_owed_sweep`). A sweep the budget emits in the meantime clears the debt,
+so a storm that keeps going still costs one sweep per cooldown.
+
+A sweep arriving while the index is walking was dropped for the same reason and
+is wrong the same way. `ReconcileGate` keeps one walk at a time and remembers
+that a request came in, so a burst during a walk costs exactly one walk after
+it, whatever its length. Shutdown gives the gate back without running what it
+owes.
+
+One burst can pay both: a sweep the budget owes and a walk the gate owes. The
+cost is one redundant walk of a folder that has gone quiet, which is the side
+to err on.
+
 ## Consequences
 
 - Opening a file from `~/Downloads` puts a watch on `~/Downloads`. That is the
@@ -260,3 +304,10 @@ the write guard's job.
   briefly be reported by two watchers or by none while the move lands. A
   duplicate event costs a redundant re-check; the direction that would have cost
   a missed one is the one this closes.
+- A tab is followed from the moment it has a file, not from the moment it is
+  opened from disk. Notes created and renamed in the session are the common
+  case, and they were the ones decision 8 could not reach.
+- A folder that falls quiet after a storm costs one more sweep and up to one
+  more walk than the storm itself paid for. The alternative is an index that
+  disagrees with the folder until something happens in it again, which may be
+  the next launch.
