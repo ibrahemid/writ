@@ -17,7 +17,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use writ_core::notes::links::Resolution;
-use writ_core::notes::{note_display_name, note_file_stem, rename_stem};
+use writ_core::notes::{note_display_name, note_file_stem, rename_stem, NAME_IS_EMPTY};
 use writ_storage::database::migrations::binary_schema_version;
 use writ_storage::errors::StorageError;
 use writ_storage::note_ops;
@@ -25,10 +25,6 @@ use writ_storage::notes_index::{self, IndexedBy, NotesIndexStore};
 
 /// Extension a new note is created with.
 const NOTE_EXTENSION: &str = "md";
-
-/// What a name that survives sanitising to nothing is answered with. The same
-/// sentence the app shows for the same name.
-const NAME_IS_EMPTY: &str = "That name is empty.";
 
 /// Everything read successfully.
 pub const EXIT_OK: i32 = 0;
@@ -295,10 +291,11 @@ enum IndexError {
     Older { db: i32, binary: i32 },
     /// A note index a newer Writ wrote.
     Newer { db: i32, binary: i32 },
-    /// A file is there and it is not a note index this build can query: a
-    /// truncated or corrupt database, or one another process holds. Kept apart
-    /// from [`IndexError::Older`] because running the app fixes that one and
-    /// cannot fix this one.
+    /// A file is there and this build could not query it: a truncated or
+    /// corrupt database, one another process holds, one it may not read. Kept
+    /// apart from [`IndexError::Older`] because running the app fixes that one
+    /// and may not fix this one, and the wording names no cause because the
+    /// three are not told apart here.
     Unreadable(PathBuf),
 }
 
@@ -322,7 +319,7 @@ impl std::fmt::Display for IndexError {
             ),
             IndexError::Unreadable(path) => write!(
                 f,
-                "the file at {} is not a note index this writ can read.",
+                "the file at {} could not be read as a note index.",
                 path.display()
             ),
         }
@@ -1014,7 +1011,10 @@ mod tests {
         let stale = IndexError::Older { db: 0, binary: 42 }.to_string();
 
         assert!(absent.contains("no note index"), "{absent}");
-        assert!(unreadable.contains("not a note index"), "{unreadable}");
+        assert!(
+            unreadable.contains("could not be read as a note index"),
+            "{unreadable}"
+        );
         assert!(
             !unreadable.contains("brings it up to date"),
             "an unreadable index must not be sold as one the app migrates: {unreadable}"

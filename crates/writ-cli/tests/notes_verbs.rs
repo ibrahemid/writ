@@ -519,7 +519,7 @@ fn a_file_that_is_not_a_database_is_not_called_stale() {
     let output = fixture.run(&["tags"]);
     assert_eq!(code(&output), 1);
     let said = stderr(&output);
-    assert!(said.contains("not a note index"), "{said}");
+    assert!(said.contains("could not be read as a note index"), "{said}");
     assert!(
         !said.contains("brings it up to date"),
         "a corrupt file was reported as one the app migrates: {said}"
@@ -539,7 +539,7 @@ fn an_empty_file_where_the_index_should_be_is_not_called_stale() {
     // An empty file is a valid empty database to SQLite, so it has no
     // schema_version table and reads as unreadable rather than as version 0.
     assert!(
-        stderr(&output).contains("not a note index"),
+        stderr(&output).contains("could not be read as a note index"),
         "{}",
         stderr(&output)
     );

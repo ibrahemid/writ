@@ -13,7 +13,7 @@ use tauri::State;
 use tracing::{info, warn};
 use writ_core::buffer::document::BufferDocument;
 use writ_core::buffer::manager::BufferManager;
-use writ_core::notes::{rename_stem, NotesRootRefusal};
+use writ_core::notes::{rename_stem, NotesRootRefusal, NAME_IS_EMPTY};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::errors::{StorageError, StorageResult};
 use writ_storage::note_ops;
@@ -23,9 +23,6 @@ use writ_storage::notes_move;
 use crate::commands::buffer::{ignore_stamper, save_failure_message};
 use crate::security::canonicalize_for_authorization;
 use crate::state::{AppState, NotesRootFallback};
-
-/// What the editor says when a rename arrives with nothing in it.
-const NAME_IS_EMPTY: &str = "That name is empty.";
 
 /// The name a note is known by: the file's own name, extension included, which
 /// is what Finder shows and what the tab shows.

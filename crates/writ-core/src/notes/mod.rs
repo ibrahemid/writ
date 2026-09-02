@@ -266,6 +266,10 @@ pub fn sanitize_title_or(raw: &str, fallback: &str) -> String {
     sanitize_title(raw).unwrap_or_else(|| fallback.to_string())
 }
 
+/// What a name that survives [`rename_stem`] as nothing is called, said once
+/// for every surface that asks for a name.
+pub const NAME_IS_EMPTY: &str = "That name is empty.";
+
 /// The filename stem a typed name earns when renaming `current`, with the
 /// note's own extension removed first.
 ///
