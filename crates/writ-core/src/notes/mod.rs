@@ -270,6 +270,12 @@ pub fn sanitize_title_or(raw: &str, fallback: &str) -> String {
 /// for every surface that asks for a name.
 pub const NAME_IS_EMPTY: &str = "That name is empty.";
 
+/// What a folder that already holds `name` is answered with, said once for
+/// every surface that mints or renames a note.
+pub fn name_is_taken(name: &str) -> String {
+    format!("A note named \"{name}\" is already there.")
+}
+
 /// The filename stem a typed name earns when renaming `current`, with the
 /// note's own extension removed first.
 ///
@@ -340,19 +346,24 @@ pub fn note_file_stem(title: &str, dated_from: DateTime<Utc>) -> String {
 
 /// Finder-style dedupe: `stem`, `stem 2`, `stem 3`, and so on.
 ///
-/// `taken` holds lowercased file *names* including their extension, so the
-/// check is case-insensitive the way APFS and NTFS are. `extension` is given
+/// `taken` holds file *names* including their extension, in whatever case and
+/// whatever Unicode normalisation the folder listing gave them. Both sides go
+/// through [`links::name_key`], so the check is case-insensitive the way APFS
+/// and NTFS are, and a name macOS stored decomposed still counts as taken
+/// against the composed spelling of the same name. A dedupe that missed that
+/// hands back a name the filesystem already holds. `extension` is given
 /// without a dot; pass an empty string for a name that has none.
 pub fn dedupe_file_name(stem: &str, extension: &str, taken: &HashSet<String>) -> String {
+    let taken: HashSet<String> = taken.iter().map(|name| links::name_key(name)).collect();
     let candidate = join_name(stem, extension);
-    if !taken.contains(&candidate.to_lowercase()) {
+    if !taken.contains(&links::name_key(&candidate)) {
         return candidate;
     }
 
     let mut counter: u64 = 2;
     loop {
         let candidate = join_name(&format!("{stem} {counter}"), extension);
-        if !taken.contains(&candidate.to_lowercase()) {
+        if !taken.contains(&links::name_key(&candidate)) {
             return candidate;
         }
         counter += 1;

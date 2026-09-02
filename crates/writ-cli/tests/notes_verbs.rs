@@ -672,6 +672,30 @@ fn new_dedupes_against_what_the_folder_already_holds() {
 }
 
 #[test]
+fn new_beside_a_decomposed_name_mints_rather_than_refusing() {
+    // The name macOS stores for "Café.md" is decomposed, and the filesystem
+    // answers to both spellings. A dedupe that compares bytes hands back the
+    // composed name, which the filesystem then refuses: the note could never
+    // be created, however many times it was asked for.
+    let fixture = Fixture::new();
+    let decomposed = fixture.notes.join("Cafe\u{301}.md");
+    std::fs::write(&decomposed, "first").expect("seed");
+
+    let output = fixture.run(&["new", "Caf\u{e9}"]);
+
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(
+        PathBuf::from(stdout(&output).trim()).file_name(),
+        fixture.notes.join("Café 2.md").file_name()
+    );
+    assert_eq!(
+        std::fs::read_to_string(&decomposed).expect("read"),
+        "first",
+        "the note that was already there was written over"
+    );
+}
+
+#[test]
 fn new_with_no_name_dates_the_note() {
     let fixture = Fixture::new();
     let output = fixture.run(&["new"]);
