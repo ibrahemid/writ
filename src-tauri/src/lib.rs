@@ -226,30 +226,33 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 /// caller for seconds. An empty index reconciles to a full one, which is what
 /// makes deleting `writ.db` safe.
 ///
-/// `in_flight` keeps one walk at a time. The sweep marker the notes watcher
-/// raises during a sync catch-up can arrive again while the last walk is still
-/// running, and starting a second walk over the same folder would read every
-/// note twice for one answer. A walk already under way covers whatever landed
-/// while it ran, because it reads the folder as it finds it.
+/// `gate` keeps one walk at a time. The sweep the notes watcher raises during
+/// a sync catch-up can arrive again while the last walk is still running, and
+/// starting a second walk over the same folder would read every note twice for
+/// one answer. A walk under way covers most of what lands while it runs — but
+/// not a file it has already read and something rewrote behind it, so a
+/// request that arrives during a walk earns exactly one walk after it, however
+/// many such requests there were.
 ///
 /// The walk retires itself the moment the notes folder moves: one that
 /// finished against the old folder would prune every row the move re-keyed.
+/// The generation is taken per walk, so the one that follows reads the folder
+/// Writ holds now.
 fn spawn_notes_reconcile(
     index: std::sync::Arc<writ_storage::notes_index::NotesIndexStore>,
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    in_flight: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    gate: std::sync::Arc<writ_core::watcher::reconcile::ReconcileGate>,
     root: std::path::PathBuf,
 ) {
     use std::sync::atomic::Ordering;
 
-    if in_flight.swap(true, Ordering::SeqCst) {
+    if !gate.request() {
         return;
     }
-    let generation = index.generation();
-    std::thread::spawn(move || {
+    std::thread::spawn(move || loop {
+        let generation = index.generation();
         let cancelled = || cancel.load(Ordering::Relaxed) || index.generation() != generation;
         let outcome = index.reconcile(&root, &cancelled, &writ_storage::notes_index::is_dataless);
-        in_flight.store(false, Ordering::SeqCst);
         match outcome {
             Ok(outcome) => info!(
                 added = outcome.added,
@@ -260,6 +263,15 @@ fn spawn_notes_reconcile(
                 "notes index reconciled"
             ),
             Err(e) => tracing::warn!(error = %e, "notes index reconcile failed"),
+        }
+        // Shutdown takes precedence over anything owed: a walk asked for
+        // during the last one is not a reason to keep the process alive.
+        if cancel.load(Ordering::Relaxed) {
+            gate.release();
+            return;
+        }
+        if !gate.finished() {
+            return;
         }
     });
 }
@@ -588,7 +600,7 @@ pub fn run() {
                 let state = app.state::<AppState>();
                 let index = state.notes_index.clone();
                 let cancel = state.notes_index_cancel.clone();
-                let reconciling = state.notes_index_reconciling.clone();
+                let reconcile_gate = state.notes_reconcile.clone();
                 // The live root, read per event rather than captured: moving
                 // the notes folder restarts the watcher, and a marker carrying
                 // the new root has to still read as a marker.
@@ -603,7 +615,7 @@ pub fn run() {
                         spawn_notes_reconcile(
                             index.clone(),
                             cancel.clone(),
-                            reconciling.clone(),
+                            reconcile_gate.clone(),
                             handle.state::<AppState>().notes_root(),
                         );
                         return;
@@ -764,7 +776,7 @@ pub fn run() {
                 spawn_notes_reconcile(
                     state.notes_index.clone(),
                     state.notes_index_cancel.clone(),
-                    state.notes_index_reconciling.clone(),
+                    state.notes_reconcile.clone(),
                     notes_root.clone(),
                 );
 

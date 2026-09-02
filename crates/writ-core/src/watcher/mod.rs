@@ -14,3 +14,5 @@ pub mod change_event;
 /// from real external edits, even when a debouncer coalesces both into a
 /// single delivered event.
 pub mod ignore;
+/// One folder walk at a time, and one more when something asked while it ran.
+pub mod reconcile;
