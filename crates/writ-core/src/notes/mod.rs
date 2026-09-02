@@ -266,6 +266,38 @@ pub fn sanitize_title_or(raw: &str, fallback: &str) -> String {
     sanitize_title(raw).unwrap_or_else(|| fallback.to_string())
 }
 
+/// The filename stem a typed name earns when renaming `current`, with the
+/// note's own extension removed first.
+///
+/// A note is shown by its file name, `Grocery list.md` and not `Grocery list`,
+/// so a user editing that name in place hands back a string that already ends
+/// in `.md`. Sanitising it whole would mint `Grocery list.md.md`. Only the
+/// note's current extension is stripped: a note renamed to `Recipes.2026` keeps
+/// the year, because that is not an extension this file has.
+///
+/// The result is a stem and never a path. [`sanitize_title`] maps `/` and `\`
+/// to spaces, so an absolute name cannot come back out of this and a name
+/// carrying `..` loses the separators that would make it walk anywhere; a
+/// caller joining the result onto the note's own folder keeps the note in it.
+///
+/// Returns `None` when nothing survives, which is the empty name.
+pub fn rename_stem(current: &Path, typed: &str) -> Option<String> {
+    let typed = typed.trim();
+    let base = match current.extension().and_then(|ext| ext.to_str()) {
+        Some(extension) => {
+            let suffix = format!(".{extension}");
+            match typed.len() > suffix.len()
+                && typed[typed.len() - suffix.len()..].eq_ignore_ascii_case(&suffix)
+            {
+                true => &typed[..typed.len() - suffix.len()],
+                false => typed,
+            }
+        }
+        None => typed,
+    };
+    sanitize_title(base)
+}
+
 /// `YYYY-MM-DD` in the local calendar day of `now`.
 ///
 /// The local day is what the user calls today, and a note named for a day the
@@ -462,6 +494,96 @@ mod tests {
     #[cfg(not(windows))]
     fn a_backslash_is_a_name_character_where_it_is_not_a_separator() {
         assert_eq!(note_display_name("/notes/a\\b.md"), "a\\b");
+    }
+
+    #[test]
+    fn a_rename_strips_the_note_s_own_extension_once() {
+        let note = Path::new("/notes/Grocery list.md");
+        assert_eq!(
+            rename_stem(note, "Shopping.md").as_deref(),
+            Some("Shopping")
+        );
+        assert_eq!(
+            rename_stem(note, "Shopping.MD").as_deref(),
+            Some("Shopping")
+        );
+        assert_eq!(
+            rename_stem(note, "Shopping.md.md").as_deref(),
+            Some("Shopping.md"),
+            "one suffix comes off, not every one"
+        );
+    }
+
+    #[test]
+    fn a_rename_to_nothing_but_the_extension_keeps_it_whole() {
+        // Stripping here would leave nothing, so `.md` is a name and the note
+        // becomes `md.md` rather than being refused.
+        assert_eq!(
+            rename_stem(Path::new("/notes/2026-08-29.md"), ".md").as_deref(),
+            Some("md")
+        );
+    }
+
+    #[test]
+    fn a_rename_keeps_an_extension_the_note_does_not_have() {
+        assert_eq!(
+            rename_stem(Path::new("/notes/Recipes.md"), "Recipes.2026").as_deref(),
+            Some("Recipes.2026")
+        );
+        assert_eq!(
+            rename_stem(Path::new("/notes/plain"), "Notes.md").as_deref(),
+            Some("Notes.md"),
+            "a file with no extension strips nothing"
+        );
+    }
+
+    #[test]
+    fn a_rename_cannot_name_a_path() {
+        let note = Path::new("/notes/One.md");
+        // The stem a caller joins onto the note's folder. Nothing here may
+        // carry a separator, be absolute, or start with a parent-directory
+        // step, or the join would put the note somewhere else entirely.
+        for typed in [
+            "/tmp/pwned",
+            "../../escaped",
+            "..\\..\\escaped",
+            "/etc/passwd",
+            "~/elsewhere/note",
+            "a/b/c",
+        ] {
+            let stem = rename_stem(note, typed).expect("a stem survives");
+            assert!(
+                !stem.contains('/') && !stem.contains('\\'),
+                "{typed} kept a separator: {stem}"
+            );
+            assert!(!Path::new(&stem).is_absolute(), "{typed} stayed absolute");
+            assert_eq!(
+                Path::new(&stem).components().count(),
+                1,
+                "{typed} is more than one path component: {stem}"
+            );
+            assert!(!stem.starts_with(".."), "{typed} still walks up: {stem}");
+        }
+    }
+
+    #[test]
+    fn a_rename_drops_the_characters_a_filename_may_not_carry() {
+        let stem =
+            rename_stem(Path::new("/notes/One.md"), "a:b?c*d<e>f\"g|h").expect("a stem survives");
+        for illegal in [':', '?', '*', '<', '>', '"', '|'] {
+            assert!(!stem.contains(illegal), "{illegal} survived: {stem}");
+        }
+    }
+
+    #[test]
+    fn a_rename_to_nothing_is_refused() {
+        for typed in ["", "   ", "...", "///"] {
+            assert_eq!(
+                rename_stem(Path::new("/notes/One.md"), typed),
+                None,
+                "{typed} should not name a note"
+            );
+        }
     }
 
     #[test]

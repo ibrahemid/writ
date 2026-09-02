@@ -13,7 +13,7 @@ use tauri::State;
 use tracing::{info, warn};
 use writ_core::buffer::document::BufferDocument;
 use writ_core::buffer::manager::BufferManager;
-use writ_core::notes::NotesRootRefusal;
+use writ_core::notes::{rename_stem, NotesRootRefusal};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::errors::{StorageError, StorageResult};
 use writ_storage::note_ops;
@@ -40,34 +40,6 @@ fn note_path(doc: &BufferDocument) -> Result<String, String> {
     doc.source_path
         .clone()
         .ok_or_else(|| format!("note {} has no file yet", doc.id))
-}
-
-/// The filename stem a typed name earns, with the note's own extension
-/// removed first.
-///
-/// The tab shows a note by its file name, `Grocery list.md` and not
-/// `Grocery list`, so a user editing that name in place hands back a string
-/// that already ends in `.md`. Sanitising it whole would mint
-/// `Grocery list.md.md`. Only the note's current extension is stripped: a note
-/// renamed to `Recipes.2026` keeps the year, because that is not an extension
-/// this file has.
-///
-/// Returns `None` when nothing survives, which is the empty name.
-fn rename_stem(current: &Path, typed: &str) -> Option<String> {
-    let typed = typed.trim();
-    let base = match current.extension().and_then(|ext| ext.to_str()) {
-        Some(extension) => {
-            let suffix = format!(".{extension}");
-            match typed.len() > suffix.len()
-                && typed[typed.len() - suffix.len()..].eq_ignore_ascii_case(&suffix)
-            {
-                true => &typed[..typed.len() - suffix.len()],
-                false => typed,
-            }
-        }
-        None => typed,
-    };
-    writ_core::notes::sanitize_title(base)
 }
 
 /// Renders a note operation's failure for the editor.
@@ -754,45 +726,6 @@ fn path_text(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_typed_name_keeps_the_note_extension_once() {
-        let current = Path::new("/notes/2026-08-29.md");
-        assert_eq!(
-            rename_stem(current, "Grocery list").as_deref(),
-            Some("Grocery list")
-        );
-        assert_eq!(
-            rename_stem(current, "Grocery list.md").as_deref(),
-            Some("Grocery list")
-        );
-        assert_eq!(
-            rename_stem(current, "Grocery list.MD").as_deref(),
-            Some("Grocery list")
-        );
-    }
-
-    #[test]
-    fn a_name_that_is_only_the_extension_is_kept_whole() {
-        let current = Path::new("/notes/2026-08-29.md");
-        assert_eq!(rename_stem(current, ".md").as_deref(), Some("md"));
-    }
-
-    #[test]
-    fn a_suffix_that_is_not_this_files_extension_survives() {
-        let current = Path::new("/notes/2026-08-29.md");
-        assert_eq!(
-            rename_stem(current, "Recipes.2026").as_deref(),
-            Some("Recipes.2026")
-        );
-    }
-
-    #[test]
-    fn a_name_with_nothing_in_it_yields_nothing() {
-        let current = Path::new("/notes/2026-08-29.md");
-        assert_eq!(rename_stem(current, "   "), None);
-        assert_eq!(rename_stem(current, "///"), None);
-    }
 
     #[test]
     fn a_taken_name_is_named_back() {
