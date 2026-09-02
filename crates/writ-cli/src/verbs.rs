@@ -17,7 +17,9 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use writ_core::notes::links::Resolution;
-use writ_core::notes::{note_display_name, note_file_stem, rename_stem, NAME_IS_EMPTY};
+use writ_core::notes::{
+    name_is_taken, note_display_name, note_file_stem, rename_stem, NAME_IS_EMPTY,
+};
 use writ_storage::database::migrations::binary_schema_version;
 use writ_storage::errors::StorageError;
 use writ_storage::note_ops;
@@ -703,9 +705,7 @@ fn plain_storage_reason(error: &StorageError) -> String {
     match error {
         StorageError::Io(e) => plain_io_reason(e.kind()).to_string(),
         StorageError::NoteNameEmpty => NAME_IS_EMPTY.to_string(),
-        StorageError::NoteNameTaken { name, .. } => {
-            format!("A note named \"{name}\" is already there.")
-        }
+        StorageError::NoteNameTaken { name, .. } => name_is_taken(name),
         StorageError::SourceChangedOnDisk { .. } => {
             "The file changed outside Writ, so it was left alone.".to_string()
         }
@@ -1054,6 +1054,20 @@ mod tests {
                 "a reason reads as a sentence: {sentence}"
             );
         }
+    }
+
+    #[test]
+    fn a_taken_name_is_reported_in_the_app_s_words() {
+        // Both surfaces read the sentence out of writ-core, so a copy that
+        // drifts here would have to drift there too.
+        let error = StorageError::NoteNameTaken {
+            name: "One.md".to_string(),
+            folder: PathBuf::from("/notes"),
+        };
+        assert_eq!(
+            plain_storage_reason(&error),
+            writ_core::notes::name_is_taken("One.md")
+        );
     }
 
     /// Fails when a user-facing string carries an OS error code or a word from

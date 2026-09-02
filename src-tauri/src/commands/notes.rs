@@ -13,7 +13,7 @@ use tauri::State;
 use tracing::{info, warn};
 use writ_core::buffer::document::BufferDocument;
 use writ_core::buffer::manager::BufferManager;
-use writ_core::notes::{rename_stem, NotesRootRefusal, NAME_IS_EMPTY};
+use writ_core::notes::{name_is_taken, rename_stem, NotesRootRefusal, NAME_IS_EMPTY};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::errors::{StorageError, StorageResult};
 use writ_storage::note_ops;
@@ -47,9 +47,7 @@ fn note_path(doc: &BufferDocument) -> Result<String, String> {
 fn note_failure_message(error: &StorageError) -> String {
     match error {
         StorageError::NoteNameEmpty => NAME_IS_EMPTY.to_string(),
-        StorageError::NoteNameTaken { name, .. } => {
-            format!("A note named \"{name}\" is already there.")
-        }
+        StorageError::NoteNameTaken { name, .. } => name_is_taken(name),
         other => save_failure_message(other),
     }
 }
@@ -733,6 +731,11 @@ mod tests {
         assert_eq!(
             note_failure_message(&error),
             "A note named \"Grocery list.md\" is already there."
+        );
+        // The command line says the same thing by reading the same function.
+        assert_eq!(
+            note_failure_message(&error),
+            name_is_taken("Grocery list.md")
         );
     }
 
