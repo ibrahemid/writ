@@ -181,6 +181,12 @@ included. Properties are listed in the order they were written.
 ordered by note count descending, then by tag. `notes` counts notes, not
 mentions: a note tagged twice with one tag counts once.
 
+`notes_folder` is the folder this invocation resolved, from `WRIT_NOTES_DIR`,
+then the config, then the default. The tags come from the index, which
+describes the folder the app last read. They are the same folder unless
+`WRIT_NOTES_DIR` points somewhere the app has never indexed, so read the field
+as where this command was pointed rather than as where a tag was found.
+
 ### `writ new --json`, `writ trash --json`
 
 ```json
@@ -211,4 +217,16 @@ Neither updates the note index. The app picks the change up through its watcher
 while it is running, and through its next pass over the notes folder otherwise,
 so a read verb run in between can name a file that has moved.
 
-`rename` does not rewrite links that name the note by its old name.
+`rename` does not rewrite links that name the note by its old name. `writ
+--help` says so too, so nobody learns it from a broken link. Rewriting them is
+the app's, and the command line gains the option once the app has it.
+
+The new name goes through `writ_core::notes::rename_stem`, the function the
+app's rename runs. One trailing `.md` comes off, so `rename Note "Foo.md"`
+gives `Foo.md` and not `Foo.md.md`. The characters no filename may carry on any
+platform (`/ \ < > : " | ? *` and control characters) become spaces, on every
+platform, so a name minted here is one the app would mint and one that survives
+a sync onto another machine. What comes back is a name and never a path: an
+absolute new name or one carrying `..` loses the separators that would take the
+note out of its folder, and a name that survives to nothing is refused with
+`That name is empty.` and exit 1.

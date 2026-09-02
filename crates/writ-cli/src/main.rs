@@ -132,6 +132,9 @@ fn notes_dir() -> PathBuf {
 /// Both are resolved from the same three sources in the same order the app
 /// resolves them from, so the CLI and the app never disagree about where a note
 /// goes or which index describes it.
+/// A notes folder that cannot be resolved stops the command here rather than
+/// letting it write somewhere the app would never look. The refusal names the
+/// path, which is the thing the user can go and fix.
 fn writ_paths() -> (PathBuf, PathBuf) {
     let data_dir_override = std::env::var("WRIT_DATA_DIR")
         .ok()
@@ -146,13 +149,18 @@ fn writ_paths() -> (PathBuf, PathBuf) {
     let configured = read_notes_root_from_config(&writ_dir);
     let env_override = std::env::var("WRIT_NOTES_DIR").ok();
 
-    let notes = resolve_notes_dir(
+    match resolve_notes_dir(
         env_override.as_deref(),
         configured.as_deref(),
         data_dir_override.as_deref(),
         home.as_deref(),
-    );
-    (writ_dir, notes)
+    ) {
+        Ok(notes) => (writ_dir, notes),
+        Err(error) => {
+            eprintln!("writ: {error}");
+            process::exit(1);
+        }
+    }
 }
 
 /// Runs a note verb and exits. Never returns: the verbs are a surface of their

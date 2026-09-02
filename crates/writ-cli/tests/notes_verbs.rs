@@ -508,6 +508,44 @@ fn an_index_from_a_newer_schema_is_refused() {
 }
 
 #[test]
+fn a_file_that_is_not_a_database_is_not_called_stale() {
+    // Reporting a corrupt file as an old index would send the reader off to
+    // run the app for a migration that cannot help. The three states each get
+    // their own sentence.
+    let fixture = Fixture::new();
+    fixture.indexed();
+    std::fs::write(fixture.db_path(), "this is not a database at all\n").expect("clobber");
+
+    let output = fixture.run(&["tags"]);
+    assert_eq!(code(&output), 1);
+    let said = stderr(&output);
+    assert!(said.contains("not a note index"), "{said}");
+    assert!(
+        !said.contains("brings it up to date"),
+        "a corrupt file was reported as one the app migrates: {said}"
+    );
+    assert!(!said.contains("version 0"), "{said}");
+    assert_no_error_code(&said);
+}
+
+#[test]
+fn an_empty_file_where_the_index_should_be_is_not_called_stale() {
+    let fixture = Fixture::new();
+    fixture.indexed();
+    std::fs::write(fixture.db_path(), []).expect("truncate");
+
+    let output = fixture.run(&["tags"]);
+    assert_eq!(code(&output), 1);
+    // An empty file is a valid empty database to SQLite, so it has no
+    // schema_version table and reads as unreadable rather than as version 0.
+    assert!(
+        stderr(&output).contains("not a note index"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
 fn a_read_leaves_the_database_as_it_found_it() {
     let fixture = Fixture::new();
     fixture.indexed();
@@ -648,6 +686,85 @@ fn new_with_no_name_dates_the_note() {
     assert_eq!(stem.matches('-').count(), 2, "{stem} is not a date");
 }
 
+/// A folder that can be written and executed but not listed. `read_dir` fails
+/// there, which is what makes the dedupe blind.
+#[cfg(unix)]
+fn make_unlistable(dir: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o300)).expect("chmod");
+}
+
+#[cfg(unix)]
+fn make_listable(dir: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).expect("chmod");
+}
+
+#[cfg(unix)]
+#[test]
+fn new_never_writes_over_a_note_that_is_already_there() {
+    // The dedupe reads the folder to find out which names are taken, and a
+    // folder it cannot list looks empty. A note must survive that: the write
+    // goes through the atomic guarded path, which refuses to land on a file it
+    // was not told about, rather than truncating one in place.
+    let fixture = Fixture::new();
+    let existing = fixture.notes.join("One.md");
+    let before = std::fs::read(&existing).expect("read One.md");
+    assert!(!before.is_empty(), "the fixture note has text to lose");
+
+    make_unlistable(&fixture.notes);
+    let output = fixture.run(&["new", "One"]);
+    make_listable(&fixture.notes);
+
+    assert_eq!(
+        std::fs::read(&existing).expect("read One.md"),
+        before,
+        "new overwrote a note that was already there"
+    );
+    if code(&output) == 0 {
+        let minted = PathBuf::from(stdout(&output).trim());
+        assert_ne!(minted, existing, "new handed back the existing note");
+    } else {
+        assert_no_error_code(&stderr(&output));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_folder_that_cannot_be_written_is_refused_without_an_error_code() {
+    let fixture = Fixture::new();
+    let readonly = fixture._dir.path().join("readonly");
+    std::fs::create_dir(&readonly).expect("create");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&readonly, std::fs::Permissions::from_mode(0o500)).expect("chmod");
+    }
+
+    let output = Command::new(env!("CARGO_BIN_EXE_writ"))
+        .args(["new", "Blocked"])
+        .env("WRIT_DATA_DIR", &fixture.data)
+        .env("WRIT_NOTES_DIR", &readonly)
+        .current_dir(fixture._dir.path())
+        .output()
+        .expect("run writ");
+
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&readonly, std::fs::Permissions::from_mode(0o700)).expect("chmod");
+    }
+
+    assert_eq!(code(&output), 1, "{}", stdout(&output));
+    assert_no_error_code(&stderr(&output));
+}
+
+/// Fails when a line the user reads carries an OS error code.
+fn assert_no_error_code(message: &str) {
+    let lower = message.to_lowercase();
+    for token in ["os error", "errno", "(os "] {
+        assert!(!lower.contains(token), "{message} says `{token}`");
+    }
+}
+
 #[test]
 fn rename_moves_the_note_inside_its_folder() {
     let fixture = Fixture::new();
@@ -699,6 +816,80 @@ fn rename_onto_a_name_the_folder_already_holds_is_refused() {
         fixture.notes.join("One.md").exists(),
         "the note was moved anyway"
     );
+}
+
+#[test]
+fn a_new_name_cannot_take_the_note_out_of_its_folder() {
+    let fixture = Fixture::new();
+    let escape = fixture._dir.path().join("escaped.md");
+
+    for new_name in [
+        "/tmp/writ-cli-pwned",
+        "../../escaped",
+        "../escaped",
+        "..\\..\\escaped",
+    ] {
+        let output = fixture.run(&["rename", "Alone", new_name]);
+        assert_eq!(code(&output), 0, "{}", stderr(&output));
+
+        let landed = PathBuf::from(stdout(&output).trim());
+        assert_eq!(
+            landed.parent().map(Path::to_path_buf),
+            Some(fixture.notes.clone()),
+            "{new_name} put the note at {landed:?}"
+        );
+        assert!(landed.is_file(), "{landed:?} is not a file");
+        assert!(
+            !escape.exists(),
+            "{new_name} wrote outside the notes folder"
+        );
+        assert!(
+            !PathBuf::from("/tmp/writ-cli-pwned.md").exists(),
+            "{new_name} wrote to /tmp"
+        );
+
+        // Put it back for the next spelling.
+        std::fs::rename(&landed, fixture.notes.join("Alone.md")).expect("restore");
+    }
+}
+
+#[test]
+fn a_new_name_ending_in_md_does_not_earn_a_second_one() {
+    let fixture = Fixture::new();
+    let output = fixture.run(&["rename", "Alone", "Renamed.md"]);
+
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(
+        PathBuf::from(stdout(&output).trim()).file_name(),
+        fixture.notes.join("Renamed.md").file_name()
+    );
+    assert!(!fixture.notes.join("Renamed.md.md").exists());
+}
+
+#[test]
+fn a_new_name_loses_the_characters_a_filename_may_not_carry() {
+    let fixture = Fixture::new();
+    let output = fixture.run(&["rename", "Alone", "a:b?c*d"]);
+
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let name = PathBuf::from(stdout(&output).trim())
+        .file_name()
+        .expect("a name")
+        .to_string_lossy()
+        .into_owned();
+    for illegal in [':', '?', '*'] {
+        assert!(!name.contains(illegal), "{illegal} survived in {name}");
+    }
+}
+
+#[test]
+fn a_new_name_that_survives_to_nothing_is_refused() {
+    let fixture = Fixture::new();
+    let output = fixture.run(&["rename", "Alone", "///"]);
+
+    assert_eq!(code(&output), 1);
+    assert_eq!(stderr(&output), "writ: That name is empty.\n");
+    assert!(fixture.notes.join("Alone.md").exists(), "the note moved");
 }
 
 #[test]

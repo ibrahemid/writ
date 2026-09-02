@@ -13,18 +13,22 @@
 //! None of the verbs opens a window. They print records and exit, so they can
 //! be piped; `writ <file>` is still how a note is opened.
 
-use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use writ_core::notes::links::Resolution;
-use writ_core::notes::{dedupe_file_name, note_display_name, note_file_stem};
+use writ_core::notes::{note_display_name, note_file_stem, rename_stem};
 use writ_storage::database::migrations::binary_schema_version;
+use writ_storage::errors::StorageError;
 use writ_storage::note_ops;
 use writ_storage::notes_index::{self, IndexedBy, NotesIndexStore};
 
 /// Extension a new note is created with.
 const NOTE_EXTENSION: &str = "md";
+
+/// What a name that survives sanitising to nothing is answered with. The same
+/// sentence the app shows for the same name.
+const NAME_IS_EMPTY: &str = "That name is empty.";
 
 /// Everything read successfully.
 pub const EXIT_OK: i32 = 0;
@@ -114,6 +118,7 @@ pub fn usage() -> String {
         "  writ trash <note>                 move a note to the trash",
         "",
         "A <note> is a path, or the name of a note in the notes folder.",
+        "rename does not yet rewrite links that name the note by its old name.",
         "Exit codes: 0 read, 1 nothing to read or the operation failed, 2 bad arguments.",
         "",
         "Open a file instead: writ <path>",
@@ -284,10 +289,17 @@ pub fn run(verb: Verb, ctx: &Context) -> Outcome {
 /// Why the note index could not be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum IndexError {
+    /// Nothing is at the path at all.
     Absent(PathBuf),
+    /// A note index Writ wrote, at a version this build reads past.
     Older { db: i32, binary: i32 },
+    /// A note index a newer Writ wrote.
     Newer { db: i32, binary: i32 },
-    Unreadable(String),
+    /// A file is there and it is not a note index this build can query: a
+    /// truncated or corrupt database, or one another process holds. Kept apart
+    /// from [`IndexError::Older`] because running the app fixes that one and
+    /// cannot fix this one.
+    Unreadable(PathBuf),
 }
 
 impl std::fmt::Display for IndexError {
@@ -308,9 +320,11 @@ impl std::fmt::Display for IndexError {
                 "the note index is at version {db}, past the version {binary} this writ reads. \
                  It was written by a newer Writ."
             ),
-            IndexError::Unreadable(message) => {
-                write!(f, "the note index could not be read: {message}")
-            }
+            IndexError::Unreadable(path) => write!(
+                f,
+                "the file at {} is not a note index this writ can read.",
+                path.display()
+            ),
         }
     }
 }
@@ -327,10 +341,14 @@ fn open_index(db_path: &Path) -> Result<NotesIndexStore, IndexError> {
         return Err(IndexError::Absent(db_path.to_path_buf()));
     }
     let store = NotesIndexStore::open_read_only(db_path)
-        .map_err(|error| IndexError::Unreadable(error.to_string()))?;
+        .map_err(|_| IndexError::Unreadable(db_path.to_path_buf()))?;
+    // `open_with_flags` is lazy, so this is where a file that is not a database
+    // is actually met. `applied_schema_version` returns the failure rather than
+    // reporting version 0, which would send the reader off to run the app for a
+    // migration that cannot help.
     let db = store
         .schema_version()
-        .map_err(|error| IndexError::Unreadable(error.to_string()))?;
+        .map_err(|_| IndexError::Unreadable(db_path.to_path_buf()))?;
     let binary = binary_schema_version();
     match db.cmp(&binary) {
         std::cmp::Ordering::Less => Err(IndexError::Older { db, binary }),
@@ -659,15 +677,49 @@ fn record<const N: usize>(fields: [&str; N]) -> String {
 
 // -------------------------------------------------------- writing verbs
 
-/// The names `dir` already holds, lowercased the way the dedupe compares them.
-fn taken_names(dir: &Path) -> HashSet<String> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return HashSet::new();
-    };
-    entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.file_name().to_string_lossy().to_lowercase())
-        .collect()
+/// Why a file operation did not happen, as a sentence with no OS error code
+/// in it.
+///
+/// `std::io::Error`'s own text carries the platform's wording and its errno
+/// (`Permission denied (os error 13)`), which names a number nobody can act
+/// on. The kinds a note operation actually meets get a sentence saying what is
+/// in the way; anything else says only that it did not happen, which is all
+/// this process honestly knows.
+fn plain_io_reason(kind: std::io::ErrorKind) -> &'static str {
+    match kind {
+        std::io::ErrorKind::PermissionDenied => "Writ is not allowed to write there.",
+        std::io::ErrorKind::NotFound => "That folder is not there.",
+        std::io::ErrorKind::ReadOnlyFilesystem => "That folder is read only.",
+        std::io::ErrorKind::StorageFull => "The disk is full.",
+        std::io::ErrorKind::AlreadyExists => "A file of that name is already there.",
+        _ => "The file could not be written.",
+    }
+}
+
+/// A storage failure as a sentence, for a reader with no window to show it in.
+///
+/// The two failures the app answers with a stable code carry the same wording
+/// here that the editor shows for a stopped rename. The app sends codes across
+/// IPC instead because that wording lives in the frontend, and a command line
+/// has no frontend to send them to.
+fn plain_storage_reason(error: &StorageError) -> String {
+    match error {
+        StorageError::Io(e) => plain_io_reason(e.kind()).to_string(),
+        StorageError::NoteNameEmpty => NAME_IS_EMPTY.to_string(),
+        StorageError::NoteNameTaken { name, .. } => {
+            format!("A note named \"{name}\" is already there.")
+        }
+        StorageError::SourceChangedOnDisk { .. } => {
+            "The file changed outside Writ, so it was left alone.".to_string()
+        }
+        StorageError::SourceNotDownloaded { .. } => {
+            "That file has not finished downloading yet.".to_string()
+        }
+        StorageError::NoteTrash { .. } => {
+            "The operating system would not move it to the trash, so it is still there.".to_string()
+        }
+        _ => "The note could not be changed.".to_string(),
+    }
 }
 
 /// Prints one path, as a bare line or as the documented JSON document.
@@ -686,24 +738,25 @@ fn path_outcome(json: bool, path: &Path, previous: Option<&Path>) -> Outcome {
 
 /// Creates an empty note in the notes folder and prints its path.
 ///
-/// The name goes through the same sanitiser and the same Finder-style dedupe
-/// the app uses, so a note created here and one created in the window are named
-/// by one rule. A name that survives sanitising to nothing is dated, which is
-/// what an untitled note is called.
+/// `note_ops::create_note` does the work, so the file is minted by the code the
+/// app's New Note runs: one sanitiser, one Finder-style dedupe, and the atomic
+/// guarded write that is the only way a note reaches disk (ADR-028). A name
+/// that survives sanitising to nothing is dated, which is what an untitled note
+/// is called.
+///
+/// No stamp is passed: the guard exists to keep the app from reading its own
+/// write back as somebody else's, and from another process there is nothing to
+/// suppress.
 fn new_note(name: Option<&str>, json: bool, ctx: &Context) -> Outcome {
-    if let Err(error) = std::fs::create_dir_all(&ctx.notes_dir) {
-        return Outcome::failed(format!(
-            "cannot create {}: {error}",
-            ctx.notes_dir.display()
-        ));
-    }
     let stem = note_file_stem(name.unwrap_or(""), ctx.now);
-    let file = dedupe_file_name(&stem, NOTE_EXTENSION, &taken_names(&ctx.notes_dir));
-    let path = ctx.notes_dir.join(file);
-    if let Err(error) = std::fs::write(&path, "") {
-        return Outcome::failed(format!("cannot write {}: {error}", path.display()));
+    match note_ops::create_note(&ctx.notes_dir, &stem, None) {
+        Ok(path) => path_outcome(json, &path, None),
+        Err(error) => Outcome::failed(format!(
+            "cannot create a note in {}: {}",
+            ctx.notes_dir.display(),
+            plain_storage_reason(&error)
+        )),
     }
-    path_outcome(json, &path, None)
 }
 
 /// Renames a note in place through `note_ops::rename_note`.
@@ -714,14 +767,26 @@ fn new_note(name: Option<&str>, json: bool, ctx: &Context) -> Outcome {
 /// change it is. No disk state is passed either: this process holds no record
 /// of what the file last looked like, so there is nothing to compare against.
 ///
+/// The name goes through `writ_core::notes::rename_stem`, the same function the
+/// app's rename runs: one trailing `.md` comes off, the characters no filename
+/// may carry are dropped, and what comes back is a stem and never a path, so
+/// the note stays in the folder it was in.
+///
 /// Links naming the note by its old name are not rewritten.
 fn rename_note(arg: &str, new_name: &str, json: bool, ctx: &Context) -> Outcome {
     let Some(from) = note_file(arg, ctx) else {
         return Outcome::failed(format!("no note called {arg}"));
     };
-    match note_ops::rename_note(&from, new_name, None, None) {
+    let Some(stem) = rename_stem(&from, new_name) else {
+        return Outcome::failed(NAME_IS_EMPTY.to_string());
+    };
+    match note_ops::rename_note(&from, &stem, None, None) {
         Ok(to) => path_outcome(json, &to, Some(&from)),
-        Err(error) => Outcome::failed(format!("cannot rename {}: {error}", from.display())),
+        Err(error) => Outcome::failed(format!(
+            "cannot rename {}: {}",
+            from.display(),
+            plain_storage_reason(&error)
+        )),
     }
 }
 
@@ -732,7 +797,11 @@ fn trash_note(arg: &str, json: bool, ctx: &Context) -> Outcome {
     };
     match note_ops::trash_note(&path) {
         Ok(()) => path_outcome(json, &path, None),
-        Err(error) => Outcome::failed(format!("cannot trash {}: {error}", path.display())),
+        Err(error) => Outcome::failed(format!(
+            "cannot trash {}: {}",
+            path.display(),
+            plain_storage_reason(&error)
+        )),
     }
 }
 
@@ -744,6 +813,8 @@ pub fn display_name(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
 
     fn os(values: &[&str]) -> Vec<OsString> {
@@ -912,18 +983,92 @@ mod tests {
 
     #[test]
     fn every_index_failure_says_what_is_wrong_in_plain_words() {
-        for error in [
+        let messages: Vec<String> = [
             IndexError::Absent(PathBuf::from("/a/writ.db")),
             IndexError::Older { db: 41, binary: 42 },
             IndexError::Newer { db: 43, binary: 42 },
-            IndexError::Unreadable("disk error".to_string()),
-        ] {
-            let message = error.to_string();
+            IndexError::Unreadable(PathBuf::from("/a/writ.db")),
+        ]
+        .iter()
+        .map(IndexError::to_string)
+        .collect();
+
+        for message in &messages {
             assert!(!message.is_empty());
+            assert_no_internals(message);
+        }
+        let distinct: HashSet<&String> = messages.iter().collect();
+        assert_eq!(
+            distinct.len(),
+            messages.len(),
+            "a missing, stale and unreadable index each need their own sentence: {messages:?}"
+        );
+    }
+
+    #[test]
+    fn a_missing_index_and_an_unreadable_one_are_told_apart() {
+        // The advice differs: running the app builds the first and cannot
+        // repair the second, so the two must never share wording.
+        let absent = IndexError::Absent(PathBuf::from("/a/writ.db")).to_string();
+        let unreadable = IndexError::Unreadable(PathBuf::from("/a/writ.db")).to_string();
+        let stale = IndexError::Older { db: 0, binary: 42 }.to_string();
+
+        assert!(absent.contains("no note index"), "{absent}");
+        assert!(unreadable.contains("not a note index"), "{unreadable}");
+        assert!(
+            !unreadable.contains("brings it up to date"),
+            "an unreadable index must not be sold as one the app migrates: {unreadable}"
+        );
+        assert!(stale.contains("brings it up to date"), "{stale}");
+    }
+
+    #[test]
+    fn a_failed_file_operation_names_no_error_code() {
+        for kind in [
+            std::io::ErrorKind::PermissionDenied,
+            std::io::ErrorKind::NotFound,
+            std::io::ErrorKind::ReadOnlyFilesystem,
+            std::io::ErrorKind::StorageFull,
+            std::io::ErrorKind::AlreadyExists,
+            std::io::ErrorKind::WouldBlock,
+        ] {
+            assert_no_internals(plain_io_reason(kind));
+        }
+
+        for error in [
+            StorageError::Io(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+            StorageError::NoteNameEmpty,
+            StorageError::NoteNameTaken {
+                name: "One.md".to_string(),
+                folder: PathBuf::from("/notes"),
+            },
+            StorageError::NoteTrash {
+                path: PathBuf::from("/notes/One.md"),
+                message: "NSFileManager error 513 (os error 13)".to_string(),
+            },
+        ] {
+            let sentence = plain_storage_reason(&error);
+            assert_no_internals(&sentence);
             assert!(
-                !message.to_lowercase().contains("vault"),
-                "{message} says vault"
+                sentence.ends_with('.'),
+                "a reason reads as a sentence: {sentence}"
             );
+        }
+    }
+
+    /// Fails when a user-facing string carries an OS error code or a word from
+    /// the banned list.
+    fn assert_no_internals(message: &str) {
+        let lower = message.to_lowercase();
+        for token in [
+            "os error",
+            "errno",
+            "vault",
+            "buffer",
+            "scratchpad",
+            "second brain",
+        ] {
+            assert!(!lower.contains(token), "{message} says `{token}`");
         }
     }
 
