@@ -10,6 +10,9 @@
 /// The write guard: whether a save may land on the file it is aimed at.
 pub mod guard;
 
+/// File identity: telling a file that moved from one that was deleted.
+pub mod identity;
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
