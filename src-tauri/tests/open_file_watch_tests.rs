@@ -16,7 +16,9 @@ use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::watcher::ignore::DEFAULT_IGNORE_TTL;
 use writ_tauri_lib::security::resolve_for_containment;
 use writ_tauri_lib::watcher::handler::{create_ignore_set, start_notes_watcher};
-use writ_tauri_lib::watcher::open_files::{start_open_file_watcher, WatchOutcome, WatcherKind};
+use writ_tauri_lib::watcher::open_files::{
+    start_open_file_watcher, NoOpenNotes, WatchOutcome, WatcherKind,
+};
 
 /// Long enough for the 500 ms debounce plus the platform's own notification
 /// latency, and for the ignore TTL to be nowhere near expiry.
@@ -407,5 +409,57 @@ fn a_note_nobody_has_open_tells_no_tab() {
     assert!(
         seen.is_empty(),
         "a note with no tab open on it has nobody to tell, saw {seen:?}"
+    );
+}
+
+/// How many sweeps the bus carried in `window`.
+fn count_swept(rx: &mpsc::Receiver<WritEvent>, window: Duration) -> usize {
+    let deadline = Instant::now() + window;
+    let mut swept = 0;
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        match rx.recv_timeout(left) {
+            Ok(WritEvent::NotesSwept { .. }) => swept += 1,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    swept
+}
+
+#[test]
+fn a_burst_that_stops_while_a_sweep_stands_is_swept_once_more() {
+    // One sweep stands for two seconds, and every change under it is dropped:
+    // the walk that sweep started covers them. It covers only the files it has
+    // not read yet, though, and a burst that ends inside the cooldown leaves
+    // the last of them behind a walk that has already passed. Nothing else
+    // will raise them — the folder has gone quiet — so the cooldown ending is
+    // itself the moment to sweep again.
+    let notes = TempDir::new().expect("notes dir");
+    let (bus, rx) = bus_with_channel();
+
+    let _watcher = start_notes_watcher(
+        bus,
+        canonical(notes.path()),
+        create_ignore_set(),
+        Arc::new(NoOpenNotes),
+    )
+    .expect("start the notes watcher");
+
+    for n in 0..40 {
+        std::fs::write(notes.path().join(format!("note-{n}.md")), b"x").expect("write note");
+    }
+
+    // Long enough for the burst to be delivered and swept, and short of the
+    // cooldown that sweep starts.
+    assert!(
+        count_swept(&rx, Duration::from_millis(1200)) >= 1,
+        "a burst of forty files was named one by one"
+    );
+
+    // Nothing else is written from here on.
+    assert_eq!(
+        count_swept(&rx, Duration::from_secs(3)),
+        1,
+        "the changes the cooldown swallowed were never swept"
     );
 }

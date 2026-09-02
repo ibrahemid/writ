@@ -85,6 +85,7 @@ pub struct EmissionBudget {
     window_started: Option<Instant>,
     named_in_window: usize,
     last_sweep: Option<Instant>,
+    dropped_since_sweep: bool,
 }
 
 impl Default for EmissionBudget {
@@ -117,6 +118,7 @@ impl EmissionBudget {
             window_started: None,
             named_in_window: 0,
             last_sweep: None,
+            dropped_since_sweep: false,
         }
     }
 
@@ -145,9 +147,45 @@ impl EmissionBudget {
         };
         if sweep_due {
             self.last_sweep = Some(now);
+            self.dropped_since_sweep = false;
             return Emission::Sweep;
         }
+        self.dropped_since_sweep = true;
         Emission::Drop
+    }
+
+    /// When a sweep is owed for changes this budget dropped, or `None`.
+    ///
+    /// A change that arrives while a sweep is still standing is dropped,
+    /// because the sweep before it already told the index to walk the folder.
+    /// That holds only while more changes keep arriving: a burst that ends
+    /// inside the cooldown left its last changes covered by a walk that
+    /// started before them, and the index would sit stale until something else
+    /// happened in the folder — possibly not this session.
+    ///
+    /// So a dropped change owes a sweep, due when the cooldown that swallowed
+    /// it runs out. The caller waits until then and takes it with
+    /// [`Self::take_owed_sweep`]. A sweep the budget emits in the meantime
+    /// covers those changes and clears the debt.
+    pub fn owed_sweep_at(&self) -> Option<Instant> {
+        match (self.dropped_since_sweep, self.last_sweep) {
+            (true, Some(last)) => Some(last + self.sweep_cooldown),
+            _ => None,
+        }
+    }
+
+    /// Takes the owed sweep once it is due, which spends it: the debt is
+    /// cleared and the cooldown starts again, so one silence after a burst
+    /// costs exactly one follow-up sweep however many changes it swallowed.
+    pub fn take_owed_sweep(&mut self, now: Instant) -> bool {
+        match self.owed_sweep_at() {
+            Some(due) if now >= due => {
+                self.last_sweep = Some(now);
+                self.dropped_since_sweep = false;
+                true
+            }
+            _ => false,
+        }
     }
 }
 
@@ -301,5 +339,69 @@ mod tests {
         assert_eq!(budget.admit(start), Emission::Name);
         assert_eq!(budget.admit(start), Emission::Sweep);
         assert_eq!(budget.admit(start), Emission::Drop);
+    }
+
+    #[test]
+    fn a_folder_that_says_nothing_more_owes_no_sweep() {
+        let mut budget = EmissionBudget::new();
+        let start = Instant::now();
+
+        assert_eq!(budget.owed_sweep_at(), None, "nothing has happened yet");
+        burst(&mut budget, DEFAULT_NAMED_PER_WINDOW, start);
+        assert_eq!(budget.owed_sweep_at(), None, "every change was named");
+
+        assert_eq!(budget.admit(start), Emission::Sweep);
+        assert_eq!(
+            budget.owed_sweep_at(),
+            None,
+            "the sweep covers what it swept"
+        );
+    }
+
+    #[test]
+    fn a_burst_that_ends_inside_the_cooldown_still_gets_its_sweep() {
+        // The hole this closes: the changes after the sweep were dropped
+        // because a sweep was standing, and then nothing else happened. The
+        // walk that sweep started had already passed those files, so without a
+        // second sweep the index stayed stale until the folder next changed.
+        let mut budget = EmissionBudget::new();
+        let start = Instant::now();
+
+        let verdicts = burst(&mut budget, 500, start);
+        let (_, swept, dropped) = counts(&verdicts);
+        assert_eq!(swept, 1);
+        assert!(dropped > 0);
+
+        let due = budget.owed_sweep_at().expect("a sweep is owed");
+        assert_eq!(due, start + DEFAULT_SWEEP_COOLDOWN);
+        assert!(
+            !budget.take_owed_sweep(due - Duration::from_millis(1)),
+            "the sweep it would follow is still standing"
+        );
+
+        assert!(budget.take_owed_sweep(due));
+        assert_eq!(
+            budget.owed_sweep_at(),
+            None,
+            "one silence costs one follow-up sweep, whatever it swallowed"
+        );
+    }
+
+    #[test]
+    fn a_storm_that_keeps_going_owes_nothing_extra_at_the_end() {
+        // Sweeps the storm itself paid for cover its own changes; only the
+        // ones after the last of them are owed anything.
+        let mut budget = EmissionBudget::new();
+        let start = Instant::now();
+        for tick in 0..10 {
+            burst(&mut budget, 50, start + Duration::from_secs(tick));
+        }
+
+        let due = budget.owed_sweep_at().expect("a sweep is owed");
+        assert!(budget.take_owed_sweep(due));
+        assert!(
+            !budget.take_owed_sweep(due + DEFAULT_SWEEP_COOLDOWN),
+            "the storm's own sweeps are not owed again"
+        );
     }
 }

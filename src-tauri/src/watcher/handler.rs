@@ -313,7 +313,32 @@ pub fn start_notes_watcher(
 
     std::thread::spawn(move || {
         let mut budget = EmissionBudget::new();
-        while let Ok(result) = rx.recv() {
+        loop {
+            // A change the budget dropped was covered by a sweep that had
+            // already gone out, and the walk that sweep started may have read
+            // the file before it changed. If the folder then falls quiet,
+            // nothing else will ever raise it, so the wait ends at the moment
+            // that sweep stops standing and the folder is swept once more.
+            let result = match budget.owed_sweep_at() {
+                Some(due) => match rx.recv_timeout(due.saturating_duration_since(Instant::now())) {
+                    Ok(result) => result,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        if budget.take_owed_sweep(Instant::now()) {
+                            info!(
+                                root = %root.display(),
+                                "the notes folder fell quiet mid-sweep; sweeping once more"
+                            );
+                            bus.emit(notes_swept(&root));
+                        }
+                        continue;
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                },
+                None => match rx.recv() {
+                    Ok(result) => result,
+                    Err(_) => break,
+                },
+            };
             match result {
                 Ok(events) => {
                     // One tab message per note per delivered batch, the same
