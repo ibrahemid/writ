@@ -18,12 +18,36 @@
 
 use std::time::{Duration, Instant};
 
-/// Changes one window may name individually before it reports a sweep.
+/// Everything one debounce window may emit about the folder, the sweep
+/// included.
 ///
-/// Nine leaves room for what a person does — a save, the temp file beside it,
-/// a couple of siblings an editor touched — while a sync catch-up is over it
-/// on its first window.
-pub const DEFAULT_NAMED_PER_WINDOW: usize = 9;
+/// This is the whole ceiling and the only number to change. A window spends up
+/// to `DEFAULT_EVENTS_PER_WINDOW - 1` naming individual files and the last slot
+/// on the sweep that replaces every further change in it, so ten is ten: nine
+/// named plus one sweep, never eleven.
+///
+/// **Per window, not per catch-up.** A catch-up spanning twenty windows can
+/// still cost up to twenty times this, minus the sweeps the cooldown swallows
+/// (`DEFAULT_SWEEP_COOLDOWN`): around 185 events for a twenty-window catch-up
+/// on the default numbers, not 10. A per-catch-up cap is not something a
+/// watcher can enforce, because nothing tells it a catch-up has ended — only
+/// that no change has arrived for a while, which is the window it already has.
+/// Refilling each window is what keeps an ordinary save named while a sync
+/// client is still running in the background.
+///
+/// Nine named leaves room for what a person does — a save, the temp file
+/// beside it, a couple of siblings an editor touched — while a sync catch-up is
+/// over it on its first window.
+///
+/// It governs what the watcher says about the *folder*
+/// (`WritEvent::NotesChanged` and `WritEvent::NotesSwept`). Telling an open tab
+/// its own file changed is outside it, bounded instead by the number of open
+/// tabs and deduplicated per batch.
+pub const DEFAULT_EVENTS_PER_WINDOW: usize = 10;
+
+/// Changes one window may name individually before it reports a sweep: the
+/// ceiling less the slot the sweep itself takes.
+pub const DEFAULT_NAMED_PER_WINDOW: usize = DEFAULT_EVENTS_PER_WINDOW - 1;
 
 /// The debounce window the watchers coalesce into.
 pub const DEFAULT_WINDOW: Duration = Duration::from_millis(500);
@@ -168,11 +192,41 @@ mod tests {
         assert_eq!(named, DEFAULT_NAMED_PER_WINDOW);
         assert_eq!(swept, 1);
         assert_eq!(dropped, 500 - DEFAULT_NAMED_PER_WINDOW - 1);
-        assert!(
-            named + swept <= 10,
-            "a 500-file catch-up must cost at most 10 emissions, cost {}",
-            named + swept
+        assert_eq!(
+            named + swept,
+            DEFAULT_EVENTS_PER_WINDOW,
+            "the sweep takes the last slot of the window's ceiling, not one past it"
         );
+    }
+
+    #[test]
+    fn a_catch_up_spanning_many_windows_costs_the_ceiling_once_per_window() {
+        // The ceiling is per window. A catch-up long enough to span twenty of
+        // them costs twenty windows' worth, less the sweeps the cooldown
+        // swallows — not one window's worth for the whole catch-up. Pinned
+        // exactly, because the arithmetic is the part that is easy to assume.
+        let mut budget = EmissionBudget::new();
+        let start = Instant::now();
+        let windows = 20u32;
+        let (mut named, mut swept) = (0usize, 0usize);
+
+        for window in 0..windows {
+            let now = start + DEFAULT_WINDOW * window;
+            for verdict in burst(&mut budget, 500, now) {
+                match verdict {
+                    Emission::Name => named += 1,
+                    Emission::Sweep => swept += 1,
+                    Emission::Drop => {}
+                }
+            }
+        }
+
+        // Every window refills, so an ordinary save stays named while a sync
+        // client is still catching up in the background.
+        assert_eq!(named, DEFAULT_NAMED_PER_WINDOW * windows as usize);
+        // Ten seconds of storm at one sweep per two-second cooldown.
+        assert_eq!(swept, 5);
+        assert_eq!(named + swept, 185);
     }
 
     #[test]
