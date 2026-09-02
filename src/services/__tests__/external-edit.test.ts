@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   planExternalEdit,
   handleExternalEdit,
+  readExternalEditPayload,
   type ExternalEditDeps,
 } from "../external-edit";
 
@@ -120,5 +121,56 @@ describe("handleExternalEdit", () => {
     );
 
     expect(deps.reload).toHaveBeenCalledWith("buf-1");
+  });
+});
+
+describe("readExternalEditPayload", () => {
+  it("reads a payload the way Rust serialises one", () => {
+    // The field names are the contract with `WritFrontendEvent::BufferExternal`.
+    // Rust named these `buffer_id` and `disk_hash` for a while; every field
+    // arrived undefined, the guard dropped the event, and nothing external
+    // ever reached a tab. A rename on either side has to fail here.
+    expect(
+      readExternalEditPayload({
+        bufferId: "buf-1",
+        change: "modified",
+        path: "/Users/x/Writ/today.md",
+        newPath: null,
+        diskHash: "abc123",
+      }),
+    ).toEqual({
+      bufferId: "buf-1",
+      change: "modified",
+      path: "/Users/x/Writ/today.md",
+      newPath: null,
+      diskHash: "abc123",
+    });
+  });
+
+  it("reads a note inside the notes folder no differently from one outside it", () => {
+    // Two watchers produce this event and the tab must not be able to tell
+    // which. Nothing here may branch on where the file lives.
+    const inside = readExternalEditPayload({
+      bufferId: "buf-1",
+      change: "modified",
+      path: "/Users/x/Writ/today.md",
+      diskHash: "abc123",
+    });
+    const outside = readExternalEditPayload({
+      bufferId: "buf-1",
+      change: "modified",
+      path: "/Users/x/code/README.md",
+      diskHash: "abc123",
+    });
+
+    expect(inside).toEqual({ ...outside, path: "/Users/x/Writ/today.md" });
+  });
+
+  it("rejects a payload with no buffer to act on", () => {
+    expect(readExternalEditPayload({ change: "modified" })).toBeNull();
+  });
+
+  it("rejects a change it has no plan for", () => {
+    expect(readExternalEditPayload({ bufferId: "buf-1", change: "moved" })).toBeNull();
   });
 });

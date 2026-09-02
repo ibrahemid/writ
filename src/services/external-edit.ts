@@ -46,6 +46,31 @@ export interface ExternalEditPayload {
   diskHash?: string | null;
 }
 
+// Reads a `buffer:external` event off the wire, or rejects it.
+//
+// The guard the whole feature passes through, which is why it is here with a
+// test rather than inline at the subscription. Rust named the fields
+// `buffer_id` and `change` for a while; every payload arrived with `bufferId`
+// undefined, this check dropped it, and the feature was silently inert for as
+// long as that lasted. A rename on either side has to fail a test, not a user.
+export function readExternalEditPayload(payload: {
+  bufferId?: string;
+  change?: string;
+  path?: string;
+  newPath?: string | null;
+  diskHash?: string | null;
+}): ExternalEditPayload | null {
+  if (!payload.bufferId) return null;
+  if (payload.change !== "modified" && payload.change !== "deleted") return null;
+  return {
+    bufferId: payload.bufferId,
+    change: payload.change,
+    path: payload.path,
+    newPath: payload.newPath,
+    diskHash: payload.diskHash,
+  };
+}
+
 // Resolves and executes the response to a `buffer:external` event.
 //
 // Deliberately never reloads the global buffer registry: a blanket registry
