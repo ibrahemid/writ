@@ -292,6 +292,48 @@ One burst can pay both: a sweep the budget owes and a walk the gate owes. The
 cost is one redundant walk of a folder that has gone quiet, which is the side
 to err on.
 
+### 11. A vanished file is told apart from a moved one by its identity
+
+A watcher reports a rename as a removal at the old path and a creation at the
+new one, and on the fallback backend it reports the removal alone. Path is
+therefore no evidence of what happened. The filesystem's own id is: `dev` and
+`ino` on Unix, `FILE_ID_INFO` on Windows. A file that moves keeps it; a file
+deleted and recreated under the same name does not.
+
+The id is read when a tab is given its file (`follow_note_path`) and again after
+every write that lands, so a save-through-replace by an editor that writes to a
+temporary file and renames over the target leaves the tab holding the id of the
+file that is now there.
+
+`writ_core::notes::identity` decides and `src-tauri/src/watcher/identity.rs`
+reads, which is the policy and mechanism split the rest of the watcher follows.
+`classify_delete` compares the id the tab holds against the ids of the files the
+same batch names, plus the note's own folder; a match is a move, no match is a
+removal. The probe is a trait, so the verdict is tested on every platform
+regardless of which one runs the test.
+
+A volume with no id to give — FAT, exFAT, some SMB servers — gets a description
+of the file instead, which cannot recognise it anywhere else. That is
+deliberate: `is_durable` is false for it and the verdict degrades to an external
+modification, which reloads or asks rather than guessing that an unrelated file
+is the same note. A file whose bytes are not on this machine is left with no id
+at all rather than described, because describing it means hashing it and hashing
+it means making the sync provider fetch it (ADR-028 §5).
+
+A move repoints the tab and nothing else: no read, no reload, no prompt. Its
+row, its title and its index rows go to the new path through
+`store.rename_to_file`, and the folder watch is re-armed through decision 9's
+single arming point. Putting a move through the dirty gate would offer to
+discard unsaved text over a rename.
+
+A removal is not a save. The tab keeps its text, is marked, and writes nothing:
+the backend refuses the write under `ERR_FILE_REMOVED_ON_DISK` and the frontend
+stops queueing one. Recreating the file would put back what the person deleted,
+and in a synced folder it would put it back on every device. The two ways out
+are a copy written as a new note and closing the tab. A file put back where it
+was — the Trash restore — re-attaches, because the id it comes back with is the
+one the tab still holds.
+
 ## Consequences
 
 - Opening a file from `~/Downloads` puts a watch on `~/Downloads`. That is the
@@ -320,3 +362,12 @@ to err on.
   more walk than the storm itself paid for. The alternative is an index that
   disagrees with the folder until something happens in it again, which may be
   the next launch.
+- A move is only followed where the watcher reports both halves of it. A file
+  moved to a folder nothing watches is a removal to the tab, which keeps the
+  text and says the file is gone; the person can write a copy or point the tab
+  at the file again by opening it.
+- The `buffer:external` payload gained `moved` and renamed `deleted` to
+  `removed`. The event name is unchanged, so a frontend that has not been
+  updated branches on neither and does nothing, which is the safe direction; a
+  round-trip test on each side is what keeps the three words the same three
+  words.
