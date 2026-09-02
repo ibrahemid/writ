@@ -61,24 +61,23 @@ fn search_names(conn: &Connection, raw: &str) -> Vec<String> {
 /// On unix it must work, and it panics when it does not rather than returning
 /// `false`: root ignores the bits, and a caller that quietly took the `false`
 /// branch there would report a green test that asserted nothing.
+#[cfg(unix)]
 fn deny_reads(path: &Path) -> bool {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000))
-            .expect("set permissions");
-        assert!(
-            std::fs::read_to_string(path).is_err(),
-            "a file with mode 000 was still readable, so this test proves \
-             nothing about reads; run the suite as a normal user"
-        );
-        return true;
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-        false
-    }
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000))
+        .expect("set permissions");
+    assert!(
+        std::fs::read_to_string(path).is_err(),
+        "a file with mode 000 was still readable, so this test proves \
+         nothing about reads; run the suite as a normal user"
+    );
+    true
+}
+
+#[cfg(not(unix))]
+fn deny_reads(path: &Path) -> bool {
+    let _ = path;
+    false
 }
 
 fn indexed_paths(conn: &Connection) -> HashSet<String> {
