@@ -245,10 +245,19 @@ the write guard's job.
 path that gives a tab a file goes through it: opening a file from outside the
 notes folder, restoring a tab at launch or from history, creating a note,
 giving a note its file on first save, renaming one, and moving the notes
-folder. Its doc comment names the three that deliberately do not, because none
-of them puts a file behind a tab: `save_note_copy_inner` writes a copy the
+folder. Its doc comment names the four that deliberately do not.
+
+Three of them put no file behind a tab: `save_note_copy_inner` writes a copy the
 caller then opens through the open path, `create_buffer` makes a note with no
 file, and `get_buffer` only reads a row.
+
+The fourth does, and is the exception. `open_generated_document` gives a tab a
+file under the data directory and does not follow it: the row is read-only, so
+nothing can be written to it and nothing can be lost by a stale copy; the file
+holds Writ's own output and is rewritten from that output on every open; and
+the folder is one Writ writes into, so a watch there would report Writ's own
+writes back to it. Reopening still resyncs through `resync_open_buffer`, which
+is what tells an open tab that the regenerated file differs from what it shows.
 
 Recording a file inside the notes folder matters as much as arming a watch
 outside it. The registry is what answers "which tab holds this path", so a note

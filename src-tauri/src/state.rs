@@ -503,10 +503,17 @@ impl AppState {
     /// tab a changed path belongs to. Skipping it there is what left a note
     /// created or renamed in the session unable to hear about its own file.
     ///
-    /// Three paths deliberately do not call it, because none of them puts a
-    /// file behind a tab: `save_note_copy_inner` writes a copy the caller then
-    /// opens through the open path, `create_buffer` makes a note with no file
-    /// at all, and `get_buffer` only reads a row.
+    /// Four paths deliberately do not call it. Three put no file behind a tab:
+    /// `save_note_copy_inner` writes a copy the caller then opens through the
+    /// open path, `create_buffer` makes a note with no file at all, and
+    /// `get_buffer` only reads a row.
+    ///
+    /// The fourth is `open_generated_document`, which does give a tab a file
+    /// and still does not follow it. The row is read-only, so no save of it can
+    /// be lost; the file is under the data directory and holds Writ's own
+    /// output, rewritten from that output on every open; and the folder is one
+    /// Writ writes into, so a watch there would report Writ's own writes
+    /// (ADR-033 §9).
     ///
     /// Asking twice for the same note and file costs nothing, so a path that
     /// cannot tell whether the tab is new should call it anyway.
