@@ -1,0 +1,234 @@
+//! Reading a file's identity from the platform.
+//!
+//! The mechanism half of [`writ_core::notes::identity`]: the policy decides
+//! what a vanished file means, and this answers the one question it needs —
+//! what the filesystem calls the file at a path, independently of the path.
+//!
+//! Unix answers with `dev` and `ino`, which `std` exposes on every metadata
+//! read. Windows answers with `FILE_ID_INFO`, which needs an open handle and
+//! is not available on FAT, exFAT, or some SMB servers. A volume that will not
+//! answer gets [`FileIdentity::Fallback`], a description that cannot recognise
+//! the file anywhere else, which is exactly what makes the verdict degrade
+//! instead of guessing (spec W4).
+
+use std::path::Path;
+
+use writ_core::notes::guard::is_not_downloaded;
+use writ_core::notes::identity::{FileIdentity, IdentityProbe};
+use writ_storage::buffer_store::dataless_flags;
+
+/// The platform's own answer, which is what production uses.
+pub struct PlatformIdentity;
+
+impl IdentityProbe for PlatformIdentity {
+    fn identity_of(&self, path: &Path) -> Option<FileIdentity> {
+        read_identity(path)
+    }
+}
+
+/// The identity of the file at `path`, or `None` when there is nothing there
+/// to read.
+///
+/// Falls back to a description of the file when the platform has no stable id
+/// for it. The fallback is not reached on Unix, where every file has an inode;
+/// it is reached on a Windows volume that cannot answer, which is a synced
+/// notes folder on a memory card or a share.
+pub fn read_identity(path: &Path) -> Option<FileIdentity> {
+    if let Some(identity) = platform_identity(path) {
+        return Some(identity);
+    }
+    fallback_identity(path)
+}
+
+/// Describes the file for a platform with no stable id to give.
+///
+/// A file whose bytes are not on this machine is left without an identity
+/// rather than described: the description carries a hash, and hashing it would
+/// make the sync provider fetch the whole file (ADR-028 §5). A note in that
+/// state has nothing to compare against, which reads the same as an
+/// unreadable id and degrades the same way.
+fn fallback_identity(path: &Path) -> Option<FileIdentity> {
+    if is_not_downloaded(dataless_flags(path)) {
+        return None;
+    }
+    let metadata = std::fs::metadata(path).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    Some(FileIdentity::Fallback {
+        path: path.to_string_lossy().into_owned(),
+        size: metadata.len(),
+        mtime_ms: metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|since| since.as_millis() as i64),
+        hash: writ_core::hash::sha256_bytes(&bytes),
+    })
+}
+
+/// Unix: the device and inode every file has.
+#[cfg(unix)]
+fn platform_identity(path: &Path) -> Option<FileIdentity> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = std::fs::metadata(path).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    Some(FileIdentity::Inode {
+        dev: metadata.dev(),
+        ino: metadata.ino(),
+    })
+}
+
+/// Windows: `FILE_ID_INFO`, which needs a handle on the file.
+///
+/// `std`'s `file_index` is the older 64-bit id and is still unstable, so the
+/// call is made directly. The handle asks for no access rights beyond metadata
+/// and shares the file with everything, so opening it cannot stop another
+/// program writing it, and `FILE_FLAG_BACKUP_SEMANTICS` lets the same call
+/// answer for a directory rather than failing.
+///
+/// A volume with no file id — FAT, exFAT, some SMB servers — fails the call,
+/// and the caller falls back to describing the file.
+#[cfg(windows)]
+fn platform_identity(path: &Path) -> Option<FileIdentity> {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{FileIdInfo, GetFileInformationByHandleEx};
+    use windows::Win32::Storage::FileSystem::FILE_ID_INFO;
+
+    let file = std::fs::File::open(path).ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
+    let handle = HANDLE(file.as_raw_handle());
+    let mut info = FILE_ID_INFO::default();
+    // SAFETY: `handle` is open for the length of the call, and the buffer is a
+    // `FILE_ID_INFO` of exactly the size passed.
+    unsafe {
+        GetFileInformationByHandleEx(
+            handle,
+            FileIdInfo,
+            std::ptr::addr_of_mut!(info).cast(),
+            std::mem::size_of::<FILE_ID_INFO>() as u32,
+        )
+        .ok()?;
+    }
+    Some(FileIdentity::Windows {
+        volume: info.VolumeSerialNumber,
+        index: u128::from_le_bytes(info.FileId.Identifier),
+    })
+}
+
+/// A platform with neither, which is where the fallback is the only answer.
+#[cfg(not(any(unix, windows)))]
+fn platform_identity(_path: &Path) -> Option<FileIdentity> {
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use writ_core::notes::identity::{classify_delete, DeleteVerdict};
+
+    /// A probe with no answers, which is what a volume carrying no file id
+    /// looks like from here.
+    struct NoIdentity;
+
+    impl IdentityProbe for NoIdentity {
+        fn identity_of(&self, _path: &Path) -> Option<FileIdentity> {
+            None
+        }
+    }
+
+    #[test]
+    fn a_file_that_is_not_there_has_no_identity() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert!(read_identity(&dir.path().join("never-written.md")).is_none());
+    }
+
+    #[test]
+    fn a_folder_is_not_a_file_and_has_no_identity() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert!(read_identity(dir.path()).is_none());
+    }
+
+    #[test]
+    fn the_same_file_reads_the_same_identity_twice() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("note.md");
+        std::fs::write(&path, "body").expect("write");
+        assert_eq!(read_identity(&path), read_identity(&path));
+    }
+
+    #[test]
+    fn two_files_in_one_folder_read_different_identities() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let first = dir.path().join("first.md");
+        let second = dir.path().join("second.md");
+        std::fs::write(&first, "body").expect("write");
+        std::fs::write(&second, "body").expect("write");
+        assert_ne!(read_identity(&first), read_identity(&second));
+    }
+
+    #[test]
+    fn a_renamed_file_keeps_its_identity() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let from = dir.path().join("before.md");
+        let to = dir.path().join("after.md");
+        std::fs::write(&from, "body").expect("write");
+        let before = read_identity(&from).expect("identity");
+        std::fs::rename(&from, &to).expect("rename");
+        let after = read_identity(&to).expect("identity");
+        assert_eq!(before, after);
+        assert_eq!(
+            classify_delete(&before, &[(to.clone(), after)]),
+            DeleteVerdict::Moved(to)
+        );
+    }
+
+    #[test]
+    fn a_file_replaced_in_place_reads_a_new_identity() {
+        // What a sync client's delete-plus-create leaves behind: same path,
+        // same name, a different file.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("note.md");
+        std::fs::write(&path, "first").expect("write");
+        let before = read_identity(&path).expect("identity");
+        std::fs::remove_file(&path).expect("remove");
+        std::fs::write(&path, "second").expect("write");
+        let after = read_identity(&path).expect("identity");
+        assert_ne!(before, after);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn unix_answers_with_the_inode() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("note.md");
+        std::fs::write(&path, "body").expect("write");
+        assert!(matches!(
+            read_identity(&path),
+            Some(FileIdentity::Inode { .. })
+        ));
+    }
+
+    #[test]
+    fn a_platform_with_no_file_id_selects_the_fallback() {
+        // The selection is what is asserted, never that the fallback can find
+        // a moved file: it cannot, and the verdict degrading is the point.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("note.md");
+        std::fs::write(&path, "body").expect("write");
+        let described = fallback_identity(&path).expect("a description");
+        assert!(matches!(described, FileIdentity::Fallback { .. }));
+        assert!(!described.is_durable());
+        assert!(NoIdentity.identity_of(&path).is_none());
+        assert_eq!(
+            classify_delete(&described, &[(path, described.clone())]),
+            DeleteVerdict::ExternalModification
+        );
+    }
+}
