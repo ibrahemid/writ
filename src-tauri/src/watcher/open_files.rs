@@ -1298,6 +1298,16 @@ mod tests {
             None,
             "a folder nothing will watch is not recorded as one that is"
         );
+
+        // The drop leaves nothing that claims coverage. Asking again goes back
+        // to the backends rather than trusting a record of a folder no longer
+        // held, and closing the tab afterwards finds nothing to release.
+        assert_eq!(
+            registry.watch_parent_of("note-1", &note),
+            WatchOutcome::Unwatchable
+        );
+        registry.unwatch_parent_of("note-1");
+        assert!(registry.watched_dirs().is_empty());
     }
 
     #[test]
