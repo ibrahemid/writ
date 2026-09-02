@@ -310,6 +310,7 @@ mod tests {
         assert_eq!(applescript_escape("say \"hi\""), "say \\\"hi\\\"");
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn is_installed_reflects_presence() {
         let dir = tempfile::tempdir().unwrap();
