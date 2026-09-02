@@ -20,20 +20,45 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Mutex;
 
 use tauri::{Manager, Runtime, UriSchemeContext};
+use tracing::warn;
+use writ_core::preview::protocol::{
+    resolve_asset, sniff_image_mime, split_asset_request, AssetRequest,
+};
+use writ_core::preview::AssetScope;
 
 use super::csp::{build_chrome_csp, build_document_csp};
 use super::protocol::{parse, record, Disposition, PreviewScope, RefusalReason, RequestRecord};
 use crate::poison::recover_poison;
 use crate::state::AppState;
 
+/// Largest note asset served inline (ADR-035). Past it the preview shows a
+/// placeholder instead of pushing tens of megabytes into the webview.
+const MAX_ASSET_BYTES: u64 = 16 * 1024 * 1024;
+
+/// Content type for both a served SVG and the placeholder.
+const SVG_MIME: &str = "image/svg+xml";
+
+/// Policy attached to every SVG response.
+///
+/// An SVG loaded through `<img>` is a passive image and runs no script by
+/// the HTML spec; this covers the other way in, a direct navigation to the
+/// asset URL, where the document would otherwise be live. ADR-035.
+const SVG_CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+
 /// A document rendered and ready to serve.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RenderedDoc {
     /// Fully-resolved HTML to serve for the document scope.
     pub html: String,
+    /// Roots the document's embedded files resolve under, carried from the
+    /// render so an incoming asset URL is re-checked against the same two
+    /// folders rather than trusted. `None` for a buffer with no file on
+    /// disk, which serves no assets at all.
+    pub assets: Option<AssetScope>,
 }
 
 /// Per-buffer cache of the most recently rendered document.
@@ -115,12 +140,158 @@ impl ResolvedResponse {
     }
 }
 
+/// Resolve a request URL, including the note-asset route.
+///
+/// The route is split out from [`resolve`] because it is the one response
+/// that reads a file off disk: everything else is served from the render
+/// cache or from bytes compiled into the binary. `is_dataless` is injected
+/// so the no-read rule for a provider placeholder is testable without one.
+pub fn resolve_with_assets(
+    url: &str,
+    scripts_enabled: bool,
+    document_lookup: impl Fn(&str) -> Option<RenderedDoc>,
+    chrome_asset: impl Fn(&str) -> Option<(&'static [u8], &'static str)>,
+    is_dataless: &dyn Fn(&Path) -> bool,
+) -> ResolvedResponse {
+    if let Ok(parsed) = parse(url) {
+        if parsed.scope == PreviewScope::Document {
+            if let Some(request) = split_asset_request(&parsed.path) {
+                return resolve_note_asset(request, &document_lookup, is_dataless);
+            }
+        }
+    }
+    resolve(url, scripts_enabled, document_lookup, chrome_asset)
+}
+
+/// Serve one file embedded in a note.
+///
+/// Containment is decided by `writ_core`, over the roots the render recorded,
+/// on the canonical path. What is left here is the refusal to read: a file
+/// the provider has not downloaded, one past the size cap, and anything whose
+/// leading bytes are not an image all come back as a placeholder naming the
+/// file, so a note reads the same whether or not its images are at hand.
+fn resolve_note_asset(
+    request: AssetRequest<'_>,
+    document_lookup: &impl Fn(&str) -> Option<RenderedDoc>,
+    is_dataless: &dyn Fn(&Path) -> bool,
+) -> ResolvedResponse {
+    let file_name = request.relative.rsplit('/').next().unwrap_or_default();
+    let Some(scope) = document_lookup(request.buffer_id).and_then(|doc| doc.assets) else {
+        return ResolvedResponse::not_found();
+    };
+    let path = match resolve_asset(&scope.notes_root, &scope.note_dir, request) {
+        Ok(path) => path,
+        Err(reason) => {
+            warn!(
+                reason = reason.as_str(),
+                buffer_id = request.buffer_id,
+                relative = request.relative,
+                "preview asset refused"
+            );
+            return ResolvedResponse::refused(reason);
+        }
+    };
+    // C1: a file the provider reports as not downloaded is named, never
+    // opened. Reading it would pull it down mid-scroll.
+    if is_dataless(&path) {
+        return asset_placeholder(file_name);
+    }
+    let Ok(metadata) = std::fs::metadata(&path) else {
+        return asset_placeholder(file_name);
+    };
+    if !metadata.is_file() || metadata.len() > MAX_ASSET_BYTES {
+        return asset_placeholder(file_name);
+    }
+    let Ok(bytes) = std::fs::read(&path) else {
+        return asset_placeholder(file_name);
+    };
+    // The extension is what a file's author controls; the leading bytes are
+    // not. A `.png` holding markup sniffs as nothing and is never served.
+    let Some(mime) = sniff_image_mime(&bytes) else {
+        return asset_placeholder(file_name);
+    };
+    let mut headers = vec![
+        ("Content-Type", mime.to_string()),
+        ("X-Content-Type-Options", "nosniff".to_string()),
+        // Keyed on mtime and size, so editing an image in place changes the
+        // validator and the webview takes the new bytes.
+        ("ETag", asset_etag(&metadata)),
+        ("Cache-Control", "no-cache".to_string()),
+    ];
+    if mime == SVG_MIME {
+        headers.push(("Content-Security-Policy", SVG_CSP.to_string()));
+    }
+    ResolvedResponse {
+        status: 200,
+        body: Cow::Owned(bytes),
+        headers,
+        disposition: Disposition::Allowed,
+    }
+}
+
+/// Entity tag for a served asset: modification time and size.
+fn asset_etag(metadata: &std::fs::Metadata) -> String {
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|since| since.as_nanos())
+        .unwrap_or_default();
+    format!("\"{modified}-{}\"", metadata.len())
+}
+
+/// The image served in place of one that cannot be: a quiet frame carrying
+/// the file's name, under the same policy a real SVG gets.
+fn asset_placeholder(file_name: &str) -> ResolvedResponse {
+    ResolvedResponse {
+        status: 200,
+        body: Cow::Owned(placeholder_svg(file_name).into_bytes()),
+        headers: vec![
+            ("Content-Type", SVG_MIME.to_string()),
+            ("X-Content-Type-Options", "nosniff".to_string()),
+            ("Cache-Control", "no-cache".to_string()),
+            ("Content-Security-Policy", SVG_CSP.to_string()),
+        ],
+        disposition: Disposition::Allowed,
+    }
+}
+
+fn placeholder_svg(file_name: &str) -> String {
+    let name = escape_xml(file_name);
+    format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"64\" \
+viewBox=\"0 0 320 64\" role=\"img\" aria-label=\"{name}\">\
+<rect x=\"0.5\" y=\"0.5\" width=\"319\" height=\"63\" rx=\"6\" fill=\"none\" \
+stroke=\"#c9c6c0\" stroke-dasharray=\"4 4\"/>\
+<text x=\"16\" y=\"37\" font-family=\"system-ui, -apple-system, sans-serif\" \
+font-size=\"13\" fill=\"#8a867f\">{name}</text></svg>"
+    )
+}
+
+fn escape_xml(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 /// Resolve a request URL into a response.
 ///
 /// `scripts_enabled` is the app-level kill switch, applied to the document
 /// CSP at serve time. `document_lookup` returns the rendered document for a
 /// buffer id; `chrome_asset` returns `(bytes, mime)` for a bundled chrome
 /// asset path. The closures keep this function free of Tauri and `AppState`.
+///
+/// The note-asset route is handled ahead of this, in [`resolve_with_assets`];
+/// this function stays free of I/O.
 pub fn resolve(
     url: &str,
     scripts_enabled: bool,
@@ -268,11 +439,12 @@ pub fn serve<R: Runtime>(
         .map(|c| c.preview.run_scripts)
         .unwrap_or(true);
 
-    let resolved = resolve(
+    let resolved = resolve_with_assets(
         &url,
         scripts_enabled,
         |id| state.preview_render_cache.get(id),
         chrome_asset,
+        &writ_storage::notes_index::is_dataless,
     );
 
     record(record_for(&url, &resolved));
@@ -306,6 +478,7 @@ mod tests {
     fn doc(html: &str) -> RenderedDoc {
         RenderedDoc {
             html: html.to_string(),
+            assets: None,
         }
     }
 
@@ -670,5 +843,308 @@ mod tests {
     fn wrong_scheme_is_refused() {
         let r = resolve("https://evil/", SCRIPTS_ON, no_doc, chrome_asset);
         assert_eq!(r.status, 403);
+    }
+}
+
+#[cfg(test)]
+mod asset_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    const SCRIPTS_ON: bool = true;
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR";
+
+    fn never_dataless(_: &Path) -> bool {
+        false
+    }
+
+    fn header<'a>(r: &'a ResolvedResponse, key: &str) -> Option<&'a str> {
+        r.headers
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| v.as_str())
+    }
+
+    /// A notes folder holding one note in `daily/` and a set of fixture
+    /// files under `attachments/`, plus the render-cache entry the asset
+    /// route looks the scope up through.
+    struct Fixture {
+        _guard: tempfile::TempDir,
+        notes: PathBuf,
+        note_dir: PathBuf,
+        cache: RenderCache,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            let guard = tempfile::tempdir().unwrap();
+            let notes = guard.path().join("Writ");
+            let note_dir = notes.join("daily");
+            std::fs::create_dir_all(&note_dir).unwrap();
+            let attachments = notes.join("attachments");
+            std::fs::create_dir_all(&attachments).unwrap();
+            std::fs::write(attachments.join("a.png"), PNG).unwrap();
+            std::fs::write(attachments.join("b.jpg"), [0xFF, 0xD8, 0xFF, 0xE0, 0x00]).unwrap();
+            std::fs::write(attachments.join("c.gif"), b"GIF89a\x01\x00\x01\x00").unwrap();
+            std::fs::write(
+                attachments.join("d.svg"),
+                b"<svg xmlns=\"http://www.w3.org/2000/svg\"><rect/></svg>",
+            )
+            .unwrap();
+            // The fixture that matters: markup wearing an image extension.
+            std::fs::write(
+                attachments.join("liar.png"),
+                b"<!doctype html><html><script>steal()</script></html>",
+            )
+            .unwrap();
+
+            let cache = RenderCache::new();
+            cache.put(
+                "buf-1",
+                RenderedDoc {
+                    html: "<p>note</p>".to_string(),
+                    assets: Some(AssetScope {
+                        notes_root: notes.clone(),
+                        note_dir: note_dir.clone(),
+                        buffer_id: "buf-1".to_string(),
+                    }),
+                },
+            );
+            Self {
+                _guard: guard,
+                notes,
+                note_dir,
+                cache,
+            }
+        }
+
+        fn get(&self, relative: &str) -> ResolvedResponse {
+            self.get_with(relative, &never_dataless)
+        }
+
+        fn get_with(
+            &self,
+            relative: &str,
+            is_dataless: &dyn Fn(&Path) -> bool,
+        ) -> ResolvedResponse {
+            resolve_with_assets(
+                &format!("writ-preview://document/_note-asset/buf-1/n/{relative}"),
+                SCRIPTS_ON,
+                |id| self.cache.get(id),
+                chrome_asset,
+                is_dataless,
+            )
+        }
+    }
+
+    #[test]
+    fn serves_each_image_format_by_its_leading_bytes() {
+        let f = Fixture::new();
+        for (relative, mime) in [
+            ("attachments/a.png", "image/png"),
+            ("attachments/b.jpg", "image/jpeg"),
+            ("attachments/c.gif", "image/gif"),
+            ("attachments/d.svg", SVG_MIME),
+        ] {
+            let r = f.get(relative);
+            assert_eq!(r.status, 200, "relative={relative}");
+            assert_eq!(
+                header(&r, "Content-Type"),
+                Some(mime),
+                "relative={relative}"
+            );
+            assert_eq!(header(&r, "X-Content-Type-Options"), Some("nosniff"));
+            assert_eq!(r.disposition, Disposition::Allowed);
+            assert!(!r.body.is_empty());
+        }
+    }
+
+    #[test]
+    fn an_extension_that_lies_about_its_bytes_is_never_served() {
+        let f = Fixture::new();
+        let r = f.get("attachments/liar.png");
+        assert_eq!(r.status, 200);
+        assert_eq!(header(&r, "Content-Type"), Some(SVG_MIME));
+        let body = String::from_utf8(r.body.into_owned()).unwrap();
+        assert!(body.contains("liar.png"));
+        assert!(!body.contains("steal()"));
+    }
+
+    #[test]
+    fn svg_is_served_under_a_policy_that_cannot_run_script() {
+        let f = Fixture::new();
+        let r = f.get("attachments/d.svg");
+        let csp = header(&r, "Content-Security-Policy").unwrap();
+        assert!(csp.contains("default-src 'none'"));
+        assert!(csp.contains("sandbox"));
+        assert!(!csp.contains("script-src 'self'"));
+    }
+
+    #[test]
+    fn caching_headers_key_on_mtime_and_size() {
+        let f = Fixture::new();
+        let first = header(&f.get("attachments/a.png"), "ETag")
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            header(&f.get("attachments/a.png"), "Cache-Control"),
+            Some("no-cache")
+        );
+
+        // Same bytes, same validator.
+        assert_eq!(
+            header(&f.get("attachments/a.png"), "ETag").map(str::to_string),
+            Some(first.clone())
+        );
+
+        // Edited in place: a longer file with a later mtime must not reuse it.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let mut edited = PNG.to_vec();
+        edited.extend_from_slice(b"more pixels");
+        std::fs::write(f.notes.join("attachments/a.png"), &edited).unwrap();
+        assert_ne!(
+            header(&f.get("attachments/a.png"), "ETag").map(str::to_string),
+            Some(first)
+        );
+    }
+
+    #[test]
+    fn a_missing_file_is_named_in_a_placeholder() {
+        let f = Fixture::new();
+        let r = f.get("attachments/gone.png");
+        assert_eq!(r.status, 200);
+        assert_eq!(header(&r, "Content-Type"), Some(SVG_MIME));
+        assert!(String::from_utf8(r.body.into_owned())
+            .unwrap()
+            .contains("gone.png"));
+    }
+
+    #[test]
+    fn a_file_past_the_size_cap_is_a_placeholder() {
+        let f = Fixture::new();
+        let mut huge = PNG.to_vec();
+        huge.resize((MAX_ASSET_BYTES + 1) as usize, 0);
+        std::fs::write(f.notes.join("attachments/huge.png"), &huge).unwrap();
+        let r = f.get("attachments/huge.png");
+        assert_eq!(header(&r, "Content-Type"), Some(SVG_MIME));
+        assert!(String::from_utf8(r.body.into_owned())
+            .unwrap()
+            .contains("huge.png"));
+    }
+
+    #[test]
+    fn a_file_not_downloaded_yet_is_named_and_never_opened() {
+        let f = Fixture::new();
+        // Deny every read: if the route opened the file the test would see
+        // the real bytes instead of the placeholder.
+        let denied = std::cell::Cell::new(0usize);
+        let is_dataless = |path: &Path| {
+            denied.set(denied.get() + 1);
+            path.ends_with("a.png")
+        };
+        let r = f.get_with("attachments/a.png", &is_dataless);
+        assert_eq!(denied.get(), 1);
+        assert_eq!(header(&r, "Content-Type"), Some(SVG_MIME));
+        let body = String::from_utf8(r.body.into_owned()).unwrap();
+        assert!(body.contains("a.png"));
+        assert!(!body.contains("IHDR"));
+    }
+
+    #[test]
+    fn a_reference_outside_the_roots_is_refused_not_served() {
+        let f = Fixture::new();
+        // The parser refuses the traversal spelling outright.
+        let traversal = resolve_with_assets(
+            "writ-preview://document/_note-asset/buf-1/n/../../../etc/hosts",
+            SCRIPTS_ON,
+            |id| f.cache.get(id),
+            chrome_asset,
+            &never_dataless,
+        );
+        assert_eq!(traversal.status, 403);
+        assert_eq!(
+            traversal.disposition,
+            Disposition::Refused(RefusalReason::TraversalAttempt)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_is_refused() {
+        let f = Fixture::new();
+        let outside = f._guard.path().join("outside.png");
+        std::fs::write(&outside, PNG).unwrap();
+        std::os::unix::fs::symlink(&outside, f.notes.join("attachments/link.png")).unwrap();
+        let r = f.get("attachments/link.png");
+        assert_eq!(r.status, 403);
+        assert_eq!(
+            r.disposition,
+            Disposition::Refused(RefusalReason::SymlinkRefused)
+        );
+    }
+
+    #[test]
+    fn an_unknown_root_token_is_refused() {
+        let f = Fixture::new();
+        // No root discriminator: the path is not an asset request at all, so
+        // it falls through to the document lookup and 404s on the buffer id.
+        let r = resolve_with_assets(
+            "writ-preview://document/_note-asset/buf-1/x/attachments/a.png",
+            SCRIPTS_ON,
+            |id| f.cache.get(id),
+            chrome_asset,
+            &never_dataless,
+        );
+        assert_eq!(r.status, 404);
+    }
+
+    #[test]
+    fn a_buffer_with_no_asset_scope_serves_nothing() {
+        let cache = RenderCache::new();
+        cache.put(
+            "scratch",
+            RenderedDoc {
+                html: "<p>x</p>".to_string(),
+                assets: None,
+            },
+        );
+        let r = resolve_with_assets(
+            "writ-preview://document/_note-asset/scratch/n/a.png",
+            SCRIPTS_ON,
+            |id| cache.get(id),
+            chrome_asset,
+            &never_dataless,
+        );
+        assert_eq!(r.status, 404);
+    }
+
+    #[test]
+    fn the_bundled_runtime_route_is_untouched_by_the_asset_route() {
+        let f = Fixture::new();
+        let r = resolve_with_assets(
+            "writ-preview://document/_assets/preview/bridge.js",
+            SCRIPTS_ON,
+            |id| f.cache.get(id),
+            chrome_asset,
+            &never_dataless,
+        );
+        assert_eq!(r.status, 200);
+        assert!(header(&r, "Content-Type")
+            .unwrap()
+            .starts_with("application/javascript"));
+        // And the document itself still serves from the same cache entry.
+        let document = resolve_with_assets(
+            "writ-preview://document/buf-1",
+            SCRIPTS_ON,
+            |id| f.cache.get(id),
+            chrome_asset,
+            &never_dataless,
+        );
+        assert_eq!(document.status, 200);
+        assert_eq!(
+            String::from_utf8(document.body.into_owned()).unwrap(),
+            "<p>note</p>"
+        );
+        let _ = &f.note_dir;
     }
 }
