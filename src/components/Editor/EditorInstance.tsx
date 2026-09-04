@@ -1,5 +1,5 @@
 import { onMount, onCleanup, createEffect, createMemo, on } from "solid-js";
-import { Annotation, Compartment, EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { addCursorUp, addCursorDown } from "../../commands/multicursor";
 import {
   EditorView, keymap, lineNumbers, highlightActiveLine,
@@ -51,6 +51,7 @@ import { rebuildKeyMap } from "../../commands/keybindings";
 import { getExtension as languageExtension } from "../../editor/language-registry";
 import { registerBuiltinLanguages } from "../../editor/builtins";
 import { editorModeForContent } from "../../editor/large-file";
+import { ExternalReloadTxn } from "../../editor/external-reload";
 import { autoTextDirection } from "../../editor/bidi";
 import { stripOwnedBindings } from "../../editor/keymap-filter";
 import { registerEditorCommands, OWNED_CM_COMMANDS } from "../../editor/editor-commands";
@@ -67,12 +68,6 @@ function nameForDetection(buffer: BufferDocument): string {
 interface Props {
   buffer: BufferDocument;
 }
-
-// Marks a transaction as a programmatic reload from disk so the update
-// listener replaces the live text without scheduling an autosave of it (the
-// content already equals disk; re-saving would defeat a prior cancelAutosave
-// and bump updated_at for nothing).
-const ExternalReloadTxn = Annotation.define<boolean>();
 
 const CONTENT_DETECT_MIN_LENGTH = 40;
 const CONTENT_DETECT_DELTA = 40;
@@ -464,27 +459,23 @@ export default function EditorInstance(props: Props) {
     view.focus();
   }
 
-  // Resets the live view to the buffer's on-disk content without first
-  // saving (a save would clobber the external change) and without
-  // remounting the view. Only acts on the buffer currently loaded; an
-  // external edit to a background buffer is picked up by loadBuffer when the
-  // user switches to it (audit blocker #53.4).
+  // Reads the file and hands its text to the store, which replaces the
+  // document in one tracked transaction when this is the tab in front, and
+  // records what the file holds for the note either way.
+  //
+  // A note that is not the one in the view is no longer dropped here. It has
+  // nothing to dispatch into and reads its file again when it is switched to,
+  // but the record has to move now: a background note left holding the digest
+  // of a file that has changed reads dirty against a file it matches, and the
+  // next change to it asks a question that has no reason to be asked.
   async function reloadFromDisk(id: string) {
-    if (!view || currentBufferId !== id) return;
     let content: string;
     try {
       content = await bufferRegistry.readContent(id);
     } catch {
       return;
     }
-    if (!view || currentBufferId !== id) return;
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: content },
-      annotations: ExternalReloadTxn.of(true),
-    });
-    win.editor.setCurrentText(content);
-    win.editor.noteOpened(id, content);
-    win.editor.setLineCount(view.state.doc.lines);
+    win.editor.applyExternalContent(id, content);
   }
 
   // Cmd/Ctrl + wheel (and trackpad pinch, which the OS reports as ctrl+wheel)
@@ -545,9 +536,7 @@ export default function EditorInstance(props: Props) {
   createEffect(on(
     () => win.editor.externalReload(),
     (req) => {
-      if (req && req.id === currentBufferId) {
-        void reloadFromDisk(req.id);
-      }
+      if (req) void reloadFromDisk(req.id);
     },
     { defer: true },
   ));
