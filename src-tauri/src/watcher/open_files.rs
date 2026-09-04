@@ -41,6 +41,7 @@ use writ_core::notes::identity::{
 };
 use writ_core::watcher::change_event::ExternalChange;
 use writ_core::watcher::ignore::{SuppressDecision, DEFAULT_IGNORE_TTL};
+use writ_core::watcher::sighting::{LastSeen, DEFAULT_SIGHTING_TTL};
 
 use super::handler::{ignore_key_path, IgnoreSet};
 use super::moves::FileTracking;
@@ -482,6 +483,10 @@ pub fn start_open_file_watcher(
 
     let thread_registry = registry.clone();
     std::thread::spawn(move || {
+        // Outside the batch loop: the event a read of this watcher's own
+        // raises on Linux arrives in a later batch than the change that
+        // caused it, so a record scoped to one batch would never see it.
+        let mut seen = LastSeen::new();
         while let Ok(result) = rx.recv() {
             let events = match result {
                 Ok(events) => events,
@@ -511,10 +516,11 @@ pub fn start_open_file_watcher(
                 if !told.insert(note_id.clone()) {
                     continue;
                 }
-                if let Some(domain_event) = classify_open_file_event(
+                if let Some(domain_event) = report_open_file_event(
                     &event.path,
                     &note_id,
                     &ignore_set,
+                    &mut seen,
                     DEFAULT_IGNORE_TTL,
                     Instant::now(),
                     &VanishedContext {
@@ -531,6 +537,35 @@ pub fn start_open_file_watcher(
 
     info!("open file watcher started");
     Ok(OpenFileWatcher { registry })
+}
+
+/// What one *delivered* event for an open note's file is worth telling its
+/// tab, or nothing.
+///
+/// This, rather than [`classify_open_file_event`], is what the watcher thread
+/// calls, and the two are separate so that the record of what has already been
+/// looked at cannot be skipped by the caller that matters. An event describing
+/// the file exactly as this watcher last found it is dropped before anything
+/// opens it, which is what keeps a classification's own read from arriving
+/// back as the next change on Linux ([`writ_core::watcher::sighting`]).
+pub fn report_open_file_event(
+    path: &Path,
+    note_id: &str,
+    ignore_set: &IgnoreSet,
+    seen: &mut LastSeen,
+    ttl: Duration,
+    now: Instant,
+    vanished: &VanishedContext<'_>,
+) -> Option<WritEvent> {
+    if !seen.is_news(
+        path,
+        super::handler::look_at(path),
+        now,
+        DEFAULT_SIGHTING_TTL,
+    ) {
+        return None;
+    }
+    classify_open_file_event(path, note_id, ignore_set, ttl, now, vanished)
 }
 
 /// Classifies a change to an open note's file into a domain event, or
@@ -697,7 +732,7 @@ impl Candidates {
 /// watched because a tab's file was in it. That invariant is what makes a
 /// match here safe to follow — the tab lands somewhere its changes still reach
 /// it. A candidate source that broke it would have to be checked against the
-/// watched folders before it could be believed (ADR-033 §11).
+/// watched folders before it could be believed (ADR-033 §12).
 pub fn candidates_for(path: &Path, batch: &[PathBuf], notes_root: Option<&Path>) -> Candidates {
     let mut seen: HashSet<PathBuf> = HashSet::new();
     let mut collect = |paths: &mut dyn Iterator<Item = PathBuf>| {
@@ -1901,6 +1936,111 @@ mod tests {
                 notes.path().join("second.md"),
                 outside.path().join("elsewhere.md"),
             ]
+        );
+    }
+
+    #[test]
+    fn the_events_one_write_raises_on_linux_tell_the_tab_once() {
+        // Classifying an event opens the file, and on Linux opening a file
+        // inside a watched folder raises another event for it. Delivered one
+        // per batch, that told the tab the same thing eleven times over.
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("shared.md");
+        fs::write(&file, b"rewritten by another program\n").unwrap();
+
+        let ignore = make_set();
+        let now = Instant::now();
+        let batch = vec![file.clone()];
+        let tracking = FileTracking::untracked();
+        let vanished = VanishedContext {
+            batch: &batch,
+            tracking: &tracking,
+        };
+        let ungated = (0..11)
+            .filter(|_| {
+                classify_open_file_event(
+                    &file,
+                    "note-1",
+                    &make_set(),
+                    DEFAULT_IGNORE_TTL,
+                    now,
+                    &vanished,
+                )
+                .is_some()
+            })
+            .count();
+        assert_eq!(
+            ungated, 11,
+            "the burst is what classification alone reports"
+        );
+
+        let mut seen = LastSeen::new();
+        let told: Vec<WritEvent> = (0..11)
+            .filter_map(|_| {
+                report_open_file_event(
+                    &file,
+                    "note-1",
+                    &ignore,
+                    &mut seen,
+                    DEFAULT_IGNORE_TTL,
+                    now,
+                    &vanished,
+                )
+            })
+            .collect();
+
+        assert_eq!(told.len(), 1, "the tab must be told once, saw {told:?}");
+    }
+
+    #[test]
+    fn a_second_write_reaches_the_tab_however_recently_the_first_did() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("shared.md");
+        fs::write(&file, b"first\n").unwrap();
+
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let now = Instant::now();
+        let batch = vec![file.clone()];
+        let tracking = FileTracking::untracked();
+        let vanished = VanishedContext {
+            batch: &batch,
+            tracking: &tracking,
+        };
+        assert!(report_open_file_event(
+            &file,
+            "note-1",
+            &ignore,
+            &mut seen,
+            DEFAULT_IGNORE_TTL,
+            now,
+            &vanished
+        )
+        .is_some());
+        assert!(report_open_file_event(
+            &file,
+            "note-1",
+            &ignore,
+            &mut seen,
+            DEFAULT_IGNORE_TTL,
+            now,
+            &vanished
+        )
+        .is_none());
+
+        fs::write(&file, b"second, and longer\n").unwrap();
+        assert!(
+            report_open_file_event(
+                &file,
+                "note-1",
+                &ignore,
+                &mut seen,
+                DEFAULT_IGNORE_TTL,
+                now,
+                &vanished
+            )
+            .is_some(),
+            "a file written again must reach its tab"
         );
     }
 

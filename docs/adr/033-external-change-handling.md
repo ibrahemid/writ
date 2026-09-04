@@ -292,7 +292,30 @@ One burst can pay both: a sweep the budget owes and a walk the gate owes. The
 cost is one redundant walk of a folder that has gone quiet, which is the side
 to err on.
 
-### 11. A vanished file is told apart from a moved one by its identity, then by its bytes
+### 11. A watcher does not hear its own reads
+
+Classifying an event means looking at the file: the notes watcher hashes it,
+the config watcher parses it, the inbox watcher fingerprints it. On Linux the
+`notify` crate registers `IN_OPEN` on every watched directory, so each of those
+reads is itself an event, which arrives in the next batch, is classified, is
+read again, and so on until the settle window closes. FSEvents and
+`ReadDirectoryChangesW` do not report reads, so the loop was invisible on macOS
+and Windows and surfaced only in Linux CI as eleven identical `BufferExternal`
+events for one rewrite.
+
+The rule is in `writ-core` (`watcher/sighting.rs`): a watcher reports a
+delivered event only when the file's metadata differs from the metadata it
+recorded the last time it looked at that path. The sighting is length and
+modification time from `fs::metadata`, which does not open the file and so
+raises nothing. A look is remembered for `DEFAULT_SIGHTING_TTL` (5 s, sized
+like the ignore stamp: one debounce window plus the read's round trip). The
+adapter takes the sighting before any read (`look_at` in `handler.rs`) and
+the notes, config and inbox watchers all pass through it. Debounce timings do
+not change; a digest gate on `disk_hash` was rejected because the frontend
+already makes that comparison (§6) and a second copy of the decision would
+disagree with it eventually.
+
+### 12. A vanished file is told apart from a moved one by its identity, then by its bytes
 
 A watcher reports a rename as a removal at the old path and a creation at the
 new one, and on the fallback backend it reports the removal alone. Path is

@@ -16,3 +16,6 @@ pub mod change_event;
 pub mod ignore;
 /// One folder walk at a time, and one more when something asked while it ran.
 pub mod reconcile;
+/// What a watcher already looked at, so a read of its own does not come back
+/// as another change.
+pub mod sighting;

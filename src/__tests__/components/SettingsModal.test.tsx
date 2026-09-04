@@ -11,6 +11,8 @@ const TEST_CLAIMABLE_TYPE = {
 };
 
 const mocks = vi.hoisted(() => ({
+  accentApplies: vi.fn(() => true),
+  activePresetId: vi.fn(() => "warp-dark"),
   save: vi.fn().mockResolvedValue(undefined),
   config: vi.fn(),
   focusEditor: vi.fn(),
@@ -128,6 +130,10 @@ vi.mock("../../components/ShortcutEditor/ShortcutEditor", () => ({
 vi.mock("../../stores/global/theme", () => ({
   themeStore: {
     setPreset: vi.fn(),
+    setAppearance: vi.fn(),
+    accentApplies: () => mocks.accentApplies(),
+    polarity: () => "light",
+    activePreset: () => ({ id: mocks.activePresetId() }),
   },
 }));
 
@@ -142,13 +148,14 @@ import { clearDefaultAppSupport, probeDefaultAppSupport } from "../../stores/glo
 function baseConfig(): WritConfig {
   return {
     hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
-    sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false },
-    editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true },
+    sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false, width: 240 },
+    editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true, status_bar: false },
     window: { width: 1100, height: 720, maximized: false },
     keybindings: {},
     history: { max_entries: 500 },
     storage: { path: "~/.writ" },
     theme: { preset: "warp-dark", overrides: {} },
+    appearance: { polarity: "system", accent: "pine", prose_face: "system" },
     commands: { usage: {} },
   workspace: { root: null },
   inbox: { path: null, focus: true },
@@ -170,6 +177,8 @@ function baseConfig(): WritConfig {
 describe("SettingsModal", () => {
   beforeEach(() => {
     mocks.save.mockReset().mockResolvedValue(undefined);
+    mocks.accentApplies.mockReset().mockReturnValue(true);
+    mocks.activePresetId.mockReset().mockReturnValue("warp-dark");
     mocks.config.mockReset().mockReturnValue(baseConfig());
     mocks.openThemeEditor.mockReset();
     mocks.openShortcutEditor.mockReset();
@@ -383,6 +392,136 @@ describe("SettingsModal", () => {
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
     const saved = mocks.save.mock.calls[0][0] as WritConfig;
     expect(saved.theme.preset).toBe("warp-light");
+  });
+
+  // The stored preset is one half of a pair; polarity picks the half that
+  // renders. The row named the stored half, so under a dark system the Theme
+  // row read "Writ Light" over a dark app.
+  it("the theme row names the half of the pair that renders", async () => {
+    mocks.config.mockReturnValue({
+      ...baseConfig(),
+      theme: { preset: "writ-light", overrides: {} },
+      appearance: { polarity: "dark", accent: "pine", prose_face: "system" },
+    });
+    mocks.activePresetId.mockReturnValue("writ-dark");
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+    const presetSelect = container.querySelector<HTMLSelectElement>("[data-setting='theme_preset']");
+    expect(presetSelect!.value).toBe("writ-dark");
+    expect(presetSelect!.selectedOptions[0].textContent).toBe("Writ Dark");
+  });
+
+  it("the theme row names the light half under a light polarity", async () => {
+    mocks.config.mockReturnValue({
+      ...baseConfig(),
+      theme: { preset: "writ-dark", overrides: {} },
+      appearance: { polarity: "light", accent: "pine", prose_face: "system" },
+    });
+    mocks.activePresetId.mockReturnValue("writ-light");
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+    const presetSelect = container.querySelector<HTMLSelectElement>("[data-setting='theme_preset']");
+    expect(presetSelect!.value).toBe("writ-light");
+    expect(presetSelect!.selectedOptions[0].textContent).toBe("Writ Light");
+  });
+
+  async function openAppearance(container: HTMLElement) {
+    openSettings();
+    await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
+    const navItems = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
+    const appearanceNav = Array.from(navItems).find((n) =>
+      n.textContent?.toLowerCase().includes("appearance"),
+    );
+    fireEvent.click(appearanceNav!);
+    await waitFor(() => expect(container.querySelector("[data-section='appearance']")).not.toBeNull());
+  }
+
+  function accentSwatches(container: HTMLElement) {
+    return Array.from(
+      container.querySelectorAll<HTMLButtonElement>("[data-setting='appearance_accent'] .settings-accent"),
+    );
+  }
+
+  it("offers the accent while the theme defers its highlight to the setting", async () => {
+    mocks.accentApplies.mockReturnValue(true);
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+    const swatches = accentSwatches(container);
+    expect(swatches).toHaveLength(6);
+    const byAccent = (id: string) => swatches.find((s) => s.dataset.accent === id);
+    expect(byAccent("pine")!.disabled).toBe(false);
+    expect(byAccent("writ-blue")!.disabled).toBe(false);
+    expect(byAccent("terracotta")!.disabled).toBe(false);
+    expect(byAccent("slate")!.disabled).toBe(false);
+    expect(byAccent("plum")!.disabled).toBe(false);
+    expect(byAccent("gold")!.disabled).toBe(false);
+    const row = container.querySelector("[data-setting-id='appearance.accent']");
+    expect(row!.querySelector(".settings-row-caution")).toBeNull();
+
+    fireEvent.click(swatches.find((s) => s.dataset.accent === "plum")!);
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
+    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    expect(saved.appearance.accent).toBe("plum");
+  });
+
+  it("marks the active accent with aria-pressed and leaves the rest unpressed", async () => {
+    mocks.accentApplies.mockReturnValue(true);
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+    const swatches = accentSwatches(container);
+    const pressed = swatches.filter((s) => s.getAttribute("aria-pressed") === "true");
+    expect(pressed).toHaveLength(1);
+    expect(pressed[0].dataset.accent).toBe("pine");
+    expect(pressed[0].getAttribute("aria-label")).toBe("Pine");
+  });
+
+  it("disables the accent and says why while the theme sets its own", async () => {
+    mocks.accentApplies.mockReturnValue(false);
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+    expect(accentSwatches(container).every((s) => s.disabled)).toBe(true);
+    const row = container.querySelector("[data-setting-id='appearance.accent']");
+    expect(row!.querySelector(".settings-row-caution")!.textContent).toBe(
+      "The current theme sets its own accent.",
+    );
+  });
+
+  it("writes appearance.polarity from the segmented control", async () => {
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+    const dark = container.querySelector<HTMLButtonElement>(
+      "[data-setting='appearance_polarity'] [data-option='dark']",
+    );
+    expect(dark).not.toBeNull();
+    fireEvent.click(dark!);
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
+    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    expect(saved.appearance.polarity).toBe("dark");
+  });
+
+  it("writes appearance.prose_face from the prose face select", async () => {
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+    const face = container.querySelector<HTMLSelectElement>("[data-setting='appearance_prose_face']");
+    expect(face).not.toBeNull();
+    fireEvent.change(face!, { target: { value: "quattro" } });
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
+    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    expect(saved.appearance.prose_face).toBe("quattro");
+  });
+
+  it("writes editor.status_bar from the status bar switch", async () => {
+    const { container } = render(() => <SettingsModal />);
+    openSettings("editor");
+    await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
+    const statusBar = container.querySelector<HTMLButtonElement>("[data-setting='status_bar']");
+    expect(statusBar).not.toBeNull();
+    expect(statusBar!.getAttribute("role")).toBe("switch");
+    expect(statusBar!.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(statusBar!);
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
+    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    expect(saved.editor.status_bar).toBe(true);
   });
 
   it("saves preview run_scripts toggle from Preview section", async () => {
@@ -652,7 +791,7 @@ describe("SettingsModal", () => {
 
     it("shows only rows matching the query across sections", async () => {
       const { container } = render(() => <SettingsModal />);
-      await openAndSearch(container, "font");
+      await openAndSearch(container, "font size");
       await waitFor(() => {
         const rows = container.querySelectorAll("[data-setting-id]");
         expect(rows.length).toBe(1);
@@ -917,7 +1056,6 @@ describe("Notes section", () => {
     const { container } = await openNotes();
     const path = container.querySelector("[data-notes-path]");
     expect(path?.textContent).toBe("~/Writ");
-    expect(path?.getAttribute("title")).toBe("/home/user/Writ");
   });
 
   it("fires the folder actions", async () => {

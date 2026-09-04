@@ -3,17 +3,67 @@
   flex-shrink: 0;
   width: 0;
   height: 100%;
-  background: var(--writ-surface-sunken);
+  background: var(--writ-bg-sidebar);
   border-right: 1px solid var(--writ-border-soft);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: width 180ms ease;
+  transition: width var(--writ-motion);
 }
 
+/* The live width is the persisted one; the token stays the default. Bounds
+   are clamped in JS (clampSidebarWidth), so nothing here needs a min/max-width
+   floor that would otherwise make expand pop straight to it. */
 .sidebar.is-open {
-  width: var(--writ-sidebar-width);
-  box-shadow: var(--writ-shadow-sidebar);
+  width: var(--writ-sidebar-live-width, var(--writ-sidebar-width));
+}
+
+.sidebar.is-resizing {
+  transition: none;
+}
+
+/* Content is laid out at its settled width for the whole open/close motion;
+   the outer element clips it instead of reflowing it. */
+.sidebar-inner {
+  flex: 1;
+  flex-shrink: 0;
+  min-height: 0;
+  width: var(--writ-sidebar-live-width, var(--writ-sidebar-width));
+  display: flex;
+  flex-direction: column;
+}
+
+/* The macOS window head: the band the pinned window lights sit over. 44px lines
+   it up with the toolbar beside it, and 20px is the inset the system draws its
+   own lights at. */
+.sidebar-head {
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+}
+
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 4px;
+  z-index: var(--writ-z-drag);
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+  transition: background var(--writ-motion);
+}
+
+.sidebar-resizer:hover {
+  background: var(--writ-border);
+}
+
+.sidebar-resizer:focus-visible {
+  outline: 2px solid var(--writ-accent);
+  outline-offset: -2px;
 }
 
 .sidebar-scroll {
@@ -21,6 +71,7 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  padding-bottom: var(--writ-space-3);
 }
 
 .sidebar-section {
@@ -30,12 +81,47 @@
 }
 
 .sidebar-section-title {
-  padding: 8px 12px 4px;
-  font-size: 11px;
-  color: var(--writ-foreground-subtle);
-  text-transform: uppercase;
-  letter-spacing: 1px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 12px 4px;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  letter-spacing: var(--writ-ui-tracking);
+  text-transform: none;
+  color: var(--writ-fg-muted);
   flex-shrink: 0;
+}
+
+.sidebar-section-count {
+  margin-left: auto;
+  color: var(--writ-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-section-action {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--writ-r-action);
+  color: var(--writ-fg-muted);
+  cursor: pointer;
+}
+
+.sidebar-section-action:hover {
+  background: var(--writ-bg-hover);
+  color: var(--writ-fg);
+}
+
+.sidebar-section-action:focus-visible {
+  outline: 2px solid var(--writ-accent);
+  outline-offset: -1px;
 }
 
 .tab-list {
@@ -44,14 +130,39 @@
 }
 
 .tab-list-empty {
-  padding: 8px 12px;
-  color: var(--writ-foreground-subtle);
-  font-size: var(--writ-font-size-sm);
-  font-style: italic;
+  padding: 4px 12px;
+  color: var(--writ-fg-faint);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .sidebar {
-    transition: none;
-  }
+/* Windows paints the sidebar as part of the window backdrop, GNOME as a
+   segment separated by an inset hairline rather than a border. */
+:root[data-platform="win"] .sidebar {
+  background: transparent;
+  border-right: 0;
+}
+
+:root[data-platform="win"] .sidebar-scroll {
+  padding-top: 4px;
+}
+
+:root[data-platform="win"] .sidebar-section-title {
+  padding: 14px 16px 6px;
+}
+
+:root[data-platform="linux"] .sidebar {
+  border-right: 0;
+  box-shadow: inset -1px 0 var(--writ-border-soft);
+}
+
+:root[data-platform="linux"] .sidebar-scroll {
+  padding-top: 6px;
+}
+
+:root[data-platform="linux"] .sidebar-section-title {
+  padding: 10px 14px 4px;
+  font-weight: 700;
+  color: var(--writ-fg);
+  opacity: 0.55;
 }

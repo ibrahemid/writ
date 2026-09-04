@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 import { EditorSelection } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import type { FileOpenMode } from "../../types/buffer";
+import { NO_ACTIVE_FORMATS, type ActiveFormats } from "../../types/editor";
 import {
   debouncedSave,
   cancelAutosave as cancelAutosaveService,
@@ -70,6 +71,10 @@ export function createEditorStore() {
   const [lineCount, setLineCount] = createSignal(0);
   const [language, setLanguage] = createSignal<string | null>(null);
   const [selectionCount, setSelectionCount] = createSignal(1);
+  // Which markdown constructs the caret sits inside, republished by the active
+  // view on every selection or document change. The toolbar reads it for the
+  // pressed state of its formatting controls.
+  const [activeFormats, setActiveFormats] = createSignal<ActiveFormats>(NO_ACTIVE_FORMATS);
   const [largeFileMode, setLargeFileMode] = createSignal<FileOpenMode | null>(
     null,
   );
@@ -505,30 +510,18 @@ export function createEditorStore() {
   }
 
   return {
-    cursorLine,
-    setCursorLine,
-    cursorCol,
-    setCursorCol,
-    lineCount,
-    setLineCount,
-    language,
-    setLanguage,
-    selectionCount,
-    setSelectionCount,
-    currentText,
-    setCurrentText,
-    currentBufferId,
-    setCurrentBufferId,
-    externalReload,
-    requestExternalReload,
-    pendingReveal,
-    requestReveal,
-    clearReveal,
-    largeFileMode,
-    setLargeFileMode,
-    registerView,
-    getView,
-    focusEditor,
+    cursorLine, setCursorLine,
+    cursorCol, setCursorCol,
+    lineCount, setLineCount,
+    language, setLanguage,
+    selectionCount, setSelectionCount,
+    activeFormats, setActiveFormats,
+    currentText, setCurrentText,
+    currentBufferId, setCurrentBufferId,
+    externalReload, requestExternalReload,
+    pendingReveal, requestReveal, clearReveal,
+    largeFileMode, setLargeFileMode,
+    registerView, getView, focusEditor,
     getActiveText,
     getSelectionRange,
     replaceRange,

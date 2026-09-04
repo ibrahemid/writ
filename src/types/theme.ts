@@ -1,27 +1,31 @@
+/**
+ * A preset's colour groups, in the ADR-030 vocabulary. The leaf named `default`
+ * collapses onto the bare group name when the store flattens a preset, so
+ * `fg.default` becomes the token `fg` and the custom property `--writ-fg`.
+ * `tokenKey` is that rule; nothing else may build a key by hand.
+ */
 export interface ThemeTokens {
-  surface: {
-    background: string;
-    sunken: string;
+  bg: {
+    canvas: string;
+    sidebar: string;
     raised: string;
-    elevated: string;
-    input: string;
+    sunken: string;
     hover: string;
+    selected: string;
   };
-  foreground: {
+  fg: {
     default: string;
     muted: string;
-    subtle: string;
+    faint: string;
   };
   border: {
     default: string;
     soft: string;
-    focus: string;
-    pill: string;
   };
   accent: {
     default: string;
     hover: string;
-    foreground: string;
+    fg: string;
   };
   status: {
     success: string;
@@ -42,6 +46,12 @@ export interface ThemeTokens {
 
 export type ThemePolarity = "light" | "dark";
 
+/**
+ * A preset. The JSON files in `src/styles/themes/` carry exactly the groups
+ * declared here: an undeclared group survives the cast at the import site and
+ * its leaves reach `:root` as dead custom properties. Every leaf is a single
+ * hex colour — composite values and per-OS overrides live in `design/tokens/`.
+ */
 export interface Theme extends ThemeTokens {
   id: string;
   name: string;
@@ -56,8 +66,8 @@ export interface ThemeConfig {
 }
 
 export const TOKEN_GROUPS = [
-  "surface",
-  "foreground",
+  "bg",
+  "fg",
   "border",
   "accent",
   "status",
@@ -65,3 +75,126 @@ export const TOKEN_GROUPS = [
 ] as const;
 
 export type TokenGroup = (typeof TOKEN_GROUPS)[number];
+
+/** Sentence-case titles for the editor's group headings. */
+export const GROUP_LABELS: Readonly<Record<TokenGroup, string>> = {
+  bg: "Background",
+  fg: "Text",
+  border: "Borders",
+  accent: "Accent",
+  status: "Status",
+  syntax: "Syntax",
+};
+
+/**
+ * The token a group's leaf resolves to. `default` is the group itself, so the
+ * store, the editor and an override all address `--writ-fg` by the same name.
+ */
+export function tokenKey(group: string, leaf: string): string {
+  return leaf === "default" ? group : `${group}.${leaf}`;
+}
+
+/**
+ * Tokens a preset still carries that the editor does not offer. Nothing reads
+ * `var(--writ-status-foreground)` in the app or the site, so a row for it would
+ * be a picker that repaints nothing.
+ */
+export const NON_EDITABLE_TOKENS: ReadonlySet<string> = new Set(["status.foreground"]);
+
+/**
+ * What each token paints, in the words a reader uses for it. The editor titles
+ * every row from here, so a leaf missing an entry is a bug, not a fallback.
+ * Each row renders under its group heading, so the label leaves the group word
+ * to the head rather than repeating it.
+ * Keyed by `tokenKey()`, checked against the presets in preset-schema.test.ts.
+ */
+export const TOKEN_LABELS: Readonly<Record<string, string>> = {
+  "bg.canvas": "Page",
+  "bg.sidebar": "Sidebar",
+  "bg.raised": "Panels",
+  "bg.sunken": "Recessed surfaces",
+  "bg.hover": "Hovered row",
+  "bg.selected": "Selected row",
+  fg: "Body",
+  "fg.muted": "Muted",
+  "fg.faint": "Faint",
+  border: "Border",
+  "border.soft": "Soft",
+  accent: "Accent",
+  "accent.hover": "Hovered",
+  "accent.fg": "Text on accent",
+  "status.success": "Success",
+  "status.warning": "Warning",
+  "status.error": "Error",
+  "syntax.keyword": "Keywords",
+  "syntax.string": "Strings",
+  "syntax.comment": "Comments",
+  "syntax.function": "Functions",
+  "syntax.number": "Numbers",
+  "syntax.type": "Types",
+  "syntax.variable": "Variables",
+};
+
+/**
+ * The token keys a per-token override may name, in the ADR-030 vocabulary.
+ * Each becomes `--writ-<key with dots as dashes>`, so this list is also the
+ * set of custom properties a user is allowed to repaint.
+ */
+export const OVERRIDE_KEYS = [
+  "bg.canvas",
+  "bg.sidebar",
+  "bg.raised",
+  "bg.sunken",
+  "bg.hover",
+  "bg.selected",
+  "border",
+  "border.soft",
+  "fg",
+  "fg.muted",
+  "fg.faint",
+  "accent",
+  "accent.hover",
+  "accent.fg",
+] as const;
+
+export type OverrideKey = (typeof OVERRIDE_KEYS)[number];
+
+/**
+ * Pre-ADR-030 override keys that have a direct successor. A key outside this
+ * map and outside the pass-through groups names a token the new vocabulary
+ * dropped (`border.focus` is the accent, `border.pill` is the border), so it
+ * has nothing to resolve to and is discarded.
+ */
+const OVERRIDE_MIGRATIONS: Readonly<Record<string, OverrideKey>> = {
+  "surface.background": "bg.canvas",
+  "surface.sunken": "bg.sidebar",
+  "surface.raised": "bg.raised",
+  "surface.input": "bg.sunken",
+  "surface.hover": "bg.hover",
+  "surface.elevated": "bg.selected",
+  "foreground.default": "fg",
+  "foreground.muted": "fg.muted",
+  "foreground.subtle": "fg.faint",
+  "border.default": "border",
+  "border.soft": "border.soft",
+  "accent.default": "accent",
+  "accent.hover": "accent.hover",
+  "accent.foreground": "accent.fg",
+};
+
+/** Groups whose keys ADR-030 leaves alone; an override on one still resolves. */
+const OVERRIDE_PASSTHROUGH_GROUPS: ReadonlySet<string> = new Set(["status", "syntax"]);
+
+const OVERRIDE_KEY_SET: ReadonlySet<string> = new Set<string>(OVERRIDE_KEYS);
+
+/**
+ * The current name for a stored override key, or `null` when the token it
+ * named is gone. Already-current keys come back unchanged, so this is safe to
+ * run on every load.
+ */
+export function migrateOverrideKey(key: string): string | null {
+  if (NON_EDITABLE_TOKENS.has(key)) return null;
+  if (OVERRIDE_KEY_SET.has(key)) return key;
+  if (OVERRIDE_PASSTHROUGH_GROUPS.has(key.split(".")[0])) return key;
+  return OVERRIDE_MIGRATIONS[key] ?? null;
+}
