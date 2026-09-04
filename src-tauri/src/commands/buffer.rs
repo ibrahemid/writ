@@ -22,6 +22,13 @@ pub const ERR_FILE_CHANGED_ON_DISK: &str = "ERR_FILE_CHANGED_ON_DISK";
 /// Code a save carries when the file's bytes are not on this machine yet.
 pub const ERR_FILE_NOT_DOWNLOADED: &str = "ERR_FILE_NOT_DOWNLOADED";
 
+/// Code a save carries when the file is reachable under more than one name.
+pub const ERR_HARD_LINKED: &str = "ERR_HARD_LINKED";
+
+/// Code a save or a rename carries when the file, or the folder holding it,
+/// is marked read-only.
+pub const ERR_READ_ONLY_DESTINATION: &str = "ERR_READ_ONLY_DESTINATION";
+
 /// Renders a failed save for the frontend: a stable code first when the
 /// failure is one the editor has something to say about, the plain message
 /// otherwise.
@@ -32,6 +39,12 @@ pub fn save_failure_message(error: &StorageError) -> String {
         }
         StorageError::SourceNotDownloaded { .. } => {
             format!("{ERR_FILE_NOT_DOWNLOADED}: {error}")
+        }
+        StorageError::HardLinkedDestination { .. } => {
+            format!("{ERR_HARD_LINKED}: {error}")
+        }
+        StorageError::DestinationReadOnly { .. } => {
+            format!("{ERR_READ_ONLY_DESTINATION}: {error}")
         }
         other => other.to_string(),
     }

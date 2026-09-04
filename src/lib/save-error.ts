@@ -3,6 +3,8 @@
 // change, so no wording a person reads crosses the boundary.
 const ERR_FILE_CHANGED_ON_DISK = "ERR_FILE_CHANGED_ON_DISK";
 const ERR_FILE_NOT_DOWNLOADED = "ERR_FILE_NOT_DOWNLOADED";
+const ERR_HARD_LINKED = "ERR_HARD_LINKED";
+const ERR_READ_ONLY_DESTINATION = "ERR_READ_ONLY_DESTINATION";
 
 // What each code says to the person whose save did not land. Both read as the
 // second half of "Couldn't save <name>: ".
@@ -10,6 +12,9 @@ const CODE_MESSAGES: Record<string, string> = {
   [ERR_FILE_CHANGED_ON_DISK]: "the file changed outside Writ. A copy of your version is beside it.",
   [ERR_FILE_NOT_DOWNLOADED]:
     "this file has not finished downloading, so your changes were not saved yet.",
+  [ERR_HARD_LINKED]:
+    "this file is shared with another name on disk, so Writ left it alone. Save a copy to keep your changes.",
+  [ERR_READ_ONLY_DESTINATION]: "this file is read-only, so nothing was written.",
 };
 
 // The same codes as a stopped rename reads them. A rename carries no text of
@@ -18,11 +23,19 @@ const CODE_MESSAGES: Record<string, string> = {
 const RENAME_CODE_MESSAGES: Record<string, string> = {
   [ERR_FILE_CHANGED_ON_DISK]: "The file changed outside Writ, so it was not renamed.",
   [ERR_FILE_NOT_DOWNLOADED]: "This file has not finished downloading yet.",
+  [ERR_READ_ONLY_DESTINATION]: "This file is read-only, so it was not renamed.",
 };
 
-// Writing again cannot help either of these: the same text is stopped the same
-// way, and a stopped save leaves another dated copy beside the note each time.
-const NOT_WORTH_REPEATING = new Set([ERR_FILE_CHANGED_ON_DISK, ERR_FILE_NOT_DOWNLOADED]);
+// Writing again cannot help any of these: the same text is stopped the same
+// way, and a save stopped by the guard leaves another dated copy beside the
+// note each time. The two refusals are answers about the file itself, so they
+// stand until the file changes.
+const NOT_WORTH_REPEATING = new Set([
+  ERR_FILE_CHANGED_ON_DISK,
+  ERR_FILE_NOT_DOWNLOADED,
+  ERR_HARD_LINKED,
+  ERR_READ_ONLY_DESTINATION,
+]);
 
 // Tauri rejects IPC with a plain string; a thrown Error carries its message.
 function rawMessage(error: unknown): string {
