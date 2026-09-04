@@ -12,7 +12,7 @@ use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::hash::sha256_bytes;
 use writ_core::notes::guard::DiskState;
 use writ_core::notes::line_ending::LineEnding;
-use writ_storage::buffer_store::BufferStore;
+use writ_storage::buffer_store::{BufferStore, RecoveredText};
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 
@@ -165,4 +165,40 @@ fn a_note_writ_creates_is_saved_in_lf() {
         writ_storage::note_ops::save_copy(&notes, "Fresh", "one\r\ntwo\r\n", None).expect("copy");
 
     assert_eq!(std::fs::read(&path).expect("read"), b"one\ntwo\n");
+}
+
+#[test]
+fn a_mixed_file_the_crash_did_not_change_is_left_alone() {
+    let (dir, store) = setup();
+    // Three CRLF breaks and one LF, so the note's recorded ending is CRLF
+    // while the file itself is mixed.
+    let mixed = "a\r\nb\r\nc\nd\r\n";
+    let (path, _state) = open_note(&store, &dir, mixed);
+    let before = inode(&path);
+
+    // The crash snapshot is the file read byte for byte, so it comes back
+    // holding the same mixed text. Encoding it to the note's ending here
+    // would settle the stray line, and the file would then read as having
+    // moved on while Writ was down.
+    let outcome = store
+        .restore_recovered_content("ending-1", mixed, None, None)
+        .expect("restore");
+
+    assert!(
+        matches!(outcome, RecoveredText::Restored(_)),
+        "the file was set aside: {outcome:?}"
+    );
+    assert_eq!(std::fs::read(&path).expect("read"), mixed.as_bytes());
+    assert_eq!(before, inode(&path), "the file was replaced");
+    assert!(
+        conflict_copies(dir.path()).is_empty(),
+        "a copy was written beside the note"
+    );
+    assert!(
+        std::fs::read_dir(dir.path())
+            .expect("read_dir")
+            .filter_map(Result::ok)
+            .all(|e| !e.file_name().to_string_lossy().contains("(recovered ")),
+        "a recovered copy was written beside the note"
+    );
 }

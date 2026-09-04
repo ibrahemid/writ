@@ -721,10 +721,11 @@ impl BufferStore {
             .clone();
         let path = Path::new(&source_path);
 
-        // Before the copy beside the note as well as before the write, so
-        // both come out in the file's own line ending.
-        let content = doc.line_ending.apply(content);
-        let content = content.as_ref();
+        // No line-ending encode here. The snapshot holds what the file held,
+        // read byte for byte, so it already carries the file's own endings.
+        // Re-encoding would settle a file whose endings are mixed onto its
+        // majority, and the hash below would then read that as the file having
+        // moved on and set the text aside beside a note nobody changed.
 
         let flags = match dataless {
             Some(probe) => probe(path),
