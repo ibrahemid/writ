@@ -39,7 +39,9 @@ criterion = { version = "0.8", features = ["html_reports"] }
 writ-core = { path = "../writ-core" }
 chrono = { version = "0.4", features = ["serde"] }
 
-[target.'cfg(target_os = "macos")'.dev-dependencies]
+# Extended attributes and a file's creation date have no safe API in std, and
+# both are lost by the rename a save performs (`atomic::metadata`).
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 libc = "0.2"
 
 [[bench]]
