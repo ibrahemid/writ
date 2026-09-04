@@ -429,6 +429,75 @@ are a copy written as a new note and closing the tab. A file put back where it
 was — the Trash restore — re-attaches, because the id it comes back with is the
 one the tab still holds.
 
+### 12. A change reaches the document one way, and every answer keeps both texts
+
+What a reported change does to the document is one decision over three facts:
+whether the document differs from its file, whether the file changed, and
+whether it is gone (`writ_core::notes::reload::plan_reload`).
+
+| dirty | changed | removed | plan |
+|---|---|---|---|
+| no | yes | no | replace quietly |
+| yes | yes | no | ask |
+| any | no | no | ignore |
+| any | any | yes | ignore |
+
+Removal outranks a change because a file that is gone has no text to offer,
+and asking someone to choose between their text and nothing is not a question;
+the tab keeps its text and stops writing (decision 11). A change that changed
+nothing is ignored rather than replayed, because a watcher reports a write and
+not a difference, and a sync client rewriting a file with its own bytes is the
+ordinary case. Dirty fails closed (decision 6), so a note nothing is known
+about is asked about rather than replaced.
+
+The editor answers the same question in TypeScript
+(`src/services/external-edit.ts`), and it has to: dirty is the editor's answer
+and the backend cannot compute it, so the event cannot carry the plan. The two
+tables are pinned against each other by
+`crates/writ-core/tests/fixtures/external-change-table.json`, read by a test on
+each side. Its rows carry which side decides them; `known` — whether this
+window holds a tab for the file at all — is the editor's alone.
+
+**Every answer writes the text it does not keep to its own file, before it does
+anything else.** `Keep mine` writes what the file held beside the note and then
+saves the document over it. `Use the file on disk` writes the document's text
+beside the note and takes the file's. `Show both` does the same and opens that
+file in a second tab, which is what "both" means: two files, two tabs, no third
+state and no diff view to learn. So the answer to a question about two texts is
+never one text, whichever button is pressed and whatever fails afterwards. A
+copy that cannot be written stops the whole thing, because the ordering is the
+entire guarantee: a write that lands and then fails to be copied has already
+destroyed what it covered.
+
+The write goes through `save_buffer_content_inner`, so the read-only refusal,
+the removed-on-disk refusal, the containment check, the ignore stamp and the
+identity re-read hold on this path exactly as they do on a save. What the file
+held is recorded before that write, which is what lets the guard proceed: it
+exists to stop a write over a change Writ never read, and by then Writ has read
+it and put it on disk under its own name. A file that changes again inside that
+window is refused, and both texts are still on disk when it is — the copy holds
+what the file held, and the guard's own copy holds what was being written.
+
+Two texts that are the same text write no copy and no note. The dirty predicate
+fails closed, so the question is asked over documents that have not been hashed
+yet, and answering one of those must not put a duplicate in the notes folder or
+rewrite a file's line endings for a difference nobody can see.
+
+**The reload is one transaction, so one Cmd+Z gives it back.** The text the
+file holds arrives as the smallest change that turns the document into it
+(`src/editor/external-reload.ts`), not as a replacement of the whole document:
+positions above the edit are then unmoved, so the cursor keeps its line, the
+scroll keeps its place, and undo has one step to reverse rather than the file.
+A shorter file puts the cursor on the nearest line it has.
+
+**A tab in the background is reloaded too.** It has no view to dispatch into,
+and it reads its file again when it is switched to, but its record moves at the
+moment of the change: a background note left holding the digest of a file that
+has moved on reads dirty against a file it matches, and the next change to it
+asks a question that has no reason to be asked. That note is the ordinary case
+for a restored session, which is the one decision 6 already calls the likeliest
+to be reported about.
+
 ## Consequences
 
 - Opening a file from `~/Downloads` puts a watch on `~/Downloads`. That is the
@@ -480,3 +549,9 @@ one the tab still holds.
   updated branches on neither and does nothing, which is the safe direction; a
   round-trip test on each side is what keeps the three words the same three
   words.
+- Answering the question costs a file in the notes folder every time, named
+  `<name> (conflict …)`. Two texts existed and both are kept; the folder says
+  so, and the alternative is a folder that quietly holds one of them.
+- A tab that is answered with `Keep mine` writes over a file another program
+  wrote a moment ago. That is the answer that was given, and what the other
+  program wrote is sitting beside the note under its own name.
