@@ -300,10 +300,19 @@ therefore no evidence of what happened. The filesystem's own id is: `dev` and
 `ino` on Unix, `FILE_ID_INFO` on Windows. A file that moves keeps it; a file
 deleted and recreated under the same name does not.
 
-The id is read when a tab is given its file (`follow_note_path`) and again after
-every write that lands, so a save-through-replace by an editor that writes to a
-temporary file and renames over the target leaves the tab holding the id of the
-file that is now there.
+The id is read whenever the tab learns what its file is: when it is given one
+(`follow_note_path`), after every write Writ lands, and on every change a
+watcher reports. The last of those is the one that matters most. A
+save-through-replace — a temporary file renamed over the target, which is how
+vim, VS Code, git, rsync and every sync client write — leaves the path holding a
+different file, and a tab still carrying the id from open would read its own
+next rename as a deletion, mark itself removed and refuse every later save over
+a file sitting at its new path. So `note_file_returned` re-reads on every
+sighting, not only on the one that clears a removal mark, and `observe_file`
+decides what to keep: what the filesystem answers replaces what was recorded,
+and a refusal to answer keeps what was recorded. The refusal is not
+hypothetical — an evicted note is left without an id rather than hashed — and
+blanking it there would produce exactly the failure this closes.
 
 `writ_core::notes::identity` decides and `src-tauri/src/watcher/identity.rs`
 reads, which is the policy and mechanism split the rest of the watcher follows.
@@ -318,7 +327,20 @@ deliberate: `is_durable` is false for it and the verdict degrades to an external
 modification, which reloads or asks rather than guessing that an unrelated file
 is the same note. A file whose bytes are not on this machine is left with no id
 at all rather than described, because describing it means hashing it and hashing
-it means making the sync provider fetch it (ADR-028 §5).
+it means making the sync provider fetch it (ADR-028 §5). Nothing is probed for
+such a note: the verdict cannot come out any other way, and on those volumes a
+probe reads the whole file, so one deletion in a folder of four thousand notes
+would pull every one of them over a share for an answer already known.
+
+A candidate is only ever a path a watcher covers — the batch is one watcher's
+own window, and the folder is the one the tab's file left. That is what makes a
+match safe to follow: the tab lands somewhere its changes still reach it. It is
+also the rule for the one case where the same id is honestly at two paths at
+once. A hard link is one file with two names, and deleting one of them deletes a
+name rather than the file; the bytes the tab is editing are still there under the
+other name, so the tab follows it. Reporting a removal would refuse every later
+save over a file that exists. A survivor outside every watched folder would be a
+removal instead, for the same reason a move out of every watched folder is.
 
 A move repoints the tab and nothing else: no read, no reload, no prompt. Its
 row, its title and its index rows go to the new path through
@@ -366,6 +388,11 @@ one the tab still holds.
   moved to a folder nothing watches is a removal to the tab, which keeps the
   text and says the file is gone; the person can write a copy or point the tab
   at the file again by opening it.
+- Deleting one name of a hard-linked file moves the tab onto the name that is
+  left, and later saves write there. Someone who keeps a note hard-linked into
+  two folders and deletes one copy is editing the other afterwards, silently.
+  That is the true answer — it is one file — and the alternative refuses saves
+  to a file that is sitting right there.
 - The `buffer:external` payload gained `moved` and renamed `deleted` to
   `removed`. The event name is unchanged, so a frontend that has not been
   updated branches on neither and does nothing, which is the safe direction; a
