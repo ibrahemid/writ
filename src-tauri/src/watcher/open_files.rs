@@ -1109,8 +1109,19 @@ mod tests {
         fs::write(&file, b"rewritten by another program\n").unwrap();
 
         let ignore = make_set();
-        let mut seen = LastSeen::new();
         let now = Instant::now();
+        let ungated = (0..11)
+            .filter(|_| {
+                classify_open_file_event(&file, "note-1", &make_set(), DEFAULT_IGNORE_TTL, now)
+                    .is_some()
+            })
+            .count();
+        assert_eq!(
+            ungated, 11,
+            "the burst is what classification alone reports"
+        );
+
+        let mut seen = LastSeen::new();
         let told: Vec<WritEvent> = (0..11)
             .filter_map(|_| {
                 report_open_file_event(&file, "note-1", &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)

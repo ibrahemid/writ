@@ -730,8 +730,18 @@ mod tests {
         fs::write(&note, b"rewritten by another program\n").unwrap();
 
         let ignore = make_set();
-        let mut seen = LastSeen::new();
         let now = Instant::now();
+        let ungated = (0..11)
+            .filter(|_| {
+                classify_notes_event(&note, root, &make_set(), DEFAULT_IGNORE_TTL, now).is_some()
+            })
+            .count();
+        assert_eq!(
+            ungated, 11,
+            "the burst is what classification alone reports"
+        );
+
+        let mut seen = LastSeen::new();
         let reported: Vec<WritEvent> = (0..11)
             .filter_map(|_| {
                 report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
@@ -793,6 +803,159 @@ mod tests {
             WritEvent::NotesChanged { removed, .. } => assert!(removed),
             other => panic!("expected NotesChanged, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn the_events_one_arrival_raises_on_linux_open_the_tab_once() {
+        // Classifying an arrival reads the file twice, to fingerprint it and
+        // to decide how it would open, and an arrival is never in the
+        // start-of-run snapshot that would otherwise suppress it. Unguarded,
+        // one file landing in the inbox reopens its tab for as long as the
+        // app runs.
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let arrival = root.join("report.md");
+        fs::write(&arrival, b"# done\n").unwrap();
+
+        let preexisting = std::collections::HashSet::new();
+        let ignore = make_set();
+        let now = Instant::now();
+        let ungated = (0..11)
+            .filter(|_| {
+                classify_inbox_event(
+                    &arrival,
+                    root,
+                    &preexisting,
+                    &make_set(),
+                    DEFAULT_IGNORE_TTL,
+                    now,
+                )
+                .is_some()
+            })
+            .count();
+        assert_eq!(
+            ungated, 11,
+            "the burst is what classification alone reports"
+        );
+
+        let mut seen = LastSeen::new();
+        let reported: Vec<WritEvent> = (0..11)
+            .filter_map(|_| {
+                report_inbox_event(
+                    &arrival,
+                    root,
+                    &preexisting,
+                    &ignore,
+                    &mut seen,
+                    DEFAULT_IGNORE_TTL,
+                    now,
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            reported.len(),
+            1,
+            "one arrival must open its tab once, saw {reported:?}"
+        );
+        assert!(matches!(reported[0], WritEvent::InboxFileArrived { .. }));
+    }
+
+    #[test]
+    fn a_second_arrival_is_reported_however_recently_the_first_was() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let first = root.join("report.md");
+        let second = root.join("notes.md");
+        fs::write(&first, b"# done\n").unwrap();
+        fs::write(&second, b"# other\n").unwrap();
+
+        let preexisting = std::collections::HashSet::new();
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let now = Instant::now();
+        let report = |path: &Path, seen: &mut LastSeen| {
+            report_inbox_event(
+                path,
+                root,
+                &preexisting,
+                &ignore,
+                seen,
+                DEFAULT_IGNORE_TTL,
+                now,
+            )
+        };
+        assert!(report(&first, &mut seen).is_some());
+        assert!(report(&first, &mut seen).is_none());
+        assert!(
+            report(&second, &mut seen).is_some(),
+            "a second file landing in the inbox must open its own tab"
+        );
+    }
+
+    #[test]
+    fn the_events_one_config_edit_raises_on_linux_reload_it_once() {
+        // The config file is the worst of the three: the read that
+        // fingerprints it clears the stamp on its way out, so nothing else
+        // stops an external edit announcing itself on every turn of the loop.
+        let dir = tempdir().unwrap();
+        let cfg = dir.path().join("config.toml");
+        fs::write(&cfg, b"theme = \"dark\"\n").unwrap();
+
+        let ignore = make_set();
+        let now = Instant::now();
+        {
+            let mut guard = ignore.lock().unwrap();
+            guard.record(config_stamp_key(&cfg), b"theme = \"dark\"\n", now);
+        }
+        fs::write(&cfg, b"theme = \"light\"\n").unwrap();
+
+        let ungated = (0..11)
+            .filter(|_| {
+                classify_watch_event(&cfg, &cfg, &ignore, DEFAULT_IGNORE_TTL, now).is_some()
+            })
+            .count();
+        assert_eq!(
+            ungated, 11,
+            "the stamp is cleared on the way out, so classification alone reports every turn"
+        );
+
+        let mut seen = LastSeen::new();
+        let reported: Vec<WritEvent> = (0..11)
+            .filter_map(|_| {
+                report_config_event(&cfg, &cfg, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
+            })
+            .collect();
+
+        assert_eq!(
+            reported.len(),
+            1,
+            "one config edit must reload the config once, saw {reported:?}"
+        );
+        assert!(matches!(reported[0], WritEvent::ConfigChanged { .. }));
+    }
+
+    #[test]
+    fn a_config_edit_is_reported_however_recently_the_last_one_was() {
+        let dir = tempdir().unwrap();
+        let cfg = dir.path().join("config.toml");
+        fs::write(&cfg, b"theme = \"dark\"\n").unwrap();
+
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let now = Instant::now();
+        assert!(
+            report_config_event(&cfg, &cfg, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now).is_some()
+        );
+        assert!(
+            report_config_event(&cfg, &cfg, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now).is_none()
+        );
+
+        fs::write(&cfg, b"theme = \"light\", font_size = 15\n").unwrap();
+        assert!(
+            report_config_event(&cfg, &cfg, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now).is_some(),
+            "an edit made after the last look must still reload the config"
+        );
     }
 
     #[test]
