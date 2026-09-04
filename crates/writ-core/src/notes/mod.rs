@@ -7,6 +7,9 @@
 //! mechanism — creating the folder, listing it, writing the file — lives in
 //! `writ-storage` and `writ-tauri`.
 
+/// Which line ending a file uses, and how to keep it across a save.
+pub mod line_ending;
+
 /// The write guard: whether a save may land on the file it is aimed at.
 pub mod guard;
 
