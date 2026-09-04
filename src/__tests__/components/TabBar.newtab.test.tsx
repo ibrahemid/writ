@@ -39,7 +39,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
-    editor: { isRemovedOnDisk: () => false },
     tabs: {
       activeTabId: mocks.activeTabId,
       setActiveTabId: mocks.setActiveTabId,
@@ -48,7 +47,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       closeAllTabs: mocks.closeAllTabs,
       newNote: mocks.newNote,
     },
-    editor: { focusEditor: mocks.focusEditor },
+    editor: { focusEditor: mocks.focusEditor, isRemovedOnDisk: () => false },
   }),
 }));
 

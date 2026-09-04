@@ -1357,7 +1357,10 @@ mod tests {
                 .is_some()
             })
             .count();
-        assert_eq!(ungated, 11, "the burst is what the route alone tells the tab");
+        assert_eq!(
+            ungated, 11,
+            "the burst is what the route alone tells the tab"
+        );
 
         let ignore = make_set();
         let mut seen = LastSeen::new();
