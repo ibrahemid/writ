@@ -1,6 +1,6 @@
 # ADR-008: Typography Tokens
 
-**Status:** Accepted
+**Status:** Superseded in part by [ADR-030](./030-design-system-tokens.md) on 2026-08-28
 **Date:** 2026-05-21
 
 ## Context
