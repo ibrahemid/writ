@@ -79,7 +79,7 @@ export default function TabBar() {
     if (download.state === "downloading") {
       void win.downloads.cancel(download.path);
     } else {
-      win.downloads.close(download.path);
+      void win.downloads.close(download.path);
     }
   }
 

@@ -81,9 +81,10 @@ export function createDownloadStore() {
     if (select) setSelectedPath(entry.path);
   }
 
-  // Gives the one-shot permission to open this note back to Rust. A note that
-  // is not downloaded is authorized once, for the open that follows the bytes
-  // landing; when that open never happens, nothing else spends it.
+  // Gives the one-shot permission to open this note back to Rust. The token
+  // lives as long as the entry does: a download that stopped keeps its tab and
+  // the person's next move is to open the note again, so the permission goes
+  // back only when the entry itself goes.
   async function handBackOpenPermission(path: string): Promise<void> {
     await api.cancelMaterialiseNote(path).catch(() => undefined);
   }
@@ -113,7 +114,6 @@ export function createDownloadStore() {
     // listening can finish unheard and leave the tab downloading for good.
     if (listening !== null && !(await listening)) {
       update(entry.path, { state: "failed", reason: "listener", message: null });
-      await handBackOpenPermission(entry.path);
       return;
     }
     try {
@@ -135,9 +135,11 @@ export function createDownloadStore() {
   }
 
   // Closes an entry that ended without the bytes. Cancel is the same gesture
-  // for a download still running; this one has nothing to call off.
-  function close(path: string): void {
+  // for a download still running; this one has no wait left to call off, only
+  // the permission the entry was holding for a second attempt.
+  async function close(path: string): Promise<void> {
     drop(path);
+    await handBackOpenPermission(path);
   }
 
   async function handle(payload: {
@@ -163,7 +165,6 @@ export function createDownloadStore() {
           // is what stops the note the person asked for disappearing without a
           // word; a second open is theirs to ask for.
           if (entry) restoreAsFailed(entry, "open", watching);
-          await handBackOpenPermission(path);
         }
         return;
       }

@@ -101,7 +101,7 @@ describe("TabBar — a note waiting on its bytes", () => {
     expect(container.querySelector(".tab-download")).toBeNull();
   });
 
-  it("closes a note that stopped without asking to cancel a wait that ended", async () => {
+  it("closes a note that stopped and gives its open permission back", async () => {
     await downloads.start(NOTE);
     await downloads.handle({ path: NOTE.path, state: "timed_out" });
     const { container } = render(() => <TabBar />);
@@ -111,6 +111,10 @@ describe("TabBar — a note waiting on its bytes", () => {
     fireEvent.click(dismiss);
 
     await waitFor(() => expect(container.querySelector(".tab-download")).toBeNull());
-    expect(mocks.cancelMaterialiseNote).not.toHaveBeenCalled();
+    // Nothing left to call off, but the tab was holding the one-shot
+    // permission to open the note, and that goes back with it.
+    await waitFor(() =>
+      expect(mocks.cancelMaterialiseNote).toHaveBeenCalledWith(NOTE.path),
+    );
   });
 });

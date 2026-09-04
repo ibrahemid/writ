@@ -161,8 +161,9 @@ describe("download store", () => {
     // The failure is Writ's to explain, so nothing of the raw error is kept.
     expect(downloads.pending()[0].message).toBeNull();
     expect(downloads.selected()?.path).toBe(NOTE.path);
-    // The note was never opened, so the permission to open it goes back.
-    expect(cancelMaterialiseNote).toHaveBeenCalledWith(NOTE.path);
+    // The tab is still up and the note can be opened again, so the permission
+    // that open needs stays with it.
+    expect(cancelMaterialiseNote).not.toHaveBeenCalled();
   });
 
   it("says so rather than waiting when nothing is listening for the download", async () => {
@@ -175,6 +176,52 @@ describe("download store", () => {
     expect(materialiseNote).not.toHaveBeenCalled();
     expect(downloads.pending()[0].state).toBe("failed");
     expect(downloads.pending()[0].reason).toBe("listener");
+    expect(cancelMaterialiseNote).not.toHaveBeenCalled();
+  });
+
+  it("opens the note once when a second attempt gets the bytes", async () => {
+    const downloads = createDownloadStore();
+    const reopen = vi.fn().mockResolvedValue(undefined);
+    downloads.attachOpener(reopen);
+
+    await downloads.start(NOTE);
+    await downloads.handle({ path: NOTE.path, state: "failed", message: "no space" });
+    expect(downloads.pending()[0].state).toBe("failed");
+
+    // The second attempt is the same tab asking again, not a second entry.
+    await downloads.start(NOTE);
+    expect(downloads.pending()).toHaveLength(1);
+    expect(downloads.pending()[0].state).toBe("downloading");
+    expect(materialiseNote).toHaveBeenCalledTimes(2);
+
+    await downloads.handle({ path: NOTE.path, state: "done" });
+    expect(reopen).toHaveBeenCalledTimes(1);
+    expect(downloads.pending()).toEqual([]);
+    expect(cancelMaterialiseNote).not.toHaveBeenCalled();
+  });
+
+  it("gives the permission back when a download that stopped is closed", async () => {
+    const downloads = createDownloadStore();
+    await downloads.start(NOTE);
+    await downloads.handle({ path: NOTE.path, state: "failed", message: "no space" });
+
+    await downloads.close(NOTE.path);
+
+    expect(downloads.pending()).toEqual([]);
+    expect(cancelMaterialiseNote).toHaveBeenCalledWith(NOTE.path);
+  });
+
+  it("gives the permission back when a second attempt is called off", async () => {
+    const downloads = createDownloadStore();
+    await downloads.start(NOTE);
+    await downloads.handle({ path: NOTE.path, state: "timed_out" });
+    expect(cancelMaterialiseNote).not.toHaveBeenCalled();
+
+    await downloads.start(NOTE);
+    await downloads.cancel(NOTE.path);
+
+    expect(downloads.pending()).toEqual([]);
+    expect(cancelMaterialiseNote).toHaveBeenCalledTimes(1);
     expect(cancelMaterialiseNote).toHaveBeenCalledWith(NOTE.path);
   });
 

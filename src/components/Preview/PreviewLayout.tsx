@@ -140,7 +140,7 @@ export default function PreviewLayout(props: Props) {
                 <NoteDownloading
                   download={download()}
                   onCancel={() => void win.downloads.cancel(download().path)}
-                  onClose={() => win.downloads.close(download().path)}
+                  onClose={() => void win.downloads.close(download().path)}
                 />
               )}
             </Show>
