@@ -49,6 +49,7 @@ export default function ActiveSection() {
         <TabItem
           label={item.title}
           icon="file-text"
+          noteId={item.id}
           isActive={item.id === win.tabs.activeTabId()}
           onClick={() => win.tabs.setActiveTabId(item.id)}
           onClose={() => void win.tabs.closeTab(item.id)}

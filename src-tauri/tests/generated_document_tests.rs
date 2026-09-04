@@ -13,6 +13,7 @@ use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
+use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::config_store::ConfigStore;
@@ -60,8 +61,10 @@ fn make_state(dir: &TempDir) -> AppState {
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
         notes_watcher: Mutex::new(None),
+        open_file_watcher: Mutex::new(None),
         notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
+        notes_reconcile: Arc::new(ReconcileGate::new()),
         quit: Arc::new(QuitState::new()),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
@@ -84,6 +87,7 @@ fn make_state(dir: &TempDir) -> AppState {
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
+        unsaved_on_exit: Mutex::new(std::collections::HashMap::new()),
     }
 }
 

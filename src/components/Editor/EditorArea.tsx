@@ -1,5 +1,6 @@
 import { Show, createEffect, onCleanup } from "solid-js";
 import StatusBar from "./StatusBar";
+import SaveFailureBar from "./SaveFailureBar";
 import TabBar from "./TabBar";
 import Toolbar from "../Toolbar/Toolbar";
 import WordCount from "./WordCount";
@@ -35,6 +36,7 @@ export default function EditorArea() {
     <div class="editor-area">
       <Toolbar />
       <TabBar />
+      <SaveFailureBar noteId={activeBuffer()?.id ?? null} />
       <div class="editor-content">
         {/* Always mounted, even with no active buffer, so the preview iframe
             element it owns is never torn down (#124 webview freeze). */}

@@ -13,6 +13,7 @@ use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
+use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::config_store::ConfigStore;
@@ -67,8 +68,10 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
         notes_watcher: Mutex::new(None),
+        open_file_watcher: Mutex::new(None),
         notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
+        notes_reconcile: Arc::new(ReconcileGate::new()),
         quit: Arc::new(QuitState::new()),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
@@ -89,6 +92,7 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
         workspace_index: Arc::new(RwLock::new(WorkspaceIndex::new(ws_root))),
         search_generation: Arc::new(AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
+        unsaved_on_exit: Mutex::new(std::collections::HashMap::new()),
     }
 }
 
@@ -399,5 +403,84 @@ fn the_notes_watcher_ignores_a_sync_clients_own_folders() {
         )
         .is_none(),
         "an atomic write's temp file must never reach the index"
+    );
+}
+
+/// The watcher is silent for the files nobody wrote on purpose and for nothing
+/// else: temp files, half-finished downloads, the stub standing in for a file
+/// that is not downloaded, and the folders a sync client keeps for itself. A
+/// catch-up would otherwise fan out into an event per temp file.
+///
+/// A copy a sync service kept is never ignored, here or anywhere else: it holds
+/// text somebody wrote, it is listed and flagged, and a change to it is
+/// reported like a change to any other note.
+#[test]
+fn the_notes_watcher_is_silent_for_the_files_nobody_wrote_and_no_others() {
+    use std::time::{Duration, Instant};
+    use writ_core::events::bus::WritEvent;
+    use writ_tauri_lib::watcher::handler::classify_notes_event;
+
+    let holder = TempDir::new().expect("tempdir");
+    let state = make_state(&holder, None);
+    let notes = state.notes_root();
+    let ignore = create_ignore_set();
+
+    for name in [
+        ".syncthing.note.md.tmp",
+        "~syncthing~note.md.tmp",
+        ".note.md.icloud",
+        ".note.md.swp",
+        "note.md~",
+        "note.md.crdownload",
+        ".obsidian.vimrc",
+    ] {
+        let path = notes.join(name);
+        std::fs::write(&path, "not a note").expect("write");
+        assert!(
+            classify_notes_event(
+                &path,
+                &notes,
+                &ignore,
+                Duration::from_secs(5),
+                Instant::now()
+            )
+            .is_none(),
+            "{name} must never reach the index"
+        );
+    }
+
+    // A folder a sync client keeps for itself churns with copies of notes; a
+    // path through one is as invisible as the folder is.
+    let cached = notes.join(".dropbox.cache").join("stale.md");
+    std::fs::create_dir_all(cached.parent().unwrap()).expect("create folder");
+    std::fs::write(&cached, "a copy of a note").expect("write");
+    assert!(
+        classify_notes_event(
+            &cached,
+            &notes,
+            &ignore,
+            Duration::from_secs(5),
+            Instant::now()
+        )
+        .is_none(),
+        "a sync client's own folder must never reach the index"
+    );
+
+    // The copy a sync client kept is somebody's text, so it is a change like
+    // any other.
+    let copy = notes.join("note.sync-conflict-20260822-120000-ABCD.md");
+    std::fs::write(&copy, "both devices wrote").expect("write");
+    assert!(
+        matches!(
+            classify_notes_event(
+                &copy,
+                &notes,
+                &ignore,
+                Duration::from_secs(5),
+                Instant::now()
+            ),
+            Some(WritEvent::NotesChanged { removed: false, .. })
+        ),
+        "a copy that holds somebody's text is a change like any other"
     );
 }

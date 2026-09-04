@@ -21,7 +21,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 import FileTree from "../../components/Sidebar/FileTree";
 
 function entry(name: string, isDir: boolean): WorkspaceEntry {
-  return { name, path: `/notes/${name}`, is_dir: isDir };
+  return { name, path: `/notes/${name}`, is_dir: isDir, conflict_copy: null };
 }
 
 afterEach(() => {
@@ -34,7 +34,7 @@ describe("FileTree indent", () => {
   it("steps each level 16px past its parent", () => {
     h.entries.set("/notes", [entry("Drafts", true)]);
     h.entries.set("/notes/Drafts", [
-      { name: "launch.md", path: "/notes/Drafts/launch.md", is_dir: false },
+      { name: "launch.md", path: "/notes/Drafts/launch.md", is_dir: false, conflict_copy: null },
     ]);
     const { container } = render(() => <FileTree />);
     const folder = container.querySelector<HTMLElement>('[aria-level="1"]')!;

@@ -1,11 +1,5 @@
 [
   {
-    "file": "src/App.tsx",
-    "line": 189,
-    "word": "buffer",
-    "note": "recovery toast, release 0.6"
-  },
-  {
     "file": "src/components/Preview/PreviewLayoutToggle.tsx",
     "line": 21,
     "word": "source",
@@ -19,73 +13,73 @@
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 370,
+    "line": 371,
     "word": "typography",
     "note": "settings row label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 373,
+    "line": 374,
     "word": "typography",
     "note": "settings toggle aria-label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 402,
+    "line": 403,
     "word": "dialect",
     "note": "settings row label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 597,
+    "line": 598,
     "word": "inbox",
     "note": "settings row label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 630,
+    "line": 631,
     "word": "inbox",
     "note": "settings row label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 633,
+    "line": 634,
     "word": "inbox",
     "note": "settings toggle aria-label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 780,
+    "line": 778,
     "word": "reveal",
     "note": "storage action button, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 825,
+    "line": 823,
     "word": "threshold",
     "note": "settings row label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 838,
+    "line": 836,
     "word": "refuse",
     "note": "settings row label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 838,
+    "line": 836,
     "word": "threshold",
     "note": "settings row label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 867,
+    "line": 865,
     "word": "source",
     "note": "layout option label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 880,
+    "line": 878,
     "word": "source",
     "note": "layout option label, release 0.6"
   },

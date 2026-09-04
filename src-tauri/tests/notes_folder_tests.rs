@@ -11,6 +11,7 @@ use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
+use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::config_store::ConfigStore;
@@ -58,8 +59,10 @@ fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFall
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
         notes_watcher: Mutex::new(None),
+        open_file_watcher: Mutex::new(None),
         notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
+        notes_reconcile: Arc::new(ReconcileGate::new()),
         quit: Arc::new(QuitState::new()),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
@@ -82,6 +85,7 @@ fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFall
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
+        unsaved_on_exit: Mutex::new(std::collections::HashMap::new()),
     }
 }
 
@@ -287,6 +291,25 @@ fn the_folder_row_names_the_one_that_could_not_be_used() {
         })
     );
     assert_eq!(info.path, state.notes_root().to_string_lossy());
+}
+
+#[test]
+fn the_folder_row_carries_the_sync_service_over_the_wire() {
+    let dir = TempDir::new().expect("temp");
+    let state = make_state(&dir);
+
+    let info = notes_folder_info(&state);
+    assert_eq!(
+        info.sync_provider, None,
+        "a folder in no synced tree names no service"
+    );
+
+    let payload = serde_json::to_value(&info).expect("serialize");
+    assert!(
+        payload.get("sync_provider").is_some(),
+        "the field is always on the payload, so the row can render from it"
+    );
+    assert_eq!(payload["sync_provider"], serde_json::Value::Null);
 }
 
 #[test]

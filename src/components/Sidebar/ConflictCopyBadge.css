@@ -1,0 +1,12 @@
+.file-tree-copy-badge {
+  flex-shrink: 0;
+  margin-left: var(--writ-space-2);
+  padding: 0 var(--writ-space-1);
+  border: 1px solid var(--writ-border);
+  border-radius: var(--writ-r-control);
+  background: var(--writ-bg-raised);
+  color: var(--writ-fg-muted);
+  font-size: var(--writ-ui-sm);
+  line-height: 1.4;
+  white-space: nowrap;
+}

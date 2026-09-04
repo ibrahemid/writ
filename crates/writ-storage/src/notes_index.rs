@@ -20,8 +20,9 @@
 //! A sync provider can leave a placeholder with no local data behind it.
 //! Reading one asks the provider daemon to materialise it, which stalls the
 //! walk and can pull gigabytes down a metered connection, so [`is_dataless`]
-//! answers from the file's metadata and the walk skips those files without
-//! opening them.
+//! answers from the file's metadata and the walk never opens those files. They
+//! are indexed by name alone: the note is findable and openable, and its text
+//! joins the index the first time something else downloads it.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -43,6 +44,32 @@ const TEXT_EXTENSIONS: &[&str] = &["md", "markdown", "txt", "text"];
 /// macOS `SF_DATALESS`: the file has no local data behind it.
 const SF_DATALESS: u32 = 0x4000_0000;
 
+/// How much of a file the index holds, stored in `files.indexed_by`
+/// (migration 042).
+///
+/// A placeholder with no local data is recorded without being read, so its row
+/// carries its name and nothing else. [`reconcile`] reads this back to find
+/// those rows once the file has data: a download leaves size and mtime where
+/// they were, so no other column can tell it happened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IndexedBy {
+    /// The row was written from the file's text.
+    #[default]
+    Content,
+    /// The row was written from the file's name, with no read.
+    Name,
+}
+
+impl IndexedBy {
+    /// The value stored in `files.indexed_by`.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Content => "content",
+            Self::Name => "name",
+        }
+    }
+}
+
 /// One indexed note.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexedNote {
@@ -56,6 +83,8 @@ pub struct IndexedNote {
     pub mtime: i64,
     /// Content hash, when the caller has one to record.
     pub hash: Option<String>,
+    /// Whether the row holds the file's text or only its name.
+    pub indexed_by: IndexedBy,
 }
 
 impl IndexedNote {
@@ -72,6 +101,7 @@ impl IndexedNote {
             size: metadata.len(),
             mtime: mtime_millis(&metadata),
             hash: None,
+            indexed_by: IndexedBy::Content,
         })
     }
 }
@@ -85,7 +115,8 @@ pub struct ReconcileOutcome {
     pub updated: usize,
     /// Rows removed because the file behind them is gone.
     pub removed: usize,
-    /// Files skipped because the filesystem reports them as not downloaded.
+    /// Files the filesystem reports as not downloaded, which are indexed by
+    /// name with no text rather than read.
     pub skipped_dataless: usize,
     /// `true` when the walk stopped early because the caller cancelled it. A
     /// cancelled pass never removes rows: it has not seen the whole tree, so
@@ -176,14 +207,21 @@ impl<'a> NotesIndex<'a> {
     pub fn upsert(&self, note: &IndexedNote, content: &str) -> StorageResult<()> {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
-            "INSERT INTO files (path, size, mtime, hash, indexed_at)
-             VALUES (?1, ?2, ?3, ?4, datetime('now'))
+            "INSERT INTO files (path, size, mtime, hash, indexed_by, indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))
              ON CONFLICT(path) DO UPDATE SET
                  size = excluded.size,
                  mtime = excluded.mtime,
                  hash = excluded.hash,
+                 indexed_by = excluded.indexed_by,
                  indexed_at = excluded.indexed_at",
-            params![note.path, note.size as i64, note.mtime, note.hash],
+            params![
+                note.path,
+                note.size as i64,
+                note.mtime,
+                note.hash,
+                note.indexed_by.as_str()
+            ],
         )?;
         let rowid: i64 = tx.query_row(
             "SELECT rowid FROM files WHERE path = ?1",
@@ -217,20 +255,28 @@ impl<'a> NotesIndex<'a> {
         let tx = self.conn.unchecked_transaction()?;
         let wrote = match expected {
             None => tx.execute(
-                "INSERT INTO files (path, size, mtime, hash, indexed_at)
-                 VALUES (?1, ?2, ?3, ?4, datetime('now'))
+                "INSERT INTO files (path, size, mtime, hash, indexed_by, indexed_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))
                  ON CONFLICT(path) DO NOTHING",
-                params![note.path, note.size as i64, note.mtime, note.hash],
-            )?,
-            Some((size, mtime)) => tx.execute(
-                "UPDATE files
-                    SET size = ?2, mtime = ?3, hash = ?4, indexed_at = datetime('now')
-                  WHERE path = ?1 AND size = ?5 AND mtime = ?6",
                 params![
                     note.path,
                     note.size as i64,
                     note.mtime,
                     note.hash,
+                    note.indexed_by.as_str()
+                ],
+            )?,
+            Some((size, mtime)) => tx.execute(
+                "UPDATE files
+                    SET size = ?2, mtime = ?3, hash = ?4, indexed_by = ?5,
+                        indexed_at = datetime('now')
+                  WHERE path = ?1 AND size = ?6 AND mtime = ?7",
+                params![
+                    note.path,
+                    note.size as i64,
+                    note.mtime,
+                    note.hash,
+                    note.indexed_by.as_str(),
                     size as i64,
                     mtime
                 ],
@@ -416,6 +462,24 @@ impl<'a> NotesIndex<'a> {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
+
+    /// The paths whose row holds a name and no text ([`IndexedBy::Name`]).
+    ///
+    /// Materialising a placeholder leaves its size and mtime where they were,
+    /// so [`reconcile`]'s unchanged shortcut cannot tell a downloaded note from
+    /// the placeholder it replaced. This is how it tells, and it reads a column
+    /// of its own so that a writer recording a digest cannot disturb it.
+    fn name_only_paths(&self) -> StorageResult<std::collections::HashSet<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path FROM files WHERE indexed_by = ?1")?;
+        let rows = stmt
+            .query_map(params![IndexedBy::Name.as_str()], |row| {
+                row.get::<_, String>(0)
+            })?
+            .collect::<Result<std::collections::HashSet<_>, _>>()?;
+        Ok(rows)
+    }
 }
 
 /// Walks `notes_root` and brings the index in line with it: new files are
@@ -445,6 +509,7 @@ pub fn reconcile(
         .into_iter()
         .map(|(path, size, mtime)| (path, (size, mtime)))
         .collect();
+    let name_only = index.name_only_paths()?;
 
     let mut outcome = ReconcileOutcome::default();
     let mut seen: Vec<String> = Vec::with_capacity(known.len());
@@ -460,44 +525,75 @@ pub fn reconcile(
         }
         let path = entry.path();
 
-        // Before anything that opens the file: a placeholder is materialised by
-        // the read, not by the decision to read.
-        if is_dataless(path) {
-            outcome.skipped_dataless += 1;
+        // A name no listing, index or watcher event carries, on the file or on
+        // a folder above it. Decided from the path alone, before anything
+        // touches the file.
+        if writ_core::workspace::path_has_ignored_name(notes_root, path) {
             continue;
         }
+
+        // Before anything that opens the file: a placeholder is materialised by
+        // the read, not by the decision to read.
+        let dataless = is_dataless(path);
+        if dataless {
+            outcome.skipped_dataless += 1;
+            // The kind question is settled by the extension or not at all:
+            // `should_index`'s fallback sniffs the bytes, which is the read
+            // this whole branch exists to avoid.
+            if !has_text_extension(path) {
+                continue;
+            }
+        }
+
         let Ok(metadata) = std::fs::metadata(path) else {
             continue;
         };
         let size = metadata.len();
 
-        // The same ceiling `BufferStore::index_note` applies. Indexing a file
-        // the save path will not re-index leaves its first contents in the
-        // index for good.
-        if size > THRESHOLD_NORMAL_BYTES {
-            continue;
-        }
-        if !should_index(path) {
-            continue;
+        if !dataless {
+            // The same ceiling `BufferStore::index_note` applies. Indexing a
+            // file the save path will not re-index leaves its first contents in
+            // the index for good. The ceiling bounds a read, so a placeholder,
+            // which is never read, is not measured against it: an evicted
+            // 20 MB note keeps its name in the index.
+            if size > THRESHOLD_NORMAL_BYTES {
+                continue;
+            }
+            if !should_index(path) {
+                continue;
+            }
         }
 
         let mtime = mtime_millis(&metadata);
         let key = index_key(path);
 
+        // A download leaves size and mtime alone, so an unchanged file whose
+        // row holds nothing but its name is read now: this is the pass where a
+        // placeholder became a note.
+        let downloaded = !dataless && name_only.contains(&key);
+
         let expected = match known.get(&key) {
-            Some(&state) if state == (size, mtime) => {
+            Some(&state) if state == (size, mtime) && !downloaded => {
                 seen.push(key);
                 continue;
             }
             other => other.copied(),
         };
 
-        let Ok(content) = std::fs::read_to_string(path) else {
-            // Not text after all (or unreadable): leave it out rather than
-            // index bytes nobody can search, and let any row it already had be
-            // pruned. A row kept here would answer searches with text the file
-            // no longer holds. Same answer the size gate above gives.
-            continue;
+        // A placeholder is indexed by name and nothing else: the row and the
+        // name entry are what make it findable and openable, and the empty
+        // text is the honest record of what has been read (ADR-028 section 7).
+        let content = if dataless {
+            String::new()
+        } else {
+            let Ok(content) = std::fs::read_to_string(path) else {
+                // Not text after all (or unreadable): leave it out rather than
+                // index bytes nobody can search, and let any row it already had
+                // be pruned. A row kept here would answer searches with text the
+                // file no longer holds. Same answer the size gate above gives.
+                continue;
+            };
+            content
         };
 
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -507,7 +603,14 @@ pub fn reconcile(
             name,
             size,
             mtime,
+            // No read happened for a placeholder, so there is no digest to
+            // record and the row says so in `indexed_by`.
             hash: None,
+            indexed_by: if dataless {
+                IndexedBy::Name
+            } else {
+                IndexedBy::Content
+            },
         };
 
         // One transaction per file. The walk runs on its own connection, so a
@@ -546,6 +649,19 @@ fn root_prefix(path: &Path) -> String {
     text
 }
 
+/// Whether `path`'s name is one no listing, index or watcher event carries:
+/// the name `write_atomic` gives the file it writes before renaming it into
+/// place, a sync client's in-flight file, an undownloaded placeholder, an
+/// editor swap file.
+///
+/// A walk that runs while a note is being saved would otherwise index the
+/// half-written copy and leave a row for a file that no longer exists. The
+/// notes watcher and the tree listing ask the same predicate.
+fn is_ignored_path(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| writ_core::workspace::is_ignored_name(&name.to_string_lossy()))
+}
+
 /// Whether `path` holds note text worth indexing.
 ///
 /// A known text extension is taken at its word so the common case never opens
@@ -553,27 +669,27 @@ fn root_prefix(path: &Path) -> String {
 /// on size themselves. Anything without a known extension is classified, and
 /// only a file that opens with the full feature set is indexed.
 fn should_index(path: &Path) -> bool {
-    // The name `write_atomic` gives the file it writes before renaming it into
-    // place. A walk that runs while a note is being saved would otherwise index
-    // the half-written copy, and leave a row for a file that no longer exists.
-    // Same test the notes watcher applies to an event.
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy())
-        .unwrap_or_default();
-    if name.starts_with(".tmp") || name.ends_with(".tmp") {
+    if is_ignored_path(path) {
         return false;
     }
 
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        if TEXT_EXTENSIONS.iter().any(|t| t.eq_ignore_ascii_case(ext)) {
-            return true;
-        }
+    if has_text_extension(path) {
+        return true;
     }
     matches!(
         classify_path(path).map(|c| c.mode),
         Ok(FileOpenMode::Normal)
     )
+}
+
+/// Whether `path` carries one of the [`TEXT_EXTENSIONS`].
+///
+/// The half of the kind question that answers from the name, which is the only
+/// half a file with no local data behind it can be asked.
+fn has_text_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| TEXT_EXTENSIONS.iter().any(|t| t.eq_ignore_ascii_case(ext)))
 }
 
 /// Modification time in milliseconds since the Unix epoch, or `0` when the

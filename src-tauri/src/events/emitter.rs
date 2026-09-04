@@ -32,8 +32,18 @@ pub enum WritFrontendEvent {
     #[serde(rename = "config:changed")]
     ConfigChanged { keys: Vec<String> },
 
+    /// An open note's file changed outside Writ. `bufferId` names the tab,
+    /// `diskHash` is what the file holds now, and `newPath` is where it went
+    /// for a change that is a move.
     #[serde(rename = "buffer:external")]
-    BufferExternal { buffer_id: String, change: String },
+    #[serde(rename_all = "camelCase")]
+    BufferExternal {
+        buffer_id: String,
+        path: String,
+        change: String,
+        new_path: Option<String>,
+        disk_hash: Option<String>,
+    },
 
     #[serde(rename = "menu:action")]
     MenuAction { action: String },
@@ -43,6 +53,9 @@ pub enum WritFrontendEvent {
 
     #[serde(rename = "notes:changed")]
     NotesChanged { path: String, removed: bool },
+
+    #[serde(rename = "notes:swept")]
+    NotesSwept { root: String },
 
     #[serde(rename = "inbox:file-arrived")]
     InboxFileArrived { path: String },
@@ -102,6 +115,7 @@ fn event_name(event: &WritFrontendEvent) -> &'static str {
         WritFrontendEvent::InboxFileArrived { .. } => "writ://inbox-file-arrived",
         WritFrontendEvent::WorkspaceChanged { .. } => "writ://workspace-changed",
         WritFrontendEvent::NotesChanged { .. } => "writ://notes-changed",
+        WritFrontendEvent::NotesSwept { .. } => "writ://notes-swept",
         WritFrontendEvent::UpdateStatus(..) => "writ://update-status",
         WritFrontendEvent::AiRewrite { .. } => "writ://ai-rewrite",
         WritFrontendEvent::PreviewRendered { .. } => "writ://preview-rendered",

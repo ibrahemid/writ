@@ -4,6 +4,7 @@ import { workspaceStore } from "../../stores/global/workspace";
 import Icon from "../Icon/Icon";
 import { notesStore } from "../../stores/global/notes";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
+import { ConflictCopyBadge } from "./ConflictCopyBadge";
 import {
   confirmAndDeleteNote,
   showInFileManagerLabel,
@@ -141,6 +142,10 @@ function TreeNode(props: TreeNodeProps) {
         </span>
         <Icon name={props.entry.is_dir ? (expanded() ? "folder-open" : "folder") : "file-text"} />
         <span class="file-tree-item-name">{props.entry.name}</span>
+        <ConflictCopyBadge
+          kind={props.entry.conflict_copy}
+          provider={notesStore.folder()?.sync_provider ?? null}
+        />
       </div>
       <Show when={props.entry.is_dir && expanded()}>
         <div

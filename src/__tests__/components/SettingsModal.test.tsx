@@ -197,7 +197,12 @@ describe("SettingsModal", () => {
     mocks.requestExternalReload.mockReset();
     mocks.notesFolder
       .mockReset()
-      .mockReturnValue({ path: "/home/user/Writ", display_path: "~/Writ", fallback: null });
+      .mockReturnValue({
+      path: "/home/user/Writ",
+      display_path: "~/Writ",
+      fallback: null,
+      sync_provider: null,
+    });
     mocks.notesLoadFolder.mockReset().mockResolvedValue(undefined);
     mocks.notesShowInFileManager.mockReset().mockResolvedValue(undefined);
     mocks.notesCopyPath.mockReset().mockResolvedValue(undefined);
@@ -1015,7 +1020,12 @@ describe("Notes section", () => {
     mocks.config.mockReset().mockReturnValue(baseConfig());
     mocks.notesFolder
       .mockReset()
-      .mockReturnValue({ path: "/home/user/Writ", display_path: "~/Writ", fallback: null });
+      .mockReturnValue({
+      path: "/home/user/Writ",
+      display_path: "~/Writ",
+      fallback: null,
+      sync_provider: null,
+    });
     mocks.notesLoadFolder.mockReset().mockResolvedValue(undefined);
     mocks.notesShowInFileManager.mockReset().mockResolvedValue(undefined);
     mocks.notesCopyPath.mockReset().mockResolvedValue(undefined);
@@ -1086,6 +1096,26 @@ describe("Notes section", () => {
     const { container } = await openNotes();
     expect(container.querySelector("[data-notes-fallback]")?.textContent).toBe(
       "The folder in your settings holds Writ's own data, so notes are in ~/Writ.",
+    );
+  });
+
+  it("names the service syncing the folder", async () => {
+    mocks.notesFolder.mockReturnValue({
+      path: "/home/user/Library/Mobile Documents/com~apple~CloudDocs/Writ",
+      display_path: "~/Library/Mobile Documents/com~apple~CloudDocs/Writ",
+      fallback: null,
+      sync_provider: "iCloud Drive",
+    });
+    const { container } = await openNotes();
+    expect(container.querySelector("[data-notes-sync]")?.textContent).toBe(
+      "iCloud Drive syncs this folder. Use one sync service per folder.",
+    );
+  });
+
+  it("says how to sync a folder that nothing syncs", async () => {
+    const { container } = await openNotes();
+    expect(container.querySelector("[data-notes-sync]")?.textContent).toBe(
+      "Writ has no sync. Put the notes folder in iCloud Drive, Dropbox, or Google Drive and your notes sync with it. Use one sync service per folder.",
     );
   });
 });

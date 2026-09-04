@@ -25,12 +25,31 @@ pub enum WritEvent {
         /// Dotted config paths that changed (for example `editor.font_size`).
         keys: Vec<String>,
     },
-    /// A buffer's backing file was modified or deleted externally.
+    /// An open note's file was changed or removed by something other than
+    /// Writ.
+    ///
+    /// It carries what the file now holds rather than the file's text: the
+    /// editor decides whether to take the change, and reads the bytes itself
+    /// if it does. It must never route into a reload of the document
+    /// registry, which recreates a loaded `writ-preview://` iframe and
+    /// hard-freezes the macOS webview (PR #127).
     BufferExternal {
-        /// Identifier of the buffer that observed the change.
+        /// Identifier of the note that observed the change.
         buffer_id: String,
+        /// The file the change was seen on.
+        path: String,
         /// Nature of the external change.
         change: ExternalChange,
+        /// Where the file went, for a change that is a move. Nothing sets
+        /// this yet; the identity work that decides a move from a delete is
+        /// its own unit.
+        new_path: Option<String>,
+        /// The digest of what the file holds now, in the form the editor
+        /// compares its document against
+        /// ([`crate::hash::comparison_digest_hex`]). Absent when there was
+        /// nothing to read: the file is gone, or its bytes are not on this
+        /// machine.
+        disk_hash: Option<String>,
     },
     /// A file or directory inside the open workspace folder changed on
     /// disk. Listeners refresh the affected directory listing; the event
@@ -53,6 +72,24 @@ pub enum WritEvent {
         path: String,
         /// `true` when the file no longer exists on disk.
         removed: bool,
+    },
+    /// More changed in the notes folder in one window than was worth listing.
+    /// Nothing is named; everything holding a copy of what the folder contains
+    /// re-checks instead. The index walks the folder and the editor asks after
+    /// each open file.
+    ///
+    /// A distinct event rather than a [`Self::NotesChanged`] carrying the root
+    /// path. The root served while the only listener sat beside the sender in
+    /// Rust; a listener across the IPC boundary would have to fetch the notes
+    /// root and normalise it the same way to recognise one, which is several
+    /// chances to drift for a distinction a type can make once.
+    ///
+    /// Like [`Self::NotesChanged`], it must never route into a reload of the
+    /// document registry (PR #127).
+    NotesSwept {
+        /// Absolute path of the notes folder that changed faster than it could
+        /// be listed.
+        root: String,
     },
     /// A qualifying new file appeared inside the watched inbox folder
     /// (ADR-018). The frontend opens it through the normal open path.

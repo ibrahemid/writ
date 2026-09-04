@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use writ_core::workspace::{is_ignored, sort_entries, WorkspaceEntry};
+use writ_core::workspace::{is_ignored_name, sort_entries, WorkspaceEntry};
 
 use crate::errors::{StorageError, StorageResult};
 
@@ -8,7 +8,9 @@ use crate::errors::{StorageError, StorageResult};
 ///
 /// Both paths are canonicalized before the containment check; symlinks that
 /// resolve outside `workspace_root` are rejected. Entries whose name matches
-/// the default ignore set are excluded. The returned slice is sorted:
+/// the default ignore set, or one of the sync and editor leftover patterns
+/// beside it, are excluded ([`is_ignored_name`]); a conflict copy is listed
+/// with `conflict_copy` set rather than excluded. The returned slice is sorted:
 /// directories first, then files, each group ordered case-insensitively.
 pub fn list_dir(workspace_root: &Path, dir: &Path) -> StorageResult<Vec<WorkspaceEntry>> {
     let canonical_root = workspace_root.canonicalize().map_err(|e| {
@@ -45,7 +47,7 @@ pub fn list_dir(workspace_root: &Path, dir: &Path) -> StorageResult<Vec<Workspac
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
 
-        if is_ignored(&name) {
+        if is_ignored_name(&name) {
             continue;
         }
 
@@ -64,11 +66,11 @@ pub fn list_dir(workspace_root: &Path, dir: &Path) -> StorageResult<Vec<Workspac
             file_type.is_dir()
         };
 
-        entries.push(WorkspaceEntry {
+        entries.push(WorkspaceEntry::new(
             name,
-            path: entry_path.to_string_lossy().into_owned(),
+            entry_path.to_string_lossy().into_owned(),
             is_dir,
-        });
+        ));
     }
 
     sort_entries(&mut entries);
@@ -119,6 +121,39 @@ mod tests {
         assert!(!names.contains(&"node_modules"));
         assert!(!names.contains(&".git"));
         assert!(names.contains(&"main.rs"));
+    }
+
+    #[test]
+    fn a_notes_folder_lists_the_notes_and_the_copy_and_nothing_else() {
+        // The fixture a synced notes folder actually holds: the note, the temp
+        // file the sync client is writing, the placeholder standing in for a
+        // file that is not downloaded, and the copy the client kept when two
+        // devices wrote at once.
+        let root = setup();
+        fs::write(root.path().join("note.md"), "text").unwrap();
+        fs::write(root.path().join(".syncthing.note.md.tmp"), "").unwrap();
+        fs::write(root.path().join(".note.md.icloud"), "").unwrap();
+        fs::write(
+            root.path()
+                .join("note.sync-conflict-20260822-120000-ABCD.md"),
+            "text",
+        )
+        .unwrap();
+
+        let entries = list_dir(root.path(), root.path()).unwrap();
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["note.md", "note.sync-conflict-20260822-120000-ABCD.md"]
+        );
+
+        let copy = entries.last().unwrap();
+        assert_eq!(
+            copy.conflict_copy,
+            Some(writ_core::workspace::ConflictCopyKind::SyncClient),
+            "a copy is listed with the flag on it, never hidden"
+        );
+        assert_eq!(entries[0].conflict_copy, None);
     }
 
     #[test]

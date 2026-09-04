@@ -64,6 +64,15 @@
   color: var(--writ-status-error);
 }
 
+.statusbar-save.is-dirty {
+  color: var(--writ-fg-muted);
+}
+
+.statusbar-save.is-dirty .statusbar-dot {
+  background: none;
+  border: 1px solid var(--writ-fg-muted);
+}
+
 .statusbar-dot {
   width: 6px;
   height: 6px;

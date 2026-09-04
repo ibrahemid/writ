@@ -6,6 +6,7 @@ use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
+use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::config_store::ConfigStore;
@@ -50,8 +51,10 @@ fn make_state(dir: &TempDir) -> AppState {
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
         notes_watcher: Mutex::new(None),
+        open_file_watcher: Mutex::new(None),
         notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
+        notes_reconcile: Arc::new(ReconcileGate::new()),
         quit: Arc::new(QuitState::new()),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
@@ -74,6 +77,7 @@ fn make_state(dir: &TempDir) -> AppState {
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
+        unsaved_on_exit: Mutex::new(std::collections::HashMap::new()),
     }
 }
 
@@ -161,6 +165,30 @@ fn list_dir_inside_root_returns_sorted_entries() {
     let entries = list_workspace_dir_inner(&state, &root).expect("list");
     let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(names, ["src", "a.md"]);
+}
+
+#[test]
+fn a_listed_entry_carries_the_conflict_flag_over_the_wire() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let ws = TempDir::new().unwrap();
+    std::fs::write(ws.path().join("a.md"), "x").unwrap();
+    std::fs::write(
+        ws.path().join("a.sync-conflict-20260822-120000-ABCD.md"),
+        "x",
+    )
+    .unwrap();
+    std::fs::write(ws.path().join(".a.md.icloud"), "").unwrap();
+
+    let root = set_workspace_root_from_path(&state, ws.path()).expect("set root");
+    let entries = list_workspace_dir_inner(&state, &root).expect("list");
+
+    let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, ["a.md", "a.sync-conflict-20260822-120000-ABCD.md"]);
+
+    let payload = serde_json::to_value(&entries).expect("serialize");
+    assert_eq!(payload[0]["conflict_copy"], serde_json::Value::Null);
+    assert_eq!(payload[1]["conflict_copy"], "sync_client");
 }
 
 #[test]

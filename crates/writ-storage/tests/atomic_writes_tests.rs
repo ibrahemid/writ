@@ -312,3 +312,48 @@ fn write_atomic_round_trips_a_note_with_frontmatter_byte_for_byte() {
     let read_back = fs::read(&target).expect("read note back");
     assert_eq!(read_back, note.as_bytes());
 }
+
+#[test]
+fn the_temp_file_a_save_writes_carries_writs_prefix_and_is_ignored() {
+    // The sibling is created and deleted inside every save, in the user's
+    // notes folder. A name the ignore rules can match is what keeps that churn
+    // out of the watcher, the index and the user's sync client.
+    let dir = TempDir::new().expect("temp dir");
+    let tmp = writ_storage::atomic::temp_sibling(dir.path()).expect("temp sibling");
+
+    let name = tmp
+        .path()
+        .file_name()
+        .expect("a temp file has a name")
+        .to_string_lossy()
+        .into_owned();
+
+    assert!(
+        name.starts_with(writ_core::workspace::TEMP_FILE_PREFIX),
+        "temp files are named from the shared prefix, got {name}"
+    );
+    assert_ne!(
+        name.as_str(),
+        writ_core::workspace::TEMP_FILE_PREFIX,
+        "the prefix is followed by the random part that keeps two saves apart"
+    );
+    assert!(
+        writ_core::workspace::is_ignored_name(&name),
+        "the name Writ writes has to be one the ignore rules answer for"
+    );
+    assert_eq!(tmp.path().parent(), Some(dir.path()));
+}
+
+#[test]
+fn an_atomic_write_leaves_no_temp_file_behind() {
+    let dir = TempDir::new().expect("temp dir");
+    let target = dir.path().join("note.md");
+    writ_storage::atomic::write_atomic(&target, b"body").expect("write");
+
+    let names: Vec<String> = fs::read_dir(dir.path())
+        .expect("read dir")
+        .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+        .collect();
+
+    assert_eq!(names, vec!["note.md".to_string()]);
+}

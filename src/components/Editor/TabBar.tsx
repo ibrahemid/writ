@@ -16,6 +16,7 @@ import {
   showNoteInFileManager,
 } from "../../lib/note-actions";
 import { formatRenameError } from "../../lib/save-error";
+import SaveMarker from "../SaveMarker/SaveMarker";
 import { logFailure } from "../../lib/log";
 import "./TabBar.css";
 
@@ -195,6 +196,7 @@ export default function TabBar() {
                         onKeyDown={(e) => handleRenameKeyDown(e, tab.id)}
                       />
                     </Show>
+                    <SaveMarker noteId={tab.id} />
                     {/* A sibling of the tab, never a button nested inside one. */}
                     <button
                       type="button"

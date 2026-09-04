@@ -16,7 +16,8 @@
 use std::io::{self, Write};
 use std::path::Path;
 
-use tempfile::NamedTempFile;
+use tempfile::{Builder, NamedTempFile};
+use writ_core::workspace::TEMP_FILE_PREFIX;
 
 /// Copies the destination's permission bits onto the replacement file.
 ///
@@ -37,6 +38,18 @@ fn inherit_mode(target: &Path, replacement: &std::fs::File) {
     };
     let mode = metadata.permissions().mode() & 0o7777;
     let _ = replacement.set_permissions(std::fs::Permissions::from_mode(mode));
+}
+
+/// Creates the temp file a save is written to before it is renamed into place.
+///
+/// The one place Writ names a temp file, and the reason the name is not left
+/// to `tempfile`'s default: the sibling appears and disappears in the user's
+/// notes folder on every save, where a sync client uploads it and the watcher
+/// sees it. Both can skip a name they can match, so it starts with
+/// [`TEMP_FILE_PREFIX`], which [`writ_core::workspace::is_ignored_name`]
+/// answers for.
+pub fn temp_sibling(dir: &Path) -> io::Result<NamedTempFile> {
+    Builder::new().prefix(TEMP_FILE_PREFIX).tempfile_in(dir)
 }
 
 /// Writes `bytes` to `target` such that observers see either the old
@@ -65,7 +78,7 @@ pub fn write_atomic(target: &Path, bytes: &[u8]) -> io::Result<()> {
         )
     })?;
 
-    let mut tmp = NamedTempFile::new_in(dir)?;
+    let mut tmp = temp_sibling(dir)?;
     tmp.as_file_mut().write_all(bytes)?;
     tmp.as_file_mut().sync_all()?;
 

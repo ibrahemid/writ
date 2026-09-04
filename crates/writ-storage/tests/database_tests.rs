@@ -210,7 +210,74 @@ fn the_schema_migrations_are_idempotent_on_a_second_run() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 41);
+    assert_eq!(max_version, 42);
+}
+
+#[test]
+fn migration_042_records_how_a_file_was_indexed() {
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("migrations failed");
+
+    let columns: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT name FROM pragma_table_info('files')")
+            .expect("failed to prepare statement");
+        stmt.query_map([], |row| row.get(0))
+            .expect("query failed")
+            .map(|r| r.expect("row error"))
+            .collect()
+    };
+    assert!(columns.contains(&"indexed_by".to_string()));
+
+    // A row written by anything that predates the column reads as content,
+    // which is what every row in an existing database was.
+    conn.execute(
+        "INSERT INTO files (path, size, mtime, hash, indexed_at)
+         VALUES ('/notes/old.md', 12, 1, 'abc', '2026-08-28T00:00:00Z')",
+        [],
+    )
+    .expect("failed to insert file row");
+
+    let indexed_by: String = conn
+        .query_row(
+            "SELECT indexed_by FROM files WHERE path = '/notes/old.md'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("failed to read indexed_by");
+    assert_eq!(indexed_by, "content");
+}
+
+#[test]
+fn a_database_at_041_gains_the_column_with_its_rows_intact() {
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("migrations failed");
+
+    // Roll the database back to the shape the release that ships 040 and 041
+    // leaves behind, then migrate it forward again.
+    conn.execute("ALTER TABLE files DROP COLUMN indexed_by", [])
+        .expect("failed to drop the column");
+    conn.execute("DELETE FROM schema_version WHERE version = 42", [])
+        .expect("failed to roll the stamp back");
+    conn.execute(
+        "INSERT INTO files (path, size, mtime, hash, indexed_at)
+         VALUES ('/notes/kept.md', 12, 1, 'abc', '2026-08-28T00:00:00Z')",
+        [],
+    )
+    .expect("failed to insert file row");
+
+    run_migrations(&conn).expect("migration to 042 failed");
+
+    let (path, indexed_by): (String, String) = conn
+        .query_row("SELECT path, indexed_by FROM files", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .expect("failed to read the row back");
+    assert_eq!(path, "/notes/kept.md");
+    assert_eq!(
+        indexed_by, "content",
+        "an existing row was read to index it"
+    );
 }
 
 #[test]
@@ -320,7 +387,7 @@ fn a_0_3_5_database_migrates_to_040_with_its_rows_intact() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 41);
+    assert_eq!(max_version, 42);
 }
 
 /// Column names of the `buffers` table.

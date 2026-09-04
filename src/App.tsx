@@ -25,7 +25,6 @@ import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
 import UpdateBanner from "./components/UpdateBanner/UpdateBanner";
 import WindowProvider, { useWindow } from "./components/WindowProvider/WindowProvider";
 import { bufferRegistry } from "./stores/global/buffer-registry";
-import { formatSaveError } from "./lib/save-error";
 import { basename } from "./lib/path";
 import { logFailure } from "./lib/log";
 import { workspaceStore } from "./stores/global/workspace";
@@ -59,8 +58,9 @@ import {
   pruneLegacyDefaultOverrides,
 } from "./commands/keybindings";
 import { onEvent, emitFrontendReady } from "./services/events";
-import { onAutosaveError, hasPendingAutosave, cancelAutosave } from "./services/autosave";
-import { handleExternalEdit } from "./services/external-edit";
+import { cancelAutosave } from "./services/autosave";
+import { handleExternalEdit, readExternalEditPayload } from "./services/external-edit";
+import { recheckOpenNotes } from "./services/notes-sweep";
 import { reportFirstPaint } from "./services/tauri";
 import { installCloseFlush, startWindowLifecycle } from "./services/window-lifecycle";
 import type { UnlistenFn } from "./services/events";
@@ -70,13 +70,6 @@ import "./App.css";
 const MAIN_WINDOW_ID = 1;
 
 // A save failure names the file the user knows, never the buffer UUID.
-function bufferName(bufferId: string): string {
-  const doc = bufferRegistry.buffers().find((b) => b.id === bufferId);
-  if (!doc) return "the file";
-  const base = doc.source_path?.split(/[\\/]/).pop();
-  return base || doc.title || doc.filename;
-}
-
 async function openPendingPaths(paths: string[]) {
   if (!Array.isArray(paths)) {
     logFailure("an open request arrived without a list of files");
@@ -183,10 +176,14 @@ function AppShell() {
     await inboxStore.hydrate().catch(() => undefined);
     await notesStore.load();
 
-    const recoveredBuffers = await getRecoveredBuffers().catch(() => []);
-    if (recoveredBuffers.length > 0) {
+    // Only notes whose text never reached their file are restored, so the
+    // count is how many of those there were, not how many tabs were open.
+    const restored = await getRecoveredBuffers().catch(() => []);
+    if (restored.length > 0) {
       showToast(
-        `${recoveredBuffers.length} buffer${recoveredBuffers.length === 1 ? "" : "s"} recovered from last session`,
+        restored.length === 1
+          ? "Restored 1 note that could not be saved last time"
+          : `Restored ${restored.length} notes that could not be saved last time`,
         "info",
         6000,
       );
@@ -674,32 +671,44 @@ function AppShell() {
     });
     unlisteners.push(unlisten1);
 
+    const externalEditDeps = {
+      findBuffer: (key: string) =>
+        bufferRegistry.buffers().find((b) => b.filename === key || b.id === key),
+      // Whether the document differs from its file, not whether a save is
+      // queued: a note whose autosave already landed still has unsaved
+      // work the moment the next keystroke lands, and a note whose save
+      // was refused has an empty queue and everything to lose.
+      hasUnsaved: (id: string) => win.editor.isDirty(id),
+      reload: (id: string) => win.editor.requestExternalReload(id),
+      cancelAutosave: (id: string) => cancelAutosave(id),
+      toast: (message: string, level: "warning") => showToast(message, level),
+      confirmReload: (title: string) =>
+        requestConfirm({
+          title: "File changed on disk",
+          message: `"${title}" was modified outside Writ. Reload from disk and discard your unsaved changes?`,
+          confirmLabel: "Reload from disk",
+          cancelLabel: "Keep my changes",
+        }),
+    };
+
     const unlisten2 = await onEvent("buffer:external", (payload) => {
-      if (!payload.bufferId || (payload.change !== "modified" && payload.change !== "deleted")) {
-        return;
-      }
-      void handleExternalEdit(
-        { bufferId: payload.bufferId, change: payload.change },
-        {
-          findBuffer: (key) =>
-            bufferRegistry
-              .buffers()
-              .find((b) => b.filename === key || b.id === key),
-          hasUnsaved: (id) => hasPendingAutosave(id),
-          reload: (id) => win.editor.requestExternalReload(id),
-          cancelAutosave: (id) => cancelAutosave(id),
-          toast: (message, level) => showToast(message, level),
-          confirmReload: (title) =>
-            requestConfirm({
-              title: "File changed on disk",
-              message: `"${title}" was modified outside Writ. Reload from disk and discard your unsaved changes?`,
-              confirmLabel: "Reload from disk",
-              cancelLabel: "Keep my changes",
-            }),
-        },
-      );
+      const change = readExternalEditPayload(payload);
+      if (!change) return;
+      void handleExternalEdit(change, externalEditDeps);
     });
     unlisteners.push(unlisten2);
+
+    // The notes folder changed faster than the watcher could list it, so no
+    // file was named and every open note asks after its own.
+    const unlistenSwept = await onEvent("notes:swept", () => {
+      void recheckOpenNotes({
+        openNotes: () => bufferRegistry.buffers(),
+        diskStateOf: (id) => win.editor.readDiskState(id),
+        lastKnownDiskHash: (id) => win.editor.lastKnownDiskHash(id),
+        onChanged: (payload) => handleExternalEdit(payload, externalEditDeps),
+      });
+    });
+    unlisteners.push(unlistenSwept);
 
     const unlisten3 = await onEvent("menu:action", (payload) => {
       executeCommand(payload.action);
@@ -710,11 +719,6 @@ function AppShell() {
       void openPendingPaths(payload.paths);
     });
     unlisteners.push(unlisten4);
-
-    const offAutosaveError = onAutosaveError((bufferId, error) => {
-      showToast(`Couldn't save ${bufferName(bufferId)}: ${formatSaveError(error)}`, "error");
-    });
-    unlisteners.push(offAutosaveError);
 
     const unlistenUpdate = await updateStore.subscribe();
     unlisteners.push(unlistenUpdate);
