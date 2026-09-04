@@ -103,6 +103,10 @@
   white-space: nowrap;
 }
 
+.statusbar-updated {
+  color: var(--writ-foreground-muted);
+}
+
 .statusbar-tokens {
   white-space: nowrap;
   color: var(--writ-foreground-subtle);

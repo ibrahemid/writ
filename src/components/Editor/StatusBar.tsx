@@ -46,6 +46,14 @@ export default function StatusBar() {
     }
   });
 
+  // What just happened to the note, which outranks what is true about it: a
+  // reload leaves the note clean, so the save label it replaces says nothing
+  // anyway, and two states in one region read as neither.
+  const updatedFromDisk = createMemo(() => {
+    const id = win.tabs.activeTabId();
+    return id !== null && win.editor.isUpdatedFromDisk(id);
+  });
+
   const language = createMemo(() => languageLabel(win.editor.language()));
   const cursorPosition = createMemo(
     () => `Ln ${win.editor.cursorLine()}, Col ${win.editor.cursorCol()}`,
@@ -64,7 +72,10 @@ export default function StatusBar() {
     <div class="statusbar">
       <div class="statusbar-left">
         <div class="statusbar-live" role="status" aria-live="polite">
-          <Show when={saveLabel()}>
+          <Show when={updatedFromDisk()}>
+            <span class="statusbar-label statusbar-updated">Updated from disk</span>
+          </Show>
+          <Show when={!updatedFromDisk() && saveLabel()}>
             {(label) => (
               <span
                 class="statusbar-save"
