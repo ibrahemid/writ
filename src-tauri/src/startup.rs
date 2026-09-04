@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn a_notes_folder_under_a_provider_folder_names_the_provider() {
         let dir = tempfile::TempDir::new().unwrap();
-        let home = std::fs::canonicalize(dir.path()).unwrap();
+        let home = crate::security::canonicalize_root(dir.path()).unwrap();
         let notes = home.join("Dropbox").join("Writ");
         std::fs::create_dir_all(&notes).unwrap();
 
@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn a_notes_folder_outside_a_synced_tree_names_nothing() {
         let dir = tempfile::TempDir::new().unwrap();
-        let home = std::fs::canonicalize(dir.path()).unwrap();
+        let home = crate::security::canonicalize_root(dir.path()).unwrap();
         let notes = home.join("Writ");
         std::fs::create_dir_all(&notes).unwrap();
 
