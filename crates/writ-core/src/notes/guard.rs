@@ -32,10 +32,12 @@ pub struct DiskState {
 pub enum SaveDecision {
     /// Nothing changed under us; write.
     Proceed,
-    /// Disk differs from what Writ last read but equals what is being
-    /// written. The write is a no-op and the save succeeds with nothing said:
-    /// a warning about a difference the user cannot see is worse than no
-    /// check at all.
+    /// The file already holds the bytes being written. Nothing is written and
+    /// the save succeeds with nothing said, whether the text has sat there
+    /// since Writ last looked or somebody else landed the same edit first: a
+    /// warning about a difference the user cannot see is worse than no check
+    /// at all, and rewriting identical bytes moves the modification time and
+    /// swaps the inode for a change a sync client then uploads.
     AlreadyIdentical,
     /// Disk changed under us and differs from the incoming content. The save
     /// would lose the change on disk.
@@ -55,6 +57,11 @@ pub enum SaveDecision {
 /// A missing file proceeds, because the save recreates it, and so does a save
 /// by a caller holding no record, because "has this changed since Writ last
 /// looked" has no answer for a file Writ has not looked at.
+///
+/// The incoming digest is compared before the record is, so a save of text the
+/// file already holds never writes. Asking "did it change under us" first
+/// instead makes every Cmd+S on an untouched note replace the file with the
+/// same bytes.
 pub fn decide_save(
     last_known: Option<&DiskState>,
     on_disk: Option<&DiskState>,
@@ -66,11 +73,11 @@ pub fn decide_save(
     let Some(last_known) = last_known else {
         return SaveDecision::Proceed;
     };
-    if on_disk.hash == last_known.hash {
-        return SaveDecision::Proceed;
-    }
     if on_disk.hash == incoming_hash {
         return SaveDecision::AlreadyIdentical;
+    }
+    if on_disk.hash == last_known.hash {
+        return SaveDecision::Proceed;
     }
     SaveDecision::Refuse
 }

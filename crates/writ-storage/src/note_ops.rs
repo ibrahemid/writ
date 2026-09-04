@@ -157,9 +157,10 @@ pub fn rename_note(
 
     let on_disk = read_disk_state(from)?;
     // The rename carries no text of its own, so there is no incoming hash to
-    // compare against. Passing the last known digest as the incoming one makes
-    // `AlreadyIdentical` unreachable and leaves the two answers that matter:
-    // the file is as Writ last saw it, or it is not.
+    // compare against; the last known digest stands in for it. Only one answer
+    // is read here — whether the guard refuses — so it does not matter which
+    // of the two permissive answers a file Writ last saw unchanged comes back
+    // with.
     if let (Some(last_known), Some(state)) = (last_known, on_disk) {
         if decide_save(Some(&last_known), Some(&state), last_known.hash) == SaveDecision::Refuse {
             return Err(StorageError::SourceChangedOnDisk {
