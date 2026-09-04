@@ -150,6 +150,12 @@ pub fn classify_delete(
 /// candidate is a path this watcher's own window named, with the digest of
 /// what it holds now.
 ///
+/// An empty file is a removal for the same reason from the other side: every
+/// empty file holds the same nothing, so a match on it identifies no file. A
+/// note Writ has created and not yet saved to holds exactly that, and any
+/// zero-length path in the window — another new note, somebody's temp file —
+/// would otherwise take the tab with it.
+///
 /// A rewrite that changed the bytes as well is a removal, and deliberately so.
 /// The content the tab is attached to is then gone from every watched folder,
 /// which is the whole of what a removal claims. Following a path on weaker
@@ -159,6 +165,9 @@ pub fn classify_delete_by_content(
     last: &Sha256Digest,
     candidates: &[(PathBuf, Sha256Digest)],
 ) -> DeleteVerdict {
+    if last == &crate::hash::sha256_bytes(&[]) {
+        return DeleteVerdict::Removed;
+    }
     for (path, digest) in candidates {
         if digest == last {
             return DeleteVerdict::Moved(path.clone());
@@ -454,6 +463,21 @@ mod tests {
             &[(
                 PathBuf::from("/notes/unrelated.md"),
                 crate::hash::sha256_bytes(b"somebody else's note"),
+            )],
+        );
+        assert_eq!(verdict, DeleteVerdict::Removed);
+    }
+
+    #[test]
+    fn bytes_every_empty_file_shares_identify_no_file() {
+        // A note created and not yet saved to holds nothing, and so does every
+        // temp file and every other new note. Matching on that would hand the
+        // tab whichever empty path the same window happened to name.
+        let verdict = classify_delete_by_content(
+            &crate::hash::sha256_bytes(b""),
+            &[(
+                PathBuf::from("/notes/somebody-elses-new-note.md"),
+                crate::hash::sha256_bytes(b""),
             )],
         );
         assert_eq!(verdict, DeleteVerdict::Removed);

@@ -340,7 +340,11 @@ as well is a removal, and deliberately so — the content the tab is attached to
 is then gone from every watched folder, which is the whole of what a removal
 claims, and a deletion beside an unrelated creation in one window looks exactly
 like it from anywhere else. Following that would put the tab on a file it has
-never read and let the next save write over it.
+never read and let the next save write over it. An empty file is a removal from
+the other side of the same rule: every empty file holds the same nothing, so a
+match on it identifies nothing. A note Writ has created and not yet saved to
+holds exactly that, and any zero-length path in the window — another new note,
+somebody's temp file — would otherwise take the tab with it.
 
 A path holding a directory holds no note, the same as a path holding nothing,
 and reads as a file that went. Dropping the event for not being about a file
