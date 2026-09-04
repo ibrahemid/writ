@@ -10,6 +10,7 @@ use tracing::{error, info};
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::watcher::budget::{Emission, EmissionBudget};
 use writ_core::watcher::ignore::{IgnoreStamps, SuppressDecision, DEFAULT_IGNORE_TTL};
+use writ_core::watcher::sighting::{FileSighting, LastSeen, DEFAULT_SIGHTING_TTL};
 
 pub type IgnoreSet = Arc<Mutex<IgnoreStamps>>;
 
@@ -33,6 +34,23 @@ pub(crate) fn ignore_key_path(path: &Path) -> PathBuf {
     crate::security::resolve_for_containment(path)
         .map(PathBuf::from)
         .unwrap_or_else(|| path.to_path_buf())
+}
+
+/// What `path` holds, as its metadata describes it, or `None` when there is
+/// no file there.
+///
+/// Metadata only, never a read: on Linux `notify` asks the kernel for `IN_OPEN`
+/// on every folder it watches, so opening a file inside one raises another
+/// event for it, and the read a watcher does to classify one event is what
+/// delivers the next. Stat raises nothing, which is why every watcher here
+/// asks this before it opens anything
+/// ([`writ_core::watcher::sighting`]).
+pub(crate) fn look_at(path: &Path) -> Option<FileSighting> {
+    let metadata = std::fs::metadata(path).ok()?;
+    Some(FileSighting {
+        len: metadata.len(),
+        modified: metadata.modified().ok(),
+    })
 }
 
 /// Opaque owner of the file watcher's debouncer.
@@ -68,14 +86,16 @@ pub fn start_file_watcher(
     info!("file watcher started");
 
     std::thread::spawn(move || {
+        let mut seen = LastSeen::new();
         while let Ok(result) = rx.recv() {
             match result {
                 Ok(events) => {
                     for event in events {
-                        if let Some(domain_event) = classify_watch_event(
+                        if let Some(domain_event) = report_config_event(
                             &event.path,
                             &config_path,
                             &ignore_set,
+                            &mut seen,
                             ttl,
                             Instant::now(),
                         ) {
@@ -164,15 +184,17 @@ pub fn start_inbox_watcher(
     info!(root = %root.display(), preexisting = preexisting.len(), "inbox watcher started");
 
     std::thread::spawn(move || {
+        let mut seen = LastSeen::new();
         while let Ok(result) = rx.recv() {
             match result {
                 Ok(events) => {
                     for event in events {
-                        if let Some(domain_event) = classify_inbox_event(
+                        if let Some(domain_event) = report_inbox_event(
                             &event.path,
                             &root,
                             &preexisting,
                             &ignore_set,
+                            &mut seen,
                             DEFAULT_IGNORE_TTL,
                             Instant::now(),
                         ) {
@@ -215,6 +237,28 @@ fn snapshot_files(root: &Path) -> std::collections::HashSet<PathBuf> {
         }
     }
     files
+}
+
+/// What one *delivered* inbox event is worth saying, or nothing.
+///
+/// The watcher thread's entry point, for the reason
+/// [`report_notes_event`] gives: classifying an arrival reads the file to
+/// fingerprint it and again to decide how it would open, and on Linux each of
+/// those reads is another event for the same path. Left unguarded, one file
+/// landing in the inbox reopens its tab for as long as the app runs.
+pub fn report_inbox_event(
+    path: &Path,
+    root: &Path,
+    preexisting: &std::collections::HashSet<PathBuf>,
+    ignore_set: &IgnoreSet,
+    seen: &mut LastSeen,
+    ttl: Duration,
+    now: Instant,
+) -> Option<WritEvent> {
+    if !seen.is_news(path, look_at(path), now, DEFAULT_SIGHTING_TTL) {
+        return None;
+    }
+    classify_inbox_event(path, root, preexisting, ignore_set, ttl, now)
 }
 
 /// Classifies an inbox file-system event into [`WritEvent::InboxFileArrived`],
@@ -313,6 +357,10 @@ pub fn start_notes_watcher(
 
     std::thread::spawn(move || {
         let mut budget = EmissionBudget::new();
+        // Outside the batch loop: the event a read of this watcher's own
+        // raises on Linux arrives in a later batch than the change that
+        // caused it, so a record scoped to one batch would never see it.
+        let mut seen = LastSeen::new();
         loop {
             // A change the budget dropped was covered by a sweep that had
             // already gone out, and the walk that sweep started may have read
@@ -346,10 +394,11 @@ pub fn start_notes_watcher(
                     let mut told: HashSet<String> = HashSet::new();
                     for event in events {
                         let now = Instant::now();
-                        let Some(domain_event) = classify_notes_event(
+                        let Some(domain_event) = report_notes_event(
                             &event.path,
                             &root,
                             &ignore_set,
+                            &mut seen,
                             DEFAULT_IGNORE_TTL,
                             now,
                         ) else {
@@ -419,6 +468,28 @@ pub fn notes_swept(root: &Path) -> WritEvent {
     WritEvent::NotesSwept {
         root: root.to_string_lossy().into_owned(),
     }
+}
+
+/// What one *delivered* notes event is worth saying, or nothing.
+///
+/// This, rather than [`classify_notes_event`], is what the watcher thread
+/// calls, and the two are separate so that the record of what has already been
+/// looked at cannot be skipped by the caller that matters. An event describing
+/// the file exactly as this watcher last found it is dropped before anything
+/// opens it, which is what keeps a classification's own read from arriving
+/// back as the next change on Linux ([`writ_core::watcher::sighting`]).
+pub fn report_notes_event(
+    path: &Path,
+    root: &Path,
+    ignore_set: &IgnoreSet,
+    seen: &mut LastSeen,
+    ttl: Duration,
+    now: Instant,
+) -> Option<WritEvent> {
+    if !seen.is_news(path, look_at(path), now, DEFAULT_SIGHTING_TTL) {
+        return None;
+    }
+    classify_notes_event(path, root, ignore_set, ttl, now)
 }
 
 /// Classifies a notes-folder event into a domain event, or suppresses it.
@@ -491,6 +562,30 @@ pub fn classify_workspace_event(path: &Path, root: &Path) -> Option<WritEvent> {
     })
 }
 
+/// What one *delivered* config event is worth saying, or nothing.
+///
+/// The watcher thread's entry point, for the reason [`report_notes_event`]
+/// gives, and the config file is the worst of the three: the read that
+/// fingerprints it clears the stamp on its way out, so on Linux an edit made
+/// in another editor announced itself over and over and the frontend reloaded
+/// the config each time.
+pub fn report_config_event(
+    path: &Path,
+    config_path: &Path,
+    ignore_set: &IgnoreSet,
+    seen: &mut LastSeen,
+    ttl: Duration,
+    now: Instant,
+) -> Option<WritEvent> {
+    if path != config_path {
+        return None;
+    }
+    if !seen.is_news(path, look_at(path), now, DEFAULT_SIGHTING_TTL) {
+        return None;
+    }
+    classify_watch_event(path, config_path, ignore_set, ttl, now)
+}
+
 /// Classifies a single file-system event into a domain event, or suppresses
 /// it. Pure aside from a single `fs::read` to fingerprint the file against
 /// the ignore set; callers test it directly with a tempdir.
@@ -507,6 +602,9 @@ pub fn classify_workspace_event(path: &Path, root: &Path) -> Option<WritEvent> {
 /// mid-edit, and removing a loaded one hard-freezes the macOS webview. Any
 /// watcher added over a folder Writ writes into has to filter its own temp
 /// files before it emits anything.
+///
+/// [`report_config_event`] is what the watcher thread calls; this is the
+/// classification on its own.
 pub fn classify_watch_event(
     path: &Path,
     config_path: &Path,
@@ -615,6 +713,86 @@ mod tests {
             WatcherKind::PollWatcher,
             "notify resolved to PollWatcher: a native filesystem backend is missing for this target"
         );
+    }
+
+    #[test]
+    fn the_events_one_write_raises_on_linux_report_the_change_once() {
+        // A rename-over inside the notes folder fans out into several raw
+        // inotify events, and classifying the first opens the file, which
+        // raises another for the same path, whose classification opens it
+        // again. Delivered one per batch, that reached the bus as eleven
+        // identical BufferExternal events on CI. The record of what has
+        // already been looked at is what ends it, so it is held across the
+        // batches the way the watcher thread holds it.
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let note = root.join("today.md");
+        fs::write(&note, b"rewritten by another program\n").unwrap();
+
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let now = Instant::now();
+        let reported: Vec<WritEvent> = (0..11)
+            .filter_map(|_| {
+                report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
+            })
+            .collect();
+
+        assert_eq!(
+            reported.len(),
+            1,
+            "one write must be reported once, saw {reported:?}"
+        );
+    }
+
+    #[test]
+    fn a_second_write_is_reported_however_recently_the_first_was() {
+        // The record must not swallow a real change: the file is written
+        // again, so it is not the file this watcher last looked at.
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let note = root.join("today.md");
+        fs::write(&note, b"first\n").unwrap();
+
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let now = Instant::now();
+        assert!(
+            report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now).is_some()
+        );
+        assert!(
+            report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now).is_none()
+        );
+
+        fs::write(&note, b"second, and longer\n").unwrap();
+        assert!(
+            report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now).is_some(),
+            "a file written again must reach the folder and the tab"
+        );
+    }
+
+    #[test]
+    fn a_note_that_has_gone_is_reported_once() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let note = root.join("today.md");
+        fs::write(&note, b"x\n").unwrap();
+        fs::remove_file(&note).unwrap();
+
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let now = Instant::now();
+        let reported: Vec<WritEvent> = (0..11)
+            .filter_map(|_| {
+                report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
+            })
+            .collect();
+
+        assert_eq!(reported.len(), 1, "saw {reported:?}");
+        match &reported[0] {
+            WritEvent::NotesChanged { removed, .. } => assert!(removed),
+            other => panic!("expected NotesChanged, got {other:?}"),
+        }
     }
 
     #[test]
