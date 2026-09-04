@@ -76,7 +76,7 @@ fn the_launch_keeps_its_notes_beside_its_own_data_folder() {
 
     assert_eq!(
         state.notes_root(),
-        canonicalize_root(kept.path().join("Writ")).expect("notes folder")
+        canonicalize_root(&kept.path().join("Writ")).expect("notes folder")
     );
     assert_eq!(state.notes_root_fallback(), None);
     drop(state);
@@ -90,7 +90,7 @@ fn the_launch_keeps_its_notes_beside_its_own_data_folder() {
 
     assert_eq!(
         state.notes_root(),
-        canonicalize_root(turned_down.path().join("Writ")).expect("notes folder")
+        canonicalize_root(&turned_down.path().join("Writ")).expect("notes folder")
     );
     assert_eq!(
         state.notes_root_fallback().map(|fallback| fallback.reason),

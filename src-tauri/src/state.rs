@@ -841,10 +841,7 @@ mod tests {
         .unwrap();
 
         assert!(root.is_dir());
-        assert_eq!(
-            root,
-            canonicalize_root(&home.path().join("Writ")).unwrap()
-        );
+        assert_eq!(root, canonicalize_root(&home.path().join("Writ")).unwrap());
         assert_eq!(
             fallback,
             Some(NotesRootFallback {
@@ -905,10 +902,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            root,
-            canonicalize_root(&home.path().join("Writ")).unwrap()
-        );
+        assert_eq!(root, canonicalize_root(&home.path().join("Writ")).unwrap());
         assert_eq!(
             fallback,
             Some(NotesRootFallback {
@@ -957,10 +951,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            root,
-            canonicalize_root(&home.path().join("Writ")).unwrap()
-        );
+        assert_eq!(root, canonicalize_root(&home.path().join("Writ")).unwrap());
         assert_eq!(
             fallback,
             Some(NotesRootFallback {
@@ -987,10 +978,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            root,
-            canonicalize_root(&home.path().join("Writ")).unwrap()
-        );
+        assert_eq!(root, canonicalize_root(&home.path().join("Writ")).unwrap());
         assert_eq!(
             fallback.map(|fallback| fallback.reason),
             Some(NotesRootFallbackReason::HoldsWritData)
