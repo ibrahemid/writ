@@ -207,3 +207,42 @@ fn a_note_inside_the_notes_folder_may_be_downloaded() {
         canonical
     );
 }
+
+#[test]
+fn the_not_downloaded_result_names_the_provider_the_note_syncs_through() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    // An .stfolder marker is what a Syncthing folder is known by, and it says
+    // so without depending on where this machine's home directory is.
+    let synced = dir.path().join("Sync");
+    std::fs::create_dir_all(synced.join(".stfolder")).unwrap();
+    let note = synced.join("away.md");
+    std::fs::write(&note, "placeholder stand-in").unwrap();
+    let canonical = canonicalize_for_authorization(&note).unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+    let _marked = mark(&canonical);
+
+    let result = open_file_from_path(&state, &canonical).expect("open");
+    let writ_core::file_ops::FileOpenMode::NotDownloaded { provider, .. } = &result.mode else {
+        panic!("expected the not-downloaded mode, got {:?}", result.mode);
+    };
+    assert_eq!(provider.as_deref(), Some("Syncthing"));
+}
+
+#[test]
+fn a_note_in_no_sync_folder_names_no_provider() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let note = state.notes_root().join("away.md");
+    std::fs::write(&note, "placeholder stand-in").unwrap();
+    let canonical = canonicalize_for_authorization(&note).unwrap();
+    let _marked = mark(&canonical);
+
+    let result = open_file_from_path(&state, &canonical).expect("open");
+    let writ_core::file_ops::FileOpenMode::NotDownloaded { provider, .. } = &result.mode else {
+        panic!("expected the not-downloaded mode, got {:?}", result.mode);
+    };
+    assert_eq!(*provider, None);
+}
