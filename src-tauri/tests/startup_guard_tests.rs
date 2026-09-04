@@ -6,7 +6,9 @@ use std::path::PathBuf;
 
 use tempfile::TempDir;
 use writ_core::startup::{classify_data_dir, DataDirVerdict, Platform, SyncProvider};
-use writ_tauri_lib::startup::{data_dir_verdict, stfolder_markers, HOST_PLATFORM};
+#[cfg(unix)]
+use writ_tauri_lib::startup::HOST_PLATFORM;
+use writ_tauri_lib::startup::{data_dir_verdict, stfolder_markers};
 use writ_tauri_lib::state::{AppState, NotesRootFallbackReason};
 
 #[test]
