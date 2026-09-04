@@ -42,10 +42,20 @@ naming that buffer's id in a hand-written `<img src>`. The token is minted with
 the scope (`AssetScope::for_render`) and appears only in the render that owns
 it, so a document reaches its own roots by quoting it back and can quote no
 other. A request whose token does not match the scope it names is refused
-(`scope_mismatch`) before any path is resolved. The token is kept across the
-re-renders of a note whose roots have not changed: one that changed every
-render would refuse every in-flight request from the render before it, spraying
-refusals and security warnings through ordinary typing.
+(`scope_mismatch`) before any path is resolved. The token belongs to the buffer,
+not to its path: it is kept across the re-renders of a note and across a move or
+a rename of its file, because one that changed would refuse every in-flight
+request from the render before it, spraying refusals and security warnings
+through ordinary editing. Keeping it across a move grants nothing, since
+containment is decided at serve time against the roots the newest render
+recorded: the token says which buffer's render emitted the URL, never which path
+it may reach.
+
+**Both host-minted segments go into the URL as written**, so the buffer id and
+the token must each be one `[A-Za-z0-9_-]` segment. The render-time emitter
+checks that and emits no URL at all when either fails, rather than escaping: a
+segment carrying `/` or `%` would move where the URL splits into root and
+relative path.
 
 **The URL is a claim, not an authorization.** `writ_core::preview::protocol`
 decides containment twice over the same rule: once at render time

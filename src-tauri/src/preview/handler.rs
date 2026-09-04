@@ -1244,6 +1244,37 @@ mod asset_tests {
     }
 
     #[test]
+    fn moving_the_note_keeps_the_previous_render_s_urls_serving() {
+        let f = Fixture::new();
+        // The re-render after a move: same buffer, same notes folder, new
+        // folder for the file. The token is the buffer's, so the render still
+        // on screen keeps serving its images instead of having every one of
+        // them refused as a scope mismatch.
+        let previous = f.cache.scope("buf-1").unwrap();
+        let moved_dir = f.notes.join("archive");
+        std::fs::create_dir_all(&moved_dir).unwrap();
+        let moved = AssetScope::for_render(Some(&previous), "buf-1", f.notes.clone(), moved_dir);
+        assert_eq!(moved.token, previous.token);
+        f.cache.put(
+            "buf-1",
+            RenderedDoc {
+                html: "<p>note</p>".to_string(),
+                assets: Some(moved),
+            },
+        );
+
+        let (r, logs) = crate::preview::log_capture::capture(|| f.get("attachments/a.png"));
+        assert_eq!(r.status, 200);
+        assert!(r.body.starts_with(PNG));
+        assert!(
+            !logs
+                .iter()
+                .any(|line| line.contains("preview asset refused")),
+            "logs={logs:?}"
+        );
+    }
+
+    #[test]
     fn a_buffer_with_no_asset_scope_serves_nothing() {
         let cache = RenderCache::new();
         cache.put(

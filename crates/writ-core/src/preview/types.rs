@@ -187,12 +187,17 @@ impl AssetScope {
     /// Build the scope for one render.
     ///
     /// `previous` is the scope the buffer's last render used, if it is still
-    /// cached. Its token is kept while the buffer and both roots are
-    /// unchanged, so the asset URLs of a note stay stable across the
-    /// debounced re-renders that typing produces: a token that changed every
-    /// render would refuse every in-flight request from the render before it,
-    /// recording a refusal and logging a security event for ordinary typing.
-    /// A scope that names anything else is a new scope and mints a new token.
+    /// cached. Its token is kept while it is the same buffer, so the asset
+    /// URLs of a note stay stable across the debounced re-renders that typing
+    /// produces and across a move or a rename of its file: a token that
+    /// changed would refuse every in-flight request from the render before it,
+    /// recording a refusal and logging a security event for an ordinary edit.
+    /// Another buffer is another scope and mints a token of its own.
+    ///
+    /// The token belongs to the buffer, not to its path, and keeping it across
+    /// a move grants nothing: serve time resolves against the roots the newest
+    /// render recorded, so the token says which buffer's render emitted a URL
+    /// and never which path it may reach.
     pub fn for_render(
         previous: Option<&AssetScope>,
         buffer_id: impl Into<String>,
@@ -201,11 +206,7 @@ impl AssetScope {
     ) -> Self {
         let buffer_id = buffer_id.into();
         let token = previous
-            .filter(|scope| {
-                scope.buffer_id == buffer_id
-                    && scope.notes_root == notes_root
-                    && scope.note_dir == note_dir
-            })
+            .filter(|scope| scope.buffer_id == buffer_id)
             .map(|scope| scope.token.clone())
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         Self {
@@ -371,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn a_scope_keeps_its_token_while_the_buffer_and_its_roots_hold() {
+    fn a_scope_keeps_its_token_while_it_is_the_same_buffer() {
         let notes = std::path::PathBuf::from("/n");
         let dir = std::path::PathBuf::from("/n/daily");
         let first = AssetScope::for_render(None, "buf-1", notes.clone(), dir.clone());
@@ -379,15 +380,18 @@ mod tests {
         assert_eq!(first.token, again.token);
         assert!(!first.token.is_empty());
 
-        // A different note, a different folder, or a different buffer is a
-        // different scope, and gets a token of its own.
+        // Moving the note is the same buffer under a new folder: the token
+        // holds, so the render on screen keeps serving until the next one
+        // lands instead of refusing every image it has.
         let moved = AssetScope::for_render(
             Some(&first),
             "buf-1",
             notes.clone(),
             std::path::PathBuf::from("/n/archive"),
         );
-        assert_ne!(first.token, moved.token);
+        assert_eq!(first.token, moved.token);
+
+        // Another buffer is another scope and gets a token of its own.
         let other_buffer = AssetScope::for_render(Some(&first), "buf-2", notes, dir);
         assert_ne!(first.token, other_buffer.token);
     }
