@@ -653,6 +653,13 @@ const MAX_FOLDER_CANDIDATES: usize = 4096;
 ///
 /// The batch first, then the folder the file left, and the file's own path is
 /// never a candidate for itself.
+///
+/// Every path this produces is one a watcher covers: the batch is one
+/// watcher's own window, and the folder is the one the file left, which is
+/// watched because a tab's file was in it. That invariant is what makes a
+/// match here safe to follow — the tab lands somewhere its changes still reach
+/// it. A candidate source that broke it would have to be checked against the
+/// watched folders before it could be believed (ADR-033 §11).
 pub fn candidates_for(path: &Path, batch: &[PathBuf]) -> Vec<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     let mut seen: HashSet<PathBuf> = HashSet::new();
@@ -697,13 +704,23 @@ pub fn open_note_vanished(
             .note_file_removed(note_id, path)
             .then(|| open_note_removed(note_id, path));
     };
-    let candidates: Vec<(PathBuf, FileIdentity)> = candidates_for(path, vanished.batch)
-        .into_iter()
-        .filter_map(|candidate| {
-            let identity = vanished.tracking.probe.identity_of(&candidate)?;
-            Some((candidate, identity))
-        })
-        .collect();
+    // An identity that cannot recognise its file anywhere else makes the
+    // verdict a foregone conclusion, so nothing is probed for it. On the
+    // volumes that produce one there is no id to read and a probe describes
+    // the file instead, which means reading it: one deletion in a folder of
+    // four thousand notes on a share would otherwise pull every one of them
+    // over the network for an answer already known.
+    let candidates: Vec<(PathBuf, FileIdentity)> = if before.is_durable() {
+        candidates_for(path, vanished.batch)
+            .into_iter()
+            .filter_map(|candidate| {
+                let identity = vanished.tracking.probe.identity_of(&candidate)?;
+                Some((candidate, identity))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     match classify_delete(&before, &candidates) {
         DeleteVerdict::Moved(to) => files
@@ -1251,6 +1268,20 @@ mod tests {
         }
     }
 
+    /// A probe that counts what it was asked, which is how the cost of a
+    /// verdict is measured rather than assumed.
+    #[derive(Default)]
+    struct CountingProbe {
+        asked: Arc<Mutex<Vec<PathBuf>>>,
+    }
+
+    impl writ_core::notes::identity::IdentityProbe for CountingProbe {
+        fn identity_of(&self, path: &Path) -> Option<FileIdentity> {
+            self.asked.lock().unwrap().push(path.to_path_buf());
+            crate::watcher::identity::read_identity(path)
+        }
+    }
+
     fn tracking_with(files: RecordingFiles) -> (FileTracking, Arc<RecordingFiles>) {
         let files = Arc::new(files);
         (
@@ -1427,6 +1458,60 @@ mod tests {
             "a tab must not stop writing on a verdict nothing could establish"
         );
         assert!(files.moved.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_verdict_that_is_already_settled_reads_no_files() {
+        // On the volumes that give a fallback there is no id to read, so a
+        // probe describes the file instead — which means reading all of it.
+        // Probing a folder for a verdict that cannot change is one deletion
+        // costing a read of every note beside it, over a network share.
+        let dir = tempdir().unwrap();
+        let gone = dir.path().join("gone.md");
+        for name in ["one.md", "two.md", "three.md"] {
+            fs::write(dir.path().join(name), b"body").unwrap();
+        }
+
+        let asked: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
+        let (tracking, _files) = tracking_with(RecordingFiles {
+            identity: Some(FileIdentity::Fallback {
+                path: gone.to_string_lossy().into_owned(),
+                size: 4,
+                mtime_ms: None,
+                hash: writ_core::hash::sha256_bytes(b"body"),
+            }),
+            ..RecordingFiles::default()
+        });
+        let tracking = FileTracking {
+            probe: Arc::new(CountingProbe {
+                asked: asked.clone(),
+            }),
+            files: tracking.files.clone(),
+        };
+        let event = open_note_vanished(
+            "note-1",
+            &gone,
+            &VanishedContext {
+                batch: &[dir.path().join("one.md")],
+                tracking: &tracking,
+            },
+        );
+
+        assert!(
+            asked.lock().unwrap().is_empty(),
+            "a settled verdict asked the filesystem anyway: {:?}",
+            asked.lock().unwrap()
+        );
+        assert!(
+            matches!(
+                event,
+                Some(WritEvent::BufferExternal {
+                    change: ExternalChange::Modified,
+                    ..
+                })
+            ),
+            "got {event:?}"
+        );
     }
 
     #[test]
