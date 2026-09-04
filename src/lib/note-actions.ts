@@ -7,6 +7,7 @@ import { logFailure } from "./log";
 import { noteName } from "./note-name";
 import { detectPlatform } from "./platform";
 import * as api from "../services/tauri";
+import type { ChangeChoice, ResolveOutcome } from "../types/buffer";
 
 export { noteName };
 
@@ -95,6 +96,52 @@ export async function saveCopyOfNote(id: string): Promise<void> {
   } catch {
     logFailure("a copy of a note could not be written");
     showToast(`Couldn't copy "${noteName(id)}"`, "error");
+  }
+}
+
+/**
+ * Carries out what the person chose about a file that changed outside Writ.
+ *
+ * The text sent is the one on screen, because that is the only place the
+ * unsaved version of the note exists. What comes back is what the tab must do
+ * next: take the file's text, or keep its own and stop reading dirty against
+ * a file it has just been written to.
+ *
+ * `Show both` opens the copy as an ordinary note in a second tab. There is no
+ * diff view and no third state — two tabs, two files, and the person decides.
+ */
+export async function resolveNoteChange(
+  id: string,
+  choice: ChangeChoice,
+): Promise<void> {
+  const win = windowRegistry.getActive();
+  if (!win) return;
+
+  const live = win.editor.currentBufferId() === id ? win.editor.getActiveText(false) : null;
+  const content = live ? live.text : await bufferRegistry.readContent(id);
+
+  let outcome: ResolveOutcome;
+  try {
+    outcome = await api.resolveExternalChange(id, choice, content);
+  } catch {
+    logFailure("a change outside Writ could not be resolved");
+    showToast(`Couldn't update "${noteName(id)}"`, "error");
+    return;
+  }
+
+  win.editor.clearFileChangedOnDisk(id);
+  if (outcome.content !== null) {
+    win.editor.applyExternalContent(id, outcome.content);
+  } else {
+    win.editor.noteSaved(id, outcome.disk_hash);
+  }
+  if (choice === "keep_both" && outcome.conflict_copy_path !== null) {
+    try {
+      await win.tabs.openFile(outcome.conflict_copy_path);
+    } catch {
+      logFailure("the copy beside a note could not be opened");
+      showToast("Couldn't open the copy of this note.", "error");
+    }
   }
 }
 

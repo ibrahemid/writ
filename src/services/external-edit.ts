@@ -39,7 +39,9 @@ export interface ExternalEditDeps {
   hasUnsaved: (id: string) => boolean;
   reload: (id: string) => void;
   cancelAutosave: (id: string) => void;
-  confirmReload: (title: string) => Promise<boolean>;
+  // Raises the bar that asks what to do about a file that changed under text
+  // no file holds. Nothing is read, replaced or written until it is answered.
+  markChanged: (id: string) => void;
   // Repoints the tab at the file's new path: its name, the path it saves to,
   // and the folder it is watched in. The text is untouched.
   followMove: (id: string, newPath: string) => void;
@@ -123,13 +125,12 @@ export async function handleExternalEdit(
     case "reload":
       deps.reload(buffer.id);
       return;
-    case "prompt": {
-      const reload = await deps.confirmReload(buffer.title);
-      if (reload) {
-        deps.cancelAutosave(buffer.id);
-        deps.reload(buffer.id);
-      }
+    case "prompt":
+      // The queued save goes first. It was aimed at the file this question is
+      // about, so letting it run would answer the question by landing on it,
+      // and the write guard would refuse it and put a second bar on screen.
+      deps.cancelAutosave(buffer.id);
+      deps.markChanged(buffer.id);
       return;
-    }
   }
 }

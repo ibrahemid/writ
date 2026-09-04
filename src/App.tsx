@@ -653,13 +653,13 @@ function AppShell() {
         saveStatusStore.forgetNote(id);
         win.editor.markRemovedOnDisk(id);
       },
-      confirmReload: (title: string) =>
-        requestConfirm({
-          title: "File changed on disk",
-          message: `"${title}" was modified outside Writ. Reload from disk and discard your unsaved changes?`,
-          confirmLabel: "Reload from disk",
-          cancelLabel: "Keep my changes",
-        }),
+      // The bar asks; nothing here decides. A save that failed against the
+      // same change would otherwise leave its own bar under this one, saying
+      // two things about one file.
+      markChanged: (id: string) => {
+        saveStatusStore.forgetNote(id);
+        win.editor.markFileChangedOnDisk(id);
+      },
     };
 
     const unlisten2 = await onEvent("buffer:external", (payload) => {

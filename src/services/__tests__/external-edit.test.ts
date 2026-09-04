@@ -38,7 +38,7 @@ function makeDeps(overrides: Partial<ExternalEditDeps> = {}): ExternalEditDeps {
     hasUnsaved: vi.fn(() => false),
     reload: vi.fn(),
     cancelAutosave: vi.fn(),
-    confirmReload: vi.fn(async () => true),
+    markChanged: vi.fn(),
     followMove: vi.fn(),
     markRemoved: vi.fn(),
     ...overrides,
@@ -50,28 +50,25 @@ describe("handleExternalEdit", () => {
     const deps = makeDeps();
     await handleExternalEdit({ bufferId: "buf-1.txt", change: "modified" }, deps);
     expect(deps.reload).toHaveBeenCalledWith("buf-1");
-    expect(deps.confirmReload).not.toHaveBeenCalled();
+    expect(deps.markChanged).not.toHaveBeenCalled();
   });
 
-  it("prompts, then reloads and drops the pending save when confirmed", async () => {
-    const deps = makeDeps({
-      hasUnsaved: vi.fn(() => true),
-      confirmReload: vi.fn(async () => true),
-    });
+  it("raises the bar and drops the pending save when there is text to lose", async () => {
+    const deps = makeDeps({ hasUnsaved: vi.fn(() => true) });
     await handleExternalEdit({ bufferId: "buf-1.txt", change: "modified" }, deps);
-    expect(deps.confirmReload).toHaveBeenCalledWith("notes.md");
+    expect(deps.markChanged).toHaveBeenCalledWith("buf-1");
     expect(deps.cancelAutosave).toHaveBeenCalledWith("buf-1");
-    expect(deps.reload).toHaveBeenCalledWith("buf-1");
+    expect(deps.reload).not.toHaveBeenCalled();
   });
 
-  it("keeps local edits and does not reload when the prompt is declined", async () => {
-    const deps = makeDeps({
-      hasUnsaved: vi.fn(() => true),
-      confirmReload: vi.fn(async () => false),
-    });
+  it("replaces nothing while the bar is up", async () => {
+    // The bar is a question, not a countdown. Nothing may read the file into
+    // the document until it is answered.
+    const deps = makeDeps({ hasUnsaved: vi.fn(() => true) });
+    await handleExternalEdit({ bufferId: "buf-1.txt", change: "modified" }, deps);
     await handleExternalEdit({ bufferId: "buf-1.txt", change: "modified" }, deps);
     expect(deps.reload).not.toHaveBeenCalled();
-    expect(deps.cancelAutosave).not.toHaveBeenCalled();
+    expect(deps.markChanged).toHaveBeenCalledTimes(2);
   });
 
   it("marks the tab on deletion and drops the pending save, never reloading", async () => {
@@ -80,7 +77,7 @@ describe("handleExternalEdit", () => {
     expect(deps.markRemoved).toHaveBeenCalledWith("buf-1");
     expect(deps.cancelAutosave).toHaveBeenCalledWith("buf-1");
     expect(deps.reload).not.toHaveBeenCalled();
-    expect(deps.confirmReload).not.toHaveBeenCalled();
+    expect(deps.markChanged).not.toHaveBeenCalled();
   });
 
   it("repoints the tab at where the file went", async () => {
@@ -96,7 +93,7 @@ describe("handleExternalEdit", () => {
     );
     expect(deps.followMove).toHaveBeenCalledWith("buf-1", "/repo/archive/notes.md");
     expect(deps.reload).not.toHaveBeenCalled();
-    expect(deps.confirmReload).not.toHaveBeenCalled();
+    expect(deps.markChanged).not.toHaveBeenCalled();
   });
 
   it("leaves the tab where it is when a move names nowhere", async () => {
@@ -116,10 +113,7 @@ describe("handleExternalEdit", () => {
     // The one guarantee the watcher must not break: a folder watcher now
     // raises this for any file opened from anywhere, so a note being edited
     // while a sync client pulls its file is an ordinary Tuesday.
-    const deps = makeDeps({
-      hasUnsaved: vi.fn(() => true),
-      confirmReload: vi.fn(async () => false),
-    });
+    const deps = makeDeps({ hasUnsaved: vi.fn(() => true) });
 
     await handleExternalEdit(
       {
@@ -133,7 +127,7 @@ describe("handleExternalEdit", () => {
     );
 
     expect(deps.reload).not.toHaveBeenCalled();
-    expect(deps.cancelAutosave).not.toHaveBeenCalled();
+    expect(deps.markChanged).toHaveBeenCalledWith("buf-1");
   });
 
   it("carries what the file now holds without letting it change the decision", async () => {
