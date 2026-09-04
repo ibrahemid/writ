@@ -77,6 +77,18 @@ fn inode(_path: &Path) -> u64 {
     0
 }
 
+/// [`inode`] from metadata already taken, for a before-and-after comparison.
+#[cfg(unix)]
+fn inode_of(metadata: &std::fs::Metadata) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    metadata.ino()
+}
+
+#[cfg(not(unix))]
+fn inode_of(_metadata: &std::fs::Metadata) -> u64 {
+    0
+}
+
 fn conflict_copies(dir: &Path) -> Vec<String> {
     std::fs::read_dir(dir)
         .expect("read_dir")
@@ -200,5 +212,85 @@ fn a_mixed_file_the_crash_did_not_change_is_left_alone() {
             .filter_map(Result::ok)
             .all(|e| !e.file_name().to_string_lossy().contains("(recovered ")),
         "a recovered copy was written beside the note"
+    );
+}
+
+#[test]
+fn a_save_of_the_text_the_file_already_holds_leaves_it_alone() {
+    let (dir, store) = setup();
+    let (path, state) = open_note(&store, &dir, "alpha\r\nbeta\r\n");
+    let before = std::fs::metadata(&path).expect("stat");
+
+    // Cmd+S with nothing typed: the editor hands back what it loaded, which
+    // encodes to exactly the bytes already there.
+    store
+        .save_to_source("ending-1", "alpha\nbeta\n", Some(state), None)
+        .expect("save");
+
+    let after = std::fs::metadata(&path).expect("stat");
+    assert_eq!(std::fs::read(&path).expect("read"), b"alpha\r\nbeta\r\n");
+    assert_eq!(inode(&path), inode_of(&before), "the file was replaced");
+    assert_eq!(
+        after.modified().ok(),
+        before.modified().ok(),
+        "nothing was written, so the modification time cannot have moved"
+    );
+}
+
+#[test]
+fn the_copy_beside_a_refused_save_carries_the_files_ending() {
+    let (dir, store) = setup();
+    let (path, stale) = open_note(&store, &dir, "alpha\r\nbeta\r\n");
+
+    // Something else rewrote the file while the tab was open, so the save is
+    // refused and the user's text is written beside it instead.
+    std::fs::write(&path, "alpha\r\nsomebody else\r\n").expect("external write");
+
+    let refusal = store
+        .save_to_source("ending-1", "alpha\nwhat the user typed\n", Some(stale), None)
+        .expect_err("the save must be refused");
+
+    let copies = conflict_copies(dir.path());
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    assert!(
+        format!("{refusal}").contains("changed on disk"),
+        "{refusal:?}"
+    );
+    // The copy is what the user is told to look at, so it has to be readable
+    // in the same place the note came from rather than in the editor's LF.
+    assert_eq!(
+        std::fs::read(dir.path().join(&copies[0])).expect("read copy"),
+        b"alpha\r\nwhat the user typed\r\n"
+    );
+}
+
+#[test]
+fn the_recorded_ending_survives_being_set() {
+    let (dir, store) = setup();
+    let (_path, _state) = open_note(&store, &dir, "alpha\nbeta\n");
+    assert_eq!(
+        store.get("ending-1").expect("get").line_ending,
+        LineEnding::Lf
+    );
+
+    store
+        .set_line_ending("ending-1", LineEnding::CrLf)
+        .expect("set");
+
+    assert_eq!(
+        store.get("ending-1").expect("get").line_ending,
+        LineEnding::CrLf,
+        "the ending was not written back to the row"
+    );
+    // A row read fresh from the database, so the column is proved and not
+    // just the value the store happened to be holding.
+    let reopened = BufferStore::new(
+        open_database(&dir.path().join("test.db")).expect("open db"),
+        dir.path().join("buffers"),
+    );
+    assert_eq!(
+        reopened.get("ending-1").expect("get").line_ending,
+        LineEnding::CrLf,
+        "the ending did not survive a restart"
     );
 }

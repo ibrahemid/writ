@@ -669,3 +669,54 @@ fn a_refused_save_reaches_the_editor_named() {
     }
     assert_eq!(fs::read(&file).expect("read"), b"");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_refused_save_never_spends_an_entry_in_the_watcher_ignore_set() {
+    use std::cell::RefCell;
+    use std::os::unix::fs::PermissionsExt;
+
+    if running_as_root() {
+        return;
+    }
+
+    let (dir, store) = setup();
+    let (doc, file) = make_note(dir.path(), "stamped-1", "locked");
+    store.insert(&doc).expect("insert");
+
+    // The stamp is what tells the watcher to ignore the next change to this
+    // file. A refusal that spends one leaves the entry sitting there, and the
+    // next change — somebody else's, the one the user needs to hear about —
+    // is swallowed by it.
+    let stamped: RefCell<Vec<std::path::PathBuf>> = RefCell::new(Vec::new());
+    let record = |path: &Path, _bytes: &[u8]| stamped.borrow_mut().push(path.to_path_buf());
+
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o444)).expect("chmod");
+    let refusal = store
+        .save_to_source("stamped-1", "new body", None, Some(&record))
+        .expect_err("the save must stop");
+    assert!(
+        matches!(
+            refusal,
+            writ_storage::errors::StorageError::DestinationReadOnly { .. }
+        ),
+        "{refusal:?}"
+    );
+    assert!(
+        stamped.borrow().is_empty(),
+        "a refused save stamped {:?}",
+        stamped.borrow()
+    );
+
+    // The same closure on a save that goes through, so the assertion above
+    // cannot be passing against a store that never stamps at all.
+    restore_mode(&file, 0o644);
+    store
+        .save_to_source("stamped-1", "new body", None, Some(&record))
+        .expect("save");
+    assert_eq!(
+        stamped.borrow().as_slice(),
+        &[file.clone()],
+        "a save that went through did not stamp the file it wrote"
+    );
+}
