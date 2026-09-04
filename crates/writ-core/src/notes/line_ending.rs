@@ -56,8 +56,29 @@ impl LineEnding {
     /// also what a file Writ creates gets.
     #[must_use]
     pub fn detect(text: &str) -> Self {
-        let crlf = text.matches("\r\n").count();
-        let lf = text.matches('\n').count() - crlf;
+        Self::detect_bytes(text.as_bytes())
+    }
+
+    /// [`Self::detect`] over bytes that have not been decoded.
+    ///
+    /// Both endings are ASCII, so the count is the same one the text form
+    /// makes and a large file does not have to be turned into a `String`
+    /// first just to be counted.
+    #[must_use]
+    pub fn detect_bytes(bytes: &[u8]) -> Self {
+        let mut crlf = 0usize;
+        let mut lf = 0usize;
+        let mut previous = 0u8;
+        for &byte in bytes {
+            if byte == b'\n' {
+                if previous == b'\r' {
+                    crlf += 1;
+                } else {
+                    lf += 1;
+                }
+            }
+            previous = byte;
+        }
         if crlf > lf {
             Self::CrLf
         } else {
@@ -129,6 +150,17 @@ mod tests {
     #[test]
     fn a_bare_carriage_return_is_not_a_line_break() {
         assert_eq!(LineEnding::detect("a\rb\rc"), LineEnding::Lf);
+    }
+
+    #[test]
+    fn detects_over_bytes_the_same_way_as_over_text() {
+        for text in ["a\r\nb\r\n", "a\nb\n", "a\r\nb\n", "", "one line"] {
+            assert_eq!(
+                LineEnding::detect_bytes(text.as_bytes()),
+                LineEnding::detect(text),
+                "{text:?}"
+            );
+        }
     }
 
     #[test]
