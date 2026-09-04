@@ -292,7 +292,7 @@ One burst can pay both: a sweep the budget owes and a walk the gate owes. The
 cost is one redundant walk of a folder that has gone quiet, which is the side
 to err on.
 
-### 11. A vanished file is told apart from a moved one by its identity
+### 11. A vanished file is told apart from a moved one by its identity, then by its bytes
 
 A watcher reports a rename as a removal at the old path and a creation at the
 new one, and on the fallback backend it reports the removal alone. Path is
@@ -302,7 +302,7 @@ deleted and recreated under the same name does not.
 
 The id is read whenever the tab learns what its file is: when it is given one
 (`follow_note_path`), after every write Writ lands, and on every change a
-watcher reports. The last of those is the one that matters most. A
+watcher reports to it. The last of those is the one that matters most. A
 save-through-replace — a temporary file renamed over the target, which is how
 vim, VS Code, git, rsync and every sync client write — leaves the path holding a
 different file, and a tab still carrying the id from open would read its own
@@ -310,9 +310,44 @@ next rename as a deletion, mark itself removed and refuse every later save over
 a file sitting at its new path. So `note_file_returned` re-reads on every
 sighting, not only on the one that clears a removal mark, and `observe_file`
 decides what to keep: what the filesystem answers replaces what was recorded,
-and a refusal to answer keeps what was recorded. The refusal is not
-hypothetical — an evicted note is left without an id rather than hashed — and
-blanking it there would produce exactly the failure this closes.
+and a refusal to answer keeps what was recorded rather than blanking it. On a
+volume that answers for every file — every Unix one — that refusal needs a
+dataless file or a path holding something that is not a file to reach at all;
+it is kept because the alternative leaves an evicted note with no id, which is
+the state this closes.
+
+Reading the id is not atomic with recording it. It costs a syscall, and on a
+volume with no id to give it costs the whole file, so it happens outside the
+lock the record is kept under. A save can land its own fresher id in that
+window, and the watcher thread would then write the id it read before the save
+back over the one the save wrote — the same stale record, arrived at from a
+race. `identity_to_keep` settles it: the id on record when the read started is
+carried to the write, and a record that changed in between belongs to a writer
+that wrote later, so its value stands.
+
+A sighting is not the only thing that happens to a file. Two writes inside one
+watcher window are reported as one, so a program that rewrites a file and then
+renames it produces a single event saying the path is empty: the rewrite is
+never reported, the id on record is the one it retired, and no sighting can fix
+that after the fact. What is left is the bytes, and they are the right thing to
+go on, because a rename changes none of them.
+`classify_delete_by_content` compares the digest of what the tab last read from
+its file against the files this watcher's own window named, and a match is the
+file. Only the window's own paths are read, never the folder listing: hashing
+the folder a note left reads every note in it, which on a share is one deletion
+pulling four thousand files over the network. A rewrite that changed the bytes
+as well is a removal, and deliberately so — the content the tab is attached to
+is then gone from every watched folder, which is the whole of what a removal
+claims, and a deletion beside an unrelated creation in one window looks exactly
+like it from anywhere else. Following that would put the tab on a file it has
+never read and let the next save write over it.
+
+A path holding a directory holds no note, the same as a path holding nothing,
+and reads as a file that went. Dropping the event for not being about a file
+left the tab carrying the dead file's id and its next save coming back as a raw
+`Is a directory` rather than saying the file is gone. The index and the
+frontend are still told nothing — a folder is not a note change — so only the
+tab on that exact path hears it.
 
 `writ_core::notes::identity` decides and `src-tauri/src/watcher/identity.rs`
 reads, which is the policy and mechanism split the rest of the watcher follows.
@@ -341,6 +376,16 @@ name rather than the file; the bytes the tab is editing are still there under th
 other name, so the tab follows it. Reporting a removal would refuse every later
 save over a file that exists. A survivor outside every watched folder would be a
 removal instead, for the same reason a move out of every watched folder is.
+
+Which name it follows is ordered rather than left to the filesystem. The batch
+comes before the folder listing, and inside each the candidates are sorted
+lexically, so the same set of names answers the same way on any volume;
+`read_dir` order is the volume's. A path under the notes folder sorts ahead of
+the rest, because that is the one Writ keeps a note in, and that preference is a
+textual test on the two paths: where the folder watch and the notes root name
+the same directory differently it does not fire, and lexical order alone
+decides. The listing is capped at 4096 entries, and past the cap which names are
+in the set is the listing's answer.
 
 A move repoints the tab and nothing else: no read, no reload, no prompt. Its
 row, its title and its index rows go to the new path through
@@ -388,6 +433,16 @@ one the tab still holds.
   moved to a folder nothing watches is a removal to the tab, which keeps the
   text and says the file is gone; the person can write a copy or point the tab
   at the file again by opening it.
+- A file rewritten and renamed inside one watcher window is followed by its
+  bytes, and only where the rewrite left them alone. A rewrite that changed
+  them too reads as a removal: the tab keeps its text, says the file is gone,
+  and the ways out are a copy written as a new note and opening the file at its
+  new path. The alternative is following a path on the evidence that something
+  appeared while something else left, which a branch checkout that deletes one
+  note and adds another produces every time.
+- A note's file replaced by a folder of the same name reads as a removal rather
+  than as nothing at all. A save then says the file is gone instead of passing
+  on `Is a directory`.
 - Deleting one name of a hard-linked file moves the tab onto the name that is
   left, and later saves write there. Someone who keeps a note hard-linked into
   two folders and deletes one copy is editing the other afterwards, silently.
