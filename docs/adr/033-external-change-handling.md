@@ -363,7 +363,10 @@ rename kinds instead of flattening them carries that, and a move recognised
 that way would be safe to follow. It is an open direction rather than a
 decision. Until it is taken, a vanished file whose id nothing carries is gone
 as far as Writ can tell, and saying so costs a re-attach the person can make
-themselves instead of a file they never opened.
+themselves instead of a file they never opened. Opening the file at its new
+path makes a second tab with a new id beside the removed one. The removed tab
+keeps its text and the path the file left until the person closes it or saves
+that text as a copy, and nothing merges the two.
 
 A path holding a directory holds no note, the same as a path holding nothing,
 and reads as a file that went. Dropping the event for not being about a file
