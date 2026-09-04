@@ -292,7 +292,7 @@ One burst can pay both: a sweep the budget owes and a walk the gate owes. The
 cost is one redundant walk of a folder that has gone quiet, which is the side
 to err on.
 
-### 11. A vanished file is told apart from a moved one by its identity, then by its bytes
+### 11. A vanished file is told apart from a moved one by its identity
 
 A watcher reports a rename as a removal at the old path and a creation at the
 new one, and on the fallback backend it reports the removal alone. Path is
@@ -325,36 +325,45 @@ race. `identity_to_keep` settles it: the id on record when the read started is
 carried to the write, and a record that changed in between belongs to a writer
 that wrote later, so its value stands.
 
-A sighting is not the only thing that happens to a file. Two writes inside one
-watcher window are reported as one, so a program that rewrites a file and then
-renames it produces a single event saying the path is empty: the rewrite is
-never reported, the id on record is the one it retired, and no sighting can
-fix that after the fact. What is left is the bytes, and they are the right
-thing to go on, because a rename changes none of them.
-`classify_delete_by_content` compares the digest of what the tab last read
-from its file against the files this watcher's own window named, and the only
-file holding them is the file. Only the window's own paths are read, never the
-folder listing: hashing the folder a note left reads every note in it, which
-on a share is one deletion pulling four thousand files over the network. A
-rewrite that changed the bytes as well is a removal, and deliberately so — the
-content the tab is attached to is then gone from every watched folder, which
-is the whole of what a removal claims, and a deletion beside an unrelated
-creation in one window looks exactly like it from anywhere else. Following
-that would put the tab on a file it has never read and let the next save write
-over it. The bytes have to name one file, though, and there are two ways they
-fail to. Two candidates holding them says one of the two is the file and
-nothing about which, so the answer would be whichever sorted first: a coin
-flip that hands the tab a stranger's file, whose bytes then satisfy the write
-guard exactly and let the next save replace its content, while the file the
-note went to keeps the old text with nothing pointing at it. A sync client
-landing a conflicted copy of what it is writing back, or a checkout that
-rewrites one note and adds another holding the old bytes, produces that pair.
-And bytes every empty file holds name every empty file there is, in this
-window or outside it, so counting the window's matches cannot see how many
-carry them; a note Writ created and never saved to, and one the user
-deliberately emptied, would both leave with whichever zero-length path the
-window happened to name. Either way nothing is claimed and the tab reads the
-file as gone.
+The id is the only evidence a move is followed on. Three different things
+leave a vanished file whose id no candidate carries, and all three read the
+same way. A program that rewrites a file and then renames it inside one watcher
+window produces a single event saying the path is empty: two writes in one
+window are reported as one, so the rewrite is never reported, the id on record
+is the one it retired, and no sighting can fix that after the fact. A file
+dragged out of every watched folder carries its id away to a path no candidate
+names. A file that was deleted has its id nowhere at all. All three read as the
+removal below: the tab keeps the text it is holding, the event carries nothing
+to replace it with, and the next save is refused. Opening the file where it is
+now is the extra way out of the first two, which is what the person can see and
+Writ cannot.
+
+Bytes are the obvious thing to reach for and they cannot settle it. A rename
+changes none of them, so the file at its new path does hold what the tab last
+read — and so do a copy, a second note from the same template, a sync client's
+conflicted copy, and the backup a script wrote a moment before deleting the
+original. Nothing in the window separates those from the file itself. The
+debouncer reports a path without the kind of event that produced it (decision
+5), so a file that arrived in the window and a file that was merely touched in
+it are one shape, and a copy and a rename are one shape. Counting the matches
+does not rescue it: the window is not the world, so a single match inside it is
+no evidence there is not another outside it, which is where the note's real
+destination sits in exactly the case the count is asked about. The empty file
+makes the shape plain — the bytes every empty file holds name every empty file
+there is, in this window and outside it — and what separates that digest from
+any other is only how many files happen to hold it, which is the number the
+count cannot see. Following a match anyway put the tab on a file it had never
+read, whose bytes then satisfy the write guard exactly, so the next save
+replaced that file's content with no event and no error while the note's own
+file kept the old text with nothing pointing at it.
+
+What would settle it is evidence of the pairing rather than of the content:
+that this path appeared as that one left. A debouncer that keeps notify's
+rename kinds instead of flattening them carries that, and a move recognised
+that way would be safe to follow. It is an open direction rather than a
+decision. Until it is taken, a vanished file whose id nothing carries is gone
+as far as Writ can tell, and saying so costs a re-attach the person can make
+themselves instead of a file they never opened.
 
 A path holding a directory holds no note, the same as a path holding nothing,
 and reads as a file that went. Dropping the event for not being about a file
@@ -386,10 +395,12 @@ own window, and the folder is the one the tab's file left. That is what makes a
 match safe to follow: the tab lands somewhere its changes still reach it. It is
 also the rule for the one case where the same id is honestly at two paths at
 once. A hard link is one file with two names, and deleting one of them deletes a
-name rather than the file; the bytes the tab is editing are still there under the
-other name, so the tab follows it. Reporting a removal would refuse every later
-save over a file that exists. A survivor outside every watched folder would be a
-removal instead, for the same reason a move out of every watched folder is.
+name rather than the file, so the id the tab holds is still on the surviving
+name and `classify_delete` finds it there — the survivor is followed on the id
+like every other move, not on the file's content. Reporting a removal would
+refuse every later save over a file that exists. A survivor outside every
+watched folder would be a removal instead, for the same reason a move out of
+every watched folder is.
 
 Which name it follows is ordered rather than left to the filesystem. The batch
 comes before the folder listing, and inside each the candidates are sorted
@@ -447,13 +458,12 @@ one the tab still holds.
   moved to a folder nothing watches is a removal to the tab, which keeps the
   text and says the file is gone; the person can write a copy or point the tab
   at the file again by opening it.
-- A file rewritten and renamed inside one watcher window is followed by its
-  bytes, and only where the rewrite left them alone. A rewrite that changed
-  them too reads as a removal: the tab keeps its text, says the file is gone,
-  and the ways out are a copy written as a new note and opening the file at its
-  new path. The alternative is following a path on the evidence that something
-  appeared while something else left, which a branch checkout that deletes one
-  note and adds another produces every time.
+- A file rewritten and renamed inside one watcher window reads as a removal:
+  the rewrite retires the id nobody reported, so nothing carries it and nothing
+  else names the file. The tab keeps its text, says the file is gone, and the
+  ways out are a copy written as a new note and opening the file at its new
+  path. The alternative is following a path on content two files can hold,
+  which hands the tab a stranger's file and lets the next save write over it.
 - A note's file replaced by a folder of the same name reads as a removal rather
   than as nothing at all. A save then says the file is gone instead of passing
   on `Is a directory`.
