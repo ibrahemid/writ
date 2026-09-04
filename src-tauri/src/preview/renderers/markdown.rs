@@ -423,6 +423,39 @@ mod tests {
     }
 
     #[test]
+    fn a_token_that_is_not_one_url_segment_emits_no_asset_url() {
+        let guard = tempfile::tempdir().unwrap();
+        let notes = guard.path().join("Writ");
+        let note_dir = notes.join("daily");
+        std::fs::create_dir_all(&note_dir).unwrap();
+        std::fs::write(note_dir.join("a.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        let render_with = |token: &str| {
+            MarkdownRenderer
+                .render(RenderRequest {
+                    assets: Some(AssetScope {
+                        notes_root: notes.clone(),
+                        note_dir: note_dir.clone(),
+                        buffer_id: "buf-1".to_string(),
+                        token: token.to_string(),
+                    }),
+                    ..req("![](a.png)")
+                })
+                .unwrap()
+                .document_html
+        };
+        // The reference does resolve, so the refusals below are the token
+        // grammar and not a reference the renderer was never going to serve.
+        assert!(render_with("tok-1").contains(ASSET_PREFIX));
+        // A token that is not one path segment would move where the URL
+        // splits into root and relative path, so no URL is emitted at all.
+        for token in ["tok/1", "tok%2f1", "tok 1", "tok?1", "tok#1", ""] {
+            let html = render_with(token);
+            assert!(!html.contains(ASSET_PREFIX), "token={token:?}");
+            assert!(html.contains("src=\"a.png\""), "token={token:?}");
+        }
+    }
+
+    #[test]
     fn oversized_document_is_refused() {
         let big = "a".repeat((MAX_SAFE_BYTES + 1) as usize);
         let err = MarkdownRenderer.render(req(&big)).unwrap_err();
