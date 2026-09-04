@@ -23,6 +23,7 @@ use writ_core::notes::materialise::{DownloadOutcome, DOWNLOAD_TIMEOUT};
 
 use crate::events::{emit_event, NoteDownloadState, WritFrontendEvent};
 use crate::poison::recover_poison;
+use crate::security::AuthorizedPaths;
 use crate::state::AppState;
 
 /// How often the wait wakes to look at the cancel flag and the clock.
@@ -265,6 +266,25 @@ pub(crate) fn materialise_note_inner(
 
 /// Runs one download to its outcome on a thread of its own, releasing the path
 /// and reporting to the frontend whichever way it ends.
+/// Settles the open authorization a not-downloaded answer minted, once the
+/// download has ended.
+///
+/// The token belongs to the open that follows the bytes landing, so `Done`
+/// leaves it for that open to spend. Every other ending opens nothing, and a
+/// token nobody spends would authorize a path the person never opened for the
+/// rest of the session. Nothing here can mint one: an ending can only give an
+/// authorization back.
+pub(crate) fn settle_authorization(
+    authorized: &AuthorizedPaths,
+    canonical: &str,
+    outcome: &DownloadOutcome,
+) {
+    if matches!(outcome, DownloadOutcome::Done) {
+        return;
+    }
+    authorized.discard_pending_open(canonical);
+}
+
 fn spawn_download(app: AppHandle, canonical: String, cancel: Arc<AtomicBool>) {
     emit_download(&app, &canonical, NoteDownloadState::Started, None);
 
@@ -280,6 +300,8 @@ fn spawn_download(app: AppHandle, canonical: String, cancel: Arc<AtomicBool>) {
             |outcome| {
                 let downloads = waiter_app.state::<MaterialiseState>();
                 downloads.release(&waiter_path);
+                let state = waiter_app.state::<AppState>();
+                settle_authorization(&state.authorized_paths, &waiter_path, &outcome);
                 emit_download(
                     &waiter_app,
                     &waiter_path,
@@ -295,6 +317,10 @@ fn spawn_download(app: AppHandle, canonical: String, cancel: Arc<AtomicBool>) {
 ///
 /// The provider keeps fetching — nothing here can call that off — but Writ
 /// drops the result and opens nothing.
+///
+/// Hands back the open authorization the not-downloaded answer minted, so this
+/// is also how the frontend gives the token up when a note it downloaded still
+/// did not open, or when nothing was listening for the download at all.
 #[tauri::command]
 pub fn cancel_materialise_note(
     state: State<'_, AppState>,
@@ -303,6 +329,7 @@ pub fn cancel_materialise_note(
 ) -> Result<(), String> {
     let canonical = crate::commands::file::authorize_download(&state, &path)?;
     downloads.cancel(&canonical);
+    state.authorized_paths.discard_pending_open(&canonical);
     Ok(())
 }
 
@@ -548,6 +575,67 @@ mod tests {
         state.release("/notes/a.md");
         start_or_join(&state, "/notes/a.md", counted);
         assert_eq!(spawns.load(Ordering::SeqCst), 3);
+    }
+
+    // The token a not-downloaded answer minted, alongside one for another note
+    // that has nothing to do with this download.
+    fn authorized_with_two_tokens() -> (AuthorizedPaths, &'static str, &'static str) {
+        let authorized = AuthorizedPaths::new();
+        let downloading = "/notes/away.md";
+        let other = "/notes/elsewhere.md";
+        authorized.record_for_open(downloading.to_string());
+        authorized.record_for_open(other.to_string());
+        (authorized, downloading, other)
+    }
+
+    #[test]
+    fn an_ending_that_opens_nothing_hands_the_open_token_back() {
+        for outcome in [
+            DownloadOutcome::Cancelled,
+            DownloadOutcome::Failed("no space".into()),
+            DownloadOutcome::TimedOut,
+        ] {
+            let (authorized, downloading, other) = authorized_with_two_tokens();
+            settle_authorization(&authorized, downloading, &outcome);
+            assert!(
+                !authorized.is_pending_open(downloading),
+                "{outcome:?} left the download's token behind"
+            );
+            assert!(
+                authorized.is_pending_open(other),
+                "{outcome:?} took another note's token with it"
+            );
+            assert_eq!(authorized.pending_open_len(), 1, "{outcome:?}");
+        }
+    }
+
+    #[test]
+    fn a_download_that_arrives_leaves_the_token_for_the_open_to_spend() {
+        let (authorized, downloading, other) = authorized_with_two_tokens();
+        settle_authorization(&authorized, downloading, &DownloadOutcome::Done);
+        assert!(authorized.is_pending_open(downloading));
+        assert!(authorized.consume_for_open(downloading));
+        // One open, and only one: the token is gone the moment it is spent.
+        assert!(!authorized.consume_for_open(downloading));
+        assert!(authorized.is_pending_open(other));
+    }
+
+    #[test]
+    fn no_ending_can_authorize_a_path_of_its_own() {
+        // A read detached by a cancel lands late with whatever it found. Even
+        // if its outcome were settled after the token had gone, settling has
+        // no way to record one.
+        let authorized = AuthorizedPaths::new();
+        for outcome in [
+            DownloadOutcome::Done,
+            DownloadOutcome::Cancelled,
+            DownloadOutcome::Failed("late".into()),
+            DownloadOutcome::TimedOut,
+        ] {
+            settle_authorization(&authorized, "/notes/away.md", &outcome);
+            assert!(!authorized.is_pending_open("/notes/away.md"), "{outcome:?}");
+            assert_eq!(authorized.pending_open_len(), 0, "{outcome:?}");
+        }
     }
 
     #[test]
