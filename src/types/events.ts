@@ -9,6 +9,7 @@ export type WritEvent =
   | { kind: "buffer:external"; payload: { bufferId: string; change: "modified" | "deleted" } }
   | { kind: "menu:action"; payload: { action: string } }
   | { kind: "workspace:changed"; payload: { path: string; removed: boolean } }
+  | { kind: "notes:changed"; payload: { path: string; removed: boolean } }
   | { kind: "inbox:file-arrived"; payload: { path: string } }
   | { kind: "update:status"; payload: UpdatePhase }
   | {
@@ -29,6 +30,7 @@ export type WritEvent =
       kind: "preview:layout_changed";
       payload: { buffer_id: string; window_id: number; layout: string; ratio: number | null };
     }
+  | { kind: "quit:flush"; payload: Record<string, never> }
   | { kind: "titlebar:maximize-hit"; payload: { phase: CaptionHitPhase } };
 
 export type CaptionHitPhase = "enter" | "leave" | "press" | "click";

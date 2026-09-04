@@ -2,7 +2,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use crate::poison::recover_poison;
-use crate::security::canonicalize_for_authorization;
+use crate::security::{canonicalize_for_authorization, paths_equal_for_authorization};
 use crate::state::AppState;
 use serde::Serialize;
 use tauri::{Manager, State};
@@ -55,6 +55,9 @@ fn authorize_open(state: &AppState, raw_path: &str) -> Result<String, String> {
         return Ok(canonical);
     }
     if state.is_within_inbox(&canonical) {
+        return Ok(canonical);
+    }
+    if state.is_within_notes(&canonical) {
         return Ok(canonical);
     }
     Err(ERR_UNAUTHORIZED_PATH.to_string())
@@ -124,11 +127,21 @@ fn open_file_classified(
 
     let is_binary = matches!(mode, FileOpenMode::Binary);
 
-    let content = if is_binary {
+    // The digest is carried alongside the content rather than recomputed from
+    // it: for the binary tier `content` is a hex dump, not the file's bytes,
+    // and for every tier re-reading a large file just to hash it would defeat
+    // the point of the large-file tiers existing at all.
+    let (content, digest) = if is_binary {
         let bytes = std::fs::read(file_path).map_err(|e| e.to_string())?;
-        file_ops::generate_hex_dump(&bytes, size_bytes as usize)
+        let digest = writ_core::hash::sha256_bytes(&bytes);
+        (
+            file_ops::generate_hex_dump(&bytes, size_bytes as usize),
+            digest,
+        )
     } else {
-        std::fs::read_to_string(file_path).map_err(|e| e.to_string())?
+        let text = std::fs::read_to_string(file_path).map_err(|e| e.to_string())?;
+        let digest = writ_core::hash::sha256_bytes(text.as_bytes());
+        (text, digest)
     };
 
     if let Some(history_buf) = store
@@ -136,23 +149,16 @@ fn open_file_classified(
         .map_err(|e| e.to_string())?
     {
         store.restore(&history_buf.id).map_err(|e| e.to_string())?;
-        {
-            let mut ignore = recover_poison(
-                state.watcher_ignore.lock(),
-                "commands::file::open_file_from_path:history",
-            );
-            ignore.record(
-                history_buf.filename.clone(),
-                content.as_bytes(),
-                Instant::now(),
-            );
+        // Reopening reads the file; it never writes it back. The index is
+        // refreshed instead, which is the only thing the old write-back was
+        // achieving now that the file is the only copy (ADR-028 §1).
+        if let Err(e) = store.reindex_buffer(&history_buf.id) {
+            tracing::debug!(buffer_id = %history_buf.id, error = %e, "reindex on reopening failed");
         }
-        store
-            .save_content(&history_buf.id, &content)
-            .map_err(|e| e.to_string())?;
         state
             .authorized_paths
             .record_blessed_source(canonical.to_string());
+        state.record_disk_state(&history_buf.id, file_path, digest, size_bytes);
         let doc = store.get(&history_buf.id).map_err(|e| e.to_string())?;
         return Ok(FileOpenResult {
             mode,
@@ -175,14 +181,8 @@ fn open_file_classified(
         ..new_doc
     };
 
-    {
-        let mut ignore = recover_poison(
-            state.watcher_ignore.lock(),
-            "commands::file::open_file_from_path:new",
-        );
-        ignore.record(new_doc.filename.clone(), content.as_bytes(), Instant::now());
-    }
-
+    // No stamp: opening a file writes nothing, so there is no write of Writ's
+    // own for a watcher to mistake for somebody else's.
     store
         .open_from_path(&new_doc, &content)
         .map_err(|e| e.to_string())?;
@@ -190,6 +190,7 @@ fn open_file_classified(
     state
         .authorized_paths
         .record_blessed_source(canonical.to_string());
+    state.record_disk_state(&new_doc.id, file_path, digest, size_bytes);
     Ok(FileOpenResult {
         mode,
         size_bytes,
@@ -271,12 +272,33 @@ pub async fn pick_files_to_open(app: tauri::AppHandle) -> Result<Vec<String>, St
 /// list of paths, the OS handing Writ a document, a drop onto the window — so
 /// disk wins over the copy Writ loaded earlier. The editor is told through the
 /// same event an external edit raises, which reloads a clean buffer and asks
-/// first when there are unsaved keystrokes to lose.
+/// first when there are unsaved keystrokes to lose. The event only fires when
+/// the file's digest actually moved since Writ last read or wrote it: a
+/// reopen of a file nothing touched is not an external change, and emitting
+/// for it anyway would reload (or prompt over) an editor that has nothing new
+/// to show.
 ///
-/// Best-effort: a file that cannot be read here still opens its tab with the
-/// content Writ already has.
+/// Best-effort: a file that cannot be read here still opens its tab.
+///
+/// Nothing is copied. The editor reloads through `read_buffer_content`, which
+/// reads the file itself (ADR-028 §1), so the reload *is* the resync; the read
+/// here is what the watcher stamp needs to recognise those bytes as ones Writ
+/// already knows about.
+///
+/// What the file held is deliberately not recorded here. The event is an offer
+/// the editor can decline — it asks first when there are unsaved keystrokes to
+/// lose — and recording on the strength of having emitted would leave a user
+/// who said no with a tab Writ believes is current, and the next reopen
+/// silent. The record moves when the file is actually read, which the reload
+/// does through [`crate::commands::buffer::read_buffer_content`].
+///
+/// The reindex is skipped for a read-only buffer. A binary one would not
+/// usefully index anyway (the file's bytes are not valid text), and a
+/// generated document must never index its body no matter how often it is
+/// reopened (ADR-028 §1) — [`open_generated_document`] seeds its title-only
+/// entry once and nothing here may overwrite that with the full text.
 fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocument) {
-    let Ok(Some(source)) = store.read_source_if_diverged(&doc.id) else {
+    let Ok(source) = store.read_source(&doc.id) else {
         return;
     };
     {
@@ -284,15 +306,114 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
             state.watcher_ignore.lock(),
             "commands::file::resync_open_buffer",
         );
-        ignore.record(doc.filename.clone(), &source, Instant::now());
+        let now = Instant::now();
+        if let Some(path) = doc.source_path.as_deref() {
+            let key = writ_core::watcher::ignore::source_key(
+                &crate::watcher::handler::ignore_key_path(Path::new(path)),
+            );
+            ignore.record(key, &source, now);
+        }
     }
-    if store.refresh_mirror(&doc.id, &source).is_err() {
-        return;
+    if !doc.read_only {
+        if let Err(e) = store.reindex_buffer(&doc.id) {
+            tracing::debug!(buffer_id = %doc.id, error = %e, "reindex after reopening failed");
+        }
     }
-    state.event_bus.emit(WritEvent::BufferExternal {
-        buffer_id: doc.id.clone(),
-        change: ExternalChange::Modified,
-    });
+    if !state.disk_hash_matches(&doc.id, &source) {
+        state.event_bus.emit(WritEvent::BufferExternal {
+            buffer_id: doc.id.clone(),
+            change: ExternalChange::Modified,
+        });
+    }
+}
+
+/// Writes `content` to the fixed path a generated document titled `title`
+/// takes under the data directory, and opens it as a source-backed,
+/// read-only buffer.
+///
+/// A document Writ writes rather than the user must never mint a file in the
+/// notes folder (ADR-028 §1): unlike a plain note, its path is decided here,
+/// not by [`crate::notes::attach_note_file`], and `content` is written before
+/// the buffer exists rather than on a later first keystroke. The row is
+/// read-only, so
+/// [`write_source_guarded`](writ_storage::buffer_store::BufferStore::write_source_guarded)'s
+/// existing refusal is what stops a save of it — nothing new is checked for
+/// that.
+///
+/// The row is found the same way [`open_file_classified`] finds one, by the
+/// canonical path: a tab still open is resynced in place, and a closed one is
+/// restored. Without the second lookup, closing the tab and opening the
+/// document again would mint a row per open and fill History with a document
+/// the user never wrote. `content` overwrites whatever the file held before,
+/// so a second call regenerates the same file rather than minting a dedupe
+/// sibling.
+pub fn open_generated_document(
+    state: &AppState,
+    title: &str,
+    content: &str,
+) -> Result<FileOpenResult, String> {
+    let path = crate::generated::generated_document_path(&state.writ_dir, title);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, content).map_err(|e| e.to_string())?;
+    let canonical = canonicalize_for_authorization(&path).map_err(|e| e.to_string())?;
+    let size_bytes = content.len() as u64;
+
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+
+    if let Some(existing) = store
+        .find_active_by_source_path(&canonical)
+        .map_err(|e| e.to_string())?
+    {
+        state
+            .authorized_paths
+            .record_blessed_source(canonical.clone());
+        resync_open_buffer(state, &store, &existing);
+        return Ok(FileOpenResult {
+            mode: FileOpenMode::Normal,
+            size_bytes,
+            doc: existing,
+        });
+    }
+
+    if let Some(closed) = store
+        .find_history_by_source_path(&canonical)
+        .map_err(|e| e.to_string())?
+    {
+        store.restore(&closed.id).map_err(|e| e.to_string())?;
+        state
+            .authorized_paths
+            .record_blessed_source(canonical.clone());
+        state.record_disk_state_bytes(&closed.id, &path, content.as_bytes());
+        let doc = store.get(&closed.id).map_err(|e| e.to_string())?;
+        return Ok(FileOpenResult {
+            mode: FileOpenMode::Normal,
+            size_bytes,
+            doc,
+        });
+    }
+
+    let mut mgr = BufferManager::new().with_event_bus(state.event_bus.clone());
+    let new_doc = mgr
+        .open_external(canonical.clone())
+        .map_err(|e| e.to_string())?;
+    let new_doc = BufferDocument {
+        title: title.to_string(),
+        read_only: true,
+        size_bytes,
+        ..new_doc
+    };
+    store
+        .open_from_path_unindexed(&new_doc)
+        .map_err(|e| e.to_string())?;
+    state.authorized_paths.record_blessed_source(canonical);
+    state.record_disk_state_bytes(&new_doc.id, &path, content.as_bytes());
+    Ok(FileOpenResult {
+        mode: FileOpenMode::Normal,
+        size_bytes,
+        doc: new_doc,
+    })
 }
 
 /// Gate on writing back to a buffer's originating file.
@@ -310,13 +431,36 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
 /// [`write_atomic`](writ_storage::atomic::write_atomic) renames onto the
 /// literal path rather than following a dangling link.
 pub fn authorize_source_write(state: &AppState, source_path: &str) -> Result<(), String> {
+    if notes_containment_authorizes(state, source_path) {
+        return Ok(());
+    }
     if !state.authorized_paths.is_blessed_source(source_path) {
         return Err(ERR_UNAUTHORIZED_PATH.to_string());
     }
     match canonicalize_for_authorization(Path::new(source_path)) {
-        Ok(canonical) if canonical == source_path => Ok(()),
+        Ok(canonical) if paths_equal_for_authorization(&canonical, source_path) => Ok(()),
         Ok(_) => Err(ERR_UNAUTHORIZED_PATH.to_string()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(_) => Err(ERR_UNAUTHORIZED_PATH.to_string()),
+    }
+}
+
+/// Containment half of the write gate: everything inside the notes folder is
+/// writable without a per-file blessing.
+///
+/// A note that a sync client dropped into the folder was never opened through
+/// a dialog, so nothing recorded it, and refusing its first save is the defect
+/// ADR-028 §2 names.
+///
+/// Containment is decided on the path with every existing part resolved, so a
+/// symlink cannot carry the write out of the folder — neither the file itself
+/// nor a linked directory above it, which is the case a check on the leaf
+/// alone misses. A path that does not exist yet is resolved as far as the
+/// filesystem allows and the rest is appended, which is what lets a new note
+/// be minted and a deleted note be recreated.
+fn notes_containment_authorizes(state: &AppState, source_path: &str) -> bool {
+    match crate::security::resolve_for_containment(Path::new(source_path)) {
+        Some(resolved) => state.is_within_notes(&resolved),
+        None => false,
     }
 }

@@ -58,9 +58,14 @@ fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
                 removed: *removed,
             })
         }
+        WritEvent::NotesChanged { path, removed } => Some(WritFrontendEvent::NotesChanged {
+            path: path.clone(),
+            removed: *removed,
+        }),
         WritEvent::InboxFileArrived { path } => {
             Some(WritFrontendEvent::InboxFileArrived { path: path.clone() })
         }
+        WritEvent::FlushBeforeQuit => Some(WritFrontendEvent::FlushBeforeQuit {}),
         WritEvent::HotkeyToggle | WritEvent::PluginEvent { .. } => None,
     }
 }
@@ -230,5 +235,29 @@ mod tests {
         });
 
         assert!(captured.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn bridge_translates_flush_before_quit_to_frontend_event() {
+        let bus = EventBus::new();
+        let captured = capture(&bus);
+
+        bus.emit(WritEvent::FlushBeforeQuit);
+
+        assert_eq!(
+            captured.lock().unwrap().as_slice(),
+            [WritFrontendEvent::FlushBeforeQuit {}]
+        );
+    }
+
+    #[test]
+    fn flush_before_quit_serialises_with_the_payload_key_the_frontend_unwraps() {
+        let json = serde_json::to_value(WritFrontendEvent::FlushBeforeQuit {}).expect("serialise");
+
+        assert_eq!(json["kind"], "quit:flush");
+        assert!(
+            json.get("payload").is_some(),
+            "the frontend reads event.payload.payload; a missing key hands it undefined: {json}"
+        );
     }
 }

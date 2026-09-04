@@ -1,7 +1,14 @@
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, State};
+
+use crate::commands::file::{open_generated_document, FileOpenResult};
+use crate::state::AppState;
 
 const NOTICES_FILE: &str = "THIRD-PARTY-NOTICES.md";
+
+/// Title of the generated document the licence listing opens as. Also the
+/// buffer title, so it is what the tab and the sidebar show.
+pub const THIRD_PARTY_NOTICES_TITLE: &str = "Third-party licences";
 
 /// First readable candidate, in the order given.
 ///
@@ -38,10 +45,9 @@ fn notices_candidates(app: &AppHandle) -> Vec<PathBuf> {
     candidates
 }
 
-/// IPC: the third-party licence notices bundled with this build.
-#[tauri::command]
-pub fn read_third_party_notices(app: AppHandle) -> Result<String, String> {
-    let candidates = notices_candidates(&app);
+/// The third-party licence notices bundled with this build.
+fn bundled_third_party_notices(app: &AppHandle) -> Result<String, String> {
+    let candidates = notices_candidates(app);
     let path = pick_notices_path(&candidates).ok_or_else(|| {
         tracing::warn!(?candidates, "third-party notices not found");
         "Third-party licences are missing from this build.".to_string()
@@ -50,6 +56,21 @@ pub fn read_third_party_notices(app: AppHandle) -> Result<String, String> {
         tracing::warn!(error = %e, path = %path.display(), "reading third-party notices failed");
         "Could not read the third-party licences.".to_string()
     })
+}
+
+/// IPC: opens the bundled third-party licence notices as a read-only buffer.
+///
+/// The text is read fresh from the bundled file on every call, so an already
+/// open tab is refreshed rather than left showing what an earlier build
+/// wrote. [`open_generated_document`] is what keeps the listing out of the
+/// notes folder and out of the search index (ADR-028 §1).
+#[tauri::command]
+pub fn open_third_party_notices(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<FileOpenResult, String> {
+    let content = bundled_third_party_notices(&app)?;
+    open_generated_document(&state, THIRD_PARTY_NOTICES_TITLE, &content)
 }
 
 #[cfg(test)]

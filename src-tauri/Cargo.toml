@@ -73,6 +73,12 @@ rfd = { version = "0.16", default-features = false }
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 keyring = { version = "3", features = ["apple-native"] }
+# The same objc2 line tauri, tao and wry already resolve, so this unifies
+# rather than adding a second copy of the AppKit bindings. Needed to install
+# `applicationShouldTerminate:`, which nothing above this crate exposes.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSResponder"] }
+dispatch2 = "0.3"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }

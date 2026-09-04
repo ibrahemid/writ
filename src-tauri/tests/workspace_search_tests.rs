@@ -19,11 +19,13 @@ use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::workspace_grep::GrepLimits;
+use writ_storage::notes_index::NotesIndexStore;
+use writ_storage::workspace_grep::{GrepLimits, ScanObserver};
 use writ_tauri_lib::commands::workspace::{
     run_content_search, search_workspace_files_inner, workspace_index_status_inner, SearchBatch,
 };
 use writ_tauri_lib::preview::handler::RenderCache;
+use writ_tauri_lib::quit::QuitState;
 use writ_tauri_lib::security::AuthorizedPaths;
 use writ_tauri_lib::state::AppState;
 use writ_tauri_lib::watcher::handler::create_ignore_set;
@@ -42,6 +44,10 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
     let buffers_dir = writ_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).unwrap();
 
+    let notes_root = writ_dir.join("Writ");
+    std::fs::create_dir_all(&notes_root).unwrap();
+    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).unwrap();
+
     let db_path = writ_dir.join("writ.db");
     let conn = open_database(&db_path).unwrap();
     run_migrations(&conn).unwrap();
@@ -56,8 +62,14 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
         config: Mutex::new(WritConfig::default()),
         writ_dir,
         buffers_dir,
+        notes_root: RwLock::new(notes_root),
+        notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
+        notes_watcher: Mutex::new(None),
+        notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
+        notes_index_cancel: Arc::new(AtomicBool::new(false)),
+        quit: Arc::new(QuitState::new()),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
         transforms: RwLock::new(TransformRegistry::new()),
@@ -76,6 +88,7 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
         fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(WorkspaceIndex::new(ws_root))),
         search_generation: Arc::new(AtomicU64::new(0)),
+        last_disk_hash: Mutex::new(std::collections::HashMap::new()),
     }
 }
 
@@ -120,6 +133,7 @@ fn content_search_streams_batches_and_final_outcome() {
         "needle".to_string(),
         GrepLimits::default(),
         emit,
+        None,
     )
     .unwrap();
 
@@ -161,6 +175,7 @@ fn content_search_second_call_bumps_generation() {
             "needle".to_string(),
             GrepLimits::default(),
             emit,
+            None,
         )
         .unwrap();
     }
@@ -175,29 +190,44 @@ fn content_search_second_call_bumps_generation() {
 #[test]
 fn content_search_superseded_mid_flight_reports_cancelled() {
     let ws = TempDir::new().unwrap();
-    // Enough matching files that the walk cannot finish before the first batch
-    // is emitted and supersedes the search.
-    for i in 0..800 {
+    const FILES: usize = 800;
+    for i in 0..FILES {
         write_file(ws.path(), &format!("f{i}.txt"), "needle");
     }
     let root = writ_tauri_lib::security::canonicalize_root(ws.path()).unwrap();
 
     let counter = Arc::new(AtomicU64::new(0));
-    let counter_for_emit = counter.clone();
+    // Start a "newer" search from inside the walk, on the first file it reaches:
+    // the walk is then guaranteed to see the newer generation on its next
+    // cancellation check, whatever the machine's load is doing to thread
+    // scheduling.
+    let counter_for_scan = counter.clone();
     let bumped = Arc::new(AtomicBool::new(false));
-    let emit: Arc<dyn Fn(SearchBatch) + Send + Sync> = Arc::new(move |b| {
-        // On the first hit batch, start a "newer" search by bumping the counter.
-        if b.outcome.is_none() && !bumped.swap(true, Ordering::SeqCst) {
-            counter_for_emit.fetch_add(1, Ordering::SeqCst);
+    let on_scanned: ScanObserver = Arc::new(move |_scanned| {
+        if !bumped.swap(true, Ordering::SeqCst) {
+            counter_for_scan.fetch_add(1, Ordering::SeqCst);
         }
     });
+
+    let batches: Arc<Mutex<Vec<SearchBatch>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = batches.clone();
+    let emit: Arc<dyn Fn(SearchBatch) + Send + Sync> =
+        Arc::new(move |b| sink.lock().unwrap().push(b));
 
     // A high result cap so cancellation, not the cap, is what stops the walk.
     let limits = GrepLimits {
         max_results: 1_000_000,
         ..GrepLimits::default()
     };
-    let outcome = run_content_search(root, counter, "needle".to_string(), limits, emit).unwrap();
+    let outcome = run_content_search(
+        root,
+        counter,
+        "needle".to_string(),
+        limits,
+        emit,
+        Some(on_scanned),
+    )
+    .unwrap();
 
     assert!(
         outcome.cancelled,
@@ -205,8 +235,167 @@ fn content_search_superseded_mid_flight_reports_cancelled() {
     );
     assert!(!outcome.truncated);
     assert!(
-        outcome.files_scanned < 800,
+        outcome.files_scanned < FILES,
         "cancellation must stop the walk early, scanned {}",
         outcome.files_scanned
+    );
+    // The terminal batch still carries the outcome, stamped with the search's
+    // own (now superseded) generation.
+    let batches = batches.lock().unwrap();
+    let finals: Vec<&SearchBatch> = batches.iter().filter(|b| b.outcome.is_some()).collect();
+    assert_eq!(finals.len(), 1);
+    assert_eq!(finals[0].generation, 1);
+}
+
+/// The notes watcher's subscriber, driven the way `lib.rs` wires it: one
+/// changed path becomes one upsert, one removed path becomes one removal, and
+/// a replayed event of either kind is a no-op rather than an error.
+///
+/// The event is classified directly rather than through a live watcher, so the
+/// test does not wait on a 500 ms debounce or on the platform's file-system
+/// notification latency.
+#[test]
+fn notes_watcher_upserts_one_path_and_removes_it_on_delete() {
+    use std::time::{Duration, Instant};
+    use writ_core::events::bus::WritEvent;
+    use writ_tauri_lib::watcher::handler::classify_notes_event;
+
+    let holder = TempDir::new().expect("tempdir");
+    let state = make_state(&holder, None);
+    let notes = state.notes_root();
+    let note = notes.join("watched.md");
+    std::fs::write(&note, "the kestrel hangs over the verge").expect("write note");
+
+    let ignore = create_ignore_set();
+    let ttl = Duration::from_secs(5);
+
+    let created = classify_notes_event(&note, &notes, &ignore, ttl, Instant::now())
+        .expect("a note another program wrote must be classified");
+    let WritEvent::NotesChanged { path, removed } = created else {
+        panic!("the notes watcher must emit NotesChanged");
+    };
+    assert!(!removed);
+    assert!(state
+        .notes_index
+        .index_path(Path::new(&path))
+        .expect("index_path"));
+
+    let query = writ_core::search::to_prefix_match("kestrel").expect("query");
+    let terms = writ_core::search::search_terms("kestrel");
+    let hits = state
+        .notes_index
+        .search_hits(&query, &terms, 10)
+        .expect("search");
+    assert_eq!(hits.len(), 1, "the watched note is in the index");
+    assert_eq!(
+        hits[0].path.as_deref(),
+        Some(writ_storage::notes_index::index_key(&note).as_str())
+    );
+
+    // Replaying the same event changes nothing.
+    assert!(state
+        .notes_index
+        .index_path(Path::new(&path))
+        .expect("replayed index_path"));
+    assert_eq!(state.notes_index.snapshot().expect("snapshot").len(), 1);
+
+    std::fs::remove_file(&note).expect("remove note");
+    let deleted = classify_notes_event(&note, &notes, &ignore, ttl, Instant::now())
+        .expect("a deleted note must be classified");
+    let WritEvent::NotesChanged { path, removed } = deleted else {
+        panic!("the notes watcher must emit NotesChanged");
+    };
+    assert!(removed, "a vanished file is reported as removed");
+    state
+        .notes_index
+        .forget_path(Path::new(&path))
+        .expect("forget_path");
+
+    assert!(state
+        .notes_index
+        .search_hits(&query, &terms, 10)
+        .expect("search")
+        .is_empty());
+    // A replayed delete is a no-op, which is what lets a rename arrive as one
+    // delete plus one create in either order.
+    state
+        .notes_index
+        .forget_path(Path::new(&path))
+        .expect("replayed forget_path");
+}
+
+/// Writ's own save is stamped into the ignore set before it lands, so the
+/// notes watcher never sees it: without the stamp the save would arrive back
+/// as somebody else's edit.
+#[test]
+fn the_notes_watcher_suppresses_writs_own_write() {
+    use std::time::{Duration, Instant};
+    use writ_tauri_lib::watcher::handler::classify_notes_event;
+
+    let holder = TempDir::new().expect("tempdir");
+    let state = make_state(&holder, None);
+    let notes = state.notes_root();
+    let note = notes.join("saved.md");
+    let body = b"written by writ";
+
+    let ignore = create_ignore_set();
+    let key = writ_core::watcher::ignore::source_key(
+        &std::fs::canonicalize(&notes)
+            .expect("canonical notes root")
+            .join("saved.md"),
+    );
+    let now = Instant::now();
+    ignore.lock().expect("ignore set").record(key, body, now);
+    std::fs::write(&note, body).expect("write note");
+
+    assert!(
+        classify_notes_event(&note, &notes, &ignore, Duration::from_secs(5), now).is_none(),
+        "a stamped write must not come back as an external change"
+    );
+}
+
+/// The folders another client leaves behind never reach the index.
+#[test]
+fn the_notes_watcher_ignores_a_sync_clients_own_folders() {
+    use std::time::{Duration, Instant};
+    use writ_tauri_lib::watcher::handler::classify_notes_event;
+
+    let holder = TempDir::new().expect("tempdir");
+    let state = make_state(&holder, None);
+    let notes = state.notes_root();
+    let ignore = create_ignore_set();
+
+    for folder in [".obsidian", ".trash", ".stfolder", ".stversions"] {
+        let path = notes.join(folder).join("leftover.md");
+        std::fs::create_dir_all(path.parent().unwrap()).expect("create folder");
+        std::fs::write(&path, "not a note").expect("write");
+        assert!(
+            classify_notes_event(
+                &path,
+                &notes,
+                &ignore,
+                Duration::from_secs(5),
+                Instant::now()
+            )
+            .is_none(),
+            "{folder} must never reach the index"
+        );
+    }
+
+    // The temp file every atomic write creates beside its target is dropped
+    // too: turning one into a change event would reload the document registry
+    // mid-edit.
+    let tmp = notes.join(".tmpABC123");
+    std::fs::write(&tmp, "half a write").expect("write");
+    assert!(
+        classify_notes_event(
+            &tmp,
+            &notes,
+            &ignore,
+            Duration::from_secs(5),
+            Instant::now()
+        )
+        .is_none(),
+        "an atomic write's temp file must never reach the index"
     );
 }

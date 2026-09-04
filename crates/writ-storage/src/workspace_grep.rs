@@ -14,6 +14,11 @@
 //!   `cancelled`.
 //! - **the result cap** — a separate `cap_reached` flag flips at
 //!   `max_results`, quits the walk, and reports `truncated`, not `cancelled`.
+//!
+//! Progress is observable while the walk runs: callers may pass a
+//! [`ScanObserver`], called with the running scanned-file count as each file is
+//! reached, which is the only signal that is synchronous with the walk itself
+//! (the batch sink runs on the collector thread).
 
 use std::io;
 use std::path::PathBuf;
@@ -61,6 +66,12 @@ impl Default for GrepLimits {
         }
     }
 }
+
+/// Observes walk progress: called with the running count of scanned files
+/// just before each file is greped. Invoked from every walk thread, so it must
+/// be cheap and must not block; a caller that flips its cancellation state here
+/// is seen by the walk on its next check.
+pub type ScanObserver = Arc<dyn Fn(usize) + Send + Sync>;
 
 /// One content-search match.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -112,8 +123,17 @@ pub fn search_workspace_content(
     limits: GrepLimits,
     cancelled: Arc<dyn Fn() -> bool + Send + Sync>,
     on_batch: Box<dyn FnMut(Vec<ContentHit>) + Send>,
+    on_scanned: Option<ScanObserver>,
 ) -> StorageResult<GrepOutcome> {
-    run_search(req, limits, cancelled, on_batch, FLUSH_LEN, FLUSH_INTERVAL)
+    run_search(
+        req,
+        limits,
+        cancelled,
+        on_batch,
+        on_scanned,
+        FLUSH_LEN,
+        FLUSH_INTERVAL,
+    )
 }
 
 fn run_search(
@@ -121,6 +141,7 @@ fn run_search(
     limits: GrepLimits,
     cancelled: Arc<dyn Fn() -> bool + Send + Sync>,
     on_batch: Box<dyn FnMut(Vec<ContentHit>) + Send>,
+    on_scanned: Option<ScanObserver>,
     flush_len: usize,
     flush_interval: Duration,
 ) -> StorageResult<GrepOutcome> {
@@ -171,6 +192,7 @@ fn run_search(
         let cancelled = cancelled.clone();
         let cap_reached = cap_reached.clone();
         let files_scanned = files_scanned.clone();
+        let on_scanned = on_scanned.clone();
         let matcher = matcher.clone();
         let root = root.clone();
         let query = query.clone();
@@ -194,7 +216,10 @@ fn run_search(
             let Some(rel) = relative_display(&root, entry.path()) else {
                 return WalkState::Continue;
             };
-            files_scanned.fetch_add(1, Ordering::Relaxed);
+            let scanned = files_scanned.fetch_add(1, Ordering::Relaxed) + 1;
+            if let Some(observe) = on_scanned.as_ref() {
+                observe(scanned);
+            }
 
             let mut sink = HitSink {
                 path: rel,
@@ -368,6 +393,7 @@ mod tests {
             limits,
             Arc::new(|| false),
             Box::new(move |batch| sink_hits.lock().unwrap().extend(batch)),
+            None,
         )
         .unwrap();
         let collected = Arc::try_unwrap(hits).unwrap().into_inner().unwrap();
@@ -519,6 +545,7 @@ mod tests {
             GrepLimits::default(),
             cancelled,
             Box::new(move |batch| sink_hits.lock().unwrap().extend(batch)),
+            None,
         )
         .unwrap();
         assert!(outcome.cancelled, "a cancelled walk must report cancelled");
@@ -527,6 +554,50 @@ mod tests {
             collected.len() < 200,
             "cancellation must stop before every file is scanned, got {}",
             collected.len()
+        );
+    }
+
+    #[test]
+    fn scan_observer_reports_progress_and_can_stop_the_walk() {
+        let dir = TempDir::new().unwrap();
+        for i in 0..200 {
+            write(dir.path(), &format!("f{i}.txt"), "needle");
+        }
+        // The observer runs inside the walk, so cancelling from it is seen on
+        // the walk's next check rather than whenever another thread gets to run.
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_observer = stop.clone();
+        let counts = Arc::new(Mutex::new(Vec::new()));
+        let counts_observer = counts.clone();
+        let on_scanned: ScanObserver = Arc::new(move |scanned| {
+            counts_observer.lock().unwrap().push(scanned);
+            stop_observer.store(true, Ordering::SeqCst);
+        });
+        let stop_check = stop.clone();
+        let cancelled: Arc<dyn Fn() -> bool + Send + Sync> =
+            Arc::new(move || stop_check.load(Ordering::SeqCst));
+
+        let outcome = search_workspace_content(
+            GrepRequest {
+                root: dir.path().to_path_buf(),
+                query: "needle".to_string(),
+                generation: 1,
+            },
+            GrepLimits::default(),
+            cancelled,
+            Box::new(|_| {}),
+            Some(on_scanned),
+        )
+        .unwrap();
+
+        assert!(outcome.cancelled);
+        let counts = counts.lock().unwrap().clone();
+        assert!(!counts.is_empty(), "the observer must see the walk");
+        assert_eq!(counts.len(), outcome.files_scanned);
+        assert!(
+            outcome.files_scanned < 200,
+            "the walk must stop early, scanned {}",
+            outcome.files_scanned
         );
     }
 

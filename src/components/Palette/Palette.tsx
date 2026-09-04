@@ -73,6 +73,8 @@ export default function Palette(props: PaletteProps) {
         return "Type to search file text.";
       case "line":
         return "Type a line number.";
+      case "notes":
+        return "Type to search notes by name.";
       default:
         return null;
     }
@@ -111,7 +113,11 @@ export default function Palette(props: PaletteProps) {
       props.onOpen?.();
       const seed = props.initialQuery?.() ?? "";
       if (seed) setQuery(seed);
-      return seed.length > 0;
+      // A seed that is nothing but a routing prefix is a mode the caller
+      // chose, not a term to replace: selecting it would have the first
+      // keystroke delete the mode.
+      const parsed = parsePaletteQuery(seed);
+      return seed.length > 0 && parsed.text.length > 0;
     });
     requestAnimationFrame(() => {
       inputRef?.focus();

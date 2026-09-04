@@ -17,7 +17,8 @@ import type { BufferDocument } from "../../types/buffer";
 //
 // This test reproduces EditorArea's exact wiring (non-keyed Show sourced
 // from bufferRegistry.activeTabs()) and drives the rename through the real
-// bufferRegistry.renameBuffer store handler.
+// bufferRegistry.renameBuffer store handler, which now renames the note's file
+// and re-registers the row the backend hands back.
 
 const mocks = vi.hoisted(() => ({
   forceRender: vi.fn().mockResolvedValue({
@@ -28,7 +29,7 @@ const mocks = vi.hoisted(() => ({
   previewClose: vi.fn().mockResolvedValue(undefined),
   previewGetLayout: vi.fn().mockResolvedValue(null),
   previewSetLayout: vi.fn().mockResolvedValue(undefined),
-  renameBuffer: vi.fn().mockResolvedValue(undefined),
+  renameNote: vi.fn(),
   listActiveBuffers: vi.fn(),
   listHistory: vi.fn().mockResolvedValue([]),
 }));
@@ -40,7 +41,7 @@ vi.mock("../../services/tauri", () => ({
   previewClose: mocks.previewClose,
   previewGetLayout: mocks.previewGetLayout,
   previewSetLayout: mocks.previewSetLayout,
-  renameBuffer: mocks.renameBuffer,
+  renameNote: mocks.renameNote,
   listActiveBuffers: mocks.listActiveBuffers,
   listHistory: mocks.listHistory,
   searchBuffers: vi.fn().mockResolvedValue([]),
@@ -106,7 +107,13 @@ function scratchTxtBuffer(overrides: Partial<BufferDocument> = {}): BufferDocume
 describe("PreviewLayout — rename to renderable extension activates preview (regression #122)", () => {
   beforeEach(() => {
     mocks.forceRender.mockClear();
-    mocks.renameBuffer.mockClear();
+    mocks.renameNote.mockClear();
+    // Renaming a note renames its file, so the backend answers with the row it
+    // wrote rather than with nothing.
+    mocks.renameNote.mockImplementation(async (id: string, title: string) => ({
+      ...bufferRegistry.buffers().find((b) => b.id === id)!,
+      title,
+    }));
     mocks.listActiveBuffers.mockResolvedValue([scratchTxtBuffer()]);
     rendererRegistry.setFromIpc([
       {
@@ -149,7 +156,7 @@ describe("PreviewLayout — rename to renderable extension activates preview (re
 
     // Rename through the real store handler.
     await bufferRegistry.renameBuffer("R1", "test.md");
-    expect(mocks.renameBuffer).toHaveBeenCalledWith("R1", "test.md");
+    expect(mocks.renameNote).toHaveBeenCalledWith("R1", "test.md");
 
     // Preview must now activate without any close/reopen.
     await waitFor(

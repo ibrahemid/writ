@@ -44,7 +44,7 @@ const DEFAULT_CONFIG: WritConfig = {
     open: true,
     width: SIDEBAR_WIDTH_DEFAULT,
   },
-  editor: { font_family: "monospace", font_size: EDITOR_FONT_DEFAULT, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true, status_bar: false },
+  editor: { font_family: "monospace", font_size: EDITOR_FONT_DEFAULT, word_wrap: true, tab_size: 2, autosave_debounce_ms: 1000, markdown_typography: true, markdown_editing: true, status_bar: false },
   window: { width: 1100, height: 720, maximized: false },
   keybindings: {},
   history: { max_entries: 500 },

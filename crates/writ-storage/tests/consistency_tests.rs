@@ -89,31 +89,69 @@ fn dirty_shutdown_detected() {
 }
 
 #[test]
-fn orphan_file_detected() {
+fn anything_left_in_the_retired_folder_is_reported() {
+    // After the notes migration the folder is empty. A file still in it is
+    // text the migration could not place, kept rather than deleted.
     let (_dir, store) = setup_with_store();
-    let orphan_path = store.buffers_dir().join("orphan_extra.txt");
-    std::fs::write(&orphan_path, "orphan content").expect("failed to write orphan file");
-    let checker = ConsistencyChecker::new(&store);
-    let report = checker.check().expect("check failed");
+    std::fs::write(store.buffers_dir().join("left_behind.txt"), "kept")
+        .expect("failed to write the leftover");
+
+    let report = ConsistencyChecker::new(&store)
+        .check()
+        .expect("check failed");
+
+    assert_eq!(report.orphan_files, vec!["left_behind.txt".to_string()]);
+}
+
+#[test]
+fn an_empty_retired_folder_reports_nothing() {
+    let (_dir, store) = setup_with_store();
+
+    let report = ConsistencyChecker::new(&store)
+        .check()
+        .expect("check failed");
+
+    assert!(report.orphan_files.is_empty());
+}
+
+#[test]
+fn a_note_with_no_file_is_reported_as_missing() {
+    let (_dir, store) = setup_with_store();
+    store
+        .insert(&make_doc("missing-buf"))
+        .expect("insert failed");
+
+    let report = ConsistencyChecker::new(&store)
+        .check()
+        .expect("check failed");
+
     assert!(
-        report
-            .orphan_files
-            .contains(&"orphan_extra.txt".to_string()),
-        "expected orphan_extra.txt in orphan_files, got: {:?}",
-        report.orphan_files
+        report.missing_files.contains(&"missing-buf".to_string()),
+        "got: {:?}",
+        report.missing_files
     );
 }
 
 #[test]
-fn missing_file_detected() {
-    let (_dir, store) = setup_with_store();
-    let doc = make_doc("missing-buf");
+fn a_note_whose_file_vanished_is_reported_as_missing() {
+    let (dir, store) = setup_with_store();
+    let file = dir.path().join("gone.md");
+    std::fs::write(&file, "for now").unwrap();
+    let mut doc = make_doc("vanished-buf");
+    doc.source_path = Some(file.to_string_lossy().into_owned());
     store.insert(&doc).expect("insert failed");
-    let checker = ConsistencyChecker::new(&store);
-    let report = checker.check().expect("check failed");
-    assert!(
-        report.missing_files.contains(&"missing-buf".to_string()),
-        "expected missing-buf in missing_files, got: {:?}",
-        report.missing_files
-    );
+
+    assert!(ConsistencyChecker::new(&store)
+        .check()
+        .unwrap()
+        .missing_files
+        .is_empty());
+
+    std::fs::remove_file(&file).unwrap();
+
+    assert!(ConsistencyChecker::new(&store)
+        .check()
+        .unwrap()
+        .missing_files
+        .contains(&"vanished-buf".to_string()));
 }

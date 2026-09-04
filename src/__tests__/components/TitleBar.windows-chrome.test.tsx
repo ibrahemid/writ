@@ -109,8 +109,10 @@ import { registerCommand, unregisterCommand } from "../../commands/registry";
 import type { MenuItem } from "../../components/ContextMenu/ContextMenu";
 
 const MENU_COMMANDS = [
-  { id: "file.open", label: "Open file", keybinding: "CmdOrCtrl+O" },
   { id: "note.new", label: "New note", keybinding: "CmdOrCtrl+N" },
+  { id: "file.open", label: "Open file", keybinding: "CmdOrCtrl+O" },
+  { id: "note.rename", label: "Rename note…", keybinding: "F2" },
+  { id: "note.saveCopy", label: "Save a copy…" },
   { id: "buffer.close", label: "Close tab", keybinding: "CmdOrCtrl+W" },
   { id: "palette.open", label: "Command palette", keybinding: "Shift+Shift" },
   { id: "app.check_updates", label: "Check for Updates" },
@@ -172,8 +174,10 @@ describe("titlebar menu affordance carries the platforms with no menu bar", () =
 
     expect(mocks.showAnchoredMenu).toHaveBeenCalledTimes(1);
     expect(openedMenuItems().map((item) => item.label)).toEqual([
-      "Open file",
       "New note",
+      "Open file",
+      "Rename note…",
+      "Save a copy…",
       "Close tab",
       "Command palette",
       "Check for Updates",
@@ -411,8 +415,10 @@ describe("Writ menu contents", () => {
 
     expect(mocks.showAnchoredMenu).toHaveBeenCalledTimes(1);
     expect(openedMenuItems().map((item) => item.label)).toEqual([
-      "Open file",
       "New note",
+      "Open file",
+      "Rename note…",
+      "Save a copy…",
       "Close tab",
       "Command palette",
       "Check for Updates",
@@ -424,9 +430,10 @@ describe("Writ menu contents", () => {
     fireEvent.click(container.querySelector(".titlebar-appmenu")!);
 
     const items = openedMenuItems();
-    expect(items[0].kbd).toBe("Ctrl+O");
-    expect(items[2].kbd).toBe("Ctrl+W");
-    expect(items[4].kbd).toBeUndefined();
+    expect(items[0].kbd).toBe("Ctrl+N");
+    expect(items[1].kbd).toBe("Ctrl+O");
+    expect(items[4].kbd).toBe("Ctrl+W");
+    expect(items[6].kbd).toBeUndefined();
   });
 
   it("dispatches each entry through the command registry", () => {
@@ -436,8 +443,10 @@ describe("Writ menu contents", () => {
     for (const item of openedMenuItems()) item.action();
 
     expect(executed).toEqual([
-      "file.open",
       "note.new",
+      "file.open",
+      "note.rename",
+      "note.saveCopy",
       "buffer.close",
       "palette.open",
       "app.check_updates",

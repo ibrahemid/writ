@@ -41,6 +41,9 @@ pub enum WritFrontendEvent {
     #[serde(rename = "workspace:changed")]
     WorkspaceChanged { path: String, removed: bool },
 
+    #[serde(rename = "notes:changed")]
+    NotesChanged { path: String, removed: bool },
+
     #[serde(rename = "inbox:file-arrived")]
     InboxFileArrived { path: String },
 
@@ -78,6 +81,11 @@ pub enum WritFrontendEvent {
         ratio: Option<f32>,
     },
 
+    /// Empty struct rather than a unit variant: under `tag`/`content` a unit
+    /// variant serialises without the `payload` key the frontend unwraps.
+    #[serde(rename = "quit:flush")]
+    FlushBeforeQuit {},
+
     #[serde(rename = "titlebar:maximize-hit")]
     CaptionMaximizeHit { phase: CaptionHitPhase },
 }
@@ -93,11 +101,13 @@ fn event_name(event: &WritFrontendEvent) -> &'static str {
         WritFrontendEvent::MenuAction { .. } => "writ://menu-action",
         WritFrontendEvent::InboxFileArrived { .. } => "writ://inbox-file-arrived",
         WritFrontendEvent::WorkspaceChanged { .. } => "writ://workspace-changed",
+        WritFrontendEvent::NotesChanged { .. } => "writ://notes-changed",
         WritFrontendEvent::UpdateStatus(..) => "writ://update-status",
         WritFrontendEvent::AiRewrite { .. } => "writ://ai-rewrite",
         WritFrontendEvent::PreviewRendered { .. } => "writ://preview-rendered",
         WritFrontendEvent::PreviewError { .. } => "writ://preview-error",
         WritFrontendEvent::LayoutChanged { .. } => "writ://preview-layout-changed",
+        WritFrontendEvent::FlushBeforeQuit { .. } => "writ://flush-before-quit",
         WritFrontendEvent::CaptionMaximizeHit { .. } => "writ://titlebar-maximize-hit",
     }
 }

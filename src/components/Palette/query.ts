@@ -11,6 +11,7 @@ const PREFIX_MODES: ReadonlyMap<string, PaletteMode> = new Map([
   [">", "commands"],
   ["#", "content"],
   [":", "line"],
+  ["@", "notes"],
 ]);
 
 // Splits a raw palette query into its routing prefix and the remaining terms.

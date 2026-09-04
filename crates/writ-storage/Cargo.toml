@@ -23,6 +23,7 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 tempfile = "3"
+trash = "5"
 ignore = "0.4.31"
 grep-searcher = "0.1.17"
 grep-regex = "0.1.14"
@@ -38,6 +39,13 @@ criterion = { version = "0.8", features = ["html_reports"] }
 writ-core = { path = "../writ-core" }
 chrono = { version = "0.4", features = ["serde"] }
 
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+libc = "0.2"
+
 [[bench]]
 name = "storage"
+harness = false
+
+[[bench]]
+name = "fullfsync"
 harness = false

@@ -216,6 +216,26 @@ describe("content provider", () => {
     expect(await createContentProvider().query("todo", signal(), "all")).toEqual([]);
   });
 
+  it("opens a note hit that has no tab by its path", async () => {
+    h.searchBuffers.mockResolvedValue({
+      hits: [
+        {
+          buffer_id: "",
+          title: "Notes",
+          line: 3,
+          snippet: [],
+          path: "/notes/notes.md",
+        },
+      ],
+      total: 1,
+    });
+    const results = await createContentProvider().query("todo", signal(), "all");
+    expect(results).toHaveLength(1);
+    results[0].execute();
+    await Promise.resolve();
+    expect(h.openFile).toHaveBeenCalledWith("/notes/notes.md");
+  });
+
   it("streams workspace hits and reveals the line on the opened buffer", async () => {
     h.root = "/repo";
     h.streamContent.mockImplementation(

@@ -6,13 +6,30 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{error, info};
 use writ_core::events::bus::{EventBus, WritEvent};
-use writ_core::watcher::change_event::ExternalChange;
 use writ_core::watcher::ignore::{IgnoreStamps, SuppressDecision, DEFAULT_IGNORE_TTL};
 
 pub type IgnoreSet = Arc<Mutex<IgnoreStamps>>;
 
 pub fn create_ignore_set() -> IgnoreSet {
     Arc::new(Mutex::new(IgnoreStamps::new()))
+}
+
+/// The path an ignore key is built from, for both the write that records the
+/// stamp and the event that looks it up.
+///
+/// Both sides go through this one function because they have to agree
+/// exactly: canonicalisation resolves symlinks and rewrites `/var` to
+/// `/private/var`, so a stamp keyed by an unresolved path is a stamp no event
+/// can ever match, and every save reads as somebody else's edit.
+///
+/// A file that does not exist yet resolves to its canonical folder plus its
+/// name, which is the path the watcher delivers once the write creates it. A
+/// path that resolves to nothing is used raw, which can only fail open: the
+/// key misses and the event is emitted.
+pub(crate) fn ignore_key_path(path: &Path) -> PathBuf {
+    crate::security::resolve_for_containment(path)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| path.to_path_buf())
 }
 
 /// Opaque owner of the file watcher's debouncer.
@@ -24,10 +41,14 @@ pub struct WatcherHandle {
     _debouncer: Debouncer<RecommendedWatcher>,
 }
 
+/// Watches the config file.
+///
+/// It no longer watches Writ's data folder: nothing there holds note text
+/// after ADR-028 §1, so an event from it can only be noise. A note's own file
+/// is watched from release 0.5.
 pub fn start_file_watcher(
     bus: Arc<EventBus>,
     config_path: PathBuf,
-    buffers_dir: PathBuf,
     ignore_set: IgnoreSet,
 ) -> Result<WatcherHandle, Box<dyn std::error::Error>> {
     let ttl = DEFAULT_IGNORE_TTL;
@@ -40,11 +61,6 @@ pub fn start_file_watcher(
             .watcher()
             .watch(&config_path, RecursiveMode::NonRecursive)?;
     }
-    if buffers_dir.exists() {
-        debouncer
-            .watcher()
-            .watch(&buffers_dir, RecursiveMode::NonRecursive)?;
-    }
 
     info!("file watcher started");
 
@@ -56,7 +72,6 @@ pub fn start_file_watcher(
                         if let Some(domain_event) = classify_watch_event(
                             &event.path,
                             &config_path,
-                            &buffers_dir,
                             &ignore_set,
                             ttl,
                             Instant::now(),
@@ -212,8 +227,10 @@ fn snapshot_files(root: &Path) -> std::collections::HashSet<PathBuf> {
 /// is a pre-existing file (possibly modified) and is suppressed (ADR-024).
 ///
 /// A file Writ has just saved is its own write, not an arrival: the ignore
-/// set is keyed by full path for source writes and fingerprints the bytes, so
-/// suppression here cannot swallow someone else's edit to the same file.
+/// set is keyed by the file's canonical path under the source namespace and
+/// fingerprints the bytes, so suppression here cannot swallow someone else's
+/// edit to the same file, nor a change to a file of the same name in another
+/// folder.
 pub fn classify_inbox_event(
     path: &Path,
     root: &Path,
@@ -229,7 +246,7 @@ pub fn classify_inbox_event(
     if !writ_core::inbox::qualifies_for_auto_open(root, path, preexisting) {
         return None;
     }
-    let key = path.to_string_lossy().into_owned();
+    let key = writ_core::watcher::ignore::source_key(&ignore_key_path(path));
     let decision = {
         let current_bytes = std::fs::read(path).ok();
         let mut set = recover_poison(ignore_set.lock(), "watcher::handler::inbox_event");
@@ -245,6 +262,109 @@ pub fn classify_inbox_event(
     info!(file = %path.display(), "inbox file arrived");
     Some(WritEvent::InboxFileArrived {
         path: path.to_string_lossy().into_owned(),
+    })
+}
+
+/// Starts a recursive watcher on the notes `root`, emitting
+/// [`WritEvent::NotesChanged`] for a file another program created, changed or
+/// removed there.
+///
+/// This is the minimum needed to keep the index honest about a folder the user
+/// also edits from Obsidian, a phone, or a sync client. Watching an open note
+/// for a conflicting external edit is a separate job and is release 0.5.
+///
+/// Writ's own saves are stamped into `ignore_set` before they land, so they do
+/// not arrive back here as somebody else's edit; the store indexes them itself.
+pub fn start_notes_watcher(
+    bus: Arc<EventBus>,
+    root: PathBuf,
+    ignore_set: IgnoreSet,
+) -> Result<WatcherHandle, Box<dyn std::error::Error>> {
+    let (tx, rx) = mpsc::channel::<DebounceEventResult>();
+
+    let mut debouncer = new_debouncer(Duration::from_millis(500), tx)?;
+    debouncer.watcher().watch(&root, RecursiveMode::Recursive)?;
+
+    info!(root = %root.display(), "notes watcher started");
+
+    std::thread::spawn(move || {
+        while let Ok(result) = rx.recv() {
+            match result {
+                Ok(events) => {
+                    for event in events {
+                        if let Some(domain_event) = classify_notes_event(
+                            &event.path,
+                            &root,
+                            &ignore_set,
+                            DEFAULT_IGNORE_TTL,
+                            Instant::now(),
+                        ) {
+                            bus.emit(domain_event);
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("notes watcher error: {:?}", e);
+                }
+            }
+        }
+        info!("notes watcher thread exiting");
+    });
+
+    Ok(WatcherHandle {
+        _debouncer: debouncer,
+    })
+}
+
+/// Classifies a notes-folder event into a domain event, or suppresses it.
+///
+/// Suppressed: a path outside `root`, a path under a folder another client
+/// left behind (`.obsidian`, `.trash`, `.stfolder`, `.stversions`), the temp
+/// file every atomic write creates beside its target, and a write Writ itself
+/// made, which the ignore set recognises by canonical path and content
+/// fingerprint under the source namespace (ADR-028 section 6).
+///
+/// Filtering the temp files is a correctness rule rather than a tidiness one:
+/// `write_atomic` persists through a `NamedTempFile` created beside its target,
+/// so every internal save fans out into a create-and-delete pair for a `.tmp`
+/// path, and a watcher over a folder Writ writes into has to drop them before
+/// it emits anything.
+pub fn classify_notes_event(
+    path: &Path,
+    root: &Path,
+    ignore_set: &IgnoreSet,
+    ttl: Duration,
+    now: Instant,
+) -> Option<WritEvent> {
+    if !path.starts_with(root) {
+        return None;
+    }
+    if writ_core::workspace::path_has_ignored_component(root, path) {
+        return None;
+    }
+    let name = path.file_name()?.to_string_lossy().into_owned();
+    if name.starts_with(".tmp") || name.ends_with(".tmp") {
+        return None;
+    }
+
+    let removed = !path.exists();
+    if !removed && !std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
+        return None;
+    }
+
+    let key = writ_core::watcher::ignore::source_key(&ignore_key_path(path));
+    let decision = {
+        let current_bytes = std::fs::read(path).ok();
+        let mut set = recover_poison(ignore_set.lock(), "watcher::handler::notes_event");
+        set.decide(&key, current_bytes.as_deref(), now, ttl)
+    };
+    if decision == SuppressDecision::Suppress {
+        return None;
+    }
+
+    Some(WritEvent::NotesChanged {
+        path: path.to_string_lossy().into_owned(),
+        removed,
     })
 }
 
@@ -264,84 +384,48 @@ pub fn classify_workspace_event(path: &Path, root: &Path) -> Option<WritEvent> {
     })
 }
 
-/// Classifies a single file-system event into a domain event, or
-/// suppresses it. Pure aside from a single `fs::read` to fingerprint
-/// the file against the ignore set; callers test it directly with a
-/// tempdir.
+/// Classifies a single file-system event into a domain event, or suppresses
+/// it. Pure aside from a single `fs::read` to fingerprint the file against
+/// the ignore set; callers test it directly with a tempdir.
+///
+/// The config file has its own key namespace: a note named `config.toml` that
+/// Writ saves must not suppress a real config reload (ADR-028 section 6).
+///
+/// Only the config file qualifies. Anything else is dropped, and dropping it
+/// early is a correctness rule rather than a tidiness one: `write_atomic`
+/// persists through a `NamedTempFile` created beside its target, so every
+/// internal save emits a create-and-delete pair for a `.tmp*` path. Turning
+/// one of those into a change event makes the frontend reload the document
+/// registry, which tears down and recreates an open `writ-preview://` iframe
+/// mid-edit, and removing a loaded one hard-freezes the macOS webview. Any
+/// watcher added over a folder Writ writes into has to filter its own temp
+/// files before it emits anything.
 pub fn classify_watch_event(
     path: &Path,
     config_path: &Path,
-    buffers_dir: &Path,
     ignore_set: &IgnoreSet,
     ttl: Duration,
     now: Instant,
 ) -> Option<WritEvent> {
-    if path == config_path {
-        let filename = config_path
-            .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_default();
-
-        let current_bytes = std::fs::read(path).ok();
-        let decision = {
-            let mut set = recover_poison(ignore_set.lock(), "watcher::handler::config_event");
-            set.decide(&filename, current_bytes.as_deref(), now, ttl)
-        };
-
-        if decision == SuppressDecision::Suppress {
-            return None;
-        }
-
-        info!("config file changed");
-        return Some(WritEvent::ConfigChanged {
-            keys: vec!["*".to_string()],
-        });
-    }
-
-    if !path.starts_with(buffers_dir) {
+    if path != config_path {
         return None;
     }
 
-    let filename = path
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_default();
-
-    if filename.is_empty() {
-        return None;
-    }
-
-    // write_atomic persists through a NamedTempFile (`.tmp*`) created in the
-    // buffers dir, so every internal save emits a create+delete pair for that
-    // temp path. Buffer content files are `<uuid>.txt` and never start with a
-    // dot, so a dotfile here is always non-buffer noise. Without this guard
-    // the temp delete is classified as a BufferExternal change, the frontend
-    // reloads the buffer registry, and an open preview iframe is torn down and
-    // recreated mid-edit — the macOS webview hard-freeze this fix targets.
-    if filename.starts_with('.') {
-        return None;
-    }
+    let key = writ_core::watcher::ignore::config_key(&ignore_key_path(config_path));
 
     let current_bytes = std::fs::read(path).ok();
-
     let decision = {
-        let mut set = recover_poison(ignore_set.lock(), "watcher::handler::event_loop");
-        set.decide(&filename, current_bytes.as_deref(), now, ttl)
+        let mut set = recover_poison(ignore_set.lock(), "watcher::handler::config_event");
+        set.decide(&key, current_bytes.as_deref(), now, ttl)
     };
 
     if decision == SuppressDecision::Suppress {
         return None;
     }
 
-    let change = if path.exists() {
-        ExternalChange::Modified
-    } else {
-        ExternalChange::Deleted
-    };
-    info!(file = %filename, ?change, "external buffer file change");
-    Some(WritEvent::BufferExternal {
-        buffer_id: filename,
-        change,
+    info!("config file changed");
+    Some(WritEvent::ConfigChanged {
+        keys: vec!["*".to_string()],
     })
 }
 
@@ -353,6 +437,17 @@ mod tests {
 
     fn make_set() -> IgnoreSet {
         create_ignore_set()
+    }
+
+    /// The key a save of `path` records, built the way the command layer
+    /// builds it.
+    fn source_stamp_key(path: &Path) -> String {
+        writ_core::watcher::ignore::source_key(&ignore_key_path(path))
+    }
+
+    /// The key a config write records.
+    fn config_stamp_key(path: &Path) -> String {
+        writ_core::watcher::ignore::config_key(&ignore_key_path(path))
     }
 
     /// Inbox classification with an empty ignore set — the case where every
@@ -419,137 +514,17 @@ mod tests {
         let dir = tempdir().unwrap();
         let cfg = dir.path().join("config.toml");
         fs::write(&cfg, b"x").unwrap();
-        let buffers = dir.path().join("buffers");
-        fs::create_dir_all(&buffers).unwrap();
 
-        let event = classify_watch_event(
-            &cfg,
-            &cfg,
-            &buffers,
-            &make_set(),
-            DEFAULT_IGNORE_TTL,
-            Instant::now(),
-        );
+        let event =
+            classify_watch_event(&cfg, &cfg, &make_set(), DEFAULT_IGNORE_TTL, Instant::now());
 
         assert!(matches!(event, Some(WritEvent::ConfigChanged { .. })));
-    }
-
-    #[test]
-    fn classifies_modified_buffer_file_as_buffer_external_modified() {
-        let dir = tempdir().unwrap();
-        let cfg = dir.path().join("config.toml");
-        let buffers = dir.path().join("buffers");
-        fs::create_dir_all(&buffers).unwrap();
-        let buf = buffers.join("draft-1.txt");
-        fs::write(&buf, b"hello").unwrap();
-
-        let event = classify_watch_event(
-            &buf,
-            &cfg,
-            &buffers,
-            &make_set(),
-            DEFAULT_IGNORE_TTL,
-            Instant::now(),
-        );
-
-        match event {
-            Some(WritEvent::BufferExternal { buffer_id, change }) => {
-                assert_eq!(buffer_id, "draft-1.txt");
-                assert_eq!(change, ExternalChange::Modified);
-            }
-            other => panic!("expected BufferExternal::Modified, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn ignores_atomic_write_temp_files_in_buffers_dir() {
-        // write_atomic's NamedTempFile (`.tmp*`) create/delete must never be
-        // surfaced as an external buffer change; doing so triggered a
-        // frontend reload that recreated an open preview iframe and froze the
-        // macOS webview.
-        let dir = tempdir().unwrap();
-        let cfg = dir.path().join("config.toml");
-        let buffers = dir.path().join("buffers");
-        fs::create_dir_all(&buffers).unwrap();
-        let tmp = buffers.join(".tmpA1b2C3");
-        fs::write(&tmp, b"partial").unwrap();
-
-        let modified = classify_watch_event(
-            &tmp,
-            &cfg,
-            &buffers,
-            &make_set(),
-            DEFAULT_IGNORE_TTL,
-            Instant::now(),
-        );
-        assert!(modified.is_none(), "temp create must not be a buffer event");
-
-        fs::remove_file(&tmp).unwrap();
-        let deleted = classify_watch_event(
-            &tmp,
-            &cfg,
-            &buffers,
-            &make_set(),
-            DEFAULT_IGNORE_TTL,
-            Instant::now(),
-        );
-        assert!(deleted.is_none(), "temp delete must not be a buffer event");
-    }
-
-    #[test]
-    fn classifies_deleted_buffer_file_as_buffer_external_deleted() {
-        let dir = tempdir().unwrap();
-        let cfg = dir.path().join("config.toml");
-        let buffers = dir.path().join("buffers");
-        fs::create_dir_all(&buffers).unwrap();
-        let buf = buffers.join("gone.txt");
-
-        let event = classify_watch_event(
-            &buf,
-            &cfg,
-            &buffers,
-            &make_set(),
-            DEFAULT_IGNORE_TTL,
-            Instant::now(),
-        );
-
-        match event {
-            Some(WritEvent::BufferExternal { buffer_id, change }) => {
-                assert_eq!(buffer_id, "gone.txt");
-                assert_eq!(change, ExternalChange::Deleted);
-            }
-            other => panic!("expected BufferExternal::Deleted, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn suppresses_event_matching_recent_ignore_fingerprint() {
-        let dir = tempdir().unwrap();
-        let cfg = dir.path().join("config.toml");
-        let buffers = dir.path().join("buffers");
-        fs::create_dir_all(&buffers).unwrap();
-        let buf = buffers.join("self.txt");
-        let bytes = b"matching-bytes";
-        fs::write(&buf, bytes).unwrap();
-
-        let set = make_set();
-        let now = Instant::now();
-        {
-            let mut guard = set.lock().unwrap();
-            guard.record("self.txt".to_string(), bytes, now);
-        }
-
-        let event = classify_watch_event(&buf, &cfg, &buffers, &set, DEFAULT_IGNORE_TTL, now);
-
-        assert!(event.is_none(), "expected internal write to be suppressed");
     }
 
     #[test]
     fn suppresses_internal_config_write() {
         let dir = tempdir().unwrap();
         let cfg = dir.path().join("config.toml");
-        let buffers = dir.path().join("buffers");
-        fs::create_dir_all(&buffers).unwrap();
         let bytes = b"theme = \"dark\"\n";
         fs::write(&cfg, bytes).unwrap();
 
@@ -557,10 +532,10 @@ mod tests {
         let now = Instant::now();
         {
             let mut guard = set.lock().unwrap();
-            guard.record("config.toml".to_string(), bytes, now);
+            guard.record(config_stamp_key(&cfg), bytes, now);
         }
 
-        let event = classify_watch_event(&cfg, &cfg, &buffers, &set, DEFAULT_IGNORE_TTL, now);
+        let event = classify_watch_event(&cfg, &cfg, &set, DEFAULT_IGNORE_TTL, now);
 
         assert!(event.is_none(), "internal config write must be suppressed");
     }
@@ -569,19 +544,18 @@ mod tests {
     fn emits_external_config_change_when_bytes_differ() {
         let dir = tempdir().unwrap();
         let cfg = dir.path().join("config.toml");
-        let buffers = dir.path().join("buffers");
-        fs::create_dir_all(&buffers).unwrap();
+        fs::write(&cfg, b"theme = \"dark\"\n").unwrap();
 
         let set = make_set();
         let now = Instant::now();
         {
             let mut guard = set.lock().unwrap();
-            guard.record("config.toml".to_string(), b"theme = \"dark\"\n", now);
+            guard.record(config_stamp_key(&cfg), b"theme = \"dark\"\n", now);
         }
 
         fs::write(&cfg, b"theme = \"light\"\n").unwrap();
 
-        let event = classify_watch_event(&cfg, &cfg, &buffers, &set, DEFAULT_IGNORE_TTL, now);
+        let event = classify_watch_event(&cfg, &cfg, &set, DEFAULT_IGNORE_TTL, now);
 
         assert!(
             matches!(event, Some(WritEvent::ConfigChanged { .. })),
@@ -628,18 +602,15 @@ mod tests {
     }
 
     #[test]
-    fn ignores_paths_outside_both_config_and_buffers_dir() {
+    fn ignores_every_path_that_is_not_the_config_file() {
         let dir = tempdir().unwrap();
         let cfg = dir.path().join("config.toml");
-        let buffers = dir.path().join("buffers");
-        fs::create_dir_all(&buffers).unwrap();
         let unrelated = dir.path().join("unrelated.log");
         fs::write(&unrelated, b"x").unwrap();
 
         let event = classify_watch_event(
             &unrelated,
             &cfg,
-            &buffers,
             &make_set(),
             DEFAULT_IGNORE_TTL,
             Instant::now(),
@@ -756,7 +727,7 @@ mod tests {
         let now = Instant::now();
         {
             let mut guard = set.lock().unwrap();
-            guard.record(file.to_string_lossy().into_owned(), bytes, now);
+            guard.record(source_stamp_key(&file), bytes, now);
         }
 
         assert!(classify_inbox_event(
@@ -780,11 +751,7 @@ mod tests {
         let now = Instant::now();
         {
             let mut guard = set.lock().unwrap();
-            guard.record(
-                file.to_string_lossy().into_owned(),
-                b"# edited in writ",
-                now,
-            );
+            guard.record(source_stamp_key(&file), b"# edited in writ", now);
         }
         fs::write(&file, b"# rewritten by the agent").unwrap();
 

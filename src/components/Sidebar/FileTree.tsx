@@ -2,6 +2,14 @@ import { For, Show, createEffect, createSignal } from "solid-js";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { workspaceStore } from "../../stores/global/workspace";
 import Icon from "../Icon/Icon";
+import { notesStore } from "../../stores/global/notes";
+import { showContextMenu } from "../ContextMenu/ContextMenu";
+import {
+  confirmAndDeleteNote,
+  showInFileManagerLabel,
+  showNotesFileInFileManager,
+} from "../../lib/note-actions";
+import { startRenameActiveTab } from "../Editor/TabBar";
 import type { WorkspaceEntry } from "../../types/workspace";
 import "./FileTree.css";
 
@@ -77,6 +85,38 @@ function TreeNode(props: TreeNodeProps) {
     }
   }
 
+  // Note actions belong to a note, so they are drawn only on a file the notes
+  // folder holds. A file elsewhere in an open folder is somebody else's, and a
+  // Delete on it would move it to the Trash all the same.
+  const isNote = () => !props.entry.is_dir && notesStore.contains(props.entry.path);
+
+  // Rename and Delete act on a note by its id, which only exists once it is
+  // open. Opening first is also what puts the note in front of the user before
+  // it is renamed or moved to the Trash.
+  async function openThen(action: (id: string) => void | Promise<void>) {
+    const doc = await win.tabs.openFile(props.entry.path).catch(() => null);
+    if (!doc) return;
+    await action(doc.id);
+  }
+
+  function handleContextMenu(e: MouseEvent) {
+    if (!isNote()) return;
+    e.preventDefault();
+    showContextMenu(e.clientX, e.clientY, [
+      { label: "Rename", action: () => void openThen(() => startRenameActiveTab()) },
+      {
+        label: showInFileManagerLabel(),
+        action: () => void showNotesFileInFileManager(props.entry.path),
+      },
+      {
+        label: "Delete",
+        action: () => void openThen((id) => confirmAndDeleteNote(id)),
+        separator: true,
+        danger: true,
+      },
+    ]);
+  }
+
   const paddingLeft = () => `${BASE_INDENT + (props.level - 1) * INDENT_PER_LEVEL}px`;
   const connectorLeft = () => `${BASE_INDENT + (props.level - 1) * INDENT_PER_LEVEL + 8}px`;
 
@@ -91,6 +131,7 @@ function TreeNode(props: TreeNodeProps) {
         class="file-tree-item"
         style={{ "padding-left": paddingLeft() }}
         onClick={activate}
+        onContextMenu={handleContextMenu}
         onKeyDown={handleKeyDown}
       >
         <span class="file-tree-caret" aria-hidden="true">

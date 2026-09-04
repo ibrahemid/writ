@@ -11,6 +11,17 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::recovery::dirty_shutdown::check_dirty_shutdown;
 use writ_storage::recovery::snapshot::SnapshotManager;
 
+/// Attaches a file inside `dir` to a note, the way the first keystroke does.
+fn attach_note(store: &BufferStore, dir: &TempDir, id: &str) -> std::path::PathBuf {
+    let notes = dir.path().join("notes");
+    std::fs::create_dir_all(&notes).expect("create notes dir");
+    let file = notes.join(format!("{id}.md"));
+    store
+        .attach_source_path(id, file.to_str().expect("path"))
+        .expect("attach");
+    file
+}
+
 fn setup_store() -> (TempDir, BufferStore) {
     let dir = TempDir::new().expect("temp dir");
     let db_path = dir.path().join("writ.db");
@@ -208,6 +219,7 @@ fn unclean_shutdown_recovers_newer_snapshot_content() {
         .create_buffer(Some("test-recovery".into()))
         .expect("create");
     store.insert(&doc).expect("insert");
+    attach_note(&store, &_dir, &doc.id);
     store
         .save_content(&doc.id, "version at save time")
         .expect("save");
@@ -269,21 +281,50 @@ fn unclean_shutdown_recovers_newer_snapshot_content() {
 }
 
 #[test]
-fn collect_buffer_contents_reads_active_files() {
+fn a_recovered_note_with_no_file_gets_one_before_its_text_is_written() {
+    // What startup does with a note that crashed before its first keystroke
+    // reached a file: there is nowhere to write the recovered text until one
+    // is attached, and the attach is what makes the text durable.
+    let (dir, store) = setup_store();
+    let mut mgr = BufferManager::new();
+    let doc = mgr.create_buffer(None).expect("create");
+    store.insert(&doc).expect("insert");
+
+    assert!(
+        store.save_content(&doc.id, "recovered text").is_err(),
+        "a note with no file has nowhere to put the text"
+    );
+
+    let file = attach_note(&store, &dir, &doc.id);
+    store
+        .save_content(&doc.id, "recovered text")
+        .expect("save after the file is attached");
+
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "recovered text");
+    assert_eq!(store.read_content(&doc.id).unwrap(), "recovered text");
+}
+
+#[test]
+fn collect_buffer_contents_reads_the_files_the_notes_live_in() {
     let (_dir, store) = setup_store();
     let mut mgr = BufferManager::new();
     let doc = mgr
         .create_buffer(Some("collect-test".into()))
         .expect("create");
     store.insert(&doc).expect("insert");
+    let file = attach_note(&store, &_dir, &doc.id);
     store
-        .save_content(&doc.id, "buffer text content")
+        .save_content(&doc.id, "text in the file")
         .expect("save");
+
+    // Written by something other than Writ: the snapshot has to carry what
+    // the file holds now, not what Writ last wrote.
+    std::fs::write(&file, "text somebody else wrote").expect("external write");
 
     let contents = store.collect_buffer_contents().expect("collect");
     assert_eq!(
         contents.get(&doc.id).map(String::as_str),
-        Some("buffer text content")
+        Some("text somebody else wrote")
     );
 }
 

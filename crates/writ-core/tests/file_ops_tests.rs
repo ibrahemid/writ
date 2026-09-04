@@ -1,7 +1,8 @@
 use std::path::Path;
 use writ_core::file_ops::{
     classify_file, classify_path, detect_language_from_path, extract_filename, generate_hex_dump,
-    FileOpenMode, THRESHOLD_LARGE_BYTES, THRESHOLD_MAX_BYTES, THRESHOLD_NORMAL_BYTES,
+    is_binary_bytes, FileOpenMode, THRESHOLD_LARGE_BYTES, THRESHOLD_MAX_BYTES,
+    THRESHOLD_NORMAL_BYTES,
 };
 
 // ── language detection ────────────────────────────────────────────────────────
@@ -450,5 +451,33 @@ fn detect_language_with_dotfile_path() {
     assert_eq!(
         detect_language_from_path(Path::new("/home/user/.eslintrc.json")).as_deref(),
         Some("json")
+    );
+}
+
+// ── is_binary_bytes ─────────────────────────────────────────────────────────
+
+#[test]
+fn is_binary_bytes_true_for_data_with_a_nul_byte() {
+    let data = [0x89, 0x50, 0x4e, 0x47, 0x00, 0x0a];
+    assert!(is_binary_bytes(&data));
+}
+
+#[test]
+fn is_binary_bytes_false_for_plain_text() {
+    assert!(!is_binary_bytes(b"# Third-party notices\n\nMIT License\n"));
+}
+
+#[test]
+fn is_binary_bytes_false_for_an_empty_slice() {
+    assert!(!is_binary_bytes(&[]));
+}
+
+#[test]
+fn is_binary_bytes_only_checks_the_first_check_window() {
+    let mut data = vec![b'a'; writ_core::file_ops::BINARY_CHECK_BYTES];
+    data.push(0x00);
+    assert!(
+        !is_binary_bytes(&data),
+        "a NUL past the checked window must not count"
     );
 }

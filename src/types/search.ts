@@ -8,6 +8,9 @@ export interface SearchHit {
   title: string;
   line: number | null;
   snippet: SnippetSegment[];
+  // Path of the note the hit came from. Absent only for a hit that carries
+  // just a buffer id; a result with a path opens by path when no tab has it.
+  path?: string | null;
 }
 
 export interface SearchResults {

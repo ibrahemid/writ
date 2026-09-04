@@ -1,10 +1,15 @@
 pub mod commands;
 pub mod events;
 pub mod fts_scheduler;
+pub mod generated;
 pub mod hotkey;
 pub mod logging;
+pub mod notes;
 pub mod poison;
 pub mod preview;
+pub mod quit;
+#[cfg(target_os = "macos")]
+mod quit_macos;
 pub mod security;
 pub mod snap_overlay;
 pub mod startup;
@@ -21,8 +26,63 @@ use tauri::{Listener, Manager};
 use tracing::info;
 use writ_core::startup::{StartupFailure, StartupStage};
 
+/// How often the running app records a crash-recovery snapshot of the open
+/// notes.
+///
+/// The snapshot is a safety net behind autosave, not a second save path, so
+/// the interval trades recovery granularity against the writes it costs. A
+/// pass that finds nothing changed writes nothing
+/// ([`writ_storage::buffer_store::BufferStore::write_session_snapshot_if_changed`]),
+/// which is what keeps an idle session from growing the database.
+pub const SNAPSHOT_HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Writes everything the next launch needs before the process goes away.
+///
+/// Deferred FTS reindexes go first: a reindex still inside its debounce window
+/// would otherwise be lost, leaving search stale, because the startup
+/// consistency check only removes orphan rows and never adds missing content
+/// (ADR-020). The clean-shutdown snapshot follows, and it must be the last
+/// thing written, so it records the notes as the flush left them.
+pub(crate) fn finish_shutdown(app_handle: &tauri::AppHandle) {
+    let state = app_handle.state::<AppState>();
+
+    let pending = state.fts_scheduler.drain_pending();
+    if !pending.is_empty() {
+        if let Ok(store) = state.store.lock() {
+            for id in pending {
+                if let Err(e) = store.reindex_buffer(&id) {
+                    tracing::debug!(buffer_id = %id, error = %e, "shutdown fts reindex failed");
+                }
+            }
+        }
+    }
+
+    let snapshot_result = state.store.lock().ok().map(|store| {
+        store
+            .collect_buffer_contents()
+            .and_then(|contents| store.write_session_snapshot(&contents, true))
+    });
+    match snapshot_result {
+        Some(Ok(())) => info!("clean-shutdown snapshot written"),
+        Some(Err(e)) => tracing::warn!(error = %e, "clean-shutdown snapshot failed"),
+        None => {}
+    }
+}
+
+/// The Quit item's id. Not in [`MENU_ACTION_IDS`]: quitting is the exit path's
+/// own business, not an action forwarded to the frontend.
 #[cfg(target_os = "macos")]
-const MENU_ACTION_IDS: &[&str] = &["app.check_updates", "file.open", "note.new", "buffer.close"];
+const QUIT_MENU_ID: &str = "app.quit";
+
+#[cfg(target_os = "macos")]
+const MENU_ACTION_IDS: &[&str] = &[
+    "app.check_updates",
+    "file.open",
+    "note.new",
+    "note.rename",
+    "note.saveCopy",
+    "buffer.close",
+];
 
 #[cfg(target_os = "macos")]
 fn menu_action_for_id(id: &str) -> Option<&'static str> {
@@ -55,9 +115,10 @@ fn dropped_paths_to_open(
 /// there. On Windows/Linux the window runs with `decorations: false`, so this
 /// menu would be invisible chrome while its accelerators collide with the
 /// platform translator. Every action it exposes (`app.check_updates`,
-/// `file.open`, `note.new`, `buffer.close`) is also registered as a command
-/// palette entry and keyboard shortcut in the frontend, so gating it off those
-/// platforms removes dead chrome without removing any reachable action.
+/// `file.open`, `note.new`, `note.rename`, `note.saveCopy`, `buffer.close`) is
+/// also registered as a command palette entry and keyboard shortcut in the
+/// frontend, so gating it off those platforms removes dead chrome without
+/// removing any reachable action.
 #[cfg(target_os = "macos")]
 fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
@@ -66,30 +127,48 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let check_updates =
         MenuItemBuilder::with_id("app.check_updates", "Check for Updates…").build(app)?;
 
+    // Not `PredefinedMenuItem::quit`: muda maps that to AppKit's `terminate:`,
+    // which tears the process down without ever reaching the event loop, so no
+    // exit request is raised and nothing gets a chance to write. A plain item
+    // that calls `AppHandle::exit` goes the long way round, through
+    // `RunEvent::ExitRequested` and the flush handshake.
+    let quit_item = MenuItemBuilder::with_id(QUIT_MENU_ID, "Quit Writ")
+        .accelerator("CmdOrCtrl+Q")
+        .build(app)?;
+
     let app_menu = SubmenuBuilder::new(app, "Writ")
         .items(&[
             &PredefinedMenuItem::about(app, Some("About Writ"), None)?,
             &PredefinedMenuItem::separator(app)?,
             &check_updates,
             &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::quit(app, Some("Quit Writ"))?,
+            &quit_item,
         ])
         .build()?;
 
     let open_file = MenuItemBuilder::with_id("file.open", "Open File…")
         .accelerator("CmdOrCtrl+O")
         .build(app)?;
+    let quick_open = MenuItemBuilder::with_id("notes.quickOpen", "Open Note…")
+        .accelerator("CmdOrCtrl+Shift+O")
+        .build(app)?;
     let new_note = MenuItemBuilder::with_id("note.new", "New Note")
         .accelerator("CmdOrCtrl+N")
         .build(app)?;
+    let rename_note = MenuItemBuilder::with_id("note.rename", "Rename Note…").build(app)?;
+    let save_copy = MenuItemBuilder::with_id("note.saveCopy", "Save a Copy…").build(app)?;
     let close_tab = MenuItemBuilder::with_id("buffer.close", "Close Tab")
         .accelerator("CmdOrCtrl+W")
         .build(app)?;
 
     let file_menu = SubmenuBuilder::new(app, "File")
         .items(&[
-            &open_file,
             &new_note,
+            &quick_open,
+            &open_file,
+            &PredefinedMenuItem::separator(app)?,
+            &rename_note,
+            &save_copy,
             &PredefinedMenuItem::separator(app)?,
             &close_tab,
         ])
@@ -115,6 +194,10 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     app.on_menu_event(move |app_handle, event| {
         let id = event.id().0.as_str();
+        if id == QUIT_MENU_ID {
+            app_handle.exit(0);
+            return;
+        }
         if let Some(action) = menu_action_for_id(id) {
             let state = app_handle.state::<AppState>();
             state.event_bus.emit(WritEvent::MenuAction {
@@ -205,6 +288,23 @@ pub fn run() {
                 None,
             ),
         };
+
+    // Runs before anything opens the database: SQLite's write-ahead log does
+    // not survive a sync provider. The report goes to the temporary directory
+    // because the logs directory is inside the folder being turned down.
+    let verdict = startup::data_dir_verdict(&writ_dir, dirs::home_dir().as_deref(), None);
+    if verdict != writ_core::startup::DataDirVerdict::Ok {
+        startup_failure::abort_with_report(
+            &StartupFailure::new(
+                StartupStage::DataDirectoryLocation,
+                writ_core::startup::data_dir_refusal_message(&verdict),
+                Some(writ_dir.clone()),
+                startup_failure::timestamp(),
+            ),
+            None,
+        );
+    }
+
     let logs_dir = writ_dir.join("logs");
     // Installed first: setting the hook touches nothing, while opening the
     // log file can fail on the same unwritable directory.
@@ -215,18 +315,32 @@ pub fn run() {
 
     let app_state = match AppState::initialize() {
         Ok(app_state) => app_state,
-        Err(error) => startup_failure::abort_with_report(
-            &StartupFailure::new(
-                StartupStage::AppState,
-                error.to_string(),
-                Some(writ_dir.clone()),
-                startup_failure::timestamp(),
-            ),
-            Some(&logs_dir),
-        ),
+        Err(error) => {
+            // A refusal from the data-folder guard is a location failure, not
+            // a permission one, and its report belongs outside the folder
+            // being turned down. The stage decides both the step the report
+            // names and the remedy under it, and `StartupStage::AppState`
+            // would tell the user to fix the folder's permissions.
+            let refused = error
+                .downcast_ref::<writ_core::startup::DataDirRefused>()
+                .is_some();
+            let (stage, report_dir) = if refused {
+                (StartupStage::DataDirectoryLocation, None)
+            } else {
+                (StartupStage::AppState, Some(logs_dir.as_path()))
+            };
+            startup_failure::abort_with_report(
+                &StartupFailure::new(
+                    stage,
+                    error.to_string(),
+                    Some(writ_dir.clone()),
+                    startup_failure::timestamp(),
+                ),
+                report_dir,
+            )
+        }
     };
     let config_path = app_state.writ_dir.join("config.toml");
-    let buffers_dir = app_state.buffers_dir.clone();
     let watcher_ignore = app_state.watcher_ignore.clone();
 
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
@@ -302,6 +416,19 @@ pub fn run() {
             commands::buffer::delete_buffer,
             commands::buffer::update_tab_order,
             commands::buffer::rename_buffer,
+            commands::notes::new_note,
+            commands::notes::rename_note,
+            commands::notes::delete_note,
+            commands::notes::save_note_copy,
+            commands::notes::show_note_in_file_manager,
+            commands::notes::show_notes_file_in_file_manager,
+            commands::notes::get_notes_root,
+            commands::notes::get_notes_folder,
+            commands::notes::show_notes_folder_in_finder,
+            commands::notes::pick_notes_folder,
+            commands::notes::get_notes_migration_report,
+            commands::notes::dismiss_notes_migration_report,
+            commands::notes::move_archived_notes,
             commands::file::open_file,
             commands::file::open_file_confirmed,
             commands::file::pick_files_to_open,
@@ -309,8 +436,10 @@ pub fn run() {
             commands::history::restore_buffer,
             commands::history::clear_history,
             commands::history::search_buffers,
+            commands::history::search_notes_by_name,
             commands::config::get_config,
             commands::config::update_config,
+            commands::window::confirm_quit_flush,
             commands::window::toggle_window,
             commands::window::compute_window_placement,
             commands::window::set_caption_button_metrics,
@@ -353,7 +482,7 @@ pub fn run() {
             commands::link::classify_external_url,
             commands::storage::get_storage_info,
             commands::storage::reveal_storage_path,
-            commands::notices::read_third_party_notices,
+            commands::notices::open_third_party_notices,
             commands::ai::ai_rewrite,
             commands::ai::ai_cancel,
             commands::ai::ai_check_connection,
@@ -385,6 +514,38 @@ pub fn run() {
                 state.event_bus.subscribe(move |event| {
                     if let WritEvent::WorkspaceChanged { path, removed } = event {
                         workspace_index::on_workspace_changed(&index, path, *removed);
+                    }
+                });
+            }
+
+            // Keep the notes index honest about a file another program wrote
+            // (ADR-028 section 7). A separate subscriber from the frontend
+            // bridge, so both observe every NotesChanged.
+            //
+            // It patches the one path and nothing else. It must never reload
+            // the document registry: that recreates a loaded
+            // `writ-preview://` iframe and hard-freezes the macOS webview
+            // (PR #127).
+            {
+                use writ_core::events::bus::WritEvent;
+                let state = app.state::<AppState>();
+                let index = state.notes_index.clone();
+                state.event_bus.subscribe(move |event| {
+                    let WritEvent::NotesChanged { path, removed } = event else {
+                        return;
+                    };
+                    let path = std::path::Path::new(path);
+                    // A rename arrives as one delete and one create, so both
+                    // arms have to be replayable: forgetting a path the index
+                    // does not hold, and indexing one it already has, are both
+                    // no-ops rather than errors.
+                    let result = if *removed {
+                        index.forget_path(path)
+                    } else {
+                        index.index_path(path).map(|_| ())
+                    };
+                    if let Err(e) = result {
+                        tracing::warn!(path = %path.display(), error = %e, "notes index update failed");
                     }
                 });
             }
@@ -470,17 +631,17 @@ pub fn run() {
                 tracing::warn!(error = %e, "failed to build application menu");
             }
 
+            // The Dock, an Apple Event quit and a logout all reach the app
+            // through `terminate:`, which never raises an exit request.
+            #[cfg(target_os = "macos")]
+            quit_macos::install(&handle);
+
             if let Err(e) = hotkey::setup_global_hotkey(&handle) {
                 tracing::warn!(error = %e, "failed to register global hotkey");
             }
 
             let watcher_bus = app.state::<AppState>().event_bus.clone();
-            match watcher::handler::start_file_watcher(
-                watcher_bus,
-                config_path,
-                buffers_dir,
-                watcher_ignore,
-            ) {
+            match watcher::handler::start_file_watcher(watcher_bus, config_path, watcher_ignore) {
                 Ok(handle) => {
                     let state = app.state::<AppState>();
                     let mut slot =
@@ -519,6 +680,62 @@ pub fn run() {
 
             {
                 let state = app.state::<AppState>();
+                let notes_root = state.notes_root();
+
+                // Bring the index in line with the folder before anything
+                // searches it, on a thread of its own: the walk reads every
+                // note, and a folder of a few thousand would hold the UI for
+                // seconds. An empty index reconciles to a full one, which is
+                // what makes deleting writ.db safe.
+                let index = state.notes_index.clone();
+                let cancel = state.notes_index_cancel.clone();
+                let reconcile_root = notes_root.clone();
+                let generation = index.generation();
+                std::thread::spawn(move || {
+                    // Retired the moment the notes folder moves: a walk that
+                    // finished against the old folder would prune every row
+                    // the move re-keyed.
+                    let cancelled = || {
+                        cancel.load(std::sync::atomic::Ordering::Relaxed)
+                            || index.generation() != generation
+                    };
+                    match index.reconcile(
+                        &reconcile_root,
+                        &cancelled,
+                        &writ_storage::notes_index::is_dataless,
+                    ) {
+                        Ok(outcome) => info!(
+                            added = outcome.added,
+                            updated = outcome.updated,
+                            removed = outcome.removed,
+                            skipped = outcome.skipped_dataless,
+                            cancelled = outcome.cancelled,
+                            "notes index reconciled"
+                        ),
+                        Err(e) => tracing::warn!(error = %e, "notes index reconcile failed"),
+                    }
+                });
+
+                match watcher::handler::start_notes_watcher(
+                    state.event_bus.clone(),
+                    notes_root,
+                    state.watcher_ignore.clone(),
+                ) {
+                    Ok(handle) => {
+                        let mut slot = recover_poison(
+                            state.notes_watcher.lock(),
+                            "lib::setup:notes_watcher_stash",
+                        );
+                        *slot = Some(handle);
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "failed to start notes watcher");
+                    }
+                }
+            }
+
+            {
+                let state = app.state::<AppState>();
                 let restored_inbox = state
                     .inbox_root
                     .lock()
@@ -546,7 +763,7 @@ pub fn run() {
 
             let snapshot_handle = handle.clone();
             std::thread::spawn(move || loop {
-                std::thread::sleep(std::time::Duration::from_secs(30));
+                std::thread::sleep(SNAPSHOT_HEARTBEAT);
                 let snapshot_error = {
                     let state = snapshot_handle.state::<AppState>();
                     state.store.lock().ok().map(|mut store| {
@@ -598,36 +815,85 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build writ");
 
-    app.run(|app_handle, event| {
-        if let tauri::RunEvent::ExitRequested { .. } = &event {
-            // Flush deferred FTS reindexes before exit: a reindex still inside
-            // its debounce window would otherwise be lost, leaving search stale
-            // (the startup consistency check only removes orphan rows, it never
-            // adds missing content). ADR-020.
-            let state = app_handle.state::<AppState>();
-            let pending = state.fts_scheduler.drain_pending();
-            if !pending.is_empty() {
-                if let Ok(store) = state.store.lock() {
-                    for id in pending {
-                        if let Err(e) = store.reindex_buffer(&id) {
-                            tracing::debug!(buffer_id = %id, error = %e, "shutdown fts reindex failed");
-                        }
-                    }
+    app.run(move |app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
+            // A restart is not a quit the handshake can hold: `prevent_exit`
+            // is a documented no-op for it, so asking the frontend to flush
+            // would leave the answer arriving after the runtime had gone.
+            // Write what Rust holds and let it through.
+            if *code == Some(tauri::RESTART_EXIT_CODE) {
+                let state = app_handle.state::<AppState>();
+                if state.quit.claim_final_shutdown() {
+                    finish_shutdown(app_handle);
+                    state.quit.finish();
                 }
+                return;
             }
 
-            let snapshot_result = {
-                let state = app_handle.state::<AppState>();
-                state.store.lock().ok().map(|store| {
-                    store
-                        .collect_buffer_contents()
-                        .and_then(|contents| store.write_session_snapshot(&contents, true))
-                })
-            };
-            match snapshot_result {
-                Some(Ok(())) => info!("clean-shutdown snapshot written"),
-                Some(Err(e)) => tracing::warn!(error = %e, "clean-shutdown snapshot failed"),
-                None => {}
+            let state = app_handle.state::<AppState>();
+            match state.quit.begin(*code) {
+                // Already written, this is the exit the waiter asked for.
+                quit::QuitDecision::Proceed => return,
+                // A second Cmd+Q on top of a quit that is still writing. Hold
+                // it: letting this one through would end the process mid-write.
+                quit::QuitDecision::Wait => {
+                    api.prevent_exit();
+                    return;
+                }
+                quit::QuitDecision::StartFlush => {}
+            }
+
+            // Stop the reconcile walk rather than waiting for it: a cancelled
+            // pass removes nothing, and the next launch reconciles again.
+            state
+                .notes_index_cancel
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+
+            // Nothing has asked the frontend to write what the user typed
+            // inside the last debounce window yet. Ask, and let the event loop
+            // run: the webview handles the request on this very thread, so
+            // waiting here is what would make the answer impossible.
+            if state
+                .frontend_ready
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                api.prevent_exit();
+                state
+                    .event_bus
+                    .emit(writ_core::events::bus::WritEvent::FlushBeforeQuit);
+
+                let quit_state = state.quit.clone();
+                let shutdown_handle = app_handle.clone();
+                std::thread::spawn(move || {
+                    if !quit_state.wait_for_flush() {
+                        tracing::warn!("frontend did not confirm its flush before the timeout");
+                    }
+                    finish_shutdown(&shutdown_handle);
+                    // Only now may a repeat request exit: until the writes are
+                    // on disk, one would take the process down mid-snapshot.
+                    quit_state.finish();
+                    shutdown_handle.exit(quit_state.exit_code());
+                });
+                return;
+            }
+
+            finish_shutdown(app_handle);
+            state.quit.finish();
+        }
+
+        // macOS quits that never raise a request still land here: `NSApp
+        // terminate:`, which the Dock and an `osascript quit` both send, runs
+        // this from inside `applicationWillTerminate:`. Nothing can be asked
+        // of the webview on that thread, but what Rust holds is still ours to
+        // write.
+        if matches!(event, tauri::RunEvent::Exit) {
+            let state = app_handle.state::<AppState>();
+            if state.quit.claim_final_shutdown() {
+                state
+                    .notes_index_cancel
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                finish_shutdown(app_handle);
+                state.quit.finish();
             }
         }
 
@@ -726,6 +992,16 @@ mod tests {
         for id in MENU_ACTION_IDS {
             assert_eq!(menu_action_for_id(id), Some(*id));
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_quit_item_is_not_forwarded_to_the_frontend() {
+        assert_eq!(
+            menu_action_for_id(QUIT_MENU_ID),
+            None,
+            "quit must reach the exit path, not the frontend's menu handler"
+        );
     }
 
     #[cfg(target_os = "macos")]

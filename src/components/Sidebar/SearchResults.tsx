@@ -26,8 +26,8 @@ export default function SearchResults() {
     ),
   );
 
-  // FTS hits are capped server-side; title-only rows are added on top, so the
-  // honest total is the backend match count plus those extras.
+  // Index hits are capped server-side; title-only rows are added on top, so
+  // the honest total is the backend match count plus those extras.
   const extras = createMemo(() => rows().length - win.sidebar.searchHits().length);
   const total = createMemo(() => win.sidebar.searchTotal() + extras());
   const hasRun = createMemo(() => win.sidebar.searchMs() !== null);
@@ -35,9 +35,19 @@ export default function SearchResults() {
   function openRow(row: SearchRow) {
     if (row.source === "active") {
       win.tabs.setActiveTabId(row.id);
-    } else {
-      void win.tabs.restoreFromHistory(row.id);
+      if (row.line !== null) win.editor.requestReveal(row.id, row.line);
+      return;
     }
+    // A note the index found on disk that no tab is showing: there is no id
+    // to focus, so it is opened by its path and revealed on the id that
+    // comes back.
+    if (row.source === "file" && row.path) {
+      void win.tabs.openFile(row.path).then((doc) => {
+        if (row.line !== null) win.editor.requestReveal(doc.id, row.line);
+      });
+      return;
+    }
+    void win.tabs.restoreFromHistory(row.id);
     if (row.line !== null) win.editor.requestReveal(row.id, row.line);
   }
 

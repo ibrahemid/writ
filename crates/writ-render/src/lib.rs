@@ -21,6 +21,7 @@ fn options() -> Options {
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_FOOTNOTES
         | Options::ENABLE_MATH
+        | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
 }
 
 /// True when a fenced-code info string selects the Mermaid renderer: the first
@@ -55,14 +56,84 @@ pub fn diagram_block(source: &str) -> String {
     format!("<pre class=\"mermaid\">{}</pre>", escape_text(source))
 }
 
+/// A note's leading YAML frontmatter block and the body after it.
+pub struct Frontmatter<'a> {
+    /// The block including both `---` fences and the trailing newline, or
+    /// `None` when the text has none.
+    pub raw: Option<&'a str>,
+    /// Everything after the block; the whole text when there is none.
+    pub body: &'a str,
+}
+
+/// Splits a leading YAML frontmatter block off `text` by byte offset.
+///
+/// Semantics match `writ_core::prompt::strip::strip_frontmatter`: the first
+/// line must be exactly `---` after trimming line-end whitespace, and a later
+/// line must be exactly `---`. An unterminated or malformed block is body
+/// text, never swallowed. The block is never parsed, re-serialised or
+/// normalised, so a round trip is byte-identical including key order,
+/// quoting, comments and trailing whitespace.
+pub fn split_frontmatter(text: &str) -> Frontmatter<'_> {
+    let none = Frontmatter {
+        raw: None,
+        body: text,
+    };
+    let mut lines = text.split_inclusive('\n');
+    let Some(first) = lines.next() else {
+        return none;
+    };
+    if first.trim_end() != "---" {
+        return none;
+    }
+    let mut offset = first.len();
+    for line in lines {
+        let end = offset + line.len();
+        if line.trim_end() == "---" {
+            return Frontmatter {
+                raw: Some(&text[..end]),
+                body: &text[end..],
+            };
+        }
+        offset = end;
+    }
+    none
+}
+
+/// True when a recognised frontmatter block holds no content lines.
+///
+/// pulldown-cmark 0.13.4 needs at least one content line to open a YAML
+/// metadata block, so `---\n---\n` reaches the parser as two thematic breaks
+/// and never produces the `MetadataBlock` events the render loop drops.
+fn block_is_blank(raw: &str) -> bool {
+    let mut lines = raw.split_inclusive('\n').skip(1).peekable();
+    while let Some(line) = lines.next() {
+        if lines.peek().is_some() && !line.trim().is_empty() {
+            return false;
+        }
+    }
+    true
+}
+
 /// Parse markdown with Writ's exact options, rewriting mermaid fences and
 /// passing math through, and serialize to an HTML fragment.
+///
+/// A leading YAML frontmatter block is hidden: the parser reports it as a
+/// `MetadataBlock` the event loop drops, and a blank block, which the parser
+/// does not recognise, is split off first.
 pub fn render_markdown_fragment(text: &str) -> MarkdownFragment {
-    let parser = Parser::new_ext(text, options());
+    let source = match split_frontmatter(text) {
+        Frontmatter {
+            raw: Some(raw),
+            body,
+        } if block_is_blank(raw) => body,
+        _ => text,
+    };
+    let parser = Parser::new_ext(source, options());
     let mut events: Vec<Event> = Vec::new();
     let mut has_mermaid = false;
     let mut has_math = false;
     let mut in_mermaid = false;
+    let mut in_metadata = false;
     let mut mermaid_src = String::new();
     for event in parser {
         match event {
@@ -81,6 +152,9 @@ pub fn render_markdown_fragment(text: &str) -> MarkdownFragment {
                 }
             }
             _ if in_mermaid => {}
+            Event::Start(Tag::MetadataBlock(_)) => in_metadata = true,
+            Event::End(TagEnd::MetadataBlock(_)) => in_metadata = false,
+            _ if in_metadata => {}
             Event::InlineMath(_) | Event::DisplayMath(_) => {
                 has_math = true;
                 events.push(event);
@@ -88,7 +162,7 @@ pub fn render_markdown_fragment(text: &str) -> MarkdownFragment {
             other => events.push(other),
         }
     }
-    let mut html_out = String::with_capacity(text.len() * 3 / 2);
+    let mut html_out = String::with_capacity(source.len() * 3 / 2);
     html::push_html(&mut html_out, events.into_iter());
     MarkdownFragment {
         html: html_out,

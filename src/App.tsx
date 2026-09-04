@@ -3,12 +3,17 @@ import TitleBar from "./components/TitleBar/TitleBar";
 import WindowLights from "./components/TitleBar/WindowLights";
 import EditorArea from "./components/Editor/EditorArea";
 import Sidebar from "./components/Sidebar/Sidebar";
-import CommandPalette, { toggleCommandPalette } from "./components/CommandPalette/CommandPalette";
+import CommandPalette, {
+  openNoteSearch,
+  toggleCommandPalette,
+} from "./components/CommandPalette/CommandPalette";
 import SearchPalette, { toggleSearchPalette } from "./components/SearchPalette/SearchPalette";
 import ThemeEditor, { openThemeEditor } from "./components/ThemeEditor/ThemeEditor";
 import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/ShortcutEditor";
 import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
+import NotesMigrationReport from "./components/NotesMigrationReport/NotesMigrationReport";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
+import { confirmAndDeleteNote, noteIsDeletable, saveCopyOfNote } from "./lib/note-actions";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
 import IconSprite from "./components/Icon/IconSprite";
 import { installNativeContextMenuSuppressor } from "./lib/native-context-menu";
@@ -24,6 +29,7 @@ import { formatSaveError } from "./lib/save-error";
 import { basename } from "./lib/path";
 import { logFailure } from "./lib/log";
 import { workspaceStore } from "./stores/global/workspace";
+import { notesStore } from "./stores/global/notes";
 import { inboxStore } from "./stores/global/inbox";
 import { updateStore } from "./stores/global/update";
 import { configStore } from "./stores/global/config";
@@ -56,7 +62,7 @@ import { onEvent, emitFrontendReady } from "./services/events";
 import { onAutosaveError, hasPendingAutosave, cancelAutosave } from "./services/autosave";
 import { handleExternalEdit } from "./services/external-edit";
 import { reportFirstPaint } from "./services/tauri";
-import { installCloseFlush } from "./services/window-lifecycle";
+import { installCloseFlush, startWindowLifecycle } from "./services/window-lifecycle";
 import type { UnlistenFn } from "./services/events";
 import "./styles/global.css";
 import "./App.css";
@@ -170,10 +176,12 @@ function AppShell() {
     if (!IS_MAC) unlisteners.push(await osWindowStore.installMaximizeSync());
     unlisteners.push(await osWindowStore.installGeometryPersistence());
     unlisteners.push(await installCloseFlush([() => osWindowStore.flushGeometry()]));
+    unlisteners.push(...(await startWindowLifecycle()));
     win.sidebar.hydrateFromConfig();
     await bufferRegistry.load();
     await workspaceStore.hydrate().catch(() => undefined);
     await inboxStore.hydrate().catch(() => undefined);
+    await notesStore.load();
 
     const recoveredBuffers = await getRecoveredBuffers().catch(() => []);
     if (recoveredBuffers.length > 0) {
@@ -232,14 +240,14 @@ function AppShell() {
       id: "note.new",
       icon: "note-pencil",
       label: "New note",
-      description: "Start a new note",
+      description: "Create a note in the notes folder",
       keybinding: "CmdOrCtrl+N",
       // The chord this command answered to before it was named for the note
       // rather than the buffer.
       keybindingAliases: ["CmdOrCtrl+T"],
       scope: "app",
       global: true,
-      execute: () => windowRegistry.getActive()?.tabs.createTab(),
+      execute: () => void windowRegistry.getActive()?.tabs.newNote(),
     });
 
     registerCommand({
@@ -486,13 +494,49 @@ function AppShell() {
     });
 
     registerCommand({
-      id: "tab.rename",
-      label: "Rename tab",
-      description: "Rename the active tab",
+      id: "notes.quickOpen",
+      label: "Open note",
+      description: "Find a note by name and open it",
+      keybinding: "CmdOrCtrl+Shift+O",
+      scope: "app",
+      global: true,
+      execute: () => openNoteSearch(),
+    });
+
+    registerCommand({
+      id: "note.rename",
+      label: "Rename note…",
+      description: "Rename the active note and its file",
       keybinding: "F2",
       keybindingAliases: ["CmdOrCtrl+Shift+S"],
       scope: "app",
       execute: () => startRenameActiveTab(),
+    });
+
+    registerCommand({
+      id: "note.delete",
+      label: "Delete note",
+      description: "Move the active note to the Trash",
+      scope: "app",
+      isAvailable: () => {
+        const id = windowRegistry.getActive()?.tabs.activeTabId();
+        return id !== null && id !== undefined && noteIsDeletable(id);
+      },
+      execute: () => {
+        const id = windowRegistry.getActive()?.tabs.activeTabId();
+        if (id) void confirmAndDeleteNote(id);
+      },
+    });
+
+    registerCommand({
+      id: "note.saveCopy",
+      label: "Save a copy…",
+      description: "Write a copy of the active note into the notes folder",
+      scope: "app",
+      execute: () => {
+        const id = windowRegistry.getActive()?.tabs.activeTabId();
+        if (id) void saveCopyOfNote(id);
+      },
     });
 
     registerCommand({
@@ -722,6 +766,7 @@ function AppShell() {
       <AiRewriteOverlay />
       <ToastContainer />
       <UpdateBanner />
+      <NotesMigrationReport />
     </AppFrame>
   );
 }

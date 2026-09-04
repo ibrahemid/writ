@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use tempfile::TempDir;
 use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
+use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
 use writ_plugin::transform::TransformRegistry;
@@ -12,9 +12,14 @@ use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
-use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
+use writ_storage::notes_index::NotesIndexStore;
+use writ_tauri_lib::commands::buffer::{
+    close_buffer_inner, close_buffers_inner, delete_buffer_inner, read_buffer_content_inner,
+    save_buffer_content_inner,
+};
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::preview::handler::RenderCache;
+use writ_tauri_lib::quit::QuitState;
 use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
 use writ_tauri_lib::state::AppState;
 use writ_tauri_lib::watcher::handler::create_ignore_set;
@@ -23,6 +28,10 @@ fn make_state(dir: &TempDir) -> AppState {
     let writ_dir = dir.path().to_path_buf();
     let buffers_dir = writ_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
+
+    let notes_root = writ_dir.join("Writ");
+    std::fs::create_dir_all(&notes_root).expect("notes folder");
+    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
     let db_path = writ_dir.join("writ.db");
     let conn = open_database(&db_path).expect("open db");
@@ -38,8 +47,14 @@ fn make_state(dir: &TempDir) -> AppState {
         config: Mutex::new(WritConfig::default()),
         writ_dir,
         buffers_dir,
+        notes_root: RwLock::new(notes_root),
+        notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
+        notes_watcher: Mutex::new(None),
+        notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
+        notes_index_cancel: Arc::new(AtomicBool::new(false)),
+        quit: Arc::new(QuitState::new()),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
         transforms: RwLock::new(TransformRegistry::new()),
@@ -60,6 +75,7 @@ fn make_state(dir: &TempDir) -> AppState {
             writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        last_disk_hash: Mutex::new(std::collections::HashMap::new()),
     }
 }
 
@@ -246,32 +262,88 @@ fn autosave_writes_the_file_the_buffer_was_opened_from() {
     save_buffer_content_inner(&state, &opened.doc.id, "alias a=c\n").expect("save");
 
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "alias a=c\n");
+    assert!(
+        is_empty_dir(&dir.path().join("buffers")),
+        "the file is the only copy of the text"
+    );
+}
 
-    let mirror = dir.path().join("buffers").join(&opened.doc.filename);
+/// Mints a new note the way `create_buffer` does, writing nothing to disk.
+fn new_note(state: &AppState) -> writ_core::buffer::document::BufferDocument {
+    let store = state.store.lock().unwrap();
+    let mut mgr = writ_core::buffer::manager::BufferManager::new();
+    let doc = mgr.create_buffer(None).expect("mint");
+    store.insert(&doc).expect("persist");
+    doc
+}
+
+fn is_empty_dir(dir: &std::path::Path) -> bool {
+    std::fs::read_dir(dir)
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(true)
+}
+
+#[test]
+fn first_save_of_a_new_note_creates_a_dated_file_in_the_notes_folder() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let doc = new_note(&state);
+
+    save_buffer_content_inner(&state, &doc.id, "just notes").expect("save");
+
+    let expected = state.notes_root().join(format!(
+        "{}.md",
+        writ_core::notes::date_stem(doc.created_at)
+    ));
+    assert_eq!(std::fs::read_to_string(&expected).unwrap(), "just notes");
+    assert!(
+        is_empty_dir(&dir.path().join("buffers")),
+        "the note is a file in the notes folder and nowhere else"
+    );
+
+    let store = state.store.lock().unwrap();
     assert_eq!(
-        std::fs::read_to_string(mirror).unwrap(),
-        "alias a=c\n",
-        "the copy Writ reads back has to track the file"
+        store.get(&doc.id).unwrap().source_path.as_deref(),
+        expected.to_str(),
+        "the row points at the file from the first keystroke on"
     );
 }
 
 #[test]
-fn autosave_of_a_scratch_buffer_stays_in_the_buffers_dir() {
+fn the_dated_file_name_dedupes_when_todays_note_already_exists() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
+    let day = writ_core::notes::date_stem(chrono::Utc::now());
+    std::fs::write(state.notes_root().join(format!("{day}.md")), "yesterday's").unwrap();
 
-    let doc = {
-        let store = state.store.lock().unwrap();
-        let mut mgr = writ_core::buffer::manager::BufferManager::new();
-        let doc = mgr.create_buffer(None).expect("mint");
-        store.insert(&doc).expect("persist");
-        doc
-    };
+    let doc = new_note(&state);
+    save_buffer_content_inner(&state, &doc.id, "today's").expect("save");
 
-    save_buffer_content_inner(&state, &doc.id, "just notes").expect("save");
+    assert_eq!(
+        std::fs::read_to_string(state.notes_root().join(format!("{day} 2.md"))).unwrap(),
+        "today's"
+    );
+    assert_eq!(
+        std::fs::read_to_string(state.notes_root().join(format!("{day}.md"))).unwrap(),
+        "yesterday's",
+        "the note already there is never written over"
+    );
+}
 
-    let mirror = dir.path().join("buffers").join(&doc.filename);
-    assert_eq!(std::fs::read_to_string(mirror).unwrap(), "just notes");
+#[test]
+fn a_new_note_with_nothing_in_it_writes_no_file() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let doc = new_note(&state);
+
+    save_buffer_content_inner(&state, &doc.id, "").expect("an empty save is a no-op");
+
+    assert!(
+        is_empty_dir(&state.notes_root()),
+        "opening a tab and changing your mind leaves the folder as it was"
+    );
+    let store = state.store.lock().unwrap();
+    assert!(store.get(&doc.id).unwrap().source_path.is_none());
 }
 
 #[test]
@@ -354,17 +426,18 @@ fn reopening_an_untouched_file_leaves_the_buffer_alone() {
     state.authorized_paths.record_for_open(canonical.clone());
     let opened = open_file_from_path(&state, &canonical).expect("open");
 
-    let mirror = dir.path().join("buffers").join(&opened.doc.filename);
-    let before = std::fs::metadata(&mirror).unwrap().modified().unwrap();
+    let before = std::fs::metadata(&file).unwrap().modified().unwrap();
 
     state.authorized_paths.record_for_open(canonical.clone());
     open_file_from_path(&state, &canonical).expect("reopen");
 
     assert_eq!(
-        std::fs::metadata(&mirror).unwrap().modified().unwrap(),
+        std::fs::metadata(&file).unwrap().modified().unwrap(),
         before,
-        "nothing changed on disk, so nothing should have been rewritten"
+        "reopening reads the file; it never writes it back"
     );
+    let store = state.store.lock().unwrap();
+    assert_eq!(store.read_content(&opened.doc.id).unwrap(), "unchanged");
 }
 
 #[test]
@@ -414,4 +487,302 @@ fn a_restored_tab_whose_file_was_deleted_recreates_it() {
 
     save_buffer_content_inner(&restarted, &opened.doc.id, "rewritten").expect("save");
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "rewritten");
+}
+
+#[test]
+fn file_created_in_the_notes_folder_by_another_program_opens() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    // Nothing recorded this path: it arrived the way a sync client delivers a
+    // note written on another machine.
+    let note = state.notes_root().join("from-another-machine.md");
+    std::fs::write(&note, "typed elsewhere").unwrap();
+
+    let opened = open_file_from_path(&state, &note.to_string_lossy())
+        .expect("a file in the notes folder opens without a dialog");
+    assert_eq!(
+        opened.doc.source_path.as_deref(),
+        Some(canonicalize_for_authorization(&note).unwrap().as_str())
+    );
+}
+
+#[test]
+fn save_into_the_notes_folder_is_authorized_without_a_dialog() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let note = state.notes_root().join("synced.md");
+    std::fs::write(&note, "arrived from a sync client").unwrap();
+    let canonical = canonicalize_for_authorization(&note).unwrap();
+
+    // The row exists with no blessing, which is what a restart plus a note
+    // that was never opened through a dialog leaves behind.
+    let doc = {
+        let store = state.store.lock().unwrap();
+        let mut mgr = writ_core::buffer::manager::BufferManager::new();
+        let doc = mgr.open_external(canonical.clone()).expect("mint");
+        store
+            .open_from_path(&doc, "arrived from a sync client")
+            .expect("persist");
+        doc
+    };
+    assert!(!state.authorized_paths.is_blessed_source(&canonical));
+
+    save_buffer_content_inner(&state, &doc.id, "edited in Writ").expect("save");
+    assert_eq!(std::fs::read_to_string(&note).unwrap(), "edited in Writ");
+}
+
+#[test]
+fn a_path_that_climbs_out_of_the_notes_folder_is_still_refused() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let outside = dir.path().join("outside.md");
+    std::fs::write(&outside, "original").unwrap();
+
+    let climbing = state
+        .notes_root()
+        .join("..")
+        .join("outside.md")
+        .to_string_lossy()
+        .into_owned();
+
+    let doc = {
+        let store = state.store.lock().unwrap();
+        let mut mgr = writ_core::buffer::manager::BufferManager::new();
+        let doc = mgr.open_external(climbing).expect("mint");
+        store.open_from_path(&doc, "original").expect("persist");
+        doc
+    };
+
+    let result = save_buffer_content_inner(&state, &doc.id, "hijacked");
+    assert!(result.is_err(), "containment must not accept a traversal");
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "original");
+
+    // A traversal to a file that does not exist yet cannot be resolved, so the
+    // comparison falls back to the path as written; refusing `..` outright is
+    // what stops it creating a file outside the folder.
+    let unwritten = dir.path().join("planted-by-traversal.md");
+    let climbing_new = state
+        .notes_root()
+        .join("..")
+        .join("planted-by-traversal.md")
+        .to_string_lossy()
+        .into_owned();
+    let new_doc = {
+        let store = state.store.lock().unwrap();
+        let mut mgr = writ_core::buffer::manager::BufferManager::new();
+        let doc = mgr.open_external(climbing_new).expect("mint");
+        store.open_from_path(&doc, "").expect("persist");
+        doc
+    };
+
+    assert!(save_buffer_content_inner(&state, &new_doc.id, "planted").is_err());
+    assert!(
+        !unwritten.exists(),
+        "nothing may be created outside the folder"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_linked_folder_inside_the_notes_folder_cannot_carry_a_save_outside() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let outside = TempDir::new().unwrap();
+    let link = state.notes_root().join("linked");
+    std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+
+    // The leaf does not exist, so only resolving the folders above it shows
+    // that the write would land outside the notes folder.
+    let planted = link.join("planted.md");
+    let doc = {
+        let store = state.store.lock().unwrap();
+        let mut mgr = writ_core::buffer::manager::BufferManager::new();
+        let doc = mgr
+            .open_external(planted.to_string_lossy().into_owned())
+            .expect("mint");
+        store.open_from_path(&doc, "").expect("persist");
+        doc
+    };
+
+    assert!(writ_tauri_lib::commands::file::authorize_source_write(
+        &state,
+        &planted.to_string_lossy()
+    )
+    .is_err());
+    assert!(save_buffer_content_inner(&state, &doc.id, "planted").is_err());
+    assert!(
+        !outside.path().join("planted.md").exists(),
+        "a linked folder must not carry the write out of the notes folder"
+    );
+}
+
+#[test]
+fn a_new_note_in_a_real_subfolder_of_the_notes_folder_is_authorized() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let subfolder = state.notes_root().join("projects");
+    std::fs::create_dir(&subfolder).unwrap();
+    let minted = subfolder.join("not-written-yet.md");
+
+    writ_tauri_lib::commands::file::authorize_source_write(&state, &minted.to_string_lossy())
+        .expect("a note about to be minted inside the folder is writable");
+}
+
+#[test]
+fn is_within_notes_refuses_a_path_that_climbs_out() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let inside = state.notes_root().join("note.md");
+    assert!(state.is_within_notes(&inside.to_string_lossy()));
+
+    let climbing = state.notes_root().join("..").join("note.md");
+    assert!(!state.is_within_notes(&climbing.to_string_lossy()));
+}
+
+fn count_external_events(state: &AppState) -> Arc<Mutex<u32>> {
+    let count = Arc::new(Mutex::new(0u32));
+    let count_clone = count.clone();
+    state.event_bus.subscribe(move |event| {
+        if let WritEvent::BufferExternal { .. } = event {
+            *count_clone.lock().unwrap() += 1;
+        }
+    });
+    count
+}
+
+#[test]
+fn reopening_an_unchanged_file_emits_nothing() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let file = dir.path().join("quiet.md");
+    std::fs::write(&file, "steady text").unwrap();
+    let canonical = canonicalize_for_authorization(&file).unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+    open_file_from_path(&state, &canonical).expect("open");
+
+    let count = count_external_events(&state);
+
+    state.authorized_paths.record_for_open(canonical.clone());
+    open_file_from_path(&state, &canonical).expect("reopen");
+
+    assert_eq!(
+        *count.lock().unwrap(),
+        0,
+        "an unchanged reopen must not emit an external-change event"
+    );
+}
+
+#[test]
+fn a_file_changed_out_of_band_keeps_being_announced_until_it_is_read() {
+    // The event is an offer the editor can decline: it asks before discarding
+    // unsaved keystrokes. Until the file is actually read, the tab still shows
+    // the old text, so every reopen has the same news to deliver.
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let file = dir.path().join("changing.md");
+    std::fs::write(&file, "first").unwrap();
+    let canonical = canonicalize_for_authorization(&file).unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+    let opened = open_file_from_path(&state, &canonical).expect("open");
+
+    let count = count_external_events(&state);
+
+    std::fs::write(&file, "second").unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+    open_file_from_path(&state, &canonical).expect("reopen after external change");
+    assert_eq!(
+        *count.lock().unwrap(),
+        1,
+        "a reopen with a changed digest must emit"
+    );
+
+    state.authorized_paths.record_for_open(canonical.clone());
+    open_file_from_path(&state, &canonical).expect("reopen after the offer was declined");
+    assert_eq!(
+        *count.lock().unwrap(),
+        2,
+        "a reload nobody took must not leave the tab looking current"
+    );
+
+    read_buffer_content_inner(&state, &opened.doc.id).expect("the editor takes the reload");
+
+    state.authorized_paths.record_for_open(canonical.clone());
+    open_file_from_path(&state, &canonical).expect("reopen with the file already read");
+    assert_eq!(
+        *count.lock().unwrap(),
+        2,
+        "once the file has been read there is nothing left to announce"
+    );
+}
+
+#[test]
+fn closing_a_tab_forgets_what_its_file_held() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let file = dir.path().join("closing.md");
+    std::fs::write(&file, "text").unwrap();
+    let canonical = canonicalize_for_authorization(&file).unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+    let opened = open_file_from_path(&state, &canonical).expect("open");
+    assert!(state.disk_state(&opened.doc.id).is_some());
+
+    close_buffer_inner(&state, &opened.doc.id).expect("close");
+
+    assert!(
+        state.disk_state(&opened.doc.id).is_none(),
+        "a closed tab is not a file Writ is still watching the bytes of"
+    );
+}
+
+#[test]
+fn closing_several_tabs_forgets_every_one_of_them() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let mut ids = Vec::new();
+    for name in ["one.md", "two.md"] {
+        let file = dir.path().join(name);
+        std::fs::write(&file, "text").unwrap();
+        let canonical = canonicalize_for_authorization(&file).unwrap();
+        state.authorized_paths.record_for_open(canonical.clone());
+        ids.push(
+            open_file_from_path(&state, &canonical)
+                .expect("open")
+                .doc
+                .id,
+        );
+    }
+
+    close_buffers_inner(&state, &ids).expect("close both");
+
+    for id in &ids {
+        assert!(state.disk_state(id).is_none(), "{id} was left recorded");
+    }
+}
+
+#[test]
+fn deleting_a_note_forgets_what_its_file_held() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let file = dir.path().join("doomed.md");
+    std::fs::write(&file, "text").unwrap();
+    let canonical = canonicalize_for_authorization(&file).unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+    let opened = open_file_from_path(&state, &canonical).expect("open");
+    assert!(state.disk_state(&opened.doc.id).is_some());
+
+    delete_buffer_inner(&state, &opened.doc.id).expect("delete the row");
+
+    assert!(state.disk_state(&opened.doc.id).is_none());
+    assert!(file.exists(), "deleting the row never deletes the file");
 }

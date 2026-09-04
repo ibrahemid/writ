@@ -1,25 +1,25 @@
-use std::collections::HashSet;
-
 use writ_core::buffer::document::BufferStatus;
 
 use crate::buffer_store::BufferStore;
 use crate::errors::StorageResult;
 
-/// Result of a consistency check between the database and the on-disk
-/// buffer directory.
+/// What the startup check found that does not line up.
 pub struct ConsistencyReport {
-    /// Files present in the buffers directory with no matching row.
+    /// Files still sitting in the retired mirror directory. After the notes
+    /// migration this is empty; anything left is text the migration could not
+    /// place, kept rather than deleted.
     pub orphan_files: Vec<String>,
-    /// Buffer ids whose backing content file is missing.
+    /// Ids of notes whose file is missing: either the row never reached one,
+    /// or the path it names is gone.
     pub missing_files: Vec<String>,
 }
 
-/// Compares the database and the on-disk buffer directory and reports
+/// Compares the database against the files the notes live in and reports
 /// anything that does not line up.
 ///
-/// This is used at startup to detect corruption from partial writes,
-/// manual file edits, or interrupted migrations. The check is read-only;
-/// callers decide how to repair.
+/// This is used at startup to detect corruption from partial writes, manual
+/// file edits, or an interrupted migration. The check is read-only; callers
+/// decide how to repair.
 pub struct ConsistencyChecker<'a> {
     store: &'a BufferStore,
 }
@@ -38,24 +38,21 @@ impl<'a> ConsistencyChecker<'a> {
 
         let buffers_dir = self.store.buffers_dir();
 
-        let known_filenames: HashSet<String> =
-            all_buffers.iter().map(|b| b.filename.clone()).collect();
-
         let mut orphan_files = Vec::new();
         if buffers_dir.exists() {
             for entry in std::fs::read_dir(buffers_dir)? {
                 let entry = entry?;
-                let file_name = entry.file_name().to_string_lossy().into_owned();
-                if !known_filenames.contains(&file_name) {
-                    orphan_files.push(file_name);
-                }
+                orphan_files.push(entry.file_name().to_string_lossy().into_owned());
             }
         }
 
         let mut missing_files = Vec::new();
         for buffer in &all_buffers {
-            let file_path = buffers_dir.join(&buffer.filename);
-            if !file_path.exists() {
+            let present = buffer
+                .source_path
+                .as_deref()
+                .is_some_and(|path| std::path::Path::new(path).exists());
+            if !present {
                 missing_files.push(buffer.id.clone());
             }
         }

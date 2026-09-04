@@ -10,7 +10,7 @@ import {
 } from "../lib/preview-layout";
 
 // Preview keymap (lean scope). Detach is cut, so its binding is gone. The
-// ADR-009 force-render binding (Cmd+R) is taken by tab.rename today; L2
+// ADR-009 force-render binding (Cmd+R) is taken by note.rename today; L2
 // ships preview-refresh on F5 and the rename rebind is a follow-up.
 
 function activeWindow() {

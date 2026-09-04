@@ -40,6 +40,12 @@ pub struct SearchHit {
     pub line: Option<u32>,
     /// Highlighted preview of the matching (or first) line.
     pub snippet: Vec<SnippetSegment>,
+    /// Canonical path of the note the hit came from, when the index that
+    /// produced it is keyed by path (ADR-028 section 7). A result whose note is
+    /// not already open is opened by this path; `None` for a hit that carries
+    /// only a buffer id.
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 /// Longest snippet rendered, in characters; longer lines are windowed.
@@ -69,6 +75,7 @@ pub fn build_hit(buffer_id: &str, title: &str, content: &str, terms: &[String]) 
                 title: title.to_string(),
                 line: Some((idx as u32) + 1),
                 snippet: highlight_window(line, terms),
+                path: None,
             };
         }
     }
@@ -80,6 +87,7 @@ pub fn build_hit(buffer_id: &str, title: &str, content: &str, terms: &[String]) 
         title: title.to_string(),
         line: None,
         snippet: highlight_window(snippet_source, terms),
+        path: None,
     }
 }
 

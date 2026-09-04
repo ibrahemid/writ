@@ -11,8 +11,10 @@ import { formatKeybinding } from "../../lib/keybinding-format";
  * of ids and never drifts into a second accelerator table.
  */
 const MENU_COMMAND_IDS = [
-  "file.open",
   "note.new",
+  "file.open",
+  "note.rename",
+  "note.saveCopy",
   "buffer.close",
   "palette.open",
   "app.check_updates",
@@ -20,6 +22,7 @@ const MENU_COMMAND_IDS = [
 
 /** Ids that open a group. A divider is drawn above them when they are not first. */
 const GROUP_OPENERS: ReadonlySet<string> = new Set([
+  "note.rename",
   "buffer.close",
   "palette.open",
   "app.check_updates",

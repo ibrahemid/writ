@@ -8,6 +8,15 @@ import { showContextMenu } from "../ContextMenu/ContextMenu";
 import { showToast } from "../Notifications/Toast";
 import { abbreviateTitle } from "../../lib/buffer-name";
 import { resolvePlatform } from "../../lib/platform";
+import {
+  confirmAndDeleteNote,
+  noteIsDeletable,
+  saveCopyOfNote,
+  showInFileManagerLabel,
+  showNoteInFileManager,
+} from "../../lib/note-actions";
+import { formatRenameError } from "../../lib/save-error";
+import { logFailure } from "../../lib/log";
 import "./TabBar.css";
 
 // Module-level singleton — TabBar mounts only in the main window (detached
@@ -42,14 +51,16 @@ export default function TabBar() {
     });
   });
 
+  // Renaming a tab renames the note's file, so it can be stopped: an empty
+  // name, a name the folder already holds, a file something else rewrote. The
+  // backend decides all three, and the answer has to reach the person who
+  // typed the name rather than being dropped on the floor.
   function handleRenameSubmit(tabId: string, value: string) {
-    const trimmed = value.trim();
-    if (trimmed) {
-      void bufferRegistry
-        .renameBuffer(tabId, trimmed)
-        .catch(() => showToast("Could not rename the note", "error"));
-    }
     setEditingTabId(null);
+    void bufferRegistry.renameBuffer(tabId, value).catch((error) => {
+      logFailure("a note could not be renamed");
+      showToast(formatRenameError(error), "error");
+    });
   }
 
   function handleRenameKeyDown(e: KeyboardEvent, tabId: string) {
@@ -66,9 +77,26 @@ export default function TabBar() {
 
   function handleContextMenu(e: MouseEvent, tabId: string) {
     e.preventDefault();
+    const onDisk = bufferRegistry.buffers().some((b) => b.id === tabId && b.source_path);
     showContextMenu(e.clientX, e.clientY, [
       { label: "Rename", action: () => setEditingTabId(tabId) },
-      { label: "Close tab", action: () => void win.tabs.closeTab(tabId) },
+      {
+        label: showInFileManagerLabel(),
+        action: () => void showNoteInFileManager(tabId),
+        disabled: !onDisk,
+      },
+      {
+        label: "Save a copy…",
+        action: () => void saveCopyOfNote(tabId),
+        separator: true,
+      },
+      {
+        label: "Delete",
+        action: () => void confirmAndDeleteNote(tabId),
+        disabled: !noteIsDeletable(tabId),
+        danger: true,
+      },
+      { label: "Close tab", action: () => void win.tabs.closeTab(tabId), separator: true },
       { label: "Close other tabs", action: () => void win.tabs.closeOtherTabs(tabId) },
       { label: "Close all tabs", action: () => void win.tabs.closeAllTabs(), separator: true, danger: true },
     ]);
@@ -194,7 +222,7 @@ export default function TabBar() {
             type="button"
             class="tab-add"
             aria-label="New note"
-            onClick={() => void win.tabs.createTab()}
+            onClick={() => void win.tabs.newNote()}
           >
             <Icon name="plus" size={16} />
           </button>

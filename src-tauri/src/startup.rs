@@ -1,10 +1,11 @@
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use writ_core::file_ops::arg_paths_from_iter;
+use writ_core::startup::{classify_data_dir, DataDirVerdict, Platform};
 
-use crate::security::{canonicalize_for_authorization, AuthorizedPaths};
+use crate::security::{canonicalize_for_authorization, resolve_for_containment, AuthorizedPaths};
 
 pub fn push_arg_paths_into_pending<I>(
     pending: &Mutex<Vec<String>>,
@@ -61,6 +62,80 @@ pub fn authorize_and_canonicalize(
         }
     }
     out
+}
+
+/// The platform table [`writ_core::startup::classify_data_dir`] is given.
+///
+/// Each host builds only its own constant; the other tables are reached from
+/// tests, which pass the variant they mean.
+#[cfg(target_os = "macos")]
+pub const HOST_PLATFORM: Platform = Platform::Macos;
+/// The platform table [`writ_core::startup::classify_data_dir`] is given.
+#[cfg(target_os = "windows")]
+pub const HOST_PLATFORM: Platform = Platform::Windows;
+/// The platform table [`writ_core::startup::classify_data_dir`] is given.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub const HOST_PLATFORM: Platform = Platform::Linux;
+
+/// The `.stfolder` marker file name Syncthing writes at the top of every
+/// folder it syncs.
+const STFOLDER: &str = ".stfolder";
+
+/// Ancestors of `dir` that hold a [`STFOLDER`] marker, nearest first.
+///
+/// Syncthing names a synced folder whatever the user named it, so the marker
+/// is the only signal there is. The walk is bounded by the ancestor count, so
+/// it costs a handful of `exists()` calls on the startup path.
+pub fn stfolder_markers(dir: &Path) -> Vec<PathBuf> {
+    dir.ancestors()
+        .filter(|ancestor| ancestor.join(STFOLDER).exists())
+        .map(Path::to_path_buf)
+        .collect()
+}
+
+/// Asks [`classify_data_dir`] where `data_dir` will land and returns the
+/// first answer that stops the launch.
+///
+/// The policy compares paths as given, so the adapter has to resolve them
+/// first. [`resolve_for_containment`] resolves the deepest part of the path
+/// that exists and appends the rest, which is what makes the answer honest on
+/// a first launch: the folder Writ is about to create does not exist, so
+/// `canonicalize` alone says nothing, and a symlinked parent would carry the
+/// database into a synced folder unseen. On macOS it also settles the
+/// `/var` against `/private/var` spelling `notes_root` arrives in.
+///
+/// The resolved path is asked about first, so a refusal names the folder the
+/// database would land in. The path as given is asked about second, for the
+/// paths resolution has no answer for: a relative or non-UTF-8 `WRIT_DATA_DIR`
+/// returns `None` there, and so does a symlink whose target does not exist,
+/// which `create_dir_all` then turns down in `AppState::initialize` rather
+/// than following.
+pub fn data_dir_verdict(
+    data_dir: &Path,
+    home: Option<&Path>,
+    notes_root: Option<&Path>,
+) -> DataDirVerdict {
+    let mut spellings = Vec::with_capacity(2);
+    if let Some(planned) = resolve_for_containment(data_dir).map(PathBuf::from) {
+        spellings.push(planned);
+    }
+    if !spellings.iter().any(|known| known == data_dir) {
+        spellings.push(data_dir.to_path_buf());
+    }
+
+    for spelling in &spellings {
+        let verdict = classify_data_dir(
+            HOST_PLATFORM,
+            spelling,
+            home,
+            notes_root,
+            &stfolder_markers(spelling),
+        );
+        if verdict != DataDirVerdict::Ok {
+            return verdict;
+        }
+    }
+    DataDirVerdict::Ok
 }
 
 #[cfg(test)]

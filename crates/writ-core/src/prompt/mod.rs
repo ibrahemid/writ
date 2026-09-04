@@ -9,7 +9,7 @@
 
 mod estimate;
 mod placeholder;
-mod strip;
+pub mod strip;
 
 pub use estimate::estimate_tokens;
 pub use placeholder::{fill_placeholders, scan_placeholders};

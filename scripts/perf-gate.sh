@@ -22,6 +22,19 @@ WRIT_PERF_GATE=1 cargo test \
     --test perf_budget \
     -- --nocapture
 
+step "perf gate: builtin transform probe (writ-plugin, release)"
+cargo test \
+    --release \
+    -p writ-plugin \
+    --test builtin_perf_tests \
+    -- --ignored --nocapture
+
+step "perf gate: language detection input cap (frontend)"
+PNPM="${PNPM:-pnpm}"
+command -v "${PNPM}" >/dev/null 2>&1 || fail "pnpm not found; set PNPM to its path"
+WRIT_PERF_GATE=1 "${PNPM}" exec vitest run \
+    src/__tests__/services/language-detect.test.ts
+
 step "perf gate: storage budget (writ-storage, release)"
 WRIT_PERF_GATE=1 cargo test \
     --release \

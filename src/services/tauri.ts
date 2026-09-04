@@ -49,6 +49,112 @@ export async function getBuffer(id: string): Promise<BufferDocument> {
   return invoke("get_buffer", { id });
 }
 
+// Notes: the file moves first, the row second (ADR-028 §3).
+
+export async function newNote(): Promise<BufferDocument> {
+  return invoke("new_note");
+}
+
+export async function renameNote(id: string, title: string): Promise<BufferDocument> {
+  return invoke("rename_note", { id, title });
+}
+
+export async function deleteNote(id: string): Promise<void> {
+  return invoke("delete_note", { id });
+}
+
+/** Writes a copy into the notes folder and returns the path it was written to. */
+export async function saveNoteCopy(id: string, content: string): Promise<string> {
+  return invoke("save_note_copy", { id, content });
+}
+
+export async function showNoteInFileManager(id: string): Promise<void> {
+  return invoke("show_note_in_file_manager", { id });
+}
+
+export async function showNotesFileInFileManager(path: string): Promise<void> {
+  return invoke("show_notes_file_in_file_manager", { path });
+}
+
+export async function getNotesRoot(): Promise<string> {
+  return invoke("get_notes_root");
+}
+
+/** Why Writ is not using the notes folder the settings named. */
+export type NotesFallbackReason = "unusable" | "holds_writ_data";
+
+/** The notes folder Writ was asked for and did not keep. */
+export interface NotesFolderFallback {
+  /** The folder as it was written in the settings. */
+  from: string;
+  reason: NotesFallbackReason;
+}
+
+/** Where the notes folder is, and whether it is the one the user asked for. */
+export interface NotesFolderInfo {
+  path: string;
+  /** The path with the home folder collapsed to `~`. */
+  display_path: string;
+  /** The folder the settings named, when Writ could not use it. */
+  fallback: NotesFolderFallback | null;
+}
+
+export async function getNotesFolder(): Promise<NotesFolderInfo> {
+  return invoke("get_notes_folder");
+}
+
+export async function showNotesFolderInFinder(): Promise<void> {
+  return invoke("show_notes_folder_in_finder");
+}
+
+/**
+ * What moving the notes folder did. `collided` is non-empty only when nothing
+ * moved: the destination already held those names.
+ */
+export interface MoveNotesOutcome {
+  new_root: string;
+  moved: number;
+  collided: string[];
+}
+
+/** Asks for a folder and moves the notes into it. `null` if nothing was picked. */
+export async function pickNotesFolder(): Promise<MoveNotesOutcome | null> {
+  return invoke("pick_notes_folder");
+}
+
+/** What the one-time pass that turned every note into a file did. */
+export interface NotesMigrationReport {
+  ran_at: string;
+  first_ran_at: string;
+  notes_folder: string;
+  archive_folder: string;
+  migrated: number;
+  archived: number;
+  recovered: number;
+  failed: number;
+  deleted_empty: number;
+  piped: number;
+}
+
+export async function getNotesMigrationReport(): Promise<NotesMigrationReport | null> {
+  return invoke("get_notes_migration_report");
+}
+
+export async function dismissNotesMigrationReport(): Promise<void> {
+  return invoke("dismiss_notes_migration_report");
+}
+
+/** What moving the archived notes into the notes folder did. */
+export interface MoveArchiveOutcome {
+  moved: number;
+  /** Names that were already taken, so the note arrived under a numbered one. */
+  collided: string[];
+}
+
+export async function moveArchivedNotes(): Promise<MoveArchiveOutcome> {
+  return invoke("move_archived_notes");
+}
+
 export async function saveBufferContent(id: string, content: string): Promise<void> {
   return invoke("save_buffer_content", { id, content });
 }
@@ -123,6 +229,10 @@ export async function updateConfig(config: WritConfig): Promise<void> {
 
 export async function toggleWindow(): Promise<void> {
   return invoke("toggle_window");
+}
+
+export async function confirmQuitFlush(): Promise<void> {
+  return invoke("confirm_quit_flush");
 }
 
 export async function openFile(path: string): Promise<FileOpenResult> {
@@ -560,6 +670,12 @@ export async function searchWorkspaceFiles(query: string): Promise<FileHit[]> {
   return invoke("search_workspace_files", { query });
 }
 
+// Ranked note names for quick open. Name-only, so the list stays the notes
+// themselves rather than the lines inside them.
+export async function searchNotesByName(query: string): Promise<FileHit[]> {
+  return invoke("search_notes_by_name", { query });
+}
+
 export async function workspaceIndexStatus(): Promise<IndexStatus> {
   return invoke("workspace_index_status");
 }
@@ -662,8 +778,8 @@ export async function revealStoragePath(): Promise<void> {
 
 // --- Third-party licences ---
 
-export async function readThirdPartyNotices(): Promise<string> {
-  return invoke("read_third_party_notices");
+export async function openThirdPartyNotices(): Promise<FileOpenResult> {
+  return invoke("open_third_party_notices");
 }
 
 // --- Rewrite (opt-in) ---

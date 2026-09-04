@@ -1,4 +1,5 @@
 export type SettingsSection =
+  | "notes"
   | "editor"
   | "files"
   | "storage"
@@ -19,6 +20,7 @@ export interface SettingEntry {
 }
 
 export const SECTION_LABELS: Record<SettingsSection, string> = {
+  notes: "Notes",
   editor: "Editor",
   files: "Files",
   storage: "Storage",
@@ -30,6 +32,7 @@ export const SECTION_LABELS: Record<SettingsSection, string> = {
 };
 
 export const SECTION_ORDER: SettingsSection[] = [
+  "notes",
   "editor",
   "files",
   "storage",
@@ -41,6 +44,7 @@ export const SECTION_ORDER: SettingsSection[] = [
 ];
 
 export const SETTINGS_INDEX: SettingEntry[] = [
+  { id: "notes.folder", section: "notes", title: "Notes folder", keywords: ["notes", "folder", "where are my notes", "location", "path", "finder", "backup", "sync", "icloud", "dropbox"] },
   { id: "editor.font_size", section: "editor", title: "Font size", keywords: ["font", "size", "text", "zoom"] },
   { id: "editor.tab_size", section: "editor", title: "Tab size", keywords: ["tab", "indent", "spaces", "width"] },
   { id: "editor.word_wrap", section: "editor", title: "Word wrap", keywords: ["wrap", "word", "line", "soft wrap"] },

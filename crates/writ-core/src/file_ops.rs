@@ -357,3 +357,14 @@ pub fn extract_filename(path: &Path) -> String {
         .unwrap_or("untitled")
         .to_string()
 }
+
+/// `true` when the first [`BINARY_CHECK_BYTES`] of `data` contain a NUL byte.
+///
+/// The in-memory half of the heuristic [`sniff_binary`] applies from a path:
+/// a caller that already holds the bytes (a read-only row's content, read
+/// once for its own purposes) sniffs from them directly rather than reading
+/// the file a second time. An empty slice is never binary.
+pub fn is_binary_bytes(data: &[u8]) -> bool {
+    let checked = &data[..data.len().min(BINARY_CHECK_BYTES)];
+    !checked.is_empty() && checked.contains(&0u8)
+}
