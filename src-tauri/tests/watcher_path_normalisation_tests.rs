@@ -23,8 +23,8 @@ use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
 #[cfg(target_os = "macos")]
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::preview::handler::RenderCache;
-#[cfg(target_os = "macos")]
 use writ_tauri_lib::quit::QuitState;
+#[cfg(target_os = "macos")]
 use writ_tauri_lib::security::canonicalize_for_authorization;
 use writ_tauri_lib::security::{canonicalize_root, AuthorizedPaths};
 use writ_tauri_lib::state::AppState;
