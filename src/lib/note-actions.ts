@@ -125,7 +125,7 @@ export async function resolveNoteChange(
     outcome = await api.resolveExternalChange(id, choice, content);
   } catch {
     logFailure("a change outside Writ could not be resolved");
-    showToast(`Couldn't update "${noteName(id)}"`, "error");
+    showToast(`Couldn't write to "${noteName(id)}".`, "error");
     return;
   }
 
@@ -140,7 +140,7 @@ export async function resolveNoteChange(
       await win.tabs.openFile(outcome.conflict_copy_path);
     } catch {
       logFailure("the copy beside a note could not be opened");
-      showToast("Couldn't open the copy of this note.", "error");
+      showToast("Couldn't open the copy.", "error");
     }
   }
 }
