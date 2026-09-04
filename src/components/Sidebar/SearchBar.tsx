@@ -1,6 +1,7 @@
 import { createMemo, Show } from "solid-js";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { useWindow } from "../WindowProvider/WindowProvider";
+import Icon from "../Icon/Icon";
 import { buildSearchRows } from "./search-results";
 import "./SearchBar.css";
 
@@ -28,22 +29,16 @@ export default function SearchBar() {
   });
 
   return (
-    <div class="search-bar">
+    // The macOS toolbar is a subtree drag region; the icon, the result count and
+    // the field's own padding are the control's interior, not window chrome.
+    <div class="search-bar" data-tauri-drag-region="false">
       <div class="search-field">
-        <svg
-          class="search-icon"
-          width="14"
-          height="14"
-          viewBox="0 0 14 14"
-          aria-hidden="true"
-        >
-          <circle cx="6" cy="6" r="4" stroke="currentColor" stroke-width="1.4" fill="none" />
-          <path d="M9 9L12.5 12.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-        </svg>
+        <Icon name="magnifying-glass" size={16} class="search-icon" />
         <input
           ref={(el) => (searchInputRef = el)}
           type="text"
-          placeholder="Search buffers..."
+          data-writ-focus-silent
+          placeholder="Search notes"
           value={win.sidebar.searchQuery()}
           onInput={(e) => win.sidebar.setSearchQuery(e.currentTarget.value)}
           class="search-input"

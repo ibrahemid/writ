@@ -1,0 +1,117 @@
+/* The --writ-preview-* palette ADR-030 puts on the reading surface, captured
+   from the built token layer. Committed separately from it: a token change
+   that repaints the preview has to be made here too, on purpose. */
+
+:root {
+  --writ-preview-bg: #ffffff;
+  --writ-preview-bg-sunken: #f1efeb;
+  --writ-preview-fg: #1c1a17;
+  --writ-preview-muted: #5d5850;
+  --writ-preview-subtle: #8a847a;
+  --writ-preview-accent: #1f6f5c;
+  --writ-preview-accent-hover: #1c6453;
+  --writ-preview-border: #e4e1db;
+  --writ-preview-border-soft: #efede8;
+  --writ-preview-code-bg: #f1efeb;
+  --writ-preview-code-fg: #1c1a17;
+  --writ-preview-mark-bg: #fdf2c4;
+  --writ-preview-mark-fg: #4a3a08;
+  --writ-preview-selection: rgba(31, 111, 92, 0.18);
+  --writ-preview-rule: #e4e1db;
+  --writ-preview-table-stripe: rgba(28, 26, 23, 0.02);
+  --writ-preview-syntax-keyword: #1c1a17;
+  --writ-preview-syntax-string: #5c7a5a;
+  --writ-preview-syntax-comment: #8a847a;
+  --writ-preview-syntax-function: #5d5850;
+  --writ-preview-syntax-number: #1c1a17;
+  --writ-preview-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", system-ui, sans-serif;
+  --writ-preview-font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", "SF Mono", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", Menlo, Consolas, monospace;
+  --writ-preview-fs-base: 1rem;
+  --writ-preview-fs-sm: 0.8rem;
+  --writ-preview-fs-h6: 0.94rem;
+  --writ-preview-fs-h5: 1rem;
+  --writ-preview-fs-h4: 1.25rem;
+  --writ-preview-fs-h3: 1.563rem;
+  --writ-preview-fs-h2: 1.953rem;
+  --writ-preview-fs-h1: 2.441rem;
+  --writ-preview-measure: 44rem;
+  --writ-preview-leading: 1.6;
+  --writ-preview-pad-x: 32px;
+  --writ-preview-pad-y: 32px;
+}
+
+[data-writ-theme="light"] {
+  --writ-preview-bg: #ffffff;
+  --writ-preview-bg-sunken: #f1efeb;
+  --writ-preview-fg: #1c1a17;
+  --writ-preview-muted: #5d5850;
+  --writ-preview-subtle: #8a847a;
+  --writ-preview-accent: #1f6f5c;
+  --writ-preview-accent-hover: #1c6453;
+  --writ-preview-border: #e4e1db;
+  --writ-preview-border-soft: #efede8;
+  --writ-preview-code-bg: #f1efeb;
+  --writ-preview-code-fg: #1c1a17;
+  --writ-preview-mark-bg: #fdf2c4;
+  --writ-preview-mark-fg: #4a3a08;
+  --writ-preview-selection: rgba(31, 111, 92, 0.18);
+  --writ-preview-rule: #e4e1db;
+  --writ-preview-table-stripe: rgba(28, 26, 23, 0.02);
+  --writ-preview-syntax-keyword: #1c1a17;
+  --writ-preview-syntax-string: #5c7a5a;
+  --writ-preview-syntax-comment: #8a847a;
+  --writ-preview-syntax-function: #5d5850;
+  --writ-preview-syntax-number: #1c1a17;
+  --writ-preview-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", system-ui, sans-serif;
+  --writ-preview-font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", "SF Mono", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", Menlo, Consolas, monospace;
+  --writ-preview-fs-base: 1rem;
+  --writ-preview-fs-sm: 0.8rem;
+  --writ-preview-fs-h6: 0.94rem;
+  --writ-preview-fs-h5: 1rem;
+  --writ-preview-fs-h4: 1.25rem;
+  --writ-preview-fs-h3: 1.563rem;
+  --writ-preview-fs-h2: 1.953rem;
+  --writ-preview-fs-h1: 2.441rem;
+  --writ-preview-measure: 44rem;
+  --writ-preview-leading: 1.6;
+  --writ-preview-pad-x: 32px;
+  --writ-preview-pad-y: 32px;
+}
+
+[data-writ-theme="dark"] {
+  --writ-preview-bg: #1b1a18;
+  --writ-preview-bg-sunken: #171614;
+  --writ-preview-fg: #edeae3;
+  --writ-preview-muted: #a8a296;
+  --writ-preview-subtle: #827c72;
+  --writ-preview-accent: #5bc5a7;
+  --writ-preview-accent-hover: #6bcbb0;
+  --writ-preview-border: #333029;
+  --writ-preview-border-soft: #272521;
+  --writ-preview-code-bg: #171614;
+  --writ-preview-code-fg: #edeae3;
+  --writ-preview-mark-bg: #3a3220;
+  --writ-preview-mark-fg: #f3e6c4;
+  --writ-preview-selection: rgba(91, 197, 167, 0.28);
+  --writ-preview-rule: #333029;
+  --writ-preview-table-stripe: rgba(255, 252, 246, 0.03);
+  --writ-preview-syntax-keyword: #edeae3;
+  --writ-preview-syntax-string: #8fae8b;
+  --writ-preview-syntax-comment: #827c72;
+  --writ-preview-syntax-function: #a8a296;
+  --writ-preview-syntax-number: #edeae3;
+  --writ-preview-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", system-ui, sans-serif;
+  --writ-preview-font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", "SF Mono", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", Menlo, Consolas, monospace;
+  --writ-preview-fs-base: 1rem;
+  --writ-preview-fs-sm: 0.8rem;
+  --writ-preview-fs-h6: 0.94rem;
+  --writ-preview-fs-h5: 1rem;
+  --writ-preview-fs-h4: 1.25rem;
+  --writ-preview-fs-h3: 1.563rem;
+  --writ-preview-fs-h2: 1.953rem;
+  --writ-preview-fs-h1: 2.441rem;
+  --writ-preview-measure: 44rem;
+  --writ-preview-leading: 1.6;
+  --writ-preview-pad-x: 32px;
+  --writ-preview-pad-y: 32px;
+}

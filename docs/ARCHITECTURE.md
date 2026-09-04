@@ -189,23 +189,21 @@ Two rules keep the DOM out of the reactive graph:
 
 ### Design tokens
 
-`design/tokens/*.json`, written in DTCG 2025.10, is the source of truth for colour, type,
-spacing and motion. A Style Dictionary v5 build emits every consumer from it:
-`src/styles/generated/theme.css`, holding the light palette on `:root`, the dark palette on
-`[data-theme="dark"]`, and per-platform overlays on `[data-platform="mac|win|linux"]`;
-`src/styles/generated/tokens.ts`, typed values for the places that need JavaScript rather than
-CSS, which is `src/components/Editor/cm-theme.ts`; `src-tauri/assets/generated/preview-tokens.css`,
-served into the preview document in place of `src-tauri/assets/preview-base.css`; and a target
-under `site/` that replaces the hand-copied values in `site/design-system/colors_and_type.css`.
+Every colour, radius, type step, shadow and duration is a DTCG token under `design/tokens/`.
+`pnpm tokens:build` emits four files, all of them read-only:
 
-Generated files are committed, and CI re-runs the build and fails when the tree is stale, so a
-token edit and its output land together. No literal colour appears outside the generated files
-anywhere under `src/` or `site/`.
+| Output | Consumer |
+|---|---|
+| `src/styles/generated/theme.css` | the app, imported by `src/styles/global.css` after `fonts.css` |
+| `src/styles/generated/tokens.ts` | TypeScript that needs a token value or an accent id |
+| `src-tauri/assets/generated/preview-tokens.css` | the `writ-preview://` iframe, inlined by `renderers/theme.rs` |
+| `site/design-system/generated/tokens.css` | nothing yet: no page imports it, and the demo window declares its own `--writ-*` values in `site/src/styles/writ-window.css` |
 
-The runtime keeps the `var(--writ-*)` indirection. Components read variables, never token values,
-and the theme store applies a preset by setting those variables, so a theme change stays one
-write. The token layer lands with 1.0
-([ADR-030](./adr/030-design-system-tokens.md)).
+A component stylesheet spends `var(--writ-*)`; it never declares one. Three architecture tests
+hold the line: `no-literal-color`, `no-raw-radius-or-easing`, and `legacy-aliases`, which carries
+the pre-ADR-030 names and fails any file that still reads one. A new token is added to
+`design/tokens/` and the outputs regenerated in the same commit, which CI checks by rebuilding
+and diffing ([ADR-030](./adr/030-design-system-tokens.md)).
 
 ## Design Principles
 

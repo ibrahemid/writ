@@ -147,7 +147,7 @@ describe("Cmd+\\ toggles the sidebar", () => {
     const sidebar = createSidebarStore();
     registerCommand({
       id: "sidebar.toggle",
-      label: "Toggle Sidebar",
+      label: "Toggle sidebar",
       keybinding: "CmdOrCtrl+\\",
       scope: "app",
       global: true,

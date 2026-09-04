@@ -1,21 +1,28 @@
 .sidebar-empty {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: var(--writ-space-3);
-  padding: var(--writ-space-6) var(--writ-space-5);
-  text-align: center;
+  align-items: flex-start;
+  gap: 10px;
+  /* The baseline drew 212px against a fixed 240px sidebar; the sidebar now
+     resizes down to 200, so the card follows it. */
+  width: auto;
+  max-width: 212px;
+  margin: var(--writ-space-3);
+  padding: 20px 16px;
+  background: var(--writ-bg-sidebar);
+  border-radius: var(--writ-r-media);
 }
 
 .sidebar-empty-title {
-  font-size: var(--writ-font-size-sm);
-  color: var(--writ-foreground-muted);
+  margin: 0 0 2px;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  color: var(--writ-fg-muted);
 }
 
-.sidebar-empty-hint {
+.sidebar-empty-line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--writ-space-2);
-  font-size: var(--writ-font-size-xs);
-  color: var(--writ-foreground-subtle);
+  gap: 8px;
 }

@@ -23,6 +23,15 @@ let activeRows: BufferDocument[] = [];
 let historyRows: BufferDocument[] = [];
 
 vi.mock("../../services/autosave", () => ({ flushAutosave: vi.fn() }));
+// The sidebar head reads the window's focus state for the macOS lights.
+vi.mock("../../stores/global/os-window", () => ({
+  osWindowStore: {
+    focused: () => true,
+    hide: vi.fn(),
+    minimize: vi.fn(),
+    toggleFullscreen: vi.fn(),
+  },
+}));
 vi.mock("../../components/ContextMenu/ContextMenu", () => ({
   showContextMenu: vi.fn(),
 }));
@@ -64,9 +73,10 @@ describe("sidebar empty state", () => {
 
     const empty = container.querySelector(".sidebar-empty");
     expect(empty).toBeTruthy();
-    expect(container.textContent).toContain("No open files");
-    // The cold front door points at the two ways to get a buffer.
-    expect(container.querySelector(".sidebar-empty .kbd-chord")).toBeTruthy();
+    expect(container.textContent).toContain("No notes yet.");
+    // The cold front door points at the two ways in.
+    expect(container.querySelectorAll(".sidebar-empty .writ-btn")).toHaveLength(2);
+    expect(container.querySelectorAll(".sidebar-empty .kbd-chord")).toHaveLength(1);
   });
 
   it("does not show the empty state when history exists", async () => {

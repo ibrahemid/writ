@@ -1,3 +1,5 @@
+import type { IconName } from "../components/Icon/sprite.generated";
+
 export type CommandScope = "app" | "editor";
 
 export interface Command {
@@ -11,6 +13,8 @@ export interface Command {
    * index already uses.
    */
   keywords?: string[];
+  /** Leading glyph in the palette, for commands with an obvious one. */
+  icon?: IconName;
   keybinding?: string;
   keybindingAliases?: string[];
   scope: CommandScope;

@@ -1,0 +1,59 @@
+{
+  "accent": {
+    "plum": {
+      "$type": "color",
+      "light": {
+        "base": {
+          "$value": "#7B3F86",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent"
+            }
+          }
+        },
+        "hover": {
+          "$value": "#6F3979",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-hover"
+            }
+          }
+        },
+        "foreground": {
+          "$value": "#FFFFFF",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-fg"
+            }
+          }
+        }
+      },
+      "dark": {
+        "base": {
+          "$value": "#C79BD1",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent"
+            }
+          }
+        },
+        "hover": {
+          "$value": "#CDA5D6",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-hover"
+            }
+          }
+        },
+        "foreground": {
+          "$value": "#221A24",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-fg"
+            }
+          }
+        }
+      }
+    }
+  }
+}

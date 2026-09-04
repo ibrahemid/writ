@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal } from "solid-js";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { workspaceStore } from "../../stores/global/workspace";
+import Icon from "../Icon/Icon";
 import { notesStore } from "../../stores/global/notes";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
 import {
@@ -12,8 +13,9 @@ import { startRenameActiveTab } from "../Editor/TabBar";
 import type { WorkspaceEntry } from "../../types/workspace";
 import "./FileTree.css";
 
-const BASE_INDENT = 8;
-const INDENT_PER_LEVEL = 14;
+// A child row sits 16px past its parent's label (ADR-030 decision 4).
+const BASE_INDENT = 10;
+const INDENT_PER_LEVEL = 16;
 
 function moveTreeFocus(tree: HTMLElement, from: HTMLElement, delta: 1 | -1) {
   const items = Array.from(tree.querySelectorAll<HTMLElement>('[role="treeitem"]'));
@@ -132,9 +134,12 @@ function TreeNode(props: TreeNodeProps) {
         onContextMenu={handleContextMenu}
         onKeyDown={handleKeyDown}
       >
-        <span class="file-tree-chevron" aria-hidden="true">
-          {props.entry.is_dir ? (expanded() ? "▾" : "▸") : "·"}
+        <span class="file-tree-caret" aria-hidden="true">
+          <Show when={props.entry.is_dir}>
+            <Icon name={expanded() ? "caret-down" : "caret-right"} size={12} />
+          </Show>
         </span>
+        <Icon name={props.entry.is_dir ? (expanded() ? "folder-open" : "folder") : "file-text"} />
         <span class="file-tree-item-name">{props.entry.name}</span>
       </div>
       <Show when={props.entry.is_dir && expanded()}>

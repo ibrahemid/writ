@@ -6,8 +6,8 @@
   align-items: center;
   gap: 2px;
   padding: 2px;
-  border-radius: 7px;
-  background: var(--writ-surface-sunken);
+  border-radius: var(--writ-r-control);
+  background: var(--writ-bg-sidebar);
 }
 
 .layout-toggle-seg {
@@ -16,28 +16,28 @@
   gap: 5px;
   padding: 2px 8px;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--writ-r-action);
   background: transparent;
-  color: var(--writ-foreground-subtle);
-  font-family: var(--writ-font-sans);
-  font-size: var(--writ-font-size-xs);
+  color: var(--writ-fg-faint);
+  font-family: var(--writ-font-ui);
+  font-size: var(--writ-ui-xs);
   line-height: 1.4;
   cursor: pointer;
-  transition: color 120ms ease, background 120ms ease;
+  transition: color var(--writ-motion), background var(--writ-motion);
 }
 
 .layout-toggle-seg:hover {
-  color: var(--writ-foreground-default);
+  color: var(--writ-fg);
 }
 
 .layout-toggle-seg.is-active {
-  color: var(--writ-accent-default);
-  background: var(--writ-surface-elevated);
-  box-shadow: var(--writ-shadow-xs);
+  color: var(--writ-accent);
+  background: var(--writ-bg-selected);
+  box-shadow: var(--writ-shadow-chip);
 }
 
 .layout-toggle-seg:focus-visible {
-  outline: 1px solid var(--writ-border-focus);
+  outline: 1px solid var(--writ-accent);
   outline-offset: 1px;
 }
 
@@ -57,23 +57,23 @@
   gap: 6px;
   padding: 3px 9px;
   border: none;
-  border-radius: 7px;
-  background: var(--writ-surface-sunken);
-  color: var(--writ-foreground-muted);
-  font-family: var(--writ-font-sans);
-  font-size: var(--writ-font-size-xs);
+  border-radius: var(--writ-r-control);
+  background: var(--writ-bg-sidebar);
+  color: var(--writ-fg-muted);
+  font-family: var(--writ-font-ui);
+  font-size: var(--writ-ui-xs);
   line-height: 1.4;
   cursor: pointer;
-  transition: color 120ms ease, background 120ms ease;
+  transition: color var(--writ-motion), background var(--writ-motion);
 }
 
 .scripts-toggle:hover {
-  color: var(--writ-foreground-default);
-  background: var(--writ-surface-hover);
+  color: var(--writ-fg);
+  background: var(--writ-bg-hover);
 }
 
 .scripts-toggle:focus-visible {
-  outline: 1px solid var(--writ-border-focus);
+  outline: 1px solid var(--writ-accent);
   outline-offset: 1px;
 }
 
@@ -81,24 +81,16 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--writ-accent-default);
-  box-shadow: 0 0 4px var(--writ-accent-default);
-  transition: background 120ms ease, box-shadow 120ms ease;
+  background: var(--writ-accent);
+  box-shadow: 0 0 4px var(--writ-accent);
+  transition: background var(--writ-motion), box-shadow var(--writ-motion);
 }
 
 .scripts-toggle.is-off {
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg-faint);
 }
 
 .scripts-toggle.is-off .scripts-toggle-dot {
-  background: var(--writ-foreground-subtle);
+  background: var(--writ-fg-faint);
   box-shadow: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .layout-toggle-seg,
-  .scripts-toggle,
-  .scripts-toggle-dot {
-    transition: none;
-  }
 }

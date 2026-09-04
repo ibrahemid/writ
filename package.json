@@ -21,6 +21,8 @@
         "build": "vite build",
         "tauri": "tauri",
         "test": "vitest run",
+        "tokens:build": "node scripts/tokens-build.mjs",
+        "icons:build": "node scripts/build-icon-sprite.mjs",
         "test:watch": "vitest",
         "typecheck": "tsc --noEmit"
     },
@@ -41,7 +43,6 @@
         "@codemirror/search": "^6.7.1",
         "@codemirror/state": "^6.7.1",
         "@codemirror/view": "^6.43.9",
-        "@fontsource/inter": "^5.3.0",
         "@lezer/highlight": "^1.2.3",
         "@tauri-apps/api": "^2.11.1",
         "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
@@ -50,11 +51,13 @@
         "solid-js": "^1.9.14"
     },
     "devDependencies": {
+        "@phosphor-icons/core": "^2.1.1",
         "@solidjs/testing-library": "^0.8.10",
         "@tauri-apps/cli": "^2.11.4",
         "@testing-library/user-event": "^14.6.4",
         "@types/node": "^26.2.0",
         "jsdom": "^30.0.1",
+        "style-dictionary": "^5.5.2",
         "typescript": "^7.0.2",
         "vite": "^8.2.1",
         "vite-plugin-solid": "^2.11.14",

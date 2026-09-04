@@ -167,10 +167,10 @@ pub fn default_zoom() -> f64 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemePolarity {
-    /// Dark reading palette (the `:root` default in `preview-base.css`).
+    /// Dark reading palette (`[data-writ-theme="dark"]`).
     #[default]
     Dark,
-    /// Light reading palette (`[data-writ-theme="light"]`).
+    /// Light reading palette (the `:root` default in `preview-tokens.css`).
     Light,
 }
 

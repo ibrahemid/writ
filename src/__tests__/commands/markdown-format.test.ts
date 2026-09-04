@@ -8,6 +8,9 @@ import {
   toggleInlineCode,
   insertLink,
   wrapOnType,
+  toggleBulletList,
+  toggleTaskList,
+  activeFormats,
 } from "../../commands/markdown-format";
 
 function stateWith(doc: string, anchor: number, head?: number): EditorState {
@@ -223,5 +226,104 @@ describe("wrapOnType", () => {
       extensions: [EditorState.allowMultipleSelections.of(true), markdown({ base: markdownLanguage })],
     });
     expect(wrapOnType(state, "*")).toBeNull();
+  });
+});
+
+describe("toggleBulletList", () => {
+  it("adds a dash to the line the cursor sits on", () => {
+    const next = apply(stateWith("groceries", 3), toggleBulletList);
+    expect(next.doc.toString()).toBe("- groceries");
+  });
+
+  it("strips the dash from a line that already has one", () => {
+    const next = apply(stateWith("- groceries", 5), toggleBulletList);
+    expect(next.doc.toString()).toBe("groceries");
+  });
+
+  it("keeps the indentation of an indented line", () => {
+    const next = apply(stateWith("    groceries", 6), toggleBulletList);
+    expect(next.doc.toString()).toBe("    - groceries");
+  });
+
+  it("covers every line a selection touches, and turns a mixed run on", () => {
+    const next = apply(stateWith("- one\ntwo\nthree", 0, 13), toggleBulletList);
+    expect(next.doc.toString()).toBe("- one\n- two\n- three");
+  });
+
+  it("turns a fully marked selection off", () => {
+    const next = apply(stateWith("- one\n- two", 0, 11), toggleBulletList);
+    expect(next.doc.toString()).toBe("one\ntwo");
+  });
+
+  it("demotes an unchecked task rather than nesting a second dash", () => {
+    const next = apply(stateWith("- [ ] one", 7), toggleBulletList);
+    expect(next.doc.toString()).toBe("- one");
+  });
+
+  it("leaves a ticked task alone, so the done state is never dropped", () => {
+    const state = stateWith("- [x] one", 7);
+    expect(toggleBulletList({ state, dispatch: () => {} })).toBe(false);
+  });
+
+  it("still demotes the unchecked lines of a mixed selection", () => {
+    const next = apply(stateWith("- [x] one\n- [ ] two", 0, 19), toggleBulletList);
+    expect(next.doc.toString()).toBe("- [x] one\n- two");
+  });
+});
+
+describe("toggleTaskList", () => {
+  it("adds an unchecked box to a plain line", () => {
+    const next = apply(stateWith("send the sheet", 4), toggleTaskList);
+    expect(next.doc.toString()).toBe("- [ ] send the sheet");
+  });
+
+  it("promotes a bullet in one step", () => {
+    const next = apply(stateWith("- send the sheet", 4), toggleTaskList);
+    expect(next.doc.toString()).toBe("- [ ] send the sheet");
+  });
+
+  it("strips a checked box as readily as an unchecked one", () => {
+    const next = apply(stateWith("- [x] send the sheet", 8), toggleTaskList);
+    expect(next.doc.toString()).toBe("send the sheet");
+  });
+
+  it("clears a bare box instead of stacking a second one", () => {
+    const next = apply(stateWith("- [ ]", 5), toggleTaskList);
+    expect(next.doc.toString()).toBe("");
+  });
+
+  it("reads a bare box on an indented line as a task too", () => {
+    const next = apply(stateWith("  - [x]", 7), toggleTaskList);
+    expect(next.doc.toString()).toBe("  ");
+  });
+
+  it("starts a task on an empty line", () => {
+    const next = apply(stateWith("", 0), toggleTaskList);
+    expect(next.doc.toString()).toBe("- [ ] ");
+  });
+});
+
+describe("activeFormats", () => {
+  it("reports nothing under a caret in plain prose", () => {
+    expect(activeFormats(stateWith("hello world", 3))).toEqual({
+      bold: false,
+      italic: false,
+      code: false,
+      bullet: false,
+      task: false,
+    });
+  });
+
+  it("reports the inline construct the caret sits inside", () => {
+    expect(activeFormats(stateWith("**hello**", 4)).bold).toBe(true);
+    expect(activeFormats(stateWith("*hello*", 3)).italic).toBe(true);
+    expect(activeFormats(stateWith("`hello`", 3)).code).toBe(true);
+  });
+
+  it("reports the list marker of the caret's own line", () => {
+    expect(activeFormats(stateWith("- one", 4)).bullet).toBe(true);
+    expect(activeFormats(stateWith("- one", 4)).task).toBe(false);
+    expect(activeFormats(stateWith("- [x] one", 8)).task).toBe(true);
+    expect(activeFormats(stateWith("- [x] one", 8)).bullet).toBe(false);
   });
 });

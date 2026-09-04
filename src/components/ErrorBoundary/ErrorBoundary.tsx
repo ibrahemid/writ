@@ -1,4 +1,5 @@
 import { ErrorBoundary as SolidErrorBoundary, type ParentProps } from "solid-js";
+import Button from "../Button/Button";
 import "./ErrorBoundary.css";
 
 export default function ErrorBoundary(props: ParentProps) {
@@ -8,7 +9,7 @@ export default function ErrorBoundary(props: ParentProps) {
         <div class="error-boundary">
           <div class="error-boundary-title">Something went wrong</div>
           <pre class="error-boundary-message">{String(err)}</pre>
-          <button class="error-boundary-reset" onClick={reset}>Try Again</button>
+          <Button variant="primary" onClick={reset}>Try again</Button>
         </div>
       )}
     >

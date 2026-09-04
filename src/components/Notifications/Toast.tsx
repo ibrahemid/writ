@@ -1,4 +1,5 @@
 import { createSignal, For } from "solid-js";
+import Button from "../Button/Button";
 import "./Toast.css";
 
 export interface ToastMessage {
@@ -34,12 +35,14 @@ export default function ToastContainer() {
             role={toast.type === "error" ? "alert" : "status"}
           >
             <span class="toast-text">{toast.text}</span>
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              icon="x"
+              iconSize={14}
               class="toast-dismiss"
               aria-label="Dismiss notification"
               onClick={() => dismissToast(toast.id)}
-            >×</button>
+            />
           </div>
         )}
       </For>

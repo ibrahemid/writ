@@ -108,7 +108,7 @@ describe("ShortcutEditor keyboard integration", () => {
 
   it("Record button enters listening state", async () => {
     const user = await setup();
-    const recordBtns = document.querySelectorAll<HTMLButtonElement>(".shortcut-row-btn");
+    const recordBtns = document.querySelectorAll<HTMLButtonElement>("[data-action='record-shortcut']");
     const recordBtn = Array.from(recordBtns).find((b) => b.textContent?.trim() === "Record");
     expect(recordBtn).toBeDefined();
     await user.click(recordBtn!);
@@ -117,7 +117,7 @@ describe("ShortcutEditor keyboard integration", () => {
 
   it("Escape during recording cancels recording only, dialog stays open", async () => {
     const user = await setup();
-    const recordBtns = document.querySelectorAll<HTMLButtonElement>(".shortcut-row-btn");
+    const recordBtns = document.querySelectorAll<HTMLButtonElement>("[data-action='record-shortcut']");
     const recordBtn = Array.from(recordBtns).find((b) => b.textContent?.trim() === "Record");
     await user.click(recordBtn!);
     expect(document.querySelector(".shortcut-row-listening")).not.toBeNull();

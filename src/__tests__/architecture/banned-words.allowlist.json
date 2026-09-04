@@ -1,21 +1,9 @@
 [
   {
     "file": "src/App.tsx",
-    "line": 155,
+    "line": 189,
     "word": "buffer",
     "note": "recovery toast, release 0.6"
-  },
-  {
-    "file": "src/App.tsx",
-    "line": 229,
-    "word": "buffer",
-    "note": "Save command description, release 0.6"
-  },
-  {
-    "file": "src/components/Preview/PreviewLayout.tsx",
-    "line": 133,
-    "word": "buffer",
-    "note": "empty-preview text, release 0.6"
   },
   {
     "file": "src/components/Preview/PreviewLayoutToggle.tsx",
@@ -31,93 +19,81 @@
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 262,
+    "line": 370,
     "word": "typography",
     "note": "settings row label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 270,
+    "line": 373,
     "word": "typography",
     "note": "settings toggle aria-label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 304,
+    "line": 402,
     "word": "dialect",
     "note": "settings row label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 503,
+    "line": 597,
     "word": "inbox",
     "note": "settings row label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 540,
+    "line": 630,
     "word": "inbox",
     "note": "settings row label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 548,
+    "line": 633,
     "word": "inbox",
     "note": "settings toggle aria-label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 709,
+    "line": 780,
     "word": "reveal",
     "note": "storage action button, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 756,
+    "line": 825,
     "word": "threshold",
     "note": "settings row label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 769,
+    "line": 838,
     "word": "refuse",
     "note": "settings row label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 769,
+    "line": 838,
     "word": "threshold",
     "note": "settings row label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 804,
+    "line": 867,
     "word": "source",
     "note": "layout option label, release 0.6"
   },
   {
     "file": "src/components/SettingsModal/SettingsModal.tsx",
-    "line": 817,
+    "line": 880,
     "word": "source",
     "note": "layout option label, release 0.6"
   },
   {
     "file": "src/components/Sidebar/InboxSection.tsx",
-    "line": 11,
+    "line": 13,
     "word": "inbox",
     "note": "sidebar section title, release 0.6"
-  },
-  {
-    "file": "src/components/Sidebar/SearchBar.tsx",
-    "line": 46,
-    "word": "buffer",
-    "note": "search placeholder, release 0.6"
-  },
-  {
-    "file": "src/components/Sidebar/SidebarEmpty.tsx",
-    "line": 15,
-    "word": "buffer",
-    "note": "empty-sidebar hint, release 0.6"
   },
   {
     "file": "src/keymap/preview.ts",
@@ -139,20 +115,14 @@
   },
   {
     "file": "src/settings/index.ts",
-    "line": 55,
+    "line": 56,
     "word": "debounce",
     "note": "settings index search term, release 0.6"
   },
   {
     "file": "src/settings/index.ts",
-    "line": 60,
-    "word": "source",
-    "note": "settings index title and search terms, release 0.6"
-  },
-  {
-    "file": "src/settings/index.ts",
     "line": 61,
-    "word": "inbox",
+    "word": "source",
     "note": "settings index title and search terms, release 0.6"
   },
   {
@@ -164,32 +134,32 @@
   {
     "file": "src/settings/index.ts",
     "line": 63,
+    "word": "inbox",
+    "note": "settings index title and search terms, release 0.6"
+  },
+  {
+    "file": "src/settings/index.ts",
+    "line": 64,
     "word": "reveal",
     "note": "settings index search term, release 0.6"
   },
   {
     "file": "src/settings/index.ts",
-    "line": 64,
+    "line": 65,
     "word": "threshold",
     "note": "settings index title and search terms, release 0.6"
   },
   {
     "file": "src/settings/index.ts",
-    "line": 65,
+    "line": 66,
     "word": "refuse",
     "note": "settings index title and search terms, release 0.6"
   },
   {
     "file": "src/settings/index.ts",
-    "line": 65,
+    "line": 66,
     "word": "threshold",
     "note": "settings index title and search terms, release 0.6"
-  },
-  {
-    "file": "src/settings/index.ts",
-    "line": 67,
-    "word": "source",
-    "note": "settings index search term, release 0.6"
   },
   {
     "file": "src/settings/index.ts",
@@ -199,7 +169,13 @@
   },
   {
     "file": "src/settings/index.ts",
-    "line": 78,
+    "line": 69,
+    "word": "source",
+    "note": "settings index search term, release 0.6"
+  },
+  {
+    "file": "src/settings/index.ts",
+    "line": 82,
     "word": "source",
     "note": "settings index search term, release 0.6"
   },
