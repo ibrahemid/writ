@@ -1,9 +1,23 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { render, cleanup } from "@solidjs/testing-library";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
+import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 import { ConflictCopyBadge } from "../../components/Sidebar/ConflictCopyBadge";
 
+const HOVER_DELAY_MS = 500;
+
+/** The tip is what the badge says beyond its two words, so it has to be hovered out. */
+function tipTextAfterHover(container: HTMLElement): string {
+  fireEvent.pointerEnter(container.firstElementChild!);
+  vi.advanceTimersByTime(HOVER_DELAY_MS);
+  return document.querySelector('[role="tooltip"]')!.textContent ?? "";
+}
+
 describe("ConflictCopyBadge", () => {
-  afterEach(() => cleanup());
+  beforeEach(() => vi.useFakeTimers());
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
 
   it("renders nothing for an ordinary file", () => {
     const { container } = render(() => <ConflictCopyBadge kind={null} provider="iCloud Drive" />);
@@ -16,20 +30,20 @@ describe("ConflictCopyBadge", () => {
     ));
     const badge = container.querySelector(".file-tree-copy-badge")!;
     expect(badge.textContent).toBe("Sync copy");
-    expect(badge.getAttribute("title")).toContain("iCloud Drive");
+    expect(tipTextAfterHover(container)).toContain("iCloud Drive");
   });
 
   it("marks the copy without a service name when the service is unknown", () => {
     const { container } = render(() => <ConflictCopyBadge kind="sync_client" provider={null} />);
     const badge = container.querySelector(".file-tree-copy-badge")!;
     expect(badge.textContent).toBe("Sync copy");
-    expect(badge.getAttribute("title")).toContain("Your sync service");
+    expect(tipTextAfterHover(container)).toContain("Your sync service");
   });
 
   it("marks a copy Writ kept", () => {
     const { container } = render(() => <ConflictCopyBadge kind="writ" provider={null} />);
     const badge = container.querySelector(".file-tree-copy-badge")!;
     expect(badge.textContent).toBe("Writ copy");
-    expect(badge.getAttribute("title")).toContain("Writ kept this copy");
+    expect(tipTextAfterHover(container)).toContain("Writ kept this copy");
   });
 });

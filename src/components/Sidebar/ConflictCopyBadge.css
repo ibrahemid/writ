@@ -2,11 +2,11 @@
   flex-shrink: 0;
   margin-left: var(--writ-space-2);
   padding: 0 var(--writ-space-1);
-  border: 1px solid var(--writ-border-default);
-  border-radius: var(--writ-radius-2);
-  background: var(--writ-surface-raised);
-  color: var(--writ-foreground-muted);
-  font-size: var(--writ-font-size-sm);
+  border: 1px solid var(--writ-border);
+  border-radius: var(--writ-r-control);
+  background: var(--writ-bg-raised);
+  color: var(--writ-fg-muted);
+  font-size: var(--writ-ui-sm);
   line-height: 1.4;
   white-space: nowrap;
 }

@@ -65,12 +65,12 @@
 }
 
 .statusbar-save.is-dirty {
-  color: var(--writ-foreground-muted);
+  color: var(--writ-fg-muted);
 }
 
 .statusbar-save.is-dirty .statusbar-dot {
   background: none;
-  border: 1px solid var(--writ-foreground-muted);
+  border: 1px solid var(--writ-fg-muted);
 }
 
 .statusbar-dot {
