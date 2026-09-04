@@ -5,9 +5,12 @@ performance budget enforced by `scripts/perf-gate.sh`.
 
 ## How the gate works
 
-`scripts/perf-gate.sh` runs the budget integration tests in **release mode**
-with `WRIT_PERF_GATE=1`. The tests skip when that variable is absent so that
-`cargo test --workspace` stays fast and deterministic in debug builds.
+`scripts/perf-gate.sh` runs every budget test with `WRIT_PERF_GATE=1`: the Rust
+ones in **release mode**, the frontend one under vitest, which has no such
+mode. Both read that same variable and skip without it, so
+`cargo test --workspace` and `pnpm test` stay fast and deterministic. One Rust
+probe (`builtin_perf_tests.rs::timing_100kb_builtins`) is held back by
+`#[ignore]` instead; the gate runs it with `--ignored`.
 
 ```
 bash scripts/perf-gate.sh            # budget tests only
@@ -17,6 +20,24 @@ bash scripts/perf-gate.sh --benches  # budget tests + criterion benches
 The gate exits non-zero on any budget violation. Run it before tagging a
 release or after a change that touches a transform, the FTS layer, or buffer
 I/O.
+
+---
+
+## Test projects (frontend)
+
+`vite.config.ts` splits the vitest suite into two projects, by path:
+
+- **mount**: `src/__tests__/components/**`, `src/__tests__/editor/**`,
+  `src/__tests__/integration/**`, and the co-located
+  `src/components/**/__tests__/**`. These files mount a component or an editor
+  view, which on a busy machine can take longer than vitest's 5 s default, so
+  the project sets `testTimeout: 15_000`.
+- **unit**: everything else, on the 5 s default. A unit test that needs more
+  than 5 s is a real finding, not a scheduling artifact.
+
+The two include sets are disjoint and cover the whole suite: every test file
+runs in exactly one project. A new mounting test placed outside those paths
+belongs in the `MOUNT_TESTS` globs.
 
 ---
 
@@ -39,8 +60,15 @@ Rationale:
   generous headroom across slower CI runners and debug hardware without
   masking real quadratic regressions. A transform that turns O(n) into O(n^2)
   on a 100KB input would exceed this bound by a large margin.
-- The existing `builtin_perf_tests.rs` already asserts 50ms in debug mode as a
-  softer sanity check. The gate enforces the harder release-mode bound.
+- `builtin_perf_tests.rs` carries a second, tighter probe: 50 ms per transform
+  on its own 100 KB input, measured once per transform after a warm-up run.
+  It is `#[ignore]`d, so it never runs in a debug `cargo test --workspace`
+  (where a busy machine misses 50 ms for reasons unrelated to the code) and
+  runs only from `scripts/perf-gate.sh`, or by hand with
+  `cargo test --release -p writ-plugin --test builtin_perf_tests -- --ignored --nocapture`.
+  Its default-suite companion, `every_builtin_holds_its_contract_on_a_100kb_input`,
+  keeps the untimed half in every run: determinism, idempotence, and the
+  trailing-whitespace and final-newline contracts on the same input.
 
 **Transforms covered:** every transform registered by `register_builtins`,
 including `tidy_whitespace` (the curated composite from ADR-012).
@@ -52,6 +80,37 @@ it uses a more expensive algorithm for better correctness), evaluate whether
 the algorithm is appropriate. If yes, raise the per-transform budget in
 `perf_budget.rs:BUDGET_MS` and update this document with the new number and
 the reason.
+
+---
+
+## frontend: language detection input cap
+
+**Test file:** `src/__tests__/services/language-detect.test.ts`
+(`bails out of the huge JSON body in under 16ms`)
+
+**What is measured:** wall time of `detectFromContent` on a JSON body whose
+closing brace sits past the 64 KiB detection cap, the input a naive
+implementation would hand to `JSON.parse` whole.
+
+**Budget: 16 ms (one frame at 60Hz)**
+
+Rationale:
+
+- Detection runs on the open path, in front of the first paint of a document,
+  so it has one frame to spend however large the document is. The structural
+  check that makes this hold (first/last character, before any parse) is what
+  the budget guards.
+- The assertion is skipped unless `WRIT_PERF_GATE=1`, so a loaded machine
+  cannot fail `pnpm test`; the untimed half of the same property (a huge JSON
+  body is never detected as JSON) runs in every suite. `scripts/perf-gate.sh`
+  runs the timed half, or by hand:
+  `WRIT_PERF_GATE=1 pnpm exec vitest run src/__tests__/services/language-detect.test.ts`.
+
+### Re-baselining
+
+The budget is the frame, not a machine number: it does not move. If detection
+legitimately needs more work per open, cut the input further rather than
+raising the bound.
 
 ---
 

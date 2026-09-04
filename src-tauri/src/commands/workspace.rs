@@ -8,7 +8,9 @@ use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use writ_core::workspace::file_search::FileHit;
 use writ_core::workspace::WorkspaceEntry;
-use writ_storage::workspace_grep::{self, ContentHit, GrepLimits, GrepOutcome, GrepRequest};
+use writ_storage::workspace_grep::{
+    self, ContentHit, GrepLimits, GrepOutcome, GrepRequest, ScanObserver,
+};
 use writ_storage::workspace_store;
 
 use crate::commands::config::persist_config;
@@ -169,6 +171,7 @@ pub struct SearchBatch {
 /// Runs one content search, streaming every batch (and the terminal
 /// outcome batch) through `emit`. Bumps `counter` and captures its value so a
 /// newer search cancels this one; each batch is stamped with that generation.
+/// `on_scanned` observes the walk's progress in step with the walk itself.
 /// Synchronous and free of Tauri types, so it is unit-testable; the command
 /// wraps it on a blocking thread and forwards `emit` to the IPC channel.
 pub fn run_content_search(
@@ -177,6 +180,7 @@ pub fn run_content_search(
     query: String,
     limits: GrepLimits,
     emit: Arc<dyn Fn(SearchBatch) + Send + Sync>,
+    on_scanned: Option<ScanObserver>,
 ) -> Result<GrepOutcome, String> {
     let generation = counter.fetch_add(1, Ordering::SeqCst) + 1;
 
@@ -205,6 +209,7 @@ pub fn run_content_search(
         limits,
         cancelled,
         on_hits,
+        on_scanned,
     )
     .map_err(|e| e.to_string())?;
 
@@ -239,7 +244,7 @@ pub async fn search_workspace_content(
     });
 
     tauri::async_runtime::spawn_blocking(move || {
-        run_content_search(root, counter, query, GrepLimits::default(), emit)
+        run_content_search(root, counter, query, GrepLimits::default(), emit, None)
     })
     .await
     .map_err(|e| e.to_string())?

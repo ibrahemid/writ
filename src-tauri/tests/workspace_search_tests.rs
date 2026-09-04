@@ -19,7 +19,7 @@ use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::workspace_grep::GrepLimits;
+use writ_storage::workspace_grep::{GrepLimits, ScanObserver};
 use writ_tauri_lib::commands::workspace::{
     run_content_search, search_workspace_files_inner, workspace_index_status_inner, SearchBatch,
 };
@@ -120,6 +120,7 @@ fn content_search_streams_batches_and_final_outcome() {
         "needle".to_string(),
         GrepLimits::default(),
         emit,
+        None,
     )
     .unwrap();
 
@@ -161,6 +162,7 @@ fn content_search_second_call_bumps_generation() {
             "needle".to_string(),
             GrepLimits::default(),
             emit,
+            None,
         )
         .unwrap();
     }
@@ -175,29 +177,44 @@ fn content_search_second_call_bumps_generation() {
 #[test]
 fn content_search_superseded_mid_flight_reports_cancelled() {
     let ws = TempDir::new().unwrap();
-    // Enough matching files that the walk cannot finish before the first batch
-    // is emitted and supersedes the search.
-    for i in 0..800 {
+    const FILES: usize = 800;
+    for i in 0..FILES {
         write_file(ws.path(), &format!("f{i}.txt"), "needle");
     }
     let root = writ_tauri_lib::security::canonicalize_root(ws.path()).unwrap();
 
     let counter = Arc::new(AtomicU64::new(0));
-    let counter_for_emit = counter.clone();
+    // Start a "newer" search from inside the walk, on the first file it reaches:
+    // the walk is then guaranteed to see the newer generation on its next
+    // cancellation check, whatever the machine's load is doing to thread
+    // scheduling.
+    let counter_for_scan = counter.clone();
     let bumped = Arc::new(AtomicBool::new(false));
-    let emit: Arc<dyn Fn(SearchBatch) + Send + Sync> = Arc::new(move |b| {
-        // On the first hit batch, start a "newer" search by bumping the counter.
-        if b.outcome.is_none() && !bumped.swap(true, Ordering::SeqCst) {
-            counter_for_emit.fetch_add(1, Ordering::SeqCst);
+    let on_scanned: ScanObserver = Arc::new(move |_scanned| {
+        if !bumped.swap(true, Ordering::SeqCst) {
+            counter_for_scan.fetch_add(1, Ordering::SeqCst);
         }
     });
+
+    let batches: Arc<Mutex<Vec<SearchBatch>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = batches.clone();
+    let emit: Arc<dyn Fn(SearchBatch) + Send + Sync> =
+        Arc::new(move |b| sink.lock().unwrap().push(b));
 
     // A high result cap so cancellation, not the cap, is what stops the walk.
     let limits = GrepLimits {
         max_results: 1_000_000,
         ..GrepLimits::default()
     };
-    let outcome = run_content_search(root, counter, "needle".to_string(), limits, emit).unwrap();
+    let outcome = run_content_search(
+        root,
+        counter,
+        "needle".to_string(),
+        limits,
+        emit,
+        Some(on_scanned),
+    )
+    .unwrap();
 
     assert!(
         outcome.cancelled,
@@ -205,8 +222,14 @@ fn content_search_superseded_mid_flight_reports_cancelled() {
     );
     assert!(!outcome.truncated);
     assert!(
-        outcome.files_scanned < 800,
+        outcome.files_scanned < FILES,
         "cancellation must stop the walk early, scanned {}",
         outcome.files_scanned
     );
+    // The terminal batch still carries the outcome, stamped with the search's
+    // own (now superseded) generation.
+    let batches = batches.lock().unwrap();
+    let finals: Vec<&SearchBatch> = batches.iter().filter(|b| b.outcome.is_some()).collect();
+    assert_eq!(finals.len(), 1);
+    assert_eq!(finals[0].generation, 1);
 }
