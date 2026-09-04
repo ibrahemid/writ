@@ -10,6 +10,9 @@ import {
 const CHANGED = "ERR_FILE_CHANGED_ON_DISK: the file changed on disk: /Users/x/Writ/Meeting notes.md";
 const NOT_DOWNLOADED =
   "ERR_FILE_NOT_DOWNLOADED: the file has not finished downloading: /Users/x/Writ/Evicted.md";
+const HARD_LINKED =
+  "ERR_HARD_LINKED: /Users/x/Writ/Shared.md is one of 2 names for the same file";
+const READ_ONLY = "ERR_READ_ONLY_DESTINATION: /Users/x/Writ/Locked.md cannot be written";
 
 describe("formatSaveError", () => {
   it("source_changed_on_disk_maps_to_a_plain_sentence", () => {
@@ -21,6 +24,22 @@ describe("formatSaveError", () => {
   it("a_file_still_downloading_maps_to_a_plain_sentence", () => {
     expect(formatSaveError(new Error(NOT_DOWNLOADED))).toBe(
       "this file has not finished downloading, so your changes were not saved yet.",
+    );
+  });
+
+  it("a_file_with_a_second_name_says_what_to_do_instead", () => {
+    const message = formatSaveError(new Error(HARD_LINKED));
+    expect(message).toBe(
+      "this file is shared with another name on disk, so Writ left it alone. Save a copy to keep your changes.",
+    );
+    // The person reading this did not ask about inodes.
+    expect(message).not.toMatch(/hard link/i);
+    expect(message).not.toContain("/Users/x/Writ");
+  });
+
+  it("a_read_only_file_maps_to_a_plain_sentence", () => {
+    expect(formatSaveError(new Error(READ_ONLY))).toBe(
+      "this file is read-only, so nothing was written.",
     );
   });
 
@@ -51,9 +70,12 @@ describe("formatSaveError", () => {
 });
 
 describe("isRetryableSaveError", () => {
-  it("says no to the two a repeat cannot fix", () => {
+  it("says no to the four a repeat cannot fix", () => {
     expect(isRetryableSaveError(new Error(CHANGED))).toBe(false);
     expect(isRetryableSaveError(NOT_DOWNLOADED)).toBe(false);
+    // Both are answers about the file itself, so they stand until it changes.
+    expect(isRetryableSaveError(new Error(HARD_LINKED))).toBe(false);
+    expect(isRetryableSaveError(READ_ONLY)).toBe(false);
   });
 
   it("says yes to every other failure", () => {
@@ -85,6 +107,16 @@ describe("formatRenameError", () => {
 
   it("a_file_still_downloading_maps_to_a_plain_sentence", () => {
     expect(formatRenameError(NOT_DOWNLOADED)).toBe("This file has not finished downloading yet.");
+  });
+
+  it("a_read_only_file_maps_to_a_plain_sentence", () => {
+    expect(formatRenameError(READ_ONLY)).toBe("This file is read-only, so it was not renamed.");
+  });
+
+  it("a_file_with_a_second_name_keeps_the_backends_message", () => {
+    // A rename does not break a link, so the save wording would name a
+    // problem the rename does not have.
+    expect(formatRenameError(HARD_LINKED)).toBe(HARD_LINKED);
   });
 
   it("a_coded_failure_with_no_rename_wording_keeps_the_plain_message", () => {
