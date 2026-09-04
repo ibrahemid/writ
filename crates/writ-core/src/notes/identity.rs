@@ -150,11 +150,16 @@ pub fn classify_delete(
 /// candidate is a path this watcher's own window named, with the digest of
 /// what it holds now.
 ///
-/// An empty file is a removal for the same reason from the other side: every
-/// empty file holds the same nothing, so a match on it identifies no file. A
-/// note Writ has created and not yet saved to holds exactly that, and any
-/// zero-length path in the window — another new note, somebody's temp file —
-/// would otherwise take the tab with it.
+/// The bytes have to name one file, though, and there are two ways they fail
+/// to. Two candidates holding them is evidence that one of the two is the file
+/// and no evidence which, so the answer would be whichever the caller listed
+/// first — a coin flip that hands the tab a stranger's file and lets the next
+/// save write over it. And bytes every empty file holds name every empty file
+/// there is, in this window or outside it, so counting the window's matches
+/// cannot see how many carry them; a note Writ has created and not yet saved
+/// to, or one the user deliberately emptied, would otherwise leave with
+/// whichever zero-length path the window happened to name. Either way nothing
+/// is claimed and the tab reads the file as gone.
 ///
 /// A rewrite that changed the bytes as well is a removal, and deliberately so.
 /// The content the tab is attached to is then gone from every watched folder,
@@ -165,15 +170,16 @@ pub fn classify_delete_by_content(
     last: &Sha256Digest,
     candidates: &[(PathBuf, Sha256Digest)],
 ) -> DeleteVerdict {
+    // Emptiness reaches past the window the count below can see, so it is
+    // refused before the count rather than by it.
     if last == &crate::hash::sha256_bytes(&[]) {
         return DeleteVerdict::Removed;
     }
-    for (path, digest) in candidates {
-        if digest == last {
-            return DeleteVerdict::Moved(path.clone());
-        }
+    let mut matched = candidates.iter().filter(|(_, digest)| digest == last);
+    match (matched.next(), matched.next()) {
+        (Some((path, _)), None) => DeleteVerdict::Moved(path.clone()),
+        _ => DeleteVerdict::Removed,
     }
-    DeleteVerdict::Removed
 }
 
 /// Whether Writ can still write to the file behind a note.
@@ -479,6 +485,73 @@ mod tests {
                 PathBuf::from("/notes/somebody-elses-new-note.md"),
                 crate::hash::sha256_bytes(b""),
             )],
+        );
+        assert_eq!(verdict, DeleteVerdict::Removed);
+    }
+
+    #[test]
+    fn bytes_two_candidates_hold_identify_no_file() {
+        // A sync client putting a note back from its cache beside a conflicted
+        // copy of the same content, or a checkout that rewrites one note and
+        // adds another holding the old bytes. One of the two is the file and
+        // the bytes say nothing about which, so the tab follows neither.
+        let verdict = classify_delete_by_content(
+            &crate::hash::sha256_bytes(b"text worth keeping"),
+            &[
+                (
+                    PathBuf::from("/notes/aaa-conflicted-copy.md"),
+                    crate::hash::sha256_bytes(b"text worth keeping"),
+                ),
+                (
+                    PathBuf::from("/notes/zzz-renamed.md"),
+                    crate::hash::sha256_bytes(b"text worth keeping"),
+                ),
+            ],
+        );
+        assert_eq!(verdict, DeleteVerdict::Removed);
+    }
+
+    #[test]
+    fn the_only_candidate_holding_the_bytes_is_the_file_wherever_it_is_listed() {
+        // Listed last, behind two candidates holding other bytes: which
+        // candidate the caller happened to put first decides nothing.
+        let verdict = classify_delete_by_content(
+            &crate::hash::sha256_bytes(b"text worth keeping"),
+            &[
+                (
+                    PathBuf::from("/notes/aaa-somebody-elses.md"),
+                    crate::hash::sha256_bytes(b"somebody else's note"),
+                ),
+                (
+                    PathBuf::from("/notes/mmm-another.md"),
+                    crate::hash::sha256_bytes(b"another note again"),
+                ),
+                (
+                    PathBuf::from("/notes/zzz-renamed.md"),
+                    crate::hash::sha256_bytes(b"text worth keeping"),
+                ),
+            ],
+        );
+        assert_eq!(
+            verdict,
+            DeleteVerdict::Moved(PathBuf::from("/notes/zzz-renamed.md"))
+        );
+    }
+
+    #[test]
+    fn bytes_no_candidate_holds_identify_no_file() {
+        let verdict = classify_delete_by_content(
+            &crate::hash::sha256_bytes(b"text worth keeping"),
+            &[
+                (
+                    PathBuf::from("/notes/aaa-somebody-elses.md"),
+                    crate::hash::sha256_bytes(b"somebody else's note"),
+                ),
+                (
+                    PathBuf::from("/notes/zzz-another.md"),
+                    crate::hash::sha256_bytes(b"another note again"),
+                ),
+            ],
         );
         assert_eq!(verdict, DeleteVerdict::Removed);
     }

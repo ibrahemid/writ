@@ -1814,6 +1814,94 @@ mod tests {
     }
 
     #[test]
+    fn bytes_two_files_in_the_batch_hold_name_neither_of_them() {
+        // A sync client writing a note back from its cache retires the id and
+        // lands a conflicted copy of the same content in the same window. Both
+        // files answer to the bytes, so the bytes say which of them the note is
+        // only as far as the sort does. The tab took the one that sorted first
+        // and its next save replaced that file's content — the write guard
+        // cannot catch it, because the bytes are what matched.
+        for (decoy_name, moved_name) in [
+            ("aaa-conflicted-copy.md", "zzz-renamed.md"),
+            ("zzz-conflicted-copy.md", "aaa-renamed.md"),
+        ] {
+            let dir = tempdir().unwrap();
+            let from = dir.path().join("before.md");
+            let to = dir.path().join(moved_name);
+            let decoy = dir.path().join(decoy_name);
+            fs::write(&from, b"text worth keeping").unwrap();
+            let retired = crate::watcher::identity::read_identity(&from);
+            let temp = dir.path().join("before.md.other-program-tmp");
+            fs::write(&temp, b"text worth keeping").unwrap();
+            fs::rename(&temp, &from).unwrap();
+            fs::rename(&from, &to).unwrap();
+            fs::write(&decoy, b"text worth keeping").unwrap();
+
+            let (tracking, files) = tracking_with(RecordingFiles {
+                identity: retired,
+                last: Some(last_read(b"text worth keeping")),
+                ..RecordingFiles::default()
+            });
+            let batch = vec![temp, from.clone(), to, decoy];
+            let event = open_note_vanished(
+                "note-1",
+                &from,
+                &VanishedContext {
+                    batch: &batch,
+                    tracking: &tracking,
+                },
+            );
+
+            assert_eq!(
+                verdict_of(&event),
+                Some((&ExternalChange::Removed, None)),
+                "the sort decided which file the tab took"
+            );
+            assert!(files.moved.lock().unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn the_one_file_in_the_batch_holding_the_bytes_is_still_the_file() {
+        // The refusal above is about two answers, not about company. A batch
+        // full of other people's writes with one file holding the note's bytes
+        // names that file, wherever the sort puts it.
+        let dir = tempdir().unwrap();
+        let from = dir.path().join("before.md");
+        let to = dir.path().join("zzz-renamed.md");
+        let other = dir.path().join("aaa-somebody-elses.md");
+        let another = dir.path().join("mmm-another.md");
+        fs::write(&from, b"text worth keeping").unwrap();
+        let retired = crate::watcher::identity::read_identity(&from);
+        let temp = dir.path().join("before.md.other-program-tmp");
+        fs::write(&temp, b"text worth keeping").unwrap();
+        fs::rename(&temp, &from).unwrap();
+        fs::rename(&from, &to).unwrap();
+        fs::write(&other, b"somebody else's note").unwrap();
+        fs::write(&another, b"another note again").unwrap();
+
+        let (tracking, _files) = tracking_with(RecordingFiles {
+            identity: retired,
+            last: Some(last_read(b"text worth keeping")),
+            ..RecordingFiles::default()
+        });
+        let batch = vec![temp, from.clone(), other, to.clone(), another];
+        let event = open_note_vanished(
+            "note-1",
+            &from,
+            &VanishedContext {
+                batch: &batch,
+                tracking: &tracking,
+            },
+        );
+
+        assert_eq!(
+            verdict_of(&event),
+            Some((&ExternalChange::Moved, to.to_str()))
+        );
+    }
+
+    #[test]
     fn only_the_batch_is_read_for_a_match_on_bytes() {
         // Ids are read from the folder listing too; bytes are not. Hashing the
         // folder a note left reads every note in it, and on a share that is

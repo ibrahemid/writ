@@ -997,6 +997,117 @@ fn a_rewrite_and_a_rename_in_one_window_still_leave_the_tab_on_its_file() {
     );
 }
 
+/// A rewrite and a rename in one window, with an unrelated file holding the
+/// note's exact bytes written in the same window. The two names are the
+/// caller's so either can sort first.
+///
+/// Which watcher window the twin's own event lands in is the filesystem's to
+/// decide, so the verdict is not what this asserts — `open_files`' own tests
+/// hold the batch still for that. What holds however the events fall is that
+/// the twin is not the note: the tab never takes its path and no save reaches
+/// its bytes.
+fn a_twin_in_the_window(decoy_name: &str, renamed_name: &str) {
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    // A sync client landing a conflicted copy beside the note it is writing
+    // back from its cache: same bytes, same window, no relation to the note.
+    let decoy = state.notes_root().join(decoy_name);
+    std::fs::write(&decoy, "text worth keeping").expect("the twin");
+    rewrite_from_outside(&before, b"text worth keeping");
+    let after = state.notes_root().join(renamed_name);
+    std::fs::rename(&before, &after).expect("rename the way Finder does");
+
+    let seen = external_events(&rx);
+    assert_eq!(seen.len(), 1, "the tab must be told once, saw {seen:?}");
+    let (change, landed) = change_of(&seen[0]);
+    assert_ne!(
+        landed.map(std::path::Path::new),
+        Some(decoy.as_path()),
+        "the tab was handed a file it has never read, on bytes two files hold"
+    );
+    if change == &ExternalChange::Moved {
+        assert_eq!(landed.map(std::path::Path::new), Some(after.as_path()));
+    }
+    assert_ne!(note_file(&state, &doc.id), decoy);
+
+    // Refused if the tab reads its file as gone, written to the renamed file
+    // if the twin's event missed the window. Neither may reach the twin.
+    let _ = save_buffer_content_inner(&state, &doc.id, "edited after the rename");
+    assert_eq!(
+        std::fs::read_to_string(&decoy).expect("read the twin"),
+        "text worth keeping",
+        "the save wrote over a file the note was never in"
+    );
+}
+
+#[test]
+fn a_file_holding_the_notes_bytes_in_the_same_window_takes_no_tab_with_it() {
+    // The bytes are the last evidence there is once a rewrite nobody reported
+    // retires the id, and a digest two files carry says one of them is the
+    // file and nothing about which. Following either handed the tab a
+    // stranger's file whose bytes satisfy the write guard exactly, so the next
+    // save replaced its content with no event and no error, while the file the
+    // note went to was left holding the old text with nothing pointing at it.
+    a_twin_in_the_window("aaa-decoy.md", "zzz-renamed.md");
+}
+
+#[test]
+fn which_of_the_twins_sorts_first_changes_no_answer() {
+    // The same window with the names swapped landed on the right file for the
+    // wrong reason: the sort put it first. Order makes the answer the same on
+    // every volume; it was never what makes it right.
+    a_twin_in_the_window("zzz-decoy.md", "aaa-renamed.md");
+}
+
+#[test]
+fn a_second_open_note_holding_the_same_bytes_keeps_its_own_file() {
+    // Two notes from one template hold the same bytes, which makes the file at
+    // risk as likely to be another note as anything else. Both rows landed on
+    // one path: the second note's text was overwritten by the first note's
+    // next save while its tab still believed it owned that file.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let one = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &one.id, "text worth keeping").expect("save");
+    let one_before = note_file(&state, &one.id);
+    let two = new_note_inner(&state).expect("a second note");
+    save_buffer_content_inner(&state, &two.id, "text worth keeping").expect("save");
+    let two_file = note_file(&state, &two.id);
+    std::thread::sleep(APART);
+
+    rewrite_from_outside(&two_file, b"text worth keeping");
+    rewrite_from_outside(&one_before, b"text worth keeping");
+    let one_after = state.notes_root().join("aaa-renamed.md");
+    std::fs::rename(&one_before, &one_after).expect("rename the way Finder does");
+
+    let _ = external_events(&rx);
+
+    assert_eq!(
+        note_file(&state, &two.id),
+        two_file,
+        "the second note's row followed the first note's rename"
+    );
+    assert_ne!(
+        note_file(&state, &one.id),
+        note_file(&state, &two.id),
+        "two notes on one file"
+    );
+
+    let _ = save_buffer_content_inner(&state, &one.id, "edited after the rename");
+    assert_eq!(
+        std::fs::read_to_string(&two_file).expect("read the second note's file"),
+        "text worth keeping",
+        "the first note's save wrote over the second note's file"
+    );
+}
+
 #[test]
 fn a_note_replaced_by_a_folder_of_the_same_name_reads_as_a_file_that_went() {
     // A path holding a directory holds no note. The event was dropped for
