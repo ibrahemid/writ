@@ -200,6 +200,28 @@ fn the_download_gate_keeps_the_open_token_for_the_open_that_follows() {
 }
 
 #[test]
+fn a_note_outside_every_root_can_still_be_dismissed() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    // The token is the only thing that authorizes this path, and closing the
+    // tab is what gives it back, so the dismissal has to pass the same gate
+    // the download did.
+    let note = dir.path().join("outside.md");
+    std::fs::write(&note, "placeholder stand-in").unwrap();
+    let canonical = canonicalize_for_authorization(&note).unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+
+    let gated = authorize_download(&state, &canonical).expect("the tab's token authorizes it");
+    assert_eq!(gated, canonical);
+    assert!(state.authorized_paths.discard_pending_open(&gated));
+    assert_eq!(state.authorized_paths.pending_open_len(), 0);
+
+    // And with the tab gone, the path is a stranger again.
+    assert!(authorize_download(&state, &canonical).is_err());
+}
+
+#[test]
 fn the_download_gate_refuses_a_path_nothing_authorized() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
