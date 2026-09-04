@@ -58,6 +58,35 @@ load_signing_secrets() {
   fi
 }
 
+# tauri-build copies the sidecar in src-tauri/binaries over target/debug/writ
+# every time src-tauri compiles, so a stale sidecar makes writ-cli's version
+# test run last release's binary. Rebuild the sidecars before anything else
+# compiles src-tauri.
+refresh_mac_sidecars() {
+  rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null 2>&1 || true
+  # Resolve the real target dir: a local .cargo/config.toml or CARGO_TARGET_DIR
+  # override moves it away from ./target.
+  TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+  cargo build -p writ-cli --release --target aarch64-apple-darwin
+  cargo build -p writ-cli --release --target x86_64-apple-darwin
+  mkdir -p src-tauri/binaries
+  # The universal target builds each arch separately; every pass resolves the
+  # sidecar by its own triple, so all three names must exist.
+  cp "${TARGET_DIR}/aarch64-apple-darwin/release/writ" src-tauri/binaries/writ-aarch64-apple-darwin
+  cp "${TARGET_DIR}/x86_64-apple-darwin/release/writ" src-tauri/binaries/writ-x86_64-apple-darwin
+  lipo -create \
+    "${TARGET_DIR}/aarch64-apple-darwin/release/writ" \
+    "${TARGET_DIR}/x86_64-apple-darwin/release/writ" \
+    -output src-tauri/binaries/writ-universal-apple-darwin
+}
+
+step "0/8 rebuild the mac sidecars"
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  warn "Skipping sidecar rebuild: this script is running on $(uname -s), not Darwin."
+else
+  refresh_mac_sidecars
+fi
+
 step "1/8 cargo fmt --all --check"
 cargo fmt --all --check
 
@@ -84,21 +113,6 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   warn "Skipping mac build: this script is running on $(uname -s), not Darwin."
 else
   load_signing_secrets
-  rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null 2>&1 || true
-  # Resolve the real target dir: a local .cargo/config.toml or CARGO_TARGET_DIR
-  # override moves it away from ./target.
-  TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
-  cargo build -p writ-cli --release --target aarch64-apple-darwin
-  cargo build -p writ-cli --release --target x86_64-apple-darwin
-  mkdir -p src-tauri/binaries
-  # The universal target builds each arch separately; every pass resolves the
-  # sidecar by its own triple, so all three names must exist.
-  cp "${TARGET_DIR}/aarch64-apple-darwin/release/writ" src-tauri/binaries/writ-aarch64-apple-darwin
-  cp "${TARGET_DIR}/x86_64-apple-darwin/release/writ" src-tauri/binaries/writ-x86_64-apple-darwin
-  lipo -create \
-    "${TARGET_DIR}/aarch64-apple-darwin/release/writ" \
-    "${TARGET_DIR}/x86_64-apple-darwin/release/writ" \
-    -output src-tauri/binaries/writ-universal-apple-darwin
   APPLE_SIGNING_IDENTITY="-" \
     npx tauri build \
       --target universal-apple-darwin \
