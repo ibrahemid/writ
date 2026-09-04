@@ -704,33 +704,20 @@ function NotesSection() {
       <SettingsRow id="notes.folder" label="Notes folder">
         <span class="settings-notes">
           <span class="settings-notes-controls">
-            <span class="settings-notes-path" data-notes-path title={folder()?.path ?? ""}>
-              {folder()?.display_path ?? "…"}
-            </span>
-            <button
-              type="button"
-              class="settings-action-btn"
-              data-action="notes-show"
-              onClick={() => void onShow()}
-            >
+            <Tooltip label={folder()?.path ?? ""}>
+              <span class="settings-notes-path" data-notes-path>
+                {folder()?.display_path ?? "…"}
+              </span>
+            </Tooltip>
+            <Button data-action="notes-show" onClick={() => void onShow()}>
               {SHOW_IN_FILE_MANAGER}
-            </button>
-            <button
-              type="button"
-              class="settings-action-btn"
-              data-action="notes-copy"
-              onClick={() => void onCopy()}
-            >
+            </Button>
+            <Button data-action="notes-copy" onClick={() => void onCopy()}>
               Copy path
-            </button>
-            <button
-              type="button"
-              class="settings-action-btn"
-              data-action="notes-move"
-              onClick={() => void onMove()}
-            >
+            </Button>
+            <Button data-action="notes-move" onClick={() => void onMove()}>
               Move…
-            </button>
+            </Button>
           </span>
           <Show when={folder()?.fallback}>
             {(fallback) => (

@@ -507,7 +507,7 @@ describe("SettingsModal", () => {
 
   it("writes editor.status_bar from the status bar switch", async () => {
     const { container } = render(() => <SettingsModal />);
-    openSettings();
+    openSettings("editor");
     await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
     const statusBar = container.querySelector<HTMLButtonElement>("[data-setting='status_bar']");
     expect(statusBar).not.toBeNull();
@@ -1046,7 +1046,6 @@ describe("Notes section", () => {
     const { container } = await openNotes();
     const path = container.querySelector("[data-notes-path]");
     expect(path?.textContent).toBe("~/Writ");
-    expect(path?.getAttribute("title")).toBe("/home/user/Writ");
   });
 
   it("fires the folder actions", async () => {

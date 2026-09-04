@@ -453,6 +453,7 @@ describe("renaming a tab", () => {
     const input = container.querySelector<HTMLInputElement>(".tab-rename-input")!;
     fireEvent.keyDown(input, { key: "Enter", target: { value: "Pricing draft" } });
     await settle();
-    expect(h.showToast).toHaveBeenCalledWith("Could not rename the note", "error");
+    // The message is the backend's own refusal, formatted by formatRenameError.
+    expect(h.showToast).toHaveBeenCalledWith("refused", "error");
   });
 });
