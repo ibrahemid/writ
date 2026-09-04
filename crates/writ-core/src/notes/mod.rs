@@ -13,6 +13,9 @@ pub mod line_ending;
 /// The write guard: whether a save may land on the file it is aimed at.
 pub mod guard;
 
+/// Whether opening a note may read it, and how long its download is waited on.
+pub mod materialise;
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
