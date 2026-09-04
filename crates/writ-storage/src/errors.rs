@@ -76,6 +76,34 @@ pub enum StorageError {
         path: String,
     },
 
+    /// The note's file is reachable under more than one name, so replacing it
+    /// would leave the other names on the old text (ADR-028 §5).
+    ///
+    /// A save writes a sibling and renames it into place, which breaks the
+    /// link rather than following it. Refusing is the only answer that keeps
+    /// the promise the user made when they linked the file.
+    ///
+    /// The wording here is for logs. What the editor says is chosen from the
+    /// stable code the command puts in front of it (`ERR_HARD_LINKED`,
+    /// `src-tauri/src/commands/buffer.rs`).
+    #[error("{path} is one of {links} names for the same file")]
+    HardLinkedDestination {
+        /// The note's path.
+        path: String,
+        /// How many names point at the file.
+        links: u64,
+    },
+
+    /// The note's file, or the folder holding it, is marked read-only, so
+    /// nothing was written and the file was left exactly as it was.
+    ///
+    /// The wording here is for logs; the editor reads `ERR_READ_ONLY_DESTINATION`.
+    #[error("{path} cannot be written")]
+    DestinationReadOnly {
+        /// The note's path.
+        path: String,
+    },
+
     /// A note was asked to take a name with nothing in it.
     ///
     /// The wording here is for logs. What the editor says is written at the

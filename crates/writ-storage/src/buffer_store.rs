@@ -13,7 +13,7 @@ use writ_core::recovery::{
     fingerprint_buffers, should_snapshot, RecoveredBuffer, SnapshotFingerprint,
 };
 
-use crate::atomic::write_atomic;
+use crate::atomic::{write_atomic, AtomicWriteError};
 use crate::database::queries;
 use crate::errors::{StorageError, StorageResult};
 use crate::maintenance::{self, DatabaseStats, MaintenanceOutcome};
@@ -1091,21 +1091,47 @@ fn write_beside(
     Ok(target)
 }
 
-/// Stamps then writes, in that order.
+/// Refuses, stamps, then writes, in that order.
 ///
 /// Every write this crate performs goes through here, because a write the
 /// caller has not been told about first is a write its watcher reads as
 /// somebody else's edit. [`write_atomic`] has this one call site so that no
 /// future write can skip the stamp by reaching past it.
+///
+/// The destination is asked whether it can be replaced before the stamp
+/// rather than after: an ignore entry for a write that never happens is one
+/// the watcher spends on the next real change carrying those bytes.
+/// [`write_atomic`] asks again, so a caller reaching for it directly is
+/// covered too.
 pub(crate) fn write_guarded_by_stamp(
     target: &Path,
     bytes: &[u8],
     before_write: BeforeWrite<'_>,
-) -> std::io::Result<()> {
+) -> StorageResult<()> {
+    crate::atomic::refuse_unreplaceable_destination(target)
+        .map_err(|e| refusal_as_storage_error(target, e))?;
     if let Some(stamp) = before_write {
         stamp(target, bytes);
     }
-    write_atomic(target, bytes)
+    write_atomic(target, bytes).map_err(|e| refusal_as_storage_error(target, e))
+}
+
+/// Names the file a refused write was aimed at.
+///
+/// [`AtomicWriteError`] knows what it found and nothing about where; the
+/// error the editor reads has to carry the path, because it is what the
+/// message names.
+fn refusal_as_storage_error(target: &Path, error: AtomicWriteError) -> StorageError {
+    match error {
+        AtomicWriteError::HardLinked { links } => StorageError::HardLinkedDestination {
+            path: target.display().to_string(),
+            links,
+        },
+        AtomicWriteError::ReadOnly => StorageError::DestinationReadOnly {
+            path: target.display().to_string(),
+        },
+        AtomicWriteError::Io(e) => StorageError::Io(e),
+    }
 }
 
 fn read_source_text(doc: &BufferDocument) -> String {
