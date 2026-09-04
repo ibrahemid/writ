@@ -368,6 +368,7 @@ describe("tabStore (per-window factory)", () => {
           provider: "iCloud Drive",
           state: "downloading",
           message: null,
+          reason: "download",
         },
       ]);
       expect(downloads.selected()?.path).toBe(path);

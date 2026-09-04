@@ -411,6 +411,10 @@ mod tests {
         // The read lands after the wait gave up; its result goes nowhere, and
         // releasing it lets the detached thread end with the test.
         let _ = release_tx.send(());
+        assert!(
+            outcomes.recv_timeout(Duration::from_millis(200)).is_err(),
+            "the abandoned read reports nothing of its own"
+        );
     }
 
     #[test]

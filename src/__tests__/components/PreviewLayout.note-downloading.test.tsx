@@ -26,6 +26,11 @@ vi.mock("../../services/tauri", () => ({
   cancelMaterialiseNote: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("../../services/events", () => ({
+  onEvent: vi.fn().mockResolvedValue(() => undefined),
+  emitFrontendReady: vi.fn().mockResolvedValue(undefined),
+}));
+
 import PreviewLayout from "../../components/Preview/PreviewLayout";
 
 describe("PreviewLayout — the editor slot hosts a note that is downloading", () => {
