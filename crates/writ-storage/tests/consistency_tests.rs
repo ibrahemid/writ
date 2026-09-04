@@ -46,6 +46,7 @@ fn make_doc(id: &str) -> BufferDocument {
         closed_at: None,
         read_only: false,
         size_bytes: 0,
+        line_ending: writ_core::notes::line_ending::LineEnding::Lf,
     }
 }
 

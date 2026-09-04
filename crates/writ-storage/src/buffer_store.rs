@@ -8,6 +8,7 @@ use tracing::warn;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::hash::Sha256Digest;
 use writ_core::notes::guard::{decide_save, is_not_downloaded, DiskState, SaveDecision};
+use writ_core::notes::line_ending::LineEnding;
 use writ_core::recovery::{
     fingerprint_buffers, should_snapshot, RecoveredBuffer, SnapshotFingerprint,
 };
@@ -624,6 +625,13 @@ impl BufferStore {
             return Err(StorageError::SourceNotDownloaded { path: source_path });
         }
 
+        // The file's own line ending goes back on before anything is hashed,
+        // so the digest compared against the disk is a digest of the bytes
+        // that will land there. Hashing the editor's LF text instead would
+        // make every save of an untouched Windows note look like a change.
+        let content = doc.line_ending.apply(content);
+        let content = content.as_ref();
+
         let incoming = writ_core::hash::sha256_bytes(content.as_bytes());
         let on_disk = read_disk_state(path)?;
         let decision = decide_save(last_known.as_ref(), on_disk.as_ref(), incoming);
@@ -713,6 +721,11 @@ impl BufferStore {
             .clone();
         let path = Path::new(&source_path);
 
+        // Before the copy beside the note as well as before the write, so
+        // both come out in the file's own line ending.
+        let content = doc.line_ending.apply(content);
+        let content = content.as_ref();
+
         let flags = match dataless {
             Some(probe) => probe(path),
             None => dataless_flags(path),
@@ -760,6 +773,16 @@ impl BufferStore {
             incoming,
             content.len() as u64,
         )))
+    }
+
+    /// Records the line ending read off the note's file.
+    ///
+    /// Called wherever a note's bytes are read: the open, the reopen of a
+    /// closed tab, and the reload of one already open. A file that gained or
+    /// lost its carriage returns outside Writ is followed rather than
+    /// overruled, because the next save has to write what the file holds now.
+    pub fn set_line_ending(&self, id: &str, ending: LineEnding) -> StorageResult<()> {
+        queries::update_line_ending(&self.conn, id, ending)
     }
 
     /// Updates the detected or user-assigned language for a buffer.

@@ -18,6 +18,7 @@ function mockBuffer(title: string, id = "notices-buffer"): BufferDocument {
     closed_at: null,
     read_only: true,
     size_bytes: 0,
+    line_ending: "lf",
   };
 }
 

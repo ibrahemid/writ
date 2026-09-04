@@ -42,7 +42,7 @@ function buf(id: string, title: string, status: "active" | "history"): BufferDoc
   return {
     id, title, filename: `${id}.md`, status, language: null, source_path: null,
     cursor_pos: 0, scroll_pos: 0, tab_order: 0,
-    created_at: "", updated_at: "", closed_at: null, read_only: false, size_bytes: 0,
+    created_at: "", updated_at: "", closed_at: null, read_only: false, size_bytes: 0, line_ending: "lf" as const,
   };
 }
 

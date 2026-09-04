@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
+use writ_core::notes::line_ending::LineEnding;
 
 use crate::errors::{StorageError, StorageResult};
 
@@ -39,6 +40,7 @@ fn row_to_document(row: &rusqlite::Row) -> rusqlite::Result<BufferDocument> {
     let tab_order: i64 = row.get("tab_order")?;
     let read_only: i64 = row.get("read_only")?;
     let size_bytes: i64 = row.get("size_bytes")?;
+    let line_ending: String = row.get("line_ending")?;
 
     Ok(BufferDocument {
         id: row.get("id")?,
@@ -55,6 +57,7 @@ fn row_to_document(row: &rusqlite::Row) -> rusqlite::Result<BufferDocument> {
         closed_at,
         read_only: read_only != 0,
         size_bytes: size_bytes as u64,
+        line_ending: LineEnding::from_str_or_default(&line_ending),
     })
 }
 
@@ -68,8 +71,9 @@ pub fn insert_buffer(conn: &Connection, doc: &BufferDocument) -> StorageResult<(
     conn.execute(
         "INSERT INTO buffers
             (id, title, filename, status, language, source_path, cursor_pos, scroll_pos,
-             tab_order, created_at, updated_at, closed_at, read_only, size_bytes)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+             tab_order, created_at, updated_at, closed_at, read_only, size_bytes,
+             line_ending)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             doc.id,
             doc.title,
@@ -85,6 +89,7 @@ pub fn insert_buffer(conn: &Connection, doc: &BufferDocument) -> StorageResult<(
             closed_at,
             doc.read_only as i64,
             doc.size_bytes as i64,
+            doc.line_ending.as_str(),
         ],
     )?;
     Ok(())
@@ -96,7 +101,7 @@ pub fn get_buffer(conn: &Connection, id: &str) -> StorageResult<BufferDocument> 
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
                 cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at,
-                read_only, size_bytes
+                read_only, size_bytes, line_ending
          FROM buffers WHERE id = ?1",
     )?;
     let result = stmt
@@ -118,7 +123,7 @@ pub fn list_buffers_by_status(
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
                 cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at,
-                read_only, size_bytes
+                read_only, size_bytes, line_ending
          FROM buffers WHERE status = ?1 ORDER BY tab_order ASC",
     )?;
     let rows = stmt.query_map(params![status], row_to_document)?;
@@ -180,7 +185,7 @@ pub fn find_active_by_source_path(
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
                 cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at,
-                read_only, size_bytes
+                read_only, size_bytes, line_ending
          FROM buffers WHERE source_path = ?1 AND status = 'active' LIMIT 1",
     )?;
     let result = stmt
@@ -199,7 +204,7 @@ pub fn find_history_by_source_path(
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
                 cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at,
-                read_only, size_bytes
+                read_only, size_bytes, line_ending
          FROM buffers WHERE source_path = ?1 AND status = 'history'
          ORDER BY updated_at DESC LIMIT 1",
     )?;
@@ -223,7 +228,7 @@ pub fn list_unsaved_notes(conn: &Connection) -> StorageResult<Vec<BufferDocument
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
                 cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at,
-                read_only, size_bytes
+                read_only, size_bytes, line_ending
          FROM buffers
          WHERE source_path IS NULL AND migrated_path IS NULL
          ORDER BY tab_order ASC",
@@ -318,6 +323,18 @@ pub fn get_migrated_path(conn: &Connection, id: &str) -> StorageResult<Option<St
     Ok(value)
 }
 
+/// Records the line ending read off the note's file.
+///
+/// `updated_at` is left alone: reading a file's bytes is not a user edit, and
+/// bumping the stamp would reorder History on every open.
+pub fn update_line_ending(conn: &Connection, id: &str, ending: LineEnding) -> StorageResult<()> {
+    conn.execute(
+        "UPDATE buffers SET line_ending = ?1 WHERE id = ?2",
+        params![ending.as_str(), id],
+    )?;
+    Ok(())
+}
+
 /// Updates the detected or user-assigned language for a buffer.
 pub fn update_language(conn: &Connection, id: &str, language: Option<&str>) -> StorageResult<()> {
     conn.execute(
@@ -371,6 +388,7 @@ mod tests {
             closed_at: Some(now),
             read_only: true,
             size_bytes: 99,
+            line_ending: LineEnding::CrLf,
         }
     }
 
@@ -390,7 +408,7 @@ mod tests {
             .query_row(
                 "SELECT size_bytes, closed_at, id, read_only, language, status,
                         scroll_pos, title, source_path, updated_at, filename,
-                        cursor_pos, created_at, tab_order
+                        cursor_pos, created_at, tab_order, line_ending
                  FROM buffers WHERE id = ?1",
                 params![doc.id],
                 row_to_document,
@@ -408,6 +426,7 @@ mod tests {
         assert_eq!(scrambled.tab_order, 3);
         assert!(scrambled.read_only);
         assert_eq!(scrambled.size_bytes, 99);
+        assert_eq!(scrambled.line_ending, LineEnding::CrLf);
         assert!(scrambled.closed_at.is_some());
     }
 }

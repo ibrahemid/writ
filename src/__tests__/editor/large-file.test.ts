@@ -23,6 +23,7 @@ function buffer(overrides: Partial<BufferDocument> = {}): BufferDocument {
     closed_at: null,
     read_only: false,
     size_bytes: 1024,
+    line_ending: "lf",
     ...overrides,
   };
 }

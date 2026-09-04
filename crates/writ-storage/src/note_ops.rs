@@ -14,6 +14,7 @@
 use std::path::{Path, PathBuf};
 
 use writ_core::notes::guard::{decide_save, is_not_downloaded, DiskState, SaveDecision};
+use writ_core::notes::line_ending::LineEnding;
 
 use crate::buffer_store::{
     dataless_flags, read_disk_state, taken_names, write_guarded_by_stamp, BeforeWrite,
@@ -77,6 +78,9 @@ fn write_new_note(
     std::fs::create_dir_all(notes_root)?;
     let name = writ_core::notes::dedupe_file_name(stem, NOTE_EXTENSION, &taken_names(notes_root));
     let path = notes_root.join(name);
+    // A file that does not exist yet has no convention to keep, so a note Writ
+    // mints is LF whatever the text handed in carries.
+    let content = LineEnding::Lf.apply(content);
     write_guarded_by_stamp(&path, content.as_bytes(), before_write)?;
     Ok(path)
 }

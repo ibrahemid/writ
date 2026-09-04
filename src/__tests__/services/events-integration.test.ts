@@ -16,6 +16,7 @@ vi.mock("../../services/tauri", () => ({
     closed_at: null,
     read_only: false,
     size_bytes: 0,
+    line_ending: "lf",
   }),
   listActiveBuffers: vi.fn().mockResolvedValue([]),
   listHistory: vi.fn().mockResolvedValue([]),
@@ -41,6 +42,7 @@ vi.mock("../../services/tauri", () => ({
       closed_at: null,
       read_only: false,
       size_bytes: 0,
+      line_ending: "lf",
     };
     return Promise.resolve({ doc, mode: { kind: "Normal" }, size_bytes: 0 });
   }),
@@ -140,7 +142,7 @@ describe("loadAndActivate", () => {
       id: "loaded-1", title: "Loaded", filename: "loaded.md",
       status: "active" as const, language: null, source_path: "/path/loaded.md",
       cursor_pos: 0, scroll_pos: 0, tab_order: 0,
-      created_at: new Date().toISOString(), updated_at: new Date().toISOString(), closed_at: null, read_only: false, size_bytes: 0,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(), closed_at: null, read_only: false, size_bytes: 0, line_ending: "lf" as const,
     };
     mockedApi.listActiveBuffers.mockResolvedValue([tab]);
     mockedApi.listHistory.mockResolvedValue([]);
@@ -167,7 +169,7 @@ describe("loadAndActivate", () => {
       id: "keep-me", title: "Keep", filename: "keep.md",
       status: "active" as const, language: null, source_path: null,
       cursor_pos: 0, scroll_pos: 0, tab_order: 0,
-      created_at: new Date().toISOString(), updated_at: new Date().toISOString(), closed_at: null, read_only: false, size_bytes: 0,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(), closed_at: null, read_only: false, size_bytes: 0, line_ending: "lf" as const,
     };
     mockedApi.listActiveBuffers.mockResolvedValue([tab]);
     mockedApi.listHistory.mockResolvedValue([]);

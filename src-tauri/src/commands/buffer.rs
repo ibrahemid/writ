@@ -286,6 +286,15 @@ pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, 
             }
         } else {
             state.record_disk_state_bytes(id, path, content.as_bytes());
+            // The reload of an externally changed note comes through here, so
+            // a file that gained or lost its carriage returns while Writ had
+            // it open is followed rather than written back the old way.
+            let ending = writ_core::notes::line_ending::LineEnding::detect(&content);
+            if ending != doc.line_ending {
+                if let Err(e) = store.set_line_ending(id, ending) {
+                    tracing::debug!(buffer_id = %id, error = %e, "the file's line ending could not be recorded");
+                }
+            }
         }
     }
     Ok(content.into_bytes())
