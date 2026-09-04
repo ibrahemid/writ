@@ -947,14 +947,13 @@ fn a_rename_after_another_program_rewrote_the_file_is_still_a_move() {
 }
 
 #[test]
-fn a_rewrite_and_a_rename_in_one_window_still_leave_the_tab_on_its_file() {
-    // The rewrite above reached the tab because it had a window to itself. Two
-    // writes inside one window are reported as one: a program rewrote the file
-    // and renamed it, and the only event is the path going empty. The rewrite
-    // is never reported at all, so the id on record is the one it retired and
-    // nothing carries it — the tab marked itself removed and refused every
-    // later save over a file sitting at its new path. The bytes are what is
-    // left to recognise it by, and a rename changes none of them.
+fn a_rewrite_and_a_rename_in_one_window_are_a_removal_that_replaces_no_text() {
+    // Two writes inside one window are reported as one: a program rewrote the
+    // file and renamed it, and the only event is the path going empty. The
+    // rewrite is never reported, so the id on record is the one it retired and
+    // nothing carries it anywhere. Nothing else names the file either, so the
+    // tab is told its file went rather than being pointed at a path on
+    // evidence that cannot tell a copy from a rename.
     let dir = TempDir::new().expect("temp dir");
     let (state, rx) = watching_state(&dir);
 
@@ -963,50 +962,51 @@ fn a_rewrite_and_a_rename_in_one_window_still_leave_the_tab_on_its_file() {
     let before = note_file(&state, &doc.id);
     std::thread::sleep(APART);
 
-    // A sync client putting the file back from its own cache writes the bytes
-    // that are already there, which is a new file under the same name and the
-    // same content.
     rewrite_from_outside(&before, b"text worth keeping");
     let after = state.notes_root().join("renamed-by-finder.md");
     std::fs::rename(&before, &after).expect("rename the way Finder does");
 
     let seen = external_events(&rx);
-    assert_eq!(
-        seen.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
-        vec![&ExternalChange::Moved],
-        "a rename after a rewrite nobody reported must still be a move, saw {seen:?}"
-    );
-    assert_eq!(
-        change_of(&seen[0]).1.map(std::path::Path::new),
-        Some(after.as_path())
-    );
+    assert_eq!(seen.len(), 1, "the tab must be told once, saw {seen:?}");
+    assert_eq!(named_by(&seen[0]).0, doc.id);
+    assert_eq!(change_of(&seen[0]), (&ExternalChange::Removed, None));
+    assert!(state.is_removed_on_disk(&doc.id));
     assert!(
-        !state.is_removed_on_disk(&doc.id),
-        "the tab stopped writing to a file that is there"
+        matches!(
+            &seen[0],
+            WritEvent::BufferExternal {
+                disk_hash: None,
+                ..
+            }
+        ),
+        "a removal carrying a digest has the editor replace the text it holds"
     );
-    assert_eq!(note_file(&state, &doc.id), after);
+    assert_eq!(
+        note_file(&state, &doc.id),
+        before,
+        "the row followed a file the note was never given"
+    );
 
-    save_buffer_content_inner(&state, &doc.id, "edited after the rename").expect("save");
-    assert_eq!(
-        std::fs::read_to_string(&after).expect("read the moved file"),
-        "edited after the rename"
-    );
+    let refused = save_buffer_content_inner(&state, &doc.id, "edited after the rename")
+        .expect_err("the save must be refused");
     assert!(
-        !before.exists(),
-        "the save recreated the file at the old path"
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the refusal has to carry its own code, got {refused}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&after).expect("read the file at the new path"),
+        "text worth keeping",
+        "the save wrote into a file the tab was never given"
     );
 }
 
-/// A rewrite and a rename in one window, with an unrelated file holding the
-/// note's exact bytes written in the same window. The two names are the
-/// caller's so either can sort first.
-///
-/// Which watcher window the twin's own event lands in is the filesystem's to
-/// decide, so the verdict is not what this asserts — `open_files`' own tests
-/// hold the batch still for that. What holds however the events fall is that
-/// the twin is not the note: the tab never takes its path and no save reaches
-/// its bytes.
-fn a_twin_in_the_window(decoy_name: &str, renamed_name: &str) {
+#[test]
+fn a_note_dragged_out_of_the_notes_folder_leaves_a_twin_of_its_bytes_alone() {
+    // A file that leaves every watched folder carries its id away with it, so
+    // nothing in the window carries it and the note is gone as far as Writ can
+    // see. A file holding the same bytes in the same window is a copy, a
+    // template, or a sync client's conflicted copy as easily as it is the
+    // note, and taking it would let the next save replace its content.
     let dir = TempDir::new().expect("temp dir");
     let (state, rx) = watching_state(&dir);
 
@@ -1015,58 +1015,42 @@ fn a_twin_in_the_window(decoy_name: &str, renamed_name: &str) {
     let before = note_file(&state, &doc.id);
     std::thread::sleep(APART);
 
-    // A sync client landing a conflicted copy beside the note it is writing
-    // back from its cache: same bytes, same window, no relation to the note.
-    let decoy = state.notes_root().join(decoy_name);
-    std::fs::write(&decoy, "text worth keeping").expect("the twin");
-    rewrite_from_outside(&before, b"text worth keeping");
-    let after = state.notes_root().join(renamed_name);
-    std::fs::rename(&before, &after).expect("rename the way Finder does");
+    let outside = dir.path().join("outside-every-watched-folder");
+    std::fs::create_dir_all(&outside).expect("a folder no watcher covers");
+    let twin = state.notes_root().join("aaa-twin.md");
+    std::fs::write(&twin, "text worth keeping").expect("the twin");
+    let dragged = outside.join("dragged-out.md");
+    std::fs::rename(&before, &dragged).expect("drag it out of the notes folder");
 
     let seen = external_events(&rx);
-    assert_eq!(seen.len(), 1, "the tab must be told once, saw {seen:?}");
-    let (change, landed) = change_of(&seen[0]);
-    assert_ne!(
-        landed.map(std::path::Path::new),
-        Some(decoy.as_path()),
-        "the tab was handed a file it has never read, on bytes two files hold"
-    );
-    if change == &ExternalChange::Moved {
-        assert_eq!(landed.map(std::path::Path::new), Some(after.as_path()));
-    }
-    assert_ne!(note_file(&state, &doc.id), decoy);
-
-    // Refused if the tab reads its file as gone, written to the renamed file
-    // if the twin's event missed the window. Neither may reach the twin.
-    let _ = save_buffer_content_inner(&state, &doc.id, "edited after the rename");
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(told.len(), 1, "the tab must be told once, saw {seen:?}");
+    assert_eq!(change_of(told[0]), (&ExternalChange::Removed, None));
     assert_eq!(
-        std::fs::read_to_string(&decoy).expect("read the twin"),
+        note_file(&state, &doc.id),
+        before,
+        "the row followed a file the note was never in"
+    );
+
+    let refused = save_buffer_content_inner(&state, &doc.id, "edited after the move")
+        .expect_err("the save must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the refusal has to carry its own code, got {refused}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&twin).expect("read the twin"),
         "text worth keeping",
         "the save wrote over a file the note was never in"
     );
+    assert_eq!(
+        std::fs::read_to_string(&dragged).expect("read the file the user dragged out"),
+        "text worth keeping"
+    );
 }
 
 #[test]
-fn a_file_holding_the_notes_bytes_in_the_same_window_takes_no_tab_with_it() {
-    // The bytes are the last evidence there is once a rewrite nobody reported
-    // retires the id, and a digest two files carry says one of them is the
-    // file and nothing about which. Following either handed the tab a
-    // stranger's file whose bytes satisfy the write guard exactly, so the next
-    // save replaced its content with no event and no error, while the file the
-    // note went to was left holding the old text with nothing pointing at it.
-    a_twin_in_the_window("aaa-decoy.md", "zzz-renamed.md");
-}
-
-#[test]
-fn which_of_the_twins_sorts_first_changes_no_answer() {
-    // The same window with the names swapped landed on the right file for the
-    // wrong reason: the sort put it first. Order makes the answer the same on
-    // every volume; it was never what makes it right.
-    a_twin_in_the_window("zzz-decoy.md", "aaa-renamed.md");
-}
-
-#[test]
-fn a_second_open_note_holding_the_same_bytes_keeps_its_own_file() {
+fn a_note_moved_away_leaves_a_second_note_with_the_same_bytes_on_its_own_file() {
     // Two notes from one template hold the same bytes, which makes the file at
     // risk as likely to be another note as anything else. Both rows landed on
     // one path: the second note's text was overwritten by the first note's
@@ -1082,29 +1066,77 @@ fn a_second_open_note_holding_the_same_bytes_keeps_its_own_file() {
     let two_file = note_file(&state, &two.id);
     std::thread::sleep(APART);
 
+    let outside = dir.path().join("outside-every-watched-folder");
+    std::fs::create_dir_all(&outside).expect("a folder no watcher covers");
     rewrite_from_outside(&two_file, b"text worth keeping");
-    rewrite_from_outside(&one_before, b"text worth keeping");
-    let one_after = state.notes_root().join("aaa-renamed.md");
-    std::fs::rename(&one_before, &one_after).expect("rename the way Finder does");
+    let one_moved = outside.join("dragged-out.md");
+    std::fs::rename(&one_before, &one_moved).expect("drag the first note out");
 
-    let _ = external_events(&rx);
-
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == one.id).collect();
+    assert_eq!(
+        told.len(),
+        1,
+        "the moved note must be told once, saw {seen:?}"
+    );
+    assert_eq!(change_of(told[0]), (&ExternalChange::Removed, None));
+    assert_eq!(note_file(&state, &one.id), one_before);
     assert_eq!(
         note_file(&state, &two.id),
         two_file,
-        "the second note's row followed the first note's rename"
-    );
-    assert_ne!(
-        note_file(&state, &one.id),
-        note_file(&state, &two.id),
-        "two notes on one file"
+        "the second note's row followed the first note's move"
     );
 
-    let _ = save_buffer_content_inner(&state, &one.id, "edited after the rename");
+    let refused = save_buffer_content_inner(&state, &one.id, "edited after the move")
+        .expect_err("the save must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the refusal has to carry its own code, got {refused}"
+    );
     assert_eq!(
         std::fs::read_to_string(&two_file).expect("read the second note's file"),
         "text worth keeping",
         "the first note's save wrote over the second note's file"
+    );
+}
+
+#[test]
+fn a_deleted_note_leaves_a_file_holding_the_same_bytes_alone() {
+    // No move at all. The note's bytes exist at no path the note was ever at,
+    // and a file that happens to hold the same bytes is still somebody else's
+    // file: writing the note into it would replace its content with no event
+    // and no error.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    let twin = state.notes_root().join("aaa-twin.md");
+    std::fs::write(&twin, "text worth keeping").expect("the twin");
+    std::fs::remove_file(&path).expect("delete the note the way Finder does");
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(told.len(), 1, "the tab must be told once, saw {seen:?}");
+    assert_eq!(change_of(told[0]), (&ExternalChange::Removed, None));
+
+    let refused = save_buffer_content_inner(&state, &doc.id, "text worth keeping, edited")
+        .expect_err("the save must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the refusal has to carry its own code, got {refused}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&twin).expect("read the twin"),
+        "text worth keeping",
+        "the save wrote over a file the note was never in"
+    );
+    assert!(
+        !path.exists(),
+        "the save put back the file the user threw away"
     );
 }
 

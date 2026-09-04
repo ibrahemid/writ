@@ -35,10 +35,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 use writ_core::events::bus::{EventBus, WritEvent};
-use writ_core::hash::Sha256Digest;
-use writ_core::notes::identity::{
-    classify_delete, classify_delete_by_content, DeleteVerdict, FileIdentity,
-};
+use writ_core::notes::identity::{classify_delete, DeleteVerdict, FileIdentity};
 use writ_core::watcher::change_event::ExternalChange;
 use writ_core::watcher::ignore::{SuppressDecision, DEFAULT_IGNORE_TTL};
 
@@ -655,10 +652,9 @@ const MAX_FOLDER_CANDIDATES: usize = 4096;
 /// The paths that could be holding the file that left, and where each came
 /// from.
 ///
-/// The two are kept apart because they cost differently. An id is read from
-/// every candidate, which is a `stat`. Bytes are read only from the batch:
-/// hashing the folder a note left would read every note in it, and on a share
-/// that is one deletion pulling four thousand files over the network.
+/// The two are kept apart because they answer in that order: the batch is the
+/// window's own account of what happened, and the folder listing is the
+/// fallback for the rename whose halves land in different windows.
 pub struct Candidates {
     /// Paths this watcher's own window named. A rename arrives as the old
     /// path leaving and the new one appearing together, so this is where a
@@ -781,19 +777,13 @@ pub fn open_note_vanished(
         DeleteVerdict::Moved(to) => files
             .note_file_moved(note_id, path, &to)
             .then(|| open_note_moved(note_id, path, &to)),
-        // Nothing carries the id, which is the answer both for a file that was
-        // deleted and for one whose id a write nobody reported retired. The
-        // bytes separate them.
-        DeleteVerdict::Removed => {
-            match same_bytes_in_the_batch(note_id, &candidates.batch, vanished) {
-                Some(to) => files
-                    .note_file_moved(note_id, path, &to)
-                    .then(|| open_note_moved(note_id, path, &to)),
-                None => files
-                    .note_file_removed(note_id, path)
-                    .then(|| open_note_removed(note_id, path)),
-            }
-        }
+        // Nothing carries the id, and nothing else names the file: a copy, a
+        // sibling from the same template and the file itself are all one shape
+        // from here (ADR-033 §11). The tab keeps its text and is told the file
+        // is gone.
+        DeleteVerdict::Removed => files
+            .note_file_removed(note_id, path)
+            .then(|| open_note_removed(note_id, path)),
         // The volume cannot say whether the file moved or went, so neither is
         // claimed and the write guard governs the next save exactly as it did
         // before identity was read at all.
@@ -802,39 +792,6 @@ pub fn open_note_vanished(
             path,
             readable_bytes(path).as_deref(),
         )),
-    }
-}
-
-/// The path in the batch holding the bytes `note_id` last read from its file,
-/// if there is one.
-///
-/// The second way a vanished file is recognised, once a write nobody reported
-/// has retired the id Writ holds for it
-/// ([`writ_core::notes::identity::classify_delete_by_content`]). Only the
-/// batch is read, never the folder listing, and only where the length already
-/// matches: a deletion in a folder of four thousand notes costs the reads its
-/// own window named and no more. A file whose bytes are not on this machine is
-/// left unread, so a candidate on a sync provider is not fetched to answer
-/// this (ADR-028 §5).
-fn same_bytes_in_the_batch(
-    note_id: &str,
-    batch: &[PathBuf],
-    vanished: &VanishedContext<'_>,
-) -> Option<PathBuf> {
-    let last = vanished.tracking.files.last_disk_state(note_id)?;
-    let digests: Vec<(PathBuf, Sha256Digest)> = batch
-        .iter()
-        .filter(|candidate| {
-            std::fs::metadata(candidate).is_ok_and(|m| m.is_file() && m.len() == last.size)
-        })
-        .filter_map(|candidate| {
-            let bytes = readable_bytes(candidate)?;
-            Some((candidate.clone(), writ_core::hash::sha256_bytes(&bytes)))
-        })
-        .collect();
-    match classify_delete_by_content(&last.hash, &digests) {
-        DeleteVerdict::Moved(to) => Some(to),
-        DeleteVerdict::Removed | DeleteVerdict::ExternalModification => None,
     }
 }
 
@@ -1327,7 +1284,6 @@ mod tests {
     #[derive(Default)]
     struct RecordingFiles {
         identity: Option<FileIdentity>,
-        last: Option<writ_core::notes::guard::DiskState>,
         notes_root: Option<PathBuf>,
         moved: Arc<Mutex<Vec<(PathBuf, PathBuf)>>>,
         removed: Arc<Mutex<Vec<PathBuf>>>,
@@ -1358,21 +1314,8 @@ mod tests {
             true
         }
 
-        fn last_disk_state(&self, _note_id: &str) -> Option<writ_core::notes::guard::DiskState> {
-            self.last
-        }
-
         fn notes_root(&self) -> Option<PathBuf> {
             self.notes_root.clone()
-        }
-    }
-
-    /// What Writ would have recorded after reading or writing `bytes`.
-    fn last_read(bytes: &[u8]) -> writ_core::notes::guard::DiskState {
-        writ_core::notes::guard::DiskState {
-            hash: writ_core::hash::sha256_bytes(bytes),
-            size: bytes.len() as u64,
-            mtime: None,
         }
     }
 
@@ -1741,52 +1684,12 @@ mod tests {
     }
 
     #[test]
-    fn a_rewrite_nobody_reported_does_not_turn_a_rename_into_a_deletion() {
-        // Two writes in one window are reported as one. A program rewrote the
-        // file — a sibling temp renamed over it, which is how every editor and
-        // every sync client writes — and then renamed it, so the only event is
-        // the path going empty and the id on record is the one the rewrite
-        // retired. Nothing carries it, and the tab would mark itself removed
-        // over a file sitting at its new path with the user's text in it.
-        let dir = tempdir().unwrap();
-        let from = dir.path().join("before.md");
-        let to = dir.path().join("after.md");
-        fs::write(&from, b"text worth keeping").unwrap();
-        let retired = crate::watcher::identity::read_identity(&from);
-        let temp = dir.path().join("before.md.other-program-tmp");
-        fs::write(&temp, b"text worth keeping").unwrap();
-        fs::rename(&temp, &from).unwrap();
-        fs::rename(&from, &to).unwrap();
-
-        let (tracking, files) = tracking_with(RecordingFiles {
-            identity: retired,
-            last: Some(last_read(b"text worth keeping")),
-            ..RecordingFiles::default()
-        });
-        let batch = vec![temp, from.clone(), to.clone()];
-        let event = open_note_vanished(
-            "note-1",
-            &from,
-            &VanishedContext {
-                batch: &batch,
-                tracking: &tracking,
-            },
-        );
-
-        assert_eq!(
-            verdict_of(&event),
-            Some((&ExternalChange::Moved, to.to_str())),
-            "the bytes the tab last read are at the new path; that is the file"
-        );
-        assert!(files.removed.lock().unwrap().is_empty());
-    }
-
-    #[test]
     fn a_deletion_beside_an_unrelated_creation_is_still_a_deletion() {
         // The shape a batch takes when someone deletes one note and creates
-        // another, which is also what a branch checkout does. Pairing the two
-        // on nothing but their being in one window would put the tab on a file
-        // it has never read and let the next save write over it.
+        // another, which is also what a branch checkout does. Being in one
+        // window is not evidence that the two are one file, whatever the new
+        // file holds: pairing them on it would put the tab on a file it has
+        // never read and let the next save write over it.
         let dir = tempdir().unwrap();
         let gone = dir.path().join("gone.md");
         let unrelated = dir.path().join("unrelated.md");
@@ -1797,129 +1700,9 @@ mod tests {
 
         let (tracking, _files) = tracking_with(RecordingFiles {
             identity: retired,
-            last: Some(last_read(b"text worth keeping")),
             ..RecordingFiles::default()
         });
         let batch = vec![gone.clone(), unrelated];
-        let event = open_note_vanished(
-            "note-1",
-            &gone,
-            &VanishedContext {
-                batch: &batch,
-                tracking: &tracking,
-            },
-        );
-
-        assert_eq!(verdict_of(&event), Some((&ExternalChange::Removed, None)));
-    }
-
-    #[test]
-    fn bytes_two_files_in_the_batch_hold_name_neither_of_them() {
-        // A sync client writing a note back from its cache retires the id and
-        // lands a conflicted copy of the same content in the same window. Both
-        // files answer to the bytes, so the bytes say which of them the note is
-        // only as far as the sort does. The tab took the one that sorted first
-        // and its next save replaced that file's content — the write guard
-        // cannot catch it, because the bytes are what matched.
-        for (decoy_name, moved_name) in [
-            ("aaa-conflicted-copy.md", "zzz-renamed.md"),
-            ("zzz-conflicted-copy.md", "aaa-renamed.md"),
-        ] {
-            let dir = tempdir().unwrap();
-            let from = dir.path().join("before.md");
-            let to = dir.path().join(moved_name);
-            let decoy = dir.path().join(decoy_name);
-            fs::write(&from, b"text worth keeping").unwrap();
-            let retired = crate::watcher::identity::read_identity(&from);
-            let temp = dir.path().join("before.md.other-program-tmp");
-            fs::write(&temp, b"text worth keeping").unwrap();
-            fs::rename(&temp, &from).unwrap();
-            fs::rename(&from, &to).unwrap();
-            fs::write(&decoy, b"text worth keeping").unwrap();
-
-            let (tracking, files) = tracking_with(RecordingFiles {
-                identity: retired,
-                last: Some(last_read(b"text worth keeping")),
-                ..RecordingFiles::default()
-            });
-            let batch = vec![temp, from.clone(), to, decoy];
-            let event = open_note_vanished(
-                "note-1",
-                &from,
-                &VanishedContext {
-                    batch: &batch,
-                    tracking: &tracking,
-                },
-            );
-
-            assert_eq!(
-                verdict_of(&event),
-                Some((&ExternalChange::Removed, None)),
-                "the sort decided which file the tab took"
-            );
-            assert!(files.moved.lock().unwrap().is_empty());
-        }
-    }
-
-    #[test]
-    fn the_one_file_in_the_batch_holding_the_bytes_is_still_the_file() {
-        // The refusal above is about two answers, not about company. A batch
-        // full of other people's writes with one file holding the note's bytes
-        // names that file, wherever the sort puts it.
-        let dir = tempdir().unwrap();
-        let from = dir.path().join("before.md");
-        let to = dir.path().join("zzz-renamed.md");
-        let other = dir.path().join("aaa-somebody-elses.md");
-        let another = dir.path().join("mmm-another.md");
-        fs::write(&from, b"text worth keeping").unwrap();
-        let retired = crate::watcher::identity::read_identity(&from);
-        let temp = dir.path().join("before.md.other-program-tmp");
-        fs::write(&temp, b"text worth keeping").unwrap();
-        fs::rename(&temp, &from).unwrap();
-        fs::rename(&from, &to).unwrap();
-        fs::write(&other, b"somebody else's note").unwrap();
-        fs::write(&another, b"another note again").unwrap();
-
-        let (tracking, _files) = tracking_with(RecordingFiles {
-            identity: retired,
-            last: Some(last_read(b"text worth keeping")),
-            ..RecordingFiles::default()
-        });
-        let batch = vec![temp, from.clone(), other, to.clone(), another];
-        let event = open_note_vanished(
-            "note-1",
-            &from,
-            &VanishedContext {
-                batch: &batch,
-                tracking: &tracking,
-            },
-        );
-
-        assert_eq!(
-            verdict_of(&event),
-            Some((&ExternalChange::Moved, to.to_str()))
-        );
-    }
-
-    #[test]
-    fn only_the_batch_is_read_for_a_match_on_bytes() {
-        // Ids are read from the folder listing too; bytes are not. Hashing the
-        // folder a note left reads every note in it, and on a share that is
-        // one deletion pulling the whole folder over the network.
-        let dir = tempdir().unwrap();
-        let gone = dir.path().join("gone.md");
-        let twin = dir.path().join("twin.md");
-        fs::write(&gone, b"text worth keeping").unwrap();
-        let retired = crate::watcher::identity::read_identity(&gone);
-        fs::remove_file(&gone).unwrap();
-        fs::write(&twin, b"text worth keeping").unwrap();
-
-        let (tracking, _files) = tracking_with(RecordingFiles {
-            identity: retired,
-            last: Some(last_read(b"text worth keeping")),
-            ..RecordingFiles::default()
-        });
-        let batch = vec![gone.clone()];
         let event = open_note_vanished(
             "note-1",
             &gone,
@@ -1946,7 +1729,6 @@ mod tests {
 
         let (tracking, _files) = tracking_with(RecordingFiles {
             identity: retired,
-            last: Some(last_read(b"body")),
             ..RecordingFiles::default()
         });
         let batch = vec![path.clone()];
