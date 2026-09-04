@@ -349,18 +349,27 @@ fn rewrite_html_img_src<'a>(raw: CowStr<'a>, asset_url: Option<AssetResolver<'_>
             cursor = name_end;
             continue;
         }
-        let Some(tag_end) = lower[name_end..].find('>').map(|i| name_end + i) else {
+        let body = &raw[name_end..];
+        let tag = scan_img_tag(body);
+        // An unterminated tag is left exactly as authored: there is no tag
+        // to rewrite until its `>` arrives.
+        if !tag.terminated {
             break;
-        };
+        }
         out.push_str(&raw[cursor..name_end]);
-        match rewrite_src_attribute(&raw[name_end..tag_end], &lower[name_end..tag_end], resolve) {
-            Some(rewritten) => {
-                out.push_str(&rewritten);
+        match tag
+            .src
+            .and_then(|value| resolve(&body[value.clone()]).map(|url| (value, url)))
+        {
+            Some((value, url)) => {
+                out.push_str(&body[..value.start]);
+                out.push_str(&url);
+                out.push_str(&body[value.end..tag.end]);
                 rewrote = true;
             }
-            None => out.push_str(&raw[name_end..tag_end]),
+            None => out.push_str(&body[..tag.end]),
         }
-        cursor = tag_end;
+        cursor = name_end + tag.end;
     }
     if !rewrote {
         return raw;
@@ -369,40 +378,87 @@ fn rewrite_html_img_src<'a>(raw: CowStr<'a>, asset_url: Option<AssetResolver<'_>
     CowStr::from(out)
 }
 
-/// Replace the value of the `src` attribute inside one tag body.
+/// What one scan of a tag body found.
+struct ImgTag {
+    /// Byte offset of the tag's closing `>` within the body.
+    end: usize,
+    /// False when the body holds no closing `>` at all.
+    terminated: bool,
+    /// Byte range of the value of the tag's own `src` attribute.
+    src: Option<core::ops::Range<usize>>,
+}
+
+/// Walk one `<img>` tag body attribute by attribute.
 ///
-/// `lower` is the ASCII-lowercased twin of `body`; `to_ascii_lowercase`
-/// preserves byte length, so offsets found in one index the other.
-fn rewrite_src_attribute(body: &str, lower: &str, resolve: AssetResolver<'_>) -> Option<String> {
-    let mut search = 0;
-    loop {
-        let name_at = lower[search..].find("src")? + search;
-        search = name_at + "src".len();
-        let starts_attribute =
-            name_at == 0 || lower[..name_at].ends_with(|c: char| c.is_whitespace());
-        let after_name = &lower[search..];
-        let after_space = after_name.trim_start();
-        if !starts_attribute || !after_space.starts_with('=') {
-            continue;
+/// Quoting is tracked, so `src` is found only where it is the tag's own
+/// attribute name: the same letters inside another attribute's value
+/// (`alt="a src=x"`, `data-src=…`) are part of that value, and a `>` inside a
+/// quoted value does not end the tag. Attribute names are matched
+/// case-insensitively, and the value may be double-quoted, single-quoted or
+/// bare, as the HTML tokenizer reads them.
+fn scan_img_tag(body: &str) -> ImgTag {
+    let bytes = body.as_bytes();
+    let mut src: Option<core::ops::Range<usize>> = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'>' => {
+                return ImgTag {
+                    end: i,
+                    terminated: true,
+                    src,
+                }
+            }
+            b'/' => i += 1,
+            c if c.is_ascii_whitespace() => i += 1,
+            _ => {
+                let name_start = i;
+                while i < bytes.len()
+                    && !bytes[i].is_ascii_whitespace()
+                    && !matches!(bytes[i], b'=' | b'>' | b'/')
+                {
+                    i += 1;
+                }
+                let name = &body[name_start..i];
+                let mut after = i;
+                while after < bytes.len() && bytes[after].is_ascii_whitespace() {
+                    after += 1;
+                }
+                // A bare attribute (`hidden`) has no value to skip past.
+                if bytes.get(after) != Some(&b'=') {
+                    continue;
+                }
+                after += 1;
+                while after < bytes.len() && bytes[after].is_ascii_whitespace() {
+                    after += 1;
+                }
+                let (value, next) = match bytes.get(after) {
+                    Some(quote @ (b'"' | b'\'')) => {
+                        let start = after + 1;
+                        match body[start..].find(*quote as char) {
+                            Some(len) => (start..start + len, start + len + 1),
+                            None => (start..body.len(), body.len()),
+                        }
+                    }
+                    Some(_) => {
+                        let len = body[after..]
+                            .find(|c: char| c.is_ascii_whitespace() || c == '>')
+                            .unwrap_or(body.len() - after);
+                        (after..after + len, after + len)
+                    }
+                    None => (body.len()..body.len(), body.len()),
+                };
+                if src.is_none() && name.eq_ignore_ascii_case("src") {
+                    src = Some(value);
+                }
+                i = next;
+            }
         }
-        let value_at = search + (after_name.len() - after_space.len()) + 1;
-        let area = &body[value_at..];
-        let padding = area.len() - area.trim_start().len();
-        let area = &area[padding..];
-        let (value, quote) = match area.chars().next() {
-            Some(quote @ ('"' | '\'')) => (&area[1..1 + area[1..].find(quote)?], 1),
-            _ => (
-                &area[..area.find(char::is_whitespace).unwrap_or(area.len())],
-                0,
-            ),
-        };
-        let url = resolve(value)?;
-        let value_at = value_at + padding + quote;
-        let mut out = String::with_capacity(body.len() + url.len());
-        out.push_str(&body[..value_at]);
-        out.push_str(&url);
-        out.push_str(&body[value_at + value.len()..]);
-        return Some(out);
+    }
+    ImgTag {
+        end: bytes.len(),
+        terminated: false,
+        src,
     }
 }
 
@@ -508,6 +564,50 @@ mod tests {
         let inline = with_assets("text <img src='b.png' alt='x'/> more");
         assert!(inline.contains("src='writ-preview://document/_note-asset/b/n/b.png'"));
         assert!(inline.contains("alt='x'"));
+    }
+
+    #[test]
+    fn only_the_tag_s_own_src_attribute_is_rewritten() {
+        // `src` inside another attribute's value is part of that value.
+        let alt = with_assets("<img alt=\"a src=x\" src=\"real.png\">");
+        assert!(alt.contains("alt=\"a src=x\""));
+        assert!(alt.contains("src=\"writ-preview://document/_note-asset/b/n/real.png\""));
+
+        // A different attribute that ends in `src` is not the `src` attribute.
+        let data = with_assets("<img data-src=\"decoy.png\" src=\"real.png\">");
+        assert!(data.contains("data-src=\"decoy.png\""));
+        assert!(data.contains("src=\"writ-preview://document/_note-asset/b/n/real.png\""));
+        assert!(!data.contains("_note-asset/b/n/decoy.png"));
+
+        // …and on its own it names no image the preview serves.
+        let only_data = with_assets("<img data-src=\"decoy.png\">");
+        assert!(!only_data.contains("_note-asset"));
+    }
+
+    #[test]
+    fn a_quoted_value_may_hold_the_character_that_ends_a_tag() {
+        let html = with_assets("<img alt=\"a>b\" src=\"a.png\">");
+        assert!(html.contains("alt=\"a>b\""));
+        assert!(html.contains("src=\"writ-preview://document/_note-asset/b/n/a.png\""));
+    }
+
+    #[test]
+    fn the_src_attribute_is_found_however_it_is_written() {
+        let bare = with_assets("<img src=a.png width=20>");
+        assert!(bare.contains("src=writ-preview://document/_note-asset/b/n/a.png"));
+        assert!(bare.contains("width=20"));
+
+        let upper = with_assets("<IMG SRC=\"a.png\">");
+        assert!(upper.contains("SRC=\"writ-preview://document/_note-asset/b/n/a.png\""));
+
+        let spaced = with_assets("<img src = 'a.png' >");
+        assert!(spaced.contains("src = 'writ-preview://document/_note-asset/b/n/a.png'"));
+    }
+
+    #[test]
+    fn an_unterminated_tag_is_left_as_authored() {
+        let html = with_assets("<img src=\"a.png\"");
+        assert!(!html.contains("_note-asset"));
     }
 
     #[test]
