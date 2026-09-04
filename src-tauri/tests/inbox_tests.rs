@@ -257,7 +257,12 @@ fn save_through_writ(state: &AppState, path: &std::path::Path, content: &str) {
     let canonical = canonicalize_for_authorization(path).expect("canonical");
     state.authorized_paths.record_for_open(canonical.clone());
     let opened = open_file_from_path(state, &canonical).expect("open");
-    save_buffer_content_inner(state, &opened.doc.id, content).expect("save");
+    save_buffer_content_inner(
+        state,
+        &opened.doc.as_ref().expect("the file opened").id,
+        content,
+    )
+    .expect("save");
 }
 
 fn classify_arrival(

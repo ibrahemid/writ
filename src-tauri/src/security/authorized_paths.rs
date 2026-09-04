@@ -36,6 +36,17 @@ impl AuthorizedPaths {
         guard.pending_open.remove(canonical)
     }
 
+    /// Whether `canonical` has an open authorization waiting, without
+    /// spending it. Used by the download gate: the token belongs to the open
+    /// that follows the download, not to the download.
+    pub fn is_pending_open(&self, canonical: &str) -> bool {
+        let guard = recover_poison(
+            self.inner.lock(),
+            "security::authorized_paths::is_pending_open",
+        );
+        guard.pending_open.contains(canonical)
+    }
+
     pub fn record_blessed_source(&self, canonical: String) {
         let mut guard = recover_poison(
             self.inner.lock(),
@@ -186,6 +197,20 @@ mod tests {
         auth.record_for_open(canonical.clone());
         assert!(auth.consume_for_open(&canonical));
         assert!(!auth.consume_for_open(&canonical));
+    }
+
+    #[test]
+    fn pending_open_reads_the_token_without_spending_it() {
+        let dir = TempDir::new().unwrap();
+        let canonical = make_file(&dir, "pending.txt");
+        let auth = AuthorizedPaths::new();
+
+        assert!(!auth.is_pending_open(&canonical));
+        auth.record_for_open(canonical.clone());
+        assert!(auth.is_pending_open(&canonical));
+        assert!(auth.is_pending_open(&canonical));
+        assert!(auth.consume_for_open(&canonical));
+        assert!(!auth.is_pending_open(&canonical));
     }
 
     #[test]

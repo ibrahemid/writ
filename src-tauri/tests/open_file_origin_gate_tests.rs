@@ -157,7 +157,15 @@ fn open_file_accepts_explicitly_authorized_path() {
     state.authorized_paths.record_for_open(canonical.clone());
 
     let result = open_file_from_path(&state, &canonical).expect("authorized open should succeed");
-    assert_eq!(result.doc.source_path.as_deref(), Some(canonical.as_str()));
+    assert_eq!(
+        result
+            .doc
+            .as_ref()
+            .expect("the file opened")
+            .source_path
+            .as_deref(),
+        Some(canonical.as_str())
+    );
 }
 
 #[test]
@@ -193,8 +201,12 @@ fn open_file_blesses_source_path_for_subsequent_saves() {
 
     let result = open_file_from_path(&state, &canonical).expect("open");
 
-    save_buffer_content_inner(&state, &result.doc.id, "beta")
-        .expect("save should succeed for blessed source");
+    save_buffer_content_inner(
+        &state,
+        &result.doc.as_ref().expect("the file opened").id,
+        "beta",
+    )
+    .expect("save should succeed for blessed source");
 
     let on_disk = std::fs::read_to_string(&file).unwrap();
     assert_eq!(on_disk, "beta");
@@ -240,9 +252,17 @@ fn open_file_for_active_duplicate_blesses_without_consuming_again() {
 
     state.authorized_paths.record_for_open(canonical.clone());
     let second = open_file_from_path(&state, &canonical).expect("second open returns existing");
-    assert_eq!(first.doc.id, second.doc.id);
+    assert_eq!(
+        first.doc.as_ref().expect("the file opened").id,
+        second.doc.as_ref().expect("the file opened").id
+    );
 
-    save_buffer_content_inner(&state, &second.doc.id, "y").expect("save");
+    save_buffer_content_inner(
+        &state,
+        &second.doc.as_ref().expect("the file opened").id,
+        "y",
+    )
+    .expect("save");
 }
 
 #[test]
@@ -259,7 +279,12 @@ fn autosave_writes_the_file_the_buffer_was_opened_from() {
     // The regression: every save route ends here, and for a file-backed buffer
     // it used to write only Writ's private copy, so edits never reached the
     // file the user had opened.
-    save_buffer_content_inner(&state, &opened.doc.id, "alias a=c\n").expect("save");
+    save_buffer_content_inner(
+        &state,
+        &opened.doc.as_ref().expect("the file opened").id,
+        "alias a=c\n",
+    )
+    .expect("save");
 
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "alias a=c\n");
     assert!(
@@ -362,7 +387,12 @@ fn autosave_recreates_a_file_deleted_underneath_the_buffer() {
     // The gate re-resolves the path on every save; a deleted file has nothing
     // to resolve, and refusing there would turn autosave into a permanent
     // failure instead of writing the buffer back out.
-    save_buffer_content_inner(&state, &opened.doc.id, "back").expect("save");
+    save_buffer_content_inner(
+        &state,
+        &opened.doc.as_ref().expect("the file opened").id,
+        "back",
+    )
+    .expect("save");
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "back");
 }
 
@@ -381,7 +411,12 @@ fn autosave_keeps_the_files_permissions() {
     state.authorized_paths.record_for_open(canonical.clone());
     let opened = open_file_from_path(&state, &canonical).expect("open");
 
-    save_buffer_content_inner(&state, &opened.doc.id, "#!/bin/sh\necho hi\n").expect("save");
+    save_buffer_content_inner(
+        &state,
+        &opened.doc.as_ref().expect("the file opened").id,
+        "#!/bin/sh\necho hi\n",
+    )
+    .expect("save");
 
     let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
     assert_eq!(
@@ -405,11 +440,17 @@ fn reopening_a_file_edited_elsewhere_resyncs_the_buffer() {
 
     state.authorized_paths.record_for_open(canonical.clone());
     let reopened = open_file_from_path(&state, &canonical).expect("reopen");
-    assert_eq!(reopened.doc.id, opened.doc.id, "same tab, not a second one");
+    assert_eq!(
+        reopened.doc.as_ref().expect("the file opened").id,
+        opened.doc.as_ref().expect("the file opened").id,
+        "same tab, not a second one"
+    );
 
     let store = state.store.lock().unwrap();
     assert_eq!(
-        store.read_content(&opened.doc.id).unwrap(),
+        store
+            .read_content(&opened.doc.as_ref().expect("the file opened").id)
+            .unwrap(),
         "someone else's version",
         "reopening shows the file, not the copy Writ loaded earlier"
     );
@@ -437,7 +478,12 @@ fn reopening_an_untouched_file_leaves_the_buffer_alone() {
         "reopening reads the file; it never writes it back"
     );
     let store = state.store.lock().unwrap();
-    assert_eq!(store.read_content(&opened.doc.id).unwrap(), "unchanged");
+    assert_eq!(
+        store
+            .read_content(&opened.doc.as_ref().expect("the file opened").id)
+            .unwrap(),
+        "unchanged"
+    );
 }
 
 #[test]
@@ -462,7 +508,12 @@ fn a_tab_restored_after_a_restart_can_still_be_saved() {
         assert_eq!(hydrated, 1);
     }
 
-    save_buffer_content_inner(&restarted, &opened.doc.id, "after the restart").expect("save");
+    save_buffer_content_inner(
+        &restarted,
+        &opened.doc.as_ref().expect("the file opened").id,
+        "after the restart",
+    )
+    .expect("save");
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "after the restart");
 }
 
@@ -485,7 +536,12 @@ fn a_restored_tab_whose_file_was_deleted_recreates_it() {
         writ_tauri_lib::state::bless_persisted_sources(&store, &restarted.authorized_paths);
     }
 
-    save_buffer_content_inner(&restarted, &opened.doc.id, "rewritten").expect("save");
+    save_buffer_content_inner(
+        &restarted,
+        &opened.doc.as_ref().expect("the file opened").id,
+        "rewritten",
+    )
+    .expect("save");
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "rewritten");
 }
 
@@ -502,7 +558,12 @@ fn file_created_in_the_notes_folder_by_another_program_opens() {
     let opened = open_file_from_path(&state, &note.to_string_lossy())
         .expect("a file in the notes folder opens without a dialog");
     assert_eq!(
-        opened.doc.source_path.as_deref(),
+        opened
+            .doc
+            .as_ref()
+            .expect("the file opened")
+            .source_path
+            .as_deref(),
         Some(canonicalize_for_authorization(&note).unwrap().as_str())
     );
 }
@@ -712,7 +773,8 @@ fn a_file_changed_out_of_band_keeps_being_announced_until_it_is_read() {
         "a reload nobody took must not leave the tab looking current"
     );
 
-    read_buffer_content_inner(&state, &opened.doc.id).expect("the editor takes the reload");
+    read_buffer_content_inner(&state, &opened.doc.as_ref().expect("the file opened").id)
+        .expect("the editor takes the reload");
 
     state.authorized_paths.record_for_open(canonical.clone());
     open_file_from_path(&state, &canonical).expect("reopen with the file already read");
@@ -733,12 +795,16 @@ fn closing_a_tab_forgets_what_its_file_held() {
     let canonical = canonicalize_for_authorization(&file).unwrap();
     state.authorized_paths.record_for_open(canonical.clone());
     let opened = open_file_from_path(&state, &canonical).expect("open");
-    assert!(state.disk_state(&opened.doc.id).is_some());
+    assert!(state
+        .disk_state(&opened.doc.as_ref().expect("the file opened").id)
+        .is_some());
 
-    close_buffer_inner(&state, &opened.doc.id).expect("close");
+    close_buffer_inner(&state, &opened.doc.as_ref().expect("the file opened").id).expect("close");
 
     assert!(
-        state.disk_state(&opened.doc.id).is_none(),
+        state
+            .disk_state(&opened.doc.as_ref().expect("the file opened").id)
+            .is_none(),
         "a closed tab is not a file Writ is still watching the bytes of"
     );
 }
@@ -758,6 +824,7 @@ fn closing_several_tabs_forgets_every_one_of_them() {
             open_file_from_path(&state, &canonical)
                 .expect("open")
                 .doc
+                .expect("the file opened")
                 .id,
         );
     }
@@ -779,10 +846,15 @@ fn deleting_a_note_forgets_what_its_file_held() {
     let canonical = canonicalize_for_authorization(&file).unwrap();
     state.authorized_paths.record_for_open(canonical.clone());
     let opened = open_file_from_path(&state, &canonical).expect("open");
-    assert!(state.disk_state(&opened.doc.id).is_some());
+    assert!(state
+        .disk_state(&opened.doc.as_ref().expect("the file opened").id)
+        .is_some());
 
-    delete_buffer_inner(&state, &opened.doc.id).expect("delete the row");
+    delete_buffer_inner(&state, &opened.doc.as_ref().expect("the file opened").id)
+        .expect("delete the row");
 
-    assert!(state.disk_state(&opened.doc.id).is_none());
+    assert!(state
+        .disk_state(&opened.doc.as_ref().expect("the file opened").id)
+        .is_none());
     assert!(file.exists(), "deleting the row never deletes the file");
 }

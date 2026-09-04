@@ -97,7 +97,11 @@ fn open_note_at(state: &AppState, path: &std::path::Path, content: &str) -> Stri
     std::fs::write(path, content).expect("write");
     let canonical = canonicalize_for_authorization(path).expect("canonical");
     state.authorized_paths.record_for_open(canonical.clone());
-    open_file_from_path(state, &canonical).expect("open").doc.id
+    open_file_from_path(state, &canonical)
+        .expect("open")
+        .doc
+        .expect("the file opened")
+        .id
 }
 
 #[test]
@@ -276,7 +280,7 @@ fn save_copy_leaves_the_original_untouched() {
     // The copy is a file inside the notes folder, so it opens with no further
     // permission and is a note of its own.
     let opened = open_file_from_path(&state, copy.to_str().expect("utf-8")).expect("open");
-    assert_ne!(opened.doc.id, id);
+    assert_ne!(opened.doc.as_ref().expect("the file opened").id, id);
     assert_eq!(
         sha256_bytes(std::fs::read(&copy).expect("read").as_slice()),
         sha256_bytes(b"the text plus more")

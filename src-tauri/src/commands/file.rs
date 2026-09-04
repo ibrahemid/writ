@@ -12,6 +12,7 @@ use writ_core::buffer::manager::BufferManager;
 use writ_core::events::bus::WritEvent;
 use writ_core::file_ops::{self, FileOpenMode};
 use writ_core::notes::line_ending::LineEnding;
+use writ_core::notes::materialise::{decide_open, OpenDecision};
 use writ_core::watcher::change_event::ExternalChange;
 use writ_storage::buffer_store::BufferStore;
 
@@ -24,8 +25,10 @@ const ERR_UNAUTHORIZED_PATH: &str =
 /// configure the editor without a second IPC round-trip.
 #[derive(Debug, Clone, Serialize)]
 pub struct FileOpenResult {
-    /// The buffer metadata row.
-    pub doc: BufferDocument,
+    /// The buffer metadata row, or `None` when the file was not opened
+    /// because its bytes are not on this machine
+    /// ([`FileOpenMode::NotDownloaded`]). Every other mode carries a row.
+    pub doc: Option<BufferDocument>,
     /// How the file was classified.
     pub mode: FileOpenMode,
     /// File size in bytes (mirrors `doc.size_bytes`; included for
@@ -46,6 +49,47 @@ pub struct FileOpenConfirmRequired {
     pub warning: String,
 }
 
+// Paths this process treats as sync placeholders regardless of what the
+// filesystem says, so the not-downloaded open arm is testable without a real
+// provider. Thread-local and dev-build-only, matching
+// `crate::preview::protocol`'s recorder: an integration test links the library
+// without `cfg(test)`, so `debug_assertions` is what makes the hook reachable
+// from `tests/`.
+#[cfg(any(test, debug_assertions))]
+thread_local! {
+    static DATALESS_PATHS: std::cell::RefCell<std::collections::HashSet<String>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// Makes `canonical` answer as a sync placeholder on this thread. No-op in
+/// release builds.
+#[cfg(any(test, debug_assertions))]
+pub fn mark_dataless_for_test(canonical: &str) {
+    DATALESS_PATHS.with(|p| p.borrow_mut().insert(canonical.to_string()));
+}
+
+/// Drops every path marked by [`mark_dataless_for_test`] on this thread.
+#[cfg(any(test, debug_assertions))]
+pub fn clear_dataless_for_test() {
+    DATALESS_PATHS.with(|p| p.borrow_mut().clear());
+}
+
+/// Whether the file has no local data behind it.
+///
+/// A stat, never a read: reading is what a placeholder makes expensive, so the
+/// question cannot be answered by opening the file.
+fn path_is_dataless(path: &Path) -> bool {
+    #[cfg(any(test, debug_assertions))]
+    {
+        let marked =
+            DATALESS_PATHS.with(|p| p.borrow().contains(&path.to_string_lossy().to_string()));
+        if marked {
+            return true;
+        }
+    }
+    writ_storage::notes_index::is_dataless(path)
+}
+
 fn authorize_open(state: &AppState, raw_path: &str) -> Result<String, String> {
     let canonical = canonicalize_for_authorization(Path::new(raw_path))
         .map_err(|_| ERR_UNAUTHORIZED_PATH.to_string())?;
@@ -64,6 +108,27 @@ fn authorize_open(state: &AppState, raw_path: &str) -> Result<String, String> {
     Err(ERR_UNAUTHORIZED_PATH.to_string())
 }
 
+/// Gate on asking a sync provider for a file's bytes.
+///
+/// A download reads the file, so it is authorized on the same grounds an open
+/// is. It differs in one way: it must not spend the pending-open token. That
+/// token belongs to the open the frontend performs once the bytes land, and a
+/// download that consumed it would leave that open unauthorized.
+pub fn authorize_download(state: &AppState, raw_path: &str) -> Result<String, String> {
+    let canonical = canonicalize_for_authorization(Path::new(raw_path))
+        .map_err(|_| ERR_UNAUTHORIZED_PATH.to_string())?;
+    let authorized = state.authorized_paths.is_pending_open(&canonical)
+        || state.authorized_paths.is_blessed_source(&canonical)
+        || state.is_within_workspace(&canonical)
+        || state.is_within_inbox(&canonical)
+        || state.is_within_notes(&canonical);
+    if authorized {
+        Ok(canonical)
+    } else {
+        Err(ERR_UNAUTHORIZED_PATH.to_string())
+    }
+}
+
 /// Opens a file from an already-authorized canonical path.
 ///
 /// Does not read the file's full content for the `LargeFileConfirm` tier —
@@ -72,6 +137,31 @@ fn authorize_open(state: &AppState, raw_path: &str) -> Result<String, String> {
 pub fn open_file_from_path(state: &AppState, path: &str) -> Result<FileOpenResult, String> {
     let canonical = authorize_open(state, path)?;
     let file_path = Path::new(&canonical);
+
+    // Before anything reads the file. `classify_path` sniffs the first bytes
+    // for a NUL, and on a placeholder that sniff is what blocks the IPC thread
+    // until the provider has fetched the whole file.
+    if let OpenDecision::Download { .. } = decide_open(file_path, path_is_dataless(file_path)) {
+        // The authorization this call consumed is spent, and the frontend
+        // opens the note again once the bytes land. Record a fresh token so
+        // that second open is the one this one would have been, without
+        // widening what any other path may open.
+        state.authorized_paths.record_for_open(canonical.clone());
+        let size_bytes = std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
+        let home = dirs::home_dir();
+        let provider = crate::startup::sync_provider_for(
+            file_path.parent().unwrap_or(file_path),
+            home.as_deref(),
+        );
+        return Ok(FileOpenResult {
+            mode: FileOpenMode::NotDownloaded {
+                path: canonical,
+                provider,
+            },
+            size_bytes,
+            doc: None,
+        });
+    }
 
     let classification = file_ops::classify_path(file_path).map_err(|e| e.to_string())?;
 
@@ -122,7 +212,7 @@ fn open_file_classified(
         return Ok(FileOpenResult {
             mode: existing_mode,
             size_bytes: existing.size_bytes,
-            doc: existing,
+            doc: Some(existing),
         });
     }
 
@@ -169,7 +259,7 @@ fn open_file_classified(
         return Ok(FileOpenResult {
             mode,
             size_bytes,
-            doc,
+            doc: Some(doc),
         });
     }
 
@@ -209,7 +299,7 @@ fn open_file_classified(
     Ok(FileOpenResult {
         mode,
         size_bytes,
-        doc: new_doc,
+        doc: Some(new_doc),
     })
 }
 
@@ -396,7 +486,7 @@ pub fn open_generated_document(
         return Ok(FileOpenResult {
             mode: FileOpenMode::Normal,
             size_bytes,
-            doc: existing,
+            doc: Some(existing),
         });
     }
 
@@ -413,7 +503,7 @@ pub fn open_generated_document(
         return Ok(FileOpenResult {
             mode: FileOpenMode::Normal,
             size_bytes,
-            doc,
+            doc: Some(doc),
         });
     }
 
@@ -435,7 +525,7 @@ pub fn open_generated_document(
     Ok(FileOpenResult {
         mode: FileOpenMode::Normal,
         size_bytes,
-        doc: new_doc,
+        doc: Some(new_doc),
     })
 }
 
