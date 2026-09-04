@@ -328,23 +328,33 @@ that wrote later, so its value stands.
 A sighting is not the only thing that happens to a file. Two writes inside one
 watcher window are reported as one, so a program that rewrites a file and then
 renames it produces a single event saying the path is empty: the rewrite is
-never reported, the id on record is the one it retired, and no sighting can fix
-that after the fact. What is left is the bytes, and they are the right thing to
-go on, because a rename changes none of them.
-`classify_delete_by_content` compares the digest of what the tab last read from
-its file against the files this watcher's own window named, and a match is the
-file. Only the window's own paths are read, never the folder listing: hashing
-the folder a note left reads every note in it, which on a share is one deletion
-pulling four thousand files over the network. A rewrite that changed the bytes
-as well is a removal, and deliberately so — the content the tab is attached to
-is then gone from every watched folder, which is the whole of what a removal
-claims, and a deletion beside an unrelated creation in one window looks exactly
-like it from anywhere else. Following that would put the tab on a file it has
-never read and let the next save write over it. An empty file is a removal from
-the other side of the same rule: every empty file holds the same nothing, so a
-match on it identifies nothing. A note Writ has created and not yet saved to
-holds exactly that, and any zero-length path in the window — another new note,
-somebody's temp file — would otherwise take the tab with it.
+never reported, the id on record is the one it retired, and no sighting can
+fix that after the fact. What is left is the bytes, and they are the right
+thing to go on, because a rename changes none of them.
+`classify_delete_by_content` compares the digest of what the tab last read
+from its file against the files this watcher's own window named, and the only
+file holding them is the file. Only the window's own paths are read, never the
+folder listing: hashing the folder a note left reads every note in it, which
+on a share is one deletion pulling four thousand files over the network. A
+rewrite that changed the bytes as well is a removal, and deliberately so — the
+content the tab is attached to is then gone from every watched folder, which
+is the whole of what a removal claims, and a deletion beside an unrelated
+creation in one window looks exactly like it from anywhere else. Following
+that would put the tab on a file it has never read and let the next save write
+over it. The bytes have to name one file, though, and there are two ways they
+fail to. Two candidates holding them says one of the two is the file and
+nothing about which, so the answer would be whichever sorted first: a coin
+flip that hands the tab a stranger's file, whose bytes then satisfy the write
+guard exactly and let the next save replace its content, while the file the
+note went to keeps the old text with nothing pointing at it. A sync client
+landing a conflicted copy of what it is writing back, or a checkout that
+rewrites one note and adds another holding the old bytes, produces that pair.
+And bytes every empty file holds name every empty file there is, in this
+window or outside it, so counting the window's matches cannot see how many
+carry them; a note Writ created and never saved to, and one the user
+deliberately emptied, would both leave with whichever zero-length path the
+window happened to name. Either way nothing is claimed and the tab reads the
+file as gone.
 
 A path holding a directory holds no note, the same as a path holding nothing,
 and reads as a file that went. Dropping the event for not being about a file
