@@ -114,6 +114,10 @@ pub fn materialise_with<R, F>(
 {
     let (tx, rx) = mpsc::channel::<io::Result<()>>();
     let read_path = path.clone();
+    // Detached on purpose. A read waiting on a provider cannot be interrupted,
+    // so this thread outlives a cancel or a timeout and ends whenever the
+    // provider answers. By then the receiver is gone: the send fails, the
+    // result is dropped, and nothing is emitted or opened on its behalf.
     std::thread::spawn(move || {
         let _ = tx.send(read(&read_path));
     });
@@ -124,7 +128,16 @@ pub fn materialise_with<R, F>(
             report(DownloadOutcome::Cancelled);
             return;
         }
-        match rx.recv_timeout(POLL_INTERVAL) {
+        let received = rx.recv_timeout(POLL_INTERVAL);
+        // A cancel raised while the read was running is answered whatever the
+        // read came back with. The flag going up before the outcome is
+        // reported is the whole of what the person asked for, and a read that
+        // finished inside the same poll window must not undo it.
+        if cancel.load(Ordering::SeqCst) {
+            report(DownloadOutcome::Cancelled);
+            return;
+        }
+        match received {
             Ok(Ok(())) => {
                 report(DownloadOutcome::Done);
                 return;
@@ -140,13 +153,6 @@ pub fn materialise_with<R, F>(
                 return;
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                // A cancel raised during the wait is answered before the clock,
-                // so a cancel that lands in the last poll is not reported as a
-                // timeout.
-                if cancel.load(Ordering::SeqCst) {
-                    report(DownloadOutcome::Cancelled);
-                    return;
-                }
                 if started.elapsed() >= timeout {
                     report(DownloadOutcome::TimedOut);
                     return;
@@ -227,20 +233,39 @@ pub fn materialise_note(
     materialise_note_inner(app, &downloads, canonical)
 }
 
-/// [`materialise_note`] with the path already authorized, so tests can drive it
-/// without an IPC frame.
-pub fn materialise_note_inner(
+/// Claims `canonical` for a new download and hands its cancel flag to `spawn`,
+/// or leaves the download already running for that path alone.
+///
+/// Separate from [`materialise_note_inner`] so the join is testable without an
+/// `AppHandle`: a second request for a path in flight must never reach `spawn`.
+fn start_or_join(
+    downloads: &MaterialiseState,
+    canonical: &str,
+    spawn: impl FnOnce(Arc<AtomicBool>),
+) {
+    match downloads.claim(canonical) {
+        Claim::Started(cancel) => spawn(cancel),
+        // Already downloading: the caller waits on the event the running
+        // download will emit, and no second thread is spawned.
+        Claim::Joined => (),
+    }
+}
+
+/// [`materialise_note`] with the path already authorized.
+pub(crate) fn materialise_note_inner(
     app: AppHandle,
     downloads: &MaterialiseState,
     canonical: String,
 ) -> Result<(), String> {
-    let cancel = match downloads.claim(&canonical) {
-        Claim::Started(cancel) => cancel,
-        // Already downloading: the caller waits on the event the running
-        // download will emit, and no second thread is spawned.
-        Claim::Joined => return Ok(()),
-    };
+    start_or_join(downloads, &canonical, |cancel| {
+        spawn_download(app, canonical.clone(), cancel)
+    });
+    Ok(())
+}
 
+/// Runs one download to its outcome on a thread of its own, releasing the path
+/// and reporting to the frontend whichever way it ends.
+fn spawn_download(app: AppHandle, canonical: String, cancel: Arc<AtomicBool>) {
     emit_download(&app, &canonical, NoteDownloadState::Started, None);
 
     let waiter_app = app.clone();
@@ -264,8 +289,6 @@ pub fn materialise_note_inner(
             },
         );
     });
-
-    Ok(())
 }
 
 /// Stops waiting for a note's bytes.
@@ -286,6 +309,7 @@ pub fn cancel_materialise_note(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
     use std::sync::mpsc::sync_channel;
 
     fn outcomes() -> (
@@ -330,11 +354,41 @@ mod tests {
         assert!(message.contains("provider is signed out"), "{message}");
     }
 
+    /// How long a test waits for a wait that should have ended by itself. Long
+    /// enough for a loaded machine, short enough that a wait which never ends
+    /// is a red test rather than a hung job.
+    const TEST_PATIENCE: Duration = Duration::from_secs(5);
+
+    /// Runs `materialise_with` off the test thread and hands back the outcome
+    /// channel, so a wait that never ends fails on `recv_timeout` instead of
+    /// blocking the suite.
+    fn wait_off_thread<R>(
+        cancel: Arc<AtomicBool>,
+        timeout: Duration,
+        read: R,
+    ) -> mpsc::Receiver<DownloadOutcome>
+    where
+        R: FnOnce(&Path) -> io::Result<()> + Send + 'static,
+    {
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            materialise_with(
+                PathBuf::from("/notes/a.md"),
+                cancel,
+                timeout,
+                read,
+                move |outcome| {
+                    let _ = tx.send(outcome);
+                },
+            );
+        });
+        rx
+    }
+
     #[test]
     fn a_cancelled_wait_reports_cancelled_and_drops_the_read() {
         let (release_tx, release_rx) = sync_channel::<()>(0);
         let cancel = Arc::new(AtomicBool::new(false));
-        let (seen, report) = outcomes();
 
         let flag = Arc::clone(&cancel);
         std::thread::spawn(move || {
@@ -343,39 +397,84 @@ mod tests {
             flag.store(true, Ordering::SeqCst);
         });
 
+        let outcomes = wait_off_thread(cancel, Duration::from_secs(30), move |_| {
+            let _ = release_rx.recv();
+            Ok(())
+        });
+
+        assert_eq!(
+            outcomes
+                .recv_timeout(TEST_PATIENCE)
+                .expect("the wait answers the cancel"),
+            DownloadOutcome::Cancelled
+        );
+        // The read lands after the wait gave up; its result goes nowhere, and
+        // releasing it lets the detached thread end with the test.
+        let _ = release_tx.send(());
+    }
+
+    #[test]
+    fn a_cancel_that_lands_before_the_outcome_is_never_reported_as_done() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&cancel);
+        let (seen, report) = outcomes();
+
         materialise_with(
             PathBuf::from("/notes/a.md"),
             cancel,
             Duration::from_secs(30),
             move |_| {
-                let _ = release_rx.recv();
+                // The bytes arrived, but the person had already called it off.
+                // Raised before the result is sent, so the wait sees the flag
+                // whichever side of the poll window the result lands on.
+                flag.store(true, Ordering::SeqCst);
                 Ok(())
             },
             report,
         );
 
         assert_eq!(*seen.lock().unwrap(), vec![DownloadOutcome::Cancelled]);
-        // The read lands after the wait gave up; its result goes nowhere.
-        let _ = release_tx.send(());
+    }
+
+    #[test]
+    fn a_cancel_beats_a_read_that_failed_at_the_same_moment() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&cancel);
+        let (seen, report) = outcomes();
+
+        materialise_with(
+            PathBuf::from("/notes/a.md"),
+            cancel,
+            Duration::from_secs(30),
+            move |_| {
+                flag.store(true, Ordering::SeqCst);
+                Err(io::Error::other("provider is signed out"))
+            },
+            report,
+        );
+
+        assert_eq!(*seen.lock().unwrap(), vec![DownloadOutcome::Cancelled]);
     }
 
     #[test]
     fn a_read_that_outlasts_the_timeout_reports_timed_out() {
         let (release_tx, release_rx) = sync_channel::<()>(0);
-        let (seen, report) = outcomes();
 
-        materialise_with(
-            PathBuf::from("/notes/a.md"),
+        let outcomes = wait_off_thread(
             Arc::new(AtomicBool::new(false)),
             Duration::from_millis(40),
             move |_| {
                 let _ = release_rx.recv();
                 Ok(())
             },
-            report,
         );
 
-        assert_eq!(*seen.lock().unwrap(), vec![DownloadOutcome::TimedOut]);
+        assert_eq!(
+            outcomes
+                .recv_timeout(TEST_PATIENCE)
+                .expect("the wait ends on the clock"),
+            DownloadOutcome::TimedOut
+        );
         let _ = release_tx.send(());
     }
 
@@ -422,6 +521,29 @@ mod tests {
         assert!(!state.is_in_flight("/notes/a.md"));
         // Released, so the path can be asked for again.
         assert!(matches!(state.claim("/notes/a.md"), Claim::Started(_)));
+    }
+
+    #[test]
+    fn a_second_request_for_a_path_in_flight_starts_no_second_download() {
+        let state = MaterialiseState::default();
+        let spawns = Arc::new(AtomicUsize::new(0));
+
+        let counted = |flag: Arc<AtomicBool>| {
+            let _ = flag;
+            spawns.fetch_add(1, Ordering::SeqCst);
+        };
+        start_or_join(&state, "/notes/a.md", counted);
+        start_or_join(&state, "/notes/a.md", counted);
+        assert_eq!(spawns.load(Ordering::SeqCst), 1);
+
+        // A different note is its own download.
+        start_or_join(&state, "/notes/b.md", counted);
+        assert_eq!(spawns.load(Ordering::SeqCst), 2);
+
+        // Once the first download has ended, the note can be asked for again.
+        state.release("/notes/a.md");
+        start_or_join(&state, "/notes/a.md", counted);
+        assert_eq!(spawns.load(Ordering::SeqCst), 3);
     }
 
     #[test]
