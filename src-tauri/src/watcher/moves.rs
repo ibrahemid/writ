@@ -91,7 +91,9 @@ impl FileTracking {
 }
 
 /// Nothing recorded and nothing applied. Every verdict is news, so a watcher
-/// with no state behind it still tells the tab what it saw.
+/// with no state behind it still tells the tab what it saw. A file that
+/// returned is the exception: with nothing recorded there was no removal mark
+/// to clear and no identity to re-read, so the answer is `false`.
 pub struct NoNoteFiles;
 
 impl NoteFiles for NoNoteFiles {
