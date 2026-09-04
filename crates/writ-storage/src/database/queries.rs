@@ -210,22 +210,22 @@ pub fn find_history_by_source_path(
     Ok(result)
 }
 
-/// Returns every never-renamed scratch buffer, regardless of status,
-/// ordered by tab position. Callers filter on disk emptiness and status.
+/// Returns every note that has not reached a file, regardless of status,
+/// ordered by tab position. Callers filter on status.
 ///
-/// A buffer is considered never-renamed when `source_path IS NULL` and
-/// either (a) `title = filename` (legacy rows minted before filename was
-/// decoupled from title) or (b) `title` matches the default scratch
-/// pattern `writ-<digits>` produced by `BufferManager::create_buffer`
-/// when no title is supplied.
-pub fn list_scratch_candidates(conn: &Connection) -> StorageResult<Vec<BufferDocument>> {
+/// A note acquires its file on the first keystroke (ADR-028 §2), so a row
+/// with `source_path IS NULL` holds no text anywhere and is exactly the row a
+/// new-tab request reuses and startup reclaims. `migrated_path IS NULL`
+/// excludes the rows the notes migration wrote into the archive: those keep a
+/// `NULL` `source_path` until the user moves them into the notes folder, and
+/// they do have a file.
+pub fn list_unsaved_notes(conn: &Connection) -> StorageResult<Vec<BufferDocument>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
                 cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at,
                 read_only, size_bytes
          FROM buffers
-         WHERE source_path IS NULL
-           AND (title = filename OR title GLOB 'writ-[0-9]*')
+         WHERE source_path IS NULL AND migrated_path IS NULL
          ORDER BY tab_order ASC",
     )?;
     let rows = stmt.query_map([], row_to_document)?;
@@ -234,6 +234,88 @@ pub fn list_scratch_candidates(conn: &Connection) -> StorageResult<Vec<BufferDoc
         docs.push(row?);
     }
     Ok(docs)
+}
+
+/// Rewrites the path of the file a note lives in, stamping `updated_at`.
+///
+/// The row's `filename` is left alone: it identifies the row and names no
+/// path (ADR-028 §1).
+pub fn update_source_path(conn: &Connection, id: &str, source_path: &str) -> StorageResult<()> {
+    conn.execute(
+        "UPDATE buffers SET source_path = ?1 WHERE id = ?2",
+        params![source_path, id],
+    )?;
+    Ok(())
+}
+
+/// Records that the notes migration wrote this row's text to `migrated_path`.
+///
+/// `migrated_at` is a Unix timestamp in seconds. Setting both is what makes a
+/// re-run skip the row (ADR-028 §4 step 6), so it is written only after the
+/// file at `migrated_path` has been verified.
+pub fn mark_migrated(
+    conn: &Connection,
+    id: &str,
+    migrated_path: &str,
+    migrated_at: i64,
+) -> StorageResult<()> {
+    conn.execute(
+        "UPDATE buffers SET migrated_path = ?1, migrated_at = ?2 WHERE id = ?3",
+        params![migrated_path, migrated_at, id],
+    )?;
+    Ok(())
+}
+
+/// Every row that names a file, as `(id, source_path)`.
+///
+/// Read whole rather than filtered in SQL: a prefix match belongs to
+/// `Path::starts_with`, which compares component by component, and a `LIKE`
+/// over a path would match `~/Writing` for a move out of `~/Writ`.
+pub fn list_source_paths(conn: &Connection) -> StorageResult<Vec<(String, String)>> {
+    let mut stmt =
+        conn.prepare("SELECT id, source_path FROM buffers WHERE source_path IS NOT NULL")?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+/// Every row the notes migration placed, as `(id, migrated_path)`.
+pub fn list_migrated_paths(conn: &Connection) -> StorageResult<Vec<(String, String)>> {
+    let mut stmt =
+        conn.prepare("SELECT id, migrated_path FROM buffers WHERE migrated_path IS NOT NULL")?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+/// Points a migrated row at where its file is now, leaving `migrated_at` as
+/// the moment the migration placed it.
+///
+/// A file the user moved is the same file the migration wrote; re-stamping the
+/// time would claim the pass ran again. Leaving the path stale would instead
+/// make the next launch read the row as unfinished work and run the whole pass
+/// over it (ADR-028 section 4 step 6).
+pub fn set_migrated_path(conn: &Connection, id: &str, migrated_path: &str) -> StorageResult<()> {
+    conn.execute(
+        "UPDATE buffers SET migrated_path = ?1 WHERE id = ?2",
+        params![migrated_path, id],
+    )?;
+    Ok(())
+}
+
+/// Returns where the notes migration wrote this row's text, if it has.
+pub fn get_migrated_path(conn: &Connection, id: &str) -> StorageResult<Option<String>> {
+    let value = conn
+        .query_row(
+            "SELECT migrated_path FROM buffers WHERE id = ?1",
+            params![id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+    Ok(value)
 }
 
 /// Updates the detected or user-assigned language for a buffer.

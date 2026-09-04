@@ -1,7 +1,7 @@
 import type { BufferDocument } from "../../types/buffer";
 import type { SearchHit, SnippetSegment } from "../../types/search";
 
-export type SearchRowSource = "active" | "history" | "other";
+export type SearchRowSource = "active" | "history" | "file" | "other";
 
 export interface SearchRow {
   id: string;
@@ -9,14 +9,20 @@ export interface SearchRow {
   line: number | null;
   segments: SnippetSegment[];
   source: SearchRowSource;
+  // Set on a row the index found on disk that no tab is showing. Opening it
+  // goes through the path, because there is no id to focus.
+  path: string | null;
 }
 
-// Builds the sidebar's flat result list. Backend FTS hits come first (in rank
-// order, with snippet + line), followed by any open or history buffer whose
-// *title* matches but is absent from the index — large files and binaries are
-// never indexed (buffer_store gates indexing on size), so this title pass keeps
-// them findable. Title-only rows carry no line and a literally-highlighted
-// title as their snippet.
+// Builds the sidebar's flat result list. Index hits come first (in rank order,
+// with snippet + line), followed by any open or history buffer whose *title*
+// matches but is absent from the index — large files and binaries are never
+// indexed, so this title pass keeps them findable. Title-only rows carry no
+// line and a literally-highlighted title as their snippet.
+//
+// A hit the index found on disk that no tab is showing arrives with an empty
+// buffer id and a path (ADR-028 section 7); it is keyed and opened by that
+// path.
 export function buildSearchRows(
   hits: readonly SearchHit[],
   query: string,
@@ -28,17 +34,22 @@ export function buildSearchRows(
   for (const b of active) sourceById.set(b.id, "active");
   for (const b of history) if (!sourceById.has(b.id)) sourceById.set(b.id, "history");
 
-  const rows: SearchRow[] = hits.map((hit) => ({
-    id: hit.buffer_id,
-    title: hit.title,
-    line: hit.line,
-    segments: hit.snippet,
-    source: sourceById.get(hit.buffer_id) ?? "other",
-  }));
+  const rows: SearchRow[] = hits.map((hit) => {
+    const known = hit.buffer_id ? sourceById.get(hit.buffer_id) : undefined;
+    const path = hit.path ?? null;
+    return {
+      id: hit.buffer_id || path || hit.title,
+      title: hit.title,
+      line: hit.line,
+      segments: hit.snippet,
+      source: known ?? (path ? "file" : "other"),
+      path,
+    };
+  });
 
   if (!q) return rows;
 
-  const seen = new Set(hits.map((h) => h.buffer_id));
+  const seen = new Set(hits.map((h) => h.buffer_id).filter(Boolean));
   for (const b of [...active, ...history]) {
     if (seen.has(b.id) || !b.title.toLowerCase().includes(q)) continue;
     seen.add(b.id);
@@ -48,6 +59,7 @@ export function buildSearchRows(
       line: null,
       segments: highlightLiteral(b.title, query),
       source: sourceById.get(b.id) ?? "other",
+      path: b.source_path,
     });
   }
 

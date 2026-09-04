@@ -61,6 +61,34 @@ impl AuthorizedPaths {
     }
 }
 
+/// `true` on the platforms whose default filesystem is case-preserving but
+/// case-insensitive.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+const CASE_INSENSITIVE_FILESYSTEM: bool = true;
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const CASE_INSENSITIVE_FILESYSTEM: bool = false;
+
+/// Compares two already-canonical path strings for authorization.
+///
+/// Case-insensitive on macOS and Windows, where APFS and NTFS are
+/// case-preserving but case-insensitive by default, and byte-exact on Linux.
+/// Without this a case-only rename of a file that is open — `notes.md` to
+/// `Notes.md`, which APFS performs in place — makes the canonical round trip
+/// disagree with the stored path and turns every later save into an
+/// unauthorized write.
+///
+/// Unicode normalisation needs no handling here. Both sides come out of
+/// [`canonicalize_for_authorization`], which returns the filesystem's own
+/// normalisation of the name, so an NFC and an NFD spelling of the same file
+/// arrive already agreeing.
+pub fn paths_equal_for_authorization(a: &str, b: &str) -> bool {
+    if CASE_INSENSITIVE_FILESYSTEM {
+        a.to_lowercase() == b.to_lowercase()
+    } else {
+        a == b
+    }
+}
+
 pub fn canonicalize_for_authorization(path: &Path) -> std::io::Result<String> {
     let canonical: PathBuf = std::fs::canonicalize(path)?;
     let stripped = strip_unc_prefix(canonical);
@@ -78,6 +106,50 @@ pub fn canonicalize_for_authorization(path: &Path) -> std::io::Result<String> {
 /// never matches a candidate stripped of it.
 pub fn canonicalize_root(path: &Path) -> std::io::Result<PathBuf> {
     Ok(strip_unc_prefix(std::fs::canonicalize(path)?))
+}
+
+/// Resolves `path` against the filesystem as far as it exists, then appends
+/// the components that do not exist yet.
+///
+/// Two callers need the answer for a path that does not exist yet: the write
+/// gate's containment check (a note being minted) and the data-folder guard,
+/// which has to know where `WRIT_DATA_DIR` will land before anything creates
+/// it. The watcher's ignore keys are built from this too
+/// ([`crate::watcher::handler::ignore_key_path`]), so a file being created is
+/// stamped under the path the watcher will deliver for it.
+///
+/// Walking up to the deepest existing ancestor is what makes the answer honest
+/// for a file Writ is about to create: every symlink and every `..` above the
+/// new name is resolved by `canonicalize`, and only names the filesystem has
+/// never seen are appended literally.
+///
+/// Returns `None` for a relative path, for a path whose unresolved tail is
+/// `..` or empty (`Path::file_name` yields nothing for either, so such a tail
+/// can never be appended), and for any resolution error other than a missing
+/// file.
+pub fn resolve_for_containment(path: &Path) -> Option<String> {
+    if !path.is_absolute() {
+        return None;
+    }
+
+    let mut unresolved: Vec<std::ffi::OsString> = Vec::new();
+    let mut cursor = path.to_path_buf();
+    loop {
+        match canonicalize_for_authorization(&cursor) {
+            Ok(base) => {
+                let mut resolved = PathBuf::from(base);
+                for name in unresolved.iter().rev() {
+                    resolved.push(name);
+                }
+                return resolved.into_os_string().into_string().ok();
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                unresolved.push(cursor.file_name()?.to_os_string());
+                cursor = cursor.parent()?.to_path_buf();
+            }
+            Err(_) => return None,
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -175,6 +247,25 @@ mod tests {
             "candidate {candidate} must sit under root {}",
             root.display()
         );
+    }
+
+    #[test]
+    fn paths_equal_for_authorization_matches_an_identical_path() {
+        assert!(paths_equal_for_authorization(
+            "/home/u/Writ/note.md",
+            "/home/u/Writ/note.md"
+        ));
+        assert!(!paths_equal_for_authorization(
+            "/home/u/Writ/note.md",
+            "/home/u/Writ/other.md"
+        ));
+    }
+
+    #[test]
+    fn paths_equal_for_authorization_follows_the_platform_on_case() {
+        let differs_only_by_case =
+            paths_equal_for_authorization("/home/u/Writ/Note.md", "/home/u/Writ/note.md");
+        assert_eq!(differs_only_by_case, CASE_INSENSITIVE_FILESYSTEM);
     }
 
     #[test]

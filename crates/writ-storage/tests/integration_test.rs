@@ -24,6 +24,13 @@ fn full_buffer_lifecycle() {
     let buf = mgr.create_buffer(Some("integration-test".into())).unwrap();
     store.insert(&buf).unwrap();
 
+    // The note reaches a file before anything can be written into it
+    // (ADR-028 §2); the file is the only copy of the text from there on.
+    let note_file = dir.path().join("integration-test.md");
+    store
+        .attach_source_path(&buf.id, note_file.to_str().unwrap())
+        .unwrap();
+
     store
         .save_content(&buf.id, "Hello from integration test")
         .unwrap();
@@ -47,6 +54,7 @@ fn full_buffer_lifecycle() {
 
     store.delete(&buf.id).unwrap();
     assert!(store.get(&buf.id).is_err());
+    assert!(note_file.exists(), "the row went; the note did not");
 }
 
 #[test]

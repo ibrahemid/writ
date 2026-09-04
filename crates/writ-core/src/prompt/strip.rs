@@ -1,3 +1,5 @@
+//! Frontmatter and author-note stripping for prompt documents.
+
 /// Produces the paste-ready form of a prompt document.
 ///
 /// Strips leading YAML frontmatter (first line exactly `---`, closed by a
@@ -12,7 +14,14 @@ pub fn strip_for_prompt(input: &str) -> String {
     normalize_trailing(&stripped)
 }
 
-fn strip_frontmatter(input: &str) -> &str {
+/// Returns `input` with a leading YAML frontmatter block removed.
+///
+/// The first line must be exactly `---` after trimming line-end whitespace,
+/// and a later line must be exactly `---`. An unterminated block is content,
+/// not frontmatter, and is returned untouched. `writ-render` compiles to wasm
+/// and cannot depend on this crate, so `writ_render::split_frontmatter`
+/// reimplements this rule and both sides carry the same test table.
+pub fn strip_frontmatter(input: &str) -> &str {
     let mut lines = input.split_inclusive('\n');
     let Some(first) = lines.next() else {
         return input;

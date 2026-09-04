@@ -1,7 +1,7 @@
 import type { SnippetSegment } from "../../types/search";
 
 // Query prefixes route to a subset of providers. `all` is the unprefixed case.
-export type PaletteMode = "all" | "commands" | "content" | "line";
+export type PaletteMode = "all" | "commands" | "content" | "line" | "notes";
 
 // A provider may split its own rows into runs under distinct headings (the
 // command palette's Recent / Commands / Editor split on an empty query).

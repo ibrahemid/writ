@@ -23,6 +23,7 @@ const h = vi.hoisted(() => ({
   streamContent: vi.fn(),
   refreshIndexStatus: vi.fn(),
   searchBuffers: vi.fn(),
+  searchNotesByName: vi.fn(),
   requestReveal: vi.fn(),
   setActiveTabId: vi.fn(),
   openFile: vi.fn(),
@@ -86,12 +87,17 @@ vi.mock("../../stores/global/window-registry", () => ({
 
 vi.mock("../../services/tauri", () => ({
   searchBuffers: h.searchBuffers,
+  searchNotesByName: h.searchNotesByName,
 }));
 
 import SearchPalette, {
   openSearchPalette,
   closeSearchPalette,
 } from "../../components/SearchPalette/SearchPalette";
+import CommandPalette, {
+  openNoteSearch,
+  closeCommandPalette,
+} from "../../components/CommandPalette/CommandPalette";
 import { registerCommand, getAllCommands, unregisterCommand } from "../../commands/registry";
 
 function doc(id: string, title: string, sourcePath: string | null = null): BufferDocument {
@@ -454,5 +460,62 @@ describe("SearchPalette", () => {
       expect(h.openFile).toHaveBeenCalledWith("/repo/src/zebra.rs");
       expect(document.querySelector(".palette")).toBeNull();
     });
+  });
+});
+
+describe("quick open", () => {
+  beforeEach(() => {
+    h.activeTabs = [];
+    h.historyList = [];
+    h.searchNotesByName.mockReset();
+    h.openFile.mockReset();
+    h.openFile.mockResolvedValue(doc("opened", "opened"));
+    h.setActiveTabId.mockReset();
+    h.searchBuffers.mockResolvedValue({ hits: [], total: 0 });
+  });
+
+  afterEach(() => {
+    closeCommandPalette();
+    cleanup();
+  });
+
+  async function openQuickOpen() {
+    render(() => <CommandPalette />);
+    openNoteSearch();
+    await waitFor(() => expect(document.querySelector(".palette-input")).not.toBeNull());
+  }
+
+  it("quick_open_lists_notes_by_name_and_enter_opens_the_top_one", async () => {
+    h.searchNotesByName.mockResolvedValue([
+      fileHit("/notes/meeting-notes.md"),
+      fileHit("/notes/the-meeting.md"),
+    ]);
+
+    await openQuickOpen();
+    // The mode is a routing prefix, and opening in it seeds that prefix.
+    expect(input().value).toBe("@");
+
+    await type("@meeting");
+    await waitFor(() => expect(labels()).toEqual(["meeting-notes.md", "the-meeting.md"]));
+    expect(h.searchNotesByName).toHaveBeenCalledWith("meeting");
+
+    fireEvent.keyDown(input(), { key: "Enter" });
+
+    expect(h.openFile).toHaveBeenCalledWith("/notes/meeting-notes.md");
+    expect(document.querySelector(".palette")).toBeNull();
+  });
+
+  it("focuses the tab already showing a note rather than opening it twice", async () => {
+    h.activeTabs = [doc("open-1", "meeting-notes", "/notes/meeting-notes.md")];
+    h.searchNotesByName.mockResolvedValue([fileHit("/notes/meeting-notes.md")]);
+
+    await openQuickOpen();
+    await type("@meeting");
+    await waitFor(() => expect(labels()).toEqual(["meeting-notes.md"]));
+
+    fireEvent.keyDown(input(), { key: "Enter" });
+
+    expect(h.setActiveTabId).toHaveBeenCalledWith("open-1");
+    expect(h.openFile).not.toHaveBeenCalled();
   });
 });

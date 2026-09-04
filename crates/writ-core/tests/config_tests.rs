@@ -15,7 +15,7 @@ fn default_config_has_expected_values() {
     assert_eq!(config.editor.font_size, 14);
     assert!(config.editor.word_wrap);
     assert_eq!(config.editor.tab_size, 2);
-    assert_eq!(config.editor.autosave_debounce_ms, 300);
+    assert_eq!(config.editor.autosave_debounce_ms, 1000);
 
     assert_eq!(config.window.width, 1100);
     assert_eq!(config.window.height, 720);
@@ -254,4 +254,25 @@ fn markdown_editing_missing_from_toml_uses_default() {
     let toml_str = "[editor]\nfont_size = 16\n";
     let config: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
     assert!(config.editor.markdown_editing);
+}
+
+#[test]
+fn missing_notes_section_defaults_to_none_root() {
+    let config: WritConfig = toml::from_str("").expect("deserialization failed");
+    assert_eq!(config.notes.root, None);
+    assert_eq!(WritConfig::default().notes.root, None);
+}
+
+#[test]
+fn notes_section_round_trips_through_toml() {
+    let toml_str = "[notes]\nroot = \"/home/tester/Documents/Notes\"\n";
+    let config: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert_eq!(
+        config.notes.root.as_deref(),
+        Some("/home/tester/Documents/Notes")
+    );
+
+    let serialized = toml::to_string(&config).expect("serialization failed");
+    let restored: WritConfig = toml::from_str(&serialized).expect("deserialization failed");
+    assert_eq!(restored.notes, config.notes);
 }

@@ -9,7 +9,11 @@ fn create_buffer_assigns_uuid_and_timestamp() {
     let buf = manager.create_buffer(None).unwrap();
 
     assert!(!buf.id.is_empty());
-    assert!(buf.title.starts_with("writ-"));
+    assert_eq!(
+        buf.title,
+        writ_core::notes::date_stem(buf.created_at),
+        "a note nobody named is named for today, which is the name its file takes"
+    );
     assert_eq!(buf.status, BufferStatus::Active);
     assert_eq!(buf.tab_order, 0);
 }
@@ -296,7 +300,7 @@ fn create_buffer_default_filename_is_uuid_derived() {
     let mut manager = BufferManager::new();
     let buf = manager.create_buffer(None).unwrap();
     assert_eq!(buf.filename, format!("{}.txt", buf.id));
-    assert!(buf.title.starts_with("writ-"));
+    assert_eq!(buf.title, writ_core::notes::date_stem(buf.created_at));
 }
 
 #[test]

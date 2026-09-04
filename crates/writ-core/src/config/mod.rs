@@ -9,12 +9,15 @@
 pub mod ai;
 /// Keybinding conflict reporting types.
 pub mod keybinding;
+/// Notes-folder configuration (`[notes]`).
+pub mod notes;
 /// Preview surface configuration (`[preview]`).
 pub mod preview;
 /// Spell-check configuration (`[spelling]`).
 pub mod spelling;
 
 pub use ai::AiConfig;
+pub use notes::NotesConfig;
 pub use preview::{DefaultLayout, PreviewConfig};
 pub use spelling::SpellingConfig;
 
@@ -58,7 +61,7 @@ fn default_tab_size() -> u32 {
 }
 
 fn default_autosave_debounce_ms() -> u32 {
-    300
+    1000
 }
 
 fn default_markdown_typography() -> bool {
@@ -311,6 +314,10 @@ fn default_workspace_root() -> Option<String> {
 }
 
 /// Workspace folder configuration.
+///
+/// The workspace is the folder the user opened temporarily, not a second
+/// home: notes live in the notes folder (ADR-028), and closing a workspace
+/// takes nothing with it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
     /// Absolute path to the open workspace root, or `None` if no workspace
@@ -422,6 +429,9 @@ pub struct WritConfig {
     /// Workspace folder configuration.
     #[serde(default)]
     pub workspace: WorkspaceConfig,
+    /// Notes-folder configuration.
+    #[serde(default)]
+    pub notes: NotesConfig,
     /// Watch-inbox configuration.
     #[serde(default)]
     pub inbox: InboxConfig,
@@ -450,6 +460,7 @@ impl Default for WritConfig {
             commands: CommandsConfig::default(),
             preview: PreviewConfig::default(),
             workspace: WorkspaceConfig::default(),
+            notes: NotesConfig::default(),
             inbox: InboxConfig::default(),
             updater: UpdaterConfig::default(),
             ai: AiConfig::default(),

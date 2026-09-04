@@ -61,6 +61,26 @@ fn reveal_command(os: RevealOs, target: &Path) -> (String, Vec<String>) {
     }
 }
 
+/// Program and arguments that open `dir` itself in the platform file manager.
+///
+/// A folder is opened rather than selected. The notes folder's whole point is
+/// what is inside it, and every platform's "select" verb would hand back the
+/// folder's parent with one icon highlighted (ADR-028 section 2).
+fn open_folder_command(os: RevealOs, dir: &Path) -> (String, Vec<String>) {
+    let program = match os {
+        RevealOs::Macos => "open",
+        RevealOs::Windows => "explorer",
+        RevealOs::Linux => "xdg-open",
+    };
+    (program.into(), vec![dir.to_string_lossy().into_owned()])
+}
+
+/// Opens `dir` in the platform's file manager.
+pub(crate) fn open_folder_in_file_manager(dir: &Path) -> Result<(), String> {
+    let (program, args) = open_folder_command(HOST_OS, dir);
+    spawn_file_manager(&program, &args)
+}
+
 /// IPC: reveal the SQLite database in the OS file manager. Falls back to the
 /// storage directory when the database file does not exist yet.
 #[tauri::command]
@@ -71,13 +91,28 @@ pub fn reveal_storage_path(state: State<'_, AppState>) -> Result<(), String> {
     } else {
         state.writ_dir.clone()
     };
-    let (program, args) = reveal_command(HOST_OS, &target);
-    std::process::Command::new(&program)
-        .args(&args)
+    show_in_file_manager(&target)
+}
+
+/// Opens the platform's file manager with `target` selected.
+///
+/// Shared with the note commands, which put the same action on a note row:
+/// one place decides how each platform is asked, and one sentence comes back
+/// when it cannot be.
+pub(crate) fn show_in_file_manager(target: &Path) -> Result<(), String> {
+    let (program, args) = reveal_command(HOST_OS, target);
+    spawn_file_manager(&program, &args)
+}
+
+/// Runs the file manager, turning any failure to launch it into the one
+/// sentence every caller shows.
+fn spawn_file_manager(program: &str, args: &[String]) -> Result<(), String> {
+    std::process::Command::new(program)
+        .args(args)
         .spawn()
         .map(|_| ())
         .map_err(|e| {
-            tracing::warn!(error = %e, program, "reveal in file manager failed");
+            tracing::warn!(error = %e, program, "opening the file manager failed");
             "Could not open the file manager.".to_string()
         })
 }
@@ -85,6 +120,19 @@ pub fn reveal_storage_path(state: State<'_, AppState>) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_platform_opens_a_folder_itself() {
+        for (os, program) in [
+            (RevealOs::Macos, "open"),
+            (RevealOs::Windows, "explorer"),
+            (RevealOs::Linux, "xdg-open"),
+        ] {
+            let (found, args) = open_folder_command(os, Path::new("/home/u/Writ"));
+            assert_eq!(found, program);
+            assert_eq!(args, vec!["/home/u/Writ".to_string()]);
+        }
+    }
 
     #[test]
     fn macos_reveal_selects_the_file() {

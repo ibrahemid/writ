@@ -8,9 +8,10 @@ name = "writ"
 path = "src/main.rs"
 
 [dependencies]
+chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
 dirs = "6"
-uuid = { version = "1", features = ["v4"] }
+toml = "1.1"
 
 [dev-dependencies]
 tempfile = "3"

@@ -84,10 +84,11 @@ impl BufferManager {
         }
     }
 
-    /// Creates a new scratch buffer and assigns the next tab order.
+    /// Creates a new note and assigns the next tab order.
     ///
-    /// When `title` is `None`, a timestamp-derived title (`writ-<ms>`) is
-    /// generated so that buffers created in a tight loop remain distinct.
+    /// When `title` is `None` the note is named for today's date, which is the
+    /// name its file takes on the first keystroke (ADR-028 §2). The row's
+    /// `filename` stays `{id}.txt` and identifies the row; it names no path.
     pub fn create_buffer(&mut self, title: Option<String>) -> WritResult<BufferDocument> {
         if let Some(ref t) = title {
             validate_buffer_title(t)?;
@@ -97,7 +98,7 @@ impl BufferManager {
         let id = Uuid::new_v4().to_string();
         let resolved_title = title
             .map(|t| t.trim().to_string())
-            .unwrap_or_else(|| format!("writ-{}", now.timestamp_millis()));
+            .unwrap_or_else(|| crate::notes::date_stem(now));
         let filename = format!("{id}.txt");
         let tab_order = self.next_tab_order;
         self.next_tab_order += 1;

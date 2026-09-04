@@ -1,3 +1,15 @@
+//! Argument resolution and launch plumbing for the `writ` command.
+//!
+//! The crate links no workspace crate on purpose (`docs/ARCHITECTURE.md`): the
+//! CLI ships as a standalone binary and must build and run without the editor.
+//! The cost is a small amount of duplication with `writ-core` — the notes
+//! folder is resolved here in the same order the app resolves it, and the
+//! Finder-style dedupe is re-implemented. `writ_core::notes::sanitize_title`
+//! is the authority on what a title may become as a filename; the sanitiser
+//! here is the conservative subset the CLI has always applied, and the app
+//! re-sanitises anything it opens.
+
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
@@ -216,16 +228,133 @@ pub fn sanitize_title(raw: &str) -> String {
     }
 }
 
-/// Returns the path under which stdin content should be written.
+/// Folder name of the default notes folder, under the user's home folder.
+/// Mirrors `writ_core::notes::DEFAULT_NOTES_FOLDER`.
+pub const NOTES_FOLDER: &str = "Writ";
+
+/// Extension every note carries.
+const NOTE_EXTENSION: &str = "md";
+
+/// Reads `[notes] root` out of `<writ_dir>/config.toml`.
 ///
-/// `piped_dir` should be `~/.writ/piped/` (caller supplies it so tests can
-/// inject a temp directory).
-pub fn stdin_file_path(piped_dir: &Path, id: &str, title: Option<&str>) -> PathBuf {
-    let name = match title {
-        Some(t) => format!("{}-{}.txt", id, sanitize_title(t)),
-        None => format!("{}.txt", id),
+/// Returns `None` when the file is absent, unreadable, not valid TOML, or the
+/// key is unset or blank. Deliberately tolerant: piping text into Writ must
+/// not fail because the app has never run or because somebody hand-edited the
+/// config into something the CLI cannot parse.
+pub fn read_notes_root_from_config(writ_dir: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(writ_dir.join("config.toml")).ok()?;
+    let document: toml::Table = toml::from_str(&text).ok()?;
+    let root = document.get("notes")?.get("root")?.as_str()?.trim();
+    if root.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(root))
+    }
+}
+
+/// Resolves the notes folder the way the app does.
+///
+/// Precedence: `WRIT_NOTES_DIR`, then `[notes] root` in the config, then
+/// `<WRIT_DATA_DIR>/Writ` when that override is in force, then `<home>/Writ`.
+/// A leading `~/` is expanded against `home`, and a relative path falls
+/// through to the next source rather than anchoring the folder to whatever
+/// directory the shell happened to be in.
+///
+/// `data_dir` is the data folder, passed only when `WRIT_DATA_DIR` is set: a
+/// dev or recording instance keeps its notes beside its own database rather
+/// than writing into the folder the user reads.
+pub fn resolve_notes_dir(
+    env_override: Option<&str>,
+    configured: Option<&Path>,
+    data_dir: Option<&Path>,
+    home: Option<&Path>,
+) -> PathBuf {
+    let from_env = env_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(Path::new);
+    for candidate in [from_env, configured] {
+        let Some(path) = candidate else { continue };
+        let expanded = expand_home(path, home);
+        if expanded.is_absolute() {
+            return expanded;
+        }
+    }
+    if let Some(data_dir) = data_dir {
+        return data_dir.join(NOTES_FOLDER);
+    }
+    home.unwrap_or(Path::new(".")).join(NOTES_FOLDER)
+}
+
+fn expand_home(path: &Path, home: Option<&Path>) -> PathBuf {
+    let Some(home) = home else {
+        return path.to_path_buf();
     };
-    piped_dir.join(name)
+    match path.to_str() {
+        Some("~") => home.to_path_buf(),
+        Some(text) => match text.strip_prefix("~/") {
+            Some(rest) => home.join(rest),
+            None => path.to_path_buf(),
+        },
+        None => path.to_path_buf(),
+    }
+}
+
+/// The path a piped payload is written to: `<notes>/<title-or-date>.md`.
+///
+/// A payload with no title is named for the local calendar day, which is what
+/// the app names an untitled note. The name dedupes Finder-style against what
+/// the folder already holds, so piping twice on one day produces two notes
+/// rather than one overwriting the other.
+pub fn piped_note_path(
+    notes_dir: &Path,
+    title: Option<&str>,
+    now: chrono::DateTime<chrono::Local>,
+) -> PathBuf {
+    let stem = title
+        .map(sanitize_title)
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or_else(|| now.format("%Y-%m-%d").to_string());
+    notes_dir.join(dedupe_file_name(
+        &stem,
+        NOTE_EXTENSION,
+        &taken_names(notes_dir),
+    ))
+}
+
+/// Finder-style dedupe: `stem.md`, `stem 2.md`, `stem 3.md`, and so on.
+///
+/// `taken` holds lowercased file names including the extension, so the check
+/// is case-insensitive the way APFS and NTFS are. Mirrors
+/// `writ_core::notes::dedupe_file_name`.
+fn dedupe_file_name(stem: &str, extension: &str, taken: &HashSet<String>) -> String {
+    let candidate = format!("{stem}.{extension}");
+    if !taken.contains(&candidate.to_lowercase()) {
+        return candidate;
+    }
+    let mut counter: u64 = 2;
+    loop {
+        let candidate = format!("{stem} {counter}.{extension}");
+        if !taken.contains(&candidate.to_lowercase()) {
+            return candidate;
+        }
+        counter += 1;
+    }
+}
+
+/// The names `dir` already holds, lowercased the way the dedupe compares them.
+///
+/// A folder that cannot be listed yields no names rather than an error: the
+/// dedupe is then only less exact, and refusing to name a note because its
+/// folder could not be read would lose the text stdin is holding.
+fn taken_names(dir: &Path) -> HashSet<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return HashSet::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().to_lowercase())
+        .collect()
 }
 
 #[cfg(test)]
@@ -360,28 +489,105 @@ mod tests {
         assert_eq!(sanitize_title("..."), "piped");
     }
 
-    #[test]
-    fn stdin_file_path_without_title() {
-        let dir = TempDir::new().unwrap();
-        let path = stdin_file_path(dir.path(), "abc123", None);
-        assert_eq!(path, dir.path().join("abc123.txt"));
+    fn noon() -> chrono::DateTime<chrono::Local> {
+        use chrono::TimeZone;
+        chrono::Local
+            .with_ymd_and_hms(2026, 8, 29, 12, 0, 0)
+            .unwrap()
     }
 
     #[test]
-    fn stdin_file_path_with_title() {
+    fn piped_note_path_uses_the_configured_notes_root() {
         let dir = TempDir::new().unwrap();
-        let path = stdin_file_path(dir.path(), "abc123", Some("my notes"));
-        assert_eq!(path, dir.path().join("abc123-my notes.txt"));
+        let configured = dir.path().join("Elsewhere");
+        std::fs::write(
+            dir.path().join("config.toml"),
+            format!("[notes]\nroot = '{}'\n", configured.display()),
+        )
+        .unwrap();
+
+        let root = read_notes_root_from_config(dir.path()).expect("configured root");
+        let notes = resolve_notes_dir(None, Some(&root), None, Some(dir.path()));
+        assert_eq!(notes, configured);
+        assert_eq!(
+            piped_note_path(&notes, Some("my notes"), noon()),
+            configured.join("my notes.md")
+        );
     }
 
     #[test]
-    fn stdin_file_path_containment() {
+    fn piped_note_path_falls_back_to_home_writ() {
         let dir = TempDir::new().unwrap();
-        let path = stdin_file_path(dir.path(), "abc123", Some("../escape"));
+        assert_eq!(read_notes_root_from_config(dir.path()), None);
+
+        let notes = resolve_notes_dir(None, None, None, Some(dir.path()));
+        assert_eq!(notes, dir.path().join("Writ"));
+        assert_eq!(
+            piped_note_path(&notes, None, noon()),
+            notes.join("2026-08-29.md")
+        );
+    }
+
+    #[test]
+    fn piped_note_path_dedupes() {
+        let dir = TempDir::new().unwrap();
+        touch(&dir.path().join("my notes.md"));
+        touch(&dir.path().join("my notes 2.md"));
+
+        assert_eq!(
+            piped_note_path(dir.path(), Some("my notes"), noon()),
+            dir.path().join("my notes 3.md")
+        );
+    }
+
+    #[test]
+    fn piped_note_is_markdown_not_txt() {
+        let dir = TempDir::new().unwrap();
+        let path = piped_note_path(dir.path(), Some("release notes"), noon());
+        assert_eq!(path.extension().and_then(|e| e.to_str()), Some("md"));
         assert!(
             path.starts_with(dir.path()),
-            "path escaped the piped dir: {path:?}"
+            "the note escaped the notes folder: {path:?}"
         );
+    }
+
+    #[test]
+    fn a_title_that_would_escape_the_folder_cannot() {
+        let dir = TempDir::new().unwrap();
+        let path = piped_note_path(dir.path(), Some("../escape"), noon());
+        assert!(
+            path.starts_with(dir.path()),
+            "the note escaped the notes folder: {path:?}"
+        );
+    }
+
+    #[test]
+    fn the_env_override_wins_over_the_config() {
+        let dir = TempDir::new().unwrap();
+        let configured = dir.path().join("Configured");
+        let overridden = dir.path().join("Overridden");
+        let notes = resolve_notes_dir(
+            overridden.to_str(),
+            Some(&configured),
+            None,
+            Some(dir.path()),
+        );
+        assert_eq!(notes, overridden);
+    }
+
+    #[test]
+    fn a_data_folder_override_keeps_its_notes_beside_itself() {
+        let dir = TempDir::new().unwrap();
+        let data = dir.path().join("instance");
+        let notes = resolve_notes_dir(None, None, Some(&data), Some(dir.path()));
+        assert_eq!(notes, data.join("Writ"));
+    }
+
+    #[test]
+    fn a_leading_tilde_expands_against_home() {
+        let dir = TempDir::new().unwrap();
+        let notes = resolve_notes_dir(Some("~/Notes"), None, None, Some(dir.path()));
+        assert_eq!(notes, dir.path().join("Notes"));
     }
 
     fn touch(path: &Path) {

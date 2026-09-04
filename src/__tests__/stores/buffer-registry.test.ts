@@ -43,7 +43,7 @@ vi.mock("../../services/tauri", () => ({
   deleteBuffer: vi.fn().mockResolvedValue(undefined),
   restoreBuffer: vi.fn().mockResolvedValue(undefined),
   clearHistory: vi.fn().mockResolvedValue(undefined),
-  renameBuffer: vi.fn().mockResolvedValue(undefined),
+  renameNote: vi.fn(),
   openFile: vi.fn().mockImplementation((path: string) => {
     const doc = mockSourceBuffer(path);
     return Promise.resolve({ doc, mode: { kind: "Normal" }, size_bytes: doc.size_bytes });
@@ -72,6 +72,12 @@ describe("bufferRegistry (app-global)", () => {
     tabIdCounter = 0;
     mockedApi.listActiveBuffers.mockResolvedValue([]);
     mockedApi.listHistory.mockResolvedValue([]);
+    // A rename renames the note's file, so the backend answers with the row it
+    // wrote and the registry re-registers it whole.
+    mockedApi.renameNote.mockImplementation(async (id: string, title: string) => ({
+      ...bufferRegistry.buffers().find((b) => b.id === id)!,
+      title,
+    }));
     await bufferRegistry.load();
   });
 

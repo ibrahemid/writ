@@ -12,25 +12,26 @@ pub fn get_config(state: State<'_, AppState>) -> Result<WritConfig, String> {
 
 /// Serializes and writes `config` to disk, recording the write in the
 /// watcher ignore set so the change is not re-surfaced as external.
+///
+/// The key is the config file's canonical path under the config namespace,
+/// which is what the config watcher looks up. The bare `config.toml` it used
+/// to be was shared with every note of that name (ADR-028 section 6).
 pub(crate) fn persist_config(state: &AppState, config: &WritConfig) -> Result<(), String> {
     let contents = state
         .config_store
         .serialize(config)
         .map_err(|e| e.to_string())?;
 
-    let filename = state
-        .config_store
-        .path()
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .ok_or_else(|| "config path has no file name".to_string())?;
+    let key = writ_core::watcher::ignore::config_key(&crate::watcher::handler::ignore_key_path(
+        state.config_store.path(),
+    ));
 
     {
         let mut ignore = recover_poison(
             state.watcher_ignore.lock(),
             "commands::config::persist_config",
         );
-        ignore.record(filename, contents.as_bytes(), Instant::now());
+        ignore.record(key, contents.as_bytes(), Instant::now());
     }
 
     state

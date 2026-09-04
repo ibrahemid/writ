@@ -101,3 +101,49 @@ fn record_evicts_expired_stamps_for_other_files() {
     assert_eq!(stamps.len(), 1);
     assert!(stamps.contains("writ-new"));
 }
+
+#[test]
+fn hash_bytes_delegates_to_sha256() {
+    let content = b"one digest for the watcher, the guard and the migration";
+    assert_eq!(
+        writ_core::watcher::ignore::hash_bytes(content),
+        writ_core::hash::sha256_bytes(content)
+    );
+}
+
+#[test]
+fn source_key_is_namespaced_and_distinct_from_config_key() {
+    let path = std::path::Path::new("/notes/config.toml");
+    let source = writ_core::watcher::ignore::source_key(path);
+    let config = writ_core::watcher::ignore::config_key(path);
+
+    assert!(source.starts_with("source:"), "{source}");
+    assert!(config.starts_with("config:"), "{config}");
+    assert_ne!(
+        source, config,
+        "a note named config.toml must not share the config file's key"
+    );
+}
+
+#[test]
+fn source_keys_for_two_index_md_in_different_folders_differ() {
+    let a = writ_core::watcher::ignore::source_key(std::path::Path::new("/notes/a/index.md"));
+    let b = writ_core::watcher::ignore::source_key(std::path::Path::new("/notes/b/index.md"));
+
+    assert_ne!(a, b, "two notes with the same name must not share a stamp");
+}
+
+#[test]
+fn source_key_is_case_insensitive_on_mac_and_windows() {
+    let lower = writ_core::watcher::ignore::source_key(std::path::Path::new("/notes/note.md"));
+    let upper = writ_core::watcher::ignore::source_key(std::path::Path::new("/notes/Note.md"));
+
+    if cfg!(any(target_os = "macos", target_os = "windows")) {
+        assert_eq!(
+            lower, upper,
+            "a case-only rename APFS and NTFS perform in place must not orphan the stamp"
+        );
+    } else {
+        assert_ne!(lower, upper, "Linux paths are byte-exact");
+    }
+}

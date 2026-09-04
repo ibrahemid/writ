@@ -1,0 +1,83 @@
+/* Left, clear of the toast stack: this panel's own buttons raise toasts, and
+   Toast.css anchors those bottom-right at a higher z-index, so a right-anchored
+   panel would be covered by the answer to its own button. Raised a row above
+   the update banner, which shares this left edge (UpdateBanner.css). */
+.notes-report {
+  position: fixed;
+  left: 16px;
+  bottom: calc(var(--writ-statusbar-height, 28px) + 12px + 64px);
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-3);
+  max-width: min(420px, calc(100vw - 32px));
+  padding: var(--writ-space-4) var(--writ-space-6) var(--writ-space-4) var(--writ-space-5);
+  background: var(--writ-surface-elevated);
+  border: 1px solid var(--writ-border-default);
+  border-radius: 8px;
+  color: var(--writ-foreground-default);
+  font-size: var(--writ-font-size-sm);
+  box-shadow: var(--writ-shadow-banner);
+}
+
+.notes-report::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 6px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--writ-accent-default);
+}
+
+.notes-report-line {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--writ-space-1);
+}
+
+.notes-report-text {
+  color: var(--writ-foreground-default);
+  overflow-wrap: anywhere;
+}
+
+.notes-report-btn {
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--writ-accent-default);
+  font-family: var(--writ-font-sans);
+  font-size: var(--writ-font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.notes-report-btn:hover {
+  text-decoration: underline;
+}
+
+.notes-report-btn:focus-visible,
+.notes-report-dismiss:focus-visible {
+  outline: 2px solid var(--writ-border-focus);
+  outline-offset: 2px;
+  border-radius: var(--writ-radius-1);
+}
+
+.notes-report-dismiss {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  padding: 0 var(--writ-space-1);
+  background: none;
+  border: none;
+  color: var(--writ-foreground-subtle);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.notes-report-dismiss:hover {
+  color: var(--writ-foreground-default);
+}

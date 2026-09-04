@@ -10,6 +10,16 @@ use sha2::{Digest, Sha256};
 /// minimal storage cost.
 pub const MAX_SNAPSHOTS: usize = 5;
 
+/// How long the shutdown path waits for the frontend to confirm it flushed
+/// before exiting anyway. A quit that hangs on an unresponsive webview is a
+/// worse failure than a quit that loses the last debounce window.
+pub const QUIT_FLUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(2000);
+
+/// Whether the shutdown path should stop waiting and exit.
+pub fn should_force_exit(waited: std::time::Duration, flush_confirmed: bool) -> bool {
+    flush_confirmed || waited >= QUIT_FLUSH_TIMEOUT
+}
+
 /// A single buffer whose content was restored from a crash snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecoveredBuffer {

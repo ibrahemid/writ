@@ -101,7 +101,7 @@ snapshot, covering text that has not reached a file yet.
 
 Contains:
 - SQLite layer via `rusqlite` with WAL mode enabled
-- FTS5 full-text search index, keyed by canonical path
+- FTS5 search index over the notes folder, keyed by canonical file path (ADR-028)
 - The `files`, `links`, `properties`, `tags` and `headings` index tables, created empty by
   migration `040_notes_migration.sql` and keyed by canonical path
 - File I/O: reading and writing files to disk with atomic renames. A save is refused with

@@ -2,7 +2,7 @@ import { createSignal } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
 import type { BufferRegistry } from "../global/buffer-registry";
 import type { SaveFailure } from "../../services/autosave";
-import { formatSaveError } from "../../lib/save-error";
+import { asSentence, formatSaveError } from "../../lib/save-error";
 import { requestConfirm } from "../../components/ConfirmDialog/ConfirmDialog";
 
 export type TabStore = ReturnType<typeof createTabStore>;
@@ -31,6 +31,20 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
     const doc = await registry.createBuffer(title);
     setActiveTabId(doc.id);
     return doc;
+  }
+
+  async function newNote(): Promise<BufferDocument> {
+    const doc = await registry.newNote();
+    setActiveTabId(doc.id);
+    return doc;
+  }
+
+  // The tab goes with the note. Selection moves to the survivor first, for the
+  // same reason closeTab does it: a transient null active buffer recreates the
+  // preview iframe, which hard-freezes the macOS webview.
+  async function deleteNote(id: string): Promise<void> {
+    selectSurvivor(id);
+    await registry.deleteNote(id);
   }
 
   // A buffer on a volume that never accepts a write would otherwise hold its
@@ -81,7 +95,7 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
       ids.length === 1
         ? await confirmDiscard(
             `Couldn't save ${names[0]}`,
-            `${formatSaveError(failures.find((f) => f.bufferId === ids[0])?.error)}. Closing the tab discards the unsaved text.`,
+            `${asSentence(formatSaveError(failures.find((f) => f.bufferId === ids[0])?.error))} Closing the tab discards the unsaved text.`,
           )
         : await confirmDiscard(
             `Couldn't save ${ids.length} tabs`,
@@ -149,6 +163,8 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
     setActiveTabId,
     loadAndActivate,
     createTab,
+    newNote,
+    deleteNote,
     closeTab,
     closeOtherTabs,
     closeAllTabs,

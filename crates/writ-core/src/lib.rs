@@ -19,17 +19,22 @@
 //! - [`errors`]: crate-wide [`errors::WritError`] / [`errors::WritResult`].
 //! - [`events`]: strongly-typed domain events and an in-process event bus.
 //! - [`file_ops`]: pure helpers for file validation and language detection.
+//! - [`hash`]: SHA-256 helpers shared by the watcher, the write guard and
+//!   the notes migration.
 //! - [`history`]: recently-closed buffer history.
 //! - [`hotkey`]: platform-neutral chord representation and parser.
 //! - [`inbox`]: watch-inbox auto-open policy (ADR-018).
 //! - [`link`]: external-link allowlist policy (ADR-025).
 //! - [`maintenance`]: database bloat policy driving startup `VACUUM`.
+//! - [`notes`]: notes-folder policy — where the folder is, how a title
+//!   becomes a filename, and whether a save may land on the file it is aimed
+//!   at (ADR-028).
 //! - [`prompt`]: prompt-document helpers — token estimation, stripping,
 //!   placeholders (ADR-015).
 //! - [`recovery`]: crash-recovery policy types and resolution logic.
 //! - [`startup`]: startup-failure report formatting and location policy.
 //! - [`update`]: update lifecycle phases and transition policy.
-//! - [`watcher`]: external-change representation and conflict policy.
+//! - [`watcher`]: external-change representation and ignore stamps.
 //! - [`workspace`]: workspace-level state (reserved).
 
 #![forbid(unsafe_code)]
@@ -50,6 +55,8 @@ pub mod errors;
 pub mod events;
 /// Pure file helpers: validation, language detection, filename extraction.
 pub mod file_ops;
+/// SHA-256 helpers shared by the watcher, the write guard and the migration.
+pub mod hash;
 /// Recently-closed buffer history types.
 pub mod history;
 /// Platform-neutral hotkey chord representation and parser.
@@ -60,6 +67,8 @@ pub mod inbox;
 pub mod link;
 /// Database bloat policy driving the startup vacuum.
 pub mod maintenance;
+/// Notes-folder policy: root resolution, title sanitisation, dedupe — ADR-028.
+pub mod notes;
 /// Prompt construction and endpoint policy for opt-in text rewriting.
 pub mod polish;
 /// Preview surface types and content-type renderer registry — ADR-009.

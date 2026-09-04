@@ -2,6 +2,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
 use crate::snap_overlay::{self, CaptionButtonMetrics};
+use crate::state::AppState;
 use crate::window_state::{
     decide_toggle, logical_rect, place_window, Rect, ToggleAction, WindowPlacement,
 };
@@ -11,6 +12,17 @@ use crate::window_state::{
 pub struct LogicalWindowPosition {
     pub x: i32,
     pub y: i32,
+}
+
+/// Reports that the frontend has written everything it was holding, so the
+/// shutdown path can stop waiting and take its snapshot.
+///
+/// Safe to call twice, or after the wait has already given up: both leave the
+/// exit taking the same course.
+#[tauri::command]
+pub fn confirm_quit_flush(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.quit.confirm_flush();
+    Ok(())
 }
 
 #[tauri::command]

@@ -33,6 +33,10 @@ const DEFAULT_IGNORES: &[&str] = &[
     ".cache",
     "coverage",
     "vendor",
+    ".obsidian",
+    ".trash",
+    ".stfolder",
+    ".stversions",
 ];
 
 /// Returns `true` if `name` is in the default ignore set and should be
@@ -42,11 +46,16 @@ pub fn is_ignored(name: &str) -> bool {
 }
 
 /// The directory names Writ ignores by default, independent of any git ignore
-/// configuration. The workspace search walker (in `writ-storage`) feeds these
-/// to the `ignore` crate as overrides so the name index and the content grep
-/// apply the same union of Writ ignores and gitignore (ADR-026). `.git` is part
-/// of the set and is therefore always excluded even though hidden files are
-/// otherwise included in search.
+/// configuration. The workspace search walker (in `writ-storage`) hands these
+/// to a `filter_entry` closure on the walk builder, so the name index and the
+/// content grep apply the same union of Writ ignores and gitignore (ADR-026).
+/// `.git` is part of the set and is therefore always excluded even though
+/// hidden files are otherwise included in search.
+///
+/// The set also carries the folders a note folder imported from another tool
+/// or synced by another client leaves behind — `.obsidian`, `.trash`,
+/// `.stfolder`, `.stversions` — so the tree, the walk and the watcher all skip
+/// them from the one constant.
 pub fn default_ignored_dirs() -> &'static [&'static str] {
     DEFAULT_IGNORES
 }
@@ -91,6 +100,10 @@ mod tests {
             ".cache",
             "coverage",
             "vendor",
+            ".obsidian",
+            ".trash",
+            ".stfolder",
+            ".stversions",
         ] {
             assert!(is_ignored(name), "{name} should be ignored");
         }
@@ -109,6 +122,20 @@ mod tests {
         assert!(!dirs.contains(&".env"));
         assert!(!is_ignored(".env"));
         assert!(!is_ignored(".github"));
+    }
+
+    #[test]
+    fn obsidian_folder_is_ignored_so_an_imported_note_folder_lists_only_notes() {
+        // A folder imported from another editor carries its settings folder.
+        // One constant feeds the tree, the search walk and the watcher, so
+        // ignoring the name here ignores it everywhere.
+        assert!(is_ignored(".obsidian"));
+        assert!(default_ignored_dirs().contains(&".obsidian"));
+        assert!(path_has_ignored_component(
+            Path::new("/notes"),
+            Path::new("/notes/.obsidian/workspace.json")
+        ));
+        assert!(!is_ignored("notes.md"));
     }
 
     #[test]

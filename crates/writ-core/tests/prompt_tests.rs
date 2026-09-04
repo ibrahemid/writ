@@ -348,3 +348,38 @@ fn fill_value_containing_placeholder_syntax_is_not_rescanned() {
     let out = fill_placeholders("{{a}}", &values(&[("a", "{{b}}"), ("b", "nope")]));
     assert_eq!(out, "{{b}}");
 }
+
+// --- strip_frontmatter / writ-render mirror ---
+
+/// Mirror of `SHARED_CASES` in `crates/writ-render/tests/frontmatter_tests.rs`.
+/// `writ-render` compiles to wasm and depends on no workspace crate, so the
+/// two splitters are independent implementations of one rule; hard-coding the
+/// same table on both sides makes a divergence fail in both crates.
+const RENDER_SPLIT_CASES: &[(&str, &str)] = &[
+    (
+        "---\ntitle: Test\ntags: [a, b]\n---\nBody text\n",
+        "Body text\n",
+    ),
+    ("---\ntitle: Test\n---\n", ""),
+    (
+        "---\ntitle: Test\nBody keeps going\n",
+        "---\ntitle: Test\nBody keeps going\n",
+    ),
+    (
+        "intro\n---\nnot frontmatter\n---\nrest\n",
+        "intro\n---\nnot frontmatter\n---\nrest\n",
+    ),
+    ("---\r\ntitle: Test\r\n---\r\nBody\r\n", "Body\r\n"),
+    ("Body only\n", "Body only\n"),
+];
+
+#[test]
+fn strip_frontmatter_agrees_with_the_render_split() {
+    for (input, expected_body) in RENDER_SPLIT_CASES {
+        assert_eq!(
+            writ_core::prompt::strip::strip_frontmatter(input),
+            *expected_body,
+            "body mismatch for {input:?}"
+        );
+    }
+}

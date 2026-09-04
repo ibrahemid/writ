@@ -12,6 +12,7 @@ import {
   flushAutosave,
   hasPendingAutosave,
   saveNow,
+  resetAutosave,
 } from "../../services/autosave";
 import { saveBufferContent } from "../../services/tauri";
 
@@ -21,6 +22,7 @@ describe("autosave", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    resetAutosave();
   });
 
   afterEach(() => {
@@ -373,6 +375,53 @@ describe("autosave", () => {
       await writing;
 
       expect(hasPendingAutosave("p4")).toBe(false);
+    });
+
+    it("does not try a save the write guard stopped again until the document changes", async () => {
+      mockedSave.mockRejectedValueOnce(
+        new Error("ERR_FILE_CHANGED_ON_DISK: the file changed on disk: /Users/x/Writ/shared.md"),
+      );
+
+      debouncedSave("guarded", "mine", 300);
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(mockedSave).toHaveBeenCalledTimes(1);
+      expect(hasPendingAutosave("guarded")).toBe(false);
+
+      // Flushing on tab close, window hide or quit must not write it again:
+      // every attempt lands another copy beside the note and stops again.
+      const flushed = await flushAutosave("guarded");
+      expect(flushed.ok).toBe(true);
+      expect(mockedSave).toHaveBeenCalledTimes(1);
+
+      // The next keystroke is a new document, and it is written once the
+      // per-note write cap lets the scheduled save through.
+      debouncedSave("guarded", "mine, edited", 300);
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(mockedSave).toHaveBeenCalledTimes(2);
+      expect(mockedSave).toHaveBeenLastCalledWith("guarded", "mine, edited");
+    });
+
+    it("does not try a save of a file still downloading again either", async () => {
+      mockedSave.mockRejectedValueOnce(
+        new Error("ERR_FILE_NOT_DOWNLOADED: the file has not finished downloading: /Users/x/a.md"),
+      );
+
+      debouncedSave("waiting", "mine", 300);
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(mockedSave).toHaveBeenCalledTimes(1);
+      expect(hasPendingAutosave("waiting")).toBe(false);
+    });
+
+    it("keeps the text of any other failed write for the next flush", async () => {
+      mockedSave.mockRejectedValueOnce(new Error("io error: permission denied"));
+
+      debouncedSave("kept", "mine", 300);
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(hasPendingAutosave("kept")).toBe(true);
+      cancelAutosave("kept");
     });
 
     it("resolves ok when nothing was pending", async () => {

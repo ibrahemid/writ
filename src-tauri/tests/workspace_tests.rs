@@ -12,10 +12,12 @@ use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
+use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::workspace::{
     clear_workspace_root_inner, list_workspace_dir_inner, set_workspace_root_from_path,
 };
 use writ_tauri_lib::preview::handler::RenderCache;
+use writ_tauri_lib::quit::QuitState;
 use writ_tauri_lib::security::AuthorizedPaths;
 use writ_tauri_lib::state::AppState;
 use writ_tauri_lib::watcher::handler::create_ignore_set;
@@ -24,6 +26,10 @@ fn make_state(dir: &TempDir) -> AppState {
     let writ_dir = dir.path().to_path_buf();
     let buffers_dir = writ_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
+
+    let notes_root = writ_dir.join("Writ");
+    std::fs::create_dir_all(&notes_root).expect("notes folder");
+    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
     let db_path = writ_dir.join("writ.db");
     let conn = open_database(&db_path).expect("open db");
@@ -39,8 +45,14 @@ fn make_state(dir: &TempDir) -> AppState {
         config: Mutex::new(WritConfig::default()),
         writ_dir,
         buffers_dir,
+        notes_root: RwLock::new(notes_root),
+        notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
+        notes_watcher: Mutex::new(None),
+        notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
+        notes_index_cancel: Arc::new(AtomicBool::new(false)),
+        quit: Arc::new(QuitState::new()),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
         transforms: RwLock::new(TransformRegistry::new()),
@@ -61,6 +73,7 @@ fn make_state(dir: &TempDir) -> AppState {
             writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        last_disk_hash: Mutex::new(std::collections::HashMap::new()),
     }
 }
 

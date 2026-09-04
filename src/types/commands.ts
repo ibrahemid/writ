@@ -21,6 +21,14 @@ export interface Command {
    */
   global?: boolean;
   /**
+   * Whether the command can act right now. A command that answers `false` is
+   * kept out of the palette, so a surface never offers an action it would
+   * only stop: `note.delete` on a file the user opened from somebody else's
+   * folder is not a Delete Writ may perform. Omitted means always available,
+   * which is every command that does not depend on what is open.
+   */
+  isAvailable?: () => boolean;
+  /**
    * Returns `false` when the command declined to act (no view, read-only, or a
    * no-op), so the dispatcher lets the keystroke fall through to CodeMirror and
    * the browser. Any other return value counts as handled — `void` for the

@@ -5,7 +5,8 @@ use std::process;
 
 use clap::Parser;
 use writ_cli::{
-    is_empty_payload, no_path_action, resolve_targets, stdin_file_path, NoPathAction, OpenTarget,
+    is_empty_payload, no_path_action, piped_note_path, read_notes_root_from_config,
+    resolve_notes_dir, resolve_targets, NoPathAction, OpenTarget,
 };
 
 #[cfg(not(target_os = "macos"))]
@@ -87,14 +88,13 @@ fn main() {
                     return;
                 }
 
-                let piped_dir = resolve_piped_dir();
-                if let Err(e) = std::fs::create_dir_all(&piped_dir) {
-                    eprintln!("writ: cannot create {}: {e}", piped_dir.display());
+                let notes_dir = notes_dir();
+                if let Err(e) = std::fs::create_dir_all(&notes_dir) {
+                    eprintln!("writ: cannot create {}: {e}", notes_dir.display());
                     process::exit(1);
                 }
 
-                let id = uuid::Uuid::new_v4().to_string();
-                let dest = stdin_file_path(&piped_dir, &id, title.as_deref());
+                let dest = piped_note_path(&notes_dir, title.as_deref(), chrono::Local::now());
 
                 if let Err(e) = std::fs::write(&dest, &content) {
                     eprintln!("writ: cannot write to {}: {e}", dest.display());
@@ -107,11 +107,36 @@ fn main() {
     }
 }
 
-fn resolve_piped_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".writ")
-        .join("piped")
+/// The notes folder piped input lands in.
+///
+/// Piped text becomes a note in the notes folder like any other (ADR-028 §1),
+/// so it is a file the user can see in Finder and Writ can open without any
+/// further permission. `~/.writ/piped/` is gone; what it already holds is
+/// moved into the notes folder by the app's one-time pass.
+///
+/// The folder is resolved the way the app resolves it, from the same three
+/// sources in the same order, so the CLI and the app never disagree about
+/// where a note goes.
+fn notes_dir() -> PathBuf {
+    let data_dir_override = std::env::var("WRIT_DATA_DIR")
+        .ok()
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty());
+    let home = dirs::home_dir();
+    let writ_dir = data_dir_override.clone().unwrap_or_else(|| {
+        home.clone()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".writ")
+    });
+    let configured = read_notes_root_from_config(&writ_dir);
+    let env_override = std::env::var("WRIT_NOTES_DIR").ok();
+
+    resolve_notes_dir(
+        env_override.as_deref(),
+        configured.as_deref(),
+        data_dir_override.as_deref(),
+        home.as_deref(),
+    )
 }
 
 /// Open `paths` in Writ, or launch Writ with no document when `paths` is empty.
