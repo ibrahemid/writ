@@ -276,7 +276,7 @@ fn save_copy_leaves_the_original_untouched() {
     );
     assert_eq!(
         note_file(&state, &id),
-        elsewhere.canonicalize().expect("canonical"),
+        writ_tauri_lib::security::canonicalize_root(&elsewhere).expect("canonical"),
         "the note followed its copy instead of staying put"
     );
 

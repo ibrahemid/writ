@@ -1,6 +1,6 @@
 # ADR-014: Live Markdown Typography in the Editor
 
-**Status:** Accepted
+**Status:** Accepted; amended in part by [ADR-030](./030-design-system-tokens.md) on 2026-08-28 (structural markers stay visible and hang in the margin instead of being replaced)
 **Date:** 2026-06-12
 
 ## Context

@@ -2,30 +2,43 @@ import { EditorView } from "@codemirror/view";
 import { HighlightStyle } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 import type { ThemePolarity } from "../../types/theme";
+import { CSS_VAR, cssVar } from "../../styles/generated/tokens";
 import "./cm-markdown-typography.css";
 
-const SELECTION_ALPHA = "color-mix(in srgb, var(--writ-accent-default) 32%, transparent)";
-const SELECTION_MATCH_ALPHA = "color-mix(in srgb, var(--writ-accent-default) 18%, transparent)";
-const ACTIVE_LINE_ALPHA = "color-mix(in srgb, var(--writ-surface-hover) 55%, transparent)";
+// Values are `var()` references, never baked colours: the theme switches live
+// by rewriting custom properties on the root, and the site island renders this
+// same spec against its own values (ADR-030).
+const SELECTION_ALPHA = `color-mix(in srgb, ${cssVar(CSS_VAR.accent)} 32%, transparent)`;
+const SELECTION_MATCH_ALPHA = `color-mix(in srgb, ${cssVar(CSS_VAR.accent)} 18%, transparent)`;
+const ACTIVE_LINE_ALPHA = `color-mix(in srgb, ${cssVar(CSS_VAR.bgHover)} 55%, transparent)`;
 
-const writThemeSpec = {
+
+// Exported for the contract test that holds the var()-only rule.
+export const writThemeSpec = {
     "&": {
-      color: "var(--writ-foreground-default)",
-      backgroundColor: "var(--writ-surface-background)",
+      color: cssVar(CSS_VAR.fg),
+      backgroundColor: cssVar(CSS_VAR.bgCanvas),
       height: "100%",
-      fontSize: "var(--writ-editor-font-size, var(--writ-font-size))",
-      fontFamily: "var(--writ-font-mono)",
+      // The zoom lever, which defaults to the prose size (design/tokens).
+      fontSize: "var(--writ-editor-font-size)",
+      lineHeight: cssVar(CSS_VAR.proseLineHeight),
+      fontFamily: "var(--writ-font-prose)",
     },
     ".cm-scroller": {
       overflow: "auto",
-      fontFamily: "var(--writ-font-mono)",
+      lineHeight: cssVar(CSS_VAR.proseLineHeight),
+      fontFamily: "var(--writ-font-prose)",
     },
+    // One reading column, centred, with the same measure and padding the
+    // rendered note uses.
     ".cm-content": {
-      padding: "8px 0",
-      caretColor: "var(--writ-accent-default)",
+      maxWidth: `calc(${cssVar(CSS_VAR.proseMeasure)} + 2 * ${cssVar(CSS_VAR.prosePadX)})`,
+      margin: "0 auto",
+      padding: `var(${CSS_VAR.prosePadY}) var(${CSS_VAR.prosePadX})`,
+      caretColor: cssVar(CSS_VAR.accent),
     },
     ".cm-cursor, .cm-dropCursor": {
-      borderLeftColor: "var(--writ-accent-default)",
+      borderLeftColor: cssVar(CSS_VAR.accent),
     },
     "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
       backgroundColor: SELECTION_ALPHA,
@@ -40,46 +53,47 @@ const writThemeSpec = {
       backgroundColor: ACTIVE_LINE_ALPHA,
     },
     ".cm-gutters": {
-      backgroundColor: "var(--writ-surface-background)",
-      color: "var(--writ-foreground-subtle)",
+      backgroundColor: cssVar(CSS_VAR.bgCanvas),
+      color: cssVar(CSS_VAR.fgFaint),
       border: "none",
     },
     ".cm-activeLineGutter": {
       backgroundColor: "transparent",
-      color: "var(--writ-foreground-muted)",
+      color: cssVar(CSS_VAR.fgMuted),
     },
     ".cm-lineNumbers .cm-gutterElement": {
-      color: "var(--writ-foreground-subtle)",
+      color: cssVar(CSS_VAR.fgFaint),
+      fontFamily: "var(--writ-font-mono)",
       padding: "0 var(--writ-space-3) 0 var(--writ-space-3)",
     },
     ".cm-foldGutter .cm-gutterElement": {
-      color: "var(--writ-foreground-subtle)",
+      color: cssVar(CSS_VAR.fgFaint),
     },
     ".cm-matchingBracket, .cm-nonmatchingBracket": {
       backgroundColor: SELECTION_MATCH_ALPHA,
-      outline: "1px solid var(--writ-border-default)",
+      outline: `1px solid ${cssVar(CSS_VAR.border)}`,
     },
     ".cm-searchMatch": {
       backgroundColor: SELECTION_MATCH_ALPHA,
-      outline: "1px solid var(--writ-accent-default)",
+      outline: `1px solid ${cssVar(CSS_VAR.accent)}`,
     },
     ".cm-searchMatch.cm-searchMatch-selected": {
       backgroundColor: SELECTION_ALPHA,
     },
     ".cm-panels": {
-      backgroundColor: "var(--writ-surface-raised)",
-      color: "var(--writ-foreground-default)",
+      backgroundColor: cssVar(CSS_VAR.bgRaised),
+      color: cssVar(CSS_VAR.fg),
     },
     ".cm-panels.cm-panels-top": {
-      borderBottom: "1px solid var(--writ-border-soft)",
+      borderBottom: `1px solid ${cssVar(CSS_VAR.borderSoft)}`,
     },
     ".cm-panels.cm-panels-bottom": {
-      borderTop: "1px solid var(--writ-border-soft)",
+      borderTop: `1px solid ${cssVar(CSS_VAR.borderSoft)}`,
     },
     ".cm-tooltip": {
-      backgroundColor: "var(--writ-surface-elevated)",
-      border: "1px solid var(--writ-border-soft)",
-      color: "var(--writ-foreground-default)",
+      backgroundColor: cssVar(CSS_VAR.bgRaised),
+      border: `1px solid ${cssVar(CSS_VAR.borderSoft)}`,
+      color: cssVar(CSS_VAR.fg),
     },
 };
 
@@ -93,12 +107,25 @@ export function editorThemeFor(polarity: ThemePolarity) {
   return polarity === "light" ? writThemeLight : writThemeDark;
 }
 
-export const writHighlight = HighlightStyle.define([
-  { tag: t.keyword, color: "var(--writ-syntax-keyword)" },
-  { tag: t.controlKeyword, color: "var(--writ-syntax-keyword)" },
-  { tag: t.moduleKeyword, color: "var(--writ-syntax-keyword)" },
-  { tag: t.operatorKeyword, color: "var(--writ-syntax-keyword)" },
-  { tag: t.definitionKeyword, color: "var(--writ-syntax-keyword)" },
+/**
+ * Mono for the whole surface. Applied to a buffer whose language is not
+ * markdown: prose sans is the writing face, and a source file is code all the
+ * way down. Inside a markdown buffer, mono stays scoped to `.cm-md-code` and
+ * `.cm-md-codeblock` (ADR-030 decision 7).
+ */
+export const writCodeFace = EditorView.theme({
+  "&, .cm-scroller, .cm-content": {
+    fontFamily: "var(--writ-font-mono)",
+  },
+});
+
+/** The tag styles, exported so the same contract test can read them. */
+export const WRIT_HIGHLIGHT_SPECS = [
+  { tag: t.keyword, color: "var(--writ-syntax-keyword)", fontWeight: "600" },
+  { tag: t.controlKeyword, color: "var(--writ-syntax-keyword)", fontWeight: "600" },
+  { tag: t.moduleKeyword, color: "var(--writ-syntax-keyword)", fontWeight: "600" },
+  { tag: t.operatorKeyword, color: "var(--writ-syntax-keyword)", fontWeight: "600" },
+  { tag: t.definitionKeyword, color: "var(--writ-syntax-keyword)", fontWeight: "600" },
 
   { tag: [t.string, t.special(t.string)], color: "var(--writ-syntax-string)" },
   { tag: t.regexp, color: "var(--writ-syntax-string)" },
@@ -120,11 +147,15 @@ export const writHighlight = HighlightStyle.define([
   { tag: [t.tagName, t.angleBracket], color: "var(--writ-syntax-keyword)" },
   { tag: t.attributeValue, color: "var(--writ-syntax-string)" },
 
-  { tag: t.heading, color: "var(--writ-accent-default)", fontWeight: "600" },
-  { tag: t.link, color: "var(--writ-accent-default)", textDecoration: "underline" },
+  // Weight and size carry heading hierarchy; the ink is the body's (ADR-030
+  // decision 3), and the per-level scale comes from the line decorations.
+  { tag: t.heading, fontWeight: "600" },
+  { tag: t.link, color: cssVar(CSS_VAR.accent), textDecoration: "underline" },
   { tag: t.emphasis, fontStyle: "italic" },
   { tag: t.strong, fontWeight: "600" },
 
   { tag: t.invalid, color: "var(--writ-status-error)" },
-  { tag: t.meta, color: "var(--writ-foreground-muted)" },
-]);
+  { tag: t.meta, color: cssVar(CSS_VAR.fgMuted) },
+];
+
+export const writHighlight = HighlightStyle.define(WRIT_HIGHLIGHT_SPECS);

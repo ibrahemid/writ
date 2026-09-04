@@ -1,5 +1,5 @@
 import { createSignal, createRoot } from "solid-js";
-import type { WritConfig, CommandUsage } from "../../types/config";
+import type { AppearanceConfig, WritConfig, CommandUsage } from "../../types/config";
 import * as api from "../../services/tauri";
 import { showToast } from "../../components/Notifications/Toast";
 import { logFailure } from "../../lib/log";
@@ -11,22 +11,46 @@ import { logFailure } from "../../lib/log";
 // and the editor zoom commands — neither hardcodes its own range.
 export const EDITOR_FONT_MIN = 8;
 export const EDITOR_FONT_MAX = 72;
-export const EDITOR_FONT_DEFAULT = 14;
+export const EDITOR_FONT_DEFAULT = 16;
 
 export function clampEditorFontSize(size: number): number {
   if (!Number.isFinite(size)) return EDITOR_FONT_DEFAULT;
   return Math.min(EDITOR_FONT_MAX, Math.max(EDITOR_FONT_MIN, Math.round(size)));
 }
 
+// Sidebar width bounds (ADR-030 decision 3). The single source of truth for
+// the drag handle, its keyboard steps and the persisted value.
+export const SIDEBAR_WIDTH_MIN = 200;
+export const SIDEBAR_WIDTH_MAX = 320;
+export const SIDEBAR_WIDTH_DEFAULT = 240;
+
+export function clampSidebarWidth(width: number): number {
+  if (!Number.isFinite(width)) return SIDEBAR_WIDTH_DEFAULT;
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(width)));
+}
+
+const DEFAULT_APPEARANCE: AppearanceConfig = {
+  polarity: "system",
+  accent: "pine",
+  prose_face: "system",
+};
+
 const DEFAULT_CONFIG: WritConfig = {
   hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
-  sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false },
-  editor: { font_family: "monospace", font_size: EDITOR_FONT_DEFAULT, word_wrap: true, tab_size: 2, autosave_debounce_ms: 1000, markdown_typography: true, markdown_editing: true },
+  sidebar: {
+    toggle: "CmdOrCtrl+\\",
+    default_visible: false,
+    position: "left",
+    open: true,
+    width: SIDEBAR_WIDTH_DEFAULT,
+  },
+  editor: { font_family: "monospace", font_size: EDITOR_FONT_DEFAULT, word_wrap: true, tab_size: 2, autosave_debounce_ms: 1000, markdown_typography: true, markdown_editing: true, status_bar: false },
   window: { width: 1100, height: 720, maximized: false },
   keybindings: {},
   history: { max_entries: 500 },
   storage: { path: "~/.writ" },
-  theme: { preset: "warp-dark", overrides: {} },
+  theme: { preset: "writ-light", overrides: {} },
+  appearance: DEFAULT_APPEARANCE,
   commands: { usage: {} },
   preview: {
     default_layout_html: "split",
@@ -55,6 +79,10 @@ const PERSIST_DEBOUNCE_MS = 750;
 function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
   return {
     ...incoming,
+    sidebar: {
+      ...incoming.sidebar,
+      width: clampSidebarWidth(incoming.sidebar?.width ?? SIDEBAR_WIDTH_DEFAULT),
+    },
     commands: {
       usage: incoming.commands?.usage ?? {},
     },
@@ -65,6 +93,11 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
     },
     updater: {
       auto_check: incoming.updater?.auto_check ?? true,
+    },
+    appearance: {
+      polarity: incoming.appearance?.polarity ?? DEFAULT_APPEARANCE.polarity,
+      accent: incoming.appearance?.accent ?? DEFAULT_APPEARANCE.accent,
+      prose_face: incoming.appearance?.prose_face ?? DEFAULT_APPEARANCE.prose_face,
     },
     ai: {
       enabled: incoming.ai?.enabled ?? false,
@@ -162,6 +195,19 @@ function createConfigStore() {
     schedulePersist();
   }
 
+  // The drag handle commits on release, the keyboard on each step; both go
+  // through the same debounce as every other setting.
+  function setSidebarWidth(width: number) {
+    const clamped = clampSidebarWidth(width);
+    const current = config();
+    if (current.sidebar.width === clamped) return;
+    setConfig({
+      ...current,
+      sidebar: { ...current.sidebar, width: clamped },
+    });
+    schedulePersist();
+  }
+
   function schedulePersist() {
     if (flushTimer) clearTimeout(flushTimer);
     flushTimer = setTimeout(() => {
@@ -207,6 +253,7 @@ function createConfigStore() {
     save,
     recordCommandUse,
     setEditorFontSize,
+    setSidebarWidth,
     clearCommandUsage,
     pruneCommandUsage,
   };

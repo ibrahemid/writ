@@ -57,7 +57,8 @@ class AutoDirectionPlugin implements PluginValue {
  *
  * Each line picks left-to-right or right-to-left from its own first strong
  * directional character, so Arabic and Latin lines coexist in one document.
- * The gutter is outside the content element and keeps its left placement.
+ * Only the lines inside the content element are marked, so the gutter a code
+ * buffer carries keeps its left placement.
  */
 export const autoTextDirection: Extension = [
   EditorView.perLineTextDirection.of(true),

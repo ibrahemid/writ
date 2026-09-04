@@ -27,7 +27,7 @@ fn the_notes_root_rule_diverts_a_data_folder_inside_the_notes_folder() {
 
     assert_eq!(
         state.notes_root(),
-        std::fs::canonicalize(data_dir.join("Writ")).expect("notes folder")
+        writ_tauri_lib::security::canonicalize_root(&data_dir.join("Writ")).expect("notes folder")
     );
     assert_eq!(
         state.notes_root_fallback().map(|fallback| fallback.reason),

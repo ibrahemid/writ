@@ -2,29 +2,27 @@
   "id": "warp-dark",
   "name": "Warp Dark",
   "polarity": "dark",
-  "surface": {
-    "background": "#0e0e14",
-    "sunken": "#0a0a10",
+  "bg": {
+    "canvas": "#0e0e14",
+    "sidebar": "#0a0a10",
     "raised": "#12121a",
-    "elevated": "#1a1a2e",
-    "input": "#16161e",
-    "hover": "#1e1e2e"
+    "sunken": "#16161e",
+    "hover": "#1e1e2e",
+    "selected": "#1a1a2e"
   },
-  "foreground": {
+  "fg": {
     "default": "#e0e0e0",
     "muted": "#888899",
-    "subtle": "#6d6d7b"
+    "faint": "#6d6d7b"
   },
   "border": {
     "default": "#1e1e2e",
-    "soft": "#16161f",
-    "focus": "#7aa2f7",
-    "pill": "#232334"
+    "soft": "#16161f"
   },
   "accent": {
     "default": "#7aa2f7",
     "hover": "#89b4fa",
-    "foreground": "#0a0a10"
+    "fg": "#0a0a10"
   },
   "status": {
     "success": "#9ece6a",
@@ -40,22 +38,5 @@
     "number": "#ff9e64",
     "type": "#2ac3de",
     "variable": "#c0caf5"
-  },
-  "site": {
-    "paper": "#0b0b11",
-    "paper2": "#101019",
-    "seam": "rgba(255,255,255,.06)",
-    "winShadow": "0 2px 8px rgba(0,0,0,.5),0 30px 66px -22px rgba(0,0,0,.72),0 60px 110px -54px rgba(138,166,255,.13)",
-    "panelShadow": "0 2px 6px rgba(0,0,0,.45),0 18px 44px -18px rgba(0,0,0,.7)",
-    "traffic": {
-      "close": "#ff5f57",
-      "min": "#febc2e",
-      "max": "#28c840"
-    },
-    "subtle": "#9a9bb0",
-    "accent": "#8aa6ff",
-    "accentHover": "#a3bbff",
-    "ease": "cubic-bezier(.33,1,.68,1)",
-    "spring": "cubic-bezier(.22,1,.36,1)"
   }
 }

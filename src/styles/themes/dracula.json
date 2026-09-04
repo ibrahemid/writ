@@ -2,29 +2,27 @@
   "id": "dracula",
   "name": "Dracula",
   "polarity": "dark",
-  "surface": {
-    "background": "#282a36",
-    "sunken": "#21222c",
+  "bg": {
+    "canvas": "#282a36",
+    "sidebar": "#21222c",
     "raised": "#2d2f3a",
-    "elevated": "#383a4a",
-    "input": "#2d2f3a",
-    "hover": "#44475a"
+    "sunken": "#2d2f3a",
+    "hover": "#44475a",
+    "selected": "#383a4a"
   },
-  "foreground": {
+  "fg": {
     "default": "#f8f8f2",
     "muted": "#b6b8c2",
-    "subtle": "#8e99bd"
+    "faint": "#8e99bd"
   },
   "border": {
     "default": "#383a4a",
-    "soft": "#2d2f3a",
-    "focus": "#bd93f9",
-    "pill": "#44475a"
+    "soft": "#2d2f3a"
   },
   "accent": {
     "default": "#bd93f9",
     "hover": "#caa9fa",
-    "foreground": "#1a1b22"
+    "fg": "#1a1b22"
   },
   "status": {
     "success": "#50fa7b",

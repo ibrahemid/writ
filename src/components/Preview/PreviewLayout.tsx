@@ -130,7 +130,7 @@ export default function PreviewLayout(props: Props) {
       <div class="preview-editor-slot" style={editorStyle()}>
         <Show
           when={props.buffer}
-          fallback={<div class="editor-empty">No buffer open</div>}
+          fallback={<div class="editor-empty">No note open</div>}
         >
           {(buf) => <EditorInstance buffer={buf()} />}
         </Show>
