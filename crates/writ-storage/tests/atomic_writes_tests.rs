@@ -359,3 +359,313 @@ fn an_atomic_write_leaves_no_temp_file_behind() {
 
     assert_eq!(names, vec!["note.md".to_string()]);
 }
+
+// What a save has to carry across the rename that replaces the file, and the
+// two destinations it must refuse rather than replace (ADR-028 §5).
+
+/// Hangs an extended attribute on a path, the way `xattr -w` does.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn set_xattr(path: &Path, name: &str, value: &[u8]) {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let c_path = CString::new(path.as_os_str().as_bytes()).expect("path");
+    let c_name = CString::new(name).expect("name");
+    let result = unsafe {
+        #[cfg(target_os = "macos")]
+        {
+            libc::setxattr(
+                c_path.as_ptr(),
+                c_name.as_ptr(),
+                value.as_ptr().cast(),
+                value.len(),
+                0,
+                0,
+            )
+        }
+        #[cfg(target_os = "linux")]
+        {
+            libc::setxattr(
+                c_path.as_ptr(),
+                c_name.as_ptr(),
+                value.as_ptr().cast(),
+                value.len(),
+                0,
+            )
+        }
+    };
+    assert_eq!(result, 0, "could not set {name}: {}", last_error());
+}
+
+/// Reads one extended attribute back, or `None` when the file has no such
+/// attribute.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn read_xattr(path: &Path, name: &str) -> Option<Vec<u8>> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let c_path = CString::new(path.as_os_str().as_bytes()).expect("path");
+    let c_name = CString::new(name).expect("name");
+    let mut value = vec![0u8; 4096];
+    let written = unsafe {
+        #[cfg(target_os = "macos")]
+        {
+            libc::getxattr(
+                c_path.as_ptr(),
+                c_name.as_ptr(),
+                value.as_mut_ptr().cast(),
+                value.len(),
+                0,
+                0,
+            )
+        }
+        #[cfg(target_os = "linux")]
+        {
+            libc::getxattr(
+                c_path.as_ptr(),
+                c_name.as_ptr(),
+                value.as_mut_ptr().cast(),
+                value.len(),
+            )
+        }
+    };
+    if written < 0 {
+        return None;
+    }
+    value.truncate(written as usize);
+    Some(value)
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn last_error() -> std::io::Error {
+    std::io::Error::last_os_error()
+}
+
+/// A test that changes a file's mode has to put it back, or `TempDir` cannot
+/// remove what it made.
+#[cfg(unix)]
+fn restore_mode(path: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode));
+}
+
+/// Root ignores the permission bits these tests rely on, so the refusals they
+/// assert never happen there.
+#[cfg(unix)]
+fn running_as_root() -> bool {
+    // SAFETY: `geteuid` reads the calling process's effective user id and
+    // touches nothing.
+    unsafe { libc::geteuid() == 0 }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_save_carries_the_files_tags_across() {
+    let dir = TempDir::new().expect("tempdir");
+    let target = dir.path().join("tagged.md");
+    fs::write(&target, b"before").expect("seed");
+
+    // A Finder tag, in the attribute Finder actually writes it to.
+    set_xattr(&target, "com.apple.metadata:_kMDItemUserTags", b"Red\n");
+
+    writ_storage::atomic::write_atomic(&target, b"after").expect("write");
+
+    assert_eq!(fs::read(&target).expect("read"), b"after");
+    assert_eq!(
+        read_xattr(&target, "com.apple.metadata:_kMDItemUserTags").as_deref(),
+        Some(&b"Red\n"[..]),
+        "the tag on the file did not survive the save"
+    );
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_save_drops_the_quarantine_record() {
+    let dir = TempDir::new().expect("tempdir");
+    let target = dir.path().join("downloaded.md");
+    fs::write(&target, b"before").expect("seed");
+
+    set_xattr(&target, "com.apple.quarantine", b"0081;00000000;Writ;");
+    set_xattr(&target, "com.apple.metadata:_kMDItemUserTags", b"Blue\n");
+
+    writ_storage::atomic::write_atomic(&target, b"after").expect("write");
+
+    assert_eq!(
+        read_xattr(&target, "com.apple.quarantine"),
+        None,
+        "a file the user has been editing keeps being asked about"
+    );
+    assert_eq!(
+        read_xattr(&target, "com.apple.metadata:_kMDItemUserTags").as_deref(),
+        Some(&b"Blue\n"[..]),
+        "skipping one attribute must not skip the rest"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_save_keeps_the_date_the_file_was_created() {
+    use std::os::macos::fs::MetadataExt;
+
+    let dir = TempDir::new().expect("tempdir");
+    let target = dir.path().join("old.md");
+    fs::write(&target, b"before").expect("seed");
+    let before = fs::metadata(&target).expect("stat").st_birthtime();
+
+    // A second boundary is what makes the assertion mean something: without
+    // the restore the file takes the temp file's date, which is now.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    writ_storage::atomic::write_atomic(&target, b"after").expect("write");
+
+    let after = fs::metadata(&target).expect("stat").st_birthtime();
+    assert_eq!(
+        before, after,
+        "every save would report the note as created moments ago"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_save_refuses_a_file_that_has_a_second_name() {
+    let dir = TempDir::new().expect("tempdir");
+    let first = dir.path().join("a.md");
+    let second = dir.path().join("b.md");
+    fs::write(&first, b"shared body").expect("seed");
+    fs::hard_link(&first, &second).expect("link");
+
+    let refusal =
+        writ_storage::atomic::write_atomic(&first, b"new body").expect_err("the save must stop");
+    assert!(
+        matches!(
+            refusal,
+            writ_storage::atomic::AtomicWriteError::HardLinked { links: 2 }
+        ),
+        "{refusal:?}"
+    );
+
+    assert_eq!(fs::read(&first).expect("read"), b"shared body");
+    assert_eq!(fs::read(&second).expect("read"), b"shared body");
+    assert_eq!(
+        count_files_in_dir(dir.path()),
+        2,
+        "a refusal must leave no temp sibling behind"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_save_addressed_to_the_real_file_leaves_the_link_pointing_at_it() {
+    let dir = TempDir::new().expect("tempdir");
+    let real = dir.path().join("real.md");
+    let link = dir.path().join("link.md");
+    fs::write(&real, b"before").expect("seed");
+    std::os::unix::fs::symlink(&real, &link).expect("symlink");
+
+    writ_storage::atomic::write_atomic(&real, b"after").expect("write");
+
+    assert_eq!(fs::read(&real).expect("read"), b"after");
+    assert!(
+        fs::symlink_metadata(&link)
+            .expect("stat link")
+            .file_type()
+            .is_symlink(),
+        "the link was replaced rather than followed"
+    );
+    assert_eq!(
+        fs::read(&link).expect("read through the link"),
+        b"after",
+        "the link no longer points at the file it was made for"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_save_refuses_a_read_only_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    if running_as_root() {
+        return;
+    }
+
+    let dir = TempDir::new().expect("tempdir");
+    let target = dir.path().join("locked.md");
+    fs::write(&target, b"untouched").expect("seed");
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o444)).expect("chmod");
+
+    let refusal =
+        writ_storage::atomic::write_atomic(&target, b"new body").expect_err("the save must stop");
+    assert!(
+        matches!(refusal, writ_storage::atomic::AtomicWriteError::ReadOnly),
+        "{refusal:?}"
+    );
+
+    assert_eq!(fs::read(&target).expect("read"), b"untouched");
+    assert_eq!(
+        fs::metadata(&target).expect("stat").permissions().mode() & 0o777,
+        0o444,
+        "a refusal must not change the file's mode"
+    );
+    assert_eq!(
+        count_files_in_dir(dir.path()),
+        1,
+        "a refusal must leave no temp sibling behind"
+    );
+
+    restore_mode(&target, 0o644);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_save_refuses_a_read_only_folder() {
+    use std::os::unix::fs::PermissionsExt;
+
+    if running_as_root() {
+        return;
+    }
+
+    let dir = TempDir::new().expect("tempdir");
+    let folder = dir.path().join("locked-folder");
+    fs::create_dir(&folder).expect("mkdir");
+    let target = folder.join("note.md");
+    fs::write(&target, b"untouched").expect("seed");
+    fs::set_permissions(&folder, fs::Permissions::from_mode(0o555)).expect("chmod");
+
+    let refusal =
+        writ_storage::atomic::write_atomic(&target, b"new body").expect_err("the save must stop");
+    assert!(
+        matches!(refusal, writ_storage::atomic::AtomicWriteError::ReadOnly),
+        "{refusal:?}"
+    );
+
+    assert_eq!(fs::read(&target).expect("read"), b"untouched");
+    assert_eq!(
+        count_files_in_dir(&folder),
+        1,
+        "a refusal must leave no temp sibling behind"
+    );
+
+    restore_mode(&folder, 0o755);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_refused_save_reaches_the_editor_named() {
+    let (dir, store) = setup();
+    let (doc, file) = make_note(dir.path(), "linked-1", "shared");
+    store.insert(&doc).expect("insert");
+    let second = file.with_file_name("shared copy.md");
+    fs::hard_link(&file, &second).expect("link");
+
+    let refusal = store
+        .save_to_source("linked-1", "new body", None, None)
+        .expect_err("the save must stop");
+
+    match refusal {
+        writ_storage::errors::StorageError::HardLinkedDestination { path, links } => {
+            assert_eq!(path, file.to_string_lossy());
+            assert_eq!(links, 2);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(fs::read(&file).expect("read"), b"");
+}

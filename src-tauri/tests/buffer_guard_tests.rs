@@ -18,6 +18,7 @@ use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::buffer::{
     decide_create_buffer, read_buffer_content_inner, save_buffer_content_inner,
     save_failure_message, CreateDecision, ERR_FILE_CHANGED_ON_DISK, ERR_FILE_NOT_DOWNLOADED,
+    ERR_HARD_LINKED, ERR_READ_ONLY_DESTINATION,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::preview::handler::RenderCache;
@@ -249,6 +250,24 @@ fn a_stopped_save_comes_back_under_a_stable_code() {
     };
     let message = save_failure_message(&waiting);
     assert!(message.starts_with(ERR_FILE_NOT_DOWNLOADED), "{message}");
+}
+
+#[test]
+fn a_refused_destination_comes_back_under_a_stable_code() {
+    let linked = writ_storage::errors::StorageError::HardLinkedDestination {
+        path: "/notes/linked.md".to_string(),
+        links: 2,
+    };
+    let message = save_failure_message(&linked);
+    assert!(message.starts_with(ERR_HARD_LINKED), "{message}");
+    assert!(message.contains("/notes/linked.md"), "{message}");
+
+    let locked = writ_storage::errors::StorageError::DestinationReadOnly {
+        path: "/notes/locked.md".to_string(),
+    };
+    let message = save_failure_message(&locked);
+    assert!(message.starts_with(ERR_READ_ONLY_DESTINATION), "{message}");
+    assert!(message.contains("/notes/locked.md"), "{message}");
 }
 
 #[test]
