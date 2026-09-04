@@ -6,7 +6,7 @@ use tracing::{info, warn};
 use writ_core::buffer::document::BufferDocument;
 use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
-use writ_core::notes::identity::{observe_file, FileIdentity, SourceState};
+use writ_core::notes::identity::{identity_to_keep, observe_file, FileIdentity, SourceState};
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::recovery::RecoveredBuffer;
 use writ_core::update::UpdatePhase;
@@ -548,11 +548,22 @@ impl AppState {
     /// sync provider answers would stall every other tab's save.
     /// [`observe_file`] decides what the answer means; a file that will not be
     /// described keeps the id already on record rather than losing it.
+    ///
+    /// Reading outside the lock means a save can land its own fresher id while
+    /// the filesystem is answering, so what was on record before the read is
+    /// carried to the write and [`identity_to_keep`] settles it. Without that
+    /// the watcher thread writes a pre-save id back over a post-save one,
+    /// which is the stale record this exists to prevent.
     pub fn observe_source_file(&self, note_id: &str, path: &Path) {
+        let before = {
+            let map = recover_poison(self.source_records.lock(), "state::observe_source_file");
+            map.get(note_id).and_then(|record| record.identity.clone())
+        };
         let seen = crate::watcher::identity::read_identity(path);
         let present = seen.is_some() || path.exists();
         let mut map = recover_poison(self.source_records.lock(), "state::observe_source_file");
         let recorded = map.get(note_id).and_then(|record| record.identity.clone());
+        let seen = identity_to_keep(before.as_ref(), recorded.as_ref(), seen);
         let sighting = observe_file(recorded, seen, present);
         map.insert(
             note_id.to_string(),

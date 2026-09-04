@@ -360,6 +360,18 @@ pub fn start_notes_watcher(
                             DEFAULT_IGNORE_TTL,
                             now,
                         ) else {
+                            if let Some(for_tab) = route_replaced_note_to_open_tab(
+                                &event.path,
+                                &root,
+                                open_notes.as_ref(),
+                                &mut told,
+                                &VanishedContext {
+                                    batch: &batch,
+                                    tracking: &tracking,
+                                },
+                            ) {
+                                bus.emit(for_tab);
+                            }
                             continue;
                         };
                         if let Some(for_tab) = route_notes_change_to_open_tab(
@@ -421,6 +433,40 @@ pub fn route_notes_change_to_open_tab(
         return None;
     }
     super::open_files::open_note_change(&note_id, path, *removed, vanished)
+}
+
+/// The tab event a path the notes watcher had nothing to report becomes, when
+/// a tab holds that exact path.
+///
+/// [`classify_notes_event`] answers `None` for a path outside the root, a name
+/// another client owns, a write Writ made, and a path holding something other
+/// than a regular file. Only the last is the tab's business, and only where a
+/// tab is on it: a note's file replaced by a folder of the same name is a file
+/// that went, and dropping the event left the tab carrying the dead file's id
+/// and saving into a raw `Is a directory` rather than saying the file is gone.
+///
+/// The index and the frontend are told nothing, which is right — a folder is
+/// not a note change — so this costs the emission budget nothing either.
+pub fn route_replaced_note_to_open_tab(
+    path: &Path,
+    root: &Path,
+    open_notes: &dyn OpenNotes,
+    told: &mut HashSet<String>,
+    vanished: &VanishedContext<'_>,
+) -> Option<WritEvent> {
+    if !path.starts_with(root) || writ_core::workspace::path_has_ignored_name(root, path) {
+        return None;
+    }
+    // A path holding nothing is already a change the classifier reports, and a
+    // path holding a regular file is one it either reported or suppressed.
+    if !path.exists() || std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
+        return None;
+    }
+    let note_id = open_notes.note_at(path)?;
+    if !told.insert(note_id.clone()) {
+        return None;
+    }
+    super::open_files::open_note_change(&note_id, path, true, vanished)
 }
 
 /// The event that stands for "more changed in the notes folder than is worth
@@ -847,6 +893,66 @@ mod tests {
             &mut told,
             &VanishedContext {
                 batch: &lone(&note),
+                tracking: &FileTracking::untracked(),
+            },
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn a_note_replaced_by_a_folder_of_the_same_name_tells_its_tab_the_file_went() {
+        // The index has nothing to do about a folder, so the classifier drops
+        // it. The tab holding that exact path does: its file is gone, and
+        // hearing nothing left it carrying the dead file's id and saving into
+        // a raw `Is a directory` rather than the removed state the same
+        // situation earns when the name is simply gone.
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let note = root.join("today.md");
+        fs::create_dir(&note).unwrap();
+        let mut told = HashSet::new();
+
+        let routed = route_replaced_note_to_open_tab(
+            &note,
+            root,
+            &open_as(&note, "note-1"),
+            &mut told,
+            &VanishedContext {
+                batch: &lone(&note),
+                tracking: &FileTracking::untracked(),
+            },
+        );
+
+        match routed {
+            Some(WritEvent::BufferExternal {
+                buffer_id, change, ..
+            }) => {
+                assert_eq!(buffer_id, "note-1");
+                assert_eq!(
+                    change,
+                    writ_core::watcher::change_event::ExternalChange::Removed
+                );
+            }
+            other => panic!("expected the tab to be told its file went, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_folder_no_tab_is_on_is_still_nothing_to_report() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let sub = root.join("archive");
+        fs::create_dir(&sub).unwrap();
+        let elsewhere = root.join("today.md");
+        let mut told = HashSet::new();
+
+        assert!(route_replaced_note_to_open_tab(
+            &sub,
+            root,
+            &open_as(&elsewhere, "note-1"),
+            &mut told,
+            &VanishedContext {
+                batch: &lone(&sub),
                 tracking: &FileTracking::untracked(),
             },
         )

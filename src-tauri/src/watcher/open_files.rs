@@ -35,7 +35,10 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 use writ_core::events::bus::{EventBus, WritEvent};
-use writ_core::notes::identity::{classify_delete, DeleteVerdict, FileIdentity};
+use writ_core::hash::Sha256Digest;
+use writ_core::notes::identity::{
+    classify_delete, classify_delete_by_content, DeleteVerdict, FileIdentity,
+};
 use writ_core::watcher::change_event::ExternalChange;
 use writ_core::watcher::ignore::{SuppressDecision, DEFAULT_IGNORE_TTL};
 
@@ -551,11 +554,11 @@ pub fn classify_open_file_event(
     now: Instant,
     vanished: &VanishedContext<'_>,
 ) -> Option<WritEvent> {
-    if !path.exists() {
-        return open_note_vanished(note_id, path, vanished);
-    }
+    // A path holding a directory holds no note, the same as a path holding
+    // nothing. Dropping the event instead left the tab on a dead id, saving
+    // into `Is a directory` rather than saying the file is gone.
     if !std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
-        return None;
+        return open_note_vanished(note_id, path, vanished);
     }
 
     let current_bytes = readable_bytes(path);
@@ -649,10 +652,45 @@ pub struct VanishedContext<'a> {
 /// each deletion in it.
 const MAX_FOLDER_CANDIDATES: usize = 4096;
 
+/// The paths that could be holding the file that left, and where each came
+/// from.
+///
+/// The two are kept apart because they cost differently. An id is read from
+/// every candidate, which is a `stat`. Bytes are read only from the batch:
+/// hashing the folder a note left would read every note in it, and on a share
+/// that is one deletion pulling four thousand files over the network.
+pub struct Candidates {
+    /// Paths this watcher's own window named. A rename arrives as the old
+    /// path leaving and the new one appearing together, so this is where a
+    /// file that moved is ordinarily found.
+    pub batch: Vec<PathBuf>,
+    /// The rest of the folder the file left, for a rename whose halves land in
+    /// different windows.
+    pub folder: Vec<PathBuf>,
+}
+
+impl Candidates {
+    /// Every candidate in the order they are considered: the batch, then the
+    /// folder.
+    pub fn all(&self) -> impl Iterator<Item = &PathBuf> {
+        self.batch.iter().chain(self.folder.iter())
+    }
+}
+
 /// The paths that could be holding the file that left `path`.
 ///
 /// The batch first, then the folder the file left, and the file's own path is
 /// never a candidate for itself.
+///
+/// Within each of those the candidates are sorted lexically, so the same set
+/// of names answers the same way on any volume rather than in `read_dir`
+/// order. Order decides the answer where the same file is honestly at more
+/// than one path, because a hard link is one file with two names. A path under
+/// `notes_root` sorts ahead of the rest, since that is the one Writ keeps a
+/// note in; the test is textual, so where the folder watch and the notes root
+/// name one directory differently it does not fire and lexical order alone
+/// decides. Past `MAX_FOLDER_CANDIDATES` which names are in the set is the
+/// listing's answer.
 ///
 /// Every path this produces is one a watcher covers: the batch is one
 /// watcher's own window, and the folder is the one the file left, which is
@@ -660,26 +698,38 @@ const MAX_FOLDER_CANDIDATES: usize = 4096;
 /// match here safe to follow — the tab lands somewhere its changes still reach
 /// it. A candidate source that broke it would have to be checked against the
 /// watched folders before it could be believed (ADR-033 §11).
-pub fn candidates_for(path: &Path, batch: &[PathBuf]) -> Vec<PathBuf> {
-    let mut candidates: Vec<PathBuf> = Vec::new();
+pub fn candidates_for(path: &Path, batch: &[PathBuf], notes_root: Option<&Path>) -> Candidates {
     let mut seen: HashSet<PathBuf> = HashSet::new();
-    let mut consider = |candidate: PathBuf, out: &mut Vec<PathBuf>| {
-        if candidate == path || !seen.insert(candidate.clone()) {
-            return;
-        }
-        out.push(candidate);
-    };
-    for candidate in batch {
-        consider(candidate.clone(), &mut candidates);
-    }
-    if let Some(dir) = path.parent() {
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten().take(MAX_FOLDER_CANDIDATES) {
-                consider(entry.path(), &mut candidates);
+    let mut collect = |paths: &mut dyn Iterator<Item = PathBuf>| {
+        let mut out: Vec<PathBuf> = Vec::new();
+        for candidate in paths {
+            if candidate == path || !seen.insert(candidate.clone()) {
+                continue;
             }
+            out.push(candidate);
         }
+        out.sort_by(|left, right| {
+            let outside =
+                |candidate: &PathBuf| !notes_root.is_some_and(|root| candidate.starts_with(root));
+            outside(left)
+                .cmp(&outside(right))
+                .then_with(|| left.cmp(right))
+        });
+        out
+    };
+    let named = collect(&mut batch.iter().cloned());
+    let folder = collect(
+        &mut path
+            .parent()
+            .and_then(|dir| std::fs::read_dir(dir).ok())
+            .into_iter()
+            .flat_map(|entries| entries.flatten().take(MAX_FOLDER_CANDIDATES))
+            .map(|entry| entry.path()),
+    );
+    Candidates {
+        batch: named,
+        folder,
     }
-    candidates
 }
 
 /// What `note_id`'s tab is told when its file is no longer at `path`.
@@ -710,25 +760,40 @@ pub fn open_note_vanished(
     // the file instead, which means reading it: one deletion in a folder of
     // four thousand notes on a share would otherwise pull every one of them
     // over the network for an answer already known.
-    let candidates: Vec<(PathBuf, FileIdentity)> = if before.is_durable() {
-        candidates_for(path, vanished.batch)
-            .into_iter()
+    let candidates = candidates_for(
+        path,
+        vanished.batch,
+        vanished.tracking.files.notes_root().as_deref(),
+    );
+    let probed: Vec<(PathBuf, FileIdentity)> = if before.is_durable() {
+        candidates
+            .all()
             .filter_map(|candidate| {
-                let identity = vanished.tracking.probe.identity_of(&candidate)?;
-                Some((candidate, identity))
+                let identity = vanished.tracking.probe.identity_of(candidate)?;
+                Some((candidate.clone(), identity))
             })
             .collect()
     } else {
         Vec::new()
     };
 
-    match classify_delete(&before, &candidates) {
+    match classify_delete(&before, &probed) {
         DeleteVerdict::Moved(to) => files
             .note_file_moved(note_id, path, &to)
             .then(|| open_note_moved(note_id, path, &to)),
-        DeleteVerdict::Removed => files
-            .note_file_removed(note_id, path)
-            .then(|| open_note_removed(note_id, path)),
+        // Nothing carries the id, which is the answer both for a file that was
+        // deleted and for one whose id a write nobody reported retired. The
+        // bytes separate them.
+        DeleteVerdict::Removed => {
+            match same_bytes_in_the_batch(note_id, &candidates.batch, vanished) {
+                Some(to) => files
+                    .note_file_moved(note_id, path, &to)
+                    .then(|| open_note_moved(note_id, path, &to)),
+                None => files
+                    .note_file_removed(note_id, path)
+                    .then(|| open_note_removed(note_id, path)),
+            }
+        }
         // The volume cannot say whether the file moved or went, so neither is
         // claimed and the write guard governs the next save exactly as it did
         // before identity was read at all.
@@ -737,6 +802,39 @@ pub fn open_note_vanished(
             path,
             readable_bytes(path).as_deref(),
         )),
+    }
+}
+
+/// The path in the batch holding the bytes `note_id` last read from its file,
+/// if there is one.
+///
+/// The second way a vanished file is recognised, once a write nobody reported
+/// has retired the id Writ holds for it
+/// ([`writ_core::notes::identity::classify_delete_by_content`]). Only the
+/// batch is read, never the folder listing, and only where the length already
+/// matches: a deletion in a folder of four thousand notes costs the reads its
+/// own window named and no more. A file whose bytes are not on this machine is
+/// left unread, so a candidate on a sync provider is not fetched to answer
+/// this (ADR-028 §5).
+fn same_bytes_in_the_batch(
+    note_id: &str,
+    batch: &[PathBuf],
+    vanished: &VanishedContext<'_>,
+) -> Option<PathBuf> {
+    let last = vanished.tracking.files.last_disk_state(note_id)?;
+    let digests: Vec<(PathBuf, Sha256Digest)> = batch
+        .iter()
+        .filter(|candidate| {
+            std::fs::metadata(candidate).is_ok_and(|m| m.is_file() && m.len() == last.size)
+        })
+        .filter_map(|candidate| {
+            let bytes = readable_bytes(candidate)?;
+            Some((candidate.clone(), writ_core::hash::sha256_bytes(&bytes)))
+        })
+        .collect();
+    match classify_delete_by_content(&last.hash, &digests) {
+        DeleteVerdict::Moved(to) => Some(to),
+        DeleteVerdict::Removed | DeleteVerdict::ExternalModification => None,
     }
 }
 
@@ -1229,6 +1327,8 @@ mod tests {
     #[derive(Default)]
     struct RecordingFiles {
         identity: Option<FileIdentity>,
+        last: Option<writ_core::notes::guard::DiskState>,
+        notes_root: Option<PathBuf>,
         moved: Arc<Mutex<Vec<(PathBuf, PathBuf)>>>,
         removed: Arc<Mutex<Vec<PathBuf>>>,
         returned: Arc<Mutex<Vec<PathBuf>>>,
@@ -1256,6 +1356,23 @@ mod tests {
         fn note_file_returned(&self, _note_id: &str, path: &Path) -> bool {
             self.returned.lock().unwrap().push(path.to_path_buf());
             true
+        }
+
+        fn last_disk_state(&self, _note_id: &str) -> Option<writ_core::notes::guard::DiskState> {
+            self.last
+        }
+
+        fn notes_root(&self) -> Option<PathBuf> {
+            self.notes_root.clone()
+        }
+    }
+
+    /// What Writ would have recorded after reading or writing `bytes`.
+    fn last_read(bytes: &[u8]) -> writ_core::notes::guard::DiskState {
+        writ_core::notes::guard::DiskState {
+            hash: writ_core::hash::sha256_bytes(bytes),
+            size: bytes.len() as u64,
+            mtime: None,
         }
     }
 
@@ -1603,13 +1720,187 @@ mod tests {
         let other = dir.path().join("other.md");
         fs::write(&other, b"x").unwrap();
 
-        let candidates = candidates_for(&gone, &[gone.clone(), other.clone()]);
-        assert!(!candidates.contains(&gone));
-        assert!(candidates.contains(&other));
+        let candidates = candidates_for(&gone, &[gone.clone(), other.clone()], None);
+        assert!(!candidates.all().any(|c| c == &gone));
+        assert!(candidates.all().any(|c| c == &other));
         assert_eq!(
-            candidates.iter().filter(|c| *c == &other).count(),
+            candidates.all().filter(|c| *c == &other).count(),
             1,
             "the batch and the folder listing both name it; it is one candidate"
+        );
+    }
+
+    /// What `open_note_vanished` decided, as the change and the path it named.
+    fn verdict_of(event: &Option<WritEvent>) -> Option<(&ExternalChange, Option<&str>)> {
+        match event {
+            Some(WritEvent::BufferExternal {
+                change, new_path, ..
+            }) => Some((change, new_path.as_deref())),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_rewrite_nobody_reported_does_not_turn_a_rename_into_a_deletion() {
+        // Two writes in one window are reported as one. A program rewrote the
+        // file — a sibling temp renamed over it, which is how every editor and
+        // every sync client writes — and then renamed it, so the only event is
+        // the path going empty and the id on record is the one the rewrite
+        // retired. Nothing carries it, and the tab would mark itself removed
+        // over a file sitting at its new path with the user's text in it.
+        let dir = tempdir().unwrap();
+        let from = dir.path().join("before.md");
+        let to = dir.path().join("after.md");
+        fs::write(&from, b"text worth keeping").unwrap();
+        let retired = crate::watcher::identity::read_identity(&from);
+        let temp = dir.path().join("before.md.other-program-tmp");
+        fs::write(&temp, b"text worth keeping").unwrap();
+        fs::rename(&temp, &from).unwrap();
+        fs::rename(&from, &to).unwrap();
+
+        let (tracking, files) = tracking_with(RecordingFiles {
+            identity: retired,
+            last: Some(last_read(b"text worth keeping")),
+            ..RecordingFiles::default()
+        });
+        let batch = vec![temp, from.clone(), to.clone()];
+        let event = open_note_vanished(
+            "note-1",
+            &from,
+            &VanishedContext {
+                batch: &batch,
+                tracking: &tracking,
+            },
+        );
+
+        assert_eq!(
+            verdict_of(&event),
+            Some((&ExternalChange::Moved, to.to_str())),
+            "the bytes the tab last read are at the new path; that is the file"
+        );
+        assert!(files.removed.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_deletion_beside_an_unrelated_creation_is_still_a_deletion() {
+        // The shape a batch takes when someone deletes one note and creates
+        // another, which is also what a branch checkout does. Pairing the two
+        // on nothing but their being in one window would put the tab on a file
+        // it has never read and let the next save write over it.
+        let dir = tempdir().unwrap();
+        let gone = dir.path().join("gone.md");
+        let unrelated = dir.path().join("unrelated.md");
+        fs::write(&gone, b"text worth keeping").unwrap();
+        let retired = crate::watcher::identity::read_identity(&gone);
+        fs::remove_file(&gone).unwrap();
+        fs::write(&unrelated, b"somebody else's note").unwrap();
+
+        let (tracking, _files) = tracking_with(RecordingFiles {
+            identity: retired,
+            last: Some(last_read(b"text worth keeping")),
+            ..RecordingFiles::default()
+        });
+        let batch = vec![gone.clone(), unrelated];
+        let event = open_note_vanished(
+            "note-1",
+            &gone,
+            &VanishedContext {
+                batch: &batch,
+                tracking: &tracking,
+            },
+        );
+
+        assert_eq!(verdict_of(&event), Some((&ExternalChange::Removed, None)));
+    }
+
+    #[test]
+    fn only_the_batch_is_read_for_a_match_on_bytes() {
+        // Ids are read from the folder listing too; bytes are not. Hashing the
+        // folder a note left reads every note in it, and on a share that is
+        // one deletion pulling the whole folder over the network.
+        let dir = tempdir().unwrap();
+        let gone = dir.path().join("gone.md");
+        let twin = dir.path().join("twin.md");
+        fs::write(&gone, b"text worth keeping").unwrap();
+        let retired = crate::watcher::identity::read_identity(&gone);
+        fs::remove_file(&gone).unwrap();
+        fs::write(&twin, b"text worth keeping").unwrap();
+
+        let (tracking, _files) = tracking_with(RecordingFiles {
+            identity: retired,
+            last: Some(last_read(b"text worth keeping")),
+            ..RecordingFiles::default()
+        });
+        let batch = vec![gone.clone()];
+        let event = open_note_vanished(
+            "note-1",
+            &gone,
+            &VanishedContext {
+                batch: &batch,
+                tracking: &tracking,
+            },
+        );
+
+        assert_eq!(verdict_of(&event), Some((&ExternalChange::Removed, None)));
+    }
+
+    #[test]
+    fn a_note_replaced_by_a_folder_of_the_same_name_reads_as_a_file_that_went() {
+        // A path holding a directory holds no note. Dropping the event left
+        // the tab carrying a dead id and saving into a raw `Is a directory`
+        // rather than saying the file is gone.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("note.md");
+        fs::write(&path, b"body").unwrap();
+        let retired = crate::watcher::identity::read_identity(&path);
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+
+        let (tracking, _files) = tracking_with(RecordingFiles {
+            identity: retired,
+            last: Some(last_read(b"body")),
+            ..RecordingFiles::default()
+        });
+        let batch = vec![path.clone()];
+        let event = classify_open_file_event(
+            &path,
+            "note-1",
+            &crate::watcher::handler::create_ignore_set(),
+            DEFAULT_IGNORE_TTL,
+            Instant::now(),
+            &VanishedContext {
+                batch: &batch,
+                tracking: &tracking,
+            },
+        );
+
+        assert_eq!(verdict_of(&event), Some((&ExternalChange::Removed, None)));
+    }
+
+    #[test]
+    fn candidates_come_in_a_fixed_order_rather_than_the_filesystems() {
+        // A hard link is one file with two names, so the order decides which
+        // name a tab lands on. Leaving it to `read_dir` leaves it to the
+        // filesystem, and two machines holding the same folder could answer
+        // differently.
+        let notes = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let gone = notes.path().join("gone.md");
+        let batch = vec![
+            notes.path().join("second.md"),
+            outside.path().join("elsewhere.md"),
+            notes.path().join("first.md"),
+        ];
+
+        let candidates = candidates_for(&gone, &batch, Some(notes.path()));
+
+        assert_eq!(
+            candidates.batch,
+            vec![
+                notes.path().join("first.md"),
+                notes.path().join("second.md"),
+                outside.path().join("elsewhere.md"),
+            ]
         );
     }
 
@@ -1753,26 +2044,6 @@ mod tests {
             }
             other => panic!("expected a removal, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn a_folder_appearing_where_a_note_was_is_not_a_change_to_the_note() {
-        let dir = tempdir().unwrap();
-        let sub = dir.path().join("subfolder");
-        fs::create_dir(&sub).unwrap();
-
-        assert!(classify_open_file_event(
-            &sub,
-            "note-1",
-            &make_set(),
-            DEFAULT_IGNORE_TTL,
-            Instant::now(),
-            &VanishedContext {
-                batch: &nothing_tracked(&sub).0,
-                tracking: &FileTracking::untracked(),
-            },
-        )
-        .is_none());
     }
 
     #[test]

@@ -132,6 +132,41 @@ pub fn classify_delete(
     DeleteVerdict::Removed
 }
 
+/// Decides what became of a vanished file whose id nothing carries, by its
+/// bytes.
+///
+/// [`classify_delete`] measures a vanished file against the id Writ recorded
+/// for it, and that id is only as fresh as the last time somebody told Writ
+/// the file had changed. Two writes inside one watcher window are reported as
+/// one: a program that rewrites a file — a sibling temp renamed over the
+/// target, which is how every editor and every sync client writes — and then
+/// renames it leaves a single event saying the path is empty. The rewrite is
+/// never reported, so the id on record is the one the rewrite retired and the
+/// file at its new path carries an id Writ has never seen.
+///
+/// Bytes are what is left to go on, and they are the right thing to go on: a
+/// rename changes none of them, so a candidate holding what the tab last read
+/// from its file is that file. `last` is the digest of those bytes; each
+/// candidate is a path this watcher's own window named, with the digest of
+/// what it holds now.
+///
+/// A rewrite that changed the bytes as well is a removal, and deliberately so.
+/// The content the tab is attached to is then gone from every watched folder,
+/// which is the whole of what a removal claims. Following a path on weaker
+/// evidence than the bytes would put the tab on a file it has never read,
+/// which is what a deletion and an unrelated creation in one window look like.
+pub fn classify_delete_by_content(
+    last: &Sha256Digest,
+    candidates: &[(PathBuf, Sha256Digest)],
+) -> DeleteVerdict {
+    for (path, digest) in candidates {
+        if digest == last {
+            return DeleteVerdict::Moved(path.clone());
+        }
+    }
+    DeleteVerdict::Removed
+}
+
 /// Whether Writ can still write to the file behind a note.
 ///
 /// Held per open tab for the length of a session rather than in the database:
@@ -174,7 +209,10 @@ pub struct Sighting {
 /// making the sync provider fetch it (ADR-028 §5). `present` is what separates
 /// them, so a refusal to answer keeps the recorded id rather than blanking it.
 /// Blanking it would put an evicted note in exactly the state this exists to
-/// prevent.
+/// prevent. On a volume that answers for every file — every Unix one — the
+/// refusal needs a dataless file or a path holding something that is not a
+/// file to reach at all; the case is kept for the volumes and the files where
+/// it does.
 pub fn observe_file(
     recorded: Option<FileIdentity>,
     seen: Option<FileIdentity>,
@@ -189,6 +227,32 @@ pub fn observe_file(
     Sighting {
         identity: seen.or(recorded),
         state: SourceState::Present,
+    }
+}
+
+/// Which id a sighting may keep, when reading it was not atomic with recording
+/// it.
+///
+/// Asking the filesystem what a file is costs a syscall, and on a volume with
+/// no id to give it costs the whole file, so the read happens outside the lock
+/// the record is kept under (ADR-028 §5). That leaves a window: a save can land
+/// its own fresher id in it, and the watcher thread would then write the id it
+/// read before the save back over the one the save wrote — the stale record
+/// this module exists to prevent, arrived at from a race instead.
+///
+/// `before` is what was on record when the read started and `recorded` is what
+/// is on record now. Equal means nothing landed and `seen` is the freshest
+/// answer there is. Different means a writer got there first, and a writer that
+/// wrote after the read is holding the newer truth, so its value stands.
+pub fn identity_to_keep(
+    before: Option<&FileIdentity>,
+    recorded: Option<&FileIdentity>,
+    seen: Option<FileIdentity>,
+) -> Option<FileIdentity> {
+    if before == recorded {
+        seen
+    } else {
+        recorded.cloned()
     }
 }
 
@@ -361,6 +425,65 @@ mod tests {
                 state: SourceState::RemovedOnDisk,
             }
         );
+    }
+
+    #[test]
+    fn a_candidate_holding_the_bytes_the_tab_last_read_is_the_file() {
+        // The id on record was retired by a rewrite nobody reported, so
+        // nothing carries it. The bytes went to the new path unchanged.
+        let verdict = classify_delete_by_content(
+            &crate::hash::sha256_bytes(b"text worth keeping"),
+            &[(
+                PathBuf::from("/notes/renamed.md"),
+                crate::hash::sha256_bytes(b"text worth keeping"),
+            )],
+        );
+        assert_eq!(
+            verdict,
+            DeleteVerdict::Moved(PathBuf::from("/notes/renamed.md"))
+        );
+    }
+
+    #[test]
+    fn a_candidate_holding_other_bytes_is_not_the_file() {
+        // A deletion and an unrelated creation in one window. Following the
+        // new path would put the tab on a file it has never read and let the
+        // next save write over it.
+        let verdict = classify_delete_by_content(
+            &crate::hash::sha256_bytes(b"text worth keeping"),
+            &[(
+                PathBuf::from("/notes/unrelated.md"),
+                crate::hash::sha256_bytes(b"somebody else's note"),
+            )],
+        );
+        assert_eq!(verdict, DeleteVerdict::Removed);
+    }
+
+    #[test]
+    fn bytes_prove_nothing_with_no_candidates_to_compare() {
+        let verdict = classify_delete_by_content(&crate::hash::sha256_bytes(b"body"), &[]);
+        assert_eq!(verdict, DeleteVerdict::Removed);
+    }
+
+    #[test]
+    fn an_uncontested_sighting_keeps_what_it_read() {
+        let kept = identity_to_keep(Some(&inode(1, 42)), Some(&inode(1, 42)), Some(inode(1, 43)));
+        assert_eq!(kept, Some(inode(1, 43)));
+    }
+
+    #[test]
+    fn a_save_that_landed_during_the_read_keeps_its_own_id() {
+        // The watcher read the id, lost the CPU, and a save wrote a fresher
+        // one. Writing what the watcher read back over it is the stale record
+        // all of this exists to prevent.
+        let kept = identity_to_keep(Some(&inode(1, 42)), Some(&inode(1, 99)), Some(inode(1, 42)));
+        assert_eq!(kept, Some(inode(1, 99)));
+    }
+
+    #[test]
+    fn a_first_sighting_of_a_note_with_no_record_keeps_what_it_read() {
+        let kept = identity_to_keep(None, None, Some(inode(1, 42)));
+        assert_eq!(kept, Some(inode(1, 42)));
     }
 
     #[test]

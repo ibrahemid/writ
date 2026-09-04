@@ -947,6 +947,91 @@ fn a_rename_after_another_program_rewrote_the_file_is_still_a_move() {
 }
 
 #[test]
+fn a_rewrite_and_a_rename_in_one_window_still_leave_the_tab_on_its_file() {
+    // The rewrite above reached the tab because it had a window to itself. Two
+    // writes inside one window are reported as one: a program rewrote the file
+    // and renamed it, and the only event is the path going empty. The rewrite
+    // is never reported at all, so the id on record is the one it retired and
+    // nothing carries it — the tab marked itself removed and refused every
+    // later save over a file sitting at its new path. The bytes are what is
+    // left to recognise it by, and a rename changes none of them.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    // A sync client putting the file back from its own cache writes the bytes
+    // that are already there, which is a new file under the same name and the
+    // same content.
+    rewrite_from_outside(&before, b"text worth keeping");
+    let after = state.notes_root().join("renamed-by-finder.md");
+    std::fs::rename(&before, &after).expect("rename the way Finder does");
+
+    let seen = external_events(&rx);
+    assert_eq!(
+        seen.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Moved],
+        "a rename after a rewrite nobody reported must still be a move, saw {seen:?}"
+    );
+    assert_eq!(
+        change_of(&seen[0]).1.map(std::path::Path::new),
+        Some(after.as_path())
+    );
+    assert!(
+        !state.is_removed_on_disk(&doc.id),
+        "the tab stopped writing to a file that is there"
+    );
+    assert_eq!(note_file(&state, &doc.id), after);
+
+    save_buffer_content_inner(&state, &doc.id, "edited after the rename").expect("save");
+    assert_eq!(
+        std::fs::read_to_string(&after).expect("read the moved file"),
+        "edited after the rename"
+    );
+    assert!(
+        !before.exists(),
+        "the save recreated the file at the old path"
+    );
+}
+
+#[test]
+fn a_note_replaced_by_a_folder_of_the_same_name_reads_as_a_file_that_went() {
+    // A path holding a directory holds no note. The event was dropped for
+    // being about something that is not a file, so the tab heard nothing, kept
+    // the dead file's id, and its next save came back as a raw
+    // `Is a directory` instead of saying the file is gone.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    std::fs::remove_file(&path).expect("delete the note's file");
+    std::fs::create_dir(&path).expect("a folder takes its name");
+
+    let seen = external_events(&rx);
+    assert_eq!(
+        seen.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Removed],
+        "a folder where the file was is a file that went, saw {seen:?}"
+    );
+    assert!(state.is_removed_on_disk(&doc.id));
+
+    let refused = save_buffer_content_inner(&state, &doc.id, "edited after the folder appeared")
+        .expect_err("the save has to refuse");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the tab must say the file is gone rather than pass on an errno, saw {refused}"
+    );
+    assert!(path.is_dir(), "the save wrote over the folder");
+}
+
+#[test]
 fn a_file_outside_the_notes_folder_re_attaches_when_it_comes_back() {
     // The notes watcher covers the restore inside the notes folder. A file
     // opened from anywhere else has only the open-file watcher to hear it come

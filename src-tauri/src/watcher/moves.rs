@@ -12,10 +12,11 @@
 //! implementation reaches the state through the app handle; the tests supply
 //! one that records what it was told.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tauri::{AppHandle, Manager};
+use writ_core::notes::guard::DiskState;
 use writ_core::notes::identity::{FileIdentity, IdentityProbe};
 
 use crate::state::AppState;
@@ -45,6 +46,22 @@ pub trait NoteFiles: Send + Sync {
     /// own next rename reads as a deletion. `true` when the file had been
     /// marked removed, which is a file that came back from the Trash.
     fn note_file_returned(&self, note_id: &str, path: &Path) -> bool;
+
+    /// What the note's file held the last time Writ read or wrote it.
+    ///
+    /// The second thing a vanished file can be recognised by, once its id has
+    /// been retired by a write nobody reported
+    /// ([`writ_core::notes::identity::classify_delete_by_content`]).
+    fn last_disk_state(&self, note_id: &str) -> Option<DiskState>;
+
+    /// The notes folder as it is now, or `None` when there is no application
+    /// behind this record.
+    ///
+    /// Read live rather than captured, because the folder can move under a
+    /// session. It orders the candidates for a vanished file: with hard links
+    /// the same file is honestly at more than one path, and the one inside the
+    /// notes folder is the one to land on.
+    fn notes_root(&self) -> Option<PathBuf>;
 }
 
 /// The probe and the record, which every watcher needs together.
@@ -112,6 +129,14 @@ impl NoteFiles for NoNoteFiles {
     fn note_file_returned(&self, _note_id: &str, _path: &Path) -> bool {
         false
     }
+
+    fn last_disk_state(&self, _note_id: &str) -> Option<DiskState> {
+        None
+    }
+
+    fn notes_root(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// The records the running application keeps.
@@ -134,6 +159,14 @@ impl NoteFiles for AppNoteFiles {
 
     fn note_file_returned(&self, note_id: &str, path: &Path) -> bool {
         apply_return(&self.app.state::<AppState>(), note_id, path)
+    }
+
+    fn last_disk_state(&self, note_id: &str) -> Option<DiskState> {
+        self.app.state::<AppState>().disk_state(note_id)
+    }
+
+    fn notes_root(&self) -> Option<PathBuf> {
+        Some(self.app.state::<AppState>().notes_root())
     }
 }
 
@@ -172,6 +205,14 @@ impl NoteFiles for SharedNoteFiles {
             None => false,
         }
     }
+
+    fn last_disk_state(&self, note_id: &str) -> Option<DiskState> {
+        self.state.upgrade()?.disk_state(note_id)
+    }
+
+    fn notes_root(&self) -> Option<PathBuf> {
+        Some(self.state.upgrade()?.notes_root())
+    }
 }
 
 /// What the filesystem last called the note's file.
@@ -188,8 +229,10 @@ fn identity_of_note(state: &AppState, note_id: &str) -> Option<FileIdentity> {
 /// keystroke deadlock.
 ///
 /// The bytes did not move, so the digest Writ recorded still describes the
-/// file and is carried over rather than read again. Reading again would fetch
-/// the whole file in a sync folder for an answer already in hand.
+/// file and is carried over rather than read again — where the move was
+/// recognised by its bytes rather than its id, that digest is what recognised
+/// it. Reading again would fetch the whole file in a sync folder for an answer
+/// already in hand.
 ///
 /// `false` when the row was already there, which is what keeps one move seen
 /// by two watchers from telling the tab twice.
