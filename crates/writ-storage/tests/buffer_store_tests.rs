@@ -44,6 +44,16 @@ fn search(dir: &TempDir, raw: &str) -> Vec<String> {
 }
 
 /// The key the index holds a note's file under.
+/// Every note path the index holds a row for.
+fn indexed_paths(dir: &TempDir) -> Vec<String> {
+    index(dir)
+        .snapshot()
+        .expect("snapshot")
+        .into_iter()
+        .map(|(path, _, _)| path)
+        .collect()
+}
+
 fn indexed_key(id: &str) -> String {
     writ_storage::notes_index::index_key(&note_path(id))
 }
@@ -432,6 +442,37 @@ fn rename_to_file_re_keys_the_note_in_the_index() {
     assert!(
         !search(&dir, "body").contains(&indexed_key("ren-fts-a")),
         "the note must not be in the index twice after a rename"
+    );
+}
+
+#[test]
+fn rename_to_file_moves_the_note_row_in_the_index() {
+    // The search hit is derived from the note's row in `files`, and the row is
+    // what a move has to carry: a row left under the old path is a note the
+    // sidebar offers and nothing can open, and a second row under the new one
+    // is the same note listed twice.
+    let (dir, store) = setup();
+    let doc = make_doc("ren-row-a", "alpha");
+    store.insert(&doc).unwrap();
+    store.save_content("ren-row-a", "body text").unwrap();
+    let before = indexed_key("ren-row-a");
+    assert!(indexed_paths(&dir).contains(&before));
+
+    let renamed = notes_root().join("ren-row-b.md");
+    std::fs::rename(note_path("ren-row-a"), &renamed).expect("rename the file");
+    store
+        .rename_to_file("ren-row-a", renamed.to_str().unwrap(), "ren-row-b")
+        .expect("rename_to_file");
+
+    let after = writ_storage::notes_index::index_key(&renamed);
+    let paths = indexed_paths(&dir);
+    assert!(
+        paths.contains(&after),
+        "the row did not follow the file: {paths:?}"
+    );
+    assert!(
+        !paths.contains(&before),
+        "the row under the path the file left is still there: {paths:?}"
     );
 }
 

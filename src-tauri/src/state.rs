@@ -6,7 +6,7 @@ use tracing::{info, warn};
 use writ_core::buffer::document::BufferDocument;
 use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
-use writ_core::notes::identity::{FileIdentity, SourceState};
+use writ_core::notes::identity::{observe_file, FileIdentity, SourceState};
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::recovery::RecoveredBuffer;
 use writ_core::update::UpdatePhase;
@@ -542,15 +542,25 @@ impl AppState {
     /// A file that is there clears a removed-on-disk mark: a note restored
     /// from the Trash re-attaches to it without the user doing anything, which
     /// is the whole of the restore case in spec W4.
+    ///
+    /// The identity is read outside the lock, because reading it can cost a
+    /// whole file on a volume with no id to give, and holding the map while a
+    /// sync provider answers would stall every other tab's save.
+    /// [`observe_file`] decides what the answer means; a file that will not be
+    /// described keeps the id already on record rather than losing it.
     pub fn observe_source_file(&self, note_id: &str, path: &Path) {
-        let identity = crate::watcher::identity::read_identity(path);
-        let state = if identity.is_some() || path.exists() {
-            SourceState::Present
-        } else {
-            SourceState::RemovedOnDisk
-        };
+        let seen = crate::watcher::identity::read_identity(path);
+        let present = seen.is_some() || path.exists();
         let mut map = recover_poison(self.source_records.lock(), "state::observe_source_file");
-        map.insert(note_id.to_string(), SourceRecord { identity, state });
+        let recorded = map.get(note_id).and_then(|record| record.identity.clone());
+        let sighting = observe_file(recorded, seen, present);
+        map.insert(
+            note_id.to_string(),
+            SourceRecord {
+                identity: sighting.identity,
+                state: sighting.state,
+            },
+        );
     }
 
     /// What is recorded about `note_id`'s file, for a test to read back.
@@ -602,18 +612,6 @@ impl AppState {
         record.state = SourceState::RemovedOnDisk;
         record.identity = None;
         news
-    }
-
-    /// Records that `note_id`'s file is there again. `true` when it had been
-    /// marked removed, which is a file coming back from the Trash.
-    pub fn clear_removed_on_disk(&self, note_id: &str) -> bool {
-        let mut map = recover_poison(self.source_records.lock(), "state::clear_removed_on_disk");
-        let Some(record) = map.get_mut(note_id) else {
-            return false;
-        };
-        let was_removed = record.state == SourceState::RemovedOnDisk;
-        record.state = SourceState::Present;
-        was_removed
     }
 
     /// Whether `note_id`'s file was deleted and not replaced.

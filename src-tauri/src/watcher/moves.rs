@@ -39,8 +39,11 @@ pub trait NoteFiles: Send + Sync {
     /// Records that the note's file was deleted. `true` when this is news.
     fn note_file_removed(&self, note_id: &str, path: &Path) -> bool;
 
-    /// Records that the note's file is there. `true` when it had been marked
-    /// removed, which is a file that came back from the Trash.
+    /// Records what the note's file is now, which is asked every time the tab
+    /// hears its file changed: a write another program made replaced the file
+    /// under the path, and the tab has to hold the new one's identity or its
+    /// own next rename reads as a deletion. `true` when the file had been
+    /// marked removed, which is a file that came back from the Trash.
     fn note_file_returned(&self, note_id: &str, path: &Path) -> bool;
 }
 
@@ -241,17 +244,26 @@ fn apply_removal(state: &AppState, note_id: &str, path: &Path) -> bool {
     news
 }
 
-/// Records that the note's file is there. `true` only when it had been marked
-/// removed, which is a file that came back from the Trash.
+/// Records what the note's file is now, every time the tab hears its file
+/// changed. `true` only when it had been marked removed, which is a file that
+/// came back from the Trash.
+///
+/// The reading happens whatever the answer to that second question is, and
+/// that is the point of it. Somebody else's write is a rename over the target
+/// on nearly every editor and every sync client, so the file behind the tab is
+/// a different file afterwards while the path is unchanged. A tab still
+/// holding the id of the replaced file reads its own next rename as a
+/// deletion, marks itself removed, and refuses every later save over a file
+/// that is sitting at its new path.
 fn apply_return(state: &AppState, note_id: &str, path: &Path) -> bool {
-    if !state.clear_removed_on_disk(note_id) {
-        return false;
-    }
+    let was_removed = state.is_removed_on_disk(note_id);
     state.observe_source_file(note_id, path);
-    tracing::info!(
-        note = %note_id,
-        path = %path.display(),
-        "a tab's file is back; the tab is writing to it again"
-    );
-    true
+    if was_removed {
+        tracing::info!(
+            note = %note_id,
+            path = %path.display(),
+            "a tab's file is back; the tab is writing to it again"
+        );
+    }
+    was_removed
 }

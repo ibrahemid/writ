@@ -146,6 +146,52 @@ pub enum SourceState {
     RemovedOnDisk,
 }
 
+/// What a tab knows about its file after looking at the path it holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sighting {
+    /// What the filesystem calls the file, as far as it will say.
+    pub identity: Option<FileIdentity>,
+    /// Whether Writ can still write to it.
+    pub state: SourceState,
+}
+
+/// Decides what a tab records after seeing its file where the tab expects it.
+///
+/// Every other editor saves by writing a sibling temporary file and renaming
+/// it over the target — vim, VS Code, git, rsync and every sync client — so
+/// the file behind a tab is a different file after somebody else writes to it,
+/// while the path is unchanged. An identity recorded once at open is stale
+/// from the first such write, and a stale identity turns the next rename into
+/// a deletion: nothing carries the id any more, so [`classify_delete`] says
+/// [`DeleteVerdict::Removed`] and the tab stops saving to a file that is
+/// sitting at its new path. So the id is re-read whenever the tab learns the
+/// file changed underneath it, not only on open and after Writ's own writes.
+///
+/// `seen` is what the filesystem answers for the path now, and `None` covers
+/// two different refusals: there is nothing there, and there is something
+/// there that will not be described — a file whose bytes are not on this
+/// machine is left without an id rather than hashed, because hashing it means
+/// making the sync provider fetch it (ADR-028 §5). `present` is what separates
+/// them, so a refusal to answer keeps the recorded id rather than blanking it.
+/// Blanking it would put an evicted note in exactly the state this exists to
+/// prevent.
+pub fn observe_file(
+    recorded: Option<FileIdentity>,
+    seen: Option<FileIdentity>,
+    present: bool,
+) -> Sighting {
+    if !present {
+        return Sighting {
+            identity: None,
+            state: SourceState::RemovedOnDisk,
+        };
+    }
+    Sighting {
+        identity: seen.or(recorded),
+        state: SourceState::Present,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,6 +318,48 @@ mod tests {
         assert_eq!(
             verdict,
             DeleteVerdict::Moved(PathBuf::from("/notes/first.md"))
+        );
+    }
+
+    #[test]
+    fn what_the_filesystem_answers_replaces_what_was_recorded() {
+        // Another program rewrote the file: sibling temp, rename over the
+        // target. Same path, different file. The tab has to hold the id of the
+        // file that is there now, or the next rename reads as a delete.
+        let sighting = observe_file(Some(inode(1, 42)), Some(inode(1, 77)), true);
+        assert_eq!(
+            sighting,
+            Sighting {
+                identity: Some(inode(1, 77)),
+                state: SourceState::Present,
+            }
+        );
+    }
+
+    #[test]
+    fn a_file_that_will_not_be_described_keeps_the_id_on_record() {
+        // An evicted note is not hashed for an id, so the answer is `None`
+        // while the file is plainly there. Taking that as the new id would
+        // leave the note with nothing to compare a later rename against.
+        let sighting = observe_file(Some(inode(1, 42)), None, true);
+        assert_eq!(
+            sighting,
+            Sighting {
+                identity: Some(inode(1, 42)),
+                state: SourceState::Present,
+            }
+        );
+    }
+
+    #[test]
+    fn nothing_at_the_path_is_a_file_that_went() {
+        let sighting = observe_file(Some(inode(1, 42)), None, false);
+        assert_eq!(
+            sighting,
+            Sighting {
+                identity: None,
+                state: SourceState::RemovedOnDisk,
+            }
         );
     }
 

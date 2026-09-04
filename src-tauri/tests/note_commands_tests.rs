@@ -22,7 +22,8 @@ use writ_storage::errors::StorageError;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::buffer::{
-    save_buffer_content_inner, ERR_FILE_CHANGED_ON_DISK, ERR_FILE_REMOVED_ON_DISK,
+    read_buffer_content_inner, save_buffer_content_inner, ERR_FILE_CHANGED_ON_DISK,
+    ERR_FILE_REMOVED_ON_DISK,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::commands::notes::{
@@ -885,4 +886,182 @@ fn a_file_opened_from_outside_the_notes_folder_follows_its_move_too() {
         canonicalize_for_authorization(&renamed).expect("canonical"),
         "the row still points at the path the file left"
     );
+}
+
+#[test]
+fn a_rename_after_another_program_rewrote_the_file_is_still_a_move() {
+    // Nearly every program that writes a file writes a sibling temp and
+    // renames it over the target: vim, VS Code, git checkout, rsync, every
+    // sync client. The path is unchanged and the file behind it is a different
+    // file. A tab still holding the id it read at open then reads its own next
+    // rename as a deletion, marks itself removed and refuses every later save
+    // over a file sitting at its new path with the user's text in it.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    rewrite_from_outside(&before, b"rewritten by another program\n");
+    let rewrite = external_events(&rx);
+    assert_eq!(
+        rewrite.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Modified],
+        "the rewrite has to reach the tab before the rename, saw {rewrite:?}"
+    );
+    // The tab reloads, which is what the editor does with that news and what
+    // leaves the write guard satisfied. It reads the file; it says nothing
+    // about the file's id.
+    read_buffer_content_inner(&state, &doc.id).expect("reload");
+
+    let after = state.notes_root().join("renamed-by-finder.md");
+    std::fs::rename(&before, &after).expect("rename the way Finder does");
+
+    let seen = external_events(&rx);
+    assert_eq!(
+        seen.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Moved],
+        "a rename after an external rewrite must still be a move, saw {seen:?}"
+    );
+    assert_eq!(
+        change_of(&seen[0]).1.map(std::path::Path::new),
+        Some(after.as_path())
+    );
+    assert!(
+        !state.is_removed_on_disk(&doc.id),
+        "the tab stopped writing to a file that is there"
+    );
+    assert_eq!(note_file(&state, &doc.id), after);
+
+    save_buffer_content_inner(&state, &doc.id, "edited after the rename").expect("save");
+    assert_eq!(
+        std::fs::read_to_string(&after).expect("read the moved file"),
+        "edited after the rename"
+    );
+    assert!(
+        !before.exists(),
+        "the save recreated the file at the old path"
+    );
+}
+
+#[test]
+fn a_file_outside_the_notes_folder_re_attaches_when_it_comes_back() {
+    // The notes watcher covers the restore inside the notes folder. A file
+    // opened from anywhere else has only the open-file watcher to hear it come
+    // back, and that call site is the whole of the case.
+    let dir = TempDir::new().expect("temp dir");
+    let elsewhere = TempDir::new().expect("some other folder");
+    let trash = TempDir::new().expect("somewhere the watcher cannot see");
+    let (state, rx) = watching_state(&dir);
+
+    let file = elsewhere.path().join("shared.md");
+    std::fs::write(&file, b"as another program left it\n").expect("seed");
+    let canonical = canonicalize_for_authorization(&file).expect("canonical");
+    state.authorized_paths.record_for_open(canonical.clone());
+    let opened = open_file_from_path(&state, &canonical).expect("open");
+    let held = trash.path().join("shared.md");
+    std::thread::sleep(APART);
+
+    std::fs::rename(&file, &held).expect("move to the trash");
+    let removal = external_events(&rx);
+    assert_eq!(
+        removal.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Removed],
+        "saw {removal:?}"
+    );
+    assert!(state.is_removed_on_disk(&opened.doc.id));
+
+    std::fs::rename(&held, &file).expect("put it back");
+    let restored = external_events(&rx);
+    assert!(
+        restored
+            .iter()
+            .any(|event| change_of(event).0 == &ExternalChange::Modified),
+        "a file that came back must reach its tab, saw {restored:?}"
+    );
+    assert!(
+        !state.is_removed_on_disk(&opened.doc.id),
+        "the tab is still refusing to write to a file that is there"
+    );
+    read_buffer_content_inner(&state, &opened.doc.id).expect("reload");
+    save_buffer_content_inner(&state, &opened.doc.id, "edited after the restore").expect("save");
+    assert_eq!(
+        std::fs::read_to_string(&file).expect("read"),
+        "edited after the restore"
+    );
+}
+
+#[test]
+fn deleting_one_name_of_a_hard_linked_file_follows_the_name_that_is_left() {
+    // A hard link is one file with two names. Deleting one of them deletes a
+    // name, not the file: the bytes the tab is editing are still there under
+    // the other name, in a folder Writ watches. Reporting a removal would
+    // refuse every later save over a file that exists (ADR-033 §11).
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    let survivor = state.notes_root().join("second-name.md");
+    std::fs::hard_link(&path, &survivor).expect("a second name for the same file");
+    std::thread::sleep(APART);
+
+    std::fs::remove_file(&path).expect("delete one of the two names");
+
+    let seen = external_events(&rx);
+    assert_eq!(
+        seen.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Moved],
+        "the file is still there under its other name, saw {seen:?}"
+    );
+    assert_eq!(
+        change_of(&seen[0]).1.map(std::path::Path::new),
+        Some(survivor.as_path())
+    );
+    assert!(!state.is_removed_on_disk(&doc.id));
+    assert_eq!(note_file(&state, &doc.id), survivor);
+
+    save_buffer_content_inner(&state, &doc.id, "edited after the name went").expect("save");
+    assert_eq!(
+        std::fs::read_to_string(&survivor).expect("read"),
+        "edited after the name went"
+    );
+    assert!(
+        !path.exists(),
+        "the save recreated the name that was deleted"
+    );
+}
+
+#[test]
+fn one_move_seen_by_both_watchers_moves_the_row_once() {
+    // A file inside the notes folder that a tab also holds is reported by both
+    // watchers, and each deduplicates only its own batch. The row is what the
+    // next save reads its destination from, so the second report has to find
+    // the move already applied and say nothing.
+    let dir = TempDir::new().expect("temp dir");
+    let state = Arc::new(make_state(&dir));
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    let after = state.notes_root().join("moved-by-finder.md");
+    std::fs::rename(&before, &after).expect("move the file the way Finder does");
+
+    let files = FileTracking::of_state(&state).files;
+    assert!(
+        files.note_file_moved(&doc.id, &before, &after),
+        "the first watcher to see the move applies it"
+    );
+    assert_eq!(note_file(&state, &doc.id), after);
+    assert_eq!(title_of(&state, &doc.id), "moved-by-finder.md");
+
+    assert!(
+        !files.note_file_moved(&doc.id, &before, &after),
+        "the second watcher's copy of the same move is not news"
+    );
+    assert_eq!(note_file(&state, &doc.id), after);
+    assert_eq!(title_of(&state, &doc.id), "moved-by-finder.md");
 }
