@@ -1,6 +1,6 @@
 # ADR-004: SQLite Over Flat Files
 
-**Status:** Accepted
+**Status:** Superseded by [ADR-028](./028-files-are-the-only-copy.md) on 2026-08-28
 **Date:** 2026-03-27
 
 ## Context
