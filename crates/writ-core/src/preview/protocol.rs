@@ -73,6 +73,9 @@ pub enum RefusalReason {
     /// followed: the target is chosen by whoever wrote the link, not by the
     /// containment root.
     SymlinkRefused,
+    /// The asset URL names a scope it does not carry the token for. A
+    /// document may only reach the roots its own render was given.
+    ScopeMismatch,
 }
 
 impl RefusalReason {
@@ -87,6 +90,7 @@ impl RefusalReason {
             Self::MalformedUrl => "malformed_url",
             Self::OutsideRoot => "outside_root",
             Self::SymlinkRefused => "symlink_refused",
+            Self::ScopeMismatch => "scope_mismatch",
         }
     }
 }
@@ -197,10 +201,12 @@ fn hex_value(b: u8) -> Option<u8> {
 // ─────────────────────────────── note assets ───────────────────────────────
 //
 // ADR-035. Images embedded in a note are served under the document scope at
-// `_note-asset/<buffer id>/<root>/<relative path>`. The URL is a claim, not
-// an authorization: every request is re-resolved against the same roots the
-// render-time rewrite used, and containment is decided on the canonical
-// path.
+// `_note-asset/<buffer id>/<scope token>/<root>/<relative path>`. The URL is
+// a claim, not an authorization: every request is re-resolved against the
+// same roots the render-time rewrite used, and containment is decided on the
+// canonical path. The token is the one part of the URL a document cannot
+// write for itself — it is minted with the scope and only appears in the
+// render that owns it, so one note cannot name another note's scope.
 
 /// Reserved first segment of the note-asset route, under the document scope.
 ///
@@ -242,11 +248,14 @@ impl AssetRoot {
     }
 }
 
-/// The three parts of an asset request, split out of a document-scope path.
+/// The parts of an asset request, split out of a document-scope path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AssetRequest<'a> {
     /// Buffer whose render emitted the URL; keys the scope lookup.
     pub buffer_id: &'a str,
+    /// Token the render minted for that buffer's scope. Checked against the
+    /// scope the lookup returned before any path is resolved.
+    pub token: &'a str,
     /// Root the relative path is expressed against.
     pub root: AssetRoot,
     /// Path under that root. Already canonicalised by [`parse`]: no `..`,
@@ -264,12 +273,14 @@ pub fn split_asset_request(document_path: &str) -> Option<AssetRequest<'_>> {
         .strip_prefix(ASSET_PREFIX)?
         .strip_prefix('/')?;
     let (buffer_id, rest) = rest.split_once('/')?;
+    let (token, rest) = rest.split_once('/')?;
     let (root, relative) = rest.split_once('/')?;
-    if buffer_id.is_empty() || relative.is_empty() {
+    if buffer_id.is_empty() || token.is_empty() || relative.is_empty() {
         return None;
     }
     Some(AssetRequest {
         buffer_id,
+        token,
         root: AssetRoot::from_token(root)?,
         relative,
     })
@@ -822,7 +833,7 @@ mod asset_tests {
             let r = resolve(&notes, &note_dir, src).unwrap();
             assert_eq!(r.url_path, "daily/my%20shot.png", "src={src}");
             let url = format!(
-                "writ-preview://document/{ASSET_PREFIX}/buf-1/{}/{}",
+                "writ-preview://document/{ASSET_PREFIX}/buf-1/tok-1/{}/{}",
                 r.root.as_str(),
                 r.url_path
             );
@@ -923,6 +934,7 @@ mod asset_tests {
         let (_g, notes, note_dir) = fixture();
         let request = AssetRequest {
             buffer_id: "b",
+            token: "t",
             root: AssetRoot::Notes,
             relative: "../root.png",
         };
@@ -939,6 +951,7 @@ mod asset_tests {
         std::os::unix::fs::symlink(notes.join("root.png"), notes.join("link.png")).unwrap();
         let request = AssetRequest {
             buffer_id: "b",
+            token: "t",
             root: AssetRoot::Notes,
             relative: "link.png",
         };
@@ -948,14 +961,51 @@ mod asset_tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn serve_time_resolution_judges_only_the_root_the_url_names() {
+        // The note is open from a folder outside the notes folder, and the
+        // notes folder holds a link to that same folder. Widening the
+        // serve-time check to both roots would serve the file through the
+        // notes root as well; the root in the URL is the one that decides.
+        let (guard, notes, _) = fixture();
+        let elsewhere = guard.path().join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("x.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        std::os::unix::fs::symlink(&elsewhere, notes.join("sub")).unwrap();
+
+        let through_notes = AssetRequest {
+            buffer_id: "b",
+            token: "t",
+            root: AssetRoot::Notes,
+            relative: "sub/x.png",
+        };
+        assert_eq!(
+            resolve_asset(&notes, &elsewhere, through_notes),
+            Err(RefusalReason::OutsideRoot)
+        );
+
+        // The same file, named under the root that does contain it, is served.
+        let through_note_dir = AssetRequest {
+            root: AssetRoot::NoteDir,
+            relative: "x.png",
+            ..through_notes
+        };
+        assert_eq!(
+            resolve_asset(&notes, &elsewhere, through_note_dir).unwrap(),
+            std::fs::canonicalize(elsewhere.join("x.png")).unwrap()
+        );
+    }
+
     #[test]
     fn splits_a_well_formed_asset_request() {
         let req = parse(&format!(
-            "writ-preview://document/{ASSET_PREFIX}/buf-1/n/attachments/a.png"
+            "writ-preview://document/{ASSET_PREFIX}/buf-1/tok-1/n/attachments/a.png"
         ))
         .unwrap();
         let asset = split_asset_request(&req.path).unwrap();
         assert_eq!(asset.buffer_id, "buf-1");
+        assert_eq!(asset.token, "tok-1");
         assert_eq!(asset.root, AssetRoot::Notes);
         assert_eq!(asset.relative, "attachments/a.png");
     }
@@ -967,9 +1017,12 @@ mod asset_tests {
             "_assets/mermaid/mermaid.min.js",
             "_note-asset",
             "_note-asset/buf-1",
-            "_note-asset/buf-1/n",
-            "_note-asset/buf-1/x/a.png",
-            "_note-assets/buf-1/n/a.png",
+            "_note-asset/buf-1/tok-1",
+            "_note-asset/buf-1/tok-1/n",
+            "_note-asset/buf-1/tok-1/x/a.png",
+            "_note-assets/buf-1/tok-1/n/a.png",
+            // The route before the scope token: a bare id is not enough.
+            "_note-asset/buf-1/n/a.png",
         ] {
             assert!(split_asset_request(path).is_none(), "path={path}");
         }

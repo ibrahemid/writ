@@ -89,6 +89,17 @@ impl RenderCache {
             .cloned()
     }
 
+    /// Fetch just the asset scope of the cached document.
+    ///
+    /// Narrower than [`RenderCache::get`] on purpose: a render asks for the
+    /// previous scope to keep its token, and cloning the whole document to
+    /// read four fields would copy the rendered HTML on every keystroke.
+    pub fn scope(&self, buffer_id: &str) -> Option<AssetScope> {
+        recover_poison(self.docs.lock(), "preview::render_cache::scope")
+            .get(buffer_id)
+            .and_then(|doc| doc.assets.clone())
+    }
+
     /// Drop the cached document for `buffer_id` (on preview close).
     pub fn evict(&self, buffer_id: &str) {
         recover_poison(self.docs.lock(), "preview::render_cache::evict").remove(buffer_id);
@@ -179,6 +190,18 @@ fn resolve_note_asset(
     let Some(scope) = document_lookup(request.buffer_id).and_then(|doc| doc.assets) else {
         return ResolvedResponse::not_found();
     };
+    // The scope is reached by quoting the token its own render was given.
+    // Without this a document could name any live buffer's roots by writing
+    // that buffer's id into a raw `<img src>`.
+    if !scope.authorizes(&request) {
+        warn!(
+            reason = RefusalReason::ScopeMismatch.as_str(),
+            buffer_id = request.buffer_id,
+            relative = request.relative,
+            "preview asset refused"
+        );
+        return ResolvedResponse::refused(RefusalReason::ScopeMismatch);
+    }
     let path = match resolve_asset(&scope.notes_root, &scope.note_dir, request) {
         Ok(path) => path,
         Err(reason) => {
@@ -494,6 +517,29 @@ mod tests {
         assert_eq!(cache.get("b1").unwrap().html, "<p>hi</p>");
         cache.evict("b1");
         assert_eq!(cache.get("b1"), None);
+    }
+
+    #[test]
+    fn render_cache_hands_back_the_scope_without_the_document() {
+        let cache = RenderCache::new();
+        assert_eq!(cache.scope("b1"), None);
+        let scope = AssetScope::for_render(
+            None,
+            "b1",
+            std::path::PathBuf::from("/n"),
+            std::path::PathBuf::from("/n/daily"),
+        );
+        cache.put(
+            "b1",
+            RenderedDoc {
+                html: "<p>hi</p>".to_string(),
+                assets: Some(scope.clone()),
+            },
+        );
+        assert_eq!(cache.scope("b1"), Some(scope));
+        // A scratch note caches a document but no scope.
+        cache.put("b2", doc("<p>hi</p>"));
+        assert_eq!(cache.scope("b2"), None);
     }
 
     #[test]
@@ -853,6 +899,8 @@ mod asset_tests {
 
     const SCRIPTS_ON: bool = true;
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR";
+    /// The token `buf-1`'s render minted, quoted back by its own asset URLs.
+    const TOKEN: &str = "tok-1";
 
     fn never_dataless(_: &Path) -> bool {
         false
@@ -907,6 +955,7 @@ mod asset_tests {
                         notes_root: notes.clone(),
                         note_dir: note_dir.clone(),
                         buffer_id: "buf-1".to_string(),
+                        token: TOKEN.to_string(),
                     }),
                 },
             );
@@ -928,7 +977,7 @@ mod asset_tests {
             is_dataless: &dyn Fn(&Path) -> bool,
         ) -> ResolvedResponse {
             resolve_with_assets(
-                &format!("writ-preview://document/_note-asset/buf-1/n/{relative}"),
+                &format!("writ-preview://document/_note-asset/buf-1/{TOKEN}/n/{relative}"),
                 SCRIPTS_ON,
                 |id| self.cache.get(id),
                 chrome_asset,
@@ -1055,7 +1104,7 @@ mod asset_tests {
         let f = Fixture::new();
         // The parser refuses the traversal spelling outright.
         let traversal = resolve_with_assets(
-            "writ-preview://document/_note-asset/buf-1/n/../../../etc/hosts",
+            "writ-preview://document/_note-asset/buf-1/tok-1/n/../../../etc/hosts",
             SCRIPTS_ON,
             |id| f.cache.get(id),
             chrome_asset,
@@ -1089,13 +1138,109 @@ mod asset_tests {
         // No root discriminator: the path is not an asset request at all, so
         // it falls through to the document lookup and 404s on the buffer id.
         let r = resolve_with_assets(
-            "writ-preview://document/_note-asset/buf-1/x/attachments/a.png",
+            "writ-preview://document/_note-asset/buf-1/tok-1/x/attachments/a.png",
             SCRIPTS_ON,
             |id| f.cache.get(id),
             chrome_asset,
             &never_dataless,
         );
         assert_eq!(r.status, 404);
+    }
+
+    /// A second note, open from a folder of its own, with its own scope in
+    /// the same render cache.
+    fn add_other_buffer(f: &Fixture) -> (tempfile::TempDir, String) {
+        let guard = tempfile::tempdir().unwrap();
+        let other_dir = guard.path().join("other");
+        std::fs::create_dir_all(&other_dir).unwrap();
+        std::fs::write(other_dir.join("private.png"), PNG).unwrap();
+        let token = "tok-2".to_string();
+        f.cache.put(
+            "other",
+            RenderedDoc {
+                html: "<p>other</p>".to_string(),
+                assets: Some(AssetScope {
+                    notes_root: other_dir.clone(),
+                    note_dir: other_dir,
+                    buffer_id: "other".to_string(),
+                    token: token.clone(),
+                }),
+            },
+        );
+        (guard, token)
+    }
+
+    #[test]
+    fn a_note_cannot_reach_another_live_note_s_files() {
+        let f = Fixture::new();
+        let (_other_guard, other_token) = add_other_buffer(&f);
+        let serve = |token: &str| {
+            resolve_with_assets(
+                &format!("writ-preview://document/_note-asset/other/{token}/d/private.png"),
+                SCRIPTS_ON,
+                |id| f.cache.get(id),
+                chrome_asset,
+                &never_dataless,
+            )
+        };
+
+        // What a note can write: another buffer's id, and the only token its
+        // own render ever handed it.
+        let borrowed = serve(TOKEN);
+        assert_eq!(borrowed.status, 403);
+        assert_eq!(
+            borrowed.disposition,
+            Disposition::Refused(RefusalReason::ScopeMismatch)
+        );
+        assert!(!borrowed.body.starts_with(PNG));
+
+        // The same URL from the render that owns the scope is served, so the
+        // refusal above is the token check and not a broken route.
+        let owner = serve(&other_token);
+        assert_eq!(owner.status, 200);
+        assert!(owner.body.starts_with(PNG));
+    }
+
+    #[test]
+    fn a_refused_asset_is_logged() {
+        let f = Fixture::new();
+        let (_other_guard, _) = add_other_buffer(&f);
+        let (response, logs) = crate::preview::log_capture::capture(|| {
+            resolve_with_assets(
+                &format!("writ-preview://document/_note-asset/other/{TOKEN}/d/private.png"),
+                SCRIPTS_ON,
+                |id| f.cache.get(id),
+                chrome_asset,
+                &never_dataless,
+            )
+        });
+        assert_eq!(response.status, 403);
+        assert!(
+            logs.iter().any(|line| line.contains("WARN")
+                && line.contains("preview asset refused")
+                && line.contains("scope_mismatch")
+                && line.contains("private.png")),
+            "logs={logs:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_asset_is_refused_and_logged() {
+        let f = Fixture::new();
+        let outside = f._guard.path().join("outside.png");
+        std::fs::write(&outside, PNG).unwrap();
+        std::os::unix::fs::symlink(&outside, f.notes.join("attachments/link.png")).unwrap();
+        let (response, logs) =
+            crate::preview::log_capture::capture(|| f.get("attachments/link.png"));
+        assert_eq!(response.status, 403);
+        assert!(
+            logs.iter().any(|line| line.contains("WARN")
+                && line.contains("preview asset refused")
+                && line.contains("symlink_refused")
+                && line.contains("link.png")),
+            "logs={logs:?}"
+        );
     }
 
     #[test]
@@ -1109,7 +1254,7 @@ mod asset_tests {
             },
         );
         let r = resolve_with_assets(
-            "writ-preview://document/_note-asset/scratch/n/a.png",
+            "writ-preview://document/_note-asset/scratch/tok-1/n/a.png",
             SCRIPTS_ON,
             |id| cache.get(id),
             chrome_asset,

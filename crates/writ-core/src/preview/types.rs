@@ -163,8 +163,8 @@ pub struct RenderRequest {
     pub assets: Option<AssetScope>,
 }
 
-/// The two containment roots an embedded file may resolve under, plus the
-/// buffer the render belongs to.
+/// The two containment roots an embedded file may resolve under, the buffer
+/// the render belongs to, and the token its asset URLs carry.
 ///
 /// Held beside the rendered HTML so the protocol handler re-resolves an
 /// incoming asset URL against the same roots the render used, rather than
@@ -177,6 +177,53 @@ pub struct AssetScope {
     pub note_dir: std::path::PathBuf,
     /// Buffer id the asset URLs carry.
     pub buffer_id: String,
+    /// Token minted with the scope and written into every asset URL of the
+    /// render that owns it. A document reaches its own roots by quoting it
+    /// back; it cannot quote a scope it was never given. ADR-035.
+    pub token: String,
+}
+
+impl AssetScope {
+    /// Build the scope for one render.
+    ///
+    /// `previous` is the scope the buffer's last render used, if it is still
+    /// cached. Its token is kept while the buffer and both roots are
+    /// unchanged, so the asset URLs of a note stay stable across the
+    /// debounced re-renders that typing produces: a token that changed every
+    /// render would refuse every in-flight request from the render before it,
+    /// recording a refusal and logging a security event for ordinary typing.
+    /// A scope that names anything else is a new scope and mints a new token.
+    pub fn for_render(
+        previous: Option<&AssetScope>,
+        buffer_id: impl Into<String>,
+        notes_root: std::path::PathBuf,
+        note_dir: std::path::PathBuf,
+    ) -> Self {
+        let buffer_id = buffer_id.into();
+        let token = previous
+            .filter(|scope| {
+                scope.buffer_id == buffer_id
+                    && scope.notes_root == notes_root
+                    && scope.note_dir == note_dir
+            })
+            .map(|scope| scope.token.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        Self {
+            notes_root,
+            note_dir,
+            buffer_id,
+            token,
+        }
+    }
+
+    /// Whether an incoming asset request may be resolved against this scope.
+    ///
+    /// The buffer id keys the lookup, so a mismatch here means the caller
+    /// looked the scope up under a different name; the token is what a
+    /// document that was never handed this scope cannot produce.
+    pub fn authorizes(&self, request: &crate::preview::protocol::AssetRequest<'_>) -> bool {
+        request.buffer_id == self.buffer_id && request.token == self.token
+    }
 }
 
 /// Default render zoom: native size.
@@ -321,5 +368,53 @@ mod tests {
             limit: 50 * 1024 * 1024,
         };
         assert!(format!("{err}").contains("too large"));
+    }
+
+    #[test]
+    fn a_scope_keeps_its_token_while_the_buffer_and_its_roots_hold() {
+        let notes = std::path::PathBuf::from("/n");
+        let dir = std::path::PathBuf::from("/n/daily");
+        let first = AssetScope::for_render(None, "buf-1", notes.clone(), dir.clone());
+        let again = AssetScope::for_render(Some(&first), "buf-1", notes.clone(), dir.clone());
+        assert_eq!(first.token, again.token);
+        assert!(!first.token.is_empty());
+
+        // A different note, a different folder, or a different buffer is a
+        // different scope, and gets a token of its own.
+        let moved = AssetScope::for_render(
+            Some(&first),
+            "buf-1",
+            notes.clone(),
+            std::path::PathBuf::from("/n/archive"),
+        );
+        assert_ne!(first.token, moved.token);
+        let other_buffer = AssetScope::for_render(Some(&first), "buf-2", notes, dir);
+        assert_ne!(first.token, other_buffer.token);
+    }
+
+    #[test]
+    fn a_scope_authorizes_only_a_request_carrying_its_own_token() {
+        let scope = AssetScope::for_render(
+            None,
+            "buf-1",
+            std::path::PathBuf::from("/n"),
+            std::path::PathBuf::from("/n/daily"),
+        );
+        use crate::preview::protocol::{AssetRequest, AssetRoot};
+        let request = AssetRequest {
+            buffer_id: "buf-1",
+            token: &scope.token,
+            root: AssetRoot::Notes,
+            relative: "a.png",
+        };
+        assert!(scope.authorizes(&request));
+        assert!(!scope.authorizes(&AssetRequest {
+            token: "a-token-from-somewhere-else",
+            ..request
+        }));
+        assert!(!scope.authorizes(&AssetRequest {
+            buffer_id: "buf-2",
+            ..request
+        }));
     }
 }

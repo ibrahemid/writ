@@ -165,11 +165,14 @@ fn asset_scope(state: &AppState, buffer_id: &str) -> Option<AssetScope> {
         let store = state.store.lock().ok()?;
         store.get(buffer_id).ok()?.source_path?
     };
-    Some(AssetScope {
-        notes_root: state.notes_root(),
-        note_dir: std::path::Path::new(&source_path).parent()?.to_path_buf(),
-        buffer_id: buffer_id.to_string(),
-    })
+    // The previous render's scope is handed to core so its token survives a
+    // re-render of the same note; core decides when a token may be kept.
+    Some(AssetScope::for_render(
+        state.preview_render_cache.scope(buffer_id).as_ref(),
+        buffer_id,
+        state.notes_root(),
+        std::path::Path::new(&source_path).parent()?.to_path_buf(),
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]

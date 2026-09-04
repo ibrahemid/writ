@@ -25,7 +25,7 @@ on whatever connection the machine has.
 
 **One route, under the existing document scope.**
 
-    writ-preview://document/_note-asset/<buffer id>/<root>/<relative path>
+    writ-preview://document/_note-asset/<buffer id>/<scope token>/<root>/<relative path>
 
 No third scope. `_note-asset` is deliberately distinct from `_assets`, which
 serves the host's own runtimes and has different security properties.
@@ -36,10 +36,24 @@ file being previewed. A buffer with no file on disk records neither and serves
 no assets at all. `<root>` is a one-character discriminator (`n`, `d`) naming
 which one the relative path is expressed against.
 
+**The token binds the URL to one scope.** The buffer id says which scope to
+look up; on its own it also let any document reach any other live scope by
+naming that buffer's id in a hand-written `<img src>`. The token is minted with
+the scope (`AssetScope::for_render`) and appears only in the render that owns
+it, so a document reaches its own roots by quoting it back and can quote no
+other. A request whose token does not match the scope it names is refused
+(`scope_mismatch`) before any path is resolved. The token is kept across the
+re-renders of a note whose roots have not changed: one that changed every
+render would refuse every in-flight request from the render before it, spraying
+refusals and security warnings through ordinary typing.
+
 **The URL is a claim, not an authorization.** `writ_core::preview::protocol`
 decides containment twice over the same rule: once at render time
 (`resolve_asset_reference`, which turns an authored reference into a URL) and
 again at serve time (`resolve_asset`, which turns the URL back into a path).
+Serve time judges the request against the root the URL names, not against both:
+a path that leaves that root is refused even where the other root would contain
+it.
 The rule is the one the workspace root already uses — canonicalise the root,
 canonicalise the candidate, require `starts_with` — with two additions:
 

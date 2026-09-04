@@ -60,7 +60,9 @@ fuzz_target!(|data: &[u8]| {
                         asset.relative
                     );
                     assert!(
-                        !asset.relative.starts_with('/') && !asset.buffer_id.is_empty(),
+                        !asset.relative.starts_with('/')
+                            && !asset.buffer_id.is_empty()
+                            && !asset.token.is_empty(),
                         "malformed asset request accepted: url={url:?}",
                     );
                 }

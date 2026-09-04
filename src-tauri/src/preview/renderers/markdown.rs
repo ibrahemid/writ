@@ -52,25 +52,34 @@ fn is_file_reference(reference: &str) -> bool {
     }
 }
 
+/// True when a value can go into the URL as one path segment as written.
+/// Both parts are host-minted (a buffer id, a scope token), so this rejects
+/// rather than escapes: anything else is a bug upstream, not a note.
+fn is_url_segment(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+}
+
 /// The resolver the renderer hands `writ-render`: a reference in, an asset
 /// URL out, nothing when the file lies outside both containment roots.
 ///
-/// The URL carries the root's discriminator and the path relative to it, so
-/// the handler re-resolves rather than trusts it. ADR-035.
+/// The URL carries the scope's token, the root's discriminator and the path
+/// relative to it, so the handler re-resolves rather than trusts it. The
+/// token is what tells the handler this document owns the scope it names.
+/// ADR-035.
 fn asset_resolver(scope: &AssetScope) -> impl Fn(&str) -> Option<String> + '_ {
-    let buffer_id_is_safe = !scope.buffer_id.is_empty()
-        && scope
-            .buffer_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'));
+    let url_parts_are_safe = is_url_segment(&scope.buffer_id) && is_url_segment(&scope.token);
     move |reference: &str| {
-        if !buffer_id_is_safe || !is_file_reference(reference) {
+        if !url_parts_are_safe || !is_file_reference(reference) {
             return None;
         }
         match resolve_asset_reference(&scope.notes_root, &scope.note_dir, reference) {
             Ok(found) => Some(format!(
-                "writ-preview://document/{ASSET_PREFIX}/{}/{}/{}",
+                "writ-preview://document/{ASSET_PREFIX}/{}/{}/{}/{}",
                 scope.buffer_id,
+                scope.token,
                 found.root.as_str(),
                 found.url_path
             )),
@@ -383,6 +392,34 @@ mod tests {
         assert!(out
             .document_html
             .contains("<span style=\"color:red\">inline</span>"));
+    }
+
+    #[test]
+    fn a_reference_outside_the_roots_is_left_as_authored_and_logged() {
+        let guard = tempfile::tempdir().unwrap();
+        let notes = guard.path().join("Writ");
+        let note_dir = notes.join("daily");
+        std::fs::create_dir_all(&note_dir).unwrap();
+        let request = RenderRequest {
+            assets: Some(AssetScope {
+                notes_root: notes,
+                note_dir,
+                buffer_id: "buf-1".to_string(),
+                token: "tok-1".to_string(),
+            }),
+            ..req("![](../../../etc/hosts)")
+        };
+        let (out, logs) =
+            crate::preview::log_capture::capture(|| MarkdownRenderer.render(request).unwrap());
+        // Nothing is served for it: the reference stays exactly as written.
+        assert!(!out.document_html.contains(ASSET_PREFIX));
+        assert!(out.document_html.contains("src=\"../../../etc/hosts\""));
+        assert!(
+            logs.iter()
+                .any(|line| line.contains("preview asset reference not resolved")
+                    && line.contains("outside_root")),
+            "logs={logs:?}"
+        );
     }
 
     #[test]
