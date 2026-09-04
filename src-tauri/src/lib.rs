@@ -478,6 +478,7 @@ pub fn run() {
             commands::buffer::save_buffer_content_unindexed,
             commands::buffer::read_buffer_content,
             commands::buffer::note_disk_state,
+            commands::buffer::resolve_external_change,
             commands::buffer::record_unsaved_notes,
             commands::buffer::list_active_buffers,
             commands::buffer::close_buffer,

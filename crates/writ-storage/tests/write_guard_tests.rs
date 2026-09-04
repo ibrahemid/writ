@@ -461,3 +461,44 @@ fn a_file_the_flags_call_downloaded_takes_the_ordinary_route() {
     );
     assert!(recovered_copies(notes.path()).is_empty());
 }
+
+#[test]
+fn keeping_mine_over_a_guard_that_refuses_still_leaves_both_texts_on_disk() {
+    // The order a resolved change runs in: the file's text is written beside
+    // the note first, and the document is only written over it afterwards. A
+    // file that changed again in between makes the guard refuse the second
+    // half, and both texts are still on disk when it does — the first copy
+    // holds what the file held, and the guard's own copy holds what was being
+    // written.
+    let (_db, store) = setup();
+    let notes = TempDir::new().unwrap();
+    let (path, stale) = open_note(&store, &notes, "# What Writ read");
+    std::fs::write(&path, "# What another program wrote").unwrap();
+
+    let copy = write_conflict_copy(&path, "# What another program wrote", fixed_now(), None)
+        .expect("the file's text is written beside the note first");
+
+    let result = store.save_to_source("guard-1", "# What the user typed", Some(stale), None);
+    assert!(
+        matches!(result, Err(StorageError::SourceChangedOnDisk { .. })),
+        "{result:?}"
+    );
+
+    assert_eq!(
+        std::fs::read_to_string(&copy).unwrap(),
+        "# What another program wrote"
+    );
+    let copies = conflict_copies(notes.path());
+    assert_eq!(copies.len(), 2, "{copies:?}");
+    let texts: Vec<String> = copies
+        .iter()
+        .map(|name| std::fs::read_to_string(notes.path().join(name)).unwrap())
+        .collect();
+    assert!(texts.contains(&"# What another program wrote".to_string()));
+    assert!(texts.contains(&"# What the user typed".to_string()));
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "# What another program wrote",
+        "the refusal left the file alone"
+    );
+}
