@@ -247,7 +247,12 @@ fn the_copy_beside_a_refused_save_carries_the_files_ending() {
     std::fs::write(&path, "alpha\r\nsomebody else\r\n").expect("external write");
 
     let refusal = store
-        .save_to_source("ending-1", "alpha\nwhat the user typed\n", Some(stale), None)
+        .save_to_source(
+            "ending-1",
+            "alpha\nwhat the user typed\n",
+            Some(stale),
+            None,
+        )
         .expect_err("the save must be refused");
 
     let copies = conflict_copies(dir.path());

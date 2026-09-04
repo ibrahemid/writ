@@ -716,7 +716,7 @@ fn a_refused_save_never_spends_an_entry_in_the_watcher_ignore_set() {
         .expect("save");
     assert_eq!(
         stamped.borrow().as_slice(),
-        &[file.clone()],
+        std::slice::from_ref(&file),
         "a save that went through did not stamp the file it wrote"
     );
 }

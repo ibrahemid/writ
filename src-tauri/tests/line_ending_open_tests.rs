@@ -91,10 +91,7 @@ fn make_state(dir: &TempDir) -> AppState {
 fn open(state: &AppState, path: &Path) -> String {
     let canonical = canonicalize_for_authorization(path).expect("canonical");
     state.authorized_paths.record_for_open(canonical.clone());
-    open_file_from_path(state, &canonical)
-        .expect("open")
-        .doc
-        .id
+    open_file_from_path(state, &canonical).expect("open").doc.id
 }
 
 fn recorded_ending(state: &AppState, id: &str) -> LineEnding {
