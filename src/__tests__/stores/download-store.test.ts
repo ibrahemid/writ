@@ -48,6 +48,8 @@ describe("download store", () => {
 
     expect(reopen).toHaveBeenCalledTimes(1);
     expect(reopen).toHaveBeenCalledWith(NOTE.path, { activate: true });
+    // The open spends the permission itself; nothing hands it back.
+    expect(cancelMaterialiseNote).not.toHaveBeenCalled();
     expect(downloads.pending()).toEqual([]);
     expect(downloads.selected()).toBeNull();
   });
@@ -159,6 +161,8 @@ describe("download store", () => {
     // The failure is Writ's to explain, so nothing of the raw error is kept.
     expect(downloads.pending()[0].message).toBeNull();
     expect(downloads.selected()?.path).toBe(NOTE.path);
+    // The note was never opened, so the permission to open it goes back.
+    expect(cancelMaterialiseNote).toHaveBeenCalledWith(NOTE.path);
   });
 
   it("says so rather than waiting when nothing is listening for the download", async () => {
@@ -171,6 +175,7 @@ describe("download store", () => {
     expect(materialiseNote).not.toHaveBeenCalled();
     expect(downloads.pending()[0].state).toBe("failed");
     expect(downloads.pending()[0].reason).toBe("listener");
+    expect(cancelMaterialiseNote).toHaveBeenCalledWith(NOTE.path);
   });
 
   it("asks for the bytes only once the listener has attached", async () => {

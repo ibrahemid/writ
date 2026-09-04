@@ -81,6 +81,13 @@ export function createDownloadStore() {
     if (select) setSelectedPath(entry.path);
   }
 
+  // Gives the one-shot permission to open this note back to Rust. A note that
+  // is not downloaded is authorized once, for the open that follows the bytes
+  // landing; when that open never happens, nothing else spends it.
+  async function handBackOpenPermission(path: string): Promise<void> {
+    await api.cancelMaterialiseNote(path).catch(() => undefined);
+  }
+
   function drop(path: string): void {
     setPending((prev) => prev.filter((d) => d.path !== path));
     if (selectedPath() === path) setSelectedPath(null);
@@ -106,6 +113,7 @@ export function createDownloadStore() {
     // listening can finish unheard and leave the tab downloading for good.
     if (listening !== null && !(await listening)) {
       update(entry.path, { state: "failed", reason: "listener", message: null });
+      await handBackOpenPermission(entry.path);
       return;
     }
     try {
@@ -155,6 +163,7 @@ export function createDownloadStore() {
           // is what stops the note the person asked for disappearing without a
           // word; a second open is theirs to ask for.
           if (entry) restoreAsFailed(entry, "open", watching);
+          await handBackOpenPermission(path);
         }
         return;
       }
