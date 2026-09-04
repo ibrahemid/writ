@@ -146,6 +146,28 @@ fn a_note_that_is_not_downloaded_can_be_opened_again_once_it_arrives() {
 }
 
 #[test]
+fn a_second_look_at_a_note_that_is_still_away_leaves_one_token() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let note = dir.path().join("still-away.md");
+    std::fs::write(&note, "placeholder stand-in").unwrap();
+    let canonical = canonicalize_for_authorization(&note).unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+
+    // Every open of a note that is not here spends the token it was given and
+    // records the one the next open needs, so asking again neither loses the
+    // authorization nor stacks a second one up.
+    let _marked = mark(&canonical);
+    for _ in 0..3 {
+        let result = open_file_from_path(&state, &canonical).expect("open");
+        assert!(result.doc.is_none());
+        assert_eq!(state.authorized_paths.pending_open_len(), 1);
+    }
+    assert!(state.authorized_paths.is_pending_open(&canonical));
+}
+
+#[test]
 fn a_downloaded_note_opens_the_way_it_always_did() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);

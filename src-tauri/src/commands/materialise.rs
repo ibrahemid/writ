@@ -269,20 +269,20 @@ pub(crate) fn materialise_note_inner(
 /// Settles the open authorization a not-downloaded answer minted, once the
 /// download has ended.
 ///
-/// The token belongs to the open that follows the bytes landing, so `Done`
-/// leaves it for that open to spend. Every other ending opens nothing, and a
-/// token nobody spends would authorize a path the person never opened for the
-/// rest of the session. Nothing here can mint one: an ending can only give an
-/// authorization back.
+/// The token lives as long as the note's pending tab does. `Done` leaves it
+/// for the open that follows the bytes landing. A download that failed or ran
+/// out of time leaves its tab on screen, and opening the note again is the
+/// person's next move, so the token stays for that second attempt. Only a
+/// cancel ends the tab as well as the wait, and that is the one ending that
+/// gives the authorization back here. Nothing in this function can mint one.
 pub(crate) fn settle_authorization(
     authorized: &AuthorizedPaths,
     canonical: &str,
     outcome: &DownloadOutcome,
 ) {
-    if matches!(outcome, DownloadOutcome::Done) {
-        return;
+    if matches!(outcome, DownloadOutcome::Cancelled) {
+        authorized.discard_pending_open(canonical);
     }
-    authorized.discard_pending_open(canonical);
 }
 
 fn spawn_download(app: AppHandle, canonical: String, cancel: Arc<AtomicBool>) {
@@ -319,8 +319,8 @@ fn spawn_download(app: AppHandle, canonical: String, cancel: Arc<AtomicBool>) {
 /// drops the result and opens nothing.
 ///
 /// Hands back the open authorization the not-downloaded answer minted, so this
-/// is also how the frontend gives the token up when a note it downloaded still
-/// did not open, or when nothing was listening for the download at all.
+/// is also how the frontend gives the token up when the person dismisses a
+/// download that ended without the note: closing the pane or its tab.
 #[tauri::command]
 pub fn cancel_materialise_note(
     state: State<'_, AppState>,
@@ -589,23 +589,31 @@ mod tests {
     }
 
     #[test]
-    fn an_ending_that_opens_nothing_hands_the_open_token_back() {
+    fn a_cancel_hands_the_open_token_back() {
+        let (authorized, downloading, other) = authorized_with_two_tokens();
+        settle_authorization(&authorized, downloading, &DownloadOutcome::Cancelled);
+        assert!(!authorized.is_pending_open(downloading));
+        assert!(
+            authorized.is_pending_open(other),
+            "the cancel took another note's token with it"
+        );
+        assert_eq!(authorized.pending_open_len(), 1);
+    }
+
+    #[test]
+    fn an_ending_that_leaves_the_tab_up_keeps_the_token_for_a_second_attempt() {
         for outcome in [
-            DownloadOutcome::Cancelled,
             DownloadOutcome::Failed("no space".into()),
             DownloadOutcome::TimedOut,
         ] {
             let (authorized, downloading, other) = authorized_with_two_tokens();
             settle_authorization(&authorized, downloading, &outcome);
             assert!(
-                !authorized.is_pending_open(downloading),
-                "{outcome:?} left the download's token behind"
+                authorized.is_pending_open(downloading),
+                "{outcome:?} took the token the retry needs"
             );
-            assert!(
-                authorized.is_pending_open(other),
-                "{outcome:?} took another note's token with it"
-            );
-            assert_eq!(authorized.pending_open_len(), 1, "{outcome:?}");
+            assert!(authorized.is_pending_open(other), "{outcome:?}");
+            assert_eq!(authorized.pending_open_len(), 2, "{outcome:?}");
         }
     }
 
@@ -622,9 +630,9 @@ mod tests {
 
     #[test]
     fn no_ending_can_authorize_a_path_of_its_own() {
-        // A read detached by a cancel lands late with whatever it found. Even
-        // if its outcome were settled after the token had gone, settling has
-        // no way to record one.
+        // A read detached by a cancel lands late with whatever it found.
+        // Settling its outcome can give an authorization back and can leave
+        // one alone; it has no way to record or extend one.
         let authorized = AuthorizedPaths::new();
         for outcome in [
             DownloadOutcome::Done,
