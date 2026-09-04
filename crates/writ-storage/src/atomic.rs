@@ -201,6 +201,10 @@ mod metadata {
 
     /// Every extended attribute name on `path`, or `None` when the file has none
     /// and when the platform refused to say.
+    ///
+    /// A refusal is logged, because it costs the file every attribute it has
+    /// and nothing else in the save would say so. An empty list is not: a file
+    /// with no attributes is the ordinary case.
     fn list_xattr_names(path: &std::ffi::CString) -> Option<Vec<std::ffi::CString>> {
         use std::ffi::CString;
 
@@ -208,7 +212,15 @@ mod metadata {
         // passes a null buffer with length 0, which is how both platforms are
         // asked how much room the answer needs.
         let size = unsafe { list_xattr(path.as_ptr(), std::ptr::null_mut(), 0) };
-        if size <= 0 {
+        if size < 0 {
+            tracing::debug!(
+                file = %path.to_string_lossy(),
+                error = %std::io::Error::last_os_error(),
+                "the file's extended attributes could not be listed"
+            );
+            return None;
+        }
+        if size == 0 {
             return None;
         }
 
@@ -216,7 +228,15 @@ mod metadata {
         // SAFETY: `buffer` has exactly the length just reported.
         let written =
             unsafe { list_xattr(path.as_ptr(), buffer.as_mut_ptr().cast(), buffer.len()) };
-        if written <= 0 {
+        if written < 0 {
+            tracing::debug!(
+                file = %path.to_string_lossy(),
+                error = %std::io::Error::last_os_error(),
+                "the file's extended attributes could not be read back"
+            );
+            return None;
+        }
+        if written == 0 {
             return None;
         }
 
