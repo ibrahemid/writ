@@ -9,6 +9,7 @@ function download(overrides: Partial<PendingDownload> = {}): PendingDownload {
     title: "away.md",
     provider: "iCloud Drive",
     state: "downloading",
+    reason: "download",
     message: null,
     ...overrides,
   };
@@ -72,6 +73,31 @@ describe("NoteDownloading", () => {
 
     expect(getByText("This file could not be downloaded.")).toBeTruthy();
     expect(queryByText("iCloud Drive is signed out")).toBeNull();
+  });
+
+  it("says the note did not open when that is what went wrong", () => {
+    const { getByText, queryByText } = render(() => (
+      <NoteDownloading
+        download={download({ state: "failed", reason: "open" })}
+        onCancel={() => {}}
+        onClose={() => {}}
+      />
+    ));
+
+    expect(getByText("The file downloaded but the note did not open. Open it again.")).toBeTruthy();
+    expect(queryByText("This file could not be downloaded.")).toBeNull();
+  });
+
+  it("says the download is no longer being followed when nothing is listening", () => {
+    const { getByText } = render(() => (
+      <NoteDownloading
+        download={download({ state: "failed", reason: "listener" })}
+        onCancel={() => {}}
+        onClose={() => {}}
+      />
+    ));
+
+    expect(getByText("Writ lost track of this download. Open the note again.")).toBeTruthy();
   });
 
   it("says what to do after the wait ran out", () => {

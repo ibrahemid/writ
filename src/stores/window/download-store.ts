@@ -10,6 +10,11 @@ export type DownloadStore = ReturnType<typeof createDownloadStore>;
 // person closes it.
 export type DownloadState = "downloading" | "failed" | "timed_out";
 
+// Which part of getting the note here gave out. The provider's own failures
+// are the "download" ones; the other two are Writ's, and each needs its own
+// sentence because "this file could not be downloaded" would be untrue.
+export type DownloadFailure = "download" | "open" | "listener";
+
 export interface PendingDownload {
   // Canonical path of the file being downloaded. Identity for the entry.
   path: string;
@@ -18,6 +23,8 @@ export interface PendingDownload {
   // The sync provider's name as the user knows it, or null when it is unknown.
   provider: string | null;
   state: DownloadState;
+  // What went wrong, once the state is "failed".
+  reason: DownloadFailure;
   // What the provider said went wrong, when it said anything.
   message: string | null;
 }
@@ -28,6 +35,10 @@ export interface PendingDownload {
 export function createDownloadStore() {
   const [pending, setPending] = createSignal<PendingDownload[]>([]);
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
+  // Whether the note-download listener attached, once mount has been called.
+  // Never rejects: a download that nothing is listening for has to be said
+  // rather than thrown, or the tab waits for a state that cannot arrive.
+  let listening: Promise<boolean> | null = null;
   let reopen: (path: string, options?: { activate?: boolean }) => Promise<unknown> = async () =>
     undefined;
 
@@ -58,6 +69,18 @@ export function createDownloadStore() {
     setPending((prev) => prev.map((d) => (d.path === path ? { ...d, ...change } : d)));
   }
 
+  // Puts an entry the store had already dropped back, carrying why. Skipped
+  // when something has taken the path over in the meantime, which is what a
+  // note that came back a placeholder does.
+  function restoreAsFailed(entry: PendingDownload, reason: DownloadFailure, select: boolean): void {
+    setPending((prev) =>
+      prev.some((d) => d.path === entry.path)
+        ? prev
+        : [...prev, { ...entry, state: "failed", reason, message: null }],
+    );
+    if (select) setSelectedPath(entry.path);
+  }
+
   function drop(path: string): void {
     setPending((prev) => prev.filter((d) => d.path !== path));
     if (selectedPath() === path) setSelectedPath(null);
@@ -71,16 +94,26 @@ export function createDownloadStore() {
     setSelectedPath(entry.path);
     if (existing) {
       if (existing.state === "downloading") return;
-      update(entry.path, { state: "downloading", message: null });
+      update(entry.path, { state: "downloading", reason: "download", message: null });
     } else {
-      setPending((prev) => [...prev, { ...entry, state: "downloading", message: null }]);
+      setPending((prev) => [
+        ...prev,
+        { ...entry, state: "downloading", reason: "download", message: null },
+      ]);
+    }
+    // Asked for only once the listener is attached: the download reports every
+    // state it passes through as an event, so one that starts before Writ is
+    // listening can finish unheard and leave the tab downloading for good.
+    if (listening !== null && !(await listening)) {
+      update(entry.path, { state: "failed", reason: "listener", message: null });
+      return;
     }
     try {
       await api.materialiseNote(entry.path);
     } catch (error) {
       // The download never started, so no event will ever arrive for it. Say
       // so here or the entry waits for the rest of the session.
-      update(entry.path, { state: "failed", message: String(error) });
+      update(entry.path, { state: "failed", reason: "download", message: String(error) });
     }
   }
 
@@ -113,15 +146,27 @@ export function createDownloadStore() {
         // A download the person is watching opens in front of them. One that
         // finished behind another note opens without taking the screen.
         const watching = selectedPath() === path;
+        const entry = find(path);
         drop(path);
-        await reopen(path, { activate: watching });
+        try {
+          await reopen(path, { activate: watching });
+        } catch {
+          // The bytes arrived and the note still did not open. Keeping the tab
+          // is what stops the note the person asked for disappearing without a
+          // word; a second open is theirs to ask for.
+          if (entry) restoreAsFailed(entry, "open", watching);
+        }
         return;
       }
       case "cancelled":
         drop(payload.path);
         return;
       case "failed":
-        update(payload.path, { state: "failed", message: payload.message ?? null });
+        update(payload.path, {
+          state: "failed",
+          reason: "download",
+          message: payload.message ?? null,
+        });
         return;
       case "timed_out":
         update(payload.path, { state: "timed_out", message: null });
@@ -130,9 +175,14 @@ export function createDownloadStore() {
   }
 
   async function mount(): Promise<UnlistenFn> {
-    return onEvent("note:download", (payload) => {
+    const attaching = onEvent("note:download", (payload) => {
       void handle(payload);
     });
+    listening = attaching.then(
+      () => true,
+      () => false,
+    );
+    return attaching;
   }
 
   return {

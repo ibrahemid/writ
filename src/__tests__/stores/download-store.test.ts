@@ -9,9 +9,9 @@ vi.mock("../../services/tauri", () => ({
   cancelMaterialiseNote,
 }));
 
-vi.mock("../../services/events", () => ({
-  onEvent: vi.fn().mockResolvedValue(() => undefined),
-}));
+const onEvent = vi.hoisted(() => vi.fn().mockResolvedValue(() => undefined));
+
+vi.mock("../../services/events", () => ({ onEvent }));
 
 const NOTE = {
   path: "/home/user/Writ/away.md",
@@ -23,6 +23,8 @@ describe("download store", () => {
   beforeEach(() => {
     materialiseNote.mockClear();
     cancelMaterialiseNote.mockClear();
+    onEvent.mockClear();
+    onEvent.mockResolvedValue(() => undefined);
   });
 
   it("asks for the bytes and shows the note as downloading", async () => {
@@ -31,7 +33,7 @@ describe("download store", () => {
 
     expect(materialiseNote).toHaveBeenCalledWith(NOTE.path);
     expect(downloads.pending()).toEqual([
-      { ...NOTE, state: "downloading", message: null },
+      { ...NOTE, state: "downloading", reason: "download", message: null },
     ]);
     expect(downloads.selected()?.path).toBe(NOTE.path);
   });
@@ -109,7 +111,7 @@ describe("download store", () => {
     });
 
     expect(downloads.pending()).toEqual([
-      { ...NOTE, state: "failed", message: "iCloud Drive is signed out" },
+      { ...NOTE, state: "failed", reason: "download", message: "iCloud Drive is signed out" },
     ]);
   });
 
@@ -142,6 +144,57 @@ describe("download store", () => {
 
     expect(downloads.pending()[0].state).toBe("failed");
     expect(downloads.pending()[0].message).toContain("path not authorized");
+  });
+
+  it("keeps the note when the bytes arrive and it still will not open", async () => {
+    const downloads = createDownloadStore();
+    downloads.attachOpener(vi.fn().mockRejectedValue(new Error("EACCES: permission denied")));
+
+    await downloads.start(NOTE);
+    await downloads.handle({ path: NOTE.path, state: "done" });
+
+    expect(downloads.pending()).toHaveLength(1);
+    expect(downloads.pending()[0].state).toBe("failed");
+    expect(downloads.pending()[0].reason).toBe("open");
+    // The failure is Writ's to explain, so nothing of the raw error is kept.
+    expect(downloads.pending()[0].message).toBeNull();
+    expect(downloads.selected()?.path).toBe(NOTE.path);
+  });
+
+  it("says so rather than waiting when nothing is listening for the download", async () => {
+    onEvent.mockRejectedValueOnce(new Error("no ipc bridge"));
+    const downloads = createDownloadStore();
+    await downloads.mount().catch(() => undefined);
+
+    await downloads.start(NOTE);
+
+    expect(materialiseNote).not.toHaveBeenCalled();
+    expect(downloads.pending()[0].state).toBe("failed");
+    expect(downloads.pending()[0].reason).toBe("listener");
+  });
+
+  it("asks for the bytes only once the listener has attached", async () => {
+    const order: string[] = [];
+    let attach: (stop: () => void) => void = () => undefined;
+    onEvent.mockReturnValueOnce(
+      new Promise<() => void>((resolve) => {
+        attach = (stop) => {
+          order.push("listening");
+          resolve(stop);
+        };
+      }),
+    );
+    materialiseNote.mockImplementationOnce(async () => {
+      order.push("asked");
+    });
+
+    const downloads = createDownloadStore();
+    void downloads.mount();
+    const started = downloads.start(NOTE);
+    attach(() => undefined);
+    await started;
+
+    expect(order).toEqual(["listening", "asked"]);
   });
 
   it("ignores an event for a note it is not waiting on", async () => {
