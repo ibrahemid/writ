@@ -788,8 +788,12 @@ pub(crate) fn resolve_writ_dir(
 
 #[cfg(test)]
 mod tests {
+    // `canonicalize_root`, not `std::fs::canonicalize`: on Windows the latter
+    // returns a `\\?\` prefix that every path the resolver hands back has been
+    // stripped of, and the two never compare equal.
     use super::{
-        resolve_and_create_notes_root, resolve_writ_dir, NotesRootFallback, NotesRootFallbackReason,
+        canonicalize_root, resolve_and_create_notes_root, resolve_writ_dir, NotesRootFallback,
+        NotesRootFallbackReason,
     };
     use std::path::PathBuf;
     use tempfile::TempDir;
@@ -812,7 +816,7 @@ mod tests {
         .unwrap();
 
         assert!(root.is_dir());
-        assert_eq!(root, std::fs::canonicalize(&chosen).unwrap());
+        assert_eq!(root, canonicalize_root(&chosen).unwrap());
         assert_eq!(fallback, None);
     }
 
@@ -839,7 +843,7 @@ mod tests {
         assert!(root.is_dir());
         assert_eq!(
             root,
-            std::fs::canonicalize(home.path().join("Writ")).unwrap()
+            canonicalize_root(&home.path().join("Writ")).unwrap()
         );
         assert_eq!(
             fallback,
@@ -871,7 +875,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(root, std::fs::canonicalize(&chosen).unwrap());
+        assert_eq!(root, canonicalize_root(&chosen).unwrap());
         assert_eq!(
             fallback,
             Some(NotesRootFallback {
@@ -903,7 +907,7 @@ mod tests {
 
         assert_eq!(
             root,
-            std::fs::canonicalize(home.path().join("Writ")).unwrap()
+            canonicalize_root(&home.path().join("Writ")).unwrap()
         );
         assert_eq!(
             fallback,
@@ -955,7 +959,7 @@ mod tests {
 
         assert_eq!(
             root,
-            std::fs::canonicalize(home.path().join("Writ")).unwrap()
+            canonicalize_root(&home.path().join("Writ")).unwrap()
         );
         assert_eq!(
             fallback,
@@ -985,7 +989,7 @@ mod tests {
 
         assert_eq!(
             root,
-            std::fs::canonicalize(home.path().join("Writ")).unwrap()
+            canonicalize_root(&home.path().join("Writ")).unwrap()
         );
         assert_eq!(
             fallback.map(|fallback| fallback.reason),
@@ -1016,7 +1020,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(root, std::fs::canonicalize(&chosen).unwrap());
+        assert_eq!(root, canonicalize_root(&chosen).unwrap());
         assert_eq!(fallback, None);
     }
 
@@ -1037,7 +1041,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(root, std::fs::canonicalize(data.join("Writ")).unwrap());
+        assert_eq!(root, canonicalize_root(&data.join("Writ")).unwrap());
         assert_eq!(fallback, None);
     }
 

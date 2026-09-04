@@ -632,7 +632,7 @@ fn a_notes_folder_set_to_the_archive_boots_with_the_default_one() {
 
     assert_eq!(
         root,
-        std::fs::canonicalize(writ_dir.join("Writ")).expect("the default under the data folder")
+        writ_tauri_lib::security::canonicalize_root(writ_dir.join("Writ")).expect("the default under the data folder")
     );
     assert_eq!(
         fallback,
