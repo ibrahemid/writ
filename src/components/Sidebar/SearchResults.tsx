@@ -34,7 +34,8 @@ export default function SearchResults() {
     // comes back.
     if (row.source === "file" && row.path) {
       void win.tabs.openFile(row.path).then((doc) => {
-        if (row.line !== null) win.editor.requestReveal(doc.id, row.line);
+        // A note still downloading opens no buffer, so there is no hit to go to.
+        if (doc && row.line !== null) win.editor.requestReveal(doc.id, row.line);
       });
       return;
     }

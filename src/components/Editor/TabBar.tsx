@@ -13,6 +13,7 @@ import {
 } from "../../lib/note-actions";
 import { formatRenameError } from "../../lib/save-error";
 import { showToast } from "../Notifications/Toast";
+import type { PendingDownload } from "../../stores/window/download-store";
 import { logFailure } from "../../lib/log";
 import "./TabBar.css";
 
@@ -63,6 +64,29 @@ export default function TabBar() {
     } else if (e.key === "Escape") {
       setEditingTabId(null);
     }
+  }
+
+  // A note that is not here yet has a tab but no buffer, so nothing can be the
+  // active tab behind its pane.
+  function selectDownload(path: string) {
+    win.downloads.select(path);
+    win.tabs.setActiveTabId(null);
+  }
+
+  // Closing the tab of a note still downloading stops the wait; closing one
+  // that already stopped has nothing to call off.
+  function dismissDownload(download: PendingDownload) {
+    if (download.state === "downloading") {
+      void win.downloads.cancel(download.path);
+    } else {
+      win.downloads.close(download.path);
+    }
+  }
+
+  // Text, not an animation: a download reports nothing Writ could animate
+  // honestly, and a tab that moves pulls the eye off the note being written.
+  function markerFor(state: PendingDownload["state"]): string {
+    return state === "downloading" ? "downloading" : "not downloaded";
   }
 
   function handleContextMenu(e: MouseEvent, tabId: string) {
@@ -132,6 +156,30 @@ export default function TabBar() {
                 aria-label={`Close ${tab.title}`}
                 onClick={(e) => { e.stopPropagation(); void win.tabs.closeTab(tab.id); }}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); void win.tabs.closeTab(tab.id); } }}
+              >
+                ×
+              </span>
+            </button>
+          )}
+        </For>
+        <For each={win.downloads.pending()}>
+          {(download) => (
+            <button
+              class={`tab tab-download ${
+                win.downloads.selectedPath() === download.path ? "tab-active" : ""
+              }`}
+              onClick={() => selectDownload(download.path)}
+              title={download.title}
+            >
+              <span class="tab-title">{abbreviateTitle(download.title)}</span>
+              <span class="tab-download-marker">{markerFor(download.state)}</span>
+              <span
+                class="tab-close"
+                role="button"
+                tabIndex={0}
+                aria-label={`${download.state === "downloading" ? "Cancel" : "Close"} ${download.title}`}
+                onClick={(e) => { e.stopPropagation(); dismissDownload(download); }}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); dismissDownload(download); } }}
               >
                 ×
               </span>

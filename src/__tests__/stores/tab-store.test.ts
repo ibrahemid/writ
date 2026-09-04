@@ -56,6 +56,8 @@ vi.mock("../../services/tauri", () => ({
     callLog.push(`saveBufferContent:${id}:${content}`);
   }),
   previewClose: vi.fn().mockResolvedValue(undefined),
+  materialiseNote: vi.fn().mockResolvedValue(undefined),
+  cancelMaterialiseNote: vi.fn().mockResolvedValue(undefined),
 }));
 
 import type { ConfirmRequest } from "../../components/ConfirmDialog/ConfirmDialog";
@@ -63,11 +65,12 @@ import { createTabStore } from "../../stores/window/tab-store";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { debouncedSave, cancelAutosave } from "../../services/autosave";
 import * as api from "../../services/tauri";
+import { createDownloadStore } from "../../stores/window/download-store";
 
 const mockedApi = vi.mocked(api);
 
 function freshTabStore() {
-  return createTabStore({ registry: bufferRegistry });
+  return createTabStore({ downloads: createDownloadStore(), registry: bufferRegistry });
 }
 
 describe("tabStore (per-window factory)", () => {
@@ -88,7 +91,7 @@ describe("tabStore (per-window factory)", () => {
       const tabs = freshTabStore();
       const doc = await tabs.createTab("Notes");
       expect(mockedApi.createBuffer).toHaveBeenCalledWith("Notes");
-      expect(tabs.activeTabId()).toBe(doc.id);
+      expect(tabs.activeTabId()).toBe(doc!.id);
       expect(bufferRegistry.activeTabs()).toContainEqual(doc);
     });
 
@@ -120,7 +123,7 @@ describe("tabStore (per-window factory)", () => {
       const second = await tabs.createTab();
       await tabs.closeTab(second.id);
 
-      expect(tabs.activeTabId()).toBe(first.id);
+      expect(tabs.activeTabId()).toBe(first!.id);
     });
 
     // Regression: closing the active tab must reselect the surviving tab
@@ -145,7 +148,7 @@ describe("tabStore (per-window factory)", () => {
       await tabs.closeTab(second.id);
 
       expect(activeWhenClosed).toBe(first.id);
-      expect(tabs.activeTabId()).toBe(first.id);
+      expect(tabs.activeTabId()).toBe(first!.id);
     });
 
     it("closing the only tab reselects null before the close IPC fires", async () => {
@@ -231,7 +234,7 @@ describe("tabStore (per-window factory)", () => {
 
       expect(mockedApi.closeBuffer).toHaveBeenCalledWith(unsaved.id);
       expect(bufferRegistry.activeTabs().map((b) => b.id)).toEqual([first.id]);
-      expect(tabs.activeTabId()).toBe(first.id);
+      expect(tabs.activeTabId()).toBe(first!.id);
       expect(mockedApi.saveBufferContent).toHaveBeenCalledTimes(1);
       mockedApi.saveBufferContent.mockReset();
       mockedApi.saveBufferContent.mockImplementation(async (id: string, content: string) => {
@@ -331,7 +334,7 @@ describe("tabStore (per-window factory)", () => {
       await tabs.restoreFromHistory(doc.id);
 
       expect(mockedApi.restoreBuffer).toHaveBeenCalledWith(doc.id);
-      expect(tabs.activeTabId()).toBe(doc.id);
+      expect(tabs.activeTabId()).toBe(doc!.id);
     });
   });
 
@@ -340,7 +343,52 @@ describe("tabStore (per-window factory)", () => {
       const tabs = freshTabStore();
       const doc = await tabs.openFile("/home/user/main.rs");
       expect(mockedApi.openFile).toHaveBeenCalledWith("/home/user/main.rs");
-      expect(tabs.activeTabId()).toBe(doc.id);
+      expect(tabs.activeTabId()).toBe(doc!.id);
+    });
+
+    it("sends a note whose bytes are not here to the downloads, opening nothing", async () => {
+      const downloads = createDownloadStore();
+      const tabs = createTabStore({ downloads, registry: bufferRegistry });
+      const path = "/home/user/Writ/away.md";
+      mockedApi.openFile.mockResolvedValueOnce({
+        doc: null,
+        mode: { kind: "NotDownloaded", path, provider: "iCloud Drive" },
+        size_bytes: 12,
+      });
+
+      const doc = await tabs.openFile(path);
+
+      expect(doc).toBeNull();
+      expect(tabs.activeTabId()).toBeNull();
+      expect(mockedApi.materialiseNote).toHaveBeenCalledWith(path);
+      expect(downloads.pending()).toEqual([
+        {
+          path,
+          title: "away.md",
+          provider: "iCloud Drive",
+          state: "downloading",
+          message: null,
+        },
+      ]);
+      expect(downloads.selected()?.path).toBe(path);
+    });
+
+    it("selecting a note's tab takes the pane back from a pending download", async () => {
+      const downloads = createDownloadStore();
+      const tabs = createTabStore({ downloads, registry: bufferRegistry });
+      const path = "/home/user/Writ/away.md";
+      mockedApi.openFile.mockResolvedValueOnce({
+        doc: null,
+        mode: { kind: "NotDownloaded", path, provider: null },
+        size_bytes: 0,
+      });
+      await tabs.openFile(path);
+
+      const note = await tabs.createTab("Elsewhere");
+
+      expect(tabs.activeTabId()).toBe(note!.id);
+      expect(downloads.selected()).toBeNull();
+      expect(downloads.pending()).toHaveLength(1);
     });
 
     it("dedupes by source_path", async () => {
@@ -349,9 +397,9 @@ describe("tabStore (per-window factory)", () => {
       await tabs.createTab();
       const again = await tabs.openFile("/home/user/main.rs");
 
-      expect(again.id).toBe(first.id);
+      expect(again!.id).toBe(first!.id);
       expect(mockedApi.openFile).toHaveBeenCalledTimes(1);
-      expect(tabs.activeTabId()).toBe(first.id);
+      expect(tabs.activeTabId()).toBe(first!.id);
     });
   });
 
@@ -391,7 +439,7 @@ describe("tabStore (per-window factory)", () => {
     it("clears activeTabId if the prior active id is no longer present", async () => {
       const tabs = freshTabStore();
       const doc = await tabs.createTab();
-      expect(tabs.activeTabId()).toBe(doc.id);
+      expect(tabs.activeTabId()).toBe(doc!.id);
 
       mockedApi.listActiveBuffers.mockResolvedValueOnce([]);
       mockedApi.listHistory.mockResolvedValueOnce([]);

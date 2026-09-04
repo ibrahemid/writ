@@ -127,6 +127,12 @@
   outline: none;
 }
 
+.tab-download-marker {
+  margin-left: var(--writ-space-2);
+  font-size: var(--writ-font-size-sm);
+  color: var(--writ-foreground-muted);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tab,
   .tab-close,

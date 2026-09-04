@@ -66,7 +66,8 @@ export function openTarget(target: OpenTarget, line?: number): void {
 
   win.tabs.openFile(target.path).then(
     (doc) => {
-      if (line !== undefined) win.editor.requestReveal(doc.id, line);
+      // A note still downloading opens no buffer, so there is no line to go to.
+      if (doc && line !== undefined) win.editor.requestReveal(doc.id, line);
     },
     () => {
       logFailure("a file could not be opened from the palette");

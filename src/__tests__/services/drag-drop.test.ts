@@ -65,6 +65,7 @@ vi.mock("../../services/tauri", () => ({
 import { createTabStore } from "../../stores/window/tab-store";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import * as api from "../../services/tauri";
+import { createDownloadStore } from "../../stores/window/download-store";
 
 const mockedApi = vi.mocked(api);
 
@@ -78,7 +79,7 @@ describe("drag-and-drop file handling (per-window tabStore)", () => {
   });
 
   it("opening files from drop paths calls openFile for each path", async () => {
-    const tabs = createTabStore({ registry: bufferRegistry });
+    const tabs = createTabStore({ downloads: createDownloadStore(), registry: bufferRegistry });
     const paths = ["/home/user/file1.rs", "/home/user/file2.ts"];
 
     for (const path of paths) {
@@ -91,15 +92,15 @@ describe("drag-and-drop file handling (per-window tabStore)", () => {
   });
 
   it("sets the last dropped file as active tab", async () => {
-    const tabs = createTabStore({ registry: bufferRegistry });
+    const tabs = createTabStore({ downloads: createDownloadStore(), registry: bufferRegistry });
     await tabs.openFile("/home/user/first.rs");
     const second = await tabs.openFile("/home/user/second.ts");
 
-    expect(tabs.activeTabId()).toBe(second.id);
+    expect(tabs.activeTabId()).toBe(second!.id);
   });
 
   it("adds all dropped files to active tabs", async () => {
-    const tabs = createTabStore({ registry: bufferRegistry });
+    const tabs = createTabStore({ downloads: createDownloadStore(), registry: bufferRegistry });
     await tabs.openFile("/home/user/a.rs");
     await tabs.openFile("/home/user/b.ts");
 

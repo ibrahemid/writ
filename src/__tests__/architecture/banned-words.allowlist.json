@@ -13,7 +13,7 @@
   },
   {
     "file": "src/components/Preview/PreviewLayout.tsx",
-    "line": 133,
+    "line": 137,
     "word": "buffer",
     "note": "empty-preview text, release 0.6"
   },
@@ -205,19 +205,19 @@
   },
   {
     "file": "src/stores/global/buffer-registry.ts",
-    "line": 167,
+    "line": 174,
     "word": "MiB",
     "note": "size formatter unit, release 0.6"
   },
   {
     "file": "src/stores/global/buffer-registry.ts",
-    "line": 208,
+    "line": 223,
     "word": "syntax highlighting",
     "note": "large-file confirm message, release 0.6"
   },
   {
     "file": "src/stores/global/buffer-registry.ts",
-    "line": 208,
+    "line": 223,
     "word": "typography",
     "note": "large-file confirm message, release 0.6"
   },
