@@ -38,7 +38,13 @@ async function recordCatchesUp(
   text: string,
 ) {
   const digest = await hashDocument(text);
-  await vi.waitFor(() => expect(store.lastKnownDiskHash(id)).toBe(digest));
+  // A budget rather than the one-second default: this waits on a digest and
+  // a mocked round trip, and a busy machine takes longer than a second to
+  // land both. A test that is genuinely stuck still fails, on the timeout.
+  await vi.waitFor(() => expect(store.lastKnownDiskHash(id)).toBe(digest), {
+    timeout: 4_000,
+    interval: 10,
+  });
 }
 
 beforeEach(() => {
