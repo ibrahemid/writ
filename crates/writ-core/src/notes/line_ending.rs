@@ -13,9 +13,12 @@ use serde::{Deserialize, Serialize};
 
 /// The line ending a note's file uses.
 ///
-/// Only the two conventions still in use are represented. A classic Mac file
-/// (bare `\r`) reads as one long line to the same splitter CodeMirror uses,
-/// so there is no ending to preserve and it is [`LineEnding::Lf`].
+/// Only the two conventions still in use are represented. CodeMirror's
+/// splitter is `\r\n?|\n`, so a classic Mac file (bare `\r`) does open as many
+/// lines — but [`Self::detect_bytes`] counts only `\r\n` against `\n`, so such
+/// a file records [`LineEnding::Lf`] and its first save writes it out in LF.
+/// That is the chosen answer: CR-only files are effectively extinct, and
+/// carrying a third convention to keep one alive is not worth the surface.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LineEnding {
@@ -89,21 +92,39 @@ impl LineEnding {
     /// Folds every line ending in `text` to `\n`.
     ///
     /// What a hash of a file's text is taken over, so the same note read from
-    /// a CRLF file and typed into the editor compare equal.
+    /// a CRLF file and typed into the editor compare equal. The breaks it
+    /// folds are CodeMirror's own (`\r\n?|\n`), so a lone `\r` is a break here
+    /// too and the result is what the editor would have shown.
+    ///
+    /// One pass, because two would be wrong: folding `\r\n` and then every
+    /// remaining `\r` turns `a\r\r\n` into `a\n\n`, but folding `\r` first mints
+    /// a fresh `\r\n` out of the pair and loses a line. The output holds no
+    /// `\r` at all, so the function is idempotent and so is [`Self::apply`].
     #[must_use]
     pub fn normalise(text: &str) -> Cow<'_, str> {
-        if text.contains("\r\n") {
-            Cow::Owned(text.replace("\r\n", "\n"))
-        } else {
-            Cow::Borrowed(text)
+        if !text.contains('\r') {
+            return Cow::Borrowed(text);
         }
+        let mut folded = String::with_capacity(text.len());
+        let mut rest = text.chars().peekable();
+        while let Some(character) = rest.next() {
+            if character == '\r' {
+                folded.push('\n');
+                if rest.peek() == Some(&'\n') {
+                    rest.next();
+                }
+            } else {
+                folded.push(character);
+            }
+        }
+        Cow::Owned(folded)
     }
 
     /// Turns LF text back into this ending.
     ///
-    /// `text` must already be normalised — it is the editor's document, which
-    /// CodeMirror hands over with `\n` breaks. A `\r\n` already in it would be
-    /// doubled otherwise, so the CRLF arm normalises first.
+    /// `text` need not be normalised: both arms fold first, so a carriage
+    /// return already in the text is never doubled and applying twice gives
+    /// the same bytes as applying once.
     #[must_use]
     pub fn apply(self, text: &str) -> Cow<'_, str> {
         match self {
@@ -170,6 +191,33 @@ mod tests {
             LineEnding::normalise("a\nb\n"),
             std::borrow::Cow::Borrowed(_)
         ));
+    }
+
+    #[test]
+    fn normalise_folds_a_lone_carriage_return() {
+        assert_eq!(LineEnding::normalise("a\rb"), "a\nb");
+        assert_eq!(LineEnding::normalise("\r"), "\n");
+    }
+
+    #[test]
+    fn normalise_keeps_both_breaks_in_a_carriage_return_before_a_pair() {
+        // Two breaks, not one: folding `\r\n` first and then the leftover
+        // `\r` gives the same two, but folding `\r` first would mint a fresh
+        // `\r\n` from the middle of the run and lose a line.
+        assert_eq!(LineEnding::normalise("a\r\r\nb"), "a\n\nb");
+        assert_eq!(LineEnding::normalise("\n\r"), "\n\n");
+    }
+
+    #[test]
+    fn normalise_and_apply_are_idempotent() {
+        for text in ["a\r\r\nb", "\n\r", "\r", "a\r\nb", "a\nb"] {
+            let once = LineEnding::normalise(text).into_owned();
+            assert_eq!(LineEnding::normalise(&once), once, "normalise {text:?}");
+            for ending in [LineEnding::Lf, LineEnding::CrLf] {
+                let once = ending.apply(text).into_owned();
+                assert_eq!(ending.apply(&once), once, "{ending:?} apply {text:?}");
+            }
+        }
     }
 
     #[test]
