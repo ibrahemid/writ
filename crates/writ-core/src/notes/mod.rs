@@ -13,6 +13,9 @@ pub mod guard;
 /// File identity: telling a file that moved from one that was deleted.
 pub mod identity;
 
+/// The reload policy: what a change outside Writ does to the open document.
+pub mod reload;
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 

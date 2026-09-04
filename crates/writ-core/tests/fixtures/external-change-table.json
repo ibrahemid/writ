@@ -1,0 +1,94 @@
+{
+  "note": "Shared by crates/writ-core/tests/external_change_table.rs and src/services/__tests__/external-edit.fixture.test.ts. One row per situation a `buffer:external` event can put a tab in. `action` is what src/services/external-edit.ts does; `plan` is what writ_core::notes::reload::plan_reload answers for the same situation, from the `rust` inputs. `decidedBy` is \"shared\" where both sides answer and \"frontend\" where the row turns on whether this window holds the tab at all, which the backend cannot know.",
+  "planActions": {
+    "replace_quietly": ["reload"],
+    "ask": ["prompt"],
+    "ignore": ["ignore", "follow", "mark-removed"]
+  },
+  "rows": [
+    {
+      "name": "a modified file under a document with nothing unsaved",
+      "inputs": { "known": true, "change": "modified", "hasUnsaved": false },
+      "action": "reload",
+      "decidedBy": "shared",
+      "rust": { "dirty": false, "changed": true, "removed": false },
+      "plan": "replace_quietly"
+    },
+    {
+      "name": "a modified file under unsaved text",
+      "inputs": { "known": true, "change": "modified", "hasUnsaved": true },
+      "action": "prompt",
+      "decidedBy": "shared",
+      "rust": { "dirty": true, "changed": true, "removed": false },
+      "plan": "ask"
+    },
+    {
+      "name": "a file that was deleted, nothing unsaved",
+      "inputs": { "known": true, "change": "removed", "hasUnsaved": false },
+      "action": "mark-removed",
+      "decidedBy": "shared",
+      "rust": { "dirty": false, "changed": false, "removed": true },
+      "plan": "ignore"
+    },
+    {
+      "name": "a file that was deleted under unsaved text",
+      "inputs": { "known": true, "change": "removed", "hasUnsaved": true },
+      "action": "mark-removed",
+      "decidedBy": "shared",
+      "rust": { "dirty": true, "changed": false, "removed": true },
+      "plan": "ignore"
+    },
+    {
+      "name": "a file that moved, nothing unsaved",
+      "inputs": { "known": true, "change": "moved", "hasUnsaved": false },
+      "action": "follow",
+      "decidedBy": "shared",
+      "rust": { "dirty": false, "changed": false, "removed": false },
+      "plan": "ignore"
+    },
+    {
+      "name": "a file that moved under unsaved text",
+      "inputs": { "known": true, "change": "moved", "hasUnsaved": true },
+      "action": "follow",
+      "decidedBy": "shared",
+      "rust": { "dirty": true, "changed": false, "removed": false },
+      "plan": "ignore"
+    },
+    {
+      "name": "a modified file this window holds no tab for",
+      "inputs": { "known": false, "change": "modified", "hasUnsaved": false },
+      "action": "ignore",
+      "decidedBy": "frontend"
+    },
+    {
+      "name": "a modified file with unsaved text and no tab here",
+      "inputs": { "known": false, "change": "modified", "hasUnsaved": true },
+      "action": "ignore",
+      "decidedBy": "frontend"
+    },
+    {
+      "name": "a deleted file this window holds no tab for",
+      "inputs": { "known": false, "change": "removed", "hasUnsaved": false },
+      "action": "ignore",
+      "decidedBy": "frontend"
+    },
+    {
+      "name": "a deleted file with unsaved text and no tab here",
+      "inputs": { "known": false, "change": "removed", "hasUnsaved": true },
+      "action": "ignore",
+      "decidedBy": "frontend"
+    },
+    {
+      "name": "a moved file this window holds no tab for",
+      "inputs": { "known": false, "change": "moved", "hasUnsaved": false },
+      "action": "ignore",
+      "decidedBy": "frontend"
+    },
+    {
+      "name": "a moved file with unsaved text and no tab here",
+      "inputs": { "known": false, "change": "moved", "hasUnsaved": true },
+      "action": "ignore",
+      "decidedBy": "frontend"
+    }
+  ]
+}
