@@ -13,6 +13,7 @@ import {
   type SaveResult,
 } from "../../services/autosave";
 import { noteDiskState, type NoteDiskAnswer } from "../../services/tauri";
+import { applyExternalDocument } from "../../editor/external-reload";
 import { hashDocument } from "../../lib/doc-hash";
 import {
   detectLanguage as detectLanguageService,
@@ -47,6 +48,15 @@ const NOTHING_TO_SAVE: SaveResult = { ok: true, failures: [] };
  * ([`isDirty`]).
  */
 export const DOC_HASH_IDLE_MS = 150;
+
+/**
+ * How long `Updated from disk` stays in the status region.
+ *
+ * Long enough to read on the way back from another window, short enough that
+ * it is gone before it starts reading as the note's state rather than as
+ * something that happened.
+ */
+export const UPDATED_FROM_DISK_MS = 4000;
 
 /**
  * What is known about one note's text against the file behind it.
@@ -178,6 +188,88 @@ export function createEditorStore() {
     return removedOnDisk().has(id);
   }
 
+  // The notes whose file changed outside Writ while the document held text no
+  // file has. Nothing is replaced and nothing is written until the person
+  // answers: this is what the bar reads, and what stops the answer being
+  // settled for them by whichever write happened to land last (spec W5).
+  const [fileChangedOnDisk, setFileChangedOnDisk] = createSignal<
+    ReadonlySet<string>
+  >(new Set());
+
+  function markFileChangedOnDisk(id: string) {
+    setFileChangedOnDisk((current) => {
+      if (current.has(id)) return current;
+      const next = new Set(current);
+      next.add(id);
+      return next;
+    });
+  }
+
+  function clearFileChangedOnDisk(id: string) {
+    setFileChangedOnDisk((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  function isFileChangedOnDisk(id: string): boolean {
+    return fileChangedOnDisk().has(id);
+  }
+
+  // The note whose text its file last replaced, cleared on a timer. One at a
+  // time: the marker reports on the tab in front, and it says what just
+  // happened rather than what is true, so it goes away on its own.
+  const [updatedFromDisk, setUpdatedFromDisk] = createSignal<string | null>(
+    null,
+  );
+  let updatedFromDiskTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function markUpdatedFromDisk(id: string) {
+    if (updatedFromDiskTimer !== undefined) clearTimeout(updatedFromDiskTimer);
+    setUpdatedFromDisk(id);
+    updatedFromDiskTimer = setTimeout(() => {
+      updatedFromDiskTimer = undefined;
+      setUpdatedFromDisk(null);
+    }, UPDATED_FROM_DISK_MS);
+  }
+
+  function clearUpdatedFromDisk(id: string) {
+    if (updatedFromDisk() !== id) return;
+    if (updatedFromDiskTimer !== undefined) clearTimeout(updatedFromDiskTimer);
+    updatedFromDiskTimer = undefined;
+    setUpdatedFromDisk(null);
+  }
+
+  function isUpdatedFromDisk(id: string): boolean {
+    return updatedFromDisk() === id;
+  }
+
+  /**
+   * Puts text the file holds into the note, wherever the note is.
+   *
+   * The one way external text reaches a document: the quiet reload of a note
+   * with nothing to lose and the answer to the bar both come through here, so
+   * the tracked transaction, the record of what the file holds and the marker
+   * happen once each and in one place.
+   *
+   * A note that is not the one in the view is recorded rather than dispatched.
+   * It has no view to dispatch into, and the tab reads its file again when it
+   * is switched to; dropping the record instead would leave the note reading
+   * dirty against a file it matches.
+   */
+  function applyExternalContent(id: string, text: string) {
+    const view = activeView;
+    if (view && currentBufferId() === id) {
+      applyExternalDocument(view, text);
+      setCurrentText(text);
+      setLineCount(view.state.doc.lines);
+    }
+    noteOpened(id, text);
+    markUpdatedFromDisk(id);
+  }
+
   function forgetHashes(id: string) {
     setNoteHashes((current) => {
       if (!current.has(id)) return current;
@@ -300,6 +392,8 @@ export function createEditorStore() {
     clearHashTimer(id);
     forgetHashes(id);
     clearRemovedOnDisk(id);
+    clearFileChangedOnDisk(id);
+    clearUpdatedFromDisk(id);
   }
 
   /**
@@ -551,6 +645,14 @@ export function createEditorStore() {
     markRemovedOnDisk,
     clearRemovedOnDisk,
     isRemovedOnDisk,
+    fileChangedOnDisk,
+    markFileChangedOnDisk,
+    clearFileChangedOnDisk,
+    isFileChangedOnDisk,
+    updatedFromDisk,
+    isUpdatedFromDisk,
+    clearUpdatedFromDisk,
+    applyExternalContent,
     docHash,
     lastKnownDiskHash,
     stopSaveListener,
