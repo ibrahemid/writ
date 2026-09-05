@@ -22,7 +22,8 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::file::{
-    authorize_download, clear_dataless_for_test, mark_dataless_for_test, open_file_from_path,
+    authorize_download, clear_dataless_for_test, mark_dataless_for_test,
+    open_file_confirmed_from_path, open_file_from_path,
 };
 use writ_tauri_lib::commands::materialise::{cancel_download, MaterialiseState};
 use writ_tauri_lib::preview::handler::RenderCache;
@@ -433,4 +434,95 @@ fn a_note_in_no_sync_folder_names_no_provider() {
         panic!("expected the not-downloaded mode, got {:?}", result.mode);
     };
     assert_eq!(*provider, None);
+}
+
+/// A file whose stat answers and whose read does not.
+///
+/// The discriminator for the ordering below: a marked file that reads fine
+/// answers `NotDownloaded` whichever side of `classify_path` the gate sits on,
+/// so it proves nothing. `classify_path` opens the file to sniff its first
+/// bytes (`crates/writ-core/src/file_ops.rs`), and on a file with no
+/// permissions that open fails, so a gate placed after it returns the io error
+/// instead of the download state.
+#[cfg(unix)]
+fn unreadable_note(state: &AppState, name: &str) -> String {
+    use std::os::unix::fs::PermissionsExt;
+
+    let note = state.notes_root().join(name);
+    std::fs::write(&note, "placeholder stand-in").unwrap();
+    std::fs::set_permissions(&note, std::fs::Permissions::from_mode(0o000)).unwrap();
+    canonicalize_for_authorization(&note).unwrap()
+}
+
+#[cfg(unix)]
+#[test]
+fn an_open_answers_the_download_state_before_anything_sniffs_the_file() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let canonical = unreadable_note(&state, "unreadable.md");
+    let _marked = mark(&canonical);
+
+    let result = open_file_from_path(&state, &canonical)
+        .expect("the stat answers the open; nothing reads the file");
+
+    assert!(
+        matches!(
+            result.mode,
+            writ_core::file_ops::FileOpenMode::NotDownloaded { .. }
+        ),
+        "expected the not-downloaded mode, got {:?}",
+        result.mode
+    );
+    assert!(result.doc.is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_confirmed_open_answers_the_download_state_before_anything_sniffs_the_file() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let canonical = unreadable_note(&state, "unreadable-confirmed.md");
+    let _marked = mark(&canonical);
+
+    // The tier that reaches this entry point is confirmed by hand, and the
+    // provider can evict the file while the dialog is up.
+    let result = open_file_confirmed_from_path(&state, &canonical)
+        .expect("the stat answers the confirmed open too");
+
+    assert!(
+        matches!(
+            result.mode,
+            writ_core::file_ops::FileOpenMode::NotDownloaded { .. }
+        ),
+        "expected the not-downloaded mode, got {:?}",
+        result.mode
+    );
+    assert!(result.doc.is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_confirmed_open_of_a_note_that_is_away_keeps_the_grant_for_the_open_that_follows() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    // Outside every root, so the one-shot token is the only authorization and
+    // the answer has to hand it back for the retry.
+    let note = dir.path().join("outside-confirmed.md");
+    std::fs::write(&note, "placeholder stand-in").unwrap();
+    let canonical = canonicalize_for_authorization(&note).unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+
+    let marked = mark(&canonical);
+    let away = open_file_confirmed_from_path(&state, &canonical).expect("open");
+    assert!(away.doc.is_none());
+    assert_eq!(state.authorized_paths.pending_open_len(), 1);
+    drop(marked);
+
+    let here = open_file_confirmed_from_path(&state, &canonical)
+        .expect("the token the first answer left authorizes this one");
+    let doc = here.doc.expect("the note is registered once it is here");
+    assert_eq!(doc.source_path.as_deref(), Some(canonical.as_str()));
 }
