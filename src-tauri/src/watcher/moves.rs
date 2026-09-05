@@ -16,7 +16,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tauri::{AppHandle, Manager};
+use writ_core::notes::guard::DiskState;
 use writ_core::notes::identity::{FileIdentity, IdentityProbe};
+use writ_core::watcher::pending::RemovalHolds;
 
 use crate::state::AppState;
 
@@ -32,9 +34,8 @@ pub trait NoteFiles: Send + Sync {
     /// What the filesystem last called `note_id`'s file.
     fn identity_of(&self, note_id: &str) -> Option<FileIdentity>;
 
-    /// Points the note at `to`, where its file is now. `true` when the row
-    /// moved, `false` when it was already there.
-    fn note_file_moved(&self, note_id: &str, from: &Path, to: &Path) -> bool;
+    /// Points the note at `to`, where its file is now.
+    fn note_file_moved(&self, note_id: &str, from: &Path, to: &Path) -> MoveOutcome;
 
     /// Records that the note's file was deleted. `true` when this is news.
     fn note_file_removed(&self, note_id: &str, path: &Path) -> bool;
@@ -45,6 +46,16 @@ pub trait NoteFiles: Send + Sync {
     /// own next rename reads as a deletion. `true` when the file had been
     /// marked removed, which is a file that came back from the Trash.
     fn note_file_returned(&self, note_id: &str, path: &Path) -> bool;
+
+    /// The digest of what the note's file held the last time Writ read or
+    /// wrote it.
+    ///
+    /// What a modification report is measured against: a watcher can deliver
+    /// the write a tab has already read, and the recorded digest is what says
+    /// so ([`writ_core::watcher::change_event::modification_is_news`]). It is
+    /// not evidence of where a file went — a move is followed on the id and
+    /// nothing else (ADR-033 §12).
+    fn last_disk_state(&self, note_id: &str) -> Option<DiskState>;
 
     /// The notes folder as it is now, or `None` when there is no application
     /// behind this record.
@@ -63,6 +74,13 @@ pub struct FileTracking {
     pub probe: Arc<dyn IdentityProbe>,
     /// Holds what Writ knows about each tab's file.
     pub files: Arc<dyn NoteFiles>,
+    /// Where the removals being held are published, so a save can wait for one
+    /// rather than write to a path whose file may have moved.
+    ///
+    /// Shared with the application, which is the other end of the wait. A
+    /// watcher with a registry of its own answers nobody, which is what
+    /// [`FileTracking::untracked`] is.
+    pub holds: Arc<RemovalHolds>,
 }
 
 impl FileTracking {
@@ -73,14 +91,17 @@ impl FileTracking {
         Self {
             probe: Arc::new(PlatformIdentity),
             files: Arc::new(NoNoteFiles),
+            holds: Arc::new(RemovalHolds::new()),
         }
     }
 
     /// Tracking backed by the running application.
     pub fn of_app(app: AppHandle) -> Self {
+        let holds = app.state::<AppState>().removal_holds.clone();
         Self {
             probe: Arc::new(PlatformIdentity),
             files: Arc::new(AppNoteFiles { app }),
+            holds,
         }
     }
 
@@ -95,6 +116,7 @@ impl FileTracking {
             files: Arc::new(SharedNoteFiles {
                 state: Arc::downgrade(state),
             }),
+            holds: state.removal_holds.clone(),
         }
     }
 }
@@ -110,8 +132,8 @@ impl NoteFiles for NoNoteFiles {
         None
     }
 
-    fn note_file_moved(&self, _note_id: &str, _from: &Path, _to: &Path) -> bool {
-        true
+    fn note_file_moved(&self, _note_id: &str, _from: &Path, _to: &Path) -> MoveOutcome {
+        MoveOutcome::Followed
     }
 
     fn note_file_removed(&self, _note_id: &str, _path: &Path) -> bool {
@@ -120,6 +142,10 @@ impl NoteFiles for NoNoteFiles {
 
     fn note_file_returned(&self, _note_id: &str, _path: &Path) -> bool {
         false
+    }
+
+    fn last_disk_state(&self, _note_id: &str) -> Option<DiskState> {
+        None
     }
 
     fn notes_root(&self) -> Option<PathBuf> {
@@ -137,7 +163,7 @@ impl NoteFiles for AppNoteFiles {
         identity_of_note(&self.app.state::<AppState>(), note_id)
     }
 
-    fn note_file_moved(&self, note_id: &str, from: &Path, to: &Path) -> bool {
+    fn note_file_moved(&self, note_id: &str, from: &Path, to: &Path) -> MoveOutcome {
         apply_move(&self.app.state::<AppState>(), note_id, from, to)
     }
 
@@ -147,6 +173,10 @@ impl NoteFiles for AppNoteFiles {
 
     fn note_file_returned(&self, note_id: &str, path: &Path) -> bool {
         apply_return(&self.app.state::<AppState>(), note_id, path)
+    }
+
+    fn last_disk_state(&self, note_id: &str) -> Option<DiskState> {
+        self.app.state::<AppState>().disk_state(note_id)
     }
 
     fn notes_root(&self) -> Option<PathBuf> {
@@ -169,10 +199,12 @@ impl NoteFiles for SharedNoteFiles {
         identity_of_note(&state, note_id)
     }
 
-    fn note_file_moved(&self, note_id: &str, from: &Path, to: &Path) -> bool {
+    fn note_file_moved(&self, note_id: &str, from: &Path, to: &Path) -> MoveOutcome {
         match self.state.upgrade() {
             Some(state) => apply_move(&state, note_id, from, to),
-            None => false,
+            // Nothing is left to move the note in, and nothing is left to tell
+            // either, so the failure answer costs no message.
+            None => MoveOutcome::Failed,
         }
     }
 
@@ -190,6 +222,10 @@ impl NoteFiles for SharedNoteFiles {
         }
     }
 
+    fn last_disk_state(&self, note_id: &str) -> Option<DiskState> {
+        self.state.upgrade()?.disk_state(note_id)
+    }
+
     fn notes_root(&self) -> Option<PathBuf> {
         Some(self.state.upgrade()?.notes_root())
     }
@@ -198,6 +234,25 @@ impl NoteFiles for SharedNoteFiles {
 /// What the filesystem last called the note's file.
 fn identity_of_note(state: &AppState, note_id: &str) -> Option<FileIdentity> {
     state.source_identity(note_id)
+}
+
+/// What became of a note whose file was found at another path.
+///
+/// The three answers are three different messages for the tab, which is why a
+/// bare `false` was not enough: it read the same for a tab already on the
+/// destination, which needs no message, and for a move that could not be
+/// applied, where saying nothing leaves the tab writing to a path its file
+/// left.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MoveOutcome {
+    /// The note is on the new path now and the tab has not heard it yet.
+    Followed,
+    /// The note was already on the new path, which is one move seen by both
+    /// watchers. The tab heard it the first time.
+    AlreadyThere,
+    /// The move could not be applied. The tab still names a path its file is
+    /// not at.
+    Failed,
 }
 
 /// Moves the note onto `to`: the row, its name, the index entry, the record of
@@ -212,28 +267,28 @@ fn identity_of_note(state: &AppState, note_id: &str) -> Option<FileIdentity> {
 /// file and is carried over rather than read again. Reading again would fetch
 /// the whole file in a sync folder for an answer already in hand.
 ///
-/// `false` when the row was already there, which is what keeps one move seen
-/// by two watchers from telling the tab twice.
-fn apply_move(state: &AppState, note_id: &str, from: &Path, to: &Path) -> bool {
+/// [`MoveOutcome::AlreadyThere`] when the row was already there, which is what
+/// keeps one move seen by two watchers from telling the tab twice.
+fn apply_move(state: &AppState, note_id: &str, from: &Path, to: &Path) -> MoveOutcome {
     let Some(destination) = to.to_str() else {
         tracing::warn!(path = %to.display(), "a file moved to a path that cannot be recorded");
-        return false;
+        return MoveOutcome::Failed;
     };
     {
         let Ok(store) = state.store.lock() else {
-            return false;
+            return MoveOutcome::Failed;
         };
         let Ok(doc) = store.get(note_id) else {
-            return false;
+            return MoveOutcome::Failed;
         };
         if doc.source_path.as_deref() == Some(destination) {
-            return false;
+            return MoveOutcome::AlreadyThere;
         }
         if let Err(e) =
             store.rename_to_file(note_id, destination, &crate::commands::notes::note_name(to))
         {
             tracing::warn!(note = %note_id, error = %e, "a note's row could not follow its file");
-            return false;
+            return MoveOutcome::Failed;
         }
     }
     if let Some(previous) = state.disk_state(note_id) {
@@ -250,7 +305,7 @@ fn apply_move(state: &AppState, note_id: &str, from: &Path, to: &Path) -> bool {
         to = %to.display(),
         "a tab's file moved and the tab followed it"
     );
-    true
+    MoveOutcome::Followed
 }
 
 /// Records that the note's file was deleted. `false` when it was already

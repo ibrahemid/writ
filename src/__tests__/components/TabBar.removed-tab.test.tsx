@@ -91,12 +91,12 @@ describe("a tab whose file is gone", () => {
   });
 
   it("says so in the tab's own words, not in a colour alone", () => {
-    // The strike-through is CSS; the title is what a pointer and a screen
-    // reader both get.
+    // The strike-through is CSS; the name a screen reader reads is what
+    // carries the state without it.
     mocks.removed.add("buf-1");
     const { container } = render(() => <TabBar />);
 
-    const marked = container.querySelector<HTMLElement>(".tab-removed")!;
-    expect(marked.getAttribute("title")).toBe("alpha.md (deleted)");
+    const marked = container.querySelector<HTMLElement>('.tab-removed [role="tab"]')!;
+    expect(marked.getAttribute("aria-label")).toBe("alpha.md (deleted)");
   });
 });

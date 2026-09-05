@@ -14,5 +14,11 @@ pub mod change_event;
 /// from real external edits, even when a debouncer coalesces both into a
 /// single delivered event.
 pub mod ignore;
+/// A path that went empty, held for one more delivery window before it is
+/// announced as a deletion.
+pub mod pending;
 /// One folder walk at a time, and one more when something asked while it ran.
 pub mod reconcile;
+/// What a watcher already looked at, so a read of its own does not come back
+/// as another change.
+pub mod sighting;

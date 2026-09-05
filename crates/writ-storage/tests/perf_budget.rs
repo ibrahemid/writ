@@ -74,6 +74,24 @@ fn make_content(idx: usize, size_target: usize) -> String {
     buf
 }
 
+/// One corpus note: frontmatter, a heading, a tag and links to two of its
+/// neighbours, wrapped around [`make_content`].
+///
+/// The walk writes `links`, `properties`, `tags` and `headings` for every note
+/// it reads (ADR-034), so a corpus of plain paragraphs would measure a walk
+/// that has four fewer tables to fill than any real folder gives it.
+fn make_note(idx: usize, count: usize, size_target: usize) -> String {
+    let previous = (idx + count - 1) % count;
+    let next = (idx + 1) % count;
+    format!(
+        "---\ntitle: Note {idx}\ntags: [corpus, generated]\n---\n\n\
+         # Note {idx}\n\n\
+         #corpus near [[note-{previous:05}]] and [[note-{next:05}]]\n\n\
+         ## Body\n\n{}",
+        make_content(idx, size_target)
+    )
+}
+
 /// A folder of `count` notes plus a database with an empty index, the shape
 /// the first launch after a migration finds.
 fn build_notes_corpus(count: usize) -> (TempDir, std::path::PathBuf, NotesIndexStore) {
@@ -91,7 +109,7 @@ fn build_notes_corpus(count: usize) -> (TempDir, std::path::PathBuf, NotesIndexS
         std::fs::create_dir_all(&folder).expect("create folder");
         std::fs::write(
             folder.join(format!("note-{idx:05}.md")),
-            make_content(idx, 512 + (idx % 8) * 512),
+            make_note(idx, count, 512 + (idx % 8) * 512),
         )
         .expect("write note");
     }

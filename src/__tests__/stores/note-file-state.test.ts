@@ -52,9 +52,6 @@ function wiredStore() {
     forgetSaveStatus: (id) => {
       forgotten.push(id);
     },
-    cancelAutosave: (id) => {
-      cancelled.push(id);
-    },
   });
 
   // What the watcher reports, as the event carries it.
@@ -92,15 +89,18 @@ describe("what a note's file is doing", () => {
     ["present", "modified", "changed"],
     ["present", "removed", "removed"],
     ["present", "moved", "present"],
+    ["present", "written", "present"],
     ["present", "settled", "present"],
     ["changed", "modified", "changed"],
     ["changed", "removed", "removed"],
     ["changed", "moved", "changed"],
+    ["changed", "written", "present"],
     ["changed", "settled", "present"],
     ["removed", "modified", "changed"],
     ["removed", "removed", "removed"],
     ["removed", "moved", "present"],
-    ["removed", "settled", "removed"],
+    ["removed", "written", "removed"],
+    ["removed", "settled", "present"],
   ];
 
   it.each(TABLE)("goes from %s on %s to %s", (before, event, after) => {
@@ -116,12 +116,18 @@ describe("what a note's file is doing", () => {
 
   it("covers every state against every event", () => {
     const seen = new Set(TABLE.map(([before, event]) => `${before}/${event}`));
-    expect(seen.size).toBe(12);
+    expect(seen.size).toBe(15);
   });
 
   it("is never two things at once, whatever it is told", () => {
     const store = newStore();
-    const events: NoteFileEvent[] = ["modified", "removed", "moved", "settled"];
+    const events: NoteFileEvent[] = [
+      "modified",
+      "removed",
+      "moved",
+      "written",
+      "settled",
+    ];
     for (const first of events) {
       for (const second of events) {
         const id = `${first}-${second}`;
@@ -225,7 +231,7 @@ describe("a note that catches up with its file", () => {
     const { store, reports } = wiredStore();
     await reports("modified");
 
-    store.noteSaved(NOTE, "a-digest");
+    store.noteSaved(NOTE, "a-digest", false);
 
     expect(store.noteFileState(NOTE)).toBe("present");
   });
@@ -238,7 +244,7 @@ describe("a note that catches up with its file", () => {
     const store = newStore();
     store.recordFileEvent(NOTE, "removed");
 
-    store.noteSaved(NOTE, "a-digest");
+    store.noteSaved(NOTE, "a-digest", false);
 
     expect(store.noteFileState(NOTE)).toBe("removed");
   });

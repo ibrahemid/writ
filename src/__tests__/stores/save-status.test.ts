@@ -214,7 +214,6 @@ describe("saveStatusStore", () => {
       openBuffers: () => [{ id: "one", title: "one", filename: "one.md" }],
       refreshBuffer: async () => {},
       forgetSaveStatus: (id) => saveStatusStore.forgetNote(id),
-      cancelAutosave: () => {},
     });
     const changes = ["modified", "removed", "moved"] as const;
 

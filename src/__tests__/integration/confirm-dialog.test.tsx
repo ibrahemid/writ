@@ -117,6 +117,7 @@ describe("ConfirmDialog", () => {
     requestConfirm({ title: "Wipe", message: "irreversible", danger: true });
     await flush();
     const accept = document.querySelector(".confirm-accept");
-    expect(accept?.classList.contains("is-danger")).toBe(true);
+    expect(accept?.classList.contains("writ-btn-danger")).toBe(true);
+    expect(accept?.classList.contains("writ-btn-primary")).toBe(true);
   });
 });

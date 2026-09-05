@@ -7,8 +7,12 @@
 //! mechanism — creating the folder, listing it, writing the file — lives in
 //! `writ-storage` and `writ-tauri`.
 
+/// What a note says about itself: links, properties, tags and headings.
+pub mod facts;
 /// The write guard: whether a save may land on the file it is aimed at.
 pub mod guard;
+/// Link syntax and link resolution (ADR-034).
+pub mod links;
 
 /// File identity: telling a file that moved from one that was deleted.
 pub mod identity;

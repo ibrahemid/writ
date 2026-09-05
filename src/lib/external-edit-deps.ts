@@ -12,6 +12,7 @@ interface OpenBuffer extends ExternalEditBuffer {
 /** The editor store, as the response to a change outside Writ reaches it. */
 interface ExternalEditEditor {
   isDirty: (id: string) => boolean;
+  isRemovedOnDisk: (id: string) => boolean;
   requestExternalReload: (id: string) => void;
   recordFileEvent: (id: string, event: NoteFileEvent) => void;
 }
@@ -24,7 +25,6 @@ export interface ExternalEditWiring {
   refreshBuffer: (id: string) => Promise<unknown>;
   /** Drops the bar a save that could not land left behind. */
   forgetSaveStatus: (id: string) => void;
-  cancelAutosave: (id: string) => void;
 }
 
 /**
@@ -51,8 +51,16 @@ export function createExternalEditDeps(
     // moment the next keystroke lands, and a note whose save was refused has
     // an empty queue and everything to lose.
     hasUnsaved: (id: string) => wiring.editor.isDirty(id),
-    reload: (id: string) => wiring.editor.requestExternalReload(id),
-    cancelAutosave: (id: string) => wiring.cancelAutosave(id),
+    isRemovedOnDisk: (id: string) => wiring.editor.isRemovedOnDisk(id),
+    // A quiet reload only happens to a tab holding nothing the file does not,
+    // so the file's text is about to be the tab's and the state can say so
+    // here. It has to say so here rather than when the text lands: a tab still
+    // marked off its file reads what the store kept for it in place of the
+    // file, which is the copy this reload is replacing.
+    reload: (id: string) => {
+      wiring.editor.recordFileEvent(id, "settled");
+      wiring.editor.requestExternalReload(id);
+    },
     // A move changes no bytes, so nothing is read and nothing is asked: the
     // row already names the new path, and this is the tab catching up to it.
     followMove: (id: string) => {

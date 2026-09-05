@@ -129,9 +129,23 @@ describe("autosave", () => {
       await vi.advanceTimersByTimeAsync(50);
 
       expect(listener).toHaveBeenCalledOnce();
-      expect(listener).toHaveBeenCalledWith("buf-ok", "abc123");
+      expect(listener).toHaveBeenCalledWith("buf-ok", "abc123", false);
       unsubscribe();
       mockedSave.mockResolvedValue(null);
+    });
+
+    it("tells a success listener the write went through a writer of its own", async () => {
+      // Which is what says a file that was deleted is at the note's path
+      // again: only the put-it-back command carries a writer.
+      const listener = vi.fn();
+      const unsubscribe = onAutosaveSuccess(listener);
+      const writeBack = vi.fn(async () => "def456");
+
+      await saveNow("buf-back", "content", writeBack);
+
+      expect(writeBack).toHaveBeenCalledWith("buf-back", "content");
+      expect(listener).toHaveBeenCalledWith("buf-back", "def456", true);
+      unsubscribe();
     });
 
     it("does not notify success listeners when the save fails", async () => {

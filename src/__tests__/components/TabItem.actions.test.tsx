@@ -14,7 +14,7 @@ describe("TabItem actions (#45)", () => {
 
   it("renders close as a real <button> with accessible name 'Close tab'", () => {
     const { container } = render(() => (
-      <TabItem title="t" onClick={() => undefined} onClose={() => undefined} />
+      <TabItem label="t" onClick={() => undefined} onClose={() => undefined} />
     ));
     const close = container.querySelector<HTMLButtonElement>(".tab-item-close");
     expect(close).not.toBeNull();
@@ -25,7 +25,7 @@ describe("TabItem actions (#45)", () => {
 
   it("renders restore as a real <button> with accessible name 'Restore tab'", () => {
     const { container } = render(() => (
-      <TabItem title="t" onClick={() => undefined} onRestore={() => undefined} />
+      <TabItem label="t" onClick={() => undefined} onRestore={() => undefined} />
     ));
     const buttons = container.querySelectorAll<HTMLButtonElement>(".tab-item-action");
     const restore = Array.from(buttons).find(
@@ -40,7 +40,7 @@ describe("TabItem actions (#45)", () => {
     const onClick = vi.fn();
     const onClose = vi.fn();
     const { container } = render(() => (
-      <TabItem title="t" onClick={onClick} onClose={onClose} />
+      <TabItem label="t" onClick={onClick} onClose={onClose} />
     ));
     const close = container.querySelector<HTMLButtonElement>(".tab-item-close")!;
     fireEvent.click(close);
@@ -52,7 +52,7 @@ describe("TabItem actions (#45)", () => {
     const onClick = vi.fn();
     const onRestore = vi.fn();
     const { container } = render(() => (
-      <TabItem title="t" onClick={onClick} onRestore={onRestore} />
+      <TabItem label="t" onClick={onClick} onRestore={onRestore} />
     ));
     const restore = container.querySelector<HTMLButtonElement>(".tab-item-action")!;
     fireEvent.click(restore);

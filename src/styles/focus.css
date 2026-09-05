@@ -2,36 +2,46 @@
   outline: none;
 }
 
+/* The ring follows the host, but the rule that draws it never does: raising the
+   selector's specificity here would beat CodeMirror's own `outline: none` and
+   stroke the editor. The platform layer moves the values, not the selector.
+   For the same reason the rule declares no box-shadow: CodeMirror clears
+   `outline` on .cm-content and nothing else, and the focus-silent opt-out below
+   can only take back what this rule draws through `outline`. Fluent's second
+   ring lives on `.winctrl:focus-visible` instead. */
+:root {
+  --writ-focus-outline: 2px solid var(--writ-accent);
+  --writ-focus-offset: 2px;
+}
+
+:root[data-platform="win"] {
+  --writ-focus-outline: 2px solid var(--writ-win-focus-outer);
+  --writ-focus-offset: 1px;
+}
+
+/* GNOME draws its ring inside the control at half the accent. */
+:root[data-platform="linux"] {
+  --writ-focus-outline: 2px solid color-mix(in srgb, var(--writ-accent) 50%, transparent);
+  --writ-focus-offset: -2px;
+}
+
 :focus-visible {
-  outline: 2px solid var(--writ-accent-default);
-  outline-offset: 2px;
-  border-radius: var(--writ-radius-1);
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: var(--writ-focus-offset, 2px);
+  border-radius: var(--writ-r-control);
 }
 
 [data-writ-focus-silent][data-writ-focus-silent]:focus-visible {
   outline: none;
 }
 
-.tab:focus-visible,
+.tab-label:focus-visible,
+.tab-close:focus-visible,
 .tab-item:focus-visible,
 .palette-item:focus-visible,
 .statusbar-hint:focus-visible,
-.tabbar-new:focus-visible,
-.shortcut-row-btn:focus-visible,
+.tab-add:focus-visible,
 .theme-editor-btn:focus-visible,
-.theme-editor-close:focus-visible,
-.shortcut-editor-close:focus-visible {
+.theme-editor-close:focus-visible {
   outline-offset: 2px;
-}
-
-.search-input:focus-visible,
-.palette-input:focus-visible,
-.tab-rename-input:focus-visible {
-  outline-offset: 0;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :focus-visible {
-    transition: none;
-  }
 }

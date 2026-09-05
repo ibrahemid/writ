@@ -25,7 +25,9 @@ vi.mock("../../lib/log", () => ({ logFailure: vi.fn() }));
 const editor = vi.hoisted(() => ({
   currentBufferId: vi.fn(() => "n-1"),
   getActiveText: vi.fn(() => ({ text: "my unsaved text\n", usedSelection: false })),
+  liveTextOf: vi.fn(() => "my unsaved text\n"),
   recordFileEvent: vi.fn(),
+  scheduleAutosave: vi.fn(),
   applyExternalContent: vi.fn(),
   noteSaved: vi.fn(),
 }));
@@ -41,6 +43,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   editor.currentBufferId.mockReturnValue("n-1");
   editor.getActiveText.mockReturnValue({ text: "my unsaved text\n", usedSelection: false });
+  editor.liveTextOf.mockReturnValue("my unsaved text\n");
   api.readBufferContent.mockResolvedValue("the file's own text\n");
   tabs.openFile.mockResolvedValue(undefined);
 });
@@ -108,7 +111,7 @@ describe("answering a file that changed outside Writ", () => {
 
     await resolveNoteChange("n-1", "keep_mine");
 
-    expect(editor.noteSaved).toHaveBeenCalledWith("n-1", "ghi");
+    expect(editor.noteSaved).toHaveBeenCalledWith("n-1", "ghi", false);
     expect(editor.applyExternalContent).not.toHaveBeenCalled();
   });
 

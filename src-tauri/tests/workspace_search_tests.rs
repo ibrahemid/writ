@@ -74,6 +74,7 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
         notes_reconcile: Arc::new(ReconcileGate::new()),
         quit: Arc::new(QuitState::new()),
+        removal_holds: Default::default(),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
         transforms: RwLock::new(TransformRegistry::new()),
@@ -346,7 +347,9 @@ fn the_notes_watcher_suppresses_writs_own_write() {
 
     let ignore = create_ignore_set();
     let key = writ_core::watcher::ignore::source_key(
-        &std::fs::canonicalize(&notes)
+        // The spelling the watcher builds its key from: `canonicalize_root`
+        // strips the Windows `\\?\` prefix, which the event path never carries.
+        &writ_tauri_lib::security::canonicalize_root(&notes)
             .expect("canonical notes root")
             .join("saved.md"),
     );

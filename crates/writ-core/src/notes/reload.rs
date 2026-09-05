@@ -7,7 +7,7 @@
 //! Whether the file's text may replace the document at all is decided in the
 //! editor (`src/services/external-edit.ts`), because it turns on whether the
 //! document holds anything the file does not, and that is the editor's answer
-//! and nothing else's (ADR-033 §6, §12).
+//! and nothing else's (ADR-033 §6, §16).
 //!
 //! A decision and nothing else. Reading the file, writing the copy beside the
 //! note and replacing the document are `writ-storage`'s and the editor's

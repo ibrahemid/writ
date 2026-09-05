@@ -24,8 +24,8 @@ use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
 #[cfg(target_os = "macos")]
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::preview::handler::RenderCache;
-#[cfg(target_os = "macos")]
 use writ_tauri_lib::quit::QuitState;
+#[cfg(target_os = "macos")]
 use writ_tauri_lib::security::canonicalize_for_authorization;
 use writ_tauri_lib::security::{canonicalize_root, AuthorizedPaths};
 use writ_tauri_lib::state::AppState;
@@ -61,6 +61,7 @@ fn make_state(dir: &TempDir) -> AppState {
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
         notes_reconcile: Arc::new(ReconcileGate::new()),
         quit: Arc::new(QuitState::new()),
+        removal_holds: Default::default(),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
         transforms: RwLock::new(TransformRegistry::new()),

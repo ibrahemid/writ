@@ -30,6 +30,39 @@ describe("planExternalEdit", () => {
   it("prompts before discarding unsaved edits on a modified buffer", () => {
     expect(planExternalEdit({ change: "modified", known: true, hasUnsaved: true })).toBe("prompt");
   });
+
+  it("asks about a file back at the path of a marked tab, like any other change", () => {
+    expect(
+      planExternalEdit({
+        change: "modified",
+        known: true,
+        hasUnsaved: true,
+        removedOnDisk: true,
+      }),
+    ).toBe("prompt");
+  });
+
+  it("reads a file back quietly when the marked tab holds nothing of its own", () => {
+    expect(
+      planExternalEdit({
+        change: "modified",
+        known: true,
+        hasUnsaved: false,
+        removedOnDisk: true,
+      }),
+    ).toBe("reload");
+  });
+
+  it("says nothing new when a note already marked is reported gone again", () => {
+    expect(
+      planExternalEdit({
+        change: "removed",
+        known: true,
+        hasUnsaved: true,
+        removedOnDisk: true,
+      }),
+    ).toBe("ignore");
+  });
 });
 
 function makeDeps(overrides: Partial<ExternalEditDeps> = {}): ExternalEditDeps {
@@ -37,8 +70,8 @@ function makeDeps(overrides: Partial<ExternalEditDeps> = {}): ExternalEditDeps {
     findBuffer: vi.fn(() => ({ id: "buf-1", title: "notes.md" })),
     hasUnsaved: vi.fn(() => false),
     reload: vi.fn(),
-    cancelAutosave: vi.fn(),
     markChanged: vi.fn(),
+    isRemovedOnDisk: vi.fn(() => false),
     followMove: vi.fn(),
     markRemoved: vi.fn(),
     ...overrides,
@@ -53,11 +86,12 @@ describe("handleExternalEdit", () => {
     expect(deps.markChanged).not.toHaveBeenCalled();
   });
 
-  it("raises the bar and drops the pending save when there is text to lose", async () => {
+  it("raises the bar when there is text to lose", async () => {
+    // The store drops the queue itself, after it has taken the text out of
+    // it, so nothing cancels ahead of it here.
     const deps = makeDeps({ hasUnsaved: vi.fn(() => true) });
     await handleExternalEdit({ bufferId: "buf-1.txt", change: "modified" }, deps);
     expect(deps.markChanged).toHaveBeenCalledWith("buf-1");
-    expect(deps.cancelAutosave).toHaveBeenCalledWith("buf-1");
     expect(deps.reload).not.toHaveBeenCalled();
   });
 
@@ -71,12 +105,30 @@ describe("handleExternalEdit", () => {
     expect(deps.markChanged).toHaveBeenCalledTimes(2);
   });
 
-  it("marks the tab on deletion and drops the pending save, never reloading", async () => {
+  it("marks the tab on deletion, never reloading", async () => {
+    // The store's mark drops the queue itself, after it has taken the text
+    // out of it, so nothing cancels ahead of it here (ADR-033 decision 15).
     const deps = makeDeps({ hasUnsaved: vi.fn(() => true) });
     await handleExternalEdit({ bufferId: "buf-1.txt", change: "removed" }, deps);
     expect(deps.markRemoved).toHaveBeenCalledWith("buf-1");
-    expect(deps.cancelAutosave).toHaveBeenCalledWith("buf-1");
     expect(deps.reload).not.toHaveBeenCalled();
+    expect(deps.markChanged).not.toHaveBeenCalled();
+  });
+
+  it("asks about a file back at its own path over a tab with text to lose", async () => {
+    const deps = makeDeps({
+      isRemovedOnDisk: vi.fn(() => true),
+      hasUnsaved: vi.fn(() => true),
+    });
+    await handleExternalEdit({ bufferId: "buf-1.txt", change: "modified" }, deps);
+    expect(deps.markChanged).toHaveBeenCalledWith("buf-1");
+    expect(deps.reload).not.toHaveBeenCalled();
+  });
+
+  it("says nothing twice about a note already marked", async () => {
+    const deps = makeDeps({ isRemovedOnDisk: vi.fn(() => true) });
+    await handleExternalEdit({ bufferId: "buf-1.txt", change: "removed" }, deps);
+    expect(deps.markRemoved).not.toHaveBeenCalled();
     expect(deps.markChanged).not.toHaveBeenCalled();
   });
 

@@ -86,7 +86,6 @@ function openNote() {
     openBuffers: () => [{ id: NOTE, title: "note", filename: "note.md" }],
     refreshBuffer: async () => {},
     forgetSaveStatus: (id) => saveStatusStore.forgetNote(id),
-    cancelAutosave: (id) => store.cancelAutosave(id),
   });
 
   /** What the watcher reports, through the path the subscription takes. */
@@ -270,6 +269,63 @@ describe("a note that is waiting for an answer about its file", () => {
     expect(api.recordUnsavedNotes).not.toHaveBeenCalled();
   });
 
+  it("hands the shutdown snapshot nothing of the version answered against", async () => {
+    // A write refused before the question arrived leaves its text in the
+    // failed-write slot, which the recovery handover reads after the queue and
+    // the hold. `Use the file on disk` is the person saying that text loses.
+    // Left there, the quit records it, and the next launch puts it back beside
+    // the note as a copy of what they threw away.
+    const { store, view, reports } = openNote();
+    api.saveBufferContent.mockRejectedValueOnce(REFUSED);
+    await store.saveActiveBuffer();
+    await waitFor(() => expect(saveStatusStore.failureFor(NOTE)).toBeDefined());
+
+    await reports("modified");
+    api.resolveExternalChange.mockResolvedValue({
+      content: "what the file holds\n",
+      disk_hash: "h",
+      conflict_copy_path: "/notes/note (conflict).md",
+    });
+    await resolveNoteChange(NOTE, "use_disk");
+
+    expect(view.state.doc.toString()).toBe("what the file holds\n");
+    await keepUnsavedForRecovery(NOTE);
+    const recorded = (
+      api.recordUnsavedNotes.mock.calls as unknown as Array<
+        [Array<{ id: string; content: string }>]
+      >
+    ).flatMap(([notes]) => notes);
+    expect(recorded.map((note) => note.content)).not.toContain(MINE);
+  });
+
+  it("hands the snapshot nothing of a write the answer superseded", async () => {
+    // The other half of the same rule, and the half the ordering above cannot
+    // reach: the write is still on the wire when the question is answered, so
+    // its refusal arrives afterwards and lands its text in the failed-write
+    // slot after everything that could have cleared it. It is the version
+    // answered against, and the quit must not record it.
+    const { store, reports } = openNote();
+    const stale = deferredWrite();
+
+    const write = store.saveActiveBuffer();
+    await waitFor(() => expect(api.saveBufferContent).toHaveBeenCalledTimes(1));
+
+    await reports("modified");
+    api.resolveExternalChange.mockResolvedValue({
+      content: "what the file holds\n",
+      disk_hash: "h",
+      conflict_copy_path: "/notes/note (conflict).md",
+    });
+    await resolveNoteChange(NOTE, "use_disk");
+
+    stale.reject(REFUSED);
+    await write;
+
+    expect(collectUnsavedContent()).toEqual([]);
+    await keepUnsavedForRecovery(NOTE);
+    expect(api.recordUnsavedNotes).not.toHaveBeenCalled();
+  });
+
   it("keeps a failure raised by a write after the answer", async () => {
     const { store, reports } = openNote();
     await reports("modified");
@@ -347,6 +403,75 @@ describe("a note that is waiting for an answer about its file", () => {
     await waitFor(() =>
       expect(api.saveBufferContent).toHaveBeenCalledWith(NOTE, typed),
     );
+  });
+
+  it("keeps what was typed while the answer was in flight to a tab in the background", async () => {
+    // The answer's round trip is long enough to switch tabs in. Reading the
+    // delta off the editor would find the other note's document by then, and
+    // guarding that read on the note being in front loses the typing instead:
+    // the hold is where it is, and the answer is what empties the hold.
+    const { store, view, reports } = openNote();
+    await reports("modified");
+
+    let land: (outcome: typeof ANSWERED) => void = () => {};
+    api.resolveExternalChange.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          land = resolve;
+        }),
+    );
+
+    const answered = resolveNoteChange(NOTE, "keep_mine");
+    await waitFor(() =>
+      expect(api.resolveExternalChange).toHaveBeenCalledTimes(1),
+    );
+    view.dispatch({
+      changes: { from: view.state.doc.length, insert: "typed mid-answer\n" },
+    });
+    store.scheduleAutosave(NOTE, () => view.state.doc.toString(), 1000);
+    store.setCurrentBufferId("another-note");
+
+    land(ANSWERED);
+    await answered;
+
+    const typed = `${MINE}typed mid-answer\n`;
+    expect(collectUnsavedContent()).toEqual([{ id: NOTE, content: typed }]);
+    await waitFor(() =>
+      expect(api.saveBufferContent).toHaveBeenCalledWith(NOTE, typed),
+    );
+  });
+
+  it("keeps its own text when the next note takes the view", async () => {
+    // A large note schedules autosave with a getter, so the flush reads the
+    // live document instead of a string materialized per keystroke. The editor
+    // has one view for every tab: it is destroyed and rebuilt on a switch, so
+    // a getter kept past that switch reads the incoming note's document. What
+    // is held has to be the text, not a way of reading it.
+    const { store, view, reports } = openNote();
+    await reports("modified");
+    // The component holds one `view` for every tab and reassigns it on a
+    // switch, so the getter it schedules reads the variable, not the view it
+    // was made against. That is the shape the getter has to be given here.
+    let live: EditorView | undefined = view;
+    live.dispatch({
+      changes: { from: live.state.doc.length, insert: "typed under the bar\n" },
+    });
+    store.scheduleAutosave(NOTE, () => live?.state.doc.toString() ?? "", 800);
+
+    // The tab switch, as EditorInstance performs it.
+    await store.flushAutosave(NOTE);
+    live.destroy();
+    live = new EditorView({
+      state: EditorState.create({ doc: "a completely different note\n" }),
+      parent: document.body,
+    });
+    views.push(live);
+    store.registerView(live);
+    store.setCurrentBufferId("another-note");
+
+    expect(collectUnsavedContent()).toEqual([
+      { id: NOTE, content: `${MINE}typed under the bar\n` },
+    ]);
   });
 
   // A deletion is the case that reaches the bar with a reason worth pressing

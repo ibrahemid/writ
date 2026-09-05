@@ -10,6 +10,7 @@ use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::buffer::manager::BufferManager;
 use writ_core::notes::guard::is_not_downloaded;
 use writ_core::notes::reload::{apply_choice, Action, ChangeChoice, Side};
+use writ_core::watcher::pending::HoldAnswer;
 use writ_storage::buffer_store::{dataless_flags, write_conflict_copy, BufferStore, NoteFileState};
 use writ_storage::errors::StorageError;
 
@@ -39,6 +40,10 @@ pub const ERR_NOTE_READ_ONLY: &str = "ERR_NOTE_READ_ONLY";
 
 /// Code a save carries when the filesystem refused the write.
 pub const ERR_PERMISSION_DENIED: &str = "ERR_PERMISSION_DENIED";
+
+/// Code a save carries when another program is holding the file open, which
+/// on Windows stops the rename a save ends with.
+pub const ERR_FILE_IN_USE: &str = "ERR_FILE_IN_USE";
 
 /// Code a save carries when the file, or the folder above it, is gone.
 pub const ERR_FILE_MISSING: &str = "ERR_FILE_MISSING";
@@ -79,6 +84,7 @@ pub fn save_failure_message(error: &StorageError) -> String {
 fn io_failure_code(kind: std::io::ErrorKind) -> &'static str {
     match kind {
         std::io::ErrorKind::PermissionDenied => ERR_PERMISSION_DENIED,
+        std::io::ErrorKind::ResourceBusy => ERR_FILE_IN_USE,
         std::io::ErrorKind::NotFound => ERR_FILE_MISSING,
         std::io::ErrorKind::TimedOut => ERR_WRITE_TIMED_OUT,
         _ => ERR_WRITE_FAILED,
@@ -177,6 +183,32 @@ pub fn save_buffer_content_inner(
     id: &str,
     content: &str,
 ) -> Result<Option<String>, String> {
+    write_note_source(state, id, content, RemovedFile::Refuse)
+}
+
+/// What a write does about a note whose file was deleted outside Writ.
+///
+/// A keystroke must not recreate it and an explicit request to put it back
+/// must not be refused. Both are the same write with opposite answers to that
+/// one question, so they are one function and this is the difference between
+/// them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RemovedFile {
+    /// Refuse under `ERR_FILE_REMOVED_ON_DISK` (spec W4).
+    Refuse,
+    /// Write the file back at the path the note names.
+    WriteBack,
+}
+
+/// The write every save lands through, with the removed-file question left to
+/// the caller.
+fn write_note_source(
+    state: &AppState,
+    id: &str,
+    content: &str,
+    removed: RemovedFile,
+) -> Result<Option<String>, String> {
+    wait_out_a_held_removal(state, id, removed)?;
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).map_err(|e| e.to_string())?;
     if doc.read_only {
@@ -186,7 +218,7 @@ pub fn save_buffer_content_inner(
     // write gate cannot answer this on its own: a path that is not there
     // resolves and passes, which is what lets a new note be minted and is
     // right everywhere except here (spec W4).
-    if state.is_removed_on_disk(id) {
+    if removed == RemovedFile::Refuse && state.is_removed_on_disk(id) {
         return Err(format!(
             "{ERR_FILE_REMOVED_ON_DISK}: note {id} has no file on disk any more"
         ));
@@ -215,6 +247,40 @@ pub fn save_buffer_content_inner(
     Ok(Some(writ_core::hash::comparison_digest_hex(
         content.as_bytes(),
     )))
+}
+
+/// Waits out a removal a watcher is still holding for this note.
+///
+/// A hold is the window in which nothing knows yet whether the note still has
+/// a file: its path has gone empty, and the delivery that would carry the
+/// other half of a rename may not have arrived. The record is left saying what
+/// it said before for exactly that window, so there is nothing in it for a
+/// write to trip over, and a write that lands in it recreates a file the
+/// person deleted or leaves a second one behind a rename the tab never hears
+/// about (ADR-033 §14).
+///
+/// So the write waits, and the answer decides: a move has already moved the
+/// row, so the destination read after this is the new path; a removal has
+/// already marked the note, so the refusal is word for word the one a save
+/// after any announcement gets. A file back at its own path answers too, and
+/// the write lands where it always would have.
+///
+/// [`RemovedFile::WriteBack`] waits the same and is refused by nothing: it is
+/// the explicit request to put the file back, and an answer that arrives while
+/// it waits is what tells it where to put it.
+///
+/// Before the store lock, and holding nothing itself: answering a hold moves
+/// the note's row, which needs that same lock.
+///
+/// The wait is bounded by the hold's own deadline, so a watcher that stopped
+/// while holding one costs a write that window and no more.
+fn wait_out_a_held_removal(state: &AppState, id: &str, removed: RemovedFile) -> Result<(), String> {
+    match state.removal_holds.wait_for_answer(id) {
+        Some(HoldAnswer::Removed) if removed == RemovedFile::Refuse => Err(format!(
+            "{ERR_FILE_REMOVED_ON_DISK}: note {id} has no file on disk any more"
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// The hook the store calls immediately before each of its writes, which
@@ -280,6 +346,50 @@ pub fn save_buffer_content(
     content: String,
 ) -> Result<Option<String>, String> {
     let disk_hash = save_buffer_content_inner(&state, &id, &content)?;
+    if let Some(generation) = state.fts_scheduler.on_edit(&id) {
+        spawn_deferred_reindex(app, id, generation);
+    }
+    Ok(disk_hash)
+}
+
+/// Writes a note whose file was deleted outside Writ back to the path it
+/// names.
+///
+/// [`save_buffer_content_inner`] refuses that write, and has to: the tab's
+/// text is the last copy of the note (ADR-028 §1), so every keystroke would
+/// otherwise put back a file the person threw away, on every synced device.
+/// Asking for it is the other half of the same rule — the text is the person's
+/// and this is where they say it goes back.
+///
+/// The record is reset from the file only after the write lands. Clearing it
+/// first would leave a failed restore unmarked, autosave unblocked, and the
+/// next keystroke recreating the file silently. A folder that is gone fails
+/// here like any other write and comes back under `ERR_FILE_MISSING`.
+pub fn restore_note_file_inner(
+    state: &AppState,
+    id: &str,
+    content: &str,
+) -> Result<Option<String>, String> {
+    let disk_hash = write_note_source(state, id, content, RemovedFile::WriteBack)?;
+    let source_path = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        store.get(id).map_err(|e| e.to_string())?.source_path
+    };
+    if let Some(path) = source_path {
+        state.observe_source_file(id, Path::new(&path));
+    }
+    Ok(disk_hash)
+}
+
+/// IPC: [`restore_note_file_inner`].
+#[tauri::command]
+pub fn restore_note_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    content: String,
+) -> Result<Option<String>, String> {
+    let disk_hash = restore_note_file_inner(&state, &id, &content)?;
     if let Some(generation) = state.fts_scheduler.on_edit(&id) {
         spawn_deferred_reindex(app, id, generation);
     }
@@ -514,6 +624,12 @@ pub fn resolve_external_change_inner(
     choice: ChangeChoice,
     content: &str,
 ) -> Result<ResolveOutcome, String> {
+    // An answer is a write, so it waits out a held removal like any other one
+    // and for the same reasons ([`wait_out_a_held_removal`]): the path read
+    // below is the one a move has already left the row on, and a file that
+    // turned out to be gone is refused rather than written back. Before the
+    // store lock, which answering a hold needs.
+    wait_out_a_held_removal(state, id, RemovedFile::Refuse)?;
     let source_path = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         let doc = store.get(id).map_err(|e| e.to_string())?;

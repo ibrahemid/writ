@@ -292,7 +292,39 @@ One burst can pay both: a sweep the budget owes and a walk the gate owes. The
 cost is one redundant walk of a folder that has gone quiet, which is the side
 to err on.
 
-### 11. A vanished file is told apart from a moved one by its identity
+### 11. A watcher does not hear its own reads
+
+Classifying an event means looking at the file: the notes watcher hashes it,
+the config watcher parses it, the inbox watcher fingerprints it. On Linux the
+`notify` crate registers `IN_OPEN` on every watched directory, so each of those
+reads is itself an event, which arrives in the next batch, is classified, is
+read again, and so on until the settle window closes. FSEvents and
+`ReadDirectoryChangesW` do not report reads, so the loop was invisible on macOS
+and Windows and surfaced only in Linux CI as eleven identical `BufferExternal`
+events for one rewrite.
+
+The rule is in `writ-core` (`watcher/sighting.rs`): a watcher reports a
+delivered event only when the file's metadata differs from the metadata it
+recorded the last time it looked at that path. The sighting is length and
+modification time from `fs::metadata`, which does not open the file and so
+raises nothing. A look is remembered for `DEFAULT_SIGHTING_TTL` (5 s, sized
+like the ignore stamp: one debounce window plus the read's round trip). The
+adapter takes the sighting before any read (`look_at` in `handler.rs`) and
+the notes, config and inbox watchers all pass through it. Debounce timings do
+not change; a digest gate on `disk_hash` was rejected because the frontend
+already makes that comparison (§6) and a second copy of the decision would
+disagree with it eventually.
+
+Three comparisons of file content are weighed in this record and only one is
+kept, so it is worth saying which is which. The one rejected here would gate the
+read loop on `disk_hash`, the value the frontend already holds. The one rejected
+in §12 would corroborate a file's id with its bytes, which answers a different
+question badly: two notes holding the same text corroborate each other. The one
+§13 keeps compares a report against the digest Writ itself last read or wrote,
+after this gate has already passed, and it decides whether a modification is
+news rather than which file anything is.
+
+### 12. A vanished file is told apart from a moved one by its identity
 
 A watcher reports a rename as a removal at the old path and a creation at the
 new one, and on the fallback backend it reports the removal alone. Path is
@@ -302,7 +334,10 @@ deleted and recreated under the same name does not.
 
 The id is read whenever the tab learns what its file is: when it is given one
 (`follow_note_path`), after every write Writ lands, and on every change a
-watcher reports to it. The last of those is the one that matters most. A
+watcher reports that finds a file at the path. A report that the path is empty
+reads nothing — there is nothing there to read — and the removal waits for a
+delivery that might answer it (decision 14) rather than retiring the id the tab
+is still holding. The sighting is the one that matters most. A
 save-through-replace — a temporary file renamed over the target, which is how
 vim, VS Code, git, rsync and every sync client write — leaves the path holding a
 different file, and a tab still carrying the id from open would read its own
@@ -382,6 +417,58 @@ same batch names, plus the note's own folder; a match is a move, no match is a
 removal. The probe is a trait, so the verdict is tested on every platform
 regardless of which one runs the test.
 
+An inode number is only unique among the files that exist at one moment. ext4
+hands a freed one straight back to the next file created, so a note deleted and
+an unrelated note created in the same watcher window can carry one `dev` and
+`ino`, and the id alone then says the deletion was a move onto somebody else's
+file — the tab follows it and the next save writes over it. APFS does not reuse
+numbers, which is why the case reached CI rather than a laptop. The id therefore
+carries a third field: the file's birth time in nanoseconds. A rename leaves it
+alone, which is what `ctime` does not, so it separates a recreated file from the
+original without weakening the move detection the id exists for. Two known birth
+times must be equal; a volume that reports none answers `None` for every file on
+it, and the inode is then the whole of the answer, exactly as before.
+`is_same_file` holds the rule, and `==` stays exact-value equality because
+`identity_to_keep` compares two records of one read and wants nothing looser.
+
+The birth time is read on Linux and nowhere else, and equality is what makes it
+worth reading there. It is worth comparing only where two things hold at once:
+an inode number can come back, so the field has work to do, and nothing can move
+the value under a live file, so a mismatch means a different file. Linux is the
+only platform where both hold. ext4, xfs and btrfs reuse inode numbers, and
+`statx` reports a `btime` that no userspace call can set.
+
+macOS holds neither. A live inode's birth time moves in both directions on APFS,
+both measured: `touch -t 202001010000` pulls it back through the modification
+time, and `SetFile -d` — `setattrlist` with `ATTR_CMN_CRTIME`, which is what
+unarchivers and restore tools use — writes it forward. So a
+mismatch there says nothing about which file this is, and no ordering of two
+birth times helps: reading a lower value as the same file lets a reused number
+that was backdated through, and reading a higher one as a different file refuses
+every save over a note a restore tool touched. APFS also never hands an inode
+number back out, so there is nothing on it for the field to separate. macOS
+therefore fills in no birth time and is answered on the inode alone. HFS+ does
+reuse numbers, and a notes folder on a legacy HFS+ volume is answered the same
+way, which is what every volume was answered on before the field existed. NTFS
+file ids carry their own sequence number and ReFS ids are 128 bits, and a
+creation time can be set through `SetFileTime`, so Windows reads no birth time
+either and is answered on the file id alone. `is_same_file` reads both ids by
+the one rule, so a record that does carry a birth time is compared on it rather
+than having it dropped.
+
+The birth time is the whole of the fix on Linux and not more than it. Linux
+stamps a new file from the coarse clock, so two files created inside one tick
+share a birth time to the nanosecond: a delete followed by a create at the same
+path in the same tick stays indistinguishable. Every real replacement is
+separated anyway, because a replacement is a sibling renamed over the target and
+the sibling was created while the original still held its inode. What was
+rejected was corroborating the id with a content digest: it answers the wrong
+question, since two notes holding the same text corroborate each other, and it
+would cost a read of every candidate on a share for a question the id already
+answers. The tests that prove the rule build the identities by hand rather than
+reading them from the host, because whether a filesystem reuses inode numbers is
+the host's business and the rule has to hold on all of them.
+
 A volume with no id to give — FAT, exFAT, some SMB servers — gets a description
 of the file instead, which cannot recognise it anywhere else. That is
 deliberate: `is_durable` is false for it and the verdict degrades to an external
@@ -421,13 +508,204 @@ row, its title and its index rows go to the new path through
 single arming point. Putting a move through the dirty gate would offer to
 discard unsaved text over a rename.
 
-A removal is not a save. The tab keeps its text, is marked, and writes nothing:
-the backend refuses the write under `ERR_FILE_REMOVED_ON_DISK` and the frontend
-stops queueing one. Recreating the file would put back what the person deleted,
-and in a synced folder it would put it back on every device. The two ways out
-are a copy written as a new note and closing the tab. A file put back where it
-was — the Trash restore — re-attaches, because the id it comes back with is the
-one the tab still holds.
+A move that could not be applied is not silence. The row can fail to follow — a
+lock nothing holds any more, a row that would not read, a rename the store
+refused, a destination no string can spell — and the tab then names a path its
+file is not at. What is still true about that path is the removal, so that is
+what the tab hears: it keeps its text and stops writing, rather than saving over
+whatever turns up at the old path later. `MoveOutcome` is what carries the
+difference, because the one case that hears nothing looks identical from a bare
+`false` — a tab already on the destination, which is one move seen by both
+watchers and told by the first.
+
+A removal is not a save. The tab keeps its text, is marked, and no keystroke
+writes it back: the backend refuses that write under `ERR_FILE_REMOVED_ON_DISK`
+and the frontend stops queueing one. Recreating the file would put back what the
+person deleted, and in a synced folder it would put it back on every device. A
+file put back where it was — the Trash restore — re-attaches, because the id it
+comes back with is the one the tab still holds.
+
+What "keeps its text" costs is a place to keep it. The tab's text is then the
+only copy of the note (ADR-028 §1), and the editor view is not a place for the
+only copy of anything: Writ has one view, a tab switch rebuilds it from the
+file, and the file is what is gone. So the window's editor store holds the text
+of every note marked removed, handed to it by the view before the view is
+replaced, and a load of such a note reads the store rather than disk. A read
+that fails must never reach the document — the empty string it falls back to
+overwrites both the file's text and every unsaved keystroke on top of it, which
+is the deletion finishing the job.
+
+The ways out are three, and they are the person's to pick: write the text to a
+new file, put the file back at its own path, or close the tab and let it go. The
+second is what an explicit save means here, so the save keystroke does it too;
+it goes through the one command that does not refuse a removed note, the mark is
+dropped only once the write lands, and a folder that is gone as well refuses it
+under `ERR_FILE_MISSING` rather than silently. Autosave is not one of the three:
+it is the keystroke, and it stays quiet.
+
+### 13. A report carrying the bytes the tab already loaded is not a change
+
+A watcher reports what the filesystem told it, and the filesystem tells it about
+writes that happened before the tab existed. FSEvents coalesces and delivers on
+its own schedule: the write that seeded a file can arrive after Writ has opened
+and read it, and on a loaded machine it does. Passing that on shows the user an
+external-change notice for the bytes in front of them, and on a dirty tab it
+offers to discard their edits for a change nobody made.
+
+What separates a real edit from a late delivery is the digest Writ recorded when
+it last read or wrote the file. Equal digests are no news, whoever wrote them and
+whenever the report arrived; different ones are the change. A tab with no digest
+on record still gets the report, because silence would be a claim about bytes
+nobody read. The exception is a file that had been marked gone and is at its path
+again: the tab is refusing to save until it hears so, which makes the return the
+news rather than the bytes. `modification_is_news` holds all three cases, and
+both routes to a tab go through it — the open-file watcher and the notes watcher
+— because one of them staying quiet is no use if the other one talks.
+
+The comparison is against what Writ last read or wrote, not against what the tab
+was last told, so a file written away from the loaded bytes and back to them
+inside one session ends on silence. That is the right way round: the alternative
+is reporting a change to a file that holds what the tab is displaying.
+
+### 14. A removal is held for one more delivery window before it is announced
+
+Decision 12 recognises a moved file among the paths a delivery named and the
+folder it left. Both of those are what the watcher has at the moment the path is
+found empty, and a rename does not have to put its two halves in one delivery.
+`notify_debouncer_mini` closes a window on a deadline set by its first event and
+never extends it (decision 5), so a rename that lands on that boundary arrives as
+the old path going empty in one delivery and the new file appearing in the next.
+Answering the first one on its own reads a move as a deletion, marks the tab off
+a file that is sitting one folder away, and refuses every later save to it. On a
+loaded machine that is not an edge case; it is the ordinary way a rename lands.
+
+So a path that went empty is not announced when it is seen. It is held, and every
+later delivery is a chance to answer it with the file's id at another path.
+Nothing answers by the deadline and the removal is announced exactly as it was
+before. The wait is one hold window, twice the debounce the watcher delivers on,
+so the delivery that would carry the other half has a full window of its own to
+arrive in.
+
+The id is the only thing a later delivery answers with. Bytes are not evidence of
+where a file went, for the reason decision 12 gives: two notes can hold the same
+text, so a path that matches on content is a path that might be a stranger's
+file, and the next save writes over it.
+
+Three rules keep the wait honest.
+
+**Only a removal something could answer is held.** With no id on record that
+could recognise the file elsewhere, no later delivery can say anything the first
+one did not, and the wait would be latency for a foregone conclusion. Those are
+announced straight away, which is what a watcher with no application behind it
+does for every removal it sees.
+
+**The record is left alone until the announcement.** A tab is marked off its file
+when it is told, not when the path is first found empty, so a removal that turns
+out to be a move never marks anything. The same file back at its own path before
+the deadline stops the wait rather than being announced behind the delivery that
+put it back — the same file, read by its id: something else at the path is a
+stranger, and a save that landed there is a new file too, so neither ends the
+wait. Asking whether anything is at the path would end it for both, and for
+Writ's own write it would end it on an event the ignore set has already dropped.
+
+**Nothing writes to a held path.** Leaving the record alone is what makes the
+hold work and is also what leaves nothing in it for a write to trip over, so the
+write asks directly: a save for a note with a removal held waits for the answer,
+and then lands at the new path a move has already moved the row to, or is
+refused under `ERR_FILE_REMOVED_ON_DISK` exactly as a save after any
+announcement. Without the wait a save inside the hold recreates the file its
+person deleted, and against a rename it puts a second file at the emptied path
+and cancels the hold, so the move is never announced at all. `RemovalHolds` in
+`writ-core` holds that contract — the answers, the deadline a wait is bounded
+by, and the rule that an answer is published only once the record agrees with it
+— and the watcher publishes each answer at the moment it has applied it. A
+waiter released any earlier reads the old path out of the row and writes there,
+which is the failure it exists to stop.
+
+**Resolving comes before expiry, and an answer is the batch's one message for
+that note.** A delivery that answers a removal makes it a move however long it
+waited, and the events in that same delivery must not send the note a second
+message (decision 8's per-batch rule). The delivery carrying the second half of
+a rename names the old path too, and that path on its own reads as a file that
+went, so each answer's note goes into the delivery's `told` set before any of
+its own events are read. The sighting record of decision 11 would usually drop
+that second look as well, but the two guards are separate and the per-delivery
+rule holds without it.
+
+The thread waits on the deadline as well as on the next event, so a held removal
+is announced on its own schedule instead of when some unrelated change happens to
+arrive. `PendingRemovals` in `writ-core` holds the state machine — hold, resolve,
+expire — and the watchers supply the one fact it reads: what the filesystem calls
+each candidate. Every watcher in the process publishes its holds into one
+`RemovalHolds`, because a save asks about a note and not about a watcher, and
+two watchers holding one note are answered on the later of the two deadlines.
+
+### 15. A note whose file is gone is one state machine, owned by the store
+
+Decision 14 ends the moment the tab is told. What the tab does from there was
+answered three times, once per case that turned up, and each answer left the
+next one open: the text survived a tab switch but not a background save that
+had failed, the mark went on but nothing took it off, and the text that a close
+kept came back as the file at the next launch. So the whole of it is written
+down here, and every row below is a test.
+
+**Two states.** `Present` is a note with a file at its path: ordinary saves,
+ordinary autosave, ordinary reloads. `RemovedOnDisk` is a note whose path was
+found empty with nothing answering for it (decision 14). It carries the note's
+text, which is the last copy of it once the view goes, and nothing else.
+Whether the tab differs from the file it lost is the ordinary dirty answer,
+read from the digests the note already had (decision 6).
+
+The three ways out the bar offers are transitions, not states, and a restore in
+flight is not a state either: it goes through the autosave service, where the
+queue, the generation and the retry already are.
+
+| In | On | Goes to | The text | Dirty | Autosave | The file |
+|---|---|---|---|---|---|---|
+| Present | a removal is announced | RemovedOnDisk | taken from the view when the tab is on screen, else from what the autosave service still holds: a queued edit, or the text of a write that came back refused. Neither, and the note's only text was the file's | unchanged | the queue and the timer are dropped, after the text is taken | untouched |
+| RemovedOnDisk | a second removal for the same note | RemovedOnDisk | kept, and not re-read | unchanged | already silent | untouched |
+| RemovedOnDisk | the file is found at another path | Present | kept, and it is the same text either way: a move changes no bytes | unchanged | resumes | untouched at its new path |
+| RemovedOnDisk | a file is back at the note's own path, tab not dirty | Present | the file's, read back into the view; a background tab reads it on its next switch | false, from the record that read writes | resumes | untouched |
+| RemovedOnDisk | a file is back at the note's own path, tab dirty | Present | the tab's | stays true | resumes and takes the kept text, so the next flush writes it | written by that save, through the guard every save passes: a file that came back holding something else is refused and the text lands beside it dated |
+| RemovedOnDisk | a keystroke | RemovedOnDisk | replaced by the newer text | true | nothing is queued, so nothing is scheduled | untouched |
+| RemovedOnDisk | a flush, from a tab switch or a quit | RemovedOnDisk | kept | unchanged | there is nothing queued to write | untouched |
+| RemovedOnDisk | "Put the file back", or the save keystroke, and the write lands | Present | kept | false | resumes | written at the note's path |
+| RemovedOnDisk | the same, and the write fails | RemovedOnDisk | kept | unchanged | a retryable refusal is requeued with its own writer, so a later flush can land it | untouched |
+| RemovedOnDisk | "Save a copy" | RemovedOnDisk | kept, and written to the path the person names | unchanged | still silent for this note | its own path untouched, a new file at the other one |
+| RemovedOnDisk | the tab is switched away from | RemovedOnDisk | taken from the view before the view is replaced | unchanged | silent | untouched |
+| RemovedOnDisk | the tab is switched back to | RemovedOnDisk | the kept text goes into the new view; the missing file is never read | unchanged | silent | untouched |
+| RemovedOnDisk | the tab is closed | gone | handed to the shutdown snapshot, then dropped | gone with the tab | cancelled | untouched |
+| RemovedOnDisk | the window quits | gone | handed to the shutdown snapshot | gone with the window | flushed, which writes nothing for this note | untouched |
+| relaunch, with snapshot text for a note whose path has no file | RemovedOnDisk | the snapshot's, seeded before the first tab loads | true | silent | nothing written, and nothing left beside it |
+
+Three rules hold the table together.
+
+**One entry point takes the text before anything can drop it.** The store's
+mark is where the removal lands, and it reads the text first, cancels the
+queue second. Reversing those two loses a background tab whose save had
+failed, because cancelling drops the text of a refused write, which for that
+tab is the only copy there is. The mark returns at once for a note already
+marked, so a second announcement cannot cancel a queue whose text has since
+been put back into it.
+
+**A file back at its own path is answered by the rule, not by a prompt.** The
+tab's text if the tab is dirty, the file's if it is not, and never an empty
+document. A tab that is not dirty has nothing the file does not, so reading the
+file back is free. A dirty tab keeps what it has, and the kept text goes onto
+the autosave queue as it goes: a returned file is writable again, and the tab
+would otherwise sit on text that no flush and no tab switch would ever write.
+Both drop the mark, and autosave writes for that note from then on. Leaving the
+mark on is the failure this rule closes: the file is there, the bar says it is
+not, and every keystroke for the life of the window writes nothing.
+
+**A relaunch does not put a deleted file back.** Text kept for a note that
+never had a file is written to the path minted for it here, because nothing
+else holds it. Text kept for a note that had a file and no longer has one is
+not written at all, and no copy is left beside it: the file was deleted, and
+recreating it at a relaunch is the harm decision 14 exists to avoid, spread
+across every device in a synced folder. The text goes to the tab instead, which
+comes up removed on disk with the same three ways out. `plan_recovery` in
+`writ-core` is that rule, and the launch carries it out.
 
 ### 12. A change reaches the document one way, and every answer keeps both texts
 
@@ -597,6 +875,23 @@ dropped, and one issued after it still shows.
   moved to a folder nothing watches is a removal to the tab, which keeps the
   text and says the file is gone; the person can write a copy or point the tab
   at the file again by opening it.
+- The halves do not have to arrive in the same delivered window, which is what
+  decision 14 buys, and the price is that a deletion reaches the tab a hold
+  window after the file went. A save landing in that window waits for the hold
+  to be answered before it writes anything, so the price is paid in latency on
+  a save that hits it and never in a file: at most one hold window and the
+  window the answer is delivered on, once, for a note whose file has just gone.
+- Another program deleting the note's file and writing a new one at the same
+  path, which is how some sync clients land an update, is a removal to the tab
+  once the hold passes. The file the tab holds is gone, and the path alone
+  cannot separate that from a save Writ let through or from a stranger's file,
+  so the tab keeps its text and stops writing rather than binding itself to a
+  file it never opened. Opening the file again puts the tab back on it.
+- A watcher with no application behind it (`FileTracking::untracked()`) has no
+  digest on record for any tab, so decision 13 cannot answer for it and every
+  late delivery is reported. That is right for what it is — nothing has read
+  anything — and it is why a test that drives the watchers without a state has
+  to carry the record a tab would have.
 - A file rewritten and renamed inside one watcher window reads as a removal:
   the rewrite retires the id nobody reported, so nothing carries it and nothing
   else names the file. The tab keeps its text, says the file is gone, and the

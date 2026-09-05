@@ -8,6 +8,7 @@ import PreviewScriptsToggle from "../Preview/PreviewScriptsToggle";
 import SpellingChip from "./SpellingChip";
 import RewriteChip from "./RewriteChip";
 import TokenEstimate from "./TokenEstimate";
+import WordCount from "./WordCount";
 import { languageLabel } from "./language-label";
 import Kbd from "../Kbd/Kbd";
 import "./StatusBar.css";
@@ -105,6 +106,7 @@ export default function StatusBar() {
         <span class="statusbar-field statusbar-field--cursor">{cursorPosition()}</span>
         <span class="statusbar-field">{language()}</span>
         <span class="statusbar-field">UTF-8</span>
+        <WordCount class="statusbar-field statusbar-field--words" />
         <SpellingChip />
         <RewriteChip />
         <TokenEstimate />

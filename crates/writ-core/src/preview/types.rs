@@ -155,6 +155,76 @@ pub struct RenderRequest {
     /// are applied over the bridge, not by re-rendering.
     #[serde(default = "default_zoom")]
     pub zoom: f64,
+    /// Where the renderer may resolve files embedded in the document, and
+    /// under which buffer id the asset URLs are keyed. `None` for a buffer
+    /// with no file on disk (a scratch note), which leaves every embedded
+    /// reference untouched. ADR-035.
+    #[serde(default)]
+    pub assets: Option<AssetScope>,
+}
+
+/// The two containment roots an embedded file may resolve under, the buffer
+/// the render belongs to, and the token its asset URLs carry.
+///
+/// Held beside the rendered HTML so the protocol handler re-resolves an
+/// incoming asset URL against the same roots the render used, rather than
+/// trusting the path in the URL.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssetScope {
+    /// The notes folder.
+    pub notes_root: std::path::PathBuf,
+    /// Folder holding the file being previewed.
+    pub note_dir: std::path::PathBuf,
+    /// Buffer id the asset URLs carry.
+    pub buffer_id: String,
+    /// Token minted with the scope and written into every asset URL of the
+    /// render that owns it. A document reaches its own roots by quoting it
+    /// back; it cannot quote a scope it was never given. ADR-035.
+    pub token: String,
+}
+
+impl AssetScope {
+    /// Build the scope for one render.
+    ///
+    /// `previous` is the scope the buffer's last render used, if it is still
+    /// cached. Its token is kept while it is the same buffer, so the asset
+    /// URLs of a note stay stable across the debounced re-renders that typing
+    /// produces and across a move or a rename of its file: a token that
+    /// changed would refuse every in-flight request from the render before it,
+    /// recording a refusal and logging a security event for an ordinary edit.
+    /// Another buffer is another scope and mints a token of its own.
+    ///
+    /// The token belongs to the buffer, not to its path, and keeping it across
+    /// a move grants nothing: serve time resolves against the roots the newest
+    /// render recorded, so the token says which buffer's render emitted a URL
+    /// and never which path it may reach.
+    pub fn for_render(
+        previous: Option<&AssetScope>,
+        buffer_id: impl Into<String>,
+        notes_root: std::path::PathBuf,
+        note_dir: std::path::PathBuf,
+    ) -> Self {
+        let buffer_id = buffer_id.into();
+        let token = previous
+            .filter(|scope| scope.buffer_id == buffer_id)
+            .map(|scope| scope.token.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        Self {
+            notes_root,
+            note_dir,
+            buffer_id,
+            token,
+        }
+    }
+
+    /// Whether an incoming asset request may be resolved against this scope.
+    ///
+    /// The buffer id keys the lookup, so a mismatch here means the caller
+    /// looked the scope up under a different name; the token is what a
+    /// document that was never handed this scope cannot produce.
+    pub fn authorizes(&self, request: &crate::preview::protocol::AssetRequest<'_>) -> bool {
+        request.buffer_id == self.buffer_id && request.token == self.token
+    }
 }
 
 /// Default render zoom: native size.
@@ -167,10 +237,10 @@ pub fn default_zoom() -> f64 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemePolarity {
-    /// Dark reading palette (the `:root` default in `preview-base.css`).
+    /// Dark reading palette (`[data-writ-theme="dark"]`).
     #[default]
     Dark,
-    /// Light reading palette (`[data-writ-theme="light"]`).
+    /// Light reading palette (the `:root` default in `preview-tokens.css`).
     Light,
 }
 
@@ -299,5 +369,56 @@ mod tests {
             limit: 50 * 1024 * 1024,
         };
         assert!(format!("{err}").contains("too large"));
+    }
+
+    #[test]
+    fn a_scope_keeps_its_token_while_it_is_the_same_buffer() {
+        let notes = std::path::PathBuf::from("/n");
+        let dir = std::path::PathBuf::from("/n/daily");
+        let first = AssetScope::for_render(None, "buf-1", notes.clone(), dir.clone());
+        let again = AssetScope::for_render(Some(&first), "buf-1", notes.clone(), dir.clone());
+        assert_eq!(first.token, again.token);
+        assert!(!first.token.is_empty());
+
+        // Moving the note is the same buffer under a new folder: the token
+        // holds, so the render on screen keeps serving until the next one
+        // lands instead of refusing every image it has.
+        let moved = AssetScope::for_render(
+            Some(&first),
+            "buf-1",
+            notes.clone(),
+            std::path::PathBuf::from("/n/archive"),
+        );
+        assert_eq!(first.token, moved.token);
+
+        // Another buffer is another scope and gets a token of its own.
+        let other_buffer = AssetScope::for_render(Some(&first), "buf-2", notes, dir);
+        assert_ne!(first.token, other_buffer.token);
+    }
+
+    #[test]
+    fn a_scope_authorizes_only_a_request_carrying_its_own_token() {
+        let scope = AssetScope::for_render(
+            None,
+            "buf-1",
+            std::path::PathBuf::from("/n"),
+            std::path::PathBuf::from("/n/daily"),
+        );
+        use crate::preview::protocol::{AssetRequest, AssetRoot};
+        let request = AssetRequest {
+            buffer_id: "buf-1",
+            token: &scope.token,
+            root: AssetRoot::Notes,
+            relative: "a.png",
+        };
+        assert!(scope.authorizes(&request));
+        assert!(!scope.authorizes(&AssetRequest {
+            token: "a-token-from-somewhere-else",
+            ..request
+        }));
+        assert!(!scope.authorizes(&AssetRequest {
+            buffer_id: "buf-2",
+            ..request
+        }));
     }
 }

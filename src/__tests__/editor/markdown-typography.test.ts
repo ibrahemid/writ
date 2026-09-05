@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { syntaxTree } from "@codemirror/language";
+import { ensureSyntaxTree, syntaxHighlighting } from "@codemirror/language";
+import { writHighlight } from "../../components/Editor/cm-theme";
 import {
   buildMarkdownDecorations,
   markdownTypographyPlugin,
@@ -13,12 +14,27 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
+// A fresh EditorState parses only within a 20 ms budget (Work.Apply in
+// @codemirror/language) and keeps whatever tree it reached when the budget
+// ran out. On a loaded machine that truncates the parse partway through the
+// document, so the decorations under test would cover the first line or two
+// only. Force the parse to the end of the doc, and prove it got there.
+const PARSE_TIMEOUT_MS = 30_000;
+
+type SyntaxTree = NonNullable<ReturnType<typeof ensureSyntaxTree>>;
+
+function treeFor(state: EditorState): SyntaxTree {
+  const tree = ensureSyntaxTree(state, state.doc.length, PARSE_TIMEOUT_MS);
+  expect(tree?.length).toBe(state.doc.length);
+  return tree!;
+}
+
 function buildForDoc(
   doc: string,
   cursorPositions: number[] = [],
 ): DecorationSpec[] {
   const state = EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage })] });
-  const tree = syntaxTree(state);
+  const tree = treeFor(state);
   const cursors = new ReadonlySet(cursorPositions);
   return buildMarkdownDecorations(
     (from, to, cb) => tree.iterate({ from, to, enter: cb }),
@@ -28,6 +44,31 @@ function buildForDoc(
     0,
     doc.length,
   );
+}
+
+function classesOf(spec: DecorationSpec): string[] {
+  const cls = (spec.decoration as unknown as { spec: { class?: string } }).spec?.class;
+  return cls ? cls.split(" ") : [];
+}
+
+// The decoration specs alone proved too little: a mark whose range is right
+// still loses its ink when the highlight style's own span nests inside it. The
+// DOM helper renders the same extensions the editor ships so the tests can see
+// which span wraps which.
+function renderDoc(doc: string, cursor: number): EditorView {
+  const view = new EditorView({
+    state: EditorState.create({
+      doc,
+      extensions: [
+        markdown({ base: markdownLanguage }),
+        syntaxHighlighting(writHighlight),
+        markdownTypographyPlugin,
+      ],
+      selection: { anchor: cursor },
+    }),
+    parent: document.body,
+  });
+  return view;
 }
 
 function widgetSpecs(specs: DecorationSpec[]): DecorationSpec[] {
@@ -45,7 +86,10 @@ describe("heading line decorations", () => {
   it("emits a line decoration for ATXHeading1", () => {
     const specs = buildForDoc("# Hello\n");
     const lineSpec = specs.find(
-      (s) => s.from === 0 && s.to === 0 && (s.decoration as unknown as { spec: { class: string } }).spec.class === "cm-line-md-h1",
+      (s) =>
+        s.from === 0 &&
+        s.to === 0 &&
+        (s.decoration as unknown as { spec: { class: string } }).spec.class.split(" ").includes("cm-line-md-h1"),
     );
     expect(lineSpec).toBeDefined();
   });
@@ -55,12 +99,45 @@ describe("heading line decorations", () => {
     const specs = buildForDoc(doc);
     const classes = specs
       .filter((s) => s.from === s.to)
-      .map((s) => (s.decoration as unknown as { spec: { class: string } }).spec.class);
+      .flatMap((s) => (s.decoration as unknown as { spec: { class: string } }).spec.class.split(" "));
     expect(classes).toContain("cm-line-md-h2");
     expect(classes).toContain("cm-line-md-h3");
     expect(classes).toContain("cm-line-md-h4");
     expect(classes).toContain("cm-line-md-h5");
     expect(classes).toContain("cm-line-md-h6");
+  });
+
+  it("emits every heading class when the initial parse budget runs out", () => {
+    // Guards the flake this helper exists for: with the clock jumped past the
+    // 20 ms init budget, EditorState.create keeps only the tree it had reached,
+    // and the decorations covered the first heading or two. The stall is lifted
+    // before the tree is read, because treeFor's own timeout reads the clock.
+    const doc = "## H2\n### H3\n#### H4\n##### H5\n###### H6\n";
+    const realNow = Date.now.bind(Date);
+    let slices = 0;
+    Date.now = () => (slices++ > 1 ? realNow() + 10_000 : realNow());
+    let state: EditorState;
+    try {
+      state = EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage })] });
+    } finally {
+      Date.now = realNow;
+    }
+
+    const tree = treeFor(state);
+    const specs = buildMarkdownDecorations(
+      (from, to, cb) => tree.iterate({ from, to, enter: cb }),
+      (pos) => state.doc.lineAt(pos),
+      (from, to) => state.doc.sliceString(from, to),
+      new ReadonlySet([]),
+      0,
+      doc.length,
+    );
+    const classes = specs
+      .filter((s) => s.from === s.to)
+      .flatMap((s) => (s.decoration as unknown as { spec: { class: string } }).spec.class.split(" "));
+    for (const level of ["h2", "h3", "h4", "h5", "h6"]) {
+      expect(classes).toContain(`cm-line-md-${level}`);
+    }
   });
 
   it("does not emit heading decorations for plain text", () => {
@@ -75,21 +152,38 @@ describe("heading line decorations", () => {
 // ─── Marker hide/reveal behaviour ─────────────────────────────────────────
 
 describe("syntax marker hiding", () => {
-  it("replaces heading markers on inactive lines", () => {
-    // Line 0 starts at pos 0. Cursor is on line 1 (pos 8+).
+  it("decorates heading markers rather than replacing them, on any line", () => {
+    // ADR-030 decision 3 narrows ADR-014: a '#' says what the block is, so it
+    // stays readable and hangs in the margin instead of vanishing.
     const doc = "# Hello\nsome text\n";
     const state = EditorState.create({ doc, extensions: [markdown()] });
     const cursorOnLine2 = state.doc.line(2).from;
+    for (const cursors of [[cursorOnLine2], [2]]) {
+      const specs = buildForDoc(doc, cursors);
+      const markerSpecs = specs.filter((s) => s.from === 0 && s.to === 1);
+      const classes = markerSpecs.map(
+        (s) => (s.decoration as unknown as { spec: { class?: string } }).spec.class,
+      );
+      expect(classes).toContain("cm-md-marker-hung");
+      const replaced = markerSpecs.filter(
+        (s) => (s.decoration as unknown as { spec: { class?: string } }).spec.class === undefined,
+      );
+      expect(replaced).toHaveLength(0);
+    }
+  });
+
+  it("still replaces emphasis markers on inactive lines", () => {
+    const doc = "**bold** text\nsecond line\n";
+    const state = EditorState.create({ doc, extensions: [markdown()] });
+    const cursorOnLine2 = state.doc.line(2).from;
     const specs = buildForDoc(doc, [cursorOnLine2]);
-    // HeaderMark '#' + space = positions 0..2 → should be replaced
     const replaces = specs.filter(
-      (s) => (s.decoration as unknown as { spec: Record<string, unknown> }).spec?.widget === undefined &&
-             s.from !== s.to &&
-             s.decoration.spec !== undefined &&
-             // Decoration.replace has a widget of null or undefined and no class
-             (s.decoration as unknown as { spec: { class?: string } }).spec.class === undefined,
+      (s) =>
+        s.from !== s.to &&
+        (s.decoration as unknown as { spec: { class?: string; widget?: unknown } }).spec.class ===
+          undefined &&
+        (s.decoration as unknown as { spec: { widget?: unknown } }).spec.widget === undefined,
     );
-    // At least one replace decoration exists for the marker
     expect(replaces.length).toBeGreaterThan(0);
   });
 
@@ -173,7 +267,7 @@ describe("inline mark decorations", () => {
       doc,
       extensions: [markdown({ base: markdownLanguage })],
     });
-    const tree = syntaxTree(state);
+    const tree = treeFor(state);
     const specs = buildMarkdownDecorations(
       (from, to, cb) => tree.iterate({ from, to, enter: cb }),
       (pos) => state.doc.lineAt(pos),
@@ -237,7 +331,7 @@ describe("visible range scoping", () => {
   it("omits decorations outside the visible range", () => {
     const doc = "# H1 visible\n# H2 invisible\n";
     const state = EditorState.create({ doc, extensions: [markdown()] });
-    const tree = syntaxTree(state);
+    const tree = treeFor(state);
     const line1End = state.doc.line(1).to;
 
     const specs = buildMarkdownDecorations(
@@ -262,14 +356,38 @@ describe("visible range scoping", () => {
 // ─── Blockquote ───────────────────────────────────────────────────────────
 
 describe("blockquote decoration", () => {
-  it("applies cm-md-blockquote mark to blockquote span", () => {
+  it("starts the cm-md-blockquote mark after the quote marker", () => {
     const doc = "> quoted text\n";
     const specs = buildForDoc(doc);
     const bq = specs.find(
       (s) => (s.decoration as unknown as { spec: { class: string } }).spec?.class === "cm-md-blockquote",
     );
     expect(bq).toBeDefined();
-    expect(bq!.from).toBe(0);
+    // The rail is this mark's left border: including the '>' would drag it into
+    // the hang margin with the marker.
+    expect(bq!.from).toBe(1);
+    expect(bq!.to).toBe(doc.indexOf("\n"));
+  });
+
+  it("hangs the quote marker on every quoted line", () => {
+    const doc = "> first\n> second\n";
+    const specs = buildForDoc(doc);
+    const hangs = specs.filter(
+      (s) =>
+        s.from === s.to &&
+        classesOf(s).includes("cm-line-md-hang"),
+    );
+    expect(hangs.map((s) => s.from)).toEqual([0, doc.indexOf("> second")]);
+
+    const markers = specs.filter((s) => classesOf(s).includes("cm-md-marker-hung"));
+    expect(markers.map((s) => s.from)).toEqual([0, doc.indexOf("> second")]);
+  });
+
+  it("marks each quoted line separately", () => {
+    const doc = "> first\n> second\n";
+    const specs = buildForDoc(doc);
+    const quotes = specs.filter((s) => classesOf(s).includes("cm-md-blockquote"));
+    expect(quotes.map((s) => s.from)).toEqual([1, doc.indexOf("> second") + 1]);
   });
 });
 
@@ -435,6 +553,134 @@ describe("autolink decorations", () => {
     );
     expect(link).toBeDefined();
     expect(link!.from).toBe(doc.indexOf("https://"));
+  });
+});
+
+// ─── Inline links ─────────────────────────────────────────────────────────
+
+describe("inline link decorations", () => {
+  const doc = "See [Writ](https://example.com) now\ncursor\n";
+
+  it("dims the url and styles only the label on an inactive line", () => {
+    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    const label = specs.find((s) => classesOf(s).includes("cm-md-link-text"));
+    const url = specs.find((s) => classesOf(s).includes("cm-md-url-dim"));
+    expect(label).toEqual(
+      expect.objectContaining({ from: doc.indexOf("Writ"), to: doc.indexOf("Writ") + 4 }),
+    );
+    expect(url).toEqual(
+      expect.objectContaining({
+        from: doc.indexOf("https://"),
+        to: doc.indexOf("https://") + "https://example.com".length,
+      }),
+    );
+  });
+
+  it("stops dimming the url on the active line", () => {
+    const specs = buildForDoc(doc, [0]);
+    expect(specs.some((s) => classesOf(s).includes("cm-md-url-dim"))).toBe(false);
+  });
+
+  it("wraps the highlighted url token so the dim ink wins the cascade", () => {
+    // The grammar tags every Link descendant, url included, with tags.link, and
+    // the theme paints that accent and underlined. The dim mark only shows if
+    // its span is the outer one.
+    const view = renderDoc(doc, doc.indexOf("cursor"));
+    const dim = view.contentDOM.querySelector(".cm-md-url-dim");
+    expect(dim?.textContent).toBe("https://example.com");
+    expect(dim!.querySelector("span")?.textContent).toBe("https://example.com");
+    expect(view.contentDOM.querySelector(".cm-md-link-text")?.textContent).toBe("Writ");
+    view.destroy();
+  });
+
+  it("wraps the highlighted quote marker so the formatting ink wins", () => {
+    const quoted = "> quoted line\ncursor\n";
+    const view = renderDoc(quoted, quoted.indexOf("cursor"));
+    const marker = view.contentDOM.querySelector(".cm-md-marker-hung");
+    expect(marker?.textContent).toBe(">");
+    expect(marker!.querySelector("span")?.textContent).toBe(">");
+    expect(view.contentDOM.querySelector(".cm-line")?.classList.contains("cm-line-md-hang")).toBe(true);
+    view.destroy();
+  });
+});
+
+// ─── Fenced code ──────────────────────────────────────────────────────────
+
+describe("fenced code decorations", () => {
+  const doc = "```sh\necho hi\nmore\n```\ncursor\n";
+
+  it("rounds the first and last line of the block only", () => {
+    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    const lines = specs.filter((s) => classesOf(s).includes("cm-md-codeblock"));
+    expect(lines).toHaveLength(4);
+    expect(lines.map((s) => classesOf(s).includes("cm-md-codeblock-first"))).toEqual([
+      true, false, false, false,
+    ]);
+    expect(lines.map((s) => classesOf(s).includes("cm-md-codeblock-last"))).toEqual([
+      false, false, false, true,
+    ]);
+  });
+
+  it("dims the fences and the info string instead of removing them", () => {
+    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    const dimmed = specs.filter((s) => classesOf(s).includes("cm-md-marker-dim"));
+    expect(dimmed.map((s) => s.from)).toEqual([0, doc.indexOf("```\n")]);
+    expect(widgetSpecs(specs).some((s) => s.from === 0)).toBe(false);
+
+    const info = specs.find((s) => classesOf(s).includes("cm-md-code-info"));
+    expect(info).toEqual(expect.objectContaining({ from: 3, to: 5 }));
+  });
+
+  it("leaves the fence plain on the active line", () => {
+    const specs = buildForDoc(doc, [1]);
+    const dimmed = specs.filter((s) => classesOf(s).includes("cm-md-marker-dim"));
+    expect(dimmed.map((s) => s.from)).toEqual([doc.indexOf("```\n")]);
+    expect(specs.some((s) => classesOf(s).includes("cm-md-code-info"))).toBe(false);
+  });
+
+  it("still replaces the backticks of inline code", () => {
+    const inline = "a `code` b\ncursor\n";
+    const specs = buildForDoc(inline, [inline.indexOf("cursor")]);
+    expect(specs.some((s) => classesOf(s).includes("cm-md-marker-dim"))).toBe(false);
+    const replaced = specs.filter(
+      (s) =>
+        classesOf(s).length === 0 &&
+        (s.decoration as unknown as { spec: { widget?: unknown } }).spec.widget === undefined,
+    );
+    expect(replaced.map((s) => [s.from, s.to])).toEqual([
+      [2, 3],
+      [7, 8],
+    ]);
+  });
+});
+
+// ─── Task item state ──────────────────────────────────────────────────────
+
+describe("task item state", () => {
+  const doc = "- [x] done\n- [ ] open\ncursor\n";
+
+  it("strikes the text of a checked item and leaves an open one alone", () => {
+    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    const struck = specs.filter((s) => classesOf(s).includes("cm-md-task-done"));
+    expect(struck).toHaveLength(1);
+    expect(struck[0]).toEqual(
+      expect.objectContaining({ from: doc.indexOf("done"), to: doc.indexOf("done") + 4 }),
+    );
+  });
+
+  it("draws the box rather than the platform checkbox", () => {
+    const view = renderDoc(doc, doc.indexOf("cursor"));
+    const boxes = view.contentDOM.querySelectorAll(".cm-md-task-box");
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0].hasAttribute("data-checked")).toBe(true);
+    expect(boxes[1].hasAttribute("data-checked")).toBe(false);
+    expect(boxes[0].querySelector("svg.cm-md-task-check")).not.toBeNull();
+    expect(boxes[1].querySelector("svg.cm-md-task-check")).toBeNull();
+    // The real control stays, so the click handler and a11y are unchanged.
+    const input = boxes[0].querySelector("input.cm-md-task-checkbox") as HTMLInputElement;
+    expect(input.checked).toBe(true);
+    expect(input.getAttribute("aria-label")).toBe("Completed task");
+    view.destroy();
   });
 });
 

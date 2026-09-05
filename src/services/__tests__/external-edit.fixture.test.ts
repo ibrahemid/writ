@@ -16,7 +16,12 @@ import fixture from "./external-change-table.json";
 // there is no second table in Rust for it to drift from.
 interface FixtureRow {
   name: string;
-  inputs: { known: boolean; change: ExternalChange; hasUnsaved: boolean };
+  inputs: {
+    known: boolean;
+    change: ExternalChange;
+    hasUnsaved: boolean;
+    removedOnDisk: boolean;
+  };
   action: ExternalEditAction;
 }
 
@@ -24,7 +29,7 @@ const rows = fixture.rows as FixtureRow[];
 
 describe("the external-change table", () => {
   it("holds a row for every situation", () => {
-    expect(rows.length).toBe(12);
+    expect(rows.length).toBe(16);
   });
 
   it.each(rows)("routes $name to its action", (row) => {
@@ -35,7 +40,21 @@ describe("the external-change table", () => {
     // The one row the whole feature exists for. Nothing may turn it into a
     // reload, whatever else changes.
     expect(
-      planExternalEdit({ known: true, change: "modified", hasUnsaved: true }),
+      planExternalEdit({
+        known: true,
+        change: "modified",
+        hasUnsaved: true,
+        removedOnDisk: false,
+      }),
+    ).toBe("prompt");
+    // Including when the file it holds text against is one that came back.
+    expect(
+      planExternalEdit({
+        known: true,
+        change: "modified",
+        hasUnsaved: true,
+        removedOnDisk: true,
+      }),
     ).toBe("prompt");
   });
 

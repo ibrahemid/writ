@@ -6,18 +6,26 @@
     <title>Writ</title>
     <link rel="stylesheet" href="/src/styles/global.css" />
     <script>
-      // Pre-paint theme restore: apply the last resolved token set before the
-      // module bundle runs so a saved non-default theme never flashes the
-      // default. Mirror written by themeStore.applyToRoot (writ-theme-vars).
+      // Pre-paint theme restore: apply the last resolved token set and the root
+      // attributes the generated sheet keys its dark and accent layers on,
+      // before the module bundle runs, so a saved theme never flashes the
+      // default. Mirror written by themeStore.applyToRoot (writ-theme-vars-v3).
       (function () {
         try {
-          var raw = localStorage.getItem("writ-theme-vars");
+          var raw = localStorage.getItem("writ-theme-vars-v3");
           if (!raw) return;
-          var vars = JSON.parse(raw);
+          var saved = JSON.parse(raw);
           var root = document.documentElement;
+          var vars = saved.vars || {};
           for (var key in vars) {
             if (Object.prototype.hasOwnProperty.call(vars, key) && key.indexOf("--writ-") === 0) {
               root.style.setProperty(key, vars[key]);
+            }
+          }
+          var attrs = saved.attrs || {};
+          for (var name in attrs) {
+            if (name === "data-theme" || name === "data-accent") {
+              root.setAttribute(name, attrs[name]);
             }
           }
         } catch (e) {

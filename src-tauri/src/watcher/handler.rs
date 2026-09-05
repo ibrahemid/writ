@@ -1,8 +1,9 @@
 use crate::poison::recover_poison;
 use crate::watcher::moves::FileTracking;
-use crate::watcher::open_files::{OpenNotes, VanishedContext};
+use crate::watcher::open_files::{answer_held_removals, open_delivery, OpenNotes, VanishedContext};
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
@@ -11,6 +12,13 @@ use tracing::{error, info};
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::watcher::budget::{Emission, EmissionBudget};
 use writ_core::watcher::ignore::{IgnoreStamps, SuppressDecision, DEFAULT_IGNORE_TTL};
+use writ_core::watcher::pending::{hold_window, PendingRemovals};
+use writ_core::watcher::sighting::{FileSighting, LastSeen, DEFAULT_SIGHTING_TTL};
+
+/// The window the notes watcher coalesces a burst of changes into, and what a
+/// removal's wait is measured in
+/// ([`writ_core::watcher::pending::hold_window`]).
+pub const NOTES_DEBOUNCE_WINDOW: Duration = Duration::from_millis(500);
 
 pub type IgnoreSet = Arc<Mutex<IgnoreStamps>>;
 
@@ -34,6 +42,23 @@ pub(crate) fn ignore_key_path(path: &Path) -> PathBuf {
     crate::security::resolve_for_containment(path)
         .map(PathBuf::from)
         .unwrap_or_else(|| path.to_path_buf())
+}
+
+/// What `path` holds, as its metadata describes it, or `None` when there is
+/// no file there.
+///
+/// Metadata only, never a read: on Linux `notify` asks the kernel for `IN_OPEN`
+/// on every folder it watches, so opening a file inside one raises another
+/// event for it, and the read a watcher does to classify one event is what
+/// delivers the next. Stat raises nothing, which is why every watcher here
+/// asks this before it opens anything
+/// ([`writ_core::watcher::sighting`]).
+pub(crate) fn look_at(path: &Path) -> Option<FileSighting> {
+    let metadata = std::fs::metadata(path).ok()?;
+    Some(FileSighting {
+        len: metadata.len(),
+        modified: metadata.modified().ok(),
+    })
 }
 
 /// Opaque owner of the file watcher's debouncer.
@@ -69,14 +94,16 @@ pub fn start_file_watcher(
     info!("file watcher started");
 
     std::thread::spawn(move || {
+        let mut seen = LastSeen::new();
         while let Ok(result) = rx.recv() {
             match result {
                 Ok(events) => {
                     for event in events {
-                        if let Some(domain_event) = classify_watch_event(
+                        if let Some(domain_event) = report_config_event(
                             &event.path,
                             &config_path,
                             &ignore_set,
+                            &mut seen,
                             ttl,
                             Instant::now(),
                         ) {
@@ -165,15 +192,17 @@ pub fn start_inbox_watcher(
     info!(root = %root.display(), preexisting = preexisting.len(), "inbox watcher started");
 
     std::thread::spawn(move || {
+        let mut seen = LastSeen::new();
         while let Ok(result) = rx.recv() {
             match result {
                 Ok(events) => {
                     for event in events {
-                        if let Some(domain_event) = classify_inbox_event(
+                        if let Some(domain_event) = report_inbox_event(
                             &event.path,
                             &root,
                             &preexisting,
                             &ignore_set,
+                            &mut seen,
                             DEFAULT_IGNORE_TTL,
                             Instant::now(),
                         ) {
@@ -216,6 +245,28 @@ fn snapshot_files(root: &Path) -> std::collections::HashSet<PathBuf> {
         }
     }
     files
+}
+
+/// What one *delivered* inbox event is worth saying, or nothing.
+///
+/// The watcher thread's entry point, for the reason
+/// [`report_notes_event`] gives: classifying an arrival reads the file to
+/// fingerprint it and again to decide how it would open, and on Linux each of
+/// those reads is another event for the same path. Left unguarded, one file
+/// landing in the inbox reopens its tab for as long as the app runs.
+pub fn report_inbox_event(
+    path: &Path,
+    root: &Path,
+    preexisting: &std::collections::HashSet<PathBuf>,
+    ignore_set: &IgnoreSet,
+    seen: &mut LastSeen,
+    ttl: Duration,
+    now: Instant,
+) -> Option<WritEvent> {
+    if !seen.is_news(path, look_at(path), now, DEFAULT_SIGHTING_TTL) {
+        return None;
+    }
+    classify_inbox_event(path, root, preexisting, ignore_set, ttl, now)
 }
 
 /// Classifies an inbox file-system event into [`WritEvent::InboxFileArrived`],
@@ -308,24 +359,44 @@ pub fn start_notes_watcher(
 ) -> Result<WatcherHandle, Box<dyn std::error::Error>> {
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
 
-    let mut debouncer = new_debouncer(Duration::from_millis(500), tx)?;
+    let mut debouncer = new_debouncer(NOTES_DEBOUNCE_WINDOW, tx)?;
     debouncer.watcher().watch(&root, RecursiveMode::Recursive)?;
 
     info!(root = %root.display(), "notes watcher started");
 
     std::thread::spawn(move || {
         let mut budget = EmissionBudget::new();
+        // Outside the batch loop: the event a read of this watcher's own
+        // raises on Linux arrives in a later batch than the change that
+        // caused it, so a record scoped to one batch would never see it.
+        let mut seen = LastSeen::new();
+        // A removal waits for the delivery that might answer it, so the wait
+        // ends at its deadline as well as at the sweep's.
+        let pending = RefCell::new(PendingRemovals::publishing_to(
+            hold_window(NOTES_DEBOUNCE_WINDOW),
+            tracking.holds.clone(),
+        ));
         loop {
             // A change the budget dropped was covered by a sweep that had
             // already gone out, and the walk that sweep started may have read
             // the file before it changed. If the folder then falls quiet,
             // nothing else will ever raise it, so the wait ends at the moment
             // that sweep stops standing and the folder is swept once more.
-            let result = match budget.owed_sweep_at() {
+            let due = [budget.owed_sweep_at(), pending.borrow().deadline()]
+                .into_iter()
+                .flatten()
+                .min();
+            let result = match due {
                 Some(due) => match rx.recv_timeout(due.saturating_duration_since(Instant::now())) {
                     Ok(result) => result,
                     Err(mpsc::RecvTimeoutError::Timeout) => {
-                        if budget.take_owed_sweep(Instant::now()) {
+                        let now = Instant::now();
+                        let answers =
+                            answer_held_removals(&mut pending.borrow_mut(), &[], &tracking, now);
+                        for (_, event) in answers {
+                            bus.emit(event);
+                        }
+                        if budget.take_owed_sweep(now) {
                             info!(
                                 root = %root.display(),
                                 "the notes folder fell quiet mid-sweep; sweeping once more"
@@ -344,35 +415,48 @@ pub fn start_notes_watcher(
             match result {
                 Ok(events) => {
                     // One tab message per note per delivered batch, the same
-                    // rule the open-file watcher runs on.
-                    let mut told: HashSet<String> = HashSet::new();
-                    // A note moved inside the notes folder arrives as its old
+                    // rule the open-file watcher runs on, off the same code: a
+                    // note moved inside the notes folder arrives as its old
                     // path leaving and its new one appearing in the same
-                    // window, which is how the tab is kept on the file.
-                    let batch: Vec<PathBuf> =
-                        events.iter().map(|event| event.path.clone()).collect();
+                    // window, and the removal this delivery answers is that
+                    // note's message for it.
+                    let (batch, mut told, answers) =
+                        open_delivery(&events, &pending, &tracking, Instant::now());
+                    for event in answers {
+                        bus.emit(event);
+                    }
                     for event in &events {
                         let now = Instant::now();
-                        let Some(domain_event) = classify_notes_event(
+                        let domain_event = match report_notes_event(
                             &event.path,
                             &root,
                             &ignore_set,
+                            &mut seen,
                             DEFAULT_IGNORE_TTL,
                             now,
-                        ) else {
-                            if let Some(for_tab) = route_replaced_note_to_open_tab(
-                                &event.path,
-                                &root,
-                                open_notes.as_ref(),
-                                &mut told,
-                                &VanishedContext {
-                                    batch: &batch,
-                                    tracking: &tracking,
-                                },
-                            ) {
-                                bus.emit(for_tab);
+                        ) {
+                            NotesReport::Change(domain_event) => domain_event,
+                            // The path is the tab's business even where the
+                            // classifier has nothing to say about it, and the
+                            // route reads it, so it runs only on a sighting
+                            // that is news.
+                            NotesReport::Suppressed => {
+                                if let Some(for_tab) = route_replaced_note_to_open_tab(
+                                    &event.path,
+                                    &root,
+                                    open_notes.as_ref(),
+                                    &mut told,
+                                    &VanishedContext {
+                                        batch: &batch,
+                                        tracking: &tracking,
+                                        hold: &pending,
+                                    },
+                                ) {
+                                    bus.emit(for_tab);
+                                }
+                                continue;
                             }
-                            continue;
+                            NotesReport::NothingNew => continue,
                         };
                         if let Some(for_tab) = route_notes_change_to_open_tab(
                             &domain_event,
@@ -381,6 +465,7 @@ pub fn start_notes_watcher(
                             &VanishedContext {
                                 batch: &batch,
                                 tracking: &tracking,
+                                hold: &pending,
                             },
                         ) {
                             bus.emit(for_tab);
@@ -477,6 +562,62 @@ pub fn notes_swept(root: &Path) -> WritEvent {
     }
 }
 
+/// What one *delivered* notes event turns out to be.
+///
+/// The two ways of saying nothing are kept apart because only one of them may
+/// be looked into further: a path the classifier will not name can still be a
+/// tab's business, and a path this watcher has already looked at cannot,
+/// because every further look would read it again.
+#[derive(Debug)]
+pub enum NotesReport {
+    /// The file is exactly as this watcher last looked at it, so the event is
+    /// the echo of a read of its own and nothing reads it again.
+    NothingNew,
+    /// Nothing [`classify_notes_event`] will name: a path outside the root, a
+    /// name another client owns, a write Writ made, or a path holding
+    /// something other than a regular file. Only a tab sitting on that exact
+    /// path still has business with it
+    /// ([`route_replaced_note_to_open_tab`]).
+    Suppressed,
+    /// A change to the notes folder, to name.
+    Change(WritEvent),
+}
+
+impl NotesReport {
+    /// The change to emit, where the event was one.
+    pub fn change(self) -> Option<WritEvent> {
+        match self {
+            NotesReport::Change(event) => Some(event),
+            NotesReport::NothingNew | NotesReport::Suppressed => None,
+        }
+    }
+}
+
+/// What one *delivered* notes event is worth saying, or nothing.
+///
+/// This, rather than [`classify_notes_event`], is what the watcher thread
+/// calls, and the two are separate so that the record of what has already been
+/// looked at cannot be skipped by the caller that matters. An event describing
+/// the file exactly as this watcher last found it is dropped before anything
+/// opens it, which is what keeps a classification's own read from arriving
+/// back as the next change on Linux ([`writ_core::watcher::sighting`]).
+pub fn report_notes_event(
+    path: &Path,
+    root: &Path,
+    ignore_set: &IgnoreSet,
+    seen: &mut LastSeen,
+    ttl: Duration,
+    now: Instant,
+) -> NotesReport {
+    if !seen.is_news(path, look_at(path), now, DEFAULT_SIGHTING_TTL) {
+        return NotesReport::NothingNew;
+    }
+    match classify_notes_event(path, root, ignore_set, ttl, now) {
+        Some(event) => NotesReport::Change(event),
+        None => NotesReport::Suppressed,
+    }
+}
+
 /// Classifies a notes-folder event into a domain event, or suppresses it.
 ///
 /// Suppressed: a path outside `root`, a path under a folder another client
@@ -547,6 +688,30 @@ pub fn classify_workspace_event(path: &Path, root: &Path) -> Option<WritEvent> {
     })
 }
 
+/// What one *delivered* config event is worth saying, or nothing.
+///
+/// The watcher thread's entry point, for the reason [`report_notes_event`]
+/// gives, and the config file is the worst of the three: the read that
+/// fingerprints it clears the stamp on its way out, so on Linux an edit made
+/// in another editor announced itself over and over and the frontend reloaded
+/// the config each time.
+pub fn report_config_event(
+    path: &Path,
+    config_path: &Path,
+    ignore_set: &IgnoreSet,
+    seen: &mut LastSeen,
+    ttl: Duration,
+    now: Instant,
+) -> Option<WritEvent> {
+    if path != config_path {
+        return None;
+    }
+    if !seen.is_news(path, look_at(path), now, DEFAULT_SIGHTING_TTL) {
+        return None;
+    }
+    classify_watch_event(path, config_path, ignore_set, ttl, now)
+}
+
 /// Classifies a single file-system event into a domain event, or suppresses
 /// it. Pure aside from a single `fs::read` to fingerprint the file against
 /// the ignore set; callers test it directly with a tempdir.
@@ -563,6 +728,9 @@ pub fn classify_workspace_event(path: &Path, root: &Path) -> Option<WritEvent> {
 /// mid-edit, and removing a loaded one hard-freezes the macOS webview. Any
 /// watcher added over a folder Writ writes into has to filter its own temp
 /// files before it emits anything.
+///
+/// [`report_config_event`] is what the watcher thread calls; this is the
+/// classification on its own.
 pub fn classify_watch_event(
     path: &Path,
     config_path: &Path,
@@ -594,6 +762,12 @@ pub fn classify_watch_event(
 
 #[cfg(test)]
 mod tests {
+
+    /// A watcher holding removals for the window the running one holds them
+    /// for, so a test sees the same wait production does.
+    fn holding() -> RefCell<PendingRemovals> {
+        RefCell::new(PendingRemovals::new(hold_window(NOTES_DEBOUNCE_WINDOW)))
+    }
     use super::*;
     use std::collections::HashMap;
     use std::fs;
@@ -674,6 +848,257 @@ mod tests {
     }
 
     #[test]
+    fn the_events_one_write_raises_on_linux_report_the_change_once() {
+        // A rename-over inside the notes folder fans out into several raw
+        // inotify events, and classifying the first opens the file, which
+        // raises another for the same path, whose classification opens it
+        // again. Delivered one per batch, that reached the bus as eleven
+        // identical BufferExternal events on CI. The record of what has
+        // already been looked at is what ends it, so it is held across the
+        // batches the way the watcher thread holds it.
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let note = root.join("today.md");
+        fs::write(&note, b"rewritten by another program\n").unwrap();
+
+        let ignore = make_set();
+        let now = Instant::now();
+        let ungated = (0..11)
+            .filter(|_| {
+                classify_notes_event(&note, root, &make_set(), DEFAULT_IGNORE_TTL, now).is_some()
+            })
+            .count();
+        assert_eq!(
+            ungated, 11,
+            "the burst is what classification alone reports"
+        );
+
+        let mut seen = LastSeen::new();
+        let reported: Vec<WritEvent> = (0..11)
+            .filter_map(|_| {
+                report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
+                    .change()
+            })
+            .collect();
+
+        assert_eq!(
+            reported.len(),
+            1,
+            "one write must be reported once, saw {reported:?}"
+        );
+    }
+
+    #[test]
+    fn a_second_write_is_reported_however_recently_the_first_was() {
+        // The record must not swallow a real change: the file is written
+        // again, so it is not the file this watcher last looked at.
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let note = root.join("today.md");
+        fs::write(&note, b"first\n").unwrap();
+
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let now = Instant::now();
+        assert!(
+            report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
+                .change()
+                .is_some()
+        );
+        assert!(
+            report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
+                .change()
+                .is_none()
+        );
+
+        fs::write(&note, b"second, and longer\n").unwrap();
+        assert!(
+            report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
+                .change()
+                .is_some(),
+            "a file written again must reach the folder and the tab"
+        );
+    }
+
+    #[test]
+    fn a_note_that_has_gone_is_reported_once() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let note = root.join("today.md");
+        fs::write(&note, b"x\n").unwrap();
+        fs::remove_file(&note).unwrap();
+
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let now = Instant::now();
+        let reported: Vec<WritEvent> = (0..11)
+            .filter_map(|_| {
+                report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
+                    .change()
+            })
+            .collect();
+
+        assert_eq!(reported.len(), 1, "saw {reported:?}");
+        match &reported[0] {
+            WritEvent::NotesChanged { removed, .. } => assert!(removed),
+            other => panic!("expected NotesChanged, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_events_one_arrival_raises_on_linux_open_the_tab_once() {
+        // Classifying an arrival reads the file twice, to fingerprint it and
+        // to decide how it would open, and an arrival is never in the
+        // start-of-run snapshot that would otherwise suppress it. Unguarded,
+        // one file landing in the inbox reopens its tab for as long as the
+        // app runs.
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let arrival = root.join("report.md");
+        fs::write(&arrival, b"# done\n").unwrap();
+
+        let preexisting = std::collections::HashSet::new();
+        let ignore = make_set();
+        let now = Instant::now();
+        let ungated = (0..11)
+            .filter(|_| {
+                classify_inbox_event(
+                    &arrival,
+                    root,
+                    &preexisting,
+                    &make_set(),
+                    DEFAULT_IGNORE_TTL,
+                    now,
+                )
+                .is_some()
+            })
+            .count();
+        assert_eq!(
+            ungated, 11,
+            "the burst is what classification alone reports"
+        );
+
+        let mut seen = LastSeen::new();
+        let reported: Vec<WritEvent> = (0..11)
+            .filter_map(|_| {
+                report_inbox_event(
+                    &arrival,
+                    root,
+                    &preexisting,
+                    &ignore,
+                    &mut seen,
+                    DEFAULT_IGNORE_TTL,
+                    now,
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            reported.len(),
+            1,
+            "one arrival must open its tab once, saw {reported:?}"
+        );
+        assert!(matches!(reported[0], WritEvent::InboxFileArrived { .. }));
+    }
+
+    #[test]
+    fn a_second_arrival_is_reported_however_recently_the_first_was() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let first = root.join("report.md");
+        let second = root.join("notes.md");
+        fs::write(&first, b"# done\n").unwrap();
+        fs::write(&second, b"# other\n").unwrap();
+
+        let preexisting = std::collections::HashSet::new();
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let now = Instant::now();
+        let report = |path: &Path, seen: &mut LastSeen| {
+            report_inbox_event(
+                path,
+                root,
+                &preexisting,
+                &ignore,
+                seen,
+                DEFAULT_IGNORE_TTL,
+                now,
+            )
+        };
+        assert!(report(&first, &mut seen).is_some());
+        assert!(report(&first, &mut seen).is_none());
+        assert!(
+            report(&second, &mut seen).is_some(),
+            "a second file landing in the inbox must open its own tab"
+        );
+    }
+
+    #[test]
+    fn the_events_one_config_edit_raises_on_linux_reload_it_once() {
+        // The config file is the worst of the three: the read that
+        // fingerprints it clears the stamp on its way out, so nothing else
+        // stops an external edit announcing itself on every turn of the loop.
+        let dir = tempdir().unwrap();
+        let cfg = dir.path().join("config.toml");
+        fs::write(&cfg, b"theme = \"dark\"\n").unwrap();
+
+        let ignore = make_set();
+        let now = Instant::now();
+        {
+            let mut guard = ignore.lock().unwrap();
+            guard.record(config_stamp_key(&cfg), b"theme = \"dark\"\n", now);
+        }
+        fs::write(&cfg, b"theme = \"light\"\n").unwrap();
+
+        let ungated = (0..11)
+            .filter(|_| {
+                classify_watch_event(&cfg, &cfg, &ignore, DEFAULT_IGNORE_TTL, now).is_some()
+            })
+            .count();
+        assert_eq!(
+            ungated, 11,
+            "the stamp is cleared on the way out, so classification alone reports every turn"
+        );
+
+        let mut seen = LastSeen::new();
+        let reported: Vec<WritEvent> = (0..11)
+            .filter_map(|_| {
+                report_config_event(&cfg, &cfg, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
+            })
+            .collect();
+
+        assert_eq!(
+            reported.len(),
+            1,
+            "one config edit must reload the config once, saw {reported:?}"
+        );
+        assert!(matches!(reported[0], WritEvent::ConfigChanged { .. }));
+    }
+
+    #[test]
+    fn a_config_edit_is_reported_however_recently_the_last_one_was() {
+        let dir = tempdir().unwrap();
+        let cfg = dir.path().join("config.toml");
+        fs::write(&cfg, b"theme = \"dark\"\n").unwrap();
+
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let now = Instant::now();
+        assert!(
+            report_config_event(&cfg, &cfg, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now).is_some()
+        );
+        assert!(
+            report_config_event(&cfg, &cfg, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now).is_none()
+        );
+
+        fs::write(&cfg, b"theme = \"light\", font_size = 15\n").unwrap();
+        assert!(
+            report_config_event(&cfg, &cfg, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now).is_some(),
+            "an edit made after the last look must still reload the config"
+        );
+    }
+
+    #[test]
     fn a_sweep_is_its_own_event_and_names_the_folder() {
         // A listener discriminates on the variant rather than comparing a path
         // against a root it would have to fetch and normalise itself.
@@ -729,6 +1154,7 @@ mod tests {
             &open_as(&note, "note-1"),
             &mut told,
             &VanishedContext {
+                hold: &holding(),
                 batch: &lone(&note),
                 tracking: &FileTracking::untracked(),
             },
@@ -779,6 +1205,7 @@ mod tests {
             &open_as(&note, "note-1"),
             &mut told,
             &VanishedContext {
+                hold: &holding(),
                 batch: &lone(&note),
                 tracking: &FileTracking::untracked(),
             },
@@ -802,6 +1229,7 @@ mod tests {
             &open_as(&note, "note-1"),
             &mut told,
             &VanishedContext {
+                hold: &holding(),
                 batch: &lone(&note),
                 tracking: &FileTracking::untracked(),
             },
@@ -843,6 +1271,7 @@ mod tests {
             &open,
             &mut told,
             &VanishedContext {
+                hold: &holding(),
                 batch: &lone(&note),
                 tracking: &FileTracking::untracked(),
             },
@@ -854,6 +1283,7 @@ mod tests {
                 &open,
                 &mut told,
                 &VanishedContext {
+                    hold: &holding(),
                     batch: &lone(&note),
                     tracking: &FileTracking::untracked(),
                 },
@@ -869,6 +1299,7 @@ mod tests {
             &open,
             &mut next_batch,
             &VanishedContext {
+                hold: &holding(),
                 batch: &lone(&note),
                 tracking: &FileTracking::untracked(),
             },
@@ -892,6 +1323,7 @@ mod tests {
             &open_as(&note, "note-1"),
             &mut told,
             &VanishedContext {
+                hold: &holding(),
                 batch: &lone(&note),
                 tracking: &FileTracking::untracked(),
             },
@@ -918,6 +1350,7 @@ mod tests {
             &open_as(&note, "note-1"),
             &mut told,
             &VanishedContext {
+                hold: &holding(),
                 batch: &lone(&note),
                 tracking: &FileTracking::untracked(),
             },
@@ -938,6 +1371,71 @@ mod tests {
     }
 
     #[test]
+    fn the_deliveries_a_note_replaced_by_a_folder_raises_tell_the_tab_once() {
+        // The tab route that runs where the classifier has nothing to say
+        // reads the path as well: a folder opens, and the read fails only
+        // after it has. So it runs behind the same record the classified path
+        // runs behind, and a folder sitting where a note was costs one
+        // message rather than one per delivery for as long as it is there.
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let note = root.join("today.md");
+        fs::create_dir(&note).unwrap();
+
+        let open = open_as(&note, "note-1");
+        let ungated = (0..11)
+            .filter(|_| {
+                let mut told = HashSet::new();
+                route_replaced_note_to_open_tab(
+                    &note,
+                    root,
+                    &open,
+                    &mut told,
+                    &VanishedContext {
+                        hold: &holding(),
+                        batch: &lone(&note),
+                        tracking: &FileTracking::untracked(),
+                    },
+                )
+                .is_some()
+            })
+            .count();
+        assert_eq!(
+            ungated, 11,
+            "the burst is what the route alone tells the tab"
+        );
+
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let now = Instant::now();
+        let reported: Vec<WritEvent> = (0..11)
+            .filter_map(|_| {
+                let mut told = HashSet::new();
+                match report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now) {
+                    NotesReport::Suppressed => route_replaced_note_to_open_tab(
+                        &note,
+                        root,
+                        &open,
+                        &mut told,
+                        &VanishedContext {
+                            hold: &holding(),
+                            batch: &lone(&note),
+                            tracking: &FileTracking::untracked(),
+                        },
+                    ),
+                    NotesReport::Change(_) | NotesReport::NothingNew => None,
+                }
+            })
+            .collect();
+
+        assert_eq!(
+            reported.len(),
+            1,
+            "the tab must be told once, saw {reported:?}"
+        );
+    }
+
+    #[test]
     fn a_folder_no_tab_is_on_is_still_nothing_to_report() {
         let dir = tempdir().unwrap();
         let root = dir.path();
@@ -952,6 +1450,7 @@ mod tests {
             &open_as(&elsewhere, "note-1"),
             &mut told,
             &VanishedContext {
+                hold: &holding(),
                 batch: &lone(&sub),
                 tracking: &FileTracking::untracked(),
             },

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { syntaxTree } from "@codemirror/language";
+import { ensureSyntaxTree } from "@codemirror/language";
 import { markdownEditingExtension } from "../../editor/markdown-editing";
 import { registerBuiltinLanguages } from "../../editor/builtins";
 import { getExtension } from "../../editor/language-registry";
@@ -18,13 +18,21 @@ describe("markdownEditingExtension runtime", () => {
   });
 });
 
+// A fresh EditorState parses only within a 20 ms budget (Work.Apply in
+// @codemirror/language) and keeps whatever tree it reached when the budget ran
+// out, so on a loaded machine the node set below would cover the first line or
+// two only. Force the parse to the end of the doc, and prove it got there.
+const PARSE_TIMEOUT_MS = 30_000;
+
 describe("registered markdown language", () => {
   registerBuiltinLanguages();
 
   function nodeNames(doc: string): Set<string> {
     const state = EditorState.create({ doc, extensions: [getExtension("markdown")] });
+    const tree = ensureSyntaxTree(state, state.doc.length, PARSE_TIMEOUT_MS);
+    expect(tree?.length).toBe(state.doc.length);
     const names = new Set<string>();
-    syntaxTree(state).iterate({
+    tree!.iterate({
       enter: (node) => {
         names.add(node.name);
       },
