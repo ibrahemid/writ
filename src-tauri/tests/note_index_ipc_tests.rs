@@ -170,6 +170,23 @@ fn note_name_candidates_ranks_the_note_names_and_honours_the_limit() {
 }
 
 #[test]
+fn note_name_candidates_rank_on_the_path_inside_the_notes_folder() {
+    let (_dir, root, index) = indexed(&[("alpha.md", "one\n"), ("projects/beta.md", "two\n")]);
+
+    // A folder inside the notes folder is part of what a candidate is matched
+    // against, which is only true while the completion hands `search_names` the
+    // notes root it hands quick open. Without it a candidate falls back to its
+    // bare filename and this query finds nothing.
+    let hits = note_name_candidates_inner(&index, "projbeta", &root, None).expect("candidates");
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].name, "beta.md");
+    assert_eq!(
+        hits[0].path,
+        notes_index::index_key(&root.join("projects").join("beta.md"))
+    );
+}
+
+#[test]
 fn note_name_candidates_answers_an_empty_query_with_nothing() {
     let (_dir, root, index) = indexed(&[("Note.md", "body\n")]);
     assert!(note_name_candidates_inner(&index, "   ", &root, None)
