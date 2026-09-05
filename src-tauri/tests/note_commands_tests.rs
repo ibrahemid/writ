@@ -111,7 +111,11 @@ fn open_note_at(state: &AppState, path: &std::path::Path, content: &str) -> Stri
     std::fs::write(path, content).expect("write");
     let canonical = canonicalize_for_authorization(path).expect("canonical");
     state.authorized_paths.record_for_open(canonical.clone());
-    open_file_from_path(state, &canonical).expect("open").doc.id
+    open_file_from_path(state, &canonical)
+        .expect("open")
+        .doc
+        .expect("the file opened")
+        .id
 }
 
 #[test]
@@ -290,7 +294,7 @@ fn save_copy_leaves_the_original_untouched() {
     // The copy is a file inside the notes folder, so it opens with no further
     // permission and is a note of its own.
     let opened = open_file_from_path(&state, copy.to_str().expect("utf-8")).expect("open");
-    assert_ne!(opened.doc.id, id);
+    assert_ne!(opened.doc.as_ref().expect("the file opened").id, id);
     assert_eq!(
         sha256_bytes(std::fs::read(&copy).expect("read").as_slice()),
         sha256_bytes(b"the text plus more")
@@ -939,7 +943,10 @@ fn a_file_opened_from_outside_the_notes_folder_follows_its_move_too() {
 
     let seen = external_events(&rx);
     assert_eq!(seen.len(), 1, "the tab must be told once, saw {seen:?}");
-    assert_eq!(named_by(&seen[0]).0, opened.doc.id);
+    assert_eq!(
+        named_by(&seen[0]).0,
+        opened.doc.as_ref().expect("the file opened").id
+    );
     let (change, new_path) = change_of(&seen[0]);
     assert_eq!(change, &ExternalChange::Moved);
     let landed = new_path.expect("a move names where the file went");
@@ -948,7 +955,11 @@ fn a_file_opened_from_outside_the_notes_folder_follows_its_move_too() {
         canonicalize_for_authorization(&renamed).expect("canonical")
     );
     assert_eq!(
-        canonicalize_for_authorization(&note_file(&state, &opened.doc.id)).expect("canonical"),
+        canonicalize_for_authorization(&note_file(
+            &state,
+            &opened.doc.as_ref().expect("the file opened").id
+        ))
+        .expect("canonical"),
         canonicalize_for_authorization(&renamed).expect("canonical"),
         "the row still points at the path the file left"
     );
@@ -1122,7 +1133,7 @@ fn a_file_outside_the_notes_folder_re_attaches_when_it_comes_back() {
         vec![&ExternalChange::Removed],
         "saw {removal:?}"
     );
-    assert!(state.is_removed_on_disk(&opened.doc.id));
+    assert!(state.is_removed_on_disk(&opened.doc.as_ref().expect("the file opened").id));
 
     std::fs::rename(&held, &file).expect("put it back");
     let restored = external_events(&rx);
@@ -1133,11 +1144,17 @@ fn a_file_outside_the_notes_folder_re_attaches_when_it_comes_back() {
         "a file that came back must reach its tab, saw {restored:?}"
     );
     assert!(
-        !state.is_removed_on_disk(&opened.doc.id),
+        !state.is_removed_on_disk(&opened.doc.as_ref().expect("the file opened").id),
         "the tab is still refusing to write to a file that is there"
     );
-    read_buffer_content_inner(&state, &opened.doc.id).expect("reload");
-    save_buffer_content_inner(&state, &opened.doc.id, "edited after the restore").expect("save");
+    read_buffer_content_inner(&state, &opened.doc.as_ref().expect("the file opened").id)
+        .expect("reload");
+    save_buffer_content_inner(
+        &state,
+        &opened.doc.as_ref().expect("the file opened").id,
+        "edited after the restore",
+    )
+    .expect("save");
     assert_eq!(
         std::fs::read_to_string(&file).expect("read"),
         "edited after the restore"

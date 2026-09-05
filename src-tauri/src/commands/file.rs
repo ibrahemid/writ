@@ -12,6 +12,7 @@ use writ_core::buffer::manager::BufferManager;
 use writ_core::events::bus::WritEvent;
 use writ_core::file_ops::{self, FileOpenMode};
 use writ_core::notes::line_ending::LineEnding;
+use writ_core::notes::materialise::{decide_open, OpenDecision};
 use writ_core::watcher::change_event::ExternalChange;
 use writ_storage::buffer_store::BufferStore;
 
@@ -24,8 +25,10 @@ const ERR_UNAUTHORIZED_PATH: &str =
 /// configure the editor without a second IPC round-trip.
 #[derive(Debug, Clone, Serialize)]
 pub struct FileOpenResult {
-    /// The buffer metadata row.
-    pub doc: BufferDocument,
+    /// The buffer metadata row, or `None` when the file was not opened
+    /// because its bytes are not on this machine
+    /// ([`FileOpenMode::NotDownloaded`]). Every other mode carries a row.
+    pub doc: Option<BufferDocument>,
     /// How the file was classified.
     pub mode: FileOpenMode,
     /// File size in bytes (mirrors `doc.size_bytes`; included for
@@ -46,22 +49,89 @@ pub struct FileOpenConfirmRequired {
     pub warning: String,
 }
 
-fn authorize_open(state: &AppState, raw_path: &str) -> Result<String, String> {
+// Paths this process treats as sync placeholders regardless of what the
+// filesystem says, so the not-downloaded open arm is testable without a real
+// provider. Thread-local and dev-build-only, matching
+// `crate::preview::protocol`'s recorder: an integration test links the library
+// without `cfg(test)`, so `debug_assertions` is what makes the hook reachable
+// from `tests/`.
+#[cfg(any(test, debug_assertions))]
+thread_local! {
+    static DATALESS_PATHS: std::cell::RefCell<std::collections::HashSet<String>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// Makes `canonical` answer as a sync placeholder on this thread. No-op in
+/// release builds.
+#[cfg(any(test, debug_assertions))]
+pub fn mark_dataless_for_test(canonical: &str) {
+    DATALESS_PATHS.with(|p| p.borrow_mut().insert(canonical.to_string()));
+}
+
+/// Drops every path marked by [`mark_dataless_for_test`] on this thread.
+#[cfg(any(test, debug_assertions))]
+pub fn clear_dataless_for_test() {
+    DATALESS_PATHS.with(|p| p.borrow_mut().clear());
+}
+
+/// Whether the file has no local data behind it.
+///
+/// A stat, never a read: reading is what a placeholder makes expensive, so the
+/// question cannot be answered by opening the file.
+fn path_is_dataless(path: &Path) -> bool {
+    #[cfg(any(test, debug_assertions))]
+    {
+        let marked =
+            DATALESS_PATHS.with(|p| p.borrow().contains(&path.to_string_lossy().to_string()));
+        if marked {
+            return true;
+        }
+    }
+    writ_storage::notes_index::is_dataless(path)
+}
+
+/// Authorizes one open, and says whether a one-shot token paid for it.
+///
+/// A path inside the workspace, the inbox or the notes folder authorizes
+/// itself and can be opened again tomorrow. A path outside all three is opened
+/// on a token the person's own gesture recorded, and that token is spent here.
+fn authorize_open(state: &AppState, raw_path: &str) -> Result<(String, bool), String> {
     let canonical = canonicalize_for_authorization(Path::new(raw_path))
         .map_err(|_| ERR_UNAUTHORIZED_PATH.to_string())?;
     if state.authorized_paths.consume_for_open(&canonical) {
-        return Ok(canonical);
+        return Ok((canonical, true));
     }
     if state.is_within_workspace(&canonical) {
-        return Ok(canonical);
+        return Ok((canonical, false));
     }
     if state.is_within_inbox(&canonical) {
-        return Ok(canonical);
+        return Ok((canonical, false));
     }
     if state.is_within_notes(&canonical) {
-        return Ok(canonical);
+        return Ok((canonical, false));
     }
     Err(ERR_UNAUTHORIZED_PATH.to_string())
+}
+
+/// Gate on asking a sync provider for a file's bytes.
+///
+/// A download reads the file, so it is authorized on the same grounds an open
+/// is. It differs in one way: it must not spend the pending-open token. That
+/// token belongs to the open the frontend performs once the bytes land, and a
+/// download that consumed it would leave that open unauthorized.
+pub fn authorize_download(state: &AppState, raw_path: &str) -> Result<String, String> {
+    let canonical = canonicalize_for_authorization(Path::new(raw_path))
+        .map_err(|_| ERR_UNAUTHORIZED_PATH.to_string())?;
+    let authorized = state.authorized_paths.is_pending_open(&canonical)
+        || state.authorized_paths.is_blessed_source(&canonical)
+        || state.is_within_workspace(&canonical)
+        || state.is_within_inbox(&canonical)
+        || state.is_within_notes(&canonical);
+    if authorized {
+        Ok(canonical)
+    } else {
+        Err(ERR_UNAUTHORIZED_PATH.to_string())
+    }
 }
 
 /// Opens a file from an already-authorized canonical path.
@@ -70,8 +140,66 @@ fn authorize_open(state: &AppState, raw_path: &str) -> Result<String, String> {
 /// returns early with an error containing the confirmation sentinel instead.
 /// The frontend must call `open_file_confirmed` after the user confirms.
 pub fn open_file_from_path(state: &AppState, path: &str) -> Result<FileOpenResult, String> {
-    let canonical = authorize_open(state, path)?;
+    let (canonical, spent) = authorize_open(state, path)?;
+    let opened = open_authorized_path(state, &canonical);
+    settle_open_grant(state, &canonical, spent, &opened);
+    opened
+}
+
+/// Puts a spent one-shot token back when the open it paid for opened no note.
+///
+/// The grant was for opening this note, and an answer carrying no note has not
+/// done that: a refusal, a file waiting to be confirmed, a note whose bytes are
+/// still elsewhere. The next attempt is the one the grant was for, and for a
+/// path outside every root it is the only thing that can authorize it. Only an
+/// open that spent a token puts one back, so no path can be authorized here
+/// that was not granted first.
+fn settle_open_grant(
+    state: &AppState,
+    canonical: &str,
+    spent: bool,
+    opened: &Result<FileOpenResult, String>,
+) {
+    if spent && !matches!(opened, Ok(result) if result.doc.is_some()) {
+        state
+            .authorized_paths
+            .record_for_open(canonical.to_string());
+    }
+}
+
+/// The download state for a file whose bytes are not on this machine, or
+/// `None` when the file is here and can be read.
+///
+/// Every open entry point calls this before anything reads the file.
+/// `classify_path` sniffs the first bytes for a NUL, and on a placeholder that
+/// sniff is what blocks the IPC thread until the provider has fetched the whole
+/// file, so the gate has to answer from the stat first.
+fn dataless_open_answer(canonical: &str) -> Option<FileOpenResult> {
+    let file_path = Path::new(canonical);
+    let OpenDecision::Download { .. } = decide_open(file_path, path_is_dataless(file_path)) else {
+        return None;
+    };
+    let size_bytes = std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
+    let home = dirs::home_dir();
+    let provider =
+        crate::startup::sync_provider_for(file_path.parent().unwrap_or(file_path), home.as_deref());
+    Some(FileOpenResult {
+        mode: FileOpenMode::NotDownloaded {
+            path: canonical.to_string(),
+            provider,
+        },
+        size_bytes,
+        doc: None,
+    })
+}
+
+fn open_authorized_path(state: &AppState, canonical: &str) -> Result<FileOpenResult, String> {
+    let canonical = canonical.to_string();
     let file_path = Path::new(&canonical);
+
+    if let Some(answer) = dataless_open_answer(&canonical) {
+        return Ok(answer);
+    }
 
     let classification = file_ops::classify_path(file_path).map_err(|e| e.to_string())?;
 
@@ -110,8 +238,13 @@ fn open_file_classified(
     let opened = open_file_classified_inner(state, canonical, mode, size_bytes)?;
     // A file opened from anywhere but the notes folder is followed from here
     // on, so an edit another program makes to it reaches the tab instead of
-    // being found the hard way on the next save.
-    state.follow_note_file(&opened.doc);
+    // being found the hard way on the next save. An answer carrying no note is
+    // not an open: a note still waiting on its bytes has no id to follow, and
+    // giving the watcher one would have it report a file the download is about
+    // to rewrite.
+    if let Some(doc) = &opened.doc {
+        state.follow_note_file(doc);
+    }
     Ok(opened)
 }
 
@@ -137,7 +270,7 @@ fn open_file_classified_inner(
         return Ok(FileOpenResult {
             mode: existing_mode,
             size_bytes: existing.size_bytes,
-            doc: existing,
+            doc: Some(existing),
         });
     }
 
@@ -184,7 +317,7 @@ fn open_file_classified_inner(
         return Ok(FileOpenResult {
             mode,
             size_bytes,
-            doc,
+            doc: Some(doc),
         });
     }
 
@@ -224,7 +357,7 @@ fn open_file_classified_inner(
     Ok(FileOpenResult {
         mode,
         size_bytes,
-        doc: new_doc,
+        doc: Some(new_doc),
     })
 }
 
@@ -243,8 +376,29 @@ pub fn open_file_confirmed(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<FileOpenResult, String> {
-    let canonical = authorize_open(&state, &path)?;
-    let file_path = Path::new(&canonical);
+    open_file_confirmed_from_path(&state, &path)
+}
+
+/// [`open_file_confirmed`] against an `AppState` rather than a Tauri handle.
+pub fn open_file_confirmed_from_path(
+    state: &AppState,
+    path: &str,
+) -> Result<FileOpenResult, String> {
+    let (canonical, spent) = authorize_open(state, path)?;
+    let opened = open_confirmed_path(state, &canonical);
+    settle_open_grant(state, &canonical, spent, &opened);
+    opened
+}
+
+fn open_confirmed_path(state: &AppState, canonical: &str) -> Result<FileOpenResult, String> {
+    // Ahead of `classify_path`, on the same grounds as `open_authorized_path`:
+    // the file can be evicted while the confirmation dialog is up, and the
+    // sniff would then fetch the whole of it on the IPC thread.
+    if let Some(answer) = dataless_open_answer(canonical) {
+        return Ok(answer);
+    }
+
+    let file_path = Path::new(canonical);
     let classification = file_ops::classify_path(file_path).map_err(|e| e.to_string())?;
     if let FileOpenMode::Refused { reason } = &classification.mode {
         return Err(reason.clone());
@@ -255,7 +409,7 @@ pub fn open_file_confirmed(
     } else {
         classification.mode
     };
-    open_file_classified(&state, &canonical, mode, classification.size_bytes)
+    open_file_classified(state, canonical, mode, classification.size_bytes)
 }
 
 #[tauri::command]
@@ -429,7 +583,7 @@ pub fn open_generated_document(
         return Ok(FileOpenResult {
             mode: FileOpenMode::Normal,
             size_bytes,
-            doc: existing,
+            doc: Some(existing),
         });
     }
 
@@ -446,7 +600,7 @@ pub fn open_generated_document(
         return Ok(FileOpenResult {
             mode: FileOpenMode::Normal,
             size_bytes,
-            doc,
+            doc: Some(doc),
         });
     }
 
@@ -468,7 +622,7 @@ pub fn open_generated_document(
     Ok(FileOpenResult {
         mode: FileOpenMode::Normal,
         size_bytes,
-        doc: new_doc,
+        doc: Some(new_doc),
     })
 }
 

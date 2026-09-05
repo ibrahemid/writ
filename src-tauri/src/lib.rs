@@ -471,6 +471,7 @@ pub fn run() {
         .register_uri_scheme_protocol("writ-preview", preview::handler::serve)
         .manage(app_state)
         .manage(commands::ai::AiState::default())
+        .manage(commands::materialise::MaterialiseState::default())
         .invoke_handler(tauri::generate_handler![
             commands::buffer::create_buffer,
             commands::buffer::get_buffer,
@@ -506,6 +507,8 @@ pub fn run() {
             commands::file::open_file,
             commands::file::open_file_confirmed,
             commands::file::pick_files_to_open,
+            commands::materialise::materialise_note,
+            commands::materialise::cancel_materialise_note,
             commands::history::list_history,
             commands::history::restore_buffer,
             commands::history::clear_history,

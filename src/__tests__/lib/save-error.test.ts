@@ -46,7 +46,7 @@ describe("formatSaveError", () => {
 
   it("a_folder_that_would_not_take_the_write_says_the_folder_rather_than_the_file", () => {
     const message = formatSaveError(new Error(FOLDER_NOT_WRITABLE));
-    expect(message).toBe("the folder this file is in cannot be written to, so nothing was saved.");
+    expect(message).toBe("the folder this file is in cannot be written to, so nothing was written.");
     // The file in this failure is writable, so the read-only sentence sends
     // the person to change the wrong thing.
     expect(message).not.toBe("this file is read-only, so nothing was written.");
@@ -151,7 +151,7 @@ describe("describeSaveFailure", () => {
     // "Save a copy…" as the only way out of a failure that fixes itself.
     expect(describeSaveFailure(new Error(FOLDER_NOT_WRITABLE))).toEqual({
       code: "ERR_FOLDER_NOT_WRITABLE",
-      message: "the folder this file is in cannot be written to, so nothing was saved.",
+      message: "the folder this file is in cannot be written to, so nothing was written.",
       retryable: true,
     });
     expect(isRetryableSaveError(new Error(FOLDER_NOT_WRITABLE))).toBe(true);

@@ -36,6 +36,31 @@ impl AuthorizedPaths {
         guard.pending_open.remove(canonical)
     }
 
+    /// Hands a waiting open authorization back without opening anything.
+    ///
+    /// The one-shot token a not-downloaded answer recorded is spent by the
+    /// open that follows the bytes landing. A download that ends any other way
+    /// never performs that open, so the token goes back here rather than
+    /// sitting in the set for the rest of the session.
+    pub fn discard_pending_open(&self, canonical: &str) -> bool {
+        let mut guard = recover_poison(
+            self.inner.lock(),
+            "security::authorized_paths::discard_pending_open",
+        );
+        guard.pending_open.remove(canonical)
+    }
+
+    /// Whether `canonical` has an open authorization waiting, without
+    /// spending it. Used by the download gate: the token belongs to the open
+    /// that follows the download, not to the download.
+    pub fn is_pending_open(&self, canonical: &str) -> bool {
+        let guard = recover_poison(
+            self.inner.lock(),
+            "security::authorized_paths::is_pending_open",
+        );
+        guard.pending_open.contains(canonical)
+    }
+
     pub fn record_blessed_source(&self, canonical: String) {
         let mut guard = recover_poison(
             self.inner.lock(),
@@ -186,6 +211,38 @@ mod tests {
         auth.record_for_open(canonical.clone());
         assert!(auth.consume_for_open(&canonical));
         assert!(!auth.consume_for_open(&canonical));
+    }
+
+    #[test]
+    fn pending_open_reads_the_token_without_spending_it() {
+        let dir = TempDir::new().unwrap();
+        let canonical = make_file(&dir, "pending.txt");
+        let auth = AuthorizedPaths::new();
+
+        assert!(!auth.is_pending_open(&canonical));
+        auth.record_for_open(canonical.clone());
+        assert!(auth.is_pending_open(&canonical));
+        assert!(auth.is_pending_open(&canonical));
+        assert!(auth.consume_for_open(&canonical));
+        assert!(!auth.is_pending_open(&canonical));
+    }
+
+    #[test]
+    fn discarding_a_token_takes_only_that_path_out_of_the_set() {
+        let dir = TempDir::new().unwrap();
+        let canonical = make_file(&dir, "given-back.txt");
+        let other = make_file(&dir, "kept.txt");
+        let auth = AuthorizedPaths::new();
+        auth.record_for_open(canonical.clone());
+        auth.record_for_open(other.clone());
+
+        assert!(auth.discard_pending_open(&canonical));
+        assert!(!auth.is_pending_open(&canonical));
+        assert!(auth.is_pending_open(&other));
+        assert_eq!(auth.pending_open_len(), 1);
+
+        // A path with no token to give back says so rather than failing.
+        assert!(!auth.discard_pending_open(&canonical));
     }
 
     #[test]

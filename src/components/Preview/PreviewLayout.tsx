@@ -1,6 +1,7 @@
 import { Show, createEffect, createMemo, type JSX } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
 import EditorInstance from "../Editor/EditorInstance";
+import NoteDownloading from "../Editor/NoteDownloading";
 import PreviewPane from "./PreviewPane";
 import PreviewSplit from "./PreviewSplit";
 import { configStore } from "../../stores/global/config";
@@ -130,7 +131,19 @@ export default function PreviewLayout(props: Props) {
       <div class="preview-editor-slot" style={editorStyle()}>
         <Show
           when={props.buffer}
-          fallback={<div class="editor-empty">No note open</div>}
+          fallback={
+            <Show
+              when={win.downloads.selected()}
+              fallback={<div class="editor-empty">No note open</div>}
+            >
+              {(download) => (
+                <NoteDownloading
+                  download={download()}
+                  onDismiss={() => void win.downloads.dismiss(download().path)}
+                />
+              )}
+            </Show>
+          }
         >
           {(buf) => <EditorInstance buffer={buf()} />}
         </Show>

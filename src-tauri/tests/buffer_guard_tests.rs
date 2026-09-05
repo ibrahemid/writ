@@ -163,7 +163,10 @@ fn open_note_at(
     let canonical = canonicalize_for_authorization(path).expect("canonical");
     state.authorized_paths.record_for_open(canonical.clone());
     let opened = open_file_from_path(state, &canonical).expect("open");
-    (opened.doc.id, std::path::PathBuf::from(canonical))
+    (
+        opened.doc.expect("the file opened").id,
+        std::path::PathBuf::from(canonical),
+    )
 }
 
 fn conflict_copies(dir: &std::path::Path) -> Vec<std::path::PathBuf> {

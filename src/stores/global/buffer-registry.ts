@@ -4,6 +4,13 @@ import * as api from "../../services/tauri";
 import { cancelAutosave, flushAutosave, type SaveFailure } from "../../services/autosave";
 import { requestConfirm } from "../../components/ConfirmDialog/ConfirmDialog";
 
+// What an open of a path came to. A file whose bytes a sync provider has not
+// put on this machine opens no note: it is downloaded first, and opened again
+// once the bytes are here.
+export type OpenOutcome =
+  | { kind: "opened"; doc: BufferDocument; existed: boolean; mode: FileOpenResult["mode"] }
+  | { kind: "not-downloaded"; path: string; provider: string | null };
+
 export interface CloseOutcome {
   closed: boolean;
   failures: SaveFailure[];
@@ -169,18 +176,26 @@ function createBufferRegistry() {
     return `${n} B`;
   }
 
-  function registerOpenResult(result: FileOpenResult): { doc: BufferDocument; existed: boolean; mode: FileOpenResult["mode"] } {
+  function registerOpenResult(result: FileOpenResult): OpenOutcome {
+    if (result.mode.kind === "NotDownloaded") {
+      return {
+        kind: "not-downloaded",
+        path: result.mode.path,
+        provider: result.mode.provider,
+      };
+    }
     const doc = result.doc;
+    if (!doc) throw new Error("the file opened but carried no note");
     setBuffers((prev) => {
       if (prev.find((b) => b.id === doc.id)) {
         return prev.map((b) => (b.id === doc.id ? doc : b));
       }
       return [...prev, doc];
     });
-    return { doc, existed: false, mode: result.mode };
+    return { kind: "opened", doc, existed: false, mode: result.mode };
   }
 
-  async function openFile(path: string): Promise<{ doc: BufferDocument; existed: boolean; mode: FileOpenResult["mode"] }> {
+  async function openFile(path: string): Promise<OpenOutcome> {
     const existing = activeTabs().find((b) => b.source_path === path);
     if (existing) {
       const mode = existing.read_only
@@ -190,7 +205,7 @@ function createBufferRegistry() {
         : existing.size_bytes > 5 * 1024 * 1024
         ? { kind: "LargeFile" as const }
         : { kind: "Normal" as const };
-      return { doc: existing, existed: true, mode };
+      return { kind: "opened", doc: existing, existed: true, mode };
     }
 
     let result: FileOpenResult;

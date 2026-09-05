@@ -23,7 +23,7 @@ const CODE_MESSAGES: Record<string, string> = {
   [ERR_HARD_LINKED]: "this file is shared with another name on disk, so Writ left it alone.",
   [ERR_READ_ONLY_DESTINATION]: "this file is read-only, so nothing was written.",
   [ERR_FOLDER_NOT_WRITABLE]:
-    "the folder this file is in cannot be written to, so nothing was saved.",
+    "the folder this file is in cannot be written to, so nothing was written.",
   [ERR_FILE_REMOVED_ON_DISK]:
     "the file was deleted, so nothing was written. Your text is still here.",
   [ERR_NOTE_READ_ONLY]: "this file opened read-only, so it cannot be written to.",

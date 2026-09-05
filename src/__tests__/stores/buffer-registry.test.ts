@@ -65,10 +65,20 @@ vi.mock("../../services/autosave", () => ({
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import * as api from "../../services/tauri";
 import { cancelAutosave, flushAutosave } from "../../services/autosave";
+import type { OpenOutcome } from "../../stores/global/buffer-registry";
 
 const mockedApi = vi.mocked(api);
 const mockedFlush = vi.mocked(flushAutosave);
 const mockedCancel = vi.mocked(cancelAutosave);
+
+// A file whose bytes are not on this machine opens no note. These cases all
+// open one, so the outcome is narrowed once rather than at every assertion.
+function expectOpened(outcome: OpenOutcome) {
+  if (outcome.kind !== "opened") {
+    throw new Error(`expected an opened note, got ${outcome.kind}`);
+  }
+  return outcome;
+}
 
 describe("bufferRegistry (app-global)", () => {
   beforeEach(async () => {
@@ -323,15 +333,15 @@ describe("bufferRegistry (app-global)", () => {
 
   describe("openFile", () => {
     it("opens a file and reports it as new", async () => {
-      const result = await bufferRegistry.openFile("/home/user/main.rs");
+      const result = expectOpened(await bufferRegistry.openFile("/home/user/main.rs"));
       expect(mockedApi.openFile).toHaveBeenCalledWith("/home/user/main.rs");
       expect(result.existed).toBe(false);
       expect(bufferRegistry.activeTabs()).toContainEqual(result.doc);
     });
 
     it("dedupes by source_path on subsequent open", async () => {
-      const first = await bufferRegistry.openFile("/home/user/main.rs");
-      const again = await bufferRegistry.openFile("/home/user/main.rs");
+      const first = expectOpened(await bufferRegistry.openFile("/home/user/main.rs"));
+      const again = expectOpened(await bufferRegistry.openFile("/home/user/main.rs"));
 
       expect(again.existed).toBe(true);
       expect(again.doc.id).toBe(first.doc.id);
