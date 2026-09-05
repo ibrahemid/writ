@@ -13,7 +13,7 @@ use writ_core::update::UpdatePhase;
 use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::builtins::register_builtins;
 use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
+use writ_storage::buffer_store::{BufferStore, RecoveredFile};
 use writ_storage::config_store::ConfigStore;
 use writ_storage::consistency::ConsistencyChecker;
 use writ_storage::database::connection::open_database;
@@ -889,6 +889,11 @@ impl AppState {
 /// A note whose file was never opened, because its bytes are not on this
 /// machine, comes back with nothing: the first save reads it instead.
 ///
+/// Whether the note had a file is what the mint above answers, and it is
+/// passed on: a file that is gone was deleted and the snapshot goes beside
+/// where it was, while a path minted a line ago has never held anything and is
+/// simply written.
+///
 /// No stamp is passed: this runs while the app state is still being built, so
 /// no watcher exists yet to mistake the write for somebody else's. The flags
 /// come from the filesystem for the same reason — there is no test double in
@@ -899,7 +904,7 @@ fn restore_recovered_buffer(
     recovered: &RecoveredBuffer,
 ) -> Result<Option<DiskState>, String> {
     let doc = store.get(&recovered.id).map_err(|e| e.to_string())?;
-    if doc.source_path.is_none() {
+    let file = if doc.source_path.is_none() {
         crate::notes::attach_note_file(
             store,
             notes_root,
@@ -907,9 +912,12 @@ fn restore_recovered_buffer(
             &doc.title,
             chrono::Utc::now(),
         )?;
-    }
+        RecoveredFile::Minted
+    } else {
+        RecoveredFile::Existing
+    };
     store
-        .restore_recovered_content(&recovered.id, &recovered.content, None, None)
+        .restore_recovered_content(&recovered.id, &recovered.content, file, None, None)
         .map(|outcome| outcome.disk_state())
         .map_err(|e| e.to_string())
 }

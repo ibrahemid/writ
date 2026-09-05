@@ -7,7 +7,7 @@ use tempfile::TempDir;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::hash::{sha256_bytes, sha256_hex};
 use writ_core::notes::guard::{DiskState, SF_DATALESS};
-use writ_storage::buffer_store::{write_conflict_copy, BufferStore, RecoveredText};
+use writ_storage::buffer_store::{write_conflict_copy, BufferStore, RecoveredFile, RecoveredText};
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::errors::StorageError;
@@ -266,7 +266,13 @@ fn a_file_changed_while_writ_was_down_keeps_its_text_and_the_snapshot_lands_besi
     let path = open_recovered_note(&store, &notes, "# What a sync client delivered");
 
     let outcome = store
-        .restore_recovered_content("guard-1", "# What the crash was holding", None, None)
+        .restore_recovered_content(
+            "guard-1",
+            "# What the crash was holding",
+            RecoveredFile::Existing,
+            None,
+            None,
+        )
         .expect("recovery never fails on a file that moved on");
 
     let RecoveredText::SetAside { on_disk, copy } = outcome else {
@@ -299,7 +305,13 @@ fn a_file_that_did_not_change_is_left_exactly_as_it_is() {
     let before = std::fs::metadata(&path).unwrap();
 
     let outcome = store
-        .restore_recovered_content("guard-1", "# What the crash was holding", None, None)
+        .restore_recovered_content(
+            "guard-1",
+            "# What the crash was holding",
+            RecoveredFile::Existing,
+            None,
+            None,
+        )
         .expect("restore");
 
     let RecoveredText::Restored(state) = outcome else {
@@ -329,22 +341,72 @@ fn a_file_that_did_not_change_is_left_exactly_as_it_is() {
     }
 }
 
+// A deleted note keeps its text in the tab, and the tab keeps taking typing
+// while it refuses to write any of it to a file that is not there. That text
+// reaches the shutdown snapshot, so the relaunch is holding the newest version
+// of a note the person threw away. Writing it back at the path recreates the
+// file, and in a synced folder it recreates it on every device.
 #[test]
-fn a_file_that_is_gone_is_recreated_from_the_recovered_text() {
+fn a_file_that_was_deleted_stays_deleted_and_the_snapshot_lands_beside_it() {
     let (_db, store) = setup();
     let notes = TempDir::new().unwrap();
     let path = open_recovered_note(&store, &notes, "# Before the crash");
     std::fs::remove_file(&path).unwrap();
 
     let outcome = store
-        .restore_recovered_content("guard-1", "# What the crash was holding", None, None)
+        .restore_recovered_content(
+            "guard-1",
+            "# What the crash was holding",
+            RecoveredFile::Existing,
+            None,
+            None,
+        )
+        .expect("a file that is gone is not a failure");
+
+    let RecoveredText::SetAside { on_disk, copy } = outcome else {
+        panic!("expected the snapshot to be set aside, got {outcome:?}");
+    };
+    assert!(
+        on_disk.is_none(),
+        "there was nothing to read, so nothing can be claimed about the file"
+    );
+    assert!(!path.exists(), "the deletion stands");
+    assert_eq!(
+        std::fs::read_to_string(&copy).unwrap(),
+        "# What the crash was holding"
+    );
+    let name = copy.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(name.starts_with("notes (recovered "), "{name}");
+    assert!(name.ends_with(").md"), "{name}");
+}
+
+// The other way to have no file: a note typed into and never saved, whose path
+// is minted by the relaunch a moment before this runs. Nothing has ever been
+// at it, so writing it creates the note rather than putting back a deletion,
+// and a name nobody would recognise is the wrong thing to hand back.
+#[test]
+fn a_note_that_never_reached_a_file_is_written_at_its_own_path() {
+    let (_db, store) = setup();
+    let notes = TempDir::new().unwrap();
+    let path = notes.path().join("notes.md");
+    let doc = make_doc("guard-1", &path);
+    store.insert(&doc).expect("insert");
+
+    let outcome = store
+        .restore_recovered_content(
+            "guard-1",
+            "# What the crash was holding",
+            RecoveredFile::Minted,
+            None,
+            None,
+        )
         .expect("restore");
 
     match outcome {
         RecoveredText::Restored(state) => {
             assert_eq!(state.hash, sha256_bytes(b"# What the crash was holding"));
         }
-        other => panic!("expected the file to be recreated, got {other:?}"),
+        other => panic!("expected the note to be written, got {other:?}"),
     }
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),
@@ -408,6 +470,7 @@ fn an_evicted_file_is_never_read_and_the_snapshot_lands_beside_it() {
         .restore_recovered_content(
             "guard-1",
             "# What the crash was holding",
+            RecoveredFile::Existing,
             None,
             Some(&evicted),
         )
@@ -449,6 +512,7 @@ fn a_file_the_flags_call_downloaded_takes_the_ordinary_route() {
         .restore_recovered_content(
             "guard-1",
             "# What the crash was holding",
+            RecoveredFile::Existing,
             None,
             Some(&downloaded),
         )

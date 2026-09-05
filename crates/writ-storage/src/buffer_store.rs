@@ -36,18 +36,36 @@ pub type BeforeWrite<'a> = Option<&'a dyn Fn(&Path, &[u8])>;
 /// so it can exercise the flag on a machine where the flag cannot be set.
 pub type DatalessProbe<'a> = Option<&'a dyn Fn(&Path) -> Option<u32>>;
 
+/// What the caller already knows about the file a recovered note belongs to.
+///
+/// A file that is not there when the relaunch looks means two different
+/// things, and nothing on disk or in the row tells them apart: the note had a
+/// file and it was deleted, or the note never reached one and the path was
+/// minted a moment ago. Only the caller knows which, so it says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveredFile {
+    /// The note had a file when the snapshot was taken. One that is gone now
+    /// was deleted, and a relaunch does not undo a deletion.
+    Existing,
+    /// The note never reached a file. The path was minted for this restore and
+    /// nothing has ever been at it, so writing it creates the note rather than
+    /// putting anything back.
+    Minted,
+}
+
 /// What became of the text a relaunch recovered from the crash snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecoveredText {
-    /// The file was missing or already held this text, and holds it now.
+    /// The file already held this text, or had never been written at all, and
+    /// holds it now.
     Restored(DiskState),
-    /// The file held something Writ never saw, or its bytes are not on this
-    /// machine, so it was left exactly as it was and the recovered text was
-    /// written beside it.
+    /// The file held something Writ never saw, its bytes are not on this
+    /// machine, or it was deleted, so nothing was written where it was and the
+    /// recovered text was written beside it.
     SetAside {
         /// What the note's file holds, which is not the recovered text.
         /// `None` for a file that was never read, which is what an evicted
-        /// one is: nothing was compared, so nothing is known.
+        /// one is, and for one that is no longer there to read.
         on_disk: Option<DiskState>,
         /// Where the recovered text went instead.
         copy: PathBuf,
@@ -669,12 +687,22 @@ impl BufferStore {
     /// note between the crash and the relaunch, and writing a pre-crash
     /// snapshot over it destroys work with nothing left to recover it from.
     ///
-    /// A file that is missing is written. One that already holds the
-    /// recovered text is left alone and reported as restored, because it is:
-    /// rewriting identical bytes only moves the modification time. A file that
-    /// holds anything else is left untouched too, and the recovered text is
-    /// written beside it as `<stem> (recovered YYYY-MM-DD HH.MM.SS)`, so both
-    /// are on disk and the user chooses.
+    /// A file that already holds the recovered text is left alone and reported
+    /// as restored, because it is: rewriting identical bytes only moves the
+    /// modification time. A file that holds anything else is left untouched
+    /// too, and the recovered text is written beside it as
+    /// `<stem> (recovered YYYY-MM-DD HH.MM.SS)`, so both are on disk and the
+    /// user chooses.
+    ///
+    /// A file that is not there takes the same route unless the caller says
+    /// the note never had one ([`RecoveredFile`]). The snapshot can hold text
+    /// typed after the file was deleted — the tab keeps writing to the
+    /// document while it refuses to write to the file — and writing that back
+    /// at the path recreates what the person threw away, on every synced
+    /// device. So it lands beside where the file was and the deletion stands.
+    /// A note whose path was minted for this restore is the exception: nothing
+    /// was ever at it, so writing it creates the note rather than putting
+    /// anything back.
     ///
     /// A file whose bytes are not on this machine is never opened. Reading one
     /// makes the provider daemon fetch it (ADR-028 §5), and a relaunch that
@@ -695,6 +723,7 @@ impl BufferStore {
         &self,
         id: &str,
         content: &str,
+        file: RecoveredFile,
         before_write: BeforeWrite<'_>,
         dataless: DatalessProbe<'_>,
     ) -> StorageResult<RecoveredText> {
@@ -752,6 +781,19 @@ impl BufferStore {
             // client reads as an edit and uploads. Same answer the save path
             // gives ([`SaveDecision::AlreadyIdentical`]).
             return Ok(RecoveredText::Restored(state));
+        }
+
+        if file == RecoveredFile::Existing {
+            let copy = write_recovered_copy(path, content, chrono::Utc::now(), before_write)?;
+            warn!(
+                note = %path.display(),
+                recovered = %copy.display(),
+                "the file is gone; the recovered text was written beside where it was"
+            );
+            return Ok(RecoveredText::SetAside {
+                on_disk: None,
+                copy,
+            });
         }
 
         write_guarded_by_stamp(path, content.as_bytes(), before_write)?;

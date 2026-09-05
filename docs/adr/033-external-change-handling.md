@@ -534,7 +534,13 @@ folder with copies of itself at one per pause in typing. The typing is kept
 rather than dropped: it goes to a slot beside the queue that the recovery
 handover reads and no write path does (`holdUnsavedContent`), so closing the
 tab or quitting without answering does not lose it, and it is released when
-the question ends. The retry button on a failed save goes while the hold is on
+the question ends. A deleted note keeps its typing on the same terms and the
+deletion still stands: the snapshot comes back as `<name> (recovered …)`
+beside where the file was, never at the path
+(`BufferStore::restore_recovered_content`), because the relaunch would
+otherwise recreate the file on every synced device. Only a note that never
+reached a file is written at its own path, since nothing was ever there to
+put back. The retry button on a failed save goes while the hold is on
 for the same reason every other path is held: a save already in flight when
 the watcher reported can fail under the question for a reason ordinarily worth
 pressing again, and the press would reach the hold and change nothing.

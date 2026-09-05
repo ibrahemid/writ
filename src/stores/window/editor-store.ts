@@ -292,6 +292,12 @@ export function createEditorStore() {
    * (`holdUnsavedContent`), and the note saves normally again the moment its
    * state is `present`.
    *
+   * A `removed` note's text is kept the same way, and the deletion still
+   * stands: the snapshot comes back beside where the file was, as
+   * `<name> (recovered …)`, never at the path itself
+   * (`BufferStore::restore_recovered_content`). So the typing survives a quit
+   * and the file the person threw away is not put back.
+   *
    * The bar of a failed save reads this too, and takes its `Try again` away
    * while it holds: a save already in flight when the watcher reported can
    * fail under the question with a retryable reason, and the button under it
