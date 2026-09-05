@@ -6,10 +6,10 @@
 //!
 //! Unix answers with `dev` and `ino`, which `std` exposes on every metadata
 //! read. Windows answers with `FILE_ID_INFO`, which needs an open handle and
-//! is not available on FAT, exFAT, or some SMB servers. Both carry the file's
-//! birth time alongside: both filesystems hand a freed id back out to the next
-//! file created, and the id on its own would then read a stranger's file as
-//! the note's. A volume that will not
+//! is not available on FAT, exFAT, or some SMB servers. Neither answer carries
+//! a birth time beside it here: only Linux reads one, because that is the only
+//! platform where an id can come back and nothing can move the value under a
+//! live file (`reusable_inode_birth`). A volume that will not
 //! answer gets [`FileIdentity::Fallback`], a description that cannot recognise
 //! the file anywhere else, which is exactly what makes the verdict degrade
 //! instead of guessing (spec W4).
@@ -75,8 +75,8 @@ fn fallback_identity(path: &Path) -> Option<FileIdentity> {
 /// where the filesystem does not say.
 ///
 /// `statx` reports `btime` on ext4, xfs and btrfs from Linux 4.11, and every
-/// APFS and NTFS file has one, which is where the Windows probe reads it
-/// from. Nanoseconds rather than milliseconds because
+/// APFS and NTFS file has one, though only the Linux identity reads it: see
+/// `reusable_inode_birth`. Nanoseconds rather than milliseconds because
 /// the value's whole job is to separate two files, and rounding it discards
 /// the separation. A birth time before the Unix epoch reads as unknown, which
 /// costs nothing: no note is older than the epoch, and a volume answering that
@@ -90,8 +90,33 @@ pub fn birth_nanos(metadata: &std::fs::Metadata) -> Option<u128> {
         .map(|since| since.as_nanos())
 }
 
-/// Unix: the device and inode every file has, and the birth time that says
-/// which file is holding the inode.
+/// Linux: the birth time, which is what separates a reused inode number from
+/// the file that had it.
+///
+/// ext4, xfs and btrfs hand a freed inode number straight back out, and
+/// `statx` reports a `btime` no userspace call can set, so the value means
+/// what the id needs it to mean.
+#[cfg(target_os = "linux")]
+fn reusable_inode_birth(metadata: &std::fs::Metadata) -> Option<u128> {
+    birth_nanos(metadata)
+}
+
+/// Every other Unix: no birth time, because comparing one would say nothing.
+///
+/// APFS never hands an inode number back out — they are 64-bit and unique for
+/// the life of the volume — so there is no reuse to separate; and a live
+/// inode's birth time moves there in both directions, `touch -t` pulling it
+/// back through the modification time and `SetFile -d` writing it forward
+/// through `setattrlist`, so a comparison could not separate one anyway. HFS+
+/// does reuse numbers, and a notes folder on a legacy HFS+ volume is answered
+/// on the inode alone, exactly as every volume was before the field existed.
+#[cfg(all(unix, not(target_os = "linux")))]
+fn reusable_inode_birth(_metadata: &std::fs::Metadata) -> Option<u128> {
+    None
+}
+
+/// Unix: the device and inode every file has, and, where an inode number can
+/// come back, the birth time that says which file is holding it.
 #[cfg(unix)]
 fn platform_identity(path: &Path) -> Option<FileIdentity> {
     use std::os::unix::fs::MetadataExt;
@@ -102,12 +127,19 @@ fn platform_identity(path: &Path) -> Option<FileIdentity> {
     Some(FileIdentity::Inode {
         dev: metadata.dev(),
         ino: metadata.ino(),
-        birth_ns: birth_nanos(&metadata),
+        birth_ns: reusable_inode_birth(&metadata),
     })
 }
 
-/// Windows: `FILE_ID_INFO`, which needs a handle on the file, and the creation
-/// time that says which file is holding that id.
+/// Windows: `FILE_ID_INFO`, which needs a handle on the file.
+///
+/// No birth time is read beside it. An NTFS file id carries a sequence number
+/// bumped when the record is handed to another file, and a ReFS id is 128 bits
+/// of its own, so the id already separates a note from a stranger created
+/// after it; and a creation time is settable through `SetFileTime`, so
+/// comparing two would answer whatever last wrote the file. Windows passes
+/// `None` for the same reason macOS does
+/// ([`writ_core::notes::identity::FileIdentity::Windows::birth_ns`]).
 ///
 /// `std`'s `file_index` is the older 64-bit id and is still unstable, so the
 /// call is made directly. `File::open` is not what opens it: that asks for read
@@ -141,8 +173,7 @@ fn platform_identity(path: &Path) -> Option<FileIdentity> {
         .custom_flags(BACKUP_SEMANTICS)
         .open(path)
         .ok()?;
-    let metadata = file.metadata().ok()?;
-    if !metadata.is_file() {
+    if !file.metadata().ok()?.is_file() {
         return None;
     }
     let handle = HANDLE(file.as_raw_handle());
@@ -161,7 +192,7 @@ fn platform_identity(path: &Path) -> Option<FileIdentity> {
     Some(FileIdentity::Windows {
         volume: info.VolumeSerialNumber,
         index: u128::from_le_bytes(info.FileId.Identifier),
-        birth_ns: birth_nanos(&metadata),
+        birth_ns: None,
     })
 }
 
@@ -300,10 +331,10 @@ mod tests {
 
     #[test]
     fn a_windows_file_id_handed_back_out_is_not_the_file_that_had_it() {
-        // NTFS reuses a file id once the file holding it is gone, so the id
-        // read from an unrelated new file can equal the one on record. Built
-        // by hand for the same reason the inode pair above is: the rule has to
-        // hold whatever the host this runs on happens to do.
+        // Two ids that differ only in when their files were born are two
+        // files, over a file id as over an inode. Built by hand for a stronger
+        // reason than the inode pair above: no Windows read fills a birth
+        // time, and the rule still has to hold for a record that carries one.
         let before = FileIdentity::Windows {
             volume: 0x1234_5678,
             index: 0x0000_0000_0000_0002_0000_0000_0001_0f2c,
@@ -325,8 +356,8 @@ mod tests {
 
     #[test]
     fn a_windows_file_id_with_no_creation_time_to_read_still_finds_its_file() {
-        // A volume that answers the file id and nothing else leaves the id as
-        // the whole of the answer, exactly as it was before the time was read.
+        // A record with no birth time to compare leaves the file id as the
+        // whole of the answer, which is every Windows read there is.
         let before = FileIdentity::Windows {
             volume: 0x1234_5678,
             index: 0x0000_0000_0000_0002_0000_0000_0001_0f2c,
@@ -348,13 +379,16 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
-    fn windows_answers_with_the_file_id() {
+    fn windows_answers_with_the_file_id_and_no_birth_time() {
+        // The birth time is the assertion: a file id already separates a note
+        // from the file created after it, and a creation time can be set, so
+        // reading one here would cost what it costs on APFS and buy nothing.
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("note.md");
         std::fs::write(&path, "body").expect("write");
         assert!(matches!(
             read_identity(&path),
-            Some(FileIdentity::Windows { .. })
+            Some(FileIdentity::Windows { birth_ns: None, .. })
         ));
     }
 

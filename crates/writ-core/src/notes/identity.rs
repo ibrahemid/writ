@@ -37,20 +37,36 @@ pub enum FileIdentity {
         dev: u64,
         /// Inode number within that device.
         ino: u64,
-        /// When the file was created, in nanoseconds since the Unix epoch, as
-        /// far as the filesystem will say.
+        /// When the file was created, in nanoseconds since the Unix epoch, on
+        /// the platforms that read it.
         ///
         /// An inode number is only unique among the files that exist at one
-        /// moment: ext4 hands a freed one straight back out, so a file deleted
-        /// and another created in the same watcher window can carry the id the
-        /// first one had. The birth time is what tells them apart, and it is
-        /// the right thing to pair with the inode because a rename does not
-        /// touch it (`ctime` does, which is why that is not used here).
+        /// moment: ext4, xfs and btrfs hand a freed one straight back out, so
+        /// a file deleted and another created in the same watcher window can
+        /// carry the id the first one had. The birth time is what tells them
+        /// apart, and it is the right thing to pair with the inode because a
+        /// rename does not touch it (`ctime` does, which is why that is not
+        /// used here).
+        ///
+        /// Only Linux fills it in, and that is a platform rule rather than an
+        /// omission. Comparing birth times is worth anything only where the
+        /// value cannot be moved on a live inode and where an inode number can
+        /// come back, and Linux is the only place both hold: `statx` reports
+        /// `btime` and no userspace call sets it. On APFS a live inode's birth
+        /// time moves in both directions — `touch -t` backwards through the
+        /// modification time, `SetFile -d` forwards through `setattrlist` —
+        /// so no comparison of two birth times can tell a reused number from
+        /// the same file there, and APFS does not reuse numbers anyway, so
+        /// nothing is given up by leaving it unread. HFS+ does reuse them: a
+        /// notes folder on a legacy HFS+ volume is answered on the inode
+        /// alone, which is what every volume was answered on before this field
+        /// existed. Windows carries its own id and never reaches this branch.
         ///
         /// `None` where the filesystem reports no birth time — an ext3 volume,
         /// an ext4 one formatted with 128-byte inodes, a kernel older than the
-        /// `statx` that reports it — and then the inode alone is the answer, as
-        /// it was before ([`FileIdentity::is_same_file`]).
+        /// `statx` that reports it — and on every platform that does not read
+        /// it. The inode alone is then the answer
+        /// ([`FileIdentity::is_same_file`]).
         birth_ns: Option<u128>,
     },
     /// Windows: the volume serial number and the 128-bit file id
@@ -60,19 +76,25 @@ pub enum FileIdentity {
         volume: u64,
         /// File id within that volume.
         index: u128,
-        /// When the file was created, in nanoseconds since the Unix epoch, as
-        /// far as the filesystem will say.
+        /// When the file was created, in nanoseconds since the Unix epoch, on
+        /// the platforms that read it.
         ///
-        /// NTFS reuses a file id after the file holding it is deleted, exactly
-        /// as ext4 reuses an inode number, so the id alone would read a note
-        /// deleted and a stranger created in the same watcher window as one
-        /// file. Every NTFS file carries a creation time and a rename leaves
-        /// it alone, so it separates them the same way `birth_ns` does on Unix
-        /// ([`FileIdentity::is_same_file`]).
+        /// `None` on every Windows volume, under the platform rule the inode
+        /// carries ([`FileIdentity::Inode::birth_ns`]): a birth time earns its
+        /// comparison only where an id can come back *and* nothing can move
+        /// the value under a live file, and neither half holds here. An NTFS
+        /// file id carries a sequence number that is bumped when the record is
+        /// handed to another file, and a ReFS id is 128 bits of its own, so
+        /// the id already separates a note from a stranger created after it.
+        /// A creation time is settable through `SetFileTime`, so comparing two
+        /// of them would answer whatever last wrote the file. The file id is
+        /// the whole of the answer, which is what it was before the field
+        /// existed.
         ///
-        /// `None` where the volume will not say, which is what a share or a
-        /// filesystem driver that answers the id but not the time looks like
-        /// from here; the file id is then the whole of the answer.
+        /// The field is what makes both ids answer by one rule
+        /// ([`FileIdentity::is_same_file`]) rather than two, so a record that
+        /// does carry a birth time is compared on it instead of having it
+        /// quietly dropped.
         birth_ns: Option<u128>,
     },
     /// No stable id was available, so the file is described by what can be
@@ -112,18 +134,28 @@ impl FileIdentity {
     /// birth time answers `None` for every file on it, so demanding agreement
     /// there would make every move on such a volume read as a deletion. Two
     /// known birth times must agree; an unknown one leaves the id itself as
-    /// the whole of the answer. Unix and Windows are the same rule over
-    /// different fields, because both filesystems hand a freed id back out.
-    pub fn is_same_file(&self, other: &Self) -> bool {
-        match (self, other) {
+    /// the whole of the answer.
+    ///
+    /// Agreement is what the record asks for because a birth time is only read
+    /// where nothing can move it under a live file, which is Linux
+    /// ([`FileIdentity::Inode::birth_ns`]). A rename leaves it alone, so the
+    /// file that comes back from a move still agrees, and a file that
+    /// inherited a freed inode number was created after the record was taken
+    /// and does not.
+    pub fn is_same_file(&self, recorded: &Self) -> bool {
+        match (self, recorded) {
             (
                 Self::Inode { dev, ino, birth_ns },
                 Self::Inode {
-                    dev: other_dev,
-                    ino: other_ino,
-                    birth_ns: other_birth_ns,
+                    dev: recorded_dev,
+                    ino: recorded_ino,
+                    birth_ns: recorded_birth_ns,
                 },
-            ) => dev == other_dev && ino == other_ino && births_agree(*birth_ns, *other_birth_ns),
+            ) => {
+                dev == recorded_dev
+                    && ino == recorded_ino
+                    && births_agree(*birth_ns, *recorded_birth_ns)
+            }
             (
                 Self::Windows {
                     volume,
@@ -131,27 +163,29 @@ impl FileIdentity {
                     birth_ns,
                 },
                 Self::Windows {
-                    volume: other_volume,
-                    index: other_index,
-                    birth_ns: other_birth_ns,
+                    volume: recorded_volume,
+                    index: recorded_index,
+                    birth_ns: recorded_birth_ns,
                 },
             ) => {
-                volume == other_volume
-                    && index == other_index
-                    && births_agree(*birth_ns, *other_birth_ns)
+                volume == recorded_volume
+                    && index == recorded_index
+                    && births_agree(*birth_ns, *recorded_birth_ns)
             }
-            _ => self == other,
+            _ => self == recorded,
         }
     }
 }
 
-/// Whether two birth times are compatible with being one file.
+/// Whether two birth times leave the files they came from able to be one file.
 ///
-/// An unknown birth time is not evidence of anything, so it is not read as
-/// disagreement.
-fn births_agree(one: Option<u128>, other: Option<u128>) -> bool {
-    match (one, other) {
-        (Some(one), Some(other)) => one == other,
+/// An unknown birth time is not evidence of anything, so it rules nothing out;
+/// two known ones have to be the same value, because a rename does not touch a
+/// birth time and the platforms that report one here cannot have it moved
+/// underneath them ([`FileIdentity::Inode::birth_ns`]).
+fn births_agree(seen: Option<u128>, recorded: Option<u128>) -> bool {
+    match (seen, recorded) {
+        (Some(seen), Some(recorded)) => seen == recorded,
         _ => true,
     }
 }
@@ -207,50 +241,6 @@ pub fn classify_delete(
     }
     for (path, candidate) in candidates {
         if candidate.is_same_file(before) {
-            return DeleteVerdict::Moved(path.clone());
-        }
-    }
-    DeleteVerdict::Removed
-}
-
-/// Decides what became of a vanished file whose id nothing carries, by its
-/// bytes.
-///
-/// [`classify_delete`] measures a vanished file against the id Writ recorded
-/// for it, and that id is only as fresh as the last time somebody told Writ
-/// the file had changed. Two writes inside one watcher window are reported as
-/// one: a program that rewrites a file — a sibling temp renamed over the
-/// target, which is how every editor and every sync client writes — and then
-/// renames it leaves a single event saying the path is empty. The rewrite is
-/// never reported, so the id on record is the one the rewrite retired and the
-/// file at its new path carries an id Writ has never seen.
-///
-/// Bytes are what is left to go on, and they are the right thing to go on: a
-/// rename changes none of them, so a candidate holding what the tab last read
-/// from its file is that file. `last` is the digest of those bytes; each
-/// candidate is a path this watcher's own window named, with the digest of
-/// what it holds now.
-///
-/// An empty file is a removal for the same reason from the other side: every
-/// empty file holds the same nothing, so a match on it identifies no file. A
-/// note Writ has created and not yet saved to holds exactly that, and any
-/// zero-length path in the window — another new note, somebody's temp file —
-/// would otherwise take the tab with it.
-///
-/// A rewrite that changed the bytes as well is a removal, and deliberately so.
-/// The content the tab is attached to is then gone from every watched folder,
-/// which is the whole of what a removal claims. Following a path on weaker
-/// evidence than the bytes would put the tab on a file it has never read,
-/// which is what a deletion and an unrelated creation in one window look like.
-pub fn classify_delete_by_content(
-    last: &Sha256Digest,
-    candidates: &[(PathBuf, Sha256Digest)],
-) -> DeleteVerdict {
-    if last == &crate::hash::sha256_bytes(&[]) {
-        return DeleteVerdict::Removed;
-    }
-    for (path, digest) in candidates {
-        if digest == last {
             return DeleteVerdict::Moved(path.clone());
         }
     }
@@ -552,9 +542,10 @@ mod tests {
 
     #[test]
     fn a_windows_file_id_handed_back_out_to_a_new_file_is_not_the_old_file() {
-        // NTFS reuses a file id once the file holding it is gone, the same as
-        // ext4 reuses an inode number. Following the id alone would put the
-        // tab on a stranger's file and the next save would write over it.
+        // Two ids that differ only in when their files were born are two
+        // files, over a file id as over an inode. Built by hand: no Windows
+        // read fills a birth time, and the rule still has to hold for a record
+        // that carries one.
         let verdict = classify_delete(
             &windows_born(7, 42, 1_700_000_000_000_000_000),
             &[(
@@ -584,8 +575,8 @@ mod tests {
 
     #[test]
     fn a_windows_volume_that_reports_no_creation_time_still_follows_its_file() {
-        // A share that answers the file id and nothing else leaves the id as
-        // the whole of the answer, exactly as it was before the field existed.
+        // A record with no birth time to compare leaves the file id as the
+        // whole of the answer, which is every Windows read there is.
         let verdict = classify_delete(
             &windows(7, 42),
             &[(
@@ -677,59 +668,6 @@ mod tests {
                 state: SourceState::RemovedOnDisk,
             }
         );
-    }
-
-    #[test]
-    fn a_candidate_holding_the_bytes_the_tab_last_read_is_the_file() {
-        // The id on record was retired by a rewrite nobody reported, so
-        // nothing carries it. The bytes went to the new path unchanged.
-        let verdict = classify_delete_by_content(
-            &crate::hash::sha256_bytes(b"text worth keeping"),
-            &[(
-                PathBuf::from("/notes/renamed.md"),
-                crate::hash::sha256_bytes(b"text worth keeping"),
-            )],
-        );
-        assert_eq!(
-            verdict,
-            DeleteVerdict::Moved(PathBuf::from("/notes/renamed.md"))
-        );
-    }
-
-    #[test]
-    fn a_candidate_holding_other_bytes_is_not_the_file() {
-        // A deletion and an unrelated creation in one window. Following the
-        // new path would put the tab on a file it has never read and let the
-        // next save write over it.
-        let verdict = classify_delete_by_content(
-            &crate::hash::sha256_bytes(b"text worth keeping"),
-            &[(
-                PathBuf::from("/notes/unrelated.md"),
-                crate::hash::sha256_bytes(b"somebody else's note"),
-            )],
-        );
-        assert_eq!(verdict, DeleteVerdict::Removed);
-    }
-
-    #[test]
-    fn bytes_every_empty_file_shares_identify_no_file() {
-        // A note created and not yet saved to holds nothing, and so does every
-        // temp file and every other new note. Matching on that would hand the
-        // tab whichever empty path the same window happened to name.
-        let verdict = classify_delete_by_content(
-            &crate::hash::sha256_bytes(b""),
-            &[(
-                PathBuf::from("/notes/somebody-elses-new-note.md"),
-                crate::hash::sha256_bytes(b""),
-            )],
-        );
-        assert_eq!(verdict, DeleteVerdict::Removed);
-    }
-
-    #[test]
-    fn bytes_prove_nothing_with_no_candidates_to_compare() {
-        let verdict = classify_delete_by_content(&crate::hash::sha256_bytes(b"body"), &[]);
-        assert_eq!(verdict, DeleteVerdict::Removed);
     }
 
     #[test]

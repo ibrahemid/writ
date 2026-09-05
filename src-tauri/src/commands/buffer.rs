@@ -9,6 +9,7 @@ use tauri::{AppHandle, Manager, State};
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::buffer::manager::BufferManager;
 use writ_core::notes::guard::is_not_downloaded;
+use writ_core::watcher::pending::HoldAnswer;
 use writ_storage::buffer_store::{BufferStore, NoteFileState};
 use writ_storage::errors::StorageError;
 
@@ -223,6 +224,7 @@ fn write_note_source(
     content: &str,
     removed: RemovedFile,
 ) -> Result<Option<String>, String> {
+    wait_out_a_held_removal(state, id, removed)?;
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).map_err(|e| e.to_string())?;
     if doc.read_only {
@@ -261,6 +263,40 @@ fn write_note_source(
     Ok(Some(writ_core::hash::comparison_digest_hex(
         content.as_bytes(),
     )))
+}
+
+/// Waits out a removal a watcher is still holding for this note.
+///
+/// A hold is the window in which nothing knows yet whether the note still has
+/// a file: its path has gone empty, and the delivery that would carry the
+/// other half of a rename may not have arrived. The record is left saying what
+/// it said before for exactly that window, so there is nothing in it for a
+/// write to trip over, and a write that lands in it recreates a file the
+/// person deleted or leaves a second one behind a rename the tab never hears
+/// about (ADR-033 §14).
+///
+/// So the write waits, and the answer decides: a move has already moved the
+/// row, so the destination read after this is the new path; a removal has
+/// already marked the note, so the refusal is word for word the one a save
+/// after any announcement gets. A file back at its own path answers too, and
+/// the write lands where it always would have.
+///
+/// [`RemovedFile::WriteBack`] waits the same and is refused by nothing: it is
+/// the explicit request to put the file back, and an answer that arrives while
+/// it waits is what tells it where to put it.
+///
+/// Before the store lock, and holding nothing itself: answering a hold moves
+/// the note's row, which needs that same lock.
+///
+/// The wait is bounded by the hold's own deadline, so a watcher that stopped
+/// while holding one costs a write that window and no more.
+fn wait_out_a_held_removal(state: &AppState, id: &str, removed: RemovedFile) -> Result<(), String> {
+    match state.removal_holds.wait_for_answer(id) {
+        Some(HoldAnswer::Removed) if removed == RemovedFile::Refuse => Err(format!(
+            "{ERR_FILE_REMOVED_ON_DISK}: note {id} has no file on disk any more"
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// The hook the store calls immediately before each of its writes, which

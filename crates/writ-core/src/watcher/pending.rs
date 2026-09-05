@@ -10,23 +10,32 @@
 //! (ADR-033 §14).
 //!
 //! So a removal is not announced the moment it is seen. It is held, and every
-//! later delivery is a chance to answer it: the file's id somewhere else, or
-//! its bytes in the window that named them. Nothing answers by the deadline
-//! and the removal is announced as it always was.
+//! later delivery is a chance to answer it with the file's id somewhere else.
+//! Nothing answers by the deadline and the removal is announced as it always
+//! was.
+//!
+//! The id is the only thing a delivery answers with. Bytes say nothing about
+//! where a file went: two notes can hold the same text, so a path that matches
+//! on content is a path that might be somebody else's file, and the next save
+//! writes over it (ADR-033 §12).
 //!
 //! Only a removal something could still answer is worth holding. With no id on
-//! record and no digest of what the tab last read, no later delivery can say
+//! record that could recognise the file elsewhere, no later delivery can say
 //! anything the first one did not, and the wait would be latency for a
 //! foregone conclusion.
+//!
+//! The hold is a window in which nobody knows yet whether the note still has a
+//! file, so nothing may write to the path it left. [`RemovalHolds`] is what
+//! makes that enforceable from outside the watcher thread: a save asks whether
+//! the note is held, waits for the answer, and then writes at the new path or
+//! refuses (ADR-033 §14).
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use crate::hash::Sha256Digest;
-use crate::notes::guard::DiskState;
-use crate::notes::identity::{
-    classify_delete, classify_delete_by_content, DeleteVerdict, FileIdentity,
-};
+use crate::notes::identity::{classify_delete, DeleteVerdict, FileIdentity};
 
 /// How long a removal is held, for a watcher that delivers on `debounce`.
 ///
@@ -40,6 +49,168 @@ pub fn hold_window(debounce: Duration) -> Duration {
     debounce * 2
 }
 
+/// What a held removal turned out to be, for anyone waiting on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HoldAnswer {
+    /// The file was found at this path, and the note's record names it now.
+    Moved(PathBuf),
+    /// Nothing answered by the deadline. The file is gone and the record says
+    /// so, which is what makes a write to the path it left a refusal.
+    Removed,
+    /// The same file is back where it left, so nothing happened to it and the
+    /// removal was never announced.
+    Returned,
+}
+
+/// The removals a watcher is holding, readable from any thread.
+///
+/// A hold is the window in which the answer is not known yet, and the record
+/// is deliberately left saying what it said before ([`PendingRemovals`]). That
+/// is only safe while nothing writes to the path in the meantime: a save
+/// landing inside the window recreates a file the person deleted, and against
+/// a rename it puts a second file where there was one and the move is never
+/// announced. So a save asks here first and waits.
+///
+/// **An answer is published only once the record agrees with it.** A waiter
+/// released before the row has moved reads the old path out of the row and
+/// writes there, which is the failure this exists to stop. The publisher is
+/// therefore the caller that applied the record change, never [`Self::hold`]'s
+/// counterpart inside `PendingRemovals`.
+///
+/// Two watchers can hold one note, each on its own window. The later deadline
+/// wins, so a wait cannot end while a watcher is still holding, and the first
+/// answer is the answer: both are watching the same file and the second says
+/// what the first did.
+#[derive(Debug, Default)]
+pub struct RemovalHolds {
+    held: Mutex<HashMap<String, Hold>>,
+    answered: Condvar,
+}
+
+/// One note's hold: when a waiter gives up, the answer when there is one, and
+/// how many waiters are still to read it.
+#[derive(Debug)]
+struct Hold {
+    answer_by: Instant,
+    answer: Option<HoldAnswer>,
+    waiting: usize,
+}
+
+impl RemovalHolds {
+    /// Nothing held.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Records that `note_id`'s removal is being held, and that a waiter
+    /// should give up at `answer_by`.
+    ///
+    /// The later `answer_by` wins, so the second watcher to hold the same note
+    /// extends the wait rather than cutting it short. A note held again after
+    /// an answer nobody read starts clean: the answer described the removal
+    /// before it, not this one.
+    pub fn hold(&self, note_id: &str, answer_by: Instant) {
+        let mut held = self.lock();
+        match held.get_mut(note_id) {
+            Some(hold) => {
+                hold.answer_by = hold.answer_by.max(answer_by);
+                hold.answer = None;
+            }
+            None => {
+                held.insert(
+                    note_id.to_string(),
+                    Hold {
+                        answer_by,
+                        answer: None,
+                        waiting: 0,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Publishes what the removal turned out to be, waking whoever is waiting.
+    ///
+    /// Call it after the record has been made to agree: the row moved, or the
+    /// note marked removed. Nothing held for `note_id` is not a mistake — a
+    /// move can be classified in the delivery it arrived in, with no hold ever
+    /// taken — and answers nothing.
+    pub fn answer(&self, note_id: &str, answer: HoldAnswer) {
+        let mut held = self.lock();
+        let Some(hold) = held.get_mut(note_id) else {
+            return;
+        };
+        if hold.waiting == 0 {
+            held.remove(note_id);
+            return;
+        }
+        hold.answer = Some(answer);
+        drop(held);
+        self.answered.notify_all();
+    }
+
+    /// Waits for `note_id`'s held removal to be answered.
+    ///
+    /// `None` when the note is not held at all, which is every ordinary save,
+    /// and when the deadline passed with no answer — a watcher that died
+    /// holding one, where the caller is no worse off than it was before the
+    /// hold existed. The wait is bounded by the deadline the hold was taken
+    /// with, never by a poll.
+    pub fn wait_for_answer(&self, note_id: &str) -> Option<HoldAnswer> {
+        let mut held = self.lock();
+        let answer_by = held.get(note_id)?.answer_by;
+        held.get_mut(note_id)?.waiting += 1;
+        let answer = loop {
+            match held.get_mut(note_id) {
+                Some(hold) => {
+                    if let Some(answer) = hold.answer.clone() {
+                        break Some(answer);
+                    }
+                }
+                // Answered and dropped by a waiter that read it first.
+                None => break None,
+            }
+            let left = answer_by.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break None;
+            }
+            held = self
+                .answered
+                .wait_timeout(held, left)
+                .unwrap_or_else(|poisoned| {
+                    tracing::error!(
+                        location = "watcher::pending::wait_for_answer",
+                        "recovered poisoned mutex"
+                    );
+                    poisoned.into_inner()
+                })
+                .0;
+        };
+        if let Some(hold) = held.get_mut(note_id) {
+            hold.waiting -= 1;
+            if hold.waiting == 0 && hold.answer.is_some() {
+                held.remove(note_id);
+            }
+        }
+        answer
+    }
+
+    /// Whether anything is held for `note_id`, for a caller that cannot wait.
+    pub fn holds(&self, note_id: &str) -> bool {
+        self.lock().contains_key(note_id)
+    }
+
+    fn lock(&self) -> MutexGuard<'_, HashMap<String, Hold>> {
+        self.held.lock().unwrap_or_else(|poisoned| {
+            tracing::error!(
+                location = "watcher::pending::RemovalHolds",
+                "recovered poisoned mutex"
+            );
+            poisoned.into_inner()
+        })
+    }
+}
+
 /// A removal waiting to be answered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeldRemoval {
@@ -49,8 +220,6 @@ pub struct HeldRemoval {
     pub path: PathBuf,
     /// What the filesystem called the file, when anything did.
     pub identity: Option<FileIdentity>,
-    /// What the tab last read from it, when it has read it.
-    pub last: Option<DiskState>,
     /// The paths the delivery that carried the emptying named. The other half
     /// of a rename can be in it, and a later delivery is judged against both.
     pub batch: Vec<PathBuf>,
@@ -59,11 +228,10 @@ pub struct HeldRemoval {
 impl HeldRemoval {
     /// Whether a later delivery could answer this at all.
     ///
-    /// An id that recognises its file elsewhere, or the bytes the tab last
-    /// read: one of the two has to be on record, or every later delivery says
-    /// exactly what the first one did.
+    /// An id that recognises its file elsewhere has to be on record, or every
+    /// later delivery says exactly what the first one did.
     pub fn can_be_answered(&self) -> bool {
-        self.identity.as_ref().is_some_and(FileIdentity::is_durable) || self.last.is_some()
+        self.identity.as_ref().is_some_and(FileIdentity::is_durable)
     }
 
     /// Every path that could be holding the file now: the delivery the
@@ -89,15 +257,42 @@ impl HeldRemoval {
 pub struct PendingRemovals {
     window: Duration,
     held: Vec<(HeldRemoval, Instant)>,
+    holds: Arc<RemovalHolds>,
 }
 
 impl PendingRemovals {
-    /// Holds each removal for `window` before announcing it.
+    /// Holds each removal for `window` before announcing it, where nothing
+    /// outside this watcher can see the holds.
     pub fn new(window: Duration) -> Self {
+        Self::publishing_to(window, Arc::new(RemovalHolds::new()))
+    }
+
+    /// The same, with the holds published where a save can wait on them.
+    ///
+    /// Every watcher in a process shares one [`RemovalHolds`], because a save
+    /// asks about a note and not about a watcher.
+    pub fn publishing_to(window: Duration, holds: Arc<RemovalHolds>) -> Self {
         Self {
             window,
             held: Vec::new(),
+            holds,
         }
+    }
+
+    /// Where this watcher publishes its holds.
+    pub fn holds(&self) -> &Arc<RemovalHolds> {
+        &self.holds
+    }
+
+    /// When a waiter on a removal held at `now` gives up.
+    ///
+    /// The deadline the removal is announced on, plus half a window for the
+    /// announcing itself: the watcher thread wakes on the deadline, applies
+    /// the removal to the record and publishes the answer, and a waiter that
+    /// gave up an instant before that would write to the path in the moment
+    /// between.
+    fn answer_by(&self, now: Instant) -> Instant {
+        now + self.window + self.window / 2
     }
 
     /// How long a removal is held.
@@ -111,7 +306,7 @@ impl PendingRemovals {
     }
 
     /// Whether this note's removal is waiting to be answered.
-    pub fn holds(&self, note_id: &str) -> bool {
+    pub fn is_holding(&self, note_id: &str) -> bool {
         self.held.iter().any(|(held, _)| held.note_id == note_id)
     }
 
@@ -150,7 +345,11 @@ impl PendingRemovals {
         if !removal.can_be_answered() {
             return false;
         }
-        if self.holds(&removal.note_id) {
+        // Published before the early return as well: the note is held either
+        // way, and the second watcher to hold it is what says how long a save
+        // has to wait.
+        self.holds.hold(&removal.note_id, self.answer_by(now));
+        if self.is_holding(&removal.note_id) {
             return true;
         }
         self.held.push((removal, now));
@@ -167,14 +366,12 @@ impl PendingRemovals {
         Some(self.held.remove(at).0)
     }
 
-    /// Where the file went, when this delivery says: the path carrying its id,
-    /// or the path holding the bytes the tab last read from it.
+    /// The path this delivery says the file went to, when one carries its id.
     ///
-    /// `probed` is what the filesystem calls each candidate; `digests` is what
-    /// the candidates named by a delivery hold. Only the ids are read from the
-    /// folder the file left, never the bytes: matching on content against a
-    /// folder listing would land a tab on any note that happens to hold the
-    /// same text ([`classify_delete_by_content`]).
+    /// `probed` is what the filesystem calls each candidate. The id is the only
+    /// evidence a move is followed on, here as everywhere else: a candidate
+    /// holding the same bytes is a candidate that might be a different note
+    /// (ADR-033 §12).
     ///
     /// The removal stops being held the moment it is answered, so a hold that
     /// resolves is never announced by [`Self::expired`] afterwards.
@@ -182,23 +379,16 @@ impl PendingRemovals {
         &mut self,
         note_id: &str,
         probed: &[(PathBuf, FileIdentity)],
-        digests: &[(PathBuf, Sha256Digest)],
     ) -> Option<PathBuf> {
         let held = self.held(note_id)?;
-        let by_id = held
+        let to = match held
             .identity
             .as_ref()
-            .map(|before| classify_delete(before, probed));
-        let to = match by_id {
-            Some(DeleteVerdict::Moved(to)) => Some(to),
-            _ => match held.last {
-                Some(last) => match classify_delete_by_content(&last.hash, digests) {
-                    DeleteVerdict::Moved(to) => Some(to),
-                    DeleteVerdict::Removed | DeleteVerdict::ExternalModification => None,
-                },
-                None => None,
-            },
-        }?;
+            .map(|before| classify_delete(before, probed))
+        {
+            Some(DeleteVerdict::Moved(to)) => to,
+            _ => return None,
+        };
         self.forget(note_id);
         Some(to)
     }
@@ -234,44 +424,112 @@ mod tests {
         }
     }
 
-    fn state_of(bytes: &[u8]) -> DiskState {
-        DiskState {
-            hash: sha256_bytes(bytes),
-            size: bytes.len() as u64,
-            mtime: None,
-        }
-    }
-
-    fn vanished(
-        path: &str,
-        identity: Option<FileIdentity>,
-        last: Option<DiskState>,
-    ) -> HeldRemoval {
+    fn vanished(path: &str, identity: Option<FileIdentity>) -> HeldRemoval {
         HeldRemoval {
             note_id: "note-1".to_string(),
             path: PathBuf::from(path),
             identity,
-            last,
             batch: vec![PathBuf::from(path)],
         }
+    }
+
+    #[test]
+    fn a_note_nothing_holds_is_not_waited_on() {
+        // Every ordinary save asks this question and has to get on with it.
+        let holds = RemovalHolds::new();
+        assert!(holds.wait_for_answer("note-1").is_none());
+        assert!(!holds.holds("note-1"));
+    }
+
+    #[test]
+    fn a_wait_ends_on_the_answer() {
+        let holds = Arc::new(RemovalHolds::new());
+        holds.hold("note-1", Instant::now() + Duration::from_secs(30));
+        let answering = {
+            let holds = Arc::clone(&holds);
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(50));
+                holds.answer("note-1", HoldAnswer::Moved(PathBuf::from("/notes/b.md")));
+            })
+        };
+        let asked_at = Instant::now();
+        let answer = holds.wait_for_answer("note-1");
+        let waited = asked_at.elapsed();
+        answering.join().expect("the answering thread");
+        assert_eq!(
+            answer,
+            Some(HoldAnswer::Moved(PathBuf::from("/notes/b.md")))
+        );
+        // Woken by the answer rather than by the deadline, which is 30s out.
+        assert!(waited < Duration::from_secs(5), "waited {waited:?}");
+        // The answer was read, so nothing is left for the next save to find.
+        assert!(!holds.holds("note-1"));
+    }
+
+    #[test]
+    fn a_wait_gives_up_at_the_deadline_the_hold_was_taken_with() {
+        // A watcher that stopped while holding a removal leaves the caller no
+        // worse off than it was before holds existed.
+        let holds = RemovalHolds::new();
+        holds.hold("note-1", Instant::now() + Duration::from_millis(50));
+        let asked_at = Instant::now();
+        assert_eq!(holds.wait_for_answer("note-1"), None);
+        let waited = asked_at.elapsed();
+        assert!(waited >= Duration::from_millis(50), "waited {waited:?}");
+        assert!(waited < Duration::from_secs(5), "waited {waited:?}");
+    }
+
+    #[test]
+    fn the_second_watcher_to_hold_a_note_says_how_long_the_wait_is() {
+        // Both watchers can see one file, each on its own window. A wait that
+        // ended on the shorter one would let a save through while the other
+        // was still holding, which is the whole failure again.
+        let holds = RemovalHolds::new();
+        let now = Instant::now();
+        holds.hold("note-1", now + Duration::from_millis(50));
+        holds.hold("note-1", now + Duration::from_secs(30));
+        let asked_at = Instant::now();
+        let answered = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                std::thread::sleep(Duration::from_millis(200));
+                holds.answer("note-1", HoldAnswer::Removed);
+            });
+            holds.wait_for_answer("note-1")
+        });
+        assert_eq!(answered, Some(HoldAnswer::Removed));
+        assert!(
+            asked_at.elapsed() >= Duration::from_millis(200),
+            "the wait ended on the first watcher's deadline"
+        );
+    }
+
+    #[test]
+    fn a_removal_held_by_a_watcher_is_published_for_a_save_to_wait_on() {
+        // The registration is `PendingRemovals`' to publish; every answer is
+        // published by whoever made the record agree with it.
+        let mut pending = PendingRemovals::new(Duration::from_millis(1000));
+        let holds = Arc::clone(pending.holds());
+        assert!(pending.hold(vanished("/notes/a.md", Some(inode(7))), Instant::now()));
+        assert!(holds.holds("note-1"));
+        assert!(!holds.holds("note-2"));
     }
 
     #[test]
     fn a_file_found_again_by_its_id_in_the_next_delivery_is_a_move() {
         let mut pending = PendingRemovals::new(Duration::from_millis(1000));
         let now = Instant::now();
-        assert!(pending.hold(vanished("/notes/a.md", Some(inode(7)), None), now));
+        assert!(pending.hold(vanished("/notes/a.md", Some(inode(7))), now));
 
         let next = vec![PathBuf::from("/notes/archive/a.md")];
         let candidates = pending.held("note-1").expect("held").candidates(&next);
         let probed = vec![(PathBuf::from("/notes/archive/a.md"), inode(7))];
         assert_eq!(
-            pending.resolve("note-1", &probed, &[]),
+            pending.resolve("note-1", &probed),
             Some(PathBuf::from("/notes/archive/a.md"))
         );
         assert!(candidates.contains(&PathBuf::from("/notes/archive/a.md")));
         assert!(
-            !pending.holds("note-1"),
+            !pending.is_holding("note-1"),
             "an answered removal stops waiting"
         );
         assert!(
@@ -281,35 +539,16 @@ mod tests {
     }
 
     #[test]
-    fn a_file_found_again_by_its_bytes_in_the_next_delivery_is_a_move() {
-        let mut pending = PendingRemovals::new(Duration::from_millis(1000));
-        let now = Instant::now();
-        // The id on record was retired by a rewrite nobody reported, so no
-        // candidate carries it and the bytes are what is left.
-        assert!(pending.hold(
-            vanished("/notes/a.md", Some(inode(7)), Some(state_of(b"text"))),
-            now
-        ));
-
-        let probed = vec![(PathBuf::from("/notes/renamed.md"), inode(9))];
-        let digests = vec![(PathBuf::from("/notes/renamed.md"), sha256_bytes(b"text"))];
-        assert_eq!(
-            pending.resolve("note-1", &probed, &digests),
-            Some(PathBuf::from("/notes/renamed.md"))
-        );
-    }
-
-    #[test]
     fn a_removal_nothing_answers_is_announced_when_its_deadline_passes() {
         let mut pending = PendingRemovals::new(Duration::from_millis(1000));
         let now = Instant::now();
-        assert!(pending.hold(vanished("/notes/a.md", Some(inode(7)), None), now));
+        assert!(pending.hold(vanished("/notes/a.md", Some(inode(7))), now));
 
         // A delivery naming other files answers nothing, and the removal keeps
         // waiting rather than being announced early.
         let other = vec![PathBuf::from("/notes/b.md")];
         let probed = vec![(PathBuf::from("/notes/b.md"), inode(8))];
-        assert_eq!(pending.resolve("note-1", &probed, &[]), None);
+        assert_eq!(pending.resolve("note-1", &probed), None);
         assert!(
             pending
                 .held("note-1")
@@ -327,23 +566,21 @@ mod tests {
     }
 
     #[test]
-    fn a_rewrite_and_a_rename_split_across_two_deliveries_is_still_a_move() {
-        // The window that emptied the path carried the rewrite's temp file as
+    fn both_deliveries_are_searched_and_never_the_path_that_went_empty() {
+        // The window that emptied the path carried a rewrite's temp file as
         // well; the rename landed in the next one. Neither delivery holds both
-        // halves, and the id on record is the one the rewrite retired.
+        // halves, so a candidate from either is a candidate.
         let mut pending = PendingRemovals::new(Duration::from_millis(1000));
-        let now = Instant::now();
         let first = HeldRemoval {
             note_id: "note-1".to_string(),
             path: PathBuf::from("/notes/a.md"),
             identity: Some(inode(7)),
-            last: Some(state_of(b"text worth keeping")),
             batch: vec![
                 PathBuf::from("/notes/a.md"),
                 PathBuf::from("/notes/a.other-program-tmp"),
             ],
         };
-        assert!(pending.hold(first, now));
+        assert!(pending.hold(first, Instant::now()));
 
         let second = vec![PathBuf::from("/notes/renamed.md")];
         let candidates = pending.held("note-1").expect("held").candidates(&second);
@@ -355,12 +592,9 @@ mod tests {
             ],
             "both deliveries are searched, and never the path that went empty"
         );
-        let digests = vec![(
-            PathBuf::from("/notes/renamed.md"),
-            sha256_bytes(b"text worth keeping"),
-        )];
+        let probed = vec![(PathBuf::from("/notes/renamed.md"), inode(7))];
         assert_eq!(
-            pending.resolve("note-1", &[], &digests),
+            pending.resolve("note-1", &probed),
             Some(PathBuf::from("/notes/renamed.md"))
         );
     }
@@ -368,7 +602,7 @@ mod tests {
     #[test]
     fn a_removal_nothing_could_ever_answer_is_not_held() {
         let mut pending = PendingRemovals::new(Duration::from_millis(1000));
-        assert!(!pending.hold(vanished("/notes/a.md", None, None), Instant::now()));
+        assert!(!pending.hold(vanished("/notes/a.md", None), Instant::now()));
         assert!(pending.is_empty(), "waiting would only add latency");
         assert_eq!(pending.deadline(), None);
     }
@@ -382,7 +616,7 @@ mod tests {
             mtime_ms: Some(1),
             hash: sha256_bytes(b"text"),
         };
-        let removal = vanished("/notes/a.md", Some(fallback), None);
+        let removal = vanished("/notes/a.md", Some(fallback));
         assert!(!pending.hold(removal, Instant::now()));
     }
 
@@ -390,8 +624,8 @@ mod tests {
     fn a_second_report_of_one_removal_keeps_the_delivery_it_arrived_in() {
         let mut pending = PendingRemovals::new(Duration::from_millis(1000));
         let now = Instant::now();
-        assert!(pending.hold(vanished("/notes/a.md", Some(inode(7)), None), now));
-        let mut again = vanished("/notes/a.md", Some(inode(7)), None);
+        assert!(pending.hold(vanished("/notes/a.md", Some(inode(7))), now));
+        let mut again = vanished("/notes/a.md", Some(inode(7)));
         again.batch = vec![PathBuf::from("/notes/b.md")];
         assert!(pending.hold(again, now + Duration::from_millis(400)));
 
@@ -411,7 +645,7 @@ mod tests {
     fn a_file_back_at_its_own_path_is_forgotten_rather_than_announced() {
         let mut pending = PendingRemovals::new(Duration::from_millis(1000));
         let now = Instant::now();
-        pending.hold(vanished("/notes/a.md", Some(inode(7)), None), now);
+        pending.hold(vanished("/notes/a.md", Some(inode(7))), now);
         assert_eq!(
             pending.forget("note-1").map(|held| held.path),
             Some(PathBuf::from("/notes/a.md"))
@@ -423,8 +657,8 @@ mod tests {
     fn the_deadline_is_the_first_removal_waiting() {
         let mut pending = PendingRemovals::new(Duration::from_millis(1000));
         let now = Instant::now();
-        pending.hold(vanished("/notes/a.md", Some(inode(7)), None), now);
-        let mut second = vanished("/notes/b.md", Some(inode(8)), None);
+        pending.hold(vanished("/notes/a.md", Some(inode(7))), now);
+        let mut second = vanished("/notes/b.md", Some(inode(8)));
         second.note_id = "note-2".to_string();
         pending.hold(second, now + Duration::from_millis(300));
 
@@ -432,6 +666,6 @@ mod tests {
         let announced = pending.expired(now + Duration::from_millis(1100));
         assert_eq!(announced.len(), 1);
         assert_eq!(announced[0].note_id, "note-1");
-        assert!(pending.holds("note-2"));
+        assert!(pending.is_holding("note-2"));
     }
 }

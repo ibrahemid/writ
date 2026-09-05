@@ -65,6 +65,7 @@ fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFall
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
         notes_reconcile: Arc::new(ReconcileGate::new()),
         quit: Arc::new(QuitState::new()),
+        removal_holds: Default::default(),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
         transforms: RwLock::new(TransformRegistry::new()),

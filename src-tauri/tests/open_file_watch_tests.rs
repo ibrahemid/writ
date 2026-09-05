@@ -85,6 +85,7 @@ impl TabsThatHaveRead {
             files: Arc::new(Self {
                 read: HashMap::from([(note_id.to_string(), state)]),
             }),
+            holds: Default::default(),
         }
     }
 }

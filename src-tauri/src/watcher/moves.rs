@@ -18,6 +18,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 use writ_core::notes::guard::DiskState;
 use writ_core::notes::identity::{FileIdentity, IdentityProbe};
+use writ_core::watcher::pending::RemovalHolds;
 
 use crate::state::AppState;
 
@@ -46,11 +47,14 @@ pub trait NoteFiles: Send + Sync {
     /// marked removed, which is a file that came back from the Trash.
     fn note_file_returned(&self, note_id: &str, path: &Path) -> bool;
 
-    /// What the note's file held the last time Writ read or wrote it.
+    /// The digest of what the note's file held the last time Writ read or
+    /// wrote it.
     ///
-    /// The second thing a vanished file can be recognised by, once its id has
-    /// been retired by a write nobody reported
-    /// ([`writ_core::notes::identity::classify_delete_by_content`]).
+    /// What a modification report is measured against: a watcher can deliver
+    /// the write a tab has already read, and the recorded digest is what says
+    /// so ([`writ_core::watcher::change_event::modification_is_news`]). It is
+    /// not evidence of where a file went — a move is followed on the id and
+    /// nothing else (ADR-033 §12).
     fn last_disk_state(&self, note_id: &str) -> Option<DiskState>;
 
     /// The notes folder as it is now, or `None` when there is no application
@@ -70,6 +74,13 @@ pub struct FileTracking {
     pub probe: Arc<dyn IdentityProbe>,
     /// Holds what Writ knows about each tab's file.
     pub files: Arc<dyn NoteFiles>,
+    /// Where the removals being held are published, so a save can wait for one
+    /// rather than write to a path whose file may have moved.
+    ///
+    /// Shared with the application, which is the other end of the wait. A
+    /// watcher with a registry of its own answers nobody, which is what
+    /// [`FileTracking::untracked`] is.
+    pub holds: Arc<RemovalHolds>,
 }
 
 impl FileTracking {
@@ -80,14 +91,17 @@ impl FileTracking {
         Self {
             probe: Arc::new(PlatformIdentity),
             files: Arc::new(NoNoteFiles),
+            holds: Arc::new(RemovalHolds::new()),
         }
     }
 
     /// Tracking backed by the running application.
     pub fn of_app(app: AppHandle) -> Self {
+        let holds = app.state::<AppState>().removal_holds.clone();
         Self {
             probe: Arc::new(PlatformIdentity),
             files: Arc::new(AppNoteFiles { app }),
+            holds,
         }
     }
 
@@ -102,6 +116,7 @@ impl FileTracking {
             files: Arc::new(SharedNoteFiles {
                 state: Arc::downgrade(state),
             }),
+            holds: state.removal_holds.clone(),
         }
     }
 }
@@ -249,10 +264,8 @@ pub enum MoveOutcome {
 /// keystroke deadlock.
 ///
 /// The bytes did not move, so the digest Writ recorded still describes the
-/// file and is carried over rather than read again — where the move was
-/// recognised by its bytes rather than its id, that digest is what recognised
-/// it. Reading again would fetch the whole file in a sync folder for an answer
-/// already in hand.
+/// file and is carried over rather than read again. Reading again would fetch
+/// the whole file in a sync folder for an answer already in hand.
 ///
 /// [`MoveOutcome::AlreadyThere`] when the row was already there, which is what
 /// keeps one move seen by two watchers from telling the tab twice.

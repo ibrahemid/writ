@@ -12,6 +12,7 @@ use writ_core::hash::sha256_bytes;
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
 use writ_core::watcher::change_event::ExternalChange;
+use writ_core::watcher::pending::hold_window;
 use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
@@ -21,6 +22,8 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::errors::StorageError;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
+#[cfg(unix)]
+use writ_tauri_lib::commands::buffer::ERR_FOLDER_NOT_WRITABLE;
 use writ_tauri_lib::commands::buffer::{
     read_buffer_content_inner, restore_note_file_inner, save_buffer_content_inner,
     ERR_FILE_CHANGED_ON_DISK, ERR_FILE_MISSING, ERR_FILE_REMOVED_ON_DISK,
@@ -34,7 +37,9 @@ use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
 use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
 use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::{create_ignore_set, start_notes_watcher};
+use writ_tauri_lib::watcher::handler::{
+    create_ignore_set, start_notes_watcher, NOTES_DEBOUNCE_WINDOW,
+};
 use writ_tauri_lib::watcher::moves::{FileTracking, MoveOutcome};
 use writ_tauri_lib::watcher::open_files::start_open_file_watcher;
 
@@ -68,6 +73,7 @@ fn make_state(dir: &TempDir) -> AppState {
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
         notes_reconcile: Arc::new(ReconcileGate::new()),
         quit: Arc::new(QuitState::new()),
+        removal_holds: Default::default(),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
         transforms: RwLock::new(TransformRegistry::new()),
@@ -1024,14 +1030,13 @@ fn a_rename_after_another_program_rewrote_the_file_is_still_a_move() {
 }
 
 #[test]
-fn a_rewrite_and_a_rename_in_one_window_still_leave_the_tab_on_its_file() {
-    // The rewrite above reached the tab because it had a window to itself. Two
-    // writes inside one window are reported as one: a program rewrote the file
-    // and renamed it, and the only event is the path going empty. The rewrite
-    // is never reported at all, so the id on record is the one it retired and
-    // nothing carries it — the tab marked itself removed and refused every
-    // later save over a file sitting at its new path. The bytes are what is
-    // left to recognise it by, and a rename changes none of them.
+fn a_rewrite_and_a_rename_in_one_window_are_a_removal_that_replaces_no_text() {
+    // Two writes inside one window are reported as one: a program rewrote the
+    // file and renamed it, and the only event is the path going empty. The
+    // rewrite is never reported, so the id on record is the one it retired and
+    // nothing carries it anywhere. Nothing else names the file either, so the
+    // tab is told its file went rather than being pointed at a path on
+    // evidence that cannot tell a copy from a rename.
     let dir = TempDir::new().expect("temp dir");
     let (state, rx) = watching_state(&dir);
 
@@ -1040,37 +1045,181 @@ fn a_rewrite_and_a_rename_in_one_window_still_leave_the_tab_on_its_file() {
     let before = note_file(&state, &doc.id);
     std::thread::sleep(APART);
 
-    // A sync client putting the file back from its own cache writes the bytes
-    // that are already there, which is a new file under the same name and the
-    // same content.
     rewrite_from_outside(&before, b"text worth keeping");
     let after = state.notes_root().join("renamed-by-finder.md");
     std::fs::rename(&before, &after).expect("rename the way Finder does");
 
     let seen = external_events(&rx);
-    assert_eq!(
-        seen.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
-        vec![&ExternalChange::Moved],
-        "a rename after a rewrite nobody reported must still be a move, saw {seen:?}"
-    );
-    assert_eq!(
-        change_of(&seen[0]).1.map(std::path::Path::new),
-        Some(after.as_path())
-    );
+    assert_eq!(seen.len(), 1, "the tab must be told once, saw {seen:?}");
+    assert_eq!(named_by(&seen[0]).0, doc.id);
+    assert_eq!(change_of(&seen[0]), (&ExternalChange::Removed, None));
+    assert!(state.is_removed_on_disk(&doc.id));
     assert!(
-        !state.is_removed_on_disk(&doc.id),
-        "the tab stopped writing to a file that is there"
+        matches!(
+            &seen[0],
+            WritEvent::BufferExternal {
+                disk_hash: None,
+                ..
+            }
+        ),
+        "a removal carrying a digest has the editor replace the text it holds"
     );
-    assert_eq!(note_file(&state, &doc.id), after);
+    assert_eq!(
+        note_file(&state, &doc.id),
+        before,
+        "the row followed a file the note was never given"
+    );
 
-    save_buffer_content_inner(&state, &doc.id, "edited after the rename").expect("save");
+    let refused = save_buffer_content_inner(&state, &doc.id, "edited after the rename")
+        .expect_err("the save must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the refusal has to carry its own code, got {refused}"
+    );
     assert_eq!(
-        std::fs::read_to_string(&after).expect("read the moved file"),
-        "edited after the rename"
+        std::fs::read_to_string(&after).expect("read the file at the new path"),
+        "text worth keeping",
+        "the save wrote into a file the tab was never given"
+    );
+}
+
+#[test]
+fn a_note_dragged_out_of_the_notes_folder_leaves_a_twin_of_its_bytes_alone() {
+    // A file that leaves every watched folder carries its id away with it, so
+    // nothing in the window carries it and the note is gone as far as Writ can
+    // see. A file holding the same bytes in the same window is a copy, a
+    // template, or a sync client's conflicted copy as easily as it is the
+    // note, and taking it would let the next save replace its content.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    let outside = dir.path().join("outside-every-watched-folder");
+    std::fs::create_dir_all(&outside).expect("a folder no watcher covers");
+    let twin = state.notes_root().join("aaa-twin.md");
+    std::fs::write(&twin, "text worth keeping").expect("the twin");
+    let dragged = outside.join("dragged-out.md");
+    std::fs::rename(&before, &dragged).expect("drag it out of the notes folder");
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(told.len(), 1, "the tab must be told once, saw {seen:?}");
+    assert_eq!(change_of(told[0]), (&ExternalChange::Removed, None));
+    assert_eq!(
+        note_file(&state, &doc.id),
+        before,
+        "the row followed a file the note was never in"
+    );
+
+    let refused = save_buffer_content_inner(&state, &doc.id, "edited after the move")
+        .expect_err("the save must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the refusal has to carry its own code, got {refused}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&twin).expect("read the twin"),
+        "text worth keeping",
+        "the save wrote over a file the note was never in"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&dragged).expect("read the file the user dragged out"),
+        "text worth keeping"
+    );
+}
+
+#[test]
+fn a_note_moved_away_leaves_a_second_note_with_the_same_bytes_on_its_own_file() {
+    // Two notes from one template hold the same bytes, which makes the file at
+    // risk as likely to be another note as anything else. Both rows landed on
+    // one path: the second note's text was overwritten by the first note's
+    // next save while its tab still believed it owned that file.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let one = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &one.id, "text worth keeping").expect("save");
+    let one_before = note_file(&state, &one.id);
+    let two = new_note_inner(&state).expect("a second note");
+    save_buffer_content_inner(&state, &two.id, "text worth keeping").expect("save");
+    let two_file = note_file(&state, &two.id);
+    std::thread::sleep(APART);
+
+    let outside = dir.path().join("outside-every-watched-folder");
+    std::fs::create_dir_all(&outside).expect("a folder no watcher covers");
+    rewrite_from_outside(&two_file, b"text worth keeping");
+    let one_moved = outside.join("dragged-out.md");
+    std::fs::rename(&one_before, &one_moved).expect("drag the first note out");
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == one.id).collect();
+    assert_eq!(
+        told.len(),
+        1,
+        "the moved note must be told once, saw {seen:?}"
+    );
+    assert_eq!(change_of(told[0]), (&ExternalChange::Removed, None));
+    assert_eq!(note_file(&state, &one.id), one_before);
+    assert_eq!(
+        note_file(&state, &two.id),
+        two_file,
+        "the second note's row followed the first note's move"
+    );
+
+    let refused = save_buffer_content_inner(&state, &one.id, "edited after the move")
+        .expect_err("the save must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the refusal has to carry its own code, got {refused}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&two_file).expect("read the second note's file"),
+        "text worth keeping",
+        "the first note's save wrote over the second note's file"
+    );
+}
+
+#[test]
+fn a_deleted_note_leaves_a_file_holding_the_same_bytes_alone() {
+    // No move at all. The note's bytes exist at no path the note was ever at,
+    // and a file that happens to hold the same bytes is still somebody else's
+    // file: writing the note into it would replace its content with no event
+    // and no error.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    let twin = state.notes_root().join("aaa-twin.md");
+    std::fs::write(&twin, "text worth keeping").expect("the twin");
+    std::fs::remove_file(&path).expect("delete the note the way Finder does");
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(told.len(), 1, "the tab must be told once, saw {seen:?}");
+    assert_eq!(change_of(told[0]), (&ExternalChange::Removed, None));
+
+    let refused = save_buffer_content_inner(&state, &doc.id, "text worth keeping, edited")
+        .expect_err("the save must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the refusal has to carry its own code, got {refused}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&twin).expect("read the twin"),
+        "text worth keeping",
+        "the save wrote over a file the note was never in"
     );
     assert!(
-        !before.exists(),
-        "the save recreated the file at the old path"
+        !path.exists(),
+        "the save put back the file the user threw away"
     );
 }
 
@@ -1234,4 +1383,766 @@ fn one_move_seen_by_both_watchers_moves_the_row_once() {
     );
     assert_eq!(note_file(&state, &doc.id), after);
     assert_eq!(title_of(&state, &doc.id), "moved-by-finder.md");
+}
+
+/// Blocks until the watcher is holding `id`'s removal.
+///
+/// The hold is taken by the delivery that carries the emptied path, one
+/// debounce window plus the platform's own notification latency after the
+/// rename or the delete, and only the first of those is a constant. A sleep
+/// long enough on an idle host is short on a loaded one, and a step that lands
+/// before the hold is a step outside it, so every step below that belongs
+/// inside a hold waits for this instead. `RemovalHolds::holds` is the read the
+/// save path makes on its way in (ADR-033 §14).
+fn wait_until_held(state: &AppState, id: &str) {
+    let deadline = Instant::now() + SETTLE;
+    while Instant::now() < deadline {
+        if state.removal_holds.holds(id) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    panic!("the removal of {id} was never held");
+}
+
+#[test]
+fn a_rename_whose_halves_land_in_two_windows_is_still_a_move() {
+    // What a rename looks like when it straddles a debounce deadline: the
+    // notes folder is delivered the path going empty with nothing that could
+    // answer for it, and the file only turns up at its new name in a later
+    // delivery. Answering the first delivery on its own marks the tab off a
+    // file that is sitting one folder away (ADR-033 §14).
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    // Out of the watched folder and back into it, a delivery apart: the hold
+    // is proof the first half was read on its own, so the second cannot join
+    // it. A rename keeps the inode, so what comes back is the file the record
+    // names.
+    let elsewhere = dir.path().join("outside-every-watched-folder");
+    std::fs::create_dir_all(&elsewhere).expect("a folder nothing watches");
+    let parked = elsewhere.join("in-flight.md");
+    std::fs::rename(&before, &parked).expect("the first half");
+    wait_until_held(&state, &doc.id);
+    let after = state.notes_root().join("renamed-across-two-windows.md");
+    std::fs::rename(&parked, &after).expect("the second half");
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(
+        told.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Moved],
+        "a rename delivered in two halves is still one move, saw {seen:?}"
+    );
+    assert_eq!(
+        change_of(told[0]).1.map(std::path::Path::new),
+        Some(after.as_path())
+    );
+    assert!(
+        !state.is_removed_on_disk(&doc.id),
+        "the tab stopped writing to a file that is there"
+    );
+    assert_eq!(note_file(&state, &doc.id), after);
+
+    save_buffer_content_inner(&state, &doc.id, "edited after the rename").expect("save");
+    assert_eq!(
+        std::fs::read_to_string(&after).expect("read the moved file"),
+        "edited after the rename"
+    );
+}
+
+#[test]
+fn a_removal_nothing_answers_is_announced_when_the_hold_passes() {
+    // The other side of the hold: waiting for a second delivery must not cost
+    // the deletion itself. Nothing turns up carrying the file's id, so the
+    // removal is announced once its window passes, and the tab is marked off
+    // its file at that point and not before.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    let deleted_at = Instant::now();
+    std::fs::remove_file(&path).expect("delete the note the way Finder does");
+
+    let deadline = Instant::now() + SETTLE;
+    let mut told_at = None;
+    let mut seen = Vec::new();
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        match rx.recv_timeout(left) {
+            Ok(event @ WritEvent::BufferExternal { .. }) => {
+                if named_by(&event).0 == doc.id {
+                    told_at.get_or_insert_with(Instant::now);
+                }
+                seen.push(event);
+            }
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(told.len(), 1, "the tab must be told once, saw {seen:?}");
+    assert_eq!(change_of(told[0]), (&ExternalChange::Removed, None));
+    assert!(
+        told_at.expect("the removal was announced") - deleted_at
+            >= hold_window(NOTES_DEBOUNCE_WINDOW),
+        "the removal was announced without waiting out the hold"
+    );
+    assert!(state.is_removed_on_disk(&doc.id));
+
+    let refused = save_buffer_content_inner(&state, &doc.id, "text worth keeping, edited")
+        .expect_err("the save must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the refusal has to carry its own code, got {refused}"
+    );
+}
+
+/// What a save is allowed to take when it lands inside a hold: the hold itself
+/// plus the window the announcement is delivered on.
+fn the_longest_a_held_save_may_wait() -> Duration {
+    hold_window(NOTES_DEBOUNCE_WINDOW) + NOTES_DEBOUNCE_WINDOW
+}
+
+/// How far apart the answer that releases a held save and the announcement of
+/// the same removal may land. Both come out of one pass over the expired hold.
+/// A save the watcher never answers waits out its own deadline instead, a
+/// debounce window behind the announcement.
+fn released_together() -> Duration {
+    NOTES_DEBOUNCE_WINDOW / 2
+}
+
+/// The two windows decision 14's consequences bullet quotes by number, read
+/// off the constants the watcher runs on. A failure here is the documented
+/// numbers having gone stale, not the watcher having gone wrong.
+#[test]
+fn the_adr_quotes_the_windows_the_notes_watcher_runs_on() {
+    assert_eq!(NOTES_DEBOUNCE_WINDOW, Duration::from_millis(500));
+    assert_eq!(
+        hold_window(NOTES_DEBOUNCE_WINDOW),
+        Duration::from_millis(1000)
+    );
+}
+
+#[test]
+fn a_save_inside_the_hold_of_a_deletion_recreates_nothing() {
+    // The hold is the window in which the record still says the note has a
+    // file, so nothing in it refuses a write on its own. A save landing there
+    // would put the deleted file back holding the tab's text, and in a synced
+    // folder put it back on every device (ADR-033 §12).
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    std::fs::remove_file(&path).expect("delete the note the way Finder does");
+    wait_until_held(&state, &doc.id);
+
+    let refused = save_buffer_content_inner(&state, &doc.id, "written during the hold")
+        .expect_err("the save must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "a save inside the hold is refused the same way as one after the announcement, got {refused}"
+    );
+    assert!(
+        !path.exists(),
+        "the file the person deleted is back on disk"
+    );
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(
+        told.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Removed],
+        "the deletion is announced once and the save says nothing, saw {seen:?}"
+    );
+    assert!(state.is_removed_on_disk(&doc.id));
+}
+
+#[test]
+fn a_save_inside_the_hold_of_a_split_rename_lands_at_the_new_path() {
+    // The variant that costs a file rather than resurrecting one: the save
+    // writes a new file at the path the rename emptied, the move is never
+    // announced, and the person is left with two files where they renamed one.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    let elsewhere = dir.path().join("outside-every-watched-folder");
+    std::fs::create_dir_all(&elsewhere).expect("a folder nothing watches");
+    let parked = elsewhere.join("in-flight.md");
+    std::fs::rename(&before, &parked).expect("the first half");
+
+    // On its own thread: the save blocks until the hold is answered, and the
+    // second half of the rename is what answers it.
+    let saver = {
+        let state = Arc::clone(&state);
+        let id = doc.id.clone();
+        std::thread::spawn(move || {
+            wait_until_held(&state, &id);
+            save_buffer_content_inner(&state, &id, "written during the hold")
+        })
+    };
+    wait_until_held(&state, &doc.id);
+    let after = state.notes_root().join("renamed-across-two-windows.md");
+    std::fs::rename(&parked, &after).expect("the second half");
+    saver.join().expect("the saving thread").expect("the save");
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(
+        told.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Moved],
+        "the rename is still one move with a save inside it, saw {seen:?}"
+    );
+    assert_eq!(note_file(&state, &doc.id), after);
+    assert!(
+        !before.exists(),
+        "the save put a second file where the rename emptied"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&after).expect("read the moved file"),
+        "written during the hold",
+        "the text typed during the hold has to reach the file the note is on"
+    );
+}
+
+#[test]
+fn a_stranger_at_the_path_during_the_hold_is_still_a_deletion() {
+    // Something else at the path is not the note's file coming back. Reading
+    // the path alone cannot tell them apart, and forgetting the hold for a
+    // stranger leaves the tab bound to a file it never opened.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    std::fs::remove_file(&path).expect("delete the note the way Finder does");
+    wait_until_held(&state, &doc.id);
+    // A new file at the same path: another program, a sync client, a restore.
+    std::fs::write(&path, b"somebody else's file").expect("the stranger's write");
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert!(
+        told.iter()
+            .any(|e| change_of(e).0 == &ExternalChange::Removed),
+        "the note's own file is gone and nothing said so, saw {seen:?}"
+    );
+    assert!(
+        !told
+            .iter()
+            .any(|e| change_of(e).0 == &ExternalChange::Moved),
+        "the tab followed a file it never opened, saw {seen:?}"
+    );
+    assert!(state.is_removed_on_disk(&doc.id));
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read the stranger's file"),
+        "somebody else's file",
+        "the stranger's file was written over"
+    );
+}
+
+#[test]
+fn the_same_file_back_at_its_path_during_the_hold_lets_the_save_through() {
+    // A rename out and straight back: the file the record names is at the path
+    // it left, so there was never anything to announce, and the save that was
+    // waiting on the hold lands where it always would have.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    let elsewhere = dir.path().join("outside-every-watched-folder");
+    std::fs::create_dir_all(&elsewhere).expect("a folder nothing watches");
+    let parked = elsewhere.join("in-flight.md");
+    std::fs::rename(&path, &parked).expect("out of the folder");
+
+    let saver = {
+        let state = Arc::clone(&state);
+        let id = doc.id.clone();
+        std::thread::spawn(move || {
+            wait_until_held(&state, &id);
+            save_buffer_content_inner(&state, &id, "written while the file was away")
+        })
+    };
+    wait_until_held(&state, &doc.id);
+    std::fs::rename(&parked, &path).expect("and back to the same path");
+    saver.join().expect("the saving thread").expect("the save");
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert!(
+        !told
+            .iter()
+            .any(|e| change_of(e).0 == &ExternalChange::Removed),
+        "a file that never left was announced as deleted, saw {seen:?}"
+    );
+    assert!(!state.is_removed_on_disk(&doc.id));
+    assert_eq!(note_file(&state, &doc.id), path);
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read the note"),
+        "written while the file was away"
+    );
+}
+
+#[test]
+fn a_save_inside_a_hold_waits_for_the_answer_and_no_longer() {
+    // Three bounds. Below: the save cannot write before the hold is answered,
+    // or it writes to a path nobody can classify yet. Above: the wait ends on
+    // the hold's own deadline, so a note whose watcher stopped costs a save one
+    // window and not a hung tab. Between: the answer that releases the save and
+    // the announcement of the removal come out of the same pass over the
+    // expired hold, so they land together, and a save that is instead left to
+    // time out lands a debounce window behind the announcement.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    let deleted_at = Instant::now();
+    std::fs::remove_file(&path).expect("delete the note the way Finder does");
+
+    // On its own thread, so the announcement can be timed while the save is
+    // still blocked on the hold.
+    let saver = {
+        let state = Arc::clone(&state);
+        let id = doc.id.clone();
+        std::thread::spawn(move || {
+            wait_until_held(&state, &id);
+            let asked_at = Instant::now();
+            let answer = save_buffer_content_inner(&state, &id, "written during the hold");
+            (asked_at.elapsed(), Instant::now(), answer)
+        })
+    };
+
+    let announced_at = {
+        let deadline = Instant::now() + SETTLE;
+        let mut at = None;
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match rx.recv_timeout(left) {
+                Ok(event @ WritEvent::BufferExternal { .. }) if named_by(&event).0 == doc.id => {
+                    at = Some(Instant::now());
+                    break;
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        at.expect("the removal was announced")
+    };
+    let (waited, returned_at, answer) = saver.join().expect("the saving thread");
+    let refused = answer.expect_err("the save must be refused");
+
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the save returned on the answer, not on a timeout that let it through: {refused}"
+    );
+    assert!(
+        returned_at.duration_since(deleted_at) >= hold_window(NOTES_DEBOUNCE_WINDOW),
+        "the save came back before the hold it was waiting on could end"
+    );
+    assert!(
+        waited <= the_longest_a_held_save_may_wait(),
+        "a save inside a hold waited {waited:?}, longer than the hold and one window"
+    );
+    let behind = returned_at.saturating_duration_since(announced_at);
+    assert!(
+        behind <= released_together(),
+        "the save returned {behind:?} after the removal was announced, so it waited out its own \
+         deadline instead of being released by the answer"
+    );
+}
+
+/// The date a file was created, where the platform records one.
+///
+/// `None` off macOS, which is the only platform whose saves carry the date
+/// across the rename that replaces the file.
+#[cfg(target_os = "macos")]
+fn birth_time(path: &std::path::Path) -> Option<(i64, i64)> {
+    use std::os::macos::fs::MetadataExt;
+
+    let metadata = std::fs::metadata(path).ok()?;
+    Some((metadata.st_birthtime(), metadata.st_birthtime_nsec()))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn birth_time(_path: &std::path::Path) -> Option<(i64, i64)> {
+    None
+}
+
+/// Longer than a save takes when nothing holds it, and far short of the
+/// answer this test's save is waiting on, so neither a busy host nor a fast
+/// one moves the line.
+const BLOCKED: Duration = Duration::from_millis(50);
+
+#[test]
+fn a_save_of_the_text_the_file_already_holds_still_waits_out_the_hold() {
+    // The seam between the wait and the guard that stops a save of unchanged
+    // text. The wait comes first and has to: the guard answers on the file at
+    // the path the row names, and inside a hold that path is empty, so a
+    // reader that went first would call a no-op save a change and write.
+    // Waiting costs an untouched note the hold once; not waiting costs it the
+    // deleted file back.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, _rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    let written_at = std::fs::metadata(&path)
+        .expect("stat the note")
+        .modified()
+        .expect("the modification time");
+    std::thread::sleep(APART);
+
+    let elsewhere = dir.path().join("outside-every-watched-folder");
+    std::fs::create_dir_all(&elsewhere).expect("a folder nothing watches");
+    let parked = elsewhere.join("in-flight.md");
+    std::fs::rename(&path, &parked).expect("out of the folder");
+
+    let saver = {
+        let state = Arc::clone(&state);
+        let id = doc.id.clone();
+        std::thread::spawn(move || {
+            wait_until_held(&state, &id);
+            let asked_at = Instant::now();
+            let answer = save_buffer_content_inner(&state, &id, "text worth keeping");
+            (asked_at.elapsed(), Instant::now(), answer)
+        })
+    };
+    wait_until_held(&state, &doc.id);
+    std::fs::rename(&parked, &path).expect("and back to the same path");
+    let back_at = Instant::now();
+    let (waited, returned_at, answer) = saver.join().expect("the saving thread");
+    answer.expect("the save");
+
+    // Read off the save's own return rather than off the clock: a save
+    // that skipped the hold comes back in single-figure milliseconds, and one
+    // that waited cannot come back before the file it was waiting on.
+    assert!(
+        waited >= BLOCKED,
+        "the save came back in {waited:?}, which is not a wait"
+    );
+    assert!(
+        returned_at >= back_at,
+        "the save came back before the file did, so it read a path the hold had emptied"
+    );
+    assert_eq!(
+        std::fs::metadata(&path)
+            .expect("stat the note")
+            .modified()
+            .expect("the modification time"),
+        written_at,
+        "a save of the text the file already holds replaced the file"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read the note"),
+        "text worth keeping"
+    );
+}
+
+#[test]
+fn a_save_inside_a_hold_carries_the_files_dates_to_the_path_it_lands_on() {
+    // A write the hold released is a write like any other: it lands at the
+    // path the answer moved the row to, through the guard that carries what
+    // the file was carrying. A note started last year that is renamed and
+    // typed into in the same second is still a note started last year.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, _rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    let elsewhere = dir.path().join("outside-every-watched-folder");
+    std::fs::create_dir_all(&elsewhere).expect("a folder nothing watches");
+    let parked = elsewhere.join("in-flight.md");
+    std::fs::rename(&before, &parked).expect("the first half");
+    // Read off the file itself while it is parked: a rename carries the date
+    // with the inode, so this is the date the note has had all along.
+    let born = birth_time(&parked);
+
+    let saver = {
+        let state = Arc::clone(&state);
+        let id = doc.id.clone();
+        std::thread::spawn(move || {
+            wait_until_held(&state, &id);
+            save_buffer_content_inner(&state, &id, "written during the hold")
+        })
+    };
+    wait_until_held(&state, &doc.id);
+    let after = state.notes_root().join("carried-across-the-hold.md");
+    std::fs::rename(&parked, &after).expect("the second half");
+    saver.join().expect("the saving thread").expect("the save");
+
+    assert_eq!(note_file(&state, &doc.id), after);
+    assert_eq!(
+        std::fs::read_to_string(&after).expect("read the moved file"),
+        "written during the hold",
+        "the text typed during the hold has to reach the file the note is on"
+    );
+    assert!(!before.exists(), "the save put a second file back");
+    assert_eq!(
+        birth_time(&after),
+        born,
+        "the write the hold released reports the note as created moments ago"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_folder_that_will_not_take_the_write_leaves_the_hold_where_it_was() {
+    // The save that reaches the folder is the one whose hold expired with no
+    // answer, and a hold with no answer is still the watcher's to announce.
+    // Taking it away with the refusal would leave the removal with nothing to
+    // come out of, and the tab would never hear that its file had gone.
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    let folder = path
+        .parent()
+        .expect("the folder holding the note")
+        .to_path_buf();
+
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).expect("chmod");
+    let probe = folder.join("writable.probe");
+    if std::fs::write(&probe, b"").is_ok() {
+        // Root, for whom no folder refuses a write.
+        std::fs::remove_file(&probe).expect("remove the probe");
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        return;
+    }
+
+    // A hold nothing will answer: the save waits out its deadline and then
+    // writes, which is the one order in which the folder is reached at all.
+    state
+        .removal_holds
+        .hold(&doc.id, Instant::now() + Duration::from_millis(300));
+
+    let answer = save_buffer_content_inner(&state, &doc.id, "written during the hold");
+    // Before anything that can panic, so a failure leaves a folder the temp
+    // directory can still delete itself out of.
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("chmod back");
+    let refused = answer.expect_err("the folder must stop the save");
+
+    assert!(
+        refused.starts_with(ERR_FOLDER_NOT_WRITABLE),
+        "the save that waited out the hold was refused as something else: {refused}"
+    );
+    assert!(
+        state.removal_holds.holds(&doc.id),
+        "the refusal took the hold with it, leaving the removal with nothing to come out of"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read the note"),
+        "text worth keeping",
+        "a refused save wrote anyway"
+    );
+}
+
+/// Sets a file's modification time to the start of 2020, the way a metadata
+/// pass over a restored folder does.
+///
+/// On APFS that pulls the birth time back with it, on the same inode, which is
+/// the whole point of the tests below.
+#[cfg(target_os = "macos")]
+fn backdate(path: &std::path::Path) {
+    let status = std::process::Command::new("touch")
+        .arg("-t")
+        .arg("202001010000")
+        .arg(path)
+        .status()
+        .expect("run touch");
+    assert!(status.success(), "touch -t failed on {}", path.display());
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+fn a_note_whose_birth_time_was_pulled_back_still_follows_its_rename() {
+    // A metadata pass that backdates a note in place — `touch -t`, `SetFile
+    // -d`, a restore tool — leaves the inode alone and, on APFS, drags the
+    // birth time down to the modification time it set. It writes no bytes, so
+    // the ignore stamp Writ's own save left takes the event for Writ's and
+    // nothing refreshes the id. The record then holds a birth time later than
+    // the file's, and reading that as a different file leaves the tab refusing
+    // every save over a file sitting at its new name (ADR-033 §12).
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    backdate(&before);
+    std::thread::sleep(APART);
+
+    let after = state.notes_root().join("renamed-after-the-backdate.md");
+    std::fs::rename(&before, &after).expect("rename the way Finder does");
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(
+        told.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Moved],
+        "a rename after a backdating touch is still a move, saw {seen:?}"
+    );
+    assert_eq!(
+        change_of(told[0]).1.map(std::path::Path::new),
+        Some(after.as_path())
+    );
+    assert!(
+        !state.is_removed_on_disk(&doc.id),
+        "the tab stopped writing to a file that is there"
+    );
+    assert_eq!(note_file(&state, &doc.id), after);
+
+    save_buffer_content_inner(&state, &doc.id, "edited after the backdate").expect("save");
+    assert_eq!(
+        std::fs::read_to_string(&after).expect("read the moved file"),
+        "edited after the backdate"
+    );
+    assert!(
+        !before.exists(),
+        "the save recreated the file at the old path"
+    );
+}
+
+/// Writes a file's creation date forward, the way an unarchiver or a restore
+/// tool stamping an archive's own date does.
+///
+/// `SetFile -d` reaches `setattrlist` with `ATTR_CMN_CRTIME`, which moves a
+/// live inode's birth time in either direction on APFS. It is the mirror of
+/// [`backdate`], and the pair is why macOS reads no birth time: a value that
+/// moves both ways cannot be compared against a record to tell a reused inode
+/// number from the file that still holds it.
+#[cfg(target_os = "macos")]
+fn forward_date(path: &std::path::Path) {
+    let status = std::process::Command::new("/usr/bin/SetFile")
+        .arg("-d")
+        .arg("01/01/2090 00:00:00")
+        .arg(path)
+        .status()
+        .expect("run SetFile");
+    assert!(status.success(), "SetFile -d failed on {}", path.display());
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+fn a_note_whose_birth_time_was_pushed_forward_still_follows_its_rename() {
+    // The mirror of the test above. A restore tool stamping the creation date
+    // it read out of an archive writes the birth time forward on the inode the
+    // tab is editing, and writes no bytes, so the ignore stamp Writ's own save
+    // left takes the event for Writ's and nothing refreshes the id. A record
+    // that compared birth times would read the file as a different one and
+    // leave the tab refusing every save over a file at its new name.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    forward_date(&before);
+    std::thread::sleep(APART);
+
+    let after = state.notes_root().join("renamed-after-the-forward-date.md");
+    std::fs::rename(&before, &after).expect("rename the way Finder does");
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(
+        told.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Moved],
+        "a rename after a forward-dating SetFile is still a move, saw {seen:?}"
+    );
+    assert_eq!(
+        change_of(told[0]).1.map(std::path::Path::new),
+        Some(after.as_path())
+    );
+    assert!(
+        !state.is_removed_on_disk(&doc.id),
+        "the tab stopped writing to a file that is there"
+    );
+    assert_eq!(note_file(&state, &doc.id), after);
+
+    save_buffer_content_inner(&state, &doc.id, "edited after the forward date").expect("save");
+    assert_eq!(
+        std::fs::read_to_string(&after).expect("read the moved file"),
+        "edited after the forward date"
+    );
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+fn a_backdated_note_that_is_deleted_is_still_gone() {
+    // The control for the test above. Reading an earlier birth time as the
+    // same file must not soften the deletion: the note goes, another file is
+    // created in the same window, and that file is younger than the record
+    // whatever the record's birth time was pulled back to. Anything else puts
+    // the tab on a file nobody opened.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    backdate(&path);
+    std::thread::sleep(APART);
+
+    let newcomer = state.notes_root().join("aaa-created-in-the-same-window.md");
+    std::fs::write(&newcomer, "text worth keeping").expect("the newcomer");
+    std::fs::remove_file(&path).expect("delete the note the way Finder does");
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(told.len(), 1, "the tab must be told once, saw {seen:?}");
+    assert_eq!(change_of(told[0]), (&ExternalChange::Removed, None));
+
+    let refused = save_buffer_content_inner(&state, &doc.id, "text worth keeping, edited")
+        .expect_err("the save must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the refusal has to carry its own code, got {refused}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&newcomer).expect("read the newcomer"),
+        "text worth keeping",
+        "the save wrote over a file the note was never in"
+    );
 }
