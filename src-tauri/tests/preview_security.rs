@@ -301,3 +301,73 @@ fn frontmatter_is_not_rendered_as_html() {
     assert!(!out.document_html.contains("<script>alert"));
     assert!(out.document_html.contains("ordinary body"));
 }
+
+/// A resolver that answers with whatever a caller wants written into the page.
+///
+/// Both halves of a wikilink come from a note on disk: the label is the text
+/// the author typed, the href is a file name the notes folder holds. Neither
+/// is trusted, and `wikilink_html` is the one path in this crate that puts raw
+/// HTML into the preview document, so this drives it with what a hostile name
+/// would carry.
+struct FixedWikilinks {
+    render: writ_render::WikilinkRender,
+}
+
+impl writ_render::WikilinkResolver for FixedWikilinks {
+    fn resolve(&self, _inner: &str) -> writ_render::WikilinkRender {
+        writ_render::WikilinkRender {
+            href: self.render.href.clone(),
+            label: self.render.label.clone(),
+            resolved: self.render.resolved,
+        }
+    }
+}
+
+fn wikilink_html(label: &str, href: Option<&str>, resolved: bool) -> String {
+    let resolver = FixedWikilinks {
+        render: writ_render::WikilinkRender {
+            href: href.map(str::to_string),
+            label: label.to_string(),
+            resolved,
+        },
+    };
+    writ_render::render_markdown_fragment_with("[[Target]]\n", None, Some(&resolver)).html
+}
+
+#[test]
+fn a_wikilink_label_is_escaped_not_executed() {
+    let out = wikilink_html("<script>alert('xss')</script>", Some("Note.md"), true);
+    assert!(!out.contains("<script>"), "{out}");
+    assert!(out.contains("&lt;script&gt;"), "{out}");
+
+    let missing = wikilink_html("<img src=x onerror=alert(1)>", None, false);
+    assert!(!missing.contains("<img"), "{missing}");
+    assert!(missing.contains("&lt;img"), "{missing}");
+}
+
+#[test]
+fn a_wikilink_href_cannot_break_out_of_its_attribute() {
+    let out = wikilink_html("label", Some("a\" onmouseover=\"alert(1)"), true);
+    assert!(!out.contains("onmouseover=\"alert"), "{out}");
+    assert!(out.contains("&quot;"), "{out}");
+
+    let angled = wikilink_html("label", Some("a><script>alert(1)</script>"), true);
+    assert!(!angled.contains("<script>"), "{angled}");
+}
+
+/// An unresolved target is a span and never an anchor, so a name the index
+/// does not hold cannot become a destination.
+#[test]
+fn only_a_resolved_wikilink_becomes_an_anchor() {
+    let resolved = wikilink_html("label", Some("Note.md"), true);
+    assert!(
+        resolved.contains("<a class=\"writ-wikilink\""),
+        "{resolved}"
+    );
+
+    for (href, is_resolved) in [(Some("javascript:alert(1)"), false), (None, true)] {
+        let out = wikilink_html("label", href, is_resolved);
+        assert!(!out.contains("<a "), "{out}");
+        assert!(out.contains("writ-wikilink-missing"), "{out}");
+    }
+}

@@ -157,3 +157,51 @@ describe("linkStore noteNameCandidates", () => {
     expect(await linkStore.noteNameCandidates("Gro")).toEqual([]);
   });
 });
+
+// A `[[…]]` the preview resolved is written with a scheme of its own, because
+// a note is not a web address and the external-link policy refuses one as
+// unparseable. The scheme says what the frame wants; the notes folder decides
+// what it gets.
+describe("linkStore notePathFromPreview", () => {
+  const ROOT = "/Users/x/Writ";
+
+  it("answers with the note the preview link names", () => {
+    expect(linkStore.notePathFromPreview("writ-note:Note.md", ROOT)).toBe(
+      "/Users/x/Writ/Note.md",
+    );
+    expect(linkStore.notePathFromPreview("writ-note:folder/Deep.md", ROOT)).toBe(
+      "/Users/x/Writ/folder/Deep.md",
+    );
+  });
+
+  it("decodes a name written with a character the href escaped", () => {
+    expect(linkStore.notePathFromPreview("writ-note:a%23b.md", ROOT)).toBe(
+      "/Users/x/Writ/a#b.md",
+    );
+  });
+
+  // Anything in the rendered document can post an href, so the scheme is a
+  // claim and not a permission.
+  it("refuses a path that lands outside the notes folder", () => {
+    for (const href of [
+      "writ-note:../../.ssh/id_rsa",
+      "writ-note:/etc/passwd",
+      "writ-note:folder/../../secrets.md",
+      "writ-note:%2e%2e/%2e%2e/passwd",
+      "writ-note:",
+    ]) {
+      expect(linkStore.notePathFromPreview(href, ROOT), href).toBeNull();
+    }
+  });
+
+  it("leaves every other href to the external-link policy", () => {
+    expect(linkStore.notePathFromPreview("https://example.com/x", ROOT)).toBeNull();
+    expect(linkStore.notePathFromPreview("Note.md", ROOT)).toBeNull();
+    expect(linkStore.notePathFromPreview("javascript:alert(1)", ROOT)).toBeNull();
+  });
+
+  it("answers with nothing when there is no notes folder", () => {
+    expect(linkStore.notePathFromPreview("writ-note:Note.md", null)).toBeNull();
+    expect(linkStore.notePathFromPreview("writ-note:Note.md", "")).toBeNull();
+  });
+});

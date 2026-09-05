@@ -7,6 +7,8 @@ import { useWindow } from "../WindowProvider/WindowProvider";
 import { createPreviewBridge } from "../../lib/preview-bridge";
 import { createPreviewSearchController } from "../../editor/search/preview-search-controller";
 import { findStore } from "../../stores/global/find-store";
+import { linkStore } from "../../stores/global/link";
+import { notesStore } from "../../stores/global/notes";
 import PreviewStatusChip, { type PreviewState } from "./PreviewStatusChip";
 import LinkConfirm, { type LinkRequest } from "./LinkConfirm";
 import "./preview-chrome.css";
@@ -126,9 +128,18 @@ export default function PreviewPane(props: Props) {
     } else if (d.type === "scroll" && typeof d.fraction === "number") {
       bridge.onIframeMessage({ type: "scroll", fraction: d.fraction });
     } else if (d.type === "link:open" && typeof d.href === "string" && d.href !== "") {
-      // The message opens nothing on its own. Anything in the frame can post
-      // it, including a script the document brought, so all it can produce is
-      // a popover the user dismisses (ADR-025).
+      // A `[[…]]` the renderer resolved is written with the note scheme. It
+      // names a file in the notes folder, not a web address, so the
+      // external-link policy would refuse it; the store joins it back onto the
+      // folder and answers null for anything that lands outside.
+      const note = linkStore.notePathFromPreview(d.href, notesStore.root());
+      if (note !== null) {
+        void win.tabs.openFile(note).catch(() => undefined);
+        return;
+      }
+      // Everything else opens nothing on its own. Anything in the frame can
+      // post it, including a script the document brought, so all it can
+      // produce is a popover the user dismisses (ADR-025).
       setLinkRequest({
         id: nextLinkId++,
         href: d.href,

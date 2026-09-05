@@ -537,7 +537,7 @@ mod tests {
             .render(request())
             .unwrap()
             .document_html;
-        assert!(html.contains("<a class=\"writ-wikilink\" href=\"Note.md\">Note</a>"));
+        assert!(html.contains("<a class=\"writ-wikilink\" href=\"writ-note:Note.md\">Note</a>"));
         assert!(html.contains("<span class=\"writ-wikilink writ-wikilink-missing\">Nowhere</span>"));
 
         let plain = MarkdownRenderer::without_index()

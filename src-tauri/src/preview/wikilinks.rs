@@ -12,6 +12,28 @@ use std::sync::Arc;
 
 use writ_core::notes::links::{self, Resolution};
 use writ_render::{WikilinkRender, WikilinkResolver};
+
+/// What a preview link to a note is written with.
+///
+/// The frontend recognises it and opens the note; anything else posted from
+/// the frame goes to the external-link policy the way it always has. Kept in
+/// step with `NOTE_LINK_SCHEME` in `src/lib/wikilink.ts`.
+pub const NOTE_LINK_SCHEME: &str = "writ-note:";
+
+/// `path` with the characters that would be read as something other than path
+/// text escaped, so the frontend decodes back to the name on disk.
+fn encode_href(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for ch in path.chars() {
+        match ch {
+            '%' => out.push_str("%25"),
+            '#' => out.push_str("%23"),
+            '?' => out.push_str("%3F"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
 use writ_storage::notes_index::{self, NotesIndexStore};
 
 /// Resolves the wikilinks of one rendered note.
@@ -39,13 +61,26 @@ impl IndexWikilinks {
         }
     }
 
-    /// The target's path as the preview shows it: relative to the notes
-    /// folder, with forward slashes.
+    /// The target's destination as the preview writes it: the
+    /// [`NOTE_LINK_SCHEME`] prefix and the path relative to the notes folder,
+    /// with forward slashes.
     ///
-    /// A click posts the href to the app, which shows it before it opens
-    /// anything, so what it reads as matters. A path outside the notes folder
-    /// is shown whole rather than trimmed to something it is not.
+    /// A click posts the href to the app, and a note is not a web address: the
+    /// scheme is what tells the app to open the note rather than hand the
+    /// string to the external-link policy, which would refuse a relative path
+    /// as not being an address at all. The app joins it back onto the notes
+    /// folder and refuses anything that lands outside, so the scheme grants
+    /// nothing a note in that folder does not already have.
     fn href_for(&self, path: &str) -> String {
+        format!(
+            "{NOTE_LINK_SCHEME}{}",
+            encode_href(&self.relative_to_root(path))
+        )
+    }
+
+    /// The path the preview shows, relative to the notes folder. A path
+    /// outside it is kept whole rather than trimmed to something it is not.
+    fn relative_to_root(&self, path: &str) -> String {
         let separator = if self.notes_root.contains('\\') {
             '\\'
         } else {
@@ -125,7 +160,7 @@ mod tests {
         let (_dir, resolver) = fixture();
         let rendered = resolver.resolve("Note");
         assert!(rendered.resolved);
-        assert_eq!(rendered.href.as_deref(), Some("Note.md"));
+        assert_eq!(rendered.href.as_deref(), Some("writ-note:Note.md"));
         assert_eq!(rendered.label, "Note");
     }
 
@@ -133,7 +168,7 @@ mod tests {
     fn a_note_in_a_folder_keeps_its_folder_in_the_href() {
         let (_dir, resolver) = fixture();
         let rendered = resolver.resolve("Deep");
-        assert_eq!(rendered.href.as_deref(), Some("folder/Deep.md"));
+        assert_eq!(rendered.href.as_deref(), Some("writ-note:folder/Deep.md"));
     }
 
     #[test]
@@ -143,6 +178,17 @@ mod tests {
         assert!(!rendered.resolved);
         assert!(rendered.href.is_none());
         assert_eq!(rendered.label, "Nowhere");
+    }
+
+    // A note whose name carries one of these is still one path segment, and
+    // the frontend decodes it back before it joins it onto the notes folder.
+    #[test]
+    fn a_name_that_would_read_as_something_else_is_escaped() {
+        assert_eq!(encode_href("a#b.md"), "a%23b.md");
+        assert_eq!(encode_href("a?b.md"), "a%3Fb.md");
+        assert_eq!(encode_href("100%.md"), "100%25.md");
+        assert_eq!(encode_href("folder/Note.md"), "folder/Note.md");
+        assert_eq!(encode_href("Café.md"), "Café.md");
     }
 
     #[test]
