@@ -16,7 +16,10 @@ vi.mock("../../../services/tauri", () => ({
     bufferContent.set(id, content);
     deleted.delete(id);
   }),
-  noteDiskState: vi.fn(async () => ({ state: "no_file" })),
+  // What the backend answers for a note whose row names a file that is not
+  // there. `no_file` is for a note that names none at all, and putting it here
+  // would drive these tabs down a branch they can never reach.
+  noteDiskState: vi.fn(async () => ({ state: "undescribed" })),
   // The one write the backend does not refuse for a note whose file is gone.
   restoreNoteFile: vi.fn(async (id: string, content: string) => {
     bufferContent.set(id, content);
@@ -326,5 +329,72 @@ describe("a note whose file changed outside Writ", () => {
     expect(text()).toContain("typed while gone");
     expect(text()).toContain("typed under the bar");
     expect(text()).not.toContain("what came back");
+  });
+
+  it("is asked about rather than reloaded when its file comes back", async () => {
+    // The whole route, and not `recordFileEvent` by hand: the watcher's mark
+    // arrives at `handleExternalEdit`, which asks the store whether the tab
+    // holds anything before it decides. A tab switched away and back has had
+    // its note opened a second time, and that open's answer is what this
+    // decision rests on.
+    const EditorInstance = (await import("../EditorInstance")).default;
+    const { handleExternalEdit } = await import("../../../services/external-edit");
+    const { createExternalEditDeps } = await import("../../../lib/external-edit-deps");
+    const { peekUnsavedContent } = await import("../../../services/autosave");
+
+    bufferContent.set("A", "as Writ opened it");
+    bufferContent.set("B", "other note");
+    let win: ReturnType<typeof useWindow> | null = null;
+    function Probe() {
+      win = useWindow();
+      return null;
+    }
+
+    const [buf, setBuf] = createSignal(mockBuffer("A", "/notes/A.md"));
+    const { container } = render(() => (
+      <WindowProvider windowId={9107}>
+        <Probe />
+        <EditorInstance buffer={buf()} />
+      </WindowProvider>
+    ));
+    await flush();
+    const text = () => container.querySelector(".cm-content")?.textContent ?? "";
+
+    const view = EditorView.findFromDOM(
+      container.querySelector(".cm-editor") as HTMLElement,
+    );
+    view!.dispatch({
+      changes: { from: view!.state.doc.length, insert: " plus my unsaved work" },
+    });
+    await flush();
+
+    deleted.add("A");
+    win!.editor.markRemovedOnDisk("A");
+    await flush();
+
+    setBuf(mockBuffer("B", "/notes/B.md"));
+    await flush();
+    setBuf(mockBuffer("A", "/notes/A.md"));
+    await flush(80);
+
+    // The file is back at the same path holding another program's text.
+    deleted.delete("A");
+    bufferContent.set("A", "written by another program");
+    const deps = createExternalEditDeps({
+      editor: win!.editor,
+      openBuffers: () => [{ id: "A", title: "A", filename: "A.md" }],
+      refreshBuffer: async () => {},
+      forgetSaveStatus: () => {},
+    });
+    await handleExternalEdit(
+      { bufferId: "A", change: "modified", path: "/notes/A.md", diskHash: "back" },
+      deps,
+    );
+    await flush(80);
+
+    expect(win!.editor.isFileChangedOnDisk("A")).toBe(true);
+    expect(text()).toContain("plus my unsaved work");
+    expect(text()).not.toContain("written by another program");
+    expect(peekUnsavedContent("A")).toContain("plus my unsaved work");
   });
 });
