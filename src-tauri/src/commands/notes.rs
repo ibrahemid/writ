@@ -394,7 +394,10 @@ fn rename_and_propagate(
     // What the index does not hold and a link could still mean. The index is a
     // record of the folder, not the folder itself: a note over the size the
     // index takes, one under a name it walks past, and one written a moment
-    // ago are all on disk and all reachable by name.
+    // ago are all on disk and all reachable by name. The notes folder is the
+    // whole of it, because a link resolves to a note the index holds and the
+    // index holds nothing outside that folder — a note renamed from anywhere
+    // else has no linking notes to rewrite in the first place.
     let unindexed: Vec<String> =
         note_ops::files_named(&state.notes_root(), &links::candidate_name_keys(&from_key))
             .into_iter()
