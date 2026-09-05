@@ -1758,6 +1758,89 @@ fn a_save_inside_the_hold_of_a_deletion_recreates_nothing() {
 }
 
 #[test]
+fn an_answer_inside_the_hold_of_a_deletion_puts_nothing_back() {
+    // An answer is a write, so it waits out a held removal like a save does.
+    // Without the wait it takes the record at face value, finds a note that
+    // still has a file, and recreates the file the person deleted holding the
+    // text they were being asked about.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, _rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    std::fs::remove_file(&path).expect("delete the note the way Finder does");
+    std::thread::sleep(INSIDE_THE_HOLD);
+
+    let refused =
+        resolve_external_change_inner(&state, &doc.id, ChangeChoice::KeepMine, "answered anyway")
+            .expect_err("the answer must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the answer is refused the same way a save is, got {refused}"
+    );
+    assert!(
+        !path.exists(),
+        "the file the person deleted is back on disk"
+    );
+    assert_eq!(copies_beside(&state.notes_root()), Vec::<PathBuf>::new());
+    assert!(state.is_removed_on_disk(&doc.id));
+}
+
+#[test]
+fn an_answer_inside_the_hold_of_a_split_rename_lands_at_the_new_path() {
+    // The other half of the wait, and the reason it sits above the store lock:
+    // the answer reads the note's path after the move has landed on the row,
+    // so a rename under an unanswered question leaves one file and not two.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, _rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    let elsewhere = dir.path().join("outside-every-watched-folder");
+    std::fs::create_dir_all(&elsewhere).expect("a folder nothing watches");
+    let parked = elsewhere.join("in-flight.md");
+    std::fs::rename(&before, &parked).expect("the first half");
+
+    let answerer = {
+        let state = Arc::clone(&state);
+        let id = doc.id.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(INSIDE_THE_HOLD);
+            resolve_external_change_inner(&state, &id, ChangeChoice::KeepMine, "answered anyway")
+        })
+    };
+    std::thread::sleep(SPLIT);
+    let after = state.notes_root().join("renamed-under-the-question.md");
+    std::fs::rename(&parked, &after).expect("the second half");
+    let outcome = answerer
+        .join()
+        .expect("the answering thread")
+        .expect("the answer");
+
+    assert_eq!(note_file(&state, &doc.id), after);
+    assert_eq!(
+        std::fs::read_to_string(&after).expect("read"),
+        "answered anyway"
+    );
+    assert!(
+        !before.exists(),
+        "the answer wrote a second file at the old path"
+    );
+    let copies = copies_beside(&state.notes_root());
+    assert_eq!(copies.len(), 1, "what the file held has to be beside it");
+    assert_eq!(
+        outcome.conflict_copy_path.as_deref(),
+        Some(copies[0].to_string_lossy().as_ref())
+    );
+}
+
+#[test]
 fn a_save_inside_the_hold_of_a_split_rename_lands_at_the_new_path() {
     // The variant that costs a file rather than resurrecting one: the save
     // writes a new file at the path the rename emptied, the move is never
