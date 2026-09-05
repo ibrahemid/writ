@@ -1,5 +1,6 @@
 import { bufferRegistry } from "../stores/global/buffer-registry";
 import { notesStore } from "../stores/global/notes";
+import { saveStatusStore } from "../stores/global/save-status";
 import { windowRegistry } from "../stores/global/window-registry";
 import { requestConfirm } from "../components/ConfirmDialog/ConfirmDialog";
 import { showToast } from "../components/Notifications/Toast";
@@ -140,6 +141,12 @@ export async function resolveNoteChange(
     return;
   }
 
+  // A save that failed against this same change left a bar of its own, about a
+  // write the answer has just made irrelevant. It goes with the answer, or it
+  // sits on the tab afterwards saying the note could not be written when it
+  // has just been. Only a failure raised before the answer: one the answer
+  // itself raises is recorded after this and still shows.
+  saveStatusStore.forgetNote(id);
   win.editor.recordFileEvent(id, "settled");
   if (outcome.content !== null) {
     win.editor.applyExternalContent(id, outcome.content);
