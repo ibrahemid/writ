@@ -177,6 +177,7 @@ pub fn note_facts_inner(index: &NotesIndexStore, path: &str) -> Result<NoteFacts
 pub fn note_name_candidates_inner(
     index: &NotesIndexStore,
     query: &str,
+    notes_root: &Path,
     limit: Option<usize>,
 ) -> Result<Vec<NoteNameHit>, String> {
     if query.trim().is_empty() {
@@ -186,7 +187,7 @@ pub fn note_name_candidates_inner(
         .unwrap_or(NAME_CANDIDATE_LIMIT)
         .min(NAME_CANDIDATE_LIMIT);
     Ok(index
-        .search_names(query, limit)
+        .search_names(query, notes_root, limit)
         .map_err(|e| e.to_string())?
         .into_iter()
         .map(|hit| NoteNameHit {
@@ -220,5 +221,5 @@ pub fn note_name_candidates(
     query: String,
     limit: Option<usize>,
 ) -> Result<Vec<NoteNameHit>, String> {
-    note_name_candidates_inner(&state.notes_index, &query, limit)
+    note_name_candidates_inner(&state.notes_index, &query, &state.notes_root(), limit)
 }

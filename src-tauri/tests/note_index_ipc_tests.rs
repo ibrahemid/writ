@@ -155,24 +155,24 @@ fn note_facts_on_a_note_the_index_does_not_hold_is_empty_rather_than_an_error() 
 
 #[test]
 fn note_name_candidates_ranks_the_note_names_and_honours_the_limit() {
-    let (_dir, _root, index) = indexed(&[
+    let (_dir, root, index) = indexed(&[
         ("Weekly review.md", "one\n"),
         ("Weekly plan.md", "two\n"),
         ("Groceries.md", "three\n"),
     ]);
 
-    let hits = note_name_candidates_inner(&index, "weekly", None).expect("candidates");
+    let hits = note_name_candidates_inner(&index, "weekly", &root, None).expect("candidates");
     assert_eq!(hits.len(), 2);
     assert!(hits.iter().all(|hit| hit.name.starts_with("Weekly")));
 
-    let one = note_name_candidates_inner(&index, "weekly", Some(1)).expect("candidates");
+    let one = note_name_candidates_inner(&index, "weekly", &root, Some(1)).expect("candidates");
     assert_eq!(one.len(), 1);
 }
 
 #[test]
 fn note_name_candidates_answers_an_empty_query_with_nothing() {
-    let (_dir, _root, index) = indexed(&[("Note.md", "body\n")]);
-    assert!(note_name_candidates_inner(&index, "   ", None)
+    let (_dir, root, index) = indexed(&[("Note.md", "body\n")]);
+    assert!(note_name_candidates_inner(&index, "   ", &root, None)
         .expect("candidates")
         .is_empty());
 }
