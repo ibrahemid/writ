@@ -404,11 +404,15 @@ export default function EditorInstance(props: Props) {
   }
 
   // The outgoing note's text, handed to the store while the view still holds
-  // it. A note whose file was deleted has no file to be read back from, so the
-  // view being replaced is the moment its text would otherwise be gone.
-  function keepTextOfOutgoingRemoved() {
+  // it. A note that may not write has nothing on disk to be read back from, so
+  // the view being replaced is the moment its text would otherwise be gone.
+  // The predicate is the hold, not the deletion: a note whose file changed
+  // under it has a file, and that file holds the other program's text, so
+  // reading it back on the way in would replace the typing the bar exists to
+  // protect and answering afterwards would send the file its own text.
+  function keepTextOfOutgoingHeldNote() {
     if (!currentBufferId || !view) return;
-    if (!win.editor.isRemovedOnDisk(currentBufferId)) return;
+    if (!win.editor.savesAreHeld(currentBufferId)) return;
     win.editor.keepTextOfRemoved(currentBufferId, view.state.doc.toString());
   }
 
@@ -457,7 +461,7 @@ export default function EditorInstance(props: Props) {
 
   async function loadBuffer(buffer: BufferDocument) {
     await saveCurrentContent();
-    keepTextOfOutgoingRemoved();
+    keepTextOfOutgoingHeldNote();
     // A pending publish belongs to the outgoing buffer; a late fire after the
     // swap would push stale text into the shared currentText signal.
     clearRestrictedContentPublish();
@@ -469,10 +473,12 @@ export default function EditorInstance(props: Props) {
     appliedNameForLang = "";
     lastDetectLen = 0;
 
-    // A note whose file is gone is read from what the store kept, never from
-    // disk: the read would fail and the empty string it fell back to went into
-    // the view, which threw away the file's text and every unsaved keystroke
-    // on top of it.
+    // A note that may not write is read from what the store kept, never from
+    // disk. For a deleted file the read would fail and the empty string it
+    // fell back to went into the view, throwing away every unsaved keystroke.
+    // For a file that changed under the tab the read succeeds, which is worse:
+    // the other program's text lands in the view, the typing the bar is
+    // holding is gone, and the answer then writes the file its own text.
     let content = "";
     const kept = win.editor.textOfRemoved(buffer.id);
     if (kept !== undefined) {

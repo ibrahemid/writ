@@ -205,3 +205,126 @@ describe("a note whose file was deleted outside Writ", () => {
     expect(win!.editor.textOfRemoved("A")).toBe("the only copy of this text");
   });
 });
+
+describe("a note whose file changed outside Writ", () => {
+  beforeEach(() => {
+    bufferContent.clear();
+    deleted.clear();
+    vi.clearAllMocks();
+  });
+  afterEach(() => cleanup());
+
+  it("keeps its unsaved text across a tab switch", async () => {
+    // The bar is up, so nothing may write, and the file holds the other
+    // program's text. Reading that file back on the way in replaces the typing
+    // the bar exists to protect, and the answer then sends the file its own
+    // text and writes no copy of anything.
+    const EditorInstance = (await import("../EditorInstance")).default;
+
+    bufferContent.set("A", "as Writ opened it");
+    bufferContent.set("B", "other note");
+
+    let win: ReturnType<typeof useWindow> | null = null;
+    function Probe() {
+      win = useWindow();
+      return null;
+    }
+
+    const [buf, setBuf] = createSignal(mockBuffer("A", "/notes/A.md"));
+    const { container } = render(() => (
+      <WindowProvider windowId={9104}>
+        <Probe />
+        <EditorInstance buffer={buf()} />
+      </WindowProvider>
+    ));
+    await flush();
+
+    const text = () => container.querySelector(".cm-content")?.textContent ?? "";
+
+    const view = EditorView.findFromDOM(
+      container.querySelector(".cm-editor") as HTMLElement,
+    );
+    view!.dispatch({
+      changes: { from: view!.state.doc.length, insert: " plus my unsaved work" },
+    });
+    await flush();
+
+    // Another program rewrites the file. The tab is dirty, so the question is
+    // asked rather than the file being taken.
+    bufferContent.set("A", "written by another program");
+    win!.editor.recordFileEvent("A", "modified");
+    await flush();
+    expect(win!.editor.isFileChangedOnDisk("A")).toBe(true);
+
+    setBuf(mockBuffer("B", "/notes/B.md"));
+    await flush();
+    setBuf(mockBuffer("A", "/notes/A.md"));
+    await flush();
+
+    expect(text()).toContain("plus my unsaved work");
+    expect(text()).not.toContain("written by another program");
+    expect(win!.editor.isFileChangedOnDisk("A")).toBe(true);
+  });
+
+  it("keeps what was typed after its file came back holding something else", async () => {
+    // The kept copy is refreshed on every hold, not written once when the file
+    // went. Left at what the note held the moment it was deleted, a switch
+    // reverts everything typed under the bar that replaced the deletion.
+    const EditorInstance = (await import("../EditorInstance")).default;
+
+    bufferContent.set("A", "as Writ opened it");
+    bufferContent.set("B", "other note");
+
+    let win: ReturnType<typeof useWindow> | null = null;
+    function Probe() {
+      win = useWindow();
+      return null;
+    }
+
+    const [buf, setBuf] = createSignal(mockBuffer("A", "/notes/A.md"));
+    const { container } = render(() => (
+      <WindowProvider windowId={9105}>
+        <Probe />
+        <EditorInstance buffer={buf()} />
+      </WindowProvider>
+    ));
+    await flush();
+
+    const text = () => container.querySelector(".cm-content")?.textContent ?? "";
+    const view = EditorView.findFromDOM(
+      container.querySelector(".cm-editor") as HTMLElement,
+    );
+
+    deleted.add("A");
+    win!.editor.markRemovedOnDisk("A");
+    await flush();
+
+    view!.dispatch({
+      changes: { from: view!.state.doc.length, insert: " typed while gone" },
+    });
+    await flush();
+    win!.editor.keepTextOfRemoved("A", view!.state.doc.toString());
+
+    // The file comes back at the same path holding something else, and the tab
+    // is dirty, so the question replaces the deletion.
+    deleted.delete("A");
+    bufferContent.set("A", "what came back");
+    win!.editor.recordFileEvent("A", "modified");
+    await flush();
+    expect(win!.editor.isFileChangedOnDisk("A")).toBe(true);
+
+    view!.dispatch({
+      changes: { from: view!.state.doc.length, insert: " typed under the bar" },
+    });
+    await flush();
+
+    setBuf(mockBuffer("B", "/notes/B.md"));
+    await flush();
+    setBuf(mockBuffer("A", "/notes/A.md"));
+    await flush();
+
+    expect(text()).toContain("typed while gone");
+    expect(text()).toContain("typed under the bar");
+    expect(text()).not.toContain("what came back");
+  });
+});

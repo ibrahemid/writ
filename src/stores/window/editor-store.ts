@@ -334,14 +334,19 @@ export function createEditorStore() {
   /**
    * Keeps `text` where a close, a quit and the next load can find it.
    *
-   * Two readers. The recovery handover reads the autosave service's hold; a
-   * note whose file is gone also has to be readable by the next load of its
-   * tab, because there is no file left to read it back from, and that copy is
-   * [`removedText`].
+   * Two readers. The recovery handover reads the autosave service's hold; the
+   * next load of the tab reads [`removedText`], because the view is destroyed
+   * on a switch and a note that may not write has nothing on disk to be read
+   * back from. A `removed` note has no file at all; a `changed` one has a file
+   * holding somebody else's text, which is the version the question exists to
+   * keep out of the tab until it is answered. So both are kept here, and the
+   * copy is refreshed on every hold rather than written once: after
+   * `removed -> changed` the entry is whatever the note holds now, and it is
+   * dropped only when the note reaches `present` ([`recordFileEvent`]).
    */
   function holdText(id: string, text: string) {
     holdUnsavedContent(id, text);
-    if (noteFileState(id) !== "removed") return;
+    if (!savesAreHeld(id)) return;
     setRemovedText((current) => {
       if (current.get(id) === text) return current;
       const next = new Map(current);
@@ -506,14 +511,18 @@ export function createEditorStore() {
   }
 
   /**
-   * Keeps `text` as the last copy of a note whose file is gone.
+   * Keeps `text` as the last copy of a note that may not write.
    *
    * The caller hands the text over rather than this reading the live view: the
    * mark arrives for a background tab as well, and the view is then holding a
    * different note's document.
+   *
+   * `savesAreHeld` and not `isRemovedOnDisk`: the tab being switched away from
+   * is the moment a `changed` note's text would otherwise go with the view,
+   * and its file holds the version the question is about rather than this one.
    */
   function keepTextOfRemoved(id: string, text: string) {
-    if (!isRemovedOnDisk(id)) return;
+    if (!savesAreHeld(id)) return;
     // The same text the next load reads is the text a close or a quit has to
     // keep, and no write is going to leave it there in the usual way.
     holdText(id, text);
@@ -531,7 +540,7 @@ export function createEditorStore() {
     return liveTextOfNote(id) ?? peekHeldContent(id);
   }
 
-  /** The kept text of a note whose file is gone, when there is one. */
+  /** The kept text of a note that may not write, when there is one. */
   function textOfRemoved(id: string): string | undefined {
     return removedText().get(id);
   }
