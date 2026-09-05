@@ -456,6 +456,39 @@ mod tests {
     }
 
     #[test]
+    fn a_buffer_id_that_is_not_one_url_segment_emits_no_asset_url() {
+        let guard = tempfile::tempdir().unwrap();
+        let notes = guard.path().join("Writ");
+        let note_dir = notes.join("daily");
+        std::fs::create_dir_all(&note_dir).unwrap();
+        std::fs::write(note_dir.join("a.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        let render_with = |buffer_id: &str| {
+            MarkdownRenderer
+                .render(RenderRequest {
+                    assets: Some(AssetScope {
+                        notes_root: notes.clone(),
+                        note_dir: note_dir.clone(),
+                        buffer_id: buffer_id.to_string(),
+                        token: "tok-1".to_string(),
+                    }),
+                    ..req("![](a.png)")
+                })
+                .unwrap()
+                .document_html
+        };
+        // The reference does resolve, so the refusals below are the buffer id
+        // grammar and not a reference the renderer was never going to serve.
+        assert!(render_with("buf-1").contains(ASSET_PREFIX));
+        // A buffer id that is not one path segment would move where the URL
+        // splits into token, root and relative path, so no URL is emitted.
+        for buffer_id in ["buf/1", "buf%2f1", "..", "buf 1", "buf?1", "buf#1", ""] {
+            let html = render_with(buffer_id);
+            assert!(!html.contains(ASSET_PREFIX), "buffer_id={buffer_id:?}");
+            assert!(html.contains("src=\"a.png\""), "buffer_id={buffer_id:?}");
+        }
+    }
+
+    #[test]
     fn oversized_document_is_refused() {
         let big = "a".repeat((MAX_SAFE_BYTES + 1) as usize);
         let err = MarkdownRenderer.render(req(&big)).unwrap_err();

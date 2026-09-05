@@ -1271,6 +1271,31 @@ mod asset_tests {
     #[test]
     fn moving_the_note_keeps_the_previous_render_s_urls_serving() {
         let f = Fixture::new();
+        let serve = |url: String| {
+            resolve_with_assets(
+                &url,
+                SCRIPTS_ON,
+                |id| f.cache.get(id),
+                chrome_asset,
+                &never_dataless,
+            )
+        };
+        // Each capture carries a refusal of its own, so a capture that heard
+        // nothing fails on the count instead of passing on an empty log.
+        let moved_note_serves = |good: String, bad: String, name: &str| {
+            let ((served, refused), logs) =
+                crate::preview::log_capture::capture(|| (serve(good), serve(bad)));
+            assert_eq!(served.status, 200, "{name}");
+            assert!(served.body.starts_with(PNG), "{name}");
+            assert_eq!(refused.status, 403, "{name}");
+            let refusals: Vec<&String> = logs
+                .iter()
+                .filter(|line| line.contains("preview asset refused"))
+                .collect();
+            assert_eq!(refusals.len(), 1, "{name} logs={logs:?}");
+            assert!(refusals[0].contains("stale.png"), "{name} logs={logs:?}");
+        };
+
         // The re-render after a move: same buffer, same notes folder, new
         // folder for the file. The token is the buffer's, so the render still
         // on screen keeps serving its images instead of having every one of
@@ -1287,15 +1312,41 @@ mod asset_tests {
                 assets: Some(moved),
             },
         );
+        moved_note_serves(
+            format!("writ-preview://document/_note-asset/buf-1/{TOKEN}/n/attachments/a.png"),
+            "writ-preview://document/_note-asset/buf-1/tok-stale/n/attachments/stale.png"
+                .to_string(),
+            "notes root",
+        );
 
-        let (r, logs) = crate::preview::log_capture::capture(|| f.get("attachments/a.png"));
-        assert_eq!(r.status, 200);
-        assert!(r.body.starts_with(PNG));
-        assert!(
-            !logs
-                .iter()
-                .any(|line| line.contains("preview asset refused")),
-            "logs={logs:?}"
+        // A note opened from outside the notes folder: nothing contains it but
+        // its own folder, so its URLs name the `d` root, the one the move
+        // changes. Its image travels with it, and the URL still on screen
+        // quotes the token the render before the move minted.
+        let outside = tempfile::tempdir().unwrap();
+        let before = outside.path().join("before");
+        let after = outside.path().join("after");
+        std::fs::create_dir_all(&before).unwrap();
+        std::fs::create_dir_all(&after).unwrap();
+        std::fs::write(before.join("p.png"), PNG).unwrap();
+        let first = AssetScope::for_render(None, "buf-out", f.notes.clone(), before.clone());
+        std::fs::rename(before.join("p.png"), after.join("p.png")).unwrap();
+        let moved_out = AssetScope::for_render(Some(&first), "buf-out", f.notes.clone(), after);
+        assert_eq!(moved_out.token, first.token);
+        f.cache.put(
+            "buf-out",
+            RenderedDoc {
+                html: "<p>outside</p>".to_string(),
+                assets: Some(moved_out),
+            },
+        );
+        moved_note_serves(
+            format!(
+                "writ-preview://document/_note-asset/buf-out/{}/d/p.png",
+                first.token
+            ),
+            "writ-preview://document/_note-asset/buf-out/tok-stale/d/stale.png".to_string(),
+            "note folder root",
         );
     }
 
