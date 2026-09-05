@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("../../services/tauri", () => ({
   saveBufferContent: vi.fn().mockResolvedValue(null),
+  noteDiskState: vi.fn(async () => ({ state: "no_file" })),
 }));
 
 const registry = await vi.hoisted(async () => {
@@ -35,6 +36,9 @@ vi.mock("../../stores/global/window-registry", () => ({
 }));
 
 import { saveStatusStore } from "../../stores/global/save-status";
+import { createEditorStore } from "../../stores/window/editor-store";
+import { createExternalEditDeps } from "../../lib/external-edit-deps";
+import { handleExternalEdit } from "../../services/external-edit";
 import {
   debouncedSave,
   flushAutosave,
@@ -191,5 +195,43 @@ describe("saveStatusStore", () => {
     expect(saveStatusStore.forNote("one").state).not.toBe("failed");
     expect(saveStatusStore.failureFor("one")).toBeUndefined();
     cancelAutosave("one");
+  });
+
+  it("keeps one bar on one file however many things happen to it", async () => {
+    // The same invariant against the other pair. The question about a change
+    // and the mark for a deletion are two readings of one file, so they are
+    // one state on the note rather than two flags, and no order of the events
+    // that raise them can put both bars on the tab at once.
+    const store = createEditorStore();
+    const deps = createExternalEditDeps({
+      editor: store,
+      openBuffers: () => [{ id: "one", title: "one", filename: "one.md" }],
+      refreshBuffer: async () => {},
+      forgetSaveStatus: (id) => saveStatusStore.forgetNote(id),
+      cancelAutosave: () => {},
+    });
+    const changes = ["modified", "removed", "moved"] as const;
+
+    try {
+      for (const first of changes) {
+        for (const second of changes) {
+          store.noteClosed("one");
+          for (const change of [first, second]) {
+            await handleExternalEdit(
+              { bufferId: "one", change, path: "/notes/one.md", newPath: "/notes/two.md" },
+              deps,
+            );
+          }
+          const bars = [
+            store.isRemovedOnDisk("one"),
+            store.isFileChangedOnDisk("one"),
+            saveStatusStore.forNote("one").state === "failed",
+          ].filter(Boolean);
+          expect(bars.length, `${first} then ${second} raises ${bars.length} bars`).toBeLessThan(2);
+        }
+      }
+    } finally {
+      store.stopSaveListener();
+    }
   });
 });
