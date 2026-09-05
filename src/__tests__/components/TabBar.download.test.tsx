@@ -81,7 +81,7 @@ const NOTE = {
 describe("TabBar — a note waiting on its bytes", () => {
   afterEach(() => {
     mocks.cancelMaterialiseNote.mockClear();
-    downloads.close(NOTE.path);
+    downloads.dismiss(NOTE.path);
     cleanup();
   });
 

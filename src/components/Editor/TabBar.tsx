@@ -73,16 +73,6 @@ export default function TabBar() {
     win.tabs.setActiveTabId(null);
   }
 
-  // Closing the tab of a note still downloading stops the wait; closing one
-  // that already stopped has nothing to call off.
-  function dismissDownload(download: PendingDownload) {
-    if (download.state === "downloading") {
-      void win.downloads.cancel(download.path);
-    } else {
-      void win.downloads.close(download.path);
-    }
-  }
-
   // Text, not an animation: a download reports nothing Writ could animate
   // honestly, and a tab that moves pulls the eye off the note being written.
   function markerFor(state: PendingDownload["state"]): string {
@@ -178,8 +168,8 @@ export default function TabBar() {
                 role="button"
                 tabIndex={0}
                 aria-label={`${download.state === "downloading" ? "Cancel" : "Close"} ${download.title}`}
-                onClick={(e) => { e.stopPropagation(); dismissDownload(download); }}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); dismissDownload(download); } }}
+                onClick={(e) => { e.stopPropagation(); void win.downloads.dismiss(download.path); }}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); void win.downloads.dismiss(download.path); } }}
               >
                 ×
               </span>

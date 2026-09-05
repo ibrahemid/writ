@@ -20,7 +20,7 @@ describe("NoteDownloading", () => {
 
   it("names the provider fetching the file", () => {
     const { getByText } = render(() => (
-      <NoteDownloading download={download()} onCancel={() => {}} onClose={() => {}} />
+      <NoteDownloading download={download()} onDismiss={() => {}} />
     ));
 
     expect(getByText("Downloading from iCloud Drive…")).toBeTruthy();
@@ -30,8 +30,7 @@ describe("NoteDownloading", () => {
     const { getByText } = render(() => (
       <NoteDownloading
         download={download({ provider: null })}
-        onCancel={() => {}}
-        onClose={() => {}}
+        onDismiss={() => {}}
       />
     ));
 
@@ -39,21 +38,20 @@ describe("NoteDownloading", () => {
   });
 
   it("cancels the wait from the Cancel button", () => {
-    const onCancel = vi.fn();
+    const onDismissWhileDownloading = vi.fn();
     const { getByRole } = render(() => (
-      <NoteDownloading download={download()} onCancel={onCancel} onClose={() => {}} />
+      <NoteDownloading download={download()} onDismiss={onDismissWhileDownloading} />
     ));
 
     fireEvent.click(getByRole("button", { name: "Cancel" }));
-    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onDismissWhileDownloading).toHaveBeenCalledTimes(1);
   });
 
   it("shows a failure with what the provider said", () => {
     const { getByText, getByRole } = render(() => (
       <NoteDownloading
         download={download({ state: "failed", message: "iCloud Drive is signed out" })}
-        onCancel={() => {}}
-        onClose={() => {}}
+        onDismiss={() => {}}
       />
     ));
 
@@ -66,8 +64,7 @@ describe("NoteDownloading", () => {
     const { getByText, queryByText } = render(() => (
       <NoteDownloading
         download={download({ state: "failed" })}
-        onCancel={() => {}}
-        onClose={() => {}}
+        onDismiss={() => {}}
       />
     ));
 
@@ -79,8 +76,7 @@ describe("NoteDownloading", () => {
     const { getByText, queryByText } = render(() => (
       <NoteDownloading
         download={download({ state: "failed", reason: "open" })}
-        onCancel={() => {}}
-        onClose={() => {}}
+        onDismiss={() => {}}
       />
     ));
 
@@ -92,8 +88,7 @@ describe("NoteDownloading", () => {
     const { getByText } = render(() => (
       <NoteDownloading
         download={download({ state: "failed", reason: "listener" })}
-        onCancel={() => {}}
-        onClose={() => {}}
+        onDismiss={() => {}}
       />
     ));
 
@@ -101,12 +96,11 @@ describe("NoteDownloading", () => {
   });
 
   it("says what to do after the wait ran out", () => {
-    const onClose = vi.fn();
+    const onDismissAfterItStopped = vi.fn();
     const { getByText, getByRole } = render(() => (
       <NoteDownloading
         download={download({ state: "timed_out" })}
-        onCancel={() => {}}
-        onClose={onClose}
+        onDismiss={onDismissAfterItStopped}
       />
     ));
 
@@ -115,15 +109,14 @@ describe("NoteDownloading", () => {
     ).toBeTruthy();
 
     fireEvent.click(getByRole("button", { name: "Close" }));
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onDismissAfterItStopped).toHaveBeenCalledTimes(1);
   });
 
   it("names no provider in the timed-out state when there is none", () => {
     const { getByText } = render(() => (
       <NoteDownloading
         download={download({ state: "timed_out", provider: null })}
-        onCancel={() => {}}
-        onClose={() => {}}
+        onDismiss={() => {}}
       />
     ));
 

@@ -60,7 +60,7 @@ describe("PreviewLayout — the editor slot hosts a note that is downloading", (
     expect(mocks.materialiseNote).toHaveBeenCalledWith("/home/user/Writ/trip.md");
 
     // Closing the download takes the pane with it.
-    win.downloads.close("/home/user/Writ/trip.md");
+    win.downloads.dismiss("/home/user/Writ/trip.md");
     await waitFor(() =>
       expect(container.querySelector(".note-downloading")).toBeNull(),
     );

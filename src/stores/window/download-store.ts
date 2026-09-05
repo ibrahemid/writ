@@ -81,7 +81,10 @@ export function createDownloadStore() {
     if (select) setSelectedPath(entry.path);
   }
 
-  // Gives the one-shot permission to open this note back to Rust. The token
+  // Stops the wait, if one is still running, and gives the one-shot permission
+  // to open this note back to Rust. Best effort: a call that does not land
+  // leaves a wait that times out on its own with nothing open behind it. The
+  // token
   // lives as long as the entry does: a download that stopped keeps its tab and
   // the person's next move is to open the note again, so the permission goes
   // back only when the entry itself goes.
@@ -125,19 +128,11 @@ export function createDownloadStore() {
     }
   }
 
-  // Stops waiting. The entry goes with the wait: there is nothing left to show
-  // about a download the person called off, and nothing was read.
-  async function cancel(path: string): Promise<void> {
-    drop(path);
-    // Best effort: the flag stops Writ waiting, and a call that does not land
-    // leaves a wait that times out on its own with nothing open behind it.
-    await api.cancelMaterialiseNote(path).catch(() => undefined);
-  }
-
-  // Closes an entry that ended without the bytes. Cancel is the same gesture
-  // for a download still running; this one has no wait left to call off, only
-  // the permission the entry was holding for a second attempt.
-  async function close(path: string): Promise<void> {
+  // The person is done with this note. One gesture whether the download is
+  // still running or ended a while ago: the entry goes, the wait behind it
+  // stops if there is one, and the permission the entry was holding for a
+  // second attempt goes back.
+  async function dismiss(path: string): Promise<void> {
     drop(path);
     await handBackOpenPermission(path);
   }
@@ -179,7 +174,9 @@ export function createDownloadStore() {
         });
         return;
       case "timed_out":
-        update(payload.path, { state: "timed_out", message: null });
+        // Reset with the state: an entry that failed to open before this
+        // attempt would otherwise carry that reason into the new one.
+        update(payload.path, { state: "timed_out", reason: "download", message: null });
         return;
     }
   }
@@ -202,8 +199,7 @@ export function createDownloadStore() {
     select,
     attachOpener,
     start,
-    cancel,
-    close,
+    dismiss,
     handle,
     mount,
   };

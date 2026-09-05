@@ -83,7 +83,7 @@ describe("download store", () => {
     downloads.attachOpener(reopen);
 
     await downloads.start(NOTE);
-    await downloads.cancel(NOTE.path);
+    await downloads.dismiss(NOTE.path);
 
     expect(cancelMaterialiseNote).toHaveBeenCalledWith(NOTE.path);
     expect(downloads.pending()).toEqual([]);
@@ -97,7 +97,7 @@ describe("download store", () => {
     downloads.attachOpener(reopen);
 
     await downloads.start(NOTE);
-    await downloads.cancel(NOTE.path);
+    await downloads.dismiss(NOTE.path);
     await downloads.handle({ path: NOTE.path, state: "done" });
 
     expect(reopen).not.toHaveBeenCalled();
@@ -124,7 +124,7 @@ describe("download store", () => {
 
     expect(downloads.pending()[0].state).toBe("timed_out");
 
-    downloads.close(NOTE.path);
+    downloads.dismiss(NOTE.path);
     expect(downloads.pending()).toEqual([]);
   });
 
@@ -200,12 +200,27 @@ describe("download store", () => {
     expect(cancelMaterialiseNote).not.toHaveBeenCalled();
   });
 
+  it("carries no reason from an attempt that ended a different way", async () => {
+    const downloads = createDownloadStore();
+    downloads.attachOpener(vi.fn().mockRejectedValue(new Error("EACCES: permission denied")));
+
+    await downloads.start(NOTE);
+    await downloads.handle({ path: NOTE.path, state: "done" });
+    expect(downloads.pending()[0].reason).toBe("open");
+
+    await downloads.start(NOTE);
+    await downloads.handle({ path: NOTE.path, state: "timed_out" });
+
+    expect(downloads.pending()[0].state).toBe("timed_out");
+    expect(downloads.pending()[0].reason).toBe("download");
+  });
+
   it("gives the permission back when a download that stopped is closed", async () => {
     const downloads = createDownloadStore();
     await downloads.start(NOTE);
     await downloads.handle({ path: NOTE.path, state: "failed", message: "no space" });
 
-    await downloads.close(NOTE.path);
+    await downloads.dismiss(NOTE.path);
 
     expect(downloads.pending()).toEqual([]);
     expect(cancelMaterialiseNote).toHaveBeenCalledWith(NOTE.path);
@@ -218,7 +233,7 @@ describe("download store", () => {
     expect(cancelMaterialiseNote).not.toHaveBeenCalled();
 
     await downloads.start(NOTE);
-    await downloads.cancel(NOTE.path);
+    await downloads.dismiss(NOTE.path);
 
     expect(downloads.pending()).toEqual([]);
     expect(cancelMaterialiseNote).toHaveBeenCalledTimes(1);

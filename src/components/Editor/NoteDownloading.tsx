@@ -17,8 +17,7 @@ function failureLine(reason: DownloadFailure): string {
 
 interface Props {
   download: PendingDownload;
-  onCancel: () => void;
-  onClose: () => void;
+  onDismiss: () => void;
 }
 
 // The editor pane for a note whose bytes are not on this machine yet. There is
@@ -34,7 +33,7 @@ export default function NoteDownloading(props: Props) {
           <p class="note-downloading-line">
             {provider() ? `Downloading from ${provider()}…` : "Downloading…"}
           </p>
-          <button type="button" class="note-downloading-action" onClick={props.onCancel}>
+          <button type="button" class="note-downloading-action" onClick={props.onDismiss}>
             Cancel
           </button>
         </Match>
@@ -44,7 +43,7 @@ export default function NoteDownloading(props: Props) {
           <Show when={props.download.reason === "download" && props.download.message}>
             {(message) => <p class="note-downloading-detail">{message()}</p>}
           </Show>
-          <button type="button" class="note-downloading-action" onClick={props.onClose}>
+          <button type="button" class="note-downloading-action" onClick={props.onDismiss}>
             Close
           </button>
         </Match>
@@ -55,7 +54,7 @@ export default function NoteDownloading(props: Props) {
               ? `Still waiting for ${provider()}. Try again once the file has downloaded.`
               : "Still waiting. Try again once the file has downloaded."}
           </p>
-          <button type="button" class="note-downloading-action" onClick={props.onClose}>
+          <button type="button" class="note-downloading-action" onClick={props.onDismiss}>
             Close
           </button>
         </Match>
