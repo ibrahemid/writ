@@ -26,10 +26,12 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::errors::StorageError;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
+#[cfg(unix)]
+use writ_tauri_lib::commands::buffer::ERR_FOLDER_NOT_WRITABLE;
 use writ_tauri_lib::commands::buffer::{
     read_buffer_content_inner, resolve_external_change_at, resolve_external_change_inner,
     restore_note_file_inner, save_buffer_content_inner, ERR_FILE_CHANGED_ON_DISK, ERR_FILE_MISSING,
-    ERR_FILE_NOT_DOWNLOADED, ERR_FILE_REMOVED_ON_DISK, ERR_FOLDER_NOT_WRITABLE,
+    ERR_FILE_NOT_DOWNLOADED, ERR_FILE_REMOVED_ON_DISK,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::commands::notes::{
@@ -1484,15 +1486,25 @@ fn taking_the_file_writes_the_document_s_text_beside_the_note() {
     );
 }
 
-/// A gap wide enough that the two halves of the rename below cannot land in
-/// one delivery, and narrow enough that the file is back in the notes folder
-/// before the removal it raised is announced.
+/// Blocks until the watcher is holding `id`'s removal.
 ///
-/// A debounce window closes on a deadline set by its first event and never
-/// extends it (ADR-033 §5), so a change this long after another is delivered
-/// separately. The hold is twice the window, so the second half has one whole
-/// window of its own to arrive in after the first was read.
-const SPLIT: Duration = Duration::from_millis(900);
+/// The hold is taken by the delivery that carries the emptied path, one
+/// debounce window plus the platform's own notification latency after the
+/// rename or the delete, and only the first of those is a constant. A sleep
+/// long enough on an idle host is short on a loaded one, and a step that lands
+/// before the hold is a step outside it, so every step below that belongs
+/// inside a hold waits for this instead. `RemovalHolds::holds` is the read the
+/// save path makes on its way in (ADR-033 §14).
+fn wait_until_held(state: &AppState, id: &str) {
+    let deadline = Instant::now() + SETTLE;
+    while Instant::now() < deadline {
+        if state.removal_holds.holds(id) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    panic!("the removal of {id} was never held");
+}
 
 #[test]
 fn a_rename_whose_halves_land_in_two_windows_is_still_a_move() {
@@ -1509,13 +1521,15 @@ fn a_rename_whose_halves_land_in_two_windows_is_still_a_move() {
     let before = note_file(&state, &doc.id);
     std::thread::sleep(APART);
 
-    // Out of the watched folder and back into it, a window apart. A rename
-    // keeps the inode, so what comes back is the file the record names.
+    // Out of the watched folder and back into it, a delivery apart: the hold
+    // is proof the first half was read on its own, so the second cannot join
+    // it. A rename keeps the inode, so what comes back is the file the record
+    // names.
     let elsewhere = dir.path().join("outside-every-watched-folder");
     std::fs::create_dir_all(&elsewhere).expect("a folder nothing watches");
     let parked = elsewhere.join("in-flight.md");
     std::fs::rename(&before, &parked).expect("the first half");
-    std::thread::sleep(SPLIT);
+    wait_until_held(&state, &doc.id);
     let after = state.notes_root().join("renamed-across-two-windows.md");
     std::fs::rename(&parked, &after).expect("the second half");
 
@@ -1783,10 +1797,6 @@ fn a_removal_nothing_answers_is_announced_when_the_hold_passes() {
     );
 }
 
-/// Long enough to be past the delivery that starts the hold, and well short of
-/// the deadline the hold ends on.
-const INSIDE_THE_HOLD: Duration = Duration::from_millis(700);
-
 /// What a save is allowed to take when it lands inside a hold: the hold itself
 /// plus the window the announcement is delivered on.
 fn the_longest_a_held_save_may_wait() -> Duration {
@@ -1828,7 +1838,7 @@ fn a_save_inside_the_hold_of_a_deletion_recreates_nothing() {
     std::thread::sleep(APART);
 
     std::fs::remove_file(&path).expect("delete the note the way Finder does");
-    std::thread::sleep(INSIDE_THE_HOLD);
+    wait_until_held(&state, &doc.id);
 
     let refused = save_buffer_content_inner(&state, &doc.id, "written during the hold")
         .expect_err("the save must be refused");
@@ -1866,7 +1876,7 @@ fn an_answer_inside_the_hold_of_a_deletion_puts_nothing_back() {
     std::thread::sleep(APART);
 
     std::fs::remove_file(&path).expect("delete the note the way Finder does");
-    std::thread::sleep(INSIDE_THE_HOLD);
+    wait_until_held(&state, &doc.id);
 
     let refused =
         resolve_external_change_inner(&state, &doc.id, ChangeChoice::KeepMine, "answered anyway")
@@ -1905,11 +1915,11 @@ fn an_answer_inside_the_hold_of_a_split_rename_lands_at_the_new_path() {
         let state = Arc::clone(&state);
         let id = doc.id.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(INSIDE_THE_HOLD);
+            wait_until_held(&state, &id);
             resolve_external_change_inner(&state, &id, ChangeChoice::KeepMine, "answered anyway")
         })
     };
-    std::thread::sleep(SPLIT);
+    wait_until_held(&state, &doc.id);
     let after = state.notes_root().join("renamed-under-the-question.md");
     std::fs::rename(&parked, &after).expect("the second half");
     let outcome = answerer
@@ -1958,11 +1968,11 @@ fn a_save_inside_the_hold_of_a_split_rename_lands_at_the_new_path() {
         let state = Arc::clone(&state);
         let id = doc.id.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(INSIDE_THE_HOLD);
+            wait_until_held(&state, &id);
             save_buffer_content_inner(&state, &id, "written during the hold")
         })
     };
-    std::thread::sleep(SPLIT);
+    wait_until_held(&state, &doc.id);
     let after = state.notes_root().join("renamed-across-two-windows.md");
     std::fs::rename(&parked, &after).expect("the second half");
     saver.join().expect("the saving thread").expect("the save");
@@ -2000,7 +2010,7 @@ fn a_stranger_at_the_path_during_the_hold_is_still_a_deletion() {
     std::thread::sleep(APART);
 
     std::fs::remove_file(&path).expect("delete the note the way Finder does");
-    std::thread::sleep(INSIDE_THE_HOLD);
+    wait_until_held(&state, &doc.id);
     // A new file at the same path: another program, a sync client, a restore.
     std::fs::write(&path, b"somebody else's file").expect("the stranger's write");
 
@@ -2047,11 +2057,11 @@ fn the_same_file_back_at_its_path_during_the_hold_lets_the_save_through() {
         let state = Arc::clone(&state);
         let id = doc.id.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(INSIDE_THE_HOLD);
+            wait_until_held(&state, &id);
             save_buffer_content_inner(&state, &id, "written while the file was away")
         })
     };
-    std::thread::sleep(Duration::from_millis(800));
+    wait_until_held(&state, &doc.id);
     std::fs::rename(&parked, &path).expect("and back to the same path");
     saver.join().expect("the saving thread").expect("the save");
 
@@ -2097,7 +2107,7 @@ fn a_save_inside_a_hold_waits_for_the_answer_and_no_longer() {
         let state = Arc::clone(&state);
         let id = doc.id.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(INSIDE_THE_HOLD);
+            wait_until_held(&state, &id);
             let asked_at = Instant::now();
             let answer = save_buffer_content_inner(&state, &id, "written during the hold");
             (asked_at.elapsed(), Instant::now(), answer)
@@ -2139,6 +2149,199 @@ fn a_save_inside_a_hold_waits_for_the_answer_and_no_longer() {
         behind <= released_together(),
         "the save returned {behind:?} after the removal was announced, so it waited out its own \
          deadline instead of being released by the answer"
+    );
+}
+
+/// The date a file was created, where the platform records one.
+///
+/// `None` off macOS, which is the only platform whose saves carry the date
+/// across the rename that replaces the file.
+#[cfg(target_os = "macos")]
+fn birth_time(path: &std::path::Path) -> Option<(i64, i64)> {
+    use std::os::macos::fs::MetadataExt;
+
+    let metadata = std::fs::metadata(path).ok()?;
+    Some((metadata.st_birthtime(), metadata.st_birthtime_nsec()))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn birth_time(_path: &std::path::Path) -> Option<(i64, i64)> {
+    None
+}
+
+/// Longer than a save takes when nothing holds it, and far short of the
+/// answer this test's save is waiting on, so neither a busy host nor a fast
+/// one moves the line.
+const BLOCKED: Duration = Duration::from_millis(50);
+
+#[test]
+fn a_save_of_the_text_the_file_already_holds_still_waits_out_the_hold() {
+    // The seam between the wait and the guard that stops a save of unchanged
+    // text. The wait comes first and has to: the guard answers on the file at
+    // the path the row names, and inside a hold that path is empty, so a
+    // reader that went first would call a no-op save a change and write.
+    // Waiting costs an untouched note the hold once; not waiting costs it the
+    // deleted file back.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, _rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    let written_at = std::fs::metadata(&path)
+        .expect("stat the note")
+        .modified()
+        .expect("the modification time");
+    std::thread::sleep(APART);
+
+    let elsewhere = dir.path().join("outside-every-watched-folder");
+    std::fs::create_dir_all(&elsewhere).expect("a folder nothing watches");
+    let parked = elsewhere.join("in-flight.md");
+    std::fs::rename(&path, &parked).expect("out of the folder");
+
+    let saver = {
+        let state = Arc::clone(&state);
+        let id = doc.id.clone();
+        std::thread::spawn(move || {
+            wait_until_held(&state, &id);
+            let asked_at = Instant::now();
+            let answer = save_buffer_content_inner(&state, &id, "text worth keeping");
+            (asked_at.elapsed(), Instant::now(), answer)
+        })
+    };
+    wait_until_held(&state, &doc.id);
+    std::fs::rename(&parked, &path).expect("and back to the same path");
+    let back_at = Instant::now();
+    let (waited, returned_at, answer) = saver.join().expect("the saving thread");
+    answer.expect("the save");
+
+    // Read off the save's own return rather than off the clock: a save
+    // that skipped the hold comes back in single-figure milliseconds, and one
+    // that waited cannot come back before the file it was waiting on.
+    assert!(
+        waited >= BLOCKED,
+        "the save came back in {waited:?}, which is not a wait"
+    );
+    assert!(
+        returned_at >= back_at,
+        "the save came back before the file did, so it read a path the hold had emptied"
+    );
+    assert_eq!(
+        std::fs::metadata(&path)
+            .expect("stat the note")
+            .modified()
+            .expect("the modification time"),
+        written_at,
+        "a save of the text the file already holds replaced the file"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read the note"),
+        "text worth keeping"
+    );
+}
+
+#[test]
+fn a_save_inside_a_hold_carries_the_files_dates_to_the_path_it_lands_on() {
+    // A write the hold released is a write like any other: it lands at the
+    // path the answer moved the row to, through the guard that carries what
+    // the file was carrying. A note started last year that is renamed and
+    // typed into in the same second is still a note started last year.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, _rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    let elsewhere = dir.path().join("outside-every-watched-folder");
+    std::fs::create_dir_all(&elsewhere).expect("a folder nothing watches");
+    let parked = elsewhere.join("in-flight.md");
+    std::fs::rename(&before, &parked).expect("the first half");
+    // Read off the file itself while it is parked: a rename carries the date
+    // with the inode, so this is the date the note has had all along.
+    let born = birth_time(&parked);
+
+    let saver = {
+        let state = Arc::clone(&state);
+        let id = doc.id.clone();
+        std::thread::spawn(move || {
+            wait_until_held(&state, &id);
+            save_buffer_content_inner(&state, &id, "written during the hold")
+        })
+    };
+    wait_until_held(&state, &doc.id);
+    let after = state.notes_root().join("carried-across-the-hold.md");
+    std::fs::rename(&parked, &after).expect("the second half");
+    saver.join().expect("the saving thread").expect("the save");
+
+    assert_eq!(note_file(&state, &doc.id), after);
+    assert_eq!(
+        std::fs::read_to_string(&after).expect("read the moved file"),
+        "written during the hold",
+        "the text typed during the hold has to reach the file the note is on"
+    );
+    assert!(!before.exists(), "the save put a second file back");
+    assert_eq!(
+        birth_time(&after),
+        born,
+        "the write the hold released reports the note as created moments ago"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_folder_that_will_not_take_the_write_leaves_the_hold_where_it_was() {
+    // The save that reaches the folder is the one whose hold expired with no
+    // answer, and a hold with no answer is still the watcher's to announce.
+    // Taking it away with the refusal would leave the removal with nothing to
+    // come out of, and the tab would never hear that its file had gone.
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    let folder = path
+        .parent()
+        .expect("the folder holding the note")
+        .to_path_buf();
+
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).expect("chmod");
+    let probe = folder.join("writable.probe");
+    if std::fs::write(&probe, b"").is_ok() {
+        // Root, for whom no folder refuses a write.
+        std::fs::remove_file(&probe).expect("remove the probe");
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        return;
+    }
+
+    // A hold nothing will answer: the save waits out its deadline and then
+    // writes, which is the one order in which the folder is reached at all.
+    state
+        .removal_holds
+        .hold(&doc.id, Instant::now() + Duration::from_millis(300));
+
+    let answer = save_buffer_content_inner(&state, &doc.id, "written during the hold");
+    // Before anything that can panic, so a failure leaves a folder the temp
+    // directory can still delete itself out of.
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("chmod back");
+    let refused = answer.expect_err("the folder must stop the save");
+
+    assert!(
+        refused.starts_with(ERR_FOLDER_NOT_WRITABLE),
+        "the save that waited out the hold was refused as something else: {refused}"
+    );
+    assert!(
+        state.removal_holds.holds(&doc.id),
+        "the refusal took the hold with it, leaving the removal with nothing to come out of"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read the note"),
+        "text worth keeping",
+        "a refused save wrote anyway"
     );
 }
 
