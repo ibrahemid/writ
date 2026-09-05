@@ -759,7 +759,19 @@ export default function EditorInstance(props: Props) {
     spellingStore.detach();
     rebuildKeyMap();
     if (currentBufferId) {
-      win.editor.cancelAutosave(currentBufferId);
+      // The hold is what the close and the quit hand to the recovery
+      // snapshot, and this cleanup runs before either of them: the view goes
+      // when the last tab closes, and cancelling here would take the only
+      // copy of a held note's text with it (ADR-033 decision 15). So a note
+      // whose saves are held has its text put back into the hold instead. It
+      // has nothing queued to cancel either — `scheduleAutosave` holds rather
+      // than queues while the bar is up, and the hold cancelled the queue
+      // when it went on.
+      if (view && win.editor.savesAreHeld(currentBufferId)) {
+        win.editor.keepTextOfRemoved(currentBufferId, view.state.doc.toString());
+      } else {
+        win.editor.cancelAutosave(currentBufferId);
+      }
     }
     clearRestrictedContentPublish();
     win.editor.setActiveFormats(NO_ACTIVE_FORMATS);
