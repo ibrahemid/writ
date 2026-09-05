@@ -11,6 +11,7 @@ use writ_core::buffer::document::BufferDocument;
 use writ_core::buffer::manager::BufferManager;
 use writ_core::events::bus::WritEvent;
 use writ_core::file_ops::{self, FileOpenMode};
+use writ_core::notes::line_ending::LineEnding;
 use writ_core::watcher::change_event::ExternalChange;
 use writ_storage::buffer_store::BufferStore;
 
@@ -164,6 +165,11 @@ fn open_file_classified_inner(
         .map_err(|e| e.to_string())?
     {
         store.restore(&history_buf.id).map_err(|e| e.to_string())?;
+        if !is_binary {
+            store
+                .set_line_ending(&history_buf.id, LineEnding::detect(&content))
+                .map_err(|e| e.to_string())?;
+        }
         // Reopening reads the file; it never writes it back. The index is
         // refreshed instead, which is the only thing the old write-back was
         // achieving now that the file is the only copy (ADR-028 §1).
@@ -189,10 +195,19 @@ fn open_file_classified_inner(
         .open_external(canonical.to_string())
         .map_err(|e| e.to_string())?;
 
+    // A binary file is opened read-only as a hex dump, so `content` is not the
+    // file's text and there is no ending in it to keep; the row can never be
+    // written back either.
+    let line_ending = match is_binary {
+        true => LineEnding::default(),
+        false => LineEnding::detect(&content),
+    };
+
     let new_doc = BufferDocument {
         language,
         read_only: is_binary,
         size_bytes,
+        line_ending,
         ..new_doc
     };
 
@@ -316,6 +331,14 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
     let Ok(source) = store.read_source(&doc.id) else {
         return;
     };
+    if !doc.read_only {
+        let ending = LineEnding::detect_bytes(&source);
+        if ending != doc.line_ending {
+            if let Err(e) = store.set_line_ending(&doc.id, ending) {
+                tracing::debug!(buffer_id = %doc.id, error = %e, "the file's line ending could not be recorded");
+            }
+        }
+    }
     {
         let mut ignore = recover_poison(
             state.watcher_ignore.lock(),

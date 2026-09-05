@@ -33,6 +33,7 @@ function mockBuffer(id: string, filename: string, sizeBytes = 0): BufferDocument
     closed_at: null,
     read_only: false,
     size_bytes: sizeBytes,
+    line_ending: "lf",
   };
 }
 

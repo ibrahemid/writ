@@ -69,6 +69,7 @@ function doc(over: Partial<BufferDocument> & { id: string; title: string }): Buf
     closed_at: null,
     read_only: false,
     size_bytes: 0,
+    line_ending: "lf",
     ...over,
   };
 }

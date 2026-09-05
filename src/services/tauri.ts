@@ -160,6 +160,36 @@ export async function moveArchivedNotes(): Promise<MoveArchiveOutcome> {
   return invoke("move_archived_notes");
 }
 
+/** How sure the index is that a backlink means the note it is listed under. */
+export type BacklinkCertainty = "resolved" | "ambiguous";
+
+/** One note that links to the note being looked at. */
+export interface Backlink {
+  from_path: string;
+  /** What the linking note is called: its file name without the extension. */
+  from_name: string;
+  /** The link's target as it was written: no alias, no heading. */
+  to_target: string;
+  /** A wikilink's `|alias`. Null for a markdown link, whose label the parser
+   * does not carry; `context` quotes it. */
+  alias: string | null;
+  kind: string;
+  /** 1-based line the link is on. */
+  line: number;
+  /** 0-based character offset of the link inside that line. */
+  col: number;
+  /** The sentence the link sits in. Empty when the index holds no text for
+   * the linking note. */
+  context: string;
+  /** `ambiguous` when the link names this note and another one, and picks
+   * neither. */
+  certainty: BacklinkCertainty;
+}
+
+export async function noteBacklinks(path: string): Promise<Backlink[]> {
+  return invoke("note_backlinks", { path });
+}
+
 /** What a note's file holds, as the backend reports it. */
 export interface DiskState {
   hash: string;

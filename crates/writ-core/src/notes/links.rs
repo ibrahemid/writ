@@ -638,7 +638,7 @@ pub fn parse_target(path: &str) -> WikilinkTarget {
 }
 
 /// `name` without a trailing note extension.
-fn strip_note_extension(name: &str) -> &str {
+pub fn strip_note_extension(name: &str) -> &str {
     match name.rsplit_once('.') {
         Some((stem, ext)) if NOTE_EXTENSIONS.iter().any(|n| n.eq_ignore_ascii_case(ext)) => stem,
         _ => name,

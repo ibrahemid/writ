@@ -786,16 +786,18 @@ fn extension_for(bytes: &[u8]) -> &'static str {
 /// The read-back is the whole point: a write that reported success and landed
 /// as something else is the one failure that would cost a note, because the
 /// mirror is unlinked on the strength of this answer (ADR-028 §4 step 4).
-fn write_and_verify(destination: &Path, bytes: &[u8], directory: &DirNames) -> std::io::Result<()> {
+fn write_and_verify(
+    destination: &Path,
+    bytes: &[u8],
+    directory: &DirNames,
+) -> crate::errors::StorageResult<()> {
     directory.ensure()?;
     // No stamp: the migration runs before any watcher is started, and it is
     // the one write path that reads its own bytes back to check them.
     write_guarded_by_stamp(destination, bytes, None)?;
     let written = std::fs::read(destination)?;
     if sha256_bytes(&written) != sha256_bytes(bytes) {
-        return Err(std::io::Error::other(
-            "the file read back as different bytes",
-        ));
+        return Err(std::io::Error::other("the file read back as different bytes").into());
     }
     Ok(())
 }

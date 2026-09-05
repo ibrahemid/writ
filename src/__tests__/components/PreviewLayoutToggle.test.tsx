@@ -35,6 +35,7 @@ const HTML_BUFFER: BufferDocument = {
   closed_at: null,
   read_only: false,
   size_bytes: 0,
+  line_ending: "lf",
 };
 
 describe("PreviewLayoutToggle", () => {
