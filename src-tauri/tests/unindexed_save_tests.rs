@@ -104,7 +104,9 @@ fn a_saved_note_is_findable_by_its_file_name() {
     let id = persist_titled(&dir, &store, NOTICES_TITLE);
     store.save_content(&id, NOTICES_BODY).expect("indexed save");
 
-    let hits = index.search_names("licences", 10).expect("search names");
+    let hits = index
+        .search_names("licences", &dir.path().join("notes"), 10)
+        .expect("search names");
 
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].name, format!("{NOTICES_TITLE}.md"));

@@ -1,22 +1,44 @@
-export type ExternalChange = "modified" | "deleted";
+export type ExternalChange = "modified" | "removed" | "moved";
 
-export type ExternalEditAction = "ignore" | "toast" | "reload" | "prompt";
+export type ExternalEditAction =
+  | "ignore"
+  | "follow"
+  | "mark-removed"
+  | "returned"
+  | "reload"
+  | "prompt";
 
 export interface ExternalEditInputs {
   change: ExternalChange;
   known: boolean;
   hasUnsaved: boolean;
+  /** Whether the tab is already marked as having lost its file. */
+  removedOnDisk?: boolean;
 }
 
-// Decides how to respond to an external change to a buffer's backing file
-// (audit blocker #53.4). An unknown file is ignored; a deletion only
-// notifies (the in-memory buffer keeps its content and recreates the file
-// on the next save); a modification reloads the editor from disk when there
-// is nothing to lose, and prompts first when the user has unsaved edits that
-// the reload would discard.
+// Decides how to respond to an external change to a buffer's backing file.
+//
+// An unknown file is ignored. A file that moved changes no bytes, so the tab
+// follows it to its new path and nothing is read, reloaded or asked: putting a
+// move through the dirty gate would throw away unsaved text over a rename. A
+// file that was deleted marks the tab, which keeps the text and stops the next
+// save recreating the file (spec W4). A modification reloads the editor from
+// disk when there is nothing to lose, and asks first when there are unsaved
+// edits the reload would discard.
+//
+// A tab that already lost its file reads the same reports differently. A file
+// at its path again is a return, answered by the rule in ADR-033 decision 15
+// rather than by the prompt a modification gets: the person is putting a file
+// back, not editing one behind Writ's back. A second removal for a note
+// already marked says nothing the first did not, and acting on it again would
+// cancel a queue the mark has since put text back into.
 export function planExternalEdit(inputs: ExternalEditInputs): ExternalEditAction {
   if (!inputs.known) return "ignore";
-  if (inputs.change === "deleted") return "toast";
+  if (inputs.change === "moved") return "follow";
+  if (inputs.change === "removed") {
+    return inputs.removedOnDisk ? "ignore" : "mark-removed";
+  }
+  if (inputs.removedOnDisk) return "returned";
   return inputs.hasUnsaved ? "prompt" : "reload";
 }
 
@@ -28,10 +50,63 @@ export interface ExternalEditBuffer {
 export interface ExternalEditDeps {
   findBuffer: (idOrFilename: string) => ExternalEditBuffer | undefined;
   hasUnsaved: (id: string) => boolean;
+  isRemovedOnDisk: (id: string) => boolean;
   reload: (id: string) => void;
   cancelAutosave: (id: string) => void;
-  toast: (message: string, level: "warning") => void;
   confirmReload: (title: string) => Promise<boolean>;
+  // Repoints the tab at the file's new path: its name, the path it saves to,
+  // and the folder it is watched in. The text is untouched.
+  followMove: (id: string, newPath: string) => void;
+  // Marks the tab as having no file on disk. The store takes the text it is
+  // the last copy of and cancels the queue, in that order, so this must not
+  // be paired with a `cancelAutosave` of its own.
+  markRemoved: (id: string) => void;
+  // A file is back at the note's own path. The store decides what the tab
+  // shows and puts autosave back to work.
+  fileReturned: (id: string) => void;
+}
+
+// What the backend says about a file that changed outside Writ. `path` names
+// the file, `diskHash` is what it holds now, and `newPath` is where it went
+// for a change that is a move. Only `bufferId` and `change` are read here; the
+// rest are what the reload and the move handling are built on.
+export interface ExternalEditPayload {
+  bufferId: string;
+  change: ExternalChange;
+  path?: string;
+  newPath?: string | null;
+  diskHash?: string | null;
+}
+
+// Reads a `buffer:external` event off the wire, or rejects it.
+//
+// The guard the whole feature passes through, which is why it is here with a
+// test rather than inline at the subscription. Rust named the fields
+// `buffer_id` and `change` for a while; every payload arrived with `bufferId`
+// undefined, this check dropped it, and the feature was silently inert for as
+// long as that lasted. A rename on either side has to fail a test, not a user.
+export function readExternalEditPayload(payload: {
+  bufferId?: string;
+  change?: string;
+  path?: string;
+  newPath?: string | null;
+  diskHash?: string | null;
+}): ExternalEditPayload | null {
+  if (!payload.bufferId) return null;
+  if (
+    payload.change !== "modified" &&
+    payload.change !== "removed" &&
+    payload.change !== "moved"
+  ) {
+    return null;
+  }
+  return {
+    bufferId: payload.bufferId,
+    change: payload.change,
+    path: payload.path,
+    newPath: payload.newPath,
+    diskHash: payload.diskHash,
+  };
 }
 
 // Resolves and executes the response to a `buffer:external` event.
@@ -39,9 +114,10 @@ export interface ExternalEditDeps {
 // Deliberately never reloads the global buffer registry: a blanket registry
 // reload re-creates the always-mounted preview pane's iframe and hard-freezes
 // the macOS webview (PR#127). Only the editor's own content is reset, via
-// `reload`.
+// `reload`, which reads the file through Rust rather than from any copy Writ
+// is holding.
 export async function handleExternalEdit(
-  payload: { bufferId: string; change: ExternalChange },
+  payload: ExternalEditPayload,
   deps: ExternalEditDeps,
 ): Promise<void> {
   const buffer = deps.findBuffer(payload.bufferId);
@@ -49,13 +125,22 @@ export async function handleExternalEdit(
     change: payload.change,
     known: buffer !== undefined,
     hasUnsaved: buffer ? deps.hasUnsaved(buffer.id) : false,
+    removedOnDisk: buffer ? deps.isRemovedOnDisk(buffer.id) : false,
   });
 
   if (!buffer || action === "ignore") return;
 
   switch (action) {
-    case "toast":
-      deps.toast(`File "${buffer.title}" deleted externally`, "warning");
+    case "follow":
+      // A move that names nowhere is not a move anything can follow. It cannot
+      // happen from the backend, and silence beats repointing a tab at "".
+      if (payload.newPath) deps.followMove(buffer.id, payload.newPath);
+      return;
+    case "mark-removed":
+      deps.markRemoved(buffer.id);
+      return;
+    case "returned":
+      deps.fileReturned(buffer.id);
       return;
     case "reload":
       deps.reload(buffer.id);

@@ -1,0 +1,7 @@
+{
+  "platform": {
+    "mac": {
+      "$description": "macOS takes the base layer unchanged. The group exists so the platform set is explicit."
+    }
+  }
+}

@@ -1,5 +1,5 @@
 @import "./fonts.css";
-@import "./theme.css";
+@import "./generated/theme.css";
 @import "./focus.css";
 
 *, *::before, *::after {
@@ -12,10 +12,10 @@ html, body {
   height: 100%;
   overflow: hidden;
   background: transparent;
-  color: var(--writ-foreground-default);
-  font-family: var(--writ-font-sans);
-  font-size: var(--writ-font-size);
-  line-height: var(--writ-line-height);
+  color: var(--writ-fg);
+  font-family: var(--writ-font-ui);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -35,12 +35,12 @@ html, body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--writ-border-default);
-  border-radius: 4px;
+  background: var(--writ-border);
+  border-radius: var(--writ-r-control);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--writ-foreground-subtle);
+  background: var(--writ-fg-faint);
 }
 
 ::selection {

@@ -3,11 +3,14 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex, RwLock};
 use tracing::{info, warn};
+use writ_core::buffer::document::BufferDocument;
 use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
+use writ_core::notes::identity::{identity_to_keep, observe_file, FileIdentity, SourceState};
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::recovery::RecoveredBuffer;
 use writ_core::update::UpdatePhase;
+use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::builtins::register_builtins;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
@@ -25,6 +28,8 @@ use crate::preview::handler::RenderCache;
 use crate::quit::QuitState;
 use crate::security::{canonicalize_for_authorization, canonicalize_root, AuthorizedPaths};
 use crate::watcher::handler::{IgnoreSet, WatcherHandle};
+use crate::watcher::moves::FileTracking;
+use crate::watcher::open_files::{NoOpenNotes, OpenFileWatcher, OpenNotes};
 
 /// What Writ last saw on disk for one note.
 ///
@@ -41,6 +46,20 @@ fn disk_state_of(path: &Path, hash: writ_core::hash::Sha256Digest, size: u64) ->
         size: metadata.as_ref().map(|m| m.len()).unwrap_or(size),
         mtime: metadata.as_ref().and_then(|m| m.modified().ok()),
     }
+}
+
+/// What Writ knows about the file behind one note, beyond its bytes.
+///
+/// The bytes are [`DiskState`]'s half; this is the file itself — what the
+/// filesystem calls it, and whether it is still there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceRecord {
+    /// What the filesystem calls the file, when it could be read. `None` for a
+    /// file that is not there, and for a volume that has no id to give and no
+    /// bytes that may be read (an undownloaded file).
+    pub identity: Option<FileIdentity>,
+    /// Whether the file is where the note says it is.
+    pub state: SourceState,
 }
 
 /// Why startup could not keep the notes folder it was asked for.
@@ -96,6 +115,16 @@ pub struct AppState {
     /// The recursive watcher over the notes folder. Held here so it lives as
     /// long as the application; dropping it stops the watch.
     pub notes_watcher: Mutex<Option<WatcherHandle>>,
+    /// The watcher over the folders holding files opened from outside the
+    /// notes tree. Held here for the same reason, and reached through
+    /// [`AppState::follow_note_file`] and [`AppState::stop_following_note`].
+    pub open_file_watcher: Mutex<Option<OpenFileWatcher>>,
+    /// How a watcher decides what a file leaving its path means, and where it
+    /// records the answer. Set once at startup, and read by every watcher
+    /// started after that — the notes watcher is restarted whenever the notes
+    /// folder moves, and one started without this would classify every delete
+    /// as a delete.
+    pub file_tracking: Mutex<Option<FileTracking>>,
     pub pending_opens: Mutex<Vec<String>>,
     pub frontend_ready: AtomicBool,
     pub transforms: RwLock<TransformRegistry>,
@@ -115,6 +144,13 @@ pub struct AppState {
     /// thread polls it per entry, so a quit during a large walk does not wait
     /// for the walk.
     pub notes_index_cancel: Arc<AtomicBool>,
+    /// Keeps one reconcile walk running at a time over the notes folder, and
+    /// remembers a sweep that arrived while one was running so it gets a walk
+    /// of its own afterwards. The watcher raises a sweep whenever more changed
+    /// in one window than is worth listing, and a sync catch-up raises it
+    /// again while the last walk is still reading; a change behind the walk's
+    /// back is the one it cannot cover.
+    pub notes_reconcile: Arc<ReconcileGate>,
     /// How far the shutdown path has got, and whether the frontend has
     /// answered [`writ_core::events::bus::WritEvent::FlushBeforeQuit`] by
     /// writing everything it was holding inside the autosave debounce window.
@@ -156,6 +192,27 @@ pub struct AppState {
     /// closing or deleting a note drops it, so a note reopened weeks later
     /// is compared against the file, not against a stale record of it.
     pub last_disk_hash: Mutex<HashMap<String, DiskState>>,
+    /// What the filesystem calls a buffer's file, and whether that file is
+    /// still there, keyed by buffer id.
+    ///
+    /// The identity is what tells a move from a delete when the path stops
+    /// holding anything ([`writ_core::notes::identity`]). It is read at the
+    /// moment a tab takes a file and again after every save, because an atomic
+    /// replace writes a new file and renames it over the old one: a record
+    /// taken before the save names an inode that no longer exists.
+    ///
+    /// In memory only, for the length of the session, because it describes the
+    /// filesystem as it is now. A relaunch reads it back from the file when
+    /// the tab is restored.
+    pub source_records: Mutex<HashMap<String, SourceRecord>>,
+    /// Text a save could not write, handed over by the editor on its way out,
+    /// keyed by buffer id.
+    ///
+    /// The shutdown snapshot is the last thing written and it reads every open
+    /// note's file, so a note whose write failed would otherwise contribute
+    /// the stale bytes on disk and the text the person typed would be nowhere.
+    /// Emptied by [`Self::take_unsaved_on_exit`] as the snapshot is composed.
+    pub unsaved_on_exit: Mutex<HashMap<String, String>>,
 }
 
 impl AppState {
@@ -248,17 +305,23 @@ impl AppState {
         let mut recovered_disk_states: HashMap<String, DiskState> = HashMap::new();
         let recovered_buffers = if was_dirty_shutdown {
             info!("dirty shutdown detected; resolving recovery");
-            let recovered = store.resolve_recovery().unwrap_or_default();
+            let mut recovered = store.resolve_recovery().unwrap_or_default();
             info!(count = recovered.len(), "buffers eligible for recovery");
-            for buf in &recovered {
+            for buf in &mut recovered {
                 match restore_recovered_buffer(&store, &notes_root, buf) {
                     // Nothing is recorded for a note whose file was never
                     // read, so its first save reads it rather than trusting a
                     // record nobody took.
-                    Ok(Some(state)) => {
+                    Ok(RecoveryLanding::Written(Some(state))) => {
                         recovered_disk_states.insert(buf.id.clone(), state);
                     }
-                    Ok(None) => {}
+                    Ok(RecoveryLanding::Written(None)) => {}
+                    // The frontend seeds the tab from this rather than reading
+                    // a file that is not there.
+                    Ok(RecoveryLanding::Withheld) => {
+                        info!(buffer_id = %buf.id, "the note's file is gone; its text goes to the tab");
+                        buf.removed_on_disk = true;
+                    }
                     Err(e) => warn!(buffer_id = %buf.id, error = %e, "recovery write failed"),
                 }
             }
@@ -399,6 +462,8 @@ impl AppState {
             watcher_ignore,
             watcher: Mutex::new(None),
             notes_watcher: Mutex::new(None),
+            open_file_watcher: Mutex::new(None),
+            file_tracking: Mutex::new(None),
             pending_opens: Mutex::new(Vec::new()),
             frontend_ready: AtomicBool::new(false),
             transforms: RwLock::new(transforms),
@@ -410,6 +475,7 @@ impl AppState {
             layout_state,
             notes_index,
             notes_index_cancel: Arc::new(AtomicBool::new(false)),
+            notes_reconcile: Arc::new(ReconcileGate::new()),
             quit: Arc::new(QuitState::new()),
             recovered_buffers: Mutex::new(recovered_buffers),
             was_dirty_shutdown,
@@ -421,6 +487,8 @@ impl AppState {
             workspace_index,
             search_generation: Arc::new(AtomicU64::new(0)),
             last_disk_hash: Mutex::new(recovered_disk_states),
+            source_records: Mutex::new(HashMap::new()),
+            unsaved_on_exit: Mutex::new(HashMap::new()),
         })
     }
 
@@ -440,9 +508,227 @@ impl AppState {
     /// lock every note in the folder out of saving.
     pub fn set_notes_root(&self, root: PathBuf) {
         let mut guard = recover_poison(self.notes_root.write(), "state::set_notes_root");
-        *guard = root;
+        *guard = root.clone();
         drop(guard);
         self.clear_notes_root_fallback();
+        // The open-file watcher skips folders the notes watcher already
+        // covers, so it has to be told where the notes are now.
+        let watcher = recover_poison(
+            self.open_file_watcher.lock(),
+            "state::set_notes_root:open_files",
+        );
+        if let Some(watcher) = watcher.as_ref() {
+            let mut registry = recover_poison(
+                watcher.registry().lock(),
+                "state::set_notes_root:open_files_registry",
+            );
+            registry.set_notes_root(&root);
+        }
+    }
+
+    /// Watches the folder holding `doc`'s file, so a change another program
+    /// makes to it reaches the tab, and reads what the file is. A note with no
+    /// file yet is skipped.
+    ///
+    /// This is also where a tab restored at launch learns that its file is not
+    /// there any more. The record is not carried across a relaunch, so a note
+    /// whose file was deleted while Writ was closed would otherwise come back
+    /// looking ordinary and recreate the file on its first save.
+    pub fn follow_note_file(&self, doc: &BufferDocument) {
+        let Some(path) = doc.source_path.as_deref() else {
+            return;
+        };
+        let path = Path::new(path);
+        self.follow_note_path(&doc.id, path);
+        self.observe_source_file(&doc.id, path);
+    }
+
+    /// Records what the file at `path` is, and whether it is there at all.
+    ///
+    /// A file that is there clears a removed-on-disk mark: a note restored
+    /// from the Trash re-attaches to it without the user doing anything, which
+    /// is the whole of the restore case in spec W4.
+    ///
+    /// The identity is read outside the lock, because reading it can cost a
+    /// whole file on a volume with no id to give, and holding the map while a
+    /// sync provider answers would stall every other tab's save.
+    /// [`observe_file`] decides what the answer means; a file that will not be
+    /// described keeps the id already on record rather than losing it.
+    ///
+    /// Reading outside the lock means a save can land its own fresher id while
+    /// the filesystem is answering, so what was on record before the read is
+    /// carried to the write and [`identity_to_keep`] settles it. Without that
+    /// the watcher thread writes a pre-save id back over a post-save one,
+    /// which is the stale record this exists to prevent.
+    pub fn observe_source_file(&self, note_id: &str, path: &Path) {
+        let before = {
+            let map = recover_poison(self.source_records.lock(), "state::observe_source_file");
+            map.get(note_id).and_then(|record| record.identity.clone())
+        };
+        let seen = crate::watcher::identity::read_identity(path);
+        let present = seen.is_some() || path.exists();
+        let mut map = recover_poison(self.source_records.lock(), "state::observe_source_file");
+        let recorded = map.get(note_id).and_then(|record| record.identity.clone());
+        let seen = identity_to_keep(before.as_ref(), recorded.as_ref(), seen);
+        let sighting = observe_file(recorded, seen, present);
+        map.insert(
+            note_id.to_string(),
+            SourceRecord {
+                identity: sighting.identity,
+                state: sighting.state,
+            },
+        );
+    }
+
+    /// What is recorded about `note_id`'s file, for a test to read back.
+    pub fn source_record(&self, note_id: &str) -> Option<SourceRecord> {
+        let map = recover_poison(self.source_records.lock(), "state::source_record");
+        map.get(note_id).cloned()
+    }
+
+    /// Re-reads the file's identity after a write, leaving its state alone.
+    ///
+    /// Every save writes a temporary file and renames it over the note, so the
+    /// file behind a tab is a new file after each one. Without this the first
+    /// delete after a save is measured against an identity nothing carries any
+    /// more, and a move reads as a delete.
+    pub fn refresh_source_identity(&self, note_id: &str, path: &Path) {
+        let identity = crate::watcher::identity::read_identity(path);
+        let mut map = recover_poison(self.source_records.lock(), "state::refresh_source_identity");
+        match map.get_mut(note_id) {
+            Some(record) => record.identity = identity,
+            None => {
+                map.insert(
+                    note_id.to_string(),
+                    SourceRecord {
+                        identity,
+                        state: SourceState::Present,
+                    },
+                );
+            }
+        }
+    }
+
+    /// What the filesystem last called `note_id`'s file.
+    pub fn source_identity(&self, note_id: &str) -> Option<FileIdentity> {
+        let map = recover_poison(self.source_records.lock(), "state::source_identity");
+        map.get(note_id).and_then(|record| record.identity.clone())
+    }
+
+    /// Records that `note_id`'s file was deleted. `true` when this is news.
+    ///
+    /// The answer is what keeps a tab from being told twice about one delete:
+    /// two watchers can see the same file leave a folder.
+    pub fn mark_removed_on_disk(&self, note_id: &str) -> bool {
+        let mut map = recover_poison(self.source_records.lock(), "state::mark_removed_on_disk");
+        let record = map.entry(note_id.to_string()).or_insert(SourceRecord {
+            identity: None,
+            state: SourceState::Present,
+        });
+        let news = record.state != SourceState::RemovedOnDisk;
+        record.state = SourceState::RemovedOnDisk;
+        record.identity = None;
+        news
+    }
+
+    /// Whether `note_id`'s file was deleted and not replaced.
+    ///
+    /// The save path asks this: a note in that state keeps its text in the tab
+    /// and writes nothing, because recreating the file would put back what the
+    /// user threw away, and in a synced folder it would put it back on every
+    /// device (spec W4).
+    pub fn is_removed_on_disk(&self, note_id: &str) -> bool {
+        let map = recover_poison(self.source_records.lock(), "state::is_removed_on_disk");
+        map.get(note_id)
+            .is_some_and(|record| record.state == SourceState::RemovedOnDisk)
+    }
+
+    /// Drops what was recorded about `note_id`'s file, which the tab closing
+    /// or the note being deleted is the end of.
+    pub fn forget_source_record(&self, note_id: &str) {
+        let mut map = recover_poison(self.source_records.lock(), "state::forget_source_record");
+        map.remove(note_id);
+    }
+
+    /// The one place a tab's file starts being followed.
+    ///
+    /// Every path that gives a tab a file calls this, whatever the file's
+    /// folder: opening one from outside the notes folder, restoring a tab at
+    /// launch or from history, creating a note, giving a note its file on
+    /// first save, renaming one, and moving the notes folder. A file inside
+    /// the notes folder is recorded here too, without arming a second watch —
+    /// the notes watcher covers the folder, and this is how it learns which
+    /// tab a changed path belongs to. Skipping it there is what left a note
+    /// created or renamed in the session unable to hear about its own file.
+    ///
+    /// Four paths deliberately do not call it. Three put no file behind a tab:
+    /// `save_note_copy_inner` writes a copy the caller then opens through the
+    /// open path, `create_buffer` makes a note with no file at all, and
+    /// `get_buffer` only reads a row.
+    ///
+    /// The fourth is `open_generated_document`, which does give a tab a file
+    /// and still does not follow it. The row is read-only, so no save of it can
+    /// be lost; the file is under the data directory and holds Writ's own
+    /// output, rewritten from that output on every open; and the folder is one
+    /// Writ writes into, so a watch there would report Writ's own writes
+    /// (ADR-033 §9).
+    ///
+    /// Asking twice for the same note and file costs nothing, so a path that
+    /// cannot tell whether the tab is new should call it anyway.
+    pub fn follow_note_path(&self, note_id: &str, path: &Path) {
+        {
+            let watcher = recover_poison(self.open_file_watcher.lock(), "state::follow_note_path");
+            if let Some(watcher) = watcher.as_ref() {
+                let mut registry = recover_poison(
+                    watcher.registry().lock(),
+                    "state::follow_note_path:registry",
+                );
+                registry.watch_parent_of(note_id, path);
+            }
+        }
+        // What the filesystem calls this file, taken at the moment the tab
+        // takes it. Without it, the first time the path stops holding anything
+        // there is nothing to compare against and a move reads as a delete.
+        // Recorded whether or not a watcher is running, because the save path
+        // reads it too.
+        self.refresh_source_identity(note_id, path);
+    }
+
+    /// How this process decides what a file leaving its path means.
+    ///
+    /// Untracked before startup has set it, and in a test that builds a state
+    /// with no application around it: every delete then reads as a delete,
+    /// which is the pre-identity behaviour rather than a wrong answer.
+    pub fn file_tracking(&self) -> FileTracking {
+        recover_poison(self.file_tracking.lock(), "state::file_tracking")
+            .clone()
+            .unwrap_or_else(FileTracking::untracked)
+    }
+
+    /// Which note a path is open as, for a watcher routing a change to a tab.
+    ///
+    /// Answers nothing while the open-file watcher is not running, which reads
+    /// the same as no file being open: nothing is routed.
+    pub fn open_notes(&self) -> Arc<dyn OpenNotes> {
+        let watcher = recover_poison(self.open_file_watcher.lock(), "state::open_notes");
+        match watcher.as_ref() {
+            Some(watcher) => watcher.open_notes(),
+            None => Arc::new(NoOpenNotes),
+        }
+    }
+
+    /// Releases the folder watch a note was holding, which the last tab in a
+    /// folder closing is the end of.
+    pub fn stop_following_note(&self, note_id: &str) {
+        let watcher = recover_poison(self.open_file_watcher.lock(), "state::stop_following_note");
+        let Some(watcher) = watcher.as_ref() else {
+            return;
+        };
+        let mut registry = recover_poison(
+            watcher.registry().lock(),
+            "state::stop_following_note:registry",
+        );
+        registry.unwatch_parent_of(note_id);
     }
 
     /// The folder the settings named that startup could not use, or `None`.
@@ -562,12 +848,32 @@ impl AppState {
     /// `true` when `bytes` hashes to the digest last recorded for
     /// `buffer_id`.
     ///
-    /// `false` for a buffer with no recorded digest — the honest answer for
-    /// one Writ has not read or written this launch, where nothing rules out
-    /// that the file changed underneath it.
+    /// `false` for a buffer with no recorded digest, which makes this a guard
+    /// rather than a test for whether a file changed. A caller about to write,
+    /// or about to trust bytes it is holding, wants that refusal. A caller
+    /// deciding whether to tell the user their file moved underneath them does
+    /// not: with nothing to compare against, reporting a change is a claim
+    /// about bytes nobody read. Ask [`Self::disk_state`] and stay quiet when it
+    /// answers `None`.
     pub fn disk_hash_matches(&self, buffer_id: &str, bytes: &[u8]) -> bool {
         let map = recover_poison(self.last_disk_hash.lock(), "state::disk_hash_matches");
         map.get(buffer_id).map(|state| state.hash) == Some(writ_core::hash::sha256_bytes(bytes))
+    }
+
+    /// Records text a save could not write, for the shutdown snapshot to keep.
+    ///
+    /// The editor hands the same note over on both ways out (the quit flush
+    /// and the window closing), so a later handover replaces an earlier one:
+    /// it carries the newer text.
+    pub fn record_unsaved_on_exit(&self, buffer_id: &str, content: String) {
+        let mut map = recover_poison(self.unsaved_on_exit.lock(), "state::record_unsaved_on_exit");
+        map.insert(buffer_id.to_string(), content);
+    }
+
+    /// Takes everything recorded, leaving the map empty.
+    pub fn take_unsaved_on_exit(&self) -> HashMap<String, String> {
+        let mut map = recover_poison(self.unsaved_on_exit.lock(), "state::take_unsaved_on_exit");
+        std::mem::take(&mut *map)
     }
 }
 
@@ -593,13 +899,31 @@ impl AppState {
 /// no watcher exists yet to mistake the write for somebody else's. The flags
 /// come from the filesystem for the same reason — there is no test double in
 /// the running app.
+///
+/// A note that had a file and no longer has one is the exception, and it is
+/// the only case that reaches no write at all
+/// ([`writ_core::recovery::plan_recovery`]). Its file was deleted, and putting
+/// it back at a relaunch is the same harm as putting it back at a save, so the
+/// text stays in the snapshot's hands and the tab comes up removed on disk
+/// (ADR-033 decision 15). Nothing is left beside the path either: a dated copy
+/// in a folder somebody cleared is a file they did not ask for.
 fn restore_recovered_buffer(
     store: &BufferStore,
     notes_root: &std::path::Path,
     recovered: &RecoveredBuffer,
-) -> Result<Option<DiskState>, String> {
+) -> Result<RecoveryLanding, String> {
     let doc = store.get(&recovered.id).map_err(|e| e.to_string())?;
-    if doc.source_path.is_none() {
+    let had_file = doc.source_path.is_some();
+    let file_is_there = doc
+        .source_path
+        .as_deref()
+        .is_some_and(|path| std::fs::symlink_metadata(path).is_ok());
+    if writ_core::recovery::plan_recovery(had_file, file_is_there)
+        == writ_core::recovery::RecoveryPlan::Withhold
+    {
+        return Ok(RecoveryLanding::Withheld);
+    }
+    if !had_file {
         crate::notes::attach_note_file(
             store,
             notes_root,
@@ -610,8 +934,18 @@ fn restore_recovered_buffer(
     }
     store
         .restore_recovered_content(&recovered.id, &recovered.content, None, None)
-        .map(|outcome| outcome.disk_state())
+        .map(|outcome| RecoveryLanding::Written(outcome.disk_state()))
         .map_err(|e| e.to_string())
+}
+
+/// Where a note's recovered text ended up at the relaunch.
+enum RecoveryLanding {
+    /// It was written into the note's file, which then held what the
+    /// [`DiskState`] describes when the file could be described at all.
+    Written(Option<DiskState>),
+    /// Nothing was written. The note's file is gone and the text goes to the
+    /// tab, which comes up removed on disk.
+    Withheld,
 }
 
 /// Re-blesses the source paths of every persisted buffer, returning how many.
@@ -788,8 +1122,12 @@ pub(crate) fn resolve_writ_dir(
 
 #[cfg(test)]
 mod tests {
+    // `canonicalize_root`, not `std::fs::canonicalize`: on Windows the latter
+    // returns a `\\?\` prefix that every path the resolver hands back has been
+    // stripped of, and the two never compare equal.
     use super::{
-        resolve_and_create_notes_root, resolve_writ_dir, NotesRootFallback, NotesRootFallbackReason,
+        canonicalize_root, resolve_and_create_notes_root, resolve_writ_dir, NotesRootFallback,
+        NotesRootFallbackReason,
     };
     use std::path::PathBuf;
     use tempfile::TempDir;
@@ -812,7 +1150,7 @@ mod tests {
         .unwrap();
 
         assert!(root.is_dir());
-        assert_eq!(root, std::fs::canonicalize(&chosen).unwrap());
+        assert_eq!(root, canonicalize_root(&chosen).unwrap());
         assert_eq!(fallback, None);
     }
 
@@ -837,10 +1175,7 @@ mod tests {
         .unwrap();
 
         assert!(root.is_dir());
-        assert_eq!(
-            root,
-            std::fs::canonicalize(home.path().join("Writ")).unwrap()
-        );
+        assert_eq!(root, canonicalize_root(&home.path().join("Writ")).unwrap());
         assert_eq!(
             fallback,
             Some(NotesRootFallback {
@@ -871,7 +1206,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(root, std::fs::canonicalize(&chosen).unwrap());
+        assert_eq!(root, canonicalize_root(&chosen).unwrap());
         assert_eq!(
             fallback,
             Some(NotesRootFallback {
@@ -901,10 +1236,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            root,
-            std::fs::canonicalize(home.path().join("Writ")).unwrap()
-        );
+        assert_eq!(root, canonicalize_root(&home.path().join("Writ")).unwrap());
         assert_eq!(
             fallback,
             Some(NotesRootFallback {
@@ -953,10 +1285,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            root,
-            std::fs::canonicalize(home.path().join("Writ")).unwrap()
-        );
+        assert_eq!(root, canonicalize_root(&home.path().join("Writ")).unwrap());
         assert_eq!(
             fallback,
             Some(NotesRootFallback {
@@ -983,10 +1312,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            root,
-            std::fs::canonicalize(home.path().join("Writ")).unwrap()
-        );
+        assert_eq!(root, canonicalize_root(&home.path().join("Writ")).unwrap());
         assert_eq!(
             fallback.map(|fallback| fallback.reason),
             Some(NotesRootFallbackReason::HoldsWritData)
@@ -1016,7 +1342,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(root, std::fs::canonicalize(&chosen).unwrap());
+        assert_eq!(root, canonicalize_root(&chosen).unwrap());
         assert_eq!(fallback, None);
     }
 
@@ -1037,7 +1363,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(root, std::fs::canonicalize(data.join("Writ")).unwrap());
+        assert_eq!(root, canonicalize_root(&data.join("Writ")).unwrap());
         assert_eq!(fallback, None);
     }
 

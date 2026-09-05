@@ -184,6 +184,7 @@ mod tests {
                 buffer_text: "hi".to_string(),
                 theme: Default::default(),
                 zoom: 1.0,
+                assets: None,
             })
             .unwrap();
         assert!(out.document_html.contains("<stub>2</stub>"));

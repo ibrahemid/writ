@@ -1,0 +1,23 @@
+.writ-tooltip-anchor {
+  display: inline-flex;
+  align-items: center;
+}
+
+.writ-tooltip {
+  position: fixed;
+  background: var(--writ-bg-sunken);
+  color: var(--writ-fg);
+  /* Only Windows names a tooltip radius; elsewhere a tip is a popover. */
+  border-radius: var(--writ-r-tooltip, var(--writ-r-popover));
+  padding: 5px 9px;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: var(--writ-shadow-popover);
+  z-index: var(--writ-z-popover);
+}
+
+:root[data-scheme="dark"] .writ-tooltip {
+  background: var(--writ-bg-raised);
+}

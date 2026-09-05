@@ -1,9 +1,11 @@
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import TabItem from "./TabItem";
+import Icon from "../Icon/Icon";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
-import { groupActiveByDirectory } from "./grouping";
+import { groupActiveByDirectory, SCRATCH_GROUP_KEY } from "./grouping";
+import type { BufferDocument } from "../../types/buffer";
 import "./ActiveSection.css";
 
 export default function ActiveSection() {
@@ -12,6 +14,10 @@ export default function ActiveSection() {
 
   const groups = createMemo(() =>
     groupActiveByDirectory(bufferRegistry.activeTabs(), win.tabs.activeTabId()),
+  );
+
+  const total = createMemo(() =>
+    groups().reduce((count, group) => count + group.items.length, 0),
   );
 
   function toggleGroup(key: string) {
@@ -31,52 +37,67 @@ export default function ActiveSection() {
     showContextMenu(e.clientX, e.clientY, [
       { label: "Close", action: () => void win.tabs.closeTab(id) },
       {
-        label: "Close Others",
+        label: "Close others",
         action: () => void win.tabs.closeOtherTabs(id),
       },
     ]);
   }
 
+  function row(item: BufferDocument): JSX.Element {
+    return (
+      <div class="active-row" onContextMenu={(e) => handleContextMenu(e, item.id)}>
+        <TabItem
+          label={item.title}
+          icon="file-text"
+          noteId={item.id}
+          isActive={item.id === win.tabs.activeTabId()}
+          onClick={() => win.tabs.setActiveTabId(item.id)}
+          onClose={() => void win.tabs.closeTab(item.id)}
+        />
+      </div>
+    );
+  }
+
   return (
     <Show when={groups().length > 0}>
       <div class="sidebar-section active-section">
-        <div class="sidebar-section-title">Active</div>
+        <div class="sidebar-section-title">
+          Open
+          <span class="sidebar-section-count">{total()}</span>
+        </div>
         <div class="active-list">
           <For each={groups()}>
             {(group) => (
-              <div class="active-group">
-                <button
-                  type="button"
-                  class="active-group-head"
-                  classList={{ "is-collapsed": collapsed().has(group.key) }}
-                  onClick={() => toggleGroup(group.key)}
-                >
-                  <span class="active-group-chevron" aria-hidden="true">
-                    ▾
-                  </span>
-                  <span class="active-group-name">{group.label}</span>
-                  <span class="active-group-count">{group.items.length}</span>
-                </button>
-                <Show when={!collapsed().has(group.key)}>
-                  <div class="active-group-items">
-                    <For each={group.items}>
-                      {(item) => (
-                        <div
-                          class="active-row"
-                          onContextMenu={(e) => handleContextMenu(e, item.id)}
-                        >
-                          <TabItem
-                            title={item.title}
-                            isActive={item.id === win.tabs.activeTabId()}
-                            onClick={() => win.tabs.setActiveTabId(item.id)}
-                            onClose={() => void win.tabs.closeTab(item.id)}
-                          />
-                        </div>
-                      )}
-                    </For>
+              <Show
+                when={group.key !== SCRATCH_GROUP_KEY}
+                fallback={
+                  // Notes with no file behind them yet need no heading: they
+                  // are what "Open" already says they are.
+                  <div class="active-group">
+                    <For each={group.items}>{(item) => row(item)}</For>
                   </div>
-                </Show>
-              </div>
+                }
+              >
+                <div class="active-group">
+                  <button
+                    type="button"
+                    class="active-group-head"
+                    classList={{ "is-collapsed": collapsed().has(group.key) }}
+                    onClick={() => toggleGroup(group.key)}
+                  >
+                    <span class="active-group-caret" aria-hidden="true">
+                      <Icon name="caret-down" size={12} />
+                    </span>
+                    <span class="active-group-name">{group.label}</span>
+                    <span class="active-group-count">{group.items.length}</span>
+                  </button>
+                  <Show when={!collapsed().has(group.key)}>
+                    <div class="active-group-items">
+                      <For each={group.items}>{(item) => row(item)}</For>
+                    </div>
+                  </Show>
+                </div>
+              </Show>
             )}
           </For>
         </div>

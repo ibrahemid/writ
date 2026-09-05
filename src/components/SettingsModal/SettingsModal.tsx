@@ -36,7 +36,13 @@ import { NotesSyncNote } from "./NotesSyncNote";
 import { copyStoragePath, fetchStorageInfo, revealStoragePath } from "../../stores/global/storage";
 import type { StorageInfo } from "../../stores/global/storage";
 import { openThirdPartyNoticesBuffer } from "../../stores/global/notices";
-import type { DefaultLayout } from "../../types/config";
+import type {
+  AccentId,
+  AppearanceConfig,
+  DefaultLayout,
+  Polarity,
+  ProseFaceId,
+} from "../../types/config";
 import {
   fetchDefaultAppTypes,
   fetchDefaultAppStatus,
@@ -53,6 +59,10 @@ import {
   type SettingsSection,
 } from "../../settings";
 import { isSettingAvailable } from "../../settings/availability";
+import Button from "../Button/Button";
+import Icon from "../Icon/Icon";
+import Tooltip from "../Tooltip/Tooltip";
+import { ACCENTS } from "../../styles/generated/tokens";
 import "./SettingsModal.css";
 
 // Singleton state — Writ is single-window
@@ -128,6 +138,100 @@ async function patchConfig(patch: (prev: ReturnType<typeof configStore.config>) 
   }
 }
 
+interface ToggleSwitchProps {
+  setting: string;
+  label: string;
+  checked: boolean;
+  onChange: () => void;
+}
+
+/** 32 x 18 track, 14px knob. A button, so Space and Enter activate it natively. */
+function ToggleSwitch(props: ToggleSwitchProps) {
+  return (
+    <button
+      type="button"
+      class="settings-switch"
+      classList={{ "settings-switch-on": props.checked }}
+      data-setting={props.setting}
+      role="switch"
+      aria-checked={props.checked}
+      aria-label={props.label}
+      onClick={props.onChange}
+    >
+      <span class="settings-switch-knob" />
+    </button>
+  );
+}
+
+interface SegmentedProps<T extends string> {
+  setting: string;
+  label: string;
+  options: { id: T; label: string }[];
+  value: T;
+  onChange: (id: T) => void;
+}
+
+/**
+ * A radiogroup, so the arrow keys move the choice and Tab leaves the group.
+ * Only the checked cell is tabbable; that is the roving-tabindex the pattern
+ * asks for.
+ */
+function Segmented<T extends string>(props: SegmentedProps<T>) {
+  let groupRef: HTMLDivElement | undefined;
+
+  function move(delta: number) {
+    const ids = props.options.map((o) => o.id);
+    const current = ids.indexOf(props.value);
+    const next = ids[(current + delta + ids.length) % ids.length];
+    props.onChange(next);
+    requestAnimationFrame(() =>
+      groupRef?.querySelector<HTMLButtonElement>(`[data-option="${next}"]`)?.focus(),
+    );
+  }
+
+  function onKeyDown(event: KeyboardEvent) {
+    switch (event.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        event.preventDefault();
+        move(1);
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        event.preventDefault();
+        move(-1);
+        break;
+    }
+  }
+
+  return (
+    <div
+      ref={groupRef}
+      class="settings-seg"
+      role="radiogroup"
+      aria-label={props.label}
+      data-setting={props.setting}
+      onKeyDown={onKeyDown}
+    >
+      <For each={props.options}>
+        {(option) => (
+          <button
+            type="button"
+            class="settings-seg-option"
+            role="radio"
+            data-option={option.id}
+            aria-checked={props.value === option.id}
+            tabindex={props.value === option.id ? 0 : -1}
+            onClick={() => props.onChange(option.id)}
+          >
+            {option.label}
+          </button>
+        )}
+      </For>
+    </div>
+  );
+}
+
 interface SettingsRowProps {
   id: string;
   label: string;
@@ -158,6 +262,9 @@ function SettingsRow(props: SettingsRowProps) {
         >
           <label class="settings-row-label" for={props.labelFor}>
             {props.label}
+            <Show when={props.caution}>
+              <span class="settings-row-caution">{props.caution}</span>
+            </Show>
           </label>
         </Show>
         {props.children}
@@ -208,6 +315,13 @@ function EditorSection() {
 
   const spelling = () => configStore.config().spelling;
 
+  function onStatusBarToggle() {
+    void patchConfig((prev) => ({
+      ...prev,
+      editor: { ...prev.editor, status_bar: !prev.editor.status_bar },
+    }));
+  }
+
   function onSpellingToggle() {
     void patchConfig((prev) => ({
       ...prev,
@@ -247,60 +361,44 @@ function EditorSection() {
         />
       </SettingsRow>
       <SettingsRow id="editor.word_wrap" label="Word wrap">
-        <button
-          type="button"
-          class="settings-toggle"
-          classList={{ "settings-toggle-on": cfg().word_wrap }}
-          data-setting="word_wrap"
-          role="switch"
-          aria-checked={cfg().word_wrap}
-          aria-label="Word wrap"
-          onClick={onWordWrapToggle}
-        >
-          <span class="settings-toggle-thumb" />
-        </button>
+        <ToggleSwitch
+          setting="word_wrap"
+          label="Word wrap"
+          checked={cfg().word_wrap}
+          onChange={onWordWrapToggle}
+        />
       </SettingsRow>
       <SettingsRow id="editor.markdown_typography" label="Markdown typography">
-        <button
-          type="button"
-          class="settings-toggle"
-          classList={{ "settings-toggle-on": cfg().markdown_typography }}
-          data-setting="markdown_typography"
-          role="switch"
-          aria-checked={cfg().markdown_typography}
-          aria-label="Markdown typography"
-          onClick={onMarkdownTypographyToggle}
-        >
-          <span class="settings-toggle-thumb" />
-        </button>
+        <ToggleSwitch
+          setting="markdown_typography"
+          label="Markdown typography"
+          checked={cfg().markdown_typography}
+          onChange={onMarkdownTypographyToggle}
+        />
       </SettingsRow>
       <SettingsRow id="editor.markdown_editing" label="Markdown editing helpers">
-        <button
-          type="button"
-          class="settings-toggle"
-          classList={{ "settings-toggle-on": cfg().markdown_editing }}
-          data-setting="markdown_editing"
-          role="switch"
-          aria-checked={cfg().markdown_editing}
-          aria-label="Markdown editing helpers"
-          onClick={onMarkdownEditingToggle}
-        >
-          <span class="settings-toggle-thumb" />
-        </button>
+        <ToggleSwitch
+          setting="markdown_editing"
+          label="Markdown editing helpers"
+          checked={cfg().markdown_editing}
+          onChange={onMarkdownEditingToggle}
+        />
+      </SettingsRow>
+      <SettingsRow id="editor.status_bar" label="Status bar">
+        <ToggleSwitch
+          setting="status_bar"
+          label="Status bar"
+          checked={cfg().status_bar}
+          onChange={onStatusBarToggle}
+        />
       </SettingsRow>
       <SettingsRow id="editor.spelling" label="Spell check">
-        <button
-          type="button"
-          class="settings-toggle"
-          classList={{ "settings-toggle-on": spelling().enabled }}
-          data-setting="spelling_enabled"
-          role="switch"
-          aria-checked={spelling().enabled}
-          aria-label="Spell check"
-          onClick={onSpellingToggle}
-        >
-          <span class="settings-toggle-thumb" />
-        </button>
+        <ToggleSwitch
+          setting="spelling_enabled"
+          label="Spell check"
+          checked={spelling().enabled}
+          onChange={onSpellingToggle}
+        />
       </SettingsRow>
       <SettingsRow id="editor.spelling_dialect" label="Spelling dialect" labelFor="setting-spelling-dialect">
         <select
@@ -401,9 +499,7 @@ function DefaultAppRow(props: DefaultAppRowProps) {
                 : "No default set"}
           </span>
           <Show when={currentStatus()?.status !== "is_default"}>
-            <button
-              type="button"
-              class="settings-action-btn"
+            <Button
               data-action={`make-default-${props.type.id}`}
               disabled={setting()}
               aria-busy={setting()}
@@ -411,7 +507,7 @@ function DefaultAppRow(props: DefaultAppRowProps) {
               onClick={() => void onMakeDefault()}
             >
               {setting() ? "Setting…" : "Make default"}
-            </button>
+            </Button>
           </Show>
         </div>
       </SettingsRow>
@@ -490,15 +586,13 @@ function FilesSection() {
               </span>
             }
           >
-            <button
-              type="button"
-              class="settings-action-btn"
+            <Button
               data-action="install-cli"
               disabled={isInstallingCli()}
               onClick={() => void onInstallCli()}
             >
               {isInstallingCli() ? "Installing…" : "Install `writ` command"}
-            </button>
+            </Button>
           </Show>
         </SettingsRow>
       </Show>
@@ -507,52 +601,42 @@ function FilesSection() {
         <Show
           when={inboxPath()}
           fallback={
-            <button
-              type="button"
-              class="settings-action-btn"
+            <Button
               data-action="inbox-watch"
               onClick={() => void inboxStore.watchFolder()}
             >
               Watch folder…
-            </button>
+            </Button>
           }
         >
           {(path) => (
             <span class="settings-inbox-controls">
-              <span class="settings-inbox-path" title={path()}>{path()}</span>
-              <button
-                type="button"
-                class="settings-action-btn"
+              <Tooltip label={path()}>
+                <span class="settings-inbox-path">{path()}</span>
+              </Tooltip>
+              <Button
                 data-action="inbox-change"
                 onClick={() => void inboxStore.watchFolder()}
               >
                 Change…
-              </button>
-              <button
-                type="button"
-                class="settings-action-btn"
+              </Button>
+              <Button
                 data-action="inbox-clear"
                 onClick={() => void inboxStore.stopWatching()}
               >
                 Clear
-              </button>
+              </Button>
             </span>
           )}
         </Show>
       </SettingsRow>
       <SettingsRow id="files.inbox_focus" label="Focus window on inbox open">
-        <button
-          type="button"
-          class="settings-toggle"
-          classList={{ "settings-toggle-on": inboxFocus() }}
-          data-setting="inbox_focus"
-          role="switch"
-          aria-checked={inboxFocus()}
-          aria-label="Focus window on inbox open"
-          onClick={onInboxFocusToggle}
-        >
-          <span class="settings-toggle-thumb" />
-        </button>
+        <ToggleSwitch
+          setting="inbox_focus"
+          label="Focus window on inbox open"
+          checked={inboxFocus()}
+          onChange={onInboxFocusToggle}
+        />
       </SettingsRow>
     </div>
   );
@@ -623,33 +707,20 @@ function NotesSection() {
       <SettingsRow id="notes.folder" label="Notes folder">
         <span class="settings-notes">
           <span class="settings-notes-controls">
-            <span class="settings-notes-path" data-notes-path title={folder()?.path ?? ""}>
-              {folder()?.display_path ?? "…"}
-            </span>
-            <button
-              type="button"
-              class="settings-action-btn"
-              data-action="notes-show"
-              onClick={() => void onShow()}
-            >
+            <Tooltip label={folder()?.path ?? ""}>
+              <span class="settings-notes-path" data-notes-path>
+                {folder()?.display_path ?? "…"}
+              </span>
+            </Tooltip>
+            <Button data-action="notes-show" onClick={() => void onShow()}>
               {SHOW_IN_FILE_MANAGER}
-            </button>
-            <button
-              type="button"
-              class="settings-action-btn"
-              data-action="notes-copy"
-              onClick={() => void onCopy()}
-            >
+            </Button>
+            <Button data-action="notes-copy" onClick={() => void onCopy()}>
               Copy path
-            </button>
-            <button
-              type="button"
-              class="settings-action-btn"
-              data-action="notes-move"
-              onClick={() => void onMove()}
-            >
+            </Button>
+            <Button data-action="notes-move" onClick={() => void onMove()}>
               Move…
-            </button>
+            </Button>
           </span>
           <Show when={folder()?.fallback}>
             {(fallback) => (
@@ -698,25 +769,23 @@ function StorageSection() {
       <SectionLabel section="storage" />
       <SettingsRow id="storage.location" label="Storage location">
         <span class="settings-inbox-controls">
-          <span class="settings-inbox-path" data-storage-path title={info()?.db_path ?? ""}>
-            {info()?.db_path ?? "…"}
-          </span>
-          <button
-            type="button"
-            class="settings-action-btn"
+          <Tooltip label={info()?.db_path ?? ""}>
+            <span class="settings-inbox-path" data-storage-path>
+              {info()?.db_path ?? "…"}
+            </span>
+          </Tooltip>
+          <Button
             data-action="storage-reveal"
             onClick={() => void onReveal()}
           >
             Reveal
-          </button>
-          <button
-            type="button"
-            class="settings-action-btn"
+          </Button>
+          <Button
             data-action="storage-copy"
             onClick={() => void onCopy()}
           >
             Copy
-          </button>
+          </Button>
         </span>
       </SettingsRow>
     </div>
@@ -780,18 +849,12 @@ function PreviewSection() {
         />
       </SettingsRow>
       <SettingsRow id="preview.run_scripts" label="Run scripts by default">
-        <button
-          type="button"
-          class="settings-toggle"
-          classList={{ "settings-toggle-on": cfg().run_scripts }}
-          data-setting="run_scripts"
-          role="switch"
-          aria-checked={cfg().run_scripts}
-          aria-label="Run scripts by default"
-          onClick={onRunScriptsToggle}
-        >
-          <span class="settings-toggle-thumb" />
-        </button>
+        <ToggleSwitch
+          setting="run_scripts"
+          label="Run scripts by default"
+          checked={cfg().run_scripts}
+          onChange={onRunScriptsToggle}
+        />
       </SettingsRow>
       <SettingsRow id="preview.layout_html" label="HTML default layout" labelFor="setting-layout-html">
         <select
@@ -854,38 +917,28 @@ function UpdatesSection() {
     <div data-section="updates">
       <SectionLabel section="updates" />
       <SettingsRow id="updates.auto_check" label="Check for updates automatically">
-        <button
-          type="button"
-          class="settings-toggle"
-          classList={{ "settings-toggle-on": autoCheck() }}
-          data-setting="updater_auto_check"
-          role="switch"
-          aria-checked={autoCheck()}
-          aria-label="Check for updates automatically"
-          onClick={onAutoCheckToggle}
-        >
-          <span class="settings-toggle-thumb" />
-        </button>
+        <ToggleSwitch
+          setting="updater_auto_check"
+          label="Check for updates automatically"
+          checked={autoCheck()}
+          onChange={onAutoCheckToggle}
+        />
       </SettingsRow>
       <SettingsRow id="updates.check_now" label="Check for updates now">
-        <button
-          type="button"
-          class="settings-action-btn"
+        <Button
           data-action="check-updates-now"
           onClick={() => void updateStore.checkForUpdate()}
         >
           Check now
-        </button>
+        </Button>
       </SettingsRow>
       <SettingsRow id="updates.third_party" label="Third-party licences">
-        <button
-          type="button"
-          class="settings-action-btn"
+        <Button
           data-action="third-party-notices"
           onClick={() => void onViewNotices()}
         >
           View
-        </button>
+        </Button>
       </SettingsRow>
     </div>
   );
@@ -1085,18 +1138,12 @@ function AiSection() {
     <div data-section="ai">
       <SectionLabel section="ai" />
       <SettingsRow id="ai.enabled" label="Rewrite selected text">
-        <button
-          type="button"
-          class="settings-toggle"
-          classList={{ "settings-toggle-on": cfg().enabled }}
-          data-setting="ai_enabled"
-          role="switch"
-          aria-checked={cfg().enabled}
-          aria-label="Rewrite selected text"
-          onClick={onEnableToggle}
-        >
-          <span class="settings-toggle-thumb" />
-        </button>
+        <ToggleSwitch
+          setting="ai_enabled"
+          label="Rewrite selected text"
+          checked={cfg().enabled}
+          onChange={onEnableToggle}
+        />
       </SettingsRow>
 
       <SettingsRow id="ai.preset" label="Provider" labelFor="setting-ai-preset">
@@ -1135,14 +1182,12 @@ function AiSection() {
               Text you rewrite is sent to {endpoint()?.host} with your API key. Writ also sends the
               key on its own to check the host is reachable; nothing else leaves your machine.
             </p>
-            <button
-              type="button"
-              class="settings-action-btn"
+            <Button
               data-action="ai-consent"
               onClick={() => void onConsent()}
             >
               Allow
-            </button>
+            </Button>
           </div>
         </Show>
 
@@ -1204,25 +1249,21 @@ function AiSection() {
               value={keyInput()}
               onInput={(e) => setKeyInput(e.currentTarget.value)}
             />
-            <button
-              type="button"
-              class="settings-action-btn"
+            <Button
               data-action="ai-set-key"
               disabled={keyBusy() || keyInput().length === 0}
               onClick={() => void onSetKey()}
             >
               Save
-            </button>
+            </Button>
             <Show when={keyState()?.is_set}>
-              <button
-                type="button"
-                class="settings-action-btn"
+              <Button
                 data-action="ai-clear-key"
                 disabled={keyBusy()}
                 onClick={() => void onClearKey()}
               >
                 Clear
-              </button>
+              </Button>
             </Show>
           </span>
         </SettingsRow>
@@ -1237,15 +1278,13 @@ function AiSection() {
           <span class="settings-ai-connection-status" data-tone={connection().tone} aria-live="polite">
             {connection().text}
           </span>
-          <button
-            type="button"
-            class="settings-action-btn"
+          <Button
             data-action="ai-recheck"
             disabled={aiConnectionStore.checking()}
             onClick={() => void aiConnectionStore.check()}
           >
             {aiConnectionStore.checking() ? "Checking…" : "Re-check"}
-          </button>
+          </Button>
         </div>
         </Show>
 
@@ -1253,23 +1292,104 @@ function AiSection() {
   );
 }
 
+const POLARITY_OPTIONS: { id: Polarity; label: string }[] = [
+  { id: "system", label: "System" },
+  { id: "light", label: "Light" },
+  { id: "dark", label: "Dark" },
+];
+
+const ACCENT_OPTIONS: { id: AccentId; label: string }[] = [
+  { id: "pine", label: "Pine" },
+  { id: "writ-blue", label: "Writ blue" },
+  { id: "terracotta", label: "Terracotta" },
+  { id: "slate", label: "Slate" },
+  { id: "plum", label: "Plum" },
+  { id: "gold", label: "Gold" },
+];
+
+const PROSE_FACE_OPTIONS: { id: ProseFaceId; label: string }[] = [
+  { id: "system", label: "System" },
+  { id: "quattro", label: "iA Writer Quattro S" },
+];
+
 function AppearanceSection() {
-  const currentPreset = () => configStore.config().theme.preset;
+  // Not the stored preset: polarity picks which half of a pair renders, and a
+  // row that named the stored half read "Writ Light" over a dark app.
+  const renderedPreset = () => themeStore.activePreset().id;
+  const appearance = () => configStore.config().appearance;
 
   function onPresetChange(id: string) {
     themeStore.setPreset(id);
     void patchConfig((prev) => ({ ...prev, theme: { ...prev.theme, preset: id } }));
   }
 
+  function patchAppearance(patch: Partial<AppearanceConfig>) {
+    const next = { ...appearance(), ...patch };
+    themeStore.setAppearance(next);
+    void patchConfig((prev) => ({ ...prev, appearance: next }));
+  }
+
   return (
     <div data-section="appearance">
       <SectionLabel section="appearance" />
+      <SettingsRow id="appearance.polarity" label="Light and dark">
+        <Segmented
+          setting="appearance_polarity"
+          label="Light and dark"
+          options={POLARITY_OPTIONS}
+          value={appearance().polarity}
+          onChange={(polarity) => patchAppearance({ polarity })}
+        />
+      </SettingsRow>
+      <SettingsRow
+        id="appearance.accent"
+        label="Accent color"
+        caution={themeStore.accentApplies() ? undefined : "The current theme sets its own accent."}
+      >
+        <div class="settings-accents" role="group" aria-label="Accent color" data-setting="appearance_accent">
+          <For each={ACCENT_OPTIONS}>
+            {(option) => (
+              <button
+                type="button"
+                class="settings-accent"
+                data-accent={option.id}
+                disabled={!themeStore.accentApplies()}
+                aria-pressed={appearance().accent === option.id}
+                aria-label={option.label}
+                onClick={() => patchAppearance({ accent: option.id })}
+              >
+                {/* The swatch has to show its own colour, so the fill comes from
+                    the generated map rather than from --writ-accent, which is
+                    whichever one is already chosen. */}
+                <span style={{ background: ACCENTS[option.id][themeStore.polarity()].base }} />
+              </button>
+            )}
+          </For>
+        </div>
+      </SettingsRow>
+      <SettingsRow
+        id="appearance.prose_face"
+        label="Prose typeface"
+        labelFor="setting-appearance-prose-face"
+      >
+        <select
+          id="setting-appearance-prose-face"
+          class="settings-select"
+          data-setting="appearance_prose_face"
+          value={appearance().prose_face}
+          onChange={(e) => patchAppearance({ prose_face: e.currentTarget.value as ProseFaceId })}
+        >
+          {PROSE_FACE_OPTIONS.map((option) => (
+            <option value={option.id}>{option.label}</option>
+          ))}
+        </select>
+      </SettingsRow>
       <SettingsRow id="appearance.theme" label="Theme" labelFor="setting-theme-preset">
         <select
           id="setting-theme-preset"
           class="settings-select"
           data-setting="theme_preset"
-          value={currentPreset()}
+          value={renderedPreset()}
           onChange={(e) => onPresetChange(e.currentTarget.value)}
         >
           {PRESETS.map((p) => (
@@ -1278,9 +1398,7 @@ function AppearanceSection() {
         </select>
       </SettingsRow>
       <SettingsRow id="appearance.custom_colors" label="Custom colors">
-        <button
-          type="button"
-          class="settings-action-btn"
+        <Button
           data-action="open-theme-editor"
           onClick={() => {
             closeSettings();
@@ -1288,7 +1406,7 @@ function AppearanceSection() {
           }}
         >
           Edit theme…
-        </button>
+        </Button>
       </SettingsRow>
     </div>
   );
@@ -1299,9 +1417,7 @@ function ShortcutsSection() {
     <div data-section="shortcuts">
       <SectionLabel section="shortcuts" />
       <SettingsRow id="shortcuts.edit" label="Keyboard shortcuts">
-        <button
-          type="button"
-          class="settings-action-btn"
+        <Button
           data-action="open-shortcut-editor"
           onClick={() => {
             closeSettings();
@@ -1309,7 +1425,7 @@ function ShortcutsSection() {
           }}
         >
           Edit shortcuts…
-        </button>
+        </Button>
       </SettingsRow>
     </div>
   );
@@ -1405,53 +1521,42 @@ export default function SettingsModal() {
           >
             <div class="settings-header">
               <span id={titleId} class="settings-title">Settings</span>
-              <button
-                type="button"
-                class="settings-close"
-                onClick={closeSettings}
-                aria-label="Close settings"
-                title="Close"
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-                  <path
-                    d="M2 2L10 10M10 2L2 10"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                  />
-                </svg>
-              </button>
+              <Tooltip label="Close settings">
+                <Button
+                  variant="ghost"
+                  icon="x"
+                  iconSize={16}
+                  onClick={closeSettings}
+                  aria-label="Close settings"
+                />
+              </Tooltip>
             </div>
 
             <div class="settings-search-bar">
-              <svg class="settings-search-icon" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-                <circle cx="6" cy="6" r="4.25" fill="none" stroke="currentColor" stroke-width="1.4" />
-                <path d="M9.2 9.2L12 12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-              </svg>
+              <Icon name="magnifying-glass" class="settings-search-icon" size={16} />
               <input
                 ref={searchRef}
                 type="text"
                 class="settings-search-input"
+                data-writ-focus-silent
                 placeholder="Search settings"
                 value={query()}
                 onInput={(e) => setQuery(e.currentTarget.value)}
                 aria-label="Search settings"
               />
               <Show when={isSearching()}>
-                <button
-                  type="button"
-                  class="settings-search-clear"
-                  onClick={() => {
-                    setQuery("");
-                    searchRef?.focus();
-                  }}
-                  aria-label="Clear search"
-                  title="Clear search"
-                >
-                  <svg width="10" height="10" viewBox="0 0 12 12" aria-hidden="true">
-                    <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-                  </svg>
-                </button>
+                <Tooltip label="Clear search">
+                  <Button
+                    variant="ghost"
+                    icon="x"
+                    iconSize={14}
+                    onClick={() => {
+                      setQuery("");
+                      searchRef?.focus();
+                    }}
+                    aria-label="Clear search"
+                  />
+                </Tooltip>
               </Show>
             </div>
 

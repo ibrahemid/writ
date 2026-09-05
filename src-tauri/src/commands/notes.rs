@@ -26,7 +26,7 @@ use crate::state::{AppState, NotesRootFallback};
 
 /// The name a note is known by: the file's own name, extension included, which
 /// is what Finder shows and what the tab shows.
-fn note_name(path: &Path) -> String {
+pub(crate) fn note_name(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.to_string_lossy().into_owned())
@@ -77,6 +77,7 @@ pub fn new_note_inner(state: &AppState) -> Result<BufferDocument, String> {
 
     state.authorized_paths.record_blessed_source(canonical);
     state.record_disk_state_bytes(&doc.id, &path, b"");
+    state.follow_note_file(&doc);
     Ok(doc)
 }
 
@@ -160,6 +161,11 @@ pub fn rename_note_recording(
     if let Some(previous) = state.disk_state(id) {
         state.record_disk_state(id, &to, previous.hash, previous.size);
     }
+    // The tab follows the file to its new name. Without this the registry
+    // keeps answering for the old one: changes to the renamed file reach no
+    // tab, and a later note taking the old name has them delivered to this
+    // one instead.
+    state.follow_note_path(id, &to);
 
     store.get(id).map_err(|e| e.to_string())
 }
@@ -552,19 +558,24 @@ fn adopt_notes_root(state: &AppState, root: &Path, text: &str) -> Result<(), Str
 /// Nothing here can fail the move: the files are already in their new home, so
 /// a failure is logged and left to the walk this spawns. The order matters.
 /// The index is re-keyed first, which is what makes the following walk read
-/// nothing; the watcher is armed next, before the walk, so a file that lands
-/// while the walk runs is still seen; the walk goes last and covers everything
-/// that preceded it.
+/// nothing; the open tabs are pointed at their new files next, so the watcher
+/// that starts after them can find the tab a change belongs to; the watcher is
+/// armed before the walk, so a file that lands while the walk runs is still
+/// seen; the walk goes last and covers everything that preceded it.
 fn follow_notes_root(state: &AppState, from: &Path, to: &Path) {
     match state.notes_index.rekey_root(from, to) {
         Ok(rekeyed) => info!(rekeyed, "notes index followed the folder"),
         Err(e) => warn!(error = %e, "notes index could not follow the folder"),
     }
 
+    refollow_open_tabs(state);
+
     match crate::watcher::handler::start_notes_watcher(
         state.event_bus.clone(),
         to.to_path_buf(),
         state.watcher_ignore.clone(),
+        state.open_notes(),
+        state.file_tracking(),
     ) {
         Ok(handle) => {
             let mut slot = state
@@ -599,6 +610,30 @@ fn follow_notes_root(state: &AppState, from: &Path, to: &Path) {
     });
 }
 
+/// Points every open tab at the file its row now names.
+///
+/// The rows moved with the folder, and the registry still holds the paths the
+/// tabs had before it. Only open tabs: following a closed note would leave the
+/// registry answering for a note nothing has on screen, and its entry would
+/// have no tab close to release it.
+fn refollow_open_tabs(state: &AppState) {
+    let docs = {
+        let Ok(store) = state.store.lock() else {
+            warn!("open tabs could not follow the folder: the store is unreachable");
+            return;
+        };
+        store.list_by_status(writ_core::buffer::document::BufferStatus::Active)
+    };
+    match docs {
+        Ok(docs) => {
+            for doc in &docs {
+                state.follow_note_file(doc);
+            }
+        }
+        Err(e) => warn!(error = %e, "open tabs could not follow the folder"),
+    }
+}
+
 /// Points every row and every disk-state record at the moved files.
 fn repoint_notes(state: &AppState, from: &Path, to: &Path) -> Result<(), String> {
     let moved = {
@@ -619,6 +654,7 @@ fn repoint_notes(state: &AppState, from: &Path, to: &Path) -> Result<(), String>
             continue;
         }
         state.forget_disk_state(&row.id);
+        state.forget_source_record(&row.id);
         if let Ok(bytes) = std::fs::read(&path) {
             state.record_disk_state_bytes(&row.id, &path, &bytes);
         }

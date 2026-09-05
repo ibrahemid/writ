@@ -512,7 +512,7 @@ mod tests {
         let configured = dir.path().join("Elsewhere");
         std::fs::write(
             dir.path().join("config.toml"),
-            format!("[notes]\nroot = \"{}\"\n", configured.display()),
+            format!("[notes]\nroot = '{}'\n", configured.display()),
         )
         .unwrap();
 

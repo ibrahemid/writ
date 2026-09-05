@@ -1,0 +1,42 @@
+{
+  "id": "writ-dark",
+  "name": "Writ Dark",
+  "polarity": "dark",
+  "bg": {
+    "canvas": "#1b1a18",
+    "sidebar": "#201f1c",
+    "raised": "#262521",
+    "sunken": "#171614",
+    "hover": "#292825",
+    "selected": "#32312e"
+  },
+  "fg": {
+    "default": "#edeae3",
+    "muted": "#a8a296",
+    "faint": "#827c72"
+  },
+  "border": {
+    "default": "#333029",
+    "soft": "#272521"
+  },
+  "accent": {
+    "default": "#5bc5a7",
+    "hover": "#6bcbb0",
+    "fg": "#10221d"
+  },
+  "status": {
+    "success": "#9ece6a",
+    "warning": "#e0af68",
+    "error": "#e08d82",
+    "foreground": "#10221d"
+  },
+  "syntax": {
+    "keyword": "#edeae3",
+    "string": "#8fae8b",
+    "comment": "#827c72",
+    "function": "#a8a296",
+    "number": "#edeae3",
+    "type": "#a8a296",
+    "variable": "#a8a296"
+  }
+}

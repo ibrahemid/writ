@@ -6,15 +6,15 @@
   justify-content: center;
   align-items: flex-start;
   padding: 64px 24px;
-  z-index: 110;
+  z-index: var(--writ-z-modal);
 }
 
 .theme-editor {
   width: 620px;
   max-height: calc(100vh - 128px);
-  background: var(--writ-surface-raised);
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-radius-3);
+  background: var(--writ-bg-raised);
+  border: 0;
+  border-radius: var(--writ-r-modal);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -31,8 +31,8 @@
 }
 
 .theme-editor-title {
-  font-size: 14px;
-  color: var(--writ-foreground-default);
+  font-size: var(--writ-ui-lg);
+  color: var(--writ-fg);
   letter-spacing: 0.01em;
 }
 
@@ -43,62 +43,15 @@
 }
 
 .theme-editor-preset {
-  background: var(--writ-surface-input);
-  color: var(--writ-foreground-default);
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-radius-1);
-  font-size: var(--writ-font-size-sm);
-  font-family: var(--writ-font-sans);
+  background: var(--writ-bg-sunken);
+  color: var(--writ-fg);
+  border: 0;
+  border-radius: var(--writ-r-control);
+  font-size: var(--writ-ui-md);
+  font-family: var(--writ-font-ui);
   padding: var(--writ-space-2) var(--writ-space-3);
   outline: none;
   cursor: pointer;
-}
-
-.theme-editor-btn {
-  background: transparent;
-  color: var(--writ-foreground-muted);
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-radius-1);
-  font-size: var(--writ-font-size-sm);
-  padding: var(--writ-space-2) var(--writ-space-4);
-  cursor: pointer;
-  transition: color 100ms ease, background 100ms ease, border-color 100ms ease;
-}
-
-.theme-editor-btn:hover {
-  color: var(--writ-foreground-default);
-  background: var(--writ-surface-hover);
-}
-
-.theme-editor-btn-primary {
-  background: var(--writ-accent-default);
-  color: var(--writ-accent-foreground);
-  border-color: transparent;
-}
-
-.theme-editor-btn-primary:hover {
-  background: var(--writ-accent-hover);
-  color: var(--writ-accent-foreground);
-}
-
-.theme-editor-close {
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  color: var(--writ-foreground-subtle);
-  cursor: pointer;
-  border-radius: var(--writ-radius-1);
-  margin-left: var(--writ-space-1);
-  transition: color 100ms ease, background 100ms ease;
-}
-
-.theme-editor-close:hover {
-  color: var(--writ-foreground-default);
-  background: var(--writ-surface-hover);
 }
 
 .theme-editor-body {
@@ -110,12 +63,19 @@
 }
 
 .theme-editor-group-title {
-  font-size: var(--writ-font-size-xs);
-  color: var(--writ-foreground-subtle);
+  font-size: var(--writ-ui-xs);
+  color: var(--writ-fg-faint);
   text-transform: uppercase;
   letter-spacing: 0.12em;
   margin-bottom: var(--writ-space-3);
   font-weight: 500;
+}
+
+.theme-editor-note {
+  margin: var(--writ-space-3) 0 0;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-faint);
 }
 
 .theme-editor-tokens {
@@ -129,20 +89,20 @@
   align-items: center;
   gap: var(--writ-space-3);
   padding: var(--writ-space-2) var(--writ-space-3);
-  border-radius: var(--writ-radius-1);
+  border-radius: var(--writ-r-control);
   cursor: pointer;
-  transition: background 100ms ease;
+  transition: background var(--writ-motion);
   position: relative;
 }
 
 .theme-editor-row:hover {
-  background: var(--writ-surface-hover);
+  background: var(--writ-bg-hover);
 }
 
 .theme-editor-swatch {
   width: 18px;
   height: 18px;
-  border-radius: var(--writ-radius-1);
+  border-radius: var(--writ-r-control);
   border: 1px solid var(--writ-border-soft);
   flex-shrink: 0;
   pointer-events: none;
@@ -161,21 +121,15 @@
 
 .theme-editor-name {
   flex: 1;
-  font-size: var(--writ-font-size-sm);
-  color: var(--writ-foreground-default);
-  font-family: var(--writ-font-sans);
+  font-size: var(--writ-ui-sm);
+  color: var(--writ-fg);
+  font-family: var(--writ-font-ui);
 }
 
 .theme-editor-hex {
-  font-size: var(--writ-font-size-xs);
-  color: var(--writ-foreground-subtle);
-  font-family: var(--writ-font-sans);
+  font-size: var(--writ-ui-xs);
+  color: var(--writ-fg-faint);
+  font-family: var(--writ-font-ui);
   letter-spacing: 0.04em;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .theme-editor-row,
-  .theme-editor-btn {
-    transition: none;
-  }
-}

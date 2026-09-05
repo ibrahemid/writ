@@ -1,0 +1,431 @@
+{
+  "platform": {
+    "win": {
+      "shared": {
+        "font": {
+          "$type": "fontFamily",
+          "ui": {
+            "$value": "\"Segoe UI Variable Text\", \"Segoe UI\", Selawik, system-ui, sans-serif"
+          },
+          "prose": {
+            "$value": "var(--writ-font-ui)"
+          },
+          "mono": {
+            "$value": "\"Cascadia Code\", \"Cascadia Mono\", Consolas, ui-monospace, monospace"
+          }
+        },
+        "ui": {
+          "$type": "dimension",
+          "xs": {
+            "$value": {
+              "value": 12,
+              "unit": "px"
+            }
+          },
+          "xs-lh": {
+            "$value": {
+              "value": 16,
+              "unit": "px"
+            }
+          },
+          "sm": {
+            "$value": {
+              "value": 12,
+              "unit": "px"
+            }
+          },
+          "sm-lh": {
+            "$value": {
+              "value": 16,
+              "unit": "px"
+            }
+          },
+          "md": {
+            "$value": {
+              "value": 14,
+              "unit": "px"
+            }
+          },
+          "md-lh": {
+            "$value": {
+              "value": 20,
+              "unit": "px"
+            }
+          },
+          "lg": {
+            "$value": {
+              "value": 14,
+              "unit": "px"
+            }
+          },
+          "lg-lh": {
+            "$value": {
+              "value": 20,
+              "unit": "px"
+            }
+          }
+        },
+        "prose": {
+          "size": {
+            "$type": "dimension",
+            "$value": {
+              "value": 16,
+              "unit": "px"
+            }
+          },
+          "lh": {
+            "$type": "number",
+            "$value": 1.5
+          }
+        },
+        "h1": {
+          "size": {
+            "$type": "dimension",
+            "$value": {
+              "value": 1.75,
+              "unit": "em"
+            }
+          },
+          "weight": {
+            "$type": "number",
+            "$value": 600
+          },
+          "lh": {
+            "$type": "number",
+            "$value": 1.286
+          }
+        },
+        "h2": {
+          "size": {
+            "$type": "dimension",
+            "$value": {
+              "value": 1.25,
+              "unit": "em"
+            }
+          },
+          "weight": {
+            "$type": "number",
+            "$value": 600
+          },
+          "lh": {
+            "$type": "number",
+            "$value": 1.4
+          }
+        },
+        "h3": {
+          "size": {
+            "$type": "dimension",
+            "$value": {
+              "value": 1.125,
+              "unit": "em"
+            }
+          },
+          "weight": {
+            "$type": "number",
+            "$value": 600
+          },
+          "lh": {
+            "$type": "number",
+            "$value": 1.333
+          }
+        },
+        "h4": {
+          "size": {
+            "$type": "dimension",
+            "$value": {
+              "value": 1,
+              "unit": "em"
+            }
+          },
+          "weight": {
+            "$type": "number",
+            "$value": 600
+          },
+          "lh": {
+            "$type": "number",
+            "$value": 1.25
+          }
+        },
+        "r": {
+          "$type": "dimension",
+          "row": {
+            "$value": {
+              "value": 4,
+              "unit": "px"
+            }
+          },
+          "control": {
+            "$value": {
+              "value": 4,
+              "unit": "px"
+            }
+          },
+          "tab": {
+            "$value": {
+              "value": 4,
+              "unit": "px"
+            }
+          },
+          "popover": {
+            "$value": {
+              "value": 8,
+              "unit": "px"
+            }
+          },
+          "modal": {
+            "$value": {
+              "value": 8,
+              "unit": "px"
+            }
+          },
+          "card": {
+            "$value": {
+              "value": 8,
+              "unit": "px"
+            }
+          },
+          "media": {
+            "$value": {
+              "value": 4,
+              "unit": "px"
+            }
+          },
+          "window": {
+            "$value": {
+              "value": 8,
+              "unit": "px"
+            }
+          },
+          "tooltip": {
+            "$value": {
+              "value": 4,
+              "unit": "px"
+            }
+          }
+        },
+        "icon": {
+          "size": {
+            "$type": "dimension",
+            "$value": {
+              "value": 16,
+              "unit": "px"
+            }
+          },
+          "opacity": {
+            "$type": "number",
+            "$value": 1
+          }
+        },
+        "sidebar": {
+          "$type": "dimension",
+          "row-pitch": {
+            "$value": {
+              "value": 40,
+              "unit": "px"
+            }
+          },
+          "row-fill": {
+            "$value": {
+              "value": 36,
+              "unit": "px"
+            }
+          }
+        }
+      },
+      "light": {
+        "$type": "color",
+        "bg": {
+          "canvas": {
+            "$value": "#FFFFFF"
+          },
+          "sidebar": {
+            "$value": "#F4F2EF"
+          },
+          "raised": {
+            "$value": "#FBFAF8"
+          },
+          "sunken": {
+            "$value": "#F4F2EF"
+          },
+          "hover": {
+            "$value": "rgba(0,0,0,.035)"
+          },
+          "selected": {
+            "$value": "rgba(0,0,0,.035)"
+          }
+        },
+        "border": {
+          "default": {
+            "$value": "rgba(0,0,0,.161)",
+            "$extensions": {
+              "writ": {
+                "cssName": "--writ-border"
+              }
+            }
+          },
+          "soft": {
+            "$value": "rgba(0,0,0,.059)"
+          }
+        },
+        "fg": {
+          "default": {
+            "$value": "rgba(0,0,0,.894)",
+            "$extensions": {
+              "writ": {
+                "cssName": "--writ-fg"
+              }
+            }
+          },
+          "muted": {
+            "$value": "rgba(0,0,0,.620)"
+          },
+          "faint": {
+            "$value": "rgba(0,0,0,.447)"
+          }
+        },
+        "shadow": {
+          "$type": "shadow",
+          "modal": {
+            "$value": [
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "8px",
+                "color": "rgba(0,0,0,.20)"
+              },
+              {
+                "offsetX": "0",
+                "offsetY": "32px",
+                "blur": "64px",
+                "color": "rgba(0,0,0,.24)"
+              }
+            ]
+          }
+        },
+        "win": {
+          "stroke": {
+            "$value": "rgba(0,0,0,.059)"
+          },
+          "stroke-strong": {
+            "$value": "rgba(0,0,0,.447)"
+          },
+          "input": {
+            "$value": "rgba(255,255,255,.702)"
+          },
+          "input-active": {
+            "$value": "#FFFFFF"
+          },
+          "focus-outer": {
+            "$value": "rgba(0,0,0,.894)"
+          },
+          "focus-inner": {
+            "$value": "rgba(255,255,255,.702)"
+          },
+          "layer-stroke": {
+            "$value": "rgba(0,0,0,.059)"
+          },
+          "close-bg": {
+            "$value": "#C42B1C"
+          },
+          "close-fg": {
+            "$value": "#FFFFFF"
+          }
+        }
+      },
+      "dark": {
+        "$type": "color",
+        "bg": {
+          "canvas": {
+            "$value": "#2E2B28"
+          },
+          "sidebar": {
+            "$value": "#1B1917"
+          },
+          "raised": {
+            "$value": "#2E2B28"
+          },
+          "sunken": {
+            "$value": "#211F1D"
+          },
+          "hover": {
+            "$value": "rgba(255,255,255,.059)"
+          },
+          "selected": {
+            "$value": "rgba(255,255,255,.059)"
+          }
+        },
+        "border": {
+          "default": {
+            "$value": "rgba(255,255,255,.094)",
+            "$extensions": {
+              "writ": {
+                "cssName": "--writ-border"
+              }
+            }
+          },
+          "soft": {
+            "$value": "rgba(255,255,255,.082)"
+          }
+        },
+        "fg": {
+          "default": {
+            "$value": "#FFFFFF",
+            "$extensions": {
+              "writ": {
+                "cssName": "--writ-fg"
+              }
+            }
+          },
+          "muted": {
+            "$value": "rgba(255,255,255,.773)"
+          },
+          "faint": {
+            "$value": "rgba(255,255,255,.529)"
+          }
+        },
+        "shadow": {
+          "$type": "shadow",
+          "modal": {
+            "$value": [
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "8px",
+                "color": "rgba(0,0,0,.40)"
+              },
+              {
+                "offsetX": "0",
+                "offsetY": "32px",
+                "blur": "64px",
+                "color": "rgba(0,0,0,.48)"
+              }
+            ]
+          }
+        },
+        "win": {
+          "stroke": {
+            "$value": "rgba(255,255,255,.071)"
+          },
+          "stroke-strong": {
+            "$value": "rgba(255,255,255,.545)"
+          },
+          "input": {
+            "$value": "rgba(255,255,255,.059)"
+          },
+          "input-active": {
+            "$value": "rgba(30,30,30,.702)"
+          },
+          "focus-outer": {
+            "$value": "#FFFFFF"
+          },
+          "focus-inner": {
+            "$value": "rgba(0,0,0,.702)"
+          },
+          "layer-stroke": {
+            "$value": "rgba(0,0,0,.098)"
+          }
+        }
+      }
+    }
+  }
+}

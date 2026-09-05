@@ -48,11 +48,13 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../lib/platform", () => ({
   detectPlatform: () => mocks.platform.current,
+  resolvePlatform: () => mocks.platform.current,
   IS_MAC: false,
 }));
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
+    editor: { isRemovedOnDisk: () => false },
     tabs: {
       activeTabId: mocks.activeTabId,
       setActiveTabId: mocks.setActiveTabId,
@@ -108,12 +110,12 @@ import { registerCommand, unregisterCommand } from "../../commands/registry";
 import type { MenuItem } from "../../components/ContextMenu/ContextMenu";
 
 const MENU_COMMANDS = [
-  { id: "note.new", label: "New Note", keybinding: "CmdOrCtrl+N" },
-  { id: "file.open", label: "Open File", keybinding: "CmdOrCtrl+O" },
-  { id: "note.rename", label: "Rename Note…", keybinding: "F2" },
-  { id: "note.saveCopy", label: "Save a Copy…" },
-  { id: "buffer.close", label: "Close Tab", keybinding: "CmdOrCtrl+W" },
-  { id: "palette.open", label: "Command Palette", keybinding: "Shift+Shift" },
+  { id: "note.new", label: "New note", keybinding: "CmdOrCtrl+N" },
+  { id: "file.open", label: "Open file", keybinding: "CmdOrCtrl+O" },
+  { id: "note.rename", label: "Rename note…", keybinding: "F2" },
+  { id: "note.saveCopy", label: "Save a copy…" },
+  { id: "buffer.close", label: "Close tab", keybinding: "CmdOrCtrl+W" },
+  { id: "palette.open", label: "Command palette", keybinding: "Shift+Shift" },
   { id: "app.check_updates", label: "Check for Updates" },
 ];
 
@@ -173,32 +175,56 @@ describe("titlebar menu affordance carries the platforms with no menu bar", () =
 
     expect(mocks.showAnchoredMenu).toHaveBeenCalledTimes(1);
     expect(openedMenuItems().map((item) => item.label)).toEqual([
-      "New Note",
-      "Open File",
-      "Rename Note…",
-      "Save a Copy…",
-      "Close Tab",
-      "Command Palette",
+      "New note",
+      "Open file",
+      "Rename note…",
+      "Save a copy…",
+      "Close tab",
+      "Command palette",
       "Check for Updates",
     ]);
   });
 
-  it("gives Linux the same caption controls, under its own titlebar class", () => {
+  // GNOME's button-layout is 'appmenu:close': one control, not three.
+  it("leaves Linux a single close control in its header bar", () => {
     const { container } = renderOn("linux");
     expect(container.querySelector(".titlebar-linux")).not.toBeNull();
-    expect(container.querySelectorAll(".winctrl")).toHaveLength(3);
-    expect(container.querySelector(".titlebar-controls-mac")).toBeNull();
+    expect(container.querySelector(".headerbar")).not.toBeNull();
+    expect(container.querySelectorAll(".gnomectrl")).toHaveLength(1);
+    expect(container.querySelector(".gnomectrl-close")!.getAttribute("aria-label")).toBe(
+      "Hide window",
+    );
+    expect(container.querySelector(".winctrl")).toBeNull();
   });
 
-  it("leaves the macOS titlebar on its traffic-light branch with no window controls added", () => {
+  it("centres the window title in the GNOME header bar", () => {
+    const { container } = renderOn("linux");
+    expect(container.querySelector(".headerbar-title")!.textContent).toBe("Writ");
+  });
+
+  it("moves New note into the GNOME header bar, ahead of the menu", () => {
+    const { container } = renderOn("linux");
+    const compose = container.querySelector(".headerbar-compose");
+    expect(compose).not.toBeNull();
+    expect(compose!.textContent).toContain("New note");
+    expect(
+      compose!.compareDocumentPosition(container.querySelector(".titlebar-appmenu")!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("keeps New note out of the chrome on the shells with a toolbar", () => {
+    expect(renderOn("win").container.querySelector(".headerbar-compose")).toBeNull();
+    cleanup();
+    expect(renderOn("mac").container.querySelector(".headerbar-compose")).toBeNull();
+  });
+
+  it("renders no title bar at all on macOS: the toolbar is the top row", () => {
     const { container } = renderOn("mac");
-    expect(container.querySelector(".titlebar-controls-mac")).not.toBeNull();
-    expect(container.querySelector(".titlebar-controls-win")).toBeNull();
+    expect(container.querySelector(".titlebar")).toBeNull();
     expect(container.querySelector(".winctrl")).toBeNull();
-    const labels = Array.from(container.querySelectorAll(".maclight")).map((el) =>
-      el.getAttribute("aria-label"),
-    );
-    expect(labels).toEqual(["Hide window", "Minimize window", "Toggle full screen"]);
+    expect(container.querySelector(".gnomectrl")).toBeNull();
+    expect(container.querySelector(".maclight")).toBeNull();
   });
 });
 
@@ -390,12 +416,12 @@ describe("Writ menu contents", () => {
 
     expect(mocks.showAnchoredMenu).toHaveBeenCalledTimes(1);
     expect(openedMenuItems().map((item) => item.label)).toEqual([
-      "New Note",
-      "Open File",
-      "Rename Note…",
-      "Save a Copy…",
-      "Close Tab",
-      "Command Palette",
+      "New note",
+      "Open file",
+      "Rename note…",
+      "Save a copy…",
+      "Close tab",
+      "Command palette",
       "Check for Updates",
     ]);
   });
@@ -454,7 +480,7 @@ describe("Writ menu contents", () => {
     for (const cmd of MENU_COMMANDS) unregisterCommand(cmd.id);
     registerCommand({
       id: "buffer.close",
-      label: "Close Tab",
+      label: "Close tab",
       scope: "app",
       execute: () => {},
     });

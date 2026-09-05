@@ -7,7 +7,7 @@ describe("TabItem keyboard operability (#44)", () => {
 
   it("exposes role=button and tabIndex=0 so the row is focusable", () => {
     const { container } = render(() => (
-      <TabItem title="example.txt" onClick={() => undefined} />
+      <TabItem label="example.txt" onClick={() => undefined} />
     ));
     const row = container.querySelector<HTMLDivElement>(".tab-item");
     expect(row).not.toBeNull();
@@ -18,7 +18,7 @@ describe("TabItem keyboard operability (#44)", () => {
   it("Enter activates the row", () => {
     const onClick = vi.fn();
     const { container } = render(() => (
-      <TabItem title="example.txt" onClick={onClick} />
+      <TabItem label="example.txt" onClick={onClick} />
     ));
     const row = container.querySelector<HTMLDivElement>(".tab-item")!;
     fireEvent.keyDown(row, { key: "Enter" });
@@ -28,7 +28,7 @@ describe("TabItem keyboard operability (#44)", () => {
   it("Space activates the row and prevents default page scroll", () => {
     const onClick = vi.fn();
     const { container } = render(() => (
-      <TabItem title="example.txt" onClick={onClick} />
+      <TabItem label="example.txt" onClick={onClick} />
     ));
     const row = container.querySelector<HTMLDivElement>(".tab-item")!;
     const event = new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true });
@@ -40,7 +40,7 @@ describe("TabItem keyboard operability (#44)", () => {
   it("ignores unrelated keys", () => {
     const onClick = vi.fn();
     const { container } = render(() => (
-      <TabItem title="example.txt" onClick={onClick} />
+      <TabItem label="example.txt" onClick={onClick} />
     ));
     const row = container.querySelector<HTMLDivElement>(".tab-item")!;
     fireEvent.keyDown(row, { key: "a" });

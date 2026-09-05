@@ -1,8 +1,12 @@
 import { isRetryableSaveError } from "../lib/save-error";
-import { saveBufferContent } from "./tauri";
+import { logFailure } from "../lib/log";
+import { recordUnsavedNotes, saveBufferContent } from "./tauri";
 
 type AutosaveErrorListener = (bufferId: string, error: unknown) => void;
-type AutosaveSuccessListener = (bufferId: string) => void;
+// `diskHash` is the digest of what the note's file holds now, or null when the
+// note had nothing in it and no file yet to write it to.
+type AutosaveSuccessListener = (bufferId: string, diskHash: string | null) => void;
+type AutosaveStartListener = (bufferId: string) => void;
 
 // Content may be a string or a lazy getter. A getter is materialized only when
 // the save actually runs (timer fire or flush), so a large-buffer edit burst
@@ -42,7 +46,18 @@ function mergeResults(results: SaveResult[]): SaveResult {
 interface QueuedContent {
   source: ContentSource;
   generation: number;
+  /**
+   * The command this text is written through, when it is not the ordinary
+   * save. A note whose file was deleted goes back through `restoreNoteFile`,
+   * which the ordinary save is refused by, and it carries the writer with it
+   * so a retry of the failed write is the same write and not a save the
+   * backend will refuse again.
+   */
+  writer?: SaveWriter;
 }
+
+/** Writes a note's text and reports what its file holds afterwards. */
+export type SaveWriter = (bufferId: string, content: string) => Promise<string | null>;
 
 interface InFlightWrite {
   promise: Promise<SaveResult>;
@@ -64,6 +79,13 @@ const generations = new Map<string, number>();
 const inFlight = new Map<string, InFlightWrite>();
 const errorListeners = new Set<AutosaveErrorListener>();
 const successListeners = new Set<AutosaveSuccessListener>();
+const startListeners = new Set<AutosaveStartListener>();
+// The text of the last write that failed, per note, so the quit path can keep
+// it when the file could not. Kept beside the queue rather than in it because
+// a guard-stopped write deliberately leaves the queue empty (writing the same
+// text again is stopped the same way), and that text still has to reach the
+// recovery snapshot.
+const lastFailedContent = new Map<string, string>();
 
 export function onAutosaveError(listener: AutosaveErrorListener): () => void {
   errorListeners.add(listener);
@@ -77,6 +99,71 @@ export function onAutosaveSuccess(listener: AutosaveSuccessListener): () => void
   return () => {
     successListeners.delete(listener);
   };
+}
+
+/** Fires as a write leaves for the backend, before its outcome is known. */
+export function onAutosaveStart(listener: AutosaveStartListener): () => void {
+  startListeners.add(listener);
+  return () => {
+    startListeners.delete(listener);
+  };
+}
+
+/**
+ * The newest text for `bufferId` that is not known to be on disk: whatever is
+ * queued, else the text of the write that failed.
+ *
+ * `undefined` when the note has nothing outstanding. Materializes a queued
+ * getter, so a caller reads the live document at the moment it asks.
+ */
+export function peekUnsavedContent(bufferId: string): string | undefined {
+  const queued = pendingContent.get(bufferId);
+  if (queued !== undefined) {
+    try {
+      return typeof queued.source === "function" ? queued.source() : queued.source;
+    } catch {
+      // The live document is gone. Fall through to the failed text, which is
+      // a plain string and outlives the view.
+    }
+  }
+  return lastFailedContent.get(bufferId);
+}
+
+/**
+ * Keeps `content` as text that is not known to be on disk, without queuing a
+ * write for it.
+ *
+ * For text no write can take yet: a note whose file was deleted outside Writ
+ * queues nothing, because every keystroke would otherwise buy a refusal, and
+ * the failure that would normally leave the text here never happens. The quit
+ * and close paths read the same map either way, so the text still reaches the
+ * recovery snapshot.
+ */
+export function holdUnwritableContent(bufferId: string, content: string) {
+  lastFailedContent.set(bufferId, content);
+}
+
+/** Drops what [`holdUnwritableContent`] kept, once a write can take it again. */
+export function releaseUnwritableContent(bufferId: string) {
+  lastFailedContent.delete(bufferId);
+}
+
+/**
+ * Every note holding text that is not known to be on disk, with that text.
+ *
+ * The queue is not enough on its own: a write stopped by the guard empties the
+ * queue on purpose, because writing the same text again is stopped the same
+ * way, so the note whose failure is still on screen is exactly the one a
+ * queue-only walk would miss.
+ */
+export function collectUnsavedContent(): Array<{ id: string; content: string }> {
+  const ids = new Set([...pendingContent.keys(), ...lastFailedContent.keys()]);
+  const notes: Array<{ id: string; content: string }> = [];
+  for (const id of ids) {
+    const content = peekUnsavedContent(id);
+    if (content !== undefined) notes.push({ id, content });
+  }
+  return notes;
 }
 
 function bumpGeneration(bufferId: string): number {
@@ -93,8 +180,12 @@ function clearTimer(bufferId: string) {
   }
 }
 
-function queueContent(bufferId: string, content: ContentSource) {
-  pendingContent.set(bufferId, { source: content, generation: bumpGeneration(bufferId) });
+function queueContent(bufferId: string, content: ContentSource, writer?: SaveWriter) {
+  pendingContent.set(bufferId, {
+    source: content,
+    generation: bumpGeneration(bufferId),
+    writer,
+  });
 }
 
 export function debouncedSave(bufferId: string, content: ContentSource, delayMs: number = 1000) {
@@ -130,10 +221,43 @@ export function hasPendingAutosave(bufferId: string): boolean {
   return pendingContent.has(bufferId) || timers.has(bufferId) || inFlight.has(bufferId);
 }
 
+/**
+ * Hands a closing note's unwritten text to the recovery snapshot, then drops
+ * the record of it.
+ *
+ * A save the guard refused does not go back on the queue — writing the same
+ * text into the same refusal is stopped the same way — so closing that tab
+ * finds nothing to flush and closes without a word, while the text is still
+ * only in this module. Left there it is lost when the process goes.
+ *
+ * What happens to it after the handover: the next quit writes it into the
+ * shutdown snapshot, and the launch after that writes it back to the note's
+ * file through the guarded path, which leaves a dated copy beside the file
+ * rather than over it if the file has moved on
+ * (`BufferStore::restore_recovered_content`). The note stays closed; the text
+ * comes back as a file, and the toast counts it.
+ *
+ * The record is kept when the handover fails: text nobody can read again is a
+ * worse outcome than a note restored twice.
+ */
+export async function keepUnsavedForRecovery(bufferId: string): Promise<void> {
+  const content = peekUnsavedContent(bufferId);
+  if (content !== undefined) {
+    try {
+      await recordUnsavedNotes([{ id: bufferId, content }]);
+    } catch {
+      logFailure("the text of a closed note could not be kept");
+      return;
+    }
+  }
+  cancelAutosave(bufferId);
+}
+
 export function cancelAutosave(bufferId: string) {
   clearTimer(bufferId);
   pendingContent.delete(bufferId);
   lastWriteAt.delete(bufferId);
+  lastFailedContent.delete(bufferId);
   // Retire the current generation so a write already in flight cannot put the
   // discarded text back on the queue when it fails.
   bumpGeneration(bufferId);
@@ -150,6 +274,7 @@ export function resetAutosave() {
   lastWriteAt.clear();
   generations.clear();
   inFlight.clear();
+  lastFailedContent.clear();
 }
 
 export async function flushAutosave(bufferId?: string): Promise<SaveResult> {
@@ -173,9 +298,13 @@ export async function flushAutosave(bufferId?: string): Promise<SaveResult> {
 // a deterministic "it is on disk" action, so it must not fall through to a
 // no-op the way flushing an empty queue does. Reports through the same success
 // and error listeners as an autosave.
-export async function saveNow(bufferId: string, content: ContentSource): Promise<SaveResult> {
+export async function saveNow(
+  bufferId: string,
+  content: ContentSource,
+  writer?: SaveWriter,
+): Promise<SaveResult> {
   clearTimer(bufferId);
-  queueContent(bufferId, content);
+  queueContent(bufferId, content, writer);
   return runPendingSave(bufferId);
 }
 
@@ -221,10 +350,14 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
   }
 
   lastWriteAt.set(bufferId, Date.now());
+  for (const listener of startListeners) {
+    listener(bufferId);
+  }
   try {
-    await saveBufferContent(bufferId, content);
+    const diskHash = await (queued.writer ?? saveBufferContent)(bufferId, content);
+    lastFailedContent.delete(bufferId);
     for (const listener of successListeners) {
-      listener(bufferId);
+      listener(bufferId, diskHash);
     }
     return SAVE_OK;
   } catch (error) {
@@ -238,8 +371,13 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     // note each time, so this text leaves the queue and the next keystroke —
     // which queues a new generation — is what writes again.
     if (generations.get(bufferId) === queued.generation && isRetryableSaveError(error)) {
-      pendingContent.set(bufferId, { source: content, generation: queued.generation });
+      pendingContent.set(bufferId, {
+        source: content,
+        generation: queued.generation,
+        writer: queued.writer,
+      });
     }
+    lastFailedContent.set(bufferId, content);
     for (const listener of errorListeners) {
       listener(bufferId, error);
     }
