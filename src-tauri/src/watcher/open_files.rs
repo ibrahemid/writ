@@ -1377,6 +1377,38 @@ mod tests {
         assert_eq!(registry.note_at(&namesake), None);
     }
 
+    #[test]
+    fn a_batch_that_names_another_file_says_nothing_about_an_open_one() {
+        // What the watcher thread does with a delivered batch: every event is
+        // answered for the path it names, and a note is reached only through
+        // the path it is open at. A window in which one file was rewritten
+        // names no other note in the folder, however many have tabs.
+        let notes = tempdir().unwrap();
+        let open = notes.path().join("open.md");
+        let closed = notes.path().join("closed.md");
+        fs::write(&open, b"x\n").unwrap();
+        fs::write(&closed, b"x\n").unwrap();
+
+        let Harness { mut registry, .. } = registry_with(false, false, notes.path());
+        registry.watch_parent_of("note-1", &open);
+        let registry = Arc::new(Mutex::new(registry));
+
+        let batch = [closed.clone(), notes.path().join("closed.md.writ-test-tmp")];
+        let named: Vec<String> = batch
+            .iter()
+            .filter_map(|path| OpenNotes::note_at(&registry, path))
+            .collect();
+        assert!(
+            named.is_empty(),
+            "a batch naming only another file reaches no tab, named {named:?}"
+        );
+        assert_eq!(
+            OpenNotes::note_at(&registry, &open).as_deref(),
+            Some("note-1"),
+            "the note itself is still reachable at its own path"
+        );
+    }
+
     /// Nothing recorded about any tab's file, and only the path itself in the
     /// batch: what the classifier is given when the question is about the
     /// change rather than about where a file went.

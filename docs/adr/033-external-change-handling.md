@@ -514,6 +514,19 @@ is reporting a change to a file that holds what the tab is displaying.
   moved to a folder nothing watches is a removal to the tab, which keeps the
   text and says the file is gone; the person can write a copy or point the tab
   at the file again by opening it.
+- Both halves also have to arrive in the same delivered window. The debounce
+  window closes on a deadline set by its first event, not by its last, so a
+  rename that lands on that boundary is delivered as the old path going empty
+  in one window and the new one appearing in the next, and the tab is told the
+  file is gone. Nothing in the batch or in the folder listing can answer for
+  the half that has not been delivered yet; the answer is to hold a removal for
+  one more window before announcing it, which is a change to how a watcher
+  reports rather than to how a move is recognised.
+- A watcher with no application behind it (`FileTracking::untracked()`) has no
+  digest on record for any tab, so decision 13 cannot answer for it and every
+  late delivery is reported. That is right for what it is — nothing has read
+  anything — and it is why a test that drives the watchers without a state has
+  to carry the record a tab would have.
 - A file rewritten and renamed inside one watcher window is followed by its
   bytes, and only where the rewrite left them alone. A rewrite that changed
   them too reads as a removal: the tab keeps its text, says the file is gone,
