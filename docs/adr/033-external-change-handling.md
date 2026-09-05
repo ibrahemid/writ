@@ -534,7 +534,12 @@ folder with copies of itself at one per pause in typing. The typing is kept
 rather than dropped: it goes to a slot beside the queue that the recovery
 handover reads and no write path does (`holdUnsavedContent`), so closing the
 tab or quitting without answering does not lose it, and it is released when
-the question ends. Answering also drops the bar of a save that failed before
+the question ends. The retry button on a failed save goes while the hold is on
+for the same reason every other path is held: a save already in flight when
+the watcher reported can fail under the question for a reason ordinarily worth
+pressing again, and the press would reach the hold and change nothing.
+`Save a copy…` beside it is not held, and is what gets the text out of a tab
+that cannot write. Answering also drops the bar of a save that failed before
 it, which is about a write the answer has made irrelevant; a failure the
 answer itself raises still shows.
 

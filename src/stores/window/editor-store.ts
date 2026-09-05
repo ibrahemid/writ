@@ -291,6 +291,11 @@ export function createEditorStore() {
    * recovery snapshot so closing the tab or quitting does not lose it
    * (`holdUnsavedContent`), and the note saves normally again the moment its
    * state is `present`.
+   *
+   * The bar of a failed save reads this too, and takes its `Try again` away
+   * while it holds: a save already in flight when the watcher reported can
+   * fail under the question with a retryable reason, and the button under it
+   * would reach the same hold and do nothing.
    */
   function savesAreHeld(id: string): boolean {
     return noteFileState(id) !== "present";
@@ -753,6 +758,7 @@ export function createEditorStore() {
     cancelAutosave,
     flushAutosave,
     saveActiveBuffer,
+    savesAreHeld,
     retrySave,
     readDiskState,
     detectLanguage,
