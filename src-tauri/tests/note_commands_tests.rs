@@ -1486,6 +1486,14 @@ fn the_longest_a_held_save_may_wait() -> Duration {
     hold_window(NOTES_DEBOUNCE_WINDOW) + NOTES_DEBOUNCE_WINDOW
 }
 
+/// How far apart the answer that releases a held save and the announcement of
+/// the same removal may land. Both come out of one pass over the expired hold.
+/// A save the watcher never answers waits out its own deadline instead, a
+/// debounce window behind the announcement.
+fn released_together() -> Duration {
+    NOTES_DEBOUNCE_WINDOW / 2
+}
+
 #[test]
 fn a_save_inside_the_hold_of_a_deletion_recreates_nothing() {
     // The hold is the window in which the record still says the note has a
@@ -1663,12 +1671,15 @@ fn the_same_file_back_at_its_path_during_the_hold_lets_the_save_through() {
 
 #[test]
 fn a_save_inside_a_hold_waits_for_the_answer_and_no_longer() {
-    // Two bounds at once. Below: the save cannot write before the hold is
-    // answered, or it writes to a path nobody can classify yet. Above: the
-    // wait ends on the hold's own deadline, so a note whose watcher stopped
-    // costs a save one window and not a hung tab.
+    // Three bounds. Below: the save cannot write before the hold is answered,
+    // or it writes to a path nobody can classify yet. Above: the wait ends on
+    // the hold's own deadline, so a note whose watcher stopped costs a save one
+    // window and not a hung tab. Between: the answer that releases the save and
+    // the announcement of the removal come out of the same pass over the
+    // expired hold, so they land together, and a save that is instead left to
+    // time out lands a debounce window behind the announcement.
     let dir = TempDir::new().expect("temp dir");
-    let (state, _rx) = watching_state(&dir);
+    let (state, rx) = watching_state(&dir);
 
     let doc = new_note_inner(&state).expect("new note");
     save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
@@ -1677,12 +1688,37 @@ fn a_save_inside_a_hold_waits_for_the_answer_and_no_longer() {
 
     let deleted_at = Instant::now();
     std::fs::remove_file(&path).expect("delete the note the way Finder does");
-    std::thread::sleep(INSIDE_THE_HOLD);
 
-    let asked_at = Instant::now();
-    let refused = save_buffer_content_inner(&state, &doc.id, "written during the hold")
-        .expect_err("the save must be refused");
-    let waited = asked_at.elapsed();
+    // On its own thread, so the announcement can be timed while the save is
+    // still blocked on the hold.
+    let saver = {
+        let state = Arc::clone(&state);
+        let id = doc.id.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(INSIDE_THE_HOLD);
+            let asked_at = Instant::now();
+            let answer = save_buffer_content_inner(&state, &id, "written during the hold");
+            (asked_at.elapsed(), Instant::now(), answer)
+        })
+    };
+
+    let announced_at = {
+        let deadline = Instant::now() + SETTLE;
+        let mut at = None;
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match rx.recv_timeout(left) {
+                Ok(event @ WritEvent::BufferExternal { .. }) if named_by(&event).0 == doc.id => {
+                    at = Some(Instant::now());
+                    break;
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        at.expect("the removal was announced")
+    };
+    let (waited, returned_at, answer) = saver.join().expect("the saving thread");
+    let refused = answer.expect_err("the save must be refused");
 
     assert!(
         refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
@@ -1695,6 +1731,12 @@ fn a_save_inside_a_hold_waits_for_the_answer_and_no_longer() {
     assert!(
         waited <= the_longest_a_held_save_may_wait(),
         "a save inside a hold waited {waited:?}, longer than the hold and one window"
+    );
+    let behind = returned_at.saturating_duration_since(announced_at);
+    assert!(
+        behind <= released_together(),
+        "the save returned {behind:?} after the removal was announced, so it waited out its own \
+         deadline instead of being released by the answer"
     );
 }
 
