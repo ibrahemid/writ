@@ -36,7 +36,7 @@ use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::notes::identity::{classify_delete, DeleteVerdict, FileIdentity};
-use writ_core::watcher::change_event::ExternalChange;
+use writ_core::watcher::change_event::{modification_is_news, ExternalChange};
 use writ_core::watcher::ignore::{SuppressDecision, DEFAULT_IGNORE_TTL};
 use writ_core::watcher::sighting::{LastSeen, DEFAULT_SIGHTING_TTL};
 
@@ -604,8 +604,37 @@ pub fn classify_open_file_event(
         return None;
     }
 
-    vanished.tracking.files.note_file_returned(note_id, path);
-    Some(open_note_modified(note_id, path, current_bytes.as_deref()))
+    let came_back = vanished.tracking.files.note_file_returned(note_id, path);
+    open_note_modification(note_id, path, current_bytes.as_deref(), came_back, vanished)
+}
+
+/// The modification event for a tab, when there is one to send.
+///
+/// A watcher reports what the filesystem told it, and a report can be about a
+/// write the tab already read: FSEvents delivers on its own schedule, so the
+/// write that seeded a file can arrive after Writ opened it, and on a loaded
+/// runner it does. Handing that to the tab shows the user an external-change
+/// notice for the bytes in front of them. Whether it is news is
+/// [`modification_is_news`]'s call, on the digest Writ recorded when it last
+/// read or wrote the file.
+///
+/// A tab with nothing on record gets the report: with no digest to compare
+/// against, silence would be a claim about bytes nobody read.
+fn open_note_modification(
+    note_id: &str,
+    path: &Path,
+    bytes: Option<&[u8]>,
+    came_back: bool,
+    vanished: &VanishedContext<'_>,
+) -> Option<WritEvent> {
+    let last_read = vanished
+        .tracking
+        .files
+        .last_disk_state(note_id)
+        .map(|state| state.hash);
+    let on_disk = bytes.map(writ_core::hash::sha256_bytes);
+    modification_is_news(last_read, on_disk, came_back)
+        .then(|| open_note_modified(note_id, path, bytes))
 }
 
 /// The file's bytes, or `None` where reading them is the wrong thing to do.
@@ -846,12 +875,9 @@ pub fn open_note_change(
     if removed {
         return open_note_vanished(note_id, path, vanished);
     }
-    vanished.tracking.files.note_file_returned(note_id, path);
-    Some(open_note_modified(
-        note_id,
-        path,
-        readable_bytes(path).as_deref(),
-    ))
+    let came_back = vanished.tracking.files.note_file_returned(note_id, path);
+    let bytes = readable_bytes(path);
+    open_note_modification(note_id, path, bytes.as_deref(), came_back, vanished)
 }
 
 #[cfg(test)]
@@ -1319,11 +1345,16 @@ mod tests {
     #[derive(Default)]
     struct RecordingFiles {
         identity: Option<FileIdentity>,
+        last: Option<writ_core::notes::guard::DiskState>,
         notes_root: Option<PathBuf>,
         moved: Arc<Mutex<Vec<(PathBuf, PathBuf)>>>,
         removed: Arc<Mutex<Vec<PathBuf>>>,
         returned: Arc<Mutex<Vec<PathBuf>>>,
         already_told: Arc<Mutex<bool>>,
+        /// What the record answers for a file that is at its path again: the
+        /// tab was refusing to save to it, so hearing it is back is news
+        /// whatever the file holds.
+        was_removed: bool,
     }
 
     impl NoteFiles for RecordingFiles {
@@ -1346,11 +1377,24 @@ mod tests {
 
         fn note_file_returned(&self, _note_id: &str, path: &Path) -> bool {
             self.returned.lock().unwrap().push(path.to_path_buf());
-            true
+            self.was_removed
+        }
+
+        fn last_disk_state(&self, _note_id: &str) -> Option<writ_core::notes::guard::DiskState> {
+            self.last
         }
 
         fn notes_root(&self) -> Option<PathBuf> {
             self.notes_root.clone()
+        }
+    }
+
+    /// What Writ would have recorded after reading or writing `bytes`.
+    fn last_read(bytes: &[u8]) -> writ_core::notes::guard::DiskState {
+        writ_core::notes::guard::DiskState {
+            hash: writ_core::hash::sha256_bytes(bytes),
+            size: bytes.len() as u64,
+            mtime: None,
         }
     }
 
@@ -1444,11 +1488,15 @@ mod tests {
         let dir = tempdir().unwrap();
         let gone = dir.path().join("gone.md");
         fs::write(&gone, b"body").unwrap();
-        let identity = crate::watcher::identity::read_identity(&gone);
-        fs::remove_file(&gone).unwrap();
+        // The other notes are written while the file is still there, so no
+        // filesystem can hand one of them the inode number this one is using.
+        // Which files a folder holds is the question; who allocates inodes is
+        // not (the rule itself is covered in `identity`).
         for name in ["other.md", "third.md"] {
             fs::write(dir.path().join(name), b"still here").unwrap();
         }
+        let identity = crate::watcher::identity::read_identity(&gone);
+        fs::remove_file(&gone).unwrap();
 
         let (tracking, files) = tracking_with(RecordingFiles {
             identity,
@@ -1691,6 +1739,117 @@ mod tests {
         );
     }
 
+    /// The event `path`'s file becomes for a tab that last read `loaded` from
+    /// it, with the removal mark the record would answer.
+    fn modification_for(
+        path: &Path,
+        loaded: &[u8],
+        was_removed: bool,
+    ) -> (Option<WritEvent>, Arc<RecordingFiles>) {
+        let (tracking, files) = tracking_with(RecordingFiles {
+            last: Some(last_read(loaded)),
+            was_removed,
+            ..RecordingFiles::default()
+        });
+        let batch = vec![path.to_path_buf()];
+        let event = classify_open_file_event(
+            path,
+            "note-1",
+            &make_set(),
+            DEFAULT_IGNORE_TTL,
+            Instant::now(),
+            &VanishedContext {
+                batch: &batch,
+                tracking: &tracking,
+            },
+        );
+        (event, files)
+    }
+
+    #[test]
+    fn a_report_carrying_the_bytes_the_tab_loaded_is_not_news() {
+        // The write that seeded a file can be delivered after Writ opened and
+        // read it: FSEvents coalesces and delivers on its own schedule, and on
+        // a loaded machine the seed lands behind the open. Handing it to the
+        // tab shows the user an external-change notice for the bytes they are
+        // looking at.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("seeded.md");
+        fs::write(&path, b"as another program left it").unwrap();
+
+        let (event, files) = modification_for(&path, b"as another program left it", false);
+
+        assert!(event.is_none(), "saw {event:?}");
+        assert_eq!(
+            files.returned.lock().unwrap().as_slice(),
+            &[path],
+            "the id is re-read whether or not the tab is told, or the next rename reads as a deletion"
+        );
+    }
+
+    #[test]
+    fn a_report_carrying_bytes_the_tab_has_not_read_is_news() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("edited.md");
+        fs::write(&path, b"somebody else wrote this").unwrap();
+
+        let (event, _files) = modification_for(&path, b"what the tab loaded", false);
+
+        assert!(matches!(
+            event,
+            Some(WritEvent::BufferExternal {
+                change: ExternalChange::Modified,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn a_file_back_from_the_trash_is_news_holding_the_same_bytes() {
+        // The tab is refusing to save while the file is marked gone, so being
+        // at its path again is the news, not the bytes.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("restored.md");
+        fs::write(&path, b"body").unwrap();
+
+        let (event, _files) = modification_for(&path, b"body", true);
+
+        assert!(matches!(
+            event,
+            Some(WritEvent::BufferExternal {
+                change: ExternalChange::Modified,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn the_notes_folder_route_swallows_the_same_report() {
+        // A file inside the notes folder reaches its tab through the notes
+        // watcher instead, and one route staying quiet is no use if the other
+        // one talks.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("seeded.md");
+        fs::write(&path, b"as another program left it").unwrap();
+
+        let (tracking, _files) = tracking_with(RecordingFiles {
+            last: Some(last_read(b"as another program left it")),
+            ..RecordingFiles::default()
+        });
+        let batch = vec![path.clone()];
+        let event = open_note_change(
+            "note-1",
+            &path,
+            false,
+            &VanishedContext {
+                batch: &batch,
+                tracking: &tracking,
+            },
+        );
+
+        assert!(event.is_none(), "saw {event:?}");
+    }
+
     #[test]
     fn a_files_own_path_is_never_a_candidate_for_where_it_went() {
         let dir = tempdir().unwrap();
@@ -1729,9 +1888,11 @@ mod tests {
         let gone = dir.path().join("gone.md");
         let unrelated = dir.path().join("unrelated.md");
         fs::write(&gone, b"text worth keeping").unwrap();
+        // Written before the deletion, so the unrelated note cannot inherit
+        // the deleted file's inode number on a filesystem that reuses them.
+        fs::write(&unrelated, b"somebody else's note").unwrap();
         let retired = crate::watcher::identity::read_identity(&gone);
         fs::remove_file(&gone).unwrap();
-        fs::write(&unrelated, b"somebody else's note").unwrap();
 
         let (tracking, _files) = tracking_with(RecordingFiles {
             identity: retired,

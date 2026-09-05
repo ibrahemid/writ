@@ -405,6 +405,36 @@ same batch names, plus the note's own folder; a match is a move, no match is a
 removal. The probe is a trait, so the verdict is tested on every platform
 regardless of which one runs the test.
 
+An inode number is only unique among the files that exist at one moment. ext4
+hands a freed one straight back to the next file created, so a note deleted and
+an unrelated note created in the same watcher window can carry one `dev` and
+`ino`, and the id alone then says the deletion was a move onto somebody else's
+file — the tab follows it and the next save writes over it. APFS does not reuse
+numbers, which is why the case reached CI rather than a laptop. The id therefore
+carries a third field: the file's birth time in nanoseconds, `btime` through
+`statx` on Linux and `birthtime` elsewhere. A rename leaves it alone, which is
+what `ctime` does not, so it separates a recreated file from the original
+without weakening the move detection the id exists for. Two known birth times
+must agree; a volume that reports none — ext3, ext4 formatted with 128-byte
+inodes — answers `None` for every file on it and the inode is then the whole of
+the answer, exactly as before. `is_same_file` holds that rule, and `==` stays
+exact-value equality because `identity_to_keep` compares two records of one read
+and wants nothing looser.
+
+The birth time is the whole of the fix and not more than it. Linux stamps a new
+file from the coarse clock, so two files created inside one tick share a birth
+time to the nanosecond: a delete followed by a create at the same path in the
+same tick, on a filesystem that reuses inode numbers, stays indistinguishable.
+Every real replacement is separated anyway, because a replacement is a sibling
+renamed over the target and the sibling was created while the original still
+held its inode. What was rejected was corroborating the id with a content
+digest: it answers the wrong question, since two notes holding the same text
+corroborate each other, and it would cost a read of every candidate on a share
+for a question the id already answers. The tests that prove the rule build the
+identities by hand rather than reading them from the host, because whether a
+filesystem reuses inode numbers is the host's business and the rule has to hold
+on all of them.
+
 A volume with no id to give — FAT, exFAT, some SMB servers — gets a description
 of the file instead, which cannot recognise it anywhere else. That is
 deliberate: `is_durable` is false for it and the verdict degrades to an external
@@ -451,6 +481,30 @@ and in a synced folder it would put it back on every device. The two ways out
 are a copy written as a new note and closing the tab. A file put back where it
 was — the Trash restore — re-attaches, because the id it comes back with is the
 one the tab still holds.
+
+### 13. A report carrying the bytes the tab already loaded is not a change
+
+A watcher reports what the filesystem told it, and the filesystem tells it about
+writes that happened before the tab existed. FSEvents coalesces and delivers on
+its own schedule: the write that seeded a file can arrive after Writ has opened
+and read it, and on a loaded machine it does. Passing that on shows the user an
+external-change notice for the bytes in front of them, and on a dirty tab it
+offers to discard their edits for a change nobody made.
+
+What separates a real edit from a late delivery is the digest Writ recorded when
+it last read or wrote the file. Equal digests are no news, whoever wrote them and
+whenever the report arrived; different ones are the change. A tab with no digest
+on record still gets the report, because silence would be a claim about bytes
+nobody read. The exception is a file that had been marked gone and is at its path
+again: the tab is refusing to save until it hears so, which makes the return the
+news rather than the bytes. `modification_is_news` holds all three cases, and
+both routes to a tab go through it — the open-file watcher and the notes watcher
+— because one of them staying quiet is no use if the other one talks.
+
+The comparison is against what Writ last read or wrote, not against what the tab
+was last told, so a file written away from the loaded bytes and back to them
+inside one session ends on silence. That is the right way round: the alternative
+is reporting a change to a file that holds what the tab is displaying.
 
 ## Consequences
 

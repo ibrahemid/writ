@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tauri::{AppHandle, Manager};
+use writ_core::notes::guard::DiskState;
 use writ_core::notes::identity::{FileIdentity, IdentityProbe};
 
 use crate::state::AppState;
@@ -45,6 +46,16 @@ pub trait NoteFiles: Send + Sync {
     /// own next rename reads as a deletion. `true` when the file had been
     /// marked removed, which is a file that came back from the Trash.
     fn note_file_returned(&self, note_id: &str, path: &Path) -> bool;
+
+    /// The digest of what the note's file held the last time Writ read or
+    /// wrote it.
+    ///
+    /// What a modification report is measured against: a watcher can deliver
+    /// the write a tab has already read, and the recorded digest is what says
+    /// so ([`writ_core::watcher::change_event::modification_is_news`]). It is
+    /// not evidence of where a file went — a move is followed on the id and
+    /// nothing else (ADR-033 §12).
+    fn last_disk_state(&self, note_id: &str) -> Option<DiskState>;
 
     /// The notes folder as it is now, or `None` when there is no application
     /// behind this record.
@@ -122,6 +133,10 @@ impl NoteFiles for NoNoteFiles {
         false
     }
 
+    fn last_disk_state(&self, _note_id: &str) -> Option<DiskState> {
+        None
+    }
+
     fn notes_root(&self) -> Option<PathBuf> {
         None
     }
@@ -147,6 +162,10 @@ impl NoteFiles for AppNoteFiles {
 
     fn note_file_returned(&self, note_id: &str, path: &Path) -> bool {
         apply_return(&self.app.state::<AppState>(), note_id, path)
+    }
+
+    fn last_disk_state(&self, note_id: &str) -> Option<DiskState> {
+        self.app.state::<AppState>().disk_state(note_id)
     }
 
     fn notes_root(&self) -> Option<PathBuf> {
@@ -188,6 +207,10 @@ impl NoteFiles for SharedNoteFiles {
             Some(state) => apply_return(&state, note_id, path),
             None => false,
         }
+    }
+
+    fn last_disk_state(&self, note_id: &str) -> Option<DiskState> {
+        self.state.upgrade()?.disk_state(note_id)
     }
 
     fn notes_root(&self) -> Option<PathBuf> {
