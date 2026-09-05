@@ -87,6 +87,13 @@ interface NoteHashes {
    * at all, and [`isDirty`] and [`isTracked`] answer it the same way.
    */
   openInFlight?: boolean;
+  /**
+   * Whether a write landed while that call was out. The write's digest is of
+   * what it just put on the file and the open's is of a read that happened
+   * before it, so the fill leaves `diskHash` alone when this is set. Cleared
+   * with the flight, and by the next call, which replaces the record whole.
+   */
+  writtenDuringOpen?: boolean;
   docHash?: string;
   diskHash?: string;
 }
@@ -675,9 +682,18 @@ export function createEditorStore() {
         return;
       }
       if (answer.state === "no_file") {
+        // A note the tab is holding text for is a different question. Reading
+        // clean off two empty digests would let the file's return be reloaded
+        // over that text, so it answers the way an undescribed file does and
+        // the person is asked. The backend reaches this only for a note that
+        // names no file at all, and this does not depend on that.
+        if (savesAreHeld(id)) {
+          forgetHashes(id);
+          return;
+        }
         // Nothing to compare against and nothing more coming: the note reads
         // untracked from here rather than in flight forever.
-        patchHashes(id, { openInFlight: false });
+        patchHashes(id, { openInFlight: false, writtenDuringOpen: false });
         return;
       }
       const documentHash = await hashDocument(content);
@@ -685,14 +701,18 @@ export function createEditorStore() {
       // An edit that landed while either answer was in flight has moved the
       // generation, and this pair describes a document that is already gone.
       if (hashesOf(id).docGeneration !== 0) {
-        patchHashes(id, { openInFlight: false });
+        patchHashes(id, { openInFlight: false, writtenDuringOpen: false });
         return;
       }
+      // A write that landed since this read went out knows the file better
+      // than this read does, and it already recorded what it wrote.
+      const wroteSince = hashesOf(id).writtenDuringOpen === true;
       patchHashes(id, {
         docHash: documentHash,
-        diskHash: answer.disk.hash,
+        ...(wroteSince ? {} : { diskHash: answer.disk.hash }),
         hashedGeneration: 0,
         openInFlight: false,
+        writtenDuringOpen: false,
       });
     })();
   }
@@ -735,7 +755,10 @@ export function createEditorStore() {
   function noteSaved(id: string, diskHash: string | null, viaWriteBack: boolean) {
     recordFileEvent(id, viaWriteBack ? "settled" : "written");
     if (diskHash === null) return;
-    patchHashes(id, { diskHash });
+    // An open that is still out read the file before this write changed it,
+    // and its answer would otherwise land on top of this one.
+    const duringOpen = hashesOf(id).openInFlight === true;
+    patchHashes(id, duringOpen ? { diskHash, writtenDuringOpen: true } : { diskHash });
   }
 
   /** Drops everything held for a note whose tab has gone. */

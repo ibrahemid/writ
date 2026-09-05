@@ -84,6 +84,26 @@ describe("a note whose open has not answered yet", () => {
     store.stopSaveListener();
   });
 
+  it("keeps reading dirty when it has no file and the tab holds its text", async () => {
+    // The backend answers `no_file` only for a note that names no file, so a
+    // held note never gets it. The tab does not rest on that: two empty
+    // digests compare clean, and clean here would let the file's return be
+    // read over text nothing else has.
+    const store = createEditorStore();
+    store.recordFileEvent("one", "removed");
+    store.keepTextOfRemoved("one", "the only copy of it\n");
+
+    store.noteOpened("one", "the only copy of it\n");
+    await turns();
+    backend.pending[0]({ state: "no_file" });
+    await turns();
+
+    expect(store.isDirty("one")).toBe(true);
+    expect(store.textOfRemoved("one")).toBe("the only copy of it\n");
+
+    store.stopSaveListener();
+  });
+
   it("stops reading dirty once its file turns out not to exist", async () => {
     const store = createEditorStore();
     store.noteOpened("one", "never saved\n");
@@ -149,6 +169,56 @@ describe("two opens of one note in flight at once", () => {
 
     expect(store.isTracked("one")).toBe(true);
     expect(store.lastKnownDiskHash("one")).toBe(asRewritten);
+
+    store.stopSaveListener();
+  });
+});
+
+describe("a write landing while the open is still out", () => {
+  it("keeps what the write put on the file, not the read that came before it", async () => {
+    // The queued write and the open's read describe the same file at two
+    // moments, and the write's moment is the later one. Nothing orders them
+    // but the record, because a write moves no generation.
+    const store = createEditorStore();
+    const text = "what the tab holds\n";
+    const written = await hashDocument(text);
+
+    store.noteOpened("one", text);
+    await turns();
+
+    store.noteSaved("one", written, false);
+    await turns();
+
+    backend.pending[0](described("read before the write landed"));
+    await turns();
+
+    expect(store.lastKnownDiskHash("one")).toBe(written);
+    expect(store.isDirty("one")).toBe(false);
+
+    store.stopSaveListener();
+  });
+
+  it("takes the read's digest again on the next open", async () => {
+    // The skip belongs to the call that was overtaken and not to the note:
+    // an open that starts after the write reads the file the write left.
+    const store = createEditorStore();
+    const text = "what the tab holds\n";
+    const written = await hashDocument(text);
+
+    store.noteOpened("one", text);
+    await turns();
+    store.noteSaved("one", written, false);
+    await turns();
+    backend.pending[0](described("read before the write landed"));
+    await turns();
+
+    store.noteOpened("one", text);
+    await turns();
+    backend.pending[1](described("what another program left"));
+    await turns();
+
+    expect(store.lastKnownDiskHash("one")).toBe("what another program left");
+    expect(store.isDirty("one")).toBe(true);
 
     store.stopSaveListener();
   });

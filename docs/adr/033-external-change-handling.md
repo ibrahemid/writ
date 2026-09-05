@@ -754,6 +754,11 @@ record answers the way a missing one does. Two round trips for one note can
 also be out at once, because a background tab's reload opens it again, and the
 later one owns the record: each carries the number it was given, and one that
 comes back to find another number does not write its answer or drop the record.
+A write that lands inside that window is the later word on the file than the
+read the answer is carrying, so the fill leaves the file's side to the write.
+And a note with no file at all has nothing to compare and reads clean, except
+where the tab is holding text for it, which is the one shape of that answer
+with something to lose.
 
 **A file back at the note's own path is the same question as any other change,
 and a file at another path is not.** A tab holding nothing of its own reads the
