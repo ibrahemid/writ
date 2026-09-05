@@ -96,7 +96,7 @@ fn seeded(notes: &[(&str, &str)]) -> (TempDir, AppState) {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
     for (name, body) in notes {
-        let path = state.notes_root().join(name);
+        let path = note(&state, name);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).expect("parent");
         }
@@ -114,7 +114,8 @@ fn reindex(state: &AppState) {
 }
 
 fn note(state: &AppState, name: &str) -> std::path::PathBuf {
-    state.notes_root().join(name)
+    name.split('/')
+        .fold(state.notes_root().to_path_buf(), |path, part| path.join(part))
 }
 
 fn path_text(state: &AppState, name: &str) -> String {
