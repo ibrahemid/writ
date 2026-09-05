@@ -1,5 +1,12 @@
-import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import {
+  autocompletion,
+  type Completion,
+  type CompletionContext,
+  type CompletionResult,
+} from "@codemirror/autocomplete";
+import type { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
+import { isInsideCode } from "./link-layer";
 
 /** One note a completion can offer. */
 export interface NoteName {
@@ -45,6 +52,9 @@ export function wikilinkCompletionSource(deps: WikilinkCompleteDeps) {
     const line = context.state.doc.lineAt(context.pos);
     const query = wikilinkQueryAt(line.text, context.pos - line.from);
     if (query === null) return null;
+    // A wikilink written inside code is an example of the syntax. Offering
+    // note names there puts a list over documentation of the link itself.
+    if (isInsideCode(context.state, context.pos)) return null;
     // An empty `[[` opens the list only when the user asked for it, so typing
     // the brackets does not put a panel over what is being written.
     if (query.trim() === "" && !context.explicit) return null;
@@ -58,11 +68,31 @@ export function wikilinkCompletionSource(deps: WikilinkCompleteDeps) {
         label: hit.name,
         detail: hit.path,
         type: "text",
+        apply: applyName,
       })),
       // The list is ranked by the index; re-filtering here would reorder it.
       filter: false,
     };
   };
+}
+
+/**
+ * Writes the chosen name and closes the link.
+ *
+ * `closeBrackets` pairs a typed `[[` and leaves the `]]` already written, but a
+ * pasted or re-opened `[[` has none, and a completion that inserted only the
+ * name would leave the link unclosed. The close is written when it is not
+ * already there, and the caret lands after it either way.
+ */
+function applyName(view: EditorView, completion: Completion, from: number, to: number): void {
+  const closed = view.state.doc.sliceString(to, Math.min(to + 2, view.state.doc.length)) === "]]";
+  const insert = closed ? completion.label : `${completion.label}]]`;
+  const caret = from + insert.length + (closed ? 2 : 0);
+  view.dispatch({
+    changes: { from, to, insert },
+    selection: { anchor: caret },
+    userEvent: "input.complete",
+  });
 }
 
 /** The `[[` completion, as an editor extension. */

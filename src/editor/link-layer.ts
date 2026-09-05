@@ -55,15 +55,24 @@ export interface LinkDeps {
 // turn decoration into a scan of the whole buffer.
 const URL_RUN = /(?:https?:\/\/|mailto:)[^\s<>"'`\\]{1,2048}/g;
 // The inside of a `[[…]]`, length-bounded for the same reason as the URL run.
-// A nested `[` or `]` ends the candidate, so `[[a]b]]` is not a target and an
-// unclosed `[[` cannot swallow the rest of the line.
-const WIKILINK_RUN = /\[\[([^\[\]\n]{1,512})\]\]/g;
+// The candidate ends at the first `]]`, which is what `scan_segment` in
+// writ-core's link parser does, so the editor names the same targets the index
+// stores. A newline ends it, so an unclosed `[[` cannot swallow the document.
+const WIKILINK_RUN = /\[\[([^\n]{1,512}?)\]\]/g;
 // Two or more characters before the colon: a single letter is a Windows drive
 // (`C:\notes`), never a scheme.
 const HAS_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]+:/;
 const IDENT_CHAR = /[\p{L}\p{N}_]/u;
 const TRAILING_PUNCTUATION = ".,;:!?*_~'\"";
 const CLOSERS: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+
+// Code is not prose, so a wikilink written inside it is an example rather than
+// a destination. writ-core's scanner and the preview renderer both leave code
+// literal; the editor scanning it would paint and follow links the index does
+// not hold. These are the container nodes the markdown grammar gives fenced,
+// indented and inline code — the fence and backtick marks sit inside them, so
+// the whole node range is what the scan skips.
+const CODE_NODES = new Set(["FencedCode", "CodeBlock", "InlineCode"]);
 
 const linkMark = Decoration.mark({ class: "writ-link" });
 
@@ -141,6 +150,24 @@ export function mergeLinkRanges(ranges: LinkRange[]): LinkRange[] {
   return out;
 }
 
+/**
+ * Whether `pos` sits in fenced, indented or inline code.
+ *
+ * The `[[` completion asks the same question the scan does, so both read one
+ * definition of what counts as code.
+ */
+export function isInsideCode(state: EditorState, pos: number): boolean {
+  let found = false;
+  syntaxTree(state).iterate({
+    from: pos,
+    to: pos,
+    enter: (node: SyntaxNodeRef) => {
+      if (CODE_NODES.has(node.name)) found = true;
+    },
+  });
+  return found;
+}
+
 // Link runs inside `[from, to)`, widened to whole lines so a URL straddling a
 // viewport edge is found in one piece rather than as two half-addresses.
 export function findLinkTargets(state: EditorState, from: number, to: number): LinkRange[] {
@@ -151,6 +178,19 @@ export function findLinkTargets(state: EditorState, from: number, to: number): L
 
   const found: LinkRange[] = [];
   const text = state.doc.sliceString(start, end);
+
+  // Collected in one walk and reused, so a line of examples costs one tree
+  // pass rather than one per candidate.
+  const code: { from: number; to: number }[] = [];
+  syntaxTree(state).iterate({
+    from: start,
+    to: end,
+    enter: (node: SyntaxNodeRef) => {
+      if (CODE_NODES.has(node.name)) code.push({ from: node.from, to: node.to });
+    },
+  });
+  const insideCode = (from: number, to: number): boolean =>
+    code.some((span) => from < span.to && to > span.from);
 
   // Wikilinks first, so `[[https://x]]` is one target rather than an address
   // with brackets around it, and `[[Note]]` is not read as a shortcut
@@ -165,6 +205,7 @@ export function findLinkTargets(state: EditorState, from: number, to: number): L
     if (match.index > 0 && text[match.index - 1] === "!") continue;
     if (match[1].trim() === "") continue;
     const inner = start + match.index + 2;
+    if (insideCode(start + match.index, inner + match[1].length + 2)) continue;
     found.push({ from: inner, to: inner + match[1].length, kind: "wikilink" });
   }
 

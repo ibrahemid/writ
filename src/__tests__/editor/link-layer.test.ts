@@ -237,7 +237,24 @@ describe("findLinkTargets over wikilinks", () => {
     expect(wikilinks("[[]]")).toEqual([]);
     expect(wikilinks("[[   ]]")).toEqual([]);
     expect(wikilinks("[[unclosed")).toEqual([]);
-    expect(wikilinks("[[a]b]]")).toEqual([]);
+  });
+
+  // The target ends at the first `]]`, which is what writ-core's scanner does,
+  // so a bracket written inside one is part of the name in both.
+  it("ends a target at the first close, as the index does", () => {
+    expect(wikilinks("[[a]b]]")).toEqual(["a]b"]);
+    expect(wikilinks("[[a[b]]")).toEqual(["a[b"]);
+    expect(wikilinks("[[Note|al]]ias]]")).toEqual(["Note|al"]);
+  });
+
+  // Code is an example, not a destination. The index and the preview both
+  // leave it literal.
+  it("finds nothing inside fenced, indented or inline code", () => {
+    expect(wikilinks("```\n[[Note]]\n```")).toEqual([]);
+    expect(wikilinks("~~~md\n[[Note]]\n~~~")).toEqual([]);
+    expect(wikilinks("    [[Note]]")).toEqual([]);
+    expect(wikilinks("write `[[Note]]` to link")).toEqual([]);
+    expect(wikilinks("`code` then [[Note]]")).toEqual(["Note"]);
   });
 
   it("wins the overlap against a bare address written inside it", () => {
@@ -427,6 +444,22 @@ describe("linkLayer", () => {
     pressEnter();
     expect(deps.openNoteLink).not.toHaveBeenCalled();
     expect(view.state.doc.lines).toBe(2);
+  });
+
+  // A note documenting Writ's own link syntax writes `[[…]]` inside a fence.
+  // Enter there adds a line; taking the keystroke would lose it and open the
+  // picker over what is being written.
+  it.each([
+    ["fenced", "```\n[[Note]]\n```\n", 6],
+    ["indented", "    [[Note]]\n", 8],
+    ["inline", "write `[[Note]]` to link\n", 11],
+  ])("breaks the line inside %s code", (_kind, doc, caret) => {
+    mount(doc, withNewline);
+    const before = view.state.doc.lines;
+    view.dispatch({ selection: { anchor: caret } });
+    pressEnter();
+    expect(deps.openNoteLink).not.toHaveBeenCalled();
+    expect(view.state.doc.lines).toBe(before + 1);
   });
 
   // A note with no file cannot resolve a target, and a swallowed Enter that
