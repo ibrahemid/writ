@@ -153,6 +153,26 @@ describe("a note whose file is gone: the store's machine", () => {
     expect(queued).toHaveBeenCalled();
   });
 
+  it("writes what it was holding to the path the file turned up at", async () => {
+    // The hold is the only copy by then: the queue went when the mark went on,
+    // and the file at the new path is the one the tab was editing before it
+    // was renamed. Nothing else would write it, so the move puts it back.
+    const store = showing("one", "what the view holds");
+    const deps = depsFor(store);
+    await handleExternalEdit(removed("one"), deps);
+    queued.mockClear();
+    mockedSave.mockClear();
+
+    await handleExternalEdit(
+      { bufferId: "one", change: "moved", newPath: "/notes/moved/one.md" },
+      deps,
+    );
+
+    expect(queued).toHaveBeenCalledWith("one", "what the view holds", 0);
+    await store.flushAutosave("one");
+    expect(mockedSave).toHaveBeenCalledWith("one", "what the view holds");
+  });
+
   it("reads the file back into a tab that had nothing the file did not", async () => {
     const store = showing("one", "what the view holds");
     // Loading the note records both digests, so the tab reads clean.
