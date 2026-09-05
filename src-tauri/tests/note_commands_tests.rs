@@ -1293,3 +1293,112 @@ fn one_move_seen_by_both_watchers_moves_the_row_once() {
     assert_eq!(note_file(&state, &doc.id), after);
     assert_eq!(title_of(&state, &doc.id), "moved-by-finder.md");
 }
+
+/// Sets a file's modification time to the start of 2020, the way a metadata
+/// pass over a restored folder does.
+///
+/// On APFS that pulls the birth time back with it, on the same inode, which is
+/// the whole point of the two tests below.
+#[cfg(unix)]
+fn backdate(path: &std::path::Path) {
+    let status = std::process::Command::new("touch")
+        .arg("-t")
+        .arg("202001010000")
+        .arg(path)
+        .status()
+        .expect("run touch");
+    assert!(status.success(), "touch -t failed on {}", path.display());
+}
+
+#[test]
+#[cfg(unix)]
+fn a_note_whose_birth_time_was_pulled_back_still_follows_its_rename() {
+    // A metadata pass that backdates a note in place — `touch -t`, `SetFile
+    // -d`, a restore tool — leaves the inode alone and, on APFS, drags the
+    // birth time down to the modification time it set. It writes no bytes, so
+    // the ignore stamp Writ's own save left takes the event for Writ's and
+    // nothing refreshes the id. The record then holds a birth time later than
+    // the file's, and reading that as a different file leaves the tab refusing
+    // every save over a file sitting at its new name (ADR-033 §12).
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    backdate(&before);
+    std::thread::sleep(APART);
+
+    let after = state.notes_root().join("renamed-after-the-backdate.md");
+    std::fs::rename(&before, &after).expect("rename the way Finder does");
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(
+        told.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Moved],
+        "a rename after a backdating touch is still a move, saw {seen:?}"
+    );
+    assert_eq!(
+        change_of(told[0]).1.map(std::path::Path::new),
+        Some(after.as_path())
+    );
+    assert!(
+        !state.is_removed_on_disk(&doc.id),
+        "the tab stopped writing to a file that is there"
+    );
+    assert_eq!(note_file(&state, &doc.id), after);
+
+    save_buffer_content_inner(&state, &doc.id, "edited after the backdate").expect("save");
+    assert_eq!(
+        std::fs::read_to_string(&after).expect("read the moved file"),
+        "edited after the backdate"
+    );
+    assert!(
+        !before.exists(),
+        "the save recreated the file at the old path"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn a_backdated_note_that_is_deleted_is_still_gone() {
+    // The control for the test above. Reading an earlier birth time as the
+    // same file must not soften the deletion: the note goes, another file is
+    // created in the same window, and that file is younger than the record
+    // whatever the record's birth time was pulled back to. Anything else puts
+    // the tab on a file nobody opened.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    backdate(&path);
+    std::thread::sleep(APART);
+
+    let newcomer = state.notes_root().join("aaa-created-in-the-same-window.md");
+    std::fs::write(&newcomer, "text worth keeping").expect("the newcomer");
+    std::fs::remove_file(&path).expect("delete the note the way Finder does");
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(told.len(), 1, "the tab must be told once, saw {seen:?}");
+    assert_eq!(change_of(told[0]), (&ExternalChange::Removed, None));
+
+    let refused = save_buffer_content_inner(&state, &doc.id, "text worth keeping, edited")
+        .expect_err("the save must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the refusal has to carry its own code, got {refused}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&newcomer).expect("read the newcomer"),
+        "text worth keeping",
+        "the save wrote over a file the note was never in"
+    );
+}

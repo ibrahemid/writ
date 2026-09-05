@@ -47,6 +47,13 @@ pub enum FileIdentity {
         /// the right thing to pair with the inode because a rename does not
         /// touch it (`ctime` does, which is why that is not used here).
         ///
+        /// It is not immutable, though. On APFS, setting a file's modification
+        /// time earlier than its birth time pulls the birth time back to it, on
+        /// the same live inode: `touch -t 202001010000` on a note leaves the
+        /// inode alone and reports a birth time twenty-six years earlier than
+        /// the one Writ read. So the two known values are compared by order
+        /// rather than for equality ([`FileIdentity::is_same_file`]).
+        ///
         /// `None` where the filesystem reports no birth time — an ext3 volume,
         /// an ext4 one formatted with 128-byte inodes, a kernel older than the
         /// `statx` that reports it — and then the inode alone is the answer, as
@@ -89,7 +96,13 @@ impl FileIdentity {
         !matches!(self, Self::Fallback { .. })
     }
 
-    /// Whether both descriptions are of one file.
+    /// Whether the file seen now is the one `recorded` describes.
+    ///
+    /// `self` is the candidate read from the filesystem a moment ago and
+    /// `recorded` is the id Writ took when it last had the file, and the answer
+    /// is directional: the two birth times are compared by order, so flipping
+    /// the arguments flips half the verdicts
+    /// (`a_backdated_birth_time_and_a_reused_inode_read_opposite_ways`).
     ///
     /// Not `==`, which is exact-value equality and is what a caller comparing
     /// two records of the same read wants ([`identity_to_keep`]). This is the
@@ -97,30 +110,56 @@ impl FileIdentity {
     /// identity is allowed to be missing from either side: a volume that
     /// reports no birth time answers `None` for every file on it, so demanding
     /// agreement there would make every move on such a volume read as a
-    /// deletion. Two known birth times must agree; an unknown one leaves the
-    /// inode as the whole of the answer.
-    pub fn is_same_file(&self, other: &Self) -> bool {
-        match (self, other) {
+    /// deletion. An unknown birth time on either side leaves the inode as the
+    /// whole of the answer.
+    ///
+    /// Two known birth times, one `dev` and one `ino`, read by where the
+    /// candidate's sits against the record's:
+    ///
+    /// - Equal: the same file, which is what a rename leaves behind.
+    /// - Later than the record's: a different file. A freed inode number goes
+    ///   to a file created after it was freed, which is after Writ took the
+    ///   record, so a reused number always arrives with a later birth time.
+    /// - Earlier than the record's: the same file. Nothing creates a file in
+    ///   the past, so the only way to see this is a birth time that moved on a
+    ///   live inode — backdating the modification time below it does that on
+    ///   APFS — and reading it as a different file refuses every later save
+    ///   over a file that is sitting there.
+    ///
+    /// The one shape it cannot tell is a reused inode number whose new file
+    /// also had its birth time pushed back below the record's, which needs a
+    /// deletion, a creation that inherits the number, and a metadata pass over
+    /// the result, all inside one watcher window.
+    pub fn is_same_file(&self, recorded: &Self) -> bool {
+        match (self, recorded) {
             (
                 Self::Inode { dev, ino, birth_ns },
                 Self::Inode {
-                    dev: other_dev,
-                    ino: other_ino,
-                    birth_ns: other_birth_ns,
+                    dev: recorded_dev,
+                    ino: recorded_ino,
+                    birth_ns: recorded_birth_ns,
                 },
-            ) => dev == other_dev && ino == other_ino && births_agree(*birth_ns, *other_birth_ns),
-            _ => self == other,
+            ) => {
+                dev == recorded_dev
+                    && ino == recorded_ino
+                    && birth_allows_a_match(*birth_ns, *recorded_birth_ns)
+            }
+            _ => self == recorded,
         }
     }
 }
 
-/// Whether two birth times are compatible with being one file.
+/// Whether the birth time read from a candidate leaves it able to be the file
+/// on record.
 ///
-/// An unknown birth time is not evidence of anything, so it is not read as
-/// disagreement.
-fn births_agree(one: Option<u128>, other: Option<u128>) -> bool {
-    match (one, other) {
-        (Some(one), Some(other)) => one == other,
+/// `seen` is the candidate's and `recorded` is the record's, and the order of
+/// the two is the whole of the answer: only a file created after the record was
+/// taken can be a different file, and only a file whose birth time moved
+/// underneath Writ can report an earlier one. An unknown birth time is not
+/// evidence of anything, so it rules nothing out.
+fn birth_allows_a_match(seen: Option<u128>, recorded: Option<u128>) -> bool {
+    match (seen, recorded) {
+        (Some(seen), Some(recorded)) => seen <= recorded,
         _ => true,
     }
 }
@@ -398,12 +437,50 @@ mod tests {
     }
 
     #[test]
-    fn sameness_reads_the_same_from_either_side() {
+    fn an_unknown_birth_time_reads_the_same_from_either_side() {
         let recorded = inode_born(1, 42, 1_700_000_000_000_000_000);
         let unknown = inode(1, 42);
         assert!(recorded.is_same_file(&unknown));
         assert!(unknown.is_same_file(&recorded));
         assert!(recorded.is_same_file(&recorded));
+    }
+
+    #[test]
+    fn a_birth_time_earlier_than_the_record_is_the_same_live_inode() {
+        // Backdating a file's modification time below its birth time pulls the
+        // birth time back to it on APFS, on the inode the tab is editing. Only
+        // a file created before the record was taken could report this, and no
+        // such file exists, so the earlier value is the record's own file with
+        // its metadata rewritten. Reading it as a different file leaves the tab
+        // refusing to save over a file that is sitting at its new path.
+        let verdict = classify_delete(
+            &inode_born(1, 42, 1_700_000_000_000_000_000),
+            &[(
+                PathBuf::from("/notes/renamed.md"),
+                inode_born(1, 42, 1_577_808_000_000_000_000),
+            )],
+        );
+        assert_eq!(
+            verdict,
+            DeleteVerdict::Moved(PathBuf::from("/notes/renamed.md"))
+        );
+    }
+
+    #[test]
+    fn a_backdated_birth_time_and_a_reused_inode_read_opposite_ways() {
+        // The comparison is by order and not by equality, so which side is the
+        // record and which is the file seen now decides the verdict. Flipping
+        // the two turns a recreated file into a move onto somebody else's note.
+        let older = inode_born(1, 42, 1_577_808_000_000_000_000);
+        let newer = inode_born(1, 42, 1_700_000_000_000_000_000);
+        assert!(
+            older.is_same_file(&newer),
+            "a birth time that moved back on a live inode is still that file"
+        );
+        assert!(
+            !newer.is_same_file(&older),
+            "a file born after the record was taken is the one that inherited the number"
+        );
     }
 
     #[test]
