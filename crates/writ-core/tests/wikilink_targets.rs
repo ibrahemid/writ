@@ -8,9 +8,9 @@
 //! nowhere, so the fixture is what keeps them from drifting apart.
 //!
 //! The name comes from [`parse_wikilink`], which is what resolution reads.
-//! `RawLink::wikilink_target` strips a note extension a second time, so it
-//! answers `Note` where resolution answers `Note.md`; that is a separate
-//! question from this one.
+//! `RawLink::wikilink_target`, which the index resolves a stored link through,
+//! answers the same name; `a_stored_link_names_the_note_the_written_one_names`
+//! in `links.rs` is what holds the two together.
 
 use writ_core::notes::links::{parse_wikilink, scan, LinkKind};
 
