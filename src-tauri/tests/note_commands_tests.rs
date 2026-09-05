@@ -1725,8 +1725,8 @@ fn a_save_inside_a_hold_waits_for_the_answer_and_no_longer() {
         "the save returned on the answer, not on a timeout that let it through: {refused}"
     );
     assert!(
-        deleted_at.elapsed() >= hold_window(NOTES_DEBOUNCE_WINDOW),
-        "the save was answered before the hold it was waiting on could end"
+        returned_at.duration_since(deleted_at) >= hold_window(NOTES_DEBOUNCE_WINDOW),
+        "the save came back before the hold it was waiting on could end"
     );
     assert!(
         waited <= the_longest_a_held_save_may_wait(),
