@@ -69,6 +69,7 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
         watcher: Mutex::new(None),
         notes_watcher: Mutex::new(None),
         open_file_watcher: Mutex::new(None),
+        file_tracking: Mutex::new(None),
         notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
         notes_reconcile: Arc::new(ReconcileGate::new()),
@@ -92,6 +93,7 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
         workspace_index: Arc::new(RwLock::new(WorkspaceIndex::new(ws_root))),
         search_generation: Arc::new(AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
+        source_records: Mutex::new(std::collections::HashMap::new()),
         unsaved_on_exit: Mutex::new(std::collections::HashMap::new()),
     }
 }

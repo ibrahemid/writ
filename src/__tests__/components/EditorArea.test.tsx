@@ -31,7 +31,9 @@ vi.mock("../../components/Editor/StatusBar", () => ({
 }));
 vi.mock("../../lib/use-active-buffer", () => ({ useActiveBuffer: () => mocks.activeBuffer }));
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
-  useWindow: () => ({ editor: { currentText: mocks.currentText } }),
+  useWindow: () => ({
+    editor: { currentText: mocks.currentText, isRemovedOnDisk: () => false },
+  }),
 }));
 
 vi.spyOn(configStore, "config").mockImplementation(mocks.config);

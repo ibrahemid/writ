@@ -458,11 +458,19 @@ pub fn open_generated_document(
 /// from the persisted buffers — so a compromised webview cannot name an
 /// arbitrary path and have Writ write it.
 ///
-/// A path that no longer exists passes: a file deleted underneath an open
-/// buffer is recreated by the next save, which is what the external-edit
-/// policy promises. Nothing can be redirected in that case either, since
+/// A path that no longer exists passes, and that is deliberately not the same
+/// question as whether the file was deleted. This gate asks whether a write
+/// may be aimed at a path at all; a path resolves whether or not anything is
+/// there, which is what lets a new note be minted and a note whose folder was
+/// remade be saved. Nothing can be redirected in that case either, since
 /// [`write_atomic`](writ_storage::atomic::write_atomic) renames onto the
 /// literal path rather than following a dangling link.
+///
+/// Whether the file behind an open tab was deleted is asked one layer up, by
+/// [`crate::commands::buffer::save_buffer_content_inner`], which knows which
+/// note the write is for and can therefore read what the watcher recorded
+/// about that note's file. A note marked removed on disk is refused there
+/// under `ERR_FILE_REMOVED_ON_DISK` rather than recreated (spec W4).
 pub fn authorize_source_write(state: &AppState, source_path: &str) -> Result<(), String> {
     if notes_containment_authorizes(state, source_path) {
         return Ok(());

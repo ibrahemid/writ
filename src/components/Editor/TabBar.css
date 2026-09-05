@@ -85,6 +85,13 @@
   white-space: nowrap;
 }
 
+/* A tab whose file is gone: struck through as well as dimmed, so the state
+   does not rest on colour alone. */
+.tab-removed .tab-title {
+  text-decoration: line-through;
+  color: var(--writ-fg-muted);
+}
+
 /* Out of the way until the pointer or the keyboard reaches the tab, so a strip
    at rest is titles only. The open note keeps its close in view. */
 .tab-close {

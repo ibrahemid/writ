@@ -11,8 +11,16 @@ describe("planExternalEdit", () => {
     expect(planExternalEdit({ change: "modified", known: false, hasUnsaved: false })).toBe("ignore");
   });
 
-  it("only toasts on deletion (the buffer keeps its content)", () => {
-    expect(planExternalEdit({ change: "deleted", known: true, hasUnsaved: true })).toBe("toast");
+  it("marks a tab whose file was deleted, keeping its text", () => {
+    expect(planExternalEdit({ change: "removed", known: true, hasUnsaved: true })).toBe(
+      "mark-removed",
+    );
+  });
+
+  it("follows a moved file without asking, even with unsaved edits", () => {
+    // A move changes no bytes, so putting it through the dirty gate would
+    // offer to throw unsaved text away over a rename.
+    expect(planExternalEdit({ change: "moved", known: true, hasUnsaved: true })).toBe("follow");
   });
 
   it("reloads a modified buffer that has no unsaved edits", () => {
@@ -22,6 +30,28 @@ describe("planExternalEdit", () => {
   it("prompts before discarding unsaved edits on a modified buffer", () => {
     expect(planExternalEdit({ change: "modified", known: true, hasUnsaved: true })).toBe("prompt");
   });
+
+  it("reads a file at the path of a marked tab as that file coming back", () => {
+    expect(
+      planExternalEdit({
+        change: "modified",
+        known: true,
+        hasUnsaved: true,
+        removedOnDisk: true,
+      }),
+    ).toBe("returned");
+  });
+
+  it("says nothing new when a note already marked is reported gone again", () => {
+    expect(
+      planExternalEdit({
+        change: "removed",
+        known: true,
+        hasUnsaved: true,
+        removedOnDisk: true,
+      }),
+    ).toBe("ignore");
+  });
 });
 
 function makeDeps(overrides: Partial<ExternalEditDeps> = {}): ExternalEditDeps {
@@ -30,8 +60,11 @@ function makeDeps(overrides: Partial<ExternalEditDeps> = {}): ExternalEditDeps {
     hasUnsaved: vi.fn(() => false),
     reload: vi.fn(),
     cancelAutosave: vi.fn(),
-    toast: vi.fn(),
     confirmReload: vi.fn(async () => true),
+    isRemovedOnDisk: vi.fn(() => false),
+    followMove: vi.fn(),
+    markRemoved: vi.fn(),
+    fileReturned: vi.fn(),
     ...overrides,
   };
 }
@@ -65,18 +98,62 @@ describe("handleExternalEdit", () => {
     expect(deps.cancelAutosave).not.toHaveBeenCalled();
   });
 
-  it("only toasts on deletion, never reloading", async () => {
-    const deps = makeDeps();
-    await handleExternalEdit({ bufferId: "buf-1.txt", change: "deleted" }, deps);
-    expect(deps.toast).toHaveBeenCalledWith('File "notes.md" deleted externally', "warning");
+  it("marks the tab on deletion, never reloading", async () => {
+    // The store's mark drops the queue itself, after it has taken the text
+    // out of it, so nothing cancels ahead of it here (ADR-033 decision 15).
+    const deps = makeDeps({ hasUnsaved: vi.fn(() => true) });
+    await handleExternalEdit({ bufferId: "buf-1.txt", change: "removed" }, deps);
+    expect(deps.markRemoved).toHaveBeenCalledWith("buf-1");
+    expect(deps.cancelAutosave).not.toHaveBeenCalled();
     expect(deps.reload).not.toHaveBeenCalled();
+    expect(deps.confirmReload).not.toHaveBeenCalled();
+  });
+
+  it("hands a file back at its own path to the store, without asking", async () => {
+    const deps = makeDeps({
+      isRemovedOnDisk: vi.fn(() => true),
+      hasUnsaved: vi.fn(() => true),
+    });
+    await handleExternalEdit({ bufferId: "buf-1.txt", change: "modified" }, deps);
+    expect(deps.fileReturned).toHaveBeenCalledWith("buf-1");
+    expect(deps.confirmReload).not.toHaveBeenCalled();
+    expect(deps.reload).not.toHaveBeenCalled();
+  });
+
+  it("says nothing twice about a note already marked", async () => {
+    const deps = makeDeps({ isRemovedOnDisk: vi.fn(() => true) });
+    await handleExternalEdit({ bufferId: "buf-1.txt", change: "removed" }, deps);
+    expect(deps.markRemoved).not.toHaveBeenCalled();
+    expect(deps.cancelAutosave).not.toHaveBeenCalled();
+  });
+
+  it("repoints the tab at where the file went", async () => {
+    const deps = makeDeps({ hasUnsaved: vi.fn(() => true) });
+    await handleExternalEdit(
+      {
+        bufferId: "buf-1.txt",
+        change: "moved",
+        path: "/repo/notes.md",
+        newPath: "/repo/archive/notes.md",
+      },
+      deps,
+    );
+    expect(deps.followMove).toHaveBeenCalledWith("buf-1", "/repo/archive/notes.md");
+    expect(deps.reload).not.toHaveBeenCalled();
+    expect(deps.confirmReload).not.toHaveBeenCalled();
+  });
+
+  it("leaves the tab where it is when a move names nowhere", async () => {
+    const deps = makeDeps();
+    await handleExternalEdit({ bufferId: "buf-1.txt", change: "moved", newPath: null }, deps);
+    expect(deps.followMove).not.toHaveBeenCalled();
   });
 
   it("does nothing for an unknown buffer", async () => {
     const deps = makeDeps({ findBuffer: vi.fn(() => undefined) });
     await handleExternalEdit({ bufferId: "ghost.txt", change: "modified" }, deps);
     expect(deps.reload).not.toHaveBeenCalled();
-    expect(deps.toast).not.toHaveBeenCalled();
+    expect(deps.markRemoved).not.toHaveBeenCalled();
   });
 
   it("never replaces a document that differs from its file without asking", async () => {
@@ -171,6 +248,45 @@ describe("readExternalEditPayload", () => {
   });
 
   it("rejects a change it has no plan for", () => {
-    expect(readExternalEditPayload({ bufferId: "buf-1", change: "moved" })).toBeNull();
+    expect(readExternalEditPayload({ bufferId: "buf-1", change: "renamed" })).toBeNull();
+  });
+
+  it("reads a move the way Rust serialises one", () => {
+    // The words are the contract with `ExternalChange` on the Rust side:
+    // `modified`, `removed`, `moved`. A rename of any of the three has to fail
+    // here and in `bus_bridge`'s matching test.
+    expect(
+      readExternalEditPayload({
+        bufferId: "buf-1",
+        change: "moved",
+        path: "/Users/x/Writ/today.md",
+        newPath: "/Users/x/Writ/archive/today.md",
+        diskHash: null,
+      }),
+    ).toEqual({
+      bufferId: "buf-1",
+      change: "moved",
+      path: "/Users/x/Writ/today.md",
+      newPath: "/Users/x/Writ/archive/today.md",
+      diskHash: null,
+    });
+  });
+
+  it("reads a removal the way Rust serialises one", () => {
+    expect(
+      readExternalEditPayload({
+        bufferId: "buf-1",
+        change: "removed",
+        path: "/Users/x/Writ/today.md",
+        newPath: null,
+        diskHash: null,
+      }),
+    ).toEqual({
+      bufferId: "buf-1",
+      change: "removed",
+      path: "/Users/x/Writ/today.md",
+      newPath: null,
+      diskHash: null,
+    });
   });
 });

@@ -29,7 +29,7 @@ const NAME_IS_EMPTY: &str = "That name is empty.";
 
 /// The name a note is known by: the file's own name, extension included, which
 /// is what Finder shows and what the tab shows.
-fn note_name(path: &Path) -> String {
+pub(crate) fn note_name(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.to_string_lossy().into_owned())
@@ -608,6 +608,7 @@ fn follow_notes_root(state: &AppState, from: &Path, to: &Path) {
         to.to_path_buf(),
         state.watcher_ignore.clone(),
         state.open_notes(),
+        state.file_tracking(),
     ) {
         Ok(handle) => {
             let mut slot = state
@@ -686,6 +687,7 @@ fn repoint_notes(state: &AppState, from: &Path, to: &Path) -> Result<(), String>
             continue;
         }
         state.forget_disk_state(&row.id);
+        state.forget_source_record(&row.id);
         if let Ok(bytes) = std::fs::read(&path) {
             state.record_disk_state_bytes(&row.id, &path, &bytes);
         }

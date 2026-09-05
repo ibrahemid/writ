@@ -1,7 +1,9 @@
 use crate::poison::recover_poison;
-use crate::watcher::open_files::OpenNotes;
+use crate::watcher::moves::FileTracking;
+use crate::watcher::open_files::{answer_held_removals, open_delivery, OpenNotes, VanishedContext};
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
@@ -10,7 +12,13 @@ use tracing::{error, info};
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::watcher::budget::{Emission, EmissionBudget};
 use writ_core::watcher::ignore::{IgnoreStamps, SuppressDecision, DEFAULT_IGNORE_TTL};
+use writ_core::watcher::pending::{hold_window, PendingRemovals};
 use writ_core::watcher::sighting::{FileSighting, LastSeen, DEFAULT_SIGHTING_TTL};
+
+/// The window the notes watcher coalesces a burst of changes into, and what a
+/// removal's wait is measured in
+/// ([`writ_core::watcher::pending::hold_window`]).
+pub const NOTES_DEBOUNCE_WINDOW: Duration = Duration::from_millis(500);
 
 pub type IgnoreSet = Arc<Mutex<IgnoreStamps>>;
 
@@ -347,10 +355,11 @@ pub fn start_notes_watcher(
     root: PathBuf,
     ignore_set: IgnoreSet,
     open_notes: Arc<dyn OpenNotes>,
+    tracking: FileTracking,
 ) -> Result<WatcherHandle, Box<dyn std::error::Error>> {
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
 
-    let mut debouncer = new_debouncer(Duration::from_millis(500), tx)?;
+    let mut debouncer = new_debouncer(NOTES_DEBOUNCE_WINDOW, tx)?;
     debouncer.watcher().watch(&root, RecursiveMode::Recursive)?;
 
     info!(root = %root.display(), "notes watcher started");
@@ -361,17 +370,30 @@ pub fn start_notes_watcher(
         // raises on Linux arrives in a later batch than the change that
         // caused it, so a record scoped to one batch would never see it.
         let mut seen = LastSeen::new();
+        // A removal waits for the delivery that might answer it, so the wait
+        // ends at its deadline as well as at the sweep's.
+        let pending = RefCell::new(PendingRemovals::new(hold_window(NOTES_DEBOUNCE_WINDOW)));
         loop {
             // A change the budget dropped was covered by a sweep that had
             // already gone out, and the walk that sweep started may have read
             // the file before it changed. If the folder then falls quiet,
             // nothing else will ever raise it, so the wait ends at the moment
             // that sweep stops standing and the folder is swept once more.
-            let result = match budget.owed_sweep_at() {
+            let due = [budget.owed_sweep_at(), pending.borrow().deadline()]
+                .into_iter()
+                .flatten()
+                .min();
+            let result = match due {
                 Some(due) => match rx.recv_timeout(due.saturating_duration_since(Instant::now())) {
                     Ok(result) => result,
                     Err(mpsc::RecvTimeoutError::Timeout) => {
-                        if budget.take_owed_sweep(Instant::now()) {
+                        let now = Instant::now();
+                        let answers =
+                            answer_held_removals(&mut pending.borrow_mut(), &[], &tracking, now);
+                        for (_, event) in answers {
+                            bus.emit(event);
+                        }
+                        if budget.take_owed_sweep(now) {
                             info!(
                                 root = %root.display(),
                                 "the notes folder fell quiet mid-sweep; sweeping once more"
@@ -390,24 +412,58 @@ pub fn start_notes_watcher(
             match result {
                 Ok(events) => {
                     // One tab message per note per delivered batch, the same
-                    // rule the open-file watcher runs on.
-                    let mut told: HashSet<String> = HashSet::new();
-                    for event in events {
+                    // rule the open-file watcher runs on, off the same code: a
+                    // note moved inside the notes folder arrives as its old
+                    // path leaving and its new one appearing in the same
+                    // window, and the removal this delivery answers is that
+                    // note's message for it.
+                    let (batch, mut told, answers) =
+                        open_delivery(&events, &pending, &tracking, Instant::now());
+                    for event in answers {
+                        bus.emit(event);
+                    }
+                    for event in &events {
                         let now = Instant::now();
-                        let Some(domain_event) = report_notes_event(
+                        let domain_event = match report_notes_event(
                             &event.path,
                             &root,
                             &ignore_set,
                             &mut seen,
                             DEFAULT_IGNORE_TTL,
                             now,
-                        ) else {
-                            continue;
+                        ) {
+                            NotesReport::Change(domain_event) => domain_event,
+                            // The path is the tab's business even where the
+                            // classifier has nothing to say about it, and the
+                            // route reads it, so it runs only on a sighting
+                            // that is news.
+                            NotesReport::Suppressed => {
+                                if let Some(for_tab) = route_replaced_note_to_open_tab(
+                                    &event.path,
+                                    &root,
+                                    open_notes.as_ref(),
+                                    &mut told,
+                                    &VanishedContext {
+                                        batch: &batch,
+                                        tracking: &tracking,
+                                        hold: &pending,
+                                    },
+                                ) {
+                                    bus.emit(for_tab);
+                                }
+                                continue;
+                            }
+                            NotesReport::NothingNew => continue,
                         };
                         if let Some(for_tab) = route_notes_change_to_open_tab(
                             &domain_event,
                             open_notes.as_ref(),
                             &mut told,
+                            &VanishedContext {
+                                batch: &batch,
+                                tracking: &tracking,
+                                hold: &pending,
+                            },
                         ) {
                             bus.emit(for_tab);
                         }
@@ -448,6 +504,7 @@ pub fn route_notes_change_to_open_tab(
     event: &WritEvent,
     open_notes: &dyn OpenNotes,
     told: &mut HashSet<String>,
+    vanished: &VanishedContext<'_>,
 ) -> Option<WritEvent> {
     let WritEvent::NotesChanged { path, removed } = event else {
         return None;
@@ -457,9 +514,41 @@ pub fn route_notes_change_to_open_tab(
     if !told.insert(note_id.clone()) {
         return None;
     }
-    Some(super::open_files::open_note_change(
-        &note_id, path, *removed,
-    ))
+    super::open_files::open_note_change(&note_id, path, *removed, vanished)
+}
+
+/// The tab event a path the notes watcher had nothing to report becomes, when
+/// a tab holds that exact path.
+///
+/// [`classify_notes_event`] answers `None` for a path outside the root, a name
+/// another client owns, a write Writ made, and a path holding something other
+/// than a regular file. Only the last is the tab's business, and only where a
+/// tab is on it: a note's file replaced by a folder of the same name is a file
+/// that went, and dropping the event left the tab carrying the dead file's id
+/// and saving into a raw `Is a directory` rather than saying the file is gone.
+///
+/// The index and the frontend are told nothing, which is right — a folder is
+/// not a note change — so this costs the emission budget nothing either.
+pub fn route_replaced_note_to_open_tab(
+    path: &Path,
+    root: &Path,
+    open_notes: &dyn OpenNotes,
+    told: &mut HashSet<String>,
+    vanished: &VanishedContext<'_>,
+) -> Option<WritEvent> {
+    if !path.starts_with(root) || writ_core::workspace::path_has_ignored_name(root, path) {
+        return None;
+    }
+    // A path holding nothing is already a change the classifier reports, and a
+    // path holding a regular file is one it either reported or suppressed.
+    if !path.exists() || std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
+        return None;
+    }
+    let note_id = open_notes.note_at(path)?;
+    if !told.insert(note_id.clone()) {
+        return None;
+    }
+    super::open_files::open_note_change(&note_id, path, true, vanished)
 }
 
 /// The event that stands for "more changed in the notes folder than is worth
@@ -467,6 +556,37 @@ pub fn route_notes_change_to_open_tab(
 pub fn notes_swept(root: &Path) -> WritEvent {
     WritEvent::NotesSwept {
         root: root.to_string_lossy().into_owned(),
+    }
+}
+
+/// What one *delivered* notes event turns out to be.
+///
+/// The two ways of saying nothing are kept apart because only one of them may
+/// be looked into further: a path the classifier will not name can still be a
+/// tab's business, and a path this watcher has already looked at cannot,
+/// because every further look would read it again.
+#[derive(Debug)]
+pub enum NotesReport {
+    /// The file is exactly as this watcher last looked at it, so the event is
+    /// the echo of a read of its own and nothing reads it again.
+    NothingNew,
+    /// Nothing [`classify_notes_event`] will name: a path outside the root, a
+    /// name another client owns, a write Writ made, or a path holding
+    /// something other than a regular file. Only a tab sitting on that exact
+    /// path still has business with it
+    /// ([`route_replaced_note_to_open_tab`]).
+    Suppressed,
+    /// A change to the notes folder, to name.
+    Change(WritEvent),
+}
+
+impl NotesReport {
+    /// The change to emit, where the event was one.
+    pub fn change(self) -> Option<WritEvent> {
+        match self {
+            NotesReport::Change(event) => Some(event),
+            NotesReport::NothingNew | NotesReport::Suppressed => None,
+        }
     }
 }
 
@@ -485,11 +605,14 @@ pub fn report_notes_event(
     seen: &mut LastSeen,
     ttl: Duration,
     now: Instant,
-) -> Option<WritEvent> {
+) -> NotesReport {
     if !seen.is_news(path, look_at(path), now, DEFAULT_SIGHTING_TTL) {
-        return None;
+        return NotesReport::NothingNew;
     }
-    classify_notes_event(path, root, ignore_set, ttl, now)
+    match classify_notes_event(path, root, ignore_set, ttl, now) {
+        Some(event) => NotesReport::Change(event),
+        None => NotesReport::Suppressed,
+    }
 }
 
 /// Classifies a notes-folder event into a domain event, or suppresses it.
@@ -636,6 +759,12 @@ pub fn classify_watch_event(
 
 #[cfg(test)]
 mod tests {
+
+    /// A watcher holding removals for the window the running one holds them
+    /// for, so a test sees the same wait production does.
+    fn holding() -> RefCell<PendingRemovals> {
+        RefCell::new(PendingRemovals::new(hold_window(NOTES_DEBOUNCE_WINDOW)))
+    }
     use super::*;
     use std::collections::HashMap;
     use std::fs;
@@ -745,6 +874,7 @@ mod tests {
         let reported: Vec<WritEvent> = (0..11)
             .filter_map(|_| {
                 report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
+                    .change()
             })
             .collect();
 
@@ -768,15 +898,21 @@ mod tests {
         let mut seen = LastSeen::new();
         let now = Instant::now();
         assert!(
-            report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now).is_some()
+            report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
+                .change()
+                .is_some()
         );
         assert!(
-            report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now).is_none()
+            report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
+                .change()
+                .is_none()
         );
 
         fs::write(&note, b"second, and longer\n").unwrap();
         assert!(
-            report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now).is_some(),
+            report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
+                .change()
+                .is_some(),
             "a file written again must reach the folder and the tab"
         );
     }
@@ -795,6 +931,7 @@ mod tests {
         let reported: Vec<WritEvent> = (0..11)
             .filter_map(|_| {
                 report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
+                    .change()
             })
             .collect();
 
@@ -987,6 +1124,12 @@ mod tests {
         FixedNotes(HashMap::from([(path.to_path_buf(), note_id.to_string())]))
     }
 
+    /// A batch of one path with nothing recorded about any tab's file, which
+    /// is what these tests ask the routing about.
+    fn lone(path: &Path) -> Vec<PathBuf> {
+        vec![path.to_path_buf()]
+    }
+
     #[test]
     fn a_change_to_a_note_that_is_open_is_routed_to_its_tab() {
         // The core of W1 on the folder that holds nearly every note. A change
@@ -1003,7 +1146,16 @@ mod tests {
         };
         let mut told = HashSet::new();
 
-        match route_notes_change_to_open_tab(&change, &open_as(&note, "note-1"), &mut told) {
+        match route_notes_change_to_open_tab(
+            &change,
+            &open_as(&note, "note-1"),
+            &mut told,
+            &VanishedContext {
+                hold: &holding(),
+                batch: &lone(&note),
+                tracking: &FileTracking::untracked(),
+            },
+        ) {
             Some(WritEvent::BufferExternal {
                 buffer_id,
                 path,
@@ -1045,9 +1197,17 @@ mod tests {
         };
         let mut told = HashSet::new();
 
-        assert!(
-            route_notes_change_to_open_tab(&change, &open_as(&note, "note-1"), &mut told).is_none()
-        );
+        assert!(route_notes_change_to_open_tab(
+            &change,
+            &open_as(&note, "note-1"),
+            &mut told,
+            &VanishedContext {
+                hold: &holding(),
+                batch: &lone(&note),
+                tracking: &FileTracking::untracked(),
+            },
+        )
+        .is_none());
     }
 
     #[test]
@@ -1061,7 +1221,16 @@ mod tests {
         };
         let mut told = HashSet::new();
 
-        match route_notes_change_to_open_tab(&change, &open_as(&note, "note-1"), &mut told) {
+        match route_notes_change_to_open_tab(
+            &change,
+            &open_as(&note, "note-1"),
+            &mut told,
+            &VanishedContext {
+                hold: &holding(),
+                batch: &lone(&note),
+                tracking: &FileTracking::untracked(),
+            },
+        ) {
             Some(WritEvent::BufferExternal {
                 buffer_id,
                 change,
@@ -1071,7 +1240,7 @@ mod tests {
                 assert_eq!(buffer_id, "note-1");
                 assert_eq!(
                     change,
-                    writ_core::watcher::change_event::ExternalChange::Deleted
+                    writ_core::watcher::change_event::ExternalChange::Removed
                 );
                 assert_eq!(disk_hash, None, "there is nothing left to hash");
             }
@@ -1094,15 +1263,45 @@ mod tests {
         let open = open_as(&note, "note-1");
         let mut told = HashSet::new();
 
-        assert!(route_notes_change_to_open_tab(&change, &open, &mut told).is_some());
+        assert!(route_notes_change_to_open_tab(
+            &change,
+            &open,
+            &mut told,
+            &VanishedContext {
+                hold: &holding(),
+                batch: &lone(&note),
+                tracking: &FileTracking::untracked(),
+            },
+        )
+        .is_some());
         for _ in 0..10 {
-            assert!(route_notes_change_to_open_tab(&change, &open, &mut told).is_none());
+            assert!(route_notes_change_to_open_tab(
+                &change,
+                &open,
+                &mut told,
+                &VanishedContext {
+                    hold: &holding(),
+                    batch: &lone(&note),
+                    tracking: &FileTracking::untracked(),
+                },
+            )
+            .is_none());
         }
 
         // A new batch starts a new record, because the file may well have
         // changed again.
         let mut next_batch = HashSet::new();
-        assert!(route_notes_change_to_open_tab(&change, &open, &mut next_batch).is_some());
+        assert!(route_notes_change_to_open_tab(
+            &change,
+            &open,
+            &mut next_batch,
+            &VanishedContext {
+                hold: &holding(),
+                batch: &lone(&note),
+                tracking: &FileTracking::untracked(),
+            },
+        )
+        .is_some());
     }
 
     #[test]
@@ -1119,7 +1318,139 @@ mod tests {
         assert!(route_notes_change_to_open_tab(
             &notes_swept(dir.path()),
             &open_as(&note, "note-1"),
-            &mut told
+            &mut told,
+            &VanishedContext {
+                hold: &holding(),
+                batch: &lone(&note),
+                tracking: &FileTracking::untracked(),
+            },
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn a_note_replaced_by_a_folder_of_the_same_name_tells_its_tab_the_file_went() {
+        // The index has nothing to do about a folder, so the classifier drops
+        // it. The tab holding that exact path does: its file is gone, and
+        // hearing nothing left it carrying the dead file's id and saving into
+        // a raw `Is a directory` rather than the removed state the same
+        // situation earns when the name is simply gone.
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let note = root.join("today.md");
+        fs::create_dir(&note).unwrap();
+        let mut told = HashSet::new();
+
+        let routed = route_replaced_note_to_open_tab(
+            &note,
+            root,
+            &open_as(&note, "note-1"),
+            &mut told,
+            &VanishedContext {
+                hold: &holding(),
+                batch: &lone(&note),
+                tracking: &FileTracking::untracked(),
+            },
+        );
+
+        match routed {
+            Some(WritEvent::BufferExternal {
+                buffer_id, change, ..
+            }) => {
+                assert_eq!(buffer_id, "note-1");
+                assert_eq!(
+                    change,
+                    writ_core::watcher::change_event::ExternalChange::Removed
+                );
+            }
+            other => panic!("expected the tab to be told its file went, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_deliveries_a_note_replaced_by_a_folder_raises_tell_the_tab_once() {
+        // The tab route that runs where the classifier has nothing to say
+        // reads the path as well: a folder opens, and the read fails only
+        // after it has. So it runs behind the same record the classified path
+        // runs behind, and a folder sitting where a note was costs one
+        // message rather than one per delivery for as long as it is there.
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let note = root.join("today.md");
+        fs::create_dir(&note).unwrap();
+
+        let open = open_as(&note, "note-1");
+        let ungated = (0..11)
+            .filter(|_| {
+                let mut told = HashSet::new();
+                route_replaced_note_to_open_tab(
+                    &note,
+                    root,
+                    &open,
+                    &mut told,
+                    &VanishedContext {
+                        hold: &holding(),
+                        batch: &lone(&note),
+                        tracking: &FileTracking::untracked(),
+                    },
+                )
+                .is_some()
+            })
+            .count();
+        assert_eq!(
+            ungated, 11,
+            "the burst is what the route alone tells the tab"
+        );
+
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let now = Instant::now();
+        let reported: Vec<WritEvent> = (0..11)
+            .filter_map(|_| {
+                let mut told = HashSet::new();
+                match report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now) {
+                    NotesReport::Suppressed => route_replaced_note_to_open_tab(
+                        &note,
+                        root,
+                        &open,
+                        &mut told,
+                        &VanishedContext {
+                            hold: &holding(),
+                            batch: &lone(&note),
+                            tracking: &FileTracking::untracked(),
+                        },
+                    ),
+                    NotesReport::Change(_) | NotesReport::NothingNew => None,
+                }
+            })
+            .collect();
+
+        assert_eq!(
+            reported.len(),
+            1,
+            "the tab must be told once, saw {reported:?}"
+        );
+    }
+
+    #[test]
+    fn a_folder_no_tab_is_on_is_still_nothing_to_report() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let sub = root.join("archive");
+        fs::create_dir(&sub).unwrap();
+        let elsewhere = root.join("today.md");
+        let mut told = HashSet::new();
+
+        assert!(route_replaced_note_to_open_tab(
+            &sub,
+            root,
+            &open_as(&elsewhere, "note-1"),
+            &mut told,
+            &VanishedContext {
+                hold: &holding(),
+                batch: &lone(&sub),
+                tracking: &FileTracking::untracked(),
+            },
         )
         .is_none());
     }

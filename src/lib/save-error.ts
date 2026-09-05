@@ -3,6 +3,7 @@
 // change, so no wording a person reads crosses the boundary.
 const ERR_FILE_CHANGED_ON_DISK = "ERR_FILE_CHANGED_ON_DISK";
 const ERR_FILE_NOT_DOWNLOADED = "ERR_FILE_NOT_DOWNLOADED";
+const ERR_FILE_REMOVED_ON_DISK = "ERR_FILE_REMOVED_ON_DISK";
 const ERR_NOTE_READ_ONLY = "ERR_NOTE_READ_ONLY";
 const ERR_PERMISSION_DENIED = "ERR_PERMISSION_DENIED";
 const ERR_FILE_IN_USE = "ERR_FILE_IN_USE";
@@ -16,6 +17,8 @@ const CODE_MESSAGES: Record<string, string> = {
   [ERR_FILE_CHANGED_ON_DISK]: "the file changed outside Writ. A copy of your version is beside it.",
   [ERR_FILE_NOT_DOWNLOADED]:
     "this file has not finished downloading, so your changes were not saved yet.",
+  [ERR_FILE_REMOVED_ON_DISK]:
+    "the file was deleted, so nothing was written. Your text is still here.",
   [ERR_NOTE_READ_ONLY]: "this file opened read-only, so it cannot be written to.",
   [ERR_PERMISSION_DENIED]: "you do not have permission to change this file.",
   [ERR_FILE_IN_USE]: "another program has the file open.",
@@ -39,14 +42,22 @@ const RENAME_CODE_MESSAGES: Record<string, string> = {
 
 // Writing again cannot help either of these: the same text is stopped the same
 // way, and a stopped save leaves another dated copy beside the note each time.
-const NOT_WORTH_REPEATING = new Set([ERR_FILE_CHANGED_ON_DISK, ERR_FILE_NOT_DOWNLOADED]);
+const NOT_WORTH_REPEATING = new Set([
+  ERR_FILE_CHANGED_ON_DISK,
+  ERR_FILE_NOT_DOWNLOADED,
+  ERR_FILE_REMOVED_ON_DISK,
+]);
 
 // Pressing save again on one of these writes the same text into the same
 // refusal: the note is not writable, or the file already moved on and the
 // version being written is already beside it. The note keeps its text; only
 // the button goes. A file that has not finished downloading is not here: it
 // finishes, and then the same press lands.
-const NOT_WORTH_A_SECOND_PRESS = new Set([ERR_NOTE_READ_ONLY, ERR_FILE_CHANGED_ON_DISK]);
+const NOT_WORTH_A_SECOND_PRESS = new Set([
+  ERR_NOTE_READ_ONLY,
+  ERR_FILE_CHANGED_ON_DISK,
+  ERR_FILE_REMOVED_ON_DISK,
+]);
 
 /** A failed save as the editor shows it. */
 export interface SaveFailureReason {
