@@ -65,18 +65,21 @@ pub fn new_note_inner(state: &AppState) -> Result<BufferDocument, String> {
 
 /// Creates a note called `name`, file first, and opens it.
 ///
-/// `name` is a title, never a path: [`writ_core::notes::note_file_stem`]
-/// sanitises it, which maps `/` and `\` to spaces, so a name carrying `..` or
-/// a separator loses what would make it walk anywhere and the note lands in
-/// the notes folder. A name nothing survives from falls back to the dated stem
-/// a `New Note` gets, so this never fails for want of a name.
+/// `name` is a title, never a path:
+/// [`writ_core::notes::note_file_stem_from_link`] sanitises it, which maps `/`
+/// and `\` to spaces, so a name carrying `..` or a separator loses what would
+/// make it walk anywhere and the note lands in the notes folder. A name
+/// nothing survives from falls back to the dated stem a `New Note` gets, so
+/// this never fails for want of a name.
 ///
 /// This is what an editor offers on a `[[…]]` that names no note: the target
 /// becomes the file name, so writing the link and taking the offer leaves the
-/// link resolved.
+/// link resolved. A target written with the extension resolves the same way a
+/// bare one does, so the extension comes off before the name is sanitised
+/// rather than being minted into `Note.md.md`.
 pub fn new_note_named_inner(state: &AppState, name: &str) -> Result<BufferDocument, String> {
     let now = chrono::Utc::now();
-    let stem = writ_core::notes::note_file_stem(name, now);
+    let stem = writ_core::notes::note_file_stem_from_link(name, now);
 
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let stamp = ignore_stamper(state);

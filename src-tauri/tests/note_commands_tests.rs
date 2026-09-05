@@ -146,6 +146,47 @@ fn a_named_note_takes_its_file_name_from_the_name() {
     assert_eq!(std::fs::read_to_string(&path).expect("read"), "");
 }
 
+/// A link is allowed to name a note with its extension, and `[[Note.md]]`
+/// resolves to the same note `[[Note]]` does. Minting `Note.md.md` would leave
+/// the link that offered to create it still pointing at nothing.
+#[test]
+fn a_named_note_written_with_the_extension_gets_one_extension() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+
+    for (typed, expected) in [
+        ("Note.md", "Note.md"),
+        ("Recipes.markdown", "Recipes.md"),
+        ("Ideas.MD", "Ideas.md"),
+        ("Log.md.md", "Log.md.md"),
+        ("Plain.txt", "Plain.txt.md"),
+    ] {
+        let doc = new_note_named_inner(&state, typed).expect("named note");
+        let path = std::path::PathBuf::from(doc.source_path.expect("the note has no file"));
+        assert_eq!(
+            path.file_name().unwrap().to_string_lossy(),
+            expected,
+            "typed {typed}"
+        );
+    }
+}
+
+/// The whole round trip the offer makes: the target names no note, the note is
+/// created from it, and the same target then names that note.
+#[test]
+fn a_note_created_from_a_link_target_is_what_the_target_names() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+
+    for target in ["Grocery list", "Recipes.md", "folder/Ideas.md"] {
+        let name = writ_core::notes::links::parse_wikilink(target).name;
+        let doc = new_note_named_inner(&state, &name).expect("named note");
+        let path = std::path::PathBuf::from(doc.source_path.expect("the note has no file"));
+        let created = writ_core::notes::note_display_name(&path.to_string_lossy());
+        assert_eq!(created, name, "target {target}");
+    }
+}
+
 /// A link target reaches this as typed, so a name that reads like a path must
 /// not become one: the note lands in the notes folder whatever separators the
 /// name carried.

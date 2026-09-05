@@ -355,6 +355,20 @@ pub fn note_file_stem(title: &str, dated_from: DateTime<Utc>) -> String {
     sanitize_title_or(title, &fallback)
 }
 
+/// The filename stem a note earns from a link target that named no note.
+///
+/// A target carries the note's name, and a name is allowed to be written with
+/// the extension: `[[Note.md]]` and `[[Note]]` name the same note, because
+/// [`links::parse_wikilink`] reads the extension off both. Handing the raw
+/// target to [`note_file_stem`] would mint `Note.md.md`, which the link that
+/// asked for it then still does not resolve to.
+///
+/// Only one note extension comes off, and only when the name ends in one, so
+/// `[[Note.md.md]]` names the note `Note.md` in both places.
+pub fn note_file_stem_from_link(target: &str, dated_from: DateTime<Utc>) -> String {
+    note_file_stem(links::strip_note_extension(target.trim()), dated_from)
+}
+
 /// Finder-style dedupe: `stem`, `stem 2`, `stem 3`, and so on.
 ///
 /// `taken` holds file *names* including their extension, in whatever case and
@@ -495,6 +509,61 @@ fn truncate_to_limits(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A moment for the dated fallback, so a test says which answer it means.
+    fn moment() -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339("2026-09-06T10:11:12Z")
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    // A link is allowed to name a note with its extension, and both spellings
+    // resolve to the same note, so both have to mint the same file.
+    #[test]
+    fn a_link_target_written_with_the_extension_mints_one_extension() {
+        assert_eq!(note_file_stem_from_link("Note.md", moment()), "Note");
+        assert_eq!(note_file_stem_from_link("Note.markdown", moment()), "Note");
+        assert_eq!(note_file_stem_from_link("Note.MD", moment()), "Note");
+        assert_eq!(note_file_stem_from_link("Note", moment()), "Note");
+        assert_eq!(note_file_stem_from_link("  Note.md  ", moment()), "Note");
+    }
+
+    // Only one extension comes off, which is the name parse_wikilink reads out
+    // of the same target.
+    #[test]
+    fn only_one_note_extension_comes_off_a_link_target() {
+        assert_eq!(note_file_stem_from_link("Note.md.md", moment()), "Note.md");
+        assert_eq!(
+            links::parse_wikilink("Note.md.md").name,
+            note_file_stem_from_link("Note.md.md", moment())
+        );
+        assert_eq!(note_file_stem_from_link("a.b.md", moment()), "a.b");
+        assert_eq!(note_file_stem_from_link("Note.txt", moment()), "Note.txt");
+    }
+
+    // What the link asked for is what the file is called, so the link that
+    // offered to create it resolves to it afterwards.
+    #[test]
+    fn a_link_target_mints_the_name_the_link_resolves_to() {
+        for target in ["Note", "Note.md", "folder/Note.md", "Note.markdown"] {
+            let name = links::parse_wikilink(target).name;
+            let stem = note_file_stem_from_link(&name, moment());
+            assert_eq!(stem, name, "target {target}");
+        }
+    }
+
+    // A target that sanitises to nothing still has to mint a note.
+    #[test]
+    fn a_link_target_that_survives_as_nothing_falls_back_to_the_dated_stem() {
+        assert_eq!(
+            note_file_stem_from_link(".md", moment()),
+            note_file_stem("", moment())
+        );
+        assert_eq!(
+            note_file_stem_from_link("", moment()),
+            note_file_stem("", moment())
+        );
+    }
 
     #[test]
     fn a_note_is_called_by_its_file_name_without_the_extension() {
