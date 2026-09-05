@@ -13,10 +13,13 @@ use tauri::State;
 use tracing::{info, warn};
 use writ_core::buffer::document::BufferDocument;
 use writ_core::buffer::manager::BufferManager;
+use writ_core::notes::guard::DiskState;
+use writ_core::notes::links::{self, WikilinkTarget};
 use writ_core::notes::{name_is_taken, rename_stem, NotesRootRefusal, NAME_IS_EMPTY};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::errors::{StorageError, StorageResult};
 use writ_storage::note_ops;
+use writ_storage::notes_index;
 use writ_storage::notes_migration::{self, MigrationReport};
 use writ_storage::notes_move;
 
@@ -209,6 +212,268 @@ pub fn rename_note(
     title: String,
 ) -> Result<BufferDocument, String> {
     rename_note_inner(&state, &id, &title)
+}
+
+/// One note a rename left exactly as it was, and the code saying why.
+///
+/// A file the rewrite could not take is named rather than dropped: a link
+/// still pointing at a name no note answers to is the thing the person has to
+/// be told about, and told about once, in a list they can act on (spec 627).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SkippedFile {
+    /// The file, as the editor spells paths.
+    pub path: String,
+    /// One of the save failure codes ([`crate::commands::buffer::failure_code`]).
+    pub reason: String,
+}
+
+/// What a rename did to the notes that link to the renamed one.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RenamePropagationDto {
+    /// Where the renamed note is now.
+    pub renamed_path: String,
+    /// How many notes were rewritten.
+    pub updated: u32,
+    /// Which notes were rewritten, in the order they were written. This is
+    /// what `Undo rename` runs back over: the undo touches the files the
+    /// rename touched and no others.
+    pub updated_paths: Vec<String>,
+    /// The notes that were left as they were, each with its reason.
+    pub skipped: Vec<SkippedFile>,
+}
+
+/// The notes that link to the note at `path`, each once, in path order.
+///
+/// Only links the index resolved to this note. A link that names this note and
+/// another resolves to neither and is never rewritten: picking one is what
+/// silently rewrites the wrong file (ADR-034). The renamed note is in the list
+/// when it links to itself, and the caller decides what that means.
+fn linking_notes(state: &AppState, path: &Path) -> Result<Vec<PathBuf>, String> {
+    let key = notes_index::index_key(path);
+    let rows = state
+        .notes_index
+        .links_to(&key)
+        .map_err(|e| e.to_string())?;
+    let mut seen = std::collections::BTreeSet::new();
+    for row in rows {
+        seen.insert(row.from_path);
+    }
+    Ok(seen.into_iter().map(PathBuf::from).collect())
+}
+
+/// How many notes link to the note at `path`, the note itself left out.
+///
+/// Shown before the rename, so the offer to update them names a number the
+/// person can check against the backlink list.
+pub fn count_links_to_inner(state: &AppState, path: &str) -> Result<u32, String> {
+    let key = notes_index::index_key(Path::new(path));
+    let others = linking_notes(state, Path::new(path))?
+        .into_iter()
+        .filter(|from| notes_index::index_key(from) != key)
+        .count();
+    Ok(others as u32)
+}
+
+/// IPC: [`count_links_to_inner`].
+#[tauri::command]
+pub fn count_links_to(state: State<'_, AppState>, path: String) -> Result<u32, String> {
+    count_links_to_inner(&state, &path)
+}
+
+/// The renamed note as a link names it: its name, and the folder it sits in
+/// when it is inside the notes folder.
+///
+/// The folder is what keeps `[[archive/Note]]` from being rewritten by a
+/// rename of a `Note` that is not in an `archive`, so it is carried whenever
+/// there is one to carry.
+fn link_target_for(state: &AppState, path: &Path) -> WikilinkTarget {
+    let root = state.notes_root();
+    match path.strip_prefix(&root) {
+        Ok(relative) => links::parse_target(&relative.to_string_lossy()),
+        Err(_) => links::parse_target(&note_name(path)),
+    }
+}
+
+/// Renames the note at `path` and rewrites the notes that link to it.
+///
+/// The list of linking notes is read before the file moves, because the index
+/// keys those rows on the path the note has now. The rename itself is S1 U7's:
+/// the file moves through the same guard a save does, and the row and the tab
+/// follow it. Only then does anything else get rewritten, so a refused rename
+/// leaves every other note untouched.
+///
+/// A rewrite that fails leaves the rename standing and the file it could not
+/// take in `skipped`. The alternative — putting the rename back — would undo
+/// something that worked because something else did not.
+pub fn rename_note_with_links_inner(
+    state: &AppState,
+    path: &str,
+    new_name: &str,
+    update_links: bool,
+) -> Result<RenamePropagationDto, String> {
+    let from = Path::new(path);
+    let linking = match update_links {
+        true => linking_notes(state, from)?,
+        false => Vec::new(),
+    };
+    let old_target = link_target_for(state, from);
+    rename_and_propagate(state, from, new_name, &old_target, linking)
+}
+
+/// IPC: [`rename_note_with_links_inner`].
+#[tauri::command]
+pub fn rename_note_with_links(
+    state: State<'_, AppState>,
+    path: String,
+    new_name: String,
+    update_links: bool,
+) -> Result<RenamePropagationDto, String> {
+    rename_note_with_links_inner(&state, &path, &new_name, update_links)
+}
+
+/// Puts a propagated rename back: the note takes its previous name again and
+/// the notes the rename rewrote are rewritten in the opposite direction.
+///
+/// `paths` is the `updated_paths` of the rename being undone, so the undo
+/// touches those files and no others. Each one goes through the same guarded
+/// write, so a file that changed since the rename is refused here exactly as
+/// it would have been refused there, and lands in `skipped` rather than losing
+/// the edit somebody made in between.
+pub fn undo_rename_with_links_inner(
+    state: &AppState,
+    path: &str,
+    previous_name: &str,
+    paths: &[String],
+) -> Result<RenamePropagationDto, String> {
+    let from = Path::new(path);
+    let current_target = link_target_for(state, from);
+    let linking = paths.iter().map(PathBuf::from).collect();
+    rename_and_propagate(state, from, previous_name, &current_target, linking)
+}
+
+/// IPC: [`undo_rename_with_links_inner`].
+#[tauri::command]
+pub fn undo_rename_with_links(
+    state: State<'_, AppState>,
+    path: String,
+    previous_name: String,
+    paths: Vec<String>,
+) -> Result<RenamePropagationDto, String> {
+    undo_rename_with_links_inner(&state, &path, &previous_name, &paths)
+}
+
+/// The rename, then the rewrites, then the index.
+fn rename_and_propagate(
+    state: &AppState,
+    from: &Path,
+    new_name: &str,
+    old_target: &WikilinkTarget,
+    linking: Vec<PathBuf>,
+) -> Result<RenamePropagationDto, String> {
+    let from_key = notes_index::index_key(from);
+    let renamed = rename_note_at(state, from, new_name)?;
+    let new_name = writ_core::notes::note_display_name(&path_text(&renamed));
+
+    let stamp = ignore_stamper(state);
+    let mut updated_paths = Vec::new();
+    let mut skipped = Vec::new();
+    for file in linking {
+        // The renamed note links to itself, and its file is not where it was
+        // when the index named it.
+        let file = match notes_index::index_key(&file) == from_key {
+            true => renamed.clone(),
+            false => file,
+        };
+        let last_known = recorded_disk_state(state, &file);
+        match note_ops::rewrite_links_in_file(
+            &file,
+            old_target,
+            &new_name,
+            last_known,
+            None,
+            Some(&stamp),
+        ) {
+            Ok(true) => updated_paths.push(path_text(&file)),
+            Ok(false) => {}
+            Err(error) => {
+                warn!(
+                    path = %file.display(),
+                    error = %error,
+                    "a note linking to the renamed one was left as it was"
+                );
+                skipped.push(SkippedFile {
+                    path: path_text(&file),
+                    reason: crate::commands::buffer::failure_code(&error).to_string(),
+                });
+            }
+        }
+    }
+
+    reindex_after_rename(state, from, &renamed, &updated_paths);
+    Ok(RenamePropagationDto {
+        renamed_path: path_text(&renamed),
+        updated: updated_paths.len() as u32,
+        updated_paths,
+        skipped,
+    })
+}
+
+/// Renames the note's file, taking its row and its tab with it when it has
+/// one.
+///
+/// A note the sidebar names but nothing has opened has no row to move, and a
+/// rename of it is the file alone. Everything else goes through
+/// [`rename_note_inner`], so one rename is one code path however it was asked
+/// for.
+fn rename_note_at(state: &AppState, from: &Path, new_name: &str) -> Result<PathBuf, String> {
+    let existing = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        store
+            .find_active_by_source_path(&path_text(from))
+            .map_err(|e| e.to_string())?
+    };
+    if let Some(doc) = existing {
+        let renamed = rename_note_inner(state, &doc.id, new_name)?;
+        return Ok(PathBuf::from(note_path(&renamed)?));
+    }
+    let stem =
+        writ_core::notes::rename_stem(from, new_name).ok_or_else(|| NAME_IS_EMPTY.to_string())?;
+    let stamp = ignore_stamper(state);
+    note_ops::rename_note(from, &stem, None, Some(&stamp)).map_err(|e| note_failure_message(&e))
+}
+
+/// What Writ last saw `path` hold, for a note it has open.
+///
+/// A file nothing has opened has no record, and "has this changed since Writ
+/// last looked" has no answer for a file Writ has not looked at.
+fn recorded_disk_state(state: &AppState, path: &Path) -> Option<DiskState> {
+    let store = state.store.lock().ok()?;
+    let doc = store.find_active_by_source_path(&path_text(path)).ok()??;
+    drop(store);
+    state.disk_state(&doc.id)
+}
+
+/// Puts the index back in step with what the rename wrote.
+///
+/// Every write here is stamped, so the watcher suppresses it and the
+/// subscriber that keeps the index honest never hears about it. Without this
+/// the `links` rows keep the old target text: the backlink list of the renamed
+/// note would be empty and an undo would find nothing to put back. A row that
+/// cannot be written is logged and not fatal — a rename that landed on disk is
+/// not undone because an index lagged.
+fn reindex_after_rename(state: &AppState, from: &Path, to: &Path, updated: &[String]) {
+    let index = &state.notes_index;
+    if from != to {
+        if let Err(error) = index.forget_path(from) {
+            warn!(path = %from.display(), error = %error, "the notes index kept a renamed note's old path");
+        }
+    }
+    for path in std::iter::once(path_text(to)).chain(updated.iter().cloned()) {
+        if let Err(error) = index.index_path(Path::new(&path)) {
+            warn!(path = %path, error = %error, "the notes index was not updated after a rename");
+        }
+    }
+    index.bump_generation();
 }
 
 /// What the editor says when a delete names a file the notes folder does not

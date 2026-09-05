@@ -15,9 +15,12 @@ use std::path::{Path, PathBuf};
 
 use writ_core::notes::guard::{decide_save, is_not_downloaded, DiskState, SaveDecision};
 use writ_core::notes::line_ending::LineEnding;
+use writ_core::notes::links::WikilinkTarget;
+use writ_core::notes::rename::rewrite_links;
 
 use crate::buffer_store::{
     dataless_flags, read_disk_state, taken_names, write_guarded_by_stamp, BeforeWrite,
+    DatalessProbe,
 };
 use crate::errors::{StorageError, StorageResult};
 
@@ -195,6 +198,92 @@ pub fn rename_note(
     }
     std::fs::rename(from, &to)?;
     Ok(to)
+}
+
+/// Rewrites the links in `path` that name `old`, so they name `new_name`.
+///
+/// `Ok(true)` when the file was written, `Ok(false)` when its text names the
+/// renamed note nowhere and there was nothing to write. Every refusal comes
+/// back as an error naming this file, because a link left pointing at a name
+/// no note has any more is exactly what the caller has to be able to say out
+/// loud: a propagation that quietly leaves a file behind is worse than one
+/// that says which files it left (spec 627).
+///
+/// The write goes through [`write_guarded_by_stamp`] like every other write
+/// this crate makes, so the file is stamped before it is replaced and the
+/// watcher does not read Writ's own edit as somebody else's.
+///
+/// Three refusals come before the write. A file whose bytes are not on this
+/// machine is stopped before the read, because the read is what would pull it
+/// down (ADR-028 §5). A file that changed since `last_known` is stopped by the
+/// same guard a save runs, because rewriting it would carry text Writ never
+/// saw. A file the filesystem will not replace — read-only, hard-linked, in a
+/// folder that will not take a write — is stopped by the write itself.
+///
+/// `last_known` is what Writ last saw the file hold, for a file it has looked
+/// at; `None` for one it has not, whose "has this changed" has no answer.
+/// `dataless` is the eviction probe ([`DatalessProbe`]): `None` asks the
+/// filesystem, which is what the app does.
+///
+/// # Errors
+///
+/// [`StorageError::SourceNotDownloaded`], [`StorageError::SourceChangedOnDisk`],
+/// [`StorageError::DestinationReadOnly`] and the rest of the write refusals,
+/// and [`StorageError::Io`] when the file cannot be read or is not text.
+pub fn rewrite_links_in_file(
+    path: &Path,
+    old: &WikilinkTarget,
+    new_name: &str,
+    last_known: Option<DiskState>,
+    dataless: DatalessProbe<'_>,
+    before_write: BeforeWrite<'_>,
+) -> StorageResult<bool> {
+    let flags = match dataless {
+        Some(probe) => probe(path),
+        None => dataless_flags(path),
+    };
+    if is_not_downloaded(flags) {
+        return Err(StorageError::SourceNotDownloaded {
+            path: path.to_string_lossy().into_owned(),
+        });
+    }
+
+    let bytes = std::fs::read(path)?;
+    let text = String::from_utf8(bytes).map_err(|_| {
+        StorageError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("{} is not text", path.display()),
+        ))
+    })?;
+
+    // The state of the file the rewrite is measured against is read from the
+    // bytes the rewrite is built from, not from a second read: two reads of a
+    // file something else is writing describe two different files, and the
+    // guard would then be answering about the one that was not rewritten.
+    if let Some(last_known) = last_known {
+        let metadata = std::fs::metadata(path).ok();
+        let state = DiskState {
+            hash: writ_core::hash::sha256_bytes(text.as_bytes()),
+            size: metadata
+                .as_ref()
+                .map(|m| m.len())
+                .unwrap_or(text.len() as u64),
+            mtime: metadata.as_ref().and_then(|m| m.modified().ok()),
+        };
+        if decide_save(Some(&last_known), Some(&state), last_known.hash) == SaveDecision::Refuse {
+            return Err(StorageError::SourceChangedOnDisk {
+                path: path.to_string_lossy().into_owned(),
+                disk_hash: writ_core::hash::digest_hex(state.hash),
+                conflict_copy: None,
+            });
+        }
+    }
+
+    let Some(rewritten) = rewrite_links(&text, old, new_name) else {
+        return Ok(false);
+    };
+    write_guarded_by_stamp(path, rewritten.as_bytes(), before_write)?;
+    Ok(true)
 }
 
 /// Moves a note to the operating system's trash.
