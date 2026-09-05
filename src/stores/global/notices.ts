@@ -22,7 +22,11 @@ export interface NoticesBuffer {
  */
 export async function openThirdPartyNoticesBuffer(): Promise<NoticesBuffer> {
   const result = await openThirdPartyNotices();
-  const reused = bufferRegistry.activeTabs().some((buffer) => buffer.id === result.doc.id);
-  const { doc } = bufferRegistry.registerOpenResult(result);
+  // Writ writes this file itself, so it is always here: the placeholder mode
+  // belongs to notes a sync provider has not downloaded.
+  const doc = result.doc;
+  if (!doc) throw new Error("the notices document opened no note");
+  const reused = bufferRegistry.activeTabs().some((buffer) => buffer.id === doc.id);
+  bufferRegistry.registerOpenResult(result);
   return { doc, reused };
 }

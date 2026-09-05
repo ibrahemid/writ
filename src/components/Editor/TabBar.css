@@ -132,6 +132,12 @@
   outline: none;
 }
 
+.tab-download-marker {
+  margin-left: var(--writ-space-2);
+  font-size: var(--writ-ui-sm);
+  color: var(--writ-fg-faint);
+}
+
 .tab-add {
   width: 24px;
   height: 28px;

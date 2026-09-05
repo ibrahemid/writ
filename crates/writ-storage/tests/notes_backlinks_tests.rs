@@ -242,12 +242,15 @@ fn rewriting_the_link_puts_the_renamed_note_back_in_the_list() {
 
     let new = notes.join("New.md");
     std::fs::rename(&old, &new).expect("rename");
-    write_note(&notes, "Source.md", "Refers to [[New]] here.\n");
+    // The walk skips a file whose size and mtime it already holds, and two
+    // writes of one length can land in the same millisecond, so the rewrite
+    // changes the length.
+    write_note(&notes, "Source.md", "Refers to [[New]] here now.\n");
     walk(&conn, &notes);
 
     let rows = backlinks(&conn, &new);
     assert_eq!(names(&rows), ["Source"]);
-    assert_eq!(rows[0].context, "Refers to [[New]] here.");
+    assert_eq!(rows[0].context, "Refers to [[New]] here now.");
 }
 
 #[test]

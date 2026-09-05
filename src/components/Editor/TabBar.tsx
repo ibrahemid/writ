@@ -17,6 +17,7 @@ import {
 } from "../../lib/note-actions";
 import { formatRenameError } from "../../lib/save-error";
 import SaveMarker from "../SaveMarker/SaveMarker";
+import type { PendingDownload } from "../../stores/window/download-store";
 import { logFailure } from "../../lib/log";
 import "./TabBar.css";
 
@@ -74,6 +75,19 @@ export default function TabBar() {
     } else if (e.key === "Escape") {
       setEditingTabId(null);
     }
+  }
+
+  // A note that is not here yet has a tab but no buffer, so nothing can be the
+  // active tab behind its pane.
+  function selectDownload(path: string) {
+    win.downloads.select(path);
+    win.tabs.setActiveTabId(null);
+  }
+
+  // Text, not an animation: a download reports nothing Writ could animate
+  // honestly, and a tab that moves pulls the eye off the note being written.
+  function markerFor(state: PendingDownload["state"]): string {
+    return state === "downloading" ? "downloading" : "not downloaded";
   }
 
   function handleContextMenu(e: MouseEvent, tabId: string) {
@@ -142,9 +156,10 @@ export default function TabBar() {
   }
 
   // Hidden at one note (ADR-030 §5): a strip of one tab names what the window
-  // already shows.
+  // already shows. A note waiting on its bytes has a tab and no buffer, so the
+  // strip stays up for it however few notes are open.
   return (
-    <Show when={tabs().length > 1}>
+    <Show when={tabs().length > 1 || win.downloads.pending().length > 0}>
       <div class="tabbar" data-platform={platform}>
         {/* The tablist owns its tabs: the anchor and the slot around each one
             are out of the accessibility tree, and the add control is a sibling
@@ -215,6 +230,48 @@ export default function TabBar() {
                         e.preventDefault();
                         e.stopPropagation();
                         void closeFromKeyboard(tab.id);
+                      }}
+                    >
+                      <Icon name="x" size={12} />
+                    </button>
+                  </div>
+                </Tooltip>
+              );
+            }}
+          </For>
+          <For each={win.downloads.pending()}>
+            {(download) => {
+              const isSelected = () => win.downloads.selectedPath() === download.path;
+              const dismissLabel = () =>
+                `${download.state === "downloading" ? "Cancel" : "Close"} ${download.title}`;
+              return (
+                <Tooltip label={download.title} anchorRole="none">
+                  <div
+                    class={`tab tab-download ${isSelected() ? "tab-active" : ""}`}
+                    role="presentation"
+                  >
+                    <button
+                      type="button"
+                      class="tab-label"
+                      role="tab"
+                      aria-selected={isSelected()}
+                      tabIndex={isSelected() ? 0 : -1}
+                      onClick={() => selectDownload(download.path)}
+                    >
+                      <span class="tab-title">{abbreviateTitle(download.title)}</span>
+                      <span class="tab-download-marker">{markerFor(download.state)}</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="tab-close"
+                      aria-label={dismissLabel()}
+                      tabIndex={isSelected() ? 0 : -1}
+                      onClick={(e) => { e.stopPropagation(); void win.downloads.dismiss(download.path); }}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter" && e.key !== " ") return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void win.downloads.dismiss(download.path);
                       }}
                     >
                       <Icon name="x" size={12} />

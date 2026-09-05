@@ -27,6 +27,14 @@ export type WritEvent =
       payload: { request_id: string; kind: "chunk" | "done" | "error"; text?: string };
     }
   | {
+      kind: "note:download";
+      payload: {
+        path: string;
+        state: "started" | "done" | "failed" | "cancelled" | "timed_out";
+        message?: string;
+      };
+    }
+  | {
       kind: "preview:rendered";
       payload: {
         buffer_id: string;

@@ -51,6 +51,14 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       closeAllTabs: mocks.closeAllTabs,
       createTab: mocks.createTab,
     },
+    // No note is waiting on a sync provider in these cases.
+    downloads: {
+      pending: () => [],
+      selectedPath: () => null,
+      select: () => {},
+      cancel: async () => {},
+      close: () => {},
+    },
   }),
 }));
 

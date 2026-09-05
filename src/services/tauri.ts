@@ -359,6 +359,18 @@ export async function openFileConfirmed(path: string): Promise<FileOpenResult> {
   return invoke("open_file_confirmed", { path });
 }
 
+// Asks the sync provider for a note's bytes. Returns as soon as the download
+// has started; the outcome arrives as a note:download event.
+export async function materialiseNote(path: string): Promise<void> {
+  return invoke("materialise_note", { path });
+}
+
+// Stops waiting for a note's bytes. The provider keeps fetching, but nothing
+// is read and no note is opened.
+export async function cancelMaterialiseNote(path: string): Promise<void> {
+  return invoke("cancel_materialise_note", { path });
+}
+
 export async function showOpenFileDialog(): Promise<string | null> {
   const paths = await invoke<string[]>("pick_files_to_open");
   if (Array.isArray(paths) && paths.length > 0) {

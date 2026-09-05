@@ -21,6 +21,9 @@ pub mod snippet;
 /// File identity: telling a file that moved from one that was deleted.
 pub mod identity;
 
+/// Whether opening a note may read it, and how long its download is waited on.
+pub mod materialise;
+
 /// What each answer to a change outside Writ writes.
 pub mod reload;
 
