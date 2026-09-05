@@ -58,6 +58,7 @@ import {
   resetAutosave,
 } from "../../services/autosave";
 import FileChangedBar from "../../components/Editor/FileChangedBar";
+import SaveFailureBar from "../../components/Editor/SaveFailureBar";
 
 const NOTE = "n1";
 const MINE = "the text only the tab has\n";
@@ -91,7 +92,13 @@ function openNote() {
   /** What the watcher reports, through the path the subscription takes. */
   async function reports(change: ExternalChange) {
     await handleExternalEdit(
-      { bufferId: NOTE, change, path: "/notes/note.md" },
+      {
+        bufferId: NOTE,
+        change,
+        path: "/notes/note.md",
+        // Read only by a move, which needs somewhere to follow the file to.
+        newPath: "/notes/note.md",
+      },
       deps,
     );
   }
@@ -339,6 +346,38 @@ describe("a note that is waiting for an answer about its file", () => {
     expect(collectUnsavedContent()).toEqual([{ id: NOTE, content: typed }]);
     await waitFor(() =>
       expect(api.saveBufferContent).toHaveBeenCalledWith(NOTE, typed),
+    );
+  });
+
+  // A deletion is the case that reaches the bar with a reason worth pressing
+  // again: the write that was out fails for a reason of its own rather than
+  // under the guard. Pressing would reach the hold and change nothing, so the
+  // button is not offered until the file is back.
+  it("offers no retry over a note whose file is gone", async () => {
+    const { store, reports } = openNote();
+    const refused = deferredWrite();
+
+    void store.saveActiveBuffer();
+    await waitFor(() => expect(api.saveBufferContent).toHaveBeenCalledTimes(1));
+    await reports("removed");
+    expect(store.noteFileState(NOTE)).toBe("removed");
+    refused.reject("ERR_WRITE_FAILED");
+    await waitFor(() => expect(saveStatusStore.failureFor(NOTE)).toBeDefined());
+
+    const { container } = render(() => <SaveFailureBar noteId={NOTE} />);
+    const labels = () =>
+      [
+        ...container.querySelectorAll<HTMLButtonElement>(
+          ".save-failure-bar-action",
+        ),
+      ].map((button) => button.textContent);
+    await waitFor(() => expect(labels()).toEqual(["Save a copy…"]));
+
+    // The file turned up again, so the write the button stands for can land.
+    await reports("moved");
+    expect(store.noteFileState(NOTE)).toBe("present");
+    await waitFor(() =>
+      expect(labels()).toEqual(["Try again", "Save a copy…"]),
     );
   });
 });
