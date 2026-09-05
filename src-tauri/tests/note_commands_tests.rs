@@ -23,8 +23,8 @@ use writ_storage::errors::StorageError;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::buffer::{
-    read_buffer_content_inner, save_buffer_content_inner, ERR_FILE_CHANGED_ON_DISK,
-    ERR_FILE_REMOVED_ON_DISK,
+    read_buffer_content_inner, restore_note_file_inner, save_buffer_content_inner,
+    ERR_FILE_CHANGED_ON_DISK, ERR_FILE_MISSING, ERR_FILE_REMOVED_ON_DISK,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::commands::notes::{
@@ -38,7 +38,7 @@ use writ_tauri_lib::state::AppState;
 use writ_tauri_lib::watcher::handler::{
     create_ignore_set, start_notes_watcher, NOTES_DEBOUNCE_WINDOW,
 };
-use writ_tauri_lib::watcher::moves::FileTracking;
+use writ_tauri_lib::watcher::moves::{FileTracking, MoveOutcome};
 use writ_tauri_lib::watcher::open_files::start_open_file_watcher;
 
 fn make_state(dir: &TempDir) -> AppState {
@@ -747,6 +747,72 @@ fn a_note_deleted_outside_writ_is_not_recreated_by_the_next_save() {
 }
 
 #[test]
+fn a_note_deleted_outside_writ_goes_back_to_its_path_when_asked_for() {
+    // The refusal above is about a keystroke. This is the person asking, and
+    // the text in the tab is the last copy of the note (ADR-028 §1), so the
+    // one thing that must not happen is Writ having nowhere to put it.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    std::fs::remove_file(&path).expect("delete the note the way Finder does");
+    let seen = external_events(&rx);
+    assert_eq!(change_of(&seen[0]), (&ExternalChange::Removed, None));
+
+    restore_note_file_inner(&state, &doc.id, "text worth keeping, edited")
+        .expect("the restore must land");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read the file back"),
+        "text worth keeping, edited"
+    );
+
+    // The record follows the file, so the next keystroke saves the ordinary
+    // way rather than being refused over a file that is there.
+    save_buffer_content_inner(&state, &doc.id, "and edited again").expect("the next save");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read the file back"),
+        "and edited again"
+    );
+}
+
+#[test]
+fn a_restore_with_nowhere_to_write_says_so_and_leaves_the_note_removed() {
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    std::fs::remove_file(&path).expect("delete the note the way Finder does");
+    let seen = external_events(&rx);
+    assert_eq!(change_of(&seen[0]), (&ExternalChange::Removed, None));
+
+    let folder = path.parent().expect("the note's folder").to_path_buf();
+    std::fs::remove_dir_all(&folder).expect("take the folder away too");
+
+    let refused = restore_note_file_inner(&state, &doc.id, "text worth keeping, edited")
+        .expect_err("a write with nowhere to land must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_MISSING),
+        "the refusal has to carry its own code, got {refused}"
+    );
+    // A restore that did not land leaves the note removed, so nothing later
+    // recreates the file quietly.
+    let after = save_buffer_content_inner(&state, &doc.id, "and edited again")
+        .expect_err("the next save must still be refused");
+    assert!(
+        after.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the note stopped being marked removed, got {after}"
+    );
+}
+
+#[test]
 fn a_sync_client_replacing_a_file_is_an_external_modification_and_not_a_move() {
     // Delete plus create at the same path, which is how more than one sync
     // client lands an update. The file is a different file, and the tab is
@@ -1282,15 +1348,17 @@ fn one_move_seen_by_both_watchers_moves_the_row_once() {
     std::fs::rename(&before, &after).expect("move the file the way Finder does");
 
     let files = FileTracking::of_state(&state).files;
-    assert!(
+    assert_eq!(
         files.note_file_moved(&doc.id, &before, &after),
+        MoveOutcome::Followed,
         "the first watcher to see the move applies it"
     );
     assert_eq!(note_file(&state, &doc.id), after);
     assert_eq!(title_of(&state, &doc.id), "moved-by-finder.md");
 
-    assert!(
-        !files.note_file_moved(&doc.id, &before, &after),
+    assert_eq!(
+        files.note_file_moved(&doc.id, &before, &after),
+        MoveOutcome::AlreadyThere,
         "the second watcher's copy of the same move is not news"
     );
     assert_eq!(note_file(&state, &doc.id), after);

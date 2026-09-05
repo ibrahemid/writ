@@ -39,6 +39,10 @@ pub const ERR_NOTE_READ_ONLY: &str = "ERR_NOTE_READ_ONLY";
 /// Code a save carries when the filesystem refused the write.
 pub const ERR_PERMISSION_DENIED: &str = "ERR_PERMISSION_DENIED";
 
+/// Code a save carries when another program is holding the file open, which
+/// on Windows stops the rename a save ends with.
+pub const ERR_FILE_IN_USE: &str = "ERR_FILE_IN_USE";
+
 /// Code a save carries when the file, or the folder above it, is gone.
 pub const ERR_FILE_MISSING: &str = "ERR_FILE_MISSING";
 
@@ -78,6 +82,7 @@ pub fn save_failure_message(error: &StorageError) -> String {
 fn io_failure_code(kind: std::io::ErrorKind) -> &'static str {
     match kind {
         std::io::ErrorKind::PermissionDenied => ERR_PERMISSION_DENIED,
+        std::io::ErrorKind::ResourceBusy => ERR_FILE_IN_USE,
         std::io::ErrorKind::NotFound => ERR_FILE_MISSING,
         std::io::ErrorKind::TimedOut => ERR_WRITE_TIMED_OUT,
         _ => ERR_WRITE_FAILED,
@@ -176,6 +181,31 @@ pub fn save_buffer_content_inner(
     id: &str,
     content: &str,
 ) -> Result<Option<String>, String> {
+    write_note_source(state, id, content, RemovedFile::Refuse)
+}
+
+/// What a write does about a note whose file was deleted outside Writ.
+///
+/// A keystroke must not recreate it and an explicit request to put it back
+/// must not be refused. Both are the same write with opposite answers to that
+/// one question, so they are one function and this is the difference between
+/// them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RemovedFile {
+    /// Refuse under `ERR_FILE_REMOVED_ON_DISK` (spec W4).
+    Refuse,
+    /// Write the file back at the path the note names.
+    WriteBack,
+}
+
+/// The write every save lands through, with the removed-file question left to
+/// the caller.
+fn write_note_source(
+    state: &AppState,
+    id: &str,
+    content: &str,
+    removed: RemovedFile,
+) -> Result<Option<String>, String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).map_err(|e| e.to_string())?;
     if doc.read_only {
@@ -185,7 +215,7 @@ pub fn save_buffer_content_inner(
     // write gate cannot answer this on its own: a path that is not there
     // resolves and passes, which is what lets a new note be minted and is
     // right everywhere except here (spec W4).
-    if state.is_removed_on_disk(id) {
+    if removed == RemovedFile::Refuse && state.is_removed_on_disk(id) {
         return Err(format!(
             "{ERR_FILE_REMOVED_ON_DISK}: note {id} has no file on disk any more"
         ));
@@ -279,6 +309,50 @@ pub fn save_buffer_content(
     content: String,
 ) -> Result<Option<String>, String> {
     let disk_hash = save_buffer_content_inner(&state, &id, &content)?;
+    if let Some(generation) = state.fts_scheduler.on_edit(&id) {
+        spawn_deferred_reindex(app, id, generation);
+    }
+    Ok(disk_hash)
+}
+
+/// Writes a note whose file was deleted outside Writ back to the path it
+/// names.
+///
+/// [`save_buffer_content_inner`] refuses that write, and has to: the tab's
+/// text is the last copy of the note (ADR-028 §1), so every keystroke would
+/// otherwise put back a file the person threw away, on every synced device.
+/// Asking for it is the other half of the same rule — the text is the person's
+/// and this is where they say it goes back.
+///
+/// The record is reset from the file only after the write lands. Clearing it
+/// first would leave a failed restore unmarked, autosave unblocked, and the
+/// next keystroke recreating the file silently. A folder that is gone fails
+/// here like any other write and comes back under `ERR_FILE_MISSING`.
+pub fn restore_note_file_inner(
+    state: &AppState,
+    id: &str,
+    content: &str,
+) -> Result<Option<String>, String> {
+    let disk_hash = write_note_source(state, id, content, RemovedFile::WriteBack)?;
+    let source_path = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        store.get(id).map_err(|e| e.to_string())?.source_path
+    };
+    if let Some(path) = source_path {
+        state.observe_source_file(id, Path::new(&path));
+    }
+    Ok(disk_hash)
+}
+
+/// IPC: [`restore_note_file_inner`].
+#[tauri::command]
+pub fn restore_note_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    content: String,
+) -> Result<Option<String>, String> {
+    let disk_hash = restore_note_file_inner(&state, &id, &content)?;
     if let Some(generation) = state.fts_scheduler.on_edit(&id) {
         spawn_deferred_reindex(app, id, generation);
     }

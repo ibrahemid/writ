@@ -81,15 +81,19 @@ export async function confirmAndDeleteNote(id: string): Promise<void> {
  *
  * The text comes from the editor rather than the file, so a copy taken mid-edit
  * carries what is on screen. The note it was copied from is left where it is.
+ *
+ * A note whose file was deleted outside Writ has no file to fall back to, and
+ * the copy is the whole point of the offer, so the text the store kept for it
+ * is read before disk is.
  */
 export async function saveCopyOfNote(id: string): Promise<void> {
   const win = windowRegistry.getActive();
   if (!win) return;
 
-  const live = win.editor.currentBufferId() === id ? win.editor.getActiveText(false) : null;
-  const content = live ? live.text : await bufferRegistry.readContent(id);
-
   try {
+    const live = win.editor.currentBufferId() === id ? win.editor.getActiveText(false) : null;
+    const kept = win.editor.textOfRemoved(id);
+    const content = live ? live.text : (kept ?? (await bufferRegistry.readContent(id)));
     const path = await bufferRegistry.saveCopy(id, content);
     await win.tabs.openFile(path);
   } catch {

@@ -476,6 +476,7 @@ pub fn run() {
             commands::buffer::get_buffer,
             commands::buffer::save_buffer_content,
             commands::buffer::save_buffer_content_unindexed,
+            commands::buffer::restore_note_file,
             commands::buffer::read_buffer_content,
             commands::buffer::note_disk_state,
             commands::buffer::record_unsaved_notes,

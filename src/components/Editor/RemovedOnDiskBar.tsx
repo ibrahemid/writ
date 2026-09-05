@@ -6,10 +6,11 @@ import "./RemovedOnDiskBar.css";
 /**
  * The bar a note carries once its file is gone from disk.
  *
- * The text stays in the editor and nothing is written back, because writing
- * would recreate a file the person deleted somewhere else (spec W4). The two
- * ways out are the two the bar offers: write the text to a new file, or let
- * the tab go.
+ * The text stays in the editor and no keystroke writes it back, because that
+ * would recreate a file the person deleted somewhere else (spec W4). What
+ * happens to the text is the person's call, and the three ways out are the
+ * three the bar offers: put the file back where it was, write the text to a
+ * new file, or let the tab go.
  */
 export default function RemovedOnDiskBar(props: { noteId: string | null }) {
   const win = useWindow();
@@ -30,6 +31,13 @@ export default function RemovedOnDiskBar(props: { noteId: string | null }) {
             {name()} was deleted. Your text is still here.
           </p>
           <div class="removed-on-disk-bar-actions">
+            <button
+              type="button"
+              class="removed-on-disk-bar-action"
+              onClick={() => void win.editor.restoreRemovedFile(id())}
+            >
+              Put the file back
+            </button>
             <button
               type="button"
               class="removed-on-disk-bar-action"

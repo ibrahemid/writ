@@ -6,7 +6,10 @@
 //!
 //! Unix answers with `dev` and `ino`, which `std` exposes on every metadata
 //! read. Windows answers with `FILE_ID_INFO`, which needs an open handle and
-//! is not available on FAT, exFAT, or some SMB servers. A volume that will not
+//! is not available on FAT, exFAT, or some SMB servers. Neither answer carries
+//! a birth time beside it here: only Linux reads one, because that is the only
+//! platform where an id can come back and nothing can move the value under a
+//! live file (`reusable_inode_birth`). A volume that will not
 //! answer gets [`FileIdentity::Fallback`], a description that cannot recognise
 //! the file anywhere else, which is exactly what makes the verdict degrade
 //! instead of guessing (spec W4).
@@ -130,6 +133,14 @@ fn platform_identity(path: &Path) -> Option<FileIdentity> {
 
 /// Windows: `FILE_ID_INFO`, which needs a handle on the file.
 ///
+/// No birth time is read beside it. An NTFS file id carries a sequence number
+/// bumped when the record is handed to another file, and a ReFS id is 128 bits
+/// of its own, so the id already separates a note from a stranger created
+/// after it; and a creation time is settable through `SetFileTime`, so
+/// comparing two would answer whatever last wrote the file. Windows passes
+/// `None` for the same reason macOS does
+/// ([`writ_core::notes::identity::FileIdentity::Windows::birth_ns`]).
+///
 /// `std`'s `file_index` is the older 64-bit id and is still unstable, so the
 /// call is made directly. `File::open` is not what opens it: that asks for read
 /// access and shares the file for reading and writing but not deleting, so a
@@ -181,6 +192,7 @@ fn platform_identity(path: &Path) -> Option<FileIdentity> {
     Some(FileIdentity::Windows {
         volume: info.VolumeSerialNumber,
         index: u128::from_le_bytes(info.FileId.Identifier),
+        birth_ns: None,
     })
 }
 
@@ -315,6 +327,69 @@ mod tests {
             classify_delete(&before, &[(PathBuf::from("/notes/renamed.md"), candidate)]),
             DeleteVerdict::Moved(PathBuf::from("/notes/renamed.md"))
         );
+    }
+
+    #[test]
+    fn a_windows_file_id_handed_back_out_is_not_the_file_that_had_it() {
+        // Two ids that differ only in when their files were born are two
+        // files, over a file id as over an inode. Built by hand for a stronger
+        // reason than the inode pair above: no Windows read fills a birth
+        // time, and the rule still has to hold for a record that carries one.
+        let before = FileIdentity::Windows {
+            volume: 0x1234_5678,
+            index: 0x0000_0000_0000_0002_0000_0000_0001_0f2c,
+            birth_ns: Some(1_700_000_000_000_000_000),
+        };
+        let recreated = FileIdentity::Windows {
+            volume: 0x1234_5678,
+            index: 0x0000_0000_0000_0002_0000_0000_0001_0f2c,
+            birth_ns: Some(1_700_000_000_004_000_000),
+        };
+        assert_eq!(
+            classify_delete(
+                &before,
+                &[(PathBuf::from(r"C:\notes\unrelated.md"), recreated)]
+            ),
+            DeleteVerdict::Removed
+        );
+    }
+
+    #[test]
+    fn a_windows_file_id_with_no_creation_time_to_read_still_finds_its_file() {
+        // A record with no birth time to compare leaves the file id as the
+        // whole of the answer, which is every Windows read there is.
+        let before = FileIdentity::Windows {
+            volume: 0x1234_5678,
+            index: 0x0000_0000_0000_0002_0000_0000_0001_0f2c,
+            birth_ns: None,
+        };
+        let candidate = FileIdentity::Windows {
+            volume: 0x1234_5678,
+            index: 0x0000_0000_0000_0002_0000_0000_0001_0f2c,
+            birth_ns: None,
+        };
+        assert_eq!(
+            classify_delete(
+                &before,
+                &[(PathBuf::from(r"C:\notes\renamed.md"), candidate)]
+            ),
+            DeleteVerdict::Moved(PathBuf::from(r"C:\notes\renamed.md"))
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn windows_answers_with_the_file_id_and_no_birth_time() {
+        // The birth time is the assertion: a file id already separates a note
+        // from the file created after it, and a creation time can be set, so
+        // reading one here would cost what it costs on APFS and buy nothing.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("note.md");
+        std::fs::write(&path, "body").expect("write");
+        assert!(matches!(
+            read_identity(&path),
+            Some(FileIdentity::Windows { birth_ns: None, .. })
+        ));
     }
 
     #[test]

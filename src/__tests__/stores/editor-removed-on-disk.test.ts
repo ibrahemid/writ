@@ -3,11 +3,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("../../services/tauri", () => ({
   saveBufferContent: vi.fn().mockResolvedValue(null),
   noteDiskState: vi.fn(async () => ({ state: "no_file" })),
+  restoreNoteFile: vi.fn().mockResolvedValue(null),
 }));
 
 import { createEditorStore } from "../../stores/window/editor-store";
-import { debouncedSave, resetAutosave } from "../../services/autosave";
-import { saveBufferContent } from "../../services/tauri";
+import {
+  collectUnsavedContent,
+  debouncedSave,
+  peekUnsavedContent,
+  resetAutosave,
+} from "../../services/autosave";
+import { restoreNoteFile, saveBufferContent } from "../../services/tauri";
 
 vi.mock("../../services/autosave", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../services/autosave")>();
@@ -16,6 +22,7 @@ vi.mock("../../services/autosave", async (importOriginal) => {
 
 const queued = vi.mocked(debouncedSave);
 const mockedSave = vi.mocked(saveBufferContent);
+const mockedRestore = vi.mocked(restoreNoteFile);
 
 let stores: Array<{ stopSaveListener: () => void }> = [];
 
@@ -41,6 +48,8 @@ beforeEach(() => {
   queued.mockClear();
   mockedSave.mockReset();
   mockedSave.mockResolvedValue(null);
+  mockedRestore.mockReset();
+  mockedRestore.mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -87,6 +96,45 @@ describe("editorStore removed-on-disk", () => {
     expect(queued).not.toHaveBeenCalled();
   });
 
+  it("keeps the keystrokes it does not queue", () => {
+    // The guard stops the write, not the text. What was typed after the file
+    // went is the newest copy of the note there is, so a close or a quit has
+    // to find it: the tab is gone by then and the view with it.
+    const store = loadedStore();
+    store.markRemovedOnDisk("one");
+
+    store.scheduleAutosave("one", () => "typed after the file went", 0);
+
+    expect(queued).not.toHaveBeenCalled();
+    expect(store.textOfRemoved("one")).toBe("typed after the file went");
+    expect(collectUnsavedContent()).toEqual([
+      { id: "one", content: "typed after the file went" },
+    ]);
+  });
+
+  it("still has the text when the tab it was typed in closes", () => {
+    // The close path drops the note's marks first and reads its unsaved text
+    // second. A close that forgot the text before handing it over would lose
+    // exactly what the deletion left behind.
+    const store = loadedStore();
+    store.markRemovedOnDisk("one");
+    store.scheduleAutosave("one", () => "typed after the file went", 0);
+
+    store.noteClosed("one");
+
+    expect(peekUnsavedContent("one")).toBe("typed after the file went");
+  });
+
+  it("stops holding the text once the file is back", () => {
+    const store = loadedStore();
+    store.markRemovedOnDisk("one");
+    store.scheduleAutosave("one", () => "typed after the file went", 0);
+
+    store.clearRemovedOnDisk("one");
+
+    expect(collectUnsavedContent()).toEqual([]);
+  });
+
   it("queues again once the note has a file", () => {
     const store = newStore();
     store.markRemovedOnDisk("one");
@@ -97,7 +145,10 @@ describe("editorStore removed-on-disk", () => {
     expect(queued).toHaveBeenCalledWith("one", expect.any(Function), 0);
   });
 
-  it("writes nothing on an explicit save either", async () => {
+  it("puts the file back on an explicit save", async () => {
+    // Autosave stays quiet, but the save keystroke is the person asking for
+    // the file back, and it goes through the one write the backend allows for
+    // a note whose file is gone.
     const store = loadedStore();
     store.markRemovedOnDisk("one");
 
@@ -105,6 +156,69 @@ describe("editorStore removed-on-disk", () => {
 
     expect(result.ok).toBe(true);
     expect(mockedSave).not.toHaveBeenCalled();
+    expect(mockedRestore).toHaveBeenCalledWith("one", "text");
+    expect(store.isRemovedOnDisk("one")).toBe(false);
+  });
+
+  it("stays marked when the file could not be put back", async () => {
+    const store = loadedStore();
+    store.markRemovedOnDisk("one");
+    mockedRestore.mockRejectedValueOnce(new Error("ERR_FILE_MISSING: no folder"));
+
+    const result = await store.saveActiveBuffer();
+
+    expect(result.ok).toBe(false);
+    expect(store.isRemovedOnDisk("one")).toBe(true);
+  });
+
+  it("keeps the text of a note whose file went", () => {
+    const store = loadedStore();
+    store.markRemovedOnDisk("one");
+    // The view is the loaded note's, so the mark takes its text with it.
+    expect(store.textOfRemoved("one")).toBe("text");
+    // A background tab's text is on disk, which is what went, so there is
+    // nothing to keep and nothing is claimed.
+    store.markRemovedOnDisk("two");
+    expect(store.textOfRemoved("two")).toBeUndefined();
+  });
+
+  it("forgets the kept text when the file comes back", () => {
+    const store = loadedStore();
+    store.markRemovedOnDisk("one");
+    store.clearRemovedOnDisk("one");
+    expect(store.textOfRemoved("one")).toBeUndefined();
+  });
+
+  it("puts the file back when the bar's retry is pressed", async () => {
+    // The bar over a restore that could not land offers a retry, and the press
+    // has to mean the same restore. An ordinary write is refused every time,
+    // so it would answer the bar with the same bar.
+    const store = loadedStore();
+    store.markRemovedOnDisk("one");
+
+    const result = await store.retrySave("one");
+
+    expect(result.ok).toBe(true);
+    expect(mockedSave).not.toHaveBeenCalled();
+    expect(mockedRestore).toHaveBeenCalledWith("one", "text");
+    expect(store.isRemovedOnDisk("one")).toBe(false);
+  });
+
+  it("drops the mark when a restore lands from the queue", async () => {
+    // A restore stopped by something that passes reaches the queue, and the
+    // flush a tab switch runs is what writes it. The file is back at that
+    // point, so the bar over it goes too.
+    const store = loadedStore();
+    store.markRemovedOnDisk("one");
+    mockedRestore.mockRejectedValueOnce(new Error("ERR_FILE_MISSING: no folder"));
+    await store.saveActiveBuffer();
+    expect(store.isRemovedOnDisk("one")).toBe(true);
+
+    const result = await store.flushAutosave("one");
+
+    expect(result.ok).toBe(true);
+    expect(mockedRestore).toHaveBeenLastCalledWith("one", "text");
+    expect(store.isRemovedOnDisk("one")).toBe(false);
   });
 
   it("writes on an explicit save while the file is there", async () => {

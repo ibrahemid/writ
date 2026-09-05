@@ -76,6 +76,26 @@ pub enum FileIdentity {
         volume: u64,
         /// File id within that volume.
         index: u128,
+        /// When the file was created, in nanoseconds since the Unix epoch, on
+        /// the platforms that read it.
+        ///
+        /// `None` on every Windows volume, under the platform rule the inode
+        /// carries ([`FileIdentity::Inode::birth_ns`]): a birth time earns its
+        /// comparison only where an id can come back *and* nothing can move
+        /// the value under a live file, and neither half holds here. An NTFS
+        /// file id carries a sequence number that is bumped when the record is
+        /// handed to another file, and a ReFS id is 128 bits of its own, so
+        /// the id already separates a note from a stranger created after it.
+        /// A creation time is settable through `SetFileTime`, so comparing two
+        /// of them would answer whatever last wrote the file. The file id is
+        /// the whole of the answer, which is what it was before the field
+        /// existed.
+        ///
+        /// The field is what makes both ids answer by one rule
+        /// ([`FileIdentity::is_same_file`]) rather than two, so a record that
+        /// does carry a birth time is compared on it instead of having it
+        /// quietly dropped.
+        birth_ns: Option<u128>,
     },
     /// No stable id was available, so the file is described by what can be
     /// observed instead.
@@ -109,12 +129,12 @@ impl FileIdentity {
     ///
     /// Not `==`, which is exact-value equality and is what a caller comparing
     /// two records of the same read wants ([`identity_to_keep`]). This is the
-    /// question a vanished file asks of a candidate, and one field of an inode
-    /// identity is allowed to be missing from either side: a volume that
-    /// reports no birth time answers `None` for every file on it, so demanding
-    /// agreement there would make every move on such a volume read as a
-    /// deletion. Two known birth times must agree; an unknown one leaves the
-    /// inode as the whole of the answer.
+    /// question a vanished file asks of a candidate, and the birth time of an
+    /// id is allowed to be missing from either side: a volume that reports no
+    /// birth time answers `None` for every file on it, so demanding agreement
+    /// there would make every move on such a volume read as a deletion. Two
+    /// known birth times must agree; an unknown one leaves the id itself as
+    /// the whole of the answer.
     ///
     /// Agreement is what the record asks for because a birth time is only read
     /// where nothing can move it under a live file, which is Linux
@@ -134,6 +154,22 @@ impl FileIdentity {
             ) => {
                 dev == recorded_dev
                     && ino == recorded_ino
+                    && births_agree(*birth_ns, *recorded_birth_ns)
+            }
+            (
+                Self::Windows {
+                    volume,
+                    index,
+                    birth_ns,
+                },
+                Self::Windows {
+                    volume: recorded_volume,
+                    index: recorded_index,
+                    birth_ns: recorded_birth_ns,
+                },
+            ) => {
+                volume == recorded_volume
+                    && index == recorded_index
                     && births_agree(*birth_ns, *recorded_birth_ns)
             }
             _ => self == recorded,
@@ -320,6 +356,22 @@ mod tests {
         }
     }
 
+    fn windows(volume: u64, index: u128) -> FileIdentity {
+        FileIdentity::Windows {
+            volume,
+            index,
+            birth_ns: None,
+        }
+    }
+
+    fn windows_born(volume: u64, index: u128, birth_ns: u128) -> FileIdentity {
+        FileIdentity::Windows {
+            volume,
+            index,
+            birth_ns: Some(birth_ns),
+        }
+    }
+
     fn fallback(path: &str) -> FileIdentity {
         FileIdentity::Fallback {
             path: path.to_string(),
@@ -472,18 +524,9 @@ mod tests {
 
     #[test]
     fn a_windows_file_id_recognises_its_file() {
-        let before = FileIdentity::Windows {
-            volume: 7,
-            index: 0x0123_4567_89ab_cdef_0123_4567_89ab_cdef,
-        };
-        let elsewhere = FileIdentity::Windows {
-            volume: 7,
-            index: 0x0123_4567_89ab_cdef_0123_4567_89ab_cdef,
-        };
-        let other = FileIdentity::Windows {
-            volume: 7,
-            index: 0x0123_4567_89ab_cdef_0123_4567_89ab_cdee,
-        };
+        let before = windows(7, 0x0123_4567_89ab_cdef_0123_4567_89ab_cdef);
+        let elsewhere = windows(7, 0x0123_4567_89ab_cdef_0123_4567_89ab_cdef);
+        let other = windows(7, 0x0123_4567_89ab_cdef_0123_4567_89ab_cdee);
         let verdict = classify_delete(
             &before,
             &[
@@ -498,16 +541,72 @@ mod tests {
     }
 
     #[test]
+    fn a_windows_file_id_handed_back_out_to_a_new_file_is_not_the_old_file() {
+        // Two ids that differ only in when their files were born are two
+        // files, over a file id as over an inode. Built by hand: no Windows
+        // read fills a birth time, and the rule still has to hold for a record
+        // that carries one.
+        let verdict = classify_delete(
+            &windows_born(7, 42, 1_700_000_000_000_000_000),
+            &[(
+                PathBuf::from(r"C:\notes\somebody-elses.md"),
+                windows_born(7, 42, 1_700_000_000_500_000_000),
+            )],
+        );
+        assert_eq!(verdict, DeleteVerdict::Removed);
+    }
+
+    #[test]
+    fn a_windows_file_born_when_the_one_on_record_was_is_that_file() {
+        // A rename leaves the creation time alone, so the file at the new path
+        // still answers with the one the record holds.
+        let verdict = classify_delete(
+            &windows_born(7, 42, 1_700_000_000_000_000_000),
+            &[(
+                PathBuf::from(r"C:\notes\renamed.md"),
+                windows_born(7, 42, 1_700_000_000_000_000_000),
+            )],
+        );
+        assert_eq!(
+            verdict,
+            DeleteVerdict::Moved(PathBuf::from(r"C:\notes\renamed.md"))
+        );
+    }
+
+    #[test]
+    fn a_windows_volume_that_reports_no_creation_time_still_follows_its_file() {
+        // A record with no birth time to compare leaves the file id as the
+        // whole of the answer, which is every Windows read there is.
+        let verdict = classify_delete(
+            &windows(7, 42),
+            &[(
+                PathBuf::from(r"C:\notes\renamed.md"),
+                windows_born(7, 42, 5),
+            )],
+        );
+        assert_eq!(
+            verdict,
+            DeleteVerdict::Moved(PathBuf::from(r"C:\notes\renamed.md"))
+        );
+    }
+
+    #[test]
+    fn a_windows_file_on_another_volume_is_another_file_whatever_it_was_born() {
+        let verdict = classify_delete(
+            &windows_born(7, 42, 1_700_000_000_000_000_000),
+            &[(
+                PathBuf::from(r"D:\notes\same-index.md"),
+                windows_born(8, 42, 1_700_000_000_000_000_000),
+            )],
+        );
+        assert_eq!(verdict, DeleteVerdict::Removed);
+    }
+
+    #[test]
     fn an_identity_of_one_kind_never_matches_another() {
         let verdict = classify_delete(
             &inode(1, 42),
-            &[(
-                PathBuf::from("/notes/moved.md"),
-                FileIdentity::Windows {
-                    volume: 1,
-                    index: 42,
-                },
-            )],
+            &[(PathBuf::from("/notes/moved.md"), windows(1, 42))],
         );
         assert_eq!(verdict, DeleteVerdict::Removed);
     }
@@ -595,11 +694,7 @@ mod tests {
     #[test]
     fn only_a_fallback_is_undurable() {
         assert!(inode(1, 42).is_durable());
-        assert!(FileIdentity::Windows {
-            volume: 1,
-            index: 2
-        }
-        .is_durable());
+        assert!(windows(1, 2).is_durable());
         assert!(!fallback("/notes/a.md").is_durable());
     }
 }
