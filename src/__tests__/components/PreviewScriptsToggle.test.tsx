@@ -35,13 +35,14 @@ import PreviewScriptsToggle from "../../components/Preview/PreviewScriptsToggle"
 function baseConfig(runScripts: boolean): WritConfig {
   return {
     hotkey: { toggle: "" },
-    sidebar: { toggle: "", default_visible: false, position: "left", open: false },
-    editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true },
+    sidebar: { toggle: "", default_visible: false, position: "left", open: false, width: 240 },
+    editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true, status_bar: false },
     window: { width: 800, height: 600, maximized: false },
     keybindings: {},
     history: { max_entries: 500 },
     storage: { path: "~/.writ" },
     theme: { preset: "warp-dark", overrides: {} },
+    appearance: { polarity: "system", accent: "pine", prose_face: "system" },
     commands: { usage: {} },
   workspace: { root: null },
   inbox: { path: null, focus: true },

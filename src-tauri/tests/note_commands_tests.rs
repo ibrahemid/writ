@@ -283,7 +283,7 @@ fn save_copy_leaves_the_original_untouched() {
     );
     assert_eq!(
         note_file(&state, &id),
-        elsewhere.canonicalize().expect("canonical"),
+        writ_tauri_lib::security::canonicalize_root(&elsewhere).expect("canonical"),
         "the note followed its copy instead of staying put"
     );
 
@@ -1226,7 +1226,7 @@ fn deleting_one_name_of_a_hard_linked_file_follows_the_name_that_is_left() {
     // A hard link is one file with two names. Deleting one of them deletes a
     // name, not the file: the bytes the tab is editing are still there under
     // the other name, in a folder Writ watches. Reporting a removal would
-    // refuse every later save over a file that exists (ADR-033 §11).
+    // refuse every later save over a file that exists (ADR-033 §12).
     let dir = TempDir::new().expect("temp dir");
     let (state, rx) = watching_state(&dir);
 

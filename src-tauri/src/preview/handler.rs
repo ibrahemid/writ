@@ -218,6 +218,12 @@ pub fn chrome_asset(path: &str) -> Option<(&'static [u8], &'static str)> {
             include_bytes!("../../assets/preview-base.css"),
             chrome_mime("preview-base.css"),
         )),
+        // The token layer the rules read. Served beside them so the chrome
+        // scope still hands out a complete sheet.
+        "generated/preview-tokens.css" => Some((
+            include_bytes!("../../assets/generated/preview-tokens.css"),
+            chrome_mime("preview-tokens.css"),
+        )),
         "blank" | "blank.html" => Some((
             b"<!doctype html><title>writ</title>",
             chrome_mime("blank.html"),
@@ -373,6 +379,25 @@ mod tests {
             .headers
             .iter()
             .any(|(k, v)| *k == "X-Content-Type-Options" && v == "nosniff"));
+    }
+
+    #[test]
+    fn chrome_scope_serves_the_generated_token_layer_beside_the_rules() {
+        // The rules read --writ-preview-* but no longer declare them, so the
+        // chrome scope has to hand out both halves to hand out a whole sheet.
+        let r = resolve(
+            "writ-preview://chrome/generated/preview-tokens.css",
+            SCRIPTS_ON,
+            no_doc,
+            chrome_asset,
+        );
+        assert_eq!(r.status, 200);
+        let body = String::from_utf8_lossy(&r.body);
+        assert!(body.contains("--writ-preview-bg:"));
+        assert!(r
+            .headers
+            .iter()
+            .any(|(k, v)| *k == "Content-Type" && v.starts_with("text/css")));
     }
 
     #[test]

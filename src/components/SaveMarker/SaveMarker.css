@@ -3,7 +3,7 @@
   flex-shrink: 0;
   width: 7px;
   height: 7px;
-  border: 1.5px solid var(--writ-foreground-muted);
+  border: 1.5px solid var(--writ-fg-muted);
   border-radius: 50%;
 }
 

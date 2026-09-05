@@ -6,7 +6,13 @@ use std::path::PathBuf;
 
 use tempfile::TempDir;
 use writ_core::startup::{classify_data_dir, DataDirVerdict, Platform, SyncProvider};
-use writ_tauri_lib::startup::{data_dir_verdict, stfolder_markers, HOST_PLATFORM};
+// The canonical spelling the app itself produces: on Windows
+// `std::fs::canonicalize` returns a `\\?\` prefix that every path Writ holds
+// has been stripped of, and the two never compare equal.
+use writ_tauri_lib::security::canonicalize_root;
+#[cfg(unix)]
+use writ_tauri_lib::startup::HOST_PLATFORM;
+use writ_tauri_lib::startup::{data_dir_verdict, stfolder_markers};
 use writ_tauri_lib::state::{AppState, NotesRootFallbackReason};
 
 #[test]
@@ -70,7 +76,7 @@ fn the_launch_keeps_its_notes_beside_its_own_data_folder() {
 
     assert_eq!(
         state.notes_root(),
-        std::fs::canonicalize(kept.path().join("Writ")).expect("notes folder")
+        canonicalize_root(&kept.path().join("Writ")).expect("notes folder")
     );
     assert_eq!(state.notes_root_fallback(), None);
     drop(state);
@@ -84,7 +90,7 @@ fn the_launch_keeps_its_notes_beside_its_own_data_folder() {
 
     assert_eq!(
         state.notes_root(),
-        std::fs::canonicalize(turned_down.path().join("Writ")).expect("notes folder")
+        canonicalize_root(&turned_down.path().join("Writ")).expect("notes folder")
     );
     assert_eq!(
         state.notes_root_fallback().map(|fallback| fallback.reason),
@@ -105,7 +111,7 @@ fn the_verdict_carries_the_marker_walk_to_the_policy() {
         DataDirVerdict::InsideSyncProvider {
             provider: SyncProvider::Syncthing,
             // Resolved, because that is the folder the database would land in.
-            root: std::fs::canonicalize(&synced).expect("synced folder"),
+            root: canonicalize_root(&synced).expect("synced folder"),
         }
     );
 
@@ -124,7 +130,7 @@ fn a_data_folder_symlinked_into_a_synced_folder_is_refused() {
     // Canonical, because the temporary directory is reached through a symlink
     // on macOS and the home prefix has to be the spelling the canonical data
     // folder shares.
-    let home = std::fs::canonicalize(root.path()).expect("home");
+    let home = canonicalize_root(root.path()).expect("home");
     let synced = home.join("Dropbox");
     std::fs::create_dir_all(synced.join("real")).expect("synced folder");
 
@@ -158,7 +164,7 @@ fn a_data_folder_symlinked_into_a_synced_folder_is_refused() {
 #[test]
 fn a_data_folder_writ_has_not_created_yet_is_refused() {
     let root = TempDir::new().expect("temp dir");
-    let home = std::fs::canonicalize(root.path()).expect("home");
+    let home = canonicalize_root(root.path()).expect("home");
     let synced = home.join("Dropbox");
     std::fs::create_dir_all(&synced).expect("synced folder");
 
@@ -190,7 +196,7 @@ fn a_data_folder_writ_has_not_created_yet_is_refused() {
 #[test]
 fn the_guard_creates_nothing_at_the_folder_it_turns_down() {
     let root = TempDir::new().expect("temp dir");
-    let home = std::fs::canonicalize(root.path()).expect("home");
+    let home = canonicalize_root(root.path()).expect("home");
     let synced = home.join("Dropbox");
     std::fs::create_dir_all(&synced).expect("synced folder");
     let planned = synced.join("newdata");
@@ -224,7 +230,7 @@ fn the_guard_creates_nothing_at_the_folder_it_turns_down() {
 #[test]
 fn the_lowercase_provider_folder_is_refused_before_anything_is_created() {
     let root = TempDir::new().expect("temp dir");
-    let home = std::fs::canonicalize(root.path()).expect("home");
+    let home = canonicalize_root(root.path()).expect("home");
     let synced = home.join("Dropbox");
     std::fs::create_dir_all(&synced).expect("synced folder");
     let planned = home.join("dropbox").join("newdata");
@@ -251,7 +257,7 @@ fn the_lowercase_provider_folder_is_refused_before_anything_is_created() {
 #[test]
 fn a_dangling_data_folder_symlink_creates_nothing_in_the_synced_folder() {
     let root = TempDir::new().expect("temp dir");
-    let home = std::fs::canonicalize(root.path()).expect("home");
+    let home = canonicalize_root(root.path()).expect("home");
     let synced = home.join("Dropbox");
     std::fs::create_dir_all(&synced).expect("synced folder");
 

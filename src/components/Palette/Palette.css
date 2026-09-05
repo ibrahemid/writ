@@ -1,132 +1,157 @@
+/* The palette on the accepted baseline (ADR-030 §5): no scrim, a shadowed
+   sheet over the note, 640px wide, a 40px input and 32px rows. */
+
 .palette-overlay {
   position: fixed;
   inset: 0;
-  background: var(--writ-overlay-scrim);
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding-top: 96px;
-  z-index: 100;
+  padding-top: 56px;
+  z-index: var(--writ-z-palette);
 }
 
 .palette {
-  width: min(640px, calc(100vw - 96px));
-  max-height: min(520px, calc(100vh - 176px));
-  background: var(--writ-surface-raised);
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-radius-3);
+  width: min(640px, calc(100vw - 48px));
+  max-height: min(520px, calc(100vh - 96px));
+  background: var(--writ-bg-raised);
+  border: 0;
+  border-radius: var(--writ-r-modal);
+  box-shadow: var(--writ-shadow-modal);
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  box-shadow: var(--writ-shadow-modal);
+  padding-bottom: 6px;
+}
+
+.palette-search {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--writ-border-soft);
 }
 
 .palette-input {
-  width: 100%;
-  height: 52px;
-  flex: 0 0 auto;
-  padding: 0 var(--writ-space-5);
-  font-size: 16px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
   background: transparent;
-  color: var(--writ-foreground-default);
-  border-bottom: 1px solid var(--writ-border-soft);
-  letter-spacing: 0.01em;
+  color: var(--writ-fg);
+  font-size: var(--writ-ui-lg);
+  line-height: var(--writ-ui-lg-lh);
+  letter-spacing: var(--writ-ui-tracking);
 }
 
 .palette-input::placeholder {
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg-faint);
 }
 
 .palette-results {
   overflow-y: auto;
   flex: 1 1 auto;
   min-height: 0;
-  padding: var(--writ-space-2);
+  padding: var(--writ-space-2) 0;
 }
 
 .palette-item {
   display: flex;
   align-items: center;
-  gap: var(--writ-space-4);
-  width: 100%;
-  padding: var(--writ-space-3) var(--writ-space-4);
+  gap: 10px;
+  width: calc(100% - 12px);
+  height: 32px;
+  margin: 0 6px;
+  padding: 0 10px;
   text-align: left;
-  color: var(--writ-foreground-muted);
-  font-size: var(--writ-font-size);
-  border-radius: var(--writ-radius-2);
+  color: var(--writ-fg);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  border-radius: var(--writ-r-row);
   background: transparent;
-  transition: background 100ms ease, color 100ms ease;
+  transition: background var(--writ-motion);
 }
 
+/* A neutral fill and one weight step, never an accent one (ADR-030 §6). */
 .palette-item.is-selected {
-  background: var(--writ-surface-hover);
-  color: var(--writ-foreground-default);
+  background: var(--writ-bg-selected);
+  font-weight: 500;
 }
 
+/* One line per row: the label, then whatever the row carries beside it. */
 .palette-item-text {
   flex: 1;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: baseline;
+  gap: var(--writ-space-3);
   min-width: 0;
+  overflow: hidden;
 }
 
 .palette-item-label {
-  font-size: var(--writ-font-size);
-  color: inherit;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .palette-item-desc {
-  font-size: var(--writ-font-size-sm);
-  color: var(--writ-foreground-subtle);
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: var(--writ-ui-sm);
+  color: var(--writ-fg-faint);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .palette-item-snippet {
-  font-size: var(--writ-font-size-sm);
-  color: var(--writ-foreground-subtle);
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--writ-ui-sm);
+  color: var(--writ-fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: pre;
 }
 
+/* Underlined rather than filled: a fill is the selected row's own signal, and
+   the two would cancel out on the row the user is standing on. */
 .palette-item-snippet .is-match {
-  color: var(--writ-foreground-default);
-  background: color-mix(in srgb, var(--writ-accent-default) 24%, transparent);
-  border-radius: 2px;
+  color: var(--writ-fg);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--writ-fg-muted);
 }
 
 .palette-item-line {
   flex: none;
-  font-size: var(--writ-font-size-xs);
-  color: var(--writ-foreground-subtle);
+  font-size: var(--writ-ui-xs);
+  color: var(--writ-fg-faint);
   font-variant-numeric: tabular-nums;
 }
 
 .palette-section + .palette-section {
   margin-top: var(--writ-space-2);
-  padding-top: var(--writ-space-2);
-  border-top: 1px solid var(--writ-border-soft);
 }
 
 .palette-section-label {
-  padding: var(--writ-space-2) var(--writ-space-4) var(--writ-space-1);
-  font-size: var(--writ-font-size-xs);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--writ-foreground-subtle);
-  font-weight: 600;
+  padding: 10px 14px 4px;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  letter-spacing: var(--writ-ui-tracking);
+  text-transform: none;
+  font-weight: 400;
+  color: var(--writ-fg-muted);
 }
 
 .palette-section-more {
-  padding: var(--writ-space-1) var(--writ-space-4) var(--writ-space-2);
-  font-size: var(--writ-font-size-xs);
-  color: var(--writ-foreground-subtle);
+  padding: var(--writ-space-1) 16px var(--writ-space-2);
+  font-size: var(--writ-ui-xs);
+  color: var(--writ-fg-faint);
 }
 
 .palette-empty {
@@ -135,22 +160,24 @@
 }
 
 .palette-empty-title {
-  font-size: var(--writ-font-size);
-  color: var(--writ-foreground-muted);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  color: var(--writ-fg);
   margin-bottom: var(--writ-space-3);
 }
 
 .palette-empty-hint {
-  font-size: var(--writ-font-size-xs);
-  color: var(--writ-foreground-subtle);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
 }
 
 .palette-notice {
   flex: 0 0 auto;
-  padding: var(--writ-space-2) var(--writ-space-5);
+  padding: var(--writ-space-2) 14px;
   border-top: 1px solid var(--writ-border-soft);
-  font-size: var(--writ-font-size-xs);
-  color: var(--writ-foreground-subtle);
+  font-size: var(--writ-ui-xs);
+  color: var(--writ-fg-faint);
 }
 
 .palette-live {
@@ -166,8 +193,14 @@
   border: 0;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .palette-item {
-    transition: none;
-  }
+/* Sheet and row radii come from the platform overlay: 12/6 on macOS, 8/4 on
+   Windows, 15/9 on GNOME. Only the Windows stroke needs a rule of its own,
+   since a Fluent layer always pairs its shadow with a 1px stroke. */
+.palette[data-platform="win"] {
+  border: 1px solid var(--writ-win-layer-stroke);
+}
+
+/* GNOME sizes its entry rows off a taller control. */
+.palette[data-platform="linux"] .palette-search {
+  height: 42px;
 }

@@ -12,6 +12,26 @@ export interface ChangelogRelease {
 
 export const releases: ChangelogRelease[] = [
   {
+    version: "0.4.0",
+    date: "2026-09-05",
+    label: "Notes on disk",
+    notes: [
+      { kind: 'added', text: "notes live as Markdown files in a notes folder (~/Writ by default); the first launch moves existing notes there and keeps a rollback copy of the database for ten launches." },
+      { kind: 'added', text: "New note creates a dated .md file at once; renaming a tab renames the file, Delete moves it to the Trash, Save a Copy writes an opened file into the folder." },
+      { kind: 'added', text: "a Notes section in Settings: the folder's path, Show in Finder, Copy path and Move, which takes every note along." },
+      { kind: 'added', text: "open a note by name with Cmd+Shift+O." },
+      { kind: 'added', text: "the notes folder is watched and indexed, so search follows files that change outside Writ." },
+      { kind: 'added', text: "the writ command writes piped input as a note in the notes folder." },
+      { kind: 'added', text: "Writ refuses to start with its data folder inside iCloud Drive, Dropbox, Google Drive, OneDrive or a Syncthing folder, and says where to point WRIT_DATA_DIR." },
+      { kind: 'changed', text: "a save that would overwrite a newer file on disk is refused and the unsaved text is written beside the note as a dated conflict copy." },
+      { kind: 'changed', text: "YAML frontmatter is hidden in the preview and round-trips on save." },
+      { kind: 'changed', text: "autosave waits one second after the last keystroke; losing focus, hiding the window or quitting writes at once." },
+      { kind: 'fixed', text: "quitting inside the autosave window no longer drops the last second of typing." },
+      { kind: 'fixed', text: "saving a/index.md no longer hides a real change to b/index.md." },
+      { kind: 'removed', text: "the private copies of notes Writ kept under its data folder; every note is its file." },
+    ],
+  },
+  {
     version: "0.3.5",
     date: "2026-08-25",
     notes: [

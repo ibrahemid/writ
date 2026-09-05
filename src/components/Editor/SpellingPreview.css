@@ -8,12 +8,12 @@
   max-height: 60vh;
   display: flex;
   flex-direction: column;
-  background: var(--writ-surface-raised);
-  border: 1px solid var(--writ-border-default);
-  border-radius: 8px;
+  background: var(--writ-bg-raised);
+  border: 1px solid var(--writ-border);
+  border-radius: var(--writ-r-popover);
   box-shadow: var(--writ-shadow-popover);
-  font-size: var(--writ-font-size-sm);
-  color: var(--writ-foreground-default);
+  font-size: var(--writ-ui-sm);
+  color: var(--writ-fg);
   overflow: hidden;
 }
 
@@ -30,7 +30,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--writ-space-3);
-  color: var(--writ-foreground-muted);
+  color: var(--writ-fg-muted);
   cursor: pointer;
 }
 
@@ -41,29 +41,29 @@
 
 .spelling-preview-btn {
   padding: 3px 10px;
-  border-radius: 4px;
+  border-radius: var(--writ-r-action);
   border: 1px solid var(--writ-border-soft);
   background: none;
-  color: var(--writ-foreground-muted);
+  color: var(--writ-fg-muted);
   cursor: pointer;
-  font-size: var(--writ-font-size-sm);
+  font-size: var(--writ-ui-sm);
 }
 
 .spelling-preview-btn:hover {
-  background: var(--writ-surface-hover);
-  color: var(--writ-foreground-default);
+  background: var(--writ-bg-hover);
+  color: var(--writ-fg);
 }
 
 .spelling-preview-apply {
-  border-color: var(--writ-accent-default);
-  color: var(--writ-accent-default);
+  border-color: var(--writ-accent);
+  color: var(--writ-accent);
 }
 
 .spelling-preview-apply:disabled {
   opacity: 0.5;
   cursor: default;
   border-color: var(--writ-border-soft);
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg-faint);
 }
 
 .spelling-preview-list {
@@ -82,11 +82,11 @@
 }
 
 .spelling-preview-row:hover {
-  background: var(--writ-surface-hover);
+  background: var(--writ-bg-hover);
 }
 
 .spelling-preview-check {
-  accent-color: var(--writ-accent-default);
+  accent-color: var(--writ-accent);
   flex-shrink: 0;
 }
 
@@ -96,11 +96,11 @@
 }
 
 .spelling-preview-arrow {
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg-faint);
 }
 
 .spelling-preview-fix {
-  color: var(--writ-foreground-default);
+  color: var(--writ-fg);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -109,21 +109,21 @@
 .spelling-preview-ignore {
   margin-left: auto;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--writ-r-action);
   border: none;
   background: none;
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg-faint);
   cursor: pointer;
-  font-size: var(--writ-font-size-xs, 11px);
+  font-size: var(--writ-ui-xs);
 }
 
 .spelling-preview-ignore:hover {
-  background: var(--writ-surface-hover);
-  color: var(--writ-foreground-default);
+  background: var(--writ-bg-hover);
+  color: var(--writ-fg);
 }
 
 .spelling-preview-empty {
   padding: var(--writ-space-4);
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg-faint);
   text-align: center;
 }

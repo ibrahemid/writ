@@ -657,7 +657,8 @@ fn a_notes_folder_set_to_the_archive_boots_with_the_default_one() {
 
     assert_eq!(
         root,
-        std::fs::canonicalize(writ_dir.join("Writ")).expect("the default under the data folder")
+        writ_tauri_lib::security::canonicalize_root(&writ_dir.join("Writ"))
+            .expect("the default under the data folder")
     );
     assert_eq!(
         fallback,
@@ -690,7 +691,15 @@ fn a_destination_that_climbs_back_into_the_data_folder_creates_nothing() {
     let climbing = archive.join("..");
     let error = move_notes_folder_to(&state, &climbing).expect_err("turned down");
 
-    assert_eq!(error, "That folder cannot be your notes folder.");
+    // Unix cannot resolve `..` through a folder that does not exist, so the
+    // move is refused as uncheckable; Windows collapses it first and refuses
+    // the data folder itself. Both stop before anything is created.
+    assert!(
+        error == "That folder cannot be your notes folder."
+            || error
+                == "Writ keeps its own data in that folder, so it cannot also be your notes folder.",
+        "unexpected refusal: {error}"
+    );
     assert_eq!(state.notes_root(), before);
     assert!(
         !archive.exists(),

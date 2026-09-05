@@ -1,0 +1,59 @@
+{
+  "accent": {
+    "slate": {
+      "$type": "color",
+      "light": {
+        "base": {
+          "$value": "#2F5F9E",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent"
+            }
+          }
+        },
+        "hover": {
+          "$value": "#2A568E",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-hover"
+            }
+          }
+        },
+        "foreground": {
+          "$value": "#FFFFFF",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-fg"
+            }
+          }
+        }
+      },
+      "dark": {
+        "base": {
+          "$value": "#8FB6EA",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent"
+            }
+          }
+        },
+        "hover": {
+          "$value": "#9ABDEC",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-hover"
+            }
+          }
+        },
+        "foreground": {
+          "$value": "#181F28",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-fg"
+            }
+          }
+        }
+      }
+    }
+  }
+}

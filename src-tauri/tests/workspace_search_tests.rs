@@ -346,7 +346,9 @@ fn the_notes_watcher_suppresses_writs_own_write() {
 
     let ignore = create_ignore_set();
     let key = writ_core::watcher::ignore::source_key(
-        &std::fs::canonicalize(&notes)
+        // The spelling the watcher builds its key from: `canonicalize_root`
+        // strips the Windows `\\?\` prefix, which the event path never carries.
+        &writ_tauri_lib::security::canonicalize_root(&notes)
             .expect("canonical notes root")
             .join("saved.md"),
     );

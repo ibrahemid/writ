@@ -1,5 +1,6 @@
 import { onMount, onCleanup, createEffect } from "solid-js";
 import TitleBar from "./components/TitleBar/TitleBar";
+import WindowLights from "./components/TitleBar/WindowLights";
 import EditorArea from "./components/Editor/EditorArea";
 import Sidebar from "./components/Sidebar/Sidebar";
 import CommandPalette, {
@@ -14,10 +15,12 @@ import NotesMigrationReport from "./components/NotesMigrationReport/NotesMigrati
 import { startRenameActiveTab } from "./components/Editor/TabBar";
 import { confirmAndDeleteNote, noteIsDeletable, saveCopyOfNote } from "./lib/note-actions";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
+import IconSprite from "./components/Icon/IconSprite";
 import { installNativeContextMenuSuppressor } from "./lib/native-context-menu";
-import { IS_MAC } from "./lib/platform";
+import { IS_MAC, resolvePlatform } from "./lib/platform";
 import ToastContainer, { showToast } from "./components/Notifications/Toast";
 import ConfirmDialog, { requestConfirm } from "./components/ConfirmDialog/ConfirmDialog";
+import AppFrame from "./components/AppFrame/AppFrame";
 import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
 import UpdateBanner from "./components/UpdateBanner/UpdateBanner";
 import WindowProvider, { useWindow } from "./components/WindowProvider/WindowProvider";
@@ -119,6 +122,21 @@ export default function App() {
   );
 }
 
+// Follow-system polarity. Registered in onMount and removed through the
+// onCleanup list below, never at module scope.
+function watchSystemPolarity(): UnlistenFn {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return () => {};
+  }
+  const query = window.matchMedia("(prefers-color-scheme: dark)");
+  const onChange = (event: MediaQueryListEvent) => {
+    themeStore.setSystemPolarity(event.matches ? "dark" : "light");
+  };
+  query.addEventListener("change", onChange);
+  themeStore.setSystemPolarity(query.matches ? "dark" : "light");
+  return () => query.removeEventListener("change", onChange);
+}
+
 function AppShell() {
   const win = useWindow();
   const unlisteners: UnlistenFn[] = [];
@@ -127,9 +145,25 @@ function AppShell() {
     measureFirstPaint("cold");
     // Writ owns every context menu; the engine's belongs to a browser.
     onCleanup(installNativeContextMenuSuppressor());
+    // The platform layer is a token overlay keyed off the root; Writ is
+    // single-window, so it is written once and never recomputed (ADR-030).
+    document.documentElement.setAttribute("data-platform", resolvePlatform());
     themeStore.applyToRoot();
     await configStore.load();
-    themeStore.loadConfig(configStore.config().theme);
+    // A config written before ADR-030 carries overrides in the old vocabulary.
+    // They are translated on load; writing the result back means the next
+    // launch reads a clean map.
+    const migratedOverrides = themeStore.loadConfig(
+      configStore.config().theme,
+      configStore.config().appearance,
+    );
+    if (migratedOverrides) {
+      const current = configStore.config();
+      configStore
+        .save({ ...current, theme: { ...current.theme, overrides: migratedOverrides } })
+        .catch(() => {});
+    }
+    unlisteners.push(watchSystemPolarity());
     unlisteners.push(await osWindowStore.installFocusSync());
     // Only the Windows and Linux titlebars read maximized(); on macOS this
     // would be an IPC round-trip per resize feeding a signal nothing renders.
@@ -202,9 +236,12 @@ function AppShell() {
 
     registerCommand({
       id: "note.new",
-      label: "New Note",
+      icon: "note-pencil",
+      label: "New note",
       description: "Create a note in the notes folder",
       keybinding: "CmdOrCtrl+N",
+      // The chord this command answered to before it was named for the note
+      // rather than the buffer.
       keybindingAliases: ["CmdOrCtrl+T"],
       scope: "app",
       global: true,
@@ -213,7 +250,7 @@ function AppShell() {
 
     registerCommand({
       id: "file.open",
-      label: "Open File",
+      label: "Open file",
       description: "Open a file from disk into a new tab",
       keybinding: "CmdOrCtrl+O",
       scope: "app",
@@ -224,7 +261,7 @@ function AppShell() {
     registerCommand({
       id: "buffer.save",
       label: "Save",
-      description: "Write the active buffer to disk now",
+      description: "Write the active note to disk now",
       keybinding: "CmdOrCtrl+S",
       scope: "app",
       // Global: the editor holds focus while writing, so a focus-gated save
@@ -235,7 +272,8 @@ function AppShell() {
 
     registerCommand({
       id: "workspace.openFolder",
-      label: "Open Folder…",
+      icon: "folder-open",
+      label: "Open folder…",
       description: "Open a folder as the workspace",
       scope: "app",
       execute: () => {
@@ -250,7 +288,7 @@ function AppShell() {
 
     registerCommand({
       id: "workspace.closeFolder",
-      label: "Close Folder",
+      label: "Close folder",
       description: "Close the open workspace folder",
       scope: "app",
       execute: () => void workspaceStore.closeFolder(),
@@ -258,7 +296,7 @@ function AppShell() {
 
     registerCommand({
       id: "inbox.watchFolder",
-      label: "Watch Folder…",
+      label: "Watch folder…",
       description: "Auto-open new files that appear in a folder",
       scope: "app",
       execute: () => void inboxStore.watchFolder(),
@@ -266,7 +304,7 @@ function AppShell() {
 
     registerCommand({
       id: "inbox.stopWatching",
-      label: "Stop Watching Folder",
+      label: "Stop watching folder",
       description: "Stop auto-opening files from the watched folder",
       scope: "app",
       execute: () => void inboxStore.stopWatching(),
@@ -274,7 +312,7 @@ function AppShell() {
 
     registerCommand({
       id: "buffer.close",
-      label: "Close Tab",
+      label: "Close tab",
       description: "Close the active tab",
       keybinding: "CmdOrCtrl+W",
       scope: "app",
@@ -288,7 +326,7 @@ function AppShell() {
 
     registerCommand({
       id: "buffer.nextTab",
-      label: "Next Tab",
+      label: "Next tab",
       description: "Cycle to the next open tab",
       keybinding: "CmdOrCtrl+]",
       scope: "app",
@@ -307,7 +345,7 @@ function AppShell() {
 
     registerCommand({
       id: "buffer.prevTab",
-      label: "Previous Tab",
+      label: "Previous tab",
       description: "Cycle to the previous open tab",
       keybinding: "CmdOrCtrl+[",
       scope: "app",
@@ -326,7 +364,7 @@ function AppShell() {
 
     registerCommand({
       id: "history.restoreLast",
-      label: "Reopen Closed Tab",
+      label: "Reopen closed tab",
       description: "Restore the most recently closed tab",
       keybinding: "CmdOrCtrl+Shift+T",
       scope: "app",
@@ -341,7 +379,8 @@ function AppShell() {
 
     registerCommand({
       id: "sidebar.toggle",
-      label: "Toggle Sidebar",
+      icon: "sidebar-simple",
+      label: "Toggle sidebar",
       description: "Show or hide the tabs + history rail",
       keybinding: "CmdOrCtrl+\\",
       scope: "app",
@@ -354,15 +393,16 @@ function AppShell() {
 
     registerCommand({
       id: "search.openContent",
-      label: "Search content…",
+      label: "Search text…",
       scope: "app",
       execute: openContentSearch,
     });
 
     registerCommand({
       id: "search.openEverywhere",
-      label: "Search Everywhere",
-      description: "Search commands, settings, file names and file content",
+      icon: "magnifying-glass",
+      label: "Search everywhere",
+      description: "Search commands, settings, file names and text",
       keybinding: "CmdOrCtrl+Shift+F",
       scope: "app",
       // Global: the editor holds focus almost all the time, so a focus-gated
@@ -382,7 +422,7 @@ function AppShell() {
 
     registerCommand({
       id: "editor.findNext",
-      label: "Find Next",
+      label: "Find next",
       description: "Move to the next match",
       keybinding: "CmdOrCtrl+G",
       scope: "editor",
@@ -391,7 +431,7 @@ function AppShell() {
 
     registerCommand({
       id: "editor.findPrevious",
-      label: "Find Previous",
+      label: "Find previous",
       description: "Move to the previous match",
       keybinding: "CmdOrCtrl+Shift+G",
       scope: "editor",
@@ -410,7 +450,7 @@ function AppShell() {
 
     registerCommand({
       id: "editor.zoomIn",
-      label: "Increase Editor Font Size",
+      label: "Increase editor font size",
       description: "Make the editor text larger",
       keybinding: "CmdOrCtrl+=",
       keybindingAliases: ["CmdOrCtrl+Shift++"],
@@ -423,7 +463,7 @@ function AppShell() {
 
     registerCommand({
       id: "editor.zoomOut",
-      label: "Decrease Editor Font Size",
+      label: "Decrease editor font size",
       description: "Make the editor text smaller",
       keybinding: "CmdOrCtrl+-",
       scope: "app",
@@ -433,7 +473,7 @@ function AppShell() {
 
     registerCommand({
       id: "editor.zoomReset",
-      label: "Reset Editor Font Size",
+      label: "Reset editor font size",
       description: "Restore the editor text to its default size",
       keybinding: "CmdOrCtrl+0",
       scope: "app",
@@ -443,7 +483,7 @@ function AppShell() {
 
     registerCommand({
       id: "palette.open",
-      label: "Command Palette",
+      label: "Command palette",
       description: "Search and run any command",
       keybinding: "Shift+Shift",
       scope: "app",
@@ -453,7 +493,7 @@ function AppShell() {
 
     registerCommand({
       id: "notes.quickOpen",
-      label: "Open Note",
+      label: "Open note",
       description: "Find a note by name and open it",
       keybinding: "CmdOrCtrl+Shift+O",
       scope: "app",
@@ -463,7 +503,7 @@ function AppShell() {
 
     registerCommand({
       id: "note.rename",
-      label: "Rename Note…",
+      label: "Rename note…",
       description: "Rename the active note and its file",
       keybinding: "F2",
       keybindingAliases: ["CmdOrCtrl+Shift+S"],
@@ -473,7 +513,7 @@ function AppShell() {
 
     registerCommand({
       id: "note.delete",
-      label: "Delete Note",
+      label: "Delete note",
       description: "Move the active note to the Trash",
       scope: "app",
       isAvailable: () => {
@@ -488,7 +528,7 @@ function AppShell() {
 
     registerCommand({
       id: "note.saveCopy",
-      label: "Save a Copy…",
+      label: "Save a copy…",
       description: "Write a copy of the active note into the notes folder",
       scope: "app",
       execute: () => {
@@ -499,7 +539,7 @@ function AppShell() {
 
     registerCommand({
       id: "buffer.closeAll",
-      label: "Close All Tabs",
+      label: "Close all tabs",
       description: "Move every open tab into history",
       scope: "app",
       execute: async () => {
@@ -519,7 +559,7 @@ function AppShell() {
 
     registerCommand({
       id: "history.clear",
-      label: "Clear History",
+      label: "Clear history",
       description: "Permanently remove all history entries",
       scope: "app",
       execute: async () => {
@@ -572,6 +612,7 @@ function AppShell() {
 
     registerCommand({
       id: "settings.open",
+      icon: "gear",
       label: "Settings",
       description: "Open editor settings",
       keybinding: "CmdOrCtrl+,",
@@ -582,7 +623,7 @@ function AppShell() {
 
     registerCommand({
       id: "app.check_updates",
-      label: "Check for Updates…",
+      label: "Check for updates…",
       description: "Check whether a newer version of Writ is available",
       scope: "app",
       execute: () => updateStore.checkForUpdate(),
@@ -720,11 +761,15 @@ function AppShell() {
   });
 
   return (
-    <div class="app-container">
+    <AppFrame>
+      <IconSprite />
       <TitleBar />
       <div class="app-body">
         <Sidebar />
         <EditorArea />
+        {/* Last in the row and over both panes: the lights sit at the window's
+            leading edge whatever the sidebar is doing under them. */}
+        <WindowLights />
       </div>
       <CommandPalette />
       <SearchPalette />
@@ -738,6 +783,6 @@ function AppShell() {
       <ToastContainer />
       <UpdateBanner />
       <NotesMigrationReport />
-    </div>
+    </AppFrame>
   );
 }
