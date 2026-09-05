@@ -558,6 +558,13 @@ impl<'a> NotesIndex<'a> {
     /// miss the other two, and the stale target would then survive every walk,
     /// because a walk re-reads a note only when its bytes moved.
     ///
+    /// `to_target` was stored from a target the scanner had already parsed, so
+    /// it is read back through [`links::stored_target`] and never parsed a
+    /// second time. This pass runs after [`NotesIndex::write_facts`] over every
+    /// row, so a second parse here does not merely answer differently, it
+    /// overwrites what the writer resolved: `[[Note.md.md]]` lost another
+    /// extension and the index named `Note` where the editor named `Note.md`.
+    ///
     /// `only` is the set of folded names whose links are worth revisiting: a
     /// single note arriving or leaving can only change the links that named
     /// *it*, so a save re-resolves that note's own name keys and leaves the
@@ -582,7 +589,7 @@ impl<'a> NotesIndex<'a> {
 
         let mut changed = 0usize;
         for (rowid, from_path, to_target, was) in stored {
-            let target = links::parse_target(&to_target);
+            let target = links::stored_target(&to_target);
             if let Some(keys) = only {
                 if !keys.contains(&links::name_key(&target.name)) {
                     continue;
@@ -867,8 +874,11 @@ impl<'a> NotesIndex<'a> {
         // table read once per link.
         let names = self.name_index()?;
         let keys = links::candidate_name_keys(path);
+        // Stored targets are read the way [`NotesIndex::resolve_links`] reads
+        // them, so an ambiguous link is listed under the same notes the editor
+        // offers to open.
         for row in self.unresolved_links()? {
-            let target = links::parse_target(&row.to_target);
+            let target = links::stored_target(&row.to_target);
             if !keys.contains(&links::name_key(&target.name)) {
                 continue;
             }

@@ -72,19 +72,32 @@ pub struct RawLink {
 impl RawLink {
     /// The target this link points at, split into the parts [`resolve`] reads.
     ///
-    /// `target` was written from an already-parsed target, so its name has had
-    /// its note extension taken off. Only the folder is split back off here:
-    /// running the whole of [`parse_target`] over it took a second extension
-    /// off, and the index then stored `[[Note.md.md]]` against `Note` while
-    /// the editor resolved it to `Note.md`.
+    /// [`stored_target`] with the link's own heading and alias put back, since
+    /// both were split off the target before it was stored.
     pub fn wikilink_target(&self) -> WikilinkTarget {
-        let (folder, name) = split_target(&self.target);
         WikilinkTarget {
-            name,
-            folder,
             heading: self.heading.clone(),
             alias: self.alias.clone(),
+            ..stored_target(&self.target)
         }
+    }
+}
+
+/// Reads a target that has already been parsed once, such as a `RawLink`'s own
+/// `target` or the `to_target` an index stored from it.
+///
+/// The name has had its note extension taken off already, so only the folder
+/// is split back off: running the whole of [`parse_target`] over it takes a
+/// second extension off, and `[[Note.md.md]]` then names `Note` on the side
+/// that re-read it and `Note.md` on the side that wrote it. Every consumer of
+/// a stored target reads it through here for that reason.
+pub fn stored_target(target: &str) -> WikilinkTarget {
+    let (folder, name) = split_target(target);
+    WikilinkTarget {
+        name,
+        folder,
+        heading: None,
+        alias: None,
     }
 }
 
