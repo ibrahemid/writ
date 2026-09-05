@@ -275,6 +275,47 @@ describe("a note that is waiting for an answer about its file", () => {
     expect(saveStatusStore.failureFor(NOTE)).toBeDefined();
     expect(store.noteFileState(NOTE)).toBe("present");
   });
+
+  // The answer sends the text as it was read, and the round trip is long
+  // enough to type into. That typing was held rather than queued, and the
+  // answer releases the slot it was held in, so nothing but the answer itself
+  // can put it back on the queue.
+  it("keeps what was typed while the answer was in flight", async () => {
+    const { store, view, reports } = openNote();
+    await reports("modified");
+
+    let land: (outcome: typeof ANSWERED) => void = () => {};
+    api.resolveExternalChange.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          land = resolve;
+        }),
+    );
+
+    const answered = resolveNoteChange(NOTE, "keep_mine");
+    await waitFor(() =>
+      expect(api.resolveExternalChange).toHaveBeenCalledTimes(1),
+    );
+    view.dispatch({
+      changes: { from: view.state.doc.length, insert: "typed mid-answer\n" },
+    });
+    store.scheduleAutosave(NOTE, () => view.state.doc.toString(), 1000);
+
+    land(ANSWERED);
+    await answered;
+
+    const typed = `${MINE}typed mid-answer\n`;
+    expect(api.resolveExternalChange).toHaveBeenCalledWith(
+      NOTE,
+      "keep_mine",
+      MINE,
+    );
+    // Closing the tab before the write lands still keeps it.
+    expect(collectUnsavedContent()).toEqual([{ id: NOTE, content: typed }]);
+    await waitFor(() =>
+      expect(api.saveBufferContent).toHaveBeenCalledWith(NOTE, typed),
+    );
+  });
 });
 
 /** A write held open, so the watcher can report while it is still out. */

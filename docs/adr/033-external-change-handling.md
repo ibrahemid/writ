@@ -539,9 +539,17 @@ for the same reason every other path is held: a save already in flight when
 the watcher reported can fail under the question for a reason ordinarily worth
 pressing again, and the press would reach the hold and change nothing.
 `Save a copy…` beside it is not held, and is what gets the text out of a tab
-that cannot write. Answering also drops the bar of a save that failed before
-it, which is about a write the answer has made irrelevant; a failure the
-answer itself raises still shows.
+that cannot write.
+
+**The answer carries what was typed while it was in flight.** The text sent is
+the document as it was read, and the round trip is long enough to type into.
+That typing was held rather than queued, and the answer releases the slot it
+was held in, so the answer is the only thing left to put it back: `Keep mine`
+and `Show both` queue whatever the document gained while they were out, the
+way a keystroke would, and the tab keeps it on the way out because the queue
+is what the close path hands to the recovery snapshot. `Use the file on disk`
+has nothing to keep, because it replaces the document with the file's text on
+purpose.
 
 ## Consequences
 

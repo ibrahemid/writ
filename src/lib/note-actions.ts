@@ -152,6 +152,27 @@ export async function resolveNoteChange(
     win.editor.applyExternalContent(id, outcome.content);
   } else {
     win.editor.noteSaved(id, outcome.disk_hash);
+    // Anything typed between the read above and here was held rather than
+    // queued, because the note was still waiting to be answered about, and
+    // the answer has just released the slot it was held in. The write that
+    // has landed carried the text as it was read, so that typing is in the
+    // document and nowhere else. It goes on the queue the way a keystroke
+    // would put it there, without a further wait: it is already later than
+    // the write that should have carried it.
+    //
+    // The tab keeps the delta on the way out too, because the queue is what
+    // the close and quit paths hand to the recovery snapshot.
+    //
+    // Only this branch has a delta to keep. `Use the file on disk` replaces
+    // the document with what the file holds, on purpose, and there is nothing
+    // to merge the typing onto.
+    const typedSince =
+      win.editor.currentBufferId() === id
+        ? win.editor.getActiveText(false)
+        : null;
+    if (typedSince !== null && typedSince.text !== content) {
+      win.editor.scheduleAutosave(id, typedSince.text, 0);
+    }
   }
   if (choice === "keep_both" && outcome.conflict_copy_path !== null) {
     try {
