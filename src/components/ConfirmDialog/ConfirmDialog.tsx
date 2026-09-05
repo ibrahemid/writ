@@ -15,26 +15,41 @@ export interface ConfirmRequest {
   defaultAction?: "confirm" | "cancel";
 }
 
+/**
+ * Which of the three ways out the person took.
+ *
+ * `cancel` is the labelled button; `dismissed` is Escape, a click outside, or
+ * another dialog taking the screen. They are the same answer only where the
+ * cancel side does nothing — a caller whose cancel side still changes
+ * something has to read `dismissed` as "stop", never as a choice.
+ */
+export type ConfirmOutcome = "confirm" | "cancel" | "dismissed";
+
 interface PendingConfirm extends ConfirmRequest {
-  resolve: (confirmed: boolean) => void;
+  resolve: (outcome: ConfirmOutcome) => void;
 }
 
 // Singleton state — Writ is single-window
 const [pending, setPending] = createSignal<PendingConfirm | null>(null);
 
-export function requestConfirm(request: ConfirmRequest): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
+/** The dialog's full answer. See [`ConfirmOutcome`]. */
+export function requestChoice(request: ConfirmRequest): Promise<ConfirmOutcome> {
+  return new Promise<ConfirmOutcome>((resolve) => {
     setPending((prev) => {
-      if (prev) prev.resolve(false);
+      if (prev) prev.resolve("dismissed");
       return { ...request, resolve };
     });
   });
 }
 
-function settle(confirmed: boolean) {
+export function requestConfirm(request: ConfirmRequest): Promise<boolean> {
+  return requestChoice(request).then((outcome) => outcome === "confirm");
+}
+
+function settle(outcome: ConfirmOutcome) {
   const current = pending();
   if (!current) return;
-  current.resolve(confirmed);
+  current.resolve(outcome);
   setPending(null);
 }
 
@@ -48,7 +63,7 @@ export default function ConfirmDialog() {
     const current = pending();
     if (!current || !dialogRef) return;
     const teardown = installFocusTrap(dialogRef, {
-      onEscape: () => settle(false),
+      onEscape: () => settle("dismissed"),
       fallbackRestore: () => {
         win.editor.focusEditor();
         return null;
@@ -63,7 +78,7 @@ export default function ConfirmDialog() {
   return (
     <Show when={pending()}>
       {(req) => (
-        <div class="confirm-overlay" onClick={() => settle(false)}>
+        <div class="confirm-overlay" onClick={() => settle("dismissed")}>
           <div
             ref={dialogRef}
             class="confirm-dialog"
@@ -84,7 +99,7 @@ export default function ConfirmDialog() {
                 ref={cancelRef}
                 variant="secondary"
                 class="confirm-cancel"
-                onClick={() => settle(false)}
+                onClick={() => settle("cancel")}
               >
                 {req().cancelLabel ?? "Cancel"}
               </Button>
@@ -93,7 +108,7 @@ export default function ConfirmDialog() {
                 variant="primary"
                 danger={req().danger}
                 class="confirm-accept"
-                onClick={() => settle(true)}
+                onClick={() => settle("confirm")}
               >
                 {req().confirmLabel ?? "Confirm"}
               </Button>

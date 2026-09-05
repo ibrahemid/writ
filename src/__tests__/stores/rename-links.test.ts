@@ -62,9 +62,11 @@ vi.mock("../../services/autosave", () => ({
   onAutosaveError: vi.fn(() => () => {}),
 }));
 
-const confirmed = vi.fn();
+const chose = vi.fn();
 vi.mock("../../components/ConfirmDialog/ConfirmDialog", () => ({
-  requestConfirm: (options: unknown) => confirmed(options),
+  requestChoice: (options: unknown) => chose(options),
+  requestConfirm: (options: unknown) =>
+    chose(options).then((answer: string) => answer === "confirm"),
 }));
 
 vi.mock("../../components/Notifications/Toast", () => ({
@@ -124,13 +126,13 @@ describe("a rename that carries the links", () => {
 
   it("asks with the count before it renames", async () => {
     mockedApi.countLinksTo.mockResolvedValue(3);
-    confirmed.mockResolvedValueOnce(true);
+    chose.mockResolvedValueOnce("confirm");
     mockedApi.renameNoteWithLinks.mockResolvedValue(RENAMED);
 
     await renameNoteAndLinks("n-1", "New note");
 
     expect(mockedApi.countLinksTo).toHaveBeenCalledWith("/notes/Old note.md");
-    const asked = confirmed.mock.calls[0][0] as { title: string };
+    const asked = chose.mock.calls[0][0] as { title: string };
     expect(asked.title).toBe("3 notes link here. Update them?");
     expect(mockedApi.renameNoteWithLinks).toHaveBeenCalledWith(
       "/notes/Old note.md",
@@ -141,18 +143,18 @@ describe("a rename that carries the links", () => {
 
   it("asks about one note in the singular", async () => {
     mockedApi.countLinksTo.mockResolvedValue(1);
-    confirmed.mockResolvedValueOnce(true);
+    chose.mockResolvedValueOnce("confirm");
     mockedApi.renameNoteWithLinks.mockResolvedValue(RENAMED);
 
     await renameNoteAndLinks("n-1", "New note");
 
-    const asked = confirmed.mock.calls[0][0] as { title: string };
+    const asked = chose.mock.calls[0][0] as { title: string };
     expect(asked.title).toBe("1 note links here. Update it?");
   });
 
   it("renames without touching the links when the offer is declined", async () => {
     mockedApi.countLinksTo.mockResolvedValue(2);
-    confirmed.mockResolvedValueOnce(false);
+    chose.mockResolvedValueOnce("cancel");
     mockedApi.renameNoteWithLinks.mockResolvedValue({
       ...RENAMED,
       updated: 0,
@@ -166,6 +168,26 @@ describe("a rename that carries the links", () => {
       "New note",
       false,
     );
+  });
+
+  it("renames nothing when the offer is dismissed", async () => {
+    mockedApi.countLinksTo.mockResolvedValue(3);
+    chose.mockResolvedValueOnce("dismissed");
+
+    await renameNoteAndLinks("n-1", "New note");
+
+    expect(mockedApi.renameNoteWithLinks).not.toHaveBeenCalled();
+  });
+
+  it("renames nothing when the count cannot be read", async () => {
+    mockedApi.countLinksTo.mockRejectedValue("the index is not there");
+
+    await expect(renameNoteAndLinks("n-1", "New note")).rejects.toBe(
+      "the index is not there",
+    );
+
+    expect(chose).not.toHaveBeenCalled();
+    expect(mockedApi.renameNoteWithLinks).not.toHaveBeenCalled();
   });
 
   it("asks nothing when no note links here", async () => {
@@ -178,7 +200,7 @@ describe("a rename that carries the links", () => {
 
     await renameNoteAndLinks("n-1", "New note");
 
-    expect(confirmed).not.toHaveBeenCalled();
+    expect(chose).not.toHaveBeenCalled();
     expect(mockedApi.renameNoteWithLinks).toHaveBeenCalledWith(
       "/notes/Old note.md",
       "New note",
@@ -188,7 +210,7 @@ describe("a rename that carries the links", () => {
 
   it("keeps the notes it left alone, by name", async () => {
     mockedApi.countLinksTo.mockResolvedValue(3);
-    confirmed.mockResolvedValueOnce(true);
+    chose.mockResolvedValueOnce("confirm");
     mockedApi.renameNoteWithLinks.mockResolvedValue({
       renamed_path: "/notes/New note.md",
       updated: 1,
@@ -209,7 +231,7 @@ describe("a rename that carries the links", () => {
 
   it("re-reads a tab whose file it rewrote, and leaves an edited one alone", async () => {
     mockedApi.countLinksTo.mockResolvedValue(1);
-    confirmed.mockResolvedValueOnce(true);
+    chose.mockResolvedValueOnce("confirm");
     mockedApi.renameNoteWithLinks.mockResolvedValue(RENAMED);
 
     await renameNoteAndLinks("n-1", "New note");
@@ -223,7 +245,7 @@ describe("a rename that carries the links", () => {
 
   it("puts the rename back over the files it rewrote and no others", async () => {
     mockedApi.countLinksTo.mockResolvedValue(1);
-    confirmed.mockResolvedValueOnce(true);
+    chose.mockResolvedValueOnce("confirm");
     mockedApi.renameNoteWithLinks.mockResolvedValue(RENAMED);
     await renameNoteAndLinks("n-1", "New note");
 
