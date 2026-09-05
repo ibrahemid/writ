@@ -97,7 +97,7 @@ function openNote() {
         change,
         path: "/notes/note.md",
         // Read only by a move, which needs somewhere to follow the file to.
-        newPath: "/notes/note.md",
+        newPath: "/notes/note-moved.md",
       },
       deps,
     );
