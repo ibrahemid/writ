@@ -5,7 +5,8 @@ const fixtures = await vi.hoisted(async () => {
   const { createSignal } = await import("solid-js");
   const [changed, setChanged] = createSignal<ReadonlySet<string>>(new Set<string>());
   const [loaded, setLoaded] = createSignal<string | null>("one");
-  return { changed, setChanged, loaded, setLoaded };
+  const [asked, setAsked] = createSignal<{ id: string; seq: number } | null>(null);
+  return { changed, setChanged, loaded, setLoaded, asked, setAsked };
 });
 
 const stubs = vi.hoisted(() => ({
@@ -21,6 +22,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
     editor: {
       currentBufferId: () => fixtures.loaded(),
       isFileChangedOnDisk: (id: string) => fixtures.changed().has(id),
+      pendingChangeAnswer: () => fixtures.asked(),
       focusEditor: stubs.focusEditor,
     },
   }),
@@ -35,6 +37,7 @@ function buttons(container: HTMLElement): HTMLButtonElement[] {
 beforeEach(() => {
   fixtures.setChanged(new Set<string>());
   fixtures.setLoaded("one");
+  fixtures.setAsked(null);
   stubs.resolveNoteChange.mockClear();
   stubs.focusEditor.mockClear();
 });
@@ -86,6 +89,21 @@ describe("FileChangedBar", () => {
   it("takes the focus when it appears", async () => {
     const { container } = render(() => <FileChangedBar noteId="one" />);
     fixtures.setChanged(new Set(["one"]));
+
+    await waitFor(() =>
+      expect(container.ownerDocument.activeElement).toBe(buttons(container)[0]),
+    );
+  });
+
+  it("takes the focus back when a save is asked for", async () => {
+    fixtures.setChanged(new Set(["one"]));
+    const { container } = render(() => <FileChangedBar noteId="one" />);
+    await waitFor(() =>
+      expect(container.ownerDocument.activeElement).toBe(buttons(container)[0]),
+    );
+    buttons(container)[0].blur();
+
+    fixtures.setAsked({ id: "one", seq: 1 });
 
     await waitFor(() =>
       expect(container.ownerDocument.activeElement).toBe(buttons(container)[0]),

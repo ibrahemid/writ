@@ -265,6 +265,40 @@ export function createEditorStore() {
     return noteFileState(id) === "changed";
   }
 
+  /**
+   * Whether the tab may write to its file at all.
+   *
+   * `removed` holds writes because there is no file to write to and
+   * recreating one puts back what the person threw away (W4). `changed` holds
+   * them because the bar is an unanswered question about that same file: the
+   * guard refuses every write while the file differs, and each refusal leaves
+   * another dated copy beside the note (`BufferStore::write_conflict_copy`),
+   * so ordinary typing would fill the notes folder with copies while the
+   * question is still on screen. The bar's three answers are the only way the
+   * tab's text reaches disk from here.
+   *
+   * Held, not dropped: the text stays in the document, and the note saves
+   * normally again the moment its state is `present`.
+   */
+  function savesAreHeld(id: string): boolean {
+    return noteFileState(id) !== "present";
+  }
+
+  // A request for the file-changed bar to take the focus, raised when a save
+  // is asked for while its question is still up. Carried as state rather than
+  // reached for in the DOM, and sequenced so a second press moves the focus
+  // again.
+  const [pendingChangeAnswer, setPendingChangeAnswer] = createSignal<{
+    id: string;
+    seq: number;
+  } | null>(null);
+  let changeAnswerSeq = 0;
+
+  function askForChangeAnswer(id: string) {
+    changeAnswerSeq += 1;
+    setPendingChangeAnswer({ id, seq: changeAnswerSeq });
+  }
+
   // The note whose text its file last replaced, cleared on a timer. One at a
   // time: the marker reports on the tab in front, and it says what just
   // happened rather than what is true, so it goes away on its own.
@@ -594,10 +628,13 @@ export function createEditorStore() {
     content: ContentSource,
     delayMs: number,
   ) {
-    // A note whose file was deleted writes nothing until the person says where
-    // it goes. Without this every keystroke queues a save the backend refuses,
-    // and the bar's reason is replaced by a fresh failure each time.
-    if (isRemovedOnDisk(bufferId)) return;
+    // A note carrying a bar writes nothing until the bar is answered. Without
+    // this every keystroke queues a save the backend refuses, the bar's reason
+    // is replaced by a fresh failure each time, and a file that changed leaves
+    // a dated copy beside the note for every pause in typing. The queue is
+    // empty while the bar is up, so the flushes on quit, blur and tab switch
+    // find nothing to write either. Reasons: [`savesAreHeld`].
+    if (savesAreHeld(bufferId)) return;
     debouncedSave(bufferId, content, delayMs);
   }
 
@@ -619,6 +656,14 @@ export function createEditorStore() {
     if (bufferId === null || view === null)
       return Promise.resolve(NOTHING_TO_SAVE);
     if (isRemovedOnDisk(bufferId)) return Promise.resolve(NOTHING_TO_SAVE);
+    // The bar is what "save it" means for this note: it is asking which text
+    // the file ends up with, and all three of its answers write. So the
+    // keystroke goes to the question rather than past it. Nothing is written
+    // and nothing is said, because the answer is already on screen.
+    if (isFileChangedOnDisk(bufferId)) {
+      askForChangeAnswer(bufferId);
+      return Promise.resolve(NOTHING_TO_SAVE);
+    }
     if (largeFileMode()?.kind === "Binary")
       return Promise.resolve(NOTHING_TO_SAVE);
     return saveNowService(bufferId, () => view.state.doc.toString());
@@ -630,8 +675,14 @@ export function createEditorStore() {
    * The text comes from autosave rather than the view: a write the guard
    * stopped leaves the queue empty on purpose, and the note whose bar is on
    * screen is not always the one loaded into the editor.
+   *
+   * Held while the note carries a bar of its own. A save already in flight
+   * when the watcher reports keeps the text it could not write, so this button
+   * can still be on screen under the question, and pressing it would write
+   * into the same refusal the question is about.
    */
   function retrySave(id: string): Promise<SaveResult> {
+    if (savesAreHeld(id)) return Promise.resolve(NOTHING_TO_SAVE);
     const content = peekUnsavedContent(id);
     if (content === undefined) return Promise.resolve(NOTHING_TO_SAVE);
     return saveNowService(id, content);
@@ -696,6 +747,7 @@ export function createEditorStore() {
     noteFileStates,
     noteFileState,
     recordFileEvent,
+    pendingChangeAnswer,
     isRemovedOnDisk,
     isFileChangedOnDisk,
     updatedFromDisk,

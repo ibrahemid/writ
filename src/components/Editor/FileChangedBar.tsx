@@ -29,8 +29,11 @@ export default function FileChangedBar(props: { noteId: string | null }) {
 
   // The question is the reason the editor stopped, so it takes the focus that
   // was in the editor. Answering it hands the focus straight back, and
-  // CodeMirror puts the cursor back where it was holding it.
+  // CodeMirror puts the cursor back where it was holding it. A save asked for
+  // while the question is up brings the focus back here too, which is what
+  // that keystroke means for this note.
   createEffect(() => {
+    win.editor.pendingChangeAnswer();
     if (changed() !== null) firstAction?.focus();
   });
 
