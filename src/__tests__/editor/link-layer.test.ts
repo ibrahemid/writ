@@ -257,6 +257,21 @@ describe("findLinkTargets over wikilinks", () => {
     expect(wikilinks("`code` then [[Note]]")).toEqual(["Note"]);
   });
 
+  // Frontmatter is a note's properties. writ-core leaves the block out of its
+  // scan, so a link written in a property value is one the index never held.
+  it("finds nothing inside frontmatter", () => {
+    expect(wikilinks('---\nsee: "[[Note]]"\n---\nbody')).toEqual([]);
+    expect(wikilinks('---\nsee: "[[Note]]"\n--- \nbody')).toEqual([]);
+    expect(wikilinks('---\nsee: "[[Note]]"\n---\n[[Other]]')).toEqual(["Other"]);
+  });
+
+  // An unterminated block is body text on both sides, so a note opening with a
+  // horizontal rule keeps its links.
+  it("keeps a link under a rule that closes no block", () => {
+    expect(wikilinks('---\nsee: "[[Note]]"\nstill body')).toEqual(["Note"]);
+    expect(wikilinks("body\n---\n[[Note]]")).toEqual(["Note"]);
+  });
+
   it("wins the overlap against a bare address written inside it", () => {
     const state = markdownState("[[https://example.com/x]]");
     const found = targets(state);
@@ -460,6 +475,24 @@ describe("linkLayer", () => {
     pressEnter();
     expect(deps.openNoteLink).not.toHaveBeenCalled();
     expect(view.state.doc.lines).toBe(before + 1);
+  });
+
+  // A property value carrying a link is written and edited like any other
+  // line: Enter there adds the next property.
+  it("breaks the line inside frontmatter", () => {
+    mount('---\nsee: "[[Note]]"\n---\nbody\n', withNewline);
+    const before = view.state.doc.lines;
+    view.dispatch({ selection: { anchor: 15 } });
+    pressEnter();
+    expect(deps.openNoteLink).not.toHaveBeenCalled();
+    expect(view.state.doc.lines).toBe(before + 1);
+  });
+
+  it("follows a link under a rule that closes no block", () => {
+    mount('---\nsee: "[[Note]]"\nstill body\n', withNewline);
+    view.dispatch({ selection: { anchor: 15 } });
+    pressEnter();
+    expect(deps.openNoteLink).toHaveBeenCalledWith("Note");
   });
 
   // A note with no file cannot resolve a target, and a swallowed Enter that

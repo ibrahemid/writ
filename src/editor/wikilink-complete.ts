@@ -6,7 +6,7 @@ import {
 } from "@codemirror/autocomplete";
 import type { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
-import { isInsideCode } from "./link-layer";
+import { isInsideCode, isInsideFrontmatter } from "./link-layer";
 
 /** One note a completion can offer. */
 export interface NoteName {
@@ -52,9 +52,11 @@ export function wikilinkCompletionSource(deps: WikilinkCompleteDeps) {
     const line = context.state.doc.lineAt(context.pos);
     const query = wikilinkQueryAt(line.text, context.pos - line.from);
     if (query === null) return null;
-    // A wikilink written inside code is an example of the syntax. Offering
-    // note names there puts a list over documentation of the link itself.
+    // A wikilink written inside code is an example of the syntax, and one in
+    // frontmatter is a property value the index holds no link for. Offering
+    // note names in either puts a list over text that is not a destination.
     if (isInsideCode(context.state, context.pos)) return null;
+    if (isInsideFrontmatter(context.state, context.pos)) return null;
     // An empty `[[` opens the list only when the user asked for it, so typing
     // the brackets does not put a panel over what is being written.
     if (query.trim() === "" && !context.explicit) return null;

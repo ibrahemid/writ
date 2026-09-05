@@ -4,6 +4,7 @@ import {
   StateEffect,
   StateField,
   type Extension,
+  type Text,
 } from "@codemirror/state";
 import {
   Decoration,
@@ -15,6 +16,7 @@ import {
   type PluginValue,
 } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
+import { isFrontmatterFence } from "../lib/frontmatter";
 import { IS_MAC } from "../lib/platform";
 
 // Minimal structural type matching @lezer/common, mirroring the shape used by
@@ -73,6 +75,39 @@ const CLOSERS: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
 // indented and inline code — the fence and backtick marks sit inside them, so
 // the whole node range is what the scan skips.
 const CODE_NODES = new Set(["FencedCode", "CodeBlock", "InlineCode"]);
+
+// Frontmatter is the note's properties, not its prose. writ-core leaves the
+// block out of its scan and the preview renderer drops it before rendering, so
+// a `[[…]]` written in a property value is text the index never held a link
+// for. The markdown grammar the editor loads gives no node for the block, so
+// its extent is read from the text under the rule the Rust side shares.
+//
+// Cached per document version: a note that opens with a `---` rule and never
+// closes it is body text, and finding that out costs a walk of the whole
+// document, which a repaint must not pay for again on every keystroke.
+const frontmatterEnds = new WeakMap<Text, number>();
+
+function frontmatterEndOf(state: EditorState): number {
+  const held = frontmatterEnds.get(state.doc);
+  if (held !== undefined) return held;
+  const end = scanFrontmatterEnd(state);
+  frontmatterEnds.set(state.doc, end);
+  return end;
+}
+
+function scanFrontmatterEnd(state: EditorState): number {
+  const iterator = state.doc.iterLines();
+  let first = iterator.next();
+  if (first.done || !isFrontmatterFence(first.value)) return 0;
+  // Every line break counts as one character in a document's positions,
+  // whatever the file's line ending is on disk.
+  let offset = first.value.length + 1;
+  for (let line = iterator.next(); !line.done; line = iterator.next()) {
+    offset += line.value.length + 1;
+    if (isFrontmatterFence(line.value)) return Math.min(offset, state.doc.length);
+  }
+  return 0;
+}
 
 const linkMark = Decoration.mark({ class: "writ-link" });
 
@@ -168,6 +203,16 @@ export function isInsideCode(state: EditorState, pos: number): boolean {
   return found;
 }
 
+/**
+ * Whether `pos` sits in the note's frontmatter block.
+ *
+ * The `[[` completion asks this the way it asks about code, so a property
+ * value and a fenced example are both left as text.
+ */
+export function isInsideFrontmatter(state: EditorState, pos: number): boolean {
+  return pos < frontmatterEndOf(state);
+}
+
 // Link runs inside `[from, to)`, widened to whole lines so a URL straddling a
 // viewport edge is found in one piece rather than as two half-addresses.
 export function findLinkTargets(state: EditorState, from: number, to: number): LinkRange[] {
@@ -191,6 +236,7 @@ export function findLinkTargets(state: EditorState, from: number, to: number): L
   });
   const insideCode = (from: number, to: number): boolean =>
     code.some((span) => from < span.to && to > span.from);
+  const frontmatterEnd = frontmatterEndOf(state);
 
   // Wikilinks first, so `[[https://x]]` is one target rather than an address
   // with brackets around it, and `[[Note]]` is not read as a shortcut
@@ -205,7 +251,9 @@ export function findLinkTargets(state: EditorState, from: number, to: number): L
     if (match.index > 0 && text[match.index - 1] === "!") continue;
     if (match[1].trim() === "") continue;
     const inner = start + match.index + 2;
-    if (insideCode(start + match.index, inner + match[1].length + 2)) continue;
+    const linkEnd = inner + match[1].length + 2;
+    if (insideCode(start + match.index, linkEnd)) continue;
+    if (start + match.index < frontmatterEnd) continue;
     found.push({ from: inner, to: inner + match[1].length, kind: "wikilink" });
   }
 

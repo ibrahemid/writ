@@ -95,6 +95,23 @@ describe("the code guard", () => {
   });
 });
 
+describe("the frontmatter guard", () => {
+  const source = wikilinkCompletionSource({ candidates: async () => notes });
+
+  it("offers nothing inside the block", async () => {
+    expect(await source(contextAt('---\nsee: "[[Gro\n---\nbody', 15))).toBeNull();
+  });
+
+  it("offers names in the body under it", async () => {
+    expect(await source(contextAt("---\na: 1\n---\n[[Gro", 18))).not.toBeNull();
+  });
+
+  // An unterminated block is body text, so what is written in it is prose.
+  it("offers names under a rule that closes no block", async () => {
+    expect(await source(contextAt('---\nsee: "[[Gro\nstill body', 15))).not.toBeNull();
+  });
+});
+
 describe("accepting a name", () => {
   /** The document after the first option is applied at `pos`. */
   async function accept(doc: string, pos: number): Promise<string> {

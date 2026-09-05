@@ -289,6 +289,48 @@
         "Note"
       ],
       "text": "`code` then [[Note]]\n"
+    },
+    {
+      "name": "frontmatter",
+      "names": [],
+      "targets": [],
+      "text": "---\nsee: \"[[Note]]\"\n---\nbody\n"
+    },
+    {
+      "name": "frontmatter then body",
+      "names": [
+        "Other"
+      ],
+      "targets": [
+        "Other"
+      ],
+      "text": "---\nsee: \"[[Note]]\"\n---\n[[Other]]\n"
+    },
+    {
+      "name": "unterminated frontmatter",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "Note"
+      ],
+      "text": "---\nsee: \"[[Note]]\"\nstill body\n"
+    },
+    {
+      "name": "frontmatter fence with trailing space",
+      "names": [],
+      "targets": [],
+      "text": "---\nsee: \"[[Note]]\"\n--- \nbody\n"
+    },
+    {
+      "name": "rule that is not frontmatter",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "Note"
+      ],
+      "text": "body\n---\n[[Note]]\n"
     }
   ]
 }
