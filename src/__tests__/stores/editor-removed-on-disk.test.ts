@@ -7,7 +7,12 @@ vi.mock("../../services/tauri", () => ({
 }));
 
 import { createEditorStore } from "../../stores/window/editor-store";
-import { debouncedSave, resetAutosave } from "../../services/autosave";
+import {
+  collectUnsavedContent,
+  debouncedSave,
+  peekUnsavedContent,
+  resetAutosave,
+} from "../../services/autosave";
 import { restoreNoteFile, saveBufferContent } from "../../services/tauri";
 
 vi.mock("../../services/autosave", async (importOriginal) => {
@@ -89,6 +94,45 @@ describe("editorStore removed-on-disk", () => {
     store.scheduleAutosave("one", () => "text", 0);
 
     expect(queued).not.toHaveBeenCalled();
+  });
+
+  it("keeps the keystrokes it does not queue", () => {
+    // The guard stops the write, not the text. What was typed after the file
+    // went is the newest copy of the note there is, so a close or a quit has
+    // to find it: the tab is gone by then and the view with it.
+    const store = loadedStore();
+    store.markRemovedOnDisk("one");
+
+    store.scheduleAutosave("one", () => "typed after the file went", 0);
+
+    expect(queued).not.toHaveBeenCalled();
+    expect(store.textOfRemoved("one")).toBe("typed after the file went");
+    expect(collectUnsavedContent()).toEqual([
+      { id: "one", content: "typed after the file went" },
+    ]);
+  });
+
+  it("still has the text when the tab it was typed in closes", () => {
+    // The close path drops the note's marks first and reads its unsaved text
+    // second. A close that forgot the text before handing it over would lose
+    // exactly what the deletion left behind.
+    const store = loadedStore();
+    store.markRemovedOnDisk("one");
+    store.scheduleAutosave("one", () => "typed after the file went", 0);
+
+    store.noteClosed("one");
+
+    expect(peekUnsavedContent("one")).toBe("typed after the file went");
+  });
+
+  it("stops holding the text once the file is back", () => {
+    const store = loadedStore();
+    store.markRemovedOnDisk("one");
+    store.scheduleAutosave("one", () => "typed after the file went", 0);
+
+    store.clearRemovedOnDisk("one");
+
+    expect(collectUnsavedContent()).toEqual([]);
   });
 
   it("queues again once the note has a file", () => {

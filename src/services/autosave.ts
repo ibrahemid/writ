@@ -130,6 +130,25 @@ export function peekUnsavedContent(bufferId: string): string | undefined {
 }
 
 /**
+ * Keeps `content` as text that is not known to be on disk, without queuing a
+ * write for it.
+ *
+ * For text no write can take yet: a note whose file was deleted outside Writ
+ * queues nothing, because every keystroke would otherwise buy a refusal, and
+ * the failure that would normally leave the text here never happens. The quit
+ * and close paths read the same map either way, so the text still reaches the
+ * recovery snapshot.
+ */
+export function holdUnwritableContent(bufferId: string, content: string) {
+  lastFailedContent.set(bufferId, content);
+}
+
+/** Drops what [`holdUnwritableContent`] kept, once a write can take it again. */
+export function releaseUnwritableContent(bufferId: string) {
+  lastFailedContent.delete(bufferId);
+}
+
+/**
  * Every note holding text that is not known to be on disk, with that text.
  *
  * The queue is not enough on its own: a write stopped by the guard empties the

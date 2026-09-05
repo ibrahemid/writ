@@ -7,6 +7,8 @@ import {
   debouncedSave,
   cancelAutosave as cancelAutosaveService,
   flushAutosave as flushAutosaveService,
+  holdUnwritableContent,
+  releaseUnwritableContent,
   onAutosaveSuccess,
   peekUnsavedContent,
   saveNow as saveNowService,
@@ -184,6 +186,17 @@ export function createEditorStore() {
   }
 
   function clearRemovedOnDisk(id: string) {
+    forgetRemovedOnDisk(id);
+    // There is a file at the note's path again, so the text is writable and
+    // belongs to the queue rather than to the recovery snapshot.
+    releaseUnwritableContent(id);
+  }
+
+  // The mark and the text, dropped without saying the file came back. A closed
+  // tab has no file either way, and its text has not reached the snapshot yet:
+  // `keepUnsavedForRecovery` reads it after this and cancels the note, which is
+  // what takes it back out.
+  function forgetRemovedOnDisk(id: string) {
     setRemovedOnDisk((current) => {
       if (!current.has(id)) return current;
       const next = new Set(current);
@@ -211,6 +224,9 @@ export function createEditorStore() {
    */
   function keepTextOfRemoved(id: string, text: string) {
     if (!isRemovedOnDisk(id)) return;
+    // The same text the next load reads is the text a close or a quit has to
+    // keep, and no write is going to leave it there in the usual way.
+    holdUnwritableContent(id, text);
     setRemovedText((current) => {
       if (current.get(id) === text) return current;
       const next = new Map(current);
@@ -378,7 +394,7 @@ export function createEditorStore() {
   function noteClosed(id: string) {
     clearHashTimer(id);
     forgetHashes(id);
-    clearRemovedOnDisk(id);
+    forgetRemovedOnDisk(id);
   }
 
   /**
@@ -529,8 +545,14 @@ export function createEditorStore() {
   ) {
     // A note whose file was deleted writes nothing until the person says where
     // it goes. Without this every keystroke queues a save the backend refuses,
-    // and the bar's reason is replaced by a fresh failure each time.
-    if (isRemovedOnDisk(bufferId)) return;
+    // and the bar's reason is replaced by a fresh failure each time. The
+    // keystroke is still the newest text there is of that note, so it is kept
+    // rather than dropped: the store hands it back to the next load, and the
+    // service hands it to the recovery snapshot if the tab or the window goes.
+    if (isRemovedOnDisk(bufferId)) {
+      keepTextOfRemoved(bufferId, typeof content === "function" ? content() : content);
+      return;
+    }
     debouncedSave(bufferId, content, delayMs);
   }
 
