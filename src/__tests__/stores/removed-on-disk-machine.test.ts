@@ -54,12 +54,13 @@ function depsFor(store: Store): ExternalEditDeps {
     findBuffer: (id: string) => ({ id, title: `${id}.md` }),
     hasUnsaved: (id: string) => store.isDirty(id),
     isRemovedOnDisk: (id: string) => store.isRemovedOnDisk(id),
-    reload: (id: string) => store.requestExternalReload(id),
-    cancelAutosave: (id: string) => cancelAutosave(id),
-    confirmReload: async () => true,
-    followMove: (id: string) => store.clearRemovedOnDisk(id),
+    reload: (id: string) => {
+      store.recordFileEvent(id, "settled");
+      store.requestExternalReload(id);
+    },
+    markChanged: (id: string) => store.recordFileEvent(id, "modified"),
+    followMove: (id: string) => store.recordFileEvent(id, "moved"),
     markRemoved: (id: string) => store.markRemovedOnDisk(id),
-    fileReturned: (id: string) => store.fileReturned(id),
   };
 }
 
@@ -152,11 +153,32 @@ describe("a note whose file is gone: the store's machine", () => {
     expect(queued).toHaveBeenCalled();
   });
 
+  it("writes what it was holding to the path the file turned up at", async () => {
+    // The hold is the only copy by then: the queue went when the mark went on,
+    // and the file at the new path is the one the tab was editing before it
+    // was renamed. Nothing else would write it, so the move puts it back.
+    const store = showing("one", "what the view holds");
+    const deps = depsFor(store);
+    await handleExternalEdit(removed("one"), deps);
+    queued.mockClear();
+    mockedSave.mockClear();
+
+    await handleExternalEdit(
+      { bufferId: "one", change: "moved", newPath: "/notes/moved/one.md" },
+      deps,
+    );
+
+    expect(queued).toHaveBeenCalledWith("one", "what the view holds", 0);
+    await store.flushAutosave("one");
+    expect(mockedSave).toHaveBeenCalledWith("one", "what the view holds");
+  });
+
   it("reads the file back into a tab that had nothing the file did not", async () => {
     const store = showing("one", "what the view holds");
-    // Loading the note records both digests, so the tab reads clean.
+    // The tab reads clean once the load lands, and not before: a note whose
+    // open is still out knows nothing about either side and says so.
     store.noteOpened("one", "what the view holds");
-    expect(store.isDirty("one")).toBe(false);
+    await vi.waitFor(() => expect(store.isDirty("one")).toBe(false));
     const deps = depsFor(store);
     await handleExternalEdit(removed("one"), deps);
 
@@ -167,10 +189,12 @@ describe("a note whose file is gone: the store's machine", () => {
     expect(queued).not.toHaveBeenCalled();
   });
 
-  it("keeps a dirty tab's text and writes it to the file that came back", async () => {
-    // The row this closes: the mark stayed on over a file that was there, so
-    // the bar lied and every later keystroke wrote nothing for the life of the
-    // window.
+  it("asks about a dirty tab whose file came back holding something else", async () => {
+    // The mark used to stay on over a file that was there, so the bar lied and
+    // every later keystroke wrote nothing for the life of the window. It comes
+    // off, and the tab is asked rather than written: the file holds bytes
+    // nobody has compared to the tab's, and picking one for the person is what
+    // the three answers exist to avoid.
     const store = showing("one", "the tab's text");
     expect(store.isDirty("one")).toBe(true);
     const deps = depsFor(store);
@@ -180,9 +204,12 @@ describe("a note whose file is gone: the store's machine", () => {
     await handleExternalEdit(backAtItsPath("one"), deps);
 
     expect(store.isRemovedOnDisk("one")).toBe(false);
-    expect(queued).toHaveBeenCalledWith("one", "the tab's text", 0);
-    await store.flushAutosave("one");
-    expect(mockedSave).toHaveBeenCalledWith("one", "the tab's text");
+    expect(store.isFileChangedOnDisk("one")).toBe(true);
+    expect(queued).not.toHaveBeenCalled();
+    expect(mockedSave).not.toHaveBeenCalled();
+    // Still the only copy of the tab's text, and still on its way to the
+    // shutdown snapshot rather than to the file.
+    expect(peekUnsavedContent("one")).toBe("the tab's text");
   });
 
   it("keeps a keystroke it does not queue", async () => {

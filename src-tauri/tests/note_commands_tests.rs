@@ -1,5 +1,6 @@
 //! The note commands at the layer the frontend reaches (ADR-028 §3).
 
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
@@ -9,6 +10,9 @@ use tempfile::TempDir;
 use writ_core::config::WritConfig;
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::hash::sha256_bytes;
+use writ_core::notes::guard::SF_DATALESS;
+use writ_core::notes::line_ending::LineEnding;
+use writ_core::notes::reload::ChangeChoice;
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
 use writ_core::watcher::change_event::ExternalChange;
@@ -25,8 +29,9 @@ use writ_storage::notes_index::NotesIndexStore;
 #[cfg(unix)]
 use writ_tauri_lib::commands::buffer::ERR_FOLDER_NOT_WRITABLE;
 use writ_tauri_lib::commands::buffer::{
-    read_buffer_content_inner, restore_note_file_inner, save_buffer_content_inner,
-    ERR_FILE_CHANGED_ON_DISK, ERR_FILE_MISSING, ERR_FILE_REMOVED_ON_DISK,
+    read_buffer_content_inner, resolve_external_change_at, resolve_external_change_inner,
+    restore_note_file_inner, save_buffer_content_inner, ERR_FILE_CHANGED_ON_DISK, ERR_FILE_MISSING,
+    ERR_FILE_NOT_DOWNLOADED, ERR_FILE_REMOVED_ON_DISK,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::commands::notes::{
@@ -1385,6 +1390,102 @@ fn one_move_seen_by_both_watchers_moves_the_row_once() {
     assert_eq!(title_of(&state, &doc.id), "moved-by-finder.md");
 }
 
+/// The dated copies sitting beside a note, newest name last.
+fn copies_beside(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .expect("read_dir")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().contains("(conflict "))
+        })
+        .collect();
+    paths.sort();
+    paths
+}
+
+/// A note holding `mine`, whose file another program has rewritten to
+/// `theirs` since Writ last read it.
+fn note_changed_under_writ(state: &AppState, mine: &str, theirs: &str) -> (String, PathBuf) {
+    let doc = new_note_inner(state).expect("new note");
+    save_buffer_content_inner(state, &doc.id, mine).expect("save");
+    let path = note_file(state, &doc.id);
+    std::fs::write(&path, theirs).expect("the other program's write");
+    (doc.id, path)
+}
+
+#[test]
+fn keeping_mine_writes_the_file_s_text_beside_the_note_before_the_save_lands() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let (id, path) = note_changed_under_writ(&state, "what I typed", "what they wrote");
+
+    let outcome =
+        resolve_external_change_inner(&state, &id, ChangeChoice::KeepMine, "what I typed, still")
+            .expect("resolve");
+
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read"),
+        "what I typed, still"
+    );
+    let copies = copies_beside(&state.notes_root());
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    assert_eq!(
+        std::fs::read_to_string(&copies[0]).expect("read"),
+        "what they wrote",
+        "the text the choice did not keep has to be on disk"
+    );
+    assert_eq!(
+        outcome.conflict_copy_path,
+        Some(copies[0].to_string_lossy().into_owned())
+    );
+    assert_eq!(outcome.content, None, "the tab keeps what it is holding");
+    assert_eq!(
+        outcome.disk_hash,
+        writ_core::hash::comparison_digest_hex(b"what I typed, still")
+    );
+
+    // The record moved with the resolve, so the next ordinary save is not
+    // refused by the guard over the change the person has already answered.
+    save_buffer_content_inner(&state, &id, "typed after").expect("the next save was refused");
+    assert_eq!(std::fs::read_to_string(&path).expect("read"), "typed after");
+}
+
+#[test]
+fn taking_the_file_writes_the_document_s_text_beside_the_note() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let (id, path) = note_changed_under_writ(&state, "what I typed", "what they wrote");
+
+    let outcome =
+        resolve_external_change_inner(&state, &id, ChangeChoice::UseDisk, "what I typed, still")
+            .expect("resolve");
+
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read"),
+        "what they wrote",
+        "the file is left exactly as the other program wrote it"
+    );
+    let copies = copies_beside(&state.notes_root());
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    assert_eq!(
+        std::fs::read_to_string(&copies[0]).expect("read"),
+        "what I typed, still"
+    );
+    assert_eq!(outcome.content.as_deref(), Some("what they wrote"));
+    assert_eq!(
+        outcome.disk_hash,
+        writ_core::hash::comparison_digest_hex(b"what they wrote")
+    );
+
+    save_buffer_content_inner(&state, &id, "what they wrote, edited").expect("save");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read"),
+        "what they wrote, edited"
+    );
+}
+
 /// Blocks until the watcher is holding `id`'s removal.
 ///
 /// The hold is taken by the delivery that carries the emptied path, one
@@ -1454,6 +1555,195 @@ fn a_rename_whose_halves_land_in_two_windows_is_still_a_move() {
         std::fs::read_to_string(&after).expect("read the moved file"),
         "edited after the rename"
     );
+}
+
+#[test]
+fn showing_both_leaves_a_file_the_second_tab_can_open() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let (id, path) = note_changed_under_writ(&state, "what I typed", "what they wrote");
+
+    let outcome =
+        resolve_external_change_inner(&state, &id, ChangeChoice::KeepBoth, "what I typed, still")
+            .expect("resolve");
+
+    let copy = PathBuf::from(outcome.conflict_copy_path.expect("a copy to open"));
+    assert!(copy.exists(), "{}", copy.display());
+    assert_eq!(
+        std::fs::read_to_string(&copy).expect("read"),
+        "what I typed, still"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read"),
+        "what they wrote"
+    );
+    assert_eq!(outcome.content.as_deref(), Some("what they wrote"));
+
+    // The second tab is an ordinary note opened from an ordinary file. The
+    // copy is written beside the note and holds its bytes, so it opens a
+    // buffer rather than the dataless arm that carries no row.
+    let opened = open_file_from_path(&state, &copy.to_string_lossy()).expect("open the copy");
+    let doc = opened.doc.expect("the copy carries a buffer row");
+    assert_eq!(
+        read_buffer_content_inner(&state, &doc.id).expect("read"),
+        b"what I typed, still".to_vec()
+    );
+}
+
+#[test]
+fn two_texts_that_are_the_same_text_leave_no_copy_behind() {
+    // The dirty predicate fails closed, so the question is asked over a note
+    // whose document has not been hashed yet. Answering it must not put a
+    // duplicate of the note in the folder.
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let (id, path) = note_changed_under_writ(&state, "one line\n", "one line\n");
+
+    for choice in [
+        ChangeChoice::KeepMine,
+        ChangeChoice::UseDisk,
+        ChangeChoice::KeepBoth,
+    ] {
+        let outcome =
+            resolve_external_change_inner(&state, &id, choice, "one line\n").expect("resolve");
+        assert_eq!(outcome.conflict_copy_path, None, "{choice:?}");
+        assert_eq!(outcome.content, None, "{choice:?}");
+        assert_eq!(
+            outcome.disk_hash,
+            writ_core::hash::comparison_digest_hex(b"one line\n")
+        );
+    }
+    assert_eq!(copies_beside(&state.notes_root()), Vec::<PathBuf>::new());
+    assert_eq!(std::fs::read_to_string(&path).expect("read"), "one line\n");
+}
+
+#[test]
+fn the_copy_of_the_document_carries_the_note_s_own_line_ending() {
+    // The editor hands its text over in LF whatever the file uses, so a copy
+    // written straight out of it turns a Windows note's afternoon of typing
+    // into a file none of that note's other lines match.
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let doc = new_note_inner(&state).expect("new note");
+    let path = note_file(&state, &doc.id);
+
+    // The row learns the ending the way it does in the app: off a file that
+    // was read.
+    std::fs::write(&path, "one\r\ntwo\r\n").expect("a file written on Windows");
+    read_buffer_content_inner(&state, &doc.id).expect("read");
+    std::fs::write(&path, "what they wrote\r\n").expect("the other program's write");
+
+    resolve_external_change_inner(&state, &doc.id, ChangeChoice::UseDisk, "one\ntwo\nthree\n")
+        .expect("resolve");
+
+    let copies = copies_beside(&state.notes_root());
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    assert_eq!(
+        std::fs::read_to_string(&copies[0]).expect("read"),
+        "one\r\ntwo\r\nthree\r\n",
+        "the copy holds the document's text in the note's own line ending"
+    );
+}
+
+#[test]
+fn the_copy_of_an_lf_note_gains_no_carriage_returns() {
+    // The other half of the pin: the ending is the note's and not a constant,
+    // so a note that never had a carriage return does not acquire one.
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let (id, _) = note_changed_under_writ(&state, "one\ntwo\n", "what they wrote\n");
+
+    resolve_external_change_inner(&state, &id, ChangeChoice::UseDisk, "one\ntwo\nthree\n")
+        .expect("resolve");
+
+    let copies = copies_beside(&state.notes_root());
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    assert_eq!(
+        std::fs::read_to_string(&copies[0]).expect("read"),
+        "one\ntwo\nthree\n"
+    );
+}
+
+#[test]
+fn the_copy_of_the_file_keeps_the_bytes_the_file_was_found_holding() {
+    // The copy of the disk side is not re-encoded. The recorded ending is the
+    // note's, and the program that just rewrote this file used whichever one
+    // it liked; a copy meant to preserve what was found there has to preserve
+    // it exactly.
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let doc = new_note_inner(&state).expect("new note");
+    let path = note_file(&state, &doc.id);
+    std::fs::write(&path, "one\r\ntwo\r\n").expect("a file written on Windows");
+    read_buffer_content_inner(&state, &doc.id).expect("read");
+    std::fs::write(&path, "they wrote\nthis in lf\n").expect("the other program's write");
+
+    resolve_external_change_inner(&state, &doc.id, ChangeChoice::KeepMine, "one\ntwo\n")
+        .expect("resolve");
+
+    let copies = copies_beside(&state.notes_root());
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    assert_eq!(
+        std::fs::read_to_string(&copies[0]).expect("read"),
+        "they wrote\nthis in lf\n"
+    );
+}
+
+#[test]
+fn a_file_that_is_not_downloaded_is_refused_without_being_read() {
+    // Reading an evicted file is what makes the provider fetch it over the
+    // network (ADR-028 §5), and this is a path that reads the file twice over.
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let (id, path) = note_changed_under_writ(&state, "what I typed", "what they wrote");
+
+    let error = resolve_external_change_at(
+        &state,
+        &id,
+        &path,
+        Some(SF_DATALESS),
+        LineEnding::Lf,
+        ChangeChoice::KeepMine,
+        "what I typed, still",
+    )
+    .expect_err("a file that is not there to read");
+
+    assert!(error.starts_with(ERR_FILE_NOT_DOWNLOADED), "{error}");
+    assert_eq!(copies_beside(&state.notes_root()), Vec::<PathBuf>::new());
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read"),
+        "what they wrote"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_copy_that_cannot_be_written_stops_the_note_being_touched() {
+    // The order is the guarantee: a write that lands and then fails to be
+    // copied has already destroyed the text it covered.
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let (id, path) = note_changed_under_writ(&state, "what I typed", "what they wrote");
+    let folder = state.notes_root();
+    let before = std::fs::metadata(&folder).expect("metadata").permissions();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).expect("read-only");
+
+    let error =
+        resolve_external_change_inner(&state, &id, ChangeChoice::KeepMine, "what I typed, still")
+            .expect_err("nowhere to write the copy");
+
+    std::fs::set_permissions(&folder, before).expect("restore");
+    // The folder is what refuses, not the file, and the answer stops there
+    // with the note untouched either way.
+    assert!(error.starts_with(ERR_FOLDER_NOT_WRITABLE), "{error}");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read"),
+        "what they wrote",
+        "the note was written over with no copy of what it held"
+    );
+    assert_eq!(copies_beside(&folder), Vec::<PathBuf>::new());
 }
 
 #[test]
@@ -1569,6 +1859,89 @@ fn a_save_inside_the_hold_of_a_deletion_recreates_nothing() {
         "the deletion is announced once and the save says nothing, saw {seen:?}"
     );
     assert!(state.is_removed_on_disk(&doc.id));
+}
+
+#[test]
+fn an_answer_inside_the_hold_of_a_deletion_puts_nothing_back() {
+    // An answer is a write, so it waits out a held removal like a save does.
+    // Without the wait it takes the record at face value, finds a note that
+    // still has a file, and recreates the file the person deleted holding the
+    // text they were being asked about.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, _rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    std::fs::remove_file(&path).expect("delete the note the way Finder does");
+    wait_until_held(&state, &doc.id);
+
+    let refused =
+        resolve_external_change_inner(&state, &doc.id, ChangeChoice::KeepMine, "answered anyway")
+            .expect_err("the answer must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the answer is refused the same way a save is, got {refused}"
+    );
+    assert!(
+        !path.exists(),
+        "the file the person deleted is back on disk"
+    );
+    assert_eq!(copies_beside(&state.notes_root()), Vec::<PathBuf>::new());
+    assert!(state.is_removed_on_disk(&doc.id));
+}
+
+#[test]
+fn an_answer_inside_the_hold_of_a_split_rename_lands_at_the_new_path() {
+    // The other half of the wait, and the reason it sits above the store lock:
+    // the answer reads the note's path after the move has landed on the row,
+    // so a rename under an unanswered question leaves one file and not two.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, _rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    let elsewhere = dir.path().join("outside-every-watched-folder");
+    std::fs::create_dir_all(&elsewhere).expect("a folder nothing watches");
+    let parked = elsewhere.join("in-flight.md");
+    std::fs::rename(&before, &parked).expect("the first half");
+
+    let answerer = {
+        let state = Arc::clone(&state);
+        let id = doc.id.clone();
+        std::thread::spawn(move || {
+            wait_until_held(&state, &id);
+            resolve_external_change_inner(&state, &id, ChangeChoice::KeepMine, "answered anyway")
+        })
+    };
+    wait_until_held(&state, &doc.id);
+    let after = state.notes_root().join("renamed-under-the-question.md");
+    std::fs::rename(&parked, &after).expect("the second half");
+    let outcome = answerer
+        .join()
+        .expect("the answering thread")
+        .expect("the answer");
+
+    assert_eq!(note_file(&state, &doc.id), after);
+    assert_eq!(
+        std::fs::read_to_string(&after).expect("read"),
+        "answered anyway"
+    );
+    assert!(
+        !before.exists(),
+        "the answer wrote a second file at the old path"
+    );
+    let copies = copies_beside(&state.notes_root());
+    assert_eq!(copies.len(), 1, "what the file held has to be beside it");
+    assert_eq!(
+        outcome.conflict_copy_path.as_deref(),
+        Some(copies[0].to_string_lossy().as_ref())
+    );
 }
 
 #[test]

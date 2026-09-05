@@ -4,7 +4,6 @@ export type ExternalEditAction =
   | "ignore"
   | "follow"
   | "mark-removed"
-  | "returned"
   | "reload"
   | "prompt";
 
@@ -26,19 +25,19 @@ export interface ExternalEditInputs {
 // disk when there is nothing to lose, and asks first when there are unsaved
 // edits the reload would discard.
 //
-// A tab that already lost its file reads the same reports differently. A file
-// at its path again is a return, answered by the rule in ADR-033 decision 15
-// rather than by the prompt a modification gets: the person is putting a file
-// back, not editing one behind Writ's back. A second removal for a note
-// already marked says nothing the first did not, and acting on it again would
-// cancel a queue the mark has since put text back into.
+// A tab that already lost its file reads a second removal as nothing new: it
+// says what the first one said, and acting on it again would cancel a queue
+// the mark has since put text back into. A file at the note's own path again
+// takes the same fork as any other modification, because it is the same
+// question: a tab holding text no file has is asked which version the file
+// ends up with, and a tab holding nothing of its own reads the file back
+// quietly (ADR-033 §15).
 export function planExternalEdit(inputs: ExternalEditInputs): ExternalEditAction {
   if (!inputs.known) return "ignore";
   if (inputs.change === "moved") return "follow";
   if (inputs.change === "removed") {
     return inputs.removedOnDisk ? "ignore" : "mark-removed";
   }
-  if (inputs.removedOnDisk) return "returned";
   return inputs.hasUnsaved ? "prompt" : "reload";
 }
 
@@ -52,8 +51,9 @@ export interface ExternalEditDeps {
   hasUnsaved: (id: string) => boolean;
   isRemovedOnDisk: (id: string) => boolean;
   reload: (id: string) => void;
-  cancelAutosave: (id: string) => void;
-  confirmReload: (title: string) => Promise<boolean>;
+  // Raises the bar that asks what to do about a file that changed under text
+  // no file holds. Nothing is read, replaced or written until it is answered.
+  markChanged: (id: string) => void;
   // Repoints the tab at the file's new path: its name, the path it saves to,
   // and the folder it is watched in. The text is untouched.
   followMove: (id: string, newPath: string) => void;
@@ -61,9 +61,6 @@ export interface ExternalEditDeps {
   // the last copy of and cancels the queue, in that order, so this must not
   // be paired with a `cancelAutosave` of its own.
   markRemoved: (id: string) => void;
-  // A file is back at the note's own path. The store decides what the tab
-  // shows and puts autosave back to work.
-  fileReturned: (id: string) => void;
 }
 
 // What the backend says about a file that changed outside Writ. `path` names
@@ -139,19 +136,14 @@ export async function handleExternalEdit(
     case "mark-removed":
       deps.markRemoved(buffer.id);
       return;
-    case "returned":
-      deps.fileReturned(buffer.id);
-      return;
     case "reload":
       deps.reload(buffer.id);
       return;
-    case "prompt": {
-      const reload = await deps.confirmReload(buffer.title);
-      if (reload) {
-        deps.cancelAutosave(buffer.id);
-        deps.reload(buffer.id);
-      }
+    case "prompt":
+      // The store cancels the queue as it raises the bar, and reads what the
+      // queue was carrying first: for a background tab that is the only copy
+      // of its text, and cancelling first is what threw it away.
+      deps.markChanged(buffer.id);
       return;
-    }
   }
 }

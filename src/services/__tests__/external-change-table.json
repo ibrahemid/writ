@@ -1,0 +1,165 @@
+{
+  "note": "Read by external-edit.fixture.test.ts. One row per situation a `buffer:external` event can put a tab in; `action` is what src/services/external-edit.ts does with it. `removedOnDisk` is whether the tab has already been told its file is gone. The decision lives in the editor alone, because it turns on whether the document holds text no file has, which the backend cannot answer (ADR-033 \u00a716).",
+  "rows": [
+    {
+      "name": "a modified file under a document with nothing unsaved",
+      "inputs": {
+        "known": true,
+        "change": "modified",
+        "hasUnsaved": false,
+        "removedOnDisk": false
+      },
+      "action": "reload"
+    },
+    {
+      "name": "a modified file under unsaved text",
+      "inputs": {
+        "known": true,
+        "change": "modified",
+        "hasUnsaved": true,
+        "removedOnDisk": false
+      },
+      "action": "prompt"
+    },
+    {
+      "name": "a file that was deleted, nothing unsaved",
+      "inputs": {
+        "known": true,
+        "change": "removed",
+        "hasUnsaved": false,
+        "removedOnDisk": false
+      },
+      "action": "mark-removed"
+    },
+    {
+      "name": "a file that was deleted under unsaved text",
+      "inputs": {
+        "known": true,
+        "change": "removed",
+        "hasUnsaved": true,
+        "removedOnDisk": false
+      },
+      "action": "mark-removed"
+    },
+    {
+      "name": "a file that moved, nothing unsaved",
+      "inputs": {
+        "known": true,
+        "change": "moved",
+        "hasUnsaved": false,
+        "removedOnDisk": false
+      },
+      "action": "follow"
+    },
+    {
+      "name": "a file that moved under unsaved text",
+      "inputs": {
+        "known": true,
+        "change": "moved",
+        "hasUnsaved": true,
+        "removedOnDisk": false
+      },
+      "action": "follow"
+    },
+    {
+      "name": "a modified file this window holds no tab for",
+      "inputs": {
+        "known": false,
+        "change": "modified",
+        "hasUnsaved": false,
+        "removedOnDisk": false
+      },
+      "action": "ignore"
+    },
+    {
+      "name": "a modified file with unsaved text and no tab here",
+      "inputs": {
+        "known": false,
+        "change": "modified",
+        "hasUnsaved": true,
+        "removedOnDisk": false
+      },
+      "action": "ignore"
+    },
+    {
+      "name": "a deleted file this window holds no tab for",
+      "inputs": {
+        "known": false,
+        "change": "removed",
+        "hasUnsaved": false,
+        "removedOnDisk": false
+      },
+      "action": "ignore"
+    },
+    {
+      "name": "a deleted file with unsaved text and no tab here",
+      "inputs": {
+        "known": false,
+        "change": "removed",
+        "hasUnsaved": true,
+        "removedOnDisk": false
+      },
+      "action": "ignore"
+    },
+    {
+      "name": "a moved file this window holds no tab for",
+      "inputs": {
+        "known": false,
+        "change": "moved",
+        "hasUnsaved": false,
+        "removedOnDisk": false
+      },
+      "action": "ignore"
+    },
+    {
+      "name": "a moved file with unsaved text and no tab here",
+      "inputs": {
+        "known": false,
+        "change": "moved",
+        "hasUnsaved": true,
+        "removedOnDisk": false
+      },
+      "action": "ignore"
+    },
+    {
+      "name": "a second removal for a tab already marked",
+      "inputs": {
+        "known": true,
+        "change": "removed",
+        "hasUnsaved": true,
+        "removedOnDisk": true
+      },
+      "action": "ignore"
+    },
+    {
+      "name": "a file back at the path of a marked tab, nothing unsaved",
+      "inputs": {
+        "known": true,
+        "change": "modified",
+        "hasUnsaved": false,
+        "removedOnDisk": true
+      },
+      "action": "reload"
+    },
+    {
+      "name": "a file back at the path of a marked tab, under unsaved text",
+      "inputs": {
+        "known": true,
+        "change": "modified",
+        "hasUnsaved": true,
+        "removedOnDisk": true
+      },
+      "action": "prompt"
+    },
+    {
+      "name": "a marked tab's file turning up at another path",
+      "inputs": {
+        "known": true,
+        "change": "moved",
+        "hasUnsaved": true,
+        "removedOnDisk": true
+      },
+      "action": "follow"
+    }
+  ]
+}

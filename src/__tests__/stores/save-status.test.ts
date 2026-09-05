@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("../../services/tauri", () => ({
   saveBufferContent: vi.fn().mockResolvedValue(null),
+  noteDiskState: vi.fn(async () => ({ state: "no_file" })),
 }));
 
 const registry = await vi.hoisted(async () => {
@@ -19,7 +20,9 @@ vi.mock("../../stores/global/buffer-registry", () => ({
 const dirtyNotes = await vi.hoisted(async () => {
   const { createSignal } = await import("solid-js");
   const [ids, setIds] = createSignal<ReadonlySet<string>>(new Set<string>());
-  const [tracked, setTracked] = createSignal<ReadonlySet<string>>(new Set<string>());
+  const [tracked, setTracked] = createSignal<ReadonlySet<string>>(
+    new Set<string>(),
+  );
   return { ids, setIds, tracked, setTracked };
 });
 
@@ -35,6 +38,9 @@ vi.mock("../../stores/global/window-registry", () => ({
 }));
 
 import { saveStatusStore } from "../../stores/global/save-status";
+import { createEditorStore } from "../../stores/window/editor-store";
+import { createExternalEditDeps } from "../../lib/external-edit-deps";
+import { handleExternalEdit } from "../../services/external-edit";
 import {
   debouncedSave,
   flushAutosave,
@@ -142,14 +148,18 @@ describe("saveStatusStore", () => {
 
   it("carries the reason for the failure in plain words, and drops it once a save lands", async () => {
     vi.useFakeTimers();
-    mockedSave.mockRejectedValueOnce(new Error("ERR_PERMISSION_DENIED: io error (os error 13)"));
+    mockedSave.mockRejectedValueOnce(
+      new Error("ERR_PERMISSION_DENIED: io error (os error 13)"),
+    );
 
     debouncedSave("one", "oops", 0);
     await flushAutosave("one");
 
     const reason = saveStatusStore.forNote("one").reason!;
     expect(reason.code).toBe("ERR_PERMISSION_DENIED");
-    expect(reason.message).toBe("you do not have permission to change this file.");
+    expect(reason.message).toBe(
+      "you do not have permission to change this file.",
+    );
     expect(reason.retryable).toBe(true);
 
     await flushAutosave("one");
@@ -169,5 +179,79 @@ describe("saveStatusStore", () => {
     saveStatusStore.forgetNote("one");
     expect(saveStatusStore.forNote("one").state).toBe("clean");
     cancelAutosave("one");
+  });
+
+  it("drops a failure when the same file turns into a question about a change", async () => {
+    // One bar for one file. A save refused against a change outside Writ, and
+    // the question about that change, are the same event twice: the failure
+    // has to go before the question renders, or a note carries two bars
+    // saying different things about one file. Both callers that raise a bar
+    // (`markChanged`, `markRemoved`) forget the note first.
+    vi.useFakeTimers();
+    mockedSave.mockRejectedValueOnce(
+      new Error("ERR_FILE_CHANGED_ON_DISK: the file changed"),
+    );
+
+    debouncedSave("one", "mine", 0);
+    await flushAutosave("one");
+    expect(saveStatusStore.forNote("one").state).toBe("failed");
+
+    saveStatusStore.forgetNote("one");
+
+    expect(saveStatusStore.forNote("one").state).not.toBe("failed");
+    expect(saveStatusStore.failureFor("one")).toBeUndefined();
+    cancelAutosave("one");
+  });
+
+  it("keeps one bar on one file however many things happen to it", async () => {
+    // The same invariant against the other pair. The question about a change
+    // and the mark for a deletion are two readings of one file, so they are
+    // one state on the note rather than two flags, and no order of the events
+    // that raise them can put both bars on the tab at once.
+    const store = createEditorStore();
+    const deps = createExternalEditDeps({
+      editor: store,
+      openBuffers: () => [{ id: "one", title: "one", filename: "one.md" }],
+      refreshBuffer: async () => {},
+      forgetSaveStatus: (id) => saveStatusStore.forgetNote(id),
+    });
+    const changes = ["modified", "removed", "moved"] as const;
+
+    try {
+      for (const first of changes) {
+        for (const second of changes) {
+          store.noteClosed("one");
+          for (const change of [first, second]) {
+            await handleExternalEdit(
+              {
+                bufferId: "one",
+                change,
+                path: "/notes/one.md",
+                newPath: "/notes/two.md",
+              },
+              deps,
+            );
+            if (change === first && first === "modified") {
+              // The question has to be up for the pair to be a pair. A
+              // `modified` event only asks while the tab differs from its
+              // file, so a dirty predicate that answered false here would
+              // leave nothing raised and pass every count below.
+              expect(store.noteFileState("one")).toBe("changed");
+            }
+          }
+          const bars = [
+            store.isRemovedOnDisk("one"),
+            store.isFileChangedOnDisk("one"),
+            saveStatusStore.forNote("one").state === "failed",
+          ].filter(Boolean);
+          expect(
+            bars.length,
+            `${first} then ${second} raises ${bars.length} bars`,
+          ).toBeLessThan(2);
+        }
+      }
+    } finally {
+      store.stopSaveListener();
+    }
   });
 });

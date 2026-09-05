@@ -1,5 +1,5 @@
 import { onMount, onCleanup, createEffect, createMemo, on } from "solid-js";
-import { Annotation, Compartment, EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { addCursorUp, addCursorDown } from "../../commands/multicursor";
 import {
   EditorView, keymap,
@@ -55,6 +55,7 @@ import { rebuildKeyMap } from "../../commands/keybindings";
 import { getExtension as languageExtension } from "../../editor/language-registry";
 import { registerBuiltinLanguages } from "../../editor/builtins";
 import { editorModeForContent } from "../../editor/large-file";
+import { ExternalReloadTxn } from "../../editor/external-reload";
 import { autoTextDirection } from "../../editor/bidi";
 import { codeChrome, codeChromeFor, isCodeBuffer, surfaceFollowsLanguage } from "../../editor/code-chrome";
 import { stripOwnedBindings } from "../../editor/keymap-filter";
@@ -72,12 +73,6 @@ function nameForDetection(buffer: BufferDocument): string {
 interface Props {
   buffer: BufferDocument;
 }
-
-// Marks a transaction as a programmatic reload from disk so the update
-// listener replaces the live text without scheduling an autosave of it (the
-// content already equals disk; re-saving would defeat a prior cancelAutosave
-// and bump updated_at for nothing).
-const ExternalReloadTxn = Annotation.define<boolean>();
 
 const CONTENT_DETECT_MIN_LENGTH = 40;
 const CONTENT_DETECT_DELTA = 40;
@@ -409,11 +404,15 @@ export default function EditorInstance(props: Props) {
   }
 
   // The outgoing note's text, handed to the store while the view still holds
-  // it. A note whose file was deleted has no file to be read back from, so the
-  // view being replaced is the moment its text would otherwise be gone.
-  function keepTextOfOutgoingRemoved() {
+  // it. A note that may not write has nothing on disk to be read back from, so
+  // the view being replaced is the moment its text would otherwise be gone.
+  // The predicate is the hold, not the deletion: a note whose file changed
+  // under it has a file, and that file holds the other program's text, so
+  // reading it back on the way in would replace the typing the bar exists to
+  // protect and answering afterwards would send the file its own text.
+  function keepTextOfOutgoingHeldNote() {
     if (!currentBufferId || !view) return;
-    if (!win.editor.isRemovedOnDisk(currentBufferId)) return;
+    if (!win.editor.savesAreHeld(currentBufferId)) return;
     win.editor.keepTextOfRemoved(currentBufferId, view.state.doc.toString());
   }
 
@@ -462,7 +461,7 @@ export default function EditorInstance(props: Props) {
 
   async function loadBuffer(buffer: BufferDocument) {
     await saveCurrentContent();
-    keepTextOfOutgoingRemoved();
+    keepTextOfOutgoingHeldNote();
     // A pending publish belongs to the outgoing buffer; a late fire after the
     // swap would push stale text into the shared currentText signal.
     clearRestrictedContentPublish();
@@ -474,10 +473,12 @@ export default function EditorInstance(props: Props) {
     appliedNameForLang = "";
     lastDetectLen = 0;
 
-    // A note whose file is gone is read from what the store kept, never from
-    // disk: the read would fail and the empty string it fell back to went into
-    // the view, which threw away the file's text and every unsaved keystroke
-    // on top of it.
+    // A note that may not write is read from what the store kept, never from
+    // disk. For a deleted file the read would fail and the empty string it
+    // fell back to went into the view, throwing away every unsaved keystroke.
+    // For a file that changed under the tab the read succeeds, which is worse:
+    // the other program's text lands in the view, the typing the bar is
+    // holding is gone, and the answer then writes the file its own text.
     let content = "";
     const kept = win.editor.textOfRemoved(buffer.id);
     if (kept !== undefined) {
@@ -532,27 +533,23 @@ export default function EditorInstance(props: Props) {
     view.focus();
   }
 
-  // Resets the live view to the buffer's on-disk content without first
-  // saving (a save would clobber the external change) and without
-  // remounting the view. Only acts on the buffer currently loaded; an
-  // external edit to a background buffer is picked up by loadBuffer when the
-  // user switches to it (audit blocker #53.4).
+  // Reads the file and hands its text to the store, which replaces the
+  // document in one tracked transaction when this is the tab in front, and
+  // records what the file holds for the note either way.
+  //
+  // A note that is not the one in the view is no longer dropped here. It has
+  // nothing to dispatch into and reads its file again when it is switched to,
+  // but the record has to move now: a background note left holding the digest
+  // of a file that has changed reads dirty against a file it matches, and the
+  // next change to it asks a question that has no reason to be asked.
   async function reloadFromDisk(id: string) {
-    if (!view || currentBufferId !== id) return;
     let content: string;
     try {
       content = await bufferRegistry.readContent(id);
     } catch {
       return;
     }
-    if (!view || currentBufferId !== id) return;
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: content },
-      annotations: ExternalReloadTxn.of(true),
-    });
-    win.editor.setCurrentText(content);
-    win.editor.noteOpened(id, content);
-    win.editor.setLineCount(view.state.doc.lines);
+    win.editor.applyExternalContent(id, content);
   }
 
   // Cmd/Ctrl + wheel (and trackpad pinch, which the OS reports as ctrl+wheel)
@@ -613,9 +610,7 @@ export default function EditorInstance(props: Props) {
   createEffect(on(
     () => win.editor.externalReload(),
     (req) => {
-      if (req && req.id === currentBufferId) {
-        void reloadFromDisk(req.id);
-      }
+      if (req) void reloadFromDisk(req.id);
     },
     { defer: true },
   ));
@@ -764,7 +759,19 @@ export default function EditorInstance(props: Props) {
     spellingStore.detach();
     rebuildKeyMap();
     if (currentBufferId) {
-      win.editor.cancelAutosave(currentBufferId);
+      // The hold is what the close and the quit hand to the recovery
+      // snapshot, and this cleanup runs before either of them: the view goes
+      // when the last tab closes, and cancelling here would take the only
+      // copy of a held note's text with it (ADR-033 decision 15). So a note
+      // whose saves are held has its text put back into the hold instead. It
+      // has nothing queued to cancel either — `scheduleAutosave` holds rather
+      // than queues while the bar is up, and the hold cancelled the queue
+      // when it went on.
+      if (view && win.editor.savesAreHeld(currentBufferId)) {
+        win.editor.keepTextOfRemoved(currentBufferId, view.state.doc.toString());
+      } else {
+        win.editor.cancelAutosave(currentBufferId);
+      }
     }
     clearRestrictedContentPublish();
     win.editor.setActiveFormats(NO_ACTIVE_FORMATS);

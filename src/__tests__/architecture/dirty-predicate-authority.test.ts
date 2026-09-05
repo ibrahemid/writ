@@ -19,6 +19,8 @@ const DIRTY_SOURCES = new Set([
   // The predicate itself, reached through the window's editor store.
   "win.editor.isDirty",
   "editorStore.isDirty",
+  // The same store, reached through the wiring the deps factory is handed.
+  "wiring.editor.isDirty",
   // A type position in an interface, not a value.
   "boolean",
 ]);

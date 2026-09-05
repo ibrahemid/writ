@@ -6,7 +6,10 @@ import type { NoteSaveStatus } from "../../stores/global/save-status";
 const fixtures = await vi.hoisted(async () => {
   const { createSignal } = await import("solid-js");
   const [statuses, setStatuses] = createSignal<Record<string, NoteSaveStatus>>({});
-  return { statuses, setStatuses };
+  // The notes whose file is being asked about, so a test can put a note under
+  // a question and take it back out while the bar is on screen.
+  const [held, setHeld] = createSignal<string[]>([]);
+  return { statuses, setStatuses, held, setHeld };
 });
 
 vi.mock("../../stores/global/save-status", () => ({
@@ -31,7 +34,13 @@ const { saveCopyOfNote, retrySave, readDiskState } = stubs;
 
 vi.mock("../../lib/note-actions", () => ({ saveCopyOfNote: stubs.saveCopyOfNote }));
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
-  useWindow: () => ({ editor: { retrySave: stubs.retrySave, readDiskState: stubs.readDiskState } }),
+  useWindow: () => ({
+    editor: {
+      retrySave: stubs.retrySave,
+      readDiskState: stubs.readDiskState,
+      savesAreHeld: (id: string) => fixtures.held().includes(id),
+    },
+  }),
 }));
 
 import SaveFailureBar from "../../components/Editor/SaveFailureBar";
@@ -51,6 +60,7 @@ function failure(overrides: Partial<NoteSaveStatus["reason"]> = {}): NoteSaveSta
 
 beforeEach(() => {
   fixtures.setStatuses({});
+  fixtures.setHeld([]);
   retrySave.mockClear();
   readDiskState.mockClear();
   saveCopyOfNote.mockClear();
@@ -164,6 +174,38 @@ describe("SaveFailureBar", () => {
 
     expect(queryByText("Try again")).toBeNull();
     expect(getByText("Save a copy…")).not.toBeNull();
+  });
+
+  // A save on the wire when the watcher reports fails under the question, and
+  // it can fail for a reason that is ordinarily worth another press. The write
+  // paths are all held while the question is up, so the press would reach
+  // nothing and say nothing.
+  it("offers no Try again while the note's file is being asked about", () => {
+    fixtures.setStatuses({ one: failure({ code: "ERR_WRITE_FAILED" }) });
+    fixtures.setHeld(["one"]);
+    const { queryByText, getByText } = render(() => <SaveFailureBar noteId="one" />);
+
+    expect(queryByText("Try again")).toBeNull();
+    expect(getByText("Save a copy…")).not.toBeNull();
+  });
+
+  it("offers it again once the question is answered", () => {
+    fixtures.setStatuses({ one: failure({ code: "ERR_WRITE_FAILED" }) });
+    fixtures.setHeld(["one"]);
+    const { queryByText } = render(() => <SaveFailureBar noteId="one" />);
+    expect(queryByText("Try again")).toBeNull();
+
+    fixtures.setHeld([]);
+
+    expect(queryByText("Try again")).not.toBeNull();
+  });
+
+  it("keeps it for a note whose file nobody is asking about", () => {
+    fixtures.setStatuses({ one: failure(), two: failure() });
+    fixtures.setHeld(["two"]);
+    const { queryByText } = render(() => <SaveFailureBar noteId="one" />);
+
+    expect(queryByText("Try again")).not.toBeNull();
   });
 
   it("hands the note to the save-a-copy command", () => {
