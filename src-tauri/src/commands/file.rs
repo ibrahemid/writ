@@ -167,28 +167,38 @@ fn settle_open_grant(
     }
 }
 
+/// The download state for a file whose bytes are not on this machine, or
+/// `None` when the file is here and can be read.
+///
+/// Every open entry point calls this before anything reads the file.
+/// `classify_path` sniffs the first bytes for a NUL, and on a placeholder that
+/// sniff is what blocks the IPC thread until the provider has fetched the whole
+/// file, so the gate has to answer from the stat first.
+fn dataless_open_answer(canonical: &str) -> Option<FileOpenResult> {
+    let file_path = Path::new(canonical);
+    let OpenDecision::Download { .. } = decide_open(file_path, path_is_dataless(file_path)) else {
+        return None;
+    };
+    let size_bytes = std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
+    let home = dirs::home_dir();
+    let provider =
+        crate::startup::sync_provider_for(file_path.parent().unwrap_or(file_path), home.as_deref());
+    Some(FileOpenResult {
+        mode: FileOpenMode::NotDownloaded {
+            path: canonical.to_string(),
+            provider,
+        },
+        size_bytes,
+        doc: None,
+    })
+}
+
 fn open_authorized_path(state: &AppState, canonical: &str) -> Result<FileOpenResult, String> {
     let canonical = canonical.to_string();
     let file_path = Path::new(&canonical);
 
-    // Before anything reads the file. `classify_path` sniffs the first bytes
-    // for a NUL, and on a placeholder that sniff is what blocks the IPC thread
-    // until the provider has fetched the whole file.
-    if let OpenDecision::Download { .. } = decide_open(file_path, path_is_dataless(file_path)) {
-        let size_bytes = std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
-        let home = dirs::home_dir();
-        let provider = crate::startup::sync_provider_for(
-            file_path.parent().unwrap_or(file_path),
-            home.as_deref(),
-        );
-        return Ok(FileOpenResult {
-            mode: FileOpenMode::NotDownloaded {
-                path: canonical,
-                provider,
-            },
-            size_bytes,
-            doc: None,
-        });
+    if let Some(answer) = dataless_open_answer(&canonical) {
+        return Ok(answer);
     }
 
     let classification = file_ops::classify_path(file_path).map_err(|e| e.to_string())?;
@@ -366,13 +376,28 @@ pub fn open_file_confirmed(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<FileOpenResult, String> {
-    let (canonical, spent) = authorize_open(&state, &path)?;
-    let opened = open_confirmed_path(&state, &canonical);
-    settle_open_grant(&state, &canonical, spent, &opened);
+    open_file_confirmed_from_path(&state, &path)
+}
+
+/// [`open_file_confirmed`] against an `AppState` rather than a Tauri handle.
+pub fn open_file_confirmed_from_path(
+    state: &AppState,
+    path: &str,
+) -> Result<FileOpenResult, String> {
+    let (canonical, spent) = authorize_open(state, path)?;
+    let opened = open_confirmed_path(state, &canonical);
+    settle_open_grant(state, &canonical, spent, &opened);
     opened
 }
 
 fn open_confirmed_path(state: &AppState, canonical: &str) -> Result<FileOpenResult, String> {
+    // Ahead of `classify_path`, on the same grounds as `open_authorized_path`:
+    // the file can be evicted while the confirmation dialog is up, and the
+    // sniff would then fetch the whole of it on the IPC thread.
+    if let Some(answer) = dataless_open_answer(canonical) {
+        return Ok(answer);
+    }
+
     let file_path = Path::new(canonical);
     let classification = file_ops::classify_path(file_path).map_err(|e| e.to_string())?;
     if let FileOpenMode::Refused { reason } = &classification.mode {

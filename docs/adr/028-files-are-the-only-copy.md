@@ -183,6 +183,11 @@ byte-identical to what is being written, the save succeeds silently. mtime is ne
 signal: a touch, a sync round trip or a Time Machine restore changes it without changing content,
 and a dialog that fires when nothing differs is worse than no check at all.
 
+Reading is what materialises a placeholder, so every open entry point runs the dataless gate
+before `classify_path` reaches the file (`dataless_open_answer` in
+`src-tauri/src/commands/file.rs`, called from both `open_authorized_path` and
+`open_confirmed_path`).
+
 Every conflict resolution, not only "keep both", writes the losing side to disk as
 `<name> (conflict YYYY-MM-DD HH.MM.SS).md` before it is applied. No code path can end a conflict
 with zero files. Rename goes through the same guard, or a rename clobbers a file another process
