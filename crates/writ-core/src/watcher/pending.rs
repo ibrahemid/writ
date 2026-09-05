@@ -28,15 +28,17 @@ use crate::notes::identity::{
     classify_delete, classify_delete_by_content, DeleteVerdict, FileIdentity,
 };
 
-/// How long a removal is held before it is announced.
+/// How long a removal is held, for a watcher that delivers on `debounce`.
 ///
-/// Twice the 500 ms debounce both watchers run on, so the delivery that would
-/// carry the other half of a rename has a full window of its own to arrive in
-/// after the one that carried the first half closed. Longer would leave a tab
-/// writing into a file the user deleted; the wait is what a deletion costs
-/// before the tab hears about it, and it stays well inside the window an
-/// external change is allowed to take.
-pub const DEFAULT_HOLD_WINDOW: Duration = Duration::from_millis(1000);
+/// Twice the window it delivers on. A debounce window closes on a deadline set
+/// by its first event, so the delivery that would carry the other half of a
+/// rename can be a full window behind the one that carried the first half, and
+/// a hold of one window would expire on that boundary. Longer would leave a tab
+/// writing into a file that was deleted; the wait is what a deletion costs
+/// before the tab hears about it.
+pub fn hold_window(debounce: Duration) -> Duration {
+    debounce * 2
+}
 
 /// A removal waiting to be answered.
 #[derive(Debug, Clone, PartialEq, Eq)]

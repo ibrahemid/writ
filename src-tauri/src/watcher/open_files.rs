@@ -43,7 +43,7 @@ use writ_core::notes::identity::{
 };
 use writ_core::watcher::change_event::{modification_is_news, ExternalChange};
 use writ_core::watcher::ignore::{SuppressDecision, DEFAULT_IGNORE_TTL};
-use writ_core::watcher::pending::{HeldRemoval, PendingRemovals, DEFAULT_HOLD_WINDOW};
+use writ_core::watcher::pending::{hold_window, HeldRemoval, PendingRemovals};
 use writ_core::watcher::sighting::{LastSeen, DEFAULT_SIGHTING_TTL};
 
 use super::handler::{ignore_key_path, IgnoreSet};
@@ -493,7 +493,7 @@ pub fn start_open_file_watcher(
         // A removal waits for the delivery that might answer it, so the wait
         // for the next event ends at its deadline rather than whenever the
         // folder happens to change again.
-        let pending = RefCell::new(PendingRemovals::new(DEFAULT_HOLD_WINDOW));
+        let pending = RefCell::new(PendingRemovals::new(hold_window(DEBOUNCE_WINDOW)));
         loop {
             // Read out before the match: the borrow would otherwise stand for
             // the whole of it, and the timeout arm needs the same cell.
@@ -1077,7 +1077,7 @@ mod tests {
     /// A watcher holding removals for the window the running one holds them
     /// for, so a test sees the same wait production does.
     fn holding() -> RefCell<PendingRemovals> {
-        RefCell::new(PendingRemovals::new(DEFAULT_HOLD_WINDOW))
+        RefCell::new(PendingRemovals::new(hold_window(DEBOUNCE_WINDOW)))
     }
 
     /// What a held removal becomes once its window passes with no delivery
@@ -1087,7 +1087,7 @@ mod tests {
         pending: &RefCell<PendingRemovals>,
         tracking: &FileTracking,
     ) -> Vec<WritEvent> {
-        let deadline = Instant::now() + DEFAULT_HOLD_WINDOW;
+        let deadline = Instant::now() + hold_window(DEBOUNCE_WINDOW);
         answer_held_removals(&mut pending.borrow_mut(), &[], tracking, deadline)
             .into_iter()
             .map(|(_, event)| event)
@@ -1923,7 +1923,7 @@ mod tests {
             &mut pending.borrow_mut(),
             std::slice::from_ref(&path),
             &tracking,
-            Instant::now() + DEFAULT_HOLD_WINDOW,
+            Instant::now() + hold_window(DEBOUNCE_WINDOW),
         );
         assert!(answers.is_empty(), "saw {answers:?}");
         assert!(pending.borrow().is_empty());
