@@ -31,8 +31,9 @@ use std::sync::{Mutex, MutexGuard};
 
 use rusqlite::{params, Connection};
 use writ_core::file_ops::{classify_path, FileOpenMode, THRESHOLD_NORMAL_BYTES};
-use writ_core::notes::facts;
 use writ_core::notes::links::{self, Resolution, WikilinkTarget};
+use writ_core::notes::snippet;
+use writ_core::notes::{self, facts};
 use writ_core::search::{build_hit, SearchHit};
 use writ_core::workspace::file_search::{rank_keyed_file_hits, FileHit};
 
@@ -138,6 +139,56 @@ pub struct HeadingRow {
     pub line: u32,
     /// The anchor `[[Note#Heading]]` matches.
     pub slug: String,
+}
+
+/// Whether a backlink means the note it is listed under for certain.
+///
+/// A link whose name matches two notes belongs in the list of both, flagged:
+/// the alternative is a list that quietly under-reports, and a rename that
+/// then breaks a link nobody was shown (ADR-034).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BacklinkCertainty {
+    /// The link resolved to this note and to no other.
+    Resolved,
+    /// The link names this note and at least one other, and picks neither.
+    Ambiguous,
+}
+
+impl BacklinkCertainty {
+    /// The wire spelling, which is also what a caller matches on.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Resolved => "resolved",
+            Self::Ambiguous => "ambiguous",
+        }
+    }
+}
+
+/// One link written in another note that points at this one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BacklinkRow {
+    /// Canonical path of the note the link is written in.
+    pub from_path: String,
+    /// What that note is called, taken from `from_path` by
+    /// [`writ_core::notes::note_display_name`]: the file name without a note
+    /// extension, which is both what a link names it by and what a list shows.
+    pub from_name: String,
+    /// The link's target as it was written: no alias, no heading.
+    pub to_target: String,
+    /// A wikilink's `|alias`. `None` for a markdown link: the parser keeps the
+    /// destination, not the `[label]`, which [`BacklinkRow::context`] quotes.
+    pub alias: Option<String>,
+    /// `wikilink` or `markdown` ([`writ_core::notes::links::LinkKind`]).
+    pub kind: String,
+    /// 1-based line the link is on.
+    pub line: u32,
+    /// 0-based character offset of the link inside that line.
+    pub col: u32,
+    /// The sentence the link sits in, cut from the text the index holds. Empty
+    /// when the index holds no text for the linking note.
+    pub context: String,
+    /// Whether the link means this note for certain.
+    pub certainty: BacklinkCertainty,
 }
 
 /// Everything the index holds about one note beyond its `files` row.
@@ -748,7 +799,9 @@ impl<'a> NotesIndex<'a> {
     ///
     /// An unresolved link and an ambiguous one are absent by construction:
     /// their `to_path` is `NULL`, which is the honest record of a link that
-    /// points at no one note.
+    /// points at no one note. [`NotesIndex::backlinks`] adds the ambiguous ones
+    /// back, flagged, because a link that might mean this note is a fact about
+    /// this note.
     pub fn links_to(&self, path: &str) -> StorageResult<Vec<LinkRow>> {
         self.link_rows(
             "SELECT from_path, to_target, to_path, kind, line, col FROM links
@@ -773,6 +826,134 @@ impl<'a> NotesIndex<'a> {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    /// The notes that link to the note at `path`, each link with the sentence
+    /// it sits in (spec L2).
+    ///
+    /// Three kinds of link name a note and only two of them belong here. A
+    /// link that resolved to `path` is a backlink. A link that names `path` and
+    /// one other note picks neither, so it is a backlink of both, marked
+    /// [`BacklinkCertainty::Ambiguous`]. A link that resolved to a *different*
+    /// note of the same name, and a link that resolved to nothing at all, are
+    /// backlinks of no note: the first belongs to the note it reached and the
+    /// second to none. Neither is dropped without being counted somewhere.
+    ///
+    /// The snippet is cut from the text `files_fts` holds, so no note is read
+    /// off disk to answer this and a placeholder is not materialised by a list
+    /// being opened. A note indexed by name alone therefore links to nothing:
+    /// indexing it drops the facts derived from its text, the links among them,
+    /// and it leaves every list until something downloads it.
+    pub fn backlinks(&self, path: &str) -> StorageResult<Vec<BacklinkRow>> {
+        let mut found: Vec<(LinkRow, BacklinkCertainty)> = self
+            .links_to(path)?
+            .into_iter()
+            .map(|row| (row, BacklinkCertainty::Resolved))
+            .collect();
+
+        // One name index for the whole call: `resolve_link` builds a fresh one
+        // per target, which over a folder's worth of unresolved links is the
+        // table read once per link.
+        let names = self.name_index()?;
+        let keys = links::candidate_name_keys(path);
+        for row in self.unresolved_links()? {
+            let target = links::parse_target(&row.to_target);
+            if !keys.contains(&links::name_key(&target.name)) {
+                continue;
+            }
+            if let Resolution::Ambiguous(candidates) = names.resolve(&target, &row.from_path) {
+                if candidates.iter().any(|candidate| candidate == path) {
+                    found.push((row, BacklinkCertainty::Ambiguous));
+                }
+            }
+        }
+
+        found.sort_by(|(left, _), (right, _)| {
+            (&left.from_path, left.line, left.col).cmp(&(&right.from_path, right.line, right.col))
+        });
+        self.describe_backlinks(found)
+    }
+
+    /// Attaches the linking note's name, the link's alias and its sentence to
+    /// each row, reading each linking note's text once however many links it
+    /// holds.
+    fn describe_backlinks(
+        &self,
+        found: Vec<(LinkRow, BacklinkCertainty)>,
+    ) -> StorageResult<Vec<BacklinkRow>> {
+        let mut described = Vec::with_capacity(found.len());
+        let mut start = 0usize;
+        while start < found.len() {
+            let from_path = found[start].0.from_path.clone();
+            let end = found[start..]
+                .iter()
+                .position(|(row, _)| row.from_path != from_path)
+                .map_or(found.len(), |offset| start + offset);
+
+            let content = self.note_text(&from_path)?;
+            // Taken from the path, not from the indexed name: the path is the
+            // note's identity and is spelled the same on every row.
+            let from_name = notes::note_display_name(&from_path);
+            // The same parser that wrote the rows, so the alias and the row can
+            // never disagree about which link is which.
+            let scanned = links::scan(&content);
+            for (row, certainty) in &found[start..end] {
+                let written = scanned
+                    .iter()
+                    .find(|link| link.line == row.line && link.col == row.col);
+                described.push(BacklinkRow {
+                    from_path: from_path.clone(),
+                    from_name: from_name.clone(),
+                    to_target: row.to_target.clone(),
+                    alias: written.and_then(|link| link.alias.clone()),
+                    kind: row.kind.clone(),
+                    line: row.line,
+                    col: row.col,
+                    context: written
+                        .map(|link| snippet::sentence_at(&content, link.byte_range.start))
+                        .unwrap_or_default(),
+                    certainty: *certainty,
+                });
+            }
+            start = end;
+        }
+        Ok(described)
+    }
+
+    /// Every link the index could not point at one note.
+    fn unresolved_links(&self) -> StorageResult<Vec<LinkRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT from_path, to_target, to_path, kind, line, col FROM links
+              WHERE to_path IS NULL ORDER BY from_path, line, col",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(LinkRow {
+                    from_path: row.get(0)?,
+                    to_target: row.get(1)?,
+                    to_path: row.get(2)?,
+                    kind: row.get(3)?,
+                    line: row.get::<_, i64>(4)? as u32,
+                    col: row.get::<_, i64>(5)? as u32,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// The indexed text of the note at `path`: empty when the index holds the
+    /// note by name alone, and empty when it does not hold it at all.
+    fn note_text(&self, path: &str) -> StorageResult<String> {
+        let mut stmt = self.conn.prepare(
+            "SELECT x.content FROM files_fts x
+             JOIN files f ON f.rowid = x.rowid
+             WHERE f.path = ?1",
+        )?;
+        let mut rows = stmt.query_map(params![path], |row| row.get::<_, String>(0))?;
+        Ok(match rows.next() {
+            Some(row) => row?,
+            None => String::new(),
+        })
     }
 
     /// Everything the index holds about the note at `path`.
@@ -1276,6 +1457,11 @@ impl NotesIndexStore {
     /// Every link that resolved to `path`. See [`NotesIndex::links_to`].
     pub fn links_to(&self, path: &str) -> StorageResult<Vec<LinkRow>> {
         NotesIndex::new(&self.conn()).links_to(path)
+    }
+
+    /// The notes that link to `path`. See [`NotesIndex::backlinks`].
+    pub fn backlinks(&self, path: &str) -> StorageResult<Vec<BacklinkRow>> {
+        NotesIndex::new(&self.conn()).backlinks(path)
     }
 
     /// Everything the index holds about `path`. See [`NotesIndex::facts`].

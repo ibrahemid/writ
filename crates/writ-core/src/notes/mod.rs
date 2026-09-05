@@ -13,6 +13,8 @@ pub mod facts;
 pub mod guard;
 /// Link syntax and link resolution (ADR-034).
 pub mod links;
+/// The sentence a link sits in, for the backlink list.
+pub mod snippet;
 
 /// File identity: telling a file that moved from one that was deleted.
 pub mod identity;
@@ -193,6 +195,29 @@ pub fn display_path(path: &Path, home: Option<&Path>) -> String {
         }
     }
     path.to_string_lossy().into_owned()
+}
+
+/// What to call the note stored at `path`.
+///
+/// The file name is the note's name (ADR-028), so the display name is the last
+/// component of the path without a note extension. The path is split by the
+/// platform's own separators, which keeps a backslash inside the name on macOS
+/// and Linux, where it is an ordinary character. A leading dot belongs to the
+/// name: `.hidden.md` is `.hidden`. A name that is nothing but dots once the
+/// extension is off is kept whole, because `.` names no note.
+///
+/// This is a display name, never an identity: [`links::name_key`] decides what
+/// a link matches, and the path is what opens the file.
+pub fn note_display_name(path: &str) -> String {
+    let name = Path::new(path).file_name().map_or_else(
+        || path.to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    let stem = links::strip_note_extension(&name);
+    if stem.is_empty() || stem.chars().all(|c| c == '.') {
+        return name;
+    }
+    stem.to_string()
 }
 
 /// The strictest cross-platform filename stem, applied on every platform.
@@ -415,6 +440,32 @@ fn truncate_to_limits(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_note_is_called_by_its_file_name_without_the_extension() {
+        assert_eq!(note_display_name("/notes/folder/name.md"), "name");
+        assert_eq!(note_display_name("/notes/name.tar.md"), "name.tar");
+        assert_eq!(note_display_name("/notes/Meeting.markdown"), "Meeting");
+        assert_eq!(note_display_name("/notes/notes.txt"), "notes.txt");
+        assert_eq!(note_display_name("Loose.md"), "Loose");
+    }
+
+    #[test]
+    fn a_leading_dot_is_part_of_the_name() {
+        assert_eq!(note_display_name("/notes/.hidden.md"), ".hidden");
+        assert_eq!(
+            note_display_name("/notes/..md"),
+            "..md",
+            "a name of nothing but dots is kept whole"
+        );
+        assert_eq!(note_display_name("/notes/.md"), ".md");
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn a_backslash_is_a_name_character_where_it_is_not_a_separator() {
+        assert_eq!(note_display_name("/notes/a\\b.md"), "a\\b");
+    }
 
     #[test]
     fn reserved_names_are_recognised_case_insensitively() {
