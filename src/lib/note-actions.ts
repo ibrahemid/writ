@@ -5,6 +5,7 @@ import { requestConfirm } from "../components/ConfirmDialog/ConfirmDialog";
 import { showToast } from "../components/Notifications/Toast";
 import { logFailure } from "./log";
 import { noteName } from "./note-name";
+import { formatSaveError } from "./save-error";
 import { detectPlatform } from "./platform";
 import * as api from "../services/tauri";
 import type { ChangeChoice, ResolveOutcome } from "../types/buffer";
@@ -108,7 +109,13 @@ export async function saveCopyOfNote(id: string): Promise<void> {
  * a file it has just been written to.
  *
  * `Show both` opens the copy as an ordinary note in a second tab. There is no
- * diff view and no third state — two tabs, two files, and the person decides.
+ * diff view and no third state: two tabs, two files, and the person decides.
+ *
+ * Nothing happens unless the editor is holding the note being answered about.
+ * A tab that is still loading has its text nowhere but its file, and the file
+ * is the version that changed, so `Keep mine` on that half-second would send
+ * the file's own text as mine and write the unsaved version nowhere. The bar
+ * stays and the next press lands.
  */
 export async function resolveNoteChange(
   id: string,
@@ -116,16 +123,20 @@ export async function resolveNoteChange(
 ): Promise<void> {
   const win = windowRegistry.getActive();
   if (!win) return;
-
-  const live = win.editor.currentBufferId() === id ? win.editor.getActiveText(false) : null;
-  const content = live ? live.text : await bufferRegistry.readContent(id);
+  const live =
+    win.editor.currentBufferId() === id ? win.editor.getActiveText(false) : null;
+  if (!live) {
+    logFailure("a change outside Writ was answered for a note the editor was not holding");
+    return;
+  }
+  const content = live.text;
 
   let outcome: ResolveOutcome;
   try {
     outcome = await api.resolveExternalChange(id, choice, content);
-  } catch {
+  } catch (error) {
     logFailure("a change outside Writ could not be resolved");
-    showToast(`Couldn't write to "${noteName(id)}".`, "error");
+    showToast(`Couldn't update "${noteName(id)}": ${formatSaveError(error)}`, "error");
     return;
   }
 
