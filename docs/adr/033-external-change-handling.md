@@ -530,9 +530,13 @@ the focus to the bar instead of writing, and the retry button holds. The three
 answers are the only way the tab's text reaches disk from there. The guard
 would refuse those writes anyway, and each refusal leaves a dated copy beside
 the note, so a tab left writing into an unanswered question fills the notes
-folder with copies of itself at one per pause in typing. Answering also drops
-the bar of a save that failed before it, which is about a write the answer has
-made irrelevant; a failure the answer itself raises still shows.
+folder with copies of itself at one per pause in typing. The typing is kept
+rather than dropped: it goes to a slot beside the queue that the recovery
+handover reads and no write path does (`holdUnsavedContent`), so closing the
+tab or quitting without answering does not lose it, and it is released when
+the question ends. Answering also drops the bar of a save that failed before
+it, which is about a write the answer has made irrelevant; a failure the
+answer itself raises still shows.
 
 ## Consequences
 

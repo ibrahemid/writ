@@ -52,7 +52,11 @@ import {
 } from "../../services/external-edit";
 import { saveStatusStore } from "../../stores/global/save-status";
 import { resolveNoteChange } from "../../lib/note-actions";
-import { resetAutosave } from "../../services/autosave";
+import {
+  collectUnsavedContent,
+  keepUnsavedForRecovery,
+  resetAutosave,
+} from "../../services/autosave";
 import FileChangedBar from "../../components/Editor/FileChangedBar";
 
 const NOTE = "n1";
@@ -225,7 +229,41 @@ describe("a note that is waiting for an answer about its file", () => {
     expect(store.noteFileState(NOTE)).toBe("present");
   });
 
-  it("keeps a failure the answer itself raised", async () => {
+  // Holding the writes takes the note out of the queue, and the queue is what
+  // the close and quit paths hand to the recovery snapshot. Without a slot of
+  // its own the typing would be in the document and nowhere else, and closing
+  // the tab without answering would lose it.
+  it("still hands its typing over when the tab closes", async () => {
+    const { store, reports } = openNote();
+    await reports("modified");
+
+    store.scheduleAutosave(NOTE, `${MINE}typed while it was asking\n`, 1000);
+
+    expect(collectUnsavedContent()).toEqual([
+      { id: NOTE, content: `${MINE}typed while it was asking\n` },
+    ]);
+    await keepUnsavedForRecovery(NOTE);
+    expect(api.recordUnsavedNotes).toHaveBeenCalledWith([
+      { id: NOTE, content: `${MINE}typed while it was asking\n` },
+    ]);
+  });
+
+  it("stops holding that text once the question is answered", async () => {
+    const { store, reports } = openNote();
+    await reports("modified");
+    store.scheduleAutosave(NOTE, `${MINE}typed while it was asking\n`, 1000);
+    api.resolveExternalChange.mockResolvedValue(ANSWERED);
+
+    await resolveNoteChange(NOTE, "keep_mine");
+
+    // The answer wrote the live document, so the tab has nothing outstanding
+    // and closing it must not put back the version answered against.
+    expect(collectUnsavedContent()).toEqual([]);
+    await keepUnsavedForRecovery(NOTE);
+    expect(api.recordUnsavedNotes).not.toHaveBeenCalled();
+  });
+
+  it("keeps a failure raised by a write after the answer", async () => {
     const { store, reports } = openNote();
     await reports("modified");
     api.resolveExternalChange.mockResolvedValue(ANSWERED);

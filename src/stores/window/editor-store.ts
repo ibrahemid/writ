@@ -6,8 +6,10 @@ import {
   debouncedSave,
   cancelAutosave as cancelAutosaveService,
   flushAutosave as flushAutosaveService,
+  holdUnsavedContent,
   onAutosaveSuccess,
   peekUnsavedContent,
+  releaseUnsavedContent,
   saveNow as saveNowService,
   type ContentSource,
   type SaveResult,
@@ -237,10 +239,18 @@ export function createEditorStore() {
 
   /** The one way a note's file state moves. Table: [`nextNoteFileState`]. */
   function recordFileEvent(id: string, event: NoteFileEvent) {
+    const before = noteFileState(id);
+    const after = nextNoteFileState(before, event);
+    if (after === before) return;
+
+    // The note may write again, and every way a question ends has already
+    // dealt with the text: two answers write it, the third replaces it on
+    // purpose, and a quiet reload only happens to a note with nothing of its
+    // own. Held any longer it would come back as a recovered note holding the
+    // version the person chose against.
+    if (after === "present") releaseUnsavedContent(id);
+
     setNoteFileStates((current) => {
-      const before = current.get(id) ?? "present";
-      const after = nextNoteFileState(before, event);
-      if (after === before) return current;
       const next = new Map(current);
       if (after === "present") next.delete(id);
       else next.set(id, after);
@@ -277,8 +287,10 @@ export function createEditorStore() {
    * question is still on screen. The bar's three answers are the only way the
    * tab's text reaches disk from here.
    *
-   * Held, not dropped: the text stays in the document, and the note saves
-   * normally again the moment its state is `present`.
+   * Held, not dropped. The text stays in the document, it is kept for the
+   * recovery snapshot so closing the tab or quitting does not lose it
+   * (`holdUnsavedContent`), and the note saves normally again the moment its
+   * state is `present`.
    */
   function savesAreHeld(id: string): boolean {
     return noteFileState(id) !== "present";
@@ -634,7 +646,14 @@ export function createEditorStore() {
     // a dated copy beside the note for every pause in typing. The queue is
     // empty while the bar is up, so the flushes on quit, blur and tab switch
     // find nothing to write either. Reasons: [`savesAreHeld`].
-    if (savesAreHeld(bufferId)) return;
+    //
+    // The text is kept all the same. It is in the document and, once the tab
+    // closes, nowhere else, so it goes to the slot the recovery handover reads
+    // and no write path does.
+    if (savesAreHeld(bufferId)) {
+      holdUnsavedContent(bufferId, content);
+      return;
+    }
     debouncedSave(bufferId, content, delayMs);
   }
 

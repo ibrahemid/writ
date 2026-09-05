@@ -99,17 +99,44 @@ export function onAutosaveStart(listener: AutosaveStartListener): () => void {
 }
 
 /**
+ * Text a note is keeping that no write may take.
+ *
+ * A note whose file is asking a question writes nothing until it is answered
+ * ([`editorStore.savesAreHeld`]), so its typing has no queue entry and no
+ * failed write to sit in, and closing the tab or quitting would find nothing
+ * to keep. Beside the queue rather than in it: anything in the queue is
+ * written by the next flush, which is the write the question exists to stop.
+ */
+const heldContent = new Map<string, ContentSource>();
+
+/**
+ * Keeps a note's newest text without scheduling anything to write it.
+ *
+ * Read by the recovery handover ([`peekUnsavedContent`],
+ * [`collectUnsavedContent`]) and by nothing that writes. Released when the
+ * question ends, because every way it can end has already dealt with the text.
+ */
+export function holdUnsavedContent(bufferId: string, content: ContentSource) {
+  heldContent.set(bufferId, content);
+}
+
+/** Drops what [`holdUnsavedContent`] was keeping for a note that may write again. */
+export function releaseUnsavedContent(bufferId: string) {
+  heldContent.delete(bufferId);
+}
+
+/**
  * The newest text for `bufferId` that is not known to be on disk: whatever is
- * queued, else the text of the write that failed.
+ * queued or held, else the text of the write that failed.
  *
  * `undefined` when the note has nothing outstanding. Materializes a queued
  * getter, so a caller reads the live document at the moment it asks.
  */
 export function peekUnsavedContent(bufferId: string): string | undefined {
-  const queued = pendingContent.get(bufferId);
-  if (queued !== undefined) {
+  const source = pendingContent.get(bufferId)?.source ?? heldContent.get(bufferId);
+  if (source !== undefined) {
     try {
-      return typeof queued.source === "function" ? queued.source() : queued.source;
+      return typeof source === "function" ? source() : source;
     } catch {
       // The live document is gone. Fall through to the failed text, which is
       // a plain string and outlives the view.
@@ -124,10 +151,15 @@ export function peekUnsavedContent(bufferId: string): string | undefined {
  * The queue is not enough on its own: a write stopped by the guard empties the
  * queue on purpose, because writing the same text again is stopped the same
  * way, so the note whose failure is still on screen is exactly the one a
- * queue-only walk would miss.
+ * queue-only walk would miss. Nor is a note that is waiting to be asked about,
+ * which never queued anything at all.
  */
 export function collectUnsavedContent(): Array<{ id: string; content: string }> {
-  const ids = new Set([...pendingContent.keys(), ...lastFailedContent.keys()]);
+  const ids = new Set([
+    ...pendingContent.keys(),
+    ...heldContent.keys(),
+    ...lastFailedContent.keys(),
+  ]);
   const notes: Array<{ id: string; content: string }> = [];
   for (const id of ids) {
     const content = peekUnsavedContent(id);
@@ -151,6 +183,9 @@ function clearTimer(bufferId: string) {
 }
 
 function queueContent(bufferId: string, content: ContentSource) {
+  // The note is writing again, so the queue is the newer record of its text
+  // and anything held for it is the older one.
+  heldContent.delete(bufferId);
   pendingContent.set(bufferId, { source: content, generation: bumpGeneration(bufferId) });
 }
 
@@ -222,6 +257,7 @@ export async function keepUnsavedForRecovery(bufferId: string): Promise<void> {
 export function cancelAutosave(bufferId: string) {
   clearTimer(bufferId);
   pendingContent.delete(bufferId);
+  heldContent.delete(bufferId);
   lastWriteAt.delete(bufferId);
   lastFailedContent.delete(bufferId);
   // Retire the current generation so a write already in flight cannot put the
@@ -237,6 +273,7 @@ export function resetAutosave() {
   for (const timer of timers.values()) clearTimeout(timer);
   timers.clear();
   pendingContent.clear();
+  heldContent.clear();
   lastWriteAt.clear();
   generations.clear();
   inFlight.clear();
