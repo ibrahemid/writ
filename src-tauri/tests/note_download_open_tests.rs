@@ -21,9 +21,10 @@ use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
+#[cfg(unix)]
+use writ_tauri_lib::commands::file::open_file_confirmed_from_path;
 use writ_tauri_lib::commands::file::{
-    authorize_download, clear_dataless_for_test, mark_dataless_for_test,
-    open_file_confirmed_from_path, open_file_from_path,
+    authorize_download, clear_dataless_for_test, mark_dataless_for_test, open_file_from_path,
 };
 use writ_tauri_lib::commands::materialise::{cancel_download, MaterialiseState};
 use writ_tauri_lib::preview::handler::RenderCache;
