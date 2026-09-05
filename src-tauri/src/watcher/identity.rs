@@ -72,7 +72,8 @@ fn fallback_identity(path: &Path) -> Option<FileIdentity> {
 /// where the filesystem does not say.
 ///
 /// `statx` reports `btime` on ext4, xfs and btrfs from Linux 4.11, and every
-/// APFS and NTFS file has one. Nanoseconds rather than milliseconds because
+/// APFS and NTFS file has one, though only the Linux identity reads it: see
+/// `reusable_inode_birth`. Nanoseconds rather than milliseconds because
 /// the value's whole job is to separate two files, and rounding it discards
 /// the separation. A birth time before the Unix epoch reads as unknown, which
 /// costs nothing: no note is older than the epoch, and a volume answering that
