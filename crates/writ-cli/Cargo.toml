@@ -8,9 +8,15 @@ name = "writ"
 path = "src/main.rs"
 
 [dependencies]
+writ-core = { path = "../writ-core" }
+# `bundled` because the sidecar is built on its own
+# (`cargo build -p writ-cli --release --target …`), where cargo unifies in no
+# feature from src-tauri and a system libsqlite3 may not be there to link.
+writ-storage = { path = "../writ-storage", features = ["bundled"] }
 chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
 dirs = "6"
+serde_json = "1"
 toml = "1.1"
 
 [dev-dependencies]

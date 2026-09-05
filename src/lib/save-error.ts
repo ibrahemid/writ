@@ -7,6 +7,7 @@ const ERR_FILE_REMOVED_ON_DISK = "ERR_FILE_REMOVED_ON_DISK";
 const ERR_HARD_LINKED = "ERR_HARD_LINKED";
 const ERR_NOTE_READ_ONLY = "ERR_NOTE_READ_ONLY";
 const ERR_READ_ONLY_DESTINATION = "ERR_READ_ONLY_DESTINATION";
+const ERR_FOLDER_NOT_WRITABLE = "ERR_FOLDER_NOT_WRITABLE";
 const ERR_PERMISSION_DENIED = "ERR_PERMISSION_DENIED";
 const ERR_FILE_IN_USE = "ERR_FILE_IN_USE";
 const ERR_FILE_MISSING = "ERR_FILE_MISSING";
@@ -21,6 +22,8 @@ const CODE_MESSAGES: Record<string, string> = {
     "this file has not finished downloading, so your changes were not saved yet.",
   [ERR_HARD_LINKED]: "this file is shared with another name on disk, so Writ left it alone.",
   [ERR_READ_ONLY_DESTINATION]: "this file is read-only, so nothing was written.",
+  [ERR_FOLDER_NOT_WRITABLE]:
+    "the folder this file is in cannot be written to, so nothing was saved.",
   [ERR_FILE_REMOVED_ON_DISK]:
     "the file was deleted, so nothing was written. Your text is still here.",
   [ERR_NOTE_READ_ONLY]: "this file opened read-only, so it cannot be written to.",
@@ -47,7 +50,8 @@ const RENAME_CODE_MESSAGES: Record<string, string> = {
 
 // Writing again cannot help any of these: the same text is stopped the same
 // way, and a stopped save leaves another dated copy beside the note each time.
-// The two refusals about the file itself stand until the file changes.
+// The two refusals about the file itself stand until the file changes. The
+// refusal about its folder does not, so it is not here: a folder comes back.
 const NOT_WORTH_REPEATING = new Set([
   ERR_FILE_CHANGED_ON_DISK,
   ERR_FILE_NOT_DOWNLOADED,
@@ -60,7 +64,9 @@ const NOT_WORTH_REPEATING = new Set([
 // refusal: the note is not writable, or the file already moved on and the
 // version being written is already beside it. The note keeps its text; only
 // the button goes. A file that has not finished downloading is not here: it
-// finishes, and then the same press lands.
+// finishes, and then the same press lands. Nor is a folder that would not
+// take the write: a sync client or a mount hands it back, and the same press
+// lands then too.
 const NOT_WORTH_A_SECOND_PRESS = new Set([
   ERR_NOTE_READ_ONLY,
   ERR_READ_ONLY_DESTINATION,

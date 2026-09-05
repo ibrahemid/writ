@@ -45,6 +45,23 @@ pub struct LinkDto {
     pub col: u32,
 }
 
+/// One note that links to the note being looked at.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct BacklinkDto {
+    pub from_path: String,
+    pub from_name: String,
+    pub to_target: String,
+    pub alias: Option<String>,
+    pub kind: String,
+    pub line: u32,
+    pub col: u32,
+    /// The sentence the link sits in, empty for a note the index holds by name
+    /// alone.
+    pub context: String,
+    /// `resolved` or `ambiguous`.
+    pub certainty: String,
+}
+
 /// One frontmatter property, its value as the JSON it is stored as.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct PropertyDto {
@@ -169,6 +186,34 @@ pub fn note_facts_inner(index: &NotesIndexStore, path: &str) -> Result<NoteFacts
     })
 }
 
+/// The notes that link to the note at `path`.
+///
+/// A note nothing links to answers with an empty list, which is a list with
+/// nothing in it and not a row saying so: zero backlinks is nothing rendered
+/// (spec L2).
+pub fn note_backlinks_inner(
+    index: &NotesIndexStore,
+    path: &str,
+) -> Result<Vec<BacklinkDto>, String> {
+    let key = notes_index::index_key(Path::new(path));
+    Ok(index
+        .backlinks(&key)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|row| BacklinkDto {
+            from_path: row.from_path,
+            from_name: row.from_name,
+            to_target: row.to_target,
+            alias: row.alias,
+            kind: row.kind,
+            line: row.line,
+            col: row.col,
+            context: row.context,
+            certainty: row.certainty.as_str().to_string(),
+        })
+        .collect())
+}
+
 /// Ranked note names for a `[[` completion.
 ///
 /// Served by the same name index quick open reads, so completion and the
@@ -212,6 +257,15 @@ pub fn resolve_note_link(
 #[tauri::command]
 pub fn note_facts(state: State<'_, AppState>, path: String) -> Result<NoteFactsDto, String> {
     note_facts_inner(&state.notes_index, &path)
+}
+
+/// The notes that link to one note. See [`note_backlinks_inner`].
+#[tauri::command]
+pub fn note_backlinks(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Vec<BacklinkDto>, String> {
+    note_backlinks_inner(&state.notes_index, &path)
 }
 
 /// Note names for a `[[` completion. See [`note_name_candidates_inner`].

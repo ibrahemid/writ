@@ -553,6 +553,14 @@ fn running_as_root() -> bool {
     unsafe { libc::geteuid() == 0 }
 }
 
+/// The attribute Finder writes a tag to on macOS. Linux only lets a test set
+/// attributes in the `user` namespace, so the same test carries a name from
+/// there; the save copies every name it is allowed to read either way.
+#[cfg(target_os = "macos")]
+const TAG_ATTRIBUTE: &str = "com.apple.metadata:_kMDItemUserTags";
+#[cfg(target_os = "linux")]
+const TAG_ATTRIBUTE: &str = "user.writ.tag";
+
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn a_save_carries_the_files_tags_across() {
@@ -560,20 +568,19 @@ fn a_save_carries_the_files_tags_across() {
     let target = dir.path().join("tagged.md");
     fs::write(&target, b"before").expect("seed");
 
-    // A Finder tag, in the attribute Finder actually writes it to.
-    set_xattr(&target, "com.apple.metadata:_kMDItemUserTags", b"Red\n");
+    set_xattr(&target, TAG_ATTRIBUTE, b"Red\n");
 
     writ_storage::atomic::write_atomic(&target, b"after").expect("write");
 
     assert_eq!(fs::read(&target).expect("read"), b"after");
     assert_eq!(
-        read_xattr(&target, "com.apple.metadata:_kMDItemUserTags").as_deref(),
+        read_xattr(&target, TAG_ATTRIBUTE).as_deref(),
         Some(&b"Red\n"[..]),
         "the tag on the file did not survive the save"
     );
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "macos")]
 #[test]
 fn a_save_drops_the_quarantine_record() {
     let dir = TempDir::new().expect("tempdir");
@@ -711,7 +718,7 @@ fn a_save_refuses_a_read_only_file() {
 
 #[cfg(unix)]
 #[test]
-fn a_save_refuses_a_read_only_folder() {
+fn a_save_refuses_a_folder_it_cannot_write_without_blaming_the_file() {
     use std::os::unix::fs::PermissionsExt;
 
     if running_as_root() {
@@ -723,16 +730,27 @@ fn a_save_refuses_a_read_only_folder() {
     fs::create_dir(&folder).expect("mkdir");
     let target = folder.join("note.md");
     fs::write(&target, b"untouched").expect("seed");
+    // The file is writable and stays writable: the whole point of the variant
+    // is that the folder is the thing the person has to change.
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).expect("chmod file");
     fs::set_permissions(&folder, fs::Permissions::from_mode(0o555)).expect("chmod");
 
     let refusal =
         writ_storage::atomic::write_atomic(&target, b"new body").expect_err("the save must stop");
     assert!(
-        matches!(refusal, writ_storage::atomic::AtomicWriteError::ReadOnly),
-        "{refusal:?}"
+        matches!(
+            refusal,
+            writ_storage::atomic::AtomicWriteError::FolderNotWritable
+        ),
+        "a 0644 file in a 0555 folder must not come back as a read-only file: {refusal:?}"
     );
 
     assert_eq!(fs::read(&target).expect("read"), b"untouched");
+    assert_eq!(
+        fs::metadata(&target).expect("stat").permissions().mode() & 0o777,
+        0o644,
+        "the file the refusal was about was writable all along"
+    );
     assert_eq!(
         count_files_in_dir(&folder),
         1,
@@ -740,6 +758,38 @@ fn a_save_refuses_a_read_only_folder() {
     );
 
     restore_mode(&folder, 0o755);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_folder_that_would_not_take_the_write_reaches_the_editor_as_the_folder() {
+    use std::os::unix::fs::PermissionsExt;
+
+    if running_as_root() {
+        return;
+    }
+
+    let (dir, store) = setup();
+    let (doc, file) = make_note(dir.path(), "folder-1", "in a locked folder");
+    store.insert(&doc).expect("insert");
+    let folder = file.parent().expect("parent").to_path_buf();
+    fs::set_permissions(&folder, fs::Permissions::from_mode(0o555)).expect("chmod");
+
+    let refusal = store
+        .save_to_source("folder-1", "new body", None, None)
+        .expect_err("the save must stop");
+
+    match &refusal {
+        writ_storage::errors::StorageError::DestinationFolderNotWritable { path } => {
+            assert_eq!(path, &file.to_string_lossy());
+        }
+        // `DestinationReadOnly` here is the editor telling the person their
+        // file is read-only while the file is fine and the folder is not.
+        other => panic!("{other:?}"),
+    }
+
+    restore_mode(&folder, 0o755);
+    assert_eq!(fs::read(&file).expect("read"), b"");
 }
 
 #[cfg(unix)]
@@ -847,13 +897,13 @@ fn a_save_that_carries_metadata_still_goes_through_the_retrying_rename() {
     let dir = TempDir::new().expect("temp dir");
     let target = dir.path().join("tagged.md");
     fs::write(&target, b"before").expect("seed note");
-    set_xattr(&target, "com.apple.metadata:_kMDItemUserTags", b"Red");
+    set_xattr(&target, TAG_ATTRIBUTE, b"Red");
 
     writ_storage::atomic::write_atomic(&target, b"after").expect("write");
 
     assert_eq!(fs::read(&target).expect("read back"), b"after");
     assert_eq!(
-        read_xattr(&target, "com.apple.metadata:_kMDItemUserTags").as_deref(),
+        read_xattr(&target, TAG_ATTRIBUTE).as_deref(),
         Some(&b"Red"[..]),
         "the rename dropped the file's tags"
     );

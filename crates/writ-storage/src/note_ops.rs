@@ -65,6 +65,15 @@ pub fn save_copy(
 }
 
 /// The shared half of both: dedupe against the folder, stamp, write.
+///
+/// The name the dedupe picks is checked against the disk before the write. The
+/// dedupe reads the folder to learn which names are taken, and a folder it
+/// cannot list reads as empty — a folder without read permission, one on a
+/// share that answered nothing, a file another process created in between. The
+/// write that follows replaces whatever is at the path, so without this check a
+/// blind dedupe silently empties a note that was already there. Minting is the
+/// one operation that knows its file must not exist yet, so it is the one that
+/// can say so.
 fn write_new_note(
     notes_root: &Path,
     stem: &str,
@@ -77,7 +86,15 @@ fn write_new_note(
     }
     std::fs::create_dir_all(notes_root)?;
     let name = writ_core::notes::dedupe_file_name(stem, NOTE_EXTENSION, &taken_names(notes_root));
-    let path = notes_root.join(name);
+    let path = notes_root.join(&name);
+    // `symlink_metadata`, so a link left behind by something else counts as
+    // taken rather than being followed and written through.
+    if path.symlink_metadata().is_ok() {
+        return Err(StorageError::NoteNameTaken {
+            name,
+            folder: notes_root.to_path_buf(),
+        });
+    }
     // A file that does not exist yet has no convention to keep, so a note Writ
     // mints is LF whatever the text handed in carries.
     let content = LineEnding::Lf.apply(content);
