@@ -552,8 +552,9 @@ the document as it was read, and the round trip is long enough to type into.
 That typing was held rather than queued, and the answer releases the slot it
 was held in, so the answer is the only thing left to put it back: `Keep mine`
 and `Show both` queue whatever the document gained while they were out, the
-way a keystroke would, and the tab keeps it on the way out because the queue
-is what the close path hands to the recovery snapshot. `Use the file on disk`
+way a keystroke would, under the same rate cap as any other write, and the tab
+keeps it on the way out because the queue is what the close path hands to the
+recovery snapshot. `Use the file on disk`
 has nothing to keep, because it replaces the document with the file's text on
 purpose.
 

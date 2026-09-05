@@ -158,8 +158,8 @@ export async function resolveNoteChange(
     // the answer has just released the slot it was held in. The write that
     // has landed carried the text as it was read, so that typing is in the
     // document and nowhere else. It goes on the queue the way a keystroke
-    // would put it there, without a further wait: it is already later than
-    // the write that should have carried it.
+    // would put it there, and reaches the file under the same rate cap every
+    // other write obeys.
     //
     // The tab keeps the delta on the way out too, because the queue is what
     // the close and quit paths hand to the recovery snapshot.
