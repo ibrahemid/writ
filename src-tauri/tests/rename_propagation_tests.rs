@@ -362,6 +362,28 @@ fn a_note_that_links_to_itself_follows_its_own_rename() {
     assert_eq!(read(&state, "New note.md"), "this is [[New note]] itself\n");
 }
 
+/// Turning the offer down answers for the other notes. The renamed note's own
+/// link to itself is not one of them, and is carried anyway.
+#[test]
+fn a_self_link_follows_the_rename_even_when_the_offer_is_turned_down() {
+    let (_dir, state) = seeded(&[
+        ("Old note.md", "this is [[Old note]] itself\n"),
+        ("First.md", "see [[Old note]]\n"),
+    ]);
+
+    let outcome =
+        rename_note_with_links_inner(&state, &path_text(&state, "Old note.md"), "New note", false)
+            .expect("rename");
+
+    assert_eq!(outcome.updated, 1);
+    assert_eq!(read(&state, "New note.md"), "this is [[New note]] itself\n");
+    assert_eq!(
+        read(&state, "First.md"),
+        "see [[Old note]]\n",
+        "the other note was left as the person asked"
+    );
+}
+
 /// The codes the editor writes its sentences from, kept honest: a reason is a
 /// bare code, never a code followed by an operating system's message.
 #[test]

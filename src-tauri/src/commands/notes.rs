@@ -305,6 +305,11 @@ fn link_target_for(state: &AppState, path: &Path) -> WikilinkTarget {
 /// A rewrite that fails leaves the rename standing and the file it could not
 /// take in `skipped`. The alternative — putting the rename back — would undo
 /// something that worked because something else did not.
+///
+/// `update_links` answers for the other notes only. A note that links to
+/// itself follows its own rename either way: leaving that one behind would
+/// break a link inside the very file the person just renamed, and the offer
+/// they turned down never mentioned it — the count is of other notes.
 pub fn rename_note_with_links_inner(
     state: &AppState,
     path: &str,
@@ -312,10 +317,11 @@ pub fn rename_note_with_links_inner(
     update_links: bool,
 ) -> Result<RenamePropagationDto, String> {
     let from = Path::new(path);
-    let linking = match update_links {
-        true => linking_notes(state, from)?,
-        false => Vec::new(),
-    };
+    let from_key = notes_index::index_key(from);
+    let linking: Vec<PathBuf> = linking_notes(state, from)?
+        .into_iter()
+        .filter(|link_from| update_links || notes_index::index_key(link_from) == from_key)
+        .collect();
     let old_target = link_target_for(state, from);
     rename_and_propagate(state, from, new_name, &old_target, linking)
 }
