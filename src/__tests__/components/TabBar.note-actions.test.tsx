@@ -58,7 +58,7 @@ const mocks = vi.hoisted(() => ({
   closeTab: vi.fn(),
   closeOtherTabs: vi.fn(),
   closeAllTabs: vi.fn(),
-  renameBuffer: vi.fn(),
+  renameNoteAndLinks: vi.fn(),
   activeTabId: vi.fn(() => "mine" as string | null),
   buffers: vi.fn(() => [] as BufferDocument[]),
   showContextMenu: vi.fn(),
@@ -91,8 +91,15 @@ vi.mock("../../stores/global/buffer-registry", () => ({
   bufferRegistry: {
     activeTabs: mocks.buffers,
     buffers: mocks.buffers,
-    renameBuffer: mocks.renameBuffer,
   },
+}));
+
+// Offering to update the notes that link here is `renameNoteAndLinks`' part,
+// covered in its own test; what the strip owes is passing the typed name on
+// and saying what came back.
+vi.mock("../../lib/note-actions", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  renameNoteAndLinks: mocks.renameNoteAndLinks,
 }));
 
 vi.mock("../../stores/global/window-registry", () => ({
@@ -151,27 +158,27 @@ describe("TabBar note actions", () => {
     vi.clearAllMocks();
     mocks.buffers.mockReturnValue([NOTES, SECOND]);
     mocks.activeTabId.mockReturnValue("mine");
-    mocks.renameBuffer.mockResolvedValue(undefined);
+    mocks.renameNoteAndLinks.mockResolvedValue(undefined);
   });
 
   afterEach(cleanup);
 
   it("says so when a name is empty", async () => {
-    mocks.renameBuffer.mockRejectedValue("That name is empty.");
+    mocks.renameNoteAndLinks.mockRejectedValue("That name is empty.");
     render(() => <TabBar />);
 
     await submitRename("   ");
 
     // The backend decides what an empty name is; the tab bar does not swallow
     // the submit before it gets there.
-    expect(mocks.renameBuffer).toHaveBeenCalledWith("mine", "   ");
+    expect(mocks.renameNoteAndLinks).toHaveBeenCalledWith("mine", "   ");
     await waitFor(() =>
       expect(mocks.showToast).toHaveBeenCalledWith("That name is empty.", "error"),
     );
   });
 
   it("names the note a rename would have collided with", async () => {
-    mocks.renameBuffer.mockRejectedValue('A note named "Grocery list.md" is already there.');
+    mocks.renameNoteAndLinks.mockRejectedValue('A note named "Grocery list.md" is already there.');
     render(() => <TabBar />);
 
     await submitRename("Grocery list");
@@ -185,7 +192,7 @@ describe("TabBar note actions", () => {
   });
 
   it("says the file changed rather than naming a copy no rename wrote", async () => {
-    mocks.renameBuffer.mockRejectedValue(
+    mocks.renameNoteAndLinks.mockRejectedValue(
       "ERR_FILE_CHANGED_ON_DISK: the file changed on disk: /notes/2026-08-29.md",
     );
     render(() => <TabBar />);
@@ -205,7 +212,7 @@ describe("TabBar note actions", () => {
 
     await submitRename("Grocery list");
 
-    expect(mocks.renameBuffer).toHaveBeenCalledWith("mine", "Grocery list");
+    expect(mocks.renameNoteAndLinks).toHaveBeenCalledWith("mine", "Grocery list");
     await waitFor(() => expect(document.querySelector(".tab-rename-input")).toBeNull());
     expect(mocks.showToast).not.toHaveBeenCalled();
   });
