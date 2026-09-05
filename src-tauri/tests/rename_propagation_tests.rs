@@ -26,7 +26,7 @@ use writ_tauri_lib::commands::buffer::ERR_READ_ONLY_DESTINATION;
 use writ_tauri_lib::commands::buffer::{save_buffer_content_inner, ERR_FILE_CHANGED_ON_DISK};
 use writ_tauri_lib::commands::notes::{
     count_links_to_inner, new_note_inner, rename_note_with_links_inner,
-    undo_rename_with_links_inner, ERR_LINK_NOT_FOUND,
+    undo_rename_with_links_inner, ERR_LINK_NAME_NOT_UNIQUE, ERR_LINK_NOT_FOUND,
 };
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
@@ -316,6 +316,92 @@ fn the_renamed_note_is_not_named_among_the_notes_left_unchanged() {
         "the renamed note named itself as left unchanged: {:?}",
         outcome.skipped
     );
+}
+
+/// A second note of the same name that the index will not hold, because it is
+/// over the size the index takes. It is still on disk, so a bare link might
+/// mean it, and the file holding that link is left as it is and named.
+#[test]
+fn a_note_too_big_for_the_index_still_makes_a_bare_link_ambiguous() {
+    let (_dir, state) = seeded(&[
+        ("one/Note.md", "one of two\n"),
+        ("two/Reader.md", "see [[one/Note]] and [[Note]]\n"),
+    ]);
+    std::fs::write(note(&state, "two/Note.md"), "x".repeat(5 * 1024 * 1024 + 1)).expect("write");
+    reindex(&state);
+
+    let outcome =
+        rename_note_with_links_inner(&state, &path_text(&state, "one/Note.md"), "Renamed", true)
+            .expect("rename");
+
+    assert_eq!(outcome.updated, 0);
+    assert_eq!(outcome.skipped.len(), 1);
+    assert_eq!(outcome.skipped[0].path, path_text(&state, "two/Reader.md"));
+    assert_eq!(outcome.skipped[0].reason, ERR_LINK_NAME_NOT_UNIQUE);
+    assert_eq!(
+        read(&state, "two/Reader.md"),
+        "see [[one/Note]] and [[Note]]\n",
+        "a link that might mean a note the index never saw was rewritten"
+    );
+}
+
+/// The same, for a note under a folder name the index walks past. The rename
+/// reads the folder, not only the table.
+#[test]
+fn a_note_under_a_folder_the_index_skips_still_makes_a_bare_link_ambiguous() {
+    let (_dir, state) = seeded(&[
+        ("one/Note.md", "one of two\n"),
+        (".trash/Note.md", "kept out of the index\n"),
+        ("two/Reader.md", "see [[one/Note]] and [[Note]]\n"),
+    ]);
+
+    let outcome =
+        rename_note_with_links_inner(&state, &path_text(&state, "one/Note.md"), "Renamed", true)
+            .expect("rename");
+
+    assert_eq!(outcome.updated, 0);
+    assert_eq!(outcome.skipped.len(), 1);
+    assert_eq!(outcome.skipped[0].reason, ERR_LINK_NAME_NOT_UNIQUE);
+    assert_eq!(
+        read(&state, "two/Reader.md"),
+        "see [[one/Note]] and [[Note]]\n"
+    );
+}
+
+/// The reindex after a rename can fail, and the undo still has to work: it
+/// knows the files the rename rewrote and where the note is, and asks the
+/// index for nothing it cannot do without.
+#[test]
+fn undo_puts_the_links_back_with_the_note_gone_from_the_index() {
+    let before_first = "see [[Old note]]\n";
+    let (_dir, state) = seeded(&[
+        ("Old note.md", "the note itself\n"),
+        ("First.md", before_first),
+    ]);
+
+    let renamed =
+        rename_note_with_links_inner(&state, &path_text(&state, "Old note.md"), "New note", true)
+            .expect("rename");
+    assert_eq!(renamed.updated, 1);
+
+    // What a failed `index_path` after the rename leaves behind.
+    state
+        .notes_index
+        .forget_path(std::path::Path::new(&renamed.renamed_path))
+        .expect("forget");
+
+    let undone = undo_rename_with_links_inner(
+        &state,
+        &renamed.renamed_path,
+        "Old note",
+        &renamed.updated_paths,
+    )
+    .expect("undo");
+
+    assert_eq!(undone.updated, 1);
+    assert!(undone.skipped.is_empty());
+    assert_eq!(read(&state, "First.md"), before_first);
+    assert!(note(&state, "Old note.md").exists());
 }
 
 /// A file the index named that holds no link to rewrite: nothing failed and

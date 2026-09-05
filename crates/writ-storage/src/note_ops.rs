@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 
 use writ_core::notes::guard::{decide_save, is_not_downloaded, DiskState, SaveDecision};
 use writ_core::notes::line_ending::LineEnding;
-use writ_core::notes::rename::rewrite_links;
+use writ_core::notes::links;
+use writ_core::notes::rename::{rewrite_links, Rewrite};
 
 use crate::buffer_store::{
     dataless_flags, read_disk_state, taken_names, write_guarded_by_stamp, BeforeWrite,
@@ -199,10 +200,76 @@ pub fn rename_note(
     Ok(to)
 }
 
-/// Rewrites the links in `path` that reach `target`, so they name `new_name`.
+/// What one file's links did during a rename.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkRewrite {
+    /// The file was rewritten.
+    Written,
+    /// Its text reaches the renamed note nowhere, and nothing was written.
+    NoLink,
+    /// A link reaches the renamed note and a file outside the candidate list
+    /// answers to the same name, so nothing was written.
+    NameNotUnique,
+}
+
+/// Every file under `root` a link naming one of `keys` could reach.
 ///
-/// `Ok(true)` when the file was written, `Ok(false)` when its text names the
-/// renamed note nowhere and there was nothing to write. Every refusal comes
+/// The walk prunes nothing: a note in a folder the index skips is still a note
+/// on disk, and a rename that rewrites a link past it points that link
+/// somewhere it never pointed. Symlinked folders are not followed, so a loop
+/// cannot hold this open.
+///
+/// `keys` are folded name keys ([`links::candidate_name_keys`]).
+pub fn files_named(root: &Path, keys: &[String]) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut folders = vec![root.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        let Ok(entries) = std::fs::read_dir(&folder) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            let path = entry.path();
+            if kind.is_dir() {
+                folders.push(path);
+                continue;
+            }
+            if !kind.is_file() {
+                continue;
+            }
+            let names = links::candidate_name_keys(&path.to_string_lossy());
+            if names.iter().any(|name| keys.contains(name)) {
+                found.push(path);
+            }
+        }
+    }
+    found
+}
+
+/// Which links a rename counts, and what it writes in their place.
+///
+/// One value rather than four arguments, because the four are one question:
+/// out of everything a link could mean, which of it is the note being renamed.
+#[derive(Debug, Clone, Copy)]
+pub struct RewriteTarget<'a> {
+    /// The renamed note's index key.
+    pub target: &'a str,
+    /// The name the note is taking.
+    pub new_name: &'a str,
+    /// Every note a link could reach, as the index spells them.
+    pub candidates: &'a [String],
+    /// Every file a link could reach that `candidates` does not hold
+    /// ([`files_named`]).
+    pub unindexed: &'a [String],
+}
+
+/// Rewrites the links in `path` that reach the renamed note, so they name it
+/// by its new name.
+///
+/// [`LinkRewrite::Written`] when the file was written, and the two other
+/// answers when nothing was. Every refusal comes
 /// back as an error naming this file, because a link left pointing at a name
 /// no note has any more is exactly what the caller has to be able to say out
 /// loud: a propagation that quietly leaves a file behind is worse than one
@@ -219,10 +286,8 @@ pub fn rename_note(
 /// saw. A file the filesystem will not replace — read-only, hard-linked, in a
 /// folder that will not take a write — is stopped by the write itself.
 ///
-/// `target` is the renamed note's index key and `candidates` every note a link
-/// could reach, both as the index spells them: which links count is
-/// [`rewrite_links`]'s question to answer, note by note, and this file's own
-/// key is what it answers from.
+/// Which links count is [`rewrite_links`]'s question to answer, note by note,
+/// from this file's own key ([`RewriteTarget`]).
 ///
 /// `last_known` is what Writ last saw the file hold, for a file it has looked
 /// at; `None` for one it has not, whose "has this changed" has no answer.
@@ -236,13 +301,11 @@ pub fn rename_note(
 /// and [`StorageError::Io`] when the file cannot be read or is not text.
 pub fn rewrite_links_in_file(
     path: &Path,
-    target: &str,
-    new_name: &str,
-    candidates: &[String],
+    rename: &RewriteTarget<'_>,
     last_known: Option<DiskState>,
     dataless: DatalessProbe<'_>,
     before_write: BeforeWrite<'_>,
-) -> StorageResult<bool> {
+) -> StorageResult<LinkRewrite> {
     let flags = match dataless {
         Some(probe) => probe(path),
         None => dataless_flags(path),
@@ -285,11 +348,20 @@ pub fn rewrite_links_in_file(
     }
 
     let from = crate::notes_index::index_key(path);
-    let Some(rewritten) = rewrite_links(&text, &from, target, new_name, candidates) else {
-        return Ok(false);
+    let rewritten = match rewrite_links(
+        &text,
+        &from,
+        rename.target,
+        rename.new_name,
+        rename.candidates,
+        rename.unindexed,
+    ) {
+        Rewrite::Rewritten(text) => text,
+        Rewrite::NoLink => return Ok(LinkRewrite::NoLink),
+        Rewrite::NameNotUnique => return Ok(LinkRewrite::NameNotUnique),
     };
     write_guarded_by_stamp(path, rewritten.as_bytes(), before_write)?;
-    Ok(true)
+    Ok(LinkRewrite::Written)
 }
 
 /// Moves a note to the operating system's trash.

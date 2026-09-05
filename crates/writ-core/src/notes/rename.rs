@@ -14,19 +14,40 @@
 //! can answer it: a link that reaches a different note of the same name is
 //! left alone, and a link that names two notes at once resolves to neither and
 //! is left alone too (ADR-034).
+//!
+//! A note the candidate list does not hold gets the same answer the other way
+//! round: `unindexed` names the files a link could reach that the list has not
+//! heard of, and a link one of those answers to stops the rewrite of the whole
+//! file. A rename cannot ask a person about a note nothing has indexed, and
+//! rewriting past it is how a link ends up pointing somewhere it never did.
 
 use std::ops::Range;
 
 use crate::notes::links::{self, Resolution};
 
-/// `text` with every link that resolves to `target` naming `new_name`
-/// instead, or `None` when no link in it does.
+/// What [`rewrite_links`] did with one note's text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Rewrite {
+    /// The text, with every link that named the renamed note naming it by its
+    /// new name.
+    Rewritten(String),
+    /// No link in the text reaches the renamed note.
+    NoLink,
+    /// A link reaches the renamed note, and a file outside the candidate list
+    /// answers to the name it writes. Nothing was rewritten: which note the
+    /// link means is a question this cannot answer and must not guess at.
+    NameNotUnique,
+}
+
+/// `text` with every link that resolves to `target` naming `new_name` instead.
 ///
 /// `from` is the path of the note holding `text` and `target` the path of the
 /// note being renamed, both spelled the way `candidates` spells them —
 /// `candidates` being every note a link could reach. The three are what
 /// [`links::resolve`] needs, so the answer here and the answer the backlink
-/// list gives are the same answer.
+/// list gives are the same answer. `unindexed` is every file a link could
+/// reach that `candidates` leaves out; a link one of them answers to makes the
+/// whole file [`Rewrite::NameNotUnique`].
 ///
 /// Only the name part of each link is replaced, so `[[ideas/Old note#Later|see]]`
 /// becomes `[[ideas/New note#Later|see]]` and `[a](ideas/Old%20note.md)`
@@ -44,17 +65,30 @@ pub fn rewrite_links(
     target: &str,
     new_name: &str,
     candidates: &[String],
-) -> Option<String> {
+    unindexed: &[String],
+) -> Rewrite {
     let new_name = new_name.trim();
     if new_name.is_empty() || target.is_empty() {
-        return None;
+        return Rewrite::NoLink;
     }
 
     let mut edits: Vec<(Range<usize>, String)> = Vec::new();
     for link in links::scan(text) {
-        match links::resolve(&link.wikilink_target(), from, candidates) {
+        let written = link.wikilink_target();
+        match links::resolve(&written, from, candidates) {
             Resolution::Resolved(path) if path == target => {}
             _ => continue,
+        }
+        // The link reaches the renamed note as far as the index knows. A file
+        // the index has not seen answering to the same name is the case the
+        // index cannot rule out, and it stops the file rather than this link:
+        // half a rewritten file is worse than none, because the half that
+        // landed is the half nobody was told about.
+        if !matches!(
+            links::resolve(&written, from, unindexed),
+            Resolution::Missing
+        ) {
+            return Rewrite::NameNotUnique;
         }
         let slice = &text[link.byte_range.clone()];
         let Some(span) = links::name_span(slice) else {
@@ -70,7 +104,7 @@ pub fn rewrite_links(
     }
 
     if edits.is_empty() {
-        return None;
+        return Rewrite::NoLink;
     }
     // Back to front, so an earlier edit cannot move the range a later one was
     // measured against.
@@ -78,7 +112,7 @@ pub fn rewrite_links(
     for (range, replacement) in edits.into_iter().rev() {
         out.replace_range(range, &replacement);
     }
-    Some(out)
+    Rewrite::Rewritten(out)
 }
 
 #[cfg(test)]
@@ -92,9 +126,20 @@ mod tests {
     }
 
     /// The rewrite as `Reader.md` sees it, in a folder holding it and the note
-    /// being renamed.
+    /// being renamed, every note of it indexed.
     fn rewrite(text: &str, target: &str, new_name: &str) -> Option<String> {
-        rewrite_links(text, READER, target, new_name, &notes(&[READER, target]))
+        match rewrite_links(
+            text,
+            READER,
+            target,
+            new_name,
+            &notes(&[READER, target]),
+            &[],
+        ) {
+            Rewrite::Rewritten(out) => Some(out),
+            Rewrite::NoLink => None,
+            Rewrite::NameNotUnique => panic!("nothing is outside the candidate list here"),
+        }
     }
 
     #[test]
@@ -240,8 +285,12 @@ mod tests {
             "/notes/one/Note.md",
             "Renamed",
             &all,
+            &[],
         );
-        assert_eq!(out.as_deref(), Some("see [[one/Renamed]] and [[Note]]\n"));
+        assert_eq!(
+            out,
+            Rewrite::Rewritten("see [[one/Renamed]] and [[Note]]\n".to_string())
+        );
     }
 
     /// A bare link the ordering cannot separate names two notes at once. It is
@@ -255,8 +304,9 @@ mod tests {
             "/notes/one/Note.md",
             "Renamed",
             &all,
+            &[],
         );
-        assert_eq!(out, None);
+        assert_eq!(out, Rewrite::NoLink);
     }
 
     /// A link resolves after the round trip, but not in the spelling its
@@ -281,5 +331,63 @@ mod tests {
         let back = rewrite(&after, "/notes/ideas/New note.md", "Old note")
             .expect("the links name the note under its new name");
         assert_eq!(back, before);
+    }
+
+    /// The note the index has not heard of: on disk, sharing the name, and
+    /// therefore the note a bare link might mean. Nothing is rewritten and the
+    /// caller is told which of the two it is.
+    #[test]
+    fn a_name_a_file_outside_the_candidate_list_answers_to_stops_the_file() {
+        let all = notes(&["/notes/one/Note.md", "/notes/two/Reader.md"]);
+        let unindexed = notes(&["/notes/two/Note.md"]);
+
+        let out = rewrite_links(
+            "see [[one/Note]] and [[Note]]\n",
+            "/notes/two/Reader.md",
+            "/notes/one/Note.md",
+            "Renamed",
+            &all,
+            &unindexed,
+        );
+
+        assert_eq!(out, Rewrite::NameNotUnique);
+    }
+
+    /// The same unknown note, and a link that spells the folder. The folder
+    /// says which note it means, so the unknown one is not a candidate for it.
+    #[test]
+    fn a_folder_says_which_note_a_link_means_even_against_an_unknown_one() {
+        let all = notes(&["/notes/one/Note.md", "/notes/two/Reader.md"]);
+        let unindexed = notes(&["/notes/two/Note.md"]);
+
+        let out = rewrite_links(
+            "see [[one/Note]]\n",
+            "/notes/two/Reader.md",
+            "/notes/one/Note.md",
+            "Renamed",
+            &all,
+            &unindexed,
+        );
+
+        assert_eq!(out, Rewrite::Rewritten("see [[one/Renamed]]\n".to_string()));
+    }
+
+    /// A file outside the list that no link in this text could reach changes
+    /// nothing.
+    #[test]
+    fn a_file_outside_the_candidate_list_under_another_name_changes_nothing() {
+        let all = notes(&[READER, "/notes/Old note.md"]);
+        let unindexed = notes(&["/notes/two/Something else.md"]);
+
+        let out = rewrite_links(
+            "see [[Old note]]",
+            READER,
+            "/notes/Old note.md",
+            "New note",
+            &all,
+            &unindexed,
+        );
+
+        assert_eq!(out, Rewrite::Rewritten("see [[New note]]".to_string()));
     }
 }

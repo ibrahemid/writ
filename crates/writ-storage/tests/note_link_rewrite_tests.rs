@@ -10,7 +10,7 @@ use tempfile::TempDir;
 use writ_core::hash::sha256_bytes;
 use writ_core::notes::guard::{DiskState, SF_DATALESS};
 use writ_storage::errors::StorageError;
-use writ_storage::note_ops;
+use writ_storage::note_ops::{self, LinkRewrite, RewriteTarget};
 use writ_storage::notes_index::index_key;
 
 /// What the file holds right now, as the adapter records it after a read.
@@ -21,6 +21,16 @@ fn recorded(path: &Path) -> DiskState {
         hash: sha256_bytes(&bytes),
         size: metadata.len(),
         mtime: metadata.modified().ok(),
+    }
+}
+
+/// The rename as one file's rewrite reads it.
+fn renaming<'a>(target: &'a str, new_name: &'a str, all: &'a [String]) -> RewriteTarget<'a> {
+    RewriteTarget {
+        target,
+        new_name,
+        candidates: all,
+        unindexed: &[],
     }
 }
 
@@ -46,11 +56,16 @@ fn a_link_is_rewritten_in_place() {
     let (_root, path) = seeded("see [[Old note|the one]] for more\n");
     let (target, all) = folder(&path, "Old note");
 
-    let written =
-        note_ops::rewrite_links_in_file(&path, &target, "New note", &all, None, None, None)
-            .expect("the rewrite should land");
+    let written = note_ops::rewrite_links_in_file(
+        &path,
+        &renaming(&target, "New note", &all),
+        None,
+        None,
+        None,
+    )
+    .expect("the rewrite should land");
 
-    assert!(written);
+    assert_eq!(written, LinkRewrite::Written);
     assert_eq!(
         std::fs::read_to_string(&path).expect("read"),
         "see [[New note|the one]] for more\n"
@@ -63,11 +78,16 @@ fn a_file_naming_the_note_nowhere_is_not_written() {
     let (target, all) = folder(&path, "Old note");
     let before = recorded(&path);
 
-    let written =
-        note_ops::rewrite_links_in_file(&path, &target, "New note", &all, None, None, None)
-            .expect("nothing to do is not a failure");
+    let written = note_ops::rewrite_links_in_file(
+        &path,
+        &renaming(&target, "New note", &all),
+        None,
+        None,
+        None,
+    )
+    .expect("nothing to do is not a failure");
 
-    assert!(!written);
+    assert_eq!(written, LinkRewrite::NoLink);
     assert_eq!(recorded(&path).hash, before.hash);
 }
 
@@ -79,9 +99,14 @@ fn a_file_that_is_not_downloaded_is_refused_before_it_is_read() {
     let (target, all) = folder(&path, "Old note");
     let probe = |_: &Path| Some(SF_DATALESS);
 
-    let error =
-        note_ops::rewrite_links_in_file(&path, &target, "New note", &all, None, Some(&probe), None)
-            .expect_err("an evicted file should be refused");
+    let error = note_ops::rewrite_links_in_file(
+        &path,
+        &renaming(&target, "New note", &all),
+        None,
+        Some(&probe),
+        None,
+    )
+    .expect_err("an evicted file should be refused");
 
     match error {
         StorageError::SourceNotDownloaded { path: named } => {
@@ -105,9 +130,7 @@ fn a_file_changed_underneath_is_refused() {
 
     let error = note_ops::rewrite_links_in_file(
         &path,
-        &target,
-        "New note",
-        &all,
+        &renaming(&target, "New note", &all),
         Some(last_known),
         None,
         None,
@@ -142,16 +165,14 @@ fn a_file_unchanged_since_writ_read_it_is_rewritten() {
 
     let written = note_ops::rewrite_links_in_file(
         &path,
-        &target,
-        "New note",
-        &all,
+        &renaming(&target, "New note", &all),
         Some(last_known),
         None,
         None,
     )
     .expect("the guard should let this through");
 
-    assert!(written);
+    assert_eq!(written, LinkRewrite::Written);
     assert_eq!(
         std::fs::read_to_string(&path).expect("read"),
         "see [[New note]]\n"
@@ -167,8 +188,14 @@ fn a_read_only_file_is_refused() {
     let (target, all) = folder(&path, "Old note");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).expect("chmod");
 
-    let error = note_ops::rewrite_links_in_file(&path, &target, "New note", &all, None, None, None)
-        .expect_err("a read-only file should be refused");
+    let error = note_ops::rewrite_links_in_file(
+        &path,
+        &renaming(&target, "New note", &all),
+        None,
+        None,
+        None,
+    )
+    .expect_err("a read-only file should be refused");
 
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("chmod");
     match error {
@@ -203,8 +230,14 @@ fn the_rewrite_is_stamped_before_it_lands() {
         );
     };
 
-    note_ops::rewrite_links_in_file(&path, &target, "New note", &all, None, None, Some(&stamp))
-        .expect("the rewrite should land");
+    note_ops::rewrite_links_in_file(
+        &path,
+        &renaming(&target, "New note", &all),
+        None,
+        None,
+        Some(&stamp),
+    )
+    .expect("the rewrite should land");
 
     let seen = stamped.into_inner();
     assert_eq!(seen.len(), 1, "one write, one stamp");
@@ -229,19 +262,70 @@ fn the_reverse_rewrite_restores_the_file_byte_for_byte() {
     let new = index_key(&ideas.join("New note.md"));
     let all = vec![old.clone(), new.clone(), index_key(&path)];
 
-    assert!(
-        note_ops::rewrite_links_in_file(&path, &old, "New note", &all, None, None, None)
-            .expect("the rewrite should land")
+    assert_eq!(
+        note_ops::rewrite_links_in_file(&path, &renaming(&old, "New note", &all), None, None, None)
+            .expect("the rewrite should land"),
+        LinkRewrite::Written
     );
     assert_ne!(std::fs::read(&path).expect("read"), before);
 
-    assert!(
-        note_ops::rewrite_links_in_file(&path, &new, "Old note", &all, None, None, None)
-            .expect("the undo should land")
+    assert_eq!(
+        note_ops::rewrite_links_in_file(&path, &renaming(&new, "Old note", &all), None, None, None)
+            .expect("the undo should land"),
+        LinkRewrite::Written
     );
     assert_eq!(
         std::fs::read(&path).expect("read"),
         before,
         "undoing the rewrite did not restore the file"
     );
+}
+
+/// A note the index has not heard of, sharing the renamed note's name: the
+/// file is left exactly as it was and the caller is told which of the two
+/// reasons it is.
+#[test]
+fn a_name_a_file_outside_the_candidate_list_answers_to_is_refused() {
+    let (_root, path) = seeded("see [[Old note]]\n");
+    let (target, all) = folder(&path, "Old note");
+    let elsewhere = path
+        .parent()
+        .expect("folder")
+        .join("archive")
+        .join("Old note.md");
+
+    let answer = note_ops::rewrite_links_in_file(
+        &path,
+        &RewriteTarget {
+            target: &target,
+            new_name: "New note",
+            candidates: &all,
+            unindexed: &[index_key(&elsewhere)],
+        },
+        None,
+        None,
+        None,
+    )
+    .expect("a name two notes answer to is not a failure");
+
+    assert_eq!(answer, LinkRewrite::NameNotUnique);
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read"),
+        "see [[Old note]]\n"
+    );
+}
+
+/// The walk behind that list: it finds a note the index would not hold, in a
+/// folder the index would not walk into.
+#[test]
+fn the_walk_finds_a_note_under_a_folder_the_index_skips() {
+    let root = TempDir::new().expect("temp dir");
+    let hidden = root.path().join(".hidden");
+    std::fs::create_dir(&hidden).expect("folder");
+    std::fs::write(hidden.join("Note.md"), "under an ignored name\n").expect("write");
+    std::fs::write(root.path().join("Other.md"), "not this one\n").expect("write");
+
+    let found = note_ops::files_named(root.path(), &["note".to_string()]);
+
+    assert_eq!(found, vec![hidden.join("Note.md")]);
 }
