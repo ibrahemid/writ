@@ -696,6 +696,8 @@ What each move does to the text, the dirty answer, autosave and the file:
 | `changed` | any of the three answers | `present` | see §16: every answer writes the text it does not keep beside the note first | false | resumes | written, and a dated copy of the losing side beside it |
 | `changed` | a keystroke | `changed` | replaced by the newer text | true | nothing is queued, so nothing is scheduled | untouched |
 | `changed` | the save keystroke | `changed` | kept | unchanged | still silent | untouched; the focus goes to the question instead |
+| `changed` | the tab is switched away from | `changed` | taken from the view before the view is replaced | unchanged | already silent | untouched |
+| `changed` | the tab is switched back to | `changed` | the kept text goes into the new view; the file is not read | unchanged | already silent | untouched, and unread until the question is answered |
 | `changed` | a removal is announced | `removed` | kept | unchanged | already silent | gone |
 | `removed` | a second removal for the same note | `removed` | kept, and not re-read | unchanged | already silent | untouched |
 | `removed` | the file is found at another path | `present` | kept, and put back on the queue when the tab is dirty: the path is writable again and nothing else would write it | unchanged | resumes | untouched at its new path |
@@ -727,9 +729,18 @@ beside the queue, in a slot the recovery handover reads and no write path does,
 so closing the tab or quitting without answering does not lose it. It is
 materialized as it goes in: the editor has one view for every tab, destroyed
 and rebuilt on a switch, so a getter kept past a switch reads the incoming
-note's document under the outgoing note's name. A note whose file is gone is
-also kept in the store, because the next load of that tab has no file to read
-its text back from.
+note's document under the outgoing note's name. A copy is kept in the store as
+well, because the next load of that tab cannot read the text back off the file:
+a `removed` note has no file, and a `changed` note has one holding the version
+the question exists to keep out of the tab until it is answered. Reading that
+file back on the way in is worse than reading nothing, because the tab then
+holds the other program's text, the answer sends the file its own text, and
+neither side writes a copy of what was typed. The predicate on every one of
+those sites is the hold and not the deletion. The copy is refreshed on every
+hold rather than written once when the file went, so after `removed` becomes
+`changed` it holds what the note holds now, and it is dropped only on the way
+to `present`, where there is a file again and it is the one the tab is about
+to hold.
 
 **A file back at the note's own path is the same question as any other change,
 and a file at another path is not.** A tab holding nothing of its own reads the
