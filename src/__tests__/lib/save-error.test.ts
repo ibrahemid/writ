@@ -39,6 +39,7 @@ describe("formatSaveError", () => {
       "ERR_FILE_NOT_DOWNLOADED",
       "ERR_NOTE_READ_ONLY",
       "ERR_PERMISSION_DENIED",
+      "ERR_FILE_IN_USE",
       "ERR_FILE_MISSING",
       "ERR_WRITE_TIMED_OUT",
       "ERR_WRITE_FAILED",
@@ -66,6 +67,9 @@ describe("formatSaveError", () => {
   it("maps every io kind Writ mints a code for to plain words", () => {
     expect(formatSaveError(new Error("ERR_PERMISSION_DENIED: io error (os error 13)"))).toBe(
       "you do not have permission to change this file.",
+    );
+    expect(formatSaveError(new Error("ERR_FILE_IN_USE: io error (os error 5)"))).toBe(
+      "another program has the file open.",
     );
     expect(formatSaveError(new Error("ERR_FILE_MISSING: io error (os error 2)"))).toBe(
       "the folder this file was in is no longer there.",
@@ -158,6 +162,9 @@ describe("formatRenameError", () => {
     // itself, and the save sentence for these is true of a rename too.
     expect(formatRenameError("ERR_PERMISSION_DENIED: rename failed (os error 13)")).toBe(
       "The note could not be renamed: you do not have permission to change this file.",
+    );
+    expect(formatRenameError("ERR_FILE_IN_USE: io error (os error 32)")).toBe(
+      "The note could not be renamed: another program has the file open.",
     );
     expect(formatRenameError("ERR_SOMETHING_ELSE: the file is busy")).toBe(
       "The note could not be renamed.",
