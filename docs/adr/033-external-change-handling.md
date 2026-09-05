@@ -640,63 +640,107 @@ each candidate. Every watcher in the process publishes its holds into one
 `RemovalHolds`, because a save asks about a note and not about a watcher, and
 two watchers holding one note are answered on the later of the two deadlines.
 
-### 15. A note whose file is gone is one state machine, owned by the store
+### 15. A note has one file, so it has one state machine, owned by the store
 
 Decision 14 ends the moment the tab is told. What the tab does from there was
-answered three times, once per case that turned up, and each answer left the
+answered several times, once per case that turned up, and each answer left the
 next one open: the text survived a tab switch but not a background save that
-had failed, the mark went on but nothing took it off, and the text that a close
-kept came back as the file at the next launch. So the whole of it is written
-down here, and every row below is a test.
+had failed, the mark went on but nothing took it off, the text a close kept
+came back as the file at the next launch, and a file that changed and was then
+deleted put two bars on one tab saying different things about it. So the whole
+of it is written down here, in one table, and every row below is a test.
 
-**Two states.** `Present` is a note with a file at its path: ordinary saves,
-ordinary autosave, ordinary reloads. `RemovedOnDisk` is a note whose path was
-found empty with nothing answering for it (decision 14). It carries the note's
-text, which is the last copy of it once the view goes, and nothing else.
-Whether the tab differs from the file it lost is the ordinary dirty answer,
-read from the digests the note already had (decision 6).
+**Three states**, in `editorStore` (`recordFileEvent`, `NoteFileState`), with
+one bar mounted on the state rather than one bar per mark. `present` is a note
+whose file is where the note says and holds what Writ last read: ordinary
+saves, ordinary autosave, ordinary reloads. `changed` is a note whose file
+holds something Writ has not read, under a document that holds something the
+file does not: the question, and its three answers. `removed` is a note whose
+path was found empty with nothing answering for it (decision 14). Whether the
+tab differs from its file is the ordinary dirty answer, read from the digests
+the note already had (decision 6).
 
-The three ways out the bar offers are transitions, not states, and a restore in
-flight is not a state either: it goes through the autosave service, where the
-queue, the generation and the retry already are.
+Two independent marks are what let one tab carry two bars, each answering for
+a file the other says is somewhere else. One state cannot: a deletion outranks
+a question and replaces it, a file that comes back holding something else is a
+question again, and a file found at another path clears a deletion but leaves a
+question standing, because a file renamed after it was edited still differs
+from the tab.
+
+The events are what reaches the tab about its file, plus the two ways a hold
+ends. `modified`, `removed` and `moved` are the watcher's three reports.
+`written` is a write of the tab's own text landing: it ends a question and does
+not end a deletion, because it says there was a file when it left rather than
+that there is one now, and a save already in flight when a deletion arrives
+would otherwise take the bar off a file that is still gone. `settled` is
+something having just seen the file: the tab took the file's own text, or the
+put-it-back command wrote the file at the note's path again. It ends both.
+
+|  | `modified` | `removed` | `moved` | `written` | `settled` |
+|---|---|---|---|---|---|
+| `present` | `changed` | `removed` | `present` | `present` | `present` |
+| `changed` | `changed` | `removed` | `changed` | `present` | `present` |
+| `removed` | `changed` | `removed` | `present` | `removed` | `present` |
+
+The three answers the question offers are transitions, not states, and a
+restore in flight is not a state either: it goes through the autosave service,
+where the queue, the generation and the retry already are.
+
+What each move does to the text, the dirty answer, autosave and the file:
 
 | In | On | Goes to | The text | Dirty | Autosave | The file |
 |---|---|---|---|---|---|---|
-| Present | a removal is announced | RemovedOnDisk | taken from the view when the tab is on screen, else from what the autosave service still holds: a queued edit, or the text of a write that came back refused. Neither, and the note's only text was the file's | unchanged | the queue and the timer are dropped, after the text is taken | untouched |
-| RemovedOnDisk | a second removal for the same note | RemovedOnDisk | kept, and not re-read | unchanged | already silent | untouched |
-| RemovedOnDisk | the file is found at another path | Present | kept, and it is the same text either way: a move changes no bytes | unchanged | resumes | untouched at its new path |
-| RemovedOnDisk | a file is back at the note's own path, tab not dirty | Present | the file's, read back into the view; a background tab reads it on its next switch | false, from the record that read writes | resumes | untouched |
-| RemovedOnDisk | a file is back at the note's own path, tab dirty | Present | the tab's | stays true | resumes and takes the kept text, so the next flush writes it | written by that save, through the guard every save passes: a file that came back holding something else is refused and the text lands beside it dated |
-| RemovedOnDisk | a keystroke | RemovedOnDisk | replaced by the newer text | true | nothing is queued, so nothing is scheduled | untouched |
-| RemovedOnDisk | a flush, from a tab switch or a quit | RemovedOnDisk | kept | unchanged | there is nothing queued to write | untouched |
-| RemovedOnDisk | "Put the file back", or the save keystroke, and the write lands | Present | kept | false | resumes | written at the note's path |
-| RemovedOnDisk | the same, and the write fails | RemovedOnDisk | kept | unchanged | a retryable refusal is requeued with its own writer, so a later flush can land it | untouched |
-| RemovedOnDisk | "Save a copy" | RemovedOnDisk | kept, and written to the path the person names | unchanged | still silent for this note | its own path untouched, a new file at the other one |
-| RemovedOnDisk | the tab is switched away from | RemovedOnDisk | taken from the view before the view is replaced | unchanged | silent | untouched |
-| RemovedOnDisk | the tab is switched back to | RemovedOnDisk | the kept text goes into the new view; the missing file is never read | unchanged | silent | untouched |
-| RemovedOnDisk | the tab is closed | gone | handed to the shutdown snapshot, then dropped | gone with the tab | cancelled | untouched |
-| RemovedOnDisk | the window quits | gone | handed to the shutdown snapshot | gone with the window | flushed, which writes nothing for this note | untouched |
-| relaunch, with snapshot text for a note whose path has no file | RemovedOnDisk | the snapshot's, seeded before the first tab loads | true | silent | nothing written, and nothing left beside it |
+| `present` | a change is reported, under a document holding text no file has | `changed` | taken from the view when the tab is on screen, else from what the autosave service holds: a queued edit, or the text of a write that came back refused | unchanged | the queue and the timer are dropped, after the text is taken | untouched |
+| `present` | a change is reported, under a document holding nothing of its own | `present` | replaced by the file's, in one tracked transaction | false | resumes | untouched |
+| `present` | a removal is announced | `removed` | taken the same way. Nothing, and the note's only text was the file's | unchanged | the queue and the timer are dropped, after the text is taken | untouched |
+| `changed` | any of the three answers | `present` | see §16: every answer writes the text it does not keep beside the note first | false | resumes | written, and a dated copy of the losing side beside it |
+| `changed` | a keystroke | `changed` | replaced by the newer text | true | nothing is queued, so nothing is scheduled | untouched |
+| `changed` | the save keystroke | `changed` | kept | unchanged | still silent | untouched; the focus goes to the question instead |
+| `changed` | a removal is announced | `removed` | kept | unchanged | already silent | gone |
+| `removed` | a second removal for the same note | `removed` | kept, and not re-read | unchanged | already silent | untouched |
+| `removed` | the file is found at another path | `present` | kept, and put back on the queue when the tab is dirty: the path is writable again and nothing else would write it | unchanged | resumes | untouched at its new path |
+| `removed` | a file back at the note's own path, tab holding nothing of its own | `present` | replaced by the file's | false | resumes | untouched |
+| `removed` | a file back at the note's own path, tab holding text no file has | `changed` | kept, and still the only copy | stays true | still silent | untouched, and unread until the question is answered |
+| `removed` | a keystroke | `removed` | replaced by the newer text | true | nothing is queued, so nothing is scheduled | untouched |
+| `removed` | a flush, from a tab switch or a quit | `removed` | kept | unchanged | there is nothing queued to write | untouched |
+| `removed` | "Put the file back", or the save keystroke, and the write lands | `present` | kept | false | resumes | written at the note's path |
+| `removed` | the same, and the write fails | `removed` | kept | unchanged | a retryable refusal is requeued with its own writer, so a later flush can land it | untouched |
+| `removed` | "Save a copy" | `removed` | kept, and written to the path the person names | unchanged | still silent for this note | its own path untouched, a new file at the other one |
+| `removed` | the tab is switched away from | `removed` | taken from the view before the view is replaced | unchanged | silent | untouched |
+| `removed` | the tab is switched back to | `removed` | the kept text goes into the new view; the missing file is never read | unchanged | silent | untouched |
+| `changed` or `removed` | the tab is closed | gone | handed to the shutdown snapshot, then dropped | gone with the tab | cancelled | untouched |
+| `changed` or `removed` | the window quits | gone | handed to the shutdown snapshot | gone with the window | flushed, which writes nothing for this note | untouched |
+| relaunch, with snapshot text for a note whose path has no file | `removed` | the snapshot's, seeded before the first tab loads | true | silent | nothing written, and nothing left beside it |
 
-Three rules hold the table together.
+Four rules hold the table together.
 
-**One entry point takes the text before anything can drop it.** The store's
-mark is where the removal lands, and it reads the text first, cancels the
-queue second. Reversing those two loses a background tab whose save had
+**One transition takes the text before anything can drop it.** Every move into
+`changed` or `removed` runs in one place, and it reads the text first, cancels
+the queue second. Reversing those two loses a background tab whose save had
 failed, because cancelling drops the text of a refused write, which for that
-tab is the only copy there is. The mark returns at once for a note already
-marked, so a second announcement cannot cancel a queue whose text has since
-been put back into it.
+tab is the only copy there is. A move that changes nothing returns at once, so
+a second announcement cannot cancel a queue whose text the first has since put
+back into it.
 
-**A file back at its own path is answered by the rule, not by a prompt.** The
-tab's text if the tab is dirty, the file's if it is not, and never an empty
-document. A tab that is not dirty has nothing the file does not, so reading the
-file back is free. A dirty tab keeps what it has, and the kept text goes onto
-the autosave queue as it goes: a returned file is writable again, and the tab
-would otherwise sit on text that no flush and no tab switch would ever write.
-Both drop the mark, and autosave writes for that note from then on. Leaving the
-mark on is the failure this rule closes: the file is there, the bar says it is
-not, and every keystroke for the life of the window writes nothing.
+**One hold, and it holds a string.** The text of a note that may not write goes
+beside the queue, in a slot the recovery handover reads and no write path does,
+so closing the tab or quitting without answering does not lose it. It is
+materialized as it goes in: the editor has one view for every tab, destroyed
+and rebuilt on a switch, so a getter kept past a switch reads the incoming
+note's document under the outgoing note's name. A note whose file is gone is
+also kept in the store, because the next load of that tab has no file to read
+its text back from.
+
+**A file back at the note's own path is the same question as any other change,
+and a file at another path is not.** A tab holding nothing of its own reads the
+file back quietly, and a tab holding text no file has is asked which version
+the file ends up with. Answering it for them means writing one text over the
+other, which is what the three answers exist to avoid: the file came back
+holding bytes nobody has compared to the tab's. A move is different because it
+changes no bytes, so the mark comes off and nothing is asked. The mark comes
+off either way, which is the failure this rule closes: the file is there, the
+bar says it is not, and every keystroke for the life of the window writes
+nothing.
 
 **A relaunch does not put a deleted file back.** Text kept for a note that
 never had a file is written to the path minted for it here, because nothing
@@ -707,26 +751,32 @@ across every device in a synced folder. The text goes to the tab instead, which
 comes up removed on disk with the same three ways out. `plan_recovery` in
 `writ-core` is that rule, and the launch carries it out.
 
-### 12. A change reaches the document one way, and every answer keeps both texts
+### 16. A change reaches the document one way, and every answer keeps both texts
 
-What a reported change does to the document is one decision over three facts:
-whether this window holds a tab for the file, what the change was, and whether
-the document differs from its file. It is made in the editor
-(`planExternalEdit` in `src/services/external-edit.ts`) and nowhere else.
+What a reported change does to the document is one decision over four facts:
+whether this window holds a tab for the file, what the change was, whether the
+document differs from its file, and whether the tab has already been told its
+file is gone. It is made in the editor (`planExternalEdit` in
+`src/services/external-edit.ts`) and nowhere else. What each action then does
+to the note's state is decision 15's table, and only that table.
 
-| known | change | unsaved | action |
-|---|---|---|---|
-| no | any | any | ignore |
-| yes | modified | no | reload |
-| yes | modified | yes | ask |
-| yes | removed | any | mark removed |
-| yes | moved | any | follow |
+| known | change | unsaved | already marked | action |
+|---|---|---|---|---|
+| no | any | any | any | ignore |
+| yes | modified | no | any | reload |
+| yes | modified | yes | any | ask |
+| yes | removed | any | no | mark removed |
+| yes | removed | any | yes | ignore |
+| yes | moved | any | any | follow |
 
 Removal outranks a change because a file that is gone has no text to offer,
 and asking someone to choose between their text and nothing is not a question;
-the tab keeps its text and stops writing (decision 11). A move changes no
-bytes, so it repoints the tab and asks nothing. Dirty fails closed (decision
-6), so a note nothing is known about is asked about rather than replaced.
+the tab keeps its text and stops writing (decision 11). A second removal for a
+tab already marked says nothing the first did not. A move changes no bytes, so
+it repoints the tab and asks nothing. Dirty fails closed (decision 6), so a
+note nothing is known about is asked about rather than replaced. A file back at
+the path of a marked tab is a modification and takes the same fork every other
+modification takes, which is decision 15's third rule.
 
 There is no row for a report that changed nothing, because the editor is not
 given one. A write Writ made is dropped against the bytes on disk before an
@@ -738,10 +788,10 @@ reload replays the text the document already holds and a question is asked
 over a document that does differ. The digest of what the file holds rides on
 the event; nothing in the editor reads it.
 
-The decision has one author because two of its three facts are the editor's
-alone: whether a document holds text no file has is the editor's answer, and
-whether this window has the tab at all is not a question the backend can
-reach. A copy of the table in Rust could only be pinned against this one by a
+The decision has one author because three of its four facts are the editor's
+alone: whether a document holds text no file has is the editor's answer,
+whether this window has the tab at all is not a question the backend can reach,
+and what the tab has already been told is the store's own state. A copy of the table in Rust could only be pinned against this one by a
 fixture, and a policy no binary calls is dead code the next reader has to rule
 out. `writ-core` keeps what the answers write (`notes::reload`), which is
 about files and belongs there. `src/services/__tests__/external-change-table.json`
@@ -788,19 +838,13 @@ asks a question that has no reason to be asked. That note is the ordinary case
 for a restored session, which is the one decision 6 already calls the likeliest
 to be reported about.
 
-**A note has one file, so it has one state.** `present`, `changed` or
-`removed`, in `editorStore` (`recordFileEvent`), and each bar is mounted on
-it. Two independent marks let a file modified and then deleted put both bars
-on one tab, saying different things about one file, and the answers to the
-question all read the file the other bar says is gone. The transitions carry
-the orderings: a deletion outranks a question and replaces it, a file that
-comes back different is a question again, and a move clears a deletion but
-keeps a question, because a file that was renamed after it was edited still
-differs from the tab. The answer travels by the note's id and the command
-reads the note's current path, so it lands on the file where it now is. A
-write that lands ends a question and does not put back a deleted file: the
-queue is cancelled when a deletion arrives, but a call already in flight
-replies after it.
+**The answer travels by the note's id**, and the command reads the note's
+current path, so it lands on the file where it now is even when the file moved
+between the question and the answer. It waits out a held removal like any other
+write (decision 14): the path it reads is the one a move has already left the
+row on, and a file that turns out to be gone refuses the answer rather than
+putting it back. The note's own state is decision 15's, and this decision keeps
+no second copy of it.
 
 **A note carrying a bar writes nothing until it is answered.** The state holds
 every save path, not only the autosave one: typing queues nothing, Cmd+S sends
@@ -813,10 +857,9 @@ rather than dropped: it goes to a slot beside the queue that the recovery
 handover reads and no write path does (`holdUnsavedContent`), so closing the
 tab or quitting without answering does not lose it, and it is released when
 the question ends. A deleted note keeps its typing on the same terms and the
-deletion still stands: the snapshot comes back as `<name> (recovered …)`
-beside where the file was, never at the path
-(`BufferStore::restore_recovered_content`), because the relaunch would
-otherwise recreate the file on every synced device. Only a note that never
+deletion still stands: the next launch writes nothing at the path and leaves
+nothing beside it, handing the text back to the tab instead
+(`writ_core::recovery::plan_recovery`, decision 15). Only a note that never
 reached a file is written at its own path, since nothing was ever there to
 put back. The retry button on a failed save goes while the hold is on
 for the same reason every other path is held: a save already in flight when
@@ -841,7 +884,11 @@ bars already on screen. A write that was still on the wire refuses afterwards,
 and its reason is about the same file the answer has just dealt with. The two
 are told apart by the write's generation (`currentSaveGeneration`), which
 queueing and cancelling both bump: a write issued before the answer is
-dropped, and one issued after it still shows.
+dropped, and one issued after it still shows. Its text goes the same way. A
+refusal leaves the text it could not write where the recovery handover reads
+it, and only while that text is still the newest there is, so the version the
+person answered against cannot reach the shutdown snapshot and come back at the
+next launch.
 
 ## Consequences
 
