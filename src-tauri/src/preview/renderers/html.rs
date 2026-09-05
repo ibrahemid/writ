@@ -245,6 +245,7 @@ mod tests {
             buffer_text: text.to_string(),
             theme: ThemePolarity::Dark,
             zoom: 1.0,
+            assets: None,
         }
     }
 
