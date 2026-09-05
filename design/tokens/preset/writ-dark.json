@@ -1,0 +1,104 @@
+{
+  "preset": {
+    "writ-dark": {
+      "$description": "Writ Dark",
+      "polarity": {
+        "$type": "other",
+        "$value": "dark"
+      },
+      "bg": {
+        "$type": "color",
+        "canvas": {
+          "$value": "#1b1a18"
+        },
+        "sidebar": {
+          "$value": "#201f1c"
+        },
+        "raised": {
+          "$value": "#262521"
+        },
+        "sunken": {
+          "$value": "#171614"
+        },
+        "hover": {
+          "$value": "#292825"
+        },
+        "selected": {
+          "$value": "#32312e"
+        }
+      },
+      "fg": {
+        "$type": "color",
+        "default": {
+          "$value": "#edeae3"
+        },
+        "muted": {
+          "$value": "#a8a296"
+        },
+        "faint": {
+          "$value": "#827c72"
+        }
+      },
+      "border": {
+        "$type": "color",
+        "default": {
+          "$value": "#333029"
+        },
+        "soft": {
+          "$value": "#272521"
+        }
+      },
+      "accent": {
+        "$type": "color",
+        "default": {
+          "$value": "#5bc5a7"
+        },
+        "hover": {
+          "$value": "#6bcbb0"
+        },
+        "fg": {
+          "$value": "#10221d"
+        }
+      },
+      "status": {
+        "$type": "color",
+        "success": {
+          "$value": "#9ece6a"
+        },
+        "warning": {
+          "$value": "#e0af68"
+        },
+        "error": {
+          "$value": "#e08d82"
+        },
+        "foreground": {
+          "$value": "#10221d"
+        }
+      },
+      "syntax": {
+        "$type": "color",
+        "keyword": {
+          "$value": "#edeae3"
+        },
+        "string": {
+          "$value": "#8fae8b"
+        },
+        "comment": {
+          "$value": "#827c72"
+        },
+        "function": {
+          "$value": "#a8a296"
+        },
+        "number": {
+          "$value": "#edeae3"
+        },
+        "type": {
+          "$value": "#a8a296"
+        },
+        "variable": {
+          "$value": "#a8a296"
+        }
+      }
+    }
+  }
+}

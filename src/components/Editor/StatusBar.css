@@ -1,12 +1,12 @@
 .statusbar {
   height: var(--writ-statusbar-height);
-  background: var(--writ-surface-sunken);
+  background: var(--writ-bg-sidebar);
   display: flex;
   align-items: center;
   gap: var(--writ-space-4);
   padding: 0 var(--writ-space-4);
-  font-size: var(--writ-font-size-sm);
-  color: var(--writ-foreground-muted);
+  font-size: var(--writ-ui-sm);
+  color: var(--writ-fg-muted);
   border-top: 1px solid var(--writ-border-soft);
   flex-shrink: 0;
   container-type: inline-size;
@@ -57,11 +57,20 @@
 }
 
 .statusbar-save.is-saved {
-  animation: statusbar-save-fade 1200ms ease forwards;
+  animation: statusbar-save-fade 1200ms var(--writ-ease) forwards;
 }
 
 .statusbar-save.is-failed {
   color: var(--writ-status-error);
+}
+
+.statusbar-save.is-dirty {
+  color: var(--writ-fg-muted);
+}
+
+.statusbar-save.is-dirty .statusbar-dot {
+  background: none;
+  border: 1px solid var(--writ-fg-muted);
 }
 
 .statusbar-dot {
@@ -96,7 +105,7 @@
 
 .statusbar-tokens {
   white-space: nowrap;
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg-faint);
   font-variant-numeric: tabular-nums;
 }
 
@@ -104,41 +113,42 @@
   display: inline-flex;
   align-items: center;
   padding: 0 var(--writ-space-3);
-  border-radius: 3px;
-  font-size: var(--writ-font-size-xs, 11px);
+  border-radius: var(--writ-r-control);
+  font-size: var(--writ-ui-xs);
   white-space: nowrap;
   line-height: 1.4;
 }
 
 .statusbar-chip--largefile {
-  background: var(--writ-surface-raised, rgba(128, 128, 128, 0.12));
-  color: var(--writ-foreground-muted);
+  background: var(--writ-bg-raised);
+  color: var(--writ-fg-muted);
   border: 1px solid var(--writ-border-soft);
 }
 
 .spelling-chip {
   border: 1px solid var(--writ-border-soft);
   background: none;
-  color: var(--writ-foreground-muted);
+  color: var(--writ-fg-muted);
   cursor: pointer;
   font-variant-numeric: tabular-nums;
 }
 
 .spelling-chip:hover {
-  background: var(--writ-surface-hover);
-  color: var(--writ-foreground-default);
+  background: var(--writ-bg-hover);
+  color: var(--writ-fg);
 }
 
 .spelling-chip--off {
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg-faint);
   border-color: transparent;
 }
 
 .statusbar-field {
   white-space: nowrap;
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg-faint);
 }
 
-.statusbar-field--cursor {
+.statusbar-field--cursor,
+.statusbar-field--words {
   font-variant-numeric: tabular-nums;
 }

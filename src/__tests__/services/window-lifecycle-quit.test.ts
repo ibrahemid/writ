@@ -1,14 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { focusHandlers, eventHandlers } = vi.hoisted(() => ({
+const { focusHandlers, eventHandlers, closeHandlers } = vi.hoisted(() => ({
   focusHandlers: [] as Array<(focused: boolean) => void>,
   eventHandlers: new Map<string, (payload: unknown) => void>(),
+  closeHandlers: [] as Array<() => Promise<void>>,
 }));
 
 vi.mock("../../services/tauri", () => ({
   saveBufferContent: vi.fn().mockResolvedValue(undefined),
   confirmQuitFlush: vi.fn().mockResolvedValue(undefined),
-  onWindowCloseRequested: vi.fn().mockResolvedValue(() => {}),
+  recordUnsavedNotes: vi.fn().mockResolvedValue(undefined),
+  onWindowCloseRequested: vi.fn(async (handler: () => Promise<void>) => {
+    closeHandlers.push(handler);
+    return () => {};
+  }),
   onWindowFocusChange: vi.fn(async (handler: (focused: boolean) => void) => {
     focusHandlers.push(handler);
     return () => {};
@@ -23,11 +28,12 @@ vi.mock("../../services/events", () => ({
 }));
 
 import { debouncedSave, resetAutosave } from "../../services/autosave";
-import { startWindowLifecycle } from "../../services/window-lifecycle";
-import { confirmQuitFlush, saveBufferContent } from "../../services/tauri";
+import { installCloseFlush, startWindowLifecycle } from "../../services/window-lifecycle";
+import { confirmQuitFlush, recordUnsavedNotes, saveBufferContent } from "../../services/tauri";
 
 const mockedSave = vi.mocked(saveBufferContent);
 const mockedConfirm = vi.mocked(confirmQuitFlush);
+const mockedRecord = vi.mocked(recordUnsavedNotes);
 
 describe("window lifecycle", () => {
   beforeEach(() => {
@@ -35,6 +41,7 @@ describe("window lifecycle", () => {
     vi.clearAllMocks();
     resetAutosave();
     focusHandlers.length = 0;
+    closeHandlers.length = 0;
     eventHandlers.clear();
   });
 
@@ -91,6 +98,78 @@ describe("window lifecycle", () => {
     mockedSave.mockRejectedValueOnce(new Error("disk full"));
 
     debouncedSave("lifecycle-failing", "unwritable");
+    eventHandlers.get("quit:flush")!({});
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockedConfirm).toHaveBeenCalledOnce();
+  });
+
+  it("a_failed_save_survives_the_quit_path_into_the_snapshot", async () => {
+    await startWindowLifecycle();
+    mockedSave.mockRejectedValueOnce(new Error("ERR_PERMISSION_DENIED: no"));
+
+    debouncedSave("lifecycle-kept", "the text the file refused");
+    eventHandlers.get("quit:flush")!({});
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockedRecord).toHaveBeenCalledWith([
+      { id: "lifecycle-kept", content: "the text the file refused" },
+    ]);
+    // Kept before the exit is let through, or the process leaves first.
+    expect(mockedRecord.mock.invocationCallOrder[0]).toBeLessThan(
+      mockedConfirm.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("a_save_that_failed_earlier_is_kept_even_though_the_quit_flush_finds_nothing", async () => {
+    await startWindowLifecycle();
+    // The guard stops this one, so autosave drops it from the queue rather
+    // than writing the same text into the same refusal. Its bar is what the
+    // person is looking at when they quit.
+    mockedSave.mockRejectedValueOnce(new Error("ERR_FILE_CHANGED_ON_DISK: /notes/a.md"));
+    debouncedSave("lifecycle-stale", "the version the guard stopped", 10);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(mockedSave).toHaveBeenCalledOnce();
+
+    eventHandlers.get("quit:flush")!({});
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockedSave).toHaveBeenCalledOnce();
+    expect(mockedRecord).toHaveBeenCalledWith([
+      { id: "lifecycle-stale", content: "the version the guard stopped" },
+    ]);
+  });
+
+  it("a_flush_that_landed_keeps_nothing", async () => {
+    await startWindowLifecycle();
+
+    debouncedSave("lifecycle-landed", "written fine");
+    eventHandlers.get("quit:flush")!({});
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockedRecord).not.toHaveBeenCalled();
+  });
+
+  it("closing_the_window_keeps_a_failed_save_too", async () => {
+    await installCloseFlush();
+    mockedSave.mockRejectedValueOnce(new Error("ERR_WRITE_FAILED: no"));
+
+    debouncedSave("lifecycle-closed", "unwritten on close");
+    const closed = closeHandlers[0]();
+    await vi.advanceTimersByTimeAsync(0);
+    await closed;
+
+    expect(mockedRecord).toHaveBeenCalledWith([
+      { id: "lifecycle-closed", content: "unwritten on close" },
+    ]);
+  });
+
+  it("a_snapshot_that_refuses_the_text_still_lets_the_quit_through", async () => {
+    await startWindowLifecycle();
+    mockedSave.mockRejectedValueOnce(new Error("ERR_WRITE_FAILED: no"));
+    mockedRecord.mockRejectedValueOnce(new Error("database is locked"));
+
+    debouncedSave("lifecycle-unkeepable", "nowhere to go");
     eventHandlers.get("quit:flush")!({});
     await vi.advanceTimersByTimeAsync(0);
 

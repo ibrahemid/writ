@@ -16,6 +16,8 @@ about.toml; licences/notices.toml carries the texts for crates whose published
 package leaves the licence file out. npm licences come from `pnpm licenses list
 --prod` against the root package.json, whose dependencies are the ones bundled by
 Vite into the app; the site under site/ has its own tree and does not ship.
+Fonts bundled as files rather than packages are declared in the same
+licences/notices.toml, under [[bundled]].
 
 Usage:
     scripts/gen-third-party-notices.py            write THIRD-PARTY-NOTICES.md
@@ -231,6 +233,50 @@ def load_vendored_notices() -> tuple[dict[tuple[str, str], str], set[tuple[str, 
             unattributed.add(key)
 
     return texts, unattributed
+
+
+def load_bundled_assets() -> list[dict[str, object]]:
+    """Files shipped inside the app that are neither a crate nor an npm package.
+
+    A bundled font has no package manager to declare its licence, so the entry
+    names the files it covers and the generator fails when one of them is gone.
+    """
+    with NOTICES_CONFIG.open("rb") as handle:
+        config = tomllib.load(handle)
+
+    where = NOTICES_CONFIG.relative_to(ROOT)
+    assets: list[dict[str, object]] = []
+    for entry in config.get("bundled", []):
+        name = entry.get("name")
+        licence = entry.get("licence")
+        file_name = entry.get("file")
+        files = entry.get("files")
+        if not isinstance(name, str) or not isinstance(licence, str):
+            raise GenerationError(f"{where}: a [[bundled]] entry needs `name` and `licence`")
+        if not isinstance(file_name, str):
+            raise GenerationError(f"{where}: {name} needs `file`")
+        if not files:
+            raise GenerationError(f"{where}: {name} records no `files`")
+        if not entry.get("sources"):
+            raise GenerationError(f"{where}: {name} records no `sources`")
+        path = NOTICES_DIR / file_name
+        if not path.is_file():
+            raise GenerationError(f"{where}: {file_name} does not exist")
+        text = normalize_text(path.read_text())
+        if not text:
+            raise GenerationError(f"{where}: {file_name} is empty")
+        if is_template(text):
+            raise GenerationError(f"{where}: {file_name} is an unfilled licence template")
+        shipped = []
+        for relative in files:  # type: ignore[union-attr]
+            if not (ROOT / str(relative)).is_file():
+                raise GenerationError(f"{where}: {name} names a missing file, {relative}")
+            shipped.append(str(relative))
+        assets.append(
+            {"name": name, "id": licence, "text": text, "files": sorted(shipped)}
+        )
+    assets.sort(key=lambda asset: str(asset["name"]))
+    return assets
 
 
 def crate_source_dir(krate: dict[str, object]) -> pathlib.Path | None:
@@ -488,6 +534,7 @@ def render(
     npm_declarations: list[dict[str, object]],
     npm_package_count: int,
     npm_without_text: list[str],
+    bundled_assets: list[dict[str, object]],
 ) -> str:
     lines: list[str] = []
     add = lines.append
@@ -507,17 +554,28 @@ def render(
     add("# Third-party notices")
     add("")
     add(
-        "Writ links in the Rust crates and bundles the npm packages listed below. "
-        "Their licences require the copyright notice and permission text to be "
-        "distributed with the binaries, so both are reproduced in full."
+        "Writ links in the Rust crates, bundles the npm packages, and ships the font "
+        "files listed below. Their licences require the copyright notice and "
+        "permission text to be distributed with the binaries, so both are reproduced "
+        "in full."
     )
     add("")
+    fonts = len(bundled_assets)
+    font_clause = (
+        f" {fonts} font family is bundled as files rather than a package and is "
+        "listed below."
+        if fonts == 1
+        else f" {fonts} font families are bundled as files rather than packages "
+        "and are listed below."
+        if fonts
+        else ""
+    )
     add(
         f"{rust_crate_count} Rust crates are covered, resolved for every target a "
         "release is built for, and "
         f"{npm_package_count} npm packages, resolved from the production "
         "dependencies of the frontend bundle. Test and benchmark dependencies are "
-        "excluded: they are not shipped."
+        "excluded: they are not shipped." + font_clause
     )
     add("")
     add(
@@ -528,16 +586,18 @@ def render(
 
     add("## Summary")
     add("")
-    add("| Licence | Rust crates | npm packages |")
-    add("| --- | ---: | ---: |")
+    add("| Licence | Rust crates | npm packages | Bundled fonts |")
+    add("| --- | ---: | ---: | ---: |")
     counts: dict[str, list[int]] = {}
     for group in rust_groups + rust_unnamed:
-        counts.setdefault(str(group["id"]), [0, 0])[0] += len(group["crates"])  # type: ignore[arg-type]
+        counts.setdefault(str(group["id"]), [0, 0, 0])[0] += len(group["crates"])  # type: ignore[arg-type]
     for group in npm_groups + npm_declarations:
-        counts.setdefault(str(group["id"]), [0, 0])[1] += len(group["packages"])  # type: ignore[arg-type]
+        counts.setdefault(str(group["id"]), [0, 0, 0])[1] += len(group["packages"])  # type: ignore[arg-type]
+    for asset in bundled_assets:
+        counts.setdefault(str(asset["id"]), [0, 0, 0])[2] += 1
     for licence in sorted(counts):
-        rust_count, npm_count = counts[licence]
-        add(f"| {licence} | {rust_count or ''} | {npm_count or ''} |")
+        rust_count, npm_count, font_count = counts[licence]
+        add(f"| {licence} | {rust_count or ''} | {npm_count or ''} | {font_count or ''} |")
     add("")
 
     add("## Rust crates")
@@ -613,6 +673,27 @@ def render(
             add(f"- {package}")
         add("")
 
+    if bundled_assets:
+        add("## Bundled fonts")
+        add("")
+        add(
+            "These files are compiled into the frontend bundle rather than installed "
+            "by a package manager. Each block names the files it covers."
+        )
+        add("")
+        for asset in bundled_assets:
+            add(f"### {asset['name']} ({asset['id']})")
+            add("")
+            for relative in asset["files"]:  # type: ignore[union-attr]
+                add(f"- `{relative}`")
+            add("")
+            text = str(asset["text"])
+            fence = fence_for(text)
+            add(fence)
+            add(text)
+            add(fence)
+            add("")
+
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
@@ -621,6 +702,7 @@ def generate() -> str:
     npm_groups, npm_declarations, npm_package_count, npm_without_text = (
         collect_npm_groups()
     )
+    bundled_assets = load_bundled_assets()
     document = render(
         rust_groups,
         rust_unnamed,
@@ -629,6 +711,7 @@ def generate() -> str:
         npm_declarations,
         npm_package_count,
         npm_without_text,
+        bundled_assets,
     )
     found = sorted({blank for blank in TEMPLATE_BLANKS if blank in document})
     if found:

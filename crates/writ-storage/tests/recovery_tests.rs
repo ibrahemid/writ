@@ -405,3 +405,71 @@ fn clean_shutdown_snapshot_writes_even_when_content_is_unchanged() {
         "the shutdown snapshot must record the clean marker whatever the content is"
     );
 }
+
+#[test]
+fn a_closed_note_whose_save_was_refused_comes_back_on_the_next_launch() {
+    // The whole path, in order: a note's save is refused, the tab is closed
+    // (the row moves to history), the quit hands the text to the shutdown
+    // snapshot, and the next launch has to find it. Resolving against open
+    // notes alone dropped it and left the shutdown flagged dirty for nothing.
+    let (dir, store) = setup_store();
+    let mut mgr = BufferManager::new();
+    let doc = mgr.create_buffer(Some("refused".into())).expect("create");
+    store.insert(&doc).expect("insert");
+    attach_note(&store, &dir, &doc.id);
+    store
+        .save_content(&doc.id, "what the file still holds")
+        .expect("save");
+    store.close(&doc.id).expect("close the tab");
+    assert!(
+        store
+            .list_by_status(BufferStatus::Active)
+            .expect("list")
+            .is_empty(),
+        "the tab is closed, so the row is no longer active"
+    );
+
+    let closed_at = store
+        .list_by_status(BufferStatus::History)
+        .expect("history")
+        .into_iter()
+        .find(|buf| buf.id == doc.id)
+        .expect("the closed note is in history")
+        .updated_at
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
+    let snapshot_at =
+        (chrono::DateTime::parse_from_str(&format!("{closed_at} +0000"), "%Y-%m-%d %H:%M:%S %z")
+            .expect("parse")
+            + chrono::Duration::seconds(2))
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
+
+    let db_path = dir.path().join("writ.db");
+    {
+        let conn = open_database(&db_path).expect("open db");
+        run_migrations(&conn).expect("migrations");
+        conn.execute(
+            "INSERT INTO session_snapshots (id, format_version, state_json, created_at, is_clean)
+             VALUES (?, 1, ?, ?, 0)",
+            rusqlite::params![
+                uuid::Uuid::new_v4().to_string(),
+                serde_json::to_string(&serde_json::json!({
+                    "buffers": { &doc.id: "the text the file refused" }
+                }))
+                .expect("serialize"),
+                snapshot_at,
+            ],
+        )
+        .expect("insert the shutdown snapshot");
+    }
+
+    let conn = open_database(&db_path).expect("reopen db");
+    run_migrations(&conn).expect("migrations");
+    let relaunched = BufferStore::new(conn, dir.path().join("buffers"));
+
+    let recovered = relaunched.resolve_recovery().expect("resolve");
+    assert_eq!(recovered.len(), 1, "the closed note is the one to restore");
+    assert_eq!(recovered[0].id, doc.id);
+    assert_eq!(recovered[0].content, "the text the file refused");
+}

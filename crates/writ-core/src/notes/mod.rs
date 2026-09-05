@@ -14,6 +14,9 @@ pub mod guard;
 /// Link syntax and link resolution (ADR-034).
 pub mod links;
 
+/// File identity: telling a file that moved from one that was deleted.
+pub mod identity;
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 

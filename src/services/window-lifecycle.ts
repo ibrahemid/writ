@@ -1,5 +1,11 @@
-import { confirmQuitFlush, onWindowCloseRequested, onWindowFocusChange } from "./tauri";
-import { flushAutosave } from "./autosave";
+import {
+  confirmQuitFlush,
+  onWindowCloseRequested,
+  onWindowFocusChange,
+  recordUnsavedNotes,
+  type UnsavedNote,
+} from "./tauri";
+import { collectUnsavedContent, flushAutosave, type SaveResult } from "./autosave";
 import { onEvent, type UnlistenFn } from "./events";
 import { logFailure } from "../lib/log";
 
@@ -23,12 +29,39 @@ export async function startWindowLifecycle(): Promise<UnlistenFn[]> {
   return [unlistenFocus, unlistenQuit];
 }
 
+/**
+ * Puts text the last flush could not write where the next launch will find it.
+ *
+ * The window is about to go away and the file has already refused this text,
+ * so the shutdown snapshot is the only place left; the backend folds it over
+ * the files it reads and marks the shutdown unclean, which is what makes the
+ * next launch offer it back. Failing here must not hold the exit: the process
+ * leaves either way, and a held quit only trades lost text for a hung app.
+ *
+ * What the flush just reported is not the question asked. A save that failed
+ * minutes ago left the queue empty and the bar on screen, so this flush finds
+ * nothing to write and comes back ok while that text is still only in the
+ * editor; everything outstanding after the last flush is kept, whatever this
+ * one returned.
+ */
+async function keepUnsavedText(flushed: SaveResult, when: string): Promise<void> {
+  if (!flushed.ok) {
+    logFailure(`a note could not be saved while ${when}`);
+  }
+
+  const notes: UnsavedNote[] = collectUnsavedContent();
+  if (notes.length === 0) return;
+
+  try {
+    await recordUnsavedNotes(notes);
+  } catch {
+    logFailure(`unsaved text could not be kept while ${when}`);
+  }
+}
+
 async function flushThenConfirm(): Promise<void> {
   try {
-    const flushed = await flushAutosave();
-    if (!flushed.ok) {
-      logFailure("a note could not be saved while quitting");
-    }
+    await keepUnsavedText(await flushAutosave(), "quitting");
   } finally {
     await confirmQuitFlush();
   }
@@ -41,10 +74,7 @@ export async function installCloseFlush(
     // Quit is not blocked on a failed write: the error listener has already
     // shown the reason, and holding the window open here would trap the user
     // in an app that cannot save.
-    const flushed = await flushAutosave();
-    if (!flushed.ok) {
-      logFailure("a note could not be saved while closing");
-    }
+    await keepUnsavedText(await flushAutosave(), "closing");
     for (const flush of extraFlushes) {
       await flush();
     }

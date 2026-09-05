@@ -357,3 +357,98 @@ fn an_atomic_write_leaves_no_temp_file_behind() {
 
     assert_eq!(names, vec!["note.md".to_string()]);
 }
+
+#[test]
+fn only_the_windows_in_use_codes_are_retried() {
+    use writ_storage::atomic::should_retry_persist;
+
+    assert!(should_retry_persist(Some(5), 0), "ERROR_ACCESS_DENIED");
+    assert!(should_retry_persist(Some(32), 0), "ERROR_SHARING_VIOLATION");
+    // A refusal that waiting cannot change has to reach the caller at once.
+    assert!(!should_retry_persist(Some(13), 0));
+    assert!(!should_retry_persist(Some(2), 0));
+    assert!(!should_retry_persist(None, 0));
+}
+
+#[test]
+fn the_retry_budget_ends_on_the_last_attempt() {
+    use writ_storage::atomic::{should_retry_persist, PERSIST_ATTEMPTS};
+
+    assert!(should_retry_persist(Some(5), PERSIST_ATTEMPTS - 2));
+    assert!(!should_retry_persist(Some(5), PERSIST_ATTEMPTS - 1));
+    assert!(!should_retry_persist(Some(5), PERSIST_ATTEMPTS));
+}
+
+#[test]
+fn the_retry_waits_double_to_a_cap_and_stay_under_half_a_second() {
+    use std::time::Duration;
+    use writ_storage::atomic::{persist_retry_delay, PERSIST_ATTEMPTS};
+
+    let waits: Vec<u64> = (0..PERSIST_ATTEMPTS - 1)
+        .map(|attempt| persist_retry_delay(attempt).as_millis() as u64)
+        .collect();
+
+    assert_eq!(waits, vec![1, 2, 4, 8, 16, 32, 50, 50, 50]);
+    let total: Duration = waits.iter().map(|ms| Duration::from_millis(*ms)).sum();
+    assert!(total < Duration::from_millis(500), "{total:?}");
+}
+
+#[test]
+fn a_save_that_ran_out_of_tries_says_the_file_is_in_use() {
+    use std::io::{Error, ErrorKind};
+    use writ_storage::atomic::classify_persist_failure;
+
+    for code in [5, 32] {
+        let classified = classify_persist_failure(Error::from_raw_os_error(code));
+        assert_eq!(
+            classified.kind(),
+            ErrorKind::ResourceBusy,
+            "os error {code}"
+        );
+        // The operating system's own wording stays available to the log.
+        assert!(classified.get_ref().is_some(), "os error {code}");
+    }
+
+    // Anything else keeps the kind it arrived with, so a real denial still
+    // reads as one.
+    let untouched = classify_persist_failure(Error::from_raw_os_error(13));
+    assert_eq!(untouched.raw_os_error(), Some(13));
+}
+
+/// A save has to land while another program is holding the file, because on
+/// Windows that program is often Writ's own watcher reading the note back.
+#[cfg(windows)]
+#[test]
+fn a_save_lands_once_the_program_holding_the_file_lets_go() {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let dir = TempDir::new().expect("temp dir");
+    let target = dir.path().join("held.md");
+    fs::write(&target, b"OLD").expect("seed note");
+
+    let (opened, held_open) = mpsc::channel();
+    let path = target.clone();
+    let holder = std::thread::spawn(move || {
+        // share_mode(0) is the handle a rename cannot move a file out from
+        // under: no FILE_SHARE_DELETE, so MoveFileExW is refused outright.
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .expect("open the note with no sharing");
+        opened.send(()).expect("signal that the handle is open");
+        // Long enough that the handle is still there once the temp file has
+        // been written and fsynced, so the save has to reach a later attempt
+        // (t=113ms) rather than winning the first one.
+        std::thread::sleep(Duration::from_millis(100));
+        drop(file);
+    });
+
+    held_open.recv().expect("the holder opened the note");
+    writ_storage::atomic::write_atomic(&target, b"NEW").expect("the save has to land");
+    holder.join().expect("holder thread");
+
+    assert_eq!(fs::read_to_string(&target).expect("read back"), "NEW");
+}

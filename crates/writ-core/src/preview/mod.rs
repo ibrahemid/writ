@@ -24,9 +24,12 @@ pub mod protocol;
 pub mod registry;
 pub mod types;
 
-pub use protocol::{parse as parse_preview_url, ParsedRequest, PreviewScope, RefusalReason};
+pub use protocol::{
+    parse as parse_preview_url, AssetReference, AssetRequest, AssetRoot, ParsedRequest,
+    PreviewScope, RefusalReason,
+};
 pub use registry::{ContentRendererRegistry, RegisterError};
 pub use types::{
-    ContentRenderer, ContentTypeId, LayoutMode, RenderError, RenderOutput, RenderRequest,
-    RendererCapabilities, ThemePolarity, ViewMode, WindowId,
+    AssetScope, ContentRenderer, ContentTypeId, LayoutMode, RenderError, RenderOutput,
+    RenderRequest, RendererCapabilities, ThemePolarity, ViewMode, WindowId,
 };

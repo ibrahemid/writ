@@ -185,7 +185,7 @@ describe("editor.replace vs tab.rename chord", () => {
     });
     registerCommand({
       id: "tab.rename",
-      label: "Rename Tab",
+      label: "Rename tab",
       keybinding: "F2",
       keybindingAliases: ["CmdOrCtrl+Shift+S"],
       scope: "app",
@@ -227,7 +227,7 @@ describe("editor zoom chords", () => {
     const fired: string[] = [];
     registerCommand({
       id: "editor.zoomIn",
-      label: "Increase Editor Font Size",
+      label: "Increase editor font size",
       keybinding: "CmdOrCtrl+=",
       keybindingAliases: ["CmdOrCtrl+Shift++"],
       scope: "app",
@@ -236,7 +236,7 @@ describe("editor zoom chords", () => {
     });
     registerCommand({
       id: "editor.zoomOut",
-      label: "Decrease Editor Font Size",
+      label: "Decrease editor font size",
       keybinding: "CmdOrCtrl+-",
       scope: "app",
       global: true,
@@ -244,7 +244,7 @@ describe("editor zoom chords", () => {
     });
     registerCommand({
       id: "editor.zoomReset",
-      label: "Reset Editor Font Size",
+      label: "Reset editor font size",
       keybinding: "CmdOrCtrl+0",
       scope: "app",
       global: true,
@@ -254,7 +254,7 @@ describe("editor zoom chords", () => {
     // global app scope, so a chord collision would silently steal the reset.
     registerCommand({
       id: "preview.resetRatio",
-      label: "Preview: Reset Split Ratio",
+      label: "Preview: Reset split ratio",
       keybinding: "CmdOrCtrl+Shift+0",
       scope: "app",
       global: true,
@@ -400,7 +400,7 @@ describe("editor-focus gating", () => {
     let toggled = false;
     registerCommand({
       id: "sidebar.toggle",
-      label: "Toggle Sidebar",
+      label: "Toggle sidebar",
       keybinding: "CmdOrCtrl+\\",
       scope: "app",
       global: true,
@@ -438,10 +438,33 @@ describe("editor-focus gating", () => {
     expect(event.preventDefault).toHaveBeenCalled();
   });
 
-  it("still fires a deliberately-global app command (Cmd+T buffer.new) while typing", () => {
+  it("fires the note command from both its chord and the old one", () => {
+    // buffer.new is gone; ⌘T is an alias on note.new so a habit keeps working.
+    const fired: string[] = [];
+    registerCommand({
+      id: "note.new",
+      label: "New note",
+      scope: "app",
+      global: true,
+      keybinding: "CmdOrCtrl+N",
+      keybindingAliases: ["CmdOrCtrl+T"],
+      execute: () => {
+        fired.push("note.new");
+      },
+    });
+    rebuildKeyMap();
+    for (const key of ["n", "t"]) {
+      handleKeyDown(createKeyEvent({ key, metaKey: true }));
+    }
+    expect(fired).toEqual(["note.new", "note.new"]);
+    expect(findKeybindingConflicts(getAllCommands()).size).toBe(0);
+    unregisterCommand("note.new");
+  });
+
+  it("still fires a deliberately-global app command (Cmd+T note.new) while typing", () => {
     let executed = false;
     registerCommand({
-      id: "buffer.new",
+      id: "note.new",
       label: "New Tab",
       keybinding: "CmdOrCtrl+T",
       scope: "app",
@@ -460,7 +483,7 @@ describe("editor-focus gating", () => {
     let executed = false;
     registerCommand({
       id: "buffer.close",
-      label: "Close Tab",
+      label: "Close tab",
       keybinding: "CmdOrCtrl+W",
       scope: "app",
       global: true,
@@ -495,7 +518,7 @@ describe("editor-focus gating", () => {
     let toggled = false;
     registerCommand({
       id: "sidebar.toggle",
-      label: "Toggle Sidebar",
+      label: "Toggle sidebar",
       keybinding: "CmdOrCtrl+\\",
       scope: "app",
       execute: () => { toggled = true; },
@@ -518,7 +541,7 @@ describe("editor-focus gating", () => {
     let toggled = false;
     registerCommand({
       id: "sidebar.toggle",
-      label: "Toggle Sidebar",
+      label: "Toggle sidebar",
       keybinding: "CmdOrCtrl+\\",
       scope: "app",
       execute: () => { toggled = true; },
@@ -538,7 +561,7 @@ describe("editor-focus gating", () => {
     let renamed = false;
     registerCommand({
       id: "tab.rename",
-      label: "Rename Tab",
+      label: "Rename tab",
       keybinding: "F2",
       keybindingAliases: ["CmdOrCtrl+Shift+S"],
       scope: "app",
@@ -556,7 +579,7 @@ describe("editor-focus gating", () => {
     let executed = false;
     registerCommand({
       id: "palette.open",
-      label: "Command Palette",
+      label: "Command palette",
       keybinding: "Shift+Shift",
       scope: "app",
       global: true,

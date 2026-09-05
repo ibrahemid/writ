@@ -2,15 +2,15 @@ import { onMount, onCleanup, createEffect, createMemo, on } from "solid-js";
 import { Annotation, Compartment, EditorState, type Extension } from "@codemirror/state";
 import { addCursorUp, addCursorDown } from "../../commands/multicursor";
 import {
-  EditorView, keymap, lineNumbers, highlightActiveLine,
-  drawSelection, highlightActiveLineGutter,
+  EditorView, keymap,
+  drawSelection,
   rectangularSelection, crosshairCursor,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { syntaxHighlighting, bracketMatching, indentOnInput } from "@codemirror/language";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { search, highlightSelectionMatches } from "@codemirror/search";
-import { editorThemeFor, writHighlight } from "./cm-theme";
+import { editorThemeFor, writCodeFace, writHighlight } from "./cm-theme";
 import { themeStore } from "../../stores/global/theme";
 import { markdownTypographyPlugin } from "../../editor/markdown-typography";
 import { markdownEditingExtension } from "../../editor/markdown-editing";
@@ -38,9 +38,13 @@ import {
   toggleStrikethrough,
   toggleInlineCode,
   insertLink,
+  toggleBulletList,
+  toggleTaskList,
+  activeFormats,
 } from "../../commands/markdown-format";
 import type { BufferDocument, FileOpenMode } from "../../types/buffer";
 import { configStore } from "../../stores/global/config";
+import { NO_ACTIVE_FORMATS } from "../../types/editor";
 import { editorZoom } from "../../stores/global/editor-zoom";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { findStore } from "../../stores/global/find-store";
@@ -52,6 +56,7 @@ import { getExtension as languageExtension } from "../../editor/language-registr
 import { registerBuiltinLanguages } from "../../editor/builtins";
 import { editorModeForContent } from "../../editor/large-file";
 import { autoTextDirection } from "../../editor/bidi";
+import { codeChrome, codeChromeFor, isCodeBuffer, surfaceFollowsLanguage } from "../../editor/code-chrome";
 import { stripOwnedBindings } from "../../editor/keymap-filter";
 import { registerEditorCommands, OWNED_CM_COMMANDS } from "../../editor/editor-commands";
 import "./EditorInstance.css";
@@ -102,6 +107,8 @@ export default function EditorInstance(props: Props) {
   const languageCompartment = new Compartment();
   const themeCompartment = new Compartment();
   const typographyCompartment = new Compartment();
+  const codeFaceCompartment = new Compartment();
+  const codeChromeCompartment = new Compartment();
   const editingCompartment = new Compartment();
   const readOnlyCompartment = new Compartment();
   const spellingCompartment = new Compartment();
@@ -214,6 +221,13 @@ export default function EditorInstance(props: Props) {
     return [];
   }
 
+  // Prose sans is the writing face; a source buffer is code all the way down,
+  // so it takes mono for the whole surface (ADR-030 decision 7). Markdown and
+  // an undetected buffer stay prose.
+  function codeFaceExtension(lang: string | null): Extension {
+    return isCodeBuffer(lang) ? writCodeFace : [];
+  }
+
   function editingExtension(lang: string | null, mode: FileOpenMode): Extension {
     if (mode.kind !== "Normal") return [];
     if (lang === "markdown" && configStore.config().editor.markdown_editing) {
@@ -231,6 +245,14 @@ export default function EditorInstance(props: Props) {
         languageCompartment.reconfigure(mode.kind === "Normal" ? languageExtension(lang) : []),
         typographyCompartment.reconfigure(typographyExtension(lang, mode)),
         editingCompartment.reconfigure(editingExtension(lang, mode)),
+        // The face and the chrome follow the language only on a normal buffer.
+        // A restricted one keeps what it mounted with (see surfaceFollowsLanguage).
+        ...(surfaceFollowsLanguage(mode)
+          ? [
+              codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
+              codeChromeCompartment.reconfigure(codeChromeFor(lang)),
+            ]
+          : []),
       ],
     });
   }
@@ -281,6 +303,11 @@ export default function EditorInstance(props: Props) {
     return [
       languageCompartment.of(isRestricted ? [] : initialLang),
       typographyCompartment.of(isRestricted ? [] : typographyExtension(langId, mode)),
+      codeFaceCompartment.of(isRestricted ? [] : codeFaceExtension(langId)),
+      // A large or binary buffer is a file being inspected, not a note: it
+      // wraps nothing and its language is never detected, so it keeps the
+      // numbers that are the only way to navigate it.
+      codeChromeCompartment.of(isRestricted ? codeChrome : codeChromeFor(langId)),
       editingCompartment.of(isRestricted ? [] : editingExtension(langId, mode)),
       // Configured by applySpelling() after the view mounts.
       spellingCompartment.of([]),
@@ -292,9 +319,6 @@ export default function EditorInstance(props: Props) {
           ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
           : [],
       ),
-      lineNumbers(),
-      highlightActiveLine(),
-      highlightActiveLineGutter(),
       EditorState.allowMultipleSelections.of(true),
       drawSelection(),
       rectangularSelection(),
@@ -331,13 +355,16 @@ export default function EditorInstance(props: Props) {
             // Autosave gets a lazy getter so its flush reads the live document
             // rather than a value captured keystrokes ago (ADR-020).
             if (!isBinary && !isExternalReload) {
-              win.editor.scheduleAutosave(bufferId, () => view?.state.doc.toString() ?? "", autosaveDebounce);
+              const liveText = () => view?.state.doc.toString() ?? "";
+              win.editor.scheduleAutosave(bufferId, liveText, autosaveDebounce);
+              win.editor.noteEdited(bufferId, liveText);
             }
             scheduleRestrictedContentPublish();
           } else {
             const content = update.state.doc.toString();
             if (!isExternalReload) {
               win.editor.scheduleAutosave(bufferId, content, autosaveDebounce);
+              win.editor.noteEdited(bufferId, content);
             }
             win.editor.setCurrentText(content);
             maybeDetectFromContent(content, false);
@@ -359,6 +386,7 @@ export default function EditorInstance(props: Props) {
         win.editor.setCursorLine(line.number);
         win.editor.setCursorCol(pos - line.from + 1);
         win.editor.setSelectionCount(sel.ranges.length);
+        win.editor.setActiveFormats(activeFormats(update.state));
       }),
       EditorView.domEventHandlers({
         paste: () => {
@@ -380,13 +408,44 @@ export default function EditorInstance(props: Props) {
     }
   }
 
+  // The outgoing note's text, handed to the store while the view still holds
+  // it. A note whose file was deleted has no file to be read back from, so the
+  // view being replaced is the moment its text would otherwise be gone.
+  function keepTextOfOutgoingRemoved() {
+    if (!currentBufferId || !view) return;
+    if (!win.editor.isRemovedOnDisk(currentBufferId)) return;
+    win.editor.keepTextOfRemoved(currentBufferId, view.state.doc.toString());
+  }
+
+  // An untitled note (created by New Note; no on-disk path) keeps its surface
+  // as markdown no matter what its content looks like — a fenced ```sh block
+  // must not turn it into a shell code buffer (F05/F17). Two things still
+  // override that: an explicit extension the user typed into the title (a
+  // rename to "main.rs" is a deliberate signal, not content-sniffing — see
+  // editor-instance-chrome.test.tsx), checked here with empty content so it
+  // can only match the filename map, never a heuristic; and a note that opens
+  // with a shebang, where that shebang's own detection stands. A file opened
+  // from disk is untouched: it keeps today's filename+content detection.
+  function detectLanguageForBuffer(buffer: BufferDocument, content: string, name: string): string | null {
+    if (buffer.source_path !== null) {
+      return win.editor.detectLanguage(content, name);
+    }
+    const byExtension = win.editor.detectLanguage("", name);
+    if (byExtension !== null) return byExtension;
+    const firstLine = content.split("\n")[0] || "";
+    if (firstLine.startsWith("#!")) {
+      return win.editor.detectLanguage(content, name);
+    }
+    return "markdown";
+  }
+
   function applyLanguageFromBuffer(buffer: BufferDocument, content: string) {
     const mode = editorModeForContent(buffer, content);
     if (mode.kind !== "Normal") return;
     const name = nameForDetection(buffer);
     if (name === appliedNameForLang && view) return;
     appliedNameForLang = name;
-    const lang = win.editor.detectLanguage(content, name);
+    const lang = detectLanguageForBuffer(buffer, content, name);
     win.editor.setLanguage(lang);
     if (view) {
       view.dispatch({
@@ -394,6 +453,8 @@ export default function EditorInstance(props: Props) {
           languageCompartment.reconfigure(languageExtension(lang)),
           typographyCompartment.reconfigure(typographyExtension(lang, mode)),
           editingCompartment.reconfigure(editingExtension(lang, mode)),
+          codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
+          codeChromeCompartment.reconfigure(codeChromeFor(lang)),
         ],
       });
     }
@@ -401,6 +462,7 @@ export default function EditorInstance(props: Props) {
 
   async function loadBuffer(buffer: BufferDocument) {
     await saveCurrentContent();
+    keepTextOfOutgoingRemoved();
     // A pending publish belongs to the outgoing buffer; a late fire after the
     // swap would push stale text into the shared currentText signal.
     clearRestrictedContentPublish();
@@ -412,10 +474,19 @@ export default function EditorInstance(props: Props) {
     appliedNameForLang = "";
     lastDetectLen = 0;
 
+    // A note whose file is gone is read from what the store kept, never from
+    // disk: the read would fail and the empty string it fell back to went into
+    // the view, which threw away the file's text and every unsaved keystroke
+    // on top of it.
     let content = "";
-    try {
-      content = await bufferRegistry.readContent(buffer.id);
-    } catch {}
+    const kept = win.editor.textOfRemoved(buffer.id);
+    if (kept !== undefined) {
+      content = kept;
+    } else {
+      try {
+        content = await bufferRegistry.readContent(buffer.id);
+      } catch {}
+    }
 
     // Mode is content-aware: byte size drives the large-file tiers, but a
     // small file with pathologically long lines is also restricted so the
@@ -426,7 +497,7 @@ export default function EditorInstance(props: Props) {
     const name = nameForDetection(buffer);
     let lang: string | null = null;
     if (mode.kind === "Normal") {
-      lang = win.editor.detectLanguage(content, name);
+      lang = detectLanguageForBuffer(buffer, content, name);
       appliedNameForLang = name;
     }
     win.editor.setLanguage(lang);
@@ -451,7 +522,9 @@ export default function EditorInstance(props: Props) {
     // One bounded materialization on open keeps currentText consistent with the
     // id published below; the per-keystroke materialization (the real jank for
     // restricted buffers) is what's deferred, on the update path.
-    win.editor.setCurrentText(view.state.doc.toString());
+    const loaded = view.state.doc.toString();
+    win.editor.setCurrentText(loaded);
+    win.editor.noteOpened(buffer.id, loaded);
     // Publish the loaded id last so it never leads currentText: a preview pane
     // gating on this id is guaranteed to read the matching buffer's text.
     win.editor.setCurrentBufferId(buffer.id);
@@ -478,6 +551,7 @@ export default function EditorInstance(props: Props) {
       annotations: ExternalReloadTxn.of(true),
     });
     win.editor.setCurrentText(content);
+    win.editor.noteOpened(id, content);
     win.editor.setLineCount(view.state.doc.lines);
   }
 
@@ -597,6 +671,8 @@ export default function EditorInstance(props: Props) {
         typographyCompartment.reconfigure(
           lang === "markdown" && typographyEnabled ? markdownTypographyPlugin : [],
         ),
+        codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
+        codeChromeCompartment.reconfigure(codeChromeFor(lang)),
         editingCompartment.reconfigure(
           lang === "markdown" && editingEnabled ? markdownEditingExtension : [],
         ),
@@ -644,11 +720,13 @@ export default function EditorInstance(props: Props) {
   // markdown buffer is active with editing helpers enabled, so Cmd+B in a
   // rust file stays a plain keystroke and the palette never offers a no-op.
   const formatCommands = [
-    { id: "editor.toggleBold", label: "Toggle Bold", keybinding: "CmdOrCtrl+B", run: toggleBold },
-    { id: "editor.toggleItalic", label: "Toggle Italic", keybinding: "CmdOrCtrl+I", run: toggleItalic },
-    { id: "editor.toggleStrikethrough", label: "Toggle Strikethrough", keybinding: "CmdOrCtrl+Shift+X", run: toggleStrikethrough },
-    { id: "editor.toggleInlineCode", label: "Toggle Inline Code", keybinding: "CmdOrCtrl+Shift+E", run: toggleInlineCode },
-    { id: "editor.insertLink", label: "Insert Link", keybinding: "CmdOrCtrl+K", run: insertLink },
+    { id: "editor.toggleBold", label: "Bold", keybinding: "CmdOrCtrl+B", run: toggleBold },
+    { id: "editor.toggleItalic", label: "Italic", keybinding: "CmdOrCtrl+I", run: toggleItalic },
+    { id: "editor.toggleStrikethrough", label: "Strikethrough", keybinding: "CmdOrCtrl+Shift+X", run: toggleStrikethrough },
+    { id: "editor.toggleInlineCode", label: "Inline code", keybinding: "CmdOrCtrl+Shift+E", run: toggleInlineCode },
+    { id: "editor.insertLink", label: "Insert link", keybinding: "CmdOrCtrl+K", run: insertLink },
+    { id: "editor.toggleBulletList", label: "Bulleted list", keybinding: undefined, run: toggleBulletList },
+    { id: "editor.toggleTaskList", label: "Task list", keybinding: undefined, run: toggleTaskList },
   ] as const;
 
   createEffect(() => {
@@ -689,6 +767,7 @@ export default function EditorInstance(props: Props) {
       win.editor.cancelAutosave(currentBufferId);
     }
     clearRestrictedContentPublish();
+    win.editor.setActiveFormats(NO_ACTIVE_FORMATS);
     win.editor.setLargeFileMode(null);
     win.editor.registerView(null);
     win.editor.setCurrentBufferId(null);

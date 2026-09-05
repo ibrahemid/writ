@@ -2,36 +2,85 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-// Inter and JetBrains Mono carry no Arabic glyphs. Every font stack the app or
+// The Latin faces in the UI and mono stacks carry no Arabic glyphs. Every font stack the app or
 // the preview resolves must therefore name an Arabic-capable family before the
 // generic keyword, or per-glyph fallback lands on the platform default.
 
-const THEME_CSS = readFileSync(resolve(process.cwd(), "src/styles/theme.css"), "utf8");
+// These stacks are what the root actually carries with no attribute set, not
+// what one file says.
+const APP_SHEETS = ["src/styles/generated/theme.css"].map((file) =>
+  readFileSync(resolve(process.cwd(), file), "utf8"),
+);
+
+// The preview's own layer is split the same way: generated tokens, hand-written
+// rules. The stacks are declared in the first, the bidi rules live in the second.
+const PREVIEW_TOKENS_CSS = readFileSync(
+  resolve(process.cwd(), "src-tauri/assets/generated/preview-tokens.css"),
+  "utf8",
+);
+
 const PREVIEW_CSS = readFileSync(
   resolve(process.cwd(), "src-tauri/assets/preview-base.css"),
   "utf8",
 );
 
+function rootDeclarations(sheets: string[]): Map<string, string> {
+  const resolved = new Map<string, string>();
+  for (const sheet of sheets) {
+    const stripped = sheet.replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const [, selector, body] of stripped.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+      if (selector.includes("@")) continue;
+      const selects = selector.split(",").some((part) => part.trim() === ":root");
+      if (!selects) continue;
+      for (const line of body.split("\n")) {
+        const m = /^\s*(--[a-z0-9-]+)\s*:\s*(.+);\s*$/.exec(line);
+        if (m) resolved.set(m[1], m[2].trim());
+      }
+    }
+  }
+  return resolved;
+}
+
+const APP_ROOT = rootDeclarations(APP_SHEETS);
+
 const ARABIC_FAMILIES = ['"SF Arabic"', '"Geeza Pro"', '"Noto Naskh Arabic"'];
 
-const STACKS: { name: string; css: string; token: string; generic: string }[] = [
-  { name: "app sans", css: THEME_CSS, token: "--writ-font-sans", generic: "system-ui" },
-  { name: "app mono", css: THEME_CSS, token: "--writ-font-mono", generic: "ui-monospace" },
+const STACKS: { name: string; css: string | null; token: string; generic: string }[] = [
+  { name: "app ui", css: null, token: "--writ-font-ui", generic: "system-ui" },
+  { name: "app prose", css: null, token: "--writ-font-prose", generic: "system-ui" },
+  { name: "app prose alt", css: null, token: "--writ-font-prose-alt", generic: "system-ui" },
+  { name: "app mono", css: null, token: "--writ-font-mono", generic: "monospace" },
   {
     name: "preview sans",
-    css: PREVIEW_CSS,
+    css: PREVIEW_TOKENS_CSS,
     token: "--writ-preview-font-sans",
     generic: "system-ui",
   },
   {
     name: "preview mono",
-    css: PREVIEW_CSS,
+    css: PREVIEW_TOKENS_CSS,
     token: "--writ-preview-font-mono",
-    generic: "ui-monospace",
+    generic: "monospace",
   },
 ];
 
-function stackValue(css: string, token: string): string {
+// A stack can be declared as a reference to another (--writ-font-prose is
+// var(--writ-font-ui)), so the assertion runs on what the browser resolves.
+function deref(value: string, depth = 0): string {
+  if (depth > 8) throw new Error(`unresolved var() chain in ${value}`);
+  const m = /var\((--[a-z0-9-]+)\)/.exec(value);
+  if (!m) return value;
+  const target = APP_ROOT.get(m[1]);
+  if (!target) throw new Error(`token ${m[1]} is not declared on the app root`);
+  return deref(value.slice(0, m.index) + target + value.slice(m.index + m[0].length), depth + 1);
+}
+
+function stackValue(css: string | null, token: string): string {
+  if (css === null) {
+    const resolved = APP_ROOT.get(token);
+    if (!resolved) throw new Error(`token ${token} is not declared on the app root`);
+    return deref(resolved);
+  }
   const m = new RegExp(`${token}\\s*:\\s*([^;]+);`).exec(css);
   if (!m) throw new Error(`token ${token} not found`);
   return m[1];
@@ -69,10 +118,12 @@ describe("Arabic font fallbacks", () => {
       const value = stackValue(css, token);
       for (const family of ARABIC_FAMILIES) {
         expect(value, `${token} is missing ${family}`).toContain(family);
+        // lastIndexOf: the generic family closes the stack, and "monospace"
+        // also occurs inside the ui-monospace keyword that opens it.
         expect(
           value.indexOf(family),
           `${family} must precede ${generic} in ${token}`,
-        ).toBeLessThan(value.indexOf(generic));
+        ).toBeLessThan(value.lastIndexOf(generic));
       }
     });
   }

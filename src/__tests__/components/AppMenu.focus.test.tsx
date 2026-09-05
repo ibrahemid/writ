@@ -37,7 +37,7 @@ describe("AppMenu focus handoff", () => {
     document.body.appendChild(field);
     registerCommand({
       id: "palette.open",
-      label: "Command Palette",
+      label: "Command palette",
       scope: "app",
       execute: () => {
         requestAnimationFrame(() => field.focus());
@@ -49,7 +49,7 @@ describe("AppMenu focus handoff", () => {
       fireEvent.click(container.querySelector(".titlebar-appmenu")!);
 
       const entry = Array.from(document.querySelectorAll<HTMLButtonElement>(".context-menu-item"))
-        .find((el) => el.textContent?.includes("Command Palette"));
+        .find((el) => el.textContent?.includes("Command palette"));
       expect(entry).toBeDefined();
       fireEvent.click(entry!);
 
@@ -65,7 +65,7 @@ describe("AppMenu focus handoff", () => {
   it("returns focus to the menu button when the menu is dismissed without acting", async () => {
     registerCommand({
       id: "note.new",
-      label: "New Note",
+      label: "New note",
       scope: "app",
       execute: () => {},
     });

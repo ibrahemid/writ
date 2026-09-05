@@ -11,13 +11,14 @@ import type { WritConfig } from "../../types/config";
 
 const MOCK_CONFIG: WritConfig = {
   hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
-  sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false },
-  editor: { font_family: "JetBrains Mono", font_size: 16, word_wrap: true, tab_size: 4, autosave_debounce_ms: 500, markdown_typography: true, markdown_editing: true },
+  sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false, width: 240 },
+  editor: { font_family: "JetBrains Mono", font_size: 16, word_wrap: true, tab_size: 4, autosave_debounce_ms: 500, markdown_typography: true, markdown_editing: true, status_bar: false },
   window: { width: 1200, height: 800, maximized: false },
   keybindings: {},
   history: { max_entries: 1000 },
   storage: { path: "~/.writ" },
   theme: { preset: "warp-dark", overrides: {} },
+  appearance: { polarity: "system", accent: "pine", prose_face: "system" },
   commands: { usage: {} },
   workspace: { root: null },
   inbox: { path: null, focus: true },
@@ -72,7 +73,7 @@ describe("editorZoom", () => {
   it("resets to the default size", async () => {
     await configStore.save(withFontSize(28));
     editorZoom.reset();
-    expect(editorZoom.fontSize()).toBe(14);
+    expect(editorZoom.fontSize()).toBe(16);
   });
 
   it("zooms in on scroll up and out on scroll down, device-independently", () => {

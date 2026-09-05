@@ -6,8 +6,8 @@ interface KcCol {
 interface PresetChip {
   name: string;
   polarity: string;
-  surface: { background: string };
-  foreground: { default: string };
+  bg: { canvas: string };
+  fg: { default: string };
   accent: { default: string };
   syntax: { keyword: string; string: string; comment: string };
 }
@@ -58,7 +58,7 @@ const rows: { name: string; fact: string; keys?: string[]; mono?: string }[] = [
       <p class="sec-p" style="margin-top:4px; font-size:14px">Six presets. Any color can be changed.</p>
       <div class="theme-grid">
         {presets.map((p) => (
-          <div class="theme-chip" style={`background:${p.surface.background}; color:${p.foreground.default}`}>
+          <div class="theme-chip" style={`background:${p.bg.canvas}; color:${p.fg.default}`}>
             <div class="tchip-line"><span style={`color:${p.syntax.comment}`}># {p.name}</span></div>
             <div class="tchip-line"><span style={`color:${p.syntax.keyword}`}>theme</span> = <span style={`color:${p.syntax.string}`}>"{p.polarity}"</span><span class="tchip-caret" style={`background:${p.accent.default}`}></span></div>
           </div>

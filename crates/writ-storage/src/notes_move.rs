@@ -393,9 +393,11 @@ mod tests {
     fn a_prefix_is_replaced_component_by_component() {
         let from = Path::new("/home/u/Writ");
         let to = Path::new("/home/u/Notes");
+        // Compared as a path: `join` spells the rebased half with the host's
+        // separator, so on Windows the string carries a backslash.
         assert_eq!(
-            rebase("/home/u/Writ/a/b.md", from, to).as_deref(),
-            Some("/home/u/Notes/a/b.md")
+            rebase("/home/u/Writ/a/b.md", from, to).map(PathBuf::from),
+            Some(PathBuf::from("/home/u/Notes/a/b.md"))
         );
         assert_eq!(rebase("/home/u/Writing/b.md", from, to), None);
         assert_eq!(rebase("/elsewhere/b.md", from, to), None);
