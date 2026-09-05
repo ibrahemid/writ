@@ -7,7 +7,9 @@
 //! must leave the launch with the write guard seeded, or the first save after
 //! a crash is the unguarded one. A note whose file was deleted must come back
 //! with no file written at all: the tab is handed the text and shows it as
-//! removed on disk (ADR-033 decision 15).
+//! removed on disk (ADR-033 §12). A note that never reached a file must have
+//! one minted and written, which is the other half of the same call and the
+//! half that recreates a deletion if it is decided wrongly.
 //!
 //! One test in its own binary, because `initialize` reads `WRIT_DATA_DIR` and
 //! `WRIT_NOTES_DIR` from the process environment and a second test in the same
@@ -27,6 +29,15 @@ use writ_storage::database::migrations::run_migrations;
 use writ_tauri_lib::state::AppState;
 
 fn row(id: &str, title: &str, source_path: &Path) -> BufferDocument {
+    BufferDocument {
+        source_path: Some(source_path.to_string_lossy().into_owned()),
+        ..fileless_row(id, title)
+    }
+}
+
+/// A note typed into and lost before its first save, so it never reached a
+/// file and its row names none.
+fn fileless_row(id: &str, title: &str) -> BufferDocument {
     let now = Utc::now() - chrono::Duration::seconds(30);
     BufferDocument {
         id: id.to_string(),
@@ -34,7 +45,7 @@ fn row(id: &str, title: &str, source_path: &Path) -> BufferDocument {
         filename: format!("{id}.txt"),
         status: BufferStatus::Active,
         language: None,
-        source_path: Some(source_path.to_string_lossy().into_owned()),
+        source_path: None,
         cursor_pos: 0,
         scroll_pos: 0,
         tab_order: 0,
@@ -82,6 +93,9 @@ fn seed_a_crashed_session(writ_dir: &Path, notes_dir: &Path) {
     store.insert(&row("moved-on", "Shared", &moved_on)).unwrap();
     store.insert(&row("steady", "Steady", &steady)).unwrap();
     store.insert(&row("deleted", "Deleted", &deleted)).unwrap();
+    // The fourth note never reached a file at all: no path, nothing on disk,
+    // and the same observation at the relaunch as the deleted one.
+    store.insert(&fileless_row("fresh", "Brand New")).unwrap();
 
     // The snapshot is written now and the rows are stamped half a minute back,
     // so it resolves as newer without the test having to sleep through
@@ -96,6 +110,7 @@ fn seed_a_crashed_session(writ_dir: &Path, notes_dir: &Path) {
             "deleted".to_string(),
             "the line typed after the file went".to_string(),
         ),
+        ("fresh".to_string(), "typed and never saved".to_string()),
     ]);
     store
         .write_session_snapshot(&snapshot, false)
@@ -192,4 +207,25 @@ fn an_unclean_relaunch_keeps_what_arrived_while_writ_was_down_and_seeds_the_guar
         "the tab has to come up removed on disk, not blank"
     );
     assert_eq!(handed_over.content, "the line typed after the file went");
+
+    // The note that never reached a file: the same missing path, the opposite
+    // answer. Nothing was ever there, so writing it creates the note rather
+    // than putting anything back, and it goes at its own name, not beside it.
+    let minted = notes.path().join("Brand New.md");
+    assert_eq!(
+        std::fs::read_to_string(&minted).unwrap(),
+        "typed and never saved",
+        "a note nothing else holds the text of has to be written somewhere"
+    );
+    assert!(
+        dated_copies(notes.path(), "recovered")
+            .iter()
+            .all(|copy| !copy.to_string_lossy().contains("Brand New")),
+        "a name nobody would recognise is the wrong thing to hand back"
+    );
+    assert_eq!(
+        state.disk_state("fresh").map(|state| state.hash),
+        Some(sha256_bytes(b"typed and never saved")),
+        "the note leaves the launch guarded like any other"
+    );
 }

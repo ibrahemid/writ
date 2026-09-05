@@ -2,10 +2,26 @@ import { isRetryableSaveError } from "../lib/save-error";
 import { logFailure } from "../lib/log";
 import { recordUnsavedNotes, saveBufferContent } from "./tauri";
 
-type AutosaveErrorListener = (bufferId: string, error: unknown) => void;
+// `generation` is the failed write's own generation, not the note's current
+// one, so a listener can tell a refusal about a write it still cares about from
+// one about a write that has since been superseded ([`currentSaveGeneration`]).
+type AutosaveErrorListener = (
+  bufferId: string,
+  error: unknown,
+  generation: number,
+) => void;
 // `diskHash` is the digest of what the note's file holds now, or null when the
 // note had nothing in it and no file yet to write it to.
-type AutosaveSuccessListener = (bufferId: string, diskHash: string | null) => void;
+/**
+ * `viaWriteBack` says the write went through a writer of its own rather than
+ * the ordinary save. Only the put-a-deleted-file-back command does, and only
+ * that write proves there is a file at the note's path now.
+ */
+type AutosaveSuccessListener = (
+  bufferId: string,
+  diskHash: string | null,
+  viaWriteBack: boolean,
+) => void;
 type AutosaveStartListener = (bufferId: string) => void;
 
 // Content may be a string or a lazy getter. A getter is materialized only when
@@ -110,17 +126,64 @@ export function onAutosaveStart(listener: AutosaveStartListener): () => void {
 }
 
 /**
+ * Text a note is keeping that no write may take.
+ *
+ * A note whose file is asking a question, or whose file is gone, writes
+ * nothing until that ends ([`editorStore.savesAreHeld`]), so its typing has no
+ * queue entry and no failed write to sit in, and closing the tab or quitting
+ * would find nothing to keep. Beside the queue rather than in it: anything in
+ * the queue is written by the next flush, which is the write the hold exists
+ * to stop.
+ *
+ * Strings, never getters. A getter is bound to the editor's single view, and
+ * a tab switch destroys that view and builds the next note's in its place, so
+ * a getter left here would read the incoming note's document under the held
+ * note's name. The queue can hold a getter because every load flushes it while
+ * the view it was made against is still alive; a hold outlives exactly that.
+ */
+const heldContent = new Map<string, string>();
+
+/**
+ * Keeps a note's newest text without scheduling anything to write it.
+ *
+ * Read by the recovery handover ([`peekUnsavedContent`],
+ * [`collectUnsavedContent`]) and by nothing that writes. Released when the
+ * hold ends, because every way it can end has already dealt with the text.
+ *
+ * `content` is a string on purpose; see [`heldContent`].
+ */
+export function holdUnsavedContent(bufferId: string, content: string) {
+  heldContent.set(bufferId, content);
+}
+
+/** Drops what [`holdUnsavedContent`] was keeping for a note that may write again. */
+export function releaseUnsavedContent(bufferId: string) {
+  heldContent.delete(bufferId);
+}
+
+/**
+ * What a hold is keeping for `bufferId`, and nothing else.
+ *
+ * [`peekUnsavedContent`] falls through to a failed write's text, which for a
+ * note that has just been answered is the version answered against. A caller
+ * asking what was typed during the answer wants the hold alone.
+ */
+export function peekHeldContent(bufferId: string): string | undefined {
+  return heldContent.get(bufferId);
+}
+
+/**
  * The newest text for `bufferId` that is not known to be on disk: whatever is
- * queued, else the text of the write that failed.
+ * queued or held, else the text of the write that failed.
  *
  * `undefined` when the note has nothing outstanding. Materializes a queued
  * getter, so a caller reads the live document at the moment it asks.
  */
 export function peekUnsavedContent(bufferId: string): string | undefined {
-  const queued = pendingContent.get(bufferId);
-  if (queued !== undefined) {
+  const source = pendingContent.get(bufferId)?.source ?? heldContent.get(bufferId);
+  if (source !== undefined) {
     try {
-      return typeof queued.source === "function" ? queued.source() : queued.source;
+      return typeof source === "function" ? source() : source;
     } catch {
       // The live document is gone. Fall through to the failed text, which is
       // a plain string and outlives the view.
@@ -130,40 +193,38 @@ export function peekUnsavedContent(bufferId: string): string | undefined {
 }
 
 /**
- * Keeps `content` as text that is not known to be on disk, without queuing a
- * write for it.
- *
- * For text no write can take yet: a note whose file was deleted outside Writ
- * queues nothing, because every keystroke would otherwise buy a refusal, and
- * the failure that would normally leave the text here never happens. The quit
- * and close paths read the same map either way, so the text still reaches the
- * recovery snapshot.
- */
-export function holdUnwritableContent(bufferId: string, content: string) {
-  lastFailedContent.set(bufferId, content);
-}
-
-/** Drops what [`holdUnwritableContent`] kept, once a write can take it again. */
-export function releaseUnwritableContent(bufferId: string) {
-  lastFailedContent.delete(bufferId);
-}
-
-/**
  * Every note holding text that is not known to be on disk, with that text.
  *
  * The queue is not enough on its own: a write stopped by the guard empties the
  * queue on purpose, because writing the same text again is stopped the same
  * way, so the note whose failure is still on screen is exactly the one a
- * queue-only walk would miss.
+ * queue-only walk would miss. Nor is a note that is waiting to be asked about,
+ * which never queued anything at all.
  */
 export function collectUnsavedContent(): Array<{ id: string; content: string }> {
-  const ids = new Set([...pendingContent.keys(), ...lastFailedContent.keys()]);
+  const ids = new Set([
+    ...pendingContent.keys(),
+    ...heldContent.keys(),
+    ...lastFailedContent.keys(),
+  ]);
   const notes: Array<{ id: string; content: string }> = [];
   for (const id of ids) {
     const content = peekUnsavedContent(id);
     if (content !== undefined) notes.push({ id, content });
   }
   return notes;
+}
+
+/**
+ * The generation a write issued for `bufferId` right now would carry.
+ *
+ * Every write the note has already issued carries this or less, and every
+ * write issued after it carries more, because queueing and cancelling both
+ * bump it. That is what lets a caller draw a line at a moment in time and act
+ * on which side of it a write was on. Zero for a note that has never written.
+ */
+export function currentSaveGeneration(bufferId: string): number {
+  return generations.get(bufferId) ?? 0;
 }
 
 function bumpGeneration(bufferId: string): number {
@@ -181,6 +242,9 @@ function clearTimer(bufferId: string) {
 }
 
 function queueContent(bufferId: string, content: ContentSource, writer?: SaveWriter) {
+  // The note is writing again, so the queue is the newer record of its text
+  // and anything held for it is the older one.
+  heldContent.delete(bufferId);
   pendingContent.set(bufferId, {
     source: content,
     generation: bumpGeneration(bufferId),
@@ -256,6 +320,7 @@ export async function keepUnsavedForRecovery(bufferId: string): Promise<void> {
 export function cancelAutosave(bufferId: string) {
   clearTimer(bufferId);
   pendingContent.delete(bufferId);
+  heldContent.delete(bufferId);
   lastWriteAt.delete(bufferId);
   lastFailedContent.delete(bufferId);
   // Retire the current generation so a write already in flight cannot put the
@@ -271,6 +336,7 @@ export function resetAutosave() {
   for (const timer of timers.values()) clearTimeout(timer);
   timers.clear();
   pendingContent.clear();
+  heldContent.clear();
   lastWriteAt.clear();
   generations.clear();
   inFlight.clear();
@@ -344,7 +410,7 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     // The live document is gone (e.g. the view was torn down between schedule
     // and fire). Nothing to save; surface it like any other autosave failure.
     for (const listener of errorListeners) {
-      listener(bufferId, error);
+      listener(bufferId, error, queued.generation);
     }
     return saveFailed(bufferId, error);
   }
@@ -357,7 +423,7 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     const diskHash = await (queued.writer ?? saveBufferContent)(bufferId, content);
     lastFailedContent.delete(bufferId);
     for (const listener of successListeners) {
-      listener(bufferId, diskHash);
+      listener(bufferId, diskHash, queued.writer !== undefined);
     }
     return SAVE_OK;
   } catch (error) {
@@ -370,16 +436,23 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     // the same way, and a stopped save lands another dated copy beside the
     // note each time, so this text leaves the queue and the next keystroke —
     // which queues a new generation — is what writes again.
-    if (generations.get(bufferId) === queued.generation && isRetryableSaveError(error)) {
+    const isNewest = generations.get(bufferId) === queued.generation;
+    if (isNewest && isRetryableSaveError(error)) {
       pendingContent.set(bufferId, {
         source: content,
         generation: queued.generation,
         writer: queued.writer,
       });
     }
-    lastFailedContent.set(bufferId, content);
+    // Only while it is still the newest text there is. A write whose
+    // generation has been retired was superseded while it was out: by a
+    // keystroke, by a tab closing, or by the person answering a question about
+    // this file, which is the case that matters. Kept here it would fall
+    // through [`peekUnsavedContent`] into the shutdown snapshot, and the next
+    // launch would put the version they answered against back beside the note.
+    if (isNewest) lastFailedContent.set(bufferId, content);
     for (const listener of errorListeners) {
-      listener(bufferId, error);
+      listener(bufferId, error, queued.generation);
     }
     return saveFailed(bufferId, error);
   }

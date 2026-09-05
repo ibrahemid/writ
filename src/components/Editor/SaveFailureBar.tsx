@@ -38,6 +38,14 @@ export default function SaveFailureBar(props: { noteId: string | null }) {
     const current = status();
     return current !== null && current.state === "failed" ? current : null;
   };
+  // A save on the wire when the watcher reported fails under the question the
+  // bar above is asking, and it can fail for a reason worth pressing again.
+  // The press would reach the same hold every other write path reaches and
+  // change nothing on screen, so the button goes while the hold is on, the way
+  // an unretryable reason takes it away. `Save a copy…` is not held and stays:
+  // it is the one thing that gets the text out of a tab that cannot write.
+  const heldForAnswer = () =>
+    props.noteId !== null && win.editor.savesAreHeld(props.noteId);
 
   async function tryAgain(id: string, code: string | null) {
     setRetryingNote(id);
@@ -68,7 +76,9 @@ export default function SaveFailureBar(props: { noteId: string | null }) {
             </Show>
           </p>
           <div class="save-failure-bar-actions">
-            <Show when={current().reason?.retryable !== false}>
+            <Show
+              when={current().reason?.retryable !== false && !heldForAnswer()}
+            >
               <button
                 type="button"
                 class="save-failure-bar-action"

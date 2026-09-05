@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::path::Path;
 use std::time::{Instant, UNIX_EPOCH};
 
@@ -9,8 +10,10 @@ use tauri::{AppHandle, Manager, State};
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::buffer::manager::BufferManager;
 use writ_core::notes::guard::is_not_downloaded;
+use writ_core::notes::line_ending::LineEnding;
+use writ_core::notes::reload::{apply_choice, Action, ChangeChoice, Side};
 use writ_core::watcher::pending::HoldAnswer;
-use writ_storage::buffer_store::{BufferStore, NoteFileState};
+use writ_storage::buffer_store::{dataless_flags, write_conflict_copy, BufferStore, NoteFileState};
 use writ_storage::errors::StorageError;
 
 /// Code a save carries when the file changed under Writ and the write was
@@ -624,6 +627,176 @@ pub fn note_disk_state(state: State<'_, AppState>, id: String) -> Result<NoteDis
     note_disk_state_of(path, writ_storage::buffer_store::dataless_flags(path))
 }
 
+/// What resolving a change outside Writ left behind.
+///
+/// `conflict_copy_path` names the file the losing text was written to. It is
+/// `None` only when the two texts turned out to be the same text, which the
+/// dirty predicate allows: it fails closed, so a note whose document has not
+/// been hashed yet asks the question anyway (ADR-033 §6).
+///
+/// `content` is what the tab must show afterwards, and is `None` when the tab
+/// keeps what it is already holding. `disk_hash` is the comparison digest of
+/// what the note's file holds once the choice has run, so the tab stops
+/// reading dirty without going back to disk for the answer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ResolveOutcome {
+    pub conflict_copy_path: Option<String>,
+    pub content: Option<String>,
+    pub disk_hash: String,
+}
+
+/// Carries out the choice a person made about a file that changed under them.
+///
+/// The text the choice does not keep is written beside the note first, and the
+/// note is only touched once that copy is on disk
+/// ([`writ_core::notes::reload::apply_choice`]). A copy that cannot be written
+/// stops the whole thing, because the alternative is a write that lands over
+/// a text nothing else holds.
+///
+/// The editor's text arrives as an argument. It has to: the file is the only
+/// copy of a note (ADR-028 §1), so the one place the unsaved version exists is
+/// the document, and Rust reading the note back would read the very change
+/// being asked about.
+pub fn resolve_external_change_inner(
+    state: &AppState,
+    id: &str,
+    choice: ChangeChoice,
+    content: &str,
+) -> Result<ResolveOutcome, String> {
+    // An answer is a write, so it waits out a held removal like any other one
+    // and for the same reasons ([`wait_out_a_held_removal`]): the path read
+    // below is the one a move has already left the row on, and a file that
+    // turned out to be gone is refused rather than written back. Before the
+    // store lock, which answering a hold needs.
+    wait_out_a_held_removal(state, id, RemovedFile::Refuse)?;
+    let (source_path, line_ending) = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        let doc = store.get(id).map_err(|e| e.to_string())?;
+        if doc.read_only {
+            return Err(format!("{ERR_NOTE_READ_ONLY}: note {id} is read-only"));
+        }
+        let ending = doc.line_ending;
+        let path = doc
+            .source_path
+            .ok_or_else(|| format!("{ERR_FILE_MISSING}: note {id} has no file"))?;
+        (path, ending)
+    };
+    let path = Path::new(&source_path);
+    resolve_external_change_at(
+        state,
+        id,
+        path,
+        dataless_flags(path),
+        line_ending,
+        choice,
+        content,
+    )
+}
+
+/// [`resolve_external_change_inner`] once the file's path and flags are known.
+///
+/// The flags are a parameter for the same reason [`note_disk_state_of`]'s are:
+/// a file whose bytes are not on this machine must be refused without being
+/// read, and that refusal is only testable where the flags can be supplied.
+/// `line_ending` is the note's, read off the same row as the path.
+pub fn resolve_external_change_at(
+    state: &AppState,
+    id: &str,
+    path: &Path,
+    st_flags: Option<u32>,
+    line_ending: LineEnding,
+    choice: ChangeChoice,
+    content: &str,
+) -> Result<ResolveOutcome, String> {
+    if is_not_downloaded(st_flags) {
+        return Err(format!(
+            "{ERR_FILE_NOT_DOWNLOADED}: {} has not been downloaded",
+            path.display()
+        ));
+    }
+    crate::commands::file::authorize_source_write(state, &path.to_string_lossy())?;
+
+    // One read. Two would let the copy and the text handed to the tab come
+    // from different versions of the file, which is the failure this whole
+    // unit is about.
+    let disk_bytes = std::fs::read(path).map_err(|e| {
+        format!(
+            "{}: {} could not be read ({e})",
+            io_failure_code(e.kind()),
+            path.display()
+        )
+    })?;
+    let disk_text = String::from_utf8(disk_bytes.clone())
+        .map_err(|_| format!("{ERR_WRITE_FAILED}: {} is not text", path.display()))?;
+
+    let disk_hash = writ_core::hash::comparison_digest_hex(&disk_bytes);
+    let mine_hash = writ_core::hash::comparison_digest_hex(content.as_bytes());
+
+    // The two texts are the same text. Writing a copy would put a duplicate
+    // in the notes folder for a difference nobody can see, and writing the
+    // note would rewrite its line endings for one.
+    if disk_hash == mine_hash {
+        state.record_disk_state_bytes(id, path, &disk_bytes);
+        return Ok(ResolveOutcome {
+            conflict_copy_path: None,
+            content: None,
+            disk_hash,
+        });
+    }
+
+    let outcome = apply_choice(choice);
+    let losing: Cow<'_, str> = match outcome.write_conflict_copy_of {
+        // The editor's text is LF whatever the file uses, so the note's own
+        // ending goes back on: the copy is the note's text in a file of its
+        // own, and a save of the note would have written it the same way.
+        Side::Mine => line_ending.apply(content),
+        // The bytes the file was found holding, kept as they were found. The
+        // recorded ending is the note's, and the program that just rewrote
+        // this file is under no obligation to have used it.
+        Side::Disk => Cow::Borrowed(disk_text.as_str()),
+    };
+    let stamp = ignore_stamper(state);
+    let copy = write_conflict_copy(path, &losing, chrono::Utc::now(), Some(&stamp))
+        .map_err(|e| save_failure_message(&e))?;
+    let conflict_copy_path = Some(copy.to_string_lossy().into_owned());
+
+    match outcome.then {
+        Action::WriteMine => {
+            // What the file holds is beside the note now, so the write guard
+            // has nothing left to protect and the save may land. Recording it
+            // is also what makes the record true: Writ has read this file.
+            state.record_disk_state_bytes(id, path, &disk_bytes);
+            let written = save_buffer_content_inner(state, id, content)?;
+            Ok(ResolveOutcome {
+                conflict_copy_path,
+                content: None,
+                disk_hash: written.unwrap_or(mine_hash),
+            })
+        }
+        Action::TakeDisk | Action::TakeDiskAndShowCopy => {
+            // The file is left exactly as the other program wrote it. The tab
+            // takes its text, and the record moves with it.
+            state.record_disk_state_bytes(id, path, &disk_bytes);
+            Ok(ResolveOutcome {
+                conflict_copy_path,
+                content: Some(disk_text),
+                disk_hash,
+            })
+        }
+    }
+}
+
+/// IPC: [`resolve_external_change_inner`] as the bar calls it.
+#[tauri::command]
+pub fn resolve_external_change(
+    state: State<'_, AppState>,
+    buffer_id: String,
+    choice: ChangeChoice,
+    content: String,
+) -> Result<ResolveOutcome, String> {
+    resolve_external_change_inner(&state, &buffer_id, choice, &content)
+}
+
 /// One note's text as the editor holds it, for a save that could not land.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct UnsavedNote {
@@ -875,6 +1048,55 @@ mod tests {
         assert_eq!(dto.hash, writ_core::hash::sha256_hex(b"writ"));
         assert_eq!(dto.size, 4);
         assert_eq!(dto.mtime_ms, Some(1_500));
+    }
+
+    #[test]
+    fn the_resolve_outcome_reaches_the_editor_with_the_names_it_reads() {
+        let resolved = serde_json::to_value(ResolveOutcome {
+            conflict_copy_path: Some("/notes/a (conflict 2026-09-05 10.00.00).md".to_string()),
+            content: Some("what the file holds".to_string()),
+            disk_hash: "abc".to_string(),
+        })
+        .unwrap();
+        assert_eq!(
+            resolved["conflict_copy_path"],
+            "/notes/a (conflict 2026-09-05 10.00.00).md"
+        );
+        assert_eq!(resolved["content"], "what the file holds");
+        assert_eq!(resolved["disk_hash"], "abc");
+
+        // A tab that keeps its own text is told so by a null rather than by a
+        // field that is not there: the editor branches on the value.
+        let kept = serde_json::to_value(ResolveOutcome {
+            conflict_copy_path: None,
+            content: None,
+            disk_hash: "abc".to_string(),
+        })
+        .unwrap();
+        assert!(kept["content"].is_null());
+        assert!(kept["conflict_copy_path"].is_null());
+        assert_eq!(kept["disk_hash"], "abc");
+    }
+
+    #[test]
+    fn the_three_choices_deserialise_from_the_words_the_bar_sends() {
+        for (word, expected) in [
+            ("keep_mine", ChangeChoice::KeepMine),
+            ("use_disk", ChangeChoice::UseDisk),
+            ("keep_both", ChangeChoice::KeepBoth),
+        ] {
+            assert_eq!(
+                serde_json::from_value::<ChangeChoice>(serde_json::Value::String(word.to_string()))
+                    .unwrap(),
+                expected
+            );
+        }
+        assert!(
+            serde_json::from_value::<ChangeChoice>(serde_json::Value::String(
+                "keepMine".to_string()
+            ))
+            .is_err()
+        );
     }
 
     #[test]

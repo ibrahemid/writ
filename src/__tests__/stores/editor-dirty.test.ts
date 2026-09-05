@@ -292,7 +292,7 @@ describe("editorStore dirty contract", () => {
     await hashedAs(store, "a", "hello");
     const before = store.lastKnownDiskHash("a");
 
-    store.noteSaved("a", null);
+    store.noteSaved("a", null, false);
 
     expect(store.lastKnownDiskHash("a")).toBe(before);
   });

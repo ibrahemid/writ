@@ -60,8 +60,8 @@ import {
   pruneLegacyDefaultOverrides,
 } from "./commands/keybindings";
 import { onEvent, emitFrontendReady } from "./services/events";
-import { cancelAutosave } from "./services/autosave";
 import { handleExternalEdit, readExternalEditPayload } from "./services/external-edit";
+import { createExternalEditDeps } from "./lib/external-edit-deps";
 import { recheckOpenNotes } from "./services/notes-sweep";
 import { reportFirstPaint } from "./services/tauri";
 import { installCloseFlush, startWindowLifecycle } from "./services/window-lifecycle";
@@ -692,40 +692,12 @@ function AppShell() {
     });
     unlisteners.push(unlisten1);
 
-    const externalEditDeps = {
-      findBuffer: (key: string) =>
-        bufferRegistry.buffers().find((b) => b.filename === key || b.id === key),
-      // Whether the document differs from its file, not whether a save is
-      // queued: a note whose autosave already landed still has unsaved
-      // work the moment the next keystroke lands, and a note whose save
-      // was refused has an empty queue and everything to lose.
-      hasUnsaved: (id: string) => win.editor.isDirty(id),
-      isRemovedOnDisk: (id: string) => win.editor.isRemovedOnDisk(id),
-      reload: (id: string) => win.editor.requestExternalReload(id),
-      cancelAutosave: (id: string) => cancelAutosave(id),
-      // A move changes no bytes, so nothing is read and nothing is asked: the
-      // row already names the new path, and this is the tab catching up to it.
-      followMove: (id: string) => {
-        void bufferRegistry.refreshBuffer(id).catch(() => {});
-        win.editor.clearRemovedOnDisk(id);
-      },
-      // The failure of a save that raced the deletion is about a file that is
-      // no longer there, and its bar would sit under the one replacing it.
-      markRemoved: (id: string) => {
-        saveStatusStore.forgetNote(id);
-        win.editor.markRemovedOnDisk(id);
-      },
-      // A file back at its own path: the store settles what the tab shows and
-      // starts writing for it again (ADR-033 decision 15).
-      fileReturned: (id: string) => win.editor.fileReturned(id),
-      confirmReload: (title: string) =>
-        requestConfirm({
-          title: "File changed on disk",
-          message: `"${title}" was modified outside Writ. Reload from disk and discard your unsaved changes?`,
-          confirmLabel: "Reload from disk",
-          cancelLabel: "Keep my changes",
-        }),
-    };
+    const externalEditDeps = createExternalEditDeps({
+      editor: win.editor,
+      openBuffers: () => bufferRegistry.buffers(),
+      refreshBuffer: (id) => bufferRegistry.refreshBuffer(id),
+      forgetSaveStatus: (id) => saveStatusStore.forgetNote(id),
+    });
 
     const unlisten2 = await onEvent("buffer:external", (payload) => {
       const change = readExternalEditPayload(payload);

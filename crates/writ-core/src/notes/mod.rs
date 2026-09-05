@@ -26,6 +26,9 @@ pub mod identity;
 /// Whether opening a note may read it, and how long its download is waited on.
 pub mod materialise;
 
+/// What each answer to a change outside Writ writes.
+pub mod reload;
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 

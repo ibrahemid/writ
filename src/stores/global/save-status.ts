@@ -1,5 +1,6 @@
 import { createSignal, createRoot } from "solid-js";
 import {
+  currentSaveGeneration,
   onAutosaveError,
   onAutosaveStart,
   onAutosaveSuccess,
@@ -42,6 +43,9 @@ function createSaveStatusStore() {
     new Set(),
   );
   const savedTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // Per note, the newest write generation whose failure says nothing about the
+  // note any more ([`forgetWritesSoFar`]). Read only when a failure arrives.
+  const answeredWrites = new Map<string, number>();
 
   function withoutId<T>(
     set: (
@@ -102,14 +106,39 @@ function createSaveStatusStore() {
     );
   });
 
-  onAutosaveError((id, error) => {
+  onAutosaveError((id, error, generation) => {
+    // The write is over whatever becomes of its reason, so the note stops
+    // reading as writing either way.
     removeFrom(setWriting, id);
     clearSavedTimer(id);
     removeFrom(setJustSaved, id);
+    if (writeWasAnsweredFor(id, generation)) return;
     setFailures((current) =>
       new Map(current).set(id, describeSaveFailure(error)),
     );
   });
+
+  /**
+   * Whether the write that failed is one something has already answered for.
+   *
+   * A generation at or below the mark was on the wire before the answer, so
+   * its refusal is about a file the answer has since dealt with; one above it
+   * was issued afterwards and is news.
+   *
+   * A mark above the note's current generation can only mean the counter was
+   * reset underneath us, which happens when a test drives autosave in
+   * isolation. The mark is meaningless then and goes, rather than silently
+   * swallowing every failure that follows.
+   */
+  function writeWasAnsweredFor(id: string, generation: number): boolean {
+    const mark = answeredWrites.get(id);
+    if (mark === undefined) return false;
+    if (currentSaveGeneration(id) < mark) {
+      answeredWrites.delete(id);
+      return false;
+    }
+    return generation <= mark;
+  }
 
   // The comparison lives in the window's editor store and this store is
   // app-global, so it is reached through the registry rather than imported: a
@@ -178,18 +207,47 @@ function createSaveStatusStore() {
     withoutId(setFailures, id);
     removeFrom(setWriting, id);
     removeFrom(setJustSaved, id);
+    answeredWrites.delete(id);
+  }
+
+  /**
+   * Drops the note's failure and every failure still to arrive about a write
+   * already on the wire.
+   *
+   * For the moment something answers for the note's file: a bar about a write
+   * the answer has just made irrelevant may not sit on the tab afterwards
+   * saying the note could not be written when it has just been. Clearing what
+   * is on screen is not enough on its own, because a write issued before the
+   * answer can still be in flight and its refusal lands after this returns.
+   * Everything issued afterwards is about the file as the answer left it and
+   * still shows.
+   */
+  function forgetWritesSoFar(id: string) {
+    answeredWrites.set(id, currentSaveGeneration(id));
+    clearSavedTimer(id);
+    withoutId(setFailures, id);
+    removeFrom(setWriting, id);
+    removeFrom(setJustSaved, id);
   }
 
   /** Drops every record. For a test driving the store in isolation. */
   function reset() {
     for (const timer of savedTimers.values()) clearTimeout(timer);
     savedTimers.clear();
+    answeredWrites.clear();
     setFailures(new Map<string, SaveFailureReason>());
     setWriting(new Set<string>());
     setJustSaved(new Set<string>());
   }
 
-  return { stateOf, forNote, failureFor, forgetNote, reset };
+  return {
+    stateOf,
+    forNote,
+    failureFor,
+    forgetNote,
+    forgetWritesSoFar,
+    reset,
+  };
 }
 
 export const saveStatusStore = createRoot(createSaveStatusStore);

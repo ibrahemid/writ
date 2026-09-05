@@ -32,7 +32,11 @@ vi.mock("../../components/Editor/StatusBar", () => ({
 vi.mock("../../lib/use-active-buffer", () => ({ useActiveBuffer: () => mocks.activeBuffer }));
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
-    editor: { currentText: mocks.currentText, isRemovedOnDisk: () => false },
+    editor: {
+      currentText: mocks.currentText,
+      isRemovedOnDisk: () => false,
+      noteFileState: () => "present" as const,
+    },
   }),
 }));
 

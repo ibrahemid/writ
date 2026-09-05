@@ -1,6 +1,11 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize, LogicalPosition } from "@tauri-apps/api/window";
-import type { BufferDocument, FileOpenResult } from "../types/buffer";
+import type {
+  BufferDocument,
+  ChangeChoice,
+  FileOpenResult,
+  ResolveOutcome,
+} from "../types/buffer";
 import type { WritConfig } from "../types/config";
 import type { TransformDescriptor } from "../types/transforms";
 import type { ThemePolarity } from "../types/theme";
@@ -277,6 +282,22 @@ export type NoteDiskAnswer =
 /** What the note's file holds right now. */
 export async function noteDiskState(id: string): Promise<NoteDiskAnswer> {
   return invoke("note_disk_state", { id });
+}
+
+/**
+ * Carries out what the person chose about a file that changed outside Writ.
+ *
+ * `content` is the editor's text, which has to travel: the file is the only
+ * copy of a note, so the unsaved version exists nowhere else. The backend
+ * writes whichever text the choice does not keep beside the note before it
+ * touches anything.
+ */
+export async function resolveExternalChange(
+  bufferId: string,
+  choice: ChangeChoice,
+  content: string,
+): Promise<ResolveOutcome> {
+  return invoke("resolve_external_change", { bufferId, choice, content });
 }
 
 /** One note's text, for a save that could not reach the file. */

@@ -79,7 +79,41 @@ describe("autosave", () => {
       debouncedSave("buf-1", "data", 50);
       await vi.advanceTimersByTimeAsync(50);
 
-      expect(listener).toHaveBeenCalledWith("buf-1", expect.any(Error));
+      expect(listener).toHaveBeenCalledWith(
+        "buf-1",
+        expect.any(Error),
+        1,
+      );
+      unsubscribe();
+      cancelAutosave("buf-1");
+    });
+
+    // The reason a listener is told a number at all: it is what separates a
+    // refusal about a write still worth reporting from one about a write
+    // something has already dealt with. The failing write's own generation
+    // says which, so the note's current one is the wrong answer.
+    it("names the failed write's generation, not the note's current one", async () => {
+      let refuse: (error: unknown) => void = () => {};
+      mockedSave.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            refuse = reject;
+          }),
+      );
+      const listener = vi.fn();
+      const unsubscribe = onAutosaveError(listener);
+
+      debouncedSave("buf-1", "data", 50);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(mockedSave).toHaveBeenCalledTimes(1);
+
+      // Something else deals with the note while its write is still out, which
+      // moves the note on to generation two. The refusal is about the first.
+      cancelAutosave("buf-1");
+      refuse(new Error("disk full"));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(listener).toHaveBeenCalledWith("buf-1", expect.any(Error), 1);
       unsubscribe();
       cancelAutosave("buf-1");
     });
@@ -95,9 +129,23 @@ describe("autosave", () => {
       await vi.advanceTimersByTimeAsync(50);
 
       expect(listener).toHaveBeenCalledOnce();
-      expect(listener).toHaveBeenCalledWith("buf-ok", "abc123");
+      expect(listener).toHaveBeenCalledWith("buf-ok", "abc123", false);
       unsubscribe();
       mockedSave.mockResolvedValue(null);
+    });
+
+    it("tells a success listener the write went through a writer of its own", async () => {
+      // Which is what says a file that was deleted is at the note's path
+      // again: only the put-it-back command carries a writer.
+      const listener = vi.fn();
+      const unsubscribe = onAutosaveSuccess(listener);
+      const writeBack = vi.fn(async () => "def456");
+
+      await saveNow("buf-back", "content", writeBack);
+
+      expect(writeBack).toHaveBeenCalledWith("buf-back", "content");
+      expect(listener).toHaveBeenCalledWith("buf-back", "def456", true);
+      unsubscribe();
     });
 
     it("does not notify success listeners when the save fails", async () => {
@@ -222,7 +270,11 @@ describe("autosave", () => {
       await vi.advanceTimersByTimeAsync(50);
 
       expect(mockedSave).not.toHaveBeenCalled();
-      expect(listener).toHaveBeenCalledWith("buf-1", expect.any(Error));
+      expect(listener).toHaveBeenCalledWith(
+        "buf-1",
+        expect.any(Error),
+        1,
+      );
       unsubscribe();
       cancelAutosave("buf-1");
     });

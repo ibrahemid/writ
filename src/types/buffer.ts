@@ -41,3 +41,25 @@ export interface FileOpenResult {
   mode: FileOpenMode;
   size_bytes: number;
 }
+
+/**
+ * What the person chose about a file that changed outside Writ.
+ *
+ * The words are the wire form of `writ_core::notes::reload::ChangeChoice`.
+ * Every one of them writes the text it does not keep to its own file first,
+ * so no answer ends with a text that exists nowhere.
+ */
+export type ChangeChoice = "keep_mine" | "use_disk" | "keep_both";
+
+/** What resolving a change outside Writ left behind. */
+export interface ResolveOutcome {
+  /**
+   * The file the text that was not kept was written to. Null only when the
+   * two texts turned out to be the same text.
+   */
+  conflict_copy_path: string | null;
+  /** What the tab must show now, or null when it keeps what it holds. */
+  content: string | null;
+  /** The digest of what the note's file holds once the choice has run. */
+  disk_hash: string;
+}
