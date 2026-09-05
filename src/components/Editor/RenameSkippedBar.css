@@ -1,6 +1,6 @@
 .rename-skipped-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--writ-space-4);
   padding: var(--writ-space-2) var(--writ-space-4);
   background: var(--writ-bg-selected);
@@ -13,9 +13,18 @@
 }
 
 .rename-skipped-bar-text {
-  margin: 0;
   flex: 1;
   min-width: 0;
+}
+
+.rename-skipped-bar-heading {
+  margin: 0;
+}
+
+.rename-skipped-bar-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .rename-skipped-bar-action {

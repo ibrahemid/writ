@@ -13,6 +13,10 @@ const ERR_FILE_IN_USE = "ERR_FILE_IN_USE";
 const ERR_FILE_MISSING = "ERR_FILE_MISSING";
 const ERR_WRITE_TIMED_OUT = "ERR_WRITE_TIMED_OUT";
 const ERR_WRITE_FAILED = "ERR_WRITE_FAILED";
+// Two a rename mints for a note it left alone, neither of them a failed write:
+// src-tauri/src/commands/notes.rs.
+const ERR_LINK_NOT_FOUND = "ERR_LINK_NOT_FOUND";
+const ERR_LINK_NAME_NOT_UNIQUE = "ERR_LINK_NAME_NOT_UNIQUE";
 
 // What each code says to the person whose save did not land. Both read as the
 // second half of "Couldn't save <name>: ".
@@ -38,6 +42,38 @@ const CODE_MESSAGES: Record<string, string> = {
 // operating system's or a note's id, and neither belongs in front of a person,
 // so nothing from it is rendered.
 const UNKNOWN_MESSAGE = CODE_MESSAGES[ERR_WRITE_FAILED];
+
+// What a note a rename left alone says, as the second half of "<name>: ". Two
+// of these are not failures at all: a file can hold no link to rewrite, and a
+// link can name a note Writ cannot tell from another of the same name. Saying
+// so is the point of the list, and the save wording would name a write that
+// was never attempted.
+const SKIPPED_CODE_MESSAGES: Record<string, string> = {
+  [ERR_LINK_NOT_FOUND]: "holds no link to this note.",
+  [ERR_LINK_NAME_NOT_UNIQUE]: "could be linking to another note of the same name.",
+  [ERR_FILE_CHANGED_ON_DISK]: "changed outside Writ.",
+  [ERR_FILE_NOT_DOWNLOADED]: "has not finished downloading.",
+  [ERR_READ_ONLY_DESTINATION]: "is read-only.",
+  [ERR_NOTE_READ_ONLY]: "is read-only.",
+  [ERR_FOLDER_NOT_WRITABLE]: "is in a folder Writ cannot write to.",
+  [ERR_HARD_LINKED]: "is shared with another name on disk.",
+  [ERR_PERMISSION_DENIED]: "cannot be changed by Writ.",
+  [ERR_FILE_IN_USE]: "is open in another program.",
+  [ERR_FILE_MISSING]: "is no longer there.",
+  [ERR_FILE_REMOVED_ON_DISK]: "was deleted.",
+  [ERR_WRITE_TIMED_OUT]: "is on a disk that stopped responding.",
+  [ERR_WRITE_FAILED]: "is on a disk that would not take the write.",
+};
+
+// A code with no wording here. It says what is certainly true and nothing
+// else: guessing at the write wording is how a person is told about a disk
+// that was never touched.
+const SKIPPED_UNKNOWN = "was left as it was.";
+
+/** Why a rename left a note as it was, after its name. */
+export function describeSkippedNote(code: string): string {
+  return SKIPPED_CODE_MESSAGES[code] ?? SKIPPED_UNKNOWN;
+}
 
 // The same codes as a stopped rename reads them. A rename carries no text of
 // its own, so nothing is set aside and the save wording would name a copy that

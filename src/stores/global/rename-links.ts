@@ -4,8 +4,17 @@ import type { RenamePropagation } from "../../services/tauri";
 import { bufferRegistry } from "./buffer-registry";
 import { windowRegistry } from "./window-registry";
 import { noteName } from "../../lib/note-name";
+import { describeSkippedNote } from "../../lib/save-error";
 
 // Singleton — app-global, like the registry it renames rows in (ADR-009 E3).
+
+/** A note a rename left as it was, as the bar names it. */
+export interface SkippedNote {
+  /** The file's name. */
+  name: string;
+  /** Why it was left, in words ([`describeSkippedNote`]). */
+  reason: string;
+}
 
 /** What `Undo rename` needs to put one rename back. */
 export interface RenameUndo {
@@ -21,7 +30,7 @@ export interface RenameUndo {
 
 function createRenameLinksStore() {
   const [undoable, setUndoable] = createSignal<RenameUndo | null>(null);
-  const [skipped, setSkipped] = createSignal<string[]>([]);
+  const [skipped, setSkipped] = createSignal<SkippedNote[]>([]);
 
   /** How many notes link to the note `id` holds, that note itself left out. */
   async function countLinksTo(id: string): Promise<number> {
@@ -89,8 +98,8 @@ function createRenameLinksStore() {
     return outcome;
   }
 
-  /** The notes the last rename left as they were, by name. */
-  function skippedNames(): string[] {
+  /** The notes the last rename left as they were, each with its reason. */
+  function skippedNotes(): SkippedNote[] {
     return skipped();
   }
 
@@ -119,7 +128,12 @@ function createRenameLinksStore() {
         }
       }
     }
-    setSkipped(outcome.skipped.map((file) => fileName(file.path)));
+    setSkipped(
+      outcome.skipped.map((file) => ({
+        name: fileName(file.path),
+        reason: describeSkippedNote(file.reason),
+      })),
+    );
   }
 
   function sourcePath(id: string): string | null {
@@ -131,7 +145,7 @@ function createRenameLinksStore() {
     renameWithLinks,
     canUndo,
     undoRename,
-    skippedNames,
+    skippedNotes,
     clearSkipped,
   };
 }

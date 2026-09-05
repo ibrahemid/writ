@@ -223,9 +223,33 @@ describe("a rename that carries the links", () => {
 
     await renameNoteAndLinks("n-1", "New note");
 
-    expect(renameLinksStore.skippedNames()).toEqual([
-      "Second.md",
-      "Third.md",
+    expect(renameLinksStore.skippedNotes()).toEqual([
+      { name: "Second.md", reason: "has not finished downloading." },
+      { name: "Third.md", reason: "is read-only." },
+    ]);
+  });
+
+  it("says why a note it could not rewrite was left, in words", async () => {
+    mockedApi.countLinksTo.mockResolvedValue(2);
+    chose.mockResolvedValueOnce("confirm");
+    mockedApi.renameNoteWithLinks.mockResolvedValue({
+      renamed_path: "/notes/New note.md",
+      updated: 0,
+      updated_paths: [],
+      skipped: [
+        { path: "/notes/First.md", reason: "ERR_LINK_NOT_FOUND" },
+        { path: "/notes/Second.md", reason: "ERR_LINK_NAME_NOT_UNIQUE" },
+      ],
+    });
+
+    await renameNoteAndLinks("n-1", "New note");
+
+    expect(renameLinksStore.skippedNotes()).toEqual([
+      { name: "First.md", reason: "holds no link to this note." },
+      {
+        name: "Second.md",
+        reason: "could be linking to another note of the same name.",
+      },
     ]);
   });
 
