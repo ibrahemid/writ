@@ -60,8 +60,23 @@ fn note_failure_message(error: &StorageError) -> String {
 /// a note that somehow has no file, which after this is only one a recovery
 /// pass produced.
 pub fn new_note_inner(state: &AppState) -> Result<BufferDocument, String> {
+    new_note_named_inner(state, "")
+}
+
+/// Creates a note called `name`, file first, and opens it.
+///
+/// `name` is a title, never a path: [`writ_core::notes::note_file_stem`]
+/// sanitises it, which maps `/` and `\` to spaces, so a name carrying `..` or
+/// a separator loses what would make it walk anywhere and the note lands in
+/// the notes folder. A name nothing survives from falls back to the dated stem
+/// a `New Note` gets, so this never fails for want of a name.
+///
+/// This is what an editor offers on a `[[…]]` that names no note: the target
+/// becomes the file name, so writing the link and taking the offer leaves the
+/// link resolved.
+pub fn new_note_named_inner(state: &AppState, name: &str) -> Result<BufferDocument, String> {
     let now = chrono::Utc::now();
-    let stem = writ_core::notes::note_file_stem("", now);
+    let stem = writ_core::notes::note_file_stem(name, now);
 
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let stamp = ignore_stamper(state);
@@ -85,6 +100,12 @@ pub fn new_note_inner(state: &AppState) -> Result<BufferDocument, String> {
 #[tauri::command]
 pub fn new_note(state: State<'_, AppState>) -> Result<BufferDocument, String> {
     new_note_inner(&state)
+}
+
+/// IPC: [`new_note_named_inner`].
+#[tauri::command]
+pub fn new_named_note(state: State<'_, AppState>, name: String) -> Result<BufferDocument, String> {
+    new_note_named_inner(&state, &name)
 }
 
 /// Renames a note's file and the row that points at it.

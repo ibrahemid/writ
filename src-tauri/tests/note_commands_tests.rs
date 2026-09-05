@@ -35,8 +35,9 @@ use writ_tauri_lib::commands::buffer::{
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::commands::notes::{
-    delete_note_inner, move_notes_folder_to, new_note_inner, note_path_for_id, notes_root_text,
-    path_is_inside_notes, rename_note_inner, rename_note_recording, save_note_copy_inner,
+    delete_note_inner, move_notes_folder_to, new_note_inner, new_note_named_inner,
+    note_path_for_id, notes_root_text, path_is_inside_notes, rename_note_inner,
+    rename_note_recording, save_note_copy_inner,
 };
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
@@ -127,6 +128,55 @@ fn open_note_at(state: &AppState, path: &std::path::Path, content: &str) -> Stri
         .doc
         .expect("the file opened")
         .id
+}
+
+#[test]
+fn a_named_note_takes_its_file_name_from_the_name() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+
+    let doc = new_note_named_inner(&state, "Grocery list").expect("named note");
+    let path = std::path::PathBuf::from(doc.source_path.clone().expect("the note has no file"));
+
+    assert_eq!(
+        path.file_name().unwrap().to_string_lossy(),
+        "Grocery list.md"
+    );
+    assert!(path.starts_with(state.notes_root()), "{}", path.display());
+    assert_eq!(std::fs::read_to_string(&path).expect("read"), "");
+}
+
+/// A link target reaches this as typed, so a name that reads like a path must
+/// not become one: the note lands in the notes folder whatever separators the
+/// name carried.
+#[test]
+fn a_name_that_reads_like_a_path_stays_one_file_in_the_notes_folder() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+
+    for name in ["../../escape", "/etc/passwd", "sub/deep"] {
+        let doc = new_note_named_inner(&state, name).expect("named note");
+        let path = std::path::PathBuf::from(doc.source_path.clone().expect("the note has no file"));
+        assert_eq!(
+            path.parent().expect("parent"),
+            state.notes_root(),
+            "{name:?} left the notes folder: {}",
+            path.display()
+        );
+    }
+}
+
+/// A name nothing survives from falls back to the dated stem a `New Note`
+/// gets, so the offer never fails for want of a usable name.
+#[test]
+fn a_name_that_sanitises_to_nothing_still_mints_a_note() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+
+    let doc = new_note_named_inner(&state, "   ").expect("named note");
+    let path = std::path::PathBuf::from(doc.source_path.clone().expect("the note has no file"));
+    assert!(path.exists());
+    assert!(path.starts_with(state.notes_root()));
 }
 
 #[test]

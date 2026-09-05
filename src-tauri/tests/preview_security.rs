@@ -286,7 +286,7 @@ fn frontmatter_is_not_rendered_as_html() {
     use writ_core::preview::{ContentRenderer, RenderRequest};
     use writ_tauri_lib::preview::renderers::MarkdownRenderer;
 
-    let out = MarkdownRenderer
+    let out = MarkdownRenderer::without_index()
         .render(RenderRequest {
             content_type: MarkdownRenderer::content_type_id(),
             buffer_text: "---\ntitle: <script>alert('xss')</script>\n---\n\nordinary body\n"

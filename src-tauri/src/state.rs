@@ -453,7 +453,7 @@ impl AppState {
         info!(count = transforms.len(), "transform registry initialized");
 
         let mut preview_registry = ContentRendererRegistry::new();
-        crate::preview::renderers::register_builtins(&mut preview_registry)
+        crate::preview::renderers::register_builtins(&mut preview_registry, notes_index.clone())
             .map_err(|e| format!("failed to register preview renderers: {e}"))?;
         info!(
             count = preview_registry.len(),

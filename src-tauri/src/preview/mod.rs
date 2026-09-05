@@ -21,3 +21,4 @@ pub mod handler;
 pub mod log_capture;
 pub mod protocol;
 pub mod renderers;
+pub mod wikilinks;
