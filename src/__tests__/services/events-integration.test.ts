@@ -56,6 +56,7 @@ import { createTabStore } from "../../stores/window/tab-store";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import * as api from "../../services/tauri";
 import { executeCommand, registerCommand } from "../../commands/registry";
+import { createDownloadStore } from "../../stores/window/download-store";
 
 const mockedApi = vi.mocked(api);
 
@@ -68,7 +69,7 @@ describe("OS file association integration", () => {
   });
 
   it("opens a file via the same path as drag-and-drop", async () => {
-    const tabs = createTabStore({ registry: bufferRegistry });
+    const tabs = createTabStore({ downloads: createDownloadStore(), registry: bufferRegistry });
     await tabs.openFile("/home/user/readme.md");
 
     expect(mockedApi.openFile).toHaveBeenCalledWith("/home/user/readme.md");
@@ -76,7 +77,7 @@ describe("OS file association integration", () => {
   });
 
   it("opens multiple files sequentially", async () => {
-    const tabs = createTabStore({ registry: bufferRegistry });
+    const tabs = createTabStore({ downloads: createDownloadStore(), registry: bufferRegistry });
     await tabs.openFile("/home/user/a.rs");
     await tabs.openFile("/home/user/b.ts");
 
@@ -85,11 +86,11 @@ describe("OS file association integration", () => {
   });
 
   it("activates the last opened file", async () => {
-    const tabs = createTabStore({ registry: bufferRegistry });
+    const tabs = createTabStore({ downloads: createDownloadStore(), registry: bufferRegistry });
     await tabs.openFile("/home/user/first.rs");
     const second = await tabs.openFile("/home/user/second.ts");
 
-    expect(tabs.activeTabId()).toBe(second.id);
+    expect(tabs.activeTabId()).toBe(second!.id);
   });
 });
 
@@ -102,14 +103,14 @@ describe("openFile error handling", () => {
   });
 
   it("propagates backend errors to caller", async () => {
-    const tabs = createTabStore({ registry: bufferRegistry });
+    const tabs = createTabStore({ downloads: createDownloadStore(), registry: bufferRegistry });
     mockedApi.openFile.mockRejectedValueOnce(new Error("file not found"));
 
     await expect(tabs.openFile("/nonexistent/file.txt")).rejects.toThrow("file not found");
   });
 
   it("does not add tab when backend fails", async () => {
-    const tabs = createTabStore({ registry: bufferRegistry });
+    const tabs = createTabStore({ downloads: createDownloadStore(), registry: bufferRegistry });
     mockedApi.openFile.mockRejectedValueOnce(new Error("permission denied"));
 
     try {
@@ -120,7 +121,7 @@ describe("openFile error handling", () => {
   });
 
   it("does not change activeTabId when backend fails", async () => {
-    const tabs = createTabStore({ registry: bufferRegistry });
+    const tabs = createTabStore({ downloads: createDownloadStore(), registry: bufferRegistry });
     const existing = await tabs.openFile("/home/user/good.rs");
     mockedApi.openFile.mockRejectedValueOnce(new Error("bad file"));
 
@@ -128,7 +129,7 @@ describe("openFile error handling", () => {
       await tabs.openFile("/home/user/bad.txt");
     } catch {}
 
-    expect(tabs.activeTabId()).toBe(existing.id);
+    expect(tabs.activeTabId()).toBe(existing!.id);
   });
 });
 
@@ -147,7 +148,7 @@ describe("loadAndActivate", () => {
     mockedApi.listActiveBuffers.mockResolvedValue([tab]);
     mockedApi.listHistory.mockResolvedValue([]);
 
-    const tabs = createTabStore({ registry: bufferRegistry });
+    const tabs = createTabStore({ downloads: createDownloadStore(), registry: bufferRegistry });
     await tabs.loadAndActivate();
 
     expect(tabs.activeTabId()).toBe("loaded-1");
@@ -156,7 +157,7 @@ describe("loadAndActivate", () => {
   it("clears activeTabId when previously active tab no longer exists", async () => {
     mockedApi.listActiveBuffers.mockResolvedValue([]);
     mockedApi.listHistory.mockResolvedValue([]);
-    const tabs = createTabStore({ registry: bufferRegistry });
+    const tabs = createTabStore({ downloads: createDownloadStore(), registry: bufferRegistry });
     tabs.setActiveTabId("removed-tab");
 
     await tabs.loadAndActivate();
@@ -173,7 +174,7 @@ describe("loadAndActivate", () => {
     };
     mockedApi.listActiveBuffers.mockResolvedValue([tab]);
     mockedApi.listHistory.mockResolvedValue([]);
-    const tabs = createTabStore({ registry: bufferRegistry });
+    const tabs = createTabStore({ downloads: createDownloadStore(), registry: bufferRegistry });
     tabs.setActiveTabId("keep-me");
 
     await tabs.loadAndActivate();

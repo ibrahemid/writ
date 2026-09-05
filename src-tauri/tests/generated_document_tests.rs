@@ -134,11 +134,19 @@ fn opening_a_generated_document_creates_no_file_in_the_notes_folder() {
     let expected_canonical = writ_tauri_lib::security::canonicalize_for_authorization(&expected)
         .expect("canonicalize expected path");
     assert_eq!(
-        result.doc.source_path.as_deref(),
+        result
+            .doc
+            .as_ref()
+            .expect("the file opened")
+            .source_path
+            .as_deref(),
         Some(expected_canonical.as_str()),
         "the buffer points at the file under the data directory"
     );
-    assert!(result.doc.read_only, "a generated document is read-only");
+    assert!(
+        result.doc.as_ref().expect("the file opened").read_only,
+        "a generated document is read-only"
+    );
 }
 
 #[test]
@@ -149,7 +157,11 @@ fn a_second_open_rewrites_the_same_file_in_place() {
     let first = open_generated_document(&state, NOTICES_TITLE, "first version").expect("open");
     let second = open_generated_document(&state, NOTICES_TITLE, "second version").expect("reopen");
 
-    assert_eq!(first.doc.id, second.doc.id, "the same buffer is reused");
+    assert_eq!(
+        first.doc.as_ref().expect("the file opened").id,
+        second.doc.as_ref().expect("the file opened").id,
+        "the same buffer is reused"
+    );
     let generated_dir = state.writ_dir.join("generated");
     let entries: Vec<_> = std::fs::read_dir(&generated_dir)
         .unwrap()
@@ -185,8 +197,12 @@ fn saving_a_generated_document_is_refused() {
 
     let opened = open_generated_document(&state, NOTICES_TITLE, "original text").expect("open");
 
-    let err = save_buffer_content_inner(&state, &opened.doc.id, "hijacked")
-        .expect_err("a read-only buffer must refuse a save");
+    let err = save_buffer_content_inner(
+        &state,
+        &opened.doc.as_ref().expect("the file opened").id,
+        "hijacked",
+    )
+    .expect_err("a read-only buffer must refuse a save");
     assert!(err.contains("read-only"), "unexpected error: {err}");
 
     let expected = state
@@ -238,8 +254,9 @@ fn three_open_and_close_cycles_leave_one_row() {
     for _ in 0..3 {
         let opened = open_generated_document(&state, NOTICES_TITLE, "# Third-party notices\nMIT\n")
             .expect("open");
-        ids.insert(opened.doc.id.clone());
-        close_buffer_inner(&state, &opened.doc.id).expect("close the tab");
+        ids.insert(opened.doc.as_ref().expect("the file opened").id.clone());
+        close_buffer_inner(&state, &opened.doc.as_ref().expect("the file opened").id)
+            .expect("close the tab");
     }
 
     assert_eq!(ids.len(), 1, "each open must reuse the one row: {ids:?}");
@@ -267,12 +284,16 @@ fn a_generated_document_reopened_after_a_restart_reports_no_outside_change() {
     // A relaunch over the same data folder: the row is restored, and the
     // frontend loading its tab is the read that records what the file holds.
     let state = make_state(&dir);
-    read_buffer_content_inner(&state, &opened.doc.id).expect("load the restored tab");
+    read_buffer_content_inner(&state, &opened.doc.as_ref().expect("the file opened").id)
+        .expect("load the restored tab");
 
     let count = count_external_events(&state);
     let reopened = open_generated_document(&state, NOTICES_TITLE, text).expect("reopen");
 
-    assert_eq!(reopened.doc.id, opened.doc.id);
+    assert_eq!(
+        reopened.doc.as_ref().expect("the file opened").id,
+        opened.doc.as_ref().expect("the file opened").id
+    );
     assert_eq!(
         *count.lock().unwrap(),
         0,

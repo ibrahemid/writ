@@ -48,6 +48,13 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       createTab: mocks.createTab,
     },
     editor: { focusEditor: mocks.focusEditor, isRemovedOnDisk: () => false },
+    // No note is waiting on a sync provider in these cases.
+    downloads: {
+      pending: () => [],
+      selectedPath: () => null,
+      select: () => {},
+      dismiss: async () => {},
+    },
   }),
 }));
 

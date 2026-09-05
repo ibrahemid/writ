@@ -14,6 +14,22 @@ pub enum CaptionHitPhase {
     Click,
 }
 
+/// Where a note's download has got to.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoteDownloadState {
+    /// The provider has been asked for the bytes.
+    Started,
+    /// The bytes are on this machine.
+    Done,
+    /// The provider could not produce the file.
+    Failed,
+    /// The person stopped waiting.
+    Cancelled,
+    /// The wait ran out with the file still not here.
+    TimedOut,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "payload")]
 pub enum WritFrontendEvent {
@@ -71,6 +87,14 @@ pub enum WritFrontendEvent {
         text: Option<String>,
     },
 
+    #[serde(rename = "note:download")]
+    NoteDownload {
+        path: String,
+        state: NoteDownloadState,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
+
     #[serde(rename = "preview:rendered")]
     PreviewRendered {
         buffer_id: String,
@@ -118,6 +142,7 @@ fn event_name(event: &WritFrontendEvent) -> &'static str {
         WritFrontendEvent::NotesSwept { .. } => "writ://notes-swept",
         WritFrontendEvent::UpdateStatus(..) => "writ://update-status",
         WritFrontendEvent::AiRewrite { .. } => "writ://ai-rewrite",
+        WritFrontendEvent::NoteDownload { .. } => "writ://note-download",
         WritFrontendEvent::PreviewRendered { .. } => "writ://preview-rendered",
         WritFrontendEvent::PreviewError { .. } => "writ://preview-error",
         WritFrontendEvent::LayoutChanged { .. } => "writ://preview-layout-changed",

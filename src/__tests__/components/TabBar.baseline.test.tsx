@@ -65,6 +65,13 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       createTab: h.createTab,
     },
     editor: { focusEditor: h.focusEditor, isRemovedOnDisk: () => false },
+    // No note is waiting on a sync provider in these cases.
+    downloads: {
+      pending: () => [],
+      selectedPath: () => null,
+      select: () => {},
+      dismiss: async () => {},
+    },
   }),
 }));
 vi.mock("../../stores/global/buffer-registry", () => ({

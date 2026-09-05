@@ -94,7 +94,7 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "crates/writ-core/src/file_ops.rs",
-        line: 152,
+        line: 165,
         word: "MiB",
         note: "size formatter unit, release 0.6",
     },

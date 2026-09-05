@@ -4,6 +4,8 @@ import type { BufferRegistry } from "../global/buffer-registry";
 import { keepUnsavedForRecovery, type SaveFailure } from "../../services/autosave";
 import { asSentence, formatSaveError } from "../../lib/save-error";
 import { requestConfirm } from "../../components/ConfirmDialog/ConfirmDialog";
+import { basename } from "../../lib/path";
+import type { DownloadStore } from "./download-store";
 import { saveStatusStore } from "../global/save-status";
 
 export type TabStore = ReturnType<typeof createTabStore>;
@@ -15,13 +17,22 @@ export type TabStore = ReturnType<typeof createTabStore>;
 
 export function createTabStore(deps: {
   registry: BufferRegistry;
+  downloads: DownloadStore;
   // Optional, so a caller driving the tab store on its own does not have to
   // build an editor for it. Given one, a note whose tab has gone stops being
   // measured against its file.
   editor?: { noteClosed: (id: string) => void };
 }) {
-  const { registry, editor } = deps;
-  const [activeTabId, setActiveTabId] = createSignal<string | null>(null);
+  const { registry, downloads, editor } = deps;
+  const [activeTabId, setActiveTabIdSignal] = createSignal<string | null>(null);
+
+  // Selecting a note's tab takes the pane back from a pending download, which
+  // keeps its own tab. Clearing the selection (null) is what the download
+  // branch of openFile does, and must leave the download showing.
+  function setActiveTabId(id: string | null): void {
+    if (id !== null) downloads.select(null);
+    setActiveTabIdSignal(id);
+  }
 
   // Called after every close path, on the ids that path aimed at. A tab the
   // registry refused to close is still open and keeps its record.
@@ -178,10 +189,32 @@ export function createTabStore(deps: {
     setActiveTabId(id);
   }
 
-  async function openFile(path: string): Promise<BufferDocument> {
-    const { doc } = await registry.openFile(path);
-    setActiveTabId(doc.id);
-    return doc;
+  // Null when the file's bytes are not on this machine: the note goes to the
+  // download store, which opens it again once they arrive. `activate` is false
+  // for a note that finished downloading while the person was reading another
+  // one: it gets its tab without taking the screen away from them.
+  async function openFile(
+    path: string,
+    options?: { activate?: boolean },
+  ): Promise<BufferDocument | null> {
+    const activate = options?.activate ?? true;
+    const outcome = await registry.openFile(path);
+    if (outcome.kind === "not-downloaded") {
+      // Nothing is read and no buffer exists, so no tab can be active behind
+      // the download's own pane.
+      if (activate) setActiveTabId(null);
+      await downloads.start({
+        path: outcome.path,
+        title: basename(outcome.path),
+        provider: outcome.provider,
+      });
+      return null;
+    }
+    if (activate) {
+      downloads.select(null);
+      setActiveTabId(outcome.doc.id);
+    }
+    return outcome.doc;
   }
 
   async function openFileDialog(): Promise<BufferDocument | null> {

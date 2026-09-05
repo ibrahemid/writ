@@ -29,10 +29,15 @@ export type FileOpenMode =
   // extension set. The backend never emits this; it is derived from content.
   | { kind: "LongLines" }
   | { kind: "Binary" }
-  | { kind: "Refused"; reason: string };
+  | { kind: "Refused"; reason: string }
+  // The file is a sync placeholder: its bytes are not on this machine. Nothing
+  // was read and no buffer exists. The download is asked for separately and
+  // the note is opened again once the bytes arrive.
+  | { kind: "NotDownloaded"; path: string; provider: string | null };
 
 export interface FileOpenResult {
-  doc: BufferDocument;
+  // Null for NotDownloaded, the one mode that opens no buffer.
+  doc: BufferDocument | null;
   mode: FileOpenMode;
   size_bytes: number;
 }

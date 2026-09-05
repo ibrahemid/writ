@@ -52,6 +52,19 @@ pub enum FileOpenMode {
         /// Human-readable reason for the refusal.
         reason: String,
     },
+    /// The file is a sync placeholder: its bytes are not on this machine.
+    /// Nothing was read and no buffer exists yet. The frontend asks for the
+    /// download and opens the note again once the bytes arrive.
+    ///
+    /// Never produced by [`classify_file`] or [`classify_path`], which answer
+    /// from size and content: the state is a stat away from the file, and the
+    /// open path reads it before it classifies anything.
+    NotDownloaded {
+        /// Canonical path of the file to download.
+        path: String,
+        /// The sync provider's name as the user knows it, when it is known.
+        provider: Option<String>,
+    },
 }
 
 /// The result of classifying a path without reading its full content.

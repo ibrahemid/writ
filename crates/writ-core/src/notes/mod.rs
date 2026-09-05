@@ -21,6 +21,9 @@ pub mod snippet;
 /// File identity: telling a file that moved from one that was deleted.
 pub mod identity;
 
+/// Whether opening a note may read it, and how long its download is waited on.
+pub mod materialise;
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 

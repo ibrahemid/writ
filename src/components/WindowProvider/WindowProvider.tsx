@@ -15,6 +15,11 @@ export default function WindowProvider(props: WindowProviderProps) {
   onMount(() => {
     const off = windowRegistry.register(state);
     onCleanup(off);
+
+    // A window with no event bridge behind it still renders; a listener that
+    // never attaches is the whole loss, and it must not surface as a rejection.
+    const listening = state.downloads.mount().catch(() => undefined);
+    onCleanup(() => void listening.then((stop) => stop?.()));
   });
 
   return (
