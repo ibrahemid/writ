@@ -18,14 +18,84 @@
 //! fallback stylesheet always applies (unconditionally, unlike the HTML
 //! renderer's presence-conditional check).
 
+use tracing::debug;
+use writ_core::preview::protocol::{resolve_asset_reference, ASSET_PREFIX};
 use writ_core::preview::{
-    ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest, RendererCapabilities,
+    AssetScope, ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest,
+    RendererCapabilities,
 };
 
 use super::{katex, mermaid, theme};
 
 /// Hard ceiling, mirroring the HTML renderer and ADR-009's 50 MB refusal.
 const MAX_SAFE_BYTES: u64 = 50 * 1024 * 1024;
+
+/// True when a reference points at a file rather than somewhere else.
+///
+/// A scheme (`https:`, `data:`, `writ-preview:`) or a protocol-relative
+/// prefix names a resource the preview does not own, and a bare fragment
+/// names a place in the document itself. A one-letter prefix is a Windows
+/// drive, not a scheme.
+fn is_file_reference(reference: &str) -> bool {
+    let reference = reference.trim();
+    if reference.is_empty() || reference.starts_with('#') || reference.starts_with("//") {
+        return false;
+    }
+    match reference.split_once(':') {
+        Some((scheme, _)) => {
+            scheme.len() < 2
+                || !scheme
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
+        }
+        None => true,
+    }
+}
+
+/// True when a value can go into the URL as one path segment as written.
+/// Both parts are host-minted (a buffer id, a scope token), so this rejects
+/// rather than escapes: anything else is a bug upstream, not a note.
+fn is_url_segment(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+}
+
+/// The resolver the renderer hands `writ-render`: a reference in, an asset
+/// URL out, nothing when the file lies outside both containment roots.
+///
+/// The URL carries the scope's token, the root's discriminator and the path
+/// relative to it, so the handler re-resolves rather than trusts it. The
+/// token is what tells the handler this document owns the scope it names.
+/// ADR-035.
+fn asset_resolver(scope: &AssetScope) -> impl Fn(&str) -> Option<String> + '_ {
+    let url_parts_are_safe = is_url_segment(&scope.buffer_id) && is_url_segment(&scope.token);
+    move |reference: &str| {
+        if !url_parts_are_safe || !is_file_reference(reference) {
+            return None;
+        }
+        match resolve_asset_reference(&scope.notes_root, &scope.note_dir, reference) {
+            Ok(found) => Some(format!(
+                "writ-preview://document/{ASSET_PREFIX}/{}/{}/{}/{}",
+                scope.buffer_id,
+                scope.token,
+                found.root.as_str(),
+                found.url_path
+            )),
+            Err(reason) => {
+                // Left as authored, so it renders as a broken image rather
+                // than as something served from outside the notes folder.
+                debug!(
+                    reason = reason.as_str(),
+                    buffer_id = scope.buffer_id,
+                    "preview asset reference not resolved"
+                );
+                None
+            }
+        }
+    }
+}
 
 /// The Markdown content renderer.
 pub struct MarkdownRenderer;
@@ -58,7 +128,13 @@ impl ContentRenderer for MarkdownRenderer {
                 limit: MAX_SAFE_BYTES,
             });
         }
-        let fragment = writ_render::render_markdown_fragment(&request.buffer_text);
+        let fragment = match &request.assets {
+            Some(scope) => {
+                let resolver = asset_resolver(scope);
+                writ_render::render_markdown_fragment_with(&request.buffer_text, Some(&resolver))
+            }
+            None => writ_render::render_markdown_fragment(&request.buffer_text),
+        };
         let head_extra = if fragment.has_math {
             katex::head_tags()
         } else {
@@ -97,6 +173,7 @@ mod tests {
             buffer_text: text.to_string(),
             theme: Default::default(),
             zoom: 1.0,
+            assets: None,
         }
     }
 
@@ -315,6 +392,67 @@ mod tests {
         assert!(out
             .document_html
             .contains("<span style=\"color:red\">inline</span>"));
+    }
+
+    #[test]
+    fn a_reference_outside_the_roots_is_left_as_authored_and_logged() {
+        let guard = tempfile::tempdir().unwrap();
+        let notes = guard.path().join("Writ");
+        let note_dir = notes.join("daily");
+        std::fs::create_dir_all(&note_dir).unwrap();
+        let request = RenderRequest {
+            assets: Some(AssetScope {
+                notes_root: notes,
+                note_dir,
+                buffer_id: "buf-1".to_string(),
+                token: "tok-1".to_string(),
+            }),
+            ..req("![](../../../etc/hosts)")
+        };
+        let (out, logs) =
+            crate::preview::log_capture::capture(|| MarkdownRenderer.render(request).unwrap());
+        // Nothing is served for it: the reference stays exactly as written.
+        assert!(!out.document_html.contains(ASSET_PREFIX));
+        assert!(out.document_html.contains("src=\"../../../etc/hosts\""));
+        assert!(
+            logs.iter()
+                .any(|line| line.contains("preview asset reference not resolved")
+                    && line.contains("outside_root")),
+            "logs={logs:?}"
+        );
+    }
+
+    #[test]
+    fn a_token_that_is_not_one_url_segment_emits_no_asset_url() {
+        let guard = tempfile::tempdir().unwrap();
+        let notes = guard.path().join("Writ");
+        let note_dir = notes.join("daily");
+        std::fs::create_dir_all(&note_dir).unwrap();
+        std::fs::write(note_dir.join("a.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        let render_with = |token: &str| {
+            MarkdownRenderer
+                .render(RenderRequest {
+                    assets: Some(AssetScope {
+                        notes_root: notes.clone(),
+                        note_dir: note_dir.clone(),
+                        buffer_id: "buf-1".to_string(),
+                        token: token.to_string(),
+                    }),
+                    ..req("![](a.png)")
+                })
+                .unwrap()
+                .document_html
+        };
+        // The reference does resolve, so the refusals below are the token
+        // grammar and not a reference the renderer was never going to serve.
+        assert!(render_with("tok-1").contains(ASSET_PREFIX));
+        // A token that is not one path segment would move where the URL
+        // splits into root and relative path, so no URL is emitted at all.
+        for token in ["tok/1", "tok%2f1", "tok 1", "tok?1", "tok#1", ""] {
+            let html = render_with(token);
+            assert!(!html.contains(ASSET_PREFIX), "token={token:?}");
+            assert!(html.contains("src=\"a.png\""), "token={token:?}");
+        }
     }
 
     #[test]

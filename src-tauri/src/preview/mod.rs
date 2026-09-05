@@ -17,5 +17,7 @@
 pub mod csp;
 pub mod csp_eval;
 pub mod handler;
+#[cfg(test)]
+pub mod log_capture;
 pub mod protocol;
 pub mod renderers;
