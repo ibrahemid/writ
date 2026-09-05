@@ -22,9 +22,11 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::errors::StorageError;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
+#[cfg(unix)]
+use writ_tauri_lib::commands::buffer::ERR_FOLDER_NOT_WRITABLE;
 use writ_tauri_lib::commands::buffer::{
     read_buffer_content_inner, restore_note_file_inner, save_buffer_content_inner,
-    ERR_FILE_CHANGED_ON_DISK, ERR_FILE_MISSING, ERR_FILE_REMOVED_ON_DISK, ERR_FOLDER_NOT_WRITABLE,
+    ERR_FILE_CHANGED_ON_DISK, ERR_FILE_MISSING, ERR_FILE_REMOVED_ON_DISK,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::commands::notes::{
