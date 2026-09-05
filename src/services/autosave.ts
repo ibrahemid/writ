@@ -2,7 +2,14 @@ import { isRetryableSaveError } from "../lib/save-error";
 import { logFailure } from "../lib/log";
 import { recordUnsavedNotes, saveBufferContent } from "./tauri";
 
-type AutosaveErrorListener = (bufferId: string, error: unknown) => void;
+// `generation` is the failed write's own generation, not the note's current
+// one, so a listener can tell a refusal about a write it still cares about from
+// one about a write that has since been superseded ([`currentSaveGeneration`]).
+type AutosaveErrorListener = (
+  bufferId: string,
+  error: unknown,
+  generation: number,
+) => void;
 // `diskHash` is the digest of what the note's file holds now, or null when the
 // note had nothing in it and no file yet to write it to.
 type AutosaveSuccessListener = (bufferId: string, diskHash: string | null) => void;
@@ -166,6 +173,18 @@ export function collectUnsavedContent(): Array<{ id: string; content: string }> 
     if (content !== undefined) notes.push({ id, content });
   }
   return notes;
+}
+
+/**
+ * The generation a write issued for `bufferId` right now would carry.
+ *
+ * Every write the note has already issued carries this or less, and every
+ * write issued after it carries more, because queueing and cancelling both
+ * bump it. That is what lets a caller draw a line at a moment in time and act
+ * on which side of it a write was on. Zero for a note that has never written.
+ */
+export function currentSaveGeneration(bufferId: string): number {
+  return generations.get(bufferId) ?? 0;
 }
 
 function bumpGeneration(bufferId: string): number {
@@ -343,7 +362,7 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     // The live document is gone (e.g. the view was torn down between schedule
     // and fire). Nothing to save; surface it like any other autosave failure.
     for (const listener of errorListeners) {
-      listener(bufferId, error);
+      listener(bufferId, error, queued.generation);
     }
     return saveFailed(bufferId, error);
   }
@@ -374,7 +393,7 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     }
     lastFailedContent.set(bufferId, content);
     for (const listener of errorListeners) {
-      listener(bufferId, error);
+      listener(bufferId, error, queued.generation);
     }
     return saveFailed(bufferId, error);
   }

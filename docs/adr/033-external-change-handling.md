@@ -551,6 +551,13 @@ is what the close path hands to the recovery snapshot. `Use the file on disk`
 has nothing to keep, because it replaces the document with the file's text on
 purpose.
 
+**Answering drops every failure about a write it superseded**, not only the
+bars already on screen. A write that was still on the wire refuses afterwards,
+and its reason is about the same file the answer has just dealt with. The two
+are told apart by the write's generation (`currentSaveGeneration`), which
+queueing and cancelling both bump: a write issued before the answer is
+dropped, and one issued after it still shows.
+
 ## Consequences
 
 - Opening a file from `~/Downloads` puts a watch on `~/Downloads`. That is the

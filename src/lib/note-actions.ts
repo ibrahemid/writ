@@ -144,9 +144,10 @@ export async function resolveNoteChange(
   // A save that failed against this same change left a bar of its own, about a
   // write the answer has just made irrelevant. It goes with the answer, or it
   // sits on the tab afterwards saying the note could not be written when it
-  // has just been. Only a failure raised before the answer: one the answer
-  // itself raises is recorded after this and still shows.
-  saveStatusStore.forgetNote(id);
+  // has just been. A write already on the wire when the answer landed is about
+  // the same superseded file, so it goes too even though its refusal arrives
+  // later; a write issued after the answer still shows.
+  saveStatusStore.forgetWritesSoFar(id);
   win.editor.recordFileEvent(id, "settled");
   if (outcome.content !== null) {
     win.editor.applyExternalContent(id, outcome.content);

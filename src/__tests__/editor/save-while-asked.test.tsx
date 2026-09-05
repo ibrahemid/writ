@@ -276,6 +276,31 @@ describe("a note that is waiting for an answer about its file", () => {
     expect(store.noteFileState(NOTE)).toBe("present");
   });
 
+  // The refusal of a write that was still on the wire arrives after the answer
+  // has landed, so clearing what is on screen at the moment of the answer does
+  // not reach it. It is about the same superseded file as the failures that
+  // were already showing, and the tab it would land on has just been written.
+  it("drops the refusal of a write that was out when it answered", async () => {
+    const { store, reports } = openNote();
+    const stale = deferredWrite();
+
+    const write = store.saveActiveBuffer();
+    await waitFor(() => expect(api.saveBufferContent).toHaveBeenCalledTimes(1));
+
+    await reports("modified");
+    api.resolveExternalChange.mockResolvedValue(ANSWERED);
+    await resolveNoteChange(NOTE, "keep_mine");
+    expect(store.noteFileState(NOTE)).toBe("present");
+
+    stale.reject(REFUSED);
+    await write;
+
+    expect(saveStatusStore.failureFor(NOTE)).toBeUndefined();
+    // The write is over whatever became of its reason, so the tab stops
+    // claiming one is running.
+    expect(saveStatusStore.stateOf(NOTE)).not.toBe("saving");
+  });
+
   // The answer sends the text as it was read, and the round trip is long
   // enough to type into. That typing was held rather than queued, and the
   // answer releases the slot it was held in, so nothing but the answer itself
