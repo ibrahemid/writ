@@ -7,49 +7,54 @@
 //! the heading, the folder the link was written with, the label of a markdown
 //! link, the spacing around all of it — exactly as its author left it.
 //!
-//! Which links count is [`links::resolve`]'s answer, not a second rule: a link
-//! that carries a folder has to match the renamed note's folders, so
-//! `[[archive/Note]]` is left alone when the note being renamed is not in an
-//! `archive`. A link that names two notes at once resolves to neither and is
-//! never touched here; the caller keeps those out by asking the index which
-//! links resolved (ADR-034).
+//! Which links count is [`links::resolve`]'s answer, link by link, from the
+//! path of the note the link is written in. Two notes can share a name, so
+//! whether `[[Note]]` means the note being renamed is a question about the
+//! whole notes folder and about where the link is written, and nothing else
+//! can answer it: a link that reaches a different note of the same name is
+//! left alone, and a link that names two notes at once resolves to neither and
+//! is left alone too (ADR-034).
 
 use std::ops::Range;
 
-use crate::notes::links::{self, Resolution, WikilinkTarget};
+use crate::notes::links::{self, Resolution};
 
-/// `text` with every link that names `old` naming `new_name` instead, or
-/// `None` when nothing in it does.
+/// `text` with every link that resolves to `target` naming `new_name`
+/// instead, or `None` when no link in it does.
 ///
-/// `old` is the renamed note as a link would name it: its name without a note
-/// extension, and the folder it sits in when the caller has one to give. Only
-/// the name part of each link is replaced, so `[[ideas/Old note#Later|see]]`
+/// `from` is the path of the note holding `text` and `target` the path of the
+/// note being renamed, both spelled the way `candidates` spells them —
+/// `candidates` being every note a link could reach. The three are what
+/// [`links::resolve`] needs, so the answer here and the answer the backlink
+/// list gives are the same answer.
+///
+/// Only the name part of each link is replaced, so `[[ideas/Old note#Later|see]]`
 /// becomes `[[ideas/New note#Later|see]]` and `[a](ideas/Old%20note.md)`
-/// becomes `[a](ideas/New%20note.md)`.
+/// becomes `[a](ideas/New%20note.md)`. A link whose name is spelled in another
+/// case, or in another unicode normalisation, matches and is rewritten in the
+/// new name's own spelling: the match is folded ([`links::name_key`]) and the
+/// replacement is not, so a rewrite and its reverse restore a link's target
+/// but not necessarily its original spelling.
 ///
 /// Pure: it reads nothing and writes nothing. A caller decides which files to
 /// run it over and how the result reaches the disk.
-pub fn rewrite_links(text: &str, old: &WikilinkTarget, new_name: &str) -> Option<String> {
+pub fn rewrite_links(
+    text: &str,
+    from: &str,
+    target: &str,
+    new_name: &str,
+    candidates: &[String],
+) -> Option<String> {
     let new_name = new_name.trim();
-    if new_name.is_empty() || old.name.trim().is_empty() {
+    if new_name.is_empty() || target.is_empty() {
         return None;
     }
-    // The renamed note as a resolution candidate. One candidate, so the
-    // ordering `resolve` applies among several never comes into it and the
-    // note the link is written in has no bearing on the answer.
-    let candidates = [match &old.folder {
-        Some(folder) => format!("{folder}/{}", old.name),
-        None => old.name.clone(),
-    }];
 
     let mut edits: Vec<(Range<usize>, String)> = Vec::new();
     for link in links::scan(text) {
-        let target = link.wikilink_target();
-        if !matches!(
-            links::resolve(&target, "", &candidates),
-            Resolution::Resolved(_)
-        ) {
-            continue;
+        match links::resolve(&link.wikilink_target(), from, candidates) {
+            Resolution::Resolved(path) if path == target => {}
+            _ => continue,
         }
         let slice = &text[link.byte_range.clone()];
         let Some(span) = links::name_span(slice) else {
@@ -80,44 +85,49 @@ pub fn rewrite_links(text: &str, old: &WikilinkTarget, new_name: &str) -> Option
 mod tests {
     use super::*;
 
-    fn target(name: &str) -> WikilinkTarget {
-        WikilinkTarget {
-            name: name.to_string(),
-            ..WikilinkTarget::default()
-        }
+    const READER: &str = "/notes/Reader.md";
+
+    fn notes(paths: &[&str]) -> Vec<String> {
+        paths.iter().map(|p| p.to_string()).collect()
     }
 
-    fn in_folder(folder: &str, name: &str) -> WikilinkTarget {
-        WikilinkTarget {
-            name: name.to_string(),
-            folder: Some(folder.to_string()),
-            ..WikilinkTarget::default()
-        }
+    /// The rewrite as `Reader.md` sees it, in a folder holding it and the note
+    /// being renamed.
+    fn rewrite(text: &str, target: &str, new_name: &str) -> Option<String> {
+        rewrite_links(text, READER, target, new_name, &notes(&[READER, target]))
     }
 
     #[test]
     fn a_plain_wikilink_takes_the_new_name() {
-        let out = rewrite_links("see [[Old note]] for more", &target("Old note"), "New note");
+        let out = rewrite(
+            "see [[Old note]] for more",
+            "/notes/Old note.md",
+            "New note",
+        );
         assert_eq!(out.as_deref(), Some("see [[New note]] for more"));
     }
 
     #[test]
     fn an_alias_survives_the_rewrite() {
-        let out = rewrite_links("[[Old note|what I meant]]", &target("Old note"), "New note");
+        let out = rewrite(
+            "[[Old note|what I meant]]",
+            "/notes/Old note.md",
+            "New note",
+        );
         assert_eq!(out.as_deref(), Some("[[New note|what I meant]]"));
     }
 
     #[test]
     fn a_heading_survives_the_rewrite() {
-        let out = rewrite_links("[[Old note#Later on]]", &target("Old note"), "New note");
+        let out = rewrite("[[Old note#Later on]]", "/notes/Old note.md", "New note");
         assert_eq!(out.as_deref(), Some("[[New note#Later on]]"));
     }
 
     #[test]
     fn a_heading_and_an_alias_together_survive_the_rewrite() {
-        let out = rewrite_links(
+        let out = rewrite(
             "[[Old note#Later on|see this]]",
-            &target("Old note"),
+            "/notes/Old note.md",
             "New note",
         );
         assert_eq!(out.as_deref(), Some("[[New note#Later on|see this]]"));
@@ -125,25 +135,21 @@ mod tests {
 
     #[test]
     fn a_folder_prefix_survives_the_rewrite() {
-        let out = rewrite_links(
-            "[[ideas/Old note]]",
-            &in_folder("ideas", "Old note"),
-            "New note",
-        );
+        let out = rewrite("[[ideas/Old note]]", "/notes/ideas/Old note.md", "New note");
         assert_eq!(out.as_deref(), Some("[[ideas/New note]]"));
     }
 
     #[test]
     fn a_spelled_out_extension_survives_the_rewrite() {
-        let out = rewrite_links("[[Old note.md]]", &target("Old note"), "New note");
+        let out = rewrite("[[Old note.md]]", "/notes/Old note.md", "New note");
         assert_eq!(out.as_deref(), Some("[[New note.md]]"));
     }
 
     #[test]
     fn a_markdown_link_is_rewritten_and_keeps_its_label() {
-        let out = rewrite_links(
+        let out = rewrite(
             "[what I wrote](ideas/Old%20note.md)",
-            &in_folder("ideas", "Old note"),
+            "/notes/ideas/Old note.md",
             "New note",
         );
         assert_eq!(out.as_deref(), Some("[what I wrote](ideas/New%20note.md)"));
@@ -151,45 +157,49 @@ mod tests {
 
     #[test]
     fn a_markdown_link_keeps_its_heading_and_its_title() {
-        let out = rewrite_links("[a](Old.md#later \"Title\")", &target("Old"), "New");
+        let out = rewrite("[a](Old.md#later \"Title\")", "/notes/Old.md", "New");
         assert_eq!(out.as_deref(), Some("[a](New.md#later \"Title\")"));
     }
 
     #[test]
     fn a_bracketed_markdown_destination_stays_bracketed() {
-        let out = rewrite_links("[a](<Old note.md>)", &target("Old note"), "New note");
+        let out = rewrite("[a](<Old note.md>)", "/notes/Old note.md", "New note");
         assert_eq!(out.as_deref(), Some("[a](<New note.md>)"));
     }
 
     #[test]
     fn a_link_in_a_folder_the_note_is_not_in_is_left_alone() {
-        let out = rewrite_links("[[archive/Old note]]", &target("Old note"), "New note");
-        assert_eq!(out, None);
+        assert_eq!(
+            rewrite("[[archive/Old note]]", "/notes/Old note.md", "New note"),
+            None
+        );
     }
 
     #[test]
     fn a_link_to_another_note_is_left_alone() {
-        let out = rewrite_links("[[Something else]]", &target("Old note"), "New note");
-        assert_eq!(out, None);
+        assert_eq!(
+            rewrite("[[Something else]]", "/notes/Old note.md", "New note"),
+            None
+        );
     }
 
     #[test]
     fn a_link_inside_code_is_left_alone() {
         let text = "```\n[[Old note]]\n```\nand `[[Old note]]` too";
-        assert_eq!(rewrite_links(text, &target("Old note"), "New note"), None);
+        assert_eq!(rewrite(text, "/notes/Old note.md", "New note"), None);
     }
 
     #[test]
     fn a_name_differing_only_in_case_still_matches() {
-        let out = rewrite_links("[[old NOTE]]", &target("Old note"), "New note");
+        let out = rewrite("[[old NOTE]]", "/notes/Old note.md", "New note");
         assert_eq!(out.as_deref(), Some("[[New note]]"));
     }
 
     #[test]
     fn several_links_on_one_line_are_all_rewritten() {
-        let out = rewrite_links(
+        let out = rewrite(
             "[[Old]] then [[Old|again]] then [[Old#top]]",
-            &target("Old"),
+            "/notes/Old.md",
             "New",
         );
         assert_eq!(
@@ -200,26 +210,75 @@ mod tests {
 
     #[test]
     fn text_that_already_names_the_new_name_is_unchanged() {
-        assert_eq!(rewrite_links("[[New]]", &target("New"), "New"), None);
+        assert_eq!(rewrite("[[New]]", "/notes/New.md", "New"), None);
     }
 
     #[test]
     fn an_empty_new_name_rewrites_nothing() {
-        assert_eq!(rewrite_links("[[Old]]", &target("Old"), "  "), None);
+        assert_eq!(rewrite("[[Old]]", "/notes/Old.md", "  "), None);
     }
 
     #[test]
     fn a_bare_markdown_destination_percent_encodes_a_space() {
-        let out = rewrite_links("[a](Old.md)", &target("Old"), "New note");
+        let out = rewrite("[a](Old.md)", "/notes/Old.md", "New note");
         assert_eq!(out.as_deref(), Some("[a](New%20note.md)"));
+    }
+
+    /// The case the folder prefix alone cannot decide: one file holds a link
+    /// written with the folder and a bare one that reaches the *other* note of
+    /// that name. Only the first is the renamed note.
+    #[test]
+    fn a_bare_link_reaching_another_note_of_the_same_name_is_left_alone() {
+        let all = notes(&[
+            "/notes/one/Note.md",
+            "/notes/two/Note.md",
+            "/notes/two/Reader.md",
+        ]);
+        let out = rewrite_links(
+            "see [[one/Note]] and [[Note]]\n",
+            "/notes/two/Reader.md",
+            "/notes/one/Note.md",
+            "Renamed",
+            &all,
+        );
+        assert_eq!(out.as_deref(), Some("see [[one/Renamed]] and [[Note]]\n"));
+    }
+
+    /// A bare link the ordering cannot separate names two notes at once. It is
+    /// left as it is: picking one is what rewrites the wrong file (ADR-034).
+    #[test]
+    fn a_link_that_names_two_notes_at_once_is_left_alone() {
+        let all = notes(&["/notes/one/Note.md", "/notes/two/Note.md", READER]);
+        let out = rewrite_links(
+            "see [[Note]]",
+            READER,
+            "/notes/one/Note.md",
+            "Renamed",
+            &all,
+        );
+        assert_eq!(out, None);
+    }
+
+    /// A link resolves after the round trip, but not in the spelling its
+    /// author used: matching folds case and unicode normalisation and the
+    /// replacement is the name's own spelling, so the reverse rewrite restores
+    /// the target, not the typing.
+    #[test]
+    fn a_link_spelled_in_another_case_comes_back_in_the_file_s_spelling() {
+        let after = rewrite("[[old NOTE]]", "/notes/Old note.md", "New note")
+            .expect("the link names the note");
+        assert_eq!(after, "[[New note]]");
+        let back = rewrite(&after, "/notes/New note.md", "Old note")
+            .expect("the link names the note under its new name");
+        assert_eq!(back, "[[Old note]]");
     }
 
     #[test]
     fn the_reverse_rewrite_restores_the_text_it_started_from() {
         let before = "[[ideas/Old note#Later|see]] and [a](ideas/Old%20note.md)";
-        let after = rewrite_links(before, &in_folder("ideas", "Old note"), "New note")
+        let after = rewrite(before, "/notes/ideas/Old note.md", "New note")
             .expect("the links name the note");
-        let back = rewrite_links(&after, &in_folder("ideas", "New note"), "Old note")
+        let back = rewrite(&after, "/notes/ideas/New note.md", "Old note")
             .expect("the links name the note under its new name");
         assert_eq!(back, before);
     }

@@ -15,7 +15,6 @@ use std::path::{Path, PathBuf};
 
 use writ_core::notes::guard::{decide_save, is_not_downloaded, DiskState, SaveDecision};
 use writ_core::notes::line_ending::LineEnding;
-use writ_core::notes::links::WikilinkTarget;
 use writ_core::notes::rename::rewrite_links;
 
 use crate::buffer_store::{
@@ -200,7 +199,7 @@ pub fn rename_note(
     Ok(to)
 }
 
-/// Rewrites the links in `path` that name `old`, so they name `new_name`.
+/// Rewrites the links in `path` that reach `target`, so they name `new_name`.
 ///
 /// `Ok(true)` when the file was written, `Ok(false)` when its text names the
 /// renamed note nowhere and there was nothing to write. Every refusal comes
@@ -220,6 +219,11 @@ pub fn rename_note(
 /// saw. A file the filesystem will not replace — read-only, hard-linked, in a
 /// folder that will not take a write — is stopped by the write itself.
 ///
+/// `target` is the renamed note's index key and `candidates` every note a link
+/// could reach, both as the index spells them: which links count is
+/// [`rewrite_links`]'s question to answer, note by note, and this file's own
+/// key is what it answers from.
+///
 /// `last_known` is what Writ last saw the file hold, for a file it has looked
 /// at; `None` for one it has not, whose "has this changed" has no answer.
 /// `dataless` is the eviction probe ([`DatalessProbe`]): `None` asks the
@@ -232,8 +236,9 @@ pub fn rename_note(
 /// and [`StorageError::Io`] when the file cannot be read or is not text.
 pub fn rewrite_links_in_file(
     path: &Path,
-    old: &WikilinkTarget,
+    target: &str,
     new_name: &str,
+    candidates: &[String],
     last_known: Option<DiskState>,
     dataless: DatalessProbe<'_>,
     before_write: BeforeWrite<'_>,
@@ -279,7 +284,8 @@ pub fn rewrite_links_in_file(
         }
     }
 
-    let Some(rewritten) = rewrite_links(&text, old, new_name) else {
+    let from = crate::notes_index::index_key(path);
+    let Some(rewritten) = rewrite_links(&text, &from, target, new_name, candidates) else {
         return Ok(false);
     };
     write_guarded_by_stamp(path, rewritten.as_bytes(), before_write)?;

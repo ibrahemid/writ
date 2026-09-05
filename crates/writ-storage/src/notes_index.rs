@@ -535,6 +535,13 @@ impl<'a> NotesIndex<'a> {
         Ok(())
     }
 
+    /// Every indexed path, in the spelling resolution compares against.
+    fn paths(&self) -> StorageResult<Vec<String>> {
+        let mut stmt = self.conn.prepare("SELECT path FROM files")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
     /// Every indexed path, grouped by the names a link can call it by.
     fn name_index(&self) -> StorageResult<NameIndex> {
         let mut stmt = self.conn.prepare("SELECT path FROM files")?;
@@ -1533,6 +1540,16 @@ impl NotesIndexStore {
     /// Every link that resolved to `path`. See [`NotesIndex::links_to`].
     pub fn links_to(&self, path: &str) -> StorageResult<Vec<LinkRow>> {
         NotesIndex::new(&self.conn()).links_to(path)
+    }
+
+    /// Every note a link could reach, for a caller resolving links itself.
+    ///
+    /// A rename asks the same question of a link that the index asks: which
+    /// note does this reach. Handing out the candidate list is what keeps the
+    /// two answers the same one, so a rewrite never repoints a link the
+    /// backlink list says belongs to another note.
+    pub fn note_paths(&self) -> StorageResult<Vec<String>> {
+        NotesIndex::new(&self.conn()).paths()
     }
 
     /// The notes that link to `path`. See [`NotesIndex::backlinks`].

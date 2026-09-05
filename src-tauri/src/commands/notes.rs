@@ -14,7 +14,6 @@ use tracing::{info, warn};
 use writ_core::buffer::document::BufferDocument;
 use writ_core::buffer::manager::BufferManager;
 use writ_core::notes::guard::DiskState;
-use writ_core::notes::links::{self, WikilinkTarget};
 use writ_core::notes::{name_is_taken, rename_stem, NotesRootRefusal, NAME_IS_EMPTY};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::errors::{StorageError, StorageResult};
@@ -223,9 +222,16 @@ pub fn rename_note(
 pub struct SkippedFile {
     /// The file, as the editor spells paths.
     pub path: String,
-    /// One of the save failure codes ([`crate::commands::buffer::failure_code`]).
+    /// One of the save failure codes ([`crate::commands::buffer::failure_code`]),
+    /// or [`ERR_LINK_NOT_FOUND`].
     pub reason: String,
 }
+
+/// The reason for a file the index named that holds no link to the renamed
+/// note. Not a save failure: nothing was refused, there was nothing to write.
+/// It is still reported, because from the outside a file left as it was is a
+/// file left as it was, whichever of the two happened.
+pub const ERR_LINK_NOT_FOUND: &str = "ERR_LINK_NOT_FOUND";
 
 /// What a rename did to the notes that link to the renamed one.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -280,20 +286,6 @@ pub fn count_links_to(state: State<'_, AppState>, path: String) -> Result<u32, S
     count_links_to_inner(&state, &path)
 }
 
-/// The renamed note as a link names it: its name, and the folder it sits in
-/// when it is inside the notes folder.
-///
-/// The folder is what keeps `[[archive/Note]]` from being rewritten by a
-/// rename of a `Note` that is not in an `archive`, so it is carried whenever
-/// there is one to carry.
-fn link_target_for(state: &AppState, path: &Path) -> WikilinkTarget {
-    let root = state.notes_root();
-    match path.strip_prefix(&root) {
-        Ok(relative) => links::parse_target(&relative.to_string_lossy()),
-        Err(_) => links::parse_target(&note_name(path)),
-    }
-}
-
 /// Renames the note at `path` and rewrites the notes that link to it.
 ///
 /// The list of linking notes is read before the file moves, because the index
@@ -322,8 +314,7 @@ pub fn rename_note_with_links_inner(
         .into_iter()
         .filter(|link_from| update_links || notes_index::index_key(link_from) == from_key)
         .collect();
-    let old_target = link_target_for(state, from);
-    rename_and_propagate(state, from, new_name, &old_target, linking)
+    rename_and_propagate(state, from, new_name, linking)
 }
 
 /// IPC: [`rename_note_with_links_inner`].
@@ -352,9 +343,8 @@ pub fn undo_rename_with_links_inner(
     paths: &[String],
 ) -> Result<RenamePropagationDto, String> {
     let from = Path::new(path);
-    let current_target = link_target_for(state, from);
     let linking = paths.iter().map(PathBuf::from).collect();
-    rename_and_propagate(state, from, previous_name, &current_target, linking)
+    rename_and_propagate(state, from, previous_name, linking)
 }
 
 /// IPC: [`undo_rename_with_links_inner`].
@@ -369,14 +359,19 @@ pub fn undo_rename_with_links(
 }
 
 /// The rename, then the rewrites, then the index.
+///
+/// The candidate list is read before the file moves, because it is what the
+/// links meant while it was still where it was: a link is rewritten only when
+/// it resolves to *this* note against the whole folder, so a bare `[[Note]]`
+/// that reaches a second note of that name is left where it points.
 fn rename_and_propagate(
     state: &AppState,
     from: &Path,
     new_name: &str,
-    old_target: &WikilinkTarget,
     linking: Vec<PathBuf>,
 ) -> Result<RenamePropagationDto, String> {
     let from_key = notes_index::index_key(from);
+    let candidates = state.notes_index.note_paths().map_err(|e| e.to_string())?;
     let renamed = rename_note_at(state, from, new_name)?;
     let new_name = writ_core::notes::note_display_name(&path_text(&renamed));
 
@@ -393,14 +388,23 @@ fn rename_and_propagate(
         let last_known = recorded_disk_state(state, &file);
         match note_ops::rewrite_links_in_file(
             &file,
-            old_target,
+            &from_key,
             &new_name,
+            &candidates,
             last_known,
             None,
             Some(&stamp),
         ) {
             Ok(true) => updated_paths.push(path_text(&file)),
-            Ok(false) => {}
+            // The index named the file, its text did not: a link that reads
+            // like this note but reaches another one, or an index a moment
+            // behind the folder. Either way the file was not rewritten, and a
+            // file left holding its old links is the one thing this must not
+            // keep to itself.
+            Ok(false) => skipped.push(SkippedFile {
+                path: path_text(&file),
+                reason: ERR_LINK_NOT_FOUND.to_string(),
+            }),
             Err(error) => {
                 warn!(
                     path = %file.display(),

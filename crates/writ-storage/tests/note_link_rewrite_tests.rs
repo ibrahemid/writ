@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 use writ_core::hash::sha256_bytes;
 use writ_core::notes::guard::{DiskState, SF_DATALESS};
-use writ_core::notes::links::WikilinkTarget;
 use writ_storage::errors::StorageError;
 use writ_storage::note_ops;
+use writ_storage::notes_index::index_key;
 
 /// What the file holds right now, as the adapter records it after a read.
 fn recorded(path: &Path) -> DiskState {
@@ -24,11 +24,13 @@ fn recorded(path: &Path) -> DiskState {
     }
 }
 
-fn target(name: &str) -> WikilinkTarget {
-    WikilinkTarget {
-        name: name.to_string(),
-        ..WikilinkTarget::default()
-    }
+/// The renamed note's key, and the notes a link in `path` could reach: it and
+/// the linking note. Neither has to exist on disk for a link to name it.
+fn folder(path: &Path, note: &str) -> (String, Vec<String>) {
+    let parent = path.parent().expect("a note sits in a folder");
+    let renamed = index_key(&parent.join(format!("{note}.md")));
+    let all = vec![renamed.clone(), index_key(path)];
+    (renamed, all)
 }
 
 /// A note holding one link to `Old note`, written into a fresh folder.
@@ -42,9 +44,10 @@ fn seeded(text: &str) -> (TempDir, PathBuf) {
 #[test]
 fn a_link_is_rewritten_in_place() {
     let (_root, path) = seeded("see [[Old note|the one]] for more\n");
+    let (target, all) = folder(&path, "Old note");
 
     let written =
-        note_ops::rewrite_links_in_file(&path, &target("Old note"), "New note", None, None, None)
+        note_ops::rewrite_links_in_file(&path, &target, "New note", &all, None, None, None)
             .expect("the rewrite should land");
 
     assert!(written);
@@ -57,10 +60,11 @@ fn a_link_is_rewritten_in_place() {
 #[test]
 fn a_file_naming_the_note_nowhere_is_not_written() {
     let (_root, path) = seeded("nothing links anywhere here\n");
+    let (target, all) = folder(&path, "Old note");
     let before = recorded(&path);
 
     let written =
-        note_ops::rewrite_links_in_file(&path, &target("Old note"), "New note", None, None, None)
+        note_ops::rewrite_links_in_file(&path, &target, "New note", &all, None, None, None)
             .expect("nothing to do is not a failure");
 
     assert!(!written);
@@ -72,17 +76,12 @@ fn a_file_that_is_not_downloaded_is_refused_before_it_is_read() {
     // The probe stands in for `SF_DATALESS`, so the refusal is asserted on
     // every platform rather than only where the flag can be set.
     let (_root, path) = seeded("see [[Old note]]\n");
+    let (target, all) = folder(&path, "Old note");
     let probe = |_: &Path| Some(SF_DATALESS);
 
-    let error = note_ops::rewrite_links_in_file(
-        &path,
-        &target("Old note"),
-        "New note",
-        None,
-        Some(&probe),
-        None,
-    )
-    .expect_err("an evicted file should be refused");
+    let error =
+        note_ops::rewrite_links_in_file(&path, &target, "New note", &all, None, Some(&probe), None)
+            .expect_err("an evicted file should be refused");
 
     match error {
         StorageError::SourceNotDownloaded { path: named } => {
@@ -100,13 +99,15 @@ fn a_file_that_is_not_downloaded_is_refused_before_it_is_read() {
 #[test]
 fn a_file_changed_underneath_is_refused() {
     let (_root, path) = seeded("see [[Old note]]\n");
+    let (target, all) = folder(&path, "Old note");
     let last_known = recorded(&path);
     std::fs::write(&path, "somebody else wrote this, and [[Old note]]\n").expect("write");
 
     let error = note_ops::rewrite_links_in_file(
         &path,
-        &target("Old note"),
+        &target,
         "New note",
+        &all,
         Some(last_known),
         None,
         None,
@@ -136,12 +137,14 @@ fn a_file_changed_underneath_is_refused() {
 #[test]
 fn a_file_unchanged_since_writ_read_it_is_rewritten() {
     let (_root, path) = seeded("see [[Old note]]\n");
+    let (target, all) = folder(&path, "Old note");
     let last_known = recorded(&path);
 
     let written = note_ops::rewrite_links_in_file(
         &path,
-        &target("Old note"),
+        &target,
         "New note",
+        &all,
         Some(last_known),
         None,
         None,
@@ -161,11 +164,11 @@ fn a_read_only_file_is_refused() {
     use std::os::unix::fs::PermissionsExt;
 
     let (_root, path) = seeded("see [[Old note]]\n");
+    let (target, all) = folder(&path, "Old note");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).expect("chmod");
 
-    let error =
-        note_ops::rewrite_links_in_file(&path, &target("Old note"), "New note", None, None, None)
-            .expect_err("a read-only file should be refused");
+    let error = note_ops::rewrite_links_in_file(&path, &target, "New note", &all, None, None, None)
+        .expect_err("a read-only file should be refused");
 
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("chmod");
     match error {
@@ -186,11 +189,12 @@ fn the_rewrite_is_stamped_before_it_lands() {
     // edit, which puts an external-change prompt in front of a person who
     // pressed rename.
     let (_root, path) = seeded("see [[Old note]]\n");
+    let (target, all) = folder(&path, "Old note");
     let stamped: std::cell::RefCell<Vec<(PathBuf, String)>> = std::cell::RefCell::new(Vec::new());
-    let stamp = |target: &Path, bytes: &[u8]| {
+    let stamp = |file: &Path, bytes: &[u8]| {
         stamped.borrow_mut().push((
-            target.to_path_buf(),
-            std::fs::read_to_string(target).unwrap_or_default(),
+            file.to_path_buf(),
+            std::fs::read_to_string(file).unwrap_or_default(),
         ));
         assert_eq!(
             String::from_utf8_lossy(bytes),
@@ -199,15 +203,8 @@ fn the_rewrite_is_stamped_before_it_lands() {
         );
     };
 
-    note_ops::rewrite_links_in_file(
-        &path,
-        &target("Old note"),
-        "New note",
-        None,
-        None,
-        Some(&stamp),
-    )
-    .expect("the rewrite should land");
+    note_ops::rewrite_links_in_file(&path, &target, "New note", &all, None, None, Some(&stamp))
+        .expect("the rewrite should land");
 
     let seen = stamped.into_inner();
     assert_eq!(seen.len(), 1, "one write, one stamp");
@@ -226,25 +223,20 @@ fn the_reverse_rewrite_restores_the_file_byte_for_byte() {
     std::fs::write(&path, text).expect("seed");
     let before = std::fs::read(&path).expect("read");
 
-    let old = WikilinkTarget {
-        name: "Old note".to_string(),
-        folder: Some("ideas".to_string()),
-        ..WikilinkTarget::default()
-    };
-    let new = WikilinkTarget {
-        name: "New note".to_string(),
-        folder: Some("ideas".to_string()),
-        ..WikilinkTarget::default()
-    };
+    let ideas = root.path().join("ideas");
+    std::fs::create_dir(&ideas).expect("folder");
+    let old = index_key(&ideas.join("Old note.md"));
+    let new = index_key(&ideas.join("New note.md"));
+    let all = vec![old.clone(), new.clone(), index_key(&path)];
 
     assert!(
-        note_ops::rewrite_links_in_file(&path, &old, "New note", None, None, None)
+        note_ops::rewrite_links_in_file(&path, &old, "New note", &all, None, None, None)
             .expect("the rewrite should land")
     );
     assert_ne!(std::fs::read(&path).expect("read"), before);
 
     assert!(
-        note_ops::rewrite_links_in_file(&path, &new, "Old note", None, None, None)
+        note_ops::rewrite_links_in_file(&path, &new, "Old note", &all, None, None, None)
             .expect("the undo should land")
     );
     assert_eq!(

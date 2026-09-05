@@ -26,7 +26,7 @@ use writ_tauri_lib::commands::buffer::ERR_READ_ONLY_DESTINATION;
 use writ_tauri_lib::commands::buffer::{save_buffer_content_inner, ERR_FILE_CHANGED_ON_DISK};
 use writ_tauri_lib::commands::notes::{
     count_links_to_inner, new_note_inner, rename_note_with_links_inner,
-    undo_rename_with_links_inner,
+    undo_rename_with_links_inner, ERR_LINK_NOT_FOUND,
 };
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
@@ -270,6 +270,52 @@ fn an_ambiguous_link_is_left_alone() {
         "see [[Note]]\n",
         "a link naming two notes was rewritten to one of them"
     );
+}
+
+/// The mixed file: one link written with the folder, one bare link that
+/// reaches the *other* note of that name. The file is rewritten for the first
+/// and the second is left where it points.
+#[test]
+fn a_bare_link_reaching_another_note_of_the_same_name_is_left_alone() {
+    let (_dir, state) = seeded(&[
+        ("one/Note.md", "one of two\n"),
+        ("two/Note.md", "two of two\n"),
+        ("two/Reader.md", "see [[one/Note]] and [[Note]]\n"),
+    ]);
+
+    let outcome =
+        rename_note_with_links_inner(&state, &path_text(&state, "one/Note.md"), "Renamed", true)
+            .expect("rename");
+
+    assert_eq!(outcome.updated, 1);
+    assert!(outcome.skipped.is_empty());
+    assert_eq!(
+        read(&state, "two/Reader.md"),
+        "see [[one/Renamed]] and [[Note]]\n",
+        "a link reaching the other note of this name was repointed"
+    );
+    assert_eq!(read(&state, "two/Note.md"), "two of two\n");
+}
+
+/// A file the index named that holds no link to rewrite: nothing failed and
+/// nothing was written, and it is named anyway, because from the outside it is
+/// a file left holding its old links.
+#[test]
+fn a_file_the_index_named_that_holds_no_link_is_reported() {
+    let (_dir, state) = seeded(&[
+        ("Old note.md", "the note itself\n"),
+        ("First.md", "see [[Old note]]\n"),
+    ]);
+    std::fs::write(note(&state, "First.md"), "somebody took the link out\n").expect("write");
+
+    let outcome =
+        rename_note_with_links_inner(&state, &path_text(&state, "Old note.md"), "New note", true)
+            .expect("rename");
+
+    assert_eq!(outcome.updated, 0);
+    assert_eq!(outcome.skipped.len(), 1);
+    assert_eq!(outcome.skipped[0].path, path_text(&state, "First.md"));
+    assert_eq!(outcome.skipped[0].reason, ERR_LINK_NOT_FOUND);
 }
 
 #[test]
