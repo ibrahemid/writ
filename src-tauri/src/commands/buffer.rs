@@ -83,7 +83,19 @@ pub const ERR_WRITE_FAILED: &str = "ERR_WRITE_FAILED";
 /// whatever the layer beneath happened to say, which is where an errno or a
 /// note's id gets shown to a person.
 pub fn save_failure_message(error: &StorageError) -> String {
-    let code = match error {
+    format!("{}: {error}", failure_code(error))
+}
+
+/// The stable code alone, for a caller that reports the failure as a code
+/// rather than as a sentence.
+///
+/// A propagated rename names each file it could not rewrite, and the reason
+/// has to be a code the editor writes its own sentence from: the message
+/// [`save_failure_message`] appends is the operating system's, and `Os error
+/// 28` is one of the two things a person must not be handed instead of an
+/// explanation.
+pub fn failure_code(error: &StorageError) -> &'static str {
+    match error {
         StorageError::SourceChangedOnDisk { .. } => ERR_FILE_CHANGED_ON_DISK,
         StorageError::SourceNotDownloaded { .. } => ERR_FILE_NOT_DOWNLOADED,
         StorageError::HardLinkedDestination { .. } => ERR_HARD_LINKED,
@@ -91,8 +103,7 @@ pub fn save_failure_message(error: &StorageError) -> String {
         StorageError::DestinationFolderNotWritable { .. } => ERR_FOLDER_NOT_WRITABLE,
         StorageError::Io(io) => io_failure_code(io.kind()),
         _ => ERR_WRITE_FAILED,
-    };
-    format!("{code}: {error}")
+    }
 }
 
 /// The code for an `io::ErrorKind` a save can come back with.

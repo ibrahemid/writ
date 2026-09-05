@@ -15,6 +15,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 }));
 
 import ConfirmDialog, {
+  requestChoice,
   requestConfirm,
 } from "../../components/ConfirmDialog/ConfirmDialog";
 
@@ -80,6 +81,32 @@ describe("ConfirmDialog", () => {
     const overlay = document.querySelector<HTMLDivElement>(".confirm-overlay")!;
     await user.click(overlay);
     await expect(promise).resolves.toBe(false);
+  });
+
+  it("tells Escape and the overlay apart from the cancel button", async () => {
+    const container = mountShell();
+    const user = userEvent.setup({ document });
+    render(() => <ConfirmDialog />, { container });
+
+    const escaped = requestChoice({ title: "Update?", message: "or not." });
+    await flush();
+    await user.keyboard("{Escape}");
+    await expect(escaped).resolves.toBe("dismissed");
+
+    const outside = requestChoice({ title: "Update?", message: "or not." });
+    await flush();
+    await user.click(document.querySelector<HTMLDivElement>(".confirm-overlay")!);
+    await expect(outside).resolves.toBe("dismissed");
+
+    const cancelled = requestChoice({ title: "Update?", message: "or not." });
+    await flush();
+    await user.click(document.querySelector<HTMLButtonElement>(".confirm-cancel")!);
+    await expect(cancelled).resolves.toBe("cancel");
+
+    const taken = requestChoice({ title: "Update?", message: "or not." });
+    await flush();
+    await user.click(document.querySelector<HTMLButtonElement>(".confirm-accept")!);
+    await expect(taken).resolves.toBe("confirm");
   });
 
   it("superseding a pending request resolves the previous one false", async () => {

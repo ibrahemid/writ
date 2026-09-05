@@ -2,6 +2,7 @@ import { Match, Show, Switch, createEffect, onCleanup } from "solid-js";
 import StatusBar from "./StatusBar";
 import SaveFailureBar from "./SaveFailureBar";
 import RemovedOnDiskBar from "./RemovedOnDiskBar";
+import RenameSkippedBar from "./RenameSkippedBar";
 import FileChangedBar from "./FileChangedBar";
 import TabBar from "./TabBar";
 import Toolbar from "../Toolbar/Toolbar";
@@ -58,6 +59,7 @@ export default function EditorArea() {
         </Match>
       </Switch>
       <SaveFailureBar noteId={activeBuffer()?.id ?? null} />
+      <RenameSkippedBar />
       <div class="editor-content">
         {/* Always mounted, even with no active buffer, so the preview iframe
             element it owns is never torn down (#124 webview freeze). */}

@@ -2,7 +2,9 @@ import { bufferRegistry } from "../stores/global/buffer-registry";
 import { notesStore } from "../stores/global/notes";
 import { saveStatusStore } from "../stores/global/save-status";
 import { windowRegistry } from "../stores/global/window-registry";
-import { requestConfirm } from "../components/ConfirmDialog/ConfirmDialog";
+import { requestChoice, requestConfirm } from "../components/ConfirmDialog/ConfirmDialog";
+import { renameLinksStore } from "../stores/global/rename-links";
+import { linkCountQuestion } from "./rename-copy";
 import { showToast } from "../components/Notifications/Toast";
 import { logFailure } from "./log";
 import { noteName } from "./note-name";
@@ -17,6 +19,39 @@ export { noteName };
 // context menu and the file tree. Keeping them here is what stops the same
 // confirmation being worded three ways.
 
+
+/**
+ * Renames a note, offering first to update the notes that link to it.
+ *
+ * The offer is made only when there are links to update, and it names how many
+ * there are: a rename that silently rewrites other people's notes, and one
+ * that silently leaves every link pointing at a name no note answers to, are
+ * both worse than being asked. Each answer is a button: one renames and
+ * rewrites, the other renames and leaves the links. Escape and a click outside
+ * are neither, and stop the rename — a keypress that means "get me out of
+ * this" cannot be the one that breaks three notes' links.
+ *
+ * Errors are the caller's: a rename can be stopped by an empty name, a name
+ * the folder already holds, or a file something else rewrote, and the surface
+ * that took the typing is where that has to be said. So can the count, which
+ * is read before anything is renamed: not knowing whether other notes point
+ * here is not the same as knowing that none do.
+ */
+export async function renameNoteAndLinks(id: string, title: string): Promise<void> {
+  let updateLinks = false;
+  const count = await renameLinksStore.countLinksTo(id);
+  if (count > 0) {
+    const answer = await requestChoice({
+      title: linkCountQuestion(count),
+      message: "Links in other notes are rewritten to the new name.",
+      confirmLabel: "Update links",
+      cancelLabel: "Rename only",
+    });
+    if (answer === "dismissed") return;
+    updateLinks = answer === "confirm";
+  }
+  await renameLinksStore.renameWithLinks(id, title, updateLinks);
+}
 
 /**
  * Whether Writ may move this note to the Trash.
