@@ -1366,15 +1366,25 @@ fn one_move_seen_by_both_watchers_moves_the_row_once() {
     assert_eq!(title_of(&state, &doc.id), "moved-by-finder.md");
 }
 
-/// A gap wide enough that the two halves of the rename below cannot land in
-/// one delivery, and narrow enough that the file is back in the notes folder
-/// before the removal it raised is announced.
+/// Blocks until the watcher is holding `id`'s removal.
 ///
-/// A debounce window closes on a deadline set by its first event and never
-/// extends it (ADR-033 §5), so a change this long after another is delivered
-/// separately. The hold is twice the window, so the second half has one whole
-/// window of its own to arrive in after the first was read.
-const SPLIT: Duration = Duration::from_millis(900);
+/// The hold is taken by the delivery that carries the emptied path, one
+/// debounce window plus the platform's own notification latency after the
+/// rename or the delete, and only the first of those is a constant. A sleep
+/// long enough on an idle host is short on a loaded one, and a step that lands
+/// before the hold is a step outside it, so every step below that belongs
+/// inside a hold waits for this instead. `RemovalHolds::holds` is the read the
+/// save path makes on its way in (ADR-033 §14).
+fn wait_until_held(state: &AppState, id: &str) {
+    let deadline = Instant::now() + SETTLE;
+    while Instant::now() < deadline {
+        if state.removal_holds.holds(id) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    panic!("the removal of {id} was never held");
+}
 
 #[test]
 fn a_rename_whose_halves_land_in_two_windows_is_still_a_move() {
@@ -1391,13 +1401,15 @@ fn a_rename_whose_halves_land_in_two_windows_is_still_a_move() {
     let before = note_file(&state, &doc.id);
     std::thread::sleep(APART);
 
-    // Out of the watched folder and back into it, a window apart. A rename
-    // keeps the inode, so what comes back is the file the record names.
+    // Out of the watched folder and back into it, a delivery apart: the hold
+    // is proof the first half was read on its own, so the second cannot join
+    // it. A rename keeps the inode, so what comes back is the file the record
+    // names.
     let elsewhere = dir.path().join("outside-every-watched-folder");
     std::fs::create_dir_all(&elsewhere).expect("a folder nothing watches");
     let parked = elsewhere.join("in-flight.md");
     std::fs::rename(&before, &parked).expect("the first half");
-    std::thread::sleep(SPLIT);
+    wait_until_held(&state, &doc.id);
     let after = state.notes_root().join("renamed-across-two-windows.md");
     std::fs::rename(&parked, &after).expect("the second half");
 
@@ -1476,10 +1488,6 @@ fn a_removal_nothing_answers_is_announced_when_the_hold_passes() {
     );
 }
 
-/// Long enough to be past the delivery that starts the hold, and well short of
-/// the deadline the hold ends on.
-const INSIDE_THE_HOLD: Duration = Duration::from_millis(700);
-
 /// What a save is allowed to take when it lands inside a hold: the hold itself
 /// plus the window the announcement is delivered on.
 fn the_longest_a_held_save_may_wait() -> Duration {
@@ -1521,7 +1529,7 @@ fn a_save_inside_the_hold_of_a_deletion_recreates_nothing() {
     std::thread::sleep(APART);
 
     std::fs::remove_file(&path).expect("delete the note the way Finder does");
-    std::thread::sleep(INSIDE_THE_HOLD);
+    wait_until_held(&state, &doc.id);
 
     let refused = save_buffer_content_inner(&state, &doc.id, "written during the hold")
         .expect_err("the save must be refused");
@@ -1568,11 +1576,11 @@ fn a_save_inside_the_hold_of_a_split_rename_lands_at_the_new_path() {
         let state = Arc::clone(&state);
         let id = doc.id.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(INSIDE_THE_HOLD);
+            wait_until_held(&state, &id);
             save_buffer_content_inner(&state, &id, "written during the hold")
         })
     };
-    std::thread::sleep(SPLIT);
+    wait_until_held(&state, &doc.id);
     let after = state.notes_root().join("renamed-across-two-windows.md");
     std::fs::rename(&parked, &after).expect("the second half");
     saver.join().expect("the saving thread").expect("the save");
@@ -1610,7 +1618,7 @@ fn a_stranger_at_the_path_during_the_hold_is_still_a_deletion() {
     std::thread::sleep(APART);
 
     std::fs::remove_file(&path).expect("delete the note the way Finder does");
-    std::thread::sleep(INSIDE_THE_HOLD);
+    wait_until_held(&state, &doc.id);
     // A new file at the same path: another program, a sync client, a restore.
     std::fs::write(&path, b"somebody else's file").expect("the stranger's write");
 
@@ -1657,11 +1665,11 @@ fn the_same_file_back_at_its_path_during_the_hold_lets_the_save_through() {
         let state = Arc::clone(&state);
         let id = doc.id.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(INSIDE_THE_HOLD);
+            wait_until_held(&state, &id);
             save_buffer_content_inner(&state, &id, "written while the file was away")
         })
     };
-    std::thread::sleep(Duration::from_millis(800));
+    wait_until_held(&state, &doc.id);
     std::fs::rename(&parked, &path).expect("and back to the same path");
     saver.join().expect("the saving thread").expect("the save");
 
@@ -1707,7 +1715,7 @@ fn a_save_inside_a_hold_waits_for_the_answer_and_no_longer() {
         let state = Arc::clone(&state);
         let id = doc.id.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(INSIDE_THE_HOLD);
+            wait_until_held(&state, &id);
             let asked_at = Instant::now();
             let answer = save_buffer_content_inner(&state, &id, "written during the hold");
             (asked_at.elapsed(), Instant::now(), answer)
@@ -1803,19 +1811,19 @@ fn a_save_of_the_text_the_file_already_holds_still_waits_out_the_hold() {
         let state = Arc::clone(&state);
         let id = doc.id.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(INSIDE_THE_HOLD);
+            wait_until_held(&state, &id);
             let asked_at = Instant::now();
             let answer = save_buffer_content_inner(&state, &id, "text worth keeping");
             (asked_at.elapsed(), Instant::now(), answer)
         })
     };
-    std::thread::sleep(Duration::from_millis(800));
+    wait_until_held(&state, &doc.id);
     std::fs::rename(&parked, &path).expect("and back to the same path");
     let back_at = Instant::now();
     let (waited, returned_at, answer) = saver.join().expect("the saving thread");
     answer.expect("the save");
 
-    // Read off the save's own return rather than off the two sleeps: a save
+    // Read off the save's own return rather than off the clock: a save
     // that skipped the hold comes back in single-figure milliseconds, and one
     // that waited cannot come back before the file it was waiting on.
     assert!(
@@ -1866,11 +1874,11 @@ fn a_save_inside_a_hold_carries_the_files_dates_to_the_path_it_lands_on() {
         let state = Arc::clone(&state);
         let id = doc.id.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(INSIDE_THE_HOLD);
+            wait_until_held(&state, &id);
             save_buffer_content_inner(&state, &id, "written during the hold")
         })
     };
-    std::thread::sleep(SPLIT);
+    wait_until_held(&state, &doc.id);
     let after = state.notes_root().join("carried-across-the-hold.md");
     std::fs::rename(&parked, &after).expect("the second half");
     saver.join().expect("the saving thread").expect("the save");
