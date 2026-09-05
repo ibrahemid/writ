@@ -1,8 +1,12 @@
 //! Fuzzy file-name ranking for workspace name search.
 //!
-//! Pure policy: given a query and a set of workspace-relative paths, decide
+//! Pure policy: given a query and a set of root-relative paths, decide
 //! which paths the query matches as a subsequence and rank them. No I/O, no
 //! walking — the caller supplies the candidate paths from the in-memory index.
+//! Candidates are relative to their root so the folders above it are never
+//! scored: a query must not reach a file through the letters of a home or
+//! temp directory. A caller holding absolute keys ranks the relative path and
+//! carries the key with it through [`rank_keyed_file_hits`].
 //!
 //! Scoring is a greedy, deterministic subsequence match. A query matches a path
 //! when its characters appear in order (ASCII-case-insensitively) somewhere in
@@ -19,7 +23,8 @@ use serde::{Deserialize, Serialize};
 /// A ranked workspace file-name match.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileHit {
-    /// Workspace-relative path of the file (forward-slash separated).
+    /// How the caller identifies the file: the root-relative path it ranked
+    /// (forward-slash separated), or the key it supplied alongside one.
     pub path: String,
     /// File name (the final path segment).
     pub name: String,
@@ -133,25 +138,49 @@ pub fn rank_file_hits<'a, I>(query: &str, candidates: I, limit: usize) -> Vec<Fi
 where
     I: IntoIterator<Item = (&'a str, &'a str)>,
 {
-    let mut hits: Vec<FileHit> = candidates
+    rank_keyed_file_hits(
+        query,
+        candidates
+            .into_iter()
+            .map(|(path, name)| (path, path, name)),
+        limit,
+    )
+}
+
+/// Ranks `candidates` (`(key, path, name)` triples) the way [`rank_file_hits`]
+/// does, scoring and ordering on `path` while each hit carries `key` back.
+///
+/// For an index whose rows are keyed by absolute path: `path` is the file's
+/// position inside the root, which is all a query may match, and `key` is what
+/// the caller opens afterwards.
+pub fn rank_keyed_file_hits<'a, I>(query: &str, candidates: I, limit: usize) -> Vec<FileHit>
+where
+    I: IntoIterator<Item = (&'a str, &'a str, &'a str)>,
+{
+    let mut hits: Vec<(FileHit, &'a str)> = candidates
         .into_iter()
-        .filter_map(|(path, name)| {
-            subsequence_score(query, path).map(|score| FileHit {
-                path: path.to_string(),
-                name: name.to_string(),
-                score,
+        .filter_map(|(key, path, name)| {
+            subsequence_score(query, path).map(|score| {
+                (
+                    FileHit {
+                        path: key.to_string(),
+                        name: name.to_string(),
+                        score,
+                    },
+                    path,
+                )
             })
         })
         .collect();
 
-    hits.sort_by(|a, b| {
+    hits.sort_by(|(a, a_path), (b, b_path)| {
         b.score
             .cmp(&a.score)
-            .then_with(|| a.path.len().cmp(&b.path.len()))
-            .then_with(|| a.path.cmp(&b.path))
+            .then_with(|| a_path.len().cmp(&b_path.len()))
+            .then_with(|| a_path.cmp(b_path))
     });
     hits.truncate(limit);
-    hits
+    hits.into_iter().map(|(hit, _)| hit).collect()
 }
 
 #[cfg(test)]
@@ -256,6 +285,47 @@ mod tests {
         let candidates: Vec<(&str, &str)> = paths.iter().map(|p| (p.as_str(), "main.rs")).collect();
         let hits = rank_file_hits("main", candidates, 5);
         assert_eq!(hits.len(), 5);
+    }
+
+    #[test]
+    fn keyed_ranking_scores_the_relative_path_and_returns_the_key() {
+        // The key holds "cloud" as a subsequence; the path inside the root does
+        // not, so the note is no hit at all.
+        let candidates = [
+            ("/Users/claude/notes/here.md", "here.md", "here.md"),
+            ("/Users/claude/notes/cloud.md", "cloud.md", "cloud.md"),
+        ];
+        let hits = rank_keyed_file_hits("cloud", candidates.iter().copied(), 10);
+        assert_eq!(hits.len(), 1, "only the note named for the query matches");
+        assert_eq!(hits[0].path, "/Users/claude/notes/cloud.md");
+    }
+
+    #[test]
+    fn keyed_ranking_matches_a_folder_inside_the_root() {
+        let candidates = [(
+            "/Users/claude/notes/projects/alpha.md",
+            "projects/alpha.md",
+            "alpha.md",
+        )];
+        let hits = rank_keyed_file_hits("projalpha", candidates.iter().copied(), 10);
+        assert_eq!(
+            hits.len(),
+            1,
+            "a folder inside the root is part of the path"
+        );
+        assert_eq!(hits[0].path, "/Users/claude/notes/projects/alpha.md");
+    }
+
+    #[test]
+    fn keyed_ranking_orders_by_the_relative_path_not_the_key() {
+        // Equal scores: the shorter relative path wins even though its key is
+        // the longer of the two.
+        let candidates = [
+            ("zzzzzzzzzz/app.rs", "app.rs", "app.rs"),
+            ("a/deep/app.rs", "deep/app.rs", "app.rs"),
+        ];
+        let hits = rank_keyed_file_hits("app", candidates.iter().copied(), 10);
+        assert_eq!(hits[0].path, "zzzzzzzzzz/app.rs");
     }
 
     #[test]

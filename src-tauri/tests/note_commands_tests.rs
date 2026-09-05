@@ -12,6 +12,7 @@ use writ_core::hash::sha256_bytes;
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
 use writ_core::watcher::change_event::ExternalChange;
+use writ_core::watcher::pending::hold_window;
 use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
@@ -34,7 +35,9 @@ use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
 use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
 use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::{create_ignore_set, start_notes_watcher};
+use writ_tauri_lib::watcher::handler::{
+    create_ignore_set, start_notes_watcher, NOTES_DEBOUNCE_WINDOW,
+};
 use writ_tauri_lib::watcher::moves::FileTracking;
 use writ_tauri_lib::watcher::open_files::start_open_file_watcher;
 
@@ -1292,6 +1295,116 @@ fn one_move_seen_by_both_watchers_moves_the_row_once() {
     );
     assert_eq!(note_file(&state, &doc.id), after);
     assert_eq!(title_of(&state, &doc.id), "moved-by-finder.md");
+}
+
+/// A gap wide enough that the two halves of the rename below cannot land in
+/// one delivery, and narrow enough that the file is back in the notes folder
+/// before the removal it raised is announced.
+///
+/// A debounce window closes on a deadline set by its first event and never
+/// extends it (ADR-033 §5), so a change this long after another is delivered
+/// separately. The hold is twice the window, so the second half has one whole
+/// window of its own to arrive in after the first was read.
+const SPLIT: Duration = Duration::from_millis(900);
+
+#[test]
+fn a_rename_whose_halves_land_in_two_windows_is_still_a_move() {
+    // What a rename looks like when it straddles a debounce deadline: the
+    // notes folder is delivered the path going empty with nothing that could
+    // answer for it, and the file only turns up at its new name in a later
+    // delivery. Answering the first delivery on its own marks the tab off a
+    // file that is sitting one folder away (ADR-033 §14).
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    // Out of the watched folder and back into it, a window apart. A rename
+    // keeps the inode, so what comes back is the file the record names.
+    let elsewhere = dir.path().join("outside-every-watched-folder");
+    std::fs::create_dir_all(&elsewhere).expect("a folder nothing watches");
+    let parked = elsewhere.join("in-flight.md");
+    std::fs::rename(&before, &parked).expect("the first half");
+    std::thread::sleep(SPLIT);
+    let after = state.notes_root().join("renamed-across-two-windows.md");
+    std::fs::rename(&parked, &after).expect("the second half");
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(
+        told.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Moved],
+        "a rename delivered in two halves is still one move, saw {seen:?}"
+    );
+    assert_eq!(
+        change_of(told[0]).1.map(std::path::Path::new),
+        Some(after.as_path())
+    );
+    assert!(
+        !state.is_removed_on_disk(&doc.id),
+        "the tab stopped writing to a file that is there"
+    );
+    assert_eq!(note_file(&state, &doc.id), after);
+
+    save_buffer_content_inner(&state, &doc.id, "edited after the rename").expect("save");
+    assert_eq!(
+        std::fs::read_to_string(&after).expect("read the moved file"),
+        "edited after the rename"
+    );
+}
+
+#[test]
+fn a_removal_nothing_answers_is_announced_when_the_hold_passes() {
+    // The other side of the hold: waiting for a second delivery must not cost
+    // the deletion itself. Nothing turns up carrying the file's id, so the
+    // removal is announced once its window passes, and the tab is marked off
+    // its file at that point and not before.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    let deleted_at = Instant::now();
+    std::fs::remove_file(&path).expect("delete the note the way Finder does");
+
+    let deadline = Instant::now() + SETTLE;
+    let mut told_at = None;
+    let mut seen = Vec::new();
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        match rx.recv_timeout(left) {
+            Ok(event @ WritEvent::BufferExternal { .. }) => {
+                if named_by(&event).0 == doc.id {
+                    told_at.get_or_insert_with(Instant::now);
+                }
+                seen.push(event);
+            }
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(told.len(), 1, "the tab must be told once, saw {seen:?}");
+    assert_eq!(change_of(told[0]), (&ExternalChange::Removed, None));
+    assert!(
+        told_at.expect("the removal was announced") - deleted_at
+            >= hold_window(NOTES_DEBOUNCE_WINDOW),
+        "the removal was announced without waiting out the hold"
+    );
+    assert!(state.is_removed_on_disk(&doc.id));
+
+    let refused = save_buffer_content_inner(&state, &doc.id, "text worth keeping, edited")
+        .expect_err("the save must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the refusal has to carry its own code, got {refused}"
+    );
 }
 
 /// Sets a file's modification time to the start of 2020, the way a metadata

@@ -7,16 +7,20 @@
 //! file reaches Writ at all — which is the write every careful program makes,
 //! and the reason the folder is watched rather than the file.
 
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use writ_core::events::bus::{EventBus, WritEvent};
+use writ_core::hash::sha256_bytes;
+use writ_core::notes::guard::DiskState;
+use writ_core::notes::identity::FileIdentity;
 use writ_core::watcher::ignore::DEFAULT_IGNORE_TTL;
 use writ_tauri_lib::security::resolve_for_containment;
 use writ_tauri_lib::watcher::handler::{create_ignore_set, start_notes_watcher};
-use writ_tauri_lib::watcher::moves::FileTracking;
+use writ_tauri_lib::watcher::moves::{FileTracking, NoteFiles};
 use writ_tauri_lib::watcher::open_files::{
     start_open_file_watcher, NoOpenNotes, WatchOutcome, WatcherKind,
 };
@@ -48,6 +52,67 @@ fn write_by_temp_and_rename(path: &Path, bytes: &[u8]) {
     let temp = path.with_extension("writ-test-tmp");
     std::fs::write(&temp, bytes).expect("write temp");
     std::fs::rename(&temp, path).expect("rename over target");
+}
+
+/// Tracking for tabs that have read their files, which is what having one open
+/// means: the digest the document was loaded from is on record, and a report
+/// carrying those same bytes is not a change (ADR-033 §13).
+///
+/// `FileTracking::untracked()` has no such record, so every report is news to
+/// it, including a late delivery of the write that seeded the file before the
+/// watcher started. That delivery is the platform's business and it happens on
+/// a loaded machine; what a tab does with it is Writ's, and this is the answer
+/// Writ has in production.
+struct TabsThatHaveRead {
+    read: HashMap<String, DiskState>,
+}
+
+impl TabsThatHaveRead {
+    /// Tracking holding `loaded` as what `note_id` read from `path`.
+    ///
+    /// The bytes are passed rather than read back, so the record is the one the
+    /// test states and not whatever the file happens to hold when the harness
+    /// runs. A double that samples the file would suppress a change written
+    /// after it was built, and the test would pass for the wrong reason.
+    fn holding(note_id: &str, path: &Path, loaded: &[u8]) -> FileTracking {
+        let state = DiskState {
+            hash: sha256_bytes(loaded),
+            size: loaded.len() as u64,
+            mtime: std::fs::metadata(path).and_then(|it| it.modified()).ok(),
+        };
+        FileTracking {
+            probe: FileTracking::untracked().probe,
+            files: Arc::new(Self {
+                read: HashMap::from([(note_id.to_string(), state)]),
+            }),
+        }
+    }
+}
+
+impl NoteFiles for TabsThatHaveRead {
+    fn identity_of(&self, _note_id: &str) -> Option<FileIdentity> {
+        None
+    }
+
+    fn note_file_moved(&self, _note_id: &str, _from: &Path, _to: &Path) -> bool {
+        true
+    }
+
+    fn note_file_removed(&self, _note_id: &str, _path: &Path) -> bool {
+        true
+    }
+
+    fn note_file_returned(&self, _note_id: &str, _path: &Path) -> bool {
+        false
+    }
+
+    fn last_disk_state(&self, note_id: &str) -> Option<DiskState> {
+        self.read.get(note_id).copied()
+    }
+
+    fn notes_root(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// Every `BufferExternal` the bus carried within `SETTLE`.
@@ -416,13 +481,12 @@ fn a_note_nobody_has_open_tells_no_tab() {
 
     let (bus, rx) = bus_with_channel();
     let ignore = create_ignore_set();
-    let open_files = start_open_file_watcher(
-        bus.clone(),
-        ignore.clone(),
-        notes.path(),
-        FileTracking::untracked(),
-    )
-    .expect("start the open file watcher");
+    // The tab on open.md has read it, so a delivery of the write that seeded
+    // it carries nothing the tab does not already hold.
+    let tracking = TabsThatHaveRead::holding("note-1", &open, b"x\n");
+    let open_files =
+        start_open_file_watcher(bus.clone(), ignore.clone(), notes.path(), tracking.clone())
+            .expect("start the open file watcher");
     open_files
         .registry()
         .lock()
@@ -434,7 +498,7 @@ fn a_note_nobody_has_open_tells_no_tab() {
         canonical(notes.path()),
         ignore,
         open_files.open_notes(),
-        FileTracking::untracked(),
+        tracking,
     )
     .expect("start the notes watcher");
 
