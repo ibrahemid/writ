@@ -815,3 +815,46 @@ fn a_refused_save_never_spends_an_entry_in_the_watcher_ignore_set() {
         "a save that went through did not stamp the file it wrote"
     );
 }
+
+// The Windows retry and the metadata a save carries are one write path, and a
+// merge is where they come apart: the retry hands its own error back, and the
+// refusals it has to travel through are a type of their own.
+
+#[test]
+fn a_rename_that_ran_out_of_tries_reaches_the_caller_as_an_io_refusal() {
+    use std::io::{Error, ErrorKind};
+    use writ_storage::atomic::{classify_persist_failure, AtomicWriteError};
+
+    // What the last attempt in `persist_replacement` hands back on Windows.
+    // It has to arrive at the caller as the io arm and keep its kind: folded
+    // into `ReadOnly` it would tell the person their file is locked, and the
+    // save-failure table would stop offering a retry that would land.
+    let refusal: AtomicWriteError = classify_persist_failure(Error::from_raw_os_error(32)).into();
+
+    match refusal {
+        AtomicWriteError::Io(io) => assert_eq!(io.kind(), ErrorKind::ResourceBusy),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_save_that_carries_metadata_still_goes_through_the_retrying_rename() {
+    // The rename is `persist_replacement` on every platform now. Reading the
+    // creation date after it, or hanging the attributes on the file rather
+    // than on the replacement, would leave both behind on the temp file the
+    // rename throws away.
+    let dir = TempDir::new().expect("temp dir");
+    let target = dir.path().join("tagged.md");
+    fs::write(&target, b"before").expect("seed note");
+    set_xattr(&target, "com.apple.metadata:_kMDItemUserTags", b"Red");
+
+    writ_storage::atomic::write_atomic(&target, b"after").expect("write");
+
+    assert_eq!(fs::read(&target).expect("read back"), b"after");
+    assert_eq!(
+        read_xattr(&target, "com.apple.metadata:_kMDItemUserTags").as_deref(),
+        Some(&b"Red"[..]),
+        "the rename dropped the file's tags"
+    );
+}
