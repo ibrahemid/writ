@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("../../services/tauri", () => ({
   resolveNoteLink: vi.fn(),
   noteNameCandidates: vi.fn(),
-  newNamedNote: vi.fn(),
+  newNoteFromLink: vi.fn(),
   noteHeadingLine: vi.fn(),
 }));
 
@@ -101,7 +101,7 @@ describe("linkStore resolution cache", () => {
     notesChangedHandler()();
     expect(linkStore.resolutionGeneration()).toBe(before + 1);
 
-    mockedApi.newNamedNote.mockResolvedValue({ id: "b1", source_path: "/n/New.md" } as never);
+    mockedApi.newNoteFromLink.mockResolvedValue({ id: "b1", source_path: "/n/New.md" } as never);
     await linkStore.createNote("New");
     expect(linkStore.resolutionGeneration()).toBe(before + 2);
   });
@@ -122,19 +122,22 @@ describe("linkStore createNote", () => {
       heading_line: null,
     });
     await linkStore.resolveNoteLink(FROM, "New");
-    mockedApi.newNamedNote.mockResolvedValue({
+    mockedApi.newNoteFromLink.mockResolvedValue({
       id: "b1",
       source_path: "/notes/New.md",
     } as never);
 
     const doc = await linkStore.createNote("New");
-    expect(mockedApi.newNamedNote).toHaveBeenCalledWith("New");
+    expect(mockedApi.newNoteFromLink).toHaveBeenCalledWith("New");
+    // The target goes to Rust as written: it decides the folder and the name.
+    await linkStore.createNote("projects/Ideas.md");
+    expect(mockedApi.newNoteFromLink).toHaveBeenCalledWith("projects/Ideas.md");
     expect(doc?.source_path).toBe("/notes/New.md");
     expect(linkStore.knownNoteLink(FROM, "New")).toBeNull();
   });
 
   it("reports a refusal rather than swallowing it", async () => {
-    mockedApi.newNamedNote.mockRejectedValue("A note named \"New.md\" is already there.");
+    mockedApi.newNoteFromLink.mockRejectedValue("A note named \"New.md\" is already there.");
     expect(await linkStore.createNote("New")).toBeNull();
     expect(showToast).toHaveBeenCalledWith(
       "A note named \"New.md\" is already there.",

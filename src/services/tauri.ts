@@ -241,9 +241,14 @@ export async function noteNameCandidates(
   return invoke("note_name_candidates", { query, limit });
 }
 
-/** Creates a note called `name` in the notes folder and opens it. */
-export async function newNamedNote(name: string): Promise<BufferDocument> {
-  return invoke("new_named_note", { name });
+/**
+ * Creates the note a `[[…]]` target names and opens it.
+ *
+ * `target` is the folder-and-name path the link was written with, extension
+ * included; the file name and the folder are minted from it in Rust.
+ */
+export async function newNoteFromLink(target: string): Promise<BufferDocument> {
+  return invoke("new_note_from_link", { target });
 }
 
 /** What a note's file holds, as the backend reports it. */

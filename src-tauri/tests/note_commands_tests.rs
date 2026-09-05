@@ -36,9 +36,9 @@ use writ_tauri_lib::commands::buffer::{
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::commands::note_index::resolve_note_link_inner;
 use writ_tauri_lib::commands::notes::{
-    delete_note_inner, move_notes_folder_to, new_note_inner, new_note_named_inner,
-    note_path_for_id, notes_root_text, path_is_inside_notes, rename_note_inner,
-    rename_note_recording, save_note_copy_inner,
+    delete_note_inner, move_notes_folder_to, new_note_from_link_inner, new_note_inner,
+    new_note_named_inner, note_path_for_id, notes_root_text, path_is_inside_notes,
+    rename_note_inner, rename_note_recording, save_note_copy_inner,
 };
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
@@ -173,18 +173,15 @@ fn a_named_note_written_with_the_extension_gets_one_extension() {
 }
 
 /// The whole round trip the offer makes: the target names no note, the note is
-/// created from the file name the editor sends, and the same target then
-/// resolves to the note that was created.
+/// created from what the editor sends, and the same target then resolves to
+/// the note that was created.
 ///
-/// The second column is what `wikilinkFileName` in `src/lib/wikilink.ts` sends:
-/// the last segment of the target, alias and heading removed, the extension
-/// left on. Removing it there as well as here made `Note.md` out of
-/// `[[Note.markdown.md]]`, a file the link that offered it does not reach.
-///
-/// A target carrying a folder is left out: the note is created in the notes
-/// folder whatever separators the name held
-/// (`a_name_that_reads_like_a_path_stays_one_file_in_the_notes_folder`), so
-/// `[[folder/Ideas]]` still names no note afterwards.
+/// The second column is what `wikilinkTargetPath` in `src/lib/wikilink.ts`
+/// sends: the target's folder and name, alias and heading removed, the
+/// extension left on. Removing the extension there as well as here made
+/// `Note.md` out of `[[Note.markdown.md]]`, a file the link that offered it
+/// does not reach; flattening the folder made `Ideas.md` out of
+/// `[[projects/Ideas]]`, which that target does not reach either.
 #[test]
 fn a_note_created_from_a_link_target_is_what_that_target_resolves_to() {
     let dir = TempDir::new().expect("temp dir");
@@ -197,8 +194,11 @@ fn a_note_created_from_a_link_target_is_what_that_target_resolves_to() {
         ("Note.markdown.md", "Note.markdown.md"),
         ("Log.md#Section", "Log.md"),
         ("Plans|later", "Plans"),
+        ("projects/Ideas", "projects/Ideas"),
+        ("a/b/Deep.md", "a/b/Deep.md"),
+        ("../ideas/Relative", "ideas/Relative"),
     ] {
-        let doc = new_note_named_inner(&state, sent).expect("named note");
+        let doc = new_note_from_link_inner(&state, sent).expect("note from link");
         let created = doc.source_path.expect("the note has no file");
         state
             .notes_index
@@ -220,7 +220,73 @@ fn a_note_created_from_a_link_target_is_what_that_target_resolves_to() {
     }
 }
 
-/// A link target reaches this as typed, so a name that reads like a path must
+/// The folder the target named is where the note goes, and it is created on
+/// the way rather than the note being flattened into the notes folder.
+#[test]
+fn a_link_target_that_names_a_folder_creates_the_note_inside_it() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+
+    let doc = new_note_from_link_inner(&state, "projects/2026/Ideas.md").expect("note from link");
+    let path = std::path::PathBuf::from(doc.source_path.expect("the note has no file"));
+    assert_eq!(
+        path,
+        state
+            .notes_root()
+            .join("projects")
+            .join("2026")
+            .join("Ideas.md")
+    );
+    assert!(path.exists(), "{}", path.display());
+}
+
+/// Anything a target holds that could walk out of the notes folder is gone
+/// before a folder name is built from it, and a segment that survives as
+/// nothing is dropped rather than minted.
+#[test]
+fn a_link_target_cannot_create_a_note_outside_the_notes_folder() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+
+    for target in [
+        "../../escape.md",
+        "/etc/passwd",
+        "a/../../../b/Note.md",
+        ".../Note.md",
+    ] {
+        let doc = new_note_from_link_inner(&state, target).expect("note from link");
+        let path = std::path::PathBuf::from(doc.source_path.expect("the note has no file"));
+        assert!(
+            path.starts_with(state.notes_root()),
+            "{target:?} left the notes folder: {}",
+            path.display()
+        );
+    }
+}
+
+/// The one way a sanitised segment still leaves the folder: something already
+/// standing where it lands. The containment check resolves the deepest part of
+/// the path that exists, so the symlink is followed before it is compared.
+#[cfg(unix)]
+#[test]
+fn a_link_target_is_refused_when_its_folder_is_a_link_out_of_the_notes_folder() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let outside = dir.path().join("outside");
+    std::fs::create_dir_all(&outside).expect("create outside");
+    std::fs::create_dir_all(state.notes_root()).expect("create notes root");
+    std::os::unix::fs::symlink(&outside, state.notes_root().join("projects")).expect("symlink");
+
+    let refusal = new_note_from_link_inner(&state, "projects/Ideas.md")
+        .expect_err("a folder outside the notes folder is refused");
+    assert!(refusal.contains("outside the notes folder"), "{refusal}");
+    assert!(
+        !outside.join("Ideas.md").exists(),
+        "the note was written through the link anyway"
+    );
+}
+
+/// A link target reaches this as typed/// A link target reaches this as typed, so a name that reads like a path must
 /// not become one: the note lands in the notes folder whatever separators the
 /// name carried.
 #[test]

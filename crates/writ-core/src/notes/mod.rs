@@ -372,6 +372,45 @@ pub fn note_file_stem_from_link(target: &str, dated_from: DateTime<Utc>) -> Stri
     note_file_stem(links::strip_note_extension(target.trim()), dated_from)
 }
 
+/// Where the note a link offers to create belongs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoteLocation {
+    /// The folders under the notes folder, outermost first, each already a
+    /// legal folder name. Empty when the target named no folder.
+    pub folder: Vec<String>,
+    /// The file stem, without an extension and never empty.
+    pub stem: String,
+}
+
+/// The folder and the stem a link target earns when its note is created.
+///
+/// A target may name a folder — `[[projects/Ideas]]` — and [`links::resolve`]
+/// requires such a target to match the candidate's own trailing folders, so a
+/// note minted at the notes root answers no such link. The note goes where the
+/// link says instead, and the link resolves as soon as it exists.
+///
+/// `target` is a target that has already been parsed once, the way
+/// [`note_file_stem_from_link`] takes one: the alias and the heading are off
+/// and the extension is still on. The folder is read through
+/// [`links::stored_target`], which drops `.` and `..` the same way resolution
+/// does, and every segment then goes through [`sanitize_title`], so a folder
+/// name is as legal as a file name and a segment nothing survives from is
+/// dropped rather than becoming a folder called nothing.
+pub fn note_location_from_link(target: &str, dated_from: DateTime<Utc>) -> NoteLocation {
+    let parsed = links::stored_target(target);
+    let folder = parsed
+        .folder
+        .as_deref()
+        .unwrap_or_default()
+        .split('/')
+        .filter_map(sanitize_title)
+        .collect();
+    NoteLocation {
+        folder,
+        stem: note_file_stem_from_link(&parsed.name, dated_from),
+    }
+}
+
 /// Finder-style dedupe: `stem`, `stem 2`, `stem 3`, and so on.
 ///
 /// `taken` holds file *names* including their extension, in whatever case and
@@ -565,6 +604,67 @@ mod tests {
         ] {
             let stem = note_file_stem_from_link(sent, moment());
             assert_eq!(stem, links::parse_wikilink(target).name, "target {target}");
+        }
+    }
+
+    // A target that names a folder makes a note in that folder, because a
+    // target carrying a `/` only resolves to a candidate whose own folders
+    // end the same way.
+    #[test]
+    fn a_link_target_that_names_a_folder_mints_the_note_inside_it() {
+        for (sent, folder, stem) in [
+            ("Note", vec![], "Note"),
+            ("projects/Ideas", vec!["projects"], "Ideas"),
+            ("a/b/Note.md", vec!["a", "b"], "Note"),
+            ("../ideas/Note", vec!["ideas"], "Note"),
+            ("./Note", vec![], "Note"),
+            (
+                "projects/Note.markdown.md",
+                vec!["projects"],
+                "Note.markdown",
+            ),
+            // A segment nothing legal survives from is dropped, not minted as
+            // a folder with no name.
+            (".../Note", vec![], "Note"),
+            // Illegal characters go the way they go in a file name.
+            ("pro:jects/Note", vec!["pro jects"], "Note"),
+        ] {
+            let location = note_location_from_link(sent, moment());
+            assert_eq!(location.folder, folder, "target {sent}");
+            assert_eq!(location.stem, stem, "target {sent}");
+        }
+    }
+
+    // The whole point of the folder: the link that offered to create the note
+    // resolves to it once it is there.
+    #[test]
+    fn a_note_minted_from_a_foldered_target_is_what_that_target_resolves_to() {
+        for target in [
+            "projects/Ideas",
+            "projects/Ideas.md",
+            "a/b/Note.md.md",
+            "../ideas/Note",
+        ] {
+            let written = links::parse_wikilink(target);
+            let sent = match &written.folder {
+                Some(folder) => format!("{folder}/{}", written.name),
+                None => written.name.clone(),
+            };
+            let location = note_location_from_link(&sent, moment());
+            let mut path = String::from("/notes");
+            for part in &location.folder {
+                path.push('/');
+                path.push_str(part);
+            }
+            path.push('/');
+            path.push_str(&location.stem);
+            path.push_str(".md");
+
+            assert_eq!(
+                links::resolve(&written, "/notes/From.md", &[path.clone()]),
+                links::Resolution::Resolved(path.clone()),
+                "target {target} minted {path}"
+            );
         }
     }
 

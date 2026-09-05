@@ -200,14 +200,15 @@ async function noteNameCandidates(query: string, limit?: number): Promise<NoteNa
 }
 
 /**
- * Creates a note called `name` and opens it.
+ * Creates the note a `[[…]]` target names and opens it.
  *
- * The name goes to Rust as a title, which sanitises it into a file name, so a
- * link target that reads like a path stays one note in the notes folder.
+ * The target goes to Rust as written, folder and extension included: Rust
+ * sanitises every segment into a legal name, so the note lands where the link
+ * says and the link resolves to it afterwards.
  */
-async function createNote(name: string): Promise<BufferDocument | null> {
+async function createNote(target: string): Promise<BufferDocument | null> {
   try {
-    const doc = await tauri.newNamedNote(name);
+    const doc = await tauri.newNoteFromLink(target);
     // The note now exists, so every link that named it resolves differently.
     drop();
     return doc;

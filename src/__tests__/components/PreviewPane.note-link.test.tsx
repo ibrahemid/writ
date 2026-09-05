@@ -37,7 +37,7 @@ vi.mock("../../services/tauri", () => ({
   resolveNoteLink: mocks.resolveNoteLink,
   noteHeadingLine: mocks.noteHeadingLine,
   noteNameCandidates: vi.fn().mockResolvedValue([]),
-  newNamedNote: vi.fn(),
+  newNoteFromLink: vi.fn(),
   openFile: mocks.openFile,
 }));
 

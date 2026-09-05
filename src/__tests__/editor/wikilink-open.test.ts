@@ -101,8 +101,27 @@ describe("followNoteLink", () => {
     onCreate();
     await Promise.resolve();
     await Promise.resolve();
-    expect(actions.create).toHaveBeenCalledWith("New");
+    expect(actions.create).toHaveBeenCalledWith("folder/New");
     expect(actions.openPath).toHaveBeenCalledWith("/notes/New.md");
+  });
+
+  // A target carrying a folder only resolves to a note whose own folders end
+  // the same way, so the folder is sent with the name and the note is created
+  // inside it.
+  it("sends the folder the target named along with the name", async () => {
+    for (const [target, sent] of [
+      ["projects/Ideas", "projects/Ideas"],
+      ["a/b/Note.md", "a/b/Note.md"],
+      ["../ideas/Note#Section|alias", "ideas/Note"],
+      ["Note", "Note"],
+    ]) {
+      const actions = actionsFor(NOWHERE);
+      await followNoteLink("/notes/From.md", target, actions);
+      vi.mocked(actions.offerCreate).mock.calls[0][1]();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(actions.create, target).toHaveBeenCalledWith(sent);
+    }
   });
 
   // Rust mints the file name from what it is sent and takes one note extension

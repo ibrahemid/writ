@@ -1,4 +1,4 @@
-import { wikilinkFileName, wikilinkName } from "../lib/wikilink";
+import { wikilinkName, wikilinkTargetPath } from "../lib/wikilink";
 
 /** What the index answered about a `[[…]]` target. */
 export interface NoteLinkResolution {
@@ -29,12 +29,13 @@ export interface NoteLinkActions {
   /** Offers to create the note a target names. */
   offerCreate(name: string, onCreate: () => void): void;
   /**
-   * Creates a note from a link's file name, answering its path or null on
-   * failure. The name still carries the extension the link was written with,
-   * because the file name is minted from it and stripping it here as well
-   * would name a file the link does not resolve to.
+   * Creates the note a link target names, answering its path or null on
+   * failure. The target still carries the folder it was written with and the
+   * extension it was written with: the note is created in that folder, and the
+   * one extension that comes off comes off in Rust, so taking either apart
+   * here names a file the link does not resolve to.
    */
-  create(fileName: string): Promise<string | null>;
+  create(target: string): Promise<string | null>;
 }
 
 /**
@@ -66,9 +67,9 @@ export async function followNoteLink(
     return;
   }
   if (name === "") return;
-  const fileName = wikilinkFileName(written);
+  const created = wikilinkTargetPath(written);
   actions.offerCreate(name, () => {
-    void actions.create(fileName).then((path) => {
+    void actions.create(created).then((path) => {
       if (path) actions.openPath(path);
     });
   });

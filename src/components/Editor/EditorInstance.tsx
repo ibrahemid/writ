@@ -166,7 +166,7 @@ export default function EditorInstance(props: Props) {
     },
     showCandidates: showLinkCandidates,
     offerCreate: showMissingNote,
-    create: async (name: string) => (await linkStore.createNote(name))?.source_path ?? null,
+    create: async (target: string) => (await linkStore.createNote(target))?.source_path ?? null,
   };
 
   const wikilinkDeps = {

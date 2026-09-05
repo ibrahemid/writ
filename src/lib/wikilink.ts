@@ -20,17 +20,42 @@ export function wikilinkName(target: string): string {
  * The file name inside a `[[…]]` target: the name with the extension it was
  * written with left on.
  *
- * What `Create note` sends. The extension is the caller's to remove, and Rust
- * removes exactly one of it before minting a file name, so `[[Note.md]]` makes
- * `Note.md` and `[[Note.markdown.md]]` makes `Note.markdown.md`, which is the
- * file the target resolves to. Stripping on both sides made `Note.md` out of
- * the second one, a file the link that offered it does not reach.
+ * The last segment of what `Create note` sends. The extension is the caller's
+ * to remove, and Rust removes exactly one of it before minting a file name, so
+ * `[[Note.md]]` makes `Note.md` and `[[Note.markdown.md]]` makes
+ * `Note.markdown.md`, which is the file the target resolves to. Stripping on
+ * both sides made `Note.md` out of the second one, a file the link that
+ * offered it does not reach.
  */
 export function wikilinkFileName(target: string): string {
+  return splitTarget(target).name;
+}
+
+/**
+ * The folder-and-name path inside a `[[…]]` target, `/`-separated.
+ *
+ * What `Create note` sends. A target carrying a folder only resolves to a note
+ * whose own folders end the same way, so the note is created where the target
+ * says and the folder travels with the name. `.` and `..` are dropped the way
+ * `writ_core::notes::links::stored_target` drops them, and Rust sanitises
+ * every segment before anything is created.
+ */
+export function wikilinkTargetPath(target: string): string {
+  const { folder, name } = splitTarget(target);
+  return [...folder, name].join("/");
+}
+
+/** A target split into the folders written before the name and the name. */
+function splitTarget(target: string): { folder: string[]; name: string } {
   const withoutAlias = target.split("|", 1)[0];
   const withoutHeading = withoutAlias.split("#", 1)[0];
-  const parts = withoutHeading.trim().split(/[\\/]/).filter((part) => part !== "");
-  return (parts.pop() ?? "").trim();
+  const parts = withoutHeading
+    .trim()
+    .split(/[\\/]/)
+    .map((part) => part.trim())
+    .filter((part) => part !== "");
+  const name = parts.pop() ?? "";
+  return { folder: parts.filter((part) => part !== "." && part !== ".."), name };
 }
 
 /** `name` without a trailing note extension. */

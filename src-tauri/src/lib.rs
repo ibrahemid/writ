@@ -489,7 +489,7 @@ pub fn run() {
             commands::buffer::update_tab_order,
             commands::buffer::rename_buffer,
             commands::notes::new_note,
-            commands::notes::new_named_note,
+            commands::notes::new_note_from_link,
             commands::notes::rename_note,
             commands::notes::delete_note,
             commands::notes::save_note_copy,

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { noteLinkHeading, wikilinkFileName, wikilinkName } from "../../lib/wikilink";
+import {
+  noteLinkHeading,
+  wikilinkFileName,
+  wikilinkName,
+  wikilinkTargetPath,
+} from "../../lib/wikilink";
 
 // The Rust side of this split is `writ_core::notes::links::parse_wikilink`.
 // The two have to agree: the name is what `Create note` gives the file, so a
@@ -92,5 +97,30 @@ describe("noteLinkHeading", () => {
 
   it("hands back an escape it cannot decode rather than throwing", () => {
     expect(noteLinkHeading("writ-note:Note.md#%E0%A4%A")).toBe("%E0%A4%A");
+  });
+});
+
+// What `Create note` sends. The folder travels with the name because a target
+// carrying a `/` only resolves to a note whose own folders end the same way;
+// Rust sanitises every segment before anything is created.
+describe("wikilinkTargetPath", () => {
+  it.each([
+    ["Note", "Note"],
+    ["projects/Ideas", "projects/Ideas"],
+    ["a/b/Note.md", "a/b/Note.md"],
+    ["a\\b\\Note", "a/b/Note"],
+    ["../ideas/Note", "ideas/Note"],
+    ["./Note", "Note"],
+    ["projects/Note.markdown.md", "projects/Note.markdown.md"],
+    ["  projects / Ideas.md  ", "projects/Ideas.md"],
+    ["projects/Ideas#Section|alias", "projects/Ideas"],
+  ])("sends %s as %s", (target, sent) => {
+    expect(wikilinkTargetPath(target)).toBe(sent);
+  });
+
+  it("ends with the file name the same split gives", () => {
+    for (const target of ["Note", "a/b/Note.md", "../ideas/Note"]) {
+      expect(wikilinkTargetPath(target).split("/").pop()).toBe(wikilinkFileName(target));
+    }
   });
 });
