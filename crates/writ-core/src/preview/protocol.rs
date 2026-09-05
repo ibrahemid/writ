@@ -860,7 +860,7 @@ mod asset_tests {
         let (_g, notes, note_dir) = fixture();
         let r = resolve(&notes, &note_dir, "/etc/hosts").unwrap();
         assert_eq!(r.url_path, "etc/hosts");
-        assert!(r.path.starts_with(std::fs::canonicalize(&notes).unwrap()));
+        assert!(r.path.starts_with(canonical_root(&notes).unwrap()));
         assert!(!r.path.exists());
     }
 
@@ -899,9 +899,7 @@ mod asset_tests {
         match resolve(&notes, &note_dir, "shots/x.png") {
             Err(RefusalReason::OutsideRoot) => {}
             Ok(reference) => {
-                assert!(reference
-                    .path
-                    .starts_with(std::fs::canonicalize(&notes).unwrap()));
+                assert!(reference.path.starts_with(canonical_root(&notes).unwrap()));
                 assert!(!reference.path.exists());
             }
             other => panic!("unexpected resolution: {other:?}"),
@@ -993,7 +991,7 @@ mod asset_tests {
         };
         assert_eq!(
             resolve_asset(&notes, &elsewhere, through_note_dir).unwrap(),
-            std::fs::canonicalize(elsewhere.join("x.png")).unwrap()
+            strip_unc_prefix(std::fs::canonicalize(elsewhere.join("x.png")).unwrap())
         );
     }
 
