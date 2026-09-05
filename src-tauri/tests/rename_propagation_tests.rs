@@ -418,13 +418,41 @@ fn a_note_reached_through_a_symlink_makes_a_bare_link_ambiguous() {
     assert_eq!(outcome.skipped[0].reason, ERR_LINK_NAME_NOT_UNIQUE);
     assert_eq!(
         outcome.skipped[0].other_path.as_deref(),
-        Some(writ_storage::notes_index::index_key(&real).as_str()),
-        "the note the link could have meant instead is named"
+        Some(path_text(&state, "two/Note.md").as_str()),
+        "the note the link could have meant is named where a person can find it"
     );
     assert_eq!(
         read(&state, "two/Reader.md"),
         "see [[one/Note]] and [[Note]]\n"
     );
+}
+
+/// A link writes a name, and the name a symlink answers to is its own. What it
+/// points at decides which file it is, never which links reach it.
+#[cfg(unix)]
+#[test]
+fn a_symlink_is_a_twin_under_the_name_it_carries() {
+    let outside = TempDir::new().expect("temp dir");
+    let real = outside.path().join("Elsewhere.md");
+    std::fs::write(&real, "the other note\n").expect("write");
+    let (_dir, state) = seeded(&[
+        ("one/Note.md", "one of two\n"),
+        ("two/Reader.md", "see [[Note]]\n"),
+    ]);
+    std::os::unix::fs::symlink(&real, note(&state, "two/Note.md")).expect("symlink");
+
+    let outcome =
+        rename_note_with_links_inner(&state, &path_text(&state, "one/Note.md"), "Renamed", true)
+            .expect("rename");
+
+    assert_eq!(outcome.updated, 0);
+    assert_eq!(outcome.skipped.len(), 1);
+    assert_eq!(outcome.skipped[0].reason, ERR_LINK_NAME_NOT_UNIQUE);
+    assert_eq!(
+        outcome.skipped[0].other_path.as_deref(),
+        Some(path_text(&state, "two/Note.md").as_str())
+    );
+    assert_eq!(read(&state, "two/Reader.md"), "see [[Note]]\n");
 }
 
 /// A symlink pointing at the renamed note is another name for it, not a second

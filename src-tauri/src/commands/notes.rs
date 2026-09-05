@@ -377,6 +377,24 @@ pub fn undo_rename_with_links(
     undo_rename_with_links_inner(&state, &path, &previous_name, &paths)
 }
 
+/// The path a link has to write to reach `file`, spelled the way the index
+/// spells paths.
+///
+/// [`notes_index::index_key`] answers which file this is, and follows a
+/// symlink to answer it. That is the wrong name for a link and the wrong name
+/// to show: the target sits outside the notes folder, under a name no link in
+/// the folder resolves to and no surface in the app displays. So the folder is
+/// canonical and the file keeps the name it carries there.
+fn in_folder_key(file: &Path) -> String {
+    match (file.parent(), file.file_name()) {
+        (Some(parent), Some(name)) => Path::new(&notes_index::index_key(parent))
+            .join(name)
+            .to_string_lossy()
+            .into_owned(),
+        _ => notes_index::index_key(file),
+    }
+}
+
 /// The rename, then the rewrites, then the index.
 ///
 /// The candidate list is read before the file moves, because it is what the
@@ -404,13 +422,18 @@ fn rename_and_propagate(
     // The notes folder is the whole of it, because a link resolves to a note
     // the index holds and the index holds nothing outside that folder — a note
     // renamed from anywhere else has no linking notes to rewrite in the first
-    // place. Keys are canonical, so a symlink pointing at the note being
-    // renamed is that note rather than a second one.
+    // place. Which file each one is is the canonical path's question, so a
+    // symlink pointing at the note being renamed is that note rather than a
+    // second one; what a link writes to reach it is the name it carries in the
+    // folder, and that is what is carried on.
     let unindexed: Vec<String> =
         note_ops::files_named(&state.notes_root(), &links::candidate_name_keys(&from_key))
             .into_iter()
-            .map(|file| notes_index::index_key(&file))
-            .filter(|key| *key != from_key && !candidates.contains(key))
+            .filter(|file| {
+                let key = notes_index::index_key(file);
+                key != from_key && !candidates.contains(&key)
+            })
+            .map(|file| in_folder_key(&file))
             .collect();
     let renamed = rename_note_at(state, from, new_name)?;
     let new_name = writ_core::notes::note_display_name(&path_text(&renamed));
