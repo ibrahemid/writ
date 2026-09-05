@@ -297,6 +297,27 @@ fn a_bare_link_reaching_another_note_of_the_same_name_is_left_alone() {
     assert_eq!(read(&state, "two/Note.md"), "two of two\n");
 }
 
+/// The renamed note is never in the list of notes left unchanged: that list
+/// names the other notes, and a note cannot be left holding a link to itself
+/// under a name it no longer has.
+#[test]
+fn the_renamed_note_is_not_named_among_the_notes_left_unchanged() {
+    let (_dir, state) = seeded(&[("Old note.md", "this is [[Old note]] itself\n")]);
+    // The index says the note links to itself; the file no longer does.
+    std::fs::write(note(&state, "Old note.md"), "nothing links anywhere\n").expect("write");
+
+    let outcome =
+        rename_note_with_links_inner(&state, &path_text(&state, "Old note.md"), "New note", false)
+            .expect("rename");
+
+    assert_eq!(outcome.updated, 0);
+    assert!(
+        outcome.skipped.is_empty(),
+        "the renamed note named itself as left unchanged: {:?}",
+        outcome.skipped
+    );
+}
+
 /// A file the index named that holds no link to rewrite: nothing failed and
 /// nothing was written, and it is named anyway, because from the outside it is
 /// a file left holding its old links.

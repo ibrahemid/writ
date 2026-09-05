@@ -381,7 +381,8 @@ fn rename_and_propagate(
     for file in linking {
         // The renamed note links to itself, and its file is not where it was
         // when the index named it.
-        let file = match notes_index::index_key(&file) == from_key {
+        let is_self = notes_index::index_key(&file) == from_key;
+        let file = match is_self {
             true => renamed.clone(),
             false => file,
         };
@@ -400,7 +401,10 @@ fn rename_and_propagate(
             // like this note but reaches another one, or an index a moment
             // behind the folder. Either way the file was not rewritten, and a
             // file left holding its old links is the one thing this must not
-            // keep to itself.
+            // keep to itself. The renamed note is not one of those files: the
+            // list names the other notes, and naming itself there would put a
+            // note in its own "left unchanged" line.
+            Ok(false) if is_self => {}
             Ok(false) => skipped.push(SkippedFile {
                 path: path_text(&file),
                 reason: ERR_LINK_NOT_FOUND.to_string(),
