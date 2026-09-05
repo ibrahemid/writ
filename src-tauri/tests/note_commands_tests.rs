@@ -35,7 +35,7 @@ use writ_tauri_lib::quit::QuitState;
 use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
 use writ_tauri_lib::state::AppState;
 use writ_tauri_lib::watcher::handler::{create_ignore_set, start_notes_watcher};
-use writ_tauri_lib::watcher::moves::FileTracking;
+use writ_tauri_lib::watcher::moves::{FileTracking, MoveOutcome};
 use writ_tauri_lib::watcher::open_files::start_open_file_watcher;
 
 fn make_state(dir: &TempDir) -> AppState {
@@ -1202,15 +1202,17 @@ fn one_move_seen_by_both_watchers_moves_the_row_once() {
     std::fs::rename(&before, &after).expect("move the file the way Finder does");
 
     let files = FileTracking::of_state(&state).files;
-    assert!(
+    assert_eq!(
         files.note_file_moved(&doc.id, &before, &after),
+        MoveOutcome::Followed,
         "the first watcher to see the move applies it"
     );
     assert_eq!(note_file(&state, &doc.id), after);
     assert_eq!(title_of(&state, &doc.id), "moved-by-finder.md");
 
-    assert!(
-        !files.note_file_moved(&doc.id, &before, &after),
+    assert_eq!(
+        files.note_file_moved(&doc.id, &before, &after),
+        MoveOutcome::AlreadyThere,
         "the second watcher's copy of the same move is not news"
     );
     assert_eq!(note_file(&state, &doc.id), after);

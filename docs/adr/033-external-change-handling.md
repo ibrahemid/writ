@@ -325,7 +325,10 @@ deleted and recreated under the same name does not.
 
 The id is read whenever the tab learns what its file is: when it is given one
 (`follow_note_path`), after every write Writ lands, and on every change a
-watcher reports to it. The last of those is the one that matters most. A
+watcher reports that finds a file at the path. A report that the path is empty
+reads nothing — there is nothing there to read — and the removal waits for a
+delivery that might answer it (decision 14) rather than retiring the id the tab
+is still holding. The sighting is the one that matters most. A
 save-through-replace — a temporary file renamed over the target, which is how
 vim, VS Code, git, rsync and every sync client write — leaves the path holding a
 different file, and a tab still carrying the id from open would read its own
@@ -388,16 +391,30 @@ hands a freed one straight back to the next file created, so a note deleted and
 an unrelated note created in the same watcher window can carry one `dev` and
 `ino`, and the id alone then says the deletion was a move onto somebody else's
 file — the tab follows it and the next save writes over it. APFS does not reuse
-numbers, which is why the case reached CI rather than a laptop. The id therefore
-carries a third field: the file's birth time in nanoseconds, `btime` through
-`statx` on Linux and `birthtime` elsewhere. A rename leaves it alone, which is
-what `ctime` does not, so it separates a recreated file from the original
-without weakening the move detection the id exists for. Two known birth times
-must agree; a volume that reports none — ext3, ext4 formatted with 128-byte
-inodes — answers `None` for every file on it and the inode is then the whole of
-the answer, exactly as before. `is_same_file` holds that rule, and `==` stays
-exact-value equality because `identity_to_keep` compares two records of one read
-and wants nothing looser.
+numbers, which is why the case reached CI rather than a laptop. NTFS reuses a
+file id the same way once the file holding it is deleted, so Windows is the same
+hazard with different field names and not an exception to it. Every id therefore
+carries the file's birth time in nanoseconds as well. A rename leaves it alone,
+which is what `ctime` does not, so it separates a recreated file from the
+original without weakening the move detection the id exists for. Two known birth
+times must agree; a volume that reports none answers `None` for every file on it
+and the id is then the whole of the answer, exactly as before. `is_same_file`
+holds that rule for both platforms, and `==` stays exact-value equality because
+`identity_to_keep` compares two records of one read and wants nothing looser.
+
+What each platform carries, and where the time comes from:
+
+| Platform | Id | Birth time | `None` when |
+|---|---|---|---|
+| Unix | `dev`, `ino` from `metadata` | `btime` through `statx` on Linux 4.11+ ext4/xfs/btrfs, `birthtime` on APFS and the BSDs | ext3, ext4 formatted with 128-byte inodes, a kernel too old to report it |
+| Windows | `VolumeSerialNumber`, `FileId` from `FILE_ID_INFO` | `Metadata::created()` on the handle already open for the id, which is `GetFileInformationByHandle`'s creation time | a driver that answers the id and not the time, which is what some shares do |
+| Neither | a description of the file, which is not an id | — | always |
+
+Both read the time from the metadata the id was read from, so the pair
+describes one moment rather than two. The tests that prove the rule build the
+identities by hand on both platforms rather than reading them from the host,
+because whether a filesystem reuses ids is the host's business and the rule has
+to hold on all of them.
 
 The birth time is the whole of the fix and not more than it. Linux stamps a new
 file from the coarse clock, so two files created inside one tick share a birth
@@ -408,10 +425,7 @@ renamed over the target and the sibling was created while the original still
 held its inode. What was rejected was corroborating the id with a content
 digest: it answers the wrong question, since two notes holding the same text
 corroborate each other, and it would cost a read of every candidate on a share
-for a question the id already answers. The tests that prove the rule build the
-identities by hand rather than reading them from the host, because whether a
-filesystem reuses inode numbers is the host's business and the rule has to hold
-on all of them.
+for a question the id already answers.
 
 A volume with no id to give — FAT, exFAT, some SMB servers — gets a description
 of the file instead, which cannot recognise it anywhere else. That is
@@ -449,6 +463,16 @@ row, its title and its index rows go to the new path through
 `store.rename_to_file`, and the folder watch is re-armed through decision 9's
 single arming point. Putting a move through the dirty gate would offer to
 discard unsaved text over a rename.
+
+A move that could not be applied is not silence. The row can fail to follow — a
+lock nothing holds any more, a row that would not read, a rename the store
+refused, a destination no string can spell — and the tab then names a path its
+file is not at. What is still true about that path is the removal, so that is
+what the tab hears: it keeps its text and stops writing, rather than saving over
+whatever turns up at the old path later. `MoveOutcome` is what carries the
+difference, because the one case that hears nothing looks identical from a bare
+`false` — a tab already on the destination, which is one move seen by both
+watchers and told by the first.
 
 A removal is not a save. The tab keeps its text, is marked, and no keystroke
 writes it back: the backend refuses that write under `ERR_FILE_REMOVED_ON_DISK`
@@ -535,7 +559,12 @@ it back.
 **Resolving comes before expiry, and an answer is the batch's one message for
 that note.** A delivery that answers a removal makes it a move however long it
 waited, and the events in that same delivery must not send the note a second
-message (decision 8's per-batch rule).
+message (decision 8's per-batch rule). The delivery carrying the second half of
+a rename names the old path too, and that path on its own reads as a file that
+went, so each answer's note goes into the delivery's `told` set before any of
+its own events are read. The sighting record of decision 11 would usually drop
+that second look as well, but the two guards are separate and the per-delivery
+rule holds without it.
 
 The thread waits on the deadline as well as on the next event, so a held removal
 is announced on its own schedule instead of when some unrelated change happens to

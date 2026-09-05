@@ -20,7 +20,7 @@ use writ_core::notes::identity::FileIdentity;
 use writ_core::watcher::ignore::DEFAULT_IGNORE_TTL;
 use writ_tauri_lib::security::resolve_for_containment;
 use writ_tauri_lib::watcher::handler::{create_ignore_set, start_notes_watcher};
-use writ_tauri_lib::watcher::moves::{FileTracking, NoteFiles};
+use writ_tauri_lib::watcher::moves::{FileTracking, MoveOutcome, NoteFiles};
 use writ_tauri_lib::watcher::open_files::{
     start_open_file_watcher, NoOpenNotes, WatchOutcome, WatcherKind,
 };
@@ -94,8 +94,8 @@ impl NoteFiles for TabsThatHaveRead {
         None
     }
 
-    fn note_file_moved(&self, _note_id: &str, _from: &Path, _to: &Path) -> bool {
-        true
+    fn note_file_moved(&self, _note_id: &str, _from: &Path, _to: &Path) -> MoveOutcome {
+        MoveOutcome::Followed
     }
 
     fn note_file_removed(&self, _note_id: &str, _path: &Path) -> bool {

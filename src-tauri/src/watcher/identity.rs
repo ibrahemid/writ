@@ -6,7 +6,10 @@
 //!
 //! Unix answers with `dev` and `ino`, which `std` exposes on every metadata
 //! read. Windows answers with `FILE_ID_INFO`, which needs an open handle and
-//! is not available on FAT, exFAT, or some SMB servers. A volume that will not
+//! is not available on FAT, exFAT, or some SMB servers. Both carry the file's
+//! birth time alongside: both filesystems hand a freed id back out to the next
+//! file created, and the id on its own would then read a stranger's file as
+//! the note's. A volume that will not
 //! answer gets [`FileIdentity::Fallback`], a description that cannot recognise
 //! the file anywhere else, which is exactly what makes the verdict degrade
 //! instead of guessing (spec W4).
@@ -72,7 +75,8 @@ fn fallback_identity(path: &Path) -> Option<FileIdentity> {
 /// where the filesystem does not say.
 ///
 /// `statx` reports `btime` on ext4, xfs and btrfs from Linux 4.11, and every
-/// APFS and NTFS file has one. Nanoseconds rather than milliseconds because
+/// APFS and NTFS file has one, which is where the Windows probe reads it
+/// from. Nanoseconds rather than milliseconds because
 /// the value's whole job is to separate two files, and rounding it discards
 /// the separation. A birth time before the Unix epoch reads as unknown, which
 /// costs nothing: no note is older than the epoch, and a volume answering that
@@ -102,7 +106,8 @@ fn platform_identity(path: &Path) -> Option<FileIdentity> {
     })
 }
 
-/// Windows: `FILE_ID_INFO`, which needs a handle on the file.
+/// Windows: `FILE_ID_INFO`, which needs a handle on the file, and the creation
+/// time that says which file is holding that id.
 ///
 /// `std`'s `file_index` is the older 64-bit id and is still unstable, so the
 /// call is made directly. `File::open` is not what opens it: that asks for read
@@ -136,7 +141,8 @@ fn platform_identity(path: &Path) -> Option<FileIdentity> {
         .custom_flags(BACKUP_SEMANTICS)
         .open(path)
         .ok()?;
-    if !file.metadata().ok()?.is_file() {
+    let metadata = file.metadata().ok()?;
+    if !metadata.is_file() {
         return None;
     }
     let handle = HANDLE(file.as_raw_handle());
@@ -155,6 +161,7 @@ fn platform_identity(path: &Path) -> Option<FileIdentity> {
     Some(FileIdentity::Windows {
         volume: info.VolumeSerialNumber,
         index: u128::from_le_bytes(info.FileId.Identifier),
+        birth_ns: birth_nanos(&metadata),
     })
 }
 
@@ -289,6 +296,66 @@ mod tests {
             classify_delete(&before, &[(PathBuf::from("/notes/renamed.md"), candidate)]),
             DeleteVerdict::Moved(PathBuf::from("/notes/renamed.md"))
         );
+    }
+
+    #[test]
+    fn a_windows_file_id_handed_back_out_is_not_the_file_that_had_it() {
+        // NTFS reuses a file id once the file holding it is gone, so the id
+        // read from an unrelated new file can equal the one on record. Built
+        // by hand for the same reason the inode pair above is: the rule has to
+        // hold whatever the host this runs on happens to do.
+        let before = FileIdentity::Windows {
+            volume: 0x1234_5678,
+            index: 0x0000_0000_0000_0002_0000_0000_0001_0f2c,
+            birth_ns: Some(1_700_000_000_000_000_000),
+        };
+        let recreated = FileIdentity::Windows {
+            volume: 0x1234_5678,
+            index: 0x0000_0000_0000_0002_0000_0000_0001_0f2c,
+            birth_ns: Some(1_700_000_000_004_000_000),
+        };
+        assert_eq!(
+            classify_delete(
+                &before,
+                &[(PathBuf::from(r"C:\notes\unrelated.md"), recreated)]
+            ),
+            DeleteVerdict::Removed
+        );
+    }
+
+    #[test]
+    fn a_windows_file_id_with_no_creation_time_to_read_still_finds_its_file() {
+        // A volume that answers the file id and nothing else leaves the id as
+        // the whole of the answer, exactly as it was before the time was read.
+        let before = FileIdentity::Windows {
+            volume: 0x1234_5678,
+            index: 0x0000_0000_0000_0002_0000_0000_0001_0f2c,
+            birth_ns: None,
+        };
+        let candidate = FileIdentity::Windows {
+            volume: 0x1234_5678,
+            index: 0x0000_0000_0000_0002_0000_0000_0001_0f2c,
+            birth_ns: None,
+        };
+        assert_eq!(
+            classify_delete(
+                &before,
+                &[(PathBuf::from(r"C:\notes\renamed.md"), candidate)]
+            ),
+            DeleteVerdict::Moved(PathBuf::from(r"C:\notes\renamed.md"))
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn windows_answers_with_the_file_id() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("note.md");
+        std::fs::write(&path, "body").expect("write");
+        assert!(matches!(
+            read_identity(&path),
+            Some(FileIdentity::Windows { .. })
+        ));
     }
 
     #[test]
