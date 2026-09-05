@@ -601,9 +601,26 @@ does for every removal it sees.
 
 **The record is left alone until the announcement.** A tab is marked off its file
 when it is told, not when the path is first found empty, so a removal that turns
-out to be a move never marks anything. A file back at its own path before the
-deadline stops the wait rather than being announced behind the delivery that put
-it back.
+out to be a move never marks anything. The same file back at its own path before
+the deadline stops the wait rather than being announced behind the delivery that
+put it back — the same file, read by its id: something else at the path is a
+stranger, and a save that landed there is a new file too, so neither ends the
+wait. Asking whether anything is at the path would end it for both, and for
+Writ's own write it would end it on an event the ignore set has already dropped.
+
+**Nothing writes to a held path.** Leaving the record alone is what makes the
+hold work and is also what leaves nothing in it for a write to trip over, so the
+write asks directly: a save for a note with a removal held waits for the answer,
+and then lands at the new path a move has already moved the row to, or is
+refused under `ERR_FILE_REMOVED_ON_DISK` exactly as a save after any
+announcement. Without the wait a save inside the hold recreates the file its
+person deleted, and against a rename it puts a second file at the emptied path
+and cancels the hold, so the move is never announced at all. `RemovalHolds` in
+`writ-core` holds that contract — the answers, the deadline a wait is bounded
+by, and the rule that an answer is published only once the record agrees with it
+— and the watcher publishes each answer at the moment it has applied it. A
+waiter released any earlier reads the old path out of the row and writes there,
+which is the failure it exists to stop.
 
 **Resolving comes before expiry, and an answer is the batch's one message for
 that note.** A delivery that answers a removal makes it a move however long it
@@ -619,7 +636,9 @@ The thread waits on the deadline as well as on the next event, so a held removal
 is announced on its own schedule instead of when some unrelated change happens to
 arrive. `PendingRemovals` in `writ-core` holds the state machine — hold, resolve,
 expire — and the watchers supply the one fact it reads: what the filesystem calls
-each candidate.
+each candidate. Every watcher in the process publishes its holds into one
+`RemovalHolds`, because a save asks about a note and not about a watcher, and
+two watchers holding one note are answered on the later of the two deadlines.
 
 ## Consequences
 
@@ -655,9 +674,16 @@ each candidate.
   at the file again by opening it.
 - The halves do not have to arrive in the same delivered window, which is what
   decision 14 buys, and the price is that a deletion reaches the tab a hold
-  window after the file went. A tab that would refuse a save is refusing it a
-  second later than the file went away; the save guard reads the file itself, so
-  what a save does in that second is unchanged.
+  window after the file went. A save landing in that window waits for the hold
+  to be answered before it writes anything, so the price is paid in latency on
+  a save that hits it and never in a file: at most one hold window and the
+  window the answer is delivered on, once, for a note whose file has just gone.
+- Another program deleting the note's file and writing a new one at the same
+  path, which is how some sync clients land an update, is a removal to the tab
+  once the hold passes. The file the tab holds is gone, and the path alone
+  cannot separate that from a save Writ let through or from a stranger's file,
+  so the tab keeps its text and stops writing rather than binding itself to a
+  file it never opened. Opening the file again puts the tab back on it.
 - A watcher with no application behind it (`FileTracking::untracked()`) has no
   digest on record for any tab, so decision 13 cannot answer for it and every
   late delivery is reported. That is right for what it is — nothing has read
