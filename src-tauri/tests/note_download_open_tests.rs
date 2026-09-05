@@ -121,6 +121,11 @@ fn opening_a_note_that_is_not_downloaded_reads_nothing_and_names_the_state() {
         panic!("expected the not-downloaded mode, got {:?}", result.mode);
     };
     assert_eq!(path, &canonical);
+    assert_eq!(
+        state.authorized_paths.pending_open_len(),
+        0,
+        "a note the notes folder already covers gets no token out of this"
+    );
 }
 
 #[test]
@@ -156,9 +161,8 @@ fn a_second_look_at_a_note_that_is_still_away_leaves_one_token() {
     let canonical = canonicalize_for_authorization(&note).unwrap();
     state.authorized_paths.record_for_open(canonical.clone());
 
-    // Every open of a note that is not here spends the token it was given and
-    // records the one the next open needs, so asking again neither loses the
-    // authorization nor stacks a second one up.
+    // An open that answers with no note leaves the token where it was, so
+    // asking again neither loses the authorization nor stacks a second one up.
     let _marked = mark(&canonical);
     for _ in 0..3 {
         let result = open_file_from_path(&state, &canonical).expect("open");
