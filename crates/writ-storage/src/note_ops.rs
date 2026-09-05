@@ -14,6 +14,7 @@
 use std::path::{Path, PathBuf};
 
 use writ_core::notes::guard::{decide_save, is_not_downloaded, DiskState, SaveDecision};
+use writ_core::notes::line_ending::LineEnding;
 
 use crate::buffer_store::{
     dataless_flags, read_disk_state, taken_names, write_guarded_by_stamp, BeforeWrite,
@@ -94,6 +95,9 @@ fn write_new_note(
             folder: notes_root.to_path_buf(),
         });
     }
+    // A file that does not exist yet has no convention to keep, so a note Writ
+    // mints is LF whatever the text handed in carries.
+    let content = LineEnding::Lf.apply(content);
     write_guarded_by_stamp(&path, content.as_bytes(), before_write)?;
     Ok(path)
 }
@@ -170,9 +174,10 @@ pub fn rename_note(
 
     let on_disk = read_disk_state(from)?;
     // The rename carries no text of its own, so there is no incoming hash to
-    // compare against. Passing the last known digest as the incoming one makes
-    // `AlreadyIdentical` unreachable and leaves the two answers that matter:
-    // the file is as Writ last saw it, or it is not.
+    // compare against; the last known digest stands in for it. Only one answer
+    // is read here — whether the guard refuses — so it does not matter which
+    // of the two permissive answers a file Writ last saw unchanged comes back
+    // with.
     if let (Some(last_known), Some(state)) = (last_known, on_disk) {
         if decide_save(Some(&last_known), Some(&state), last_known.hash) == SaveDecision::Refuse {
             return Err(StorageError::SourceChangedOnDisk {

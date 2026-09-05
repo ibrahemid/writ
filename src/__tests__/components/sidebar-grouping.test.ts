@@ -23,6 +23,7 @@ function mk(over: Partial<BufferDocument>): BufferDocument {
     closed_at: over.closed_at ?? null,
     read_only: over.read_only ?? false,
     size_bytes: over.size_bytes ?? 0,
+    line_ending: "lf",
   };
 }
 

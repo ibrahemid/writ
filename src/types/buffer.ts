@@ -1,3 +1,5 @@
+export type LineEnding = "lf" | "crlf";
+
 export interface BufferDocument {
   id: string;
   title: string;
@@ -13,6 +15,9 @@ export interface BufferDocument {
   closed_at: string | null;
   read_only: boolean;
   size_bytes: number;
+  // The line ending the file on disk uses. The editor works in LF whatever the
+  // file holds; the backend re-applies this before it writes.
+  line_ending: LineEnding;
 }
 
 export type FileOpenMode =

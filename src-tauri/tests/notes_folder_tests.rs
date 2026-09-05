@@ -113,6 +113,7 @@ fn seed_row(state: &AppState, id: &str, source_path: Option<&str>) {
         closed_at: None,
         read_only: false,
         size_bytes: 0,
+        line_ending: writ_core::notes::line_ending::LineEnding::Lf,
     };
     let store = state.store.lock().expect("lock");
     store.open_from_path(&doc, "").expect("insert row");

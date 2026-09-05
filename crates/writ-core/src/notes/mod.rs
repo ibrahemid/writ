@@ -11,6 +11,8 @@
 pub mod facts;
 /// The write guard: whether a save may land on the file it is aimed at.
 pub mod guard;
+/// Which line ending a file uses, and how to keep it across a save.
+pub mod line_ending;
 /// Link syntax and link resolution (ADR-034).
 pub mod links;
 /// The sentence a link sits in, for the backlink list.

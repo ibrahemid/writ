@@ -8,11 +8,12 @@ use tracing::warn;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::hash::Sha256Digest;
 use writ_core::notes::guard::{decide_save, is_not_downloaded, DiskState, SaveDecision};
+use writ_core::notes::line_ending::LineEnding;
 use writ_core::recovery::{
     fingerprint_buffers, should_snapshot, RecoveredBuffer, SnapshotFingerprint,
 };
 
-use crate::atomic::write_atomic;
+use crate::atomic::{write_atomic, AtomicWriteError};
 use crate::database::queries;
 use crate::errors::{StorageError, StorageResult};
 use crate::maintenance::{self, DatabaseStats, MaintenanceOutcome};
@@ -624,6 +625,13 @@ impl BufferStore {
             return Err(StorageError::SourceNotDownloaded { path: source_path });
         }
 
+        // The file's own line ending goes back on before anything is hashed,
+        // so the digest compared against the disk is a digest of the bytes
+        // that will land there. Hashing the editor's LF text instead would
+        // make every save of an untouched Windows note look like a change.
+        let content = doc.line_ending.apply(content);
+        let content = content.as_ref();
+
         let incoming = writ_core::hash::sha256_bytes(content.as_bytes());
         let on_disk = read_disk_state(path)?;
         let decision = decide_save(last_known.as_ref(), on_disk.as_ref(), incoming);
@@ -713,6 +721,12 @@ impl BufferStore {
             .clone();
         let path = Path::new(&source_path);
 
+        // No line-ending encode here. The snapshot holds what the file held,
+        // read byte for byte, so it already carries the file's own endings.
+        // Re-encoding would settle a file whose endings are mixed onto its
+        // majority, and the hash below would then read that as the file having
+        // moved on and set the text aside beside a note nobody changed.
+
         let flags = match dataless {
             Some(probe) => probe(path),
             None => dataless_flags(path),
@@ -760,6 +774,16 @@ impl BufferStore {
             incoming,
             content.len() as u64,
         )))
+    }
+
+    /// Records the line ending read off the note's file.
+    ///
+    /// Called wherever a note's bytes are read: the open, the reopen of a
+    /// closed tab, and the reload of one already open. A file that gained or
+    /// lost its carriage returns outside Writ is followed rather than
+    /// overruled, because the next save has to write what the file holds now.
+    pub fn set_line_ending(&self, id: &str, ending: LineEnding) -> StorageResult<()> {
+        queries::update_line_ending(&self.conn, id, ending)
     }
 
     /// Updates the detected or user-assigned language for a buffer.
@@ -1094,21 +1118,50 @@ fn write_beside(
     Ok(target)
 }
 
-/// Stamps then writes, in that order.
+/// Refuses, stamps, then writes, in that order.
 ///
 /// Every write this crate performs goes through here, because a write the
 /// caller has not been told about first is a write its watcher reads as
 /// somebody else's edit. [`write_atomic`] has this one call site so that no
 /// future write can skip the stamp by reaching past it.
+///
+/// The destination is asked whether it can be replaced before the stamp
+/// rather than after: an ignore entry for a write that never happens is one
+/// the watcher spends on the next real change carrying those bytes.
+/// [`write_atomic`] asks again, so a caller reaching for it directly is
+/// covered too.
 pub(crate) fn write_guarded_by_stamp(
     target: &Path,
     bytes: &[u8],
     before_write: BeforeWrite<'_>,
-) -> std::io::Result<()> {
+) -> StorageResult<()> {
+    crate::atomic::refuse_unreplaceable_destination(target)
+        .map_err(|e| refusal_as_storage_error(target, e))?;
     if let Some(stamp) = before_write {
         stamp(target, bytes);
     }
-    write_atomic(target, bytes)
+    write_atomic(target, bytes).map_err(|e| refusal_as_storage_error(target, e))
+}
+
+/// Names the file a refused write was aimed at.
+///
+/// [`AtomicWriteError`] knows what it found and nothing about where; the
+/// error the editor reads has to carry the path, because it is what the
+/// message names.
+fn refusal_as_storage_error(target: &Path, error: AtomicWriteError) -> StorageError {
+    match error {
+        AtomicWriteError::HardLinked { links } => StorageError::HardLinkedDestination {
+            path: target.display().to_string(),
+            links,
+        },
+        AtomicWriteError::ReadOnly => StorageError::DestinationReadOnly {
+            path: target.display().to_string(),
+        },
+        AtomicWriteError::FolderNotWritable => StorageError::DestinationFolderNotWritable {
+            path: target.display().to_string(),
+        },
+        AtomicWriteError::Io(e) => StorageError::Io(e),
+    }
 }
 
 fn read_source_text(doc: &BufferDocument) -> String {

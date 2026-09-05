@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::notes::line_ending::LineEnding;
+
 /// Lifecycle state of a buffer.
 ///
 /// A buffer is either `Active` (visible in the tab strip) or `History`
@@ -56,4 +58,13 @@ pub struct BufferDocument {
     /// large-file mode tier on tab-switch without a second `stat` call.
     #[serde(default)]
     pub size_bytes: u64,
+    /// The line ending the source file uses, read from its bytes when the file
+    /// was first read.
+    ///
+    /// The editor works in LF whatever the file holds, so this is what a save
+    /// re-applies before the bytes are hashed and written. Rows written before
+    /// it existed, and every note Writ creates, are
+    /// [`LineEnding::Lf`](crate::notes::line_ending::LineEnding::Lf).
+    #[serde(default)]
+    pub line_ending: LineEnding,
 }

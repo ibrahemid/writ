@@ -29,6 +29,25 @@ fn unchanged_disk_proceeds() {
 }
 
 #[test]
+fn a_save_of_the_text_the_file_already_holds_writes_nothing() {
+    // Cmd+S with nothing typed. The file is as Writ last read it and the
+    // editor is handing back the same text, so there is no reason to replace
+    // it: the write would move the modification time and swap the inode, and
+    // a sync client reads that as an edit and uploads the file.
+    let last_known = state_of("what Writ last read");
+    let on_disk = state_of("what Writ last read");
+
+    assert_eq!(
+        decide_save(
+            Some(&last_known),
+            Some(&on_disk),
+            sha256_bytes(b"what Writ last read")
+        ),
+        SaveDecision::AlreadyIdentical
+    );
+}
+
+#[test]
 fn missing_file_proceeds() {
     let last_known = state_of("what Writ last read");
 
