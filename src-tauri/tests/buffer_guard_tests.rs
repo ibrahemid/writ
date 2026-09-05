@@ -18,8 +18,8 @@ use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::buffer::{
     decide_create_buffer, read_buffer_content_inner, save_buffer_content_inner,
-    save_failure_message, CreateDecision, ERR_FILE_CHANGED_ON_DISK, ERR_FILE_NOT_DOWNLOADED,
-    ERR_WRITE_FAILED,
+    save_failure_message, CreateDecision, ERR_FILE_CHANGED_ON_DISK, ERR_FILE_IN_USE,
+    ERR_FILE_NOT_DOWNLOADED, ERR_WRITE_FAILED,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::preview::handler::RenderCache;
@@ -254,6 +254,20 @@ fn a_stopped_save_comes_back_under_a_stable_code() {
     };
     let message = save_failure_message(&waiting);
     assert!(message.starts_with(ERR_FILE_NOT_DOWNLOADED), "{message}");
+}
+
+#[test]
+fn a_save_stopped_by_another_program_says_so_rather_than_denying_permission() {
+    // What Windows hands back once the retries in writ_storage::atomic run
+    // out: the rename was refused because somebody else has the file open,
+    // and "you do not have permission to change this file" would send the
+    // person looking at the wrong thing.
+    let busy = writ_storage::errors::StorageError::Io(std::io::Error::new(
+        std::io::ErrorKind::ResourceBusy,
+        std::io::Error::from_raw_os_error(5),
+    ));
+    let message = save_failure_message(&busy);
+    assert!(message.starts_with(ERR_FILE_IN_USE), "{message}");
 }
 
 #[test]

@@ -5,6 +5,7 @@ const ERR_FILE_CHANGED_ON_DISK = "ERR_FILE_CHANGED_ON_DISK";
 const ERR_FILE_NOT_DOWNLOADED = "ERR_FILE_NOT_DOWNLOADED";
 const ERR_NOTE_READ_ONLY = "ERR_NOTE_READ_ONLY";
 const ERR_PERMISSION_DENIED = "ERR_PERMISSION_DENIED";
+const ERR_FILE_IN_USE = "ERR_FILE_IN_USE";
 const ERR_FILE_MISSING = "ERR_FILE_MISSING";
 const ERR_WRITE_TIMED_OUT = "ERR_WRITE_TIMED_OUT";
 const ERR_WRITE_FAILED = "ERR_WRITE_FAILED";
@@ -17,6 +18,7 @@ const CODE_MESSAGES: Record<string, string> = {
     "this file has not finished downloading, so your changes were not saved yet.",
   [ERR_NOTE_READ_ONLY]: "this file opened read-only, so it cannot be written to.",
   [ERR_PERMISSION_DENIED]: "you do not have permission to change this file.",
+  [ERR_FILE_IN_USE]: "another program has the file open.",
   [ERR_FILE_MISSING]: "the folder this file was in is no longer there.",
   [ERR_WRITE_TIMED_OUT]: "the disk stopped responding. Check that the drive is still connected.",
   [ERR_WRITE_FAILED]: "the disk would not take the write.",

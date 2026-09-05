@@ -31,6 +31,10 @@ pub const ERR_NOTE_READ_ONLY: &str = "ERR_NOTE_READ_ONLY";
 /// Code a save carries when the filesystem refused the write.
 pub const ERR_PERMISSION_DENIED: &str = "ERR_PERMISSION_DENIED";
 
+/// Code a save carries when another program is holding the file open, which
+/// on Windows stops the rename a save ends with.
+pub const ERR_FILE_IN_USE: &str = "ERR_FILE_IN_USE";
+
 /// Code a save carries when the file, or the folder above it, is gone.
 pub const ERR_FILE_MISSING: &str = "ERR_FILE_MISSING";
 
@@ -70,6 +74,7 @@ pub fn save_failure_message(error: &StorageError) -> String {
 fn io_failure_code(kind: std::io::ErrorKind) -> &'static str {
     match kind {
         std::io::ErrorKind::PermissionDenied => ERR_PERMISSION_DENIED,
+        std::io::ErrorKind::ResourceBusy => ERR_FILE_IN_USE,
         std::io::ErrorKind::NotFound => ERR_FILE_MISSING,
         std::io::ErrorKind::TimedOut => ERR_WRITE_TIMED_OUT,
         _ => ERR_WRITE_FAILED,
