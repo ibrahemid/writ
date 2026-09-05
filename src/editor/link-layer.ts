@@ -1,5 +1,6 @@
 import {
   EditorState,
+  Prec,
   StateEffect,
   StateField,
   type Extension,
@@ -47,7 +48,7 @@ export interface LinkDeps {
    * wikilink and nothing about what one resolves to, which is why this is
    * injected rather than read from a store.
    */
-  openNoteLink?(target: string): void;
+  openNoteLink?(target: string): boolean;
 }
 
 // Anchored on a known scheme and length-bounded so a pathological line cannot
@@ -289,19 +290,23 @@ export function linkLayer(deps: LinkDeps): Extension {
   return [
     modifierField,
     linkPlugin,
-    // Below the completion panel's own Enter, which is registered at the
-    // highest precedence, so accepting a name from the `[[` list still wins.
-    keymap.of([
-      {
-        key: "Enter",
-        run: (view) => {
-          const target = wikilinkAtCursor(view.state);
-          if (target === null || !deps.openNoteLink) return false;
-          deps.openNoteLink(target);
-          return true;
+    // Above the newline binding, which claims every Enter, and below the
+    // completion panel's own Enter, registered at the highest precedence, so
+    // accepting a name from the `[[` list still wins. Handing the keystroke
+    // back is what keeps Enter a line break in a note the link cannot be
+    // followed from.
+    Prec.high(
+      keymap.of([
+        {
+          key: "Enter",
+          run: (view) => {
+            const target = wikilinkAtCursor(view.state);
+            if (target === null || !deps.openNoteLink) return false;
+            return deps.openNoteLink(target);
+          },
         },
-      },
-    ]),
+      ]),
+    ),
     EditorView.editorAttributes.compute([modifierField], (state) =>
       state.field(modifierField, false)
         ? { class: "writ-link-active" }

@@ -143,8 +143,11 @@ export default function EditorInstance(props: Props) {
     // the index first. The decision itself is `followNoteLink`.
     openNoteLink: (raw: string) => {
       const source = props.buffer.source_path;
-      if (!source) return;
+      // A note with no file has nothing to resolve a target against, so the
+      // keystroke goes back to the editor and stays a line break.
+      if (!source) return false;
       void followNoteLink(source, raw, noteLinkActions);
+      return true;
     },
   };
 

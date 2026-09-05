@@ -103,6 +103,7 @@ describe("a modifier click on a wikilink", () => {
       openWorkspaceFile: vi.fn(),
       openNoteLink: (target) => {
         void followNoteLink("/notes/From.md", target, actions);
+        return true;
       },
     };
     const view = new EditorView({

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EditorState } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorView, keymap } from "@codemirror/view";
+import { defaultKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import {
   findLinkTargets,
@@ -259,7 +260,11 @@ describe("linkLayer", () => {
   };
 
   function mount(doc: string, extensions: unknown[] = []) {
-    deps = { openUrl: vi.fn(), openWorkspaceFile: vi.fn(), openNoteLink: vi.fn() };
+    deps = {
+      openUrl: vi.fn(),
+      openWorkspaceFile: vi.fn(),
+      openNoteLink: vi.fn().mockReturnValue(true),
+    };
     const state = EditorState.create({
       doc,
       extensions: [
@@ -403,18 +408,36 @@ describe("linkLayer", () => {
     return event;
   }
 
+  // The newline binding claims every Enter and is mounted with the rest of the
+  // editor's keys, so the test carries it too: without the precedence the link
+  // key never runs.
+  const withNewline = [markdown({ base: markdownLanguage }), keymap.of(defaultKeymap)];
+
   it("opens the note the caret is inside on Enter", () => {
-    mount("see [[Grocery list]] now", [markdown({ base: markdownLanguage })]);
+    mount("see [[Grocery list]] now", withNewline);
     view.dispatch({ selection: { anchor: 10 } });
     expect(pressEnter().defaultPrevented).toBe(true);
     expect(deps.openNoteLink).toHaveBeenCalledWith("Grocery list");
+    expect(view.state.doc.lines).toBe(1);
   });
 
   it("leaves Enter alone everywhere else", () => {
-    mount("see [[Grocery list]] now", [markdown({ base: markdownLanguage })]);
+    mount("see [[Grocery list]] now", withNewline);
     view.dispatch({ selection: { anchor: 22 } });
     pressEnter();
     expect(deps.openNoteLink).not.toHaveBeenCalled();
+    expect(view.state.doc.lines).toBe(2);
+  });
+
+  // A note with no file cannot resolve a target, and a swallowed Enter that
+  // neither opens nor breaks the line is worse than either.
+  it("still breaks the line when the note cannot be resolved from", () => {
+    mount("see [[Grocery list]] now", withNewline);
+    deps.openNoteLink.mockReturnValue(false);
+    view.dispatch({ selection: { anchor: 10 } });
+    pressEnter();
+    expect(deps.openNoteLink).toHaveBeenCalledWith("Grocery list");
+    expect(view.state.doc.lines).toBe(2);
   });
 });
 
