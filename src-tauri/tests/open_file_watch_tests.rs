@@ -7,15 +7,20 @@
 //! file reaches Writ at all — which is the write every careful program makes,
 //! and the reason the folder is watched rather than the file.
 
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use writ_core::events::bus::{EventBus, WritEvent};
+use writ_core::hash::sha256_bytes;
+use writ_core::notes::guard::DiskState;
+use writ_core::notes::identity::FileIdentity;
 use writ_core::watcher::ignore::DEFAULT_IGNORE_TTL;
 use writ_tauri_lib::security::resolve_for_containment;
 use writ_tauri_lib::watcher::handler::{create_ignore_set, start_notes_watcher};
+use writ_tauri_lib::watcher::moves::{FileTracking, MoveOutcome, NoteFiles};
 use writ_tauri_lib::watcher::open_files::{
     start_open_file_watcher, NoOpenNotes, WatchOutcome, WatcherKind,
 };
@@ -49,6 +54,67 @@ fn write_by_temp_and_rename(path: &Path, bytes: &[u8]) {
     std::fs::rename(&temp, path).expect("rename over target");
 }
 
+/// Tracking for tabs that have read their files, which is what having one open
+/// means: the digest the document was loaded from is on record, and a report
+/// carrying those same bytes is not a change (ADR-033 §13).
+///
+/// `FileTracking::untracked()` has no such record, so every report is news to
+/// it, including a late delivery of the write that seeded the file before the
+/// watcher started. That delivery is the platform's business and it happens on
+/// a loaded machine; what a tab does with it is Writ's, and this is the answer
+/// Writ has in production.
+struct TabsThatHaveRead {
+    read: HashMap<String, DiskState>,
+}
+
+impl TabsThatHaveRead {
+    /// Tracking holding `loaded` as what `note_id` read from `path`.
+    ///
+    /// The bytes are passed rather than read back, so the record is the one the
+    /// test states and not whatever the file happens to hold when the harness
+    /// runs. A double that samples the file would suppress a change written
+    /// after it was built, and the test would pass for the wrong reason.
+    fn holding(note_id: &str, path: &Path, loaded: &[u8]) -> FileTracking {
+        let state = DiskState {
+            hash: sha256_bytes(loaded),
+            size: loaded.len() as u64,
+            mtime: std::fs::metadata(path).and_then(|it| it.modified()).ok(),
+        };
+        FileTracking {
+            probe: FileTracking::untracked().probe,
+            files: Arc::new(Self {
+                read: HashMap::from([(note_id.to_string(), state)]),
+            }),
+        }
+    }
+}
+
+impl NoteFiles for TabsThatHaveRead {
+    fn identity_of(&self, _note_id: &str) -> Option<FileIdentity> {
+        None
+    }
+
+    fn note_file_moved(&self, _note_id: &str, _from: &Path, _to: &Path) -> MoveOutcome {
+        MoveOutcome::Followed
+    }
+
+    fn note_file_removed(&self, _note_id: &str, _path: &Path) -> bool {
+        true
+    }
+
+    fn note_file_returned(&self, _note_id: &str, _path: &Path) -> bool {
+        false
+    }
+
+    fn last_disk_state(&self, note_id: &str) -> Option<DiskState> {
+        self.read.get(note_id).copied()
+    }
+
+    fn notes_root(&self) -> Option<PathBuf> {
+        None
+    }
+}
+
 /// Every `BufferExternal` the bus carried within `SETTLE`.
 fn collect_external(rx: &mpsc::Receiver<WritEvent>) -> Vec<WritEvent> {
     let deadline = Instant::now() + SETTLE;
@@ -80,8 +146,13 @@ fn a_file_opened_from_anywhere_reports_one_change_when_another_program_rewrites_
     std::fs::write(&file, b"as another program left it\n").expect("seed file");
 
     let (bus, rx) = bus_with_channel();
-    let watcher = start_open_file_watcher(bus, create_ignore_set(), notes.path())
-        .expect("start the open file watcher");
+    let watcher = start_open_file_watcher(
+        bus,
+        create_ignore_set(),
+        notes.path(),
+        FileTracking::untracked(),
+    )
+    .expect("start the open file watcher");
 
     let outcome = watcher
         .registry()
@@ -143,8 +214,9 @@ fn a_write_writ_stamped_never_comes_back_as_somebody_elses_edit() {
 
     let ignore = create_ignore_set();
     let (bus, rx) = bus_with_channel();
-    let watcher = start_open_file_watcher(bus, ignore.clone(), notes.path())
-        .expect("start the open file watcher");
+    let watcher =
+        start_open_file_watcher(bus, ignore.clone(), notes.path(), FileTracking::untracked())
+            .expect("start the open file watcher");
     watcher
         .registry()
         .lock()
@@ -180,8 +252,13 @@ fn a_folder_stops_being_watched_when_the_last_tab_in_it_closes() {
     std::fs::write(&file, b"before\n").expect("seed file");
 
     let (bus, rx) = bus_with_channel();
-    let watcher = start_open_file_watcher(bus, create_ignore_set(), notes.path())
-        .expect("start the open file watcher");
+    let watcher = start_open_file_watcher(
+        bus,
+        create_ignore_set(),
+        notes.path(),
+        FileTracking::untracked(),
+    )
+    .expect("start the open file watcher");
     {
         let mut registry = watcher.registry().lock().expect("registry");
         registry.watch_parent_of("note-1", &file);
@@ -211,8 +288,13 @@ fn a_folder_full_of_churn_never_names_a_file_that_is_not_open() {
     std::fs::write(&two, b"before\n").expect("seed two");
 
     let (bus, rx) = bus_with_channel();
-    let watcher = start_open_file_watcher(bus, create_ignore_set(), notes.path())
-        .expect("start the open file watcher");
+    let watcher = start_open_file_watcher(
+        bus,
+        create_ignore_set(),
+        notes.path(),
+        FileTracking::untracked(),
+    )
+    .expect("start the open file watcher");
     {
         let mut registry = watcher.registry().lock().expect("registry");
         registry.watch_parent_of("note-1", &one);
@@ -271,8 +353,13 @@ fn a_note_inside_the_notes_folder_reaches_its_tab_when_another_program_rewrites_
 
     let (bus, rx) = bus_with_channel();
     let ignore = create_ignore_set();
-    let open_files = start_open_file_watcher(bus.clone(), ignore.clone(), notes.path())
-        .expect("start the open file watcher");
+    let open_files = start_open_file_watcher(
+        bus.clone(),
+        ignore.clone(),
+        notes.path(),
+        FileTracking::untracked(),
+    )
+    .expect("start the open file watcher");
 
     let outcome = open_files
         .registry()
@@ -290,6 +377,7 @@ fn a_note_inside_the_notes_folder_reaches_its_tab_when_another_program_rewrites_
         canonical(notes.path()),
         ignore,
         open_files.open_notes(),
+        FileTracking::untracked(),
     )
     .expect("start the notes watcher");
 
@@ -341,8 +429,13 @@ fn a_save_writ_made_inside_the_notes_folder_never_comes_back_to_the_tab() {
 
     let (bus, rx) = bus_with_channel();
     let ignore = create_ignore_set();
-    let open_files = start_open_file_watcher(bus.clone(), ignore.clone(), notes.path())
-        .expect("start the open file watcher");
+    let open_files = start_open_file_watcher(
+        bus.clone(),
+        ignore.clone(),
+        notes.path(),
+        FileTracking::untracked(),
+    )
+    .expect("start the open file watcher");
     open_files
         .registry()
         .lock()
@@ -354,6 +447,7 @@ fn a_save_writ_made_inside_the_notes_folder_never_comes_back_to_the_tab() {
         canonical(notes.path()),
         ignore.clone(),
         open_files.open_notes(),
+        FileTracking::untracked(),
     )
     .expect("start the notes watcher");
 
@@ -387,8 +481,12 @@ fn a_note_nobody_has_open_tells_no_tab() {
 
     let (bus, rx) = bus_with_channel();
     let ignore = create_ignore_set();
-    let open_files = start_open_file_watcher(bus.clone(), ignore.clone(), notes.path())
-        .expect("start the open file watcher");
+    // The tab on open.md has read it, so a delivery of the write that seeded
+    // it carries nothing the tab does not already hold.
+    let tracking = TabsThatHaveRead::holding("note-1", &open, b"x\n");
+    let open_files =
+        start_open_file_watcher(bus.clone(), ignore.clone(), notes.path(), tracking.clone())
+            .expect("start the open file watcher");
     open_files
         .registry()
         .lock()
@@ -400,6 +498,7 @@ fn a_note_nobody_has_open_tells_no_tab() {
         canonical(notes.path()),
         ignore,
         open_files.open_notes(),
+        tracking,
     )
     .expect("start the notes watcher");
 
@@ -442,6 +541,7 @@ fn a_burst_that_stops_while_a_sweep_stands_is_swept_once_more() {
         canonical(notes.path()),
         create_ignore_set(),
         Arc::new(NoOpenNotes),
+        FileTracking::untracked(),
     )
     .expect("start the notes watcher");
 

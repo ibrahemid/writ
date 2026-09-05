@@ -64,7 +64,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       closeAllTabs: vi.fn(),
       createTab: h.createTab,
     },
-    editor: { focusEditor: h.focusEditor },
+    editor: { focusEditor: h.focusEditor, isRemovedOnDisk: () => false },
   }),
 }));
 vi.mock("../../stores/global/buffer-registry", () => ({

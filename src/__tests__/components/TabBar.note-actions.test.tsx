@@ -66,6 +66,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
+    editor: { isRemovedOnDisk: () => false },
     tabs: {
       activeTabId: mocks.activeTabId,
       setActiveTabId: mocks.setActiveTabId,

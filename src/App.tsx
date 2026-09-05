@@ -25,6 +25,7 @@ import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
 import UpdateBanner from "./components/UpdateBanner/UpdateBanner";
 import WindowProvider, { useWindow } from "./components/WindowProvider/WindowProvider";
 import { bufferRegistry } from "./stores/global/buffer-registry";
+import { saveStatusStore } from "./stores/global/save-status";
 import { basename } from "./lib/path";
 import { logFailure } from "./lib/log";
 import { workspaceStore } from "./stores/global/workspace";
@@ -178,7 +179,17 @@ function AppShell() {
 
     // Only notes whose text never reached their file are restored, so the
     // count is how many of those there were, not how many tabs were open.
-    const restored = await getRecoveredBuffers().catch(() => []);
+    //
+    // A note whose file was deleted is not among them: the launch wrote
+    // nothing for it (ADR-033 decision 15), so its text is seeded into the
+    // store instead, before any tab loads, and its tab comes up carrying the
+    // bar and the three ways out. Counting it as restored would say a file is
+    // back that is not.
+    const recovered = await getRecoveredBuffers().catch(() => []);
+    for (const note of recovered) {
+      if (note.removed_on_disk) win.editor.markRemovedOnDisk(note.id, note.content);
+    }
+    const restored = recovered.filter((note) => !note.removed_on_disk);
     if (restored.length > 0) {
       showToast(
         restored.length === 1
@@ -679,9 +690,24 @@ function AppShell() {
       // work the moment the next keystroke lands, and a note whose save
       // was refused has an empty queue and everything to lose.
       hasUnsaved: (id: string) => win.editor.isDirty(id),
+      isRemovedOnDisk: (id: string) => win.editor.isRemovedOnDisk(id),
       reload: (id: string) => win.editor.requestExternalReload(id),
       cancelAutosave: (id: string) => cancelAutosave(id),
-      toast: (message: string, level: "warning") => showToast(message, level),
+      // A move changes no bytes, so nothing is read and nothing is asked: the
+      // row already names the new path, and this is the tab catching up to it.
+      followMove: (id: string) => {
+        void bufferRegistry.refreshBuffer(id).catch(() => {});
+        win.editor.clearRemovedOnDisk(id);
+      },
+      // The failure of a save that raced the deletion is about a file that is
+      // no longer there, and its bar would sit under the one replacing it.
+      markRemoved: (id: string) => {
+        saveStatusStore.forgetNote(id);
+        win.editor.markRemovedOnDisk(id);
+      },
+      // A file back at its own path: the store settles what the tab shows and
+      // starts writing for it again (ADR-033 decision 15).
+      fileReturned: (id: string) => win.editor.fileReturned(id),
       confirmReload: (title: string) =>
         requestConfirm({
           title: "File changed on disk",

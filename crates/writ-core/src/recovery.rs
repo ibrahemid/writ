@@ -27,6 +27,37 @@ pub struct RecoveredBuffer {
     pub id: String,
     /// Content recovered from the snapshot.
     pub content: String,
+    /// The note's path had no file, so nothing was written and this content is
+    /// the last copy of it. Set by the launch, not by the snapshot.
+    #[serde(default)]
+    pub removed_on_disk: bool,
+}
+
+/// What a relaunch does with the text a snapshot kept for a note.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryPlan {
+    /// Write it into the note's file.
+    Write,
+    /// Leave the path alone. The text goes to the tab instead, which comes up
+    /// removed on disk with the ways out of that state.
+    Withhold,
+}
+
+/// Decides whether a relaunch may write a note's recovered text to its path.
+///
+/// A note that never had a file has one minted for it at the relaunch, and the
+/// snapshot is the only place its text is, so the write is what saves it. A
+/// note that had a file and no longer has one is a file somebody deleted, and
+/// writing it back at the next launch puts back what was thrown away, on every
+/// device in a synced folder. That is the harm ADR-033 decision 14 exists to
+/// avoid, and a relaunch is no better a moment for it than a save is. Its text
+/// is handed to the tab instead (decision 15).
+pub fn plan_recovery(had_file: bool, file_is_there: bool) -> RecoveryPlan {
+    if had_file && !file_is_there {
+        RecoveryPlan::Withhold
+    } else {
+        RecoveryPlan::Write
+    }
 }
 
 /// Outcome of comparing a snapshot entry against the persisted buffer state.
@@ -195,6 +226,21 @@ mod tests {
         let previous = fingerprint_buffers(&map(&[("buf-1", "alpha")]));
         let current = fingerprint_buffers(&map(&[("buf-1", "alpha beta")]));
         assert!(should_snapshot(Some(previous), current));
+    }
+
+    #[test]
+    fn a_note_whose_file_was_deleted_is_not_written_back_at_the_next_launch() {
+        assert_eq!(plan_recovery(true, false), RecoveryPlan::Withhold);
+    }
+
+    #[test]
+    fn a_note_that_never_had_a_file_is_written_to_the_one_minted_for_it() {
+        assert_eq!(plan_recovery(false, false), RecoveryPlan::Write);
+    }
+
+    #[test]
+    fn a_note_whose_file_is_still_there_goes_through_the_ordinary_guard() {
+        assert_eq!(plan_recovery(true, true), RecoveryPlan::Write);
     }
 
     #[test]

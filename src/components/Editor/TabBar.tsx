@@ -154,10 +154,15 @@ export default function TabBar() {
             {(tab) => {
               const isActive = () => win.tabs.activeTabId() === tab.id;
               const isEditing = () => editingTabId() === tab.id;
+              const isRemoved = () => win.editor.isRemovedOnDisk(tab.id);
+              // A tab whose file is gone says so in words as well as in the
+              // strike-through, on both the pointer and the screen-reader path.
+              const label = () => (isRemoved() ? `${tab.title} (deleted)` : tab.title);
               return (
-                <Tooltip label={tab.title} anchorRole="none">
+                <Tooltip label={label()} anchorRole="none">
                   <div
                     class={`tab ${isActive() ? "tab-active" : ""}`}
+                    classList={{ "tab-removed": isRemoved() }}
                     role="presentation"
                     onContextMenu={(e) => handleContextMenu(e, tab.id)}
                     onKeyDown={(e) => handleArrowKey(e, tab.id)}
@@ -174,6 +179,7 @@ export default function TabBar() {
                         class="tab-label"
                         role="tab"
                         aria-selected={isActive()}
+                        aria-label={isRemoved() ? label() : undefined}
                         tabIndex={isActive() ? 0 : -1}
                         onClick={() => win.tabs.setActiveTabId(tab.id)}
                         onDblClick={(e) => { e.stopPropagation(); setEditingTabId(tab.id); }}

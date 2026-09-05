@@ -46,7 +46,18 @@ function mergeResults(results: SaveResult[]): SaveResult {
 interface QueuedContent {
   source: ContentSource;
   generation: number;
+  /**
+   * The command this text is written through, when it is not the ordinary
+   * save. A note whose file was deleted goes back through `restoreNoteFile`,
+   * which the ordinary save is refused by, and it carries the writer with it
+   * so a retry of the failed write is the same write and not a save the
+   * backend will refuse again.
+   */
+  writer?: SaveWriter;
 }
+
+/** Writes a note's text and reports what its file holds afterwards. */
+export type SaveWriter = (bufferId: string, content: string) => Promise<string | null>;
 
 interface InFlightWrite {
   promise: Promise<SaveResult>;
@@ -119,6 +130,25 @@ export function peekUnsavedContent(bufferId: string): string | undefined {
 }
 
 /**
+ * Keeps `content` as text that is not known to be on disk, without queuing a
+ * write for it.
+ *
+ * For text no write can take yet: a note whose file was deleted outside Writ
+ * queues nothing, because every keystroke would otherwise buy a refusal, and
+ * the failure that would normally leave the text here never happens. The quit
+ * and close paths read the same map either way, so the text still reaches the
+ * recovery snapshot.
+ */
+export function holdUnwritableContent(bufferId: string, content: string) {
+  lastFailedContent.set(bufferId, content);
+}
+
+/** Drops what [`holdUnwritableContent`] kept, once a write can take it again. */
+export function releaseUnwritableContent(bufferId: string) {
+  lastFailedContent.delete(bufferId);
+}
+
+/**
  * Every note holding text that is not known to be on disk, with that text.
  *
  * The queue is not enough on its own: a write stopped by the guard empties the
@@ -150,8 +180,12 @@ function clearTimer(bufferId: string) {
   }
 }
 
-function queueContent(bufferId: string, content: ContentSource) {
-  pendingContent.set(bufferId, { source: content, generation: bumpGeneration(bufferId) });
+function queueContent(bufferId: string, content: ContentSource, writer?: SaveWriter) {
+  pendingContent.set(bufferId, {
+    source: content,
+    generation: bumpGeneration(bufferId),
+    writer,
+  });
 }
 
 export function debouncedSave(bufferId: string, content: ContentSource, delayMs: number = 1000) {
@@ -264,9 +298,13 @@ export async function flushAutosave(bufferId?: string): Promise<SaveResult> {
 // a deterministic "it is on disk" action, so it must not fall through to a
 // no-op the way flushing an empty queue does. Reports through the same success
 // and error listeners as an autosave.
-export async function saveNow(bufferId: string, content: ContentSource): Promise<SaveResult> {
+export async function saveNow(
+  bufferId: string,
+  content: ContentSource,
+  writer?: SaveWriter,
+): Promise<SaveResult> {
   clearTimer(bufferId);
-  queueContent(bufferId, content);
+  queueContent(bufferId, content, writer);
   return runPendingSave(bufferId);
 }
 
@@ -316,7 +354,7 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     listener(bufferId);
   }
   try {
-    const diskHash = await saveBufferContent(bufferId, content);
+    const diskHash = await (queued.writer ?? saveBufferContent)(bufferId, content);
     lastFailedContent.delete(bufferId);
     for (const listener of successListeners) {
       listener(bufferId, diskHash);
@@ -333,7 +371,11 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     // note each time, so this text leaves the queue and the next keystroke —
     // which queues a new generation — is what writes again.
     if (generations.get(bufferId) === queued.generation && isRetryableSaveError(error)) {
-      pendingContent.set(bufferId, { source: content, generation: queued.generation });
+      pendingContent.set(bufferId, {
+        source: content,
+        generation: queued.generation,
+        writer: queued.writer,
+      });
     }
     lastFailedContent.set(bufferId, content);
     for (const listener of errorListeners) {
