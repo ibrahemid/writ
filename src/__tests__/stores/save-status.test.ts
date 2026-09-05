@@ -170,4 +170,26 @@ describe("saveStatusStore", () => {
     expect(saveStatusStore.forNote("one").state).toBe("clean");
     cancelAutosave("one");
   });
+
+  it("drops a failure when the same file turns into a question about a change", async () => {
+    // One bar for one file. A save refused against a change outside Writ, and
+    // the question about that change, are the same event twice: the failure
+    // has to go before the question renders, or a note carries two bars
+    // saying different things about one file. Both callers that raise a bar
+    // (`markChanged`, `markRemoved`) forget the note first.
+    vi.useFakeTimers();
+    mockedSave.mockRejectedValueOnce(
+      new Error("ERR_FILE_CHANGED_ON_DISK: the file changed"),
+    );
+
+    debouncedSave("one", "mine", 0);
+    await flushAutosave("one");
+    expect(saveStatusStore.forNote("one").state).toBe("failed");
+
+    saveStatusStore.forgetNote("one");
+
+    expect(saveStatusStore.forNote("one").state).not.toBe("failed");
+    expect(saveStatusStore.failureFor("one")).toBeUndefined();
+    cancelAutosave("one");
+  });
 });

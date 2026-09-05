@@ -9,7 +9,8 @@ const fixtures = await vi.hoisted(async () => {
     fileName: string;
     reason?: { code: string | null; message: string; retryable: boolean };
   }>({ state: "clean", fileName: "one.md" });
-  return { status, setStatus };
+  const [updated, setUpdated] = createSignal(false);
+  return { status, setStatus, updated, setUpdated };
 });
 
 vi.mock("../../stores/global/save-status", () => ({
@@ -39,7 +40,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       cursorLine: () => 1,
       cursorCol: () => 1,
       language: () => null,
-      isUpdatedFromDisk: () => false,
+      isUpdatedFromDisk: () => fixtures.updated(),
     },
     tabs: { activeTabId: () => "note-1" },
   }),
@@ -59,6 +60,7 @@ import StatusBar from "../../components/Editor/StatusBar";
 describe("StatusBar persistent live region (#50)", () => {
   afterEach(() => {
     fixtures.setStatus({ state: "clean", fileName: "one.md" });
+    fixtures.setUpdated(false);
     cleanup();
   });
 
@@ -134,5 +136,28 @@ describe("StatusBar persistent live region (#50)", () => {
     expect(container.querySelector(".statusbar-label")!.textContent).toBe(
       "Unsaved changes in one.md",
     );
+  });
+
+  it("says one thing at a time when a note is both unsaved and just reloaded", () => {
+    // Two states in one region read as neither, and the reload is the newer
+    // fact: it is what just happened, and the text on screen came from it.
+    fixtures.setStatus({ state: "dirty", fileName: "one.md" });
+    fixtures.setUpdated(true);
+
+    const { container } = render(() => <StatusBar />);
+
+    const live = container.querySelector<HTMLElement>(".statusbar-live")!;
+    expect(live.textContent).toBe("Updated from disk");
+    expect(container.querySelector(".statusbar-save")).toBeNull();
+  });
+
+  it("hands the region back to the save state once the marker has gone", () => {
+    fixtures.setStatus({ state: "dirty", fileName: "one.md" });
+    const { container } = render(() => <StatusBar />);
+
+    expect(container.querySelector(".statusbar-save")?.textContent).toBe(
+      "Unsaved changes in one.md",
+    );
+    expect(container.querySelector(".statusbar-updated")).toBeNull();
   });
 });
