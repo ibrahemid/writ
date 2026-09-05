@@ -315,17 +315,61 @@ fn a_name_a_file_outside_the_candidate_list_answers_to_is_refused() {
     );
 }
 
-/// The walk behind that list: it finds a note the index would not hold, in a
-/// folder the index would not walk into.
+/// The walk behind that list: a note the index has not reached yet is one a
+/// link can still mean.
 #[test]
-fn the_walk_finds_a_note_under_a_folder_the_index_skips() {
+fn the_walk_finds_a_note_the_index_may_not_hold_yet() {
     let root = TempDir::new().expect("temp dir");
-    let hidden = root.path().join(".hidden");
-    std::fs::create_dir(&hidden).expect("folder");
-    std::fs::write(hidden.join("Note.md"), "under an ignored name\n").expect("write");
+    let folder = root.path().join("archive");
+    std::fs::create_dir(&folder).expect("folder");
+    std::fs::write(folder.join("Note.md"), "written a moment ago\n").expect("write");
     std::fs::write(root.path().join("Other.md"), "not this one\n").expect("write");
 
     let found = note_ops::files_named(root.path(), &["note".to_string()]);
 
-    assert_eq!(found, vec![hidden.join("Note.md")]);
+    assert_eq!(found, vec![folder.join("Note.md")]);
+}
+
+/// The walk is the index's walk, so a folder the index prunes holds nothing a
+/// link reaches, and a name a link means is never taken from a file that is
+/// not note text.
+#[test]
+fn the_walk_passes_over_what_the_index_would_never_hold() {
+    let root = TempDir::new().expect("temp dir");
+    for folder in [".git", ".obsidian", "node_modules"] {
+        std::fs::create_dir(root.path().join(folder)).expect("folder");
+    }
+    std::fs::write(root.path().join(".git").join("index"), [0u8, 1, 2, 3, 4]).expect("write");
+    std::fs::write(
+        root.path().join(".obsidian").join("index.md"),
+        "a key map\n",
+    )
+    .expect("write");
+    std::fs::write(
+        root.path().join("node_modules").join("index.md"),
+        "a package\n",
+    )
+    .expect("write");
+    std::fs::write(root.path().join("index.png"), [137u8, 80, 78, 71]).expect("write");
+
+    let found = note_ops::files_named(root.path(), &["index".to_string()]);
+
+    assert!(found.is_empty(), "{found:?}");
+}
+
+/// A symlinked note answers to its own name, and the walk that will not
+/// descend into a symlinked folder still sees it.
+#[cfg(unix)]
+#[test]
+fn the_walk_finds_a_note_behind_a_symlink() {
+    let root = TempDir::new().expect("temp dir");
+    let outside = TempDir::new().expect("temp dir");
+    let real = outside.path().join("Note.md");
+    std::fs::write(&real, "the note itself\n").expect("write");
+    let link = root.path().join("Note.md");
+    std::os::unix::fs::symlink(&real, &link).expect("symlink");
+
+    let found = note_ops::files_named(root.path(), &["note".to_string()]);
+
+    assert_eq!(found, vec![link]);
 }

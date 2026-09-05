@@ -392,12 +392,15 @@ fn rename_and_propagate(
     candidates.sort_unstable();
     candidates.dedup();
     // What the index does not hold and a link could still mean. The index is a
-    // record of the folder, not the folder itself: a note over the size the
-    // index takes, one under a name it walks past, and one written a moment
-    // ago are all on disk and all reachable by name. The notes folder is the
-    // whole of it, because a link resolves to a note the index holds and the
-    // index holds nothing outside that folder — a note renamed from anywhere
-    // else has no linking notes to rewrite in the first place.
+    // record of the folder, not the folder itself: a note over the size it
+    // takes, one written a moment ago, one behind a symlink it will not
+    // follow. The walk reads the folder under the index's own rules, so a file
+    // the index would never call a note cannot make a name ambiguous either.
+    // The notes folder is the whole of it, because a link resolves to a note
+    // the index holds and the index holds nothing outside that folder — a note
+    // renamed from anywhere else has no linking notes to rewrite in the first
+    // place. Keys are canonical, so a symlink pointing at the note being
+    // renamed is that note rather than a second one.
     let unindexed: Vec<String> =
         note_ops::files_named(&state.notes_root(), &links::candidate_name_keys(&from_key))
             .into_iter()

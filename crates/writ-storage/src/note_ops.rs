@@ -23,6 +23,8 @@ use crate::buffer_store::{
     DatalessProbe,
 };
 use crate::errors::{StorageError, StorageResult};
+use crate::notes_index::indexes_as_note;
+use crate::workspace_search::build_walk;
 
 /// Extension every note Writ mints carries.
 pub const NOTE_EXTENSION: &str = "md";
@@ -212,37 +214,39 @@ pub enum LinkRewrite {
     NameNotUnique,
 }
 
-/// Every file under `root` a link naming one of `keys` could reach.
+/// Every note under `root` a link naming one of `keys` could reach that the
+/// index may not hold.
 ///
-/// The walk prunes nothing: a note in a folder the index skips is still a note
-/// on disk, and a rename that rewrites a link past it points that link
-/// somewhere it never pointed. Symlinked folders are not followed, so a loop
-/// cannot hold this open.
+/// The walk is the index's own ([`build_walk`]) under the index's own file
+/// test ([`indexes_as_note`]), so the two cannot disagree about what a note
+/// is: a folder the index prunes holds nothing a link reaches, and a file that
+/// is not note text cannot make a name ambiguous — `.git/index` is not a
+/// second `index.md`. Size is the one gate left out, because a note over the
+/// index's ceiling is still a note on disk.
+///
+/// A symlink is followed one step: the walk descends into no symlinked folder,
+/// but a symlinked note answers to its own name and is one more file a bare
+/// link could mean. Whether it is a second note or another name for the
+/// renamed one is [`crate::notes_index::index_key`]'s question, which
+/// canonicalises.
 ///
 /// `keys` are folded name keys ([`links::candidate_name_keys`]).
 pub fn files_named(root: &Path, keys: &[String]) -> Vec<PathBuf> {
     let mut found = Vec::new();
-    let mut folders = vec![root.to_path_buf()];
-    while let Some(folder) = folders.pop() {
-        let Ok(entries) = std::fs::read_dir(&folder) else {
+    for entry in build_walk(root).build().flatten() {
+        let path = entry.path();
+        let Some(kind) = entry.file_type() else {
             continue;
         };
-        for entry in entries.flatten() {
-            let Ok(kind) = entry.file_type() else {
-                continue;
-            };
-            let path = entry.path();
-            if kind.is_dir() {
-                folders.push(path);
-                continue;
-            }
-            if !kind.is_file() {
-                continue;
-            }
-            let names = links::candidate_name_keys(&path.to_string_lossy());
-            if names.iter().any(|name| keys.contains(name)) {
-                found.push(path);
-            }
+        if !kind.is_file() && !std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
+            continue;
+        }
+        if !indexes_as_note(root, path) {
+            continue;
+        }
+        let names = links::candidate_name_keys(&path.to_string_lossy());
+        if names.iter().any(|name| keys.contains(name)) {
+            found.push(path.to_path_buf());
         }
     }
     found

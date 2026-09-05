@@ -1380,6 +1380,26 @@ fn is_ignored_path(path: &Path) -> bool {
         .is_some_and(|name| writ_core::workspace::is_ignored_name(&name.to_string_lossy()))
 }
 
+/// Whether the index would hold `path` as a note, size aside.
+///
+/// The three questions [`reconcile`]'s walk asks about a file it has reached,
+/// in its order and with its answers: a name no listing carries, a placeholder
+/// whose kind can only be read off the name, and the kind test itself. Size is
+/// left out, because a note over the ceiling is one the index refuses and a
+/// link still reaches.
+///
+/// The pruning half of the walk is [`build_walk`], which every caller of this
+/// runs first.
+pub(crate) fn indexes_as_note(root: &Path, path: &Path) -> bool {
+    if writ_core::workspace::path_has_ignored_name(root, path) {
+        return false;
+    }
+    if is_dataless(path) {
+        return has_text_extension(path);
+    }
+    should_index(path)
+}
+
 /// Whether `path` holds note text worth indexing.
 ///
 /// A known text extension is taken at its word so the common case never opens

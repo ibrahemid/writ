@@ -345,15 +345,48 @@ fn a_note_too_big_for_the_index_still_makes_a_bare_link_ambiguous() {
     );
 }
 
-/// The same, for a note under a folder name the index walks past. The rename
-/// reads the folder, not only the table.
+/// The other side of that: the rename reads the folder the way the index
+/// reads it. A file in a folder the index prunes is not a note a link can
+/// reach, and a file that is not note text never makes a name ambiguous — a
+/// notes folder kept in git holds a `.git/index`, and a note called
+/// `index.md` is ordinary.
 #[test]
-fn a_note_under_a_folder_the_index_skips_still_makes_a_bare_link_ambiguous() {
+fn a_file_the_index_would_never_hold_does_not_make_a_bare_link_ambiguous() {
+    let (_dir, state) = seeded(&[
+        ("one/index.md", "one of one\n"),
+        (".obsidian/index.md", "a key map\n"),
+        ("two/Reader.md", "see [[one/index]] and [[index]]\n"),
+    ]);
+    std::fs::create_dir_all(note(&state, ".git")).expect("folder");
+    std::fs::write(note(&state, ".git/index"), [0u8, 1, 2, 3, 4]).expect("write");
+
+    let outcome =
+        rename_note_with_links_inner(&state, &path_text(&state, "one/index.md"), "Renamed", true)
+            .expect("rename");
+
+    assert_eq!(outcome.updated, 1);
+    assert!(outcome.skipped.is_empty(), "{:?}", outcome.skipped);
+    assert_eq!(
+        read(&state, "two/Reader.md"),
+        "see [[one/Renamed]] and [[Renamed]]\n"
+    );
+}
+
+/// A symlinked note is a note under the name the symlink carries. The index
+/// walk does not follow it, so nothing else in the app resolves a link to it,
+/// and a rename that repointed the link past it would be the one surface that
+/// did.
+#[cfg(unix)]
+#[test]
+fn a_note_reached_through_a_symlink_makes_a_bare_link_ambiguous() {
+    let outside = TempDir::new().expect("temp dir");
+    let real = outside.path().join("Note.md");
+    std::fs::write(&real, "the other note\n").expect("write");
     let (_dir, state) = seeded(&[
         ("one/Note.md", "one of two\n"),
-        (".trash/Note.md", "kept out of the index\n"),
         ("two/Reader.md", "see [[one/Note]] and [[Note]]\n"),
     ]);
+    std::os::unix::fs::symlink(&real, note(&state, "two/Note.md")).expect("symlink");
 
     let outcome =
         rename_note_with_links_inner(&state, &path_text(&state, "one/Note.md"), "Renamed", true)
@@ -365,6 +398,30 @@ fn a_note_under_a_folder_the_index_skips_still_makes_a_bare_link_ambiguous() {
     assert_eq!(
         read(&state, "two/Reader.md"),
         "see [[one/Note]] and [[Note]]\n"
+    );
+}
+
+/// A symlink pointing at the renamed note is another name for it, not a second
+/// note, so it settles nothing and the rename goes through.
+#[cfg(unix)]
+#[test]
+fn a_symlink_to_the_renamed_note_is_not_a_second_note() {
+    let (_dir, state) = seeded(&[
+        ("one/Note.md", "the note itself\n"),
+        ("two/Reader.md", "see [[one/Note]] and [[Note]]\n"),
+    ]);
+    std::os::unix::fs::symlink(note(&state, "one/Note.md"), note(&state, "two/Note.md"))
+        .expect("symlink");
+
+    let outcome =
+        rename_note_with_links_inner(&state, &path_text(&state, "one/Note.md"), "Renamed", true)
+            .expect("rename");
+
+    assert_eq!(outcome.updated, 1);
+    assert!(outcome.skipped.is_empty(), "{:?}", outcome.skipped);
+    assert_eq!(
+        read(&state, "two/Reader.md"),
+        "see [[one/Renamed]] and [[Renamed]]\n"
     );
 }
 
