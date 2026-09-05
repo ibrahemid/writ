@@ -171,18 +171,69 @@ export function createEditorStore() {
     new Map(),
   );
 
-  function markRemovedOnDisk(id: string) {
+  /**
+   * Records that a note's file is gone, keeping whatever text only Writ holds.
+   *
+   * The one entry into the removed state (ADR-033 decision 15), and the order
+   * inside it is the whole point. The text is read first: the tab on screen
+   * holds it in its view, and a background tab holds it in the autosave
+   * service, either queued or left there by a write that came back refused.
+   * Cancelling the queue comes second, because cancelling drops the text of a
+   * refused write, and for a background tab whose save failed that is the only
+   * copy of it there is.
+   *
+   * `text` is passed only by the launch, which seeds a note the last session
+   * left removed from the shutdown snapshot rather than from anything live.
+   *
+   * A note already marked returns at once. A second announcement for the same
+   * note would otherwise cancel a queue that the mark has since put the text
+   * back into, which is the same loss by another route.
+   */
+  function markRemovedOnDisk(id: string, text?: string) {
+    if (isRemovedOnDisk(id)) return;
+    const kept =
+      text ??
+      (currentBufferId() === id && activeView !== null
+        ? activeView.state.doc.toString()
+        : peekUnsavedContent(id));
     setRemovedOnDisk((current) => {
-      if (current.has(id)) return current;
       const next = new Set(current);
       next.add(id);
       return next;
     });
-    // The tab on screen is the one holding the text; a background tab's is on
-    // disk, which is what this is about the loss of.
-    if (currentBufferId() === id && activeView !== null) {
-      keepTextOfRemoved(id, activeView.state.doc.toString());
+    cancelAutosaveService(id);
+    if (kept !== undefined) keepTextOfRemoved(id, kept);
+  }
+
+  /**
+   * Answers a file that is back at the note's own path.
+   *
+   * The rule, not a prompt (ADR-033 decision 15): the tab's text when the tab
+   * is dirty, the file's when it is not, and never an empty document. A tab
+   * that is not dirty holds nothing the file does not, so the file is read
+   * back into it. A dirty tab keeps what it has, and the kept text goes onto
+   * the autosave queue on the way out of the removed state, because the path
+   * is writable again and nothing else would ever write it: the queue was
+   * dropped when the mark went on, and a flush with an empty queue writes
+   * nothing.
+   *
+   * The mark comes off either way. Leaving it on is what left a present,
+   * writable file under a bar saying it was deleted, with every later
+   * keystroke writing nothing for the life of the window.
+   */
+  function fileReturned(id: string) {
+    if (!isRemovedOnDisk(id)) return;
+    const dirty = isDirty(id);
+    const kept = liveTextOfRemoved(id);
+    clearRemovedOnDisk(id);
+    if (dirty && kept !== undefined) {
+      // No debounce: this is not waiting on more typing, it is the text the
+      // tab has been holding since the file went.
+      scheduleAutosave(id, kept, 0);
+      return;
     }
+    // A background tab has no view to reload; its next load reads the file.
+    requestExternalReload(id);
   }
 
   function clearRemovedOnDisk(id: string) {
@@ -649,6 +700,7 @@ export function createEditorStore() {
     removedOnDisk,
     markRemovedOnDisk,
     clearRemovedOnDisk,
+    fileReturned,
     isRemovedOnDisk,
     keepTextOfRemoved,
     textOfRemoved,

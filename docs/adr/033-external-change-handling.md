@@ -640,6 +640,73 @@ each candidate. Every watcher in the process publishes its holds into one
 `RemovalHolds`, because a save asks about a note and not about a watcher, and
 two watchers holding one note are answered on the later of the two deadlines.
 
+### 15. A note whose file is gone is one state machine, owned by the store
+
+Decision 14 ends the moment the tab is told. What the tab does from there was
+answered three times, once per case that turned up, and each answer left the
+next one open: the text survived a tab switch but not a background save that
+had failed, the mark went on but nothing took it off, and the text that a close
+kept came back as the file at the next launch. So the whole of it is written
+down here, and every row below is a test.
+
+**Two states.** `Present` is a note with a file at its path: ordinary saves,
+ordinary autosave, ordinary reloads. `RemovedOnDisk` is a note whose path was
+found empty with nothing answering for it (decision 14). It carries the note's
+text, which is the last copy of it once the view goes, and nothing else.
+Whether the tab differs from the file it lost is the ordinary dirty answer,
+read from the digests the note already had (decision 6).
+
+The three ways out the bar offers are transitions, not states, and a restore in
+flight is not a state either: it goes through the autosave service, where the
+queue, the generation and the retry already are.
+
+| In | On | Goes to | The text | Dirty | Autosave | The file |
+|---|---|---|---|---|---|---|
+| Present | a removal is announced | RemovedOnDisk | taken from the view when the tab is on screen, else from what the autosave service still holds: a queued edit, or the text of a write that came back refused. Neither, and the note's only text was the file's | unchanged | the queue and the timer are dropped, after the text is taken | untouched |
+| RemovedOnDisk | a second removal for the same note | RemovedOnDisk | kept, and not re-read | unchanged | already silent | untouched |
+| RemovedOnDisk | the file is found at another path | Present | kept, and it is the same text either way: a move changes no bytes | unchanged | resumes | untouched at its new path |
+| RemovedOnDisk | a file is back at the note's own path, tab not dirty | Present | the file's, read back into the view; a background tab reads it on its next switch | false, from the record that read writes | resumes | untouched |
+| RemovedOnDisk | a file is back at the note's own path, tab dirty | Present | the tab's | stays true | resumes and takes the kept text, so the next flush writes it | written by that save, through the guard every save passes: a file that came back holding something else is refused and the text lands beside it dated |
+| RemovedOnDisk | a keystroke | RemovedOnDisk | replaced by the newer text | true | nothing is queued, so nothing is scheduled | untouched |
+| RemovedOnDisk | a flush, from a tab switch or a quit | RemovedOnDisk | kept | unchanged | there is nothing queued to write | untouched |
+| RemovedOnDisk | "Put the file back", or the save keystroke, and the write lands | Present | kept | false | resumes | written at the note's path |
+| RemovedOnDisk | the same, and the write fails | RemovedOnDisk | kept | unchanged | a retryable refusal is requeued with its own writer, so a later flush can land it | untouched |
+| RemovedOnDisk | "Save a copy" | RemovedOnDisk | kept, and written to the path the person names | unchanged | still silent for this note | its own path untouched, a new file at the other one |
+| RemovedOnDisk | the tab is switched away from | RemovedOnDisk | taken from the view before the view is replaced | unchanged | silent | untouched |
+| RemovedOnDisk | the tab is switched back to | RemovedOnDisk | the kept text goes into the new view; the missing file is never read | unchanged | silent | untouched |
+| RemovedOnDisk | the tab is closed | gone | handed to the shutdown snapshot, then dropped | gone with the tab | cancelled | untouched |
+| RemovedOnDisk | the window quits | gone | handed to the shutdown snapshot | gone with the window | flushed, which writes nothing for this note | untouched |
+| relaunch, with snapshot text for a note whose path has no file | RemovedOnDisk | the snapshot's, seeded before the first tab loads | true | silent | nothing written, and nothing left beside it |
+
+Three rules hold the table together.
+
+**One entry point takes the text before anything can drop it.** The store's
+mark is where the removal lands, and it reads the text first, cancels the
+queue second. Reversing those two loses a background tab whose save had
+failed, because cancelling drops the text of a refused write, which for that
+tab is the only copy there is. The mark returns at once for a note already
+marked, so a second announcement cannot cancel a queue whose text has since
+been put back into it.
+
+**A file back at its own path is answered by the rule, not by a prompt.** The
+tab's text if the tab is dirty, the file's if it is not, and never an empty
+document. A tab that is not dirty has nothing the file does not, so reading the
+file back is free. A dirty tab keeps what it has, and the kept text goes onto
+the autosave queue as it goes: a returned file is writable again, and the tab
+would otherwise sit on text that no flush and no tab switch would ever write.
+Both drop the mark, and autosave writes for that note from then on. Leaving the
+mark on is the failure this rule closes: the file is there, the bar says it is
+not, and every keystroke for the life of the window writes nothing.
+
+**A relaunch does not put a deleted file back.** Text kept for a note that
+never had a file is written to the path minted for it here, because nothing
+else holds it. Text kept for a note that had a file and no longer has one is
+not written at all, and no copy is left beside it: the file was deleted, and
+recreating it at a relaunch is the harm decision 14 exists to avoid, spread
+across every device in a synced folder. The text goes to the tab instead, which
+comes up removed on disk with the same three ways out. `plan_recovery` in
+`writ-core` is that rule, and the launch carries it out.
+
 ## Consequences
 
 - Opening a file from `~/Downloads` puts a watch on `~/Downloads`. That is the

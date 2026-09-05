@@ -5,7 +5,9 @@
 //! behaviour: a note whose file moved on while Writ was down must come back
 //! with its file intact and the snapshot beside it, and every recovered note
 //! must leave the launch with the write guard seeded, or the first save after
-//! a crash is the unguarded one.
+//! a crash is the unguarded one. A note whose file was deleted must come back
+//! with no file written at all: the tab is handed the text and shows it as
+//! removed on disk (ADR-033 decision 15).
 //!
 //! One test in its own binary, because `initialize` reads `WRIT_DATA_DIR` and
 //! `WRIT_NOTES_DIR` from the process environment and a second test in the same
@@ -66,6 +68,9 @@ fn seed_a_crashed_session(writ_dir: &Path, notes_dir: &Path) {
 
     let moved_on = notes_dir.join("Shared.md");
     let steady = notes_dir.join("Steady.md");
+    // The third note's file is not written at all: this is the tab whose file
+    // the person deleted before the crash.
+    let deleted = notes_dir.join("Deleted.md");
     std::fs::write(&moved_on, "what a sync client delivered").unwrap();
     std::fs::write(&steady, "steady text").unwrap();
 
@@ -75,6 +80,7 @@ fn seed_a_crashed_session(writ_dir: &Path, notes_dir: &Path) {
     let store = BufferStore::new(conn, writ_dir.join("buffers"));
     store.insert(&row("moved-on", "Shared", &moved_on)).unwrap();
     store.insert(&row("steady", "Steady", &steady)).unwrap();
+    store.insert(&row("deleted", "Deleted", &deleted)).unwrap();
 
     // The snapshot is written now and the rows are stamped half a minute back,
     // so it resolves as newer without the test having to sleep through
@@ -85,6 +91,10 @@ fn seed_a_crashed_session(writ_dir: &Path, notes_dir: &Path) {
             "what the crash was holding".to_string(),
         ),
         ("steady".to_string(), "steady text".to_string()),
+        (
+            "deleted".to_string(),
+            "the line typed after the file went".to_string(),
+        ),
     ]);
     store
         .write_session_snapshot(&snapshot, false)
@@ -149,4 +159,36 @@ fn an_unclean_relaunch_keeps_what_arrived_while_writ_was_down_and_seeds_the_guar
         Some(sha256_bytes(b"steady text")),
         "a note the crash did not disturb still leaves the launch guarded"
     );
+
+    // The note whose file was deleted: the launch writes nothing, leaves
+    // nothing beside the path, and hands the text to the tab.
+    let deleted = notes.path().join("Deleted.md");
+    assert!(
+        !deleted.exists(),
+        "a relaunch must not put back a file somebody deleted"
+    );
+    assert!(
+        dated_copies(notes.path(), "recovered")
+            .iter()
+            .all(|copy| !copy.to_string_lossy().contains("Deleted")),
+        "a copy beside a path somebody cleared is a file they did not ask for"
+    );
+    assert_eq!(
+        state.disk_state("deleted").map(|state| state.hash),
+        None,
+        "there is no file to describe, so nothing is recorded about one"
+    );
+    let handed_over = state
+        .recovered_buffers
+        .lock()
+        .expect("recovered buffers")
+        .iter()
+        .find(|buf| buf.id == "deleted")
+        .cloned()
+        .expect("the text has to reach the frontend, since nothing else holds it");
+    assert!(
+        handed_over.removed_on_disk,
+        "the tab has to come up removed on disk, not blank"
+    );
+    assert_eq!(handed_over.content, "the line typed after the file went");
 }
