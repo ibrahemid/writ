@@ -65,11 +65,22 @@ pub enum IndexedBy {
 }
 
 impl IndexedBy {
-    /// The value stored in `files.indexed_by`.
-    fn as_str(self) -> &'static str {
+    /// The value stored in `files.indexed_by`, which is also the wire spelling
+    /// a caller matches on.
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Content => "content",
             Self::Name => "name",
+        }
+    }
+
+    /// Reads the value back. Anything the column does not name is read as
+    /// [`IndexedBy::Content`], the value migration 042 backfilled every
+    /// existing row with.
+    pub fn from_stored(value: &str) -> Self {
+        match value {
+            "name" => Self::Name,
+            _ => Self::Content,
         }
     }
 }
@@ -1011,6 +1022,45 @@ impl<'a> NotesIndex<'a> {
         Ok(rows)
     }
 
+    /// How much of the note at `path` the index holds, or `None` when it holds
+    /// no row for it at all.
+    ///
+    /// The three answers a caller needs are `None` (not indexed),
+    /// `Some(IndexedBy::Name)` (the row carries the file's name and nothing
+    /// else, so its links, properties and tags are empty because nothing was
+    /// read) and `Some(IndexedBy::Content)` (empty means empty). Without this
+    /// the first two are indistinguishable from the third.
+    pub fn indexed_by(&self, path: &str) -> StorageResult<Option<IndexedBy>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT indexed_by FROM files WHERE path = ?1")?;
+        let mut rows = stmt.query_map(params![path], |row| row.get::<_, String>(0))?;
+        Ok(match rows.next() {
+            Some(value) => Some(IndexedBy::from_stored(&value?)),
+            None => None,
+        })
+    }
+
+    /// Every tag the index holds, with the number of notes carrying each.
+    ///
+    /// Tags come back as the `tags` table stores them, without the leading `#`,
+    /// which is also what [`NoteFactsRow::tags`] carries. Ordered by note count
+    /// descending, then by tag, so the folder's common tags come first and the
+    /// order is stable between two calls over the same rows. A note tagged
+    /// twice with the same tag counts once.
+    pub fn all_tags(&self) -> StorageResult<Vec<(String, usize)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT tag, COUNT(DISTINCT path) AS notes FROM tags
+             GROUP BY tag ORDER BY notes DESC, tag ASC",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// Every indexed note a link naming `name` could mean, in byte order.
     ///
     /// The list [`Resolution::Ambiguous`] hands the user, and the input the
@@ -1392,6 +1442,32 @@ impl NotesIndexStore {
         })
     }
 
+    /// Opens the database at `db_path` for reading only.
+    ///
+    /// For a process that is not the app: the `writ` command reads the index
+    /// this way so it can never create a database, run a migration or change a
+    /// row. Every write method on this type fails on the connection it returns,
+    /// which is the point.
+    ///
+    /// An absent file is an error rather than an empty database. An existing
+    /// one in WAL mode still gets its `-shm` and `-wal` companions created if
+    /// they are not already there: SQLite needs the shared-memory index to read
+    /// a WAL database at all, and it writes no frame into either.
+    pub fn open_read_only(db_path: &Path) -> StorageResult<Self> {
+        Ok(Self {
+            conn: Mutex::new(crate::database::connection::open_database_read_only(
+                db_path,
+            )?),
+            generation: AtomicU64::new(0),
+        })
+    }
+
+    /// The highest migration version the open database records. See
+    /// [`crate::database::migrations::applied_schema_version`].
+    pub fn schema_version(&self) -> StorageResult<i32> {
+        crate::database::migrations::applied_schema_version(&self.conn())
+    }
+
     /// Which folder the index is describing, as a number that changes whenever
     /// it changes.
     ///
@@ -1467,6 +1543,18 @@ impl NotesIndexStore {
     /// Everything the index holds about `path`. See [`NotesIndex::facts`].
     pub fn facts(&self, path: &str) -> StorageResult<NoteFactsRow> {
         NotesIndex::new(&self.conn()).facts(path)
+    }
+
+    /// How much of the note at `path` the index holds. See
+    /// [`NotesIndex::indexed_by`].
+    pub fn indexed_by(&self, path: &str) -> StorageResult<Option<IndexedBy>> {
+        NotesIndex::new(&self.conn()).indexed_by(path)
+    }
+
+    /// Every tag the index holds, with a note count each. See
+    /// [`NotesIndex::all_tags`].
+    pub fn all_tags(&self) -> StorageResult<Vec<(String, usize)>> {
+        NotesIndex::new(&self.conn()).all_tags()
     }
 
     /// The notes a link naming `name` could mean. See

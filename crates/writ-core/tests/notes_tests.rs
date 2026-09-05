@@ -211,6 +211,23 @@ fn dedupe_is_case_insensitive() {
 }
 
 #[test]
+fn dedupe_counts_a_decomposed_name_as_the_composed_one() {
+    // macOS hands back "Cafe\u{301}.md" for a note a user typed as "Café.md".
+    // Reading that as a free name picks a name the filesystem already holds,
+    // and the write that follows is refused every time it is tried.
+    let mut taken = HashSet::new();
+    taken.insert("Cafe\u{301}.md".to_string());
+    assert_eq!(dedupe_file_name("Caf\u{e9}", "md", &taken), "Café 2.md");
+
+    let mut taken = HashSet::new();
+    taken.insert("Caf\u{e9}.md".to_string());
+    assert_eq!(
+        dedupe_file_name("Cafe\u{301}", "md", &taken),
+        "Cafe\u{301} 2.md"
+    );
+}
+
+#[test]
 fn dedupe_without_an_extension_keeps_the_bare_stem() {
     let mut taken = HashSet::new();
     assert_eq!(dedupe_file_name("Notes", "", &taken), "Notes");
