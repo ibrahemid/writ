@@ -79,7 +79,41 @@ describe("autosave", () => {
       debouncedSave("buf-1", "data", 50);
       await vi.advanceTimersByTimeAsync(50);
 
-      expect(listener).toHaveBeenCalledWith("buf-1", expect.any(Error));
+      expect(listener).toHaveBeenCalledWith(
+        "buf-1",
+        expect.any(Error),
+        1,
+      );
+      unsubscribe();
+      cancelAutosave("buf-1");
+    });
+
+    // The reason a listener is told a number at all: it is what separates a
+    // refusal about a write still worth reporting from one about a write
+    // something has already dealt with. The failing write's own generation
+    // says which, so the note's current one is the wrong answer.
+    it("names the failed write's generation, not the note's current one", async () => {
+      let refuse: (error: unknown) => void = () => {};
+      mockedSave.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            refuse = reject;
+          }),
+      );
+      const listener = vi.fn();
+      const unsubscribe = onAutosaveError(listener);
+
+      debouncedSave("buf-1", "data", 50);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(mockedSave).toHaveBeenCalledTimes(1);
+
+      // Something else deals with the note while its write is still out, which
+      // moves the note on to generation two. The refusal is about the first.
+      cancelAutosave("buf-1");
+      refuse(new Error("disk full"));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(listener).toHaveBeenCalledWith("buf-1", expect.any(Error), 1);
       unsubscribe();
       cancelAutosave("buf-1");
     });
@@ -222,7 +256,11 @@ describe("autosave", () => {
       await vi.advanceTimersByTimeAsync(50);
 
       expect(mockedSave).not.toHaveBeenCalled();
-      expect(listener).toHaveBeenCalledWith("buf-1", expect.any(Error));
+      expect(listener).toHaveBeenCalledWith(
+        "buf-1",
+        expect.any(Error),
+        1,
+      );
       unsubscribe();
       cancelAutosave("buf-1");
     });
