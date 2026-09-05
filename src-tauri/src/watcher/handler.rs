@@ -1,6 +1,6 @@
 use crate::poison::recover_poison;
 use crate::watcher::moves::FileTracking;
-use crate::watcher::open_files::{answer_held_removals, OpenNotes, VanishedContext};
+use crate::watcher::open_files::{answer_held_removals, open_delivery, OpenNotes, VanishedContext};
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 use std::cell::RefCell;
@@ -412,23 +412,14 @@ pub fn start_notes_watcher(
             match result {
                 Ok(events) => {
                     // One tab message per note per delivered batch, the same
-                    // rule the open-file watcher runs on.
-                    let mut told: HashSet<String> = HashSet::new();
-                    // A note moved inside the notes folder arrives as its old
+                    // rule the open-file watcher runs on, off the same code: a
+                    // note moved inside the notes folder arrives as its old
                     // path leaving and its new one appearing in the same
-                    // window, which is how the tab is kept on the file.
-                    let batch: Vec<PathBuf> =
-                        events.iter().map(|event| event.path.clone()).collect();
-                    // A removal this delivery answers is the note's message
-                    // for it, and the events below must not send a second.
-                    let answers = answer_held_removals(
-                        &mut pending.borrow_mut(),
-                        &batch,
-                        &tracking,
-                        Instant::now(),
-                    );
-                    for (note_id, event) in answers {
-                        told.insert(note_id);
+                    // window, and the removal this delivery answers is that
+                    // note's message for it.
+                    let (batch, mut told, answers) =
+                        open_delivery(&events, &pending, &tracking, Instant::now());
+                    for event in answers {
                         bus.emit(event);
                     }
                     for event in &events {

@@ -559,6 +559,30 @@ pub fn start_open_file_watcher(
 /// a window into one delivery, so a folder another program is churning through
 /// cannot cost more than one message per open tab however many times each file
 /// in it was written.
+/// Opens a delivery: the paths it names, the removals it answers, and the notes
+/// those answers have already spoken for.
+///
+/// Both watcher threads start a batch this way, and the ordering is the point
+/// (decision 14): a removal this delivery answers is that note's one message
+/// for the batch, so its id goes into `told` before any of the delivery's own
+/// events are read. Written once because it was written twice, and the copy
+/// the tests did not reach was the one that could drift.
+pub fn open_delivery(
+    events: &[DebouncedEvent],
+    pending: &RefCell<PendingRemovals>,
+    tracking: &FileTracking,
+    now: Instant,
+) -> (Vec<PathBuf>, HashSet<String>, Vec<WritEvent>) {
+    let batch: Vec<PathBuf> = events.iter().map(|event| event.path.clone()).collect();
+    let mut told: HashSet<String> = HashSet::new();
+    let mut answers: Vec<WritEvent> = Vec::new();
+    for (note_id, event) in answer_held_removals(&mut pending.borrow_mut(), &batch, tracking, now) {
+        told.insert(note_id);
+        answers.push(event);
+    }
+    (batch, told, answers)
+}
+
 fn report_delivery(
     events: &[DebouncedEvent],
     registry: &Mutex<OpenFileRegistry>,
@@ -568,15 +592,9 @@ fn report_delivery(
     tracking: &FileTracking,
     now: Instant,
 ) -> Vec<WritEvent> {
-    let mut messages: Vec<WritEvent> = Vec::new();
-    let mut told: HashSet<String> = HashSet::new();
     // A rename arrives as the old path leaving and the new one appearing in
     // the same window, so the batch is where a file that moved is found again.
-    let batch: Vec<PathBuf> = events.iter().map(|event| event.path.clone()).collect();
-    for (note_id, event) in answer_held_removals(&mut pending.borrow_mut(), &batch, tracking, now) {
-        told.insert(note_id);
-        messages.push(event);
-    }
+    let (batch, mut told, mut messages) = open_delivery(events, pending, tracking, now);
     for event in events {
         let note_id = {
             let registry = recover_poison(registry.lock(), "watcher::open_files::note_at");
