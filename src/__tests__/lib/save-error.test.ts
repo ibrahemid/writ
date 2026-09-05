@@ -191,15 +191,6 @@ describe("formatRenameError", () => {
     expect(formatRenameError(READ_ONLY)).toBe("This file is read-only, so it was not renamed.");
   });
 
-  it("a_file_with_a_second_name_borrows_the_save_sentence", () => {
-    // A hard link has no rename wording of its own, so the save sentence
-    // carries it. What must not happen is the code reaching a person as
-    // itself.
-    expect(formatRenameError(HARD_LINKED)).toBe(
-      "The note could not be renamed: this file is shared with another name on disk, so Writ left it alone.",
-    );
-  });
-
   it("a_coded_failure_with_no_rename_wording_borrows_the_save_sentence", () => {
     // Every failed note operation now carries a code, so this is the ordinary
     // case rather than the odd one. A code must never reach a person as

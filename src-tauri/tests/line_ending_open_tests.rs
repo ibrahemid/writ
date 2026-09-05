@@ -199,3 +199,62 @@ fn a_reload_follows_a_file_that_gained_carriage_returns() {
         "the save wrote the ending the row held before the reload"
     );
 }
+
+/// The record the watcher measures a file against after a save.
+///
+/// `AppState::disk_state` is what `NoteFiles::last_disk_state` answers with,
+/// and `modification_is_news` compares it to a fresh digest of the file. A
+/// digest of the editor's LF text would differ from every byte on disk, so
+/// Writ's own save would come back to the tab as somebody else's edit.
+#[test]
+fn a_save_records_the_windows_files_own_digest_for_the_watcher() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let file = dir.path().join("notes.md");
+    std::fs::write(&file, "alpha\r\nbeta\r\n").unwrap();
+
+    let id = open(&state, &file);
+    assert_eq!(recorded_ending(&state, &id), LineEnding::CrLf);
+
+    save_buffer_content_inner(&state, &id, "alpha\nBETA\n").expect("save");
+
+    let on_disk = writ_core::hash::sha256_bytes(&std::fs::read(&file).unwrap());
+    let recorded = state.disk_state(&id).expect("the save recorded nothing");
+    assert_eq!(recorded.hash, on_disk);
+    assert!(
+        !writ_core::watcher::change_event::modification_is_news(
+            Some(recorded.hash),
+            Some(on_disk),
+            false
+        ),
+        "the tab would be told its own save was an external change"
+    );
+}
+
+/// A save that writes nothing still has to leave the record answering for the
+/// file, because the watcher goes on comparing against it.
+#[test]
+fn a_save_of_the_text_the_file_holds_leaves_the_record_answering_for_it() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let file = dir.path().join("notes.md");
+    std::fs::write(&file, "alpha\r\nbeta\r\n").unwrap();
+
+    let id = open(&state, &file);
+    let before = std::fs::metadata(&file).unwrap().modified().ok();
+
+    // Cmd+S with nothing typed.
+    save_buffer_content_inner(&state, &id, "alpha\nbeta\n").expect("save");
+
+    assert_eq!(
+        std::fs::metadata(&file).unwrap().modified().ok(),
+        before,
+        "nothing was typed, so nothing can have been written"
+    );
+    let on_disk = writ_core::hash::sha256_bytes(&std::fs::read(&file).unwrap());
+    assert_eq!(
+        state.disk_state(&id).expect("no record").hash,
+        on_disk,
+        "the no-op save left the watcher a digest the file does not match"
+    );
+}
