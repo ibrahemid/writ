@@ -420,53 +420,49 @@ an unrelated note created in the same watcher window can carry one `dev` and
 `ino`, and the id alone then says the deletion was a move onto somebody else's
 file — the tab follows it and the next save writes over it. APFS does not reuse
 numbers, which is why the case reached CI rather than a laptop. The id therefore
-carries a third field: the file's birth time in nanoseconds, `btime` through
-`statx` on Linux and `birthtime` elsewhere. A rename leaves it alone, which is
-what `ctime` does not, so it separates a recreated file from the original
-without weakening the move detection the id exists for. A volume that reports no
-birth time — ext3, ext4 formatted with 128-byte inodes — answers `None` for every
-file on it, and the inode is then the whole of the answer, exactly as before.
+carries a third field: the file's birth time in nanoseconds. A rename leaves it
+alone, which is what `ctime` does not, so it separates a recreated file from the
+original without weakening the move detection the id exists for. Two known birth
+times must be equal; a volume that reports none answers `None` for every file on
+it, and the inode is then the whole of the answer, exactly as before.
 `is_same_file` holds the rule, and `==` stays exact-value equality because
 `identity_to_keep` compares two records of one read and wants nothing looser.
 
-A rename leaves the birth time alone, but nothing else promises to. On APFS,
-setting a file's modification time earlier than its birth time pulls the birth
-time back to it, on the same live inode: `touch -t 202001010000` on a note
-measured here left `ino` unchanged and reported a birth time twenty-six years
-earlier than the one Writ had read. So the two known values are compared by
-order rather than for equality, and the order is what separates the two causes.
-A file that inherited a freed inode number was created after the number was
-freed, which is after Writ took the record, so on any clock that runs forwards a
-reused number arrives with a *later* birth time and is a different file. Nothing
-creates a file in the
-past, so an *earlier* birth time can only be the recorded file with its metadata
-rewritten, and it is the same file. Equal is the plain rename. Reading the
-earlier case as a different file is what made a metadata pass over a note leave
-its tab refusing every save over a file sitting at its new name.
+The birth time is read on Linux and nowhere else, and equality is what makes it
+worth reading there. It is worth comparing only where two things hold at once:
+an inode number can come back, so the field has work to do, and nothing can move
+the value under a live file, so a mismatch means a different file. Linux is the
+only platform where both hold. ext4, xfs and btrfs reuse inode numbers, and
+`statx` reports a `btime` that no userspace call can set.
 
-The birth time is the whole of the fix and not more than it. Linux stamps a new
-file from the coarse clock, so two files created inside one tick share a birth
-time to the nanosecond: a delete followed by a create at the same path in the
-same tick, on a filesystem that reuses inode numbers, stays indistinguishable.
-Two more shapes the order cannot separate, both of them a reused inode number
-reporting a birth time below the record's. One is a new file that then had its
-own birth time pushed back, which needs the deletion, the creation that inherits
-the number, and a metadata pass over the result all inside one watcher window.
-The other is the clock: a birth time is wall clock and not monotonic, so a step
-backwards between the record and the creation — NTP correcting a drifted host, a
-resume, a restored snapshot — stamps the new file below the record with nothing
-having touched it. Both are the failure the birth time exists to prevent rather
-than the one it caused, and both need a second rare event inside the window of
-the first, which is the trade the order makes against a real measured case.
-Every real replacement is separated anyway, because a replacement is a sibling
-renamed over the target and the sibling was created while the original still
-held its inode. What was rejected was corroborating the id with a content
-digest: it answers the wrong question, since two notes holding the same text
-corroborate each other, and it would cost a read of every candidate on a share
-for a question the id already answers. The tests that prove the rule build the
-identities by hand rather than reading them from the host, because whether a
-filesystem reuses inode numbers is the host's business and the rule has to hold
-on all of them.
+macOS holds neither. A live inode's birth time moves in both directions on APFS,
+both measured: `touch -t 202001010000` pulls it back through the modification
+time, and `SetFile -d` — `setattrlist` with `ATTR_CMN_CRTIME`, which is what
+unarchivers and restore tools use — writes it forward. So a
+mismatch there says nothing about which file this is, and no ordering of two
+birth times helps: reading a lower value as the same file lets a reused number
+that was backdated through, and reading a higher one as a different file refuses
+every save over a note a restore tool touched. APFS also never hands an inode
+number back out, so there is nothing on it for the field to separate. macOS
+therefore fills in no birth time and is answered on the inode alone. HFS+ does
+reuse numbers, and a notes folder on a legacy HFS+ volume is answered the same
+way, which is what every volume was answered on before the field existed. NTFS
+file ids carry their own sequence number and ReFS ids are 128 bits, and Windows
+lets a creation time be set, so Windows reads no birth time either and never
+reaches this branch.
+
+The birth time is the whole of the fix on Linux and not more than it. Linux
+stamps a new file from the coarse clock, so two files created inside one tick
+share a birth time to the nanosecond: a delete followed by a create at the same
+path in the same tick stays indistinguishable. Every real replacement is
+separated anyway, because a replacement is a sibling renamed over the target and
+the sibling was created while the original still held its inode. What was
+rejected was corroborating the id with a content digest: it answers the wrong
+question, since two notes holding the same text corroborate each other, and it
+would cost a read of every candidate on a share for a question the id already
+answers. The tests that prove the rule build the identities by hand rather than
+reading them from the host, because whether a filesystem reuses inode numbers is
+the host's business and the rule has to hold on all of them.
 
 A volume with no id to give — FAT, exFAT, some SMB servers — gets a description
 of the file instead, which cannot recognise it anywhere else. That is
