@@ -1,90 +1,19 @@
 /*
- * Writ preview fallback stylesheet — ADR-009 §F2.
+ * Writ preview rules — ADR-009 §F2.
  *
  * Applied only when a document brings no <style> and no
  * <link rel="stylesheet"> of its own (the HtmlRenderer injects the link
  * to this file presence-conditionally; author styles win mechanically).
  *
- * Self-contained: the --writ-preview-* token layer carries Writ's dark
- * reading palette as the default. A light palette is defined under
- * [data-writ-theme="light"] for when app-theme bridging sets the attribute
- * on the preview document. Both palettes are asserted WCAG AA by
- * preview-base-contrast.test.ts.
+ * Rules only. The --writ-preview-* token layer is generated from
+ * design/tokens into assets/generated/preview-tokens.css and inlined ahead
+ * of these rules by renderers::theme. Light is the :root default there and
+ * dark is declared under [data-writ-theme="dark"]; both palettes are
+ * asserted WCAG AA by preview-base-contrast.test.ts.
  *
  * This is a reading surface for a writer's tool — editorial, quiet,
  * generous measure — not a browser's default debug view.
  */
-
-:root {
-  /* Dark palette — mirrors Writ's warp-dark app theme. */
-  --writ-preview-bg: #0e0e14;
-  --writ-preview-bg-sunken: #0a0a10;
-  --writ-preview-fg: #e0e0e0;
-  --writ-preview-muted: #9a9aac;
-  --writ-preview-subtle: #6a6a7c;
-  --writ-preview-accent: #7aa2f7;
-  --writ-preview-accent-hover: #a9c2ff;
-  --writ-preview-border: #232334;
-  --writ-preview-border-soft: #1a1a26;
-  --writ-preview-code-bg: #16161e;
-  --writ-preview-code-fg: #c0caf5;
-  --writ-preview-mark-bg: #3a3220;
-  --writ-preview-mark-fg: #f3e6c4;
-  --writ-preview-selection: rgba(122, 162, 247, 0.28);
-  --writ-preview-rule: #232334;
-  --writ-preview-table-stripe: rgba(255, 255, 255, 0.025);
-
-  /* Syntax tokens for fenced code, reused from the app's highlight set. */
-  --writ-preview-syntax-keyword: #bb9af7;
-  --writ-preview-syntax-string: #9ece6a;
-  --writ-preview-syntax-comment: #565f89;
-  --writ-preview-syntax-function: #7aa2f7;
-  --writ-preview-syntax-number: #ff9e64;
-
-  /* Arabic families precede the generic keywords so per-glyph fallback reaches
-     SF Arabic (current macOS), Geeza Pro (older macOS), or Noto Naskh Arabic
-     (Linux) rather than the platform default. Mirrors the app's theme.css. */
-  --writ-preview-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", system-ui, sans-serif;
-  --writ-preview-font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", ui-monospace, monospace;
-
-  /* Modular type scale, major third (1.25). Base 16px. */
-  --writ-preview-fs-base: 1rem;
-  --writ-preview-fs-sm: 0.8rem;
-  --writ-preview-fs-h6: 0.94rem;
-  --writ-preview-fs-h5: 1rem;
-  --writ-preview-fs-h4: 1.25rem;
-  --writ-preview-fs-h3: 1.563rem;
-  --writ-preview-fs-h2: 1.953rem;
-  --writ-preview-fs-h1: 2.441rem;
-
-  --writ-preview-measure: 72ch;
-  --writ-preview-leading: 1.7;
-}
-
-[data-writ-theme="light"] {
-  --writ-preview-bg: #fbfbfd;
-  --writ-preview-bg-sunken: #f2f2f6;
-  --writ-preview-fg: #1a1a22;
-  --writ-preview-muted: #5a5a6a;
-  --writ-preview-subtle: #76768a;
-  --writ-preview-accent: #3b5bdb;
-  --writ-preview-accent-hover: #2843c0;
-  --writ-preview-border: #e2e2ea;
-  --writ-preview-border-soft: #ececf2;
-  --writ-preview-code-bg: #f0f0f4;
-  --writ-preview-code-fg: #2a2a38;
-  --writ-preview-mark-bg: #fdf2c4;
-  --writ-preview-mark-fg: #4a3a08;
-  --writ-preview-selection: rgba(59, 91, 219, 0.18);
-  --writ-preview-rule: #e2e2ea;
-  --writ-preview-table-stripe: rgba(0, 0, 0, 0.02);
-
-  --writ-preview-syntax-keyword: #8839ef;
-  --writ-preview-syntax-string: #40803a;
-  --writ-preview-syntax-comment: #8a8aa0;
-  --writ-preview-syntax-function: #3b5bdb;
-  --writ-preview-syntax-number: #b8500a;
-}
 
 *,
 *::before,
@@ -98,8 +27,10 @@ html {
 
 body {
   margin: 0 auto;
-  max-width: var(--writ-preview-measure);
-  padding: clamp(1.5rem, 4vw, 3.5rem) clamp(1.25rem, 5vw, 2.5rem) 6rem;
+  /* The reading column is the measure; the padding sits outside it, so the box
+     is the measure plus both gutters (ADR-030 decision 3). */
+  max-width: calc(var(--writ-preview-measure) + 2 * var(--writ-preview-pad-x));
+  padding: var(--writ-preview-pad-y) var(--writ-preview-pad-x);
   background: var(--writ-preview-bg);
   color: var(--writ-preview-fg);
   font-family: var(--writ-preview-font-sans);

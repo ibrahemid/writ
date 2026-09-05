@@ -13,6 +13,7 @@ use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
+use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::config_store::ConfigStore;
@@ -67,8 +68,10 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
         notes_watcher: Mutex::new(None),
+        open_file_watcher: Mutex::new(None),
         notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
+        notes_reconcile: Arc::new(ReconcileGate::new()),
         quit: Arc::new(QuitState::new()),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
@@ -89,6 +92,7 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
         workspace_index: Arc::new(RwLock::new(WorkspaceIndex::new(ws_root))),
         search_generation: Arc::new(AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
+        unsaved_on_exit: Mutex::new(std::collections::HashMap::new()),
     }
 }
 
@@ -340,7 +344,9 @@ fn the_notes_watcher_suppresses_writs_own_write() {
 
     let ignore = create_ignore_set();
     let key = writ_core::watcher::ignore::source_key(
-        &std::fs::canonicalize(&notes)
+        // The spelling the watcher builds its key from: `canonicalize_root`
+        // strips the Windows `\\?\` prefix, which the event path never carries.
+        &writ_tauri_lib::security::canonicalize_root(&notes)
             .expect("canonical notes root")
             .join("saved.md"),
     );

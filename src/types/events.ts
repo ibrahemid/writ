@@ -6,10 +6,20 @@ export type WritEvent =
   | { kind: "files:dropped"; payload: { paths: string[] } }
   | { kind: "window:shown"; payload: { rust_elapsed_us: number } }
   | { kind: "config:changed"; payload: { keys: string[] } }
-  | { kind: "buffer:external"; payload: { bufferId: string; change: "modified" | "deleted" } }
+  | {
+      kind: "buffer:external";
+      payload: {
+        bufferId: string;
+        path: string;
+        change: "modified" | "deleted";
+        newPath: string | null;
+        diskHash: string | null;
+      };
+    }
   | { kind: "menu:action"; payload: { action: string } }
   | { kind: "workspace:changed"; payload: { path: string; removed: boolean } }
   | { kind: "notes:changed"; payload: { path: string; removed: boolean } }
+  | { kind: "notes:swept"; payload: { root: string } }
   | { kind: "inbox:file-arrived"; payload: { path: string } }
   | { kind: "update:status"; payload: UpdatePhase }
   | {

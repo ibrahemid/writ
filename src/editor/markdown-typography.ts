@@ -28,13 +28,29 @@ interface SyntaxNodeFull extends SyntaxNodeRef {
 // ─── Decoration factories ──────────────────────────────────────────────────
 
 const lineDec: Record<string, Decoration> = {
-  ATXHeading1: Decoration.line({ class: "cm-line-md-h1" }),
-  ATXHeading2: Decoration.line({ class: "cm-line-md-h2" }),
-  ATXHeading3: Decoration.line({ class: "cm-line-md-h3" }),
-  ATXHeading4: Decoration.line({ class: "cm-line-md-h4" }),
-  ATXHeading5: Decoration.line({ class: "cm-line-md-h5" }),
-  ATXHeading6: Decoration.line({ class: "cm-line-md-h6" }),
+  ATXHeading1: Decoration.line({ class: "cm-line-md-h1 cm-line-md-hang" }),
+  ATXHeading2: Decoration.line({ class: "cm-line-md-h2 cm-line-md-hang" }),
+  ATXHeading3: Decoration.line({ class: "cm-line-md-h3 cm-line-md-hang" }),
+  ATXHeading4: Decoration.line({ class: "cm-line-md-h4 cm-line-md-hang" }),
+  ATXHeading5: Decoration.line({ class: "cm-line-md-h5 cm-line-md-hang" }),
+  ATXHeading6: Decoration.line({ class: "cm-line-md-h6 cm-line-md-hang" }),
 };
+
+// Fenced code keeps mono: prose sans is the writing face, and a fence is code
+// (ADR-030 decision 7). Applied per line so the fences read as part of it; the
+// edge lines carry the corner radius and the block's vertical padding, so the
+// run of lines reads as one slab rather than a stack of filled rows.
+const codeBlockLine = Decoration.line({ class: "cm-md-codeblock" });
+const codeBlockFirstLine = Decoration.line({ class: "cm-md-codeblock cm-md-codeblock-first" });
+const codeBlockLastLine = Decoration.line({ class: "cm-md-codeblock cm-md-codeblock-last" });
+const codeBlockSoleLine = Decoration.line({
+  class: "cm-md-codeblock cm-md-codeblock-first cm-md-codeblock-last",
+});
+
+// Pulls a line's leading marker into the left margin without taking it out of
+// flow, so a wrapped line keeps one box and CodeMirror's height cache stays
+// right (an absolutely-positioned marker inside .cm-line does not).
+const hangLine = Decoration.line({ class: "cm-line-md-hang" });
 
 const markDecByNode: Record<string, Decoration> = {
   StrongEmphasis: Decoration.mark({ class: "cm-md-strong" }),
@@ -44,12 +60,20 @@ const markDecByNode: Record<string, Decoration> = {
 };
 
 const markerReplace  = Decoration.replace({});
+// Markers that stay in the text hang in the left margin at the formatting ink,
+// so the sentence itself never carries raw punctuation (ADR-030 decision 3).
+const hungMarkerMark = Decoration.mark({ class: "cm-md-marker-hung" });
 const urlDimMark     = Decoration.mark({ class: "cm-md-url-dim" });
 const linkTextMark   = Decoration.mark({ class: "cm-md-link-text" });
 const blockquoteMark = Decoration.mark({ class: "cm-md-blockquote" });
 const listNumMark    = Decoration.mark({ class: "cm-md-list-num" });
+const markerDimMark  = Decoration.mark({ class: "cm-md-marker-dim" });
+const codeInfoMark   = Decoration.mark({ class: "cm-md-code-info" });
+const taskDoneMark   = Decoration.mark({ class: "cm-md-task-done" });
 
 // ─── Widgets ───────────────────────────────────────────────────────────────
+
+const SVG_NS = "http://www.w3.org/2000/svg";
 
 class TaskCheckboxWidget extends WidgetType {
   constructor(readonly checked: boolean) {
@@ -61,11 +85,37 @@ class TaskCheckboxWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.className = "cm-md-task-checkbox";
-    box.checked = this.checked;
-    box.setAttribute("aria-label", this.checked ? "Completed task" : "Open task");
+    // The box is drawn by the wrapper and the tick by an inline SVG, because a
+    // native checkbox paints in the platform's own colours and ignores the
+    // preset. The real input stays on top at zero opacity so the control keeps
+    // checkbox semantics and the existing mousedown handler keeps working.
+    const box = document.createElement("span");
+    box.className = "cm-md-task-box";
+    if (this.checked) box.dataset.checked = "true";
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.className = "cm-md-task-checkbox";
+    input.checked = this.checked;
+    input.setAttribute("aria-label", this.checked ? "Completed task" : "Open task");
+    box.appendChild(input);
+
+    if (this.checked) {
+      const svg = document.createElementNS(SVG_NS, "svg");
+      svg.setAttribute("viewBox", "0 0 16 16");
+      svg.setAttribute("aria-hidden", "true");
+      svg.setAttribute("class", "cm-md-task-check");
+      const path = document.createElementNS(SVG_NS, "path");
+      path.setAttribute("d", "M3.75 8.5 6.6 11.35 12.25 5");
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", "currentColor");
+      path.setAttribute("stroke-width", "2");
+      path.setAttribute("stroke-linecap", "round");
+      path.setAttribute("stroke-linejoin", "round");
+      svg.appendChild(path);
+      box.appendChild(svg);
+    }
+
     return box;
   }
 
@@ -101,17 +151,24 @@ const taskUncheckedReplace = Decoration.replace({ widget: new TaskCheckboxWidget
 const TASK_LINE_PREFIX = /^(\s*(?:[-+*]|\d+[.)])\s+\[)([ xX])\]/;
 // The remainder of a list line that makes its marker a task item's marker.
 const TASK_AFTER_MARK = /^\s+\[[ xX]\]/;
+// The leading '>' of a quoted line, up to and including the marker itself.
+const QUOTE_LINE_MARK = /^\s*>/;
+// Whitespace between a marker and the text it introduces.
+const LEADING_SPACE = /^[^\S\n]*/;
 
-// Syntax marker node names — characters like '#', '**', '_', '`', '>', '[', ']',
-// '(', ')' that we dim/replace on inactive lines.
+// Inline noise: characters like '**', '_', '`', '[', ']' that carry no meaning
+// once the styling they describe is rendered. Replaced on inactive lines.
 const MARKER_NAMES = new Set([
-  "HeaderMark",
   "EmphasisMark",
   "CodeMark",
   "StrikethroughMark",
-  "QuoteMark",
   "LinkMark",
 ]);
+
+// Structure: the '#' of a heading and the '>' of a quote say what the block is,
+// so they stay readable and hang in the margin instead of being replaced. A
+// deliberate narrowing of ADR-014's replace-on-inactive rule.
+const HUNG_MARKER_NAMES = new Set(["HeaderMark", "QuoteMark"]);
 
 // ─── Pure decoration builder ───────────────────────────────────────────────
 
@@ -205,9 +262,70 @@ export function buildMarkdownDecorations(
       return;
     }
 
+    // ── Fenced code: mono, one line decoration per line in the block ──────
+    if (name === "FencedCode" || name === "CodeBlock") {
+      try {
+        const lines: Array<{ from: number }> = [];
+        let pos = from;
+        for (;;) {
+          const line = docLineAt(pos);
+          lines.push({ from: line.from });
+          if (line.to >= to) break;
+          pos = line.to + 1;
+        }
+        lines.forEach((line, index) => {
+          const isFirst = index === 0;
+          const isLast = index === lines.length - 1;
+          const decoration = isFirst && isLast
+            ? codeBlockSoleLine
+            : isFirst
+              ? codeBlockFirstLine
+              : isLast
+                ? codeBlockLastLine
+                : codeBlockLine;
+          specs.push({ from: line.from, to: line.from, decoration });
+        });
+      } catch {
+        // skip un-parseable positions
+      }
+      return;
+    }
+
+    // ── Fence markers and info string: demoted, never removed ─────────────
+    // Replacing them (the inline-code rule) left the opening line showing a
+    // bare info string and the closing line showing nothing but fill.
+    if (name === "CodeMark" && nodeRef.node.parent?.name === "FencedCode") {
+      const active = isActiveLine(from);
+      if (active !== false) return;
+      addMark(from, to, markerDimMark);
+      return;
+    }
+
+    if (name === "CodeInfo") {
+      const active = isActiveLine(from);
+      if (active !== false) return;
+      addMark(from, to, codeInfoMark);
+      return;
+    }
+
     // ── Blockquote content ────────────────────────────────────────────────
     if (name === "Blockquote") {
-      addMark(from, to, blockquoteMark);
+      try {
+        let pos = from;
+        for (;;) {
+          const line = docLineAt(pos);
+          specs.push({ from: line.from, to: line.from, decoration: hangLine });
+          // The rail is the mark's left border, so the mark starts after the
+          // '>' the hang pulls into the margin: spanning the marker would drag
+          // the rail out there with it.
+          const marker = QUOTE_LINE_MARK.exec(docSlice(line.from, line.to));
+          addMark(line.from + (marker ? marker[0].length : 0), line.to, blockquoteMark);
+          if (line.to >= to) break;
+          pos = line.to + 1;
+        }
+      } catch {
+        // skip un-parseable positions
+      }
       return;
     }
 
@@ -256,9 +374,19 @@ export function buildMarkdownDecorations(
 
     // ── Task checkboxes: widget on inactive lines, raw on active ──────────
     if (name === "TaskMarker") {
+      const checked = /[xX]/.test(docSlice(from, to));
+      if (checked) {
+        // Done state, not markup: the strike stays on the active line too.
+        try {
+          const line = docLineAt(from);
+          const gap = LEADING_SPACE.exec(docSlice(to, line.to));
+          addMark(to + (gap ? gap[0].length : 0), line.to, taskDoneMark);
+        } catch {
+          // skip un-parseable positions
+        }
+      }
       const active = isActiveLine(from);
       if (active !== false) return;
-      const checked = /[xX]/.test(docSlice(from, to));
       addReplace(from, to, checked ? taskCheckedReplace : taskUncheckedReplace);
       return;
     }
@@ -267,6 +395,9 @@ export function buildMarkdownDecorations(
     if (name === "ListMark") {
       const text = docSlice(from, to);
       if (/^[-+*]$/.test(text)) {
+        // ADR-014's rule stands for a replace: hiding the character under the
+        // cursor would hide what the user is typing. Only the marks below are
+        // narrowed.
         const active = isActiveLine(from);
         if (active !== false) return;
         let lineTo: number;
@@ -275,11 +406,11 @@ export function buildMarkdownDecorations(
         } catch {
           return;
         }
-        // A task item shows only its checkbox; a plain item shows a dot.
         const rest = docSlice(to, lineTo);
         const taskRest = TASK_AFTER_MARK.exec(rest);
         if (taskRest) {
-          // Swallow the gap up to the checkbox so no stray indent remains.
+          // A task item shows only its checkbox; swallow the gap up to the box
+          // so no stray indent remains.
           addReplace(from, to + taskRest[0].indexOf("["));
         } else {
           addReplace(from, to, bulletReplace);
@@ -307,7 +438,13 @@ export function buildMarkdownDecorations(
       return;
     }
 
-    // ── Syntax markers: replace on inactive lines, reveal on active ───────
+    // ── Structural markers: hung in the margin, never replaced ────────────
+    if (HUNG_MARKER_NAMES.has(name)) {
+      addMark(from, to, hungMarkerMark);
+      return;
+    }
+
+    // ── Inline markers: replace on inactive lines, reveal on active ───────
     if (MARKER_NAMES.has(name)) {
       const active = isActiveLine(from);
       if (active !== false) return;

@@ -3,11 +3,13 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex, RwLock};
 use tracing::{info, warn};
+use writ_core::buffer::document::BufferDocument;
 use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::recovery::RecoveredBuffer;
 use writ_core::update::UpdatePhase;
+use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::builtins::register_builtins;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
@@ -25,6 +27,7 @@ use crate::preview::handler::RenderCache;
 use crate::quit::QuitState;
 use crate::security::{canonicalize_for_authorization, canonicalize_root, AuthorizedPaths};
 use crate::watcher::handler::{IgnoreSet, WatcherHandle};
+use crate::watcher::open_files::{NoOpenNotes, OpenFileWatcher, OpenNotes};
 
 /// What Writ last saw on disk for one note.
 ///
@@ -96,6 +99,10 @@ pub struct AppState {
     /// The recursive watcher over the notes folder. Held here so it lives as
     /// long as the application; dropping it stops the watch.
     pub notes_watcher: Mutex<Option<WatcherHandle>>,
+    /// The watcher over the folders holding files opened from outside the
+    /// notes tree. Held here for the same reason, and reached through
+    /// [`AppState::follow_note_file`] and [`AppState::stop_following_note`].
+    pub open_file_watcher: Mutex<Option<OpenFileWatcher>>,
     pub pending_opens: Mutex<Vec<String>>,
     pub frontend_ready: AtomicBool,
     pub transforms: RwLock<TransformRegistry>,
@@ -115,6 +122,13 @@ pub struct AppState {
     /// thread polls it per entry, so a quit during a large walk does not wait
     /// for the walk.
     pub notes_index_cancel: Arc<AtomicBool>,
+    /// Keeps one reconcile walk running at a time over the notes folder, and
+    /// remembers a sweep that arrived while one was running so it gets a walk
+    /// of its own afterwards. The watcher raises a sweep whenever more changed
+    /// in one window than is worth listing, and a sync catch-up raises it
+    /// again while the last walk is still reading; a change behind the walk's
+    /// back is the one it cannot cover.
+    pub notes_reconcile: Arc<ReconcileGate>,
     /// How far the shutdown path has got, and whether the frontend has
     /// answered [`writ_core::events::bus::WritEvent::FlushBeforeQuit`] by
     /// writing everything it was holding inside the autosave debounce window.
@@ -156,6 +170,14 @@ pub struct AppState {
     /// closing or deleting a note drops it, so a note reopened weeks later
     /// is compared against the file, not against a stale record of it.
     pub last_disk_hash: Mutex<HashMap<String, DiskState>>,
+    /// Text a save could not write, handed over by the editor on its way out,
+    /// keyed by buffer id.
+    ///
+    /// The shutdown snapshot is the last thing written and it reads every open
+    /// note's file, so a note whose write failed would otherwise contribute
+    /// the stale bytes on disk and the text the person typed would be nowhere.
+    /// Emptied by [`Self::take_unsaved_on_exit`] as the snapshot is composed.
+    pub unsaved_on_exit: Mutex<HashMap<String, String>>,
 }
 
 impl AppState {
@@ -399,6 +421,7 @@ impl AppState {
             watcher_ignore,
             watcher: Mutex::new(None),
             notes_watcher: Mutex::new(None),
+            open_file_watcher: Mutex::new(None),
             pending_opens: Mutex::new(Vec::new()),
             frontend_ready: AtomicBool::new(false),
             transforms: RwLock::new(transforms),
@@ -410,6 +433,7 @@ impl AppState {
             layout_state,
             notes_index,
             notes_index_cancel: Arc::new(AtomicBool::new(false)),
+            notes_reconcile: Arc::new(ReconcileGate::new()),
             quit: Arc::new(QuitState::new()),
             recovered_buffers: Mutex::new(recovered_buffers),
             was_dirty_shutdown,
@@ -421,6 +445,7 @@ impl AppState {
             workspace_index,
             search_generation: Arc::new(AtomicU64::new(0)),
             last_disk_hash: Mutex::new(recovered_disk_states),
+            unsaved_on_exit: Mutex::new(HashMap::new()),
         })
     }
 
@@ -440,9 +465,87 @@ impl AppState {
     /// lock every note in the folder out of saving.
     pub fn set_notes_root(&self, root: PathBuf) {
         let mut guard = recover_poison(self.notes_root.write(), "state::set_notes_root");
-        *guard = root;
+        *guard = root.clone();
         drop(guard);
         self.clear_notes_root_fallback();
+        // The open-file watcher skips folders the notes watcher already
+        // covers, so it has to be told where the notes are now.
+        let watcher = recover_poison(
+            self.open_file_watcher.lock(),
+            "state::set_notes_root:open_files",
+        );
+        if let Some(watcher) = watcher.as_ref() {
+            let mut registry = recover_poison(
+                watcher.registry().lock(),
+                "state::set_notes_root:open_files_registry",
+            );
+            registry.set_notes_root(&root);
+        }
+    }
+
+    /// Watches the folder holding `doc`'s file, so a change another program
+    /// makes to it reaches the tab. A note with no file yet is skipped.
+    pub fn follow_note_file(&self, doc: &BufferDocument) {
+        let Some(path) = doc.source_path.as_deref() else {
+            return;
+        };
+        self.follow_note_path(&doc.id, Path::new(path));
+    }
+
+    /// The one place a tab's file starts being followed.
+    ///
+    /// Every path that gives a tab a file calls this, whatever the file's
+    /// folder: opening one from outside the notes folder, restoring a tab at
+    /// launch or from history, creating a note, giving a note its file on
+    /// first save, renaming one, and moving the notes folder. A file inside
+    /// the notes folder is recorded here too, without arming a second watch —
+    /// the notes watcher covers the folder, and this is how it learns which
+    /// tab a changed path belongs to. Skipping it there is what left a note
+    /// created or renamed in the session unable to hear about its own file.
+    ///
+    /// Three paths deliberately do not call it, because none of them puts a
+    /// file behind a tab: `save_note_copy_inner` writes a copy the caller then
+    /// opens through the open path, `create_buffer` makes a note with no file
+    /// at all, and `get_buffer` only reads a row.
+    ///
+    /// Asking twice for the same note and file costs nothing, so a path that
+    /// cannot tell whether the tab is new should call it anyway.
+    pub fn follow_note_path(&self, note_id: &str, path: &Path) {
+        let watcher = recover_poison(self.open_file_watcher.lock(), "state::follow_note_path");
+        let Some(watcher) = watcher.as_ref() else {
+            return;
+        };
+        let mut registry = recover_poison(
+            watcher.registry().lock(),
+            "state::follow_note_path:registry",
+        );
+        registry.watch_parent_of(note_id, path);
+    }
+
+    /// Which note a path is open as, for a watcher routing a change to a tab.
+    ///
+    /// Answers nothing while the open-file watcher is not running, which reads
+    /// the same as no file being open: nothing is routed.
+    pub fn open_notes(&self) -> Arc<dyn OpenNotes> {
+        let watcher = recover_poison(self.open_file_watcher.lock(), "state::open_notes");
+        match watcher.as_ref() {
+            Some(watcher) => watcher.open_notes(),
+            None => Arc::new(NoOpenNotes),
+        }
+    }
+
+    /// Releases the folder watch a note was holding, which the last tab in a
+    /// folder closing is the end of.
+    pub fn stop_following_note(&self, note_id: &str) {
+        let watcher = recover_poison(self.open_file_watcher.lock(), "state::stop_following_note");
+        let Some(watcher) = watcher.as_ref() else {
+            return;
+        };
+        let mut registry = recover_poison(
+            watcher.registry().lock(),
+            "state::stop_following_note:registry",
+        );
+        registry.unwatch_parent_of(note_id);
     }
 
     /// The folder the settings named that startup could not use, or `None`.
@@ -562,12 +665,32 @@ impl AppState {
     /// `true` when `bytes` hashes to the digest last recorded for
     /// `buffer_id`.
     ///
-    /// `false` for a buffer with no recorded digest — the honest answer for
-    /// one Writ has not read or written this launch, where nothing rules out
-    /// that the file changed underneath it.
+    /// `false` for a buffer with no recorded digest, which makes this a guard
+    /// rather than a test for whether a file changed. A caller about to write,
+    /// or about to trust bytes it is holding, wants that refusal. A caller
+    /// deciding whether to tell the user their file moved underneath them does
+    /// not: with nothing to compare against, reporting a change is a claim
+    /// about bytes nobody read. Ask [`Self::disk_state`] and stay quiet when it
+    /// answers `None`.
     pub fn disk_hash_matches(&self, buffer_id: &str, bytes: &[u8]) -> bool {
         let map = recover_poison(self.last_disk_hash.lock(), "state::disk_hash_matches");
         map.get(buffer_id).map(|state| state.hash) == Some(writ_core::hash::sha256_bytes(bytes))
+    }
+
+    /// Records text a save could not write, for the shutdown snapshot to keep.
+    ///
+    /// The editor hands the same note over on both ways out (the quit flush
+    /// and the window closing), so a later handover replaces an earlier one:
+    /// it carries the newer text.
+    pub fn record_unsaved_on_exit(&self, buffer_id: &str, content: String) {
+        let mut map = recover_poison(self.unsaved_on_exit.lock(), "state::record_unsaved_on_exit");
+        map.insert(buffer_id.to_string(), content);
+    }
+
+    /// Takes everything recorded, leaving the map empty.
+    pub fn take_unsaved_on_exit(&self) -> HashMap<String, String> {
+        let mut map = recover_poison(self.unsaved_on_exit.lock(), "state::take_unsaved_on_exit");
+        std::mem::take(&mut *map)
     }
 }
 
@@ -788,8 +911,12 @@ pub(crate) fn resolve_writ_dir(
 
 #[cfg(test)]
 mod tests {
+    // `canonicalize_root`, not `std::fs::canonicalize`: on Windows the latter
+    // returns a `\\?\` prefix that every path the resolver hands back has been
+    // stripped of, and the two never compare equal.
     use super::{
-        resolve_and_create_notes_root, resolve_writ_dir, NotesRootFallback, NotesRootFallbackReason,
+        canonicalize_root, resolve_and_create_notes_root, resolve_writ_dir, NotesRootFallback,
+        NotesRootFallbackReason,
     };
     use std::path::PathBuf;
     use tempfile::TempDir;
@@ -812,7 +939,7 @@ mod tests {
         .unwrap();
 
         assert!(root.is_dir());
-        assert_eq!(root, std::fs::canonicalize(&chosen).unwrap());
+        assert_eq!(root, canonicalize_root(&chosen).unwrap());
         assert_eq!(fallback, None);
     }
 
@@ -837,10 +964,7 @@ mod tests {
         .unwrap();
 
         assert!(root.is_dir());
-        assert_eq!(
-            root,
-            std::fs::canonicalize(home.path().join("Writ")).unwrap()
-        );
+        assert_eq!(root, canonicalize_root(&home.path().join("Writ")).unwrap());
         assert_eq!(
             fallback,
             Some(NotesRootFallback {
@@ -871,7 +995,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(root, std::fs::canonicalize(&chosen).unwrap());
+        assert_eq!(root, canonicalize_root(&chosen).unwrap());
         assert_eq!(
             fallback,
             Some(NotesRootFallback {
@@ -901,10 +1025,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            root,
-            std::fs::canonicalize(home.path().join("Writ")).unwrap()
-        );
+        assert_eq!(root, canonicalize_root(&home.path().join("Writ")).unwrap());
         assert_eq!(
             fallback,
             Some(NotesRootFallback {
@@ -953,10 +1074,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            root,
-            std::fs::canonicalize(home.path().join("Writ")).unwrap()
-        );
+        assert_eq!(root, canonicalize_root(&home.path().join("Writ")).unwrap());
         assert_eq!(
             fallback,
             Some(NotesRootFallback {
@@ -983,10 +1101,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            root,
-            std::fs::canonicalize(home.path().join("Writ")).unwrap()
-        );
+        assert_eq!(root, canonicalize_root(&home.path().join("Writ")).unwrap());
         assert_eq!(
             fallback.map(|fallback| fallback.reason),
             Some(NotesRootFallbackReason::HoldsWritData)
@@ -1016,7 +1131,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(root, std::fs::canonicalize(&chosen).unwrap());
+        assert_eq!(root, canonicalize_root(&chosen).unwrap());
         assert_eq!(fallback, None);
     }
 
@@ -1037,7 +1152,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(root, std::fs::canonicalize(data.join("Writ")).unwrap());
+        assert_eq!(root, canonicalize_root(&data.join("Writ")).unwrap());
         assert_eq!(fallback, None);
     }
 

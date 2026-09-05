@@ -11,6 +11,7 @@ use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
+use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::config_store::ConfigStore;
@@ -58,8 +59,10 @@ fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFall
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
         notes_watcher: Mutex::new(None),
+        open_file_watcher: Mutex::new(None),
         notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
+        notes_reconcile: Arc::new(ReconcileGate::new()),
         quit: Arc::new(QuitState::new()),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
@@ -82,6 +85,7 @@ fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFall
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
+        unsaved_on_exit: Mutex::new(std::collections::HashMap::new()),
     }
 }
 
@@ -651,7 +655,8 @@ fn a_notes_folder_set_to_the_archive_boots_with_the_default_one() {
 
     assert_eq!(
         root,
-        std::fs::canonicalize(writ_dir.join("Writ")).expect("the default under the data folder")
+        writ_tauri_lib::security::canonicalize_root(&writ_dir.join("Writ"))
+            .expect("the default under the data folder")
     );
     assert_eq!(
         fallback,
@@ -684,7 +689,15 @@ fn a_destination_that_climbs_back_into_the_data_folder_creates_nothing() {
     let climbing = archive.join("..");
     let error = move_notes_folder_to(&state, &climbing).expect_err("turned down");
 
-    assert_eq!(error, "That folder cannot be your notes folder.");
+    // Unix cannot resolve `..` through a folder that does not exist, so the
+    // move is refused as uncheckable; Windows collapses it first and refuses
+    // the data folder itself. Both stop before anything is created.
+    assert!(
+        error == "That folder cannot be your notes folder."
+            || error
+                == "Writ keeps its own data in that folder, so it cannot also be your notes folder.",
+        "unexpected refusal: {error}"
+    );
     assert_eq!(state.notes_root(), before);
     assert!(
         !archive.exists(),

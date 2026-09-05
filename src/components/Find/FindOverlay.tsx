@@ -83,6 +83,7 @@ export default function FindOverlay(props: Props) {
             ref={(el) => (queryInput = el)}
             class="find-input"
             type="text"
+            data-writ-focus-silent
             spellcheck={false}
             autocomplete="off"
             placeholder="Find"
@@ -184,6 +185,7 @@ export default function FindOverlay(props: Props) {
             <input
               class="find-input"
               type="text"
+              data-writ-focus-silent
               spellcheck={false}
               autocomplete="off"
               placeholder="Replace"

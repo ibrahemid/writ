@@ -1,0 +1,59 @@
+{
+  "accent": {
+    "gold": {
+      "$type": "color",
+      "light": {
+        "base": {
+          "$value": "#8A6200",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent"
+            }
+          }
+        },
+        "hover": {
+          "$value": "#7C5800",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-hover"
+            }
+          }
+        },
+        "foreground": {
+          "$value": "#FFFFFF",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-fg"
+            }
+          }
+        }
+      },
+      "dark": {
+        "base": {
+          "$value": "#D9B24C",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent"
+            }
+          }
+        },
+        "hover": {
+          "$value": "#DDBA5E",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-hover"
+            }
+          }
+        },
+        "foreground": {
+          "$value": "#251E0D",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-fg"
+            }
+          }
+        }
+      }
+    }
+  }
+}

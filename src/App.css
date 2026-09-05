@@ -3,9 +3,39 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--writ-surface-background);
-  border-radius: var(--writ-window-radius);
+  background: var(--writ-bg-canvas);
+  border-radius: var(--writ-r-window);
+}
+
+/* Only macOS draws its own edge: Windows carries it on the content layer's
+   stroke, and GNOME on the client-side shadow below. */
+:root[data-platform="mac"] .app-container {
   border: 1px solid var(--writ-border-soft);
+}
+
+/* A maximized or tiled window meets the screen edge square. */
+:root[data-platform="win"] .app-container.is-maximized {
+  border-radius: 0;
+}
+
+/* GNOME expects the app to paint the CSD shadow; Tauri's `shadow` field is
+   unsupported on Linux. The window is already transparent, so the frame is
+   inset far enough for the shadow to land instead of being clipped at the
+   webview edge. Margin rather than padding on the root: the shadow is drawn
+   outside the frame's own box. */
+:root[data-platform="linux"] .app-container {
+  box-shadow: var(--writ-shadow-csd);
+  margin: var(--writ-frame-shadow-inset);
+  height: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Flush against the screen edge: no room to make, nothing to cast into it. */
+:root[data-platform="linux"] .app-container.is-maximized {
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .app-body {
@@ -13,4 +43,14 @@
   display: flex;
   position: relative;
   overflow: hidden;
+}
+
+/* Fluent's content layer: the body sits a hairline inside the caption row. */
+:root[data-platform="win"] .app-body {
+  border-top-left-radius: var(--writ-r-window);
+  box-shadow: inset 1px 1px 0 var(--writ-win-layer-stroke);
+}
+
+:root[data-platform="win"] .app-container.is-maximized .app-body {
+  border-top-left-radius: 0;
 }

@@ -1,6 +1,8 @@
 import { Show, createSignal, createEffect, onMount, onCleanup, on } from "solid-js";
 import { linkStore } from "../../stores/global/link";
 import type { LinkVerdict } from "../../types/link";
+import Button from "../Button/Button";
+import Tooltip from "../Tooltip/Tooltip";
 import "./LinkConfirm.css";
 
 export interface LinkRequest {
@@ -174,35 +176,30 @@ export default function LinkConfirm(props: Props) {
       <Show when={verdict()?.url}>
         {(url) => <p class="link-confirm-host">{hostLabel(url())}</p>}
       </Show>
-      <p class="link-confirm-url" title={destination()}>
-        {destination()}
-      </p>
+      <Tooltip label={destination()}>
+        <p class="link-confirm-url">{destination()}</p>
+      </Tooltip>
       <Show when={verdict()?.allowed === false}>
         <p class="link-confirm-refused" role="status">
           {verdict()?.message}
         </p>
       </Show>
       <div class="link-confirm-actions">
-        <button
-          ref={cancelRef}
-          type="button"
-          class="link-confirm-cancel"
-          onClick={props.onDismiss}
-        >
+        <Button ref={cancelRef} variant="ghost" class="link-confirm-cancel" onClick={props.onDismiss}>
           Cancel
-        </button>
+        </Button>
         {/* Present but inert until the verdict lands, so focus has a stable
             home and a refused link never offers an action that would fail. */}
         <Show when={verdict()?.allowed !== false}>
-          <button
+          <Button
             ref={openRef}
-            type="button"
+            variant="primary"
             class="link-confirm-open"
             disabled={verdict() === null}
             onClick={open}
           >
             Open
-          </button>
+          </Button>
         </Show>
       </div>
     </div>

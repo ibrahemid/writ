@@ -239,12 +239,32 @@ mod tests {
         }
     }
 
+    fn req_dark(text: &str) -> RenderRequest {
+        RenderRequest {
+            content_type: HtmlRenderer::content_type_id(),
+            buffer_text: text.to_string(),
+            theme: ThemePolarity::Dark,
+            zoom: 1.0,
+        }
+    }
+
     #[test]
-    fn unstyled_document_follows_the_light_app_theme() {
-        let out = HtmlRenderer.render(req_light("<p>hello</p>")).unwrap();
+    fn unstyled_document_follows_the_dark_app_theme() {
+        // An HTML buffer keeps its own <html>, so dark arrives as a `:root`
+        // re-declaration appended to the token layer, not as an attribute.
+        let out = HtmlRenderer.render(req_dark("<p>hello</p>")).unwrap();
         assert!(out.used_fallback_stylesheet);
         assert!(out.document_html.contains(":root{"));
-        assert!(out.document_html.contains("--writ-preview-bg: #fbfbfd"));
+        assert!(out.document_html.contains("--writ-preview-bg: #1b1a18"));
+    }
+
+    #[test]
+    fn unstyled_document_follows_the_light_app_theme() {
+        // Light is the token layer's own `:root`, so nothing is appended.
+        let out = HtmlRenderer.render(req_light("<p>hello</p>")).unwrap();
+        assert!(out.used_fallback_stylesheet);
+        assert!(!out.document_html.contains(":root{"));
+        assert!(out.document_html.contains("--writ-preview-bg: #ffffff"));
     }
 
     #[test]

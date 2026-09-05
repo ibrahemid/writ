@@ -34,14 +34,52 @@ export interface ExternalEditDeps {
   confirmReload: (title: string) => Promise<boolean>;
 }
 
+// What the backend says about a file that changed outside Writ. `path` names
+// the file, `diskHash` is what it holds now, and `newPath` is where it went
+// for a change that is a move. Only `bufferId` and `change` are read here; the
+// rest are what the reload and the move handling are built on.
+export interface ExternalEditPayload {
+  bufferId: string;
+  change: ExternalChange;
+  path?: string;
+  newPath?: string | null;
+  diskHash?: string | null;
+}
+
+// Reads a `buffer:external` event off the wire, or rejects it.
+//
+// The guard the whole feature passes through, which is why it is here with a
+// test rather than inline at the subscription. Rust named the fields
+// `buffer_id` and `change` for a while; every payload arrived with `bufferId`
+// undefined, this check dropped it, and the feature was silently inert for as
+// long as that lasted. A rename on either side has to fail a test, not a user.
+export function readExternalEditPayload(payload: {
+  bufferId?: string;
+  change?: string;
+  path?: string;
+  newPath?: string | null;
+  diskHash?: string | null;
+}): ExternalEditPayload | null {
+  if (!payload.bufferId) return null;
+  if (payload.change !== "modified" && payload.change !== "deleted") return null;
+  return {
+    bufferId: payload.bufferId,
+    change: payload.change,
+    path: payload.path,
+    newPath: payload.newPath,
+    diskHash: payload.diskHash,
+  };
+}
+
 // Resolves and executes the response to a `buffer:external` event.
 //
 // Deliberately never reloads the global buffer registry: a blanket registry
 // reload re-creates the always-mounted preview pane's iframe and hard-freezes
 // the macOS webview (PR#127). Only the editor's own content is reset, via
-// `reload`.
+// `reload`, which reads the file through Rust rather than from any copy Writ
+// is holding.
 export async function handleExternalEdit(
-  payload: { bufferId: string; change: ExternalChange },
+  payload: ExternalEditPayload,
   deps: ExternalEditDeps,
 ): Promise<void> {
   const buffer = deps.findBuffer(payload.bufferId);

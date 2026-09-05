@@ -10,37 +10,43 @@
 .active-group-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 4px 12px 3px;
+  gap: 8px;
+  height: var(--writ-sidebar-row-fill);
+  margin: 1px 6px;
+  padding: 0 10px;
+  border-radius: var(--writ-r-row);
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg);
   font-family: inherit;
-  font-size: var(--writ-font-size-xs);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
   text-align: left;
+  transition: background var(--writ-motion);
 }
 
 .active-group-head:hover {
-  color: var(--writ-foreground-muted);
+  background: var(--writ-bg-hover);
 }
 
-.active-group-chevron {
-  display: inline-block;
-  width: 9px;
-  font-size: 9px;
-  line-height: 1;
-  transition: transform 120ms ease;
+.active-group-caret {
+  display: inline-flex;
+  margin-left: -4px;
+  color: var(--writ-fg-faint);
+  transition: transform var(--writ-motion);
 }
 
-.active-group-head.is-collapsed .active-group-chevron {
+.active-group-caret .writ-icon {
+  color: currentColor;
+  opacity: 1;
+}
+
+.active-group-head.is-collapsed .active-group-caret {
   transform: rotate(-90deg);
 }
 
 .active-group-name {
-  color: var(--writ-foreground-muted);
-  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -48,16 +54,26 @@
 
 .active-group-count {
   margin-left: auto;
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg-faint);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
   font-variant-numeric: tabular-nums;
+  font-weight: 400;
 }
 
+/* 16px past the parent label: the head's label starts at 26px. */
 .active-group-items .tab-item {
-  padding-left: 26px;
+  padding-left: 42px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .active-group-chevron {
-    transition: none;
-  }
+:root[data-platform="win"] .active-group-caret {
+  margin: 0 0 0 4px;
+}
+
+:root[data-platform="win"] .active-group-items .tab-item {
+  padding-left: 32px;
+}
+
+:root[data-platform="linux"] .active-group-items .tab-item {
+  padding-left: 42px;
 }

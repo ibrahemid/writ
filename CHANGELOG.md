@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] - 2026-09-05
+
+Notes now live as Markdown files in a notes folder (`~/Writ` by default). The file on disk is the only copy of a note's text; Writ's database keeps derived data only. The first launch moves existing notes into the folder and keeps a rollback copy of the database for ten launches.
+
+### Added
+
+- A notes folder. New note (Cmd+N) creates a dated `.md` file at once; renaming a tab renames the file, Delete moves it to the system Trash, and Save a Copy writes an opened file into the folder.
+- A Notes section in Settings with the folder's path, Show in Finder, Copy path and Move. Moving takes every note along and refuses a destination that would collide, naming the files.
+- Open a note by name with Cmd+Shift+O. Cmd+O keeps the file dialog.
+- The notes folder is watched and indexed, so search and open-by-name follow files that change, arrive or leave outside Writ.
+- A report after the migration says how many notes became files, offers to move older archived notes into the folder, and points at anything it could not check.
+- The `writ` command writes piped input as a note in the notes folder.
+- Writ refuses to start with its data folder inside iCloud Drive, Dropbox, Google Drive, OneDrive or a Syncthing folder, names the service, and says where to point `WRIT_DATA_DIR`.
+
+### Changed
+
+- A save that would overwrite a newer version of the file on disk is refused, and the unsaved text is written beside the note as a dated conflict copy.
+- YAML frontmatter is hidden in the preview and round-trips byte for byte on save.
+- Autosave waits one second after the last keystroke, at most one write per note per second. Losing focus or hiding the window writes at once.
+- Quitting from the menu, the Dock, or a logout writes pending notes before the app exits.
+- `.obsidian`, `.trash`, `.stfolder` and `.stversions` are ignored in workspaces.
+
+### Fixed
+
+- Quitting inside the autosave window no longer drops the last second of typing.
+- Saving `a/index.md` no longer hides a real change to `b/index.md`; internal writes are matched by full path.
+- The session snapshot writes nothing when nothing changed.
+
+### Removed
+
+- The private copies of notes Writ kept under its data folder. Every note is its file.
+
 ## [0.3.5] - 2026-08-25
 
 ### Added

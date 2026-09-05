@@ -1,0 +1,156 @@
+/* The bar's own platform attribute drives the metrics. The `:root` prefix is
+   load-bearing: Button.css sizes `.writ-btn` per platform at the same weight,
+   and the toolbar's controls have to win those. */
+
+.writ-toolbar {
+  /* The baseline's compose gap and GNOME's toolbar metric. 6px is not a step
+     on the ADR-030 spacing ramp, so the bar names it for itself rather than
+     forking the ramp, and every reader carries the fallback the token contract
+     asks of a component-set property. */
+  --writ-toolbar-tight: 6px;
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-3);
+  padding: 0 var(--writ-space-4);
+  border-bottom: 1px solid var(--writ-border-soft);
+  background: var(--writ-bg-canvas);
+  z-index: var(--writ-z-chrome);
+}
+
+:root .writ-toolbar[data-platform] .writ-btn {
+  height: 28px;
+}
+
+:root .writ-toolbar[data-platform] .writ-toolbar-btn {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+  color: var(--writ-fg-muted);
+}
+
+:root .writ-toolbar[data-platform] .writ-toolbar-compose {
+  gap: var(--writ-toolbar-tight, 6px);
+  padding: 0 10px 0 var(--writ-space-3);
+  /* GNOME sets its buttons in bold; the toolbar's compose label is not one. */
+  font-weight: 400;
+  color: var(--writ-fg);
+  white-space: nowrap;
+  flex: none;
+}
+
+.writ-toolbar-divider {
+  width: 1px;
+  height: 16px;
+  flex: none;
+  background: var(--writ-border);
+}
+
+.writ-toolbar-cluster {
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: var(--writ-space-1);
+  background: var(--writ-bg-sunken);
+  border-radius: var(--writ-r-control);
+}
+
+:root .writ-toolbar[data-platform] .writ-toolbar-format {
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  justify-content: center;
+  border-radius: var(--writ-r-action);
+  color: var(--writ-fg-muted);
+}
+
+/* The bar sets its own muted ink at (0,4,0) and Button.css sets the pressed
+   ink at (0,2,0), so a toggle that is on has to say so at the bar's own weight
+   — hover included, or hovering an active toggle would read as inactive. */
+:root .writ-toolbar[data-platform] .writ-toolbar-format[aria-pressed="true"],
+:root .writ-toolbar[data-platform] .writ-toolbar-format[aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--writ-bg-selected);
+  color: var(--writ-fg);
+}
+
+/* Search moves out of the sidebar and sits at the right end of the bar. */
+.writ-toolbar .search-bar {
+  margin-left: auto;
+  flex: 0 1 180px;
+  min-width: 120px;
+  padding: 0;
+}
+
+/* Windows: a 48px CommandBar, a flat cluster and a boxed search field. */
+.writ-toolbar[data-platform="win"] {
+  height: 48px;
+  gap: var(--writ-space-2);
+  padding: 0 var(--writ-space-3) 0 var(--writ-space-4);
+  border-bottom: 0;
+}
+
+:root .writ-toolbar[data-platform="win"] .writ-btn {
+  height: 36px;
+}
+
+:root .writ-toolbar[data-platform="win"] .writ-toolbar-btn {
+  width: 36px;
+}
+
+:root .writ-toolbar[data-platform="win"] .writ-toolbar-compose {
+  gap: var(--writ-space-3);
+  padding: 0 var(--writ-space-4) 0 10px;
+}
+
+.writ-toolbar[data-platform="win"] .writ-toolbar-divider {
+  height: 20px;
+  margin: 0 var(--writ-space-2);
+}
+
+.writ-toolbar[data-platform="win"] .writ-toolbar-cluster {
+  height: 36px;
+  padding: 0;
+  background: transparent;
+}
+
+:root .writ-toolbar[data-platform="win"] .writ-toolbar-format {
+  width: 36px;
+  height: 36px;
+}
+
+.writ-toolbar[data-platform="win"] .search-bar {
+  width: 220px;
+}
+
+.writ-toolbar[data-platform="win"] .search-field {
+  height: 32px;
+  gap: var(--writ-space-3);
+  border-radius: var(--writ-r-control);
+  background: var(--writ-win-input-active);
+  border: 1px solid var(--writ-win-stroke);
+  border-bottom: 2px solid var(--writ-accent);
+}
+
+/* The second AdwToolbarView row under the header bar: same ground, no rule
+   between them, so the two read as one chrome stack. */
+.writ-toolbar[data-platform="linux"] {
+  gap: var(--writ-toolbar-tight, 6px);
+  padding: var(--writ-toolbar-tight, 6px);
+  background: var(--writ-lin-headerbar-bg);
+  border-bottom: 0;
+}
+
+/* The macOS lights are pinned to the window edge, so the bar leaves them their
+   inset whenever no sidebar head is there to span it. The padding eases on the
+   sidebar's own motion token: both move together, and the leading control stays
+   clear of the lights for the whole open and close rather than crossing under
+   them. Reduced motion zeroes the duration at the token layer. */
+:root[data-platform="mac"] .writ-toolbar {
+  transition: padding-left var(--writ-motion);
+}
+
+:root[data-platform="mac"] .writ-toolbar.leads-lights {
+  padding-left: var(--writ-window-lights-lead, 84px);
+}
