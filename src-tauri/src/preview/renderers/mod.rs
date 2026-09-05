@@ -10,7 +10,10 @@
 //! expressions, not LaTeX documents, so a `.tex` file is not a renderable
 //! unit. It lives only as Markdown math enhancement + the shared asset table.
 
+use std::sync::Arc;
+
 use writ_core::preview::{ContentRendererRegistry, RegisterError};
+use writ_storage::notes_index::NotesIndexStore;
 
 pub mod html;
 pub mod katex;
@@ -26,9 +29,16 @@ pub use mermaid::MermaidRenderer;
 ///
 /// Each later phase appends a registration line and ships a renderer
 /// module alongside.
-pub fn register_builtins(registry: &mut ContentRendererRegistry) -> Result<(), RegisterError> {
+///
+/// The Markdown renderer is handed the notes index because a `[[…]]` means
+/// whatever the index says it means; the render happens here, not in the
+/// protocol handler, which serves the HTML this produced.
+pub fn register_builtins(
+    registry: &mut ContentRendererRegistry,
+    notes_index: Arc<NotesIndexStore>,
+) -> Result<(), RegisterError> {
     registry.register(Box::new(HtmlRenderer))?;
-    registry.register(Box::new(MarkdownRenderer))?;
+    registry.register(Box::new(MarkdownRenderer::new(notes_index)))?;
     registry.register(Box::new(MermaidRenderer))?;
     Ok(())
 }
@@ -40,8 +50,14 @@ mod tests {
 
     #[test]
     fn register_builtins_registers_all_renderers() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("writ.db");
+        let conn = writ_storage::database::connection::open_database(&db_path).expect("open");
+        writ_storage::database::migrations::run_migrations(&conn).expect("migrations");
+        drop(conn);
+        let index = Arc::new(NotesIndexStore::open(&db_path).expect("index"));
         let mut reg = ContentRendererRegistry::new();
-        register_builtins(&mut reg).unwrap();
+        register_builtins(&mut reg, index).unwrap();
         assert!(reg.has(&ContentTypeId::new("html")));
         assert!(reg.has(&ContentTypeId::new("markdown")));
         assert!(reg.has(&ContentTypeId::new("mermaid")));

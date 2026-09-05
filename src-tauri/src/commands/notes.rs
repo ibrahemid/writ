@@ -24,7 +24,7 @@ use writ_storage::notes_migration::{self, MigrationReport};
 use writ_storage::notes_move;
 
 use crate::commands::buffer::{ignore_stamper, save_failure_message};
-use crate::security::canonicalize_for_authorization;
+use crate::security::{canonicalize_for_authorization, resolve_for_containment};
 use crate::state::{AppState, NotesRootFallback};
 
 /// The name a note is known by: the file's own name, extension included, which
@@ -63,13 +63,95 @@ fn note_failure_message(error: &StorageError) -> String {
 /// a note that somehow has no file, which after this is only one a recovery
 /// pass produced.
 pub fn new_note_inner(state: &AppState) -> Result<BufferDocument, String> {
-    let now = chrono::Utc::now();
-    let stem = writ_core::notes::note_file_stem("", now);
+    new_note_named_inner(state, "")
+}
 
+/// Creates a note called `name`, file first, and opens it.
+///
+/// `name` is a title, never a path:
+/// [`writ_core::notes::note_file_stem_from_link`] sanitises it, which maps `/`
+/// and `\` to spaces, so a name carrying `..` or a separator loses what would
+/// make it walk anywhere and the note lands in the notes folder. A name
+/// nothing survives from falls back to the dated stem a `New Note` gets, so
+/// this never fails for want of a name.
+///
+/// A link target is not a title and does not come here:
+/// [`new_note_from_link_inner`] reads the folder a target names rather than
+/// flattening it.
+pub fn new_note_named_inner(state: &AppState, name: &str) -> Result<BufferDocument, String> {
+    let now = chrono::Utc::now();
+    let stem = writ_core::notes::note_file_stem_from_link(name, now);
+    create_note_at(state, &state.notes_root(), &stem)
+}
+
+/// Creates the note a `[[…]]` target names, in the folder that target names,
+/// and opens it.
+///
+/// This is what an editor offers on a `[[…]]` that names no note, so what it
+/// creates has to be what the target resolves to afterwards. Two halves of
+/// that: a target written with an extension keeps it, because the one strip
+/// happens here and stripping it in the editor too named a file the link does
+/// not reach; and a target that names a folder is created in that folder,
+/// because a target carrying a `/` only resolves to a note whose own folders
+/// end the same way. The folders are created on the way, as `create_note`
+/// already creates the notes folder itself.
+///
+/// `target` arrives from the editor already parsed once — no alias, no
+/// heading, the extension left on — which is the shape
+/// [`writ_core::notes::note_location_from_link`] reads.
+pub fn new_note_from_link_inner(state: &AppState, target: &str) -> Result<BufferDocument, String> {
+    let now = chrono::Utc::now();
+    let location = writ_core::notes::note_location_from_link(target, now);
+    let root = state.notes_root();
+    let mut folder = root.clone();
+    for part in &location.folder {
+        folder.push(part);
+    }
+    let folder = folder_inside_notes(&root, folder)?;
+    create_note_at(state, &folder, &location.stem)
+}
+
+/// What a target is answered with when the folder it names is not in the notes
+/// folder after all.
+const FOLDER_IS_OUTSIDE: &str = "That link points outside the notes folder.";
+
+/// `folder` if it is inside the notes folder, refused otherwise.
+///
+/// The segments are already sanitised names with no separator and no `..` in
+/// them, so the only way out of the folder is a symlink standing where one of
+/// them lands. [`resolve_for_containment`] resolves the deepest part of the
+/// path that exists, symlinks included, and leaves the names nothing has
+/// created yet, which is what makes the answer honest for a folder that is
+/// about to be created.
+fn folder_inside_notes(root: &Path, folder: PathBuf) -> Result<PathBuf, String> {
+    if folder == root {
+        return Ok(folder);
+    }
+    let inside = match (
+        resolve_for_containment(&folder),
+        resolve_for_containment(root),
+    ) {
+        (Some(candidate), Some(root)) => Path::new(&candidate).starts_with(Path::new(&root)),
+        _ => false,
+    };
+    if inside {
+        Ok(folder)
+    } else {
+        warn!(folder = %folder.display(), "refused a note folder outside the notes folder");
+        Err(FOLDER_IS_OUTSIDE.to_string())
+    }
+}
+
+/// Mints `stem` as a note in `folder`, records it and opens it.
+///
+/// The file exists on disk before this returns, which is what `New Note`
+/// promises: it is in Finder immediately, not on the first keystroke and not
+/// at quit (ADR-028 §3).
+fn create_note_at(state: &AppState, folder: &Path, stem: &str) -> Result<BufferDocument, String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let stamp = ignore_stamper(state);
-    let path = note_ops::create_note(&state.notes_root(), &stem, Some(&stamp))
-        .map_err(|e| note_failure_message(&e))?;
+    let path =
+        note_ops::create_note(folder, stem, Some(&stamp)).map_err(|e| note_failure_message(&e))?;
     let canonical = canonicalize_for_authorization(&path).map_err(|e| e.to_string())?;
 
     let mut mgr = BufferManager::new().with_event_bus(state.event_bus.clone());
@@ -88,6 +170,15 @@ pub fn new_note_inner(state: &AppState) -> Result<BufferDocument, String> {
 #[tauri::command]
 pub fn new_note(state: State<'_, AppState>) -> Result<BufferDocument, String> {
     new_note_inner(&state)
+}
+
+/// IPC: [`new_note_from_link_inner`].
+#[tauri::command]
+pub fn new_note_from_link(
+    state: State<'_, AppState>,
+    target: String,
+) -> Result<BufferDocument, String> {
+    new_note_from_link_inner(&state, &target)
 }
 
 /// Renames a note's file and the row that points at it.

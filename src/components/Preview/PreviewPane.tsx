@@ -7,6 +7,8 @@ import { useWindow } from "../WindowProvider/WindowProvider";
 import { createPreviewBridge } from "../../lib/preview-bridge";
 import { createPreviewSearchController } from "../../editor/search/preview-search-controller";
 import { findStore } from "../../stores/global/find-store";
+import { linkStore } from "../../stores/global/link";
+import { notesStore } from "../../stores/global/notes";
 import PreviewStatusChip, { type PreviewState } from "./PreviewStatusChip";
 import LinkConfirm, { type LinkRequest } from "./LinkConfirm";
 import "./preview-chrome.css";
@@ -126,10 +128,7 @@ export default function PreviewPane(props: Props) {
     } else if (d.type === "scroll" && typeof d.fraction === "number") {
       bridge.onIframeMessage({ type: "scroll", fraction: d.fraction });
     } else if (d.type === "link:open" && typeof d.href === "string" && d.href !== "") {
-      // The message opens nothing on its own. Anything in the frame can post
-      // it, including a script the document brought, so all it can produce is
-      // a popover the user dismisses (ADR-025).
-      setLinkRequest({
+      void openNoteOrConfirm({
         id: nextLinkId++,
         href: d.href,
         x: typeof d.x === "number" && Number.isFinite(d.x) ? d.x : 0,
@@ -143,6 +142,39 @@ export default function PreviewPane(props: Props) {
         ticks: Array.isArray(d.ticks) ? d.ticks : [],
       });
     }
+  }
+
+  /**
+   * A `[[…]]` the renderer resolved is written with the note scheme. It names
+   * a file in the notes folder, not a web address, so the external-link policy
+   * would refuse it; the store joins it back onto the folder and asks the
+   * index whether it names a note before anything opens, and answers with the
+   * heading's line when the link named one.
+   *
+   * Everything else, the scheme included when the index does not know it,
+   * opens nothing on its own. Anything in the frame can post one, including a
+   * script the document brought, so all it can produce is a popover the user
+   * dismisses (ADR-025).
+   */
+  async function openNoteOrConfirm(request: {
+    id: number;
+    href: string;
+    x: number;
+    y: number;
+  }) {
+    const note = await linkStore.noteOpenFromPreview(
+      request.href,
+      notesStore.root(),
+      props.buffer?.source_path ?? null,
+    );
+    if (note !== null) {
+      const doc = await win.tabs.openFile(note.path).catch(() => undefined);
+      // `[[Note#Section]]` asks for a place in the note, the same on both
+      // surfaces; the preview carries the heading as the href's fragment.
+      if (doc && note.headingLine != null) win.editor.requestReveal(doc.id, note.headingLine);
+      return;
+    }
+    setLinkRequest(request);
   }
 
   async function doRender(force: boolean) {

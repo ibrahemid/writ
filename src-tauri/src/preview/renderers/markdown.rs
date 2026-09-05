@@ -18,14 +18,18 @@
 //! fallback stylesheet always applies (unconditionally, unlike the HTML
 //! renderer's presence-conditional check).
 
+use std::sync::Arc;
+
 use tracing::debug;
 use writ_core::preview::protocol::{resolve_asset_reference, ASSET_PREFIX};
 use writ_core::preview::{
     AssetScope, ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest,
     RendererCapabilities,
 };
+use writ_storage::notes_index::NotesIndexStore;
 
 use super::{katex, mermaid, theme};
+use crate::preview::wikilinks::IndexWikilinks;
 
 /// Hard ceiling, mirroring the HTML renderer and ADR-009's 50 MB refusal.
 const MAX_SAFE_BYTES: u64 = 50 * 1024 * 1024;
@@ -98,12 +102,46 @@ fn asset_resolver(scope: &AssetScope) -> impl Fn(&str) -> Option<String> + '_ {
 }
 
 /// The Markdown content renderer.
-pub struct MarkdownRenderer;
+pub struct MarkdownRenderer {
+    /// The notes index, which is what a `[[…]]` is resolved against.
+    ///
+    /// `None` in a test that renders text alone; the app always has one.
+    notes_index: Option<Arc<NotesIndexStore>>,
+}
 
 impl MarkdownRenderer {
+    /// The renderer as the app registers it, resolving wikilinks against the
+    /// notes index.
+    pub fn new(notes_index: Arc<NotesIndexStore>) -> Self {
+        Self {
+            notes_index: Some(notes_index),
+        }
+    }
+
+    /// The renderer without an index: a `[[…]]` renders as the text it was
+    /// written as, which is what the site does.
+    pub fn without_index() -> Self {
+        Self { notes_index: None }
+    }
+
     /// Content-type id this renderer registers under.
     pub fn content_type_id() -> ContentTypeId {
         ContentTypeId::new("markdown")
+    }
+
+    /// The wikilink resolver for one render.
+    ///
+    /// A buffer with no file on disk has no folder to rank targets against
+    /// and no scope, so its wikilinks stay text — the same rule its embedded
+    /// images follow (ADR-035).
+    fn wikilinks(&self, scope: Option<&AssetScope>) -> Option<IndexWikilinks> {
+        let index = self.notes_index.clone()?;
+        let scope = scope?;
+        Some(IndexWikilinks::new(
+            index,
+            &scope.notes_root,
+            &scope.note_dir,
+        ))
     }
 }
 
@@ -128,12 +166,22 @@ impl ContentRenderer for MarkdownRenderer {
                 limit: MAX_SAFE_BYTES,
             });
         }
+        let wikilinks = self.wikilinks(request.assets.as_ref());
+        let wikilinks = wikilinks
+            .as_ref()
+            .map(|resolver| resolver as &dyn writ_render::WikilinkResolver);
         let fragment = match &request.assets {
             Some(scope) => {
                 let resolver = asset_resolver(scope);
-                writ_render::render_markdown_fragment_with(&request.buffer_text, Some(&resolver))
+                writ_render::render_markdown_fragment_with(
+                    &request.buffer_text,
+                    Some(&resolver),
+                    wikilinks,
+                )
             }
-            None => writ_render::render_markdown_fragment(&request.buffer_text),
+            None => {
+                writ_render::render_markdown_fragment_with(&request.buffer_text, None, wikilinks)
+            }
         };
         let head_extra = if fragment.has_math {
             katex::head_tags()
@@ -178,17 +226,20 @@ mod tests {
     }
 
     fn render(text: &str) -> RenderOutput {
-        MarkdownRenderer.render(req(text)).unwrap()
+        MarkdownRenderer::without_index().render(req(text)).unwrap()
     }
 
     #[test]
     fn content_type_is_markdown() {
-        assert_eq!(MarkdownRenderer.content_type().as_str(), "markdown");
+        assert_eq!(
+            MarkdownRenderer::without_index().content_type().as_str(),
+            "markdown"
+        );
     }
 
     #[test]
     fn capabilities_advertise_live_render_and_print() {
-        let caps = MarkdownRenderer.capabilities();
+        let caps = MarkdownRenderer::without_index().capabilities();
         assert!(caps.supports_live_render);
         assert!(caps.supports_print);
         assert_eq!(caps.max_safe_document_bytes, MAX_SAFE_BYTES);
@@ -409,8 +460,9 @@ mod tests {
             }),
             ..req("![](../../../etc/hosts)")
         };
-        let (out, logs) =
-            crate::preview::log_capture::capture(|| MarkdownRenderer.render(request).unwrap());
+        let (out, logs) = crate::preview::log_capture::capture(|| {
+            MarkdownRenderer::without_index().render(request).unwrap()
+        });
         // Nothing is served for it: the reference stays exactly as written.
         assert!(!out.document_html.contains(ASSET_PREFIX));
         assert!(out.document_html.contains("src=\"../../../etc/hosts\""));
@@ -430,7 +482,7 @@ mod tests {
         std::fs::create_dir_all(&note_dir).unwrap();
         std::fs::write(note_dir.join("a.png"), b"\x89PNG\r\n\x1a\n").unwrap();
         let render_with = |token: &str| {
-            MarkdownRenderer
+            MarkdownRenderer::without_index()
                 .render(RenderRequest {
                     assets: Some(AssetScope {
                         notes_root: notes.clone(),
@@ -455,6 +507,47 @@ mod tests {
         }
     }
 
+    /// The renderer registered with an index resolves a `[[…]]`; the same
+    /// renderer without one leaves it as the text it was written as, which is
+    /// what the site gets.
+    #[test]
+    fn a_wikilink_is_a_link_only_when_the_index_knows_the_note() {
+        let guard = tempfile::tempdir().unwrap();
+        let notes = guard.path().join("Writ");
+        std::fs::create_dir_all(&notes).unwrap();
+        std::fs::write(notes.join("Note.md"), "# Note\n").unwrap();
+        let db_path = guard.path().join("writ.db");
+        let conn = writ_storage::database::connection::open_database(&db_path).unwrap();
+        writ_storage::database::migrations::run_migrations(&conn).unwrap();
+        drop(conn);
+        let index = Arc::new(NotesIndexStore::open(&db_path).unwrap());
+        index.reconcile(&notes, &|| false, &|_| false).unwrap();
+
+        let request = || RenderRequest {
+            assets: Some(AssetScope {
+                notes_root: notes.clone(),
+                note_dir: notes.clone(),
+                buffer_id: "buf-1".to_string(),
+                token: "tok-1".to_string(),
+            }),
+            ..req("[[Note]] and [[Nowhere]]")
+        };
+
+        let html = MarkdownRenderer::new(index)
+            .render(request())
+            .unwrap()
+            .document_html;
+        assert!(html.contains("<a class=\"writ-wikilink\" href=\"writ-note:Note.md\">Note</a>"));
+        assert!(html.contains("<span class=\"writ-wikilink writ-wikilink-missing\">Nowhere</span>"));
+
+        let plain = MarkdownRenderer::without_index()
+            .render(request())
+            .unwrap()
+            .document_html;
+        assert!(plain.contains("[[Note]]"));
+        assert!(!plain.contains("writ-wikilink"));
+    }
+
     #[test]
     fn a_buffer_id_that_is_not_one_url_segment_emits_no_asset_url() {
         let guard = tempfile::tempdir().unwrap();
@@ -463,7 +556,7 @@ mod tests {
         std::fs::create_dir_all(&note_dir).unwrap();
         std::fs::write(note_dir.join("a.png"), b"\x89PNG\r\n\x1a\n").unwrap();
         let render_with = |buffer_id: &str| {
-            MarkdownRenderer
+            MarkdownRenderer::without_index()
                 .render(RenderRequest {
                     assets: Some(AssetScope {
                         notes_root: notes.clone(),
@@ -491,7 +584,9 @@ mod tests {
     #[test]
     fn oversized_document_is_refused() {
         let big = "a".repeat((MAX_SAFE_BYTES + 1) as usize);
-        let err = MarkdownRenderer.render(req(&big)).unwrap_err();
+        let err = MarkdownRenderer::without_index()
+            .render(req(&big))
+            .unwrap_err();
         assert!(matches!(err, RenderError::DocumentTooLarge { .. }));
     }
 

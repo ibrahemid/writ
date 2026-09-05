@@ -187,3 +187,16 @@
   border-top: 1px solid var(--writ-border);
   vertical-align: middle;
 }
+
+.cm-editor .cm-md-wikilink-resolved {
+  color: var(--writ-accent);
+}
+.cm-editor .cm-md-wikilink-missing {
+  color: var(--writ-fg-muted);
+  text-decoration: underline dotted;
+  text-decoration-thickness: from-font;
+  text-underline-offset: 0.18em;
+}
+.cm-editor.writ-link-active .cm-md-wikilink {
+  cursor: pointer;
+}

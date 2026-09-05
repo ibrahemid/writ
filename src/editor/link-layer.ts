@@ -1,18 +1,22 @@
 import {
   EditorState,
+  Prec,
   StateEffect,
   StateField,
   type Extension,
+  type Text,
 } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
   ViewPlugin,
   ViewUpdate,
+  keymap,
   type DecorationSet,
   type PluginValue,
 } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
+import { isFrontmatterFence } from "../lib/frontmatter";
 import { IS_MAC } from "../lib/platform";
 
 // Minimal structural type matching @lezer/common, mirroring the shape used by
@@ -25,7 +29,7 @@ interface SyntaxNodeRef {
   readonly node: { readonly parent: { readonly name: string } | null };
 }
 
-export type LinkKind = "url" | "path";
+export type LinkKind = "url" | "path" | "wikilink";
 
 export interface LinkRange {
   from: number;
@@ -40,17 +44,70 @@ export interface LinkRange {
 export interface LinkDeps {
   openUrl(url: string): void;
   openWorkspaceFile(path: string): void;
+  /**
+   * What to do with a `[[…]]` target: open the note it names, offer to create
+   * it, or show the notes it could mean. The layer knows the shape of a
+   * wikilink and nothing about what one resolves to, which is why this is
+   * injected rather than read from a store.
+   */
+  openNoteLink?(target: string): boolean;
 }
 
 // Anchored on a known scheme and length-bounded so a pathological line cannot
 // turn decoration into a scan of the whole buffer.
 const URL_RUN = /(?:https?:\/\/|mailto:)[^\s<>"'`\\]{1,2048}/g;
+// The inside of a `[[…]]`, length-bounded for the same reason as the URL run.
+// The candidate ends at the first `]]`, which is what `scan_segment` in
+// writ-core's link parser does, so the editor names the same targets the index
+// stores. A newline ends it, so an unclosed `[[` cannot swallow the document.
+const WIKILINK_RUN = /\[\[([^\n]{1,512}?)\]\]/g;
 // Two or more characters before the colon: a single letter is a Windows drive
 // (`C:\notes`), never a scheme.
 const HAS_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]+:/;
 const IDENT_CHAR = /[\p{L}\p{N}_]/u;
 const TRAILING_PUNCTUATION = ".,;:!?*_~'\"";
 const CLOSERS: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+
+// Code is not prose, so a wikilink written inside it is an example rather than
+// a destination. writ-core's scanner and the preview renderer both leave code
+// literal; the editor scanning it would paint and follow links the index does
+// not hold. These are the container nodes the markdown grammar gives fenced,
+// indented and inline code — the fence and backtick marks sit inside them, so
+// the whole node range is what the scan skips.
+const CODE_NODES = new Set(["FencedCode", "CodeBlock", "InlineCode"]);
+
+// Frontmatter is the note's properties, not its prose. writ-core leaves the
+// block out of its scan and the preview renderer drops it before rendering, so
+// a `[[…]]` written in a property value is text the index never held a link
+// for. The markdown grammar the editor loads gives no node for the block, so
+// its extent is read from the text under the rule the Rust side shares.
+//
+// Cached per document version: a note that opens with a `---` rule and never
+// closes it is body text, and finding that out costs a walk of the whole
+// document, which a repaint must not pay for again on every keystroke.
+const frontmatterEnds = new WeakMap<Text, number>();
+
+function frontmatterEndOf(state: EditorState): number {
+  const held = frontmatterEnds.get(state.doc);
+  if (held !== undefined) return held;
+  const end = scanFrontmatterEnd(state);
+  frontmatterEnds.set(state.doc, end);
+  return end;
+}
+
+function scanFrontmatterEnd(state: EditorState): number {
+  const iterator = state.doc.iterLines();
+  let first = iterator.next();
+  if (first.done || !isFrontmatterFence(first.value)) return 0;
+  // Every line break counts as one character in a document's positions,
+  // whatever the file's line ending is on disk.
+  let offset = first.value.length + 1;
+  for (let line = iterator.next(); !line.done; line = iterator.next()) {
+    offset += line.value.length + 1;
+    if (isFrontmatterFence(line.value)) return Math.min(offset, state.doc.length);
+  }
+  return 0;
+}
 
 const linkMark = Decoration.mark({ class: "writ-link" });
 
@@ -128,6 +185,34 @@ export function mergeLinkRanges(ranges: LinkRange[]): LinkRange[] {
   return out;
 }
 
+/**
+ * Whether `pos` sits in fenced, indented or inline code.
+ *
+ * The `[[` completion asks the same question the scan does, so both read one
+ * definition of what counts as code.
+ */
+export function isInsideCode(state: EditorState, pos: number): boolean {
+  let found = false;
+  syntaxTree(state).iterate({
+    from: pos,
+    to: pos,
+    enter: (node: SyntaxNodeRef) => {
+      if (CODE_NODES.has(node.name)) found = true;
+    },
+  });
+  return found;
+}
+
+/**
+ * Whether `pos` sits in the note's frontmatter block.
+ *
+ * The `[[` completion asks this the way it asks about code, so a property
+ * value and a fenced example are both left as text.
+ */
+export function isInsideFrontmatter(state: EditorState, pos: number): boolean {
+  return pos < frontmatterEndOf(state);
+}
+
 // Link runs inside `[from, to)`, widened to whole lines so a URL straddling a
 // viewport edge is found in one piece rather than as two half-addresses.
 export function findLinkTargets(state: EditorState, from: number, to: number): LinkRange[] {
@@ -137,8 +222,42 @@ export function findLinkTargets(state: EditorState, from: number, to: number): L
   if (end <= start) return [];
 
   const found: LinkRange[] = [];
+  const text = state.doc.sliceString(start, end);
 
-  // Markdown destinations first, so a `[label](https://x)` destination wins the
+  // Collected in one walk and reused, so a line of examples costs one tree
+  // pass rather than one per candidate.
+  const code: { from: number; to: number }[] = [];
+  syntaxTree(state).iterate({
+    from: start,
+    to: end,
+    enter: (node: SyntaxNodeRef) => {
+      if (CODE_NODES.has(node.name)) code.push({ from: node.from, to: node.to });
+    },
+  });
+  const insideCode = (from: number, to: number): boolean =>
+    code.some((span) => from < span.to && to > span.from);
+  const frontmatterEnd = frontmatterEndOf(state);
+
+  // Wikilinks first, so `[[https://x]]` is one target rather than an address
+  // with brackets around it, and `[[Note]]` is not read as a shortcut
+  // reference link.
+  WIKILINK_RUN.lastIndex = 0;
+  for (
+    let match = WIKILINK_RUN.exec(text);
+    match !== null;
+    match = WIKILINK_RUN.exec(text)
+  ) {
+    // `![[…]]` is an embed the preview resolves as a file, not a note link.
+    if (match.index > 0 && text[match.index - 1] === "!") continue;
+    if (match[1].trim() === "") continue;
+    const inner = start + match.index + 2;
+    const linkEnd = inner + match[1].length + 2;
+    if (insideCode(start + match.index, linkEnd)) continue;
+    if (start + match.index < frontmatterEnd) continue;
+    found.push({ from: inner, to: inner + match[1].length, kind: "wikilink" });
+  }
+
+  // Markdown destinations next, so a `[label](https://x)` destination wins the
   // overlap against the bare run inside it.
   syntaxTree(state).iterate({
     from: start,
@@ -159,7 +278,6 @@ export function findLinkTargets(state: EditorState, from: number, to: number): L
     },
   });
 
-  const text = state.doc.sliceString(start, end);
   URL_RUN.lastIndex = 0;
   for (let match = URL_RUN.exec(text); match !== null; match = URL_RUN.exec(text)) {
     const before = match.index > 0 ? text[match.index - 1] : "";
@@ -218,11 +336,39 @@ class LinkView implements PluginValue {
   }
 
   private build(): DecorationSet {
-    return Decoration.set(this.ranges.map((r) => linkMark.range(r.from, r.to)));
+    // A wikilink is painted by `wikilink-decorations`, which knows whether the
+    // note it names is there. Marking it here would say every target is a
+    // destination.
+    return Decoration.set(
+      this.ranges
+        .filter((r) => r.kind !== "wikilink")
+        .map((r) => linkMark.range(r.from, r.to)),
+    );
   }
 }
 
 const linkPlugin = ViewPlugin.fromClass(LinkView, { decorations: (v) => v.decorations });
+
+/**
+ * The `[[…]]` target the caret sits inside, or null.
+ *
+ * The caret has to be strictly inside the target text: at either edge the
+ * bracket pair has only just been typed or is about to be closed, and Enter
+ * there is a line break rather than a destination.
+ */
+export function wikilinkAtCursor(state: EditorState): string | null {
+  const selection = state.selection.main;
+  if (!selection.empty) return null;
+  const pos = selection.head;
+  const line = state.doc.lineAt(pos);
+  for (const range of findLinkTargets(state, line.from, line.to)) {
+    if (range.kind !== "wikilink") continue;
+    if (pos > range.from && pos < range.to) {
+      return state.doc.sliceString(range.from, range.to);
+    }
+  }
+  return null;
+}
 
 function syncModifier(view: EditorView, next: boolean): void {
   if (modifierIsHeld(view.state) === next) return;
@@ -233,6 +379,23 @@ export function linkLayer(deps: LinkDeps): Extension {
   return [
     modifierField,
     linkPlugin,
+    // Above the newline binding, which claims every Enter, and below the
+    // completion panel's own Enter, registered at the highest precedence, so
+    // accepting a name from the `[[` list still wins. Handing the keystroke
+    // back is what keeps Enter a line break in a note the link cannot be
+    // followed from.
+    Prec.high(
+      keymap.of([
+        {
+          key: "Enter",
+          run: (view) => {
+            const target = wikilinkAtCursor(view.state);
+            if (target === null || !deps.openNoteLink) return false;
+            return deps.openNoteLink(target);
+          },
+        },
+      ]),
+    ),
     EditorView.editorAttributes.compute([modifierField], (state) =>
       state.field(modifierField, false)
         ? { class: "writ-link-active" }
@@ -254,6 +417,8 @@ export function linkLayer(deps: LinkDeps): Extension {
         const target = view.state.doc.sliceString(hit.from, hit.to);
         if (hit.kind === "url") {
           deps.openUrl(target);
+        } else if (hit.kind === "wikilink") {
+          deps.openNoteLink?.(target);
         } else {
           deps.openWorkspaceFile(target);
         }

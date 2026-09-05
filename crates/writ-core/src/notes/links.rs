@@ -71,11 +71,33 @@ pub struct RawLink {
 
 impl RawLink {
     /// The target this link points at, split into the parts [`resolve`] reads.
+    ///
+    /// [`stored_target`] with the link's own heading and alias put back, since
+    /// both were split off the target before it was stored.
     pub fn wikilink_target(&self) -> WikilinkTarget {
-        let mut target = parse_target(&self.target);
-        target.alias.clone_from(&self.alias);
-        target.heading.clone_from(&self.heading);
-        target
+        WikilinkTarget {
+            heading: self.heading.clone(),
+            alias: self.alias.clone(),
+            ..stored_target(&self.target)
+        }
+    }
+}
+
+/// Reads a target that has already been parsed once, such as a `RawLink`'s own
+/// `target` or the `to_target` an index stored from it.
+///
+/// The name has had its note extension taken off already, so only the folder
+/// is split back off: running the whole of [`parse_target`] over it takes a
+/// second extension off, and `[[Note.md.md]]` then names `Note` on the side
+/// that re-read it and `Note.md` on the side that wrote it. Every consumer of
+/// a stored target reads it through here for that reason.
+pub fn stored_target(target: &str) -> WikilinkTarget {
+    let (folder, name) = split_target(target);
+    WikilinkTarget {
+        name,
+        folder,
+        heading: None,
+        alias: None,
     }
 }
 
@@ -627,19 +649,27 @@ pub fn parse_wikilink(inner: &str) -> WikilinkTarget {
 /// relative step cannot be part of, and dropping it makes `../ideas/Note`
 /// resolve the way `ideas/Note` does.
 pub fn parse_target(path: &str) -> WikilinkTarget {
+    let (folder, name) = split_target(path);
+    WikilinkTarget {
+        name: strip_note_extension(&name).to_string(),
+        folder,
+        heading: None,
+        alias: None,
+    }
+}
+
+/// A target split into the folder written before the name and the name itself,
+/// as written. The one place the split is decided, so a caller that must not
+/// take a note extension off reads the same folder rule as one that must.
+fn split_target(path: &str) -> (Option<String>, String) {
     let mut parts: Vec<&str> = path
         .trim()
         .split(['/', '\\'])
         .filter(|s| !s.is_empty())
         .collect();
-    let name = parts.pop().unwrap_or_default();
+    let name = parts.pop().unwrap_or_default().trim().to_string();
     parts.retain(|s| *s != "." && *s != "..");
-    WikilinkTarget {
-        name: strip_note_extension(name.trim()).to_string(),
-        folder: (!parts.is_empty()).then(|| parts.join("/")),
-        heading: None,
-        alias: None,
-    }
+    ((!parts.is_empty()).then(|| parts.join("/")), name)
 }
 
 /// `name` without a trailing note extension.
@@ -976,6 +1006,33 @@ mod tests {
         let links = scan("[[Note#Some Heading]]\n");
         assert_eq!(links[0].target, "Note");
         assert_eq!(links[0].heading.as_deref(), Some("Some Heading"));
+    }
+
+    // The index resolves a stored link through `wikilink_target` and the
+    // editor resolves the written one through `parse_wikilink`. Two answers
+    // for one link is a backlink list that omits the note the link opens.
+    #[test]
+    fn a_stored_link_names_the_note_the_written_one_names() {
+        for inner in [
+            "Note",
+            "Note.md",
+            "Note.md.md",
+            "Note.markdown.md",
+            "a.b.md",
+            "list.txt",
+            "folder/Note.md",
+            "folder\\Note.md.md",
+            "Note.md#Heading",
+            "Note.md|alias",
+        ] {
+            let links = scan(&format!("[[{inner}]]\n"));
+            let stored = links[0].wikilink_target();
+            let written = parse_wikilink(inner);
+            assert_eq!(stored.name, written.name, "target {inner}");
+            assert_eq!(stored.folder, written.folder, "target {inner}");
+            assert_eq!(stored.heading, written.heading, "target {inner}");
+            assert_eq!(stored.alias, written.alias, "target {inner}");
+        }
     }
 
     #[test]

@@ -25,7 +25,7 @@ use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::errors::StorageError;
 use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
+use writ_storage::notes_index::{self, NotesIndexStore};
 #[cfg(unix)]
 use writ_tauri_lib::commands::buffer::ERR_FOLDER_NOT_WRITABLE;
 use writ_tauri_lib::commands::buffer::{
@@ -34,9 +34,11 @@ use writ_tauri_lib::commands::buffer::{
     ERR_FILE_NOT_DOWNLOADED, ERR_FILE_REMOVED_ON_DISK,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
+use writ_tauri_lib::commands::note_index::resolve_note_link_inner;
 use writ_tauri_lib::commands::notes::{
-    delete_note_inner, move_notes_folder_to, new_note_inner, note_path_for_id, notes_root_text,
-    path_is_inside_notes, rename_note_inner, rename_note_recording, save_note_copy_inner,
+    delete_note_inner, move_notes_folder_to, new_note_from_link_inner, new_note_inner,
+    new_note_named_inner, note_path_for_id, notes_root_text, path_is_inside_notes,
+    rename_note_inner, rename_note_recording, save_note_copy_inner,
 };
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
@@ -127,6 +129,206 @@ fn open_note_at(state: &AppState, path: &std::path::Path, content: &str) -> Stri
         .doc
         .expect("the file opened")
         .id
+}
+
+#[test]
+fn a_named_note_takes_its_file_name_from_the_name() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+
+    let doc = new_note_named_inner(&state, "Grocery list").expect("named note");
+    let path = std::path::PathBuf::from(doc.source_path.clone().expect("the note has no file"));
+
+    assert_eq!(
+        path.file_name().unwrap().to_string_lossy(),
+        "Grocery list.md"
+    );
+    assert!(path.starts_with(state.notes_root()), "{}", path.display());
+    assert_eq!(std::fs::read_to_string(&path).expect("read"), "");
+}
+
+/// A link is allowed to name a note with its extension, and `[[Note.md]]`
+/// resolves to the same note `[[Note]]` does. Minting `Note.md.md` would leave
+/// the link that offered to create it still pointing at nothing.
+#[test]
+fn a_named_note_written_with_the_extension_gets_one_extension() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+
+    for (typed, expected) in [
+        ("Note.md", "Note.md"),
+        ("Recipes.markdown", "Recipes.md"),
+        ("Ideas.MD", "Ideas.md"),
+        ("Log.md.md", "Log.md.md"),
+        ("Plain.txt", "Plain.txt.md"),
+    ] {
+        let doc = new_note_named_inner(&state, typed).expect("named note");
+        let path = std::path::PathBuf::from(doc.source_path.expect("the note has no file"));
+        assert_eq!(
+            path.file_name().unwrap().to_string_lossy(),
+            expected,
+            "typed {typed}"
+        );
+    }
+}
+
+/// The whole round trip the offer makes: the target names no note, the note is
+/// created from what the editor sends, and the same target then resolves to
+/// the note that was created.
+///
+/// The second column is what `wikilinkTargetPath` in `src/lib/wikilink.ts`
+/// sends: the target's folder and name, alias and heading removed, the
+/// extension left on. Removing the extension there as well as here made
+/// `Note.md` out of `[[Note.markdown.md]]`, a file the link that offered it
+/// does not reach; flattening the folder made `Ideas.md` out of
+/// `[[projects/Ideas]]`, which that target does not reach either.
+#[test]
+fn a_note_created_from_a_link_target_is_what_that_target_resolves_to() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let from = state.notes_root().join("source.md");
+
+    for (target, sent) in [
+        ("Grocery list", "Grocery list"),
+        ("Recipes.md", "Recipes.md"),
+        ("Note.markdown.md", "Note.markdown.md"),
+        ("Log.md#Section", "Log.md"),
+        ("Plans|later", "Plans"),
+        ("projects/Ideas", "projects/Ideas"),
+        ("a/b/Deep.md", "a/b/Deep.md"),
+        ("../ideas/Relative", "ideas/Relative"),
+    ] {
+        let doc = new_note_from_link_inner(&state, sent).expect("note from link");
+        let created = doc.source_path.expect("the note has no file");
+        state
+            .notes_index
+            .reconcile(&state.notes_root(), &|| false, &|_| false)
+            .expect("index the notes folder");
+
+        let resolution = resolve_note_link_inner(
+            &state.notes_index,
+            from.to_str().expect("utf-8 path"),
+            target,
+        )
+        .expect("resolve");
+        assert_eq!(resolution.status, "resolved", "target {target}");
+        assert_eq!(
+            resolution.path.as_deref(),
+            Some(notes_index::index_key(std::path::Path::new(&created)).as_str()),
+            "target {target}"
+        );
+    }
+}
+
+/// The folder the target named is where the note goes, and it is created on
+/// the way rather than the note being flattened into the notes folder.
+#[test]
+fn a_link_target_that_names_a_folder_creates_the_note_inside_it() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+
+    let doc = new_note_from_link_inner(&state, "projects/2026/Ideas.md").expect("note from link");
+    let path = std::path::PathBuf::from(doc.source_path.expect("the note has no file"));
+    assert_eq!(
+        path,
+        state
+            .notes_root()
+            .join("projects")
+            .join("2026")
+            .join("Ideas.md")
+    );
+    assert!(path.exists(), "{}", path.display());
+
+    let second =
+        new_note_from_link_inner(&state, "projects/2026/Ideas.md").expect("note from link");
+    assert_eq!(
+        std::path::PathBuf::from(second.source_path.expect("the note has no file")),
+        state
+            .notes_root()
+            .join("projects")
+            .join("2026")
+            .join("Ideas 2.md"),
+        "the second note of that name takes the next one in the same folder"
+    );
+}
+
+/// Anything a target holds that could walk out of the notes folder is gone
+/// before a folder name is built from it, and a segment that survives as
+/// nothing is dropped rather than minted.
+#[test]
+fn a_link_target_cannot_create_a_note_outside_the_notes_folder() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+
+    for target in [
+        "../../escape.md",
+        "/etc/passwd",
+        "a/../../../b/Note.md",
+        ".../Note.md",
+    ] {
+        let doc = new_note_from_link_inner(&state, target).expect("note from link");
+        let path = std::path::PathBuf::from(doc.source_path.expect("the note has no file"));
+        assert!(
+            path.starts_with(state.notes_root()),
+            "{target:?} left the notes folder: {}",
+            path.display()
+        );
+    }
+}
+
+/// The one way a sanitised segment still leaves the folder: something already
+/// standing where it lands. The containment check resolves the deepest part of
+/// the path that exists, so the symlink is followed before it is compared.
+#[cfg(unix)]
+#[test]
+fn a_link_target_is_refused_when_its_folder_is_a_link_out_of_the_notes_folder() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let outside = dir.path().join("outside");
+    std::fs::create_dir_all(&outside).expect("create outside");
+    std::fs::create_dir_all(state.notes_root()).expect("create notes root");
+    std::os::unix::fs::symlink(&outside, state.notes_root().join("projects")).expect("symlink");
+
+    let refusal = new_note_from_link_inner(&state, "projects/Ideas.md")
+        .expect_err("a folder outside the notes folder is refused");
+    assert!(refusal.contains("outside the notes folder"), "{refusal}");
+    assert!(
+        !outside.join("Ideas.md").exists(),
+        "the note was written through the link anyway"
+    );
+}
+
+/// A link target reaches this as typed, so a name that reads like a path must
+/// not become one: the note lands in the notes folder whatever separators the
+/// name carried.
+#[test]
+fn a_name_that_reads_like_a_path_stays_one_file_in_the_notes_folder() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+
+    for name in ["../../escape", "/etc/passwd", "sub/deep"] {
+        let doc = new_note_named_inner(&state, name).expect("named note");
+        let path = std::path::PathBuf::from(doc.source_path.clone().expect("the note has no file"));
+        assert_eq!(
+            path.parent().expect("parent"),
+            state.notes_root(),
+            "{name:?} left the notes folder: {}",
+            path.display()
+        );
+    }
+}
+
+/// A name nothing survives from falls back to the dated stem a `New Note`
+/// gets, so the offer never fails for want of a usable name.
+#[test]
+fn a_name_that_sanitises_to_nothing_still_mints_a_note() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+
+    let doc = new_note_named_inner(&state, "   ").expect("named note");
+    let path = std::path::PathBuf::from(doc.source_path.clone().expect("the note has no file"));
+    assert!(path.exists());
+    assert!(path.starts_with(state.notes_root()));
 }
 
 #[test]
@@ -2518,4 +2720,30 @@ fn a_backdated_note_that_is_deleted_is_still_gone() {
         "text worth keeping",
         "the save wrote over a file the note was never in"
     );
+}
+
+/// The frontend reaches these by name through `invoke`, so a command dropped
+/// from the handler compiles and every test here still passes.
+#[test]
+fn every_note_command_is_registered() {
+    const LIB_RS: &str = include_str!("../src/lib.rs");
+
+    for command in [
+        "commands::notes::new_note,",
+        "commands::notes::new_note_from_link,",
+        "commands::notes::rename_note,",
+        "commands::notes::delete_note,",
+        "commands::notes::save_note_copy,",
+        "commands::notes::show_note_in_file_manager,",
+        "commands::notes::show_notes_file_in_file_manager,",
+        "commands::notes::get_notes_root,",
+        "commands::notes::get_notes_folder,",
+        "commands::notes::pick_notes_folder,",
+    ] {
+        assert!(
+            LIB_RS.contains(command),
+            "{} is not in the invoke handler, so the frontend cannot call it",
+            command.trim_end_matches(',')
+        );
+    }
 }

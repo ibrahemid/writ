@@ -357,6 +357,62 @@ pub fn note_file_stem(title: &str, dated_from: DateTime<Utc>) -> String {
     sanitize_title_or(title, &fallback)
 }
 
+/// The filename stem a note earns from a link target that named no note.
+///
+/// A target carries the note's name, and a name is allowed to be written with
+/// the extension: `[[Note.md]]` and `[[Note]]` name the same note, because
+/// [`links::parse_wikilink`] reads the extension off both. Handing the raw
+/// target to [`note_file_stem`] would mint `Note.md.md`, which the link that
+/// asked for it then still does not resolve to.
+///
+/// Only one note extension comes off, and only when the name ends in one, so
+/// `[[Note.md.md]]` names the note `Note.md` in both places. This is the only
+/// place it comes off: the editor sends the target's file name with whatever
+/// extension it was written with, because a second strip made `Note.md` out of
+/// `[[Note.markdown.md]]`, which that target does not resolve to.
+pub fn note_file_stem_from_link(target: &str, dated_from: DateTime<Utc>) -> String {
+    note_file_stem(links::strip_note_extension(target.trim()), dated_from)
+}
+
+/// Where the note a link offers to create belongs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoteLocation {
+    /// The folders under the notes folder, outermost first, each already a
+    /// legal folder name. Empty when the target named no folder.
+    pub folder: Vec<String>,
+    /// The file stem, without an extension and never empty.
+    pub stem: String,
+}
+
+/// The folder and the stem a link target earns when its note is created.
+///
+/// A target may name a folder — `[[projects/Ideas]]` — and [`links::resolve`]
+/// requires such a target to match the candidate's own trailing folders, so a
+/// note minted at the notes root answers no such link. The note goes where the
+/// link says instead, and the link resolves as soon as it exists.
+///
+/// `target` is a target that has already been parsed once, the way
+/// [`note_file_stem_from_link`] takes one: the alias and the heading are off
+/// and the extension is still on. The folder is read through
+/// [`links::stored_target`], which drops `.` and `..` the same way resolution
+/// does, and every segment then goes through [`sanitize_title`], so a folder
+/// name is as legal as a file name and a segment nothing survives from is
+/// dropped rather than becoming a folder called nothing.
+pub fn note_location_from_link(target: &str, dated_from: DateTime<Utc>) -> NoteLocation {
+    let parsed = links::stored_target(target);
+    let folder = parsed
+        .folder
+        .as_deref()
+        .unwrap_or_default()
+        .split('/')
+        .filter_map(sanitize_title)
+        .collect();
+    NoteLocation {
+        folder,
+        stem: note_file_stem_from_link(&parsed.name, dated_from),
+    }
+}
+
 /// Finder-style dedupe: `stem`, `stem 2`, `stem 3`, and so on.
 ///
 /// `taken` holds file *names* including their extension, in whatever case and
@@ -497,6 +553,135 @@ fn truncate_to_limits(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A moment for the dated fallback, so a test says which answer it means.
+    fn moment() -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339("2026-09-06T10:11:12Z")
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    // A link is allowed to name a note with its extension, and both spellings
+    // resolve to the same note, so both have to mint the same file.
+    #[test]
+    fn a_link_target_written_with_the_extension_mints_one_extension() {
+        assert_eq!(note_file_stem_from_link("Note.md", moment()), "Note");
+        assert_eq!(note_file_stem_from_link("Note.markdown", moment()), "Note");
+        assert_eq!(note_file_stem_from_link("Note.MD", moment()), "Note");
+        assert_eq!(note_file_stem_from_link("Note", moment()), "Note");
+        assert_eq!(note_file_stem_from_link("  Note.md  ", moment()), "Note");
+    }
+
+    // Only one extension comes off, which is the name parse_wikilink reads out
+    // of the same target.
+    #[test]
+    fn only_one_note_extension_comes_off_a_link_target() {
+        assert_eq!(note_file_stem_from_link("Note.md.md", moment()), "Note.md");
+        assert_eq!(
+            links::parse_wikilink("Note.md.md").name,
+            note_file_stem_from_link("Note.md.md", moment())
+        );
+        assert_eq!(
+            note_file_stem_from_link("Note.markdown.md", moment()),
+            "Note.markdown"
+        );
+        assert_eq!(note_file_stem_from_link("a.b.md", moment()), "a.b");
+        assert_eq!(note_file_stem_from_link("Note.txt", moment()), "Note.txt");
+    }
+
+    // What the link asked for is what the file is called, so the link that
+    // offered to create it resolves to it afterwards. The second column is the
+    // file name `wikilinkFileName` in `src/lib/wikilink.ts` sends: the target's
+    // last segment with the extension it was written with left on, because the
+    // one extension that comes off comes off here.
+    #[test]
+    fn a_link_target_mints_the_name_the_link_resolves_to() {
+        for (target, sent) in [
+            ("Note", "Note"),
+            ("Note.md", "Note.md"),
+            ("folder/Note.md", "Note.md"),
+            ("Note.markdown", "Note.markdown"),
+            ("Note.markdown.md", "Note.markdown.md"),
+            ("Note.md.md", "Note.md.md"),
+        ] {
+            let stem = note_file_stem_from_link(sent, moment());
+            assert_eq!(stem, links::parse_wikilink(target).name, "target {target}");
+        }
+    }
+
+    // A target that names a folder makes a note in that folder, because a
+    // target carrying a `/` only resolves to a candidate whose own folders
+    // end the same way.
+    #[test]
+    fn a_link_target_that_names_a_folder_mints_the_note_inside_it() {
+        for (sent, folder, stem) in [
+            ("Note", vec![], "Note"),
+            ("projects/Ideas", vec!["projects"], "Ideas"),
+            ("a/b/Note.md", vec!["a", "b"], "Note"),
+            ("../ideas/Note", vec!["ideas"], "Note"),
+            ("./Note", vec![], "Note"),
+            (
+                "projects/Note.markdown.md",
+                vec!["projects"],
+                "Note.markdown",
+            ),
+            // A segment nothing legal survives from is dropped, not minted as
+            // a folder with no name.
+            (".../Note", vec![], "Note"),
+            // Illegal characters go the way they go in a file name.
+            ("pro:jects/Note", vec!["pro jects"], "Note"),
+        ] {
+            let location = note_location_from_link(sent, moment());
+            assert_eq!(location.folder, folder, "target {sent}");
+            assert_eq!(location.stem, stem, "target {sent}");
+        }
+    }
+
+    // The whole point of the folder: the link that offered to create the note
+    // resolves to it once it is there.
+    #[test]
+    fn a_note_minted_from_a_foldered_target_is_what_that_target_resolves_to() {
+        for target in [
+            "projects/Ideas",
+            "projects/Ideas.md",
+            "a/b/Note.md.md",
+            "../ideas/Note",
+        ] {
+            let written = links::parse_wikilink(target);
+            let sent = match &written.folder {
+                Some(folder) => format!("{folder}/{}", written.name),
+                None => written.name.clone(),
+            };
+            let location = note_location_from_link(&sent, moment());
+            let mut path = String::from("/notes");
+            for part in &location.folder {
+                path.push('/');
+                path.push_str(part);
+            }
+            path.push('/');
+            path.push_str(&location.stem);
+            path.push_str(".md");
+
+            assert_eq!(
+                links::resolve(&written, "/notes/From.md", &[path.clone()]),
+                links::Resolution::Resolved(path.clone()),
+                "target {target} minted {path}"
+            );
+        }
+    }
+
+    // A target that sanitises to nothing still has to mint a note.
+    #[test]
+    fn a_link_target_that_survives_as_nothing_falls_back_to_the_dated_stem() {
+        assert_eq!(
+            note_file_stem_from_link(".md", moment()),
+            note_file_stem("", moment())
+        );
+        assert_eq!(
+            note_file_stem_from_link("", moment()),
+            note_file_stem("", moment())
+        );
+    }
 
     #[test]
     fn a_note_is_called_by_its_file_name_without_the_extension() {

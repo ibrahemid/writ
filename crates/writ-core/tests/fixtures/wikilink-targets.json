@@ -1,0 +1,336 @@
+{
+  "note": "Shared by crates/writ-core/tests/wikilink_targets.rs and src/__tests__/lib/wikilink.fixture.test.ts. Each case runs the whole text through both wikilink scanners. targets is the raw `[[…]]` inside each link they find, names is what parse_wikilink and its frontend mirror in src/lib/wikilink.ts read as the note's name. A name that comes out empty names no note and is dropped by both. editorTargets and editorNames, where present, are what the editor finds instead, and why says what the difference is for.",
+  "cases": [
+    {
+      "name": "plain",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "Note"
+      ],
+      "text": "see [[Note]] here\n"
+    },
+    {
+      "name": "alias",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "Note|Label"
+      ],
+      "text": "[[Note|Label]]\n"
+    },
+    {
+      "name": "heading",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "Note#Heading"
+      ],
+      "text": "[[Note#Heading]]\n"
+    },
+    {
+      "name": "heading and alias",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "folder/Note#Heading|Label"
+      ],
+      "text": "[[folder/Note#Heading|Label]]\n"
+    },
+    {
+      "name": "folder",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "folder/Note"
+      ],
+      "text": "[[folder/Note]]\n"
+    },
+    {
+      "name": "extension",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "Note.md"
+      ],
+      "text": "[[Note.md]]\n"
+    },
+    {
+      "name": "folder and extension",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "folder/Note.md"
+      ],
+      "text": "[[folder/Note.md]]\n"
+    },
+    {
+      "name": "markdown extension",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "Note.markdown"
+      ],
+      "text": "[[Note.markdown]]\n"
+    },
+    {
+      "name": "dotted name",
+      "names": [
+        "a.b"
+      ],
+      "targets": [
+        "a.b.md"
+      ],
+      "text": "[[a.b.md]]\n"
+    },
+    {
+      "name": "double extension",
+      "names": [
+        "Note.md"
+      ],
+      "targets": [
+        "Note.md.md"
+      ],
+      "text": "[[Note.md.md]]\n"
+    },
+    {
+      "name": "extension alone",
+      "names": [],
+      "targets": [],
+      "text": "[[.md]]\n"
+    },
+    {
+      "name": "trailing separator",
+      "names": [
+        "folder"
+      ],
+      "targets": [
+        "folder/"
+      ],
+      "text": "[[folder/]]\n"
+    },
+    {
+      "name": "nested trailing separator",
+      "names": [
+        "b"
+      ],
+      "targets": [
+        "a/b/"
+      ],
+      "text": "[[a/b/]]\n"
+    },
+    {
+      "name": "relative step",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "../ideas/Note"
+      ],
+      "text": "[[../ideas/Note]]\n"
+    },
+    {
+      "name": "backslash separator",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "folder\\Note"
+      ],
+      "text": "[[folder\\Note]]\n"
+    },
+    {
+      "name": "unicode",
+      "names": [
+        "Ünicode"
+      ],
+      "targets": [
+        "Ünicode.markdown"
+      ],
+      "text": "[[Ünicode.markdown]]\n"
+    },
+    {
+      "name": "inner close",
+      "names": [
+        "a]b"
+      ],
+      "targets": [
+        "a]b"
+      ],
+      "text": "[[a]b]]\n"
+    },
+    {
+      "name": "inner open",
+      "names": [
+        "a[b"
+      ],
+      "targets": [
+        "a[b"
+      ],
+      "text": "[[a[b]]\n"
+    },
+    {
+      "name": "alias then close",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "Note|al"
+      ],
+      "text": "[[Note|al]]ias]]\n"
+    },
+    {
+      "name": "bracket before",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "Note"
+      ],
+      "text": "a [ b [[Note]]\n"
+    },
+    {
+      "name": "two on a line",
+      "names": [
+        "A",
+        "B"
+      ],
+      "targets": [
+        "A",
+        "B"
+      ],
+      "text": "[[A]] then [[B]]\n"
+    },
+    {
+      "name": "embed",
+      "names": [
+        "img.png"
+      ],
+      "targets": [
+        "img.png"
+      ],
+      "text": "![[img.png]]\n",
+      "editorTargets": [],
+      "editorNames": [],
+      "why": "writ-core indexes an embed as a link to a note called img.png. The editor and the preview renderer both read an `![[…]]` as a file the preview resolves, so neither paints it as a note link."
+    },
+    {
+      "name": "empty",
+      "names": [],
+      "targets": [],
+      "text": "[[]]\n"
+    },
+    {
+      "name": "blank",
+      "names": [],
+      "targets": [],
+      "text": "[[   ]]\n"
+    },
+    {
+      "name": "unclosed",
+      "names": [],
+      "targets": [],
+      "text": "[[unclosed\n"
+    },
+    {
+      "name": "markdown link beside",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "Note"
+      ],
+      "text": "[label](Other.md) and [[Note]]\n"
+    },
+    {
+      "name": "fenced",
+      "names": [],
+      "targets": [],
+      "text": "```\n[[Note]]\n```\n"
+    },
+    {
+      "name": "tilde fenced",
+      "names": [],
+      "targets": [],
+      "text": "~~~md\n[[Note]]\n~~~\n"
+    },
+    {
+      "name": "indented",
+      "names": [],
+      "targets": [],
+      "text": "text\n\n    [[Note]]\n"
+    },
+    {
+      "name": "indented at start",
+      "names": [],
+      "targets": [],
+      "text": "    [[Note]]\n"
+    },
+    {
+      "name": "inline code",
+      "names": [],
+      "targets": [],
+      "text": "write `[[Note]]` to link\n"
+    },
+    {
+      "name": "after inline code",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "Note"
+      ],
+      "text": "`code` then [[Note]]\n"
+    },
+    {
+      "name": "frontmatter",
+      "names": [],
+      "targets": [],
+      "text": "---\nsee: \"[[Note]]\"\n---\nbody\n"
+    },
+    {
+      "name": "frontmatter then body",
+      "names": [
+        "Other"
+      ],
+      "targets": [
+        "Other"
+      ],
+      "text": "---\nsee: \"[[Note]]\"\n---\n[[Other]]\n"
+    },
+    {
+      "name": "unterminated frontmatter",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "Note"
+      ],
+      "text": "---\nsee: \"[[Note]]\"\nstill body\n"
+    },
+    {
+      "name": "frontmatter fence with trailing space",
+      "names": [],
+      "targets": [],
+      "text": "---\nsee: \"[[Note]]\"\n--- \nbody\n"
+    },
+    {
+      "name": "rule that is not frontmatter",
+      "names": [
+        "Note"
+      ],
+      "targets": [
+        "Note"
+      ],
+      "text": "body\n---\n[[Note]]\n"
+    }
+  ]
+}

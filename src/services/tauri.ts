@@ -233,6 +233,62 @@ export async function noteBacklinks(path: string): Promise<Backlink[]> {
   return invoke("note_backlinks", { path });
 }
 
+/** Whether a link target names one note, several, or none. */
+export type LinkStatus = "resolved" | "ambiguous" | "missing";
+
+/** What a `[[…]]` target points at. */
+export interface LinkResolution {
+  status: LinkStatus;
+  /** The note the target names, present only for `resolved`. */
+  path: string | null;
+  /** The notes the target could mean, present only for `ambiguous`. */
+  candidates: string[];
+  /** 1-based line of the heading the target named, when the note has it. */
+  heading_line: number | null;
+}
+
+export async function resolveNoteLink(
+  fromPath: string,
+  target: string,
+): Promise<LinkResolution> {
+  return invoke("resolve_note_link", { fromPath, target });
+}
+
+/**
+ * The 1-based line the heading `slug` sits on in the note at `path`, or null
+ * when the note has no such heading. `slug` is an anchor or the heading text.
+ */
+export async function noteHeadingLine(
+  path: string,
+  slug: string,
+): Promise<number | null> {
+  return invoke("note_heading_line", { path, slug });
+}
+
+/** One note offered to a `[[` completion. */
+export interface NoteNameHit {
+  path: string;
+  /** The note's file name without the extension. */
+  name: string;
+}
+
+export async function noteNameCandidates(
+  query: string,
+  limit?: number,
+): Promise<NoteNameHit[]> {
+  return invoke("note_name_candidates", { query, limit });
+}
+
+/**
+ * Creates the note a `[[…]]` target names and opens it.
+ *
+ * `target` is the folder-and-name path the link was written with, extension
+ * included; the file name and the folder are minted from it in Rust.
+ */
+export async function newNoteFromLink(target: string): Promise<BufferDocument> {
+  return invoke("new_note_from_link", { target });
+}
+
 /** What a note's file holds, as the backend reports it. */
 export interface DiskState {
   hash: string;

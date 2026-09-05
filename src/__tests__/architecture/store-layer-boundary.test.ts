@@ -109,6 +109,29 @@ describe("store layer boundary", () => {
     ).toEqual([]);
   });
 
+  // The editor layer never reads a store, global or window. What it needs
+  // from the app arrives through injected dependencies, so the same code runs
+  // in a test against a plain object and the app decides where the answers
+  // come from.
+  it("editor/ does not import from stores/ at all", () => {
+    const EDITOR = resolve(SRC, "editor");
+    const offenders: { file: string; spec: string }[] = [];
+    for (const file of walk(EDITOR)) {
+      for (const spec of extractImports(file)) {
+        const r = resolveSpecifier(file, spec);
+        if (r && isUnder(r, STORES)) {
+          offenders.push({ file: relative(REPO_ROOT, file), spec });
+        }
+      }
+    }
+    expect(
+      offenders,
+      `the editor layer takes its dependencies injected: ${offenders
+        .map((o) => `${o.file} -> ${o.spec}`)
+        .join("; ")}`,
+    ).toEqual([]);
+  });
+
   it("commands/ do not import directly from stores/window/ (must resolve via windowRegistry)", () => {
     const COMMANDS = resolve(SRC, "commands");
     const files = walk(COMMANDS);
