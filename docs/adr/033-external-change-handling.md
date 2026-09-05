@@ -714,7 +714,7 @@ What each move does to the text, the dirty answer, autosave and the file:
 | `changed` or `removed` | the window quits | gone | handed to the shutdown snapshot | gone with the window | flushed, which writes nothing for this note | untouched |
 | relaunch, with snapshot text for a note whose path has no file | `removed` | the snapshot's, seeded before the first tab loads | true | silent | nothing written, and nothing left beside it |
 
-Four rules hold the table together.
+Five rules hold the table together.
 
 **One transition takes the text before anything can drop it.** Every move into
 `changed` or `removed` runs in one place, and it reads the text first, cancels
@@ -740,7 +740,20 @@ those sites is the hold and not the deletion. The copy is refreshed on every
 hold rather than written once when the file went, so after `removed` becomes
 `changed` it holds what the note holds now, and it is dropped only on the way
 to `present`, where there is a file again and it is the one the tab is about
-to hold.
+to hold. Neither copy may depend on a view: the last tab's close takes the
+editor away before the close path runs, so the teardown refreshes the hold from
+the document it is about to destroy instead of cancelling the note, and a note
+that may write is cancelled there as it always was.
+
+**A tab that has not finished opening is asked, not read over.** The record of
+what a note and its file hold is filled by a round trip into Rust, and until it
+answers the record is there and empty. Empty is not clean: a note holding text
+no file has would otherwise be reloaded over quietly by a change arriving in
+that window, which is the tab switch onto a note under the bar. So an unfilled
+record answers the way a missing one does. Two round trips for one note can
+also be out at once, because a background tab's reload opens it again, and the
+later one owns the record: each carries the number it was given, and one that
+comes back to find another number does not write its answer or drop the record.
 
 **A file back at the note's own path is the same question as any other change,
 and a file at another path is not.** A tab holding nothing of its own reads the
