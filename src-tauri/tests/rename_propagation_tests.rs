@@ -115,7 +115,9 @@ fn reindex(state: &AppState) {
 
 fn note(state: &AppState, name: &str) -> std::path::PathBuf {
     name.split('/')
-        .fold(state.notes_root().to_path_buf(), |path, part| path.join(part))
+        .fold(state.notes_root().to_path_buf(), |path, part| {
+            path.join(part)
+        })
 }
 
 fn path_text(state: &AppState, name: &str) -> String {
