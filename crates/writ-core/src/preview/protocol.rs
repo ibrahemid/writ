@@ -6,11 +6,20 @@
 //! is parsed into a [`ParsedRequest`] before any I/O, and cross-scope
 //! traversal is refused.
 //!
-//! This is pure logic with no Tauri, no I/O, and no allocation beyond the
-//! decoded path — so it lives in `writ-core` (per the crate-boundary rule)
-//! and can be fuzzed without compiling the app shell. The debug-only
-//! disposition recorder that observes the handler's decisions lives in
-//! `src-tauri`, which re-exports these types.
+//! [`parse`] and [`split_asset_request`] are pure logic with no Tauri, no
+//! I/O, and no allocation beyond the decoded path — so they live in
+//! `writ-core` (per the crate-boundary rule) and can be fuzzed without
+//! compiling the app shell. The debug-only disposition recorder that
+//! observes the handler's decisions lives in `src-tauri`, which re-exports
+//! these types.
+//!
+//! The note-asset half ([`resolve_asset`], [`resolve_asset_reference`])
+//! resolves a reference against the filesystem, because containment is a
+//! property of the resolved path and nothing else. It is read-only path
+//! resolution: it opens no file, and the byte-serving side stays in
+//! `src-tauri`. ADR-035.
+
+use std::path::{Component, Path, PathBuf};
 
 /// Scope side of the `writ-preview://` split — ADR-009 §A1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,8 +51,8 @@ pub struct ParsedRequest {
     pub path: String,
 }
 
-/// Why a request was refused before any I/O.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Why a request was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RefusalReason {
     /// URL scheme is not `writ-preview`.
     WrongScheme,
@@ -58,6 +67,15 @@ pub enum RefusalReason {
     InvalidEncoding,
     /// URL was empty or otherwise un-parseable as a URL.
     MalformedUrl,
+    /// A note asset resolved outside every containment root.
+    OutsideRoot,
+    /// A note asset is a symbolic link. Links are refused rather than
+    /// followed: the target is chosen by whoever wrote the link, not by the
+    /// containment root.
+    SymlinkRefused,
+    /// The asset URL names a scope it does not carry the token for. A
+    /// document may only reach the roots its own render was given.
+    ScopeMismatch,
 }
 
 impl RefusalReason {
@@ -70,6 +88,9 @@ impl RefusalReason {
             Self::ProhibitedCharacter => "prohibited_character",
             Self::InvalidEncoding => "invalid_encoding",
             Self::MalformedUrl => "malformed_url",
+            Self::OutsideRoot => "outside_root",
+            Self::SymlinkRefused => "symlink_refused",
+            Self::ScopeMismatch => "scope_mismatch",
         }
     }
 }
@@ -174,6 +195,413 @@ fn hex_value(b: u8) -> Option<u8> {
         b'a'..=b'f' => Some(b - b'a' + 10),
         b'A'..=b'F' => Some(b - b'A' + 10),
         _ => None,
+    }
+}
+
+// ─────────────────────────────── note assets ───────────────────────────────
+//
+// ADR-035. Images embedded in a note are served under the document scope at
+// `_note-asset/<buffer id>/<scope token>/<root>/<relative path>`. The URL is
+// a claim, not an authorization: every request is re-resolved against the
+// same roots the render-time rewrite used, and containment is decided on the
+// canonical path. The token is the one part of the URL a document cannot
+// write for itself — it is minted with the scope and only appears in the
+// render that owns it, so one note cannot name another note's scope.
+
+/// Reserved first segment of the note-asset route, under the document scope.
+///
+/// Deliberately distinct from `_assets`, which serves the bundled host
+/// runtimes from the binary and has entirely different security properties.
+pub const ASSET_PREFIX: &str = "_note-asset";
+
+/// Folder inside the notes folder searched for an embedded file when the
+/// reference does not resolve beside the note itself.
+pub const ATTACHMENTS_DIR: &str = "attachments";
+
+/// Which containment root an asset path is expressed relative to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssetRoot {
+    /// The notes folder.
+    Notes,
+    /// The folder holding the note being previewed. Equal to, or inside,
+    /// the notes folder for a note that lives there; the only root for a
+    /// file opened from anywhere else.
+    NoteDir,
+}
+
+impl AssetRoot {
+    /// One-character URL discriminator.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Notes => "n",
+            Self::NoteDir => "d",
+        }
+    }
+
+    /// Parse the URL discriminator.
+    pub fn from_token(token: &str) -> Option<Self> {
+        match token {
+            "n" => Some(Self::Notes),
+            "d" => Some(Self::NoteDir),
+            _ => None,
+        }
+    }
+}
+
+/// The parts of an asset request, split out of a document-scope path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AssetRequest<'a> {
+    /// Buffer whose render emitted the URL; keys the scope lookup.
+    pub buffer_id: &'a str,
+    /// Token the render minted for that buffer's scope. Checked against the
+    /// scope the lookup returned before any path is resolved.
+    pub token: &'a str,
+    /// Root the relative path is expressed against.
+    pub root: AssetRoot,
+    /// Path under that root. Already canonicalised by [`parse`]: no `..`,
+    /// no backslash, no leading or repeated separator.
+    pub relative: &'a str,
+}
+
+/// Split an already-parsed document-scope path into an asset request.
+///
+/// Returns `None` when the path is not on the asset route, when a part is
+/// missing, or when the root discriminator is unknown. Pure: no I/O, no
+/// panics on any input (the protocol fuzz target asserts this).
+pub fn split_asset_request(document_path: &str) -> Option<AssetRequest<'_>> {
+    let rest = document_path
+        .strip_prefix(ASSET_PREFIX)?
+        .strip_prefix('/')?;
+    let (buffer_id, rest) = rest.split_once('/')?;
+    let (token, rest) = rest.split_once('/')?;
+    let (root, relative) = rest.split_once('/')?;
+    if buffer_id.is_empty() || token.is_empty() || relative.is_empty() {
+        return None;
+    }
+    Some(AssetRequest {
+        buffer_id,
+        token,
+        root: AssetRoot::from_token(root)?,
+        relative,
+    })
+}
+
+/// An embedded reference that resolved inside a containment root.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssetReference {
+    /// Root the reference resolved under.
+    pub root: AssetRoot,
+    /// Path relative to that root, `/`-separated and percent-encoded, ready
+    /// to append to the asset URL.
+    pub url_path: String,
+    /// Absolute, canonical path on disk. May not exist: a reference to a
+    /// missing file inside the root still resolves, so the preview can name
+    /// it in a placeholder instead of showing a broken image.
+    pub path: PathBuf,
+}
+
+/// Resolve an image reference written in a note to a containment-checked
+/// path on disk.
+///
+/// `src` is the raw reference as authored — percent-encoded or not, relative
+/// to the note, relative to the notes folder, or absolute. Candidates are
+/// tried in that order plus [`ATTACHMENTS_DIR`], and the first that exists
+/// wins; when none exists the first contained candidate is returned so the
+/// caller can name the missing file.
+///
+/// Refuses anything that resolves outside both roots, and refuses a symbolic
+/// link outright rather than following it.
+pub fn resolve_asset_reference(
+    notes_root: &Path,
+    note_dir: &Path,
+    src: &str,
+) -> Result<AssetReference, RefusalReason> {
+    let decoded = percent_decode(src).unwrap_or_else(|_| src.to_string());
+    let decoded = decoded.replace('\\', "/");
+    let trimmed = decoded.trim();
+    if trimmed.is_empty() {
+        return Err(RefusalReason::MalformedUrl);
+    }
+    if trimmed.chars().any(|c| (c as u32) < 0x20 || c == '\x7f') {
+        return Err(RefusalReason::ProhibitedCharacter);
+    }
+
+    let notes_canonical = canonical_root(notes_root);
+    let dir_canonical = canonical_root(note_dir);
+
+    let mut candidates: Vec<PathBuf> = Vec::with_capacity(4);
+    match trimmed.strip_prefix('/') {
+        // A leading separator means "from the notes folder", the spelling
+        // Obsidian uses. The same text is also a filesystem-absolute path,
+        // so both readings are offered — both containment-checked.
+        Some(from_notes_root) => {
+            let from_notes_root = from_notes_root.trim_start_matches('/');
+            if !from_notes_root.is_empty() {
+                candidates.push(notes_root.join(from_notes_root));
+            }
+            candidates.push(PathBuf::from(trimmed));
+        }
+        None => {
+            candidates.push(note_dir.join(trimmed));
+            candidates.push(notes_root.join(trimmed));
+            candidates.push(notes_root.join(ATTACHMENTS_DIR).join(trimmed));
+        }
+    }
+
+    let mut fallback: Option<AssetReference> = None;
+    let mut first_error: Option<RefusalReason> = None;
+    for candidate in candidates {
+        match contain(
+            notes_canonical.as_deref(),
+            dir_canonical.as_deref(),
+            &candidate,
+        ) {
+            // A link is refused wherever it is found: following it would let
+            // the note's author, not the root, choose the served file.
+            Err(RefusalReason::SymlinkRefused) => return Err(RefusalReason::SymlinkRefused),
+            Err(reason) => {
+                first_error.get_or_insert(reason);
+            }
+            Ok(reference) => {
+                if reference.path.is_file() {
+                    return Ok(reference);
+                }
+                fallback.get_or_insert(reference);
+            }
+        }
+    }
+
+    fallback.ok_or(first_error.unwrap_or(RefusalReason::OutsideRoot))
+}
+
+/// Re-resolve an asset request at serve time.
+///
+/// The URL carries a root and a relative path; neither is trusted. The path
+/// is joined onto the named root and put through the same canonicalisation
+/// and containment check the render-time rewrite used.
+pub fn resolve_asset(
+    notes_root: &Path,
+    note_dir: &Path,
+    request: AssetRequest<'_>,
+) -> Result<PathBuf, RefusalReason> {
+    let root = match request.root {
+        AssetRoot::Notes => notes_root,
+        AssetRoot::NoteDir => note_dir,
+    };
+    let relative = Path::new(request.relative);
+    if relative
+        .components()
+        .any(|c| !matches!(c, Component::Normal(_)))
+    {
+        return Err(RefusalReason::TraversalAttempt);
+    }
+    let canonical = canonical_root(root).ok_or(RefusalReason::OutsideRoot)?;
+    contain(Some(&canonical), None, &root.join(relative)).map(|reference| reference.path)
+}
+
+/// Canonicalise a containment root so both sides of the `starts_with` check
+/// agree. Mirrors `security::authorized_paths::canonicalize_root`, which
+/// cannot be reused here: it lives in `src-tauri`.
+fn canonical_root(path: &Path) -> Option<PathBuf> {
+    std::fs::canonicalize(path).ok().map(strip_unc_prefix)
+}
+
+/// Resolve `candidate` and place it under whichever root contains it.
+///
+/// The notes folder is tried first, so a note that lives inside it gets URLs
+/// that stay valid when the note moves within the folder.
+fn contain(
+    notes_root: Option<&Path>,
+    note_dir: Option<&Path>,
+    candidate: &Path,
+) -> Result<AssetReference, RefusalReason> {
+    if std::fs::symlink_metadata(candidate).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(RefusalReason::SymlinkRefused);
+    }
+    let resolved = resolve_existing_prefix(candidate).ok_or(RefusalReason::OutsideRoot)?;
+    for (root, path) in [
+        (AssetRoot::Notes, notes_root),
+        (AssetRoot::NoteDir, note_dir),
+    ] {
+        let Some(path) = path else { continue };
+        if let Ok(relative) = resolved.strip_prefix(path) {
+            let url_path = encode_relative(relative).ok_or(RefusalReason::InvalidEncoding)?;
+            if url_path.is_empty() {
+                continue;
+            }
+            return Ok(AssetReference {
+                root,
+                url_path,
+                path: resolved,
+            });
+        }
+    }
+    Err(RefusalReason::OutsideRoot)
+}
+
+/// Canonicalise as much of `path` as exists, then append the components that
+/// do not. Every symlink and every `..` above the missing tail is resolved by
+/// the filesystem; only names it has never seen are appended literally, so a
+/// reference to a file that is not there yet is still judged honestly.
+fn resolve_existing_prefix(path: &Path) -> Option<PathBuf> {
+    let mut unresolved: Vec<std::ffi::OsString> = Vec::new();
+    let mut cursor = path.to_path_buf();
+    loop {
+        match std::fs::canonicalize(&cursor) {
+            Ok(base) => {
+                let mut resolved = strip_unc_prefix(base);
+                for name in unresolved.iter().rev() {
+                    resolved.push(name);
+                }
+                return Some(resolved);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                unresolved.push(cursor.file_name()?.to_os_string());
+                cursor = cursor.parent()?.to_path_buf();
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
+/// Percent-encode a relative path into the `/`-separated form the URL
+/// carries. Returns `None` for a path with a non-`Normal` component or a
+/// non-UTF-8 name.
+fn encode_relative(relative: &Path) -> Option<String> {
+    let mut out = String::new();
+    for component in relative.components() {
+        let Component::Normal(name) = component else {
+            return None;
+        };
+        if !out.is_empty() {
+            out.push('/');
+        }
+        out.push_str(&percent_encode_segment(name.to_str()?));
+    }
+    Some(out)
+}
+
+/// Percent-encode one path segment, leaving only the URL-unreserved set.
+fn percent_encode_segment(segment: &str) -> String {
+    let mut out = String::with_capacity(segment.len());
+    for byte in segment.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(*byte as char)
+            }
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
+}
+
+#[cfg(windows)]
+fn strip_unc_prefix(path: PathBuf) -> PathBuf {
+    const UNC: &str = r"\\?\";
+    match path.to_str() {
+        Some(s) if s.starts_with(UNC) => PathBuf::from(&s[UNC.len()..]),
+        _ => path,
+    }
+}
+
+#[cfg(not(windows))]
+fn strip_unc_prefix(path: PathBuf) -> PathBuf {
+    path
+}
+
+/// MIME type of an image, decided by the leading bytes rather than the file
+/// name. A `.png` holding markup is served as nothing at all: the extension
+/// is what an attacker controls, the magic number is not.
+///
+/// Returns `None` for anything that is not one of the image formats the
+/// preview serves, which the caller turns into a placeholder.
+pub fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\n";
+    if bytes.starts_with(PNG) {
+        return Some("image/png");
+    }
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Some("image/jpeg");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+    if bytes.starts_with(b"BM") {
+        return Some("image/bmp");
+    }
+    if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" && &bytes[8..11] == b"avi" {
+        return Some("image/avif");
+    }
+    if is_svg(bytes) {
+        return Some("image/svg+xml");
+    }
+    None
+}
+
+/// True when the first element of an XML document is `<svg>`.
+///
+/// The whole prefix is examined, not searched: markup that opens with an
+/// HTML doctype or an `<html>` element is not an SVG no matter what appears
+/// further down, which is what keeps an HTML file named `.png` from being
+/// served as an image.
+fn is_svg(bytes: &[u8]) -> bool {
+    let prefix = &bytes[..bytes.len().min(1024)];
+    // A multi-byte character truncated by the window edge is not a decoding
+    // failure of the document, so the largest valid slice is examined.
+    let text = match std::str::from_utf8(prefix) {
+        Ok(text) => text,
+        Err(err) => match std::str::from_utf8(&prefix[..err.valid_up_to()]) {
+            Ok(text) => text,
+            Err(_) => return false,
+        },
+    };
+    svg_element_is_first(text)
+}
+
+fn svg_element_is_first(text: &str) -> bool {
+    let mut rest = text.trim_start_matches('\u{feff}').trim_start();
+    loop {
+        rest = rest.trim_start();
+        if let Some(after) = rest.strip_prefix("<?") {
+            // XML declaration or processing instruction.
+            let Some((_, tail)) = after.split_once("?>") else {
+                return false;
+            };
+            rest = tail;
+            continue;
+        }
+        if let Some(after) = rest.strip_prefix("<!--") {
+            let Some((_, tail)) = after.split_once("-->") else {
+                return false;
+            };
+            rest = tail;
+            continue;
+        }
+        if rest.len() >= 9 && rest[..9].eq_ignore_ascii_case("<!doctype") {
+            // Only an `svg` doctype may precede an SVG root element.
+            let Some((declaration, tail)) = rest.split_once('>') else {
+                return false;
+            };
+            if !declaration[9..]
+                .trim_start()
+                .to_ascii_lowercase()
+                .starts_with("svg")
+            {
+                return false;
+            }
+            rest = tail;
+            continue;
+        }
+        let Some(after) = rest.strip_prefix('<') else {
+            return false;
+        };
+        let name_end = after
+            .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
+            .unwrap_or(after.len());
+        return after[..name_end].eq_ignore_ascii_case("svg");
     }
 }
 
@@ -338,5 +766,301 @@ mod tests {
     fn rejects_empty_url() {
         assert_eq!(parse(""), Err(RefusalReason::MalformedUrl));
         assert_eq!(parse("writ-preview"), Err(RefusalReason::MalformedUrl));
+    }
+}
+
+#[cfg(test)]
+mod asset_tests {
+    use super::*;
+
+    /// A notes folder with a note in `daily/`, an image beside it, and one
+    /// under the notes-folder attachments folder.
+    fn fixture() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let notes = dir.path().join("Writ");
+        let note_dir = notes.join("daily");
+        std::fs::create_dir_all(&note_dir).unwrap();
+        std::fs::create_dir_all(notes.join(ATTACHMENTS_DIR)).unwrap();
+        std::fs::write(note_dir.join("beside.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        std::fs::write(
+            notes.join(ATTACHMENTS_DIR).join("a.png"),
+            b"\x89PNG\r\n\x1a\n",
+        )
+        .unwrap();
+        std::fs::write(notes.join("root.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        (dir, notes, note_dir)
+    }
+
+    fn resolve(notes: &Path, note_dir: &Path, src: &str) -> Result<AssetReference, RefusalReason> {
+        resolve_asset_reference(notes, note_dir, src)
+    }
+
+    #[test]
+    fn resolves_a_sibling_file_against_the_note_folder() {
+        let (_g, notes, note_dir) = fixture();
+        let r = resolve(&notes, &note_dir, "beside.png").unwrap();
+        assert_eq!(r.root, AssetRoot::Notes);
+        assert_eq!(r.url_path, "daily/beside.png");
+        assert!(r.path.ends_with("daily/beside.png"));
+    }
+
+    #[test]
+    fn resolves_through_the_attachments_folder() {
+        let (_g, notes, note_dir) = fixture();
+        let r = resolve(&notes, &note_dir, "a.png").unwrap();
+        assert_eq!(r.url_path, "attachments/a.png");
+    }
+
+    #[test]
+    fn resolves_a_notes_folder_absolute_reference() {
+        let (_g, notes, note_dir) = fixture();
+        let r = resolve(&notes, &note_dir, "/root.png").unwrap();
+        assert_eq!(r.url_path, "root.png");
+    }
+
+    #[test]
+    fn resolves_a_relative_reference_that_climbs_inside_the_notes_folder() {
+        let (_g, notes, note_dir) = fixture();
+        let r = resolve(&notes, &note_dir, "../root.png").unwrap();
+        assert_eq!(r.url_path, "root.png");
+    }
+
+    #[test]
+    fn percent_encoded_and_spaced_names_round_trip() {
+        let (_g, notes, note_dir) = fixture();
+        std::fs::write(note_dir.join("my shot.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        for src in ["my shot.png", "my%20shot.png"] {
+            let r = resolve(&notes, &note_dir, src).unwrap();
+            assert_eq!(r.url_path, "daily/my%20shot.png", "src={src}");
+            let url = format!(
+                "writ-preview://document/{ASSET_PREFIX}/buf-1/tok-1/{}/{}",
+                r.root.as_str(),
+                r.url_path
+            );
+            let parsed = parse(&url).unwrap();
+            let request = split_asset_request(&parsed.path).unwrap();
+            assert_eq!(resolve_asset(&notes, &note_dir, request).unwrap(), r.path);
+        }
+    }
+
+    #[test]
+    fn refuses_a_reference_that_climbs_out_of_every_root() {
+        let (_g, notes, note_dir) = fixture();
+        assert_eq!(
+            resolve(&notes, &note_dir, "../../../etc/hosts"),
+            Err(RefusalReason::OutsideRoot)
+        );
+    }
+
+    #[test]
+    fn a_leading_separator_reads_from_the_notes_folder_not_the_filesystem() {
+        // `/etc/hosts` is the notes-folder-relative spelling, so it resolves
+        // to a path that does not exist inside the folder — never to the
+        // real file. Nothing outside the roots is reachable either way.
+        let (_g, notes, note_dir) = fixture();
+        let r = resolve(&notes, &note_dir, "/etc/hosts").unwrap();
+        assert_eq!(r.url_path, "etc/hosts");
+        assert!(r.path.starts_with(canonical_root(&notes).unwrap()));
+        assert!(!r.path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_symlink_rather_than_following_it() {
+        let (guard, notes, note_dir) = fixture();
+        let outside = guard.path().join("outside.png");
+        std::fs::write(&outside, b"\x89PNG\r\n\x1a\n").unwrap();
+        std::os::unix::fs::symlink(&outside, note_dir.join("link.png")).unwrap();
+        assert_eq!(
+            resolve(&notes, &note_dir, "link.png"),
+            Err(RefusalReason::SymlinkRefused)
+        );
+        // A link that stays inside the root is refused on the same rule: the
+        // target is chosen by the link, not by the containment check.
+        std::os::unix::fs::symlink(notes.join("root.png"), note_dir.join("inner.png")).unwrap();
+        assert_eq!(
+            resolve(&notes, &note_dir, "inner.png"),
+            Err(RefusalReason::SymlinkRefused)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_file_reached_through_a_symlinked_folder() {
+        let (guard, notes, note_dir) = fixture();
+        let outside = guard.path().join("elsewhere");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("x.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        std::os::unix::fs::symlink(&outside, note_dir.join("shots")).unwrap();
+        // The linked folder is never followed out of the root. What survives
+        // is a path inside the notes folder that does not exist, which the
+        // preview names in a placeholder — the file outside is unreachable
+        // either way.
+        match resolve(&notes, &note_dir, "shots/x.png") {
+            Err(RefusalReason::OutsideRoot) => {}
+            Ok(reference) => {
+                assert!(reference.path.starts_with(canonical_root(&notes).unwrap()));
+                assert!(!reference.path.exists());
+            }
+            other => panic!("unexpected resolution: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_missing_file_inside_the_root_still_resolves_so_it_can_be_named() {
+        let (_g, notes, note_dir) = fixture();
+        let r = resolve(&notes, &note_dir, "gone.png").unwrap();
+        assert_eq!(r.url_path, "daily/gone.png");
+        assert!(!r.path.exists());
+    }
+
+    #[test]
+    fn a_file_outside_the_notes_folder_resolves_only_under_its_own_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let notes = dir.path().join("Writ");
+        let elsewhere = dir.path().join("elsewhere");
+        std::fs::create_dir_all(&notes).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("a.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        let r = resolve(&notes, &elsewhere, "a.png").unwrap();
+        assert_eq!(r.root, AssetRoot::NoteDir);
+        assert_eq!(r.url_path, "a.png");
+    }
+
+    #[test]
+    fn serve_time_resolution_refuses_a_traversal_relative_path() {
+        let (_g, notes, note_dir) = fixture();
+        let request = AssetRequest {
+            buffer_id: "b",
+            token: "t",
+            root: AssetRoot::Notes,
+            relative: "../root.png",
+        };
+        assert_eq!(
+            resolve_asset(&notes, &note_dir, request),
+            Err(RefusalReason::TraversalAttempt)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn serve_time_resolution_refuses_a_symlink() {
+        let (_g, notes, note_dir) = fixture();
+        std::os::unix::fs::symlink(notes.join("root.png"), notes.join("link.png")).unwrap();
+        let request = AssetRequest {
+            buffer_id: "b",
+            token: "t",
+            root: AssetRoot::Notes,
+            relative: "link.png",
+        };
+        assert_eq!(
+            resolve_asset(&notes, &note_dir, request),
+            Err(RefusalReason::SymlinkRefused)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn serve_time_resolution_judges_only_the_root_the_url_names() {
+        // The note is open from a folder outside the notes folder, and the
+        // notes folder holds a link to that same folder. Widening the
+        // serve-time check to both roots would serve the file through the
+        // notes root as well; the root in the URL is the one that decides.
+        let (guard, notes, _) = fixture();
+        let elsewhere = guard.path().join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("x.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        std::os::unix::fs::symlink(&elsewhere, notes.join("sub")).unwrap();
+
+        let through_notes = AssetRequest {
+            buffer_id: "b",
+            token: "t",
+            root: AssetRoot::Notes,
+            relative: "sub/x.png",
+        };
+        assert_eq!(
+            resolve_asset(&notes, &elsewhere, through_notes),
+            Err(RefusalReason::OutsideRoot)
+        );
+
+        // The same file, named under the root that does contain it, is served.
+        let through_note_dir = AssetRequest {
+            root: AssetRoot::NoteDir,
+            relative: "x.png",
+            ..through_notes
+        };
+        assert_eq!(
+            resolve_asset(&notes, &elsewhere, through_note_dir).unwrap(),
+            strip_unc_prefix(std::fs::canonicalize(elsewhere.join("x.png")).unwrap())
+        );
+    }
+
+    #[test]
+    fn splits_a_well_formed_asset_request() {
+        let req = parse(&format!(
+            "writ-preview://document/{ASSET_PREFIX}/buf-1/tok-1/n/attachments/a.png"
+        ))
+        .unwrap();
+        let asset = split_asset_request(&req.path).unwrap();
+        assert_eq!(asset.buffer_id, "buf-1");
+        assert_eq!(asset.token, "tok-1");
+        assert_eq!(asset.root, AssetRoot::Notes);
+        assert_eq!(asset.relative, "attachments/a.png");
+    }
+
+    #[test]
+    fn split_rejects_malformed_or_unrelated_paths() {
+        for path in [
+            "buf-1/index.html",
+            "_assets/mermaid/mermaid.min.js",
+            "_note-asset",
+            "_note-asset/buf-1",
+            "_note-asset/buf-1/tok-1",
+            "_note-asset/buf-1/tok-1/n",
+            "_note-asset/buf-1/tok-1/x/a.png",
+            "_note-assets/buf-1/tok-1/n/a.png",
+            // The route before the scope token: a bare id is not enough.
+            "_note-asset/buf-1/n/a.png",
+        ] {
+            assert!(split_asset_request(path).is_none(), "path={path}");
+        }
+    }
+
+    #[test]
+    fn sniffs_the_image_formats_the_preview_serves() {
+        assert_eq!(sniff_image_mime(b"\x89PNG\r\n\x1a\n"), Some("image/png"));
+        assert_eq!(
+            sniff_image_mime(&[0xFF, 0xD8, 0xFF, 0xE0]),
+            Some("image/jpeg")
+        );
+        assert_eq!(sniff_image_mime(b"GIF89a....."), Some("image/gif"));
+        assert_eq!(
+            sniff_image_mime(b"RIFF\0\0\0\0WEBPVP8 "),
+            Some("image/webp")
+        );
+        assert_eq!(sniff_image_mime(b"BM......"), Some("image/bmp"));
+        assert_eq!(
+            sniff_image_mime(b"<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>"),
+            Some("image/svg+xml")
+        );
+        assert_eq!(
+            sniff_image_mime(b"<?xml version=\"1.0\"?>\n<!-- c -->\n<svg/>"),
+            Some("image/svg+xml")
+        );
+    }
+
+    #[test]
+    fn markup_that_is_not_an_svg_sniffs_as_nothing() {
+        // The fixture that matters: a `.png` holding HTML. The extension is
+        // attacker-controlled; the leading bytes are not.
+        for bytes in [
+            &b"<!doctype html><html><body><svg></svg></body></html>"[..],
+            &b"<html><script>x()</script></html>"[..],
+            &b"\n  <body><svg/></body>"[..],
+            &b"not an image at all"[..],
+            &b""[..],
+        ] {
+            assert_eq!(sniff_image_mime(bytes), None);
+        }
     }
 }

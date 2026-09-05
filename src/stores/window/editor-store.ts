@@ -2,14 +2,21 @@ import { createSignal } from "solid-js";
 import { EditorSelection } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import type { FileOpenMode } from "../../types/buffer";
+import { NO_ACTIVE_FORMATS, type ActiveFormats } from "../../types/editor";
 import {
   debouncedSave,
   cancelAutosave as cancelAutosaveService,
   flushAutosave as flushAutosaveService,
+  holdUnwritableContent,
+  releaseUnwritableContent,
+  onAutosaveSuccess,
+  peekUnsavedContent,
   saveNow as saveNowService,
   type ContentSource,
   type SaveResult,
 } from "../../services/autosave";
+import { noteDiskState, restoreNoteFile, type NoteDiskAnswer } from "../../services/tauri";
+import { hashDocument } from "../../lib/doc-hash";
 import {
   detectLanguage as detectLanguageService,
   detectFromContent as detectFromContentService,
@@ -24,11 +31,41 @@ export interface ApplyEditOptions {
 
 export type ApplyEditResult =
   | { applied: true; usedSelection: boolean; outputLength: number }
-  | { applied: false; reason: "no-active-view" | "transform-error"; error?: unknown };
+  | {
+      applied: false;
+      reason: "no-active-view" | "transform-error";
+      error?: unknown;
+    };
 
 export type EditorStore = ReturnType<typeof createEditorStore>;
 
 const NOTHING_TO_SAVE: SaveResult = { ok: true, failures: [] };
+
+/**
+ * How long a note has to stop changing before its document is hashed.
+ *
+ * Hashing is O(document) and a keystroke is not, so it waits for a pause
+ * rather than running on every transaction. Nothing waits on the hash: a
+ * document that has changed since its last one already reads dirty
+ * ([`isDirty`]).
+ */
+export const DOC_HASH_IDLE_MS = 150;
+
+/**
+ * What is known about one note's text against the file behind it.
+ *
+ * `docGeneration` counts transactions; `hashedGeneration` records the one
+ * `docHash` was taken at. They diverge for as long as an edit has not been
+ * hashed, which is what makes an unhashed edit read dirty rather than clean.
+ */
+interface NoteHashes {
+  docGeneration: number;
+  hashedGeneration: number;
+  docHash?: string;
+  diskHash?: string;
+}
+
+const FRESH: NoteHashes = { docGeneration: 0, hashedGeneration: 0 };
 
 export function createEditorStore() {
   const [cursorLine, setCursorLine] = createSignal(1);
@@ -36,7 +73,13 @@ export function createEditorStore() {
   const [lineCount, setLineCount] = createSignal(0);
   const [language, setLanguage] = createSignal<string | null>(null);
   const [selectionCount, setSelectionCount] = createSignal(1);
-  const [largeFileMode, setLargeFileMode] = createSignal<FileOpenMode | null>(null);
+  // Which markdown constructs the caret sits inside, republished by the active
+  // view on every selection or document change. The toolbar reads it for the
+  // pressed state of its formatting controls.
+  const [activeFormats, setActiveFormats] = createSignal<ActiveFormats>(NO_ACTIVE_FORMATS);
+  const [largeFileMode, setLargeFileMode] = createSignal<FileOpenMode | null>(
+    null,
+  );
   // Live text of the active editor view, updated on every document change.
   // The preview pane tracks this and debounces it into a render request.
   const [currentText, setCurrentText] = createSignal("");
@@ -47,13 +90,17 @@ export function createEditorStore() {
   // props.buffer.id flips reactively while the editor is still mid-load on the
   // outgoing buffer, and rendering then would cache the wrong buffer's HTML
   // under the incoming id (the #97 stale-cache flash).
-  const [currentBufferId, setCurrentBufferId] = createSignal<string | null>(null);
+  const [currentBufferId, setCurrentBufferId] = createSignal<string | null>(
+    null,
+  );
   // A monotonically-keyed request to reload the active buffer's content from
   // disk, raised when the file changed externally (audit blocker #53.4).
   // EditorInstance consumes it; the seq makes repeated external edits to the
   // same buffer each fire a fresh reload.
-  const [externalReload, setExternalReload] =
-    createSignal<{ id: string; seq: number } | null>(null);
+  const [externalReload, setExternalReload] = createSignal<{
+    id: string;
+    seq: number;
+  } | null>(null);
   let reloadSeq = 0;
 
   function requestExternalReload(bufferId: string) {
@@ -66,8 +113,11 @@ export function createEditorStore() {
   // buffer is loaded (gating on currentBufferId), so a reveal fired before an
   // async tab switch finishes still lands on the right line. The seq makes
   // repeated reveals of the same buffer/line each fire.
-  const [pendingReveal, setPendingReveal] =
-    createSignal<{ bufferId: string; line: number; seq: number } | null>(null);
+  const [pendingReveal, setPendingReveal] = createSignal<{
+    bufferId: string;
+    line: number;
+    seq: number;
+  } | null>(null);
   let revealSeq = 0;
 
   function requestReveal(bufferId: string, line: number) {
@@ -81,6 +131,360 @@ export function createEditorStore() {
   function clearReveal() {
     setPendingReveal(null);
   }
+
+  // Keyed by note, not by the view: a tab in the background has no view and
+  // still has to answer whether it differs from its file (U3-U5 read this per
+  // tab). A tab switch leaves these entries where they are.
+  const [noteHashes, setNoteHashes] = createSignal<
+    ReadonlyMap<string, NoteHashes>
+  >(new Map());
+  const hashTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function hashesOf(id: string): NoteHashes {
+    return noteHashes().get(id) ?? FRESH;
+  }
+
+  function patchHashes(id: string, patch: Partial<NoteHashes>) {
+    setNoteHashes((current) => {
+      const next = new Map(current);
+      next.set(id, { ...(current.get(id) ?? FRESH), ...patch });
+      return next;
+    });
+  }
+
+  // The notes whose file was deleted while their tab stayed open. The text is
+  // still in the editor and still the only copy of it, so the tab keeps it and
+  // writes nothing: recreating the file would put back what the person threw
+  // away, and in a synced folder it would put it back on every device (W4).
+  // The backend refuses such a save under ERR_FILE_REMOVED_ON_DISK whatever
+  // this holds; this is what stops the tab asking in the first place and what
+  // the bar reads.
+  const [removedOnDisk, setRemovedOnDisk] = createSignal<ReadonlySet<string>>(
+    new Set(),
+  );
+
+  // The text of a note whose file is gone, which is the last copy of it. It is
+  // kept here and not in the editor view because a tab switch destroys the
+  // view, and there is no file left to read the text back from: a note that
+  // lost its file and then its view has lost the note.
+  const [removedText, setRemovedText] = createSignal<ReadonlyMap<string, string>>(
+    new Map(),
+  );
+
+  /**
+   * Records that a note's file is gone, keeping whatever text only Writ holds.
+   *
+   * The one entry into the removed state (ADR-033 decision 15), and the order
+   * inside it is the whole point. The text is read first: the tab on screen
+   * holds it in its view, and a background tab holds it in the autosave
+   * service, either queued or left there by a write that came back refused.
+   * Cancelling the queue comes second, because cancelling drops the text of a
+   * refused write, and for a background tab whose save failed that is the only
+   * copy of it there is.
+   *
+   * `text` is passed only by the launch, which seeds a note the last session
+   * left removed from the shutdown snapshot rather than from anything live.
+   *
+   * A note already marked returns at once. A second announcement for the same
+   * note would otherwise cancel a queue that the mark has since put the text
+   * back into, which is the same loss by another route.
+   */
+  function markRemovedOnDisk(id: string, text?: string) {
+    if (isRemovedOnDisk(id)) return;
+    const kept =
+      text ??
+      (currentBufferId() === id && activeView !== null
+        ? activeView.state.doc.toString()
+        : peekUnsavedContent(id));
+    setRemovedOnDisk((current) => {
+      const next = new Set(current);
+      next.add(id);
+      return next;
+    });
+    cancelAutosaveService(id);
+    if (kept !== undefined) keepTextOfRemoved(id, kept);
+  }
+
+  /**
+   * Answers a file that is back at the note's own path.
+   *
+   * The rule, not a prompt (ADR-033 decision 15): the tab's text when the tab
+   * is dirty, the file's when it is not, and never an empty document. A tab
+   * that is not dirty holds nothing the file does not, so the file is read
+   * back into it. A dirty tab keeps what it has, and the kept text goes onto
+   * the autosave queue on the way out of the removed state, because the path
+   * is writable again and nothing else would ever write it: the queue was
+   * dropped when the mark went on, and a flush with an empty queue writes
+   * nothing.
+   *
+   * The mark comes off either way. Leaving it on is what left a present,
+   * writable file under a bar saying it was deleted, with every later
+   * keystroke writing nothing for the life of the window.
+   */
+  function fileReturned(id: string) {
+    if (!isRemovedOnDisk(id)) return;
+    const dirty = isDirty(id);
+    const kept = liveTextOfRemoved(id);
+    clearRemovedOnDisk(id);
+    if (dirty && kept !== undefined) {
+      // No debounce: this is not waiting on more typing, it is the text the
+      // tab has been holding since the file went.
+      scheduleAutosave(id, kept, 0);
+      return;
+    }
+    // A background tab has no view to reload; its next load reads the file.
+    requestExternalReload(id);
+  }
+
+  function clearRemovedOnDisk(id: string) {
+    forgetRemovedOnDisk(id);
+    // There is a file at the note's path again, so the text is writable and
+    // belongs to the queue rather than to the recovery snapshot.
+    releaseUnwritableContent(id);
+  }
+
+  // The mark and the text, dropped without saying the file came back. A closed
+  // tab has no file either way, and its text has not reached the snapshot yet:
+  // `keepUnsavedForRecovery` reads it after this and cancels the note, which is
+  // what takes it back out.
+  function forgetRemovedOnDisk(id: string) {
+    setRemovedOnDisk((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+    setRemovedText((current) => {
+      if (!current.has(id)) return current;
+      const next = new Map(current);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  function isRemovedOnDisk(id: string): boolean {
+    return removedOnDisk().has(id);
+  }
+
+  /**
+   * Keeps `text` as the last copy of a note whose file is gone.
+   *
+   * The caller hands the text over rather than this reading the live view: the
+   * mark arrives for a background tab as well, and the view is then holding a
+   * different note's document.
+   */
+  function keepTextOfRemoved(id: string, text: string) {
+    if (!isRemovedOnDisk(id)) return;
+    // The same text the next load reads is the text a close or a quit has to
+    // keep, and no write is going to leave it there in the usual way.
+    holdUnwritableContent(id, text);
+    setRemovedText((current) => {
+      if (current.get(id) === text) return current;
+      const next = new Map(current);
+      next.set(id, text);
+      return next;
+    });
+  }
+
+  /** The kept text of a note whose file is gone, when there is one. */
+  function textOfRemoved(id: string): string | undefined {
+    return removedText().get(id);
+  }
+
+  /** The newest text of a removed note: the live document, else what is kept. */
+  function liveTextOfRemoved(id: string): string | undefined {
+    if (currentBufferId() === id && activeView !== null) {
+      return activeView.state.doc.toString();
+    }
+    return textOfRemoved(id);
+  }
+
+  /**
+   * Writes a note whose file was deleted outside Writ back to the path it
+   * names.
+   *
+   * The write goes through the one command the backend does not refuse for a
+   * removed file, and the mark is dropped only once the write lands: a restore
+   * that failed leaves the note removed, so no later keystroke recreates the
+   * file behind the person's back. A failure reports through the same
+   * listeners every other save does, so it reaches the same bar.
+   */
+  async function restoreRemovedFile(id: string): Promise<SaveResult> {
+    const text = liveTextOfRemoved(id);
+    if (text === undefined) return NOTHING_TO_SAVE;
+    const result = await saveNowService(id, text, restoreNoteFile);
+    if (result.ok) clearRemovedOnDisk(id);
+    return result;
+  }
+
+  function forgetHashes(id: string) {
+    setNoteHashes((current) => {
+      if (!current.has(id)) return current;
+      const next = new Map(current);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  function clearHashTimer(id: string) {
+    const timer = hashTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      hashTimers.delete(id);
+    }
+  }
+
+  async function hashNow(id: string, content: ContentSource) {
+    const generation = hashesOf(id).docGeneration;
+    let text: string;
+    try {
+      text = typeof content === "function" ? content() : content;
+    } catch {
+      // The view was torn down between the edit and the timer. The note keeps
+      // reading dirty, which is the honest answer for text nobody can measure.
+      return;
+    }
+    const hash = await hashDocument(text);
+    // A transaction that arrived while the digest was being computed has
+    // already bumped the generation; stamping this one would call the note
+    // clean on the strength of text it no longer holds.
+    if (hashesOf(id).docGeneration !== generation) return;
+    patchHashes(id, { docHash: hash, hashedGeneration: generation });
+  }
+
+  /**
+   * Records what a note holds the moment it is loaded or reloaded from disk.
+   *
+   * Two digests, from the two sides they describe: the document's is computed
+   * here, the file's comes from Rust, which read the file
+   * (`writ_core::hash::comparison_digest_hex`). The frontend never computes a
+   * digest for a file. It could compute one that agrees, since both sides
+   * normalise line endings the same way, but then the number the dirty
+   * predicate rests on would have two authors and only one of them would ever
+   * see the file change under it.
+   *
+   * A note with no file yet records neither digest. The two sides then agree
+   * that nothing is known to differ, which is right for a new empty note; the
+   * first keystroke moves the generation and the note reads dirty from there
+   * until a save gives it a file.
+   *
+   * A note whose file could not be described — not there, or its bytes not on
+   * this machine — drops its record instead, the same as the call failing
+   * outright. Either way the editor holds a document with nothing to compare
+   * it against, and `isDirty` answers dirty for a note it holds no record of,
+   * which is what stops a later reload replacing text no file holds.
+   */
+  function noteOpened(id: string, content: string) {
+    clearHashTimer(id);
+    setNoteHashes((current) => {
+      const next = new Map(current);
+      next.set(id, { docGeneration: 0, hashedGeneration: 0 });
+      return next;
+    });
+    void (async () => {
+      let answer: NoteDiskAnswer;
+      try {
+        answer = await noteDiskState(id);
+      } catch {
+        forgetHashes(id);
+        return;
+      }
+      if (answer.state === "undescribed") {
+        forgetHashes(id);
+        return;
+      }
+      if (answer.state === "no_file") return;
+      const documentHash = await hashDocument(content);
+      // An edit that landed while either answer was in flight has moved the
+      // generation, and this pair describes a document that is already gone.
+      if (hashesOf(id).docGeneration !== 0) return;
+      patchHashes(id, {
+        docHash: documentHash,
+        diskHash: answer.disk.hash,
+        hashedGeneration: 0,
+      });
+    })();
+  }
+
+  /**
+   * Records that a note's document changed, and hashes it once the edits
+   * settle. Until that lands the note reads dirty.
+   */
+  function noteEdited(id: string, content: ContentSource) {
+    patchHashes(id, { docGeneration: hashesOf(id).docGeneration + 1 });
+    clearHashTimer(id);
+    hashTimers.set(
+      id,
+      setTimeout(() => {
+        hashTimers.delete(id);
+        void hashNow(id, content);
+      }, DOC_HASH_IDLE_MS),
+    );
+  }
+
+  /**
+   * Records what the note's file holds after a write landed on it.
+   *
+   * `diskHash` is the digest the save command computed over what it wrote, so
+   * the file's side of the comparison comes from Rust here too. Null when the
+   * note had nothing in it and no file to mint one for.
+   *
+   * A write that landed means there is a file at the note's path again, so the
+   * removed mark goes here rather than only where the restore was asked for: a
+   * restore requeued after a failure lands from the autosave queue, and the bar
+   * would otherwise stay over a file that is back. An ordinary save cannot
+   * reach this for a removed note, since the command refuses it.
+   */
+  function noteSaved(id: string, diskHash: string | null) {
+    clearRemovedOnDisk(id);
+    if (diskHash === null) return;
+    patchHashes(id, { diskHash });
+  }
+
+  /** Drops everything held for a note whose tab has gone. */
+  function noteClosed(id: string) {
+    clearHashTimer(id);
+    forgetHashes(id);
+    forgetRemovedOnDisk(id);
+  }
+
+  /**
+   * Whether the note's document differs from the file behind it.
+   *
+   * The autosave queue is never consulted: a write that just resolved empties
+   * it while the document has moved on again, and a note with nothing queued
+   * can still hold text no file has.
+   *
+   * Fail closed. A note with no record — a tab restored at launch that has
+   * never been opened, one whose record was dropped — answers `true`, because
+   * the callers of this are deciding whether a file may be reloaded over the
+   * document, and "no idea" has to stop that. Ask [`isTracked`] first when the
+   * question is whether there is anything to tell the person about.
+   */
+  function isDirty(id: string): boolean {
+    const state = noteHashes().get(id);
+    if (state === undefined) return true;
+    if (state.docGeneration !== state.hashedGeneration) return true;
+    return state.docHash !== state.diskHash;
+  }
+
+  /** Whether the store holds a record of what this note and its file hold. */
+  function isTracked(id: string): boolean {
+    return noteHashes().has(id);
+  }
+
+  function docHash(id: string): string | undefined {
+    return noteHashes().get(id)?.docHash;
+  }
+
+  function lastKnownDiskHash(id: string): string | undefined {
+    return noteHashes().get(id)?.diskHash;
+  }
+
+  // A landed write is the one thing that moves the record of the file without
+  // the editor doing anything, so the store listens for it rather than making
+  // every save path remember to report back.
+  const stopSaveListener = onAutosaveSuccess(noteSaved);
 
   let activeView: EditorView | null = null;
 
@@ -105,7 +509,10 @@ export function createEditorStore() {
     const useSelection = useSelectionIfPresent && !main.empty;
     const from = useSelection ? main.from : 0;
     const to = useSelection ? main.to : view.state.doc.length;
-    return { text: view.state.doc.sliceString(from, to), usedSelection: useSelection };
+    return {
+      text: view.state.doc.sliceString(from, to),
+      usedSelection: useSelection,
+    };
   }
 
   // Reads the range a rewrite would act on: the selection when one is present,
@@ -120,7 +527,12 @@ export function createEditorStore() {
     const usedSelection = useSelectionIfPresent && !main.empty;
     const from = usedSelection ? main.from : 0;
     const to = usedSelection ? main.to : view.state.doc.length;
-    return { from, to, text: view.state.doc.sliceString(from, to), usedSelection };
+    return {
+      from,
+      to,
+      text: view.state.doc.sliceString(from, to),
+      usedSelection,
+    };
   }
 
   // Replaces an anchored range in a single dispatch (one undo step), selects
@@ -134,13 +546,18 @@ export function createEditorStore() {
     const clampedTo = Math.max(clampedFrom, Math.min(to, docLen));
     view.dispatch({
       changes: { from: clampedFrom, to: clampedTo, insert },
-      selection: EditorSelection.single(clampedFrom, clampedFrom + insert.length),
+      selection: EditorSelection.single(
+        clampedFrom,
+        clampedFrom + insert.length,
+      ),
     });
     view.focus();
     return true;
   }
 
-  async function applyEditToActiveBuffer(options: ApplyEditOptions): Promise<ApplyEditResult> {
+  async function applyEditToActiveBuffer(
+    options: ApplyEditOptions,
+  ): Promise<ApplyEditResult> {
     const view = activeView;
     if (!view) return { applied: false, reason: "no-active-view" };
 
@@ -163,12 +580,30 @@ export function createEditorStore() {
     });
     view.focus();
 
-    return { applied: true, usedSelection: useSelection, outputLength: output.length };
+    return {
+      applied: true,
+      usedSelection: useSelection,
+      outputLength: output.length,
+    };
   }
 
   // Autosave and language detection are services; the editor component routes
   // through these so it only ever talks to its store (layering rule).
-  function scheduleAutosave(bufferId: string, content: ContentSource, delayMs: number) {
+  function scheduleAutosave(
+    bufferId: string,
+    content: ContentSource,
+    delayMs: number,
+  ) {
+    // A note whose file was deleted writes nothing until the person says where
+    // it goes. Without this every keystroke queues a save the backend refuses,
+    // and the bar's reason is replaced by a fresh failure each time. The
+    // keystroke is still the newest text there is of that note, so it is kept
+    // rather than dropped: the store hands it back to the next load, and the
+    // service hands it to the recovery snapshot if the tab or the window goes.
+    if (isRemovedOnDisk(bufferId)) {
+      keepTextOfRemoved(bufferId, typeof content === "function" ? content() : content);
+      return;
+    }
     debouncedSave(bufferId, content, delayMs);
   }
 
@@ -184,12 +619,43 @@ export function createEditorStore() {
   // no edit is pending, so the keystroke always means "it is on disk now". A
   // binary buffer is skipped: it opens read-only and its view holds a decoded
   // rendering, never the bytes to write back.
+  //
+  // A note whose file was deleted goes back to that path instead. Autosave
+  // stays silent for it, but the save keystroke is the person asking, and
+  // answering it with nothing at all would be the tab keeping quiet about the
+  // one thing it is showing a bar for.
   function saveActiveBuffer(): Promise<SaveResult> {
     const bufferId = currentBufferId();
     const view = activeView;
-    if (bufferId === null || view === null) return Promise.resolve(NOTHING_TO_SAVE);
-    if (largeFileMode()?.kind === "Binary") return Promise.resolve(NOTHING_TO_SAVE);
+    if (bufferId === null || view === null)
+      return Promise.resolve(NOTHING_TO_SAVE);
+    if (largeFileMode()?.kind === "Binary")
+      return Promise.resolve(NOTHING_TO_SAVE);
+    if (isRemovedOnDisk(bufferId)) return restoreRemovedFile(bufferId);
     return saveNowService(bufferId, () => view.state.doc.toString());
+  }
+
+  /**
+   * Writes the note's outstanding text again, after a failure.
+   *
+   * The text comes from autosave rather than the view: a write the guard
+   * stopped leaves the queue empty on purpose, and the note whose bar is on
+   * screen is not always the one loaded into the editor.
+   *
+   * A note whose file was deleted outside Writ is put back instead. Writing it
+   * the ordinary way is refused every time, so the press would answer the bar
+   * with the same bar.
+   */
+  function retrySave(id: string): Promise<SaveResult> {
+    if (isRemovedOnDisk(id)) return restoreRemovedFile(id);
+    const content = peekUnsavedContent(id);
+    if (content === undefined) return Promise.resolve(NOTHING_TO_SAVE);
+    return saveNowService(id, content);
+  }
+
+  /** What the backend can say about the note's file right now. */
+  function readDiskState(id: string): Promise<NoteDiskAnswer> {
+    return noteDiskState(id);
   }
 
   function detectLanguage(content: string, filename?: string): string | null {
@@ -206,6 +672,7 @@ export function createEditorStore() {
     lineCount, setLineCount,
     language, setLanguage,
     selectionCount, setSelectionCount,
+    activeFormats, setActiveFormats,
     currentText, setCurrentText,
     currentBufferId, setCurrentBufferId,
     externalReload, requestExternalReload,
@@ -216,7 +683,30 @@ export function createEditorStore() {
     getSelectionRange,
     replaceRange,
     applyEditToActiveBuffer,
-    scheduleAutosave, cancelAutosave, flushAutosave, saveActiveBuffer,
-    detectLanguage, detectFromContent,
+    scheduleAutosave,
+    cancelAutosave,
+    flushAutosave,
+    saveActiveBuffer,
+    retrySave,
+    readDiskState,
+    detectLanguage,
+    detectFromContent,
+    noteOpened,
+    noteEdited,
+    noteSaved,
+    noteClosed,
+    isDirty,
+    isTracked,
+    removedOnDisk,
+    markRemovedOnDisk,
+    clearRemovedOnDisk,
+    fileReturned,
+    isRemovedOnDisk,
+    keepTextOfRemoved,
+    textOfRemoved,
+    restoreRemovedFile,
+    docHash,
+    lastKnownDiskHash,
+    stopSaveListener,
   };
 }

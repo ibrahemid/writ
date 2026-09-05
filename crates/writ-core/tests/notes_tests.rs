@@ -7,20 +7,30 @@ use writ_core::notes::{
     sanitize_title_or, NotesRootError, NotesRootRefusal, NotesRootSources, DEFAULT_NOTES_FOLDER,
 };
 
+/// Absolute paths in these fixtures are spelled the Unix way; on Windows an
+/// absolute path needs a drive, so every one goes through this.
+fn abs(path: &str) -> String {
+    if cfg!(windows) {
+        format!("C:{path}")
+    } else {
+        path.to_string()
+    }
+}
+
 fn home() -> PathBuf {
-    PathBuf::from("/home/tester")
+    PathBuf::from(abs("/home/tester"))
 }
 
 #[test]
 fn resolve_notes_root_defaults_to_home_writ() {
     let resolved = resolve_notes_root(None, Some(&home())).unwrap();
-    assert_eq!(resolved, PathBuf::from("/home/tester/Writ"));
+    assert_eq!(resolved, PathBuf::from(abs("/home/tester/Writ")));
 }
 
 #[test]
 fn resolve_notes_root_expands_leading_tilde() {
     let resolved = resolve_notes_root(Some("~/Documents/Notes"), Some(&home())).unwrap();
-    assert_eq!(resolved, PathBuf::from("/home/tester/Documents/Notes"));
+    assert_eq!(resolved, PathBuf::from(abs("/home/tester/Documents/Notes")));
 }
 
 #[test]
@@ -39,36 +49,36 @@ fn resolve_notes_root_treats_blank_as_default() {
     // A hand-edited blank must never stop the app launching.
     assert_eq!(
         resolve_notes_root(Some("   "), Some(&home())).unwrap(),
-        PathBuf::from("/home/tester/Writ")
+        PathBuf::from(abs("/home/tester/Writ"))
     );
     assert_eq!(
         resolve_notes_root(Some(""), Some(&home())).unwrap(),
-        PathBuf::from("/home/tester/Writ")
+        PathBuf::from(abs("/home/tester/Writ"))
     );
 }
 
 #[test]
 fn resolve_notes_root_env_override_wins_over_config() {
     let resolved = resolve_notes_root_from(NotesRootSources {
-        env_override: Some("/tmp/writ-dev-1431/notes"),
-        configured: Some("/home/tester/Documents/Notes"),
-        data_dir: Some(Path::new("/tmp/writ-dev-1431")),
+        env_override: Some(abs("/tmp/writ-dev-1431/notes").as_str()),
+        configured: Some(abs("/home/tester/Documents/Notes").as_str()),
+        data_dir: Some(Path::new(&abs("/tmp/writ-dev-1431"))),
         home: Some(&home()),
     })
     .unwrap();
-    assert_eq!(resolved, PathBuf::from("/tmp/writ-dev-1431/notes"));
+    assert_eq!(resolved, PathBuf::from(abs("/tmp/writ-dev-1431/notes")));
 }
 
 #[test]
 fn resolve_notes_root_blank_env_override_falls_through_to_config() {
     let resolved = resolve_notes_root_from(NotesRootSources {
         env_override: Some("  "),
-        configured: Some("/home/tester/Documents/Notes"),
+        configured: Some(abs("/home/tester/Documents/Notes").as_str()),
         data_dir: None,
         home: Some(&home()),
     })
     .unwrap();
-    assert_eq!(resolved, PathBuf::from("/home/tester/Documents/Notes"));
+    assert_eq!(resolved, PathBuf::from(abs("/home/tester/Documents/Notes")));
 }
 
 #[test]
@@ -94,23 +104,23 @@ fn resolve_notes_root_uses_the_data_dir_when_no_root_is_configured() {
     let resolved = resolve_notes_root_from(NotesRootSources {
         env_override: None,
         configured: None,
-        data_dir: Some(Path::new("/tmp/writ-dev-1431")),
+        data_dir: Some(Path::new(&abs("/tmp/writ-dev-1431"))),
         home: Some(&home()),
     })
     .unwrap();
-    assert_eq!(resolved, PathBuf::from("/tmp/writ-dev-1431/Writ"));
+    assert_eq!(resolved, PathBuf::from(abs("/tmp/writ-dev-1431/Writ")));
 }
 
 #[test]
 fn resolve_notes_root_prefers_a_configured_root_over_the_data_dir() {
     let resolved = resolve_notes_root_from(NotesRootSources {
         env_override: None,
-        configured: Some("/home/tester/Documents/Notes"),
-        data_dir: Some(Path::new("/tmp/writ-dev-1431")),
+        configured: Some(abs("/home/tester/Documents/Notes").as_str()),
+        data_dir: Some(Path::new(&abs("/tmp/writ-dev-1431"))),
         home: Some(&home()),
     })
     .unwrap();
-    assert_eq!(resolved, PathBuf::from("/home/tester/Documents/Notes"));
+    assert_eq!(resolved, PathBuf::from(abs("/home/tester/Documents/Notes")));
 }
 
 #[test]
@@ -122,7 +132,7 @@ fn resolve_notes_root_falls_back_to_home_without_a_data_dir() {
         home: Some(&home()),
     })
     .unwrap();
-    assert_eq!(resolved, PathBuf::from("/home/tester/Writ"));
+    assert_eq!(resolved, PathBuf::from(abs("/home/tester/Writ")));
 }
 
 #[test]
@@ -130,11 +140,11 @@ fn resolve_notes_root_needs_no_home_once_a_data_dir_is_set() {
     let resolved = resolve_notes_root_from(NotesRootSources {
         env_override: None,
         configured: None,
-        data_dir: Some(Path::new("/tmp/writ-dev-1431")),
+        data_dir: Some(Path::new(&abs("/tmp/writ-dev-1431"))),
         home: None,
     })
     .unwrap();
-    assert_eq!(resolved, PathBuf::from("/tmp/writ-dev-1431/Writ"));
+    assert_eq!(resolved, PathBuf::from(abs("/tmp/writ-dev-1431/Writ")));
 }
 
 #[test]
@@ -151,20 +161,20 @@ fn resolve_notes_root_errors_without_home() {
 
 #[test]
 fn resolve_notes_root_keeps_an_absolute_configured_path() {
-    let resolved = resolve_notes_root(Some("/data/notes"), Some(&home())).unwrap();
-    assert_eq!(resolved, PathBuf::from("/data/notes"));
+    let resolved = resolve_notes_root(Some(abs("/data/notes").as_str()), Some(&home())).unwrap();
+    assert_eq!(resolved, PathBuf::from(abs("/data/notes")));
 }
 
 #[test]
 fn display_path_collapses_home_to_tilde() {
-    let shown = display_path(Path::new("/home/tester/Writ"), Some(&home()));
+    let shown = display_path(Path::new(&abs("/home/tester/Writ")), Some(&home()));
     assert_eq!(shown, Path::new("~").join("Writ").to_string_lossy());
 
-    let outside = display_path(Path::new("/data/notes"), Some(&home()));
-    assert_eq!(outside, "/data/notes");
+    let outside = display_path(Path::new(&abs("/data/notes")), Some(&home()));
+    assert_eq!(outside, abs("/data/notes"));
 
-    let no_home = display_path(Path::new("/home/tester/Writ"), None);
-    assert_eq!(no_home, "/home/tester/Writ");
+    let no_home = display_path(Path::new(&abs("/home/tester/Writ")), None);
+    assert_eq!(no_home, abs("/home/tester/Writ"));
 }
 
 #[test]
@@ -367,11 +377,11 @@ fn recovered_file_name_carries_the_same_dated_shape() {
 
 /// Writ's data folder in the tests below, with the notes folder beside it.
 fn writ_dir() -> PathBuf {
-    PathBuf::from("/home/tester/.local/share/writ")
+    PathBuf::from(abs("/home/tester/.local/share/writ"))
 }
 
 fn notes_root() -> PathBuf {
-    PathBuf::from("/home/tester/Writ")
+    PathBuf::from(abs("/home/tester/Writ"))
 }
 
 #[test]
@@ -384,7 +394,7 @@ fn the_data_folder_itself_cannot_be_the_notes_folder() {
 
 #[test]
 fn a_folder_above_the_data_folder_cannot_be_the_notes_folder() {
-    let above = PathBuf::from("/home/tester/.local/share");
+    let above = PathBuf::from(abs("/home/tester/.local/share"));
     assert_eq!(
         refuse_notes_root(&above, &notes_root(), &writ_dir()),
         Some(NotesRootRefusal::HoldsWritData)
@@ -403,11 +413,11 @@ fn a_folder_inside_the_data_folder_cannot_be_the_notes_folder() {
 
 #[test]
 fn a_folder_beside_the_data_folder_is_accepted() {
-    let beside = PathBuf::from("/home/tester/.local/share/writing");
+    let beside = PathBuf::from(abs("/home/tester/.local/share/writing"));
     assert_eq!(refuse_notes_root(&beside, &notes_root(), &writ_dir()), None);
     assert_eq!(
         refuse_notes_root(
-            &PathBuf::from("/home/tester/Dropbox/Notes"),
+            &PathBuf::from(abs("/home/tester/Dropbox/Notes")),
             &notes_root(),
             &writ_dir()
         ),
@@ -430,7 +440,7 @@ fn a_folder_inside_the_notes_folder_is_refused_and_the_notes_folder_itself_is_no
 
 #[test]
 fn a_folder_that_contains_the_notes_folder_is_an_ordinary_move() {
-    let current = PathBuf::from("/volumes/sync/Notes/Writ");
+    let current = PathBuf::from(abs("/volumes/sync/Notes/Writ"));
     assert_eq!(
         refuse_notes_root(current.parent().unwrap(), &current, &writ_dir()),
         None

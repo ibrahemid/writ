@@ -157,7 +157,11 @@ impl<'a> SnapshotManager<'a> {
                 None => RecoveryResolution::NoSnapshot,
             };
             if resolution == RecoveryResolution::Restore {
-                recovered.push(RecoveredBuffer { id, content });
+                recovered.push(RecoveredBuffer {
+                    id,
+                    content,
+                    removed_on_disk: false,
+                });
             }
         }
         Ok(recovered)

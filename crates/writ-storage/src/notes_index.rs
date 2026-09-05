@@ -35,7 +35,7 @@ use writ_core::notes::links::{self, Resolution, WikilinkTarget};
 use writ_core::notes::snippet;
 use writ_core::notes::{self, facts};
 use writ_core::search::{build_hit, SearchHit};
-use writ_core::workspace::file_search::{rank_file_hits, FileHit};
+use writ_core::workspace::file_search::{rank_keyed_file_hits, FileHit};
 
 use crate::errors::StorageResult;
 use crate::schema_meta;
@@ -730,21 +730,42 @@ impl<'a> NotesIndex<'a> {
     /// Ranked by the same subsequence scorer the workspace file palette uses,
     /// so a prefix of a note's name outranks a match in the middle of one and
     /// the two surfaces order their results the same way.
-    pub fn search_names(&self, query: &str, limit: usize) -> StorageResult<Vec<FileHit>> {
+    ///
+    /// A note is findable by its name and by where it sits inside
+    /// `notes_root`, never by the folders above it: rows are keyed by absolute
+    /// path, so ranking that key would let a query reach every note through
+    /// the letters of the home directory. What is ranked is the path under the
+    /// root, spelled with forward slashes so the order two notes come back in
+    /// is the same on every platform, and each hit still carries the index key
+    /// the caller opens. A row outside the root (a folder that moved while the
+    /// walk was retired) is ranked on its name alone.
+    pub fn search_names(
+        &self,
+        query: &str,
+        notes_root: &Path,
+        limit: usize,
+    ) -> StorageResult<Vec<FileHit>> {
+        let prefix = root_prefix(notes_root);
         let mut stmt = self
             .conn
             .prepare("SELECT f.path, x.name FROM files f JOIN files_fts x ON x.rowid = f.rowid")?;
         let candidates = stmt
             .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                let path = row.get::<_, String>(0)?;
+                let name = row.get::<_, String>(1)?;
+                let relative = match path.strip_prefix(&prefix) {
+                    Some(rest) => rest.replace('\\', "/"),
+                    None => name.clone(),
+                };
+                Ok((path, relative, name))
             })?
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(rank_file_hits(
+        Ok(rank_keyed_file_hits(
             query,
             candidates
                 .iter()
-                .map(|(path, name)| (path.as_str(), name.as_str())),
+                .map(|(path, relative, name)| (path.as_str(), relative.as_str(), name.as_str())),
             limit,
         ))
     }
@@ -1417,9 +1438,15 @@ impl NotesIndexStore {
         NotesIndex::new(&self.conn()).count(query)
     }
 
-    /// Up to `limit` ranked name hits. See [`NotesIndex::search_names`].
-    pub fn search_names(&self, query: &str, limit: usize) -> StorageResult<Vec<FileHit>> {
-        NotesIndex::new(&self.conn()).search_names(query, limit)
+    /// Up to `limit` ranked name hits under `notes_root`. See
+    /// [`NotesIndex::search_names`].
+    pub fn search_names(
+        &self,
+        query: &str,
+        notes_root: &Path,
+        limit: usize,
+    ) -> StorageResult<Vec<FileHit>> {
+        NotesIndex::new(&self.conn()).search_names(query, notes_root, limit)
     }
 
     /// Every link written in the note at `path`. See [`NotesIndex::links_from`].

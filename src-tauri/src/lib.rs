@@ -41,8 +41,12 @@ pub const SNAPSHOT_HEARTBEAT: std::time::Duration = std::time::Duration::from_se
 /// Deferred FTS reindexes go first: a reindex still inside its debounce window
 /// would otherwise be lost, leaving search stale, because the startup
 /// consistency check only removes orphan rows and never adds missing content
-/// (ADR-020). The clean-shutdown snapshot follows, and it must be the last
-/// thing written, so it records the notes as the flush left them.
+/// (ADR-020). The shutdown snapshot follows, and it must be the last thing
+/// written, so it records the notes as the flush left them.
+///
+/// Text the flush could not write is folded in over the files
+/// ([`writ_core::recovery::shutdown_snapshot`]), which is what keeps a quit
+/// with a failed save from ending with that text nowhere.
 pub(crate) fn finish_shutdown(app_handle: &tauri::AppHandle) {
     let state = app_handle.state::<AppState>();
 
@@ -57,14 +61,20 @@ pub(crate) fn finish_shutdown(app_handle: &tauri::AppHandle) {
         }
     }
 
+    let unsaved = state.take_unsaved_on_exit();
+    let unsaved_count = unsaved.len();
     let snapshot_result = state.store.lock().ok().map(|store| {
-        store
-            .collect_buffer_contents()
-            .and_then(|contents| store.write_session_snapshot(&contents, true))
+        store.collect_buffer_contents().and_then(|on_disk| {
+            let (contents, is_clean) = writ_core::recovery::shutdown_snapshot(on_disk, unsaved);
+            store.write_session_snapshot(&contents, is_clean)
+        })
     });
     match snapshot_result {
+        Some(Ok(())) if unsaved_count > 0 => {
+            info!(notes = unsaved_count, "shutdown snapshot kept unsaved text")
+        }
         Some(Ok(())) => info!("clean-shutdown snapshot written"),
-        Some(Err(e)) => tracing::warn!(error = %e, "clean-shutdown snapshot failed"),
+        Some(Err(e)) => tracing::warn!(error = %e, "shutdown snapshot failed"),
         None => {}
     }
 }
@@ -207,6 +217,63 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     Ok(())
+}
+
+/// Walks the notes folder and brings the index in line with it, on a thread of
+/// its own.
+///
+/// The walk reads every note, and a folder of a few thousand would hold the
+/// caller for seconds. An empty index reconciles to a full one, which is what
+/// makes deleting `writ.db` safe.
+///
+/// `gate` keeps one walk at a time. The sweep the notes watcher raises during
+/// a sync catch-up can arrive again while the last walk is still running, and
+/// starting a second walk over the same folder would read every note twice for
+/// one answer. A walk under way covers most of what lands while it runs — but
+/// not a file it has already read and something rewrote behind it, so a
+/// request that arrives during a walk earns exactly one walk after it, however
+/// many such requests there were.
+///
+/// The walk retires itself the moment the notes folder moves: one that
+/// finished against the old folder would prune every row the move re-keyed.
+/// The generation is taken per walk, so the one that follows reads the folder
+/// Writ holds now.
+fn spawn_notes_reconcile(
+    index: std::sync::Arc<writ_storage::notes_index::NotesIndexStore>,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    gate: std::sync::Arc<writ_core::watcher::reconcile::ReconcileGate>,
+    root: std::path::PathBuf,
+) {
+    use std::sync::atomic::Ordering;
+
+    if !gate.request() {
+        return;
+    }
+    std::thread::spawn(move || loop {
+        let generation = index.generation();
+        let cancelled = || cancel.load(Ordering::Relaxed) || index.generation() != generation;
+        let outcome = index.reconcile(&root, &cancelled, &writ_storage::notes_index::is_dataless);
+        match outcome {
+            Ok(outcome) => info!(
+                added = outcome.added,
+                updated = outcome.updated,
+                removed = outcome.removed,
+                name_only = outcome.skipped_dataless,
+                cancelled = outcome.cancelled,
+                "notes index reconciled"
+            ),
+            Err(e) => tracing::warn!(error = %e, "notes index reconcile failed"),
+        }
+        // Shutdown takes precedence over anything owed: a walk asked for
+        // during the last one is not a reason to keep the process alive.
+        if cancel.load(Ordering::Relaxed) {
+            gate.release();
+            return;
+        }
+        if !gate.finished() {
+            return;
+        }
+    });
 }
 
 /// Applies the saved window geometry to the (hidden) main window before it is
@@ -409,7 +476,10 @@ pub fn run() {
             commands::buffer::get_buffer,
             commands::buffer::save_buffer_content,
             commands::buffer::save_buffer_content_unindexed,
+            commands::buffer::restore_note_file,
             commands::buffer::read_buffer_content,
+            commands::buffer::note_disk_state,
+            commands::buffer::record_unsaved_notes,
             commands::buffer::list_active_buffers,
             commands::buffer::close_buffer,
             commands::buffer::close_buffers,
@@ -534,7 +604,27 @@ pub fn run() {
                 use writ_core::events::bus::WritEvent;
                 let state = app.state::<AppState>();
                 let index = state.notes_index.clone();
+                let cancel = state.notes_index_cancel.clone();
+                let reconcile_gate = state.notes_reconcile.clone();
+                // The live root, read per event rather than captured: moving
+                // the notes folder restarts the watcher, and a marker carrying
+                // the new root has to still read as a marker.
+                let handle = app.handle().clone();
                 state.event_bus.subscribe(move |event| {
+                    // More changed in one window than was worth listing, so
+                    // the index walks the folder instead of patching a path.
+                    // The root is read live rather than captured: moving the
+                    // notes folder restarts the watcher, and the walk has to
+                    // follow.
+                    if let WritEvent::NotesSwept { .. } = event {
+                        spawn_notes_reconcile(
+                            index.clone(),
+                            cancel.clone(),
+                            reconcile_gate.clone(),
+                            handle.state::<AppState>().notes_root(),
+                        );
+                        return;
+                    }
                     let WritEvent::NotesChanged { path, removed } = event else {
                         return;
                     };
@@ -687,43 +777,61 @@ pub fn run() {
                 let notes_root = state.notes_root();
 
                 // Bring the index in line with the folder before anything
-                // searches it, on a thread of its own: the walk reads every
-                // note, and a folder of a few thousand would hold the UI for
-                // seconds. An empty index reconciles to a full one, which is
-                // what makes deleting writ.db safe.
-                let index = state.notes_index.clone();
-                let cancel = state.notes_index_cancel.clone();
-                let reconcile_root = notes_root.clone();
-                let generation = index.generation();
-                std::thread::spawn(move || {
-                    // Retired the moment the notes folder moves: a walk that
-                    // finished against the old folder would prune every row
-                    // the move re-keyed.
-                    let cancelled = || {
-                        cancel.load(std::sync::atomic::Ordering::Relaxed)
-                            || index.generation() != generation
-                    };
-                    match index.reconcile(
-                        &reconcile_root,
-                        &cancelled,
-                        &writ_storage::notes_index::is_dataless,
+                // searches it.
+                spawn_notes_reconcile(
+                    state.notes_index.clone(),
+                    state.notes_index_cancel.clone(),
+                    state.notes_reconcile.clone(),
+                    notes_root.clone(),
+                );
+
+                // The registry of open files goes up first: it is how the
+                // notes watcher answers "which tab holds this file", and that
+                // watcher is the only route by which a note inside the notes
+                // folder reaches its tab. It watches no folder until a tab
+                // asks for one, so starting it here costs one channel and two
+                // idle backends.
+                // What a file leaving its path means, and where the answer
+                // is recorded. Both watchers take the same one, so a note that
+                // moves between the notes folder and anywhere else is decided
+                // the same way whichever watcher sees it go.
+                let tracking = watcher::moves::FileTracking::of_app(app.handle().clone());
+                {
+                    let mut slot = recover_poison(
+                        state.file_tracking.lock(),
+                        "lib::setup:file_tracking_stash",
+                    );
+                    *slot = Some(tracking.clone());
+                }
+
+                let open_notes: std::sync::Arc<dyn watcher::open_files::OpenNotes> =
+                    match watcher::open_files::start_open_file_watcher(
+                        state.event_bus.clone(),
+                        state.watcher_ignore.clone(),
+                        &notes_root,
+                        tracking.clone(),
                     ) {
-                        Ok(outcome) => info!(
-                            added = outcome.added,
-                            updated = outcome.updated,
-                            removed = outcome.removed,
-                            name_only = outcome.skipped_dataless,
-                            cancelled = outcome.cancelled,
-                            "notes index reconciled"
-                        ),
-                        Err(e) => tracing::warn!(error = %e, "notes index reconcile failed"),
-                    }
-                });
+                        Ok(handle) => {
+                            let lookup = handle.open_notes();
+                            let mut slot = recover_poison(
+                                state.open_file_watcher.lock(),
+                                "lib::setup:open_file_watcher_stash",
+                            );
+                            *slot = Some(handle);
+                            lookup
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "failed to start open file watcher");
+                            std::sync::Arc::new(watcher::open_files::NoOpenNotes)
+                        }
+                    };
 
                 match watcher::handler::start_notes_watcher(
                     state.event_bus.clone(),
                     notes_root,
                     state.watcher_ignore.clone(),
+                    open_notes,
+                    tracking,
                 ) {
                     Ok(handle) => {
                         let mut slot = recover_poison(

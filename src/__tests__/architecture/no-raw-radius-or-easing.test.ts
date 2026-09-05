@@ -1,0 +1,68 @@
+import { describe, it, expect } from "vitest";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
+
+// Radii come from --writ-r-*, timing from var(--writ-motion). The allowlist was
+// what the retokenisation had not reached yet; every unit removed its own files
+// and the last one emptied it. It stays empty.
+
+const REPO_ROOT = process.cwd();
+const SRC = resolve(REPO_ROOT, "src");
+const SKIP_DIRS = [
+  resolve(SRC, "__tests__"),
+  resolve(SRC, "styles/generated"),
+  resolve(SRC, "styles/themes"),
+];
+
+export const RETOKENISE_ALLOWLIST: readonly string[] = [];
+
+const RAW_RADIUS = /border-radius\s*:[^;}]*\b\d+(?:\.\d+)?px/g;
+const BARE_EASING = /(?:^|[\s,:(])(ease|ease-in|ease-out|ease-in-out|linear)(?=[\s,;)]|$)/gm;
+
+function walk(dir: string, files: string[] = []): string[] {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) {
+      if (entry === "node_modules" || SKIP_DIRS.includes(full)) continue;
+      walk(full, files);
+    } else if (/\.(css|ts|tsx)$/.test(entry) && !entry.endsWith(".d.ts")) {
+      files.push(full);
+    }
+  }
+  return files;
+}
+
+function withoutComments(text: string): string {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .map((line) => line.replace(/\/\/.*$/, ""))
+    .join("\n");
+}
+
+function offendersFor(pattern: RegExp): string[] {
+  const offenders: string[] = [];
+  for (const file of walk(SRC)) {
+    const rel = relative(REPO_ROOT, file);
+    if (RETOKENISE_ALLOWLIST.includes(rel)) continue;
+    const matches = withoutComments(readFileSync(file, "utf8")).match(pattern);
+    if (matches) offenders.push(`${rel} -> ${matches.map((m) => m.trim()).join(", ")}`);
+  }
+  return offenders;
+}
+
+describe("no raw radius or easing outside the allowlist", () => {
+  it("border-radius resolves through a --writ-r-* token", () => {
+    const offenders = offendersFor(RAW_RADIUS);
+    expect(offenders, `raw radii found:\n${offenders.join("\n")}`).toEqual([]);
+  });
+
+  it("transitions resolve through var(--writ-motion)", () => {
+    const offenders = offendersFor(BARE_EASING);
+    expect(offenders, `bare timing functions found:\n${offenders.join("\n")}`).toEqual([]);
+  });
+
+  it("the retokenise allowlist is empty", () => {
+    expect(RETOKENISE_ALLOWLIST).toEqual([]);
+  });
+});

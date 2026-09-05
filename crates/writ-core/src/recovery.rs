@@ -27,6 +27,37 @@ pub struct RecoveredBuffer {
     pub id: String,
     /// Content recovered from the snapshot.
     pub content: String,
+    /// The note's path had no file, so nothing was written and this content is
+    /// the last copy of it. Set by the launch, not by the snapshot.
+    #[serde(default)]
+    pub removed_on_disk: bool,
+}
+
+/// What a relaunch does with the text a snapshot kept for a note.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryPlan {
+    /// Write it into the note's file.
+    Write,
+    /// Leave the path alone. The text goes to the tab instead, which comes up
+    /// removed on disk with the ways out of that state.
+    Withhold,
+}
+
+/// Decides whether a relaunch may write a note's recovered text to its path.
+///
+/// A note that never had a file has one minted for it at the relaunch, and the
+/// snapshot is the only place its text is, so the write is what saves it. A
+/// note that had a file and no longer has one is a file somebody deleted, and
+/// writing it back at the next launch puts back what was thrown away, on every
+/// device in a synced folder. That is the harm ADR-033 decision 14 exists to
+/// avoid, and a relaunch is no better a moment for it than a save is. Its text
+/// is handed to the tab instead (decision 15).
+pub fn plan_recovery(had_file: bool, file_is_there: bool) -> RecoveryPlan {
+    if had_file && !file_is_there {
+        RecoveryPlan::Withhold
+    } else {
+        RecoveryPlan::Write
+    }
 }
 
 /// Outcome of comparing a snapshot entry against the persisted buffer state.
@@ -103,6 +134,28 @@ pub fn should_snapshot(
     previous != Some(current)
 }
 
+/// The snapshot a shutdown records, and whether that shutdown counts as clean.
+///
+/// `on_disk` is what each open note's file holds; `unsaved` is text a save
+/// could not write, keyed the same way.
+///
+/// With nothing unsaved this is the ordinary clean-shutdown record of every
+/// open note. With anything unsaved the snapshot narrows to those notes alone
+/// and is marked unclean, because an unclean snapshot is read back on the next
+/// launch and every entry in it is written back over its file: carrying the
+/// other notes would restore files nothing had gone wrong with, and any of
+/// them edited outside Writ in the meantime would collect a dated copy beside
+/// it for no reason.
+pub fn shutdown_snapshot(
+    on_disk: HashMap<String, String>,
+    unsaved: HashMap<String, String>,
+) -> (HashMap<String, String>, bool) {
+    if unsaved.is_empty() {
+        return (on_disk, true);
+    }
+    (unsaved, false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,5 +226,47 @@ mod tests {
         let previous = fingerprint_buffers(&map(&[("buf-1", "alpha")]));
         let current = fingerprint_buffers(&map(&[("buf-1", "alpha beta")]));
         assert!(should_snapshot(Some(previous), current));
+    }
+
+    #[test]
+    fn a_note_whose_file_was_deleted_is_not_written_back_at_the_next_launch() {
+        assert_eq!(plan_recovery(true, false), RecoveryPlan::Withhold);
+    }
+
+    #[test]
+    fn a_note_that_never_had_a_file_is_written_to_the_one_minted_for_it() {
+        assert_eq!(plan_recovery(false, false), RecoveryPlan::Write);
+    }
+
+    #[test]
+    fn a_note_whose_file_is_still_there_goes_through_the_ordinary_guard() {
+        assert_eq!(plan_recovery(true, true), RecoveryPlan::Write);
+    }
+
+    #[test]
+    fn a_shutdown_with_nothing_unsaved_is_clean_and_records_the_files() {
+        let (contents, is_clean) = shutdown_snapshot(map(&[("a", "on disk")]), HashMap::new());
+        assert!(is_clean);
+        assert_eq!(contents, map(&[("a", "on disk")]));
+    }
+
+    #[test]
+    fn only_the_notes_a_save_could_not_write_are_kept_for_the_next_launch() {
+        // `b` is on disk and was never at risk. Restoring it would rewrite a
+        // file nothing had gone wrong with, and if somebody edited it while
+        // Writ was closed the restore leaves a dated copy beside it.
+        let (contents, is_clean) = shutdown_snapshot(
+            map(&[("a", "on disk"), ("b", "kept")]),
+            map(&[("a", "typed")]),
+        );
+        assert!(!is_clean);
+        assert_eq!(contents, map(&[("a", "typed")]));
+    }
+
+    #[test]
+    fn a_note_with_no_readable_file_still_reaches_the_snapshot() {
+        let (contents, is_clean) = shutdown_snapshot(HashMap::new(), map(&[("a", "typed")]));
+        assert!(!is_clean);
+        assert_eq!(contents, map(&[("a", "typed")]));
     }
 }

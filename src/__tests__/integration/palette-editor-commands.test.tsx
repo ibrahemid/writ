@@ -203,7 +203,7 @@ describe("editor commands in the shortcut editor", () => {
       el.textContent?.includes("Duplicate Line"),
     )!;
     const recordBtn = Array.from(
-      row.querySelectorAll<HTMLButtonElement>(".shortcut-row-btn"),
+      row.querySelectorAll<HTMLButtonElement>("[data-action='record-shortcut']"),
     ).find((b) => b.textContent?.trim() === "Record")!;
     await user.click(recordBtn);
     await new Promise<void>((r) => setTimeout(r, 0));
@@ -216,7 +216,7 @@ describe("editor commands in the shortcut editor", () => {
     );
 
     const saveBtn = Array.from(
-      document.querySelectorAll<HTMLButtonElement>(".shortcut-editor-btn"),
+      document.querySelectorAll<HTMLButtonElement>("[data-action='save-shortcuts']"),
     ).find((b) => b.textContent?.trim() === "Save")!;
     await user.click(saveBtn);
     await waitFor(() => expect(h.save).toHaveBeenCalled());

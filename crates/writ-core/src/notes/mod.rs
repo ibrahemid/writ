@@ -16,6 +16,9 @@ pub mod links;
 /// The sentence a link sits in, for the backlink list.
 pub mod snippet;
 
+/// File identity: telling a file that moved from one that was deleted.
+pub mod identity;
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 

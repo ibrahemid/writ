@@ -1,0 +1,104 @@
+{
+  "preset": {
+    "writ-light": {
+      "$description": "Writ Light",
+      "polarity": {
+        "$type": "other",
+        "$value": "light"
+      },
+      "bg": {
+        "$type": "color",
+        "canvas": {
+          "$value": "#ffffff"
+        },
+        "sidebar": {
+          "$value": "#f7f6f3"
+        },
+        "raised": {
+          "$value": "#ffffff"
+        },
+        "sunken": {
+          "$value": "#f1efeb"
+        },
+        "hover": {
+          "$value": "#f3f2f2"
+        },
+        "selected": {
+          "$value": "#ececeb"
+        }
+      },
+      "fg": {
+        "$type": "color",
+        "default": {
+          "$value": "#1c1a17"
+        },
+        "muted": {
+          "$value": "#5d5850"
+        },
+        "faint": {
+          "$value": "#8a847a"
+        }
+      },
+      "border": {
+        "$type": "color",
+        "default": {
+          "$value": "#e4e1db"
+        },
+        "soft": {
+          "$value": "#efede8"
+        }
+      },
+      "accent": {
+        "$type": "color",
+        "default": {
+          "$value": "#1f6f5c"
+        },
+        "hover": {
+          "$value": "#1c6453"
+        },
+        "fg": {
+          "$value": "#ffffff"
+        }
+      },
+      "status": {
+        "$type": "color",
+        "success": {
+          "$value": "#178035"
+        },
+        "warning": {
+          "$value": "#9a6b00"
+        },
+        "error": {
+          "$value": "#a6392e"
+        },
+        "foreground": {
+          "$value": "#ffffff"
+        }
+      },
+      "syntax": {
+        "$type": "color",
+        "keyword": {
+          "$value": "#1c1a17"
+        },
+        "string": {
+          "$value": "#5c7a5a"
+        },
+        "comment": {
+          "$value": "#8a847a"
+        },
+        "function": {
+          "$value": "#5d5850"
+        },
+        "number": {
+          "$value": "#1c1a17"
+        },
+        "type": {
+          "$value": "#5d5850"
+        },
+        "variable": {
+          "$value": "#5d5850"
+        }
+      }
+    }
+  }
+}

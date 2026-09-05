@@ -21,12 +21,13 @@ export interface CreateWindowStateOptions {
 }
 
 export function createWindowState(opts: CreateWindowStateOptions): WindowState {
+  const editor = createEditorStore();
   return {
     windowId: opts.windowId,
     focus: createFocusStore(),
     sidebar: createSidebarStore(),
-    editor: createEditorStore(),
-    tabs: createTabStore({ registry: bufferRegistry }),
+    editor,
+    tabs: createTabStore({ registry: bufferRegistry, editor }),
     layout: createLayoutStore({ windowId: opts.windowId }),
     preview: createPreviewStore({ windowId: opts.windowId }),
   };

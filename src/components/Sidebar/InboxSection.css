@@ -1,36 +1,16 @@
 .inbox-section-head {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  padding-right: 12px;
 }
 
 .inbox-section-head .sidebar-section-title {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.inbox-section-action {
-  flex-shrink: 0;
-  border: none;
-  background: transparent;
-  color: var(--writ-foreground-subtle);
-  font-size: var(--writ-font-size-xs);
-  padding: 2px 6px;
-  margin-right: 6px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.inbox-section-action:hover {
-  background: var(--writ-overlay-hover);
-  color: var(--writ-foreground-default);
-}
-
-.inbox-section-action:focus-visible {
-  outline: 2px solid var(--writ-border-focus);
-  outline-offset: -1px;
 }
 
 .inbox-list {
@@ -39,32 +19,41 @@
   padding: 2px 0 8px;
 }
 
+.inbox-list .writ-tooltip-anchor {
+  display: block;
+}
+
 .inbox-item {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
+  height: var(--writ-sidebar-row-fill);
+  padding: 0 10px;
   border: none;
+  border-radius: var(--writ-r-row);
   background: transparent;
   text-align: left;
-  padding: 4px 12px;
   cursor: pointer;
-  color: var(--writ-foreground-muted);
-  font-size: var(--writ-font-size-sm);
+  color: var(--writ-fg);
+  font-family: inherit;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  transition: background var(--writ-motion);
 }
 
 .inbox-item:hover {
-  background: var(--writ-overlay-hover);
-  color: var(--writ-foreground-default);
+  background: var(--writ-bg-hover);
 }
 
 .inbox-item:focus-visible {
-  outline: 2px solid var(--writ-border-focus);
+  outline: 2px solid var(--writ-accent);
   outline-offset: -1px;
 }
 
 .inbox-item-name {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -72,12 +61,15 @@
 
 .inbox-item-size {
   flex-shrink: 0;
-  color: var(--writ-foreground-subtle);
+  color: var(--writ-fg-faint);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
   font-variant-numeric: tabular-nums;
 }
 
 .inbox-empty {
   padding: 4px 12px 8px;
-  color: var(--writ-foreground-subtle);
-  font-size: var(--writ-font-size-sm);
+  color: var(--writ-fg-faint);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
 }

@@ -1,9 +1,10 @@
 import { createSignal } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
 import type { BufferRegistry } from "../global/buffer-registry";
-import type { SaveFailure } from "../../services/autosave";
+import { keepUnsavedForRecovery, type SaveFailure } from "../../services/autosave";
 import { asSentence, formatSaveError } from "../../lib/save-error";
 import { requestConfirm } from "../../components/ConfirmDialog/ConfirmDialog";
+import { saveStatusStore } from "../global/save-status";
 
 export type TabStore = ReturnType<typeof createTabStore>;
 
@@ -12,9 +13,31 @@ export type TabStore = ReturnType<typeof createTabStore>;
 // operations are surfaced here so the per-window activeTabId tracks
 // registry mutations atomically.
 
-export function createTabStore(deps: { registry: BufferRegistry }) {
-  const { registry } = deps;
+export function createTabStore(deps: {
+  registry: BufferRegistry;
+  // Optional, so a caller driving the tab store on its own does not have to
+  // build an editor for it. Given one, a note whose tab has gone stops being
+  // measured against its file.
+  editor?: { noteClosed: (id: string) => void };
+}) {
+  const { registry, editor } = deps;
   const [activeTabId, setActiveTabId] = createSignal<string | null>(null);
+
+  // Called after every close path, on the ids that path aimed at. A tab the
+  // registry refused to close is still open and keeps its record.
+  //
+  // Awaited rather than left running: text a save could not write is handed to
+  // the recovery snapshot here, and a close that races the quit is the case
+  // that handover exists for.
+  async function forgetClosed(ids: readonly string[]) {
+    const open = new Set(registry.activeTabs().map((b) => b.id));
+    for (const id of ids) {
+      if (open.has(id)) continue;
+      editor?.noteClosed(id);
+      saveStatusStore.forgetNote(id);
+      await keepUnsavedForRecovery(id);
+    }
+  }
 
   async function loadAndActivate() {
     await registry.load();
@@ -45,6 +68,7 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
   async function deleteNote(id: string): Promise<void> {
     selectSurvivor(id);
     await registry.deleteNote(id);
+    await forgetClosed([id]);
   }
 
   // A buffer on a volume that never accepts a write would otherwise hold its
@@ -113,10 +137,14 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
   async function closeTab(id: string): Promise<void> {
     selectSurvivor(id);
     const outcome = await registry.closeBuffer(id);
-    if (outcome.closed) return;
+    if (outcome.closed) {
+      await forgetClosed([id]);
+      return;
+    }
     reselectRefused(id);
     await discardFailed([id], outcome.failures);
     reselectRefused(id);
+    await forgetClosed([id]);
   }
 
   async function closeOtherTabs(keepId: string): Promise<void> {
@@ -125,8 +153,10 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
     // Reselect the surviving tab first for the same reason as closeTab: a
     // transient null active-buffer would recreate the preview iframe.
     setActiveTabId(keepId);
-    const outcome = await registry.closeBuffers(toClose.map((b) => b.id));
+    const ids = toClose.map((b) => b.id);
+    const outcome = await registry.closeBuffers(ids);
     await discardFailed(outcome.failedIds, outcome.failures);
+    await forgetClosed(ids);
   }
 
   async function closeAllTabs(): Promise<void> {
@@ -135,8 +165,10 @@ export function createTabStore(deps: { registry: BufferRegistry }) {
       setActiveTabId(null);
       return;
     }
-    const outcome = await registry.closeBuffers(toClose.map((b) => b.id));
+    const ids = toClose.map((b) => b.id);
+    const outcome = await registry.closeBuffers(ids);
     await discardFailed(outcome.failedIds, outcome.failures);
+    await forgetClosed(ids);
     const remaining = registry.activeTabs();
     setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
   }

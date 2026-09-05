@@ -1,4 +1,5 @@
 import { Show } from "solid-js";
+import Tooltip from "../Tooltip/Tooltip";
 import type { ConflictCopyKind } from "../../types/workspace";
 import "./ConflictCopyBadge.css";
 
@@ -15,7 +16,7 @@ export function ConflictCopyBadge(props: {
 }) {
   const label = () => (props.kind === "writ" ? "Writ copy" : "Sync copy");
 
-  const title = () => {
+  const explanation = () => {
     if (props.kind === "writ") {
       return "Writ kept this copy when the file changed on disk while it was open.";
     }
@@ -25,9 +26,9 @@ export function ConflictCopyBadge(props: {
 
   return (
     <Show when={props.kind}>
-      <span class="file-tree-copy-badge" title={title()}>
-        {label()}
-      </span>
+      <Tooltip label={explanation()}>
+        <span class="file-tree-copy-badge">{label()}</span>
+      </Tooltip>
     </Show>
   );
 }
