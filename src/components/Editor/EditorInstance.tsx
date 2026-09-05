@@ -16,6 +16,10 @@ import { markdownTypographyPlugin } from "../../editor/markdown-typography";
 import { markdownEditingExtension } from "../../editor/markdown-editing";
 import { spellingExtension } from "../../editor/spelling";
 import { linkLayer } from "../../editor/link-layer";
+import { wikilinkDecorationLayer } from "../../editor/wikilink-decorations";
+import { wikilinkCompletion } from "../../editor/wikilink-complete";
+import { followNoteLink } from "../../editor/wikilink-open";
+import { showLinkCandidates, showMissingNote } from "./LinkAmbiguityPicker";
 import { editorContextMenu } from "../../editor/context-menu";
 import { spellingMenu } from "../../editor/spelling-menu";
 import {
@@ -30,6 +34,7 @@ import { openSearchPalette } from "../SearchPalette/SearchPalette";
 import { spellingStore } from "../../stores/global/spelling";
 import { linkStore } from "../../stores/global/link";
 import { workspaceStore } from "../../stores/global/workspace";
+import { notesStore } from "../../stores/global/notes";
 import { dirname, resolveWithinRoot } from "../../lib/path";
 import { openSpellingPreview } from "./SpellingPreview";
 import {
@@ -109,21 +114,62 @@ export default function EditorInstance(props: Props) {
   const spellingCompartment = new Compartment();
   const linkCompartment = new Compartment();
 
-  // A destination without a scheme is a file reference. It opens in Writ only
-  // when it resolves inside the open workspace; anything else stays inert,
-  // because a bare word that looks path-like is not an error worth a toast.
+  // A destination without a scheme is a file reference. It opens in Writ when
+  // it resolves inside the open workspace or inside the notes folder; anything
+  // else stays inert, because a bare word that looks path-like is not an error
+  // worth a toast.
+  //
+  // The notes folder is the second root because a wikilink resolves to a path
+  // under it and a session with no workspace open is the ordinary case for
+  // notes; without it every note-to-note link silently did nothing.
   const linkDeps = {
     openUrl: (url: string) => {
       void linkStore.openExternal(url);
     },
     openWorkspaceFile: (raw: string) => {
-      const root = workspaceStore.root();
-      if (!root) return;
       const source = props.buffer.source_path;
-      const target = resolveWithinRoot(root, source ? dirname(source) : root, raw);
+      const workspace = workspaceStore.root();
+      const notes = notesStore.root();
+      const target =
+        (workspace
+          ? resolveWithinRoot(workspace, source ? dirname(source) : workspace, raw)
+          : null) ??
+        (notes ? resolveWithinRoot(notes, source ? dirname(source) : notes, raw) : null) ??
+        (notes ? resolveWithinRoot(notes, notes, raw) : null);
       if (!target) return;
       void win.tabs.openFile(target).catch(() => undefined);
     },
+    // A `[[…]]` names a note rather than a path, so following one is a read of
+    // the index first. The decision itself is `followNoteLink`.
+    openNoteLink: (raw: string) => {
+      const source = props.buffer.source_path;
+      if (!source) return;
+      void followNoteLink(source, raw, noteLinkActions);
+    },
+  };
+
+  const noteLinkActions = {
+    resolve: (from: string, target: string) => linkStore.resolveNoteLink(from, target),
+    openPath: (path: string) => {
+      void win.tabs.openFile(path).catch(() => undefined);
+    },
+    showCandidates: showLinkCandidates,
+    offerCreate: showMissingNote,
+    create: async (name: string) => (await linkStore.createNote(name))?.source_path ?? null,
+  };
+
+  const wikilinkDeps = {
+    fromPath: () => props.buffer.source_path ?? null,
+    known: (from: string, target: string) =>
+      linkStore.knownNoteLink(from, target.trim())?.status ?? null,
+    resolve: async (from: string, target: string) => {
+      await linkStore.resolveNoteLink(from, target.trim());
+    },
+    generation: () => linkStore.resolutionGeneration(),
+  };
+
+  const wikilinkCompleteDeps = {
+    candidates: (query: string) => linkStore.noteNameCandidates(query),
   };
 
   // Writ's own right-click menu. The native WKWebView menu is suppressed
@@ -306,7 +352,15 @@ export default function EditorInstance(props: Props) {
       editingCompartment.of(isRestricted ? [] : editingExtension(langId, mode)),
       // Configured by applySpelling() after the view mounts.
       spellingCompartment.of([]),
-      linkCompartment.of(isRestricted ? [] : linkLayer(linkDeps)),
+      linkCompartment.of(
+        isRestricted
+          ? []
+          : [
+              linkLayer(linkDeps),
+              wikilinkDecorationLayer(wikilinkDeps),
+              wikilinkCompletion(wikilinkCompleteDeps),
+            ],
+      ),
       contextMenuExtension,
       spellingMenuExtension,
       readOnlyCompartment.of(

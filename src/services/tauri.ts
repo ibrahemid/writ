@@ -195,6 +195,46 @@ export async function noteBacklinks(path: string): Promise<Backlink[]> {
   return invoke("note_backlinks", { path });
 }
 
+/** Whether a link target names one note, several, or none. */
+export type LinkStatus = "resolved" | "ambiguous" | "missing";
+
+/** What a `[[…]]` target points at. */
+export interface LinkResolution {
+  status: LinkStatus;
+  /** The note the target names, present only for `resolved`. */
+  path: string | null;
+  /** The notes the target could mean, present only for `ambiguous`. */
+  candidates: string[];
+  /** 1-based line of the heading the target named, when the note has it. */
+  heading_line: number | null;
+}
+
+export async function resolveNoteLink(
+  fromPath: string,
+  target: string,
+): Promise<LinkResolution> {
+  return invoke("resolve_note_link", { fromPath, target });
+}
+
+/** One note offered to a `[[` completion. */
+export interface NoteNameHit {
+  path: string;
+  /** The note's file name without the extension. */
+  name: string;
+}
+
+export async function noteNameCandidates(
+  query: string,
+  limit?: number,
+): Promise<NoteNameHit[]> {
+  return invoke("note_name_candidates", { query, limit });
+}
+
+/** Creates a note called `name` in the notes folder and opens it. */
+export async function newNamedNote(name: string): Promise<BufferDocument> {
+  return invoke("new_named_note", { name });
+}
+
 /** What a note's file holds, as the backend reports it. */
 export interface DiskState {
   hash: string;

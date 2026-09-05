@@ -15,6 +15,7 @@ import NotesMigrationReport from "./components/NotesMigrationReport/NotesMigrati
 import { startRenameActiveTab } from "./components/Editor/TabBar";
 import { confirmAndDeleteNote, noteIsDeletable, saveCopyOfNote } from "./lib/note-actions";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
+import LinkAmbiguityPicker from "./components/Editor/LinkAmbiguityPicker";
 import IconSprite from "./components/Icon/IconSprite";
 import { installNativeContextMenuSuppressor } from "./lib/native-context-menu";
 import { IS_MAC, resolvePlatform } from "./lib/platform";
@@ -763,6 +764,7 @@ function AppShell() {
       <ThemeEditor />
       <ShortcutEditor />
       <ContextMenu />
+      <LinkAmbiguityPicker />
       <ConfirmDialog />
       <PromptFillModal />
       <AiRewriteOverlay />

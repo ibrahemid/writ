@@ -9,6 +9,7 @@ import {
   mergeLinkRanges,
   modifierIsHeld,
   trimUrlTail,
+  wikilinkAtCursor,
   type LinkDeps,
   type LinkRange,
 } from "../../editor/link-layer";
@@ -199,14 +200,66 @@ describe("linkClickTarget", () => {
   });
 });
 
+describe("findLinkTargets over wikilinks", () => {
+  // The range is the target itself, so a click hands on exactly what the
+  // resolver parses and the decoration paints the text rather than the
+  // brackets around it.
+  function wikilinks(doc: string): string[] {
+    const state = markdownState(doc);
+    return targets(state)
+      .filter((r) => r.kind === "wikilink")
+      .map((r) => textOf(state, r));
+  }
+
+  it("finds every wikilink form", () => {
+    expect(wikilinks("[[Note]]")).toEqual(["Note"]);
+    expect(wikilinks("[[Note|alias]]")).toEqual(["Note|alias"]);
+    expect(wikilinks("[[Note#Heading]]")).toEqual(["Note#Heading"]);
+    expect(wikilinks("[[folder/Note]]")).toEqual(["folder/Note"]);
+  });
+
+  it("finds a markdown .md link beside a wikilink and keeps them apart", () => {
+    const state = markdownState("[[Note]] and [label](./other.md)");
+    const found = targets(state);
+    expect(found.map((r) => [textOf(state, r), r.kind])).toEqual([
+      ["Note", "wikilink"],
+      ["./other.md", "path"],
+    ]);
+  });
+
+  it("finds both wikilinks on one line", () => {
+    expect(wikilinks("[[A]] then [[B]]")).toEqual(["A", "B"]);
+  });
+
+  it("is not an embed, an empty target, or an unclosed run", () => {
+    expect(wikilinks("![[a.png]]")).toEqual([]);
+    expect(wikilinks("[[]]")).toEqual([]);
+    expect(wikilinks("[[   ]]")).toEqual([]);
+    expect(wikilinks("[[unclosed")).toEqual([]);
+    expect(wikilinks("[[a]b]]")).toEqual([]);
+  });
+
+  it("wins the overlap against a bare address written inside it", () => {
+    const state = markdownState("[[https://example.com/x]]");
+    const found = targets(state);
+    expect(found).toHaveLength(1);
+    expect(found[0].kind).toBe("wikilink");
+    expect(textOf(state, found[0])).toBe("https://example.com/x");
+  });
+});
+
 // ─── Wiring, on a mounted view ─────────────────────────────────────────────
 
 describe("linkLayer", () => {
   let view: EditorView;
-  let deps: { openUrl: ReturnType<typeof vi.fn>; openWorkspaceFile: ReturnType<typeof vi.fn> };
+  let deps: {
+    openUrl: ReturnType<typeof vi.fn>;
+    openWorkspaceFile: ReturnType<typeof vi.fn>;
+    openNoteLink: ReturnType<typeof vi.fn>;
+  };
 
   function mount(doc: string, extensions: unknown[] = []) {
-    deps = { openUrl: vi.fn(), openWorkspaceFile: vi.fn() };
+    deps = { openUrl: vi.fn(), openWorkspaceFile: vi.fn(), openNoteLink: vi.fn() };
     const state = EditorState.create({
       doc,
       extensions: [
@@ -313,6 +366,14 @@ describe("linkLayer", () => {
     expect(deps.openWorkspaceFile).not.toHaveBeenCalled();
   });
 
+  it("routes a wikilink to the note dependency, target only", () => {
+    mount("see [[folder/Note|alias]] now", [markdown({ base: markdownLanguage })]);
+    clickAt(8, true);
+    expect(deps.openNoteLink).toHaveBeenCalledWith("folder/Note|alias");
+    expect(deps.openWorkspaceFile).not.toHaveBeenCalled();
+    expect(deps.openUrl).not.toHaveBeenCalled();
+  });
+
   it("tracks the modifier for styling and clears it on blur", () => {
     mount("go to https://example.com/x now");
     expect(modifierIsHeld(view.state)).toBe(false);
@@ -329,5 +390,66 @@ describe("linkLayer", () => {
     view.contentDOM.dispatchEvent(new FocusEvent("blur", { bubbles: false }));
     expect(modifierIsHeld(view.state)).toBe(false);
     expect(view.dom.classList.contains("writ-link-active")).toBe(false);
+  });
+
+  function pressEnter(): KeyboardEvent {
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Enter",
+      code: "Enter",
+    });
+    view.contentDOM.dispatchEvent(event);
+    return event;
+  }
+
+  it("opens the note the caret is inside on Enter", () => {
+    mount("see [[Grocery list]] now", [markdown({ base: markdownLanguage })]);
+    view.dispatch({ selection: { anchor: 10 } });
+    expect(pressEnter().defaultPrevented).toBe(true);
+    expect(deps.openNoteLink).toHaveBeenCalledWith("Grocery list");
+  });
+
+  it("leaves Enter alone everywhere else", () => {
+    mount("see [[Grocery list]] now", [markdown({ base: markdownLanguage })]);
+    view.dispatch({ selection: { anchor: 22 } });
+    pressEnter();
+    expect(deps.openNoteLink).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Following a link from the keyboard ────────────────────────────────────
+
+describe("wikilinkAtCursor", () => {
+  function stateWith(doc: string, head: number): EditorState {
+    return EditorState.create({
+      doc,
+      selection: { anchor: head },
+      extensions: [markdown({ base: markdownLanguage })],
+    });
+  }
+
+  it("names the target the caret sits in", () => {
+    expect(wikilinkAtCursor(stateWith("see [[Grocery list]] now", 10))).toBe(
+      "Grocery list",
+    );
+  });
+
+  // At either edge the pair has only just been typed or is about to be closed,
+  // so Enter there stays a line break.
+  it("is null at the edges, outside, and on a selection", () => {
+    expect(wikilinkAtCursor(stateWith("[[Note]]", 2))).toBeNull();
+    expect(wikilinkAtCursor(stateWith("[[Note]]", 6))).toBeNull();
+    expect(wikilinkAtCursor(stateWith("[[Note]] tail", 11))).toBeNull();
+    expect(wikilinkAtCursor(stateWith("plain [text](./x.md)", 8))).toBeNull();
+    expect(
+      wikilinkAtCursor(
+        EditorState.create({
+          doc: "[[Note]]",
+          selection: { anchor: 3, head: 5 },
+          extensions: [markdown({ base: markdownLanguage })],
+        }),
+      ),
+    ).toBeNull();
   });
 });

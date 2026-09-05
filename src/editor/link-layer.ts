@@ -9,6 +9,7 @@ import {
   EditorView,
   ViewPlugin,
   ViewUpdate,
+  keymap,
   type DecorationSet,
   type PluginValue,
 } from "@codemirror/view";
@@ -25,7 +26,7 @@ interface SyntaxNodeRef {
   readonly node: { readonly parent: { readonly name: string } | null };
 }
 
-export type LinkKind = "url" | "path";
+export type LinkKind = "url" | "path" | "wikilink";
 
 export interface LinkRange {
   from: number;
@@ -40,11 +41,22 @@ export interface LinkRange {
 export interface LinkDeps {
   openUrl(url: string): void;
   openWorkspaceFile(path: string): void;
+  /**
+   * What to do with a `[[…]]` target: open the note it names, offer to create
+   * it, or show the notes it could mean. The layer knows the shape of a
+   * wikilink and nothing about what one resolves to, which is why this is
+   * injected rather than read from a store.
+   */
+  openNoteLink?(target: string): void;
 }
 
 // Anchored on a known scheme and length-bounded so a pathological line cannot
 // turn decoration into a scan of the whole buffer.
 const URL_RUN = /(?:https?:\/\/|mailto:)[^\s<>"'`\\]{1,2048}/g;
+// The inside of a `[[…]]`, length-bounded for the same reason as the URL run.
+// A nested `[` or `]` ends the candidate, so `[[a]b]]` is not a target and an
+// unclosed `[[` cannot swallow the rest of the line.
+const WIKILINK_RUN = /\[\[([^\[\]\n]{1,512})\]\]/g;
 // Two or more characters before the colon: a single letter is a Windows drive
 // (`C:\notes`), never a scheme.
 const HAS_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]+:/;
@@ -137,8 +149,25 @@ export function findLinkTargets(state: EditorState, from: number, to: number): L
   if (end <= start) return [];
 
   const found: LinkRange[] = [];
+  const text = state.doc.sliceString(start, end);
 
-  // Markdown destinations first, so a `[label](https://x)` destination wins the
+  // Wikilinks first, so `[[https://x]]` is one target rather than an address
+  // with brackets around it, and `[[Note]]` is not read as a shortcut
+  // reference link.
+  WIKILINK_RUN.lastIndex = 0;
+  for (
+    let match = WIKILINK_RUN.exec(text);
+    match !== null;
+    match = WIKILINK_RUN.exec(text)
+  ) {
+    // `![[…]]` is an embed the preview resolves as a file, not a note link.
+    if (match.index > 0 && text[match.index - 1] === "!") continue;
+    if (match[1].trim() === "") continue;
+    const inner = start + match.index + 2;
+    found.push({ from: inner, to: inner + match[1].length, kind: "wikilink" });
+  }
+
+  // Markdown destinations next, so a `[label](https://x)` destination wins the
   // overlap against the bare run inside it.
   syntaxTree(state).iterate({
     from: start,
@@ -159,7 +188,6 @@ export function findLinkTargets(state: EditorState, from: number, to: number): L
     },
   });
 
-  const text = state.doc.sliceString(start, end);
   URL_RUN.lastIndex = 0;
   for (let match = URL_RUN.exec(text); match !== null; match = URL_RUN.exec(text)) {
     const before = match.index > 0 ? text[match.index - 1] : "";
@@ -218,11 +246,39 @@ class LinkView implements PluginValue {
   }
 
   private build(): DecorationSet {
-    return Decoration.set(this.ranges.map((r) => linkMark.range(r.from, r.to)));
+    // A wikilink is painted by `wikilink-decorations`, which knows whether the
+    // note it names is there. Marking it here would say every target is a
+    // destination.
+    return Decoration.set(
+      this.ranges
+        .filter((r) => r.kind !== "wikilink")
+        .map((r) => linkMark.range(r.from, r.to)),
+    );
   }
 }
 
 const linkPlugin = ViewPlugin.fromClass(LinkView, { decorations: (v) => v.decorations });
+
+/**
+ * The `[[…]]` target the caret sits inside, or null.
+ *
+ * The caret has to be strictly inside the target text: at either edge the
+ * bracket pair has only just been typed or is about to be closed, and Enter
+ * there is a line break rather than a destination.
+ */
+export function wikilinkAtCursor(state: EditorState): string | null {
+  const selection = state.selection.main;
+  if (!selection.empty) return null;
+  const pos = selection.head;
+  const line = state.doc.lineAt(pos);
+  for (const range of findLinkTargets(state, line.from, line.to)) {
+    if (range.kind !== "wikilink") continue;
+    if (pos > range.from && pos < range.to) {
+      return state.doc.sliceString(range.from, range.to);
+    }
+  }
+  return null;
+}
 
 function syncModifier(view: EditorView, next: boolean): void {
   if (modifierIsHeld(view.state) === next) return;
@@ -233,6 +289,19 @@ export function linkLayer(deps: LinkDeps): Extension {
   return [
     modifierField,
     linkPlugin,
+    // Below the completion panel's own Enter, which is registered at the
+    // highest precedence, so accepting a name from the `[[` list still wins.
+    keymap.of([
+      {
+        key: "Enter",
+        run: (view) => {
+          const target = wikilinkAtCursor(view.state);
+          if (target === null || !deps.openNoteLink) return false;
+          deps.openNoteLink(target);
+          return true;
+        },
+      },
+    ]),
     EditorView.editorAttributes.compute([modifierField], (state) =>
       state.field(modifierField, false)
         ? { class: "writ-link-active" }
@@ -254,6 +323,8 @@ export function linkLayer(deps: LinkDeps): Extension {
         const target = view.state.doc.sliceString(hit.from, hit.to);
         if (hit.kind === "url") {
           deps.openUrl(target);
+        } else if (hit.kind === "wikilink") {
+          deps.openNoteLink?.(target);
         } else {
           deps.openWorkspaceFile(target);
         }
