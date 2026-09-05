@@ -27,9 +27,16 @@ pub const ERR_FILE_NOT_DOWNLOADED: &str = "ERR_FILE_NOT_DOWNLOADED";
 /// Code a save carries when the file is reachable under more than one name.
 pub const ERR_HARD_LINKED: &str = "ERR_HARD_LINKED";
 
-/// Code a save or a rename carries when the file, or the folder holding it,
-/// is marked read-only.
+/// Code a save or a rename carries when the file itself is marked read-only.
 pub const ERR_READ_ONLY_DESTINATION: &str = "ERR_READ_ONLY_DESTINATION";
+
+/// Code a save carries when the folder holding the file would not take the
+/// write.
+///
+/// Apart from [`ERR_READ_ONLY_DESTINATION`] because the file is fine and the
+/// folder is not, and because a folder can be writable again a moment later,
+/// which is what makes this one worth pressing again.
+pub const ERR_FOLDER_NOT_WRITABLE: &str = "ERR_FOLDER_NOT_WRITABLE";
 
 /// Code a save carries when the note's file was deleted and nothing carrying
 /// its identity was found.
@@ -77,6 +84,7 @@ pub fn save_failure_message(error: &StorageError) -> String {
         StorageError::SourceNotDownloaded { .. } => ERR_FILE_NOT_DOWNLOADED,
         StorageError::HardLinkedDestination { .. } => ERR_HARD_LINKED,
         StorageError::DestinationReadOnly { .. } => ERR_READ_ONLY_DESTINATION,
+        StorageError::DestinationFolderNotWritable { .. } => ERR_FOLDER_NOT_WRITABLE,
         StorageError::Io(io) => io_failure_code(io.kind()),
         _ => ERR_WRITE_FAILED,
     };

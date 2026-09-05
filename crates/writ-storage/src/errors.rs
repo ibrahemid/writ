@@ -94,12 +94,27 @@ pub enum StorageError {
         links: u64,
     },
 
-    /// The note's file, or the folder holding it, is marked read-only, so
-    /// nothing was written and the file was left exactly as it was.
+    /// The note's file is marked read-only, so nothing was written and the
+    /// file was left exactly as it was.
     ///
     /// The wording here is for logs; the editor reads `ERR_READ_ONLY_DESTINATION`.
     #[error("{path} cannot be written")]
     DestinationReadOnly {
+        /// The note's path.
+        path: String,
+    },
+
+    /// The folder the note lives in would not take the file a save writes
+    /// before it renames, so nothing was written.
+    ///
+    /// Separate from [`StorageError::DestinationReadOnly`] because the person
+    /// has to change the folder rather than the file, and because a folder
+    /// that is unwritable for a moment becomes writable again, so the save is
+    /// worth pressing twice.
+    ///
+    /// The wording here is for logs; the editor reads `ERR_FOLDER_NOT_WRITABLE`.
+    #[error("the folder holding {path} cannot be written")]
+    DestinationFolderNotWritable {
         /// The note's path.
         path: String,
     },

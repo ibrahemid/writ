@@ -21,7 +21,9 @@
 //! whatever a tool has hung on the file) and, on macOS, the date it was
 //! created. Two destinations cannot be replaced safely at all — one the user
 //! has under a second name, and one they have marked unwritable — and both
-//! are refused before a temp file is created.
+//! are refused before a temp file is created. A folder that will not take a
+//! new file is a third refusal, and it names the folder rather than the file,
+//! because that is what the person has to change.
 
 use std::io::{self, Write};
 use std::path::Path;
@@ -33,10 +35,15 @@ use writ_core::workspace::TEMP_FILE_PREFIX;
 
 /// Why [`write_atomic`] would not replace the file it was aimed at.
 ///
-/// The two refusals are separate from an I/O failure because they are answers
-/// rather than accidents: nothing about the machine went wrong, and writing
-/// the same bytes again produces the same result. The caller turns them into
-/// the message the editor shows ([`crate::errors::StorageError`]).
+/// The refusals are separate from an I/O failure because they are answers
+/// rather than accidents: nothing about the machine went wrong. The caller
+/// turns them into the message the editor shows
+/// ([`crate::errors::StorageError`]).
+///
+/// The two about the file itself stand until the file changes, so writing the
+/// same bytes again produces the same result. The one about its folder does
+/// not: a sync client, a mount, or the `chmod` that took the folder away can
+/// hand it back a moment later.
 #[derive(Debug, Error)]
 pub enum AtomicWriteError {
     /// The destination is one of several names for the same file.
@@ -50,11 +57,25 @@ pub enum AtomicWriteError {
         links: u64,
     },
 
-    /// The destination, or the folder holding it, cannot be written.
-    #[error("the file or its folder cannot be written")]
+    /// The destination itself is marked unwritable: a mode with no owner
+    /// write bit, a macOS `uchg` lock, or the Windows read-only attribute.
+    ///
+    /// The folder holding it is [`AtomicWriteError::FolderNotWritable`]
+    /// instead. Telling somebody their file is read-only when the folder is
+    /// sends them to change the wrong thing.
+    #[error("the file cannot be written")]
     ReadOnly,
 
-    /// Anything the filesystem reported that is not one of the two above.
+    /// The folder holding the destination would not take the temp file a save
+    /// writes before it renames.
+    ///
+    /// The file itself may be perfectly writable. Read from the refusal to
+    /// create the temp file rather than from the folder's mode, because a
+    /// directory's permission bits are not the whole answer everywhere.
+    #[error("the folder holding the file cannot be written")]
+    FolderNotWritable,
+
+    /// Anything the filesystem reported that is not one of the three above.
     #[error("io error: {0}")]
     Io(#[from] io::Error),
 }
@@ -189,7 +210,9 @@ fn inherit_mode(target: &Path, replacement: &std::fs::File) {
 /// # Errors
 ///
 /// [`AtomicWriteError::HardLinked`] when more than one name points at the
-/// file, and [`AtomicWriteError::ReadOnly`] when it is marked unwritable.
+/// file, and [`AtomicWriteError::ReadOnly`] when the file itself is marked
+/// unwritable. The folder is not read here: it answers by refusing the temp
+/// file ([`write_atomic`]).
 pub fn refuse_unreplaceable_destination(target: &Path) -> Result<(), AtomicWriteError> {
     let Ok(metadata) = std::fs::symlink_metadata(target) else {
         return Ok(());
@@ -538,8 +561,10 @@ pub fn temp_sibling(dir: &Path) -> io::Result<NamedTempFile> {
 /// # Errors
 ///
 /// [`AtomicWriteError::HardLinked`] when the destination is one of several
-/// names for the same file, and [`AtomicWriteError::ReadOnly`] when the
-/// destination or its folder is not writable; neither creates a temp file.
+/// names for the same file, [`AtomicWriteError::ReadOnly`] when the
+/// destination itself is not writable, and
+/// [`AtomicWriteError::FolderNotWritable`] when the folder holding it would
+/// not take the temp file; none of the three leaves a temp file behind.
 /// [`AtomicWriteError::Io`] when the parent directory cannot be resolved, the
 /// temp file cannot be written, the fsync fails, or the rename fails. On any
 /// failure the destination at `target` is left untouched.
@@ -565,7 +590,7 @@ pub fn write_atomic(target: &Path, bytes: &[u8]) -> Result<(), AtomicWriteError>
     let mut tmp = match temp_sibling(dir) {
         Ok(tmp) => tmp,
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            return Err(AtomicWriteError::ReadOnly)
+            return Err(AtomicWriteError::FolderNotWritable)
         }
         Err(e) => return Err(AtomicWriteError::Io(e)),
     };

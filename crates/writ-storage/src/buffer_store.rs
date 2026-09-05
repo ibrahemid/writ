@@ -1157,6 +1157,9 @@ fn refusal_as_storage_error(target: &Path, error: AtomicWriteError) -> StorageEr
         AtomicWriteError::ReadOnly => StorageError::DestinationReadOnly {
             path: target.display().to_string(),
         },
+        AtomicWriteError::FolderNotWritable => StorageError::DestinationFolderNotWritable {
+            path: target.display().to_string(),
+        },
         AtomicWriteError::Io(e) => StorageError::Io(e),
     }
 }
