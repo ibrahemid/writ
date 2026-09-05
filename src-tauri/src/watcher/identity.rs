@@ -68,7 +68,26 @@ fn fallback_identity(path: &Path) -> Option<FileIdentity> {
     })
 }
 
-/// Unix: the device and inode every file has.
+/// When the file was created, in nanoseconds since the Unix epoch, or `None`
+/// where the filesystem does not say.
+///
+/// `statx` reports `btime` on ext4, xfs and btrfs from Linux 4.11, and every
+/// APFS and NTFS file has one. Nanoseconds rather than milliseconds because
+/// the value's whole job is to separate two files, and rounding it discards
+/// the separation. A birth time before the Unix epoch reads as unknown, which
+/// costs nothing: no note is older than the epoch, and a volume answering that
+/// is answering nonsense.
+pub fn birth_nanos(metadata: &std::fs::Metadata) -> Option<u128> {
+    metadata
+        .created()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|since| since.as_nanos())
+}
+
+/// Unix: the device and inode every file has, and the birth time that says
+/// which file is holding the inode.
 #[cfg(unix)]
 fn platform_identity(path: &Path) -> Option<FileIdentity> {
     use std::os::unix::fs::MetadataExt;
@@ -79,6 +98,7 @@ fn platform_identity(path: &Path) -> Option<FileIdentity> {
     Some(FileIdentity::Inode {
         dev: metadata.dev(),
         ino: metadata.ino(),
+        birth_ns: birth_nanos(&metadata),
     })
 }
 
@@ -147,6 +167,7 @@ fn platform_identity(_path: &Path) -> Option<FileIdentity> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use writ_core::notes::identity::{classify_delete, DeleteVerdict};
 
     /// A probe with no answers, which is what a volume carrying no file id
@@ -207,16 +228,67 @@ mod tests {
 
     #[test]
     fn a_file_replaced_in_place_reads_a_new_identity() {
-        // What a sync client's delete-plus-create leaves behind: same path,
-        // same name, a different file.
+        // What a sync client, an editor and git all leave behind: a sibling
+        // written and renamed over the target, so the path and the name are
+        // the same and the file is a different one. The replacement is created
+        // while the original is still there, which is why no filesystem can
+        // hand it the original's inode number.
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("note.md");
+        let incoming = dir.path().join("note.md.tmp");
         std::fs::write(&path, "first").expect("write");
+        std::fs::write(&incoming, "second").expect("write");
         let before = read_identity(&path).expect("identity");
-        std::fs::remove_file(&path).expect("remove");
-        std::fs::write(&path, "second").expect("write");
+        std::fs::rename(&incoming, &path).expect("replace");
         let after = read_identity(&path).expect("identity");
         assert_ne!(before, after);
+    }
+
+    #[test]
+    fn an_inode_number_handed_back_out_is_not_the_file_that_had_it() {
+        // ext4 gives a freed inode number to the next file created, so the id
+        // read from an unrelated new file can equal the one on record. The
+        // identities are built here rather than read from a disk: whether a
+        // filesystem reuses the number is the host's business, and the rule
+        // has to hold on every one of them.
+        let before = FileIdentity::Inode {
+            dev: 2049,
+            ino: 2_103_239,
+            birth_ns: Some(1_700_000_000_000_000_000),
+        };
+        let recreated = FileIdentity::Inode {
+            dev: 2049,
+            ino: 2_103_239,
+            birth_ns: Some(1_700_000_000_004_000_000),
+        };
+        assert_eq!(
+            classify_delete(
+                &before,
+                &[(PathBuf::from("/notes/unrelated.md"), recreated)]
+            ),
+            DeleteVerdict::Removed
+        );
+    }
+
+    #[test]
+    fn an_inode_with_no_birth_time_to_read_still_finds_the_file_it_names() {
+        // A volume that reports no birth time answers `None` for every file on
+        // it, and the inode alone is then the whole of the answer, exactly as
+        // it was before the birth time was read at all.
+        let before = FileIdentity::Inode {
+            dev: 2049,
+            ino: 2_103_239,
+            birth_ns: None,
+        };
+        let candidate = FileIdentity::Inode {
+            dev: 2049,
+            ino: 2_103_239,
+            birth_ns: None,
+        };
+        assert_eq!(
+            classify_delete(&before, &[(PathBuf::from("/notes/renamed.md"), candidate)]),
+            DeleteVerdict::Moved(PathBuf::from("/notes/renamed.md"))
+        );
     }
 
     #[test]
