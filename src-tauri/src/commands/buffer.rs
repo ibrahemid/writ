@@ -26,6 +26,20 @@ pub const ERR_FILE_CHANGED_ON_DISK: &str = "ERR_FILE_CHANGED_ON_DISK";
 /// Code a save carries when the file's bytes are not on this machine yet.
 pub const ERR_FILE_NOT_DOWNLOADED: &str = "ERR_FILE_NOT_DOWNLOADED";
 
+/// Code a save carries when the file is reachable under more than one name.
+pub const ERR_HARD_LINKED: &str = "ERR_HARD_LINKED";
+
+/// Code a save or a rename carries when the file itself is marked read-only.
+pub const ERR_READ_ONLY_DESTINATION: &str = "ERR_READ_ONLY_DESTINATION";
+
+/// Code a save carries when the folder holding the file would not take the
+/// write.
+///
+/// Apart from [`ERR_READ_ONLY_DESTINATION`] because the file is fine and the
+/// folder is not, and because a folder can be writable again a moment later,
+/// which is what makes this one worth pressing again.
+pub const ERR_FOLDER_NOT_WRITABLE: &str = "ERR_FOLDER_NOT_WRITABLE";
+
 /// Code a save carries when the note's file was deleted and nothing carrying
 /// its identity was found.
 ///
@@ -70,6 +84,9 @@ pub fn save_failure_message(error: &StorageError) -> String {
     let code = match error {
         StorageError::SourceChangedOnDisk { .. } => ERR_FILE_CHANGED_ON_DISK,
         StorageError::SourceNotDownloaded { .. } => ERR_FILE_NOT_DOWNLOADED,
+        StorageError::HardLinkedDestination { .. } => ERR_HARD_LINKED,
+        StorageError::DestinationReadOnly { .. } => ERR_READ_ONLY_DESTINATION,
+        StorageError::DestinationFolderNotWritable { .. } => ERR_FOLDER_NOT_WRITABLE,
         StorageError::Io(io) => io_failure_code(io.kind()),
         _ => ERR_WRITE_FAILED,
     };
@@ -477,6 +494,15 @@ pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, 
             }
         } else {
             state.record_disk_state_bytes(id, path, content.as_bytes());
+            // The reload of an externally changed note comes through here, so
+            // a file that gained or lost its carriage returns while Writ had
+            // it open is followed rather than written back the old way.
+            let ending = writ_core::notes::line_ending::LineEnding::detect(&content);
+            if ending != doc.line_ending {
+                if let Err(e) = store.set_line_ending(id, ending) {
+                    tracing::debug!(buffer_id = %id, error = %e, "the file's line ending could not be recorded");
+                }
+            }
         }
     }
     Ok(content.into_bytes())

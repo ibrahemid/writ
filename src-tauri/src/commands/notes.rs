@@ -13,7 +13,7 @@ use tauri::State;
 use tracing::{info, warn};
 use writ_core::buffer::document::BufferDocument;
 use writ_core::buffer::manager::BufferManager;
-use writ_core::notes::NotesRootRefusal;
+use writ_core::notes::{name_is_taken, rename_stem, NotesRootRefusal, NAME_IS_EMPTY};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::errors::{StorageError, StorageResult};
 use writ_storage::note_ops;
@@ -23,9 +23,6 @@ use writ_storage::notes_move;
 use crate::commands::buffer::{ignore_stamper, save_failure_message};
 use crate::security::canonicalize_for_authorization;
 use crate::state::{AppState, NotesRootFallback};
-
-/// What the editor says when a rename arrives with nothing in it.
-const NAME_IS_EMPTY: &str = "That name is empty.";
 
 /// The name a note is known by: the file's own name, extension included, which
 /// is what Finder shows and what the tab shows.
@@ -42,34 +39,6 @@ fn note_path(doc: &BufferDocument) -> Result<String, String> {
         .ok_or_else(|| format!("note {} has no file yet", doc.id))
 }
 
-/// The filename stem a typed name earns, with the note's own extension
-/// removed first.
-///
-/// The tab shows a note by its file name, `Grocery list.md` and not
-/// `Grocery list`, so a user editing that name in place hands back a string
-/// that already ends in `.md`. Sanitising it whole would mint
-/// `Grocery list.md.md`. Only the note's current extension is stripped: a note
-/// renamed to `Recipes.2026` keeps the year, because that is not an extension
-/// this file has.
-///
-/// Returns `None` when nothing survives, which is the empty name.
-fn rename_stem(current: &Path, typed: &str) -> Option<String> {
-    let typed = typed.trim();
-    let base = match current.extension().and_then(|ext| ext.to_str()) {
-        Some(extension) => {
-            let suffix = format!(".{extension}");
-            match typed.len() > suffix.len()
-                && typed[typed.len() - suffix.len()..].eq_ignore_ascii_case(&suffix)
-            {
-                true => &typed[..typed.len() - suffix.len()],
-                false => typed,
-            }
-        }
-        None => typed,
-    };
-    writ_core::notes::sanitize_title(base)
-}
-
 /// Renders a note operation's failure for the editor.
 ///
 /// The two the user can act on get a sentence naming what to do about them.
@@ -78,9 +47,7 @@ fn rename_stem(current: &Path, typed: &str) -> Option<String> {
 fn note_failure_message(error: &StorageError) -> String {
     match error {
         StorageError::NoteNameEmpty => NAME_IS_EMPTY.to_string(),
-        StorageError::NoteNameTaken { name, .. } => {
-            format!("A note named \"{name}\" is already there.")
-        }
+        StorageError::NoteNameTaken { name, .. } => name_is_taken(name),
         other => save_failure_message(other),
     }
 }
@@ -792,45 +759,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_typed_name_keeps_the_note_extension_once() {
-        let current = Path::new("/notes/2026-08-29.md");
-        assert_eq!(
-            rename_stem(current, "Grocery list").as_deref(),
-            Some("Grocery list")
-        );
-        assert_eq!(
-            rename_stem(current, "Grocery list.md").as_deref(),
-            Some("Grocery list")
-        );
-        assert_eq!(
-            rename_stem(current, "Grocery list.MD").as_deref(),
-            Some("Grocery list")
-        );
-    }
-
-    #[test]
-    fn a_name_that_is_only_the_extension_is_kept_whole() {
-        let current = Path::new("/notes/2026-08-29.md");
-        assert_eq!(rename_stem(current, ".md").as_deref(), Some("md"));
-    }
-
-    #[test]
-    fn a_suffix_that_is_not_this_files_extension_survives() {
-        let current = Path::new("/notes/2026-08-29.md");
-        assert_eq!(
-            rename_stem(current, "Recipes.2026").as_deref(),
-            Some("Recipes.2026")
-        );
-    }
-
-    #[test]
-    fn a_name_with_nothing_in_it_yields_nothing() {
-        let current = Path::new("/notes/2026-08-29.md");
-        assert_eq!(rename_stem(current, "   "), None);
-        assert_eq!(rename_stem(current, "///"), None);
-    }
-
-    #[test]
     fn a_taken_name_is_named_back() {
         let error = StorageError::NoteNameTaken {
             name: "Grocery list.md".to_string(),
@@ -839,6 +767,11 @@ mod tests {
         assert_eq!(
             note_failure_message(&error),
             "A note named \"Grocery list.md\" is already there."
+        );
+        // The command line says the same thing by reading the same function.
+        assert_eq!(
+            note_failure_message(&error),
+            name_is_taken("Grocery list.md")
         );
     }
 

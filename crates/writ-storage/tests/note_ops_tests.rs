@@ -31,6 +31,72 @@ fn create_note_writes_a_file_immediately() {
     assert_eq!(std::fs::read_to_string(&path).expect("read"), "");
 }
 
+#[cfg(unix)]
+#[test]
+fn create_note_refuses_rather_than_writing_over_a_note_the_dedupe_could_not_see() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // The dedupe learns which names are taken by listing the folder. A folder
+    // it cannot list reads as empty, and the write that follows replaces
+    // whatever is at the path, so a note that was already there loses its text.
+    let root = TempDir::new().expect("temp dir");
+    let existing = root.path().join("Notes.md");
+    std::fs::write(&existing, "first").expect("seed");
+    std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o300)).expect("chmod");
+
+    let outcome = note_ops::create_note(root.path(), "Notes", None);
+
+    std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).expect("chmod");
+    assert!(
+        matches!(outcome, Err(StorageError::NoteNameTaken { .. })),
+        "expected the name to be refused, got {outcome:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&existing).expect("read"),
+        "first",
+        "the note that was already there was written over"
+    );
+}
+
+#[test]
+fn create_note_refuses_a_name_a_dangling_link_already_holds() {
+    let root = TempDir::new().expect("temp dir");
+    let link = root.path().join("Notes.md");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(root.path().join("gone"), &link).expect("link");
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_file(root.path().join("gone"), &link).expect("link");
+
+    // The dedupe sees the name and picks `Notes 2.md`, so this only proves the
+    // link is not followed and written through when the listing is what fails.
+    let path = note_ops::create_note(root.path(), "Notes", None).expect("create");
+    assert_eq!(path, root.path().join("Notes 2.md"));
+    assert!(
+        link.symlink_metadata().is_ok(),
+        "the link was replaced by a file"
+    );
+}
+
+#[test]
+fn create_note_makes_a_second_note_beside_a_decomposed_name() {
+    // APFS stores the name decomposed and answers to both spellings. A dedupe
+    // comparing bytes reads "Café.md" as free, picks it, and the write is
+    // refused because the filesystem says that file is already there. Nothing
+    // the user can do changes the outcome, so the note is uncreatable.
+    let root = TempDir::new().expect("temp dir");
+    let decomposed = root.path().join("Cafe\u{301}.md");
+    std::fs::write(&decomposed, "first").expect("seed");
+
+    let path = note_ops::create_note(root.path(), "Caf\u{e9}", None).expect("create");
+
+    assert_eq!(path, root.path().join("Café 2.md"));
+    assert_eq!(
+        std::fs::read_to_string(&decomposed).expect("read"),
+        "first",
+        "the note that was already there was written over"
+    );
+}
+
 #[test]
 fn create_note_dedupes_against_an_existing_name() {
     let root = TempDir::new().expect("temp dir");

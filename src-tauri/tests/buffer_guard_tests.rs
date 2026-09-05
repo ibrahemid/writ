@@ -19,7 +19,8 @@ use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::buffer::{
     decide_create_buffer, read_buffer_content_inner, save_buffer_content_inner,
     save_failure_message, CreateDecision, ERR_FILE_CHANGED_ON_DISK, ERR_FILE_IN_USE,
-    ERR_FILE_NOT_DOWNLOADED, ERR_WRITE_FAILED,
+    ERR_FILE_NOT_DOWNLOADED, ERR_FOLDER_NOT_WRITABLE, ERR_HARD_LINKED, ERR_READ_ONLY_DESTINATION,
+    ERR_WRITE_FAILED,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::preview::handler::RenderCache;
@@ -257,6 +258,45 @@ fn a_stopped_save_comes_back_under_a_stable_code() {
     };
     let message = save_failure_message(&waiting);
     assert!(message.starts_with(ERR_FILE_NOT_DOWNLOADED), "{message}");
+}
+
+#[test]
+fn a_refused_destination_comes_back_under_a_stable_code() {
+    let linked = writ_storage::errors::StorageError::HardLinkedDestination {
+        path: "/notes/linked.md".to_string(),
+        links: 2,
+    };
+    let message = save_failure_message(&linked);
+    assert!(message.starts_with(ERR_HARD_LINKED), "{message}");
+    assert!(message.contains("/notes/linked.md"), "{message}");
+
+    let locked = writ_storage::errors::StorageError::DestinationReadOnly {
+        path: "/notes/locked.md".to_string(),
+    };
+    let message = save_failure_message(&locked);
+    assert!(message.starts_with(ERR_READ_ONLY_DESTINATION), "{message}");
+    assert!(message.contains("/notes/locked.md"), "{message}");
+}
+
+#[test]
+fn a_folder_that_would_not_take_the_write_comes_back_under_its_own_code() {
+    // The string the editor matches on, written out rather than compared to
+    // the constant: the frontend's table holds a copy of it, and a rename on
+    // this side that both the constant and its use follow would leave that
+    // copy behind without failing anything.
+    assert_eq!(ERR_FOLDER_NOT_WRITABLE, "ERR_FOLDER_NOT_WRITABLE");
+
+    let folder = writ_storage::errors::StorageError::DestinationFolderNotWritable {
+        path: "/notes/locked folder/note.md".to_string(),
+    };
+    let message = save_failure_message(&folder);
+    // Not `ERR_READ_ONLY_DESTINATION`: that code says the file is read-only,
+    // and it is the one code the editor gives no "Try again" to.
+    assert!(message.starts_with(ERR_FOLDER_NOT_WRITABLE), "{message}");
+    assert!(
+        message.contains("/notes/locked folder/note.md"),
+        "{message}"
+    );
 }
 
 #[test]

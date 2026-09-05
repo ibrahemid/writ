@@ -29,7 +29,10 @@
 //! - [`errors`]: crate-wide [`errors::StorageError`] /
 //!   [`errors::StorageResult`].
 
-#![forbid(unsafe_code)]
+// Denied rather than forbidden: `atomic::metadata` lifts it for the handful
+// of `libc` calls that carry a file's extended attributes and creation date
+// across the rename a save performs. Nothing else in the crate may.
+#![deny(unsafe_code)]
 #![warn(missing_docs)]
 #![warn(rustdoc::broken_intra_doc_links)]
 

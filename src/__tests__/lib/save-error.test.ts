@@ -11,6 +11,11 @@ import {
 const CHANGED = "ERR_FILE_CHANGED_ON_DISK: the file changed on disk: /Users/x/Writ/Meeting notes.md";
 const NOT_DOWNLOADED =
   "ERR_FILE_NOT_DOWNLOADED: the file has not finished downloading: /Users/x/Writ/Evicted.md";
+const HARD_LINKED =
+  "ERR_HARD_LINKED: /Users/x/Writ/Shared.md is one of 2 names for the same file";
+const READ_ONLY = "ERR_READ_ONLY_DESTINATION: /Users/x/Writ/Locked.md cannot be written";
+const FOLDER_NOT_WRITABLE =
+  "ERR_FOLDER_NOT_WRITABLE: the folder holding /Users/x/Writ/Locked.md cannot be written";
 
 describe("formatSaveError", () => {
   it("source_changed_on_disk_maps_to_a_plain_sentence", () => {
@@ -25,6 +30,28 @@ describe("formatSaveError", () => {
     );
   });
 
+  it("a_file_with_a_second_name_says_what_to_do_instead", () => {
+    const message = formatSaveError(new Error(HARD_LINKED));
+    expect(message).toBe("this file is shared with another name on disk, so Writ left it alone.");
+    // The person reading this did not ask about inodes.
+    expect(message).not.toMatch(/hard link/i);
+    expect(message).not.toContain("/Users/x/Writ");
+  });
+
+  it("a_read_only_file_maps_to_a_plain_sentence", () => {
+    expect(formatSaveError(new Error(READ_ONLY))).toBe(
+      "this file is read-only, so nothing was written.",
+    );
+  });
+
+  it("a_folder_that_would_not_take_the_write_says_the_folder_rather_than_the_file", () => {
+    const message = formatSaveError(new Error(FOLDER_NOT_WRITABLE));
+    expect(message).toBe("the folder this file is in cannot be written to, so nothing was saved.");
+    // The file in this failure is writable, so the read-only sentence sends
+    // the person to change the wrong thing.
+    expect(message).not.toBe("this file is read-only, so nothing was written.");
+  });
+
   it("reads the code rather than the message after it", () => {
     expect(formatSaveError("ERR_FILE_CHANGED_ON_DISK: whatever a later build logs here")).toBe(
       "the file changed outside Writ. A copy of your version is beside it.",
@@ -37,6 +64,10 @@ describe("formatSaveError", () => {
     const codes = [
       "ERR_FILE_CHANGED_ON_DISK",
       "ERR_FILE_NOT_DOWNLOADED",
+      "ERR_FILE_REMOVED_ON_DISK",
+      "ERR_HARD_LINKED",
+      "ERR_READ_ONLY_DESTINATION",
+      "ERR_FOLDER_NOT_WRITABLE",
       "ERR_NOTE_READ_ONLY",
       "ERR_PERMISSION_DENIED",
       "ERR_FILE_IN_USE",
@@ -114,15 +145,42 @@ describe("describeSaveFailure", () => {
     );
   });
 
+  it("leaves a folder that would not take the write worth another press", () => {
+    // The file is fine and the folder comes back: a sync client finishes, a
+    // mount answers, the chmod is undone. Dropping "Try again" here leaves
+    // "Save a copy…" as the only way out of a failure that fixes itself.
+    expect(describeSaveFailure(new Error(FOLDER_NOT_WRITABLE))).toEqual({
+      code: "ERR_FOLDER_NOT_WRITABLE",
+      message: "the folder this file is in cannot be written to, so nothing was saved.",
+      retryable: true,
+    });
+    expect(isRetryableSaveError(new Error(FOLDER_NOT_WRITABLE))).toBe(true);
+  });
+
+  it("marks a refused destination as not worth a second press", () => {
+    // Both are answers about the file itself: the same press reaches the same
+    // refusal until the file changes, so the bar drops "Try again" and leaves
+    // "Save a copy…" as the only way forward.
+    expect(describeSaveFailure(new Error(HARD_LINKED)).retryable).toBe(false);
+    expect(describeSaveFailure(READ_ONLY)).toEqual({
+      code: "ERR_READ_ONLY_DESTINATION",
+      message: "this file is read-only, so nothing was written.",
+      retryable: false,
+    });
+  });
+
   it("reports no code for a failure that carried none", () => {
     expect(describeSaveFailure(new Error("something the disk said")).code).toBeNull();
   });
 });
 
 describe("isRetryableSaveError", () => {
-  it("says no to the two a repeat cannot fix", () => {
+  it("says no to the four a repeat cannot fix", () => {
     expect(isRetryableSaveError(new Error(CHANGED))).toBe(false);
     expect(isRetryableSaveError(NOT_DOWNLOADED)).toBe(false);
+    // Both are answers about the file itself, so they stand until it changes.
+    expect(isRetryableSaveError(new Error(HARD_LINKED))).toBe(false);
+    expect(isRetryableSaveError(READ_ONLY)).toBe(false);
   });
 
   it("says yes to every other failure", () => {
@@ -154,6 +212,10 @@ describe("formatRenameError", () => {
 
   it("a_file_still_downloading_maps_to_a_plain_sentence", () => {
     expect(formatRenameError(NOT_DOWNLOADED)).toBe("This file has not finished downloading yet.");
+  });
+
+  it("a_read_only_file_maps_to_a_plain_sentence", () => {
+    expect(formatRenameError(READ_ONLY)).toBe("This file is read-only, so it was not renamed.");
   });
 
   it("a_coded_failure_with_no_rename_wording_borrows_the_save_sentence", () => {

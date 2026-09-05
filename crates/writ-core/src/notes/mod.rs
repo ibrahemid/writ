@@ -11,8 +11,12 @@
 pub mod facts;
 /// The write guard: whether a save may land on the file it is aimed at.
 pub mod guard;
+/// Which line ending a file uses, and how to keep it across a save.
+pub mod line_ending;
 /// Link syntax and link resolution (ADR-034).
 pub mod links;
+/// The sentence a link sits in, for the backlink list.
+pub mod snippet;
 
 /// File identity: telling a file that moved from one that was deleted.
 pub mod identity;
@@ -198,6 +202,29 @@ pub fn display_path(path: &Path, home: Option<&Path>) -> String {
     path.to_string_lossy().into_owned()
 }
 
+/// What to call the note stored at `path`.
+///
+/// The file name is the note's name (ADR-028), so the display name is the last
+/// component of the path without a note extension. The path is split by the
+/// platform's own separators, which keeps a backslash inside the name on macOS
+/// and Linux, where it is an ordinary character. A leading dot belongs to the
+/// name: `.hidden.md` is `.hidden`. A name that is nothing but dots once the
+/// extension is off is kept whole, because `.` names no note.
+///
+/// This is a display name, never an identity: [`links::name_key`] decides what
+/// a link matches, and the path is what opens the file.
+pub fn note_display_name(path: &str) -> String {
+    let name = Path::new(path).file_name().map_or_else(
+        || path.to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    let stem = links::strip_note_extension(&name);
+    if stem.is_empty() || stem.chars().all(|c| c == '.') {
+        return name;
+    }
+    stem.to_string()
+}
+
 /// The strictest cross-platform filename stem, applied on every platform.
 ///
 /// Replaces control characters and `/ \ < > : " | ? *` with a space and
@@ -247,6 +274,48 @@ pub fn sanitize_title_or(raw: &str, fallback: &str) -> String {
     sanitize_title(raw).unwrap_or_else(|| fallback.to_string())
 }
 
+/// What a name that survives [`rename_stem`] as nothing is called, said once
+/// for every surface that asks for a name.
+pub const NAME_IS_EMPTY: &str = "That name is empty.";
+
+/// What a folder that already holds `name` is answered with, said once for
+/// every surface that mints or renames a note.
+pub fn name_is_taken(name: &str) -> String {
+    format!("A note named \"{name}\" is already there.")
+}
+
+/// The filename stem a typed name earns when renaming `current`, with the
+/// note's own extension removed first.
+///
+/// A note is shown by its file name, `Grocery list.md` and not `Grocery list`,
+/// so a user editing that name in place hands back a string that already ends
+/// in `.md`. Sanitising it whole would mint `Grocery list.md.md`. Only the
+/// note's current extension is stripped: a note renamed to `Recipes.2026` keeps
+/// the year, because that is not an extension this file has.
+///
+/// The result is a stem and never a path. [`sanitize_title`] maps `/` and `\`
+/// to spaces, so an absolute name cannot come back out of this and a name
+/// carrying `..` loses the separators that would make it walk anywhere; a
+/// caller joining the result onto the note's own folder keeps the note in it.
+///
+/// Returns `None` when nothing survives, which is the empty name.
+pub fn rename_stem(current: &Path, typed: &str) -> Option<String> {
+    let typed = typed.trim();
+    let base = match current.extension().and_then(|ext| ext.to_str()) {
+        Some(extension) => {
+            let suffix = format!(".{extension}");
+            match typed.len() > suffix.len()
+                && typed[typed.len() - suffix.len()..].eq_ignore_ascii_case(&suffix)
+            {
+                true => &typed[..typed.len() - suffix.len()],
+                false => typed,
+            }
+        }
+        None => typed,
+    };
+    sanitize_title(base)
+}
+
 /// `YYYY-MM-DD` in the local calendar day of `now`.
 ///
 /// The local day is what the user calls today, and a note named for a day the
@@ -285,19 +354,24 @@ pub fn note_file_stem(title: &str, dated_from: DateTime<Utc>) -> String {
 
 /// Finder-style dedupe: `stem`, `stem 2`, `stem 3`, and so on.
 ///
-/// `taken` holds lowercased file *names* including their extension, so the
-/// check is case-insensitive the way APFS and NTFS are. `extension` is given
+/// `taken` holds file *names* including their extension, in whatever case and
+/// whatever Unicode normalisation the folder listing gave them. Both sides go
+/// through [`links::name_key`], so the check is case-insensitive the way APFS
+/// and NTFS are, and a name macOS stored decomposed still counts as taken
+/// against the composed spelling of the same name. A dedupe that missed that
+/// hands back a name the filesystem already holds. `extension` is given
 /// without a dot; pass an empty string for a name that has none.
 pub fn dedupe_file_name(stem: &str, extension: &str, taken: &HashSet<String>) -> String {
+    let taken: HashSet<String> = taken.iter().map(|name| links::name_key(name)).collect();
     let candidate = join_name(stem, extension);
-    if !taken.contains(&candidate.to_lowercase()) {
+    if !taken.contains(&links::name_key(&candidate)) {
         return candidate;
     }
 
     let mut counter: u64 = 2;
     loop {
         let candidate = join_name(&format!("{stem} {counter}"), extension);
-        if !taken.contains(&candidate.to_lowercase()) {
+        if !taken.contains(&links::name_key(&candidate)) {
             return candidate;
         }
         counter += 1;
@@ -418,6 +492,122 @@ fn truncate_to_limits(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_note_is_called_by_its_file_name_without_the_extension() {
+        assert_eq!(note_display_name("/notes/folder/name.md"), "name");
+        assert_eq!(note_display_name("/notes/name.tar.md"), "name.tar");
+        assert_eq!(note_display_name("/notes/Meeting.markdown"), "Meeting");
+        assert_eq!(note_display_name("/notes/notes.txt"), "notes.txt");
+        assert_eq!(note_display_name("Loose.md"), "Loose");
+    }
+
+    #[test]
+    fn a_leading_dot_is_part_of_the_name() {
+        assert_eq!(note_display_name("/notes/.hidden.md"), ".hidden");
+        assert_eq!(
+            note_display_name("/notes/..md"),
+            "..md",
+            "a name of nothing but dots is kept whole"
+        );
+        assert_eq!(note_display_name("/notes/.md"), ".md");
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn a_backslash_is_a_name_character_where_it_is_not_a_separator() {
+        assert_eq!(note_display_name("/notes/a\\b.md"), "a\\b");
+    }
+
+    #[test]
+    fn a_rename_strips_the_note_s_own_extension_once() {
+        let note = Path::new("/notes/Grocery list.md");
+        assert_eq!(
+            rename_stem(note, "Shopping.md").as_deref(),
+            Some("Shopping")
+        );
+        assert_eq!(
+            rename_stem(note, "Shopping.MD").as_deref(),
+            Some("Shopping")
+        );
+        assert_eq!(
+            rename_stem(note, "Shopping.md.md").as_deref(),
+            Some("Shopping.md"),
+            "one suffix comes off, not every one"
+        );
+    }
+
+    #[test]
+    fn a_rename_to_nothing_but_the_extension_keeps_it_whole() {
+        // Stripping here would leave nothing, so `.md` is a name and the note
+        // becomes `md.md` rather than being refused.
+        assert_eq!(
+            rename_stem(Path::new("/notes/2026-08-29.md"), ".md").as_deref(),
+            Some("md")
+        );
+    }
+
+    #[test]
+    fn a_rename_keeps_an_extension_the_note_does_not_have() {
+        assert_eq!(
+            rename_stem(Path::new("/notes/Recipes.md"), "Recipes.2026").as_deref(),
+            Some("Recipes.2026")
+        );
+        assert_eq!(
+            rename_stem(Path::new("/notes/plain"), "Notes.md").as_deref(),
+            Some("Notes.md"),
+            "a file with no extension strips nothing"
+        );
+    }
+
+    #[test]
+    fn a_rename_cannot_name_a_path() {
+        let note = Path::new("/notes/One.md");
+        // The stem a caller joins onto the note's folder. Nothing here may
+        // carry a separator, be absolute, or start with a parent-directory
+        // step, or the join would put the note somewhere else entirely.
+        for typed in [
+            "/tmp/pwned",
+            "../../escaped",
+            "..\\..\\escaped",
+            "/etc/passwd",
+            "~/elsewhere/note",
+            "a/b/c",
+        ] {
+            let stem = rename_stem(note, typed).expect("a stem survives");
+            assert!(
+                !stem.contains('/') && !stem.contains('\\'),
+                "{typed} kept a separator: {stem}"
+            );
+            assert!(!Path::new(&stem).is_absolute(), "{typed} stayed absolute");
+            assert_eq!(
+                Path::new(&stem).components().count(),
+                1,
+                "{typed} is more than one path component: {stem}"
+            );
+            assert!(!stem.starts_with(".."), "{typed} still walks up: {stem}");
+        }
+    }
+
+    #[test]
+    fn a_rename_drops_the_characters_a_filename_may_not_carry() {
+        let stem =
+            rename_stem(Path::new("/notes/One.md"), "a:b?c*d<e>f\"g|h").expect("a stem survives");
+        for illegal in [':', '?', '*', '<', '>', '"', '|'] {
+            assert!(!stem.contains(illegal), "{illegal} survived: {stem}");
+        }
+    }
+
+    #[test]
+    fn a_rename_to_nothing_is_refused() {
+        for typed in ["", "   ", "...", "///"] {
+            assert_eq!(
+                rename_stem(Path::new("/notes/One.md"), typed),
+                None,
+                "{typed} should not name a note"
+            );
+        }
+    }
 
     #[test]
     fn reserved_names_are_recognised_case_insensitively() {

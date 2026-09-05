@@ -28,7 +28,7 @@ use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::buffer::{
     read_buffer_content_inner, resolve_external_change_at, resolve_external_change_inner,
     restore_note_file_inner, save_buffer_content_inner, ERR_FILE_CHANGED_ON_DISK, ERR_FILE_MISSING,
-    ERR_FILE_NOT_DOWNLOADED, ERR_FILE_REMOVED_ON_DISK, ERR_PERMISSION_DENIED,
+    ERR_FILE_NOT_DOWNLOADED, ERR_FILE_REMOVED_ON_DISK, ERR_FOLDER_NOT_WRITABLE,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::commands::notes::{
@@ -1627,7 +1627,9 @@ fn a_copy_that_cannot_be_written_stops_the_note_being_touched() {
             .expect_err("nowhere to write the copy");
 
     std::fs::set_permissions(&folder, before).expect("restore");
-    assert!(error.starts_with(ERR_PERMISSION_DENIED), "{error}");
+    // The folder is what refuses, not the file, and the answer stops there
+    // with the note untouched either way.
+    assert!(error.starts_with(ERR_FOLDER_NOT_WRITABLE), "{error}");
     assert_eq!(
         std::fs::read_to_string(&path).expect("read"),
         "what they wrote",
