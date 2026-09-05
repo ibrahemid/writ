@@ -553,6 +553,14 @@ fn running_as_root() -> bool {
     unsafe { libc::geteuid() == 0 }
 }
 
+/// The attribute Finder writes a tag to on macOS. Linux only lets a test set
+/// attributes in the `user` namespace, so the same test carries a name from
+/// there; the save copies every name it is allowed to read either way.
+#[cfg(target_os = "macos")]
+const TAG_ATTRIBUTE: &str = "com.apple.metadata:_kMDItemUserTags";
+#[cfg(target_os = "linux")]
+const TAG_ATTRIBUTE: &str = "user.writ.tag";
+
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn a_save_carries_the_files_tags_across() {
@@ -560,20 +568,19 @@ fn a_save_carries_the_files_tags_across() {
     let target = dir.path().join("tagged.md");
     fs::write(&target, b"before").expect("seed");
 
-    // A Finder tag, in the attribute Finder actually writes it to.
-    set_xattr(&target, "com.apple.metadata:_kMDItemUserTags", b"Red\n");
+    set_xattr(&target, TAG_ATTRIBUTE, b"Red\n");
 
     writ_storage::atomic::write_atomic(&target, b"after").expect("write");
 
     assert_eq!(fs::read(&target).expect("read"), b"after");
     assert_eq!(
-        read_xattr(&target, "com.apple.metadata:_kMDItemUserTags").as_deref(),
+        read_xattr(&target, TAG_ATTRIBUTE).as_deref(),
         Some(&b"Red\n"[..]),
         "the tag on the file did not survive the save"
     );
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "macos")]
 #[test]
 fn a_save_drops_the_quarantine_record() {
     let dir = TempDir::new().expect("tempdir");
@@ -847,13 +854,13 @@ fn a_save_that_carries_metadata_still_goes_through_the_retrying_rename() {
     let dir = TempDir::new().expect("temp dir");
     let target = dir.path().join("tagged.md");
     fs::write(&target, b"before").expect("seed note");
-    set_xattr(&target, "com.apple.metadata:_kMDItemUserTags", b"Red");
+    set_xattr(&target, TAG_ATTRIBUTE, b"Red");
 
     writ_storage::atomic::write_atomic(&target, b"after").expect("write");
 
     assert_eq!(fs::read(&target).expect("read back"), b"after");
     assert_eq!(
-        read_xattr(&target, "com.apple.metadata:_kMDItemUserTags").as_deref(),
+        read_xattr(&target, TAG_ATTRIBUTE).as_deref(),
         Some(&b"Red"[..]),
         "the rename dropped the file's tags"
     );
