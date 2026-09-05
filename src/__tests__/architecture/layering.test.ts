@@ -6,6 +6,8 @@ const REPO_ROOT = process.cwd();
 const SRC = resolve(REPO_ROOT, "src");
 const SERVICES_DIR = resolve(SRC, "services");
 const COMPONENTS_DIR = resolve(SRC, "components");
+const EDITOR_DIR = resolve(SRC, "editor");
+const STORES_DIR = resolve(SRC, "stores");
 
 const IMPORT_RE = /import\s+(?:[\s\S]*?)\s+from\s+["']([^"']+)["']/g;
 
@@ -102,6 +104,33 @@ describe("frontend layering", () => {
     expect(
       offenders,
       `components must go through stores (allowlist: [${COMPONENT_SERVICES_ALLOWLIST.join(", ")}]): ${offenders
+        .map((o) => `${o.file} -> ${o.spec}`)
+        .join("; ")}`,
+    ).toEqual([]);
+  });
+
+  // The editor layer is CodeMirror wiring and pure decisions over a document.
+  // It takes what it needs to reach the app through injected interfaces —
+  // LinkDeps, WikilinkDeps, NoteLinkActions — so the same code answers to a
+  // test with a plain object. A module reaching a store or a component from
+  // here is the layer skipping the wiring it is supposed to be given.
+  //
+  // A service is a different question: clipboard-commands.ts calls one
+  // directly, so services are allowed here and stores are not.
+  it("no file under src/editor/ imports from src/stores/ or src/components/", () => {
+    const offenders: { file: string; spec: string }[] = [];
+    for (const file of walk(EDITOR_DIR)) {
+      for (const spec of extractImports(file)) {
+        const resolved = resolveSpecifier(file, spec);
+        if (!resolved) continue;
+        const reaches = (dir: string) => resolved === dir || resolved.startsWith(dir + "/");
+        if (!reaches(STORES_DIR) && !reaches(COMPONENTS_DIR)) continue;
+        offenders.push({ file: relative(REPO_ROOT, file), spec });
+      }
+    }
+    expect(
+      offenders,
+      `the editor layer takes what it needs through injected dependencies: ${offenders
         .map((o) => `${o.file} -> ${o.spec}`)
         .join("; ")}`,
     ).toEqual([]);
