@@ -1411,8 +1411,8 @@ fn a_removal_nothing_answers_is_announced_when_the_hold_passes() {
 /// pass over a restored folder does.
 ///
 /// On APFS that pulls the birth time back with it, on the same inode, which is
-/// the whole point of the two tests below.
-#[cfg(unix)]
+/// the whole point of the tests below.
+#[cfg(target_os = "macos")]
 fn backdate(path: &std::path::Path) {
     let status = std::process::Command::new("touch")
         .arg("-t")
@@ -1424,7 +1424,7 @@ fn backdate(path: &std::path::Path) {
 }
 
 #[test]
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
 fn a_note_whose_birth_time_was_pulled_back_still_follows_its_rename() {
     // A metadata pass that backdates a note in place — `touch -t`, `SetFile
     // -d`, a restore tool — leaves the inode alone and, on APFS, drags the
@@ -1475,8 +1475,74 @@ fn a_note_whose_birth_time_was_pulled_back_still_follows_its_rename() {
     );
 }
 
+/// Writes a file's creation date forward, the way an unarchiver or a restore
+/// tool stamping an archive's own date does.
+///
+/// `SetFile -d` reaches `setattrlist` with `ATTR_CMN_CRTIME`, which moves a
+/// live inode's birth time in either direction on APFS. It is the mirror of
+/// [`backdate`], and the pair is why macOS reads no birth time: a value that
+/// moves both ways cannot be compared against a record to tell a reused inode
+/// number from the file that still holds it.
+#[cfg(target_os = "macos")]
+fn forward_date(path: &std::path::Path) {
+    let status = std::process::Command::new("/usr/bin/SetFile")
+        .arg("-d")
+        .arg("01/01/2090 00:00:00")
+        .arg(path)
+        .status()
+        .expect("run SetFile");
+    assert!(status.success(), "SetFile -d failed on {}", path.display());
+}
+
 #[test]
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
+fn a_note_whose_birth_time_was_pushed_forward_still_follows_its_rename() {
+    // The mirror of the test above. A restore tool stamping the creation date
+    // it read out of an archive writes the birth time forward on the inode the
+    // tab is editing, and writes no bytes, so the ignore stamp Writ's own save
+    // left takes the event for Writ's and nothing refreshes the id. A record
+    // that compared birth times would read the file as a different one and
+    // leave the tab refusing every save over a file at its new name.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    forward_date(&before);
+    std::thread::sleep(APART);
+
+    let after = state.notes_root().join("renamed-after-the-forward-date.md");
+    std::fs::rename(&before, &after).expect("rename the way Finder does");
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(
+        told.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Moved],
+        "a rename after a forward-dating SetFile is still a move, saw {seen:?}"
+    );
+    assert_eq!(
+        change_of(told[0]).1.map(std::path::Path::new),
+        Some(after.as_path())
+    );
+    assert!(
+        !state.is_removed_on_disk(&doc.id),
+        "the tab stopped writing to a file that is there"
+    );
+    assert_eq!(note_file(&state, &doc.id), after);
+
+    save_buffer_content_inner(&state, &doc.id, "edited after the forward date").expect("save");
+    assert_eq!(
+        std::fs::read_to_string(&after).expect("read the moved file"),
+        "edited after the forward date"
+    );
+}
+
+#[test]
+#[cfg(target_os = "macos")]
 fn a_backdated_note_that_is_deleted_is_still_gone() {
     // The control for the test above. Reading an earlier birth time as the
     // same file must not soften the deletion: the note goes, another file is

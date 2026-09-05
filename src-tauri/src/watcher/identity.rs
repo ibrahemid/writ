@@ -86,8 +86,33 @@ pub fn birth_nanos(metadata: &std::fs::Metadata) -> Option<u128> {
         .map(|since| since.as_nanos())
 }
 
-/// Unix: the device and inode every file has, and the birth time that says
-/// which file is holding the inode.
+/// Linux: the birth time, which is what separates a reused inode number from
+/// the file that had it.
+///
+/// ext4, xfs and btrfs hand a freed inode number straight back out, and
+/// `statx` reports a `btime` no userspace call can set, so the value means
+/// what the id needs it to mean.
+#[cfg(target_os = "linux")]
+fn reusable_inode_birth(metadata: &std::fs::Metadata) -> Option<u128> {
+    birth_nanos(metadata)
+}
+
+/// Every other Unix: no birth time, because comparing one would say nothing.
+///
+/// APFS never hands an inode number back out — they are 64-bit and unique for
+/// the life of the volume — so there is no reuse to separate; and a live
+/// inode's birth time moves there in both directions, `touch -t` pulling it
+/// back through the modification time and `SetFile -d` writing it forward
+/// through `setattrlist`, so a comparison could not separate one anyway. HFS+
+/// does reuse numbers, and a notes folder on a legacy HFS+ volume is answered
+/// on the inode alone, exactly as every volume was before the field existed.
+#[cfg(all(unix, not(target_os = "linux")))]
+fn reusable_inode_birth(_metadata: &std::fs::Metadata) -> Option<u128> {
+    None
+}
+
+/// Unix: the device and inode every file has, and, where an inode number can
+/// come back, the birth time that says which file is holding it.
 #[cfg(unix)]
 fn platform_identity(path: &Path) -> Option<FileIdentity> {
     use std::os::unix::fs::MetadataExt;
@@ -98,7 +123,7 @@ fn platform_identity(path: &Path) -> Option<FileIdentity> {
     Some(FileIdentity::Inode {
         dev: metadata.dev(),
         ino: metadata.ino(),
-        birth_ns: birth_nanos(&metadata),
+        birth_ns: reusable_inode_birth(&metadata),
     })
 }
 
