@@ -1,8 +1,9 @@
 use crate::poison::recover_poison;
 use crate::watcher::moves::FileTracking;
-use crate::watcher::open_files::{OpenNotes, VanishedContext};
+use crate::watcher::open_files::{answer_held_removals, OpenNotes, VanishedContext};
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
@@ -11,6 +12,7 @@ use tracing::{error, info};
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::watcher::budget::{Emission, EmissionBudget};
 use writ_core::watcher::ignore::{IgnoreStamps, SuppressDecision, DEFAULT_IGNORE_TTL};
+use writ_core::watcher::pending::{PendingRemovals, DEFAULT_HOLD_WINDOW};
 use writ_core::watcher::sighting::{FileSighting, LastSeen, DEFAULT_SIGHTING_TTL};
 
 pub type IgnoreSet = Arc<Mutex<IgnoreStamps>>;
@@ -363,17 +365,30 @@ pub fn start_notes_watcher(
         // raises on Linux arrives in a later batch than the change that
         // caused it, so a record scoped to one batch would never see it.
         let mut seen = LastSeen::new();
+        // A removal waits for the delivery that might answer it, so the wait
+        // ends at its deadline as well as at the sweep's.
+        let pending = RefCell::new(PendingRemovals::new(DEFAULT_HOLD_WINDOW));
         loop {
             // A change the budget dropped was covered by a sweep that had
             // already gone out, and the walk that sweep started may have read
             // the file before it changed. If the folder then falls quiet,
             // nothing else will ever raise it, so the wait ends at the moment
             // that sweep stops standing and the folder is swept once more.
-            let result = match budget.owed_sweep_at() {
+            let due = [budget.owed_sweep_at(), pending.borrow().deadline()]
+                .into_iter()
+                .flatten()
+                .min();
+            let result = match due {
                 Some(due) => match rx.recv_timeout(due.saturating_duration_since(Instant::now())) {
                     Ok(result) => result,
                     Err(mpsc::RecvTimeoutError::Timeout) => {
-                        if budget.take_owed_sweep(Instant::now()) {
+                        let now = Instant::now();
+                        let answers =
+                            answer_held_removals(&mut pending.borrow_mut(), &[], &tracking, now);
+                        for (_, event) in answers {
+                            bus.emit(event);
+                        }
+                        if budget.take_owed_sweep(now) {
                             info!(
                                 root = %root.display(),
                                 "the notes folder fell quiet mid-sweep; sweeping once more"
@@ -399,6 +414,18 @@ pub fn start_notes_watcher(
                     // window, which is how the tab is kept on the file.
                     let batch: Vec<PathBuf> =
                         events.iter().map(|event| event.path.clone()).collect();
+                    // A removal this delivery answers is the note's message
+                    // for it, and the events below must not send a second.
+                    let answers = answer_held_removals(
+                        &mut pending.borrow_mut(),
+                        &batch,
+                        &tracking,
+                        Instant::now(),
+                    );
+                    for (note_id, event) in answers {
+                        told.insert(note_id);
+                        bus.emit(event);
+                    }
                     for event in &events {
                         let now = Instant::now();
                         let domain_event = match report_notes_event(
@@ -423,6 +450,7 @@ pub fn start_notes_watcher(
                                     &VanishedContext {
                                         batch: &batch,
                                         tracking: &tracking,
+                                        hold: &pending,
                                     },
                                 ) {
                                     bus.emit(for_tab);
@@ -438,6 +466,7 @@ pub fn start_notes_watcher(
                             &VanishedContext {
                                 batch: &batch,
                                 tracking: &tracking,
+                                hold: &pending,
                             },
                         ) {
                             bus.emit(for_tab);
@@ -734,6 +763,12 @@ pub fn classify_watch_event(
 
 #[cfg(test)]
 mod tests {
+
+    /// A watcher holding removals for the window the running one holds them
+    /// for, so a test sees the same wait production does.
+    fn holding() -> RefCell<PendingRemovals> {
+        RefCell::new(PendingRemovals::new(DEFAULT_HOLD_WINDOW))
+    }
     use super::*;
     use std::collections::HashMap;
     use std::fs;
@@ -1120,6 +1155,7 @@ mod tests {
             &open_as(&note, "note-1"),
             &mut told,
             &VanishedContext {
+                hold: &holding(),
                 batch: &lone(&note),
                 tracking: &FileTracking::untracked(),
             },
@@ -1170,6 +1206,7 @@ mod tests {
             &open_as(&note, "note-1"),
             &mut told,
             &VanishedContext {
+                hold: &holding(),
                 batch: &lone(&note),
                 tracking: &FileTracking::untracked(),
             },
@@ -1193,6 +1230,7 @@ mod tests {
             &open_as(&note, "note-1"),
             &mut told,
             &VanishedContext {
+                hold: &holding(),
                 batch: &lone(&note),
                 tracking: &FileTracking::untracked(),
             },
@@ -1234,6 +1272,7 @@ mod tests {
             &open,
             &mut told,
             &VanishedContext {
+                hold: &holding(),
                 batch: &lone(&note),
                 tracking: &FileTracking::untracked(),
             },
@@ -1245,6 +1284,7 @@ mod tests {
                 &open,
                 &mut told,
                 &VanishedContext {
+                    hold: &holding(),
                     batch: &lone(&note),
                     tracking: &FileTracking::untracked(),
                 },
@@ -1260,6 +1300,7 @@ mod tests {
             &open,
             &mut next_batch,
             &VanishedContext {
+                hold: &holding(),
                 batch: &lone(&note),
                 tracking: &FileTracking::untracked(),
             },
@@ -1283,6 +1324,7 @@ mod tests {
             &open_as(&note, "note-1"),
             &mut told,
             &VanishedContext {
+                hold: &holding(),
                 batch: &lone(&note),
                 tracking: &FileTracking::untracked(),
             },
@@ -1309,6 +1351,7 @@ mod tests {
             &open_as(&note, "note-1"),
             &mut told,
             &VanishedContext {
+                hold: &holding(),
                 batch: &lone(&note),
                 tracking: &FileTracking::untracked(),
             },
@@ -1350,6 +1393,7 @@ mod tests {
                     &open,
                     &mut told,
                     &VanishedContext {
+                        hold: &holding(),
                         batch: &lone(&note),
                         tracking: &FileTracking::untracked(),
                     },
@@ -1375,6 +1419,7 @@ mod tests {
                         &open,
                         &mut told,
                         &VanishedContext {
+                            hold: &holding(),
                             batch: &lone(&note),
                             tracking: &FileTracking::untracked(),
                         },
@@ -1406,6 +1451,7 @@ mod tests {
             &open_as(&elsewhere, "note-1"),
             &mut told,
             &VanishedContext {
+                hold: &holding(),
                 batch: &lone(&sub),
                 tracking: &FileTracking::untracked(),
             },

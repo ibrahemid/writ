@@ -482,6 +482,50 @@ was last told, so a file written away from the loaded bytes and back to them
 inside one session ends on silence. That is the right way round: the alternative
 is reporting a change to a file that holds what the tab is displaying.
 
+### 14. A removal is held for one more delivery window before it is announced
+
+Decision 12 recognises a moved file among the paths a delivery named and the
+folder it left. Both of those are what the watcher has at the moment the path is
+found empty, and a rename does not have to put its two halves in one delivery.
+`notify_debouncer_mini` closes a window on a deadline set by its first event and
+never extends it (decision 5), so a rename that lands on that boundary arrives as
+the old path going empty in one delivery and the new file appearing in the next.
+Answering the first one on its own reads a move as a deletion, marks the tab off
+a file that is sitting one folder away, and refuses every later save to it. On a
+loaded machine that is not an edge case; it is the ordinary way a rename lands.
+
+So a path that went empty is not announced when it is seen. It is held, and every
+later delivery is a chance to answer it: the file's id at another path, or the
+bytes the tab last read from it in a window that named them. Nothing answers by
+the deadline and the removal is announced exactly as it was before. The wait is
+one hold window, twice the 500 ms debounce, so the delivery that would carry the
+other half has a full window of its own to arrive in.
+
+Three rules keep the wait honest.
+
+**Only a removal something could answer is held.** With no id on record and no
+digest of what the tab last read, no later delivery can say anything the first
+one did not, and the wait would be latency for a foregone conclusion. Those are
+announced straight away, which is what a watcher with no application behind it
+does for every removal it sees.
+
+**The record is left alone until the announcement.** A tab is marked off its file
+when it is told, not when the path is first found empty, so a removal that turns
+out to be a move never marks anything. A file back at its own path before the
+deadline stops the wait rather than being announced behind the delivery that put
+it back.
+
+**Resolving comes before expiry, and an answer is the batch's one message for
+that note.** A delivery that answers a removal makes it a move however long it
+waited, and the events in that same delivery must not send the note a second
+message (decision 8's per-batch rule).
+
+The thread waits on the deadline as well as on the next event, so a held removal
+is announced on its own schedule instead of when some unrelated change happens to
+arrive. `PendingRemovals` in `writ-core` holds the state machine — hold, resolve,
+expire — and the watchers supply the facts: the ids of the candidates, and the
+bytes of the ones a delivery named.
+
 ## Consequences
 
 - Opening a file from `~/Downloads` puts a watch on `~/Downloads`. That is the
@@ -514,14 +558,11 @@ is reporting a change to a file that holds what the tab is displaying.
   moved to a folder nothing watches is a removal to the tab, which keeps the
   text and says the file is gone; the person can write a copy or point the tab
   at the file again by opening it.
-- Both halves also have to arrive in the same delivered window. The debounce
-  window closes on a deadline set by its first event, not by its last, so a
-  rename that lands on that boundary is delivered as the old path going empty
-  in one window and the new one appearing in the next, and the tab is told the
-  file is gone. Nothing in the batch or in the folder listing can answer for
-  the half that has not been delivered yet; the answer is to hold a removal for
-  one more window before announcing it, which is a change to how a watcher
-  reports rather than to how a move is recognised.
+- The halves do not have to arrive in the same delivered window, which is what
+  decision 14 buys, and the price is that a deletion reaches the tab a hold
+  window after the file went. A tab that would refuse a save is refusing it a
+  second later than the file went away; the save guard reads the file itself, so
+  what a save does in that second is unchanged.
 - A watcher with no application behind it (`FileTracking::untracked()`) has no
   digest on record for any tab, so decision 13 cannot answer for it and every
   late delivery is reported. That is right for what it is — nothing has read

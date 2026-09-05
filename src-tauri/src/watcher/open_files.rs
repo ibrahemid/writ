@@ -29,6 +29,7 @@
 use crate::poison::recover_poison;
 use notify::{Config as NotifyConfig, PollWatcher, RecommendedWatcher, RecursiveMode, Watcher};
 use notify_debouncer_mini::{new_debouncer_opt, Config as DebounceConfig, DebounceEventResult};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
@@ -36,11 +37,13 @@ use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::hash::Sha256Digest;
+use writ_core::notes::guard::DiskState;
 use writ_core::notes::identity::{
     classify_delete, classify_delete_by_content, DeleteVerdict, FileIdentity,
 };
 use writ_core::watcher::change_event::{modification_is_news, ExternalChange};
 use writ_core::watcher::ignore::{SuppressDecision, DEFAULT_IGNORE_TTL};
+use writ_core::watcher::pending::{HeldRemoval, PendingRemovals, DEFAULT_HOLD_WINDOW};
 use writ_core::watcher::sighting::{LastSeen, DEFAULT_SIGHTING_TTL};
 
 use super::handler::{ignore_key_path, IgnoreSet};
@@ -487,7 +490,33 @@ pub fn start_open_file_watcher(
         // raises on Linux arrives in a later batch than the change that
         // caused it, so a record scoped to one batch would never see it.
         let mut seen = LastSeen::new();
-        while let Ok(result) = rx.recv() {
+        // A removal waits for the delivery that might answer it, so the wait
+        // for the next event ends at its deadline rather than whenever the
+        // folder happens to change again.
+        let pending = RefCell::new(PendingRemovals::new(DEFAULT_HOLD_WINDOW));
+        loop {
+            // Read out before the match: the borrow would otherwise stand for
+            // the whole of it, and the timeout arm needs the same cell.
+            let due = pending.borrow().deadline();
+            let result = match due {
+                Some(due) => match rx.recv_timeout(due.saturating_duration_since(Instant::now())) {
+                    Ok(result) => result,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        let now = Instant::now();
+                        let answers =
+                            answer_held_removals(&mut pending.borrow_mut(), &[], &tracking, now);
+                        for (_, event) in answers {
+                            bus.emit(event);
+                        }
+                        continue;
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                },
+                None => match rx.recv() {
+                    Ok(result) => result,
+                    Err(_) => break,
+                },
+            };
             let events = match result {
                 Ok(events) => events,
                 Err(e) => {
@@ -504,6 +533,13 @@ pub fn start_open_file_watcher(
             // appearing in the same window, so the batch is where a file that
             // moved is found again.
             let batch: Vec<PathBuf> = events.iter().map(|event| event.path.clone()).collect();
+            // A removal this delivery answers is the note's message for it.
+            let answers =
+                answer_held_removals(&mut pending.borrow_mut(), &batch, &tracking, Instant::now());
+            for (note_id, event) in answers {
+                told.insert(note_id);
+                bus.emit(event);
+            }
             for event in &events {
                 let note_id = {
                     let registry =
@@ -526,6 +562,7 @@ pub fn start_open_file_watcher(
                     &VanishedContext {
                         batch: &batch,
                         tracking: &tracking,
+                        hold: &pending,
                     },
                 ) {
                     bus.emit(domain_event);
@@ -704,6 +741,11 @@ pub struct VanishedContext<'a> {
     pub batch: &'a [PathBuf],
     /// The identity probe and the record of what each tab's file is.
     pub tracking: &'a FileTracking,
+    /// Where a removal no delivery has answered yet waits for the one that
+    /// might ([`writ_core::watcher::pending`]). A rename whose halves land in
+    /// different windows is a deletion to the first of them, and this is what
+    /// keeps that answer from being given before the second window has been.
+    pub hold: &'a RefCell<PendingRemovals>,
 }
 
 /// Longest a folder listing may be when looking for a file that left it.
@@ -853,9 +895,28 @@ pub fn open_note_vanished(
                 Some(to) => files
                     .note_file_moved(note_id, path, &to)
                     .then(|| open_note_moved(note_id, path, &to)),
-                None => files
-                    .note_file_removed(note_id, path)
-                    .then(|| open_note_removed(note_id, path)),
+                // Nothing this delivery named holds the file, which is not
+                // yet an answer: the window that would carry the other half
+                // of a rename may not have closed. The removal waits, and the
+                // record is left alone until it is announced, so a tab is not
+                // marked off a file that is about to turn up one folder away
+                // ([`answer_held_removals`]). The clock starts here because
+                // here is where the delivery is being read.
+                None => {
+                    let held = HeldRemoval {
+                        note_id: note_id.to_string(),
+                        path: path.to_path_buf(),
+                        identity: Some(before),
+                        last: files.last_disk_state(note_id),
+                        batch: vanished.batch.to_vec(),
+                    };
+                    if vanished.hold.borrow_mut().hold(held, Instant::now()) {
+                        return None;
+                    }
+                    files
+                        .note_file_removed(note_id, path)
+                        .then(|| open_note_removed(note_id, path))
+                }
             }
         }
         // The volume cannot say whether the file moved or went, so neither is
@@ -886,7 +947,18 @@ fn same_bytes_in_the_batch(
     vanished: &VanishedContext<'_>,
 ) -> Option<PathBuf> {
     let last = vanished.tracking.files.last_disk_state(note_id)?;
-    let digests: Vec<(PathBuf, Sha256Digest)> = batch
+    match classify_delete_by_content(&last.hash, &digests_of(batch, &last)) {
+        DeleteVerdict::Moved(to) => Some(to),
+        DeleteVerdict::Removed | DeleteVerdict::ExternalModification => None,
+    }
+}
+
+/// What each candidate that could be holding `last`'s bytes holds now.
+///
+/// Only where the length already matches, so a deletion in a folder of four
+/// thousand notes costs the reads its own window named and no more.
+fn digests_of(candidates: &[PathBuf], last: &DiskState) -> Vec<(PathBuf, Sha256Digest)> {
+    candidates
         .iter()
         .filter(|candidate| {
             std::fs::metadata(candidate).is_ok_and(|m| m.is_file() && m.len() == last.size)
@@ -895,11 +967,85 @@ fn same_bytes_in_the_batch(
             let bytes = readable_bytes(candidate)?;
             Some((candidate.clone(), writ_core::hash::sha256_bytes(&bytes)))
         })
-        .collect();
-    match classify_delete_by_content(&last.hash, &digests) {
-        DeleteVerdict::Moved(to) => Some(to),
-        DeleteVerdict::Removed | DeleteVerdict::ExternalModification => None,
+        .collect()
+}
+
+/// What the removals this watcher is holding have to say, now that `batch` has
+/// been delivered.
+///
+/// Each one is looked for once more: in the delivery it vanished in and the
+/// one that just arrived, and in the folder it left as it stands now. A hit
+/// resolves it to a move; a removal past its deadline is announced as the
+/// deletion it looked like all along, and the record is marked at that point
+/// rather than when the path first went empty.
+///
+/// Resolving runs before expiry, so a removal this delivery answers is a move
+/// however long it waited for the answer. The note ids come back with the
+/// events because an answer here is the batch's one message for that note: the
+/// events that follow it must not send a second (`told`).
+///
+/// A batch of nothing is how the thread asks on a timeout, when no delivery
+/// came at all — the folder listing can still answer, and the deadline is
+/// still due.
+pub fn answer_held_removals(
+    pending: &mut PendingRemovals,
+    batch: &[PathBuf],
+    tracking: &FileTracking,
+    now: Instant,
+) -> Vec<(String, WritEvent)> {
+    let mut answers: Vec<(String, WritEvent)> = Vec::new();
+    for note_id in pending.note_ids() {
+        let Some(held) = pending.held(&note_id) else {
+            continue;
+        };
+        // A file back at the path it left never went anywhere. The delivery
+        // that put it back carries its own event for the tab, and this one
+        // stops waiting rather than announcing a deletion behind it.
+        if std::fs::metadata(&held.path).is_ok_and(|m| m.is_file()) {
+            pending.forget(&note_id);
+            continue;
+        }
+        let path = held.path.clone();
+        let durable = held.identity.as_ref().is_some_and(FileIdentity::is_durable);
+        let last = held.last;
+        let candidates = candidates_for(
+            &path,
+            &held.candidates(batch),
+            tracking.files.notes_root().as_deref(),
+        );
+        let probed: Vec<(PathBuf, FileIdentity)> = if durable {
+            candidates
+                .all()
+                .filter_map(|candidate| {
+                    let identity = tracking.probe.identity_of(candidate)?;
+                    Some((candidate.clone(), identity))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        // Ids from every candidate, bytes from the deliveries alone: hashing
+        // the folder a note left would read every note in it, and a match on
+        // content there would land the tab on any note holding the same text.
+        let digests = match &last {
+            Some(last) => digests_of(&candidates.batch, last),
+            None => Vec::new(),
+        };
+        if let Some(to) = pending.resolve(&note_id, &probed, &digests) {
+            if tracking.files.note_file_moved(&note_id, &path, &to) {
+                answers.push((note_id.clone(), open_note_moved(&note_id, &path, &to)));
+            }
+        }
     }
+    for held in pending.expired(now) {
+        if tracking.files.note_file_removed(&held.note_id, &held.path) {
+            answers.push((
+                held.note_id.clone(),
+                open_note_removed(&held.note_id, &held.path),
+            ));
+        }
+    }
+    answers
 }
 
 /// The event a change the notes watcher already classified becomes for the tab
@@ -927,6 +1073,26 @@ pub fn open_note_change(
 mod tests {
     use super::super::moves::NoteFiles;
     use super::*;
+
+    /// A watcher holding removals for the window the running one holds them
+    /// for, so a test sees the same wait production does.
+    fn holding() -> RefCell<PendingRemovals> {
+        RefCell::new(PendingRemovals::new(DEFAULT_HOLD_WINDOW))
+    }
+
+    /// What a held removal becomes once its window passes with no delivery
+    /// having answered it, which is what the watcher thread's own timeout
+    /// does.
+    fn announced_after_the_wait(
+        pending: &RefCell<PendingRemovals>,
+        tracking: &FileTracking,
+    ) -> Vec<WritEvent> {
+        let deadline = Instant::now() + DEFAULT_HOLD_WINDOW;
+        answer_held_removals(&mut pending.borrow_mut(), &[], tracking, deadline)
+            .into_iter()
+            .map(|(_, event)| event)
+            .collect()
+    }
     use std::fs;
     use tempfile::tempdir;
 
@@ -1525,6 +1691,7 @@ mod tests {
             "note-1",
             &from,
             &VanishedContext {
+                hold: &holding(),
                 batch: &batch,
                 tracking: &tracking,
             },
@@ -1578,22 +1745,189 @@ mod tests {
             ..RecordingFiles::default()
         });
         let batch = vec![gone.clone()];
+        let pending = holding();
         let event = open_note_vanished(
             "note-1",
             &gone,
             &VanishedContext {
+                hold: &pending,
                 batch: &batch,
                 tracking: &tracking,
             },
         );
 
-        match event {
-            Some(WritEvent::BufferExternal { change, .. }) => {
-                assert_eq!(change, ExternalChange::Removed);
+        assert!(event.is_none(), "a removal waits before it is announced");
+        assert!(pending.borrow().holds("note-1"));
+        assert!(
+            files.removed.lock().unwrap().is_empty(),
+            "the tab is not marked off its file while the removal is waiting"
+        );
+
+        let announced = announced_after_the_wait(&pending, &tracking);
+        match announced.as_slice() {
+            [WritEvent::BufferExternal { change, .. }] => {
+                assert_eq!(change, &ExternalChange::Removed);
             }
             other => panic!("expected a removal, got {other:?}"),
         }
         assert_eq!(files.removed.lock().unwrap().as_slice(), &[gone]);
+        assert!(files.moved.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_rename_whose_halves_land_in_different_deliveries_is_still_a_move() {
+        // What the watcher thread sees when a rename straddles a debounce
+        // deadline: one delivery saying the path is empty, and the file
+        // itself in the next. Answering the first on its own took the tab off
+        // a file sitting one folder away.
+        let dir = tempdir().unwrap();
+        let sub = dir.path().join("archive");
+        fs::create_dir(&sub).unwrap();
+        let before = dir.path().join("note.md");
+        let after = sub.join("moved-by-finder.md");
+        fs::write(&before, b"text worth keeping").unwrap();
+        let identity = crate::watcher::identity::read_identity(&before);
+        fs::rename(&before, &after).unwrap();
+
+        let (tracking, files) = tracking_with(RecordingFiles {
+            identity,
+            notes_root: Some(dir.path().to_path_buf()),
+            ..RecordingFiles::default()
+        });
+        let pending = holding();
+        let first = open_note_vanished(
+            "note-1",
+            &before,
+            &VanishedContext {
+                hold: &pending,
+                batch: std::slice::from_ref(&before),
+                tracking: &tracking,
+            },
+        );
+        assert!(first.is_none(), "nothing in that delivery could answer it");
+        assert!(files.removed.lock().unwrap().is_empty());
+
+        let second = vec![after.clone()];
+        let answers = answer_held_removals(
+            &mut pending.borrow_mut(),
+            &second,
+            &tracking,
+            Instant::now(),
+        );
+        match answers.as_slice() {
+            [(
+                note_id,
+                WritEvent::BufferExternal {
+                    change, new_path, ..
+                },
+            )] => {
+                assert_eq!(note_id, "note-1");
+                assert_eq!(change, &ExternalChange::Moved);
+                assert_eq!(new_path.as_deref(), after.to_str());
+            }
+            other => panic!("expected one move, got {other:?}"),
+        }
+        assert_eq!(
+            files.moved.lock().unwrap().as_slice(),
+            &[(before, after)],
+            "and the row is moved before the tab hears about it"
+        );
+        assert!(files.removed.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_rewrite_and_a_rename_in_different_deliveries_are_found_by_the_bytes() {
+        // The same split, with the id on record retired by a rewrite nobody
+        // reported. The bytes are what is left to recognise the file by, and
+        // they are read from the deliveries rather than from the folder.
+        let dir = tempdir().unwrap();
+        let before = dir.path().join("note.md");
+        let after = dir.path().join("renamed-by-finder.md");
+        fs::write(&before, b"text worth keeping").unwrap();
+        let retired = crate::watcher::identity::read_identity(&before);
+        fs::remove_file(&before).unwrap();
+        fs::write(&after, b"text worth keeping").unwrap();
+
+        let (tracking, files) = tracking_with(RecordingFiles {
+            identity: retired,
+            last: Some(last_read(b"text worth keeping")),
+            notes_root: Some(dir.path().to_path_buf()),
+            ..RecordingFiles::default()
+        });
+        let pending = holding();
+        let first = open_note_vanished(
+            "note-1",
+            &before,
+            &VanishedContext {
+                hold: &pending,
+                batch: std::slice::from_ref(&before),
+                tracking: &tracking,
+            },
+        );
+        assert!(first.is_none());
+
+        let second = vec![after.clone()];
+        let answers = answer_held_removals(
+            &mut pending.borrow_mut(),
+            &second,
+            &tracking,
+            Instant::now(),
+        );
+        match answers.as_slice() {
+            [(
+                _,
+                WritEvent::BufferExternal {
+                    change, new_path, ..
+                },
+            )] => {
+                assert_eq!(change, &ExternalChange::Moved);
+                assert_eq!(new_path.as_deref(), after.to_str());
+            }
+            other => panic!("expected one move, got {other:?}"),
+        }
+        assert!(files.removed.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_file_back_at_its_own_path_is_never_announced_as_a_deletion() {
+        // A sync client landing an update is a delete and a create at one
+        // path, and the two can arrive in different deliveries. The second one
+        // carries its own event for the tab; the removal waiting behind it
+        // stops waiting rather than following it with a deletion.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("note.md");
+        fs::write(&path, b"as writ left it").unwrap();
+        let retired = crate::watcher::identity::read_identity(&path);
+        fs::remove_file(&path).unwrap();
+
+        let (tracking, files) = tracking_with(RecordingFiles {
+            identity: retired,
+            last: Some(last_read(b"as writ left it")),
+            notes_root: Some(dir.path().to_path_buf()),
+            ..RecordingFiles::default()
+        });
+        let pending = holding();
+        assert!(open_note_vanished(
+            "note-1",
+            &path,
+            &VanishedContext {
+                hold: &pending,
+                batch: std::slice::from_ref(&path),
+                tracking: &tracking,
+            },
+        )
+        .is_none());
+
+        fs::write(&path, b"as the sync client left it").unwrap();
+        let answers = answer_held_removals(
+            &mut pending.borrow_mut(),
+            std::slice::from_ref(&path),
+            &tracking,
+            Instant::now() + DEFAULT_HOLD_WINDOW,
+        );
+        assert!(answers.is_empty(), "saw {answers:?}");
+        assert!(pending.borrow().is_empty());
+        assert!(files.removed.lock().unwrap().is_empty());
         assert!(files.moved.lock().unwrap().is_empty());
     }
 
@@ -1616,6 +1950,7 @@ mod tests {
             "note-1",
             &from,
             &VanishedContext {
+                hold: &holding(),
                 batch: &[],
                 tracking: &tracking,
             },
@@ -1657,6 +1992,7 @@ mod tests {
             "note-1",
             &gone,
             &VanishedContext {
+                hold: &holding(),
                 batch: &[],
                 tracking: &tracking,
             },
@@ -1710,6 +2046,7 @@ mod tests {
             "note-1",
             &gone,
             &VanishedContext {
+                hold: &holding(),
                 batch: &[dir.path().join("one.md")],
                 tracking: &tracking,
             },
@@ -1742,6 +2079,7 @@ mod tests {
             "note-1",
             &gone,
             &VanishedContext {
+                hold: &holding(),
                 batch: &[],
                 tracking: &tracking,
             },
@@ -1772,6 +2110,7 @@ mod tests {
             "note-1",
             &gone,
             &VanishedContext {
+                hold: &holding(),
                 batch: &[],
                 tracking: &tracking,
             },
@@ -1795,6 +2134,7 @@ mod tests {
             DEFAULT_IGNORE_TTL,
             Instant::now(),
             &VanishedContext {
+                hold: &holding(),
                 batch: &batch,
                 tracking: &tracking,
             },
@@ -1834,6 +2174,7 @@ mod tests {
             DEFAULT_IGNORE_TTL,
             Instant::now(),
             &VanishedContext {
+                hold: &holding(),
                 batch: &batch,
                 tracking: &tracking,
             },
@@ -1917,6 +2258,7 @@ mod tests {
             &path,
             false,
             &VanishedContext {
+                hold: &holding(),
                 batch: &batch,
                 tracking: &tracking,
             },
@@ -1980,6 +2322,7 @@ mod tests {
             "note-1",
             &from,
             &VanishedContext {
+                hold: &holding(),
                 batch: &batch,
                 tracking: &tracking,
             },
@@ -2015,16 +2358,22 @@ mod tests {
             ..RecordingFiles::default()
         });
         let batch = vec![gone.clone(), unrelated];
+        let pending = holding();
         let event = open_note_vanished(
             "note-1",
             &gone,
             &VanishedContext {
+                hold: &pending,
                 batch: &batch,
                 tracking: &tracking,
             },
         );
 
-        assert_eq!(verdict_of(&event), Some((&ExternalChange::Removed, None)));
+        assert!(event.is_none(), "a removal waits before it is announced");
+        assert_eq!(
+            verdict_of(&announced_after_the_wait(&pending, &tracking).pop()),
+            Some((&ExternalChange::Removed, None))
+        );
     }
 
     #[test]
@@ -2048,16 +2397,23 @@ mod tests {
             ..RecordingFiles::default()
         });
         let batch = vec![gone.clone()];
+        let pending = holding();
         let event = open_note_vanished(
             "note-1",
             &gone,
             &VanishedContext {
+                hold: &pending,
                 batch: &batch,
                 tracking: &tracking,
             },
         );
 
-        assert_eq!(verdict_of(&event), Some((&ExternalChange::Removed, None)));
+        assert!(event.is_none(), "a removal waits before it is announced");
+        assert_eq!(
+            verdict_of(&announced_after_the_wait(&pending, &tracking).pop()),
+            Some((&ExternalChange::Removed, None)),
+            "and the folder listing is still no place to match bytes"
+        );
     }
 
     #[test]
@@ -2078,6 +2434,7 @@ mod tests {
             ..RecordingFiles::default()
         });
         let batch = vec![path.clone()];
+        let pending = holding();
         let event = classify_open_file_event(
             &path,
             "note-1",
@@ -2085,12 +2442,18 @@ mod tests {
             DEFAULT_IGNORE_TTL,
             Instant::now(),
             &VanishedContext {
+                hold: &pending,
                 batch: &batch,
                 tracking: &tracking,
             },
         );
 
-        assert_eq!(verdict_of(&event), Some((&ExternalChange::Removed, None)));
+        assert!(event.is_none(), "a removal waits before it is announced");
+        assert_eq!(
+            verdict_of(&announced_after_the_wait(&pending, &tracking).pop()),
+            Some((&ExternalChange::Removed, None)),
+            "a folder standing where the file was is not the file coming back"
+        );
     }
 
     #[test]
@@ -2134,6 +2497,7 @@ mod tests {
         let batch = vec![file.clone()];
         let tracking = FileTracking::untracked();
         let vanished = VanishedContext {
+            hold: &holding(),
             batch: &batch,
             tracking: &tracking,
         };
@@ -2185,6 +2549,7 @@ mod tests {
         let batch = vec![file.clone()];
         let tracking = FileTracking::untracked();
         let vanished = VanishedContext {
+            hold: &holding(),
             batch: &batch,
             tracking: &tracking,
         };
@@ -2239,6 +2604,7 @@ mod tests {
             DEFAULT_IGNORE_TTL,
             Instant::now(),
             &VanishedContext {
+                hold: &holding(),
                 batch: &batch,
                 tracking: &tracking,
             },
@@ -2294,6 +2660,7 @@ mod tests {
                 DEFAULT_IGNORE_TTL,
                 now,
                 &VanishedContext {
+                    hold: &holding(),
                     batch: &nothing_tracked(&file).0,
                     tracking: &FileTracking::untracked(),
                 },
@@ -2331,6 +2698,7 @@ mod tests {
                 DEFAULT_IGNORE_TTL,
                 now,
                 &VanishedContext {
+                    hold: &holding(),
                     batch: &nothing_tracked(&file).0,
                     tracking: &FileTracking::untracked(),
                 },
@@ -2353,6 +2721,7 @@ mod tests {
             DEFAULT_IGNORE_TTL,
             Instant::now(),
             &VanishedContext {
+                hold: &holding(),
                 batch: &batch,
                 tracking: &tracking,
             },
