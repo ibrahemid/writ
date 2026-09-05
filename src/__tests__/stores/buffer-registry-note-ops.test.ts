@@ -51,6 +51,9 @@ vi.mock("../../services/tauri", () => ({
 vi.mock("../../services/autosave", () => ({
   flushAutosave: vi.fn().mockResolvedValue({ ok: true, failures: [] }),
   cancelAutosave: vi.fn(),
+  onAutosaveStart: vi.fn(() => () => {}),
+  onAutosaveSuccess: vi.fn(() => () => {}),
+  onAutosaveError: vi.fn(() => () => {}),
 }));
 
 const confirmed = vi.fn();

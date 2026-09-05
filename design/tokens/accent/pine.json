@@ -1,0 +1,60 @@
+{
+  "accent": {
+    "pine": {
+      "$type": "color",
+      "light": {
+        "base": {
+          "$value": "#1F6F5C",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent"
+            }
+          }
+        },
+        "hover": {
+          "$value": "#1C6453",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-hover"
+            }
+          }
+        },
+        "foreground": {
+          "$value": "#FFFFFF",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-fg"
+            }
+          }
+        }
+      },
+      "dark": {
+        "base": {
+          "$value": "#5BC5A7",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent"
+            }
+          }
+        },
+        "hover": {
+          "$value": "#6BCBB0",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-hover"
+            }
+          }
+        },
+        "foreground": {
+          "$value": "#10221D",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-fg"
+            }
+          }
+        }
+      },
+      "$description": "The default accent."
+    }
+  }
+}

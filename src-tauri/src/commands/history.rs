@@ -29,10 +29,19 @@ pub fn list_history(state: State<'_, AppState>) -> Result<Vec<BufferDocument>, S
         .map_err(|e| e.to_string())
 }
 
+/// IPC: brings a closed note back as an open tab.
+///
+/// The tab starts being followed again here. Its watch went when it closed,
+/// and the file has had every moment since then to change.
 #[tauri::command]
 pub fn restore_buffer(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    store.restore(&id).map_err(|e| e.to_string())
+    let doc = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        store.restore(&id).map_err(|e| e.to_string())?;
+        store.get(&id).map_err(|e| e.to_string())?
+    };
+    state.follow_note_file(&doc);
+    Ok(())
 }
 
 #[tauri::command]
@@ -105,6 +114,6 @@ pub fn search_notes_by_name(
     }
     state
         .notes_index
-        .search_names(&query, QUICK_OPEN_LIMIT)
+        .search_names(&query, &state.notes_root(), QUICK_OPEN_LIMIT)
         .map_err(|e| e.to_string())
 }

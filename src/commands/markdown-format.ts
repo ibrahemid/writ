@@ -6,6 +6,7 @@ import {
   type TransactionSpec,
 } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
+import type { ActiveFormats } from "../types/editor";
 
 interface InlineFormat {
   marker: string;
@@ -203,5 +204,96 @@ export function wrapOnType(state: EditorState, text: string): TransactionSpec | 
     ...state.changeByRange((range) => wrapRange(range.from, range.to, text)),
     scrollIntoView: true,
     userEvent: "input.type",
+  };
+}
+
+type ListKind = "bullet" | "task";
+
+const LIST_MARKER_TEXT: Record<ListKind, string> = { bullet: "- ", task: "- [ ] " };
+
+// Indentation, an optional bullet, and an optional checkbox after it. Every
+// part is optional, so a plain line matches with an empty marker. The space
+// after the checkbox is optional too: a bare `- [ ]` with nothing typed yet is
+// still a task line, and reading it as a plain bullet would stack a second box
+// on the next toggle.
+const LIST_MARKER = /^([ \t]*)(?:([-*+])[ \t]+(\[([ xX])\][ \t]*)?)?/;
+
+interface LineMarker {
+  indent: string;
+  kind: ListKind | null;
+  /** True only for a task line whose box is ticked. */
+  checked: boolean;
+  /** Where the line's own text starts, past the indent and the marker. */
+  textStart: number;
+}
+
+function readListMarker(text: string): LineMarker {
+  const match = LIST_MARKER.exec(text);
+  if (!match) return { indent: "", kind: null, checked: false, textStart: 0 };
+  const [whole, indent, bullet, checkbox, box] = match;
+  return {
+    indent,
+    kind: bullet ? (checkbox ? "task" : "bullet") : null,
+    checked: box === "x" || box === "X",
+    textStart: whole.length,
+  };
+}
+
+/**
+ * Rewrites the list marker on every line the selection touches. A selection
+ * already carrying this marker throughout turns it off; anything else turns it
+ * on, replacing whichever marker a line carries so a bullet becomes a task in
+ * one step rather than gaining a second dash.
+ *
+ * Demoting a task to a bullet drops its box, which for a ticked line would
+ * throw away the fact that the item is done. A ticked line is therefore left
+ * as it stands: bullet reaches an unchecked task, and the tick has to be
+ * cleared before the line can lose its box.
+ */
+function toggleListLines(kind: ListKind): StateCommand {
+  return ({ state, dispatch }) => {
+    const numbers = new Set<number>();
+    for (const range of state.selection.ranges) {
+      const first = state.doc.lineAt(range.from).number;
+      const last = state.doc.lineAt(range.to).number;
+      for (let n = first; n <= last; n += 1) numbers.add(n);
+    }
+
+    const lines = [...numbers].map((n) => state.doc.line(n));
+    const removing = lines.every((line) => readListMarker(line.text).kind === kind);
+    const changes: { from: number; to: number; insert: string }[] = [];
+
+    for (const line of lines) {
+      const marker = readListMarker(line.text);
+      if (kind === "bullet" && marker.kind === "task" && marker.checked) continue;
+      const insert = removing ? marker.indent : marker.indent + LIST_MARKER_TEXT[kind];
+      const to = line.from + marker.textStart;
+      if (state.sliceDoc(line.from, to) === insert) continue;
+      changes.push({ from: line.from, to, insert });
+    }
+
+    if (changes.length === 0) return false;
+    dispatch(state.update({ changes, scrollIntoView: true, userEvent: "input" }));
+    return true;
+  };
+}
+
+export const toggleBulletList: StateCommand = toggleListLines("bullet");
+export const toggleTaskList: StateCommand = toggleListLines("task");
+
+/**
+ * Which markdown constructs the main selection sits inside, for the toolbar's
+ * pressed states. Read from the parsed tree and the caret's own line, so it
+ * costs a resolve and a regex rather than a scan.
+ */
+export function activeFormats(state: EditorState): ActiveFormats {
+  const range = state.selection.main;
+  const marker = readListMarker(state.doc.lineAt(range.head).text);
+  return {
+    bold: findEnclosing(state, range.from, range.to, BOLD.nodeName) !== null,
+    italic: findEnclosing(state, range.from, range.to, ITALIC.nodeName) !== null,
+    code: findEnclosing(state, range.from, range.to, CODE.nodeName) !== null,
+    bullet: marker.kind === "bullet",
+    task: marker.kind === "task",
   };
 }

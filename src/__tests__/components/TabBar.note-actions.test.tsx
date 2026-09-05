@@ -48,6 +48,9 @@ function doc(id: string, sourcePath: string | null): BufferDocument {
 
 const NOTES = doc("mine", "/notes/2026-08-29.md");
 const ELSEWHERE = doc("theirs", "/somebody/else.md");
+// The strip is hidden at one note (ADR-030 section 5), so every fixture opens
+// a second one to give the first tab something to render in.
+const SECOND = doc("second", "/notes/Grocery list.md");
 
 const mocks = vi.hoisted(() => ({
   newNote: vi.fn(),
@@ -64,6 +67,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
+    editor: { isRemovedOnDisk: () => false },
     tabs: {
       activeTabId: mocks.activeTabId,
       setActiveTabId: mocks.setActiveTabId,
@@ -131,10 +135,10 @@ function menuFor(tabIndex: number): MenuItem[] {
 }
 
 async function submitRename(value: string) {
-  const tab = document.querySelector<HTMLButtonElement>(".tab")!;
-  fireEvent.dblClick(tab);
+  const label = document.querySelector<HTMLButtonElement>(".tab-label")!;
+  fireEvent.dblClick(label);
   const input = await waitFor(() => {
-    const found = document.querySelector<HTMLInputElement>(".tab input");
+    const found = document.querySelector<HTMLInputElement>(".tab-rename-input");
     expect(found).not.toBeNull();
     return found!;
   });
@@ -145,7 +149,7 @@ async function submitRename(value: string) {
 describe("TabBar note actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.buffers.mockReturnValue([NOTES]);
+    mocks.buffers.mockReturnValue([NOTES, SECOND]);
     mocks.activeTabId.mockReturnValue("mine");
     mocks.renameBuffer.mockResolvedValue(undefined);
   });
@@ -202,7 +206,7 @@ describe("TabBar note actions", () => {
     await submitRename("Grocery list");
 
     expect(mocks.renameBuffer).toHaveBeenCalledWith("mine", "Grocery list");
-    await waitFor(() => expect(document.querySelector(".tab input")).toBeNull());
+    await waitFor(() => expect(document.querySelector(".tab-rename-input")).toBeNull());
     expect(mocks.showToast).not.toHaveBeenCalled();
   });
 
@@ -216,7 +220,7 @@ describe("TabBar note actions", () => {
   });
 
   it("never offers Delete for a file opened from somebody else's folder", () => {
-    mocks.buffers.mockReturnValue([ELSEWHERE]);
+    mocks.buffers.mockReturnValue([ELSEWHERE, SECOND]);
     render(() => <TabBar />);
 
     const remove = menuFor(0).find((item) => item.label === "Delete");

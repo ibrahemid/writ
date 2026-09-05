@@ -160,12 +160,72 @@ export async function moveArchivedNotes(): Promise<MoveArchiveOutcome> {
   return invoke("move_archived_notes");
 }
 
-export async function saveBufferContent(id: string, content: string): Promise<void> {
+/** What a note's file holds, as the backend reports it. */
+export interface DiskState {
+  hash: string;
+  size: number;
+  mtime_ms: number | null;
+}
+
+/**
+ * Writes the note and reports the digest of what its file now holds, or null
+ * when the note had nothing in it and no file to write it to.
+ */
+export async function saveBufferContent(id: string, content: string): Promise<string | null> {
   return invoke("save_buffer_content", { id, content });
 }
 
-export async function saveBufferContentUnindexed(id: string, content: string): Promise<void> {
+/**
+ * Writes a note whose file was deleted outside Writ back to the path it names.
+ *
+ * [`saveBufferContent`] refuses that write, because a keystroke must not put
+ * back a file the person threw away (spec W4). This is the person asking for
+ * it, which is the other half of the same rule.
+ */
+export async function restoreNoteFile(id: string, content: string): Promise<string | null> {
+  return invoke("restore_note_file", { id, content });
+}
+
+export async function saveBufferContentUnindexed(
+  id: string,
+  content: string,
+): Promise<string | null> {
   return invoke("save_buffer_content_unindexed", { id, content });
+}
+
+/**
+ * What the backend can say about a note's file.
+ *
+ * `no_file` is a new note nothing has saved yet. `undescribed` is a note that
+ * names a file Writ could not read: it is not there, or its bytes have not
+ * been downloaded (reading the second would make the sync provider fetch it).
+ * The two are kept apart because only the first is safe to read as clean.
+ */
+export type NoteDiskAnswer =
+  | { state: "described"; disk: DiskState }
+  | { state: "no_file" }
+  | { state: "undescribed" };
+
+/** What the note's file holds right now. */
+export async function noteDiskState(id: string): Promise<NoteDiskAnswer> {
+  return invoke("note_disk_state", { id });
+}
+
+/** One note's text, for a save that could not reach the file. */
+export interface UnsavedNote {
+  id: string;
+  content: string;
+}
+
+/**
+ * Hands text no save could write to the shutdown snapshot.
+ *
+ * Called on the way out, once, after the last flush: the file has already
+ * refused this text, so the snapshot is the only place left that the next
+ * launch reads.
+ */
+export async function recordUnsavedNotes(notes: readonly UnsavedNote[]): Promise<void> {
+  return invoke("record_unsaved_notes", { notes });
 }
 
 export async function readBufferContent(id: string): Promise<string> {
@@ -275,6 +335,11 @@ export async function renameBuffer(id: string, title: string): Promise<void> {
 export interface RecoveredBuffer {
   id: string;
   content: string;
+  /**
+   * The note's path had no file, so the launch wrote nothing and this text is
+   * the last copy of it (ADR-033 decision 15).
+   */
+  removed_on_disk: boolean;
 }
 
 export async function getRecoveredBuffers(): Promise<RecoveredBuffer[]> {

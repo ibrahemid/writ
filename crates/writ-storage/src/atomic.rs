@@ -11,7 +11,9 @@
 //! place. On POSIX, `rename(2)` over an existing destination is atomic.
 //! On Windows, [`tempfile::NamedTempFile::persist`] uses `ReplaceFile`
 //! to provide the same guarantee. The parent directory is fsynced on
-//! Unix so the rename itself survives a crash.
+//! Unix so the rename itself survives a crash. Windows refuses that rename
+//! while another program holds the destination open, so it is retried for a
+//! fraction of a second before the save is reported as failed.
 //!
 //! Replacing a file rather than writing through it means everything the
 //! filesystem knows about the destination has to be carried across by hand:
@@ -23,6 +25,7 @@
 
 use std::io::{self, Write};
 use std::path::Path;
+use std::time::Duration;
 
 use tempfile::{Builder, NamedTempFile};
 use thiserror::Error;
@@ -54,6 +57,101 @@ pub enum AtomicWriteError {
     /// Anything the filesystem reported that is not one of the two above.
     #[error("io error: {0}")]
     Io(#[from] io::Error),
+}
+
+/// `ERROR_ACCESS_DENIED`, one of the codes a Windows rename over a file
+/// another handle holds open comes back as.
+const ERROR_ACCESS_DENIED: i32 = 5;
+
+/// `ERROR_SHARING_VIOLATION`, the other code that refusal can carry.
+const ERROR_SHARING_VIOLATION: i32 = 32;
+
+/// How many times a save asks Windows to move the replacement into place
+/// before it gives up.
+///
+/// A rename over a file that a watcher, a sync client, or a virus scanner has
+/// open without `FILE_SHARE_DELETE` fails outright. Those handles are held for
+/// a few milliseconds at a time, so a save that would be lost lands on a later
+/// attempt.
+pub const PERSIST_ATTEMPTS: u32 = 10;
+
+/// Longest a single wait between two attempts grows to.
+const PERSIST_BACKOFF_CAP: Duration = Duration::from_millis(50);
+
+/// Whether a rename that failed with `raw_os_error` on `attempt` is worth
+/// another try.
+///
+/// Only the two Windows codes for a file somebody else has open retry, and
+/// only while attempts remain: a refusal that is really a refusal has to reach
+/// the caller rather than be waited out.
+pub fn should_retry_persist(raw_os_error: Option<i32>, attempt: u32) -> bool {
+    if attempt + 1 >= PERSIST_ATTEMPTS {
+        return false;
+    }
+    is_file_in_use(raw_os_error)
+}
+
+/// How long to wait before the attempt after `attempt`.
+///
+/// One millisecond, doubling, capped at [`PERSIST_BACKOFF_CAP`]. The whole
+/// schedule adds up to well under half a second, so a save that cannot land
+/// still fails while the person is looking at it.
+pub fn persist_retry_delay(attempt: u32) -> Duration {
+    let millis = 1u64.checked_shl(attempt).unwrap_or(u64::MAX);
+    Duration::from_millis(millis).min(PERSIST_BACKOFF_CAP)
+}
+
+/// Re-reads a rename failure that outlived the retry budget.
+///
+/// The codes read here are Windows raw codes. `ERROR_ACCESS_DENIED` reaches
+/// `std::io` as [`io::ErrorKind::PermissionDenied`], which the editor renders
+/// as a file the person is not allowed to change. Once the whole budget has
+/// gone by, the likelier reading is that another program is holding the file,
+/// so the failure comes back as [`io::ErrorKind::ResourceBusy`] carrying the
+/// operating system's own wording as its source.
+pub fn classify_persist_failure(error: io::Error) -> io::Error {
+    if is_file_in_use(error.raw_os_error()) {
+        return io::Error::new(io::ErrorKind::ResourceBusy, error);
+    }
+    error
+}
+
+fn is_file_in_use(raw_os_error: Option<i32>) -> bool {
+    matches!(
+        raw_os_error,
+        Some(ERROR_ACCESS_DENIED) | Some(ERROR_SHARING_VIOLATION)
+    )
+}
+
+/// Moves the written replacement onto `target`.
+#[cfg(not(windows))]
+fn persist_replacement(tmp: NamedTempFile, target: &Path) -> io::Result<()> {
+    tmp.persist(target).map(|_| ()).map_err(|e| e.error)
+}
+
+/// Moves the written replacement onto `target`, retrying while Windows says
+/// the destination is in use.
+///
+/// `persist` hands the temp file back with every failure, so the written bytes
+/// stay on disk across the waits and are dropped, which deletes them, only
+/// once the last attempt is gone.
+#[cfg(windows)]
+fn persist_replacement(mut tmp: NamedTempFile, target: &Path) -> io::Result<()> {
+    let mut attempt = 0;
+    loop {
+        let error = match tmp.persist(target) {
+            Ok(_) => return Ok(()),
+            Err(refused) => {
+                tmp = refused.file;
+                refused.error
+            }
+        };
+        if !should_retry_persist(error.raw_os_error(), attempt) {
+            return Err(classify_persist_failure(error));
+        }
+        std::thread::sleep(persist_retry_delay(attempt));
+        attempt += 1;
+    }
 }
 
 /// Copies the destination's permission bits onto the replacement file.
@@ -445,6 +543,11 @@ pub fn temp_sibling(dir: &Path) -> io::Result<NamedTempFile> {
 /// [`AtomicWriteError::Io`] when the parent directory cannot be resolved, the
 /// temp file cannot be written, the fsync fails, or the rename fails. On any
 /// failure the destination at `target` is left untouched.
+///
+/// On Windows the rename is retried while the destination is held open by
+/// another program ([`should_retry_persist`]); a failure that outlives the
+/// budget reaches the caller as [`AtomicWriteError::Io`] carrying
+/// [`io::ErrorKind::ResourceBusy`].
 pub fn write_atomic(target: &Path, bytes: &[u8]) -> Result<(), AtomicWriteError> {
     let dir = target.parent().ok_or_else(|| {
         io::Error::new(
@@ -479,7 +582,7 @@ pub fn write_atomic(target: &Path, bytes: &[u8]) -> Result<(), AtomicWriteError>
     #[cfg(target_os = "macos")]
     let birthtime = birthtime_of(target);
 
-    tmp.persist(target).map_err(|e| e.error)?;
+    persist_replacement(tmp, target)?;
 
     #[cfg(target_os = "macos")]
     if let Some(birthtime) = birthtime {

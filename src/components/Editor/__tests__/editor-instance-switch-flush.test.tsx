@@ -13,6 +13,7 @@ vi.mock("../../../services/tauri", () => ({
     bufferContent.set(id, content);
     callLog.push(`save:${id}:${content}`);
   }),
+  noteDiskState: vi.fn(async () => ({ state: "no_file" })),
 }));
 
 vi.mock("../../../stores/global/buffer-registry", () => ({

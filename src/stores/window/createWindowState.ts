@@ -23,8 +23,9 @@ export interface CreateWindowStateOptions {
 }
 
 export function createWindowState(opts: CreateWindowStateOptions): WindowState {
+  const editor = createEditorStore();
   const downloads = createDownloadStore();
-  const tabs = createTabStore({ registry: bufferRegistry, downloads });
+  const tabs = createTabStore({ registry: bufferRegistry, editor, downloads });
   // Each store needs the other: the tab store routes a note that is not here
   // yet to the downloads, and the downloads open it once its bytes arrive.
   downloads.attachOpener((path, options) => tabs.openFile(path, options));
@@ -33,7 +34,7 @@ export function createWindowState(opts: CreateWindowStateOptions): WindowState {
     windowId: opts.windowId,
     focus: createFocusStore(),
     sidebar: createSidebarStore(),
-    editor: createEditorStore(),
+    editor,
     tabs,
     layout: createLayoutStore({ windowId: opts.windowId }),
     preview: createPreviewStore({ windowId: opts.windowId }),

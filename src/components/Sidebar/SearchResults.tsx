@@ -2,8 +2,17 @@ import { For, Show, createMemo } from "solid-js";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
+import Tooltip from "../Tooltip/Tooltip";
 import { buildSearchRows, type SearchRow } from "./search-results";
 import "./SearchResults.css";
+
+// The row ellipsises both its name and the matched line; the tip carries the
+// whole of each.
+function rowTip(row: SearchRow): string {
+  const hit = row.segments.map((segment) => segment.text).join("").trim();
+  const where = row.line === null ? row.title : `${row.title} · L${row.line}`;
+  return hit ? `${where} — ${hit}` : where;
+}
 
 export default function SearchResults() {
   const win = useWindow();
@@ -47,8 +56,8 @@ export default function SearchResults() {
     e.preventDefault();
     if (row.source === "active") {
       showContextMenu(e.clientX, e.clientY, [
-        { label: "Close Tab", action: () => void win.tabs.closeTab(row.id) },
-        { label: "Close Other Tabs", action: () => void win.tabs.closeOtherTabs(row.id) },
+        { label: "Close tab", action: () => void win.tabs.closeTab(row.id) },
+        { label: "Close other tabs", action: () => void win.tabs.closeOtherTabs(row.id) },
       ]);
     } else if (row.source === "history") {
       showContextMenu(e.clientX, e.clientY, [
@@ -75,26 +84,27 @@ export default function SearchResults() {
         <div class="search-result-list">
           <For each={rows()}>
             {(row) => (
-              <button
-                type="button"
-                class="search-result"
-                classList={{ "is-active": win.tabs.activeTabId() === row.id }}
-                title={row.title}
-                onClick={() => openRow(row)}
-                onContextMenu={(e) => contextMenu(e, row)}
-              >
-                <span class="search-result-file">{row.title}</span>
-                <span class="search-result-hit">
-                  <For each={row.segments}>
-                    {(seg) => (
-                      <span classList={{ "is-match": seg.matched }}>{seg.text}</span>
-                    )}
-                  </For>
-                </span>
-                <Show when={row.line !== null}>
-                  <span class="search-result-line">L{row.line}</span>
-                </Show>
-              </button>
+              <Tooltip label={rowTip(row)}>
+                <button
+                  type="button"
+                  class="search-result"
+                  classList={{ "is-active": win.tabs.activeTabId() === row.id }}
+                  onClick={() => openRow(row)}
+                  onContextMenu={(e) => contextMenu(e, row)}
+                >
+                  <span class="search-result-file">{row.title}</span>
+                  <span class="search-result-hit">
+                    <For each={row.segments}>
+                      {(seg) => (
+                        <span classList={{ "is-match": seg.matched }}>{seg.text}</span>
+                      )}
+                    </For>
+                  </span>
+                  <Show when={row.line !== null}>
+                    <span class="search-result-line">L{row.line}</span>
+                  </Show>
+                </button>
+              </Tooltip>
             )}
           </For>
         </div>

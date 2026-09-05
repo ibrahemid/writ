@@ -19,7 +19,7 @@ export interface ContentProviderOptions {
 export function createContentProvider(options: ContentProviderOptions = {}): ResultProvider {
   return {
     id: "content",
-    section: "Content",
+    section: "Text",
     order: options.order ?? 3,
     cap: options.cap ?? 12,
     modes: ["all", "content"],
@@ -43,6 +43,7 @@ export function createContentProvider(options: ContentProviderOptions = {}): Res
               : ({ kind, id: hit.buffer_id } as const);
           return {
             id: `content:buffer:${hit.buffer_id || hit.path}:${hit.line ?? 0}`,
+            icon: "file-text",
             label: hit.title,
             snippet: hit.snippet,
             line: hit.line ?? undefined,
@@ -65,6 +66,7 @@ export function createContentProvider(options: ContentProviderOptions = {}): Res
             if (skip.has(pathKey(absolute))) continue;
             rows.push({
               id: `content:workspace:${hit.path}:${hit.line}`,
+              icon: "file-text",
               label: basename(hit.path),
               detail: hit.path,
               snippet: hit.snippet,

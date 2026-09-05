@@ -1,0 +1,59 @@
+{
+  "note": "Shared by crates/writ-core/tests/line_ending_digests.rs and src/__tests__/lib/doc-hash.fixture.test.ts. digest is sha256 of the UTF-8 text with line endings normalised; rawDigest is sha256 of the text as written.",
+  "cases": [
+    {
+      "name": "lf",
+      "text": "a\nb\n",
+      "digest": "911169ddaaf146aff539f58c26c489af3b892dff0fe283c1c264c65ae5aa59a2",
+      "rawDigest": "911169ddaaf146aff539f58c26c489af3b892dff0fe283c1c264c65ae5aa59a2"
+    },
+    {
+      "name": "crlf",
+      "text": "a\r\nb\r\n",
+      "digest": "911169ddaaf146aff539f58c26c489af3b892dff0fe283c1c264c65ae5aa59a2",
+      "rawDigest": "58055bdcc73787eb88c78d36f0b4939e9c5dc1c3ad17e25cc85a6833cf1a0cab"
+    },
+    {
+      "name": "cr",
+      "text": "a\rb\r",
+      "digest": "911169ddaaf146aff539f58c26c489af3b892dff0fe283c1c264c65ae5aa59a2",
+      "rawDigest": "95214dcabd7c592744f2ed461262a22b05fc1b2fd6f332bc83d0acf23193f15b"
+    },
+    {
+      "name": "mixed",
+      "text": "a\r\nb\nc\rd",
+      "digest": "f729ae0cbcc8241ebb6918af712a88d5ca2c13f7fbe08f809aa297bfdf99fbe4",
+      "rawDigest": "830d68e2cc23e5791bb929e30d5febd8d1667416de2ebe7157204d5e6d454755"
+    },
+    {
+      "name": "no line break",
+      "text": "writ",
+      "digest": "bd998adfd46eaff944ee5125a9ffaff2ecbf67d11ee8a2a3d2afd0946bc8adbb",
+      "rawDigest": "bd998adfd46eaff944ee5125a9ffaff2ecbf67d11ee8a2a3d2afd0946bc8adbb"
+    },
+    {
+      "name": "empty",
+      "text": "",
+      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rawDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "utf8 with crlf",
+      "text": "héllo\r\nمرحبا\n",
+      "digest": "e99f1e8042dc7ac6be5804d04e2b214aa8d78e1843b9e046315e117839e51265",
+      "rawDigest": "45bbcf69ac982863bc8e56a0983c126ab09f5a0613e961052615020d4165f34e"
+    },
+    {
+      "name": "lone cr at the end",
+      "text": "a\r",
+      "digest": "87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7",
+      "rawDigest": "961a57df036f6c4f44ca8a054271c45e823f469bcc439f0255c40974c3e3d131"
+    },
+    {
+      "name": "crlf inside a line of text",
+      "text": "one\r\n\r\nthree",
+      "digest": "55684904aa903e84780d43de4311cee8d2e27d9194403cab386a848736acf7d9",
+      "rawDigest": "4f4d17d333c37163151bc5f967e69f50bab4c4493c407097e3ab495037cc0da3"
+    }
+  ]
+}

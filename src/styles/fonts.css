@@ -1,3 +1,21 @@
-@import "@fontsource/inter/latin-400.css";
-@import "@fontsource/inter/latin-500.css";
-@import "@fontsource/inter/latin-600.css";
+/* iA Writer Quattro S — the one alternate prose face, offered under
+   appearance.prose_face and bundled under the SIL Open Font License 1.1
+   (licences/ia-writer-quattro.txt). Unmodified, so it keeps its reserved font
+   name. Every other face in the system is the platform's own and needs no
+   @font-face. */
+
+@font-face {
+  font-family: "iA Writer Quattro S";
+  src: url("../assets/fonts/iAWriterQuattroS-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "iA Writer Quattro S";
+  src: url("../assets/fonts/iAWriterQuattroS-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}

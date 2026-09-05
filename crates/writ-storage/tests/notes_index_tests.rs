@@ -46,9 +46,9 @@ fn search(conn: &Connection, raw: &str) -> Vec<String> {
         .collect()
 }
 
-fn search_names(conn: &Connection, raw: &str) -> Vec<String> {
+fn search_names(conn: &Connection, notes: &Path, raw: &str) -> Vec<String> {
     NotesIndex::new(conn)
-        .search_names(raw, 50)
+        .search_names(raw, notes, 50)
         .expect("search_names")
         .into_iter()
         .map(|hit| hit.path)
@@ -182,7 +182,7 @@ fn reconcile_indexes_a_file_reported_as_not_downloaded_by_name_only() {
         "only the downloaded file's content was read"
     );
     assert_eq!(
-        search_names(&conn, "cloud"),
+        search_names(&conn, &notes, "cloud"),
         vec![dataless_key.clone()],
         "the name is what an undownloaded note is findable by"
     );
@@ -401,7 +401,7 @@ fn search_names_ranks_a_prefix_match_first() {
         .expect("reconcile");
 
     let hits = NotesIndex::new(&conn)
-        .search_names("meeting", 10)
+        .search_names("meeting", &notes, 10)
         .expect("search_names");
 
     assert!(hits.len() >= 2, "both meeting notes must match");
@@ -410,6 +410,36 @@ fn search_names_ranks_a_prefix_match_first() {
         "a prefix match outranks a mid-name match"
     );
     assert!(hits.iter().all(|hit| hit.name != "unrelated.md"));
+}
+
+#[test]
+fn search_names_ranks_the_path_inside_the_notes_folder_only() {
+    let dir = TempDir::new().expect("tempdir");
+    let db_path = dir.path().join("writ.db");
+    let conn = open_database(&db_path).expect("open_database");
+    run_migrations(&conn).expect("migrations");
+    // A folder above the root spelling out the query, the way a home directory
+    // named `claude` spells out "cloud".
+    let notes = dir.path().join("c-l-o-u-d").join("notes");
+    std::fs::create_dir_all(&notes).expect("create notes dir");
+    let plain = write_note(&notes, "here.md", "body");
+    let nested = write_note(&notes, "projects/alpha.md", "body");
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("reconcile");
+
+    assert!(
+        notes_index::index_key(&plain).contains("c-l-o-u-d"),
+        "the row is keyed by a path that spells the query out"
+    );
+    assert!(
+        search_names(&conn, &notes, "cloud").is_empty(),
+        "the folders above the notes folder are no part of a note's name"
+    );
+    assert_eq!(
+        search_names(&conn, &notes, "projalpha"),
+        vec![notes_index::index_key(&nested)],
+        "a folder inside the notes folder is"
+    );
 }
 
 #[test]
@@ -443,19 +473,15 @@ fn upsert_preserves_the_rowid_and_the_rows_that_cascade_from_it() {
         hash: None,
         indexed_by: IndexedBy::Content,
     };
-    index.upsert(&note, "first body").expect("first upsert");
+    index
+        .upsert(&note, "first body [[elsewhere]]")
+        .expect("first upsert");
 
     let rowid_before: i64 = conn
         .query_row("SELECT rowid FROM files WHERE path = ?1", [&key], |row| {
             row.get(0)
         })
         .expect("rowid");
-    conn.execute(
-        "INSERT INTO links (from_path, to_target, to_path, kind, line, col)
-         VALUES (?1, 'elsewhere', NULL, 'wiki', 1, 0)",
-        [&key],
-    )
-    .expect("insert link");
 
     let updated = IndexedNote {
         size: 20,
@@ -463,7 +489,7 @@ fn upsert_preserves_the_rowid_and_the_rows_that_cascade_from_it() {
         ..note
     };
     index
-        .upsert(&updated, "second body")
+        .upsert(&updated, "second body [[somewhere]]")
         .expect("second upsert");
 
     let rowid_after: i64 = conn
@@ -476,14 +502,17 @@ fn upsert_preserves_the_rowid_and_the_rows_that_cascade_from_it() {
         "an upsert must not reassign the rowid files_fts joins on"
     );
 
-    let links: i64 = conn
-        .query_row(
-            "SELECT count(*) FROM links WHERE from_path = ?1",
-            [&key],
-            |row| row.get(0),
-        )
-        .expect("count links");
-    assert_eq!(links, 1, "an upsert must not cascade the derived rows away");
+    let links: Vec<String> = NotesIndex::new(&conn)
+        .links_from(&key)
+        .expect("links from")
+        .into_iter()
+        .map(|link| link.to_target)
+        .collect();
+    assert_eq!(
+        links,
+        vec!["somewhere".to_string()],
+        "the derived rows describe the text that was just written"
+    );
 
     assert_eq!(search(&conn, "second"), vec![key.clone()]);
     assert!(

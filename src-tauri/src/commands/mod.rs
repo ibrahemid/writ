@@ -8,6 +8,7 @@ pub mod history;
 pub mod inbox;
 pub mod link;
 pub mod materialise;
+pub mod note_index;
 pub mod notes;
 pub mod notices;
 pub mod perf;

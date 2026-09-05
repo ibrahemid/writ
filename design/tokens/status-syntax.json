@@ -1,0 +1,68 @@
+{
+  "status": {
+    "$type": "color",
+    "$description": "Stylesheet defaults, light-first. A preset overwrites these at runtime through themeStore.applyToRoot.",
+    "success": {
+      "$value": "#178035"
+    },
+    "warning": {
+      "$value": "#9a6b00"
+    },
+    "error": {
+      "$value": "var(--writ-danger)"
+    },
+    "foreground": {
+      "$value": "#ffffff"
+    }
+  },
+  "syntax": {
+    "$type": "color",
+    "keyword": {
+      "$value": "var(--writ-fg)"
+    },
+    "string": {
+      "$value": "var(--writ-syn-string)"
+    },
+    "comment": {
+      "$value": "var(--writ-fg-faint)"
+    },
+    "function": {
+      "$value": "var(--writ-fg-muted)"
+    },
+    "number": {
+      "$value": "var(--writ-fg)"
+    },
+    "type": {
+      "$value": "var(--writ-fg-muted)"
+    },
+    "variable": {
+      "$value": "var(--writ-fg-muted)"
+    },
+    "$description": "ADR-030 decision 3: the syntax set is the neutrals at low saturation, so it follows the polarity without a second palette. Only strings carry a hue."
+  },
+  "traffic": {
+    "$type": "color",
+    "$description": "Window controls mirror their host, so they are fixed across app themes.",
+    "close": {
+      "$value": "#ff5f57"
+    },
+    "minimize": {
+      "$value": "#FEBC2E"
+    },
+    "maximize": {
+      "$value": "#28c840"
+    },
+    "blurred": {
+      "$value": "#4a4a52"
+    },
+    "close-glyph": {
+      "$value": "#4d0000"
+    },
+    "minimize-glyph": {
+      "$value": "#5a3300"
+    },
+    "maximize-glyph": {
+      "$value": "#003800"
+    }
+  }
+}

@@ -42,6 +42,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
+    editor: { isRemovedOnDisk: () => false },
     tabs: {
       activeTabId: mocks.activeTabId,
       setActiveTabId: mocks.setActiveTabId,
@@ -102,28 +103,17 @@ vi.mock("../../stores/global/config", () => ({
 
 import TitleBar, { isInteractiveTarget } from "../../components/TitleBar/TitleBar";
 
-describe("TitleBar tab double-click (#125)", () => {
+describe("TitleBar drag region", () => {
   afterEach(() => {
     mocks.toggleMaximize.mockClear();
     mocks.setActiveTabId.mockClear();
     cleanup();
   });
 
-  it("double-clicking a tab title enters rename, stops propagation, and does not maximize", () => {
+  it("carries no tab strip: it lives under the toolbar", () => {
     const { container } = render(() => <TitleBar />);
-    const title = container.querySelector<HTMLElement>(".tab-title");
-    expect(title).not.toBeNull();
-    expect(title!.textContent).toBe("alpha.md");
-
-    // Spy on stopPropagation to pin the primary fix: the tab's onDblClick must
-    // halt the event before Solid's delegated walk reaches the titlebar handler.
-    const ev = new MouseEvent("dblclick", { bubbles: true, cancelable: true });
-    const stopProp = vi.spyOn(ev, "stopPropagation");
-    title!.dispatchEvent(ev);
-
-    expect(container.querySelector(".tab-rename-input")).not.toBeNull();
-    expect(stopProp).toHaveBeenCalled();
-    expect(mocks.toggleMaximize).not.toHaveBeenCalled();
+    expect(container.querySelector(".titlebar-tabs")).toBeNull();
+    expect(container.querySelector(".tabbar")).toBeNull();
   });
 
   it("double-clicking the bare titlebar surface still toggles maximize", () => {

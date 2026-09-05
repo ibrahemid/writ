@@ -38,6 +38,16 @@ describe("settings index", () => {
     expect(results.map((e) => e.id)).toContain("appearance.custom_colors");
   });
 
+  it("titles the light-dark row for the choice it offers, not for its section", () => {
+    expect(SETTINGS_INDEX.find((e) => e.id === "appearance.polarity")?.title).toBe("Light and dark");
+  });
+
+  it("finds the light-dark row under the words it used to be titled with", () => {
+    for (const query of ["appearance", "dark", "light", "system"]) {
+      expect(rankSettings(query).map((e) => e.id), query).toContain("appearance.polarity");
+    }
+  });
+
   it("matches by section label", () => {
     const results = rankSettings("preview");
     expect(results.every((e) => e.section === "preview")).toBe(true);

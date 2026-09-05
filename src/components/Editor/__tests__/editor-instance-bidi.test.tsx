@@ -8,6 +8,7 @@ const bufferContent = new Map<string, string>();
 vi.mock("../../../services/tauri", () => ({
   readBufferContent: vi.fn(async (id: string) => bufferContent.get(id) ?? ""),
   saveBufferContent: vi.fn(async () => {}),
+  noteDiskState: vi.fn(async () => ({ state: "no_file" })),
 }));
 
 vi.mock("../../../stores/global/buffer-registry", () => ({

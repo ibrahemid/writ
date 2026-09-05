@@ -299,3 +299,51 @@ fn the_recorded_ending_survives_being_set() {
         "the ending did not survive a restart"
     );
 }
+
+// What the watcher is told after a save. The digest the store hands back is
+// the one `modification_is_news` compares the file against on the next report,
+// so a digest of the editor's LF text rather than of the file's own bytes
+// makes every CRLF note look edited by somebody else.
+
+#[test]
+fn a_save_the_file_already_holds_leaves_the_watcher_nothing_to_report() {
+    use writ_core::watcher::change_event::modification_is_news;
+
+    let (dir, store) = setup();
+    let (path, state) = open_note(&store, &dir, "alpha\r\nbeta\r\n");
+
+    // Cmd+S with nothing typed. Nothing is written, and what comes back is
+    // still what the watcher has to measure the file against.
+    let after = store
+        .save_to_source("ending-1", "alpha\nbeta\n", Some(state), None)
+        .expect("save");
+
+    let on_disk = sha256_bytes(&std::fs::read(&path).expect("read"));
+    assert_eq!(after.hash, on_disk);
+    assert!(
+        !modification_is_news(Some(after.hash), Some(on_disk), false),
+        "a save that wrote nothing was reported as an external change"
+    );
+}
+
+#[test]
+fn a_windows_file_a_save_wrote_matches_the_digest_it_was_recorded_under() {
+    use writ_core::watcher::change_event::modification_is_news;
+
+    let (dir, store) = setup();
+    let (path, state) = open_note(&store, &dir, "alpha\r\nbeta\r\n");
+
+    let after = store
+        .save_to_source("ending-1", "alpha\nBETA\n", Some(state), None)
+        .expect("save");
+
+    // The file holds CRLF; the editor's text was LF. The recorded digest has
+    // to be the file's.
+    let on_disk = sha256_bytes(&std::fs::read(&path).expect("read"));
+    assert_eq!(std::fs::read(&path).expect("read"), b"alpha\r\nBETA\r\n");
+    assert_eq!(after.hash, on_disk);
+    assert!(
+        !modification_is_news(Some(after.hash), Some(on_disk), false),
+        "Writ's own save was reported back to the tab as an external change"
+    );
+}
