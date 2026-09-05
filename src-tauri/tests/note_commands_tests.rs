@@ -238,6 +238,18 @@ fn a_link_target_that_names_a_folder_creates_the_note_inside_it() {
             .join("Ideas.md")
     );
     assert!(path.exists(), "{}", path.display());
+
+    let second =
+        new_note_from_link_inner(&state, "projects/2026/Ideas.md").expect("note from link");
+    assert_eq!(
+        std::path::PathBuf::from(second.source_path.expect("the note has no file")),
+        state
+            .notes_root()
+            .join("projects")
+            .join("2026")
+            .join("Ideas 2.md"),
+        "the second note of that name takes the next one in the same folder"
+    );
 }
 
 /// Anything a target holds that could walk out of the notes folder is gone
@@ -286,7 +298,7 @@ fn a_link_target_is_refused_when_its_folder_is_a_link_out_of_the_notes_folder() 
     );
 }
 
-/// A link target reaches this as typed/// A link target reaches this as typed, so a name that reads like a path must
+/// A link target reaches this as typed, so a name that reads like a path must
 /// not become one: the note lands in the notes folder whatever separators the
 /// name carried.
 #[test]
@@ -2708,4 +2720,30 @@ fn a_backdated_note_that_is_deleted_is_still_gone() {
         "text worth keeping",
         "the save wrote over a file the note was never in"
     );
+}
+
+/// The frontend reaches these by name through `invoke`, so a command dropped
+/// from the handler compiles and every test here still passes.
+#[test]
+fn every_note_command_is_registered() {
+    const LIB_RS: &str = include_str!("../src/lib.rs");
+
+    for command in [
+        "commands::notes::new_note,",
+        "commands::notes::new_note_from_link,",
+        "commands::notes::rename_note,",
+        "commands::notes::delete_note,",
+        "commands::notes::save_note_copy,",
+        "commands::notes::show_note_in_file_manager,",
+        "commands::notes::show_notes_file_in_file_manager,",
+        "commands::notes::get_notes_root,",
+        "commands::notes::get_notes_folder,",
+        "commands::notes::pick_notes_folder,",
+    ] {
+        assert!(
+            LIB_RS.contains(command),
+            "{} is not in the invoke handler, so the frontend cannot call it",
+            command.trim_end_matches(',')
+        );
+    }
 }
