@@ -323,6 +323,11 @@ export async function renameBuffer(id: string, title: string): Promise<void> {
 export interface RecoveredBuffer {
   id: string;
   content: string;
+  /**
+   * The note's path had no file, so the launch wrote nothing and this text is
+   * the last copy of it (ADR-033 decision 15).
+   */
+  removed_on_disk: boolean;
 }
 
 export async function getRecoveredBuffers(): Promise<RecoveredBuffer[]> {
