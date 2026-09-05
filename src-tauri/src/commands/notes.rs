@@ -75,8 +75,10 @@ pub fn new_note_inner(state: &AppState) -> Result<BufferDocument, String> {
 /// This is what an editor offers on a `[[…]]` that names no note: the target
 /// becomes the file name, so writing the link and taking the offer leaves the
 /// link resolved. A target written with the extension resolves the same way a
-/// bare one does, so the extension comes off before the name is sanitised
-/// rather than being minted into `Note.md.md`.
+/// bare one does, so the extension comes off here, once, rather than being
+/// minted into `Note.md.md`. The caller sends the name with the extension the
+/// link carried; taking it off there as well named a file the link does not
+/// reach.
 pub fn new_note_named_inner(state: &AppState, name: &str) -> Result<BufferDocument, String> {
     let now = chrono::Utc::now();
     let stem = writ_core::notes::note_file_stem_from_link(name, now);

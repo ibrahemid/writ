@@ -1,4 +1,4 @@
-import { wikilinkName } from "../lib/wikilink";
+import { wikilinkFileName, wikilinkName } from "../lib/wikilink";
 
 /** What the index answered about a `[[…]]` target. */
 export interface NoteLinkResolution {
@@ -23,8 +23,13 @@ export interface NoteLinkActions {
   ): void;
   /** Offers to create the note a target names. */
   offerCreate(name: string, onCreate: () => void): void;
-  /** Creates a note called `name`, answering its path or null on failure. */
-  create(name: string): Promise<string | null>;
+  /**
+   * Creates a note from a link's file name, answering its path or null on
+   * failure. The name still carries the extension the link was written with,
+   * because the file name is minted from it and stripping it here as well
+   * would name a file the link does not resolve to.
+   */
+  create(fileName: string): Promise<string | null>;
 }
 
 /**
@@ -55,8 +60,9 @@ export async function followNoteLink(
     return;
   }
   if (name === "") return;
+  const fileName = wikilinkFileName(written);
   actions.offerCreate(name, () => {
-    void actions.create(name).then((path) => {
+    void actions.create(fileName).then((path) => {
       if (path) actions.openPath(path);
     });
   });

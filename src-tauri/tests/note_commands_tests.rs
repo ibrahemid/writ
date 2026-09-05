@@ -25,7 +25,7 @@ use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::errors::StorageError;
 use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
+use writ_storage::notes_index::{self, NotesIndexStore};
 #[cfg(unix)]
 use writ_tauri_lib::commands::buffer::ERR_FOLDER_NOT_WRITABLE;
 use writ_tauri_lib::commands::buffer::{
@@ -34,6 +34,7 @@ use writ_tauri_lib::commands::buffer::{
     ERR_FILE_NOT_DOWNLOADED, ERR_FILE_REMOVED_ON_DISK,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
+use writ_tauri_lib::commands::note_index::resolve_note_link_inner;
 use writ_tauri_lib::commands::notes::{
     delete_note_inner, move_notes_folder_to, new_note_inner, new_note_named_inner,
     note_path_for_id, notes_root_text, path_is_inside_notes, rename_note_inner,
@@ -172,18 +173,50 @@ fn a_named_note_written_with_the_extension_gets_one_extension() {
 }
 
 /// The whole round trip the offer makes: the target names no note, the note is
-/// created from it, and the same target then names that note.
+/// created from the file name the editor sends, and the same target then
+/// resolves to the note that was created.
+///
+/// The second column is what `wikilinkFileName` in `src/lib/wikilink.ts` sends:
+/// the last segment of the target, alias and heading removed, the extension
+/// left on. Removing it there as well as here made `Note.md` out of
+/// `[[Note.markdown.md]]`, a file the link that offered it does not reach.
+///
+/// A target carrying a folder is left out: the note is created in the notes
+/// folder whatever separators the name held
+/// (`a_name_that_reads_like_a_path_stays_one_file_in_the_notes_folder`), so
+/// `[[folder/Ideas]]` still names no note afterwards.
 #[test]
-fn a_note_created_from_a_link_target_is_what_the_target_names() {
+fn a_note_created_from_a_link_target_is_what_that_target_resolves_to() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
+    let from = state.notes_root().join("source.md");
 
-    for target in ["Grocery list", "Recipes.md", "folder/Ideas.md"] {
-        let name = writ_core::notes::links::parse_wikilink(target).name;
-        let doc = new_note_named_inner(&state, &name).expect("named note");
-        let path = std::path::PathBuf::from(doc.source_path.expect("the note has no file"));
-        let created = writ_core::notes::note_display_name(&path.to_string_lossy());
-        assert_eq!(created, name, "target {target}");
+    for (target, sent) in [
+        ("Grocery list", "Grocery list"),
+        ("Recipes.md", "Recipes.md"),
+        ("Note.markdown.md", "Note.markdown.md"),
+        ("Log.md#Section", "Log.md"),
+        ("Plans|later", "Plans"),
+    ] {
+        let doc = new_note_named_inner(&state, sent).expect("named note");
+        let created = doc.source_path.expect("the note has no file");
+        state
+            .notes_index
+            .reconcile(&state.notes_root(), &|| false, &|_| false)
+            .expect("index the notes folder");
+
+        let resolution = resolve_note_link_inner(
+            &state.notes_index,
+            from.to_str().expect("utf-8 path"),
+            target,
+        )
+        .expect("resolve");
+        assert_eq!(resolution.status, "resolved", "target {target}");
+        assert_eq!(
+            resolution.path.as_deref(),
+            Some(notes_index::index_key(std::path::Path::new(&created)).as_str()),
+            "target {target}"
+        );
     }
 }
 

@@ -13,10 +13,24 @@
 const NOTE_EXTENSIONS = ["md", "markdown"];
 
 export function wikilinkName(target: string): string {
+  return stripNoteExtension(wikilinkFileName(target));
+}
+
+/**
+ * The file name inside a `[[…]]` target: the name with the extension it was
+ * written with left on.
+ *
+ * What `Create note` sends. The extension is the caller's to remove, and Rust
+ * removes exactly one of it before minting a file name, so `[[Note.md]]` makes
+ * `Note.md` and `[[Note.markdown.md]]` makes `Note.markdown.md`, which is the
+ * file the target resolves to. Stripping on both sides made `Note.md` out of
+ * the second one, a file the link that offered it does not reach.
+ */
+export function wikilinkFileName(target: string): string {
   const withoutAlias = target.split("|", 1)[0];
   const withoutHeading = withoutAlias.split("#", 1)[0];
   const parts = withoutHeading.trim().split(/[\\/]/).filter((part) => part !== "");
-  return stripNoteExtension((parts.pop() ?? "").trim());
+  return (parts.pop() ?? "").trim();
 }
 
 /** `name` without a trailing note extension. */

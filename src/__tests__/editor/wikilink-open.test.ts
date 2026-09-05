@@ -81,6 +81,20 @@ describe("followNoteLink", () => {
     expect(actions.openPath).toHaveBeenCalledWith("/notes/New.md");
   });
 
+  // Rust mints the file name from what it is sent and takes one note extension
+  // off on the way. Sending the name already stripped made `Note.md` out of
+  // `[[Note.markdown.md]]`, which that target does not resolve to.
+  it("sends the file name with the extension the link carried", async () => {
+    const actions = actionsFor(NOWHERE);
+    await followNoteLink("/notes/From.md", "Note.markdown.md", actions);
+    expect(actions.offerCreate).toHaveBeenCalledWith("Note.markdown", expect.any(Function));
+
+    vi.mocked(actions.offerCreate).mock.calls[0][1]();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(actions.create).toHaveBeenCalledWith("Note.markdown.md");
+  });
+
   it("does nothing for a target with nothing in it", async () => {
     const actions = actionsFor(NOWHERE);
     await followNoteLink("/notes/From.md", "   ", actions);

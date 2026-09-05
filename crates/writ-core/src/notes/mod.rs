@@ -364,7 +364,10 @@ pub fn note_file_stem(title: &str, dated_from: DateTime<Utc>) -> String {
 /// asked for it then still does not resolve to.
 ///
 /// Only one note extension comes off, and only when the name ends in one, so
-/// `[[Note.md.md]]` names the note `Note.md` in both places.
+/// `[[Note.md.md]]` names the note `Note.md` in both places. This is the only
+/// place it comes off: the editor sends the target's file name with whatever
+/// extension it was written with, because a second strip made `Note.md` out of
+/// `[[Note.markdown.md]]`, which that target does not resolve to.
 pub fn note_file_stem_from_link(target: &str, dated_from: DateTime<Utc>) -> String {
     note_file_stem(links::strip_note_extension(target.trim()), dated_from)
 }
@@ -537,18 +540,31 @@ mod tests {
             links::parse_wikilink("Note.md.md").name,
             note_file_stem_from_link("Note.md.md", moment())
         );
+        assert_eq!(
+            note_file_stem_from_link("Note.markdown.md", moment()),
+            "Note.markdown"
+        );
         assert_eq!(note_file_stem_from_link("a.b.md", moment()), "a.b");
         assert_eq!(note_file_stem_from_link("Note.txt", moment()), "Note.txt");
     }
 
     // What the link asked for is what the file is called, so the link that
-    // offered to create it resolves to it afterwards.
+    // offered to create it resolves to it afterwards. The second column is the
+    // file name `wikilinkFileName` in `src/lib/wikilink.ts` sends: the target's
+    // last segment with the extension it was written with left on, because the
+    // one extension that comes off comes off here.
     #[test]
     fn a_link_target_mints_the_name_the_link_resolves_to() {
-        for target in ["Note", "Note.md", "folder/Note.md", "Note.markdown"] {
-            let name = links::parse_wikilink(target).name;
-            let stem = note_file_stem_from_link(&name, moment());
-            assert_eq!(stem, name, "target {target}");
+        for (target, sent) in [
+            ("Note", "Note"),
+            ("Note.md", "Note.md"),
+            ("folder/Note.md", "Note.md"),
+            ("Note.markdown", "Note.markdown"),
+            ("Note.markdown.md", "Note.markdown.md"),
+            ("Note.md.md", "Note.md.md"),
+        ] {
+            let stem = note_file_stem_from_link(sent, moment());
+            assert_eq!(stem, links::parse_wikilink(target).name, "target {target}");
         }
     }
 
