@@ -315,6 +315,15 @@ not change; a digest gate on `disk_hash` was rejected because the frontend
 already makes that comparison (§6) and a second copy of the decision would
 disagree with it eventually.
 
+Three comparisons of file content are weighed in this record and only one is
+kept, so it is worth saying which is which. The one rejected here would gate the
+read loop on `disk_hash`, the value the frontend already holds. The one rejected
+in §12 would corroborate a file's id with its bytes, which answers a different
+question badly: two notes holding the same text corroborate each other. The one
+§13 keeps compares a report against the digest Writ itself last read or wrote,
+after this gate has already passed, and it decides whether a modification is
+news rather than which file anything is.
+
 ### 12. A vanished file is told apart from a moved one by its identity
 
 A watcher reports a rename as a removal at the old path and a creation at the
@@ -414,17 +423,34 @@ numbers, which is why the case reached CI rather than a laptop. The id therefore
 carries a third field: the file's birth time in nanoseconds, `btime` through
 `statx` on Linux and `birthtime` elsewhere. A rename leaves it alone, which is
 what `ctime` does not, so it separates a recreated file from the original
-without weakening the move detection the id exists for. Two known birth times
-must agree; a volume that reports none — ext3, ext4 formatted with 128-byte
-inodes — answers `None` for every file on it and the inode is then the whole of
-the answer, exactly as before. `is_same_file` holds that rule, and `==` stays
-exact-value equality because `identity_to_keep` compares two records of one read
-and wants nothing looser.
+without weakening the move detection the id exists for. A volume that reports no
+birth time — ext3, ext4 formatted with 128-byte inodes — answers `None` for every
+file on it, and the inode is then the whole of the answer, exactly as before.
+`is_same_file` holds the rule, and `==` stays exact-value equality because
+`identity_to_keep` compares two records of one read and wants nothing looser.
+
+A rename leaves the birth time alone, but nothing else promises to. On APFS,
+setting a file's modification time earlier than its birth time pulls the birth
+time back to it, on the same live inode: `touch -t 202001010000` on a note
+measured here left `ino` unchanged and reported a birth time twenty-six years
+earlier than the one Writ had read. So the two known values are compared by
+order rather than for equality, and the order is what separates the two causes.
+A file that inherited a freed inode number was created after the number was
+freed, which is after Writ took the record, so a reused number always arrives
+with a *later* birth time and is a different file. Nothing creates a file in the
+past, so an *earlier* birth time can only be the recorded file with its metadata
+rewritten, and it is the same file. Equal is the plain rename. Reading the
+earlier case as a different file is what made a metadata pass over a note leave
+its tab refusing every save over a file sitting at its new name.
 
 The birth time is the whole of the fix and not more than it. Linux stamps a new
 file from the coarse clock, so two files created inside one tick share a birth
 time to the nanosecond: a delete followed by a create at the same path in the
 same tick, on a filesystem that reuses inode numbers, stays indistinguishable.
+The other shape the order cannot separate is a reused inode number whose new
+file then had its birth time pushed back below the record's, which needs the
+deletion, the creation that inherits the number, and a metadata pass over the
+result all inside one watcher window.
 Every real replacement is separated anyway, because a replacement is a sibling
 renamed over the target and the sibling was created while the original still
 held its inode. What was rejected was corroborating the id with a content
