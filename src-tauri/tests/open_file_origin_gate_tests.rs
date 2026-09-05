@@ -812,7 +812,7 @@ fn reopening_a_tab_whose_file_writ_never_read_announces_nothing() {
     let canonical = canonicalize_for_authorization(&file).unwrap();
     state.authorized_paths.record_for_open(canonical.clone());
     let opened = open_file_from_path(&state, &canonical).expect("open");
-    state.forget_disk_state(&opened.doc.id);
+    state.forget_disk_state(&opened.doc.as_ref().expect("the file opened").id);
 
     let count = count_external_events(&state);
 
@@ -836,7 +836,8 @@ fn reopening_a_tab_whose_file_writ_never_read_announces_nothing() {
     );
 
     // The record arrives with the read, and from there the announcement works.
-    read_buffer_content_inner(&state, &opened.doc.id).expect("the editor mounts and reads");
+    read_buffer_content_inner(&state, &opened.doc.as_ref().expect("the file opened").id)
+        .expect("the editor mounts and reads");
     std::fs::write(&file, "and again").unwrap();
     state.authorized_paths.record_for_open(canonical.clone());
     open_file_from_path(&state, &canonical).expect("reopen after the read");

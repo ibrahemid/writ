@@ -228,8 +228,13 @@ fn open_file_classified(
     let opened = open_file_classified_inner(state, canonical, mode, size_bytes)?;
     // A file opened from anywhere but the notes folder is followed from here
     // on, so an edit another program makes to it reaches the tab instead of
-    // being found the hard way on the next save.
-    state.follow_note_file(&opened.doc);
+    // being found the hard way on the next save. An answer carrying no note is
+    // not an open: a note still waiting on its bytes has no id to follow, and
+    // giving the watcher one would have it report a file the download is about
+    // to rewrite.
+    if let Some(doc) = &opened.doc {
+        state.follow_note_file(doc);
+    }
     Ok(opened)
 }
 

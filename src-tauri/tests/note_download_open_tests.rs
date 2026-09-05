@@ -13,6 +13,7 @@ use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
+use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::config_store::ConfigStore;
@@ -58,8 +59,11 @@ fn make_state(dir: &TempDir) -> AppState {
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
         notes_watcher: Mutex::new(None),
+        open_file_watcher: Mutex::new(None),
+        file_tracking: Mutex::new(None),
         notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
+        notes_reconcile: Arc::new(ReconcileGate::new()),
         quit: Arc::new(QuitState::new()),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
@@ -82,6 +86,8 @@ fn make_state(dir: &TempDir) -> AppState {
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
+        source_records: Mutex::new(std::collections::HashMap::new()),
+        unsaved_on_exit: Mutex::new(std::collections::HashMap::new()),
     }
 }
 
@@ -125,6 +131,88 @@ fn opening_a_note_that_is_not_downloaded_reads_nothing_and_names_the_state() {
         state.authorized_paths.pending_open_len(),
         0,
         "a note the notes folder already covers gets no token out of this"
+    );
+}
+
+#[test]
+fn a_note_that_is_not_downloaded_leaves_the_watcher_nothing_to_measure() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    let note = state.notes_root().join("waiting.md");
+    std::fs::write(&note, "placeholder stand-in").unwrap();
+    let canonical = canonicalize_for_authorization(&note).unwrap();
+    let _marked = mark(&canonical);
+
+    let result = open_file_from_path(&state, &canonical).expect("open");
+    assert!(result.doc.is_none());
+
+    // The download rewrites the file under the tab. A note recorded here would
+    // be measured against a file the provider is still filling in, so the
+    // watcher would call the download a change somebody else made, or call the
+    // placeholder a removal.
+    assert!(
+        state
+            .last_disk_hash
+            .lock()
+            .expect("disk state map")
+            .is_empty(),
+        "a note still waiting on its bytes has no digest to record"
+    );
+    assert!(
+        state
+            .source_records
+            .lock()
+            .expect("source record map")
+            .is_empty(),
+        "a note still waiting on its bytes has no file to follow"
+    );
+}
+
+#[test]
+fn a_note_that_arrives_is_recorded_the_way_a_plain_open_records_one() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    // The same bytes at two paths, one opened through the download arm and one
+    // opened directly, so the records are compared rather than pinned.
+    let waited = state.notes_root().join("waited.md");
+    let plain = state.notes_root().join("plain.md");
+    std::fs::write(&waited, "# here now\n").unwrap();
+    std::fs::write(&plain, "# here now\n").unwrap();
+    let waited = canonicalize_for_authorization(&waited).unwrap();
+    let plain = canonicalize_for_authorization(&plain).unwrap();
+
+    let marked = mark(&waited);
+    assert!(open_file_from_path(&state, &waited)
+        .expect("open")
+        .doc
+        .is_none());
+    drop(marked);
+
+    let arrived = open_file_from_path(&state, &waited).expect("the bytes landed");
+    let arrived = arrived.doc.expect("the note is registered once it is here");
+    let control = open_file_from_path(&state, &plain).expect("open");
+    let control = control.doc.expect("the file opened");
+
+    let arrived_record = state
+        .source_record(&arrived.id)
+        .expect("a note that arrived is followed");
+    let control_record = state
+        .source_record(&control.id)
+        .expect("a note opened plainly is followed");
+    assert_eq!(
+        arrived_record.state, control_record.state,
+        "a download that landed is present the way any open file is"
+    );
+    assert!(
+        arrived_record.identity.is_some(),
+        "the file the download left behind is described, not left unidentified"
+    );
+    assert_eq!(
+        state.disk_state(&arrived.id).map(|d| d.hash),
+        state.disk_state(&control.id).map(|d| d.hash),
+        "the same bytes are recorded under the same digest either way"
     );
 }
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createDownloadStore } from "../../stores/window/download-store";
+import { saveStatusStore } from "../../stores/global/save-status";
 
 const materialiseNote = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const cancelMaterialiseNote = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
@@ -36,6 +37,23 @@ describe("download store", () => {
       { ...NOTE, state: "downloading", reason: "download", message: null },
     ]);
     expect(downloads.selected()?.path).toBe(NOTE.path);
+  });
+
+  it("gives back the permission and records no save state when the wait is called off", async () => {
+    saveStatusStore.reset();
+    const downloads = createDownloadStore();
+    await downloads.start(NOTE);
+
+    await downloads.dismiss(NOTE.path);
+
+    expect(cancelMaterialiseNote).toHaveBeenCalledWith(NOTE.path);
+    expect(downloads.pending()).toEqual([]);
+    expect(downloads.selected()).toBeNull();
+    // A note waiting on its bytes has no id, so nothing about it can reach the
+    // per-note save state. A row keyed by its path would outlive the tab, and
+    // the save bar would answer for a note that was never opened.
+    expect(saveStatusStore.stateOf(NOTE.path)).toBe("clean");
+    expect(saveStatusStore.failureFor(NOTE.path)).toBeUndefined();
   });
 
   it("opens the note once and drops the entry when the bytes arrive", async () => {
