@@ -436,8 +436,9 @@ measured here left `ino` unchanged and reported a birth time twenty-six years
 earlier than the one Writ had read. So the two known values are compared by
 order rather than for equality, and the order is what separates the two causes.
 A file that inherited a freed inode number was created after the number was
-freed, which is after Writ took the record, so a reused number always arrives
-with a *later* birth time and is a different file. Nothing creates a file in the
+freed, which is after Writ took the record, so on any clock that runs forwards a
+reused number arrives with a *later* birth time and is a different file. Nothing
+creates a file in the
 past, so an *earlier* birth time can only be the recorded file with its metadata
 rewritten, and it is the same file. Equal is the plain rename. Reading the
 earlier case as a different file is what made a metadata pass over a note leave
@@ -447,10 +448,16 @@ The birth time is the whole of the fix and not more than it. Linux stamps a new
 file from the coarse clock, so two files created inside one tick share a birth
 time to the nanosecond: a delete followed by a create at the same path in the
 same tick, on a filesystem that reuses inode numbers, stays indistinguishable.
-The other shape the order cannot separate is a reused inode number whose new
-file then had its birth time pushed back below the record's, which needs the
-deletion, the creation that inherits the number, and a metadata pass over the
-result all inside one watcher window.
+Two more shapes the order cannot separate, both of them a reused inode number
+reporting a birth time below the record's. One is a new file that then had its
+own birth time pushed back, which needs the deletion, the creation that inherits
+the number, and a metadata pass over the result all inside one watcher window.
+The other is the clock: a birth time is wall clock and not monotonic, so a step
+backwards between the record and the creation — NTP correcting a drifted host, a
+resume, a restored snapshot — stamps the new file below the record with nothing
+having touched it. Both are the failure the birth time exists to prevent rather
+than the one it caused, and both need a second rare event inside the window of
+the first, which is the trade the order makes against a real measured case.
 Every real replacement is separated anyway, because a replacement is a sibling
 renamed over the target and the sibling was created while the original still
 held its inode. What was rejected was corroborating the id with a content

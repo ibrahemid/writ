@@ -119,17 +119,25 @@ impl FileIdentity {
     /// - Equal: the same file, which is what a rename leaves behind.
     /// - Later than the record's: a different file. A freed inode number goes
     ///   to a file created after it was freed, which is after Writ took the
-    ///   record, so a reused number always arrives with a later birth time.
+    ///   record, so a reused number arrives with a later birth time on any
+    ///   clock that runs forwards.
     /// - Earlier than the record's: the same file. Nothing creates a file in
     ///   the past, so the only way to see this is a birth time that moved on a
     ///   live inode — backdating the modification time below it does that on
     ///   APFS — and reading it as a different file refuses every later save
     ///   over a file that is sitting there.
     ///
-    /// The one shape it cannot tell is a reused inode number whose new file
-    /// also had its birth time pushed back below the record's, which needs a
-    /// deletion, a creation that inherits the number, and a metadata pass over
-    /// the result, all inside one watcher window.
+    /// Two shapes it cannot tell, both of them a reused inode number reporting
+    /// a birth time below the record's. One is a new file that then had its own
+    /// birth time pushed back, which needs a deletion, a creation that inherits
+    /// the number, and a metadata pass over the result inside one watcher
+    /// window. The other is the clock: a birth time is wall clock and not
+    /// monotonic, so a step backwards between the record and the creation — NTP
+    /// correcting a drifted host, a resume, a restored snapshot — stamps the
+    /// new file below the record with nothing having touched it. Both put the
+    /// tab on a file nobody opened, which is the failure the birth time exists
+    /// to prevent, and both need a second rare event inside the window of the
+    /// first.
     pub fn is_same_file(&self, recorded: &Self) -> bool {
         match (self, recorded) {
             (
