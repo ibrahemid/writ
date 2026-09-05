@@ -1,56 +1,21 @@
-//! What a change outside Writ does to the tab holding the file.
+//! What each answer to a change outside Writ writes.
 //!
-//! Two decisions live here. The first is whether the file's text may replace
-//! the document at all: it may when the document holds nothing the file does
-//! not, and it must be asked about when it holds something that would go
-//! (ADR-033 §6 defines the difference). The second is what each answer to that
-//! question writes, and it has one rule — the text that loses is written to
-//! its own file before the winner is applied, so no answer ends with a text
-//! that exists nowhere (spec W5, ADR-028 §5).
+//! One rule: the text that loses is written to its own file before the winner
+//! is applied, so no answer ends with a text that exists nowhere (spec W5,
+//! ADR-028 §5).
 //!
-//! Both are decisions and nothing else. Reading the file, writing the copy
-//! beside the note and replacing the document are `writ-storage`'s and the
-//! editor's halves.
+//! Whether the file's text may replace the document at all is decided in the
+//! editor (`src/services/external-edit.ts`), because it turns on whether the
+//! document holds anything the file does not, and that is the editor's answer
+//! and nothing else's (ADR-033 §6, §12).
+//!
+//! A decision and nothing else. Reading the file, writing the copy beside the
+//! note and replacing the document are `writ-storage`'s and the editor's
+//! halves.
 
 use serde::{Deserialize, Serialize};
 
-/// What happens to a document whose file changed under it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ReloadPlan {
-    /// Take the file's text. The document holds nothing that would be lost.
-    ReplaceQuietly,
-    /// Ask first. Replacing would discard text no file holds.
-    Ask,
-    /// Do nothing to the document.
-    Ignore,
-}
-
-/// Decides what a change to a note's file does to the document in front of it.
-///
-/// `dirty` is the editor's answer to whether the document differs from the
-/// file, which fails closed: a note Writ holds no record of reads dirty, and
-/// so lands on [`ReloadPlan::Ask`] rather than having its text replaced.
-///
-/// `removed` outranks `changed`. A file that is gone has no text to take, and
-/// the tab keeps its own and stops saving instead (ADR-033 §11); asking the
-/// user to choose between their text and nothing is not a question.
-///
-/// A change that turned out to change nothing is ignored rather than replayed
-/// through the editor. The watcher reports a write, not a difference, and a
-/// sync client rewriting a file with its own bytes is the ordinary case.
-pub fn plan_reload(dirty: bool, changed: bool, removed: bool) -> ReloadPlan {
-    if removed || !changed {
-        return ReloadPlan::Ignore;
-    }
-    if dirty {
-        ReloadPlan::Ask
-    } else {
-        ReloadPlan::ReplaceQuietly
-    }
-}
-
-/// The answer to [`ReloadPlan::Ask`], in the user's words.
+/// The answer to the question the bar asks, in the user's words.
 ///
 /// The wire form is what the editor sends: `keep_mine`, `use_disk`,
 /// `keep_both`.
@@ -147,57 +112,6 @@ pub fn apply_choice(choice: ChangeChoice) -> ChoiceOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Every combination of the three inputs, in the order the table below
-    /// reads them.
-    const TABLE: [(bool, bool, bool, ReloadPlan); 8] = [
-        (false, false, false, ReloadPlan::Ignore),
-        (false, false, true, ReloadPlan::Ignore),
-        (false, true, false, ReloadPlan::ReplaceQuietly),
-        (false, true, true, ReloadPlan::Ignore),
-        (true, false, false, ReloadPlan::Ignore),
-        (true, false, true, ReloadPlan::Ignore),
-        (true, true, false, ReloadPlan::Ask),
-        (true, true, true, ReloadPlan::Ignore),
-    ];
-
-    #[test]
-    fn the_whole_truth_table_answers_the_way_it_is_written() {
-        for (dirty, changed, removed, expected) in TABLE {
-            assert_eq!(
-                plan_reload(dirty, changed, removed),
-                expected,
-                "dirty={dirty} changed={changed} removed={removed}"
-            );
-        }
-    }
-
-    #[test]
-    fn the_table_covers_every_combination_of_the_three_inputs() {
-        // A row added to the policy without a row here would be untested, and
-        // the row that goes missing is the one nobody thought of.
-        let mut seen: Vec<(bool, bool, bool)> =
-            TABLE.iter().map(|(a, b, c, _)| (*a, *b, *c)).collect();
-        seen.sort();
-        seen.dedup();
-        assert_eq!(seen.len(), 8);
-    }
-
-    #[test]
-    fn an_unsaved_document_is_never_replaced_without_being_asked_about() {
-        // The one row the whole feature exists for. Nothing may turn it into
-        // ReplaceQuietly, whatever else changes.
-        assert_eq!(plan_reload(true, true, false), ReloadPlan::Ask);
-    }
-
-    #[test]
-    fn a_file_that_is_gone_is_never_asked_about() {
-        for dirty in [true, false] {
-            for changed in [true, false] {
-                assert_eq!(plan_reload(dirty, changed, true), ReloadPlan::Ignore);
-            }
-        }
-    }
 
     #[test]
     fn every_choice_leaves_both_texts_on_disk() {

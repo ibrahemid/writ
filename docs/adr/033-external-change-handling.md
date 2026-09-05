@@ -432,31 +432,33 @@ one the tab still holds.
 ### 12. A change reaches the document one way, and every answer keeps both texts
 
 What a reported change does to the document is one decision over three facts:
-whether the document differs from its file, whether the file changed, and
-whether it is gone (`writ_core::notes::reload::plan_reload`).
+whether this window holds a tab for the file, what the change was, and whether
+the document differs from its file. It is made in the editor
+(`planExternalEdit` in `src/services/external-edit.ts`) and nowhere else.
 
-| dirty | changed | removed | plan |
+| known | change | unsaved | action |
 |---|---|---|---|
-| no | yes | no | replace quietly |
-| yes | yes | no | ask |
-| any | no | no | ignore |
-| any | any | yes | ignore |
+| no | any | any | ignore |
+| yes | modified | no | reload |
+| yes | modified | yes | ask |
+| yes | removed | any | mark removed |
+| yes | moved | any | follow |
 
 Removal outranks a change because a file that is gone has no text to offer,
 and asking someone to choose between their text and nothing is not a question;
-the tab keeps its text and stops writing (decision 11). A change that changed
-nothing is ignored rather than replayed, because a watcher reports a write and
-not a difference, and a sync client rewriting a file with its own bytes is the
-ordinary case. Dirty fails closed (decision 6), so a note nothing is known
-about is asked about rather than replaced.
+the tab keeps its text and stops writing (decision 11). A move changes no
+bytes, so it repoints the tab and asks nothing. Dirty fails closed (decision
+6), so a note nothing is known about is asked about rather than replaced.
 
-The editor answers the same question in TypeScript
-(`src/services/external-edit.ts`), and it has to: dirty is the editor's answer
-and the backend cannot compute it, so the event cannot carry the plan. The two
-tables are pinned against each other by
-`crates/writ-core/tests/fixtures/external-change-table.json`, read by a test on
-each side. Its rows carry which side decides them; `known` — whether this
-window holds a tab for the file at all — is the editor's alone.
+The decision has one author because two of its three facts are the editor's
+alone: whether a document holds text no file has is the editor's answer, and
+whether this window has the tab at all is not a question the backend can
+reach. A copy of the table in Rust could only be pinned against this one by a
+fixture, and a policy no binary calls is dead code the next reader has to rule
+out. `writ-core` keeps what the answers write (`notes::reload`), which is
+about files and belongs there. `src/services/__tests__/external-change-table.json`
+holds the rows, one per situation, so a row can be added to the policy and the
+table together.
 
 **Every answer writes the text it does not keep to its own file, before it does
 anything else.** `Keep mine` writes what the file held beside the note and then
@@ -497,6 +499,20 @@ has moved on reads dirty against a file it matches, and the next change to it
 asks a question that has no reason to be asked. That note is the ordinary case
 for a restored session, which is the one decision 6 already calls the likeliest
 to be reported about.
+
+**A note has one file, so it has one state.** `present`, `changed` or
+`removed`, in `editorStore` (`recordFileEvent`), and each bar is mounted on
+it. Two independent marks let a file modified and then deleted put both bars
+on one tab, saying different things about one file, and the answers to the
+question all read the file the other bar says is gone. The transitions carry
+the orderings: a deletion outranks a question and replaces it, a file that
+comes back different is a question again, and a move clears a deletion but
+keeps a question, because a file that was renamed after it was edited still
+differs from the tab. The answer travels by the note's id and the command
+reads the note's current path, so it lands on the file where it now is. A
+write that lands ends a question and does not put back a deleted file: the
+queue is cancelled when a deletion arrives, but a call already in flight
+replies after it.
 
 ## Consequences
 

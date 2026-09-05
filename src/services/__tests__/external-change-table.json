@@ -1,0 +1,65 @@
+{
+  "note": "Read by external-edit.fixture.test.ts. One row per situation a `buffer:external` event can put a tab in; `action` is what src/services/external-edit.ts does with it. The decision lives in the editor alone, because it turns on whether the document holds text no file has, which the backend cannot answer (ADR-033 §12).",
+  "rows": [
+    {
+      "name": "a modified file under a document with nothing unsaved",
+      "inputs": { "known": true, "change": "modified", "hasUnsaved": false },
+      "action": "reload"
+    },
+    {
+      "name": "a modified file under unsaved text",
+      "inputs": { "known": true, "change": "modified", "hasUnsaved": true },
+      "action": "prompt"
+    },
+    {
+      "name": "a file that was deleted, nothing unsaved",
+      "inputs": { "known": true, "change": "removed", "hasUnsaved": false },
+      "action": "mark-removed"
+    },
+    {
+      "name": "a file that was deleted under unsaved text",
+      "inputs": { "known": true, "change": "removed", "hasUnsaved": true },
+      "action": "mark-removed"
+    },
+    {
+      "name": "a file that moved, nothing unsaved",
+      "inputs": { "known": true, "change": "moved", "hasUnsaved": false },
+      "action": "follow"
+    },
+    {
+      "name": "a file that moved under unsaved text",
+      "inputs": { "known": true, "change": "moved", "hasUnsaved": true },
+      "action": "follow"
+    },
+    {
+      "name": "a modified file this window holds no tab for",
+      "inputs": { "known": false, "change": "modified", "hasUnsaved": false },
+      "action": "ignore"
+    },
+    {
+      "name": "a modified file with unsaved text and no tab here",
+      "inputs": { "known": false, "change": "modified", "hasUnsaved": true },
+      "action": "ignore"
+    },
+    {
+      "name": "a deleted file this window holds no tab for",
+      "inputs": { "known": false, "change": "removed", "hasUnsaved": false },
+      "action": "ignore"
+    },
+    {
+      "name": "a deleted file with unsaved text and no tab here",
+      "inputs": { "known": false, "change": "removed", "hasUnsaved": true },
+      "action": "ignore"
+    },
+    {
+      "name": "a moved file this window holds no tab for",
+      "inputs": { "known": false, "change": "moved", "hasUnsaved": false },
+      "action": "ignore"
+    },
+    {
+      "name": "a moved file with unsaved text and no tab here",
+      "inputs": { "known": false, "change": "moved", "hasUnsaved": true },
+      "action": "ignore"
+    }
+  ]
+}

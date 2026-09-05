@@ -1,59 +1,54 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 import {
   planExternalEdit,
   type ExternalChange,
   type ExternalEditAction,
 } from "../external-edit";
+import fixture from "./external-change-table.json";
 
-// The other half is crates/writ-core/tests/external_change_table.rs, reading
-// this same file. Rust cannot answer the question alone — whether a document
-// is unsaved is the editor's answer and nothing else's (ADR-033 §6) — so the
-// two tables are pinned against each other here instead of one calling the
-// other.
+// One row per situation a `buffer:external` event can put a tab in, in a file
+// rather than in a `describe`, so a row added to the policy is added to the
+// table in one place and the count below catches the one that was not.
+//
+// The whole decision is here. It turns on whether the document holds text no
+// file has, which is the editor's answer and nothing else's (ADR-033 §6), so
+// there is no second table in Rust for it to drift from.
 interface FixtureRow {
   name: string;
   inputs: { known: boolean; change: ExternalChange; hasUnsaved: boolean };
   action: ExternalEditAction;
-  decidedBy: "shared" | "frontend";
-  rust?: { dirty: boolean; changed: boolean; removed: boolean };
-  plan?: "replace_quietly" | "ask" | "ignore";
 }
 
-const fixture = JSON.parse(
-  readFileSync(
-    resolve(__dirname, "../../../crates/writ-core/tests/fixtures/external-change-table.json"),
-    "utf8",
-  ),
-) as { planActions: Record<string, ExternalEditAction[]>; rows: FixtureRow[] };
+const rows = fixture.rows as FixtureRow[];
 
-describe("the external-change table shared with writ-core", () => {
-  it("holds every row both halves read", () => {
-    expect(fixture.rows.length).toBe(12);
+describe("the external-change table", () => {
+  it("holds a row for every situation", () => {
+    expect(rows.length).toBe(12);
   });
 
-  it.each(fixture.rows)("routes $name to its action", (row) => {
+  it.each(rows)("routes $name to its action", (row) => {
     expect(planExternalEdit(row.inputs)).toBe(row.action);
   });
 
-  it.each(fixture.rows.filter((row) => row.decidedBy === "shared"))(
-    "answers $name the way the policy plans it",
-    (row) => {
-      // The plan is written from the same situation the row describes, so the
-      // inputs have to line up before the actions can be compared at all.
-      expect(row.rust).toEqual({
-        dirty: row.inputs.hasUnsaved,
-        changed: row.inputs.change === "modified",
-        removed: row.inputs.change === "removed",
-      });
-      expect(fixture.planActions[row.plan!]).toContain(row.action);
-    },
-  );
+  it("never replaces unsaved text without asking", () => {
+    // The one row the whole feature exists for. Nothing may turn it into a
+    // reload, whatever else changes.
+    expect(
+      planExternalEdit({ known: true, change: "modified", hasUnsaved: true }),
+    ).toBe("prompt");
+  });
+
+  it("ignores a file this window holds no tab for", () => {
+    // `known` is whether this window holds a tab for the file at all. Nothing
+    // else about the event matters when it does not.
+    for (const row of rows.filter((r) => !r.inputs.known)) {
+      expect(planExternalEdit(row.inputs), row.name).toBe("ignore");
+    }
+  });
 
   it("reaches every action the route can take", () => {
-    const actions = new Set(fixture.rows.map((row) => row.action));
+    const actions = new Set(rows.map((row) => row.action));
     expect([...actions].sort()).toEqual([
       "follow",
       "ignore",
@@ -61,14 +56,5 @@ describe("the external-change table shared with writ-core", () => {
       "prompt",
       "reload",
     ]);
-  });
-
-  it("leaves only the rows Rust cannot see to the editor alone", () => {
-    // `known` is whether this window holds a tab for the file, which the
-    // backend has no way to answer. Anything else being frontend-only would
-    // be a decision that has quietly left the shared table.
-    for (const row of fixture.rows) {
-      expect(row.decidedBy).toBe(row.inputs.known ? "shared" : "frontend");
-    }
   });
 });
