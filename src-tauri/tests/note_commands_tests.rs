@@ -11,6 +11,7 @@ use writ_core::config::WritConfig;
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::hash::sha256_bytes;
 use writ_core::notes::guard::SF_DATALESS;
+use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::reload::ChangeChoice;
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
@@ -1583,6 +1584,78 @@ fn two_texts_that_are_the_same_text_leave_no_copy_behind() {
 }
 
 #[test]
+fn the_copy_of_the_document_carries_the_note_s_own_line_ending() {
+    // The editor hands its text over in LF whatever the file uses, so a copy
+    // written straight out of it turns a Windows note's afternoon of typing
+    // into a file none of that note's other lines match.
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let doc = new_note_inner(&state).expect("new note");
+    let path = note_file(&state, &doc.id);
+
+    // The row learns the ending the way it does in the app: off a file that
+    // was read.
+    std::fs::write(&path, "one\r\ntwo\r\n").expect("a file written on Windows");
+    read_buffer_content_inner(&state, &doc.id).expect("read");
+    std::fs::write(&path, "what they wrote\r\n").expect("the other program's write");
+
+    resolve_external_change_inner(&state, &doc.id, ChangeChoice::UseDisk, "one\ntwo\nthree\n")
+        .expect("resolve");
+
+    let copies = copies_beside(&state.notes_root());
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    assert_eq!(
+        std::fs::read_to_string(&copies[0]).expect("read"),
+        "one\r\ntwo\r\nthree\r\n",
+        "the copy holds the document's text in the note's own line ending"
+    );
+}
+
+#[test]
+fn the_copy_of_an_lf_note_gains_no_carriage_returns() {
+    // The other half of the pin: the ending is the note's and not a constant,
+    // so a note that never had a carriage return does not acquire one.
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let (id, _) = note_changed_under_writ(&state, "one\ntwo\n", "what they wrote\n");
+
+    resolve_external_change_inner(&state, &id, ChangeChoice::UseDisk, "one\ntwo\nthree\n")
+        .expect("resolve");
+
+    let copies = copies_beside(&state.notes_root());
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    assert_eq!(
+        std::fs::read_to_string(&copies[0]).expect("read"),
+        "one\ntwo\nthree\n"
+    );
+}
+
+#[test]
+fn the_copy_of_the_file_keeps_the_bytes_the_file_was_found_holding() {
+    // The copy of the disk side is not re-encoded. The recorded ending is the
+    // note's, and the program that just rewrote this file used whichever one
+    // it liked; a copy meant to preserve what was found there has to preserve
+    // it exactly.
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let doc = new_note_inner(&state).expect("new note");
+    let path = note_file(&state, &doc.id);
+    std::fs::write(&path, "one\r\ntwo\r\n").expect("a file written on Windows");
+    read_buffer_content_inner(&state, &doc.id).expect("read");
+    std::fs::write(&path, "they wrote\nthis in lf\n").expect("the other program's write");
+
+    resolve_external_change_inner(&state, &doc.id, ChangeChoice::KeepMine, "one\ntwo\n")
+        .expect("resolve");
+
+    let copies = copies_beside(&state.notes_root());
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    assert_eq!(
+        std::fs::read_to_string(&copies[0]).expect("read"),
+        "they wrote\nthis in lf\n"
+    );
+}
+
+#[test]
 fn a_file_that_is_not_downloaded_is_refused_without_being_read() {
     // Reading an evicted file is what makes the provider fetch it over the
     // network (ADR-028 §5), and this is a path that reads the file twice over.
@@ -1595,6 +1668,7 @@ fn a_file_that_is_not_downloaded_is_refused_without_being_read() {
         &id,
         &path,
         Some(SF_DATALESS),
+        LineEnding::Lf,
         ChangeChoice::KeepMine,
         "what I typed, still",
     )

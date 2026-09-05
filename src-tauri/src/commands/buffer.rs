@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::path::Path;
 use std::time::{Instant, UNIX_EPOCH};
 
@@ -9,6 +10,7 @@ use tauri::{AppHandle, Manager, State};
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::buffer::manager::BufferManager;
 use writ_core::notes::guard::is_not_downloaded;
+use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::reload::{apply_choice, Action, ChangeChoice, Side};
 use writ_core::watcher::pending::HoldAnswer;
 use writ_storage::buffer_store::{dataless_flags, write_conflict_copy, BufferStore, NoteFileState};
@@ -656,17 +658,28 @@ pub fn resolve_external_change_inner(
     // turned out to be gone is refused rather than written back. Before the
     // store lock, which answering a hold needs.
     wait_out_a_held_removal(state, id, RemovedFile::Refuse)?;
-    let source_path = {
+    let (source_path, line_ending) = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         let doc = store.get(id).map_err(|e| e.to_string())?;
         if doc.read_only {
             return Err(format!("{ERR_NOTE_READ_ONLY}: note {id} is read-only"));
         }
-        doc.source_path
-            .ok_or_else(|| format!("{ERR_FILE_MISSING}: note {id} has no file"))?
+        let ending = doc.line_ending;
+        let path = doc
+            .source_path
+            .ok_or_else(|| format!("{ERR_FILE_MISSING}: note {id} has no file"))?;
+        (path, ending)
     };
     let path = Path::new(&source_path);
-    resolve_external_change_at(state, id, path, dataless_flags(path), choice, content)
+    resolve_external_change_at(
+        state,
+        id,
+        path,
+        dataless_flags(path),
+        line_ending,
+        choice,
+        content,
+    )
 }
 
 /// [`resolve_external_change_inner`] once the file's path and flags are known.
@@ -674,11 +687,13 @@ pub fn resolve_external_change_inner(
 /// The flags are a parameter for the same reason [`note_disk_state_of`]'s are:
 /// a file whose bytes are not on this machine must be refused without being
 /// read, and that refusal is only testable where the flags can be supplied.
+/// `line_ending` is the note's, read off the same row as the path.
 pub fn resolve_external_change_at(
     state: &AppState,
     id: &str,
     path: &Path,
     st_flags: Option<u32>,
+    line_ending: LineEnding,
     choice: ChangeChoice,
     content: &str,
 ) -> Result<ResolveOutcome, String> {
@@ -719,12 +734,18 @@ pub fn resolve_external_change_at(
     }
 
     let outcome = apply_choice(choice);
-    let losing = match outcome.write_conflict_copy_of {
-        Side::Mine => content,
-        Side::Disk => disk_text.as_str(),
+    let losing: Cow<'_, str> = match outcome.write_conflict_copy_of {
+        // The editor's text is LF whatever the file uses, so the note's own
+        // ending goes back on: the copy is the note's text in a file of its
+        // own, and a save of the note would have written it the same way.
+        Side::Mine => line_ending.apply(content),
+        // The bytes the file was found holding, kept as they were found. The
+        // recorded ending is the note's, and the program that just rewrote
+        // this file is under no obligation to have used it.
+        Side::Disk => Cow::Borrowed(disk_text.as_str()),
     };
     let stamp = ignore_stamper(state);
-    let copy = write_conflict_copy(path, losing, chrono::Utc::now(), Some(&stamp))
+    let copy = write_conflict_copy(path, &losing, chrono::Utc::now(), Some(&stamp))
         .map_err(|e| save_failure_message(&e))?;
     let conflict_copy_path = Some(copy.to_string_lossy().into_owned());
 
