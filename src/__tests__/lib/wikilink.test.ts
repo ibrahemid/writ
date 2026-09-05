@@ -11,6 +11,13 @@ describe("wikilinkName", () => {
     ["Note#Heading", "Note"],
     ["folder/Note", "Note"],
     ["folder/Note#Heading|alias", "Note"],
+    ["Note.md", "Note"],
+    ["Note.markdown", "Note"],
+    ["Note.MD", "Note"],
+    ["folder/Note.md", "Note"],
+    ["Note.md.md", "Note.md"],
+    ["a.b.md", "a.b"],
+    ["Note.txt", "Note.txt"],
     ["a/b/c/Deep", "Deep"],
     ["folder\\Note", "Note"],
     ["  Padded  ", "Padded"],
@@ -18,9 +25,18 @@ describe("wikilinkName", () => {
     expect(wikilinkName(target)).toBe(name);
   });
 
+  // An empty segment is not a folder, so a trailing separator leaves the name
+  // before it, the way parse_target reads it.
+  it("drops empty path segments", () => {
+    expect(wikilinkName("folder/")).toBe("folder");
+    expect(wikilinkName("a/b/")).toBe("b");
+    expect(wikilinkName("a//b")).toBe("b");
+  });
+
   it("reads a target with no name as empty", () => {
     expect(wikilinkName("")).toBe("");
-    expect(wikilinkName("folder/")).toBe("");
+    expect(wikilinkName(".md")).toBe("");
+    expect(wikilinkName("folder/.md")).toBe("");
     expect(wikilinkName("#Heading")).toBe("");
     expect(wikilinkName("|alias")).toBe("");
   });
