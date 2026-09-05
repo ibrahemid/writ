@@ -1023,10 +1023,20 @@ pub fn answer_held_removals(
         let Some(held) = pending.held(&note_id) else {
             continue;
         };
-        // A file back at the path it left never went anywhere. The delivery
-        // that put it back carries its own event for the tab, and this one
-        // stops waiting rather than announcing a deletion behind it.
-        if std::fs::metadata(&held.path).is_ok_and(|m| m.is_file()) {
+        // The same file back at the path it left never went anywhere, and the
+        // delivery that put it back carries its own event for the tab. It is
+        // the id that says "the same file": something else at the path is a
+        // stranger, and a save that landed here during the hold is a new file
+        // too, so neither ends the wait. Asking the path whether anything is
+        // there would end it for both, and for Writ's own stamped write the
+        // ignore set has already dropped the event that would tell the tab.
+        let same_file_back = held.identity.as_ref().is_some_and(|before| {
+            tracking
+                .probe
+                .identity_of(&held.path)
+                .is_some_and(|now| now.is_same_file(before))
+        });
+        if same_file_back {
             pending.forget(&note_id);
             tracking.holds.answer(&note_id, HoldAnswer::Returned);
             continue;
@@ -2074,10 +2084,61 @@ mod tests {
 
     #[test]
     fn a_file_back_at_its_own_path_is_never_announced_as_a_deletion() {
-        // A sync client landing an update is a delete and a create at one
-        // path, and the two can arrive in different deliveries. The second one
-        // carries its own event for the tab; the removal waiting behind it
-        // stops waiting rather than following it with a deletion.
+        // A file that left its path and came back to it never went anywhere,
+        // and the delivery that put it back carries its own event for the tab.
+        // The removal waiting behind it stops waiting rather than following it
+        // with a deletion.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("note.md");
+        // Deeper than the listing the vanish delivery reads, so the first
+        // delivery genuinely has no answer and the removal waits.
+        let away = dir.path().join("away");
+        fs::create_dir(&away).unwrap();
+        let parked = away.join("parked.md");
+        fs::write(&path, b"as writ left it").unwrap();
+        let identity = crate::watcher::identity::read_identity(&path);
+        // A rename keeps the inode, so what comes back is the file on record.
+        fs::rename(&path, &parked).unwrap();
+
+        let (tracking, files) = tracking_with(RecordingFiles {
+            identity,
+            last: Some(last_read(b"as writ left it")),
+            notes_root: Some(dir.path().to_path_buf()),
+            ..RecordingFiles::default()
+        });
+        let pending = holding();
+        assert!(open_note_vanished(
+            "note-1",
+            &path,
+            &VanishedContext {
+                hold: &pending,
+                batch: std::slice::from_ref(&path),
+                tracking: &tracking,
+            },
+        )
+        .is_none());
+
+        fs::rename(&parked, &path).unwrap();
+        let answers = answer_held_removals(
+            &mut pending.borrow_mut(),
+            std::slice::from_ref(&path),
+            &tracking,
+            Instant::now() + hold_window(DEBOUNCE_WINDOW),
+        );
+        assert!(answers.is_empty(), "saw {answers:?}");
+        assert!(pending.borrow().is_empty());
+        assert!(files.removed.lock().unwrap().is_empty());
+        assert!(files.moved.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn another_file_at_the_path_is_not_the_note_s_file_come_back() {
+        // The note's file is gone and something else holds its path: another
+        // program's write, or a save Writ let through during the hold. The
+        // path answers the same for both and for the file itself, so the path
+        // is not what is asked — the id is. Forgetting the hold here would
+        // leave the tab bound to a file it never opened, and the next save
+        // would write over it (ADR-033 §12).
         let dir = tempdir().unwrap();
         let path = dir.path().join("note.md");
         fs::write(&path, b"as writ left it").unwrap();
@@ -2102,17 +2163,27 @@ mod tests {
         )
         .is_none());
 
-        fs::write(&path, b"as the sync client left it").unwrap();
+        fs::write(&path, b"somebody else's file").unwrap();
         let answers = answer_held_removals(
             &mut pending.borrow_mut(),
             std::slice::from_ref(&path),
             &tracking,
             Instant::now() + hold_window(DEBOUNCE_WINDOW),
         );
-        assert!(answers.is_empty(), "saw {answers:?}");
-        assert!(pending.borrow().is_empty());
-        assert!(files.removed.lock().unwrap().is_empty());
+        assert_eq!(answers.len(), 1, "saw {answers:?}");
+        assert!(matches!(
+            &answers[0].1,
+            WritEvent::BufferExternal {
+                change: ExternalChange::Removed,
+                ..
+            }
+        ));
         assert!(files.moved.lock().unwrap().is_empty());
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            b"somebody else's file",
+            "the file that is there now was written over"
+        );
     }
 
     #[test]
