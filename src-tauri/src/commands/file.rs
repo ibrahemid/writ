@@ -90,20 +90,25 @@ fn path_is_dataless(path: &Path) -> bool {
     writ_storage::notes_index::is_dataless(path)
 }
 
-fn authorize_open(state: &AppState, raw_path: &str) -> Result<String, String> {
+/// Authorizes one open, and says whether a one-shot token paid for it.
+///
+/// A path inside the workspace, the inbox or the notes folder authorizes
+/// itself and can be opened again tomorrow. A path outside all three is opened
+/// on a token the person's own gesture recorded, and that token is spent here.
+fn authorize_open(state: &AppState, raw_path: &str) -> Result<(String, bool), String> {
     let canonical = canonicalize_for_authorization(Path::new(raw_path))
         .map_err(|_| ERR_UNAUTHORIZED_PATH.to_string())?;
     if state.authorized_paths.consume_for_open(&canonical) {
-        return Ok(canonical);
+        return Ok((canonical, true));
     }
     if state.is_within_workspace(&canonical) {
-        return Ok(canonical);
+        return Ok((canonical, false));
     }
     if state.is_within_inbox(&canonical) {
-        return Ok(canonical);
+        return Ok((canonical, false));
     }
     if state.is_within_notes(&canonical) {
-        return Ok(canonical);
+        return Ok((canonical, false));
     }
     Err(ERR_UNAUTHORIZED_PATH.to_string())
 }
@@ -135,18 +140,41 @@ pub fn authorize_download(state: &AppState, raw_path: &str) -> Result<String, St
 /// returns early with an error containing the confirmation sentinel instead.
 /// The frontend must call `open_file_confirmed` after the user confirms.
 pub fn open_file_from_path(state: &AppState, path: &str) -> Result<FileOpenResult, String> {
-    let canonical = authorize_open(state, path)?;
+    let (canonical, spent) = authorize_open(state, path)?;
+    let opened = open_authorized_path(state, &canonical);
+    settle_open_grant(state, &canonical, spent, &opened);
+    opened
+}
+
+/// Puts a spent one-shot token back when the open it paid for opened no note.
+///
+/// The grant was for opening this note, and an answer carrying no note has not
+/// done that: a refusal, a file waiting to be confirmed, a note whose bytes are
+/// still elsewhere. The next attempt is the one the grant was for, and for a
+/// path outside every root it is the only thing that can authorize it. Only an
+/// open that spent a token puts one back, so no path can be authorized here
+/// that was not granted first.
+fn settle_open_grant(
+    state: &AppState,
+    canonical: &str,
+    spent: bool,
+    opened: &Result<FileOpenResult, String>,
+) {
+    if spent && !matches!(opened, Ok(result) if result.doc.is_some()) {
+        state
+            .authorized_paths
+            .record_for_open(canonical.to_string());
+    }
+}
+
+fn open_authorized_path(state: &AppState, canonical: &str) -> Result<FileOpenResult, String> {
+    let canonical = canonical.to_string();
     let file_path = Path::new(&canonical);
 
     // Before anything reads the file. `classify_path` sniffs the first bytes
     // for a NUL, and on a placeholder that sniff is what blocks the IPC thread
     // until the provider has fetched the whole file.
     if let OpenDecision::Download { .. } = decide_open(file_path, path_is_dataless(file_path)) {
-        // The authorization this call consumed is spent, and the frontend
-        // opens the note again once the bytes land. Record a fresh token so
-        // that second open is the one this one would have been, without
-        // widening what any other path may open.
-        state.authorized_paths.record_for_open(canonical.clone());
         let size_bytes = std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
         let home = dirs::home_dir();
         let provider = crate::startup::sync_provider_for(
@@ -318,8 +346,14 @@ pub fn open_file_confirmed(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<FileOpenResult, String> {
-    let canonical = authorize_open(&state, &path)?;
-    let file_path = Path::new(&canonical);
+    let (canonical, spent) = authorize_open(&state, &path)?;
+    let opened = open_confirmed_path(&state, &canonical);
+    settle_open_grant(&state, &canonical, spent, &opened);
+    opened
+}
+
+fn open_confirmed_path(state: &AppState, canonical: &str) -> Result<FileOpenResult, String> {
+    let file_path = Path::new(canonical);
     let classification = file_ops::classify_path(file_path).map_err(|e| e.to_string())?;
     if let FileOpenMode::Refused { reason } = &classification.mode {
         return Err(reason.clone());
@@ -330,7 +364,7 @@ pub fn open_file_confirmed(
     } else {
         classification.mode
     };
-    open_file_classified(&state, &canonical, mode, classification.size_bytes)
+    open_file_classified(state, canonical, mode, classification.size_bytes)
 }
 
 #[tauri::command]

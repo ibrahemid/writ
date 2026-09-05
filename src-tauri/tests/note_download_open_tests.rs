@@ -23,6 +23,7 @@ use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::file::{
     authorize_download, clear_dataless_for_test, mark_dataless_for_test, open_file_from_path,
 };
+use writ_tauri_lib::commands::materialise::{cancel_download, MaterialiseState};
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
 use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
@@ -197,6 +198,57 @@ fn the_download_gate_keeps_the_open_token_for_the_open_that_follows() {
     // Still spendable: the download did not consume it.
     let opened = open_file_from_path(&state, &canonical).expect("open");
     assert!(opened.doc.is_some());
+}
+
+#[test]
+fn an_open_that_failed_after_the_bytes_landed_leaves_the_retry_authorized() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+
+    // Outside the notes, workspace and inbox roots, so the token is the only
+    // thing that can authorize this note.
+    let note = dir.path().join("outside-away.md");
+    std::fs::write(&note, "placeholder stand-in").unwrap();
+    let canonical = canonicalize_for_authorization(&note).unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+
+    let marked = mark(&canonical);
+    let away = open_file_from_path(&state, &canonical).expect("open");
+    assert!(away.doc.is_none());
+    assert_eq!(state.authorized_paths.pending_open_len(), 1);
+    drop(marked);
+
+    // The bytes land and the open the frontend performs fails. The pane keeps
+    // the note and says to open it again, so the permission that second
+    // attempt needs has to survive the failure.
+    std::fs::remove_file(&note).unwrap();
+    assert!(open_file_from_path(&state, &canonical).is_err());
+    assert_eq!(state.authorized_paths.pending_open_len(), 1);
+
+    // The retry, and it opens the note.
+    std::fs::write(&note, "# here now\n").unwrap();
+    let opened = open_file_from_path(&state, &canonical).expect("the retry opens the note");
+    assert!(opened.doc.is_some());
+    // Spent by the open it was granted for, and only by that one.
+    assert_eq!(state.authorized_paths.pending_open_len(), 0);
+}
+
+#[test]
+fn cancelling_a_download_stops_the_wait_and_gives_the_permission_back() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let downloads = MaterialiseState::default();
+
+    let note = dir.path().join("outside.md");
+    std::fs::write(&note, "placeholder stand-in").unwrap();
+    let canonical = canonicalize_for_authorization(&note).unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+
+    cancel_download(&state, &downloads, &canonical).expect("the tab's token authorizes the cancel");
+
+    assert!(!state.authorized_paths.is_pending_open(&canonical));
+    // And with the permission gone, the path is a stranger again.
+    assert!(cancel_download(&state, &downloads, &canonical).is_err());
 }
 
 #[test]

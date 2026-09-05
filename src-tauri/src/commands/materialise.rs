@@ -275,6 +275,22 @@ pub(crate) fn materialise_note_inner(
 /// person's next move, so the token stays for that second attempt. Only a
 /// cancel ends the tab as well as the wait, and that is the one ending that
 /// gives the authorization back here. Nothing in this function can mint one.
+/// Ends one download's hold on a path: the in-flight claim and, when the tab
+/// goes with it, the open authorization.
+///
+/// The claim is what makes a second open join instead of starting a second
+/// read, so a path left claimed after its download ended would make the next
+/// open wait on a read nobody is performing.
+pub(crate) fn settle_download(
+    downloads: &MaterialiseState,
+    authorized: &AuthorizedPaths,
+    canonical: &str,
+    outcome: &DownloadOutcome,
+) {
+    downloads.release(canonical);
+    settle_authorization(authorized, canonical, outcome);
+}
+
 pub(crate) fn settle_authorization(
     authorized: &AuthorizedPaths,
     canonical: &str,
@@ -299,9 +315,8 @@ fn spawn_download(app: AppHandle, canonical: String, cancel: Arc<AtomicBool>) {
             |p| read_and_verify_with(p, writ_storage::notes_index::is_dataless),
             |outcome| {
                 let downloads = waiter_app.state::<MaterialiseState>();
-                downloads.release(&waiter_path);
                 let state = waiter_app.state::<AppState>();
-                settle_authorization(&state.authorized_paths, &waiter_path, &outcome);
+                settle_download(&downloads, &state.authorized_paths, &waiter_path, &outcome);
                 emit_download(
                     &waiter_app,
                     &waiter_path,
@@ -327,7 +342,19 @@ pub fn cancel_materialise_note(
     downloads: State<'_, MaterialiseState>,
     path: String,
 ) -> Result<(), String> {
-    let canonical = crate::commands::file::authorize_download(&state, &path)?;
+    cancel_download(&state, &downloads, &path)
+}
+
+/// Stops the wait for `path` and gives its open authorization back.
+///
+/// The whole of what the command does, in a shape that does not need a Tauri
+/// state wrapper around it.
+pub fn cancel_download(
+    state: &AppState,
+    downloads: &MaterialiseState,
+    path: &str,
+) -> Result<(), String> {
+    let canonical = crate::commands::file::authorize_download(state, path)?;
     downloads.cancel(&canonical);
     state.authorized_paths.discard_pending_open(&canonical);
     Ok(())
@@ -586,6 +613,34 @@ mod tests {
         authorized.record_for_open(downloading.to_string());
         authorized.record_for_open(other.to_string());
         (authorized, downloading, other)
+    }
+
+    #[test]
+    fn every_ending_lets_the_path_be_asked_for_again() {
+        for outcome in [
+            DownloadOutcome::Done,
+            DownloadOutcome::Cancelled,
+            DownloadOutcome::Failed("no space".into()),
+            DownloadOutcome::TimedOut,
+        ] {
+            let downloads = MaterialiseState::default();
+            let authorized = AuthorizedPaths::new();
+            let path = "/notes/away.md";
+            authorized.record_for_open(path.to_string());
+            assert!(matches!(downloads.claim(path), Claim::Started(_)));
+
+            settle_download(&downloads, &authorized, path, &outcome);
+
+            assert!(
+                !downloads.is_in_flight(path),
+                "{outcome:?} left the path claimed, so the next open would join a read nobody is performing"
+            );
+            assert_eq!(
+                authorized.is_pending_open(path),
+                !matches!(outcome, DownloadOutcome::Cancelled),
+                "{outcome:?} settled the authorization the wrong way"
+            );
+        }
     }
 
     #[test]
