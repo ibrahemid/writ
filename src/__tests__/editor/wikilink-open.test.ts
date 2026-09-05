@@ -43,9 +43,33 @@ describe("followNoteLink", () => {
     });
     await followNoteLink("/notes/From.md", "Target", actions);
     expect(actions.resolve).toHaveBeenCalledWith("/notes/From.md", "Target");
-    expect(actions.openPath).toHaveBeenCalledWith("/notes/Target.md");
+    expect(actions.openPath).toHaveBeenCalledWith("/notes/Target.md", null);
     expect(actions.offerCreate).not.toHaveBeenCalled();
     expect(actions.showCandidates).not.toHaveBeenCalled();
+  });
+
+  // `[[Note#Section]]` asks for a place in the note. The index holds the line
+  // each heading sits on, so the open lands on it instead of the top.
+  it("opens a target that names a heading at its line", async () => {
+    const actions = actionsFor({
+      status: "resolved",
+      path: "/notes/Target.md",
+      candidates: [],
+      heading_line: 12,
+    });
+    await followNoteLink("/notes/From.md", "Target#Later Part", actions);
+    expect(actions.openPath).toHaveBeenCalledWith("/notes/Target.md", 12);
+  });
+
+  it("opens the note at the top when the heading is not one the note has", async () => {
+    const actions = actionsFor({
+      status: "resolved",
+      path: "/notes/Target.md",
+      candidates: [],
+      heading_line: null,
+    });
+    await followNoteLink("/notes/From.md", "Target#Gone", actions);
+    expect(actions.openPath).toHaveBeenCalledWith("/notes/Target.md", null);
   });
 
   it("shows the candidates of an ambiguous target and opens the one picked", async () => {
@@ -140,7 +164,7 @@ describe("a modifier click on a wikilink", () => {
 
     await Promise.resolve();
     await Promise.resolve();
-    expect(actions.openPath).toHaveBeenCalledWith("/notes/Target.md");
+    expect(actions.openPath).toHaveBeenCalledWith("/notes/Target.md", null);
     expect(deps.openWorkspaceFile).not.toHaveBeenCalled();
     view.destroy();
   });

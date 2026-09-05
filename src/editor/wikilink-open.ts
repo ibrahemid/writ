@@ -5,6 +5,8 @@ export interface NoteLinkResolution {
   status: "resolved" | "ambiguous" | "missing";
   path: string | null;
   candidates: string[];
+  /** The line the heading a `#` names sits on, when the index holds one. */
+  heading_line?: number | null;
 }
 
 /**
@@ -13,8 +15,11 @@ export interface NoteLinkResolution {
  */
 export interface NoteLinkActions {
   resolve(fromPath: string, target: string): Promise<NoteLinkResolution>;
-  /** Opens a note by its path. */
-  openPath(path: string): void;
+  /**
+   * Opens a note by its path, at `line` when the target named a heading the
+   * index knows the line of.
+   */
+  openPath(path: string, line?: number | null): void;
   /** Shows the notes a target could mean and opens the one that is picked. */
   showCandidates(
     name: string,
@@ -50,7 +55,8 @@ export async function followNoteLink(
 
   const resolution = await actions.resolve(fromPath, written);
   if (resolution.status === "resolved" && resolution.path) {
-    actions.openPath(resolution.path);
+    // `[[Note#Section]]` asks for a place in the note, not just the note.
+    actions.openPath(resolution.path, resolution.heading_line ?? null);
     return;
   }
 

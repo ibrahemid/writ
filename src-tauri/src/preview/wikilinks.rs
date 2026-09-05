@@ -71,11 +71,20 @@ impl IndexWikilinks {
     /// as not being an address at all. The app joins it back onto the notes
     /// folder and refuses anything that lands outside, so the scheme grants
     /// nothing a note in that folder does not already have.
-    fn href_for(&self, path: &str) -> String {
-        format!(
+    /// A target that named a heading carries its slug as the fragment, which
+    /// is what the rendered document anchors its headings by.
+    fn href_for(&self, path: &str, heading: Option<&str>) -> String {
+        let mut href = format!(
             "{NOTE_LINK_SCHEME}{}",
             encode_href(&self.relative_to_root(path))
-        )
+        );
+        if let Some(slug) = heading.map(links::heading_slug) {
+            if !slug.is_empty() {
+                href.push('#');
+                href.push_str(&encode_href(&slug));
+            }
+        }
+        href
     }
 
     /// The path the preview shows, relative to the notes folder. A path
@@ -104,7 +113,7 @@ impl WikilinkResolver for IndexWikilinks {
         let resolution = self.index.resolve_link(&self.from, inner);
         match resolution {
             Ok(Resolution::Resolved(path)) => WikilinkRender {
-                href: Some(self.href_for(&path)),
+                href: Some(self.href_for(&path, parsed.heading.as_deref())),
                 label,
                 resolved: true,
             },
@@ -189,6 +198,29 @@ mod tests {
         assert_eq!(encode_href("100%.md"), "100%25.md");
         assert_eq!(encode_href("folder/Note.md"), "folder/Note.md");
         assert_eq!(encode_href("Café.md"), "Café.md");
+    }
+
+    // `[[Note#Section]]` names a place in the note, and the fragment is the
+    // slug the rendered document gives that heading.
+    #[test]
+    fn a_heading_becomes_the_fragment_of_the_href() {
+        let (_dir, resolver) = fixture();
+        assert_eq!(
+            resolver.resolve("Note#Some Heading").href.as_deref(),
+            Some("writ-note:Note.md#some-heading")
+        );
+        assert_eq!(
+            resolver.resolve("Note#What's next?").href.as_deref(),
+            Some("writ-note:Note.md#whats-next")
+        );
+        assert_eq!(
+            resolver.resolve("Note|label").href.as_deref(),
+            Some("writ-note:Note.md")
+        );
+        assert_eq!(
+            resolver.resolve("Note#").href.as_deref(),
+            Some("writ-note:Note.md")
+        );
     }
 
     #[test]

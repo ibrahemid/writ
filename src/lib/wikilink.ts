@@ -52,16 +52,20 @@ function stripNoteExtension(name: string): string {
 export const NOTE_LINK_SCHEME = "writ-note:";
 
 /**
- * The notes-folder-relative path in a preview href, or null when the href is
- * not a link to a note.
+ * The notes-folder-relative path in a preview href, still escaped, or null
+ * when the href is not a link to a note.
+ *
+ * A fragment names a heading inside the note rather than part of its path, so
+ * it is split off first: the `#` in a file name is escaped, which is what
+ * leaves the raw one unambiguous.
  *
  * The href arrives from the preview frame, which anything in the rendered
  * document can post, so this only says what the string claims to be. Where it
  * lands is decided by joining it onto the notes folder and refusing anything
- * outside.
+ * outside, and whether it opens at all is decided by the index.
  */
 export function noteLinkPath(href: string): string | null {
   if (!href.startsWith(NOTE_LINK_SCHEME)) return null;
-  const path = href.slice(NOTE_LINK_SCHEME.length);
+  const path = href.slice(NOTE_LINK_SCHEME.length).split("#", 1)[0];
   return path === "" ? null : path;
 }

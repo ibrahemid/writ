@@ -153,8 +153,16 @@ export default function EditorInstance(props: Props) {
 
   const noteLinkActions = {
     resolve: (from: string, target: string) => linkStore.resolveNoteLink(from, target),
-    openPath: (path: string) => {
-      void win.tabs.openFile(path).catch(() => undefined);
+    // A target that named a heading opens the note at it. The reveal is the
+    // one a search result uses, and it lands on the id the open answers with,
+    // so a note that was not already in a tab is scrolled once it is loaded.
+    openPath: (path: string, line?: number | null) => {
+      void win.tabs
+        .openFile(path)
+        .then((doc) => {
+          if (doc && line != null) win.editor.requestReveal(doc.id, line);
+        })
+        .catch(() => undefined);
     },
     showCandidates: showLinkCandidates,
     offerCreate: showMissingNote,
