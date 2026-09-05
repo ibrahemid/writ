@@ -2,11 +2,12 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-// ADR-009 §"Accessibility": the fallback stylesheet ships with computed
-// contrast ratios; this regression test asserts WCAG AA (4.5:1 body,
-// 3.0:1 large text) for every theme combination the stylesheet defines.
+// ADR-009 §"Accessibility": the reading palette ships with computed contrast
+// ratios; this regression test asserts WCAG AA (4.5:1 body, 3.0:1 large text)
+// for every theme the generated token layer defines. The rules live in
+// preview-base.css; the values live here.
 
-const CSS_PATH = resolve(process.cwd(), "src-tauri/assets/preview-base.css");
+const CSS_PATH = resolve(process.cwd(), "src-tauri/assets/generated/preview-tokens.css");
 const css = readFileSync(CSS_PATH, "utf8");
 
 function blockFor(selector: string): string {
@@ -46,12 +47,15 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+// Light is both the `:root` default and an attribute block: a live theme
+// switch selects the attribute, so that block is asserted too.
 const PALETTES: { name: string; selector: string }[] = [
-  { name: "dark", selector: ":root" },
-  { name: "light", selector: '[data-writ-theme="light"]' },
+  { name: "light", selector: ":root" },
+  { name: "light (attribute)", selector: '[data-writ-theme="light"]' },
+  { name: "dark", selector: '[data-writ-theme="dark"]' },
 ];
 
-describe("preview-base.css contrast (WCAG AA)", () => {
+describe("preview-tokens.css contrast (WCAG AA)", () => {
   for (const { name, selector } of PALETTES) {
     describe(`${name} palette`, () => {
       const block = blockFor(selector);
@@ -80,8 +84,9 @@ describe("preview-base.css contrast (WCAG AA)", () => {
     });
   }
 
-  it("defines both a dark (:root) and a light ([data-writ-theme=light]) palette", () => {
+  it("defines a light :root default and an attribute block per polarity", () => {
     expect(css).toMatch(/:root\s*\{/);
     expect(css).toMatch(/\[data-writ-theme="light"\]\s*\{/);
+    expect(css).toMatch(/\[data-writ-theme="dark"\]\s*\{/);
   });
 });

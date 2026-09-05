@@ -1,3 +1,5 @@
+import type { AccentId, ProseFace } from "../styles/generated/tokens";
+
 export interface CommandUsage {
   count: number;
   last_used_ms: number;
@@ -40,6 +42,18 @@ export interface AiConfig {
 
 export type SpellingDialect = "american" | "british" | "canadian" | "australian";
 
+/** Follow the OS setting, or pin one polarity. */
+export type Polarity = "system" | "light" | "dark";
+
+export type { AccentId } from "../styles/generated/tokens";
+export type ProseFaceId = ProseFace;
+
+export interface AppearanceConfig {
+  polarity: Polarity;
+  accent: AccentId;
+  prose_face: ProseFaceId;
+}
+
 export interface SpellingConfig {
   enabled: boolean;
   dialect: string;
@@ -53,13 +67,16 @@ export interface WritConfig {
     default_visible: boolean;
     position: "left" | "right";
     open: boolean;
+    /** Width in CSS pixels, clamped to the resize range. */
+    width: number;
   };
-  editor: { font_family: string; font_size: number; word_wrap: boolean; tab_size: number; autosave_debounce_ms: number; markdown_typography: boolean; markdown_editing: boolean };
+  editor: { font_family: string; font_size: number; word_wrap: boolean; tab_size: number; autosave_debounce_ms: number; markdown_typography: boolean; markdown_editing: boolean; status_bar: boolean };
   window: { width: number; height: number; x?: number | null; y?: number | null; maximized: boolean };
   keybindings: Record<string, string>;
   history: { max_entries: number };
   storage: { path: string };
   theme: { preset: string; overrides: Record<string, string> };
+  appearance: AppearanceConfig;
   commands: CommandsConfig;
   preview: PreviewConfig;
   workspace: { root: string | null };

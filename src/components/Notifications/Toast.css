@@ -1,30 +1,34 @@
 .toast-container {
   position: fixed;
-  bottom: 40px;
+  /* EditorArea sets this: 16px with no status bar, 40px when the bar is on. */
+  bottom: var(--writ-toast-bottom, 16px);
   right: 16px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  z-index: 200;
+  z-index: var(--writ-z-toast);
   pointer-events: none;
 }
 
 .toast {
   position: relative;
   padding: 10px 16px;
-  background: var(--writ-surface-elevated);
-  border: 1px solid var(--writ-border-default);
-  border-radius: 6px;
-  color: var(--writ-foreground-default);
-  font-size: var(--writ-font-size-sm);
+  background: var(--writ-bg-raised);
+  border: 0;
+  border-radius: var(--writ-r-media);
+  color: var(--writ-fg);
+  font-family: var(--writ-font-ui);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
   display: flex;
   align-items: center;
   gap: 12px;
-  box-shadow: var(--writ-shadow-toast);
+  box-shadow: var(--writ-shadow-popover);
   pointer-events: all;
   max-width: 400px;
 }
 
+/* The rail is the status carrier: it is the one place the tone is spent. */
 .toast-info::before,
 .toast-error::before,
 .toast-warning::before,
@@ -35,8 +39,8 @@
   bottom: 8px;
   left: 6px;
   width: 3px;
-  border-radius: 999px;
-  background: var(--writ-accent-default);
+  border-radius: var(--writ-r-pill);
+  background: var(--writ-accent);
 }
 
 .toast-error::before { background: var(--writ-status-error); }
@@ -46,11 +50,6 @@
 .toast-text { flex: 1; }
 
 .toast-dismiss {
-  color: var(--writ-foreground-subtle);
-  font-size: 16px;
+  height: 20px;
   padding: 0 2px;
-}
-
-.toast-dismiss:hover {
-  color: var(--writ-foreground-default);
 }

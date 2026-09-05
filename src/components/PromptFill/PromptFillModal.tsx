@@ -1,5 +1,6 @@
 import { createSignal, createMemo, Show, For, createEffect, onCleanup } from "solid-js";
 import { installFocusTrap } from "../../lib/focus-trap";
+import Button from "../Button/Button";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { promptEstimateStore } from "../../stores/global/prompt-estimate";
 import { formatTokenCount } from "../../stores/global/token-estimate";
@@ -129,29 +130,17 @@ export default function PromptFillModal() {
             </Show>
             <div class="placeholders-actions">
               <Show when={req().names.length > 0}>
-                <button
-                  type="button"
-                  class="placeholders-button placeholders-cancel"
-                  onClick={() => settle(false)}
-                >
+                <Button class="placeholders-cancel" onClick={() => settle(false)}>
                   Cancel
-                </button>
-                <button
-                  type="button"
-                  class="placeholders-button placeholders-confirm"
-                  onClick={() => settle(true)}
-                >
+                </Button>
+                <Button variant="primary" class="placeholders-confirm" onClick={() => settle(true)}>
                   Copy filled text
-                </button>
+                </Button>
               </Show>
               <Show when={req().names.length === 0}>
-                <button
-                  type="button"
-                  class="placeholders-button placeholders-confirm"
-                  onClick={() => settle(false)}
-                >
+                <Button variant="primary" class="placeholders-confirm" onClick={() => settle(false)}>
                   Close
-                </button>
+                </Button>
               </Show>
             </div>
           </div>

@@ -10,16 +10,16 @@
 
 .link-confirm {
   position: absolute;
-  z-index: 3;
+  z-index: var(--writ-z-popover);
   width: 288px;
   max-width: calc(100% - 16px);
   padding: var(--writ-space-4);
-  border: 1px solid var(--writ-border-pill);
-  border-radius: var(--writ-radius-2);
-  background: var(--writ-surface-elevated);
+  border: 0;
+  border-radius: var(--writ-r-popover);
+  background: var(--writ-bg-raised);
   box-shadow: var(--writ-shadow-popover);
-  font-family: var(--writ-font-sans);
-  animation: link-confirm-in 90ms ease-out;
+  font-family: var(--writ-font-ui);
+  animation: link-confirm-in var(--writ-motion-fast) var(--writ-ease);
 }
 
 .link-confirm:focus {
@@ -35,8 +35,8 @@
 
 .link-confirm-host {
   margin: 0;
-  color: var(--writ-foreground-default);
-  font-size: var(--writ-font-size);
+  color: var(--writ-fg);
+  font-size: var(--writ-ui-md);
   font-weight: 600;
   line-height: 1.3;
   overflow-wrap: anywhere;
@@ -46,8 +46,8 @@
    and the host / address hierarchy is already carried by size and color. */
 .link-confirm-url {
   margin: var(--writ-space-1) 0 0;
-  color: var(--writ-foreground-subtle);
-  font-size: var(--writ-font-size-xs);
+  color: var(--writ-fg-faint);
+  font-size: var(--writ-ui-xs);
   line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -56,8 +56,8 @@
 
 .link-confirm-refused {
   margin: var(--writ-space-3) 0 0;
-  color: var(--writ-warning-foreground);
-  font-size: var(--writ-font-size-sm);
+  color: var(--writ-status-warning);
+  font-size: var(--writ-ui-sm);
   line-height: 1.4;
 }
 
@@ -68,48 +68,8 @@
   margin-top: var(--writ-space-4);
 }
 
-.link-confirm-actions button {
-  padding: var(--writ-space-2) var(--writ-space-4);
-  border-radius: var(--writ-radius-1);
-  border: 1px solid transparent;
-  font-family: inherit;
-  font-size: var(--writ-font-size-sm);
-  line-height: 1.4;
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
-}
-
-.link-confirm-cancel {
-  background: transparent;
-  color: var(--writ-foreground-muted);
-}
-
-.link-confirm-cancel:hover {
-  background: var(--writ-overlay-hover);
-  color: var(--writ-foreground-default);
-}
-
-.link-confirm-open {
-  background: var(--writ-accent-default);
-  color: var(--writ-accent-foreground);
-  font-weight: 500;
-}
-
-.link-confirm-open:hover:not(:disabled) {
-  background: var(--writ-accent-hover);
-}
-
-.link-confirm-open:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .link-confirm {
     animation: none;
-  }
-
-  .link-confirm-actions button {
-    transition: none;
   }
 }

@@ -107,6 +107,21 @@ fn open_file_classified(
     mode: FileOpenMode,
     size_bytes: u64,
 ) -> Result<FileOpenResult, String> {
+    let opened = open_file_classified_inner(state, canonical, mode, size_bytes)?;
+    // A file opened from anywhere but the notes folder is followed from here
+    // on, so an edit another program makes to it reaches the tab instead of
+    // being found the hard way on the next save.
+    state.follow_note_file(&opened.doc);
+    Ok(opened)
+}
+
+/// [`open_file_classified`] without the watch, which is the whole of the open.
+fn open_file_classified_inner(
+    state: &AppState,
+    canonical: &str,
+    mode: FileOpenMode,
+    size_bytes: u64,
+) -> Result<FileOpenResult, String> {
     let file_path = Path::new(canonical);
     let store = state.store.lock().map_err(|e| e.to_string())?;
 
@@ -342,10 +357,28 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
             tracing::debug!(buffer_id = %doc.id, error = %e, "reindex after reopening failed");
         }
     }
-    if !state.disk_hash_matches(&doc.id, &source) {
+    // A change is only reportable against a record of what the file held. A
+    // note Writ has not read this launch has none, and saying it changed would
+    // be an assertion about bytes nobody looked at. It lands on the tab least
+    // able to answer for itself: one restored at launch and never brought to
+    // the front, whose editor is not mounted and which reads the file itself
+    // the moment it is. Silence costs nothing there and a claim costs a prompt
+    // over a document nobody touched.
+    let Some(known) = state.disk_state(&doc.id) else {
+        return;
+    };
+    if known.hash != writ_core::hash::sha256_bytes(&source) {
+        // The digest is the file's own, computed from the bytes just read, in
+        // the form the editor compares its document against. A reopen is the
+        // one place the file has already been read, so leaving it out and
+        // making the editor go back to disk would be an IPC round trip for an
+        // answer already in hand.
         state.event_bus.emit(WritEvent::BufferExternal {
             buffer_id: doc.id.clone(),
+            path: doc.source_path.clone().unwrap_or_default(),
             change: ExternalChange::Modified,
+            new_path: None,
+            disk_hash: Some(writ_core::hash::comparison_digest_hex(&source)),
         });
     }
 }
@@ -448,11 +481,19 @@ pub fn open_generated_document(
 /// from the persisted buffers — so a compromised webview cannot name an
 /// arbitrary path and have Writ write it.
 ///
-/// A path that no longer exists passes: a file deleted underneath an open
-/// buffer is recreated by the next save, which is what the external-edit
-/// policy promises. Nothing can be redirected in that case either, since
+/// A path that no longer exists passes, and that is deliberately not the same
+/// question as whether the file was deleted. This gate asks whether a write
+/// may be aimed at a path at all; a path resolves whether or not anything is
+/// there, which is what lets a new note be minted and a note whose folder was
+/// remade be saved. Nothing can be redirected in that case either, since
 /// [`write_atomic`](writ_storage::atomic::write_atomic) renames onto the
 /// literal path rather than following a dangling link.
+///
+/// Whether the file behind an open tab was deleted is asked one layer up, by
+/// [`crate::commands::buffer::save_buffer_content_inner`], which knows which
+/// note the write is for and can therefore read what the watcher recorded
+/// about that note's file. A note marked removed on disk is refused there
+/// under `ERR_FILE_REMOVED_ON_DISK` rather than recreated (spec W4).
 pub fn authorize_source_write(state: &AppState, source_path: &str) -> Result<(), String> {
     if notes_containment_authorizes(state, source_path) {
         return Ok(());

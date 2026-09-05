@@ -894,19 +894,27 @@ impl BufferStore {
         maintenance::run_maintenance(&self.conn)
     }
 
-    /// Resolves which active buffers should be restored from the latest
-    /// dirty snapshot.
+    /// Resolves which buffers should be restored from the latest dirty
+    /// snapshot.
     ///
     /// Reads current `updated_at` timestamps from the database, then
     /// delegates to [`SnapshotManager::recover_buffers`].
+    ///
+    /// Closed notes are considered as well as open ones. A note whose save was
+    /// refused and whose tab was then closed hands its text to the shutdown
+    /// snapshot on the way out; the row has moved to `history` by then, and
+    /// looking at open notes alone would drop the one entry the snapshot was
+    /// written for. A note whose row is gone entirely is still dropped: there
+    /// is no file left to write it to.
     pub fn resolve_recovery(&self) -> StorageResult<Vec<RecoveredBuffer>> {
-        let active = self.list_by_status(BufferStatus::Active)?;
         let mut updated_at_map: HashMap<String, String> = HashMap::new();
-        for buf in &active {
-            updated_at_map.insert(
-                buf.id.clone(),
-                buf.updated_at.format("%Y-%m-%d %H:%M:%S").to_string(),
-            );
+        for status in [BufferStatus::Active, BufferStatus::History] {
+            for buf in self.list_by_status(status)? {
+                updated_at_map.insert(
+                    buf.id.clone(),
+                    buf.updated_at.format("%Y-%m-%d %H:%M:%S").to_string(),
+                );
+            }
         }
         let mgr = SnapshotManager::new(&self.conn);
         mgr.recover_buffers(&updated_at_map)
@@ -952,37 +960,55 @@ impl BufferStore {
 /// macOS is the only platform with `SF_DATALESS`; everywhere else this is a
 /// constant `None` and the check that reads it folds away.
 #[cfg(target_os = "macos")]
-pub(crate) fn dataless_flags(path: &Path) -> Option<u32> {
+pub fn dataless_flags(path: &Path) -> Option<u32> {
     use std::os::macos::fs::MetadataExt;
     std::fs::metadata(path).ok().map(|m| m.st_flags())
 }
 
 /// [`dataless_flags`] on a platform with no such flag.
 #[cfg(not(target_os = "macos"))]
-pub(crate) fn dataless_flags(_path: &Path) -> Option<u32> {
+pub fn dataless_flags(_path: &Path) -> Option<u32> {
     None
+}
+
+/// A file read once, answering both questions asked of it.
+pub struct NoteFileState {
+    /// What the write guard compares: the digest of the bytes as they are,
+    /// line endings and all, plus the size and modification time.
+    pub disk: DiskState,
+    /// What the editor compares its document against
+    /// ([`writ_core::hash::comparison_digest_hex`]).
+    pub comparison_hash: String,
 }
 
 /// What `path` holds right now, or `None` when there is no file there.
 ///
-/// The bytes are read once and both hashed and measured from that read, so the
-/// digest and the length can never describe two different versions of a file
-/// being written while this runs.
-pub(crate) fn read_disk_state(path: &Path) -> StorageResult<Option<DiskState>> {
+/// One read answers both: a second read to compute the other digest could see
+/// a different version of a file being written while this runs, and the two
+/// answers would then describe two different files.
+pub fn read_note_file_state(path: &Path) -> StorageResult<Option<NoteFileState>> {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e.into()),
     };
     let metadata = std::fs::metadata(path).ok();
-    Ok(Some(DiskState {
-        hash: writ_core::hash::sha256_bytes(&bytes),
-        size: metadata
-            .as_ref()
-            .map(|m| m.len())
-            .unwrap_or(bytes.len() as u64),
-        mtime: metadata.as_ref().and_then(|m| m.modified().ok()),
+    Ok(Some(NoteFileState {
+        comparison_hash: writ_core::hash::comparison_digest_hex(&bytes),
+        disk: DiskState {
+            hash: writ_core::hash::sha256_bytes(&bytes),
+            size: metadata
+                .as_ref()
+                .map(|m| m.len())
+                .unwrap_or(bytes.len() as u64),
+            mtime: metadata.as_ref().and_then(|m| m.modified().ok()),
+        },
     }))
+}
+
+/// What `path` holds right now, for the write guard alone.
+pub fn read_disk_state(path: &Path) -> StorageResult<Option<DiskState>> {
+    Ok(read_note_file_state(path)?.map(|state| state.disk))
 }
 
 /// The state of a file just written, without reading it back.

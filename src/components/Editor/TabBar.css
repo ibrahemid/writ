@@ -1,23 +1,33 @@
+/* The tab strip on the accepted baseline (ADR-030 §5): borderless tabs on the
+   sidebar ground, the active one carrying the canvas colour so the tab and the
+   page below it read as one surface. No border, no shadow, and no accent on a
+   tab fill (§6). The single exception is GNOME's tab indicator at the foot of
+   this file, which libadwaita's own tab view draws. */
+
 .tabbar {
-  height: 100%;
-  background: transparent;
+  /* 6px is not a step on the ADR-030 spacing ramp, so the strip names it for
+     itself rather than forking the ramp; every reader carries the fallback the
+     token contract asks of a component-set property. */
+  --writ-tab-tight: 6px;
+  height: 36px;
+  flex: none;
   display: flex;
-  align-items: center;
-  padding: var(--writ-space-2) var(--writ-space-3);
-  gap: var(--writ-space-2);
-  flex: 1;
+  align-items: flex-end;
+  gap: var(--writ-space-1);
+  padding: 0 var(--writ-tab-tight, 6px);
+  background: var(--writ-bg-sidebar);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* The list scrolls; the add control stays put at the end of the strip. */
+.tabbar-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--writ-space-1);
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-}
-
-.tabbar-tabs {
-  display: flex;
-  align-items: center;
-  gap: var(--writ-space-2);
-  flex: 1;
-  min-width: 0;
-  overflow-x: auto;
 }
 
 .tabbar-tabs::-webkit-scrollbar {
@@ -25,112 +35,182 @@
 }
 
 .tab {
+  height: 28px;
+  min-width: 100px;
+  max-width: 200px;
+  flex: 0 1 auto;
   display: flex;
   align-items: center;
-  gap: var(--writ-space-2);
-  height: var(--writ-tab-pill-height);
-  padding: 0 var(--writ-space-3);
-  background: var(--writ-bg-tab-pill);
-  border: 1px solid var(--writ-border-pill);
-  border-radius: var(--writ-radius-2);
-  color: var(--writ-foreground-muted);
-  font-size: var(--writ-font-size-sm);
-  white-space: nowrap;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
-  flex-shrink: 0;
-  min-width: 116px;
+  gap: var(--writ-tab-tight, 6px);
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--writ-r-tab) var(--writ-r-tab) 0 0;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  color: var(--writ-fg-muted);
+  background: transparent;
+  transition: background var(--writ-motion), color var(--writ-motion);
 }
 
 .tab:hover {
-  background: var(--writ-surface-hover);
-  color: var(--writ-foreground-default);
+  background: var(--writ-bg-hover);
 }
 
-.tab-active {
-  background: color-mix(in srgb, var(--writ-accent-default) 16%, var(--writ-surface-elevated));
-  border-color: transparent;
-  color: var(--writ-foreground-default);
-  font-weight: 500;
-  box-shadow: inset 0 -2px 0 var(--writ-accent-default);
-}
-
+/* The active tab is the canvas: the same colour as the page, with no line
+   between the two. */
+.tab-active,
 .tab-active:hover {
-  background: color-mix(in srgb, var(--writ-accent-default) 22%, var(--writ-surface-elevated));
-  color: var(--writ-foreground-default);
+  background: var(--writ-bg-canvas);
+  color: var(--writ-fg);
+  font-weight: 500;
+}
+
+.tab-label {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  overflow: hidden;
 }
 
 .tab-title {
-  max-width: 180px;
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+/* A tab whose file is gone: struck through as well as dimmed, so the state
+   does not rest on colour alone. */
+.tab-removed .tab-title {
+  text-decoration: line-through;
+  color: var(--writ-fg-muted);
+}
+
+/* Out of the way until the pointer or the keyboard reaches the tab, so a strip
+   at rest is titles only. The open note keeps its close in view. */
 .tab-close {
   width: 16px;
   height: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  color: var(--writ-foreground-subtle);
-  border-radius: var(--writ-radius-1);
-  line-height: 1;
-  flex-shrink: 0;
-  transition: color 120ms ease, background 120ms ease;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--writ-r-control);
+  background: transparent;
+  color: var(--writ-fg-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--writ-motion), background var(--writ-motion), color var(--writ-motion);
 }
 
-.tab-close:focus-visible {
-  outline: 2px solid var(--writ-accent-default);
-  outline-offset: 1px;
-}
-
-.tab:hover .tab-close {
-  color: var(--writ-foreground-muted);
+.tab:hover .tab-close,
+.tab:focus-within .tab-close,
+.tab-active .tab-close {
+  opacity: 1;
 }
 
 .tab-close:hover {
-  color: var(--writ-foreground-default);
-  background: var(--writ-overlay-hover);
-}
-
-.tabbar-new {
-  height: var(--writ-tab-pill-height);
-  width: 26px;
-  padding: 0;
-  border: 1px solid var(--writ-border-pill);
-  border-radius: var(--writ-radius-2);
-  color: var(--writ-foreground-subtle);
-  font-size: 14px;
-  line-height: 1;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
-}
-
-.tabbar-new:hover {
-  color: var(--writ-foreground-default);
-  background: var(--writ-surface-hover);
+  background: var(--writ-bg-hover);
+  color: var(--writ-fg);
 }
 
 .tab-rename-input {
-  background: var(--writ-surface-input);
-  color: var(--writ-foreground-default);
-  border: 1px solid var(--writ-border-focus);
-  border-radius: var(--writ-radius-1);
-  font-size: var(--writ-font-size-sm);
-  font-family: var(--writ-font-sans);
-  padding: 1px 4px;
-  max-width: 160px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--writ-fg);
+  font: inherit;
   outline: none;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .tab,
-  .tab-close,
-  .tabbar-new {
-    transition: none;
-  }
+.tab-add {
+  width: 24px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  margin-left: var(--writ-space-2);
+  padding: 0;
+  border: 0;
+  border-radius: var(--writ-r-tab) var(--writ-r-tab) 0 0;
+  background: transparent;
+  color: var(--writ-fg-faint);
+  cursor: pointer;
+  transition: background var(--writ-motion), color var(--writ-motion);
+}
+
+.tab-add:hover {
+  background: var(--writ-bg-hover);
+  color: var(--writ-fg);
+}
+
+/* Windows: the WinUI TabView metrics. The baseline's platform table sizes the
+   tab, not the strip, so the bar keeps its height. */
+.tabbar[data-platform="win"] .tab {
+  height: auto;
+  min-height: 32px;
+  max-width: 240px;
+  padding: 8px 3px 4px 3px;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+}
+
+.tabbar[data-platform="win"] .tab-close {
+  width: 32px;
+  height: 24px;
+}
+
+/* GNOME: AdwTabBar draws chips in a taller bar, each one rounded on all four
+   corners rather than seated on the page. */
+.tabbar[data-platform="linux"] {
+  height: 46px;
+  align-items: center;
+}
+
+.tabbar[data-platform="linux"] .tabbar-tabs {
+  align-items: center;
+}
+
+.tabbar[data-platform="linux"] .tab {
+  height: 26px;
+  position: relative;
+  border-radius: var(--writ-r-tab);
+}
+
+.tabbar[data-platform="linux"] .tab-active,
+.tabbar[data-platform="linux"] .tab-active:hover {
+  background: var(--writ-bg-selected);
+}
+
+/* The one accent on a tab anywhere in the app: GNOME's own tab view marks the
+   open tab with it, and matching the platform beats the house rule here. */
+.tabbar[data-platform="linux"] .tab-active::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 2px;
+  border-radius: var(--writ-r-indicator);
+  background: var(--writ-accent);
+}
+
+.tabbar[data-platform="linux"] .tab-close {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--writ-r-pill);
+}
+
+.tabbar[data-platform="linux"] .tab-add {
+  height: 26px;
+  border-radius: var(--writ-r-tab);
 }

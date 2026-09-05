@@ -174,7 +174,7 @@ describe("PreviewLayout — rename to renderable extension activates preview (re
       "R1",
       "markdown",
       expect.any(String),
-      "dark",
+      "light",
       1,
     );
   });

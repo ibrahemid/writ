@@ -3,7 +3,7 @@ import { render, cleanup } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 
 vi.mock("../../stores/global/save-status", () => ({
-  saveStatusStore: { status: () => "idle" as const },
+  saveStatusStore: { forNote: () => ({ state: "clean" as const, fileName: "note.md" }) },
 }));
 vi.mock("../../commands/registry", () => ({ useCommand: () => undefined }));
 vi.mock("../../commands/keybindings", () => ({ useEffectiveBinding: () => null }));
@@ -18,7 +18,14 @@ const [language, setLanguage] = createSignal<string | null>(null);
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
-    editor: { largeFileMode: () => null, cursorLine, cursorCol, language },
+    editor: {
+      largeFileMode: () => null,
+      cursorLine,
+      cursorCol,
+      language,
+      currentText: () => "one two three",
+    },
+    tabs: { activeTabId: () => null },
   }),
 }));
 

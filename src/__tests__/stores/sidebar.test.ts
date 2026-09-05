@@ -12,6 +12,9 @@ function hit(id: string) {
 
 vi.mock("../../services/autosave", () => ({
   flushAutosave: vi.fn().mockResolvedValue({ ok: true, failures: [] }),
+  onAutosaveStart: vi.fn(() => () => {}),
+  onAutosaveSuccess: vi.fn(() => () => {}),
+  onAutosaveError: vi.fn(() => () => {}),
 }));
 
 import { createSidebarStore, type SidebarStore } from "../../stores/window/sidebar-store";
@@ -33,14 +36,16 @@ function buildConfig(overrides: Partial<WritConfig["sidebar"]> = {}): WritConfig
       default_visible: false,
       position: "left",
       open: false,
+      width: 240,
       ...overrides,
     },
-    editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true },
+    editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true, status_bar: false },
     window: { width: 800, height: 600, maximized: false },
     keybindings: {},
     history: { max_entries: 500 },
     storage: { path: "~/.writ" },
     theme: { preset: "warp-dark", overrides: {} },
+    appearance: { polarity: "system", accent: "pine", prose_face: "system" },
     commands: { usage: {} },
   workspace: { root: null },
   inbox: { path: null, focus: true },

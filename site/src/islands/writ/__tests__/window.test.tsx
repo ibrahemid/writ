@@ -60,14 +60,21 @@ describe('WritWindow', () => {
   it('runs the real markdown bold command and shows FORMAT only for markdown', async () => {
     const { container } = render(<WritWindow />);
     openPalette();
-    fireEvent.click(screen.getByText('Toggle Bold'));
+    fireEvent.click(screen.getByText('Bold'));
     await waitFor(() => expect(container.querySelector('.wwx-save')).toBeTruthy(), { timeout: 2000 });
 
     // settle.ts is the one non-markdown buffer in the seed, reached from the history list.
     fireEvent.click(screen.getByText('settle.ts'));
     openPalette();
-    expect(screen.queryByText('Toggle Bold')).toBeNull();
+    expect(screen.queryByText('Bold')).toBeNull();
     expect(screen.getByText('Duplicate Line')).toBeTruthy();
+  });
+
+  it('names the new-note control and the inline-code command as the app does', () => {
+    const { container } = render(<WritWindow />);
+    expect(container.querySelector('.wwx-newtab')?.getAttribute('aria-label')).toBe('New note');
+    openPalette();
+    expect(screen.getByText('Inline code')).toBeTruthy();
   });
 
   it('toggles a task checkbox in the preview by rewiring the CodeMirror document', () => {

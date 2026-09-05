@@ -2,29 +2,27 @@
   "id": "catppuccin-mocha",
   "name": "Catppuccin Mocha",
   "polarity": "dark",
-  "surface": {
-    "background": "#1e1e2e",
-    "sunken": "#11111b",
+  "bg": {
+    "canvas": "#1e1e2e",
+    "sidebar": "#11111b",
     "raised": "#181825",
-    "elevated": "#313244",
-    "input": "#181825",
-    "hover": "#45475a"
+    "sunken": "#181825",
+    "hover": "#45475a",
+    "selected": "#313244"
   },
-  "foreground": {
+  "fg": {
     "default": "#cdd6f4",
     "muted": "#b2b8cf",
-    "subtle": "#9799a9"
+    "faint": "#9799a9"
   },
   "border": {
     "default": "#313244",
-    "soft": "#1e1e2e",
-    "focus": "#89b4fa",
-    "pill": "#45475a"
+    "soft": "#1e1e2e"
   },
   "accent": {
     "default": "#89b4fa",
     "hover": "#b4befe",
-    "foreground": "#11111b"
+    "fg": "#11111b"
   },
   "status": {
     "success": "#a6e3a1",

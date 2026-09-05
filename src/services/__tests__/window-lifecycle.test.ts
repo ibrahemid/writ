@@ -2,10 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../tauri", () => ({
   onWindowCloseRequested: vi.fn(),
+  recordUnsavedNotes: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../autosave", () => ({
   flushAutosave: vi.fn(),
+  collectUnsavedContent: vi.fn(() => []),
 }));
 
 import { installCloseFlush } from "../window-lifecycle";

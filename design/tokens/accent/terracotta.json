@@ -1,0 +1,59 @@
+{
+  "accent": {
+    "terracotta": {
+      "$type": "color",
+      "light": {
+        "base": {
+          "$value": "#A8492B",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent"
+            }
+          }
+        },
+        "hover": {
+          "$value": "#974227",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-hover"
+            }
+          }
+        },
+        "foreground": {
+          "$value": "#FFFFFF",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-fg"
+            }
+          }
+        }
+      },
+      "dark": {
+        "base": {
+          "$value": "#E08A5F",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent"
+            }
+          }
+        },
+        "hover": {
+          "$value": "#E3966F",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-hover"
+            }
+          }
+        },
+        "foreground": {
+          "$value": "#261710",
+          "$extensions": {
+            "writ": {
+              "cssName": "--writ-accent-fg"
+            }
+          }
+        }
+      }
+    }
+  }
+}

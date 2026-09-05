@@ -56,12 +56,13 @@ vi.mock("../../services/tauri", () => ({
     callLog.push(`saveBufferContent:${id}:${content}`);
   }),
   previewClose: vi.fn().mockResolvedValue(undefined),
+  recordUnsavedNotes: vi.fn().mockResolvedValue(undefined),
 }));
 
 import type { ConfirmRequest } from "../../components/ConfirmDialog/ConfirmDialog";
 import { createTabStore } from "../../stores/window/tab-store";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
-import { debouncedSave, cancelAutosave } from "../../services/autosave";
+import { debouncedSave, cancelAutosave, flushAutosave } from "../../services/autosave";
 import * as api from "../../services/tauri";
 
 const mockedApi = vi.mocked(api);
@@ -103,6 +104,24 @@ describe("tabStore (per-window factory)", () => {
   });
 
   describe("closeTab", () => {
+    it("hands a closed note's unwritten text to the recovery snapshot", async () => {
+      const tabs = freshTabStore();
+      const doc = await tabs.createTab();
+      // The guard refuses this write, so nothing goes back on the queue and
+      // the close finds nothing to flush. The text is real and has no file.
+      mockedApi.saveBufferContent.mockRejectedValueOnce(
+        new Error("ERR_FILE_CHANGED_ON_DISK: /notes/a.md"),
+      );
+      debouncedSave(doc.id, "text the file refused", 0);
+      await flushAutosave(doc.id);
+
+      await tabs.closeTab(doc.id);
+
+      expect(mockedApi.recordUnsavedNotes).toHaveBeenCalledWith([
+        { id: doc.id, content: "text the file refused" },
+      ]);
+    });
+
     it("removes the tab from the registry and clears activeTabId", async () => {
       const tabs = freshTabStore();
       const doc = await tabs.createTab();
@@ -214,6 +233,7 @@ describe("tabStore (per-window factory)", () => {
       mockedApi.saveBufferContent.mockReset();
       mockedApi.saveBufferContent.mockImplementation(async (id: string, content: string) => {
         callLog.push(`saveBufferContent:${id}:${content}`);
+        return null;
       });
     });
 
@@ -236,6 +256,7 @@ describe("tabStore (per-window factory)", () => {
       mockedApi.saveBufferContent.mockReset();
       mockedApi.saveBufferContent.mockImplementation(async (id: string, content: string) => {
         callLog.push(`saveBufferContent:${id}:${content}`);
+        return null;
       });
     });
   });
@@ -293,6 +314,7 @@ describe("tabStore (per-window factory)", () => {
       mockedApi.saveBufferContent.mockImplementation(async (id: string, content: string) => {
         if (id === stuckA.id || id === stuckB.id) throw new Error("disk full");
         callLog.push(`saveBufferContent:${id}:${content}`);
+        return null;
       });
       debouncedSave(stuckA.id, "a", 0);
       debouncedSave(stuckB.id, "b", 0);
@@ -315,6 +337,7 @@ describe("tabStore (per-window factory)", () => {
       mockedApi.saveBufferContent.mockReset();
       mockedApi.saveBufferContent.mockImplementation(async (id: string, content: string) => {
         callLog.push(`saveBufferContent:${id}:${content}`);
+        return null;
       });
     });
   });
