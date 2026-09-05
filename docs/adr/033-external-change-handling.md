@@ -524,6 +524,16 @@ write that lands ends a question and does not put back a deleted file: the
 queue is cancelled when a deletion arrives, but a call already in flight
 replies after it.
 
+**A note carrying a bar writes nothing until it is answered.** The state holds
+every save path, not only the autosave one: typing queues nothing, Cmd+S sends
+the focus to the bar instead of writing, and the retry button holds. The three
+answers are the only way the tab's text reaches disk from there. The guard
+would refuse those writes anyway, and each refusal leaves a dated copy beside
+the note, so a tab left writing into an unanswered question fills the notes
+folder with copies of itself at one per pause in typing. Answering also drops
+the bar of a save that failed before it, which is about a write the answer has
+made irrelevant; a failure the answer itself raises still shows.
+
 ## Consequences
 
 - Opening a file from `~/Downloads` puts a watch on `~/Downloads`. That is the
