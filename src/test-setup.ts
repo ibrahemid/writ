@@ -1,5 +1,3 @@
-import { configure } from "@solidjs/testing-library";
-
 // jsdom does not implement Range.getClientRects / getBoundingClientRect, which
 // CodeMirror calls from its layout-measurement pass (scheduled on
 // requestAnimationFrame). Without these, any test that drives an EditorView and
@@ -111,11 +109,3 @@ if (typeof globalWithStorage.localStorage?.getItem !== "function") {
     writable: true,
   });
 }
-
-// `waitFor` keeps its own budget, which is one second by default and has
-// nothing to do with the test timeout. A machine running several suites at
-// once takes longer than that to mount an editor and land a digest, and the
-// failure it produces is a passing test that failed, which is worse than a
-// slow one. The budget matches the mount project's testTimeout so a test that
-// is genuinely stuck still fails, on the timeout that means that.
-configure({ asyncUtilTimeout: 15_000 });
