@@ -68,14 +68,17 @@ struct TabsThatHaveRead {
 }
 
 impl TabsThatHaveRead {
-    /// Tracking holding what `note_id`'s file said when the tab loaded it.
-    fn holding(note_id: &str, path: &Path) -> FileTracking {
-        let bytes = std::fs::read(path).expect("read the bytes the tab loaded");
-        let metadata = std::fs::metadata(path).expect("stat the file the tab loaded");
+    /// Tracking holding `loaded` as what `note_id` read from `path`.
+    ///
+    /// The bytes are passed rather than read back, so the record is the one the
+    /// test states and not whatever the file happens to hold when the harness
+    /// runs. A double that samples the file would suppress a change written
+    /// after it was built, and the test would pass for the wrong reason.
+    fn holding(note_id: &str, path: &Path, loaded: &[u8]) -> FileTracking {
         let state = DiskState {
-            hash: sha256_bytes(&bytes),
-            size: metadata.len(),
-            mtime: metadata.modified().ok(),
+            hash: sha256_bytes(loaded),
+            size: loaded.len() as u64,
+            mtime: std::fs::metadata(path).and_then(|it| it.modified()).ok(),
         };
         FileTracking {
             probe: FileTracking::untracked().probe,
@@ -480,7 +483,7 @@ fn a_note_nobody_has_open_tells_no_tab() {
     let ignore = create_ignore_set();
     // The tab on open.md has read it, so a delivery of the write that seeded
     // it carries nothing the tab does not already hold.
-    let tracking = TabsThatHaveRead::holding("note-1", &open);
+    let tracking = TabsThatHaveRead::holding("note-1", &open, b"x\n");
     let open_files =
         start_open_file_watcher(bus.clone(), ignore.clone(), notes.path(), tracking.clone())
             .expect("start the open file watcher");
