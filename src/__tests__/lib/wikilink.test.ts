@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { wikilinkFileName, wikilinkName } from "../../lib/wikilink";
+import { noteLinkHeading, wikilinkFileName, wikilinkName } from "../../lib/wikilink";
 
 // The Rust side of this split is `writ_core::notes::links::parse_wikilink`.
 // The two have to agree: the name is what `Create note` gives the file, so a
@@ -72,5 +72,25 @@ describe("wikilinkFileName", () => {
         wikilinkFileName(target).replace(/\.(md|markdown)$/i, ""),
       );
     }
+  });
+});
+
+// The renderer writes a resolved `[[Note#Section]]` as a note href whose
+// fragment is the heading's anchor.
+describe("noteLinkHeading", () => {
+  it.each([
+    ["writ-note:Note.md#later-part", "later-part"],
+    ["writ-note:Note.md#caf%C3%A9", "café"],
+    ["writ-note:folder/Note.md#a-b", "a-b"],
+    ["writ-note:a%23b.md#h", "h"],
+    ["writ-note:Note.md", null],
+    ["writ-note:Note.md#", null],
+    ["https://example.com/x#h", null],
+  ])("reads %s as %s", (href, heading) => {
+    expect(noteLinkHeading(href)).toBe(heading);
+  });
+
+  it("hands back an escape it cannot decode rather than throwing", () => {
+    expect(noteLinkHeading("writ-note:Note.md#%E0%A4%A")).toBe("%E0%A4%A");
   });
 });

@@ -506,6 +506,7 @@ pub fn run() {
             commands::note_index::note_facts,
             commands::note_index::note_name_candidates,
             commands::note_index::note_backlinks,
+            commands::note_index::note_heading_line,
             commands::file::open_file,
             commands::file::open_file_confirmed,
             commands::file::pick_files_to_open,

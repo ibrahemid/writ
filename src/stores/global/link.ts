@@ -4,7 +4,7 @@ import { onEvent, type UnlistenFn } from "../../services/events";
 import { writeClipboardText } from "../../services/clipboard";
 import { showToast } from "../../components/Notifications/Toast";
 import { resolveWithinRoot } from "../../lib/path";
-import { noteLinkPath } from "../../lib/wikilink";
+import { noteLinkHeading, noteLinkPath } from "../../lib/wikilink";
 import type { LinkVerdict } from "../../types/link";
 import type { BufferDocument } from "../../types/buffer";
 import type { LinkResolution, LinkStatus, NoteNameHit } from "../../services/tauri";
@@ -155,6 +155,32 @@ async function notePathFromPreview(
   return path;
 }
 
+/**
+ * The note a preview link points at and the line to land on, or null when the
+ * href does not open anything.
+ *
+ * The gate is [`notePathFromPreview`] and nothing here widens it: the heading
+ * is looked up only once a href has already earned its file, and a fragment
+ * naming no heading opens the note at the top, the same as a `[[Note#gone]]`
+ * followed in the editor.
+ */
+async function noteOpenFromPreview(
+  href: string,
+  notesRoot: string | null,
+  fromPath: string | null,
+): Promise<{ path: string; headingLine: number | null } | null> {
+  const path = await notePathFromPreview(href, notesRoot, fromPath);
+  if (path === null) return null;
+
+  const heading = noteLinkHeading(href);
+  if (heading === null) return { path, headingLine: null };
+  try {
+    return { path, headingLine: await tauri.noteHeadingLine(path, heading) };
+  } catch {
+    return { path, headingLine: null };
+  }
+}
+
 /** The href's path as it is written on disk. An undecodable claim is its own. */
 function decodeClaim(claim: string): string {
   try {
@@ -211,6 +237,7 @@ export const linkStore = {
   knownNoteLink,
   resolutionGeneration,
   notePathFromPreview,
+  noteOpenFromPreview,
   noteNameCandidates,
   createNote,
   reset,

@@ -148,7 +148,8 @@ export default function PreviewPane(props: Props) {
    * A `[[…]]` the renderer resolved is written with the note scheme. It names
    * a file in the notes folder, not a web address, so the external-link policy
    * would refuse it; the store joins it back onto the folder and asks the
-   * index whether it names a note before anything opens.
+   * index whether it names a note before anything opens, and answers with the
+   * heading's line when the link named one.
    *
    * Everything else, the scheme included when the index does not know it,
    * opens nothing on its own. Anything in the frame can post one, including a
@@ -161,13 +162,16 @@ export default function PreviewPane(props: Props) {
     x: number;
     y: number;
   }) {
-    const note = await linkStore.notePathFromPreview(
+    const note = await linkStore.noteOpenFromPreview(
       request.href,
       notesStore.root(),
       props.buffer?.source_path ?? null,
     );
     if (note !== null) {
-      await win.tabs.openFile(note).catch(() => undefined);
+      const doc = await win.tabs.openFile(note.path).catch(() => undefined);
+      // `[[Note#Section]]` asks for a place in the note, the same on both
+      // surfaces; the preview carries the heading as the href's fragment.
+      if (doc && note.headingLine != null) win.editor.requestReveal(doc.id, note.headingLine);
       return;
     }
     setLinkRequest(request);

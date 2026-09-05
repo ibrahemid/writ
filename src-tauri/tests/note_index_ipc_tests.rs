@@ -10,7 +10,8 @@ use std::path::Path;
 use tempfile::TempDir;
 use writ_storage::notes_index::{self, NotesIndexStore};
 use writ_tauri_lib::commands::note_index::{
-    note_backlinks_inner, note_facts_inner, note_name_candidates_inner, resolve_note_link_inner,
+    note_backlinks_inner, note_facts_inner, note_heading_line_inner, note_name_candidates_inner,
+    resolve_note_link_inner,
 };
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
@@ -280,12 +281,37 @@ fn note_name_candidates_answers_an_empty_query_with_nothing() {
 }
 
 #[test]
+fn note_heading_line_finds_the_line_from_the_anchor_and_from_the_text() {
+    let (_dir, root, index) =
+        indexed(&[("Target.md", "# Target\n\nbody\n\n## Later Part\n\nmore\n")]);
+    let path = root.join("Target.md");
+    let path = path.to_str().expect("utf-8 path");
+
+    // The preview has the anchor the renderer wrote; the editor has the text
+    // the link was written with. Both land on the same line.
+    assert_eq!(
+        note_heading_line_inner(&index, path, "later-part").expect("anchor"),
+        Some(5)
+    );
+    assert_eq!(
+        note_heading_line_inner(&index, path, "Later Part").expect("text"),
+        Some(5)
+    );
+    assert_eq!(
+        note_heading_line_inner(&index, path, "gone").expect("missing"),
+        None,
+        "a heading the note does not have opens it at the top"
+    );
+}
+
+#[test]
 fn every_note_index_command_is_registered() {
     for command in [
         "commands::note_index::resolve_note_link",
         "commands::note_index::note_facts",
         "commands::note_index::note_name_candidates",
         "commands::note_index::note_backlinks",
+        "commands::note_index::note_heading_line",
     ] {
         assert!(
             LIB_RS.contains(command),

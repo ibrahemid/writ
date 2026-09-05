@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   openExternalUrl: vi.fn().mockResolvedValue(undefined),
   getNotesRoot: vi.fn().mockResolvedValue("/notes"),
   resolveNoteLink: vi.fn(),
+  noteHeadingLine: vi.fn(),
   openFile: vi.fn(),
 }));
 
@@ -34,6 +35,7 @@ vi.mock("../../services/tauri", () => ({
   openExternalUrl: mocks.openExternalUrl,
   getNotesRoot: mocks.getNotesRoot,
   resolveNoteLink: mocks.resolveNoteLink,
+  noteHeadingLine: mocks.noteHeadingLine,
   noteNameCandidates: vi.fn().mockResolvedValue([]),
   newNamedNote: vi.fn(),
   openFile: mocks.openFile,
@@ -51,7 +53,13 @@ vi.mock("../../components/Editor/EditorInstance", async () => {
       const win = useWindow();
       createEffect(() => win.editor.setCurrentBufferId(props.buffer.id));
       onCleanup(() => win.editor.setCurrentBufferId(null));
-      return <div data-testid="editor-stub" />;
+      // The reveal a real editor consumes, exposed so a test can read what the
+      // preview asked for.
+      const reveal = () => {
+        const held = win.editor.pendingReveal();
+        return held ? `${held.bufferId}@${held.line}` : "";
+      };
+      return <div data-testid="editor-stub" data-reveal={reveal()} />;
     },
   };
 });
@@ -131,6 +139,7 @@ describe("a preview link to a note", () => {
       candidates: [],
       heading_line: null,
     });
+    mocks.noteHeadingLine.mockResolvedValue(null);
     await notesStore.load();
     rendererRegistry.setFromIpc([
       {
@@ -156,6 +165,31 @@ describe("a preview link to a note", () => {
 
     await waitFor(() => expect(mocks.openFile).toHaveBeenCalledWith("/notes/Target.md"));
     expect(mocks.resolveNoteLink).toHaveBeenCalledWith(FROM, "Target.md");
+    expect(container.querySelectorAll(".link-confirm")).toHaveLength(0);
+  });
+
+  // The editor lands on the heading a `[[Note#Section]]` names; the preview
+  // carries that heading as the href's fragment and lands on the same line.
+  // A note no earlier case opened, so the tab is minted here rather than
+  // handed back by the tab store.
+  it("opens the note at the heading the href names", async () => {
+    mocks.resolveNoteLink.mockResolvedValue({
+      status: "resolved",
+      path: "/notes/Other.md",
+      candidates: [],
+      heading_line: null,
+    });
+    mocks.noteHeadingLine.mockResolvedValue(9);
+    const { container, frame } = await mountPreview();
+    sendLinkOpen(frame, "writ-note:Other.md#later-part");
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="editor-stub"]')?.getAttribute("data-reveal"),
+      ).toBe("open:/notes/Other.md@9"),
+    );
+    expect(mocks.openFile).toHaveBeenCalledWith("/notes/Other.md");
+    expect(mocks.noteHeadingLine).toHaveBeenCalledWith("/notes/Other.md", "later-part");
     expect(container.querySelectorAll(".link-confirm")).toHaveLength(0);
   });
 

@@ -242,6 +242,25 @@ pub fn note_name_candidates_inner(
         .collect())
 }
 
+/// The line the heading `slug` names inside the note at `path`, or `None` when
+/// the note has no such heading.
+///
+/// The preview writes a resolved `[[Note#Section]]` as an href whose fragment
+/// is the heading's anchor, so the click has an anchor where the editor has
+/// the heading text it was written with. `heading_slug` is applied to whatever
+/// arrives: it leaves an anchor alone and turns a heading text into one, which
+/// is what lets both surfaces land on the same line (ADR-034).
+pub fn note_heading_line_inner(
+    index: &NotesIndexStore,
+    path: &str,
+    slug: &str,
+) -> Result<Option<u32>, String> {
+    let key = notes_index::index_key(Path::new(path));
+    index
+        .heading_line(&key, &links::heading_slug(slug))
+        .map_err(|e| e.to_string())
+}
+
 /// Resolves a link target written in one note. See [`resolve_note_link_inner`].
 #[tauri::command]
 pub fn resolve_note_link(
@@ -266,6 +285,16 @@ pub fn note_backlinks(
     path: String,
 ) -> Result<Vec<BacklinkDto>, String> {
     note_backlinks_inner(&state.notes_index, &path)
+}
+
+/// The line a heading sits on. See [`note_heading_line_inner`].
+#[tauri::command]
+pub fn note_heading_line(
+    state: State<'_, AppState>,
+    path: String,
+    slug: String,
+) -> Result<Option<u32>, String> {
+    note_heading_line_inner(&state.notes_index, &path, &slug)
 }
 
 /// Note names for a `[[` completion. See [`note_name_candidates_inner`].

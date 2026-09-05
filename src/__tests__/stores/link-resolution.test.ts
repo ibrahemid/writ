@@ -4,6 +4,7 @@ vi.mock("../../services/tauri", () => ({
   resolveNoteLink: vi.fn(),
   noteNameCandidates: vi.fn(),
   newNamedNote: vi.fn(),
+  noteHeadingLine: vi.fn(),
 }));
 
 vi.mock("../../services/events", () => ({
@@ -252,5 +253,67 @@ describe("linkStore notePathFromPreview", () => {
     expect(await linkStore.notePathFromPreview("writ-note:Note.md", ROOT, null)).toBeNull();
     expect(await linkStore.notePathFromPreview("writ-note:Note.md", ROOT, "")).toBeNull();
     expect(mockedApi.resolveNoteLink).not.toHaveBeenCalled();
+  });
+});
+
+// The editor lands on the heading a `[[Note#Section]]` names, and the preview
+// carries that heading as the href's fragment.
+describe("linkStore noteOpenFromPreview", () => {
+  const ROOT = "/Users/x/Writ";
+  const FROM_NOTE = "/Users/x/Writ/From.md";
+  const NOTE = "/Users/x/Writ/Note.md";
+
+  beforeEach(() => {
+    mockedApi.resolveNoteLink.mockImplementation(async () => resolved(NOTE));
+  });
+
+  it("answers with the line the heading sits on", async () => {
+    mockedApi.noteHeadingLine.mockResolvedValue(12);
+    expect(await linkStore.noteOpenFromPreview("writ-note:Note.md#later-part", ROOT, FROM_NOTE))
+      .toEqual({ path: NOTE, headingLine: 12 });
+    expect(mockedApi.noteHeadingLine).toHaveBeenCalledWith(NOTE, "later-part");
+  });
+
+  it("unescapes an anchor the href escaped", async () => {
+    mockedApi.noteHeadingLine.mockResolvedValue(3);
+    await linkStore.noteOpenFromPreview("writ-note:Note.md#caf%C3%A9", ROOT, FROM_NOTE);
+    expect(mockedApi.noteHeadingLine).toHaveBeenCalledWith(NOTE, "café");
+  });
+
+  it("opens at the top when the href names no heading", async () => {
+    expect(await linkStore.noteOpenFromPreview("writ-note:Note.md", ROOT, FROM_NOTE)).toEqual({
+      path: NOTE,
+      headingLine: null,
+    });
+    expect(mockedApi.noteHeadingLine).not.toHaveBeenCalled();
+  });
+
+  it("opens at the top when the note has no such heading", async () => {
+    mockedApi.noteHeadingLine.mockResolvedValue(null);
+    expect(await linkStore.noteOpenFromPreview("writ-note:Note.md#gone", ROOT, FROM_NOTE)).toEqual({
+      path: NOTE,
+      headingLine: null,
+    });
+  });
+
+  it("opens at the top when the line cannot be read", async () => {
+    mockedApi.noteHeadingLine.mockRejectedValue("no index");
+    expect(await linkStore.noteOpenFromPreview("writ-note:Note.md#h", ROOT, FROM_NOTE)).toEqual({
+      path: NOTE,
+      headingLine: null,
+    });
+  });
+
+  // The gate is the one every forged href already meets; a fragment does not
+  // widen it and nothing is asked about a href that opens nothing.
+  it("answers with nothing for a href that opens no note", async () => {
+    for (const href of [
+      "writ-note:../../.ssh/id_rsa#h",
+      "https://example.com/x#h",
+      "writ-note:#h",
+    ]) {
+      expect(await linkStore.noteOpenFromPreview(href, ROOT, FROM_NOTE), href).toBeNull();
+    }
+    expect(mockedApi.noteHeadingLine).not.toHaveBeenCalled();
   });
 });

@@ -69,3 +69,25 @@ export function noteLinkPath(href: string): string | null {
   const path = href.slice(NOTE_LINK_SCHEME.length).split("#", 1)[0];
   return path === "" ? null : path;
 }
+
+/**
+ * The heading anchor a preview href carries, unescaped, or null when it
+ * carries none.
+ *
+ * `[[Note#Section]]` is rendered as an href whose fragment is the heading's
+ * anchor, so this is what the click has where the editor has the heading text
+ * the link was written with. Both reach the same line through the index.
+ */
+export function noteLinkHeading(href: string): string | null {
+  if (!href.startsWith(NOTE_LINK_SCHEME)) return null;
+  const rest = href.slice(NOTE_LINK_SCHEME.length);
+  const hash = rest.indexOf("#");
+  if (hash === -1) return null;
+  const fragment = rest.slice(hash + 1);
+  if (fragment === "") return null;
+  try {
+    return decodeURIComponent(fragment);
+  } catch {
+    return fragment;
+  }
+}

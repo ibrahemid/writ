@@ -216,6 +216,17 @@ export async function resolveNoteLink(
   return invoke("resolve_note_link", { fromPath, target });
 }
 
+/**
+ * The 1-based line the heading `slug` sits on in the note at `path`, or null
+ * when the note has no such heading. `slug` is an anchor or the heading text.
+ */
+export async function noteHeadingLine(
+  path: string,
+  slug: string,
+): Promise<number | null> {
+  return invoke("note_heading_line", { path, slug });
+}
+
 /** One note offered to a `[[` completion. */
 export interface NoteNameHit {
   path: string;
