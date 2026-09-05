@@ -4,7 +4,8 @@ import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 const fixtures = await vi.hoisted(async () => {
   const { createSignal } = await import("solid-js");
   const [changed, setChanged] = createSignal<ReadonlySet<string>>(new Set<string>());
-  return { changed, setChanged };
+  const [loaded, setLoaded] = createSignal<string | null>("one");
+  return { changed, setChanged, loaded, setLoaded };
 });
 
 const stubs = vi.hoisted(() => ({
@@ -18,6 +19,7 @@ vi.mock("../../lib/note-actions", () => ({
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
     editor: {
+      currentBufferId: () => fixtures.loaded(),
       isFileChangedOnDisk: (id: string) => fixtures.changed().has(id),
       focusEditor: stubs.focusEditor,
     },
@@ -32,6 +34,7 @@ function buttons(container: HTMLElement): HTMLButtonElement[] {
 
 beforeEach(() => {
   fixtures.setChanged(new Set<string>());
+  fixtures.setLoaded("one");
   stubs.resolveNoteChange.mockClear();
   stubs.focusEditor.mockClear();
 });
@@ -114,6 +117,17 @@ describe("FileChangedBar", () => {
   it("asks only about the note in front", () => {
     fixtures.setChanged(new Set(["one"]));
     const { container } = render(() => <FileChangedBar noteId="two" />);
+    expect(container.querySelector(".file-changed-bar")).toBeNull();
+  });
+
+  it("waits for the tab it is asking about to finish loading", () => {
+    // Between a tab switch and the document arriving there is no text to
+    // keep, so there is nothing to ask yet and no button to press.
+    fixtures.setChanged(new Set(["one"]));
+    fixtures.setLoaded("two");
+
+    const { container } = render(() => <FileChangedBar noteId="one" />);
+
     expect(container.querySelector(".file-changed-bar")).toBeNull();
   });
 });

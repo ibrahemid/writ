@@ -17,9 +17,14 @@ export default function FileChangedBar(props: { noteId: string | null }) {
   const win = useWindow();
   let firstAction: HTMLButtonElement | undefined;
 
+  // Asked only while the editor is holding this note. A tab that is still
+  // loading has its text nowhere but its file, and the file is the version
+  // that changed, so there is no version of "mine" to keep yet. The question
+  // appears the moment the document does.
   const changed = () => {
     const id = props.noteId;
-    return id !== null && win.editor.isFileChangedOnDisk(id) ? id : null;
+    if (id === null || win.editor.currentBufferId() !== id) return null;
+    return win.editor.isFileChangedOnDisk(id) ? id : null;
   };
 
   // The question is the reason the editor stopped, so it takes the focus that
