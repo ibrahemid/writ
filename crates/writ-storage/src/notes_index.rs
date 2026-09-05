@@ -1382,11 +1382,11 @@ fn is_ignored_path(path: &Path) -> bool {
 
 /// Whether the index would hold `path` as a note, size aside.
 ///
-/// The three questions [`reconcile`]'s walk asks about a file it has reached,
-/// in its order and with its answers: a name no listing carries, a placeholder
-/// whose kind can only be read off the name, and the kind test itself. Size is
-/// left out, because a note over the ceiling is one the index refuses and a
-/// link still reaches.
+/// The questions [`reconcile`]'s walk asks about a file it has reached, in its
+/// order and with its answers: a name no listing carries, a placeholder whose
+/// kind can only be read off the name, and the kind test itself. Size is left
+/// out, because a note over the ceiling is one the index refuses and a link
+/// still reaches.
 ///
 /// The pruning half of the walk is [`build_walk`], which every caller of this
 /// runs first.
@@ -1398,6 +1398,15 @@ pub(crate) fn indexes_as_note(root: &Path, path: &Path) -> bool {
         return has_text_extension(path);
     }
     should_index(path)
+}
+
+/// The half of [`indexes_as_note`] that answers from the name alone.
+///
+/// For a file the walk reached but will not open: a placeholder, whose bytes
+/// the read would pull down (ADR-028 §5), and a symlink, whose target is
+/// wherever the link points and outside everything this walk was pointed at.
+pub(crate) fn names_a_note(root: &Path, path: &Path) -> bool {
+    !writ_core::workspace::path_has_ignored_name(root, path) && has_text_extension(path)
 }
 
 /// Whether `path` holds note text worth indexing.

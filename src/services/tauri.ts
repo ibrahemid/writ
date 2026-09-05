@@ -63,6 +63,8 @@ export async function renameNote(id: string, title: string): Promise<BufferDocum
 export interface SkippedFile {
   path: string;
   reason: string;
+  /** The other note the reason is about, when it is about one. */
+  other_path: string | null;
 }
 
 /** What a rename did to the notes that link to the renamed one. */

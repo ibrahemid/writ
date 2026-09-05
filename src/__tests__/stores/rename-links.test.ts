@@ -216,8 +216,16 @@ describe("a rename that carries the links", () => {
       updated: 1,
       updated_paths: ["/notes/First.md"],
       skipped: [
-        { path: "/notes/Second.md", reason: "ERR_FILE_NOT_DOWNLOADED" },
-        { path: "/notes/Third.md", reason: "ERR_READ_ONLY_DESTINATION" },
+        {
+          path: "/notes/Second.md",
+          reason: "ERR_FILE_NOT_DOWNLOADED",
+          other_path: null,
+        },
+        {
+          path: "/notes/Third.md",
+          reason: "ERR_READ_ONLY_DESTINATION",
+          other_path: null,
+        },
       ],
     });
 
@@ -237,8 +245,16 @@ describe("a rename that carries the links", () => {
       updated: 0,
       updated_paths: [],
       skipped: [
-        { path: "/notes/First.md", reason: "ERR_LINK_NOT_FOUND" },
-        { path: "/notes/Second.md", reason: "ERR_LINK_NAME_NOT_UNIQUE" },
+        {
+          path: "/notes/First.md",
+          reason: "ERR_LINK_NOT_FOUND",
+          other_path: null,
+        },
+        {
+          path: "/notes/Second.md",
+          reason: "ERR_LINK_NAME_NOT_UNIQUE",
+          other_path: null,
+        },
       ],
     });
 
@@ -249,6 +265,32 @@ describe("a rename that carries the links", () => {
       {
         name: "Second.md",
         reason: "could be linking to another note of the same name.",
+      },
+    ]);
+  });
+
+  it("names the note a link could have meant instead", async () => {
+    mockedApi.countLinksTo.mockResolvedValue(1);
+    chose.mockResolvedValueOnce("confirm");
+    mockedApi.renameNoteWithLinks.mockResolvedValue({
+      renamed_path: "/notes/one/Renamed.md",
+      updated: 0,
+      updated_paths: [],
+      skipped: [
+        {
+          path: "/notes/two/Reader.md",
+          reason: "ERR_LINK_NAME_NOT_UNIQUE",
+          other_path: "/notes/two/Note.md",
+        },
+      ],
+    });
+
+    await renameNoteAndLinks("n-1", "Renamed");
+
+    expect(renameLinksStore.skippedNotes()).toEqual([
+      {
+        name: "Reader.md",
+        reason: "could be linking to Note.md, which Writ does not list.",
       },
     ]);
   });

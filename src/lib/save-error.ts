@@ -70,8 +70,20 @@ const SKIPPED_CODE_MESSAGES: Record<string, string> = {
 // that was never touched.
 const SKIPPED_UNKNOWN = "was left as it was.";
 
-/** Why a rename left a note as it was, after its name. */
-export function describeSkippedNote(code: string): string {
+/**
+ * Why a rename left a note as it was, after its name.
+ *
+ * `otherName` is the note the code is about, for the code that is about one.
+ * A link that could mean two notes is only actionable once the person can see
+ * the second one, and that one is the note Writ does not list.
+ */
+export function describeSkippedNote(
+  code: string,
+  otherName?: string | null,
+): string {
+  if (code === ERR_LINK_NAME_NOT_UNIQUE && otherName) {
+    return `could be linking to ${otherName}, which Writ does not list.`;
+  }
   return SKIPPED_CODE_MESSAGES[code] ?? SKIPPED_UNKNOWN;
 }
 

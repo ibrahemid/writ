@@ -131,7 +131,10 @@ function createRenameLinksStore() {
     setSkipped(
       outcome.skipped.map((file) => ({
         name: fileName(file.path),
-        reason: describeSkippedNote(file.reason),
+        reason: describeSkippedNote(
+          file.reason,
+          file.other_path ? fileName(file.other_path) : null,
+        ),
       })),
     );
   }

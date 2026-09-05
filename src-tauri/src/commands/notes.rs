@@ -226,6 +226,11 @@ pub struct SkippedFile {
     /// One of the save failure codes ([`crate::commands::buffer::failure_code`]),
     /// or [`ERR_LINK_NOT_FOUND`].
     pub reason: String,
+    /// The other file the reason is about, for a reason that is about one:
+    /// [`ERR_LINK_NAME_NOT_UNIQUE`] names the note a link could have meant
+    /// instead. A file the app does not list is not a reason anybody can act
+    /// on until it is named.
+    pub other_path: Option<String>,
 }
 
 /// The reason for a file the index named that holds no link to the renamed
@@ -446,13 +451,15 @@ fn rename_and_propagate(
             Ok(LinkRewrite::NoLink) => skipped.push(SkippedFile {
                 path: path_text(&file),
                 reason: ERR_LINK_NOT_FOUND.to_string(),
+                other_path: None,
             }),
             // A note of this name that the index does not hold: the file keeps
             // every link it has, and is named, because a link that might mean
             // the other note is not one to rewrite on a guess.
-            Ok(LinkRewrite::NameNotUnique) => skipped.push(SkippedFile {
+            Ok(LinkRewrite::NameNotUnique(other)) => skipped.push(SkippedFile {
                 path: path_text(&file),
                 reason: ERR_LINK_NAME_NOT_UNIQUE.to_string(),
+                other_path: Some(other),
             }),
             Err(error) => {
                 warn!(
@@ -463,6 +470,7 @@ fn rename_and_propagate(
                 skipped.push(SkippedFile {
                     path: path_text(&file),
                     reason: crate::commands::buffer::failure_code(&error).to_string(),
+                    other_path: None,
                 });
             }
         }

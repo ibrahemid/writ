@@ -23,7 +23,7 @@ use crate::buffer_store::{
     DatalessProbe,
 };
 use crate::errors::{StorageError, StorageResult};
-use crate::notes_index::indexes_as_note;
+use crate::notes_index::{indexes_as_note, names_a_note};
 use crate::workspace_search::build_walk;
 
 /// Extension every note Writ mints carries.
@@ -203,31 +203,38 @@ pub fn rename_note(
 }
 
 /// What one file's links did during a rename.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkRewrite {
     /// The file was rewritten.
     Written,
     /// Its text reaches the renamed note nowhere, and nothing was written.
     NoLink,
-    /// A link reaches the renamed note and a file outside the candidate list
-    /// answers to the same name, so nothing was written.
-    NameNotUnique,
+    /// A link reaches the renamed note and the file named here, outside the
+    /// candidate list, answers to the same name, so nothing was written.
+    NameNotUnique(String),
 }
 
 /// Every note under `root` a link naming one of `keys` could reach that the
 /// index may not hold.
 ///
 /// The walk is the index's own ([`build_walk`]) under the index's own file
-/// test ([`indexes_as_note`]), so the two cannot disagree about what a note
-/// is: a folder the index prunes holds nothing a link reaches, and a file that
-/// is not note text cannot make a name ambiguous — `.git/index` is not a
-/// second `index.md`. Size is the one gate left out, because a note over the
-/// index's ceiling is still a note on disk.
+/// test ([`indexes_as_note`]), so the two agree about what a note is and where
+/// notes are looked for: a folder the index prunes, and anything a
+/// `.gitignore` excludes, is scope somebody chose, and a link into it reaches
+/// a note no other surface in the app resolves either. A file that is not note
+/// text cannot make a name ambiguous — `.git/index` is not a second
+/// `index.md`.
 ///
-/// A symlink is followed one step: the walk descends into no symlinked folder,
-/// but a symlinked note answers to its own name and is one more file a bare
-/// link could mean. Whether it is a second note or another name for the
-/// renamed one is [`crate::notes_index::index_key`]'s question, which
+/// Two gates the index applies are left out, both because they hide a note
+/// that is plainly in the folder under the name a link writes. Size: a note
+/// over the index's ceiling is still a note on disk. And `is_file`, which is
+/// how the index misses a symlinked note rather than a decision it made — so a
+/// symlink is followed one step here, though no symlinked folder is descended
+/// into. What the target is gets decided from the name alone
+/// ([`crate::notes_index::names_a_note`]): the target lies outside the folder
+/// this walk was pointed at, and opening it to sniff its bytes is a read of a
+/// file nobody named. Whether the symlink is a second note or another name for
+/// the renamed one is [`crate::notes_index::index_key`]'s question, which
 /// canonicalises.
 ///
 /// `keys` are folded name keys ([`links::candidate_name_keys`]).
@@ -238,10 +245,15 @@ pub fn files_named(root: &Path, keys: &[String]) -> Vec<PathBuf> {
         let Some(kind) = entry.file_type() else {
             continue;
         };
-        if !kind.is_file() && !std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
+        let followed = !kind.is_file();
+        if followed && !std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
             continue;
         }
-        if !indexes_as_note(root, path) {
+        let is_note = match followed {
+            true => names_a_note(root, path),
+            false => indexes_as_note(root, path),
+        };
+        if !is_note {
             continue;
         }
         let names = links::candidate_name_keys(&path.to_string_lossy());
@@ -362,7 +374,7 @@ pub fn rewrite_links_in_file(
     ) {
         Rewrite::Rewritten(text) => text,
         Rewrite::NoLink => return Ok(LinkRewrite::NoLink),
-        Rewrite::NameNotUnique => return Ok(LinkRewrite::NameNotUnique),
+        Rewrite::NameNotUnique(other) => return Ok(LinkRewrite::NameNotUnique(other)),
     };
     write_guarded_by_stamp(path, rewritten.as_bytes(), before_write)?;
     Ok(LinkRewrite::Written)

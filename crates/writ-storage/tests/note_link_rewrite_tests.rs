@@ -308,7 +308,11 @@ fn a_name_a_file_outside_the_candidate_list_answers_to_is_refused() {
     )
     .expect("a name two notes answer to is not a failure");
 
-    assert_eq!(answer, LinkRewrite::NameNotUnique);
+    assert_eq!(
+        answer,
+        LinkRewrite::NameNotUnique(index_key(&elsewhere)),
+        "the caller is told which file the name could also mean"
+    );
     assert_eq!(
         std::fs::read_to_string(&path).expect("read"),
         "see [[Old note]]\n"
@@ -353,6 +357,38 @@ fn the_walk_passes_over_what_the_index_would_never_hold() {
     std::fs::write(root.path().join("index.png"), [137u8, 80, 78, 71]).expect("write");
 
     let found = note_ops::files_named(root.path(), &["index".to_string()]);
+
+    assert!(found.is_empty(), "{found:?}");
+}
+
+/// A file that is not note text is not a note a link could mean, wherever it
+/// sits. This is the kind test rather than the pruning: nothing prunes `bin/`.
+#[test]
+fn the_walk_passes_over_a_file_that_is_not_note_text() {
+    let root = TempDir::new().expect("temp dir");
+    let folder = root.path().join("bin");
+    std::fs::create_dir(&folder).expect("folder");
+    std::fs::write(folder.join("Note"), [0u8, 159, 146, 150, 0, 1]).expect("write");
+
+    let found = note_ops::files_named(root.path(), &["note".to_string()]);
+
+    assert!(found.is_empty(), "{found:?}");
+}
+
+/// A symlink is taken at the name it carries, because its target is outside
+/// the folder this walk was pointed at and reading it is a read of a file
+/// nobody named. An extension a note never has is not a note here, whatever
+/// the bytes behind it turn out to be.
+#[cfg(unix)]
+#[test]
+fn the_walk_takes_a_symlink_at_its_name() {
+    let root = TempDir::new().expect("temp dir");
+    let outside = TempDir::new().expect("temp dir");
+    let real = outside.path().join("Note");
+    std::fs::write(&real, "plain text under a name that says nothing\n").expect("write");
+    std::os::unix::fs::symlink(&real, root.path().join("Note")).expect("symlink");
+
+    let found = note_ops::files_named(root.path(), &["note".to_string()]);
 
     assert!(found.is_empty(), "{found:?}");
 }

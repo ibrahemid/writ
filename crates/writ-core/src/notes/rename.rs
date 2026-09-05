@@ -33,10 +33,12 @@ pub enum Rewrite {
     Rewritten(String),
     /// No link in the text reaches the renamed note.
     NoLink,
-    /// A link reaches the renamed note, and a file outside the candidate list
-    /// answers to the name it writes. Nothing was rewritten: which note the
-    /// link means is a question this cannot answer and must not guess at.
-    NameNotUnique,
+    /// A link reaches the renamed note, and the file named here — one outside
+    /// the candidate list — answers to the name it writes. Nothing was
+    /// rewritten: which note the link means is a question this cannot answer
+    /// and must not guess at. The file is carried so a caller can say which
+    /// one it is, because a name nobody can see is not a reason.
+    NameNotUnique(String),
 }
 
 /// `text` with every link that resolves to `target` naming `new_name` instead.
@@ -84,11 +86,12 @@ pub fn rewrite_links(
         // index cannot rule out, and it stops the file rather than this link:
         // half a rewritten file is worse than none, because the half that
         // landed is the half nobody was told about.
-        if !matches!(
-            links::resolve(&written, from, unindexed),
-            Resolution::Missing
-        ) {
-            return Rewrite::NameNotUnique;
+        match links::resolve(&written, from, unindexed) {
+            Resolution::Missing => {}
+            Resolution::Resolved(other) => return Rewrite::NameNotUnique(other),
+            Resolution::Ambiguous(others) => {
+                return Rewrite::NameNotUnique(others.into_iter().next().unwrap_or_default())
+            }
         }
         let slice = &text[link.byte_range.clone()];
         let Some(span) = links::name_span(slice) else {
@@ -138,7 +141,7 @@ mod tests {
         ) {
             Rewrite::Rewritten(out) => Some(out),
             Rewrite::NoLink => None,
-            Rewrite::NameNotUnique => panic!("nothing is outside the candidate list here"),
+            Rewrite::NameNotUnique(_) => panic!("nothing is outside the candidate list here"),
         }
     }
 
@@ -350,7 +353,11 @@ mod tests {
             &unindexed,
         );
 
-        assert_eq!(out, Rewrite::NameNotUnique);
+        assert_eq!(
+            out,
+            Rewrite::NameNotUnique("/notes/two/Note.md".to_string()),
+            "the file the name could also mean is what the caller has to say"
+        );
     }
 
     /// The same unknown note, and a link that spells the folder. The folder

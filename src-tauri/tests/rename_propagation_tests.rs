@@ -372,6 +372,27 @@ fn a_file_the_index_would_never_hold_does_not_make_a_bare_link_ambiguous() {
     );
 }
 
+/// The same folder read for kind rather than for where it is. A file that is
+/// not note text is not a second note, in a folder nothing prunes: a notes
+/// folder can hold a `bin/Note` and a note called `Note.md` at once.
+#[test]
+fn a_file_that_is_not_note_text_does_not_make_a_bare_link_ambiguous() {
+    let (_dir, state) = seeded(&[
+        ("one/Note.md", "the only note of that name\n"),
+        ("two/Reader.md", "see [[Note]]\n"),
+    ]);
+    std::fs::create_dir_all(note(&state, "bin")).expect("folder");
+    std::fs::write(note(&state, "bin/Note"), [0u8, 159, 146, 150, 0, 1]).expect("write");
+
+    let outcome =
+        rename_note_with_links_inner(&state, &path_text(&state, "one/Note.md"), "Renamed", true)
+            .expect("rename");
+
+    assert_eq!(outcome.updated, 1);
+    assert!(outcome.skipped.is_empty(), "{:?}", outcome.skipped);
+    assert_eq!(read(&state, "two/Reader.md"), "see [[Renamed]]\n");
+}
+
 /// A symlinked note is a note under the name the symlink carries. The index
 /// walk does not follow it, so nothing else in the app resolves a link to it,
 /// and a rename that repointed the link past it would be the one surface that
@@ -395,6 +416,11 @@ fn a_note_reached_through_a_symlink_makes_a_bare_link_ambiguous() {
     assert_eq!(outcome.updated, 0);
     assert_eq!(outcome.skipped.len(), 1);
     assert_eq!(outcome.skipped[0].reason, ERR_LINK_NAME_NOT_UNIQUE);
+    assert_eq!(
+        outcome.skipped[0].other_path.as_deref(),
+        Some(writ_storage::notes_index::index_key(&real).as_str()),
+        "the note the link could have meant instead is named"
+    );
     assert_eq!(
         read(&state, "two/Reader.md"),
         "see [[one/Note]] and [[Note]]\n"
