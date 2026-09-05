@@ -13,6 +13,7 @@ import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/
 import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
 import NotesMigrationReport from "./components/NotesMigrationReport/NotesMigrationReport";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
+import { renameLinksStore } from "./stores/global/rename-links";
 import { confirmAndDeleteNote, noteIsDeletable, saveCopyOfNote } from "./lib/note-actions";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
 import LinkAmbiguityPicker from "./components/Editor/LinkAmbiguityPicker";
@@ -520,6 +521,15 @@ function AppShell() {
       keybindingAliases: ["CmdOrCtrl+Shift+S"],
       scope: "app",
       execute: () => startRenameActiveTab(),
+    });
+
+    registerCommand({
+      id: "note.undoRename",
+      label: "Undo rename",
+      description: "Put the note's name back, and the links that were updated",
+      scope: "app",
+      isAvailable: () => renameLinksStore.canUndo(),
+      execute: () => void renameLinksStore.undoRename(),
     });
 
     registerCommand({

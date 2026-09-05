@@ -15,6 +15,8 @@ pub mod guard;
 pub mod line_ending;
 /// Link syntax and link resolution (ADR-034).
 pub mod links;
+/// Rewriting the links that name a note being renamed.
+pub mod rename;
 /// The sentence a link sits in, for the backlink list.
 pub mod snippet;
 

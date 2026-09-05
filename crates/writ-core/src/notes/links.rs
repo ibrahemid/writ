@@ -408,7 +408,7 @@ fn scan_segment(line: &BodyLine<'_>, offset: usize, segment: &str, out: &mut Vec
             continue;
         };
         if !is_image {
-            if let Some(target) = note_destination(dest) {
+            if let Some(target) = note_destination(&segment[dest]) {
                 out.push(build(
                     line,
                     offset,
@@ -449,8 +449,13 @@ fn build(
     }
 }
 
-/// The end offset and the destination of a `[label](dest)` starting at `open`.
-fn markdown_link(segment: &str, open: usize) -> Option<(usize, &str)> {
+/// The end offset of a `[label](dest)` starting at `open`, and the byte range
+/// its destination occupies inside `segment`.
+///
+/// A range rather than the text itself, so a caller that means to rewrite the
+/// destination can splice it back where it came from
+/// ([`name_span`]).
+fn markdown_link(segment: &str, open: usize) -> Option<(usize, Range<usize>)> {
     let bytes = segment.as_bytes();
     let mut index = open + 1;
     let mut depth = 1usize;
@@ -492,7 +497,7 @@ fn markdown_link(segment: &str, open: usize) -> Option<(usize, &str)> {
     if depth != 0 || cursor >= bytes.len() {
         return None;
     }
-    Some((cursor + 1, &segment[start..cursor]))
+    Some((cursor + 1, start..cursor))
 }
 
 /// The target a markdown link's destination names, or `None` when it names
@@ -673,6 +678,146 @@ pub fn strip_note_extension(name: &str) -> &str {
         Some((stem, ext)) if NOTE_EXTENSIONS.iter().any(|n| n.eq_ignore_ascii_case(ext)) => stem,
         _ => name,
     }
+}
+
+/// How a name has to be written to survive being put back into one link.
+///
+/// The three link syntaxes end their target in three different places, so a
+/// name carrying a space, a bracket or a `>` is written three different ways.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NameEscaping {
+    /// Verbatim. A `[[…]]` target runs to the closing brackets, so a file name
+    /// goes in as it stands.
+    Plain,
+    /// Percent-encoded. A bare markdown destination ends at the first space,
+    /// and a `(` inside it closes the link early.
+    Percent,
+    /// Backslash-escaped. A markdown destination in angle brackets ends at its
+    /// `>`, which `\>` writes literally.
+    Angle,
+}
+
+/// Where one link names its note, and how a replacement has to be written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NameSpan {
+    /// Byte range inside the link's own text.
+    pub range: Range<usize>,
+    /// The form a name spliced into that range has to take.
+    pub escaping: NameEscaping,
+}
+
+/// The stretch of one link's text that names the note.
+///
+/// `link` is one whole link as [`scan`] found it — `[[…]]` or `[label](dest)`
+/// — and the range covers the name alone: no folder, no note extension, no
+/// heading, no alias, no label. Replacing exactly that range is what leaves
+/// every other part of the link as its author wrote it, which is the whole
+/// promise a rename makes to the notes that point at the renamed one.
+///
+/// `None` for text that is not one link, which nothing [`scan`] returns is.
+pub fn name_span(link: &str) -> Option<NameSpan> {
+    if let Some(after) = link.strip_prefix("[[") {
+        let inner = 2..2 + after.find("]]")?;
+        // The alias comes off at the first `|` and the heading at the first
+        // `#` of what is left, the order [`parse_wikilink`] reads them in.
+        let path = cut_at(link, cut_at(link, inner, '|'), '#');
+        return Some(NameSpan {
+            range: note_name_range(link, path),
+            escaping: NameEscaping::Plain,
+        });
+    }
+    let (_, inside) = markdown_link(link, 0)?;
+    let (dest, escaping) = destination_span(link, inside);
+    let path = cut_at(link, dest, '#');
+    Some(NameSpan {
+        range: note_name_range(link, path),
+        escaping,
+    })
+}
+
+/// `name` written so that it survives a link of that shape.
+pub fn escape_name(name: &str, escaping: NameEscaping) -> String {
+    match escaping {
+        NameEscaping::Plain => name.to_string(),
+        NameEscaping::Percent => name
+            .chars()
+            .map(|c| match c {
+                '%' => "%25".to_string(),
+                ' ' => "%20".to_string(),
+                '(' => "%28".to_string(),
+                ')' => "%29".to_string(),
+                '#' => "%23".to_string(),
+                '<' => "%3C".to_string(),
+                '>' => "%3E".to_string(),
+                '?' => "%3F".to_string(),
+                '"' => "%22".to_string(),
+                other => other.to_string(),
+            })
+            .collect(),
+        NameEscaping::Angle => name
+            .chars()
+            .flat_map(|c| match c {
+                '\\' | '<' | '>' => vec!['\\', c],
+                other => vec![other],
+            })
+            .collect(),
+    }
+}
+
+/// The destination of a `[label](…)` and the escaping it is written in.
+///
+/// The rule is [`split_destination`]'s, kept as a range: bracketed runs to the
+/// closing `>`, anything else ends at the first whitespace, and an opening `<`
+/// with no `>` is read the plain way.
+fn destination_span(link: &str, inside: Range<usize>) -> (Range<usize>, NameEscaping) {
+    let inside = trimmed_range(link, inside);
+    let text = &link[inside.clone()];
+    if text.starts_with('<') {
+        let mut cursor = 1;
+        while let Some(ch) = text[cursor..].chars().next() {
+            match ch {
+                '>' => return (inside.start + 1..inside.start + cursor, NameEscaping::Angle),
+                '\\' => {
+                    cursor += 1;
+                    cursor += text[cursor..].chars().next().map_or(0, char::len_utf8);
+                }
+                other => cursor += other.len_utf8(),
+            }
+        }
+    }
+    let end = text
+        .find(char::is_whitespace)
+        .map_or(inside.end, |at| inside.start + at);
+    (inside.start..end, NameEscaping::Percent)
+}
+
+/// The part of `range` before the first `sep`, or all of it.
+fn cut_at(text: &str, range: Range<usize>, sep: char) -> Range<usize> {
+    match text[range.clone()].find(sep) {
+        Some(at) => range.start..range.start + at,
+        None => range,
+    }
+}
+
+/// The name inside a target path: the last segment, trimmed, without a note
+/// extension. The parts [`parse_target`] drops, dropped by position.
+fn note_name_range(text: &str, path: Range<usize>) -> Range<usize> {
+    let path = trimmed_range(text, path);
+    let segment = match text[path.clone()].rfind(['/', '\\']) {
+        Some(at) => path.start + at + 1..path.end,
+        None => path,
+    };
+    let segment = trimmed_range(text, segment);
+    let name = &text[segment.clone()];
+    segment.start..segment.start + strip_note_extension(name).len()
+}
+
+/// `range` with the whitespace at either end left out.
+fn trimmed_range(text: &str, range: Range<usize>) -> Range<usize> {
+    let slice = &text[range.clone()];
+    let start = range.start + (slice.len() - slice.trim_start().len());
+    let end = range.end - (slice.len() - slice.trim_end().len());
+    start..end.max(start)
 }
 
 /// The comparison form of a note name.

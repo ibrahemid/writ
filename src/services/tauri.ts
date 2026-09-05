@@ -64,6 +64,44 @@ export async function renameNote(id: string, title: string): Promise<BufferDocum
   return invoke("rename_note", { id, title });
 }
 
+/** One note a rename left as it was, with the failure code saying why. */
+export interface SkippedFile {
+  path: string;
+  reason: string;
+  /** The other note the reason is about, when it is about one. */
+  other_path: string | null;
+}
+
+/** What a rename did to the notes that link to the renamed one. */
+export interface RenamePropagation {
+  renamed_path: string;
+  updated: number;
+  updated_paths: string[];
+  skipped: SkippedFile[];
+}
+
+/** How many notes link to the note at `path`, that note itself left out. */
+export async function countLinksTo(path: string): Promise<number> {
+  return invoke("count_links_to", { path });
+}
+
+export async function renameNoteWithLinks(
+  path: string,
+  newName: string,
+  updateLinks: boolean,
+): Promise<RenamePropagation> {
+  return invoke("rename_note_with_links", { path, newName, updateLinks });
+}
+
+/** Puts a rename back, over the files it rewrote and no others. */
+export async function undoRenameWithLinks(
+  path: string,
+  previousName: string,
+  paths: string[],
+): Promise<RenamePropagation> {
+  return invoke("undo_rename_with_links", { path, previousName, paths });
+}
+
 export async function deleteNote(id: string): Promise<void> {
   return invoke("delete_note", { id });
 }

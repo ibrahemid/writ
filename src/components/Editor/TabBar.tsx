@@ -11,6 +11,7 @@ import { resolvePlatform } from "../../lib/platform";
 import {
   confirmAndDeleteNote,
   noteIsDeletable,
+  renameNoteAndLinks,
   saveCopyOfNote,
   showInFileManagerLabel,
   showNoteInFileManager,
@@ -59,7 +60,7 @@ export default function TabBar() {
   // typed the name rather than being dropped on the floor.
   function handleRenameSubmit(tabId: string, value: string) {
     setEditingTabId(null);
-    void bufferRegistry.renameBuffer(tabId, value).catch((error) => {
+    void renameNoteAndLinks(tabId, value).catch((error) => {
       logFailure("a note could not be renamed");
       showToast(formatRenameError(error), "error");
     });

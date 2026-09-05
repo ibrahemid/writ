@@ -535,6 +535,13 @@ impl<'a> NotesIndex<'a> {
         Ok(())
     }
 
+    /// Every indexed path, in the spelling resolution compares against.
+    fn paths(&self) -> StorageResult<Vec<String>> {
+        let mut stmt = self.conn.prepare("SELECT path FROM files")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
     /// Every indexed path, grouped by the names a link can call it by.
     fn name_index(&self) -> StorageResult<NameIndex> {
         let mut stmt = self.conn.prepare("SELECT path FROM files")?;
@@ -1383,6 +1390,35 @@ fn is_ignored_path(path: &Path) -> bool {
         .is_some_and(|name| writ_core::workspace::is_ignored_name(&name.to_string_lossy()))
 }
 
+/// Whether the index would hold `path` as a note, size aside.
+///
+/// The questions [`reconcile`]'s walk asks about a file it has reached, in its
+/// order and with its answers: a name no listing carries, a placeholder whose
+/// kind can only be read off the name, and the kind test itself. Size is left
+/// out, because a note over the ceiling is one the index refuses and a link
+/// still reaches.
+///
+/// The pruning half of the walk is [`build_walk`], which every caller of this
+/// runs first.
+pub(crate) fn indexes_as_note(root: &Path, path: &Path) -> bool {
+    if writ_core::workspace::path_has_ignored_name(root, path) {
+        return false;
+    }
+    if is_dataless(path) {
+        return has_text_extension(path);
+    }
+    should_index(path)
+}
+
+/// The half of [`indexes_as_note`] that answers from the name alone.
+///
+/// For a file the walk reached but will not open: a placeholder, whose bytes
+/// the read would pull down (ADR-028 §5), and a symlink, whose target is
+/// wherever the link points and outside everything this walk was pointed at.
+pub(crate) fn names_a_note(root: &Path, path: &Path) -> bool {
+    !writ_core::workspace::path_has_ignored_name(root, path) && has_text_extension(path)
+}
+
 /// Whether `path` holds note text worth indexing.
 ///
 /// A known text extension is taken at its word so the common case never opens
@@ -1543,6 +1579,16 @@ impl NotesIndexStore {
     /// Every link that resolved to `path`. See [`NotesIndex::links_to`].
     pub fn links_to(&self, path: &str) -> StorageResult<Vec<LinkRow>> {
         NotesIndex::new(&self.conn()).links_to(path)
+    }
+
+    /// Every note a link could reach, for a caller resolving links itself.
+    ///
+    /// A rename asks the same question of a link that the index asks: which
+    /// note does this reach. Handing out the candidate list is what keeps the
+    /// two answers the same one, so a rewrite never repoints a link the
+    /// backlink list says belongs to another note.
+    pub fn note_paths(&self) -> StorageResult<Vec<String>> {
+        NotesIndex::new(&self.conn()).paths()
     }
 
     /// The notes that link to `path`. See [`NotesIndex::backlinks`].

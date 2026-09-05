@@ -15,11 +15,16 @@ use std::path::{Path, PathBuf};
 
 use writ_core::notes::guard::{decide_save, is_not_downloaded, DiskState, SaveDecision};
 use writ_core::notes::line_ending::LineEnding;
+use writ_core::notes::links;
+use writ_core::notes::rename::{rewrite_links, Rewrite};
 
 use crate::buffer_store::{
     dataless_flags, read_disk_state, taken_names, write_guarded_by_stamp, BeforeWrite,
+    DatalessProbe,
 };
 use crate::errors::{StorageError, StorageResult};
+use crate::notes_index::{indexes_as_note, names_a_note};
+use crate::workspace_search::build_walk;
 
 /// Extension every note Writ mints carries.
 pub const NOTE_EXTENSION: &str = "md";
@@ -195,6 +200,184 @@ pub fn rename_note(
     }
     std::fs::rename(from, &to)?;
     Ok(to)
+}
+
+/// What one file's links did during a rename.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LinkRewrite {
+    /// The file was rewritten.
+    Written,
+    /// Its text reaches the renamed note nowhere, and nothing was written.
+    NoLink,
+    /// A link reaches the renamed note and the file named here, outside the
+    /// candidate list, answers to the same name, so nothing was written.
+    NameNotUnique(String),
+}
+
+/// Every note under `root` a link naming one of `keys` could reach that the
+/// index may not hold.
+///
+/// The walk is the index's own ([`build_walk`]) under the index's own file
+/// test ([`indexes_as_note`]), so the two agree about what a note is and where
+/// notes are looked for: a folder the index prunes, and anything a
+/// `.gitignore` excludes, is scope somebody chose, and a link into it reaches
+/// a note no other surface in the app resolves either. A file that is not note
+/// text cannot make a name ambiguous — `.git/index` is not a second
+/// `index.md`.
+///
+/// Two gates the index applies are left out, both because they hide a note
+/// that is plainly in the folder under the name a link writes. Size: a note
+/// over the index's ceiling is still a note on disk. And `is_file`, which is
+/// how the index misses a symlinked note rather than a decision it made — so a
+/// symlink is followed one step here, though no symlinked folder is descended
+/// into. What the target is gets decided from the name alone
+/// ([`crate::notes_index::names_a_note`]): the target lies outside the folder
+/// this walk was pointed at, and opening it to sniff its bytes is a read of a
+/// file nobody named. Whether the symlink is a second note or another name for
+/// the renamed one is [`crate::notes_index::index_key`]'s question, which
+/// canonicalises.
+///
+/// `keys` are folded name keys ([`links::candidate_name_keys`]).
+pub fn files_named(root: &Path, keys: &[String]) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for entry in build_walk(root).build().flatten() {
+        let path = entry.path();
+        let Some(kind) = entry.file_type() else {
+            continue;
+        };
+        let followed = !kind.is_file();
+        if followed && !std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
+            continue;
+        }
+        let is_note = match followed {
+            true => names_a_note(root, path),
+            false => indexes_as_note(root, path),
+        };
+        if !is_note {
+            continue;
+        }
+        let names = links::candidate_name_keys(&path.to_string_lossy());
+        if names.iter().any(|name| keys.contains(name)) {
+            found.push(path.to_path_buf());
+        }
+    }
+    found
+}
+
+/// Which links a rename counts, and what it writes in their place.
+///
+/// One value rather than four arguments, because the four are one question:
+/// out of everything a link could mean, which of it is the note being renamed.
+#[derive(Debug, Clone, Copy)]
+pub struct RewriteTarget<'a> {
+    /// The renamed note's index key.
+    pub target: &'a str,
+    /// The name the note is taking.
+    pub new_name: &'a str,
+    /// Every note a link could reach, as the index spells them.
+    pub candidates: &'a [String],
+    /// Every file a link could reach that `candidates` does not hold
+    /// ([`files_named`]).
+    pub unindexed: &'a [String],
+}
+
+/// Rewrites the links in `path` that reach the renamed note, so they name it
+/// by its new name.
+///
+/// [`LinkRewrite::Written`] when the file was written, and the two other
+/// answers when nothing was. Every refusal comes
+/// back as an error naming this file, because a link left pointing at a name
+/// no note has any more is exactly what the caller has to be able to say out
+/// loud: a propagation that quietly leaves a file behind is worse than one
+/// that says which files it left (spec 627).
+///
+/// The write goes through [`write_guarded_by_stamp`] like every other write
+/// this crate makes, so the file is stamped before it is replaced and the
+/// watcher does not read Writ's own edit as somebody else's.
+///
+/// Three refusals come before the write. A file whose bytes are not on this
+/// machine is stopped before the read, because the read is what would pull it
+/// down (ADR-028 §5). A file that changed since `last_known` is stopped by the
+/// same guard a save runs, because rewriting it would carry text Writ never
+/// saw. A file the filesystem will not replace — read-only, hard-linked, in a
+/// folder that will not take a write — is stopped by the write itself.
+///
+/// Which links count is [`rewrite_links`]'s question to answer, note by note,
+/// from this file's own key ([`RewriteTarget`]).
+///
+/// `last_known` is what Writ last saw the file hold, for a file it has looked
+/// at; `None` for one it has not, whose "has this changed" has no answer.
+/// `dataless` is the eviction probe ([`DatalessProbe`]): `None` asks the
+/// filesystem, which is what the app does.
+///
+/// # Errors
+///
+/// [`StorageError::SourceNotDownloaded`], [`StorageError::SourceChangedOnDisk`],
+/// [`StorageError::DestinationReadOnly`] and the rest of the write refusals,
+/// and [`StorageError::Io`] when the file cannot be read or is not text.
+pub fn rewrite_links_in_file(
+    path: &Path,
+    rename: &RewriteTarget<'_>,
+    last_known: Option<DiskState>,
+    dataless: DatalessProbe<'_>,
+    before_write: BeforeWrite<'_>,
+) -> StorageResult<LinkRewrite> {
+    let flags = match dataless {
+        Some(probe) => probe(path),
+        None => dataless_flags(path),
+    };
+    if is_not_downloaded(flags) {
+        return Err(StorageError::SourceNotDownloaded {
+            path: path.to_string_lossy().into_owned(),
+        });
+    }
+
+    let bytes = std::fs::read(path)?;
+    let text = String::from_utf8(bytes).map_err(|_| {
+        StorageError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("{} is not text", path.display()),
+        ))
+    })?;
+
+    // The state of the file the rewrite is measured against is read from the
+    // bytes the rewrite is built from, not from a second read: two reads of a
+    // file something else is writing describe two different files, and the
+    // guard would then be answering about the one that was not rewritten.
+    if let Some(last_known) = last_known {
+        let metadata = std::fs::metadata(path).ok();
+        let state = DiskState {
+            hash: writ_core::hash::sha256_bytes(text.as_bytes()),
+            size: metadata
+                .as_ref()
+                .map(|m| m.len())
+                .unwrap_or(text.len() as u64),
+            mtime: metadata.as_ref().and_then(|m| m.modified().ok()),
+        };
+        if decide_save(Some(&last_known), Some(&state), last_known.hash) == SaveDecision::Refuse {
+            return Err(StorageError::SourceChangedOnDisk {
+                path: path.to_string_lossy().into_owned(),
+                disk_hash: writ_core::hash::digest_hex(state.hash),
+                conflict_copy: None,
+            });
+        }
+    }
+
+    let from = crate::notes_index::index_key(path);
+    let rewritten = match rewrite_links(
+        &text,
+        &from,
+        rename.target,
+        rename.new_name,
+        rename.candidates,
+        rename.unindexed,
+    ) {
+        Rewrite::Rewritten(text) => text,
+        Rewrite::NoLink => return Ok(LinkRewrite::NoLink),
+        Rewrite::NameNotUnique(other) => return Ok(LinkRewrite::NameNotUnique(other)),
+    };
+    write_guarded_by_stamp(path, rewritten.as_bytes(), before_write)?;
+    Ok(LinkRewrite::Written)
 }
 
 /// Moves a note to the operating system's trash.

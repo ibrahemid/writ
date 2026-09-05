@@ -44,7 +44,7 @@ const h = vi.hoisted(() => ({
   closeTab: vi.fn(),
   setActiveTabId: vi.fn(),
   createTab: vi.fn(),
-  renameBuffer: vi.fn(() => Promise.resolve()),
+  renameNoteAndLinks: vi.fn(() => Promise.resolve()),
   focusEditor: vi.fn(),
   showToast: vi.fn(),
 }));
@@ -77,8 +77,14 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 vi.mock("../../stores/global/buffer-registry", () => ({
   bufferRegistry: {
     activeTabs: () => h.tabs(),
-    renameBuffer: h.renameBuffer,
+    buffers: () => h.tabs(),
   },
+}));
+// The rename asks about the notes that link here before it runs, which is
+// `lib/note-actions`' to do; the strip's part is the field and the refusal.
+vi.mock("../../lib/note-actions", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  renameNoteAndLinks: h.renameNoteAndLinks,
 }));
 vi.mock("../../stores/global/window-registry", () => ({
   windowRegistry: { getActive: () => ({ tabs: { activeTabId: () => h.activeId() } }) },
@@ -155,7 +161,7 @@ afterEach(() => {
   h.closeTab.mockClear();
   h.setActiveTabId.mockClear();
   h.createTab.mockClear();
-  h.renameBuffer.mockClear();
+  h.renameNoteAndLinks.mockClear();
   h.focusEditor.mockClear();
   h.showToast.mockClear();
 });
@@ -432,7 +438,7 @@ describe("renaming a tab", () => {
     const input = startRename(container);
     fireEvent.keyDown(input, { key: "ArrowLeft" });
     expect(h.setActiveTabId).not.toHaveBeenCalled();
-    expect(h.renameBuffer).not.toHaveBeenCalled();
+    expect(h.renameNoteAndLinks).not.toHaveBeenCalled();
     expect(container.querySelector(".tab-rename-input")).toBe(input);
   });
 
@@ -448,12 +454,12 @@ describe("renaming a tab", () => {
     expect(input).not.toBeNull();
     expect(stopPropagation).toHaveBeenCalled();
     fireEvent.keyDown(input, { key: "Enter", target: { value: "Pricing draft" } });
-    expect(h.renameBuffer).toHaveBeenCalledWith("buf-1", "Pricing draft");
+    expect(h.renameNoteAndLinks).toHaveBeenCalledWith("buf-1", "Pricing draft");
   });
 
   it("says so when the rename is refused", async () => {
     open(2);
-    h.renameBuffer.mockImplementation(() => Promise.reject(new Error("refused")));
+    h.renameNoteAndLinks.mockImplementation(() => Promise.reject(new Error("refused")));
     const { container } = render(() => <TabBar />);
     const title = container.querySelector<HTMLElement>(".tab-title")!;
     fireEvent.dblClick(title);
