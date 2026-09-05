@@ -175,9 +175,10 @@ describe("a note whose file is gone: the store's machine", () => {
 
   it("reads the file back into a tab that had nothing the file did not", async () => {
     const store = showing("one", "what the view holds");
-    // Loading the note records both digests, so the tab reads clean.
+    // The tab reads clean once the load lands, and not before: a note whose
+    // open is still out knows nothing about either side and says so.
     store.noteOpened("one", "what the view holds");
-    expect(store.isDirty("one")).toBe(false);
+    await vi.waitFor(() => expect(store.isDirty("one")).toBe(false));
     const deps = depsFor(store);
     await handleExternalEdit(removed("one"), deps);
 

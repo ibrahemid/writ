@@ -72,6 +72,21 @@ export const UPDATED_FROM_DISK_MS = 4000;
 interface NoteHashes {
   docGeneration: number;
   hashedGeneration: number;
+  /**
+   * Which call to [`noteOpened`] this record belongs to. Counted per store and
+   * never reset, so a call that a later one has overtaken can tell: the
+   * record's number is no longer its own, and the answer it is carrying
+   * describes a version of the note the tab has already moved off.
+   * `docGeneration` cannot say this, because `noteOpened` sets that back to 0
+   * on every call and two calls for one note both see 0.
+   */
+  openTicket?: number;
+  /**
+   * Whether that call is still out. A record installed and not yet filled
+   * knows nothing about either side, which is the same "no idea" as no record
+   * at all, and [`isDirty`] and [`isTracked`] answer it the same way.
+   */
+  openInFlight?: boolean;
   docHash?: string;
   diskHash?: string;
 }
@@ -213,6 +228,10 @@ export function createEditorStore() {
     ReadonlyMap<string, NoteHashes>
   >(new Map());
   const hashTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // Handed out by `noteOpened`, one per call, and never reset. A counter that
+  // started again would let a call read its own number off a record a later
+  // call happens to have stamped with the same one.
+  let openTickets = 0;
 
   function hashesOf(id: string): NoteHashes {
     return noteHashes().get(id) ?? FRESH;
@@ -627,34 +646,60 @@ export function createEditorStore() {
    */
   function noteOpened(id: string, content: string) {
     clearHashTimer(id);
+    const ticket = ++openTickets;
     setNoteHashes((current) => {
       const next = new Map(current);
-      next.set(id, { docGeneration: 0, hashedGeneration: 0 });
+      next.set(id, {
+        docGeneration: 0,
+        hashedGeneration: 0,
+        openTicket: ticket,
+        openInFlight: true,
+      });
       return next;
     });
     void (async () => {
+      // Every exit below is guarded, not only the one that fills the record.
+      // A superseded call that dropped its record instead would take the
+      // live one with it, which is the same overwrite by a different route.
       let answer: NoteDiskAnswer;
       try {
         answer = await noteDiskState(id);
       } catch {
+        if (supersededOpen(id, ticket)) return;
         forgetHashes(id);
         return;
       }
+      if (supersededOpen(id, ticket)) return;
       if (answer.state === "undescribed") {
         forgetHashes(id);
         return;
       }
-      if (answer.state === "no_file") return;
+      if (answer.state === "no_file") {
+        // Nothing to compare against and nothing more coming: the note reads
+        // untracked from here rather than in flight forever.
+        patchHashes(id, { openInFlight: false });
+        return;
+      }
       const documentHash = await hashDocument(content);
+      if (supersededOpen(id, ticket)) return;
       // An edit that landed while either answer was in flight has moved the
       // generation, and this pair describes a document that is already gone.
-      if (hashesOf(id).docGeneration !== 0) return;
+      if (hashesOf(id).docGeneration !== 0) {
+        patchHashes(id, { openInFlight: false });
+        return;
+      }
       patchHashes(id, {
         docHash: documentHash,
         diskHash: answer.disk.hash,
         hashedGeneration: 0,
+        openInFlight: false,
       });
     })();
+  }
+
+  /** Whether a later [`noteOpened`] has taken the note off this call's answer. */
+  function supersededOpen(id: string, ticket: number): boolean {
+    return hashesOf(id).openTicket !== ticket;
   }
 
   /**
@@ -713,17 +758,30 @@ export function createEditorStore() {
    * the callers of this are deciding whether a file may be reloaded over the
    * document, and "no idea" has to stop that. Ask [`isTracked`] first when the
    * question is whether there is anything to tell the person about.
+   *
+   * A record whose open is still out is the same "no idea" and answers the
+   * same way. Its two digests are both `undefined`, so comparing them reads
+   * clean, and a note the tab is still opening would let a change arriving in
+   * that window reload the file over text the tab is holding and no file has.
    */
   function isDirty(id: string): boolean {
     const state = noteHashes().get(id);
     if (state === undefined) return true;
+    if (state.openInFlight === true) return true;
     if (state.docGeneration !== state.hashedGeneration) return true;
     return state.docHash !== state.diskHash;
   }
 
-  /** Whether the store holds a record of what this note and its file hold. */
+  /**
+   * Whether the store holds a record of what this note and its file hold.
+   *
+   * A record whose open has not answered yet holds neither, so it counts as
+   * no record: this is what a caller asks before [`isDirty`] to keep the
+   * fail-closed answer out of anything shown to the person.
+   */
   function isTracked(id: string): boolean {
-    return noteHashes().has(id);
+    const state = noteHashes().get(id);
+    return state !== undefined && state.openInFlight !== true;
   }
 
   function docHash(id: string): string | undefined {
