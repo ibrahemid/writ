@@ -1707,6 +1707,18 @@ fn released_together() -> Duration {
     NOTES_DEBOUNCE_WINDOW / 2
 }
 
+/// The two windows decision 14's consequences bullet quotes by number, read
+/// off the constants the watcher runs on. A failure here is the documented
+/// numbers having gone stale, not the watcher having gone wrong.
+#[test]
+fn the_adr_quotes_the_windows_the_notes_watcher_runs_on() {
+    assert_eq!(NOTES_DEBOUNCE_WINDOW, Duration::from_millis(500));
+    assert_eq!(
+        hold_window(NOTES_DEBOUNCE_WINDOW),
+        Duration::from_millis(1000)
+    );
+}
+
 #[test]
 fn a_save_inside_the_hold_of_a_deletion_recreates_nothing() {
     // The hold is the window in which the record still says the note has a

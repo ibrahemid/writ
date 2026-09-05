@@ -924,10 +924,23 @@ next launch.
   at the file again by opening it.
 - The halves do not have to arrive in the same delivered window, which is what
   decision 14 buys, and the price is that a deletion reaches the tab a hold
-  window after the file went. A save landing in that window waits for the hold
-  to be answered before it writes anything, so the price is paid in latency on
-  a save that hits it and never in a file: at most one hold window and the
-  window the answer is delivered on, once, for a note whose file has just gone.
+  window after the file went. What the hold covers is bounded, and the bound is
+  the delivery that opens it. A removal is held when the watcher reads the
+  delivery carrying the emptied path, one debounce window
+  (`NOTES_DEBOUNCE_WINDOW`, 500 ms) after the delete; measured, registration
+  lands between 450 and 700 ms. From there the hold runs
+  `hold_window(NOTES_DEBOUNCE_WINDOW)`, 1000 ms, and a save arriving inside it
+  waits for the answer before writing anything, so within the hold the price is
+  paid in latency and never in a file: measured, the answer reaches a waiting
+  save 1524 to 1531 ms after the delete. Before that registration there is no
+  hold and nothing to wait on, and a save there writes, exactly as it did
+  before decision 14. It recreates the path, so the delivery the watcher then
+  reads finds a file rather than an emptied one, classifies it as a
+  modification, and announces no removal at all: the tab is never marked, and
+  the file the person deleted is back holding the tab's text. The hold's own
+  length is the only half of this Writ sets. When the delivery arrives is the
+  filesystem's call and FSEvents coalesces, so the window before the hold is
+  nominal rather than guaranteed.
 - Another program deleting the note's file and writing a new one at the same
   path, which is how some sync clients land an update, is a removal to the tab
   once the hold passes. The file the tab holds is gone, and the path alone
