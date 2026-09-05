@@ -11,7 +11,15 @@ Developer workflows reach Writ through the global hotkey or double-click. They a
 
 ### Binary: new `crates/writ-cli` workspace crate
 
-A second `[[bin]]` inside `src-tauri` would link all of Tauri into a tool that only parses arguments and shells out to `open -b`. The binary overhead is unacceptable and it violates the "src-tauri is a thin adapter" rule. A separate workspace crate keeps dependencies minimal (`clap` + `std`) and keeps the crate boundary clean. The lib-within-the-crate pattern (`lib.rs` + `main.rs`) makes unit-testing arg parsing without binary linkage straightforward.
+A second `[[bin]]` inside `src-tauri` would link all of Tauri into a tool that only parses arguments and shells out to `open -b`. The binary overhead is unacceptable and it violates the "src-tauri is a thin adapter" rule. A separate workspace crate keeps the crate boundary clean. The lib-within-the-crate pattern (`lib.rs` + `main.rs`) makes unit-testing arg parsing without binary linkage straightforward.
+
+### Amended: the crate links `writ-core` and `writ-storage`
+
+The crate originally depended on no workspace crate, and the note verbs (`links`, `backlinks`, `properties`, `tags`, `new`, `rename`, `trash`) changed that. They read the note index the app writes and they resolve links, and both of those are policy: link resolution has one definition in `writ_core::notes::links` (ADR-034) and the note operations have one in `writ_storage::note_ops`. A CLI that copied either would drift from the window, and a link the command line called broken while the app opened it is the whole failure the single definition exists to prevent.
+
+The Tauri boundary is unchanged: the CLI still links no Tauri and is still testable without an app handle. What it costs is size — `writ-storage` brings SQLite, the trash bindings and the walk crates into a binary that used to be `clap` and `std`. The verbs are worth it; a second binary for them would need the same dependencies and would also need installing.
+
+The sidecar is built on its own (`cargo build -p writ-cli --release --target …`), where cargo unifies in no feature from `src-tauri`, so `writ-cli` names `writ-storage`'s `bundled` feature itself rather than relying on a system libsqlite3 being present on the build host.
 
 ### Transport: OS open-files path for files and directories
 
@@ -66,5 +74,7 @@ Documents the `PostToolUse` hook recipe and pipe example for use with Claude Cod
 - The origin gate is not weakened: all file-path operations arrive through `RunEvent::Opened` (macOS) or the single-instance argv path (Linux/Windows), which are the existing authorized channels. No new authorization path is introduced.
 - Directory opens bypass `pending_opens` by design; the Opened handler is the single branch point.
 - The CLI crate has no Tauri dependency and can be tested without an app handle.
+- The CLI reads the note index over a read-only connection: it runs no migration and writes no row, and it refuses an index whose schema version is not the one its own build embeds rather than reading through the wrong column layout. Repairing the index stays the app's.
+- The verbs, their `--json` documents and their exit codes are recorded in [docs/cli-verbs.md](../cli-verbs.md).
 - Bundle verification (sidecar resolution + symlink) requires `cargo tauri build` and is not covered by the four local gates; this is noted in the implementation.
 - Multi-root support remains out of scope (ADR-016 constraint).

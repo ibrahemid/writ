@@ -23,8 +23,28 @@ const MIGRATIONS: &[(i32, &str)] = &[
 ];
 
 /// Highest migration version embedded in this binary.
-fn binary_schema_version() -> i32 {
+pub fn binary_schema_version() -> i32 {
     MIGRATIONS.iter().map(|(v, _)| *v).max().unwrap_or(0)
+}
+
+/// Highest migration version the database at `conn` has recorded, or `0` when
+/// the table is there and empty.
+///
+/// Reads only, so a read-only connection can ask. A second process compares the
+/// answer against [`binary_schema_version`] to find out whether the database it
+/// opened was written by the build it is part of.
+///
+/// A failure is returned rather than reported as version `0`. The two are
+/// different things to tell a reader: a database at an older version is one
+/// Writ brings up to date on its next run, while a file that cannot be queried
+/// at all is not a database Writ can do anything with, and the caller that
+/// says so is the only one that can tell them apart.
+pub fn applied_schema_version(conn: &Connection) -> StorageResult<i32> {
+    Ok(conn.query_row(
+        "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+        [],
+        |row| row.get(0),
+    )?)
 }
 
 /// Applies every pending schema migration to `conn`.
@@ -48,13 +68,7 @@ pub fn run_migrations(conn: &Connection) -> StorageResult<()> {
         );",
     )?;
 
-    let current_version: i32 = conn
-        .query_row(
-            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap_or(0);
+    let current_version = applied_schema_version(conn)?;
 
     let binary_version = binary_schema_version();
     if current_version > binary_version {

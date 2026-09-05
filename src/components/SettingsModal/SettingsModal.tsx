@@ -576,24 +576,26 @@ function FilesSection() {
           onChange={(e) => onAutosaveChange(e.currentTarget.value)}
         />
       </SettingsRow>
-      <SettingsRow id="files.cli" label="Command-line tool">
-        <Show
-          when={!cliInstalled()}
-          fallback={
-            <span class="settings-default-app-status settings-default-app-status-active">
-              writ command installed
-            </span>
-          }
-        >
-          <Button
-            data-action="install-cli"
-            disabled={isInstallingCli()}
-            onClick={() => void onInstallCli()}
+      <Show when={isSettingAvailable("files.cli")}>
+        <SettingsRow id="files.cli" label="Command-line tool">
+          <Show
+            when={!cliInstalled()}
+            fallback={
+              <span class="settings-default-app-status settings-default-app-status-active">
+                writ command installed
+              </span>
+            }
           >
-            {isInstallingCli() ? "Installing…" : "Install `writ` command"}
-          </Button>
-        </Show>
-      </SettingsRow>
+            <Button
+              data-action="install-cli"
+              disabled={isInstallingCli()}
+              onClick={() => void onInstallCli()}
+            >
+              {isInstallingCli() ? "Installing…" : "Install `writ` command"}
+            </Button>
+          </Show>
+        </SettingsRow>
+      </Show>
       <For each={defaultAppTypes()}>{(t) => <DefaultAppRow type={t} />}</For>
       <SettingsRow id="files.inbox_folder" label="Watched inbox folder">
         <Show
