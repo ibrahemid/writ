@@ -305,17 +305,23 @@ impl AppState {
         let mut recovered_disk_states: HashMap<String, DiskState> = HashMap::new();
         let recovered_buffers = if was_dirty_shutdown {
             info!("dirty shutdown detected; resolving recovery");
-            let recovered = store.resolve_recovery().unwrap_or_default();
+            let mut recovered = store.resolve_recovery().unwrap_or_default();
             info!(count = recovered.len(), "buffers eligible for recovery");
-            for buf in &recovered {
+            for buf in &mut recovered {
                 match restore_recovered_buffer(&store, &notes_root, buf) {
                     // Nothing is recorded for a note whose file was never
                     // read, so its first save reads it rather than trusting a
                     // record nobody took.
-                    Ok(Some(state)) => {
+                    Ok(RecoveryLanding::Written(Some(state))) => {
                         recovered_disk_states.insert(buf.id.clone(), state);
                     }
-                    Ok(None) => {}
+                    Ok(RecoveryLanding::Written(None)) => {}
+                    // The frontend seeds the tab from this rather than reading
+                    // a file that is not there.
+                    Ok(RecoveryLanding::Withheld) => {
+                        info!(buffer_id = %buf.id, "the note's file is gone; its text goes to the tab");
+                        buf.removed_on_disk = true;
+                    }
                     Err(e) => warn!(buffer_id = %buf.id, error = %e, "recovery write failed"),
                 }
             }
@@ -893,13 +899,31 @@ impl AppState {
 /// no watcher exists yet to mistake the write for somebody else's. The flags
 /// come from the filesystem for the same reason — there is no test double in
 /// the running app.
+///
+/// A note that had a file and no longer has one is the exception, and it is
+/// the only case that reaches no write at all
+/// ([`writ_core::recovery::plan_recovery`]). Its file was deleted, and putting
+/// it back at a relaunch is the same harm as putting it back at a save, so the
+/// text stays in the snapshot's hands and the tab comes up removed on disk
+/// (ADR-033 decision 15). Nothing is left beside the path either: a dated copy
+/// in a folder somebody cleared is a file they did not ask for.
 fn restore_recovered_buffer(
     store: &BufferStore,
     notes_root: &std::path::Path,
     recovered: &RecoveredBuffer,
-) -> Result<Option<DiskState>, String> {
+) -> Result<RecoveryLanding, String> {
     let doc = store.get(&recovered.id).map_err(|e| e.to_string())?;
-    if doc.source_path.is_none() {
+    let had_file = doc.source_path.is_some();
+    let file_is_there = doc
+        .source_path
+        .as_deref()
+        .is_some_and(|path| std::fs::symlink_metadata(path).is_ok());
+    if writ_core::recovery::plan_recovery(had_file, file_is_there)
+        == writ_core::recovery::RecoveryPlan::Withhold
+    {
+        return Ok(RecoveryLanding::Withheld);
+    }
+    if !had_file {
         crate::notes::attach_note_file(
             store,
             notes_root,
@@ -910,8 +934,18 @@ fn restore_recovered_buffer(
     }
     store
         .restore_recovered_content(&recovered.id, &recovered.content, None, None)
-        .map(|outcome| outcome.disk_state())
+        .map(|outcome| RecoveryLanding::Written(outcome.disk_state()))
         .map_err(|e| e.to_string())
+}
+
+/// Where a note's recovered text ended up at the relaunch.
+enum RecoveryLanding {
+    /// It was written into the note's file, which then held what the
+    /// [`DiskState`] describes when the file could be described at all.
+    Written(Option<DiskState>),
+    /// Nothing was written. The note's file is gone and the text goes to the
+    /// tab, which comes up removed on disk.
+    Withheld,
 }
 
 /// Re-blesses the source paths of every persisted buffer, returning how many.
