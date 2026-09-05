@@ -13,7 +13,7 @@ import {
   type ContentSource,
   type SaveResult,
 } from "../../services/autosave";
-import { noteDiskState, type NoteDiskAnswer } from "../../services/tauri";
+import { noteDiskState, restoreNoteFile, type NoteDiskAnswer } from "../../services/tauri";
 import { hashDocument } from "../../lib/doc-hash";
 import {
   detectLanguage as detectLanguageService,
@@ -161,6 +161,14 @@ export function createEditorStore() {
     new Set(),
   );
 
+  // The text of a note whose file is gone, which is the last copy of it. It is
+  // kept here and not in the editor view because a tab switch destroys the
+  // view, and there is no file left to read the text back from: a note that
+  // lost its file and then its view has lost the note.
+  const [removedText, setRemovedText] = createSignal<ReadonlyMap<string, string>>(
+    new Map(),
+  );
+
   function markRemovedOnDisk(id: string) {
     setRemovedOnDisk((current) => {
       if (current.has(id)) return current;
@@ -168,6 +176,11 @@ export function createEditorStore() {
       next.add(id);
       return next;
     });
+    // The tab on screen is the one holding the text; a background tab's is on
+    // disk, which is what this is about the loss of.
+    if (currentBufferId() === id && activeView !== null) {
+      keepTextOfRemoved(id, activeView.state.doc.toString());
+    }
   }
 
   function clearRemovedOnDisk(id: string) {
@@ -177,10 +190,64 @@ export function createEditorStore() {
       next.delete(id);
       return next;
     });
+    setRemovedText((current) => {
+      if (!current.has(id)) return current;
+      const next = new Map(current);
+      next.delete(id);
+      return next;
+    });
   }
 
   function isRemovedOnDisk(id: string): boolean {
     return removedOnDisk().has(id);
+  }
+
+  /**
+   * Keeps `text` as the last copy of a note whose file is gone.
+   *
+   * The caller hands the text over rather than this reading the live view: the
+   * mark arrives for a background tab as well, and the view is then holding a
+   * different note's document.
+   */
+  function keepTextOfRemoved(id: string, text: string) {
+    if (!isRemovedOnDisk(id)) return;
+    setRemovedText((current) => {
+      if (current.get(id) === text) return current;
+      const next = new Map(current);
+      next.set(id, text);
+      return next;
+    });
+  }
+
+  /** The kept text of a note whose file is gone, when there is one. */
+  function textOfRemoved(id: string): string | undefined {
+    return removedText().get(id);
+  }
+
+  /** The newest text of a removed note: the live document, else what is kept. */
+  function liveTextOfRemoved(id: string): string | undefined {
+    if (currentBufferId() === id && activeView !== null) {
+      return activeView.state.doc.toString();
+    }
+    return textOfRemoved(id);
+  }
+
+  /**
+   * Writes a note whose file was deleted outside Writ back to the path it
+   * names.
+   *
+   * The write goes through the one command the backend does not refuse for a
+   * removed file, and the mark is dropped only once the write lands: a restore
+   * that failed leaves the note removed, so no later keystroke recreates the
+   * file behind the person's back. A failure reports through the same
+   * listeners every other save does, so it reaches the same bar.
+   */
+  async function restoreRemovedFile(id: string): Promise<SaveResult> {
+    const text = liveTextOfRemoved(id);
+    if (text === undefined) return NOTHING_TO_SAVE;
+    const result = await saveNowService(id, text, restoreNoteFile);
+    if (result.ok) clearRemovedOnDisk(id);
+    return result;
   }
 
   function forgetHashes(id: string) {
@@ -294,8 +361,15 @@ export function createEditorStore() {
    * `diskHash` is the digest the save command computed over what it wrote, so
    * the file's side of the comparison comes from Rust here too. Null when the
    * note had nothing in it and no file to mint one for.
+   *
+   * A write that landed means there is a file at the note's path again, so the
+   * removed mark goes here rather than only where the restore was asked for: a
+   * restore requeued after a failure lands from the autosave queue, and the bar
+   * would otherwise stay over a file that is back. An ordinary save cannot
+   * reach this for a removed note, since the command refuses it.
    */
   function noteSaved(id: string, diskHash: string | null) {
+    clearRemovedOnDisk(id);
     if (diskHash === null) return;
     patchHashes(id, { diskHash });
   }
@@ -472,14 +546,19 @@ export function createEditorStore() {
   // no edit is pending, so the keystroke always means "it is on disk now". A
   // binary buffer is skipped: it opens read-only and its view holds a decoded
   // rendering, never the bytes to write back.
+  //
+  // A note whose file was deleted goes back to that path instead. Autosave
+  // stays silent for it, but the save keystroke is the person asking, and
+  // answering it with nothing at all would be the tab keeping quiet about the
+  // one thing it is showing a bar for.
   function saveActiveBuffer(): Promise<SaveResult> {
     const bufferId = currentBufferId();
     const view = activeView;
     if (bufferId === null || view === null)
       return Promise.resolve(NOTHING_TO_SAVE);
-    if (isRemovedOnDisk(bufferId)) return Promise.resolve(NOTHING_TO_SAVE);
     if (largeFileMode()?.kind === "Binary")
       return Promise.resolve(NOTHING_TO_SAVE);
+    if (isRemovedOnDisk(bufferId)) return restoreRemovedFile(bufferId);
     return saveNowService(bufferId, () => view.state.doc.toString());
   }
 
@@ -489,8 +568,13 @@ export function createEditorStore() {
    * The text comes from autosave rather than the view: a write the guard
    * stopped leaves the queue empty on purpose, and the note whose bar is on
    * screen is not always the one loaded into the editor.
+   *
+   * A note whose file was deleted outside Writ is put back instead. Writing it
+   * the ordinary way is refused every time, so the press would answer the bar
+   * with the same bar.
    */
   function retrySave(id: string): Promise<SaveResult> {
+    if (isRemovedOnDisk(id)) return restoreRemovedFile(id);
     const content = peekUnsavedContent(id);
     if (content === undefined) return Promise.resolve(NOTHING_TO_SAVE);
     return saveNowService(id, content);
@@ -544,6 +628,9 @@ export function createEditorStore() {
     markRemovedOnDisk,
     clearRemovedOnDisk,
     isRemovedOnDisk,
+    keepTextOfRemoved,
+    textOfRemoved,
+    restoreRemovedFile,
     docHash,
     lastKnownDiskHash,
     stopSaveListener,

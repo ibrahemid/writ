@@ -175,6 +175,17 @@ export async function saveBufferContent(id: string, content: string): Promise<st
   return invoke("save_buffer_content", { id, content });
 }
 
+/**
+ * Writes a note whose file was deleted outside Writ back to the path it names.
+ *
+ * [`saveBufferContent`] refuses that write, because a keystroke must not put
+ * back a file the person threw away (spec W4). This is the person asking for
+ * it, which is the other half of the same rule.
+ */
+export async function restoreNoteFile(id: string, content: string): Promise<string | null> {
+  return invoke("restore_note_file", { id, content });
+}
+
 export async function saveBufferContentUnindexed(
   id: string,
   content: string,

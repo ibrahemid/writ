@@ -408,6 +408,15 @@ export default function EditorInstance(props: Props) {
     }
   }
 
+  // The outgoing note's text, handed to the store while the view still holds
+  // it. A note whose file was deleted has no file to be read back from, so the
+  // view being replaced is the moment its text would otherwise be gone.
+  function keepTextOfOutgoingRemoved() {
+    if (!currentBufferId || !view) return;
+    if (!win.editor.isRemovedOnDisk(currentBufferId)) return;
+    win.editor.keepTextOfRemoved(currentBufferId, view.state.doc.toString());
+  }
+
   // An untitled note (created by New Note; no on-disk path) keeps its surface
   // as markdown no matter what its content looks like — a fenced ```sh block
   // must not turn it into a shell code buffer (F05/F17). Two things still
@@ -453,6 +462,7 @@ export default function EditorInstance(props: Props) {
 
   async function loadBuffer(buffer: BufferDocument) {
     await saveCurrentContent();
+    keepTextOfOutgoingRemoved();
     // A pending publish belongs to the outgoing buffer; a late fire after the
     // swap would push stale text into the shared currentText signal.
     clearRestrictedContentPublish();
@@ -464,10 +474,19 @@ export default function EditorInstance(props: Props) {
     appliedNameForLang = "";
     lastDetectLen = 0;
 
+    // A note whose file is gone is read from what the store kept, never from
+    // disk: the read would fail and the empty string it fell back to went into
+    // the view, which threw away the file's text and every unsaved keystroke
+    // on top of it.
     let content = "";
-    try {
-      content = await bufferRegistry.readContent(buffer.id);
-    } catch {}
+    const kept = win.editor.textOfRemoved(buffer.id);
+    if (kept !== undefined) {
+      content = kept;
+    } else {
+      try {
+        content = await bufferRegistry.readContent(buffer.id);
+      } catch {}
+    }
 
     // Mode is content-aware: byte size drives the large-file tiers, but a
     // small file with pathologically long lines is also restricted so the

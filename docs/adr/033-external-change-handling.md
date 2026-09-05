@@ -450,13 +450,30 @@ row, its title and its index rows go to the new path through
 single arming point. Putting a move through the dirty gate would offer to
 discard unsaved text over a rename.
 
-A removal is not a save. The tab keeps its text, is marked, and writes nothing:
-the backend refuses the write under `ERR_FILE_REMOVED_ON_DISK` and the frontend
-stops queueing one. Recreating the file would put back what the person deleted,
-and in a synced folder it would put it back on every device. The two ways out
-are a copy written as a new note and closing the tab. A file put back where it
-was — the Trash restore — re-attaches, because the id it comes back with is the
-one the tab still holds.
+A removal is not a save. The tab keeps its text, is marked, and no keystroke
+writes it back: the backend refuses that write under `ERR_FILE_REMOVED_ON_DISK`
+and the frontend stops queueing one. Recreating the file would put back what the
+person deleted, and in a synced folder it would put it back on every device. A
+file put back where it was — the Trash restore — re-attaches, because the id it
+comes back with is the one the tab still holds.
+
+What "keeps its text" costs is a place to keep it. The tab's text is then the
+only copy of the note (ADR-028 §1), and the editor view is not a place for the
+only copy of anything: Writ has one view, a tab switch rebuilds it from the
+file, and the file is what is gone. So the window's editor store holds the text
+of every note marked removed, handed to it by the view before the view is
+replaced, and a load of such a note reads the store rather than disk. A read
+that fails must never reach the document — the empty string it falls back to
+overwrites both the file's text and every unsaved keystroke on top of it, which
+is the deletion finishing the job.
+
+The ways out are three, and they are the person's to pick: write the text to a
+new file, put the file back at its own path, or close the tab and let it go. The
+second is what an explicit save means here, so the save keystroke does it too;
+it goes through the one command that does not refuse a removed note, the mark is
+dropped only once the write lands, and a folder that is gone as well refuses it
+under `ERR_FILE_MISSING` rather than silently. Autosave is not one of the three:
+it is the keystroke, and it stays quiet.
 
 ### 13. A report carrying the bytes the tab already loaded is not a change
 
