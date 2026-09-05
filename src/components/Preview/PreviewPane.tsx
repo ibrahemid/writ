@@ -128,19 +128,7 @@ export default function PreviewPane(props: Props) {
     } else if (d.type === "scroll" && typeof d.fraction === "number") {
       bridge.onIframeMessage({ type: "scroll", fraction: d.fraction });
     } else if (d.type === "link:open" && typeof d.href === "string" && d.href !== "") {
-      // A `[[…]]` the renderer resolved is written with the note scheme. It
-      // names a file in the notes folder, not a web address, so the
-      // external-link policy would refuse it; the store joins it back onto the
-      // folder and answers null for anything that lands outside.
-      const note = linkStore.notePathFromPreview(d.href, notesStore.root());
-      if (note !== null) {
-        void win.tabs.openFile(note).catch(() => undefined);
-        return;
-      }
-      // Everything else opens nothing on its own. Anything in the frame can
-      // post it, including a script the document brought, so all it can
-      // produce is a popover the user dismisses (ADR-025).
-      setLinkRequest({
+      void openNoteOrConfirm({
         id: nextLinkId++,
         href: d.href,
         x: typeof d.x === "number" && Number.isFinite(d.x) ? d.x : 0,
@@ -154,6 +142,35 @@ export default function PreviewPane(props: Props) {
         ticks: Array.isArray(d.ticks) ? d.ticks : [],
       });
     }
+  }
+
+  /**
+   * A `[[…]]` the renderer resolved is written with the note scheme. It names
+   * a file in the notes folder, not a web address, so the external-link policy
+   * would refuse it; the store joins it back onto the folder and asks the
+   * index whether it names a note before anything opens.
+   *
+   * Everything else, the scheme included when the index does not know it,
+   * opens nothing on its own. Anything in the frame can post one, including a
+   * script the document brought, so all it can produce is a popover the user
+   * dismisses (ADR-025).
+   */
+  async function openNoteOrConfirm(request: {
+    id: number;
+    href: string;
+    x: number;
+    y: number;
+  }) {
+    const note = await linkStore.notePathFromPreview(
+      request.href,
+      notesStore.root(),
+      props.buffer?.source_path ?? null,
+    );
+    if (note !== null) {
+      await win.tabs.openFile(note).catch(() => undefined);
+      return;
+    }
+    setLinkRequest(request);
   }
 
   async function doRender(force: boolean) {

@@ -124,18 +124,44 @@ function knownNoteLink(fromPath: string, target: string): LinkResolution | null 
 
 /**
  * The note a preview link points at, as a path on disk, or null when the href
- * is not one or does not land inside `notesRoot`.
+ * is not one, does not land inside `notesRoot`, or names no note the index
+ * holds.
  *
  * The href comes from the preview frame, and anything in the rendered document
- * can post one, so the scheme is a claim and not a permission: the path is
- * joined onto the notes folder and anything that walks out of it is refused.
- * That leaves a preview link able to open what a note in that folder could
- * already be opened by, and nothing else.
+ * can post one, so the scheme is a claim and not a permission. Two things
+ * decide what it gets: the path is joined onto the notes folder and anything
+ * that walks out of it is refused, and the index is asked whether the note it
+ * claims is a note at all. Only a link the renderer wrote answers both, so raw
+ * HTML carrying the scheme reaches the same popover every other link does
+ * rather than opening a file on its own.
+ *
+ * `fromPath` is the note being previewed, which is what the index ranks the
+ * answer against; a preview of something with no file resolves nothing.
  */
-function notePathFromPreview(href: string, notesRoot: string | null): string | null {
-  const relative = noteLinkPath(href);
-  if (relative === null || notesRoot === null || notesRoot === "") return null;
-  return resolveWithinRoot(notesRoot, notesRoot, relative);
+async function notePathFromPreview(
+  href: string,
+  notesRoot: string | null,
+  fromPath: string | null,
+): Promise<string | null> {
+  const claim = noteLinkPath(href);
+  if (claim === null || notesRoot === null || notesRoot === "") return null;
+  if (fromPath === null || fromPath === "") return null;
+
+  const path = resolveWithinRoot(notesRoot, notesRoot, claim);
+  if (path === null) return null;
+
+  const resolution = await resolveNoteLink(fromPath, decodeClaim(claim));
+  if (resolution.status !== "resolved" || resolution.path === null) return null;
+  return path;
+}
+
+/** The href's path as it is written on disk. An undecodable claim is its own. */
+function decodeClaim(claim: string): string {
+  try {
+    return decodeURIComponent(claim);
+  } catch {
+    return claim;
+  }
 }
 
 /** Note names for a `[[` completion, ranked by the index quick open reads. */

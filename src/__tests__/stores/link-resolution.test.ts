@@ -164,44 +164,93 @@ describe("linkStore noteNameCandidates", () => {
 // what it gets.
 describe("linkStore notePathFromPreview", () => {
   const ROOT = "/Users/x/Writ";
+  const FROM_NOTE = "/Users/x/Writ/From.md";
 
-  it("answers with the note the preview link names", () => {
-    expect(linkStore.notePathFromPreview("writ-note:Note.md", ROOT)).toBe(
+  /** The index knows one note, whatever target it is asked about. */
+  function indexKnows(path: string | null) {
+    mockedApi.resolveNoteLink.mockImplementation(async () =>
+      path === null
+        ? { status: "missing", path: null, candidates: [], heading_line: null }
+        : resolved(path),
+    );
+  }
+
+  it("answers with the note the preview link names", async () => {
+    indexKnows("/Users/x/Writ/Note.md");
+    expect(await linkStore.notePathFromPreview("writ-note:Note.md", ROOT, FROM_NOTE)).toBe(
       "/Users/x/Writ/Note.md",
     );
-    expect(linkStore.notePathFromPreview("writ-note:folder/Deep.md", ROOT)).toBe(
-      "/Users/x/Writ/folder/Deep.md",
-    );
+    indexKnows("/Users/x/Writ/folder/Deep.md");
+    expect(
+      await linkStore.notePathFromPreview("writ-note:folder/Deep.md", ROOT, FROM_NOTE),
+    ).toBe("/Users/x/Writ/folder/Deep.md");
   });
 
-  it("decodes a name written with a character the href escaped", () => {
-    expect(linkStore.notePathFromPreview("writ-note:a%23b.md", ROOT)).toBe(
+  // The fragment names a heading in the note, not part of its file name.
+  it("opens the note a link to a heading names", async () => {
+    indexKnows("/Users/x/Writ/Note.md");
+    expect(
+      await linkStore.notePathFromPreview("writ-note:Note.md#some-heading", ROOT, FROM_NOTE),
+    ).toBe("/Users/x/Writ/Note.md");
+    expect(mockedApi.resolveNoteLink).toHaveBeenCalledWith(FROM_NOTE, "Note.md");
+  });
+
+  it("decodes a name written with a character the href escaped", async () => {
+    indexKnows("/Users/x/Writ/a#b.md");
+    expect(await linkStore.notePathFromPreview("writ-note:a%23b.md", ROOT, FROM_NOTE)).toBe(
       "/Users/x/Writ/a#b.md",
     );
+    expect(mockedApi.resolveNoteLink).toHaveBeenCalledWith(FROM_NOTE, "a#b.md");
   });
 
   // Anything in the rendered document can post an href, so the scheme is a
   // claim and not a permission.
-  it("refuses a path that lands outside the notes folder", () => {
+  it("refuses a path that lands outside the notes folder", async () => {
+    indexKnows("/Users/x/Writ/Note.md");
     for (const href of [
       "writ-note:../../.ssh/id_rsa",
       "writ-note:/etc/passwd",
       "writ-note:folder/../../secrets.md",
       "writ-note:%2e%2e/%2e%2e/passwd",
+      "writ-note:..%2f..%2fsecrets.md",
       "writ-note:",
+      "writ-note:#some-heading",
     ]) {
-      expect(linkStore.notePathFromPreview(href, ROOT), href).toBeNull();
+      expect(await linkStore.notePathFromPreview(href, ROOT, FROM_NOTE), href).toBeNull();
     }
   });
 
-  it("leaves every other href to the external-link policy", () => {
-    expect(linkStore.notePathFromPreview("https://example.com/x", ROOT)).toBeNull();
-    expect(linkStore.notePathFromPreview("Note.md", ROOT)).toBeNull();
-    expect(linkStore.notePathFromPreview("javascript:alert(1)", ROOT)).toBeNull();
+  // Raw HTML in a note can write the scheme, and the renderer only writes it
+  // for a target the index resolved. A file inside the folder that names no
+  // note is confirmed the way every other link is.
+  it("refuses a path inside the folder that names no note the index holds", async () => {
+    indexKnows(null);
+    expect(
+      await linkStore.notePathFromPreview("writ-note:.obsidian/workspace.json", ROOT, FROM_NOTE),
+    ).toBeNull();
+    expect(await linkStore.notePathFromPreview("writ-note:Note.md", ROOT, FROM_NOTE)).toBeNull();
   });
 
-  it("answers with nothing when there is no notes folder", () => {
-    expect(linkStore.notePathFromPreview("writ-note:Note.md", null)).toBeNull();
-    expect(linkStore.notePathFromPreview("writ-note:Note.md", "")).toBeNull();
+  it("leaves every other href to the external-link policy", async () => {
+    indexKnows("/Users/x/Writ/Note.md");
+    expect(await linkStore.notePathFromPreview("https://example.com/x", ROOT, FROM_NOTE)).toBeNull();
+    expect(await linkStore.notePathFromPreview("Note.md", ROOT, FROM_NOTE)).toBeNull();
+    expect(await linkStore.notePathFromPreview("javascript:alert(1)", ROOT, FROM_NOTE)).toBeNull();
+    expect(mockedApi.resolveNoteLink).not.toHaveBeenCalled();
+  });
+
+  it("answers with nothing when there is no notes folder", async () => {
+    indexKnows("/Users/x/Writ/Note.md");
+    expect(await linkStore.notePathFromPreview("writ-note:Note.md", null, FROM_NOTE)).toBeNull();
+    expect(await linkStore.notePathFromPreview("writ-note:Note.md", "", FROM_NOTE)).toBeNull();
+  });
+
+  // A preview of something with no file has nothing to resolve against, and a
+  // guess would be a file opened from a claim nothing checked.
+  it("answers with nothing when the previewed buffer has no file", async () => {
+    indexKnows("/Users/x/Writ/Note.md");
+    expect(await linkStore.notePathFromPreview("writ-note:Note.md", ROOT, null)).toBeNull();
+    expect(await linkStore.notePathFromPreview("writ-note:Note.md", ROOT, "")).toBeNull();
+    expect(mockedApi.resolveNoteLink).not.toHaveBeenCalled();
   });
 });
