@@ -114,6 +114,6 @@ pub fn search_notes_by_name(
     }
     state
         .notes_index
-        .search_names(&query, QUICK_OPEN_LIMIT)
+        .search_names(&query, &state.notes_root(), QUICK_OPEN_LIMIT)
         .map_err(|e| e.to_string())
 }
