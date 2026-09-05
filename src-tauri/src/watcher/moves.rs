@@ -18,6 +18,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 use writ_core::notes::guard::DiskState;
 use writ_core::notes::identity::{FileIdentity, IdentityProbe};
+use writ_core::watcher::pending::RemovalHolds;
 
 use crate::state::AppState;
 
@@ -73,6 +74,13 @@ pub struct FileTracking {
     pub probe: Arc<dyn IdentityProbe>,
     /// Holds what Writ knows about each tab's file.
     pub files: Arc<dyn NoteFiles>,
+    /// Where the removals being held are published, so a save can wait for one
+    /// rather than write to a path whose file may have moved.
+    ///
+    /// Shared with the application, which is the other end of the wait. A
+    /// watcher with a registry of its own answers nobody, which is what
+    /// [`FileTracking::untracked`] is.
+    pub holds: Arc<RemovalHolds>,
 }
 
 impl FileTracking {
@@ -83,14 +91,17 @@ impl FileTracking {
         Self {
             probe: Arc::new(PlatformIdentity),
             files: Arc::new(NoNoteFiles),
+            holds: Arc::new(RemovalHolds::new()),
         }
     }
 
     /// Tracking backed by the running application.
     pub fn of_app(app: AppHandle) -> Self {
+        let holds = app.state::<AppState>().removal_holds.clone();
         Self {
             probe: Arc::new(PlatformIdentity),
             files: Arc::new(AppNoteFiles { app }),
+            holds,
         }
     }
 
@@ -105,6 +116,7 @@ impl FileTracking {
             files: Arc::new(SharedNoteFiles {
                 state: Arc::downgrade(state),
             }),
+            holds: state.removal_holds.clone(),
         }
     }
 }

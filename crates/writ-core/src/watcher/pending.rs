@@ -23,8 +23,16 @@
 //! record that could recognise the file elsewhere, no later delivery can say
 //! anything the first one did not, and the wait would be latency for a
 //! foregone conclusion.
+//!
+//! The hold is a window in which nobody knows yet whether the note still has a
+//! file, so nothing may write to the path it left. [`RemovalHolds`] is what
+//! makes that enforceable from outside the watcher thread: a save asks whether
+//! the note is held, waits for the answer, and then writes at the new path or
+//! refuses (ADR-033 §14).
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use crate::notes::identity::{classify_delete, DeleteVerdict, FileIdentity};
@@ -39,6 +47,168 @@ use crate::notes::identity::{classify_delete, DeleteVerdict, FileIdentity};
 /// before the tab hears about it.
 pub fn hold_window(debounce: Duration) -> Duration {
     debounce * 2
+}
+
+/// What a held removal turned out to be, for anyone waiting on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HoldAnswer {
+    /// The file was found at this path, and the note's record names it now.
+    Moved(PathBuf),
+    /// Nothing answered by the deadline. The file is gone and the record says
+    /// so, which is what makes a write to the path it left a refusal.
+    Removed,
+    /// The same file is back where it left, so nothing happened to it and the
+    /// removal was never announced.
+    Returned,
+}
+
+/// The removals a watcher is holding, readable from any thread.
+///
+/// A hold is the window in which the answer is not known yet, and the record
+/// is deliberately left saying what it said before ([`PendingRemovals`]). That
+/// is only safe while nothing writes to the path in the meantime: a save
+/// landing inside the window recreates a file the person deleted, and against
+/// a rename it puts a second file where there was one and the move is never
+/// announced. So a save asks here first and waits.
+///
+/// **An answer is published only once the record agrees with it.** A waiter
+/// released before the row has moved reads the old path out of the row and
+/// writes there, which is the failure this exists to stop. The publisher is
+/// therefore the caller that applied the record change, never [`Self::hold`]'s
+/// counterpart inside `PendingRemovals`.
+///
+/// Two watchers can hold one note, each on its own window. The later deadline
+/// wins, so a wait cannot end while a watcher is still holding, and the first
+/// answer is the answer: both are watching the same file and the second says
+/// what the first did.
+#[derive(Debug, Default)]
+pub struct RemovalHolds {
+    held: Mutex<HashMap<String, Hold>>,
+    answered: Condvar,
+}
+
+/// One note's hold: when a waiter gives up, the answer when there is one, and
+/// how many waiters are still to read it.
+#[derive(Debug)]
+struct Hold {
+    answer_by: Instant,
+    answer: Option<HoldAnswer>,
+    waiting: usize,
+}
+
+impl RemovalHolds {
+    /// Nothing held.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Records that `note_id`'s removal is being held, and that a waiter
+    /// should give up at `answer_by`.
+    ///
+    /// The later `answer_by` wins, so the second watcher to hold the same note
+    /// extends the wait rather than cutting it short. A note held again after
+    /// an answer nobody read starts clean: the answer described the removal
+    /// before it, not this one.
+    pub fn hold(&self, note_id: &str, answer_by: Instant) {
+        let mut held = self.lock();
+        match held.get_mut(note_id) {
+            Some(hold) => {
+                hold.answer_by = hold.answer_by.max(answer_by);
+                hold.answer = None;
+            }
+            None => {
+                held.insert(
+                    note_id.to_string(),
+                    Hold {
+                        answer_by,
+                        answer: None,
+                        waiting: 0,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Publishes what the removal turned out to be, waking whoever is waiting.
+    ///
+    /// Call it after the record has been made to agree: the row moved, or the
+    /// note marked removed. Nothing held for `note_id` is not a mistake — a
+    /// move can be classified in the delivery it arrived in, with no hold ever
+    /// taken — and answers nothing.
+    pub fn answer(&self, note_id: &str, answer: HoldAnswer) {
+        let mut held = self.lock();
+        let Some(hold) = held.get_mut(note_id) else {
+            return;
+        };
+        if hold.waiting == 0 {
+            held.remove(note_id);
+            return;
+        }
+        hold.answer = Some(answer);
+        drop(held);
+        self.answered.notify_all();
+    }
+
+    /// Waits for `note_id`'s held removal to be answered.
+    ///
+    /// `None` when the note is not held at all, which is every ordinary save,
+    /// and when the deadline passed with no answer — a watcher that died
+    /// holding one, where the caller is no worse off than it was before the
+    /// hold existed. The wait is bounded by the deadline the hold was taken
+    /// with, never by a poll.
+    pub fn wait_for_answer(&self, note_id: &str) -> Option<HoldAnswer> {
+        let mut held = self.lock();
+        let answer_by = held.get(note_id)?.answer_by;
+        held.get_mut(note_id)?.waiting += 1;
+        let answer = loop {
+            match held.get_mut(note_id) {
+                Some(hold) => {
+                    if let Some(answer) = hold.answer.clone() {
+                        break Some(answer);
+                    }
+                }
+                // Answered and dropped by a waiter that read it first.
+                None => break None,
+            }
+            let left = answer_by.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break None;
+            }
+            held = self
+                .answered
+                .wait_timeout(held, left)
+                .unwrap_or_else(|poisoned| {
+                    tracing::error!(
+                        location = "watcher::pending::wait_for_answer",
+                        "recovered poisoned mutex"
+                    );
+                    poisoned.into_inner()
+                })
+                .0;
+        };
+        if let Some(hold) = held.get_mut(note_id) {
+            hold.waiting -= 1;
+            if hold.waiting == 0 && hold.answer.is_some() {
+                held.remove(note_id);
+            }
+        }
+        answer
+    }
+
+    /// Whether anything is held for `note_id`, for a caller that cannot wait.
+    pub fn holds(&self, note_id: &str) -> bool {
+        self.lock().contains_key(note_id)
+    }
+
+    fn lock(&self) -> MutexGuard<'_, HashMap<String, Hold>> {
+        self.held.lock().unwrap_or_else(|poisoned| {
+            tracing::error!(
+                location = "watcher::pending::RemovalHolds",
+                "recovered poisoned mutex"
+            );
+            poisoned.into_inner()
+        })
+    }
 }
 
 /// A removal waiting to be answered.
@@ -87,15 +257,42 @@ impl HeldRemoval {
 pub struct PendingRemovals {
     window: Duration,
     held: Vec<(HeldRemoval, Instant)>,
+    holds: Arc<RemovalHolds>,
 }
 
 impl PendingRemovals {
-    /// Holds each removal for `window` before announcing it.
+    /// Holds each removal for `window` before announcing it, where nothing
+    /// outside this watcher can see the holds.
     pub fn new(window: Duration) -> Self {
+        Self::publishing_to(window, Arc::new(RemovalHolds::new()))
+    }
+
+    /// The same, with the holds published where a save can wait on them.
+    ///
+    /// Every watcher in a process shares one [`RemovalHolds`], because a save
+    /// asks about a note and not about a watcher.
+    pub fn publishing_to(window: Duration, holds: Arc<RemovalHolds>) -> Self {
         Self {
             window,
             held: Vec::new(),
+            holds,
         }
+    }
+
+    /// Where this watcher publishes its holds.
+    pub fn holds(&self) -> &Arc<RemovalHolds> {
+        &self.holds
+    }
+
+    /// When a waiter on a removal held at `now` gives up.
+    ///
+    /// The deadline the removal is announced on, plus half a window for the
+    /// announcing itself: the watcher thread wakes on the deadline, applies
+    /// the removal to the record and publishes the answer, and a waiter that
+    /// gave up an instant before that would write to the path in the moment
+    /// between.
+    fn answer_by(&self, now: Instant) -> Instant {
+        now + self.window + self.window / 2
     }
 
     /// How long a removal is held.
@@ -109,7 +306,7 @@ impl PendingRemovals {
     }
 
     /// Whether this note's removal is waiting to be answered.
-    pub fn holds(&self, note_id: &str) -> bool {
+    pub fn is_holding(&self, note_id: &str) -> bool {
         self.held.iter().any(|(held, _)| held.note_id == note_id)
     }
 
@@ -148,7 +345,11 @@ impl PendingRemovals {
         if !removal.can_be_answered() {
             return false;
         }
-        if self.holds(&removal.note_id) {
+        // Published before the early return as well: the note is held either
+        // way, and the second watcher to hold it is what says how long a save
+        // has to wait.
+        self.holds.hold(&removal.note_id, self.answer_by(now));
+        if self.is_holding(&removal.note_id) {
             return true;
         }
         self.held.push((removal, now));
@@ -233,6 +434,87 @@ mod tests {
     }
 
     #[test]
+    fn a_note_nothing_holds_is_not_waited_on() {
+        // Every ordinary save asks this question and has to get on with it.
+        let holds = RemovalHolds::new();
+        assert!(holds.wait_for_answer("note-1").is_none());
+        assert!(!holds.holds("note-1"));
+    }
+
+    #[test]
+    fn a_wait_ends_on_the_answer() {
+        let holds = Arc::new(RemovalHolds::new());
+        holds.hold("note-1", Instant::now() + Duration::from_secs(30));
+        let answering = {
+            let holds = Arc::clone(&holds);
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(50));
+                holds.answer("note-1", HoldAnswer::Moved(PathBuf::from("/notes/b.md")));
+            })
+        };
+        let asked_at = Instant::now();
+        let answer = holds.wait_for_answer("note-1");
+        let waited = asked_at.elapsed();
+        answering.join().expect("the answering thread");
+        assert_eq!(
+            answer,
+            Some(HoldAnswer::Moved(PathBuf::from("/notes/b.md")))
+        );
+        // Woken by the answer rather than by the deadline, which is 30s out.
+        assert!(waited < Duration::from_secs(5), "waited {waited:?}");
+        // The answer was read, so nothing is left for the next save to find.
+        assert!(!holds.holds("note-1"));
+    }
+
+    #[test]
+    fn a_wait_gives_up_at_the_deadline_the_hold_was_taken_with() {
+        // A watcher that stopped while holding a removal leaves the caller no
+        // worse off than it was before holds existed.
+        let holds = RemovalHolds::new();
+        holds.hold("note-1", Instant::now() + Duration::from_millis(50));
+        let asked_at = Instant::now();
+        assert_eq!(holds.wait_for_answer("note-1"), None);
+        let waited = asked_at.elapsed();
+        assert!(waited >= Duration::from_millis(50), "waited {waited:?}");
+        assert!(waited < Duration::from_secs(5), "waited {waited:?}");
+    }
+
+    #[test]
+    fn the_second_watcher_to_hold_a_note_says_how_long_the_wait_is() {
+        // Both watchers can see one file, each on its own window. A wait that
+        // ended on the shorter one would let a save through while the other
+        // was still holding, which is the whole failure again.
+        let holds = RemovalHolds::new();
+        let now = Instant::now();
+        holds.hold("note-1", now + Duration::from_millis(50));
+        holds.hold("note-1", now + Duration::from_secs(30));
+        let asked_at = Instant::now();
+        let answered = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                std::thread::sleep(Duration::from_millis(200));
+                holds.answer("note-1", HoldAnswer::Removed);
+            });
+            holds.wait_for_answer("note-1")
+        });
+        assert_eq!(answered, Some(HoldAnswer::Removed));
+        assert!(
+            asked_at.elapsed() >= Duration::from_millis(200),
+            "the wait ended on the first watcher's deadline"
+        );
+    }
+
+    #[test]
+    fn a_removal_held_by_a_watcher_is_published_for_a_save_to_wait_on() {
+        // The registration is `PendingRemovals`' to publish; every answer is
+        // published by whoever made the record agree with it.
+        let mut pending = PendingRemovals::new(Duration::from_millis(1000));
+        let holds = Arc::clone(pending.holds());
+        assert!(pending.hold(vanished("/notes/a.md", Some(inode(7))), Instant::now()));
+        assert!(holds.holds("note-1"));
+        assert!(!holds.holds("note-2"));
+    }
+
+    #[test]
     fn a_file_found_again_by_its_id_in_the_next_delivery_is_a_move() {
         let mut pending = PendingRemovals::new(Duration::from_millis(1000));
         let now = Instant::now();
@@ -247,7 +529,7 @@ mod tests {
         );
         assert!(candidates.contains(&PathBuf::from("/notes/archive/a.md")));
         assert!(
-            !pending.holds("note-1"),
+            !pending.is_holding("note-1"),
             "an answered removal stops waiting"
         );
         assert!(
@@ -384,6 +666,6 @@ mod tests {
         let announced = pending.expired(now + Duration::from_millis(1100));
         assert_eq!(announced.len(), 1);
         assert_eq!(announced[0].note_id, "note-1");
-        assert!(pending.holds("note-2"));
+        assert!(pending.is_holding("note-2"));
     }
 }

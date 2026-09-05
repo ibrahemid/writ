@@ -71,6 +71,7 @@ fn make_state(dir: &TempDir) -> AppState {
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
         notes_reconcile: Arc::new(ReconcileGate::new()),
         quit: Arc::new(QuitState::new()),
+        removal_holds: Default::default(),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
         transforms: RwLock::new(TransformRegistry::new()),
@@ -1472,6 +1473,143 @@ fn a_removal_nothing_answers_is_announced_when_the_hold_passes() {
     assert!(
         refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
         "the refusal has to carry its own code, got {refused}"
+    );
+}
+
+/// Long enough to be past the delivery that starts the hold, and well short of
+/// the deadline the hold ends on.
+const INSIDE_THE_HOLD: Duration = Duration::from_millis(700);
+
+/// What a save is allowed to take when it lands inside a hold: the hold itself
+/// plus the window the announcement is delivered on.
+fn the_longest_a_held_save_may_wait() -> Duration {
+    hold_window(NOTES_DEBOUNCE_WINDOW) + NOTES_DEBOUNCE_WINDOW
+}
+
+#[test]
+fn a_save_inside_the_hold_of_a_deletion_recreates_nothing() {
+    // The hold is the window in which the record still says the note has a
+    // file, so nothing in it refuses a write on its own. A save landing there
+    // would put the deleted file back holding the tab's text, and in a synced
+    // folder put it back on every device (ADR-033 §12).
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    std::fs::remove_file(&path).expect("delete the note the way Finder does");
+    std::thread::sleep(INSIDE_THE_HOLD);
+
+    let refused = save_buffer_content_inner(&state, &doc.id, "written during the hold")
+        .expect_err("the save must be refused");
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "a save inside the hold is refused the same way as one after the announcement, got {refused}"
+    );
+    assert!(
+        !path.exists(),
+        "the file the person deleted is back on disk"
+    );
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(
+        told.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Removed],
+        "the deletion is announced once and the save says nothing, saw {seen:?}"
+    );
+    assert!(state.is_removed_on_disk(&doc.id));
+}
+
+#[test]
+fn a_save_inside_the_hold_of_a_split_rename_lands_at_the_new_path() {
+    // The variant that costs a file rather than resurrecting one: the save
+    // writes a new file at the path the rename emptied, the move is never
+    // announced, and the person is left with two files where they renamed one.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let before = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    let elsewhere = dir.path().join("outside-every-watched-folder");
+    std::fs::create_dir_all(&elsewhere).expect("a folder nothing watches");
+    let parked = elsewhere.join("in-flight.md");
+    std::fs::rename(&before, &parked).expect("the first half");
+
+    // On its own thread: the save blocks until the hold is answered, and the
+    // second half of the rename is what answers it.
+    let saver = {
+        let state = Arc::clone(&state);
+        let id = doc.id.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(INSIDE_THE_HOLD);
+            save_buffer_content_inner(&state, &id, "written during the hold")
+        })
+    };
+    std::thread::sleep(SPLIT);
+    let after = state.notes_root().join("renamed-across-two-windows.md");
+    std::fs::rename(&parked, &after).expect("the second half");
+    saver.join().expect("the saving thread").expect("the save");
+
+    let seen = external_events(&rx);
+    let told: Vec<_> = seen.iter().filter(|e| named_by(e).0 == doc.id).collect();
+    assert_eq!(
+        told.iter().map(|e| change_of(e).0).collect::<Vec<_>>(),
+        vec![&ExternalChange::Moved],
+        "the rename is still one move with a save inside it, saw {seen:?}"
+    );
+    assert_eq!(note_file(&state, &doc.id), after);
+    assert!(
+        !before.exists(),
+        "the save put a second file where the rename emptied"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&after).expect("read the moved file"),
+        "written during the hold",
+        "the text typed during the hold has to reach the file the note is on"
+    );
+}
+
+#[test]
+fn a_save_inside_a_hold_waits_for_the_answer_and_no_longer() {
+    // Two bounds at once. Below: the save cannot write before the hold is
+    // answered, or it writes to a path nobody can classify yet. Above: the
+    // wait ends on the hold's own deadline, so a note whose watcher stopped
+    // costs a save one window and not a hung tab.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, _rx) = watching_state(&dir);
+
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    let deleted_at = Instant::now();
+    std::fs::remove_file(&path).expect("delete the note the way Finder does");
+    std::thread::sleep(INSIDE_THE_HOLD);
+
+    let asked_at = Instant::now();
+    let refused = save_buffer_content_inner(&state, &doc.id, "written during the hold")
+        .expect_err("the save must be refused");
+    let waited = asked_at.elapsed();
+
+    assert!(
+        refused.starts_with(ERR_FILE_REMOVED_ON_DISK),
+        "the save returned on the answer, not on a timeout that let it through: {refused}"
+    );
+    assert!(
+        deleted_at.elapsed() >= hold_window(NOTES_DEBOUNCE_WINDOW),
+        "the save was answered before the hold it was waiting on could end"
+    );
+    assert!(
+        waited <= the_longest_a_held_save_may_wait(),
+        "a save inside a hold waited {waited:?}, longer than the hold and one window"
     );
 }
 

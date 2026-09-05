@@ -10,6 +10,7 @@ use writ_core::notes::identity::{identity_to_keep, observe_file, FileIdentity, S
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::recovery::RecoveredBuffer;
 use writ_core::update::UpdatePhase;
+use writ_core::watcher::pending::RemovalHolds;
 use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::builtins::register_builtins;
 use writ_plugin::transform::TransformRegistry;
@@ -125,6 +126,14 @@ pub struct AppState {
     /// folder moves, and one started without this would classify every delete
     /// as a delete.
     pub file_tracking: Mutex<Option<FileTracking>>,
+    /// The removals the watchers are holding, which is the one place a thread
+    /// that is not a watcher can read them.
+    ///
+    /// A save waits here before it writes: inside a hold nobody knows yet
+    /// whether the note still has a file, and a write in that window recreates
+    /// a deleted file or leaves a renamed one behind
+    /// ([`writ_core::watcher::pending::RemovalHolds`], ADR-033 §14).
+    pub removal_holds: Arc<RemovalHolds>,
     pub pending_opens: Mutex<Vec<String>>,
     pub frontend_ready: AtomicBool,
     pub transforms: RwLock<TransformRegistry>,
@@ -458,6 +467,7 @@ impl AppState {
             notes_watcher: Mutex::new(None),
             open_file_watcher: Mutex::new(None),
             file_tracking: Mutex::new(None),
+            removal_holds: Arc::new(RemovalHolds::new()),
             pending_opens: Mutex::new(Vec::new()),
             frontend_ready: AtomicBool::new(false),
             transforms: RwLock::new(transforms),

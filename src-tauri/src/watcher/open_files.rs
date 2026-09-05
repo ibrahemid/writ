@@ -41,11 +41,11 @@ use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::notes::identity::{classify_delete, DeleteVerdict, FileIdentity};
 use writ_core::watcher::change_event::{modification_is_news, ExternalChange};
 use writ_core::watcher::ignore::{SuppressDecision, DEFAULT_IGNORE_TTL};
-use writ_core::watcher::pending::{hold_window, HeldRemoval, PendingRemovals};
+use writ_core::watcher::pending::{hold_window, HeldRemoval, HoldAnswer, PendingRemovals};
 use writ_core::watcher::sighting::{LastSeen, DEFAULT_SIGHTING_TTL};
 
 use super::handler::{ignore_key_path, IgnoreSet};
-use super::moves::{FileTracking, MoveOutcome, NoteFiles};
+use super::moves::{FileTracking, MoveOutcome};
 
 /// The debounce window both backends coalesce into, matching every other
 /// watcher in the app.
@@ -491,7 +491,10 @@ pub fn start_open_file_watcher(
         // A removal waits for the delivery that might answer it, so the wait
         // for the next event ends at its deadline rather than whenever the
         // folder happens to change again.
-        let pending = RefCell::new(PendingRemovals::new(hold_window(DEBOUNCE_WINDOW)));
+        let pending = RefCell::new(PendingRemovals::publishing_to(
+            hold_window(DEBOUNCE_WINDOW),
+            tracking.holds.clone(),
+        ));
         loop {
             // Read out before the match: the borrow would otherwise stand for
             // the whole of it, and the timeout arm needs the same cell.
@@ -910,7 +913,7 @@ pub fn open_note_vanished(
     };
 
     match classify_delete(&before, &probed) {
-        DeleteVerdict::Moved(to) => announce_move(files, note_id, path, &to),
+        DeleteVerdict::Moved(to) => announce_move(vanished.tracking, note_id, path, &to),
         // Nothing carries the id, and nothing else names the file: a copy, a
         // sibling from the same template and the file itself are all one shape
         // from here (ADR-033 §12). That is not yet an answer, though: the
@@ -956,17 +959,33 @@ pub fn open_note_vanished(
 /// its file is somewhere else. Only a tab already on the destination has
 /// nothing to hear, which is one move seen by both watchers.
 fn announce_move(
-    files: &dyn NoteFiles,
+    tracking: &FileTracking,
     note_id: &str,
     from: &Path,
     to: &Path,
 ) -> Option<WritEvent> {
+    let files = tracking.files.as_ref();
+    // Each answer is published after the record has been asked to agree with
+    // it, never before: a save released while the row still names the old path
+    // reads that path back out and writes there.
     match files.note_file_moved(note_id, from, to) {
-        MoveOutcome::Followed => Some(open_note_moved(note_id, from, to)),
-        MoveOutcome::AlreadyThere => None,
-        MoveOutcome::Failed => files
-            .note_file_removed(note_id, from)
-            .then(|| open_note_removed(note_id, from)),
+        MoveOutcome::Followed => {
+            tracking
+                .holds
+                .answer(note_id, HoldAnswer::Moved(to.to_path_buf()));
+            Some(open_note_moved(note_id, from, to))
+        }
+        MoveOutcome::AlreadyThere => {
+            tracking
+                .holds
+                .answer(note_id, HoldAnswer::Moved(to.to_path_buf()));
+            None
+        }
+        MoveOutcome::Failed => {
+            let news = files.note_file_removed(note_id, from);
+            tracking.holds.answer(note_id, HoldAnswer::Removed);
+            news.then(|| open_note_removed(note_id, from))
+        }
     }
 }
 
@@ -987,6 +1006,12 @@ fn announce_move(
 /// A batch of nothing is how the thread asks on a timeout, when no delivery
 /// came at all — the folder listing can still answer, and the deadline is
 /// still due.
+///
+/// Every answer is published to the shared holds as well as returned, and
+/// always after the record has been made to agree with it: a save waiting on
+/// this note reads the row the moment it is released, and a release that came
+/// first would hand it the path the file has left
+/// ([`writ_core::watcher::pending::RemovalHolds`]).
 pub fn answer_held_removals(
     pending: &mut PendingRemovals,
     batch: &[PathBuf],
@@ -1003,6 +1028,7 @@ pub fn answer_held_removals(
         // stops waiting rather than announcing a deletion behind it.
         if std::fs::metadata(&held.path).is_ok_and(|m| m.is_file()) {
             pending.forget(&note_id);
+            tracking.holds.answer(&note_id, HoldAnswer::Returned);
             continue;
         }
         let path = held.path.clone();
@@ -1027,13 +1053,17 @@ pub fn answer_held_removals(
             // The hold is forgotten by `resolve`, so a move that could not be
             // applied falls through to the removal here and not to a second
             // wait for a delivery that has already answered.
-            if let Some(event) = announce_move(tracking.files.as_ref(), &note_id, &path, &to) {
+            if let Some(event) = announce_move(tracking, &note_id, &path, &to) {
                 answers.push((note_id.clone(), event));
             }
         }
     }
     for held in pending.expired(now) {
-        if tracking.files.note_file_removed(&held.note_id, &held.path) {
+        let news = tracking.files.note_file_removed(&held.note_id, &held.path);
+        // After the mark, so a save released by this answer is a save the
+        // record already refuses on its own.
+        tracking.holds.answer(&held.note_id, HoldAnswer::Removed);
+        if news {
             answers.push((
                 held.note_id.clone(),
                 open_note_removed(&held.note_id, &held.path),
@@ -1066,6 +1096,7 @@ pub fn open_note_change(
 
 #[cfg(test)]
 mod tests {
+    use super::super::moves::NoteFiles;
     use super::*;
 
     /// A watcher holding removals for the window the running one holds them
@@ -1671,6 +1702,7 @@ mod tests {
             FileTracking {
                 probe: Arc::new(crate::watcher::identity::PlatformIdentity),
                 files: files.clone(),
+                holds: Default::default(),
             },
             files,
         )
@@ -1962,7 +1994,7 @@ mod tests {
         );
 
         assert!(event.is_none(), "a removal waits before it is announced");
-        assert!(pending.borrow().holds("note-1"));
+        assert!(pending.borrow().is_holding("note-1"));
         assert!(
             files.removed.lock().unwrap().is_empty(),
             "the tab is not marked off its file while the removal is waiting"
@@ -2139,6 +2171,7 @@ mod tests {
         let tracking = FileTracking {
             probe: Arc::new(BlindProbe),
             files: tracking.files.clone(),
+            holds: Default::default(),
         };
         let event = open_note_vanished(
             "note-1",
@@ -2193,6 +2226,7 @@ mod tests {
                 asked: asked.clone(),
             }),
             files: tracking.files.clone(),
+            holds: Default::default(),
         };
         let event = open_note_vanished(
             "note-1",

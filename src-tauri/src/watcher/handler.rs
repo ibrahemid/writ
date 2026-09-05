@@ -372,7 +372,10 @@ pub fn start_notes_watcher(
         let mut seen = LastSeen::new();
         // A removal waits for the delivery that might answer it, so the wait
         // ends at its deadline as well as at the sweep's.
-        let pending = RefCell::new(PendingRemovals::new(hold_window(NOTES_DEBOUNCE_WINDOW)));
+        let pending = RefCell::new(PendingRemovals::publishing_to(
+            hold_window(NOTES_DEBOUNCE_WINDOW),
+            tracking.holds.clone(),
+        ));
         loop {
             // A change the budget dropped was covered by a sweep that had
             // already gone out, and the walk that sweep started may have read
