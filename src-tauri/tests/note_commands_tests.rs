@@ -1565,10 +1565,13 @@ fn showing_both_leaves_a_file_the_second_tab_can_open() {
     );
     assert_eq!(outcome.content.as_deref(), Some("what they wrote"));
 
-    // The second tab is an ordinary note opened from an ordinary file.
+    // The second tab is an ordinary note opened from an ordinary file. The
+    // copy is written beside the note and holds its bytes, so it opens a
+    // buffer rather than the dataless arm that carries no row.
     let opened = open_file_from_path(&state, &copy.to_string_lossy()).expect("open the copy");
+    let doc = opened.doc.expect("the copy carries a buffer row");
     assert_eq!(
-        read_buffer_content_inner(&state, &opened.doc.id).expect("read"),
+        read_buffer_content_inner(&state, &doc.id).expect("read"),
         b"what I typed, still".to_vec()
     );
 }
