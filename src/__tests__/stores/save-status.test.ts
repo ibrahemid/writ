@@ -20,7 +20,9 @@ vi.mock("../../stores/global/buffer-registry", () => ({
 const dirtyNotes = await vi.hoisted(async () => {
   const { createSignal } = await import("solid-js");
   const [ids, setIds] = createSignal<ReadonlySet<string>>(new Set<string>());
-  const [tracked, setTracked] = createSignal<ReadonlySet<string>>(new Set<string>());
+  const [tracked, setTracked] = createSignal<ReadonlySet<string>>(
+    new Set<string>(),
+  );
   return { ids, setIds, tracked, setTracked };
 });
 
@@ -146,14 +148,18 @@ describe("saveStatusStore", () => {
 
   it("carries the reason for the failure in plain words, and drops it once a save lands", async () => {
     vi.useFakeTimers();
-    mockedSave.mockRejectedValueOnce(new Error("ERR_PERMISSION_DENIED: io error (os error 13)"));
+    mockedSave.mockRejectedValueOnce(
+      new Error("ERR_PERMISSION_DENIED: io error (os error 13)"),
+    );
 
     debouncedSave("one", "oops", 0);
     await flushAutosave("one");
 
     const reason = saveStatusStore.forNote("one").reason!;
     expect(reason.code).toBe("ERR_PERMISSION_DENIED");
-    expect(reason.message).toBe("you do not have permission to change this file.");
+    expect(reason.message).toBe(
+      "you do not have permission to change this file.",
+    );
     expect(reason.retryable).toBe(true);
 
     await flushAutosave("one");
@@ -218,16 +224,31 @@ describe("saveStatusStore", () => {
           store.noteClosed("one");
           for (const change of [first, second]) {
             await handleExternalEdit(
-              { bufferId: "one", change, path: "/notes/one.md", newPath: "/notes/two.md" },
+              {
+                bufferId: "one",
+                change,
+                path: "/notes/one.md",
+                newPath: "/notes/two.md",
+              },
               deps,
             );
+            if (change === first && first === "modified") {
+              // The question has to be up for the pair to be a pair. A
+              // `modified` event only asks while the tab differs from its
+              // file, so a dirty predicate that answered false here would
+              // leave nothing raised and pass every count below.
+              expect(store.noteFileState("one")).toBe("changed");
+            }
           }
           const bars = [
             store.isRemovedOnDisk("one"),
             store.isFileChangedOnDisk("one"),
             saveStatusStore.forNote("one").state === "failed",
           ].filter(Boolean);
-          expect(bars.length, `${first} then ${second} raises ${bars.length} bars`).toBeLessThan(2);
+          expect(
+            bars.length,
+            `${first} then ${second} raises ${bars.length} bars`,
+          ).toBeLessThan(2);
         }
       }
     } finally {

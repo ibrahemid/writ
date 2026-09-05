@@ -450,6 +450,16 @@ the tab keeps its text and stops writing (decision 11). A move changes no
 bytes, so it repoints the tab and asks nothing. Dirty fails closed (decision
 6), so a note nothing is known about is asked about rather than replaced.
 
+There is no row for a report that changed nothing, because the editor is not
+given one. A write Writ made is dropped against the bytes on disk before an
+event leaves the backend (`IgnoreSet::decide`, applied in
+`src-tauri/src/watcher/open_files.rs`), so the case the row used to cover no
+longer reaches here. A rewrite by something else that leaves the bytes
+identical is still reported and takes the row its dirty answer names, where a
+reload replays the text the document already holds and a question is asked
+over a document that does differ. The digest of what the file holds rides on
+the event; nothing in the editor reads it.
+
 The decision has one author because two of its three facts are the editor's
 alone: whether a document holds text no file has is the editor's answer, and
 whether this window has the tab at all is not a question the backend can
