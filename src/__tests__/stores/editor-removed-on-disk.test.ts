@@ -56,23 +56,23 @@ describe("editorStore removed-on-disk", () => {
 
   it("marks the one note whose file went", () => {
     const store = newStore();
-    store.markRemovedOnDisk("one");
+    store.recordFileEvent("one", "removed");
     expect(store.isRemovedOnDisk("one")).toBe(true);
     expect(store.isRemovedOnDisk("two")).toBe(false);
   });
 
   it("says it once, however many times it is told", () => {
     const store = newStore();
-    store.markRemovedOnDisk("one");
-    const first = store.removedOnDisk();
-    store.markRemovedOnDisk("one");
-    expect(store.removedOnDisk()).toBe(first);
+    store.recordFileEvent("one", "removed");
+    const first = store.noteFileStates();
+    store.recordFileEvent("one", "removed");
+    expect(store.noteFileStates()).toBe(first);
   });
 
-  it("clears the mark when the file comes back", () => {
+  it("clears the mark when the file turns up somewhere else", () => {
     const store = newStore();
-    store.markRemovedOnDisk("one");
-    store.clearRemovedOnDisk("one");
+    store.recordFileEvent("one", "removed");
+    store.recordFileEvent("one", "moved");
     expect(store.isRemovedOnDisk("one")).toBe(false);
   });
 
@@ -80,7 +80,7 @@ describe("editorStore removed-on-disk", () => {
     // Every keystroke would otherwise queue a write the backend refuses, and
     // each refusal replaces the bar's reason with a fresh failure.
     const store = newStore();
-    store.markRemovedOnDisk("one");
+    store.recordFileEvent("one", "removed");
 
     store.scheduleAutosave("one", () => "text", 0);
 
@@ -89,8 +89,8 @@ describe("editorStore removed-on-disk", () => {
 
   it("queues again once the note has a file", () => {
     const store = newStore();
-    store.markRemovedOnDisk("one");
-    store.clearRemovedOnDisk("one");
+    store.recordFileEvent("one", "removed");
+    store.recordFileEvent("one", "moved");
 
     store.scheduleAutosave("one", () => "text", 0);
 
@@ -99,7 +99,7 @@ describe("editorStore removed-on-disk", () => {
 
   it("writes nothing on an explicit save either", async () => {
     const store = loadedStore();
-    store.markRemovedOnDisk("one");
+    store.recordFileEvent("one", "removed");
 
     const result = await store.saveActiveBuffer();
 
@@ -120,7 +120,7 @@ describe("editorStore removed-on-disk", () => {
     // A note id is reused by nothing, but a tab closed and its file restored
     // must not reopen wearing the old answer.
     const store = newStore();
-    store.markRemovedOnDisk("one");
+    store.recordFileEvent("one", "removed");
     store.noteClosed("one");
     expect(store.isRemovedOnDisk("one")).toBe(false);
   });

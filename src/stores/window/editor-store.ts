@@ -74,6 +74,63 @@ interface NoteHashes {
 
 const FRESH: NoteHashes = { docGeneration: 0, hashedGeneration: 0 };
 
+/**
+ * What the note's file is doing, as far as the tab knows.
+ *
+ * One state per note rather than one flag per bar. Independent flags let a
+ * note hold "the file changed" and "the file is gone" at the same time, which
+ * puts two bars on screen and offers an answer against a file that is not
+ * there: `Keep mine` reads the file it is answering about, and a file that was
+ * deleted cannot be read. There is one file behind a note, so there is one
+ * state.
+ *
+ * `present` is the ordinary state and is held by absence from the map.
+ */
+export type NoteFileState = "present" | "changed" | "removed";
+
+/**
+ * What reached the tab about its file: the three changes the watcher reports
+ * (`buffer:external`), and the one thing that ends a question, which is the
+ * note and its file agreeing again.
+ */
+export type NoteFileEvent = "modified" | "removed" | "moved" | "settled";
+
+/**
+ * The whole transition table, in one place.
+ *
+ * - `modified` asks, whatever the note held before. A file recreated with
+ *   different bytes after it was deleted is a question, not a deletion.
+ * - `removed` outranks everything. A file that is gone has no text to offer,
+ *   so the question about its text goes and the removed bar's answers are the
+ *   only ones left (ADR-033 §12).
+ * - `moved` changes no bytes: it clears a deletion, because the file turned
+ *   out to have gone somewhere rather than nowhere, and keeps a question,
+ *   because the file at the new path still differs from the tab. The bar
+ *   answers through the note's id and the command re-reads the note's current
+ *   path (`src-tauri/src/commands/buffer.rs` `resolve_external_change_inner`),
+ *   so the answer lands on the file where it now is.
+ * - `settled` ends a question and nothing else. It does not put back a file:
+ *   a save that was already in flight when the deletion arrived would
+ *   otherwise drop the removed bar for a file that is still gone. A deletion
+ *   ends by the file coming back (`moved`, `modified`), by a copy written as
+ *   a new note, or with the tab.
+ */
+function nextNoteFileState(
+  current: NoteFileState,
+  event: NoteFileEvent,
+): NoteFileState {
+  switch (event) {
+    case "modified":
+      return "changed";
+    case "removed":
+      return "removed";
+    case "moved":
+      return current === "removed" ? "present" : current;
+    case "settled":
+      return current === "changed" ? "present" : current;
+  }
+}
+
 export function createEditorStore() {
   const [cursorLine, setCursorLine] = createSignal(1);
   const [cursorCol, setCursorCol] = createSignal(1);
@@ -155,67 +212,57 @@ export function createEditorStore() {
     });
   }
 
-  // The notes whose file was deleted while their tab stayed open. The text is
+  // What each note's file is doing. A note with nothing in it here is
+  // `present`: its file is where the tab left it and holds what the tab was
+  // last told it holds.
+  //
+  // `changed` is a question nobody has answered yet. Nothing is replaced and
+  // nothing is written until they do: this is what the bar reads, and what
+  // stops the answer being settled for them by whichever write landed last
+  // (spec W5).
+  //
+  // `removed` is a file that is gone while its tab stayed open. The text is
   // still in the editor and still the only copy of it, so the tab keeps it and
   // writes nothing: recreating the file would put back what the person threw
   // away, and in a synced folder it would put it back on every device (W4).
   // The backend refuses such a save under ERR_FILE_REMOVED_ON_DISK whatever
-  // this holds; this is what stops the tab asking in the first place and what
-  // the bar reads.
-  const [removedOnDisk, setRemovedOnDisk] = createSignal<ReadonlySet<string>>(
-    new Set(),
-  );
+  // this holds; this is what stops the tab asking in the first place.
+  const [noteFileStates, setNoteFileStates] = createSignal<
+    ReadonlyMap<string, NoteFileState>
+  >(new Map());
 
-  function markRemovedOnDisk(id: string) {
-    setRemovedOnDisk((current) => {
-      if (current.has(id)) return current;
-      const next = new Set(current);
-      next.add(id);
+  function noteFileState(id: string): NoteFileState {
+    return noteFileStates().get(id) ?? "present";
+  }
+
+  /** The one way a note's file state moves. Table: [`nextNoteFileState`]. */
+  function recordFileEvent(id: string, event: NoteFileEvent) {
+    setNoteFileStates((current) => {
+      const before = current.get(id) ?? "present";
+      const after = nextNoteFileState(before, event);
+      if (after === before) return current;
+      const next = new Map(current);
+      if (after === "present") next.delete(id);
+      else next.set(id, after);
       return next;
     });
   }
 
-  function clearRemovedOnDisk(id: string) {
-    setRemovedOnDisk((current) => {
+  function forgetFileState(id: string) {
+    setNoteFileStates((current) => {
       if (!current.has(id)) return current;
-      const next = new Set(current);
+      const next = new Map(current);
       next.delete(id);
       return next;
     });
   }
 
   function isRemovedOnDisk(id: string): boolean {
-    return removedOnDisk().has(id);
-  }
-
-  // The notes whose file changed outside Writ while the document held text no
-  // file has. Nothing is replaced and nothing is written until the person
-  // answers: this is what the bar reads, and what stops the answer being
-  // settled for them by whichever write happened to land last (spec W5).
-  const [fileChangedOnDisk, setFileChangedOnDisk] = createSignal<
-    ReadonlySet<string>
-  >(new Set());
-
-  function markFileChangedOnDisk(id: string) {
-    setFileChangedOnDisk((current) => {
-      if (current.has(id)) return current;
-      const next = new Set(current);
-      next.add(id);
-      return next;
-    });
-  }
-
-  function clearFileChangedOnDisk(id: string) {
-    setFileChangedOnDisk((current) => {
-      if (!current.has(id)) return current;
-      const next = new Set(current);
-      next.delete(id);
-      return next;
-    });
+    return noteFileState(id) === "removed";
   }
 
   function isFileChangedOnDisk(id: string): boolean {
-    return fileChangedOnDisk().has(id);
+    return noteFileState(id) === "changed";
   }
 
   // The note whose text its file last replaced, cleared on a timer. One at a
@@ -267,6 +314,9 @@ export function createEditorStore() {
       setLineCount(view.state.doc.lines);
     }
     noteOpened(id, text);
+    // The note now holds what its file holds, so whatever was being asked
+    // about the difference between them is answered.
+    recordFileEvent(id, "settled");
     markUpdatedFromDisk(id);
   }
 
@@ -383,6 +433,9 @@ export function createEditorStore() {
    * note had nothing in it and no file to mint one for.
    */
   function noteSaved(id: string, diskHash: string | null) {
+    // The write landed on the file the question was about, so there is no
+    // question left. A deletion is not answered by a write (`nextNoteFileState`).
+    recordFileEvent(id, "settled");
     if (diskHash === null) return;
     patchHashes(id, { diskHash });
   }
@@ -391,8 +444,7 @@ export function createEditorStore() {
   function noteClosed(id: string) {
     clearHashTimer(id);
     forgetHashes(id);
-    clearRemovedOnDisk(id);
-    clearFileChangedOnDisk(id);
+    forgetFileState(id);
     clearUpdatedFromDisk(id);
   }
 
@@ -641,13 +693,10 @@ export function createEditorStore() {
     noteClosed,
     isDirty,
     isTracked,
-    removedOnDisk,
-    markRemovedOnDisk,
-    clearRemovedOnDisk,
+    noteFileStates,
+    noteFileState,
+    recordFileEvent,
     isRemovedOnDisk,
-    fileChangedOnDisk,
-    markFileChangedOnDisk,
-    clearFileChangedOnDisk,
     isFileChangedOnDisk,
     updatedFromDisk,
     isUpdatedFromDisk,

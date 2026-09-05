@@ -25,7 +25,7 @@ vi.mock("../../lib/log", () => ({ logFailure: vi.fn() }));
 const editor = vi.hoisted(() => ({
   currentBufferId: vi.fn(() => "n-1"),
   getActiveText: vi.fn(() => ({ text: "my unsaved text\n", usedSelection: false })),
-  clearFileChangedOnDisk: vi.fn(),
+  recordFileEvent: vi.fn(),
   applyExternalContent: vi.fn(),
   noteSaved: vi.fn(),
 }));
@@ -72,7 +72,7 @@ describe("answering a file that changed outside Writ", () => {
 
     expect(api.resolveExternalChange).not.toHaveBeenCalled();
     expect(api.readBufferContent).not.toHaveBeenCalled();
-    expect(editor.clearFileChangedOnDisk).not.toHaveBeenCalled();
+    expect(editor.recordFileEvent).not.toHaveBeenCalled();
   });
 
   it("does nothing when there is no document to read", async () => {
@@ -94,7 +94,7 @@ describe("answering a file that changed outside Writ", () => {
 
     expect(editor.applyExternalContent).toHaveBeenCalledWith("n-1", "the file's own text\n");
     expect(editor.noteSaved).not.toHaveBeenCalled();
-    expect(editor.clearFileChangedOnDisk).toHaveBeenCalledWith("n-1");
+    expect(editor.recordFileEvent).toHaveBeenCalledWith("n-1", "settled");
   });
 
   it("records the file it just wrote when the document wins", async () => {
@@ -136,7 +136,7 @@ describe("answering a file that changed outside Writ", () => {
     await resolveNoteChange("n-1", "keep_both");
 
     expect(tabs.openFile).not.toHaveBeenCalled();
-    expect(editor.clearFileChangedOnDisk).toHaveBeenCalledWith("n-1");
+    expect(editor.recordFileEvent).toHaveBeenCalledWith("n-1", "settled");
   });
 
   it("says why it stopped, in the words the same refusal uses elsewhere", async () => {
@@ -157,7 +157,7 @@ describe("answering a file that changed outside Writ", () => {
 
     await resolveNoteChange("n-1", "use_disk");
 
-    expect(editor.clearFileChangedOnDisk).not.toHaveBeenCalled();
+    expect(editor.recordFileEvent).not.toHaveBeenCalled();
     expect(editor.applyExternalContent).not.toHaveBeenCalled();
   });
 });

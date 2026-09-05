@@ -140,7 +140,7 @@ export async function resolveNoteChange(
     return;
   }
 
-  win.editor.clearFileChangedOnDisk(id);
+  win.editor.recordFileEvent(id, "settled");
   if (outcome.content !== null) {
     win.editor.applyExternalContent(id, outcome.content);
   } else {

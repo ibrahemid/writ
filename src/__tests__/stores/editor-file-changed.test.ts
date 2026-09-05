@@ -64,17 +64,17 @@ describe("the note whose file changed under unsaved text", () => {
     const store = newStore();
     expect(store.isFileChangedOnDisk("one")).toBe(false);
 
-    store.markFileChangedOnDisk("one");
+    store.recordFileEvent("one", "modified");
     expect(store.isFileChangedOnDisk("one")).toBe(true);
     expect(store.isFileChangedOnDisk("two")).toBe(false);
 
-    store.clearFileChangedOnDisk("one");
+    store.recordFileEvent("one", "settled");
     expect(store.isFileChangedOnDisk("one")).toBe(false);
   });
 
   it("stops being asked about once its tab has gone", () => {
     const store = newStore();
-    store.markFileChangedOnDisk("one");
+    store.recordFileEvent("one", "modified");
 
     store.noteClosed("one");
 
