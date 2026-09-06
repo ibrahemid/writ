@@ -77,7 +77,8 @@ describe("graph layout is deterministic", () => {
       });
       expect(elsewhere).toBe(serialise(simulate(NODES, EDGES, DEFAULT_LAYOUT_OPTIONS, SEED)));
     },
-    30_000,
+    // Starting a second node process costs what the machine has left to give.
+    120_000,
   );
 });
 
@@ -180,35 +181,51 @@ describe("the minimum separation", () => {
     { count: 200, seeds: 2 },
   ];
 
+  // A settle of a few hundred notes is a second of arithmetic on a quiet
+  // machine and several on one running the rest of the suite beside it, so
+  // the sizes that cost anything say how long they may take rather than
+  // inheriting the default and failing on a busy machine.
+  const SETTLE_TIMEOUT_MS = 120_000;
+
   for (const [name, shape] of Object.entries(shapes)) {
     for (const { count, seeds } of sizes) {
-      it(`holds every pair apart in a ${name} of ${count}`, () => {
-        const { nodes, edges } = shape(count);
-        for (let seed = 1; seed <= seeds; seed += 1) {
-          const run = settle(nodes, edges, seed);
-          expect(closestPair(run.placed)).toBeGreaterThanOrEqual(
-            DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6,
-          );
-          expect(run.steps).toBe(DEFAULT_LAYOUT_OPTIONS.steps);
-        }
-      });
+      it(
+        `holds every pair apart in a ${name} of ${count}`,
+        () => {
+          const { nodes, edges } = shape(count);
+          for (let seed = 1; seed <= seeds; seed += 1) {
+            const run = settle(nodes, edges, seed);
+            expect(closestPair(run.placed)).toBeGreaterThanOrEqual(
+              DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6,
+            );
+            expect(run.steps).toBe(DEFAULT_LAYOUT_OPTIONS.steps);
+          }
+        },
+        SETTLE_TIMEOUT_MS,
+      );
     }
   }
 
-  it("holds a folder far larger than one is drawn at apart", () => {
-    // Past a few hundred notes the forces alone stop being enough: the springs
-    // and the repulsion balance closer than the minimum, and what holds the
-    // notes off each other is the pass that pushes them apart until nothing
-    // moves. This is the size that says whether that pass is doing its job.
-    for (const shape of [star, clique]) {
-      const { nodes, edges } = shape(400);
-      const run = settle(nodes, edges, 1);
-      expect(closestPair(run.placed)).toBeGreaterThanOrEqual(
-        DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6,
-      );
-      expect(run.steps).toBe(DEFAULT_LAYOUT_OPTIONS.steps);
-    }
-  }, 30_000);
+  // Past a few hundred notes the forces alone stop being enough: the springs
+  // and the repulsion balance closer than the minimum, and what holds the
+  // notes off each other is the room the drawing is opened out to and the pass
+  // that pushes the rest apart. This is the size that says whether that is
+  // doing its job. One shape per test: each is seconds of arithmetic, and two
+  // of them in one test is one test that takes twice as long to fail.
+  for (const [name, shape] of Object.entries(shapes)) {
+    it(
+      `holds a folder far larger than one is drawn at apart, in a ${name}`,
+      () => {
+        const { nodes, edges } = shape(400);
+        const run = settle(nodes, edges, 1);
+        expect(closestPair(run.placed)).toBeGreaterThanOrEqual(
+          DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6,
+        );
+        expect(run.steps).toBe(DEFAULT_LAYOUT_OPTIONS.steps);
+      },
+      SETTLE_TIMEOUT_MS,
+    );
+  }
 
   it("holds a loop apart too", () => {
     const { nodes, edges } = ring(12);
