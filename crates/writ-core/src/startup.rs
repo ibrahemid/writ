@@ -553,7 +553,8 @@ pub fn dated_note_name(now: DateTime<Utc>) -> String {
 /// the frontmatter fence [`crate::notes::links::split_frontmatter`] reads,
 /// because the note's own text has not started yet, and a line holding a
 /// wikilink, because a link points at another note rather than naming this
-/// one. Both are common first keystrokes for somebody arriving from Obsidian,
+/// one; a line that only mentions a link on its way past is still a title.
+/// Both are common first keystrokes for somebody arriving from Obsidian,
 /// and this rename is not asked for, so an unclear line keeps the date.
 ///
 /// What survives is still a title and not a filename — sanitising it is
@@ -564,7 +565,9 @@ pub fn first_line_title(content: &str) -> Option<&str> {
         return None;
     }
     let title = strip_line_marker(first).trim();
-    if title.is_empty() || title.contains("[[") {
+    // A line that is only a link points at another note; a line that mentions
+    // one along the way is still a title.
+    if title.is_empty() || (title.starts_with("[[") && title.ends_with("]]")) {
         return None;
     }
     // A line of nothing but markers is a list item or a rule with no text in
@@ -812,7 +815,10 @@ mod tests {
         assert_eq!(first_line_title("---\ntitle: Grocery list\n---\n"), None);
         assert_eq!(first_line_title("  ---  \ntags: [a]"), None);
         assert_eq!(first_line_title("[[Grocery list]]"), None);
-        assert_eq!(first_line_title("see [[Grocery list]]"), None);
+        assert_eq!(
+            first_line_title("Meeting with [[Bob]]"),
+            Some("Meeting with [[Bob]]")
+        );
         assert_eq!(
             first_line_title("--- and then some"),
             Some("--- and then some")

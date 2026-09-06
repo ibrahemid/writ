@@ -175,6 +175,13 @@ fn a_note_something_else_has_touched_is_offered_the_rename_instead() {
         vec![dated_note_name(Utc::now())],
         "nothing moved"
     );
+
+    // Taking the offer is the ordinary rename, with the title the offer
+    // carried: the same file name the unasked rename would have landed.
+    let renamed = writ_tauri_lib::commands::notes::rename_note_inner(&state, &note.id, &title)
+        .expect("rename");
+    assert_eq!(renamed.title, "Grocery list.md");
+    assert_eq!(notes_folder_entries(&state), vec!["Grocery list.md"]);
 }
 
 #[test]
@@ -201,9 +208,11 @@ fn a_note_that_opens_with_frontmatter_keeps_its_date() {
 
     type_into(&state, &note, "---\ntitle: Grocery list\n---\n\nmilk\n");
 
+    // Not `NotYet`: the fence is the first line for good, so nothing is
+    // gained by reading the file again on every later save.
     assert!(matches!(
         auto_retitle_note_inner(&state, &note.id).expect("retitle"),
-        RetitleOutcome::NotYet
+        RetitleOutcome::Skipped
     ));
     assert_eq!(
         notes_folder_entries(&state),

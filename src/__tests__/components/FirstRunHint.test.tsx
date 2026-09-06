@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   firstRunState: vi.fn(),
   dismissFirstRunHint: vi.fn(),
   autoRetitleNote: vi.fn(),
+  renameNote: vi.fn(),
   config: vi.fn(),
 }));
 
@@ -20,7 +21,7 @@ vi.mock("../../services/tauri", () => ({
   listActiveBuffers: vi.fn().mockResolvedValue([]),
   listHistory: vi.fn().mockResolvedValue([]),
   getBuffer: vi.fn(),
-  renameNote: vi.fn(),
+  renameNote: mocks.renameNote,
   previewListRenderers: vi.fn().mockResolvedValue([]),
   previewGetLayout: vi.fn().mockResolvedValue(null),
   previewSetLayout: vi.fn().mockResolvedValue(undefined),
@@ -65,6 +66,7 @@ describe("the first launch's one line", () => {
     mocks.config.mockReset().mockReturnValue(CONFIG);
     mocks.dismissFirstRunHint.mockReset().mockResolvedValue(undefined);
     mocks.autoRetitleNote.mockReset().mockResolvedValue({ kind: "skipped" });
+    mocks.renameNote.mockReset().mockResolvedValue({ id: "note-7", title: "Grocery list.md" });
     mocks.firstRunState.mockReset().mockResolvedValue({
       first_run: true,
       hint_dismissed: false,
@@ -148,6 +150,23 @@ describe("the first launch's one line", () => {
     );
     fireEvent.click(keep!);
     await waitFor(() => expect(container.querySelector(".first-run-offer")).toBeNull());
+    expect(mocks.renameNote).not.toHaveBeenCalled();
+  });
+
+  it("renames the note to the title the offer carried", async () => {
+    mocks.autoRetitleNote.mockResolvedValue({ kind: "ask", title: "Grocery list" });
+    const { container } = mount();
+    win!.tabs.setActiveTabId("note-7");
+
+    await firstRunStore.offerRetitle("note-7");
+    await waitFor(() => expect(container.querySelector(".first-run-offer")).not.toBeNull());
+
+    const rename = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Rename",
+    );
+    fireEvent.click(rename!);
+    await waitFor(() => expect(mocks.renameNote).toHaveBeenCalledWith("note-7", "Grocery list"));
+    expect(container.querySelector(".first-run-offer")).toBeNull();
   });
 
   it("asks once per note", async () => {

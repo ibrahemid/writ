@@ -77,8 +77,8 @@ pub enum RetitleOutcome {
         /// The title the offer would apply.
         title: String,
     },
-    /// The note is one this applies to, but its first line does not name it
-    /// yet. A later save may still answer.
+    /// The note is one this applies to, but it has no first line yet. A
+    /// later save may still answer.
     NotYet,
     /// The note is not one this applies to: Writ did not mint it this launch,
     /// or its first line has already been answered for.
@@ -96,7 +96,16 @@ pub fn auto_retitle_note_inner(state: &AppState, id: &str) -> Result<RetitleOutc
     // and the file is the only copy of the text (ADR-028).
     let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let Some(title) = writ_core::startup::first_line_title(&content) else {
-        return Ok(RetitleOutcome::NotYet);
+        // A note with no first line yet may still name itself on the next
+        // save. One whose first line is there and names nothing — a
+        // frontmatter fence, a line that is only a link — will not, and it
+        // stops being asked about.
+        let blank = content.lines().next().unwrap_or_default().trim().is_empty();
+        return Ok(if blank {
+            RetitleOutcome::NotYet
+        } else {
+            RetitleOutcome::Skipped
+        });
     };
     let title = title.to_string();
 
