@@ -306,4 +306,22 @@ describe("configStore", () => {
       expect(mockedUpdateConfig).not.toHaveBeenCalled();
     });
   });
+  describe("noteFirstRunHintDismissed", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it("carries the dismissal into the next whole-config write", async () => {
+      await configStore.save({
+        ...MOCK_CONFIG,
+        first_run: { hint_dismissed: false },
+      });
+      mockedUpdateConfig.mockClear();
+
+      configStore.noteFirstRunHintDismissed();
+      configStore.setSidebarWidth(292);
+      await vi.advanceTimersByTimeAsync(750);
+
+      expect(mockedUpdateConfig.mock.calls[0][0].first_run.hint_dismissed).toBe(true);
+    });
+  });
 });

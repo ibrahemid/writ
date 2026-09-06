@@ -29,16 +29,27 @@ export default function FirstRunHint() {
 
   const leftInset = () => (sidebarOnLeft() ? sidebarWidth() : 0);
   const rightInset = () => panelWidth() + (sidebarOnLeft() ? 0 : sidebarWidth());
+  // The status bar is the foot of the same box, so the layer stands on top of
+  // it rather than over it; its own control would be under the offer's buttons.
+  const bottomInset = () =>
+    configStore.config().editor.status_bar ? "var(--writ-statusbar-height)" : "0";
+
+  // The row says "this note", so it is only shown over the note it is about.
+  // A save can land after the person has moved on to another tab.
+  const activeOffer = () => {
+    const current = firstRunStore.offer();
+    return current !== null && current.id === win.tabs.activeTabId() ? current : null;
+  };
 
   return (
     <div
       class="first-run-layer"
-      style={{ left: `${leftInset()}px`, right: `${rightInset()}px` }}
+      style={{ left: `${leftInset()}px`, right: `${rightInset()}px`, bottom: bottomInset() }}
     >
       <Show when={firstRunStore.showHint()}>
         <p class="first-run-hint">{hintText(firstRunStore.fileManager())}</p>
       </Show>
-      <Show when={firstRunStore.offer()}>
+      <Show when={activeOffer()}>
         {(offer) => (
           <div class="first-run-offer" role="status">
             <p class="first-run-offer-text">{offerText(offer().title)}</p>

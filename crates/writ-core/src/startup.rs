@@ -547,17 +547,49 @@ pub fn dated_note_name(now: DateTime<Utc>) -> String {
 /// The title a note's first line gives it, or `None` when the line names
 /// nothing yet.
 ///
-/// A heading marker is punctuation, not part of the name a person would give
-/// the file, so it comes off; a line of nothing but markers and spaces names
-/// nothing. What survives is still a title and not a filename — sanitising it
-/// is [`crate::notes::note_file_stem`]'s job, at the rename.
+/// A heading or list marker is punctuation, not part of the name a person
+/// would give the file, so it comes off; a line of nothing but markers and
+/// spaces names nothing. Two lines name nothing however much text they carry:
+/// the frontmatter fence [`crate::notes::links::split_frontmatter`] reads,
+/// because the note's own text has not started yet, and a line holding a
+/// wikilink, because a link points at another note rather than naming this
+/// one. Both are common first keystrokes for somebody arriving from Obsidian,
+/// and this rename is not asked for, so an unclear line keeps the date.
+///
+/// What survives is still a title and not a filename — sanitising it is
+/// [`crate::notes::note_file_stem`]'s job, at the rename.
 pub fn first_line_title(content: &str) -> Option<&str> {
-    let first = content.lines().next().unwrap_or_default();
-    let title = first.trim_start_matches('#').trim();
-    if title.is_empty() {
+    let first = content.lines().next().unwrap_or_default().trim();
+    if first == "---" {
+        return None;
+    }
+    let title = strip_line_marker(first).trim();
+    if title.is_empty() || title.contains("[[") {
+        return None;
+    }
+    // A line of nothing but markers is a list item or a rule with no text in
+    // it yet, whatever mix of them it is made of.
+    if title
+        .chars()
+        .all(|c| matches!(c, '#' | '-' | '*' | '+' | '>'))
+    {
         return None;
     }
     Some(title)
+}
+
+/// Takes one leading markdown block marker off a line, if it has one.
+fn strip_line_marker(line: &str) -> &str {
+    let heading = line.trim_start_matches('#');
+    if heading.len() != line.len() {
+        return heading;
+    }
+    for marker in ["- ", "* ", "+ ", "> "] {
+        if let Some(rest) = line.strip_prefix(marker) {
+            return rest;
+        }
+    }
+    line
 }
 
 /// What Writ knows about a note it minted, at the moment the note's first
@@ -757,9 +789,14 @@ mod tests {
 
     #[test]
     fn a_first_line_gives_the_note_its_title_without_the_heading_marker() {
-        assert_eq!(first_line_title("Grocery list\n\nmilk"), Some("Grocery list"));
+        assert_eq!(
+            first_line_title("Grocery list\n\nmilk"),
+            Some("Grocery list")
+        );
         assert_eq!(first_line_title("## Grocery list"), Some("Grocery list"));
         assert_eq!(first_line_title("  Grocery list  "), Some("Grocery list"));
+        assert_eq!(first_line_title("- Grocery list"), Some("Grocery list"));
+        assert_eq!(first_line_title("> Grocery list"), Some("Grocery list"));
     }
 
     #[test]
@@ -767,6 +804,19 @@ mod tests {
         assert_eq!(first_line_title(""), None);
         assert_eq!(first_line_title("\nGrocery list"), None);
         assert_eq!(first_line_title("###   "), None);
+        assert_eq!(first_line_title("-   "), None);
+    }
+
+    #[test]
+    fn a_frontmatter_fence_or_a_link_leaves_the_note_its_date() {
+        assert_eq!(first_line_title("---\ntitle: Grocery list\n---\n"), None);
+        assert_eq!(first_line_title("  ---  \ntags: [a]"), None);
+        assert_eq!(first_line_title("[[Grocery list]]"), None);
+        assert_eq!(first_line_title("see [[Grocery list]]"), None);
+        assert_eq!(
+            first_line_title("--- and then some"),
+            Some("--- and then some")
+        );
     }
 
     #[test]

@@ -8,7 +8,9 @@
   display: flex;
   flex-direction: column;
   gap: var(--writ-space-2);
-  padding: var(--writ-space-4) var(--writ-space-5);
+  /* The horizontal padding is the note's own, so the line starts where the
+     first character of the note does. */
+  padding: var(--writ-space-4) var(--writ-space-7);
   pointer-events: none;
 }
 
@@ -25,6 +27,9 @@
 
 .first-run-offer {
   pointer-events: auto;
+  /* The note's measure. A row that runs the width of a wide window puts its
+     two controls a screen away from the question they answer. */
+  max-width: 704px;
   display: flex;
   align-items: center;
   gap: var(--writ-space-3);

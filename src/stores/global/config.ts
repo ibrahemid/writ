@@ -274,6 +274,16 @@ function createConfigStore() {
     await save(updated);
   }
 
+  // Rust has already written this one; the copy here catches up so the next
+  // whole-config write does not carry the old answer back over it. Writ's own
+  // config write is stamped into the watcher's ignore set, so nothing else
+  // tells this store the file moved.
+  function noteFirstRunHintDismissed() {
+    const current = config();
+    if (current.first_run.hint_dismissed) return;
+    setConfig({ ...current, first_run: { ...current.first_run, hint_dismissed: true } });
+  }
+
   function pruneCommandUsage(knownIds: ReadonlySet<string>) {
     const current = config();
     const pruned = pruneUsage(current.commands.usage, knownIds);
@@ -297,6 +307,7 @@ function createConfigStore() {
     setPanelWidth,
     clearCommandUsage,
     pruneCommandUsage,
+    noteFirstRunHintDismissed,
   };
 }
 

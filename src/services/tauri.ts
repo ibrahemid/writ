@@ -175,11 +175,13 @@ export async function dismissFirstRunHint(): Promise<void> {
 
 /**
  * What a note's first line did to the note's file name: it renamed it, it is
- * offered as a question, or the note is not one this applies to.
+ * offered as a question, the line does not name the note yet, or the note is
+ * not one this applies to.
  */
 export type RetitleOutcome =
   | { kind: "renamed"; note: BufferDocument }
   | { kind: "ask"; title: string }
+  | { kind: "not_yet" }
   | { kind: "skipped" };
 
 /** Renames a note Writ minted from its own first line, or offers to. */

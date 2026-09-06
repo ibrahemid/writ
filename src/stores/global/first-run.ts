@@ -2,6 +2,7 @@ import { createSignal, createRoot } from "solid-js";
 import * as api from "../../services/tauri";
 import { onAutosaveSuccess } from "../../services/autosave";
 import { bufferRegistry } from "./buffer-registry";
+import { configStore } from "./config";
 import { logFailure } from "../../lib/log";
 
 // Singleton state — Writ is single-window. What the first launch shows is
@@ -46,6 +47,7 @@ export function createFirstRunStore() {
   function dismissHint(): void {
     if (!showHint()) return;
     setShowHint(false);
+    configStore.noteFirstRunHintDismissed();
     api.dismissFirstRunHint().catch(() => logFailure("the first-run line could not be recorded"));
   }
 
@@ -55,13 +57,17 @@ export function createFirstRunStore() {
    * Rust holds the two facts that decide it — whether the tab has been closed,
    * and whether anything outside Writ has touched the path — and reads the
    * line off the file the save just wrote. The answer is the rename, a
-   * question, or nothing at all.
+   * question, a note with no first line yet, or nothing at all.
    */
   async function offerRetitle(id: string): Promise<void> {
     if (asked.has(id)) return;
     const outcome = await api.autoRetitleNote(id);
-    if (outcome.kind === "skipped") return;
+    // "Not yet" is the empty note, which every later save may still answer.
+    // "Nothing to do" is every other note in the workspace, and is final, so
+    // the ordinary save of an ordinary note stops asking after the first one.
+    if (outcome.kind === "not_yet") return;
     asked.add(id);
+    if (outcome.kind === "skipped") return;
     if (outcome.kind === "renamed") {
       await bufferRegistry.refreshBuffer(id);
       return;

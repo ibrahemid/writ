@@ -77,6 +77,9 @@ pub enum RetitleOutcome {
         /// The title the offer would apply.
         title: String,
     },
+    /// The note is one this applies to, but its first line does not name it
+    /// yet. A later save may still answer.
+    NotYet,
     /// The note is not one this applies to: Writ did not mint it this launch,
     /// or its first line has already been answered for.
     Skipped,
@@ -93,7 +96,7 @@ pub fn auto_retitle_note_inner(state: &AppState, id: &str) -> Result<RetitleOutc
     // and the file is the only copy of the text (ADR-028).
     let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let Some(title) = writ_core::startup::first_line_title(&content) else {
-        return Ok(RetitleOutcome::Skipped);
+        return Ok(RetitleOutcome::NotYet);
     };
     let title = title.to_string();
 
@@ -137,12 +140,16 @@ pub fn host_file_manager() -> &'static str {
 mod tests {
     use super::*;
 
+    /// The arm this host compiles is the one it should have compiled. Each of
+    /// the three runs on its own CI leg; the words themselves are
+    /// [`file_manager_name`]'s test, which reaches all three from any host.
     #[test]
     fn the_host_names_its_own_file_manager() {
-        assert_eq!(
-            host_file_manager(),
-            file_manager_name(crate::startup::HOST_PLATFORM)
-        );
-        assert!(["Finder", "File Explorer", "Files"].contains(&host_file_manager()));
+        #[cfg(target_os = "macos")]
+        assert_eq!(host_file_manager(), "Finder");
+        #[cfg(target_os = "windows")]
+        assert_eq!(host_file_manager(), "File Explorer");
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        assert_eq!(host_file_manager(), "Files");
     }
 }

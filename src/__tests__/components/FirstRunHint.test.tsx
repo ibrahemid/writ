@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 import { createRoot } from "solid-js";
-import WindowProvider from "../../components/WindowProvider/WindowProvider";
+import WindowProvider, { useWindow } from "../../components/WindowProvider/WindowProvider";
+import type { WindowState } from "../../stores/window/createWindowState";
 import { configStore } from "../../stores/global/config";
 import type { WritConfig } from "../../types/config";
 
@@ -39,11 +40,21 @@ import {
 
 const CONFIG = {
   sidebar: { open: false, width: 240, position: "left" },
+  editor: { status_bar: false },
+  first_run: { hint_dismissed: false },
 } as unknown as WritConfig;
+
+let win: WindowState | null = null;
+
+function CaptureWindow() {
+  win = useWindow();
+  return null;
+}
 
 function mount() {
   return render(() => (
     <WindowProvider windowId={8801}>
+      <CaptureWindow />
       <FirstRunHint />
     </WindowProvider>
   ));
@@ -60,6 +71,7 @@ describe("the first launch's one line", () => {
       file_manager: "Finder",
     });
     firstRunStore.dismissOffer();
+    win = null;
   });
 
   afterEach(() => cleanup());
@@ -122,6 +134,7 @@ describe("the first launch's one line", () => {
   it("asks before renaming a note something else has touched", async () => {
     mocks.autoRetitleNote.mockResolvedValue({ kind: "ask", title: "Grocery list" });
     const { container } = mount();
+    win!.tabs.setActiveTabId("note-1");
 
     await firstRunStore.offerRetitle("note-1");
     await waitFor(() =>
@@ -143,5 +156,54 @@ describe("the first launch's one line", () => {
     await firstRunStore.offerRetitle("note-2");
     await firstRunStore.offerRetitle("note-2");
     expect(mocks.autoRetitleNote).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks again about an empty note, and only once about every other note", async () => {
+    mocks.autoRetitleNote.mockResolvedValue({ kind: "not_yet" });
+    mount();
+    await firstRunStore.offerRetitle("note-3");
+    await firstRunStore.offerRetitle("note-3");
+    expect(mocks.autoRetitleNote).toHaveBeenCalledTimes(2);
+
+    mocks.autoRetitleNote.mockResolvedValue({ kind: "skipped" });
+    await firstRunStore.offerRetitle("note-4");
+    await firstRunStore.offerRetitle("note-4");
+    expect(mocks.autoRetitleNote).toHaveBeenCalledTimes(3);
+  });
+
+  it("shows the offer over the note it names, not over the one moved on to", async () => {
+    mocks.autoRetitleNote.mockResolvedValue({ kind: "ask", title: "Grocery list" });
+    const { container } = mount();
+    win!.tabs.setActiveTabId("note-6");
+
+    await firstRunStore.offerRetitle("note-5");
+    await waitFor(() => expect(container.querySelector(".first-run-offer")).toBeNull());
+
+    win!.tabs.setActiveTabId("note-5");
+    await waitFor(() =>
+      expect(container.querySelector(".first-run-offer-text")?.textContent).toBe(
+        offerText("Grocery list"),
+      ),
+    );
+  });
+
+  it("stands on the status bar rather than over it", async () => {
+    await firstRunStore.load();
+    const off = mount();
+    await waitFor(() =>
+      expect(off.container.querySelector<HTMLElement>(".first-run-layer")?.style.bottom).toBe("0px"),
+    );
+
+    cleanup();
+    mocks.config.mockReturnValue({
+      ...CONFIG,
+      editor: { status_bar: true },
+    } as unknown as WritConfig);
+    const on = mount();
+    await waitFor(() =>
+      expect(on.container.querySelector<HTMLElement>(".first-run-layer")?.style.bottom).toBe(
+        "var(--writ-statusbar-height)",
+      ),
+    );
   });
 });

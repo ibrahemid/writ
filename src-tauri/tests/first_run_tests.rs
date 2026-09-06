@@ -6,10 +6,10 @@ use std::sync::Mutex as StdMutex;
 
 use chrono::Utc;
 use writ_core::startup::dated_note_name;
+use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
 use writ_tauri_lib::commands::first_run::{
     auto_retitle_note_inner, dismiss_first_run_hint_inner, first_run_state_inner, RetitleOutcome,
 };
-use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
 use writ_tauri_lib::first_run::open_first_note;
 use writ_tauri_lib::state::AppState;
 
@@ -185,7 +185,25 @@ fn a_note_with_no_first_line_yet_is_left_alone() {
 
     assert!(matches!(
         auto_retitle_note_inner(&state, &note.id).expect("retitle"),
-        RetitleOutcome::Skipped
+        RetitleOutcome::NotYet
+    ));
+    assert_eq!(
+        notes_folder_entries(&state),
+        vec![dated_note_name(Utc::now())]
+    );
+}
+
+#[test]
+fn a_note_that_opens_with_frontmatter_keeps_its_date() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let state = launch(dir.path());
+    let note = open_first_note(&state).expect("a note");
+
+    type_into(&state, &note, "---\ntitle: Grocery list\n---\n\nmilk\n");
+
+    assert!(matches!(
+        auto_retitle_note_inner(&state, &note.id).expect("retitle"),
+        RetitleOutcome::NotYet
     ));
     assert_eq!(
         notes_folder_entries(&state),
