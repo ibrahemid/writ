@@ -69,6 +69,11 @@ pub struct Callout {
     /// The rest of the first line, or the type name capitalised when there is
     /// no rest.
     pub title: String,
+    /// The rest of the first line exactly as it was written, before the
+    /// fallback and before any trimming at the end. The caller renders the
+    /// line's own markup after it, so the space that separates the two has to
+    /// survive.
+    pub trailing: String,
 }
 
 /// The callout `line` opens, or `None` when it opens none.
@@ -91,6 +96,7 @@ pub fn parse(line: &str) -> Option<Callout> {
         },
     };
     let kind = resolve_type(authored);
+    let trailing = title.trim_start().to_string();
     let title = title.trim();
     let title = if title.is_empty() {
         capitalise(authored)
@@ -102,6 +108,7 @@ pub fn parse(line: &str) -> Option<Callout> {
         kind,
         fold,
         title,
+        trailing,
     })
 }
 
@@ -130,6 +137,16 @@ fn capitalise(word: &str) -> String {
 /// Both the authored type and the title are escaped, so a type or a title
 /// written as markup is read as the text it is.
 pub fn open_html(callout: &Callout) -> String {
+    open_html_with_title(callout, &crate::escape_text(&callout.title))
+}
+
+/// [`open_html`] with the title already rendered.
+///
+/// A title carries the inline markup of the line it was written on, and the
+/// parser has already read that markup by the time a callout is recognised,
+/// so the caller renders it and passes it in. The authored type is still
+/// escaped here: it goes into an attribute, which holds no markup.
+pub fn open_html_with_title(callout: &Callout, title: &str) -> String {
     format!(
         "<div class=\"writ-callout\" data-callout=\"{authored}\" data-callout-type=\"{kind}\" data-fold=\"{fold}\">\
 <div class=\"writ-callout-title\">{title}</div>\
@@ -137,7 +154,6 @@ pub fn open_html(callout: &Callout) -> String {
         authored = crate::escape_attribute(&callout.authored),
         kind = callout.kind,
         fold = callout.fold.as_str(),
-        title = crate::escape_text(&callout.title),
     )
 }
 

@@ -767,21 +767,23 @@ fn wrap_callouts(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
     while index < events.len() {
         match &events[index] {
             Event::Start(Tag::BlockQuote(_)) => {
-                let Some((callout, texts)) = header_at(&events, index) else {
+                let Some((callout, consumed, title)) = header_at(&events, index) else {
                     open.push(false);
                     out.push(events[index].clone());
                     index += 1;
                     continue;
                 };
                 open.push(true);
-                out.push(Event::Html(CowStr::from(callout::open_html(&callout))));
+                out.push(Event::Html(CowStr::from(callout::open_html_with_title(
+                    &callout, &title,
+                ))));
                 // Past the blockquote start, the paragraph the header opened
-                // and the text events the header was reported as.
-                index += 2 + texts;
+                // and the events its line was reported as.
+                index += 2 + consumed;
                 match events.get(index) {
                     // The header's line ran on into the body, which keeps the
                     // paragraph it was written in.
-                    Some(Event::SoftBreak) => {
+                    Some(Event::SoftBreak) | Some(Event::HardBreak) => {
                         index += 1;
                         out.push(Event::Start(Tag::Paragraph));
                     }
@@ -807,14 +809,17 @@ fn wrap_callouts(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
     out
 }
 
-/// The callout the blockquote starting at `index` opens, and how many text
-/// events its header was reported as.
+/// The callout the blockquote starting at `index` opens, how many events its
+/// header line was reported as, and the markup of its title.
 ///
-/// The header's line arrives as several text events, because `[` opens a link
+/// The line arrives as several text events, because `[` opens a link
 /// reference the parser reports separately, so the run of them is joined
-/// before it is read. Only the text of a first paragraph counts: a blockquote
-/// whose first block is a list or a fence carries no header, whatever it says.
-fn header_at(events: &[Event<'_>], index: usize) -> Option<(callout::Callout, usize)> {
+/// before it is read. Whatever follows that run up to the end of the line is
+/// the title's own markup — bold, code, a wikilink the text scan has already
+/// resolved — and it is serialised as it stands rather than dropped into the
+/// body. Only the text of a first paragraph counts: a blockquote whose first
+/// block is a list or a fence carries no header, whatever it says.
+fn header_at(events: &[Event<'_>], index: usize) -> Option<(callout::Callout, usize, String)> {
     match events.get(index + 1) {
         Some(Event::Start(Tag::Paragraph)) => {}
         _ => return None,
@@ -825,7 +830,28 @@ fn header_at(events: &[Event<'_>], index: usize) -> Option<(callout::Callout, us
         line.push_str(text);
         texts += 1;
     }
-    callout::parse(&line).map(|callout| (callout, texts))
+    let callout = callout::parse(&line)?;
+    let mut consumed = texts;
+    while !matches!(
+        events.get(index + 2 + consumed),
+        None | Some(Event::SoftBreak) | Some(Event::HardBreak) | Some(Event::End(TagEnd::Paragraph))
+    ) {
+        consumed += 1;
+    }
+    let mut title = escape_text(&callout.trailing);
+    html::push_html(
+        &mut title,
+        events[index + 2 + texts..index + 2 + consumed]
+            .iter()
+            .cloned(),
+    );
+    let title = title.trim_end().to_string();
+    let title = if title.is_empty() {
+        escape_text(&callout.title)
+    } else {
+        title
+    };
+    Some((callout, consumed, title))
 }
 
 /// Escape a value going into a double-quoted HTML attribute.
@@ -1561,6 +1587,41 @@ mod tests {
         assert!(render_markdown_fragment("> [!tip]\n> body\n")
             .html
             .contains("data-fold=\"none\""));
+    }
+
+    #[test]
+    fn a_callout_title_keeps_the_markup_it_was_written_with() {
+        let bold = render_markdown_fragment("> [!note] **Ship** by Friday\n> body\n").html;
+        assert!(
+            bold.contains(
+                "<div class=\"writ-callout-title\"><strong>Ship</strong> by Friday</div>"
+            ),
+            "{bold}"
+        );
+        assert!(!bold.contains("<p><strong>Ship</strong>"), "{bold}");
+
+        let code = render_markdown_fragment("> [!note] run `writ` first\n> body\n").html;
+        assert!(
+            code.contains("<div class=\"writ-callout-title\">run <code>writ</code> first</div>"),
+            "{code}"
+        );
+
+        // Raw HTML in a title goes through exactly as it does in the body, and
+        // the body is where the same tag would land without this.
+        let raw = render_markdown_fragment("> [!note] <b>hi</b>\n> body\n").html;
+        assert!(
+            raw.contains("<div class=\"writ-callout-title\"><b>hi</b></div>"),
+            "{raw}"
+        );
+
+        let link = with_wikilinks("> [!note] see [[Note]] now\n> body\n");
+        assert!(
+            link.contains(
+                "<div class=\"writ-callout-title\">see <a class=\"writ-wikilink\" \
+href=\"Note.md\">Note</a> now</div>"
+            ),
+            "{link}"
+        );
     }
 
     #[test]
