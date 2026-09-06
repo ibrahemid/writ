@@ -73,6 +73,14 @@ export default function RightPanel() {
     });
   });
 
+  // `inert` is presence-based, so it is set as an attribute rather than left
+  // to the property: a closed panel keeps its rows out of the tab order at
+  // zero width, and an open one carries no attribute at all.
+  let panel: HTMLElement | undefined;
+  createEffect(() => {
+    panel?.toggleAttribute("inert", !win.rightPanel.isOpen());
+  });
+
   return (
     <aside
       class="right-panel"
@@ -83,7 +91,7 @@ export default function RightPanel() {
       style={{ "--writ-panel-live-width": `${width()}px` }}
       aria-label="Connections"
       aria-hidden={win.rightPanel.isOpen() ? undefined : "true"}
-      inert={!win.rightPanel.isOpen()}
+      ref={panel}
     >
       <EdgeResizer
         class="right-panel-resizer"

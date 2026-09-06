@@ -127,11 +127,15 @@ describe("the panel is a named landmark", () => {
     expect(panel.getAttribute("aria-label")).toBe("Connections");
     expect(panel.classList.contains("is-open")).toBe(true);
     expect(panel.getAttribute("aria-hidden")).toBeNull();
+    // inert is presence-based: an open panel carrying inert="false" would be
+    // unclickable, and a closed one without it keeps its rows in the tab order.
+    expect(panel.hasAttribute("inert")).toBe(false);
 
     cleanup();
     h.isOpen = false;
     const closed = mount();
     expect(closed.panel.getAttribute("aria-hidden")).toBe("true");
+    expect(closed.panel.hasAttribute("inert")).toBe(true);
     expect(closed.panel.classList.contains("is-open")).toBe(false);
   });
 });
