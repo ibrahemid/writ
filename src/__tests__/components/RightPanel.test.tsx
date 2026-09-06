@@ -60,11 +60,11 @@ vi.mock("../../stores/global/buffer-registry", () => ({
 }));
 
 vi.mock("../../stores/global/backlinks", () => ({
-  backlinksStore: { backlinksFor: () => () => h.backlinks },
+  backlinksStore: { backlinksFor: () => () => h.backlinks, release: vi.fn() },
 }));
 
 vi.mock("../../stores/global/note-facts", () => ({
-  noteFactsStore: { factsFor: () => () => h.facts },
+  noteFactsStore: { factsFor: () => () => h.facts, release: vi.fn() },
 }));
 
 import RightPanel from "../../components/RightPanel/RightPanel";

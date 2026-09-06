@@ -1,4 +1,4 @@
-import { Show, createMemo, createSignal } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import EdgeResizer from "../Resizer/EdgeResizer";
 import BacklinksSection from "./BacklinksSection";
 import OutlineSection from "./OutlineSection";
@@ -6,8 +6,8 @@ import PropertiesSection from "./PropertiesSection";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { noteFactsStore } from "../../stores/global/note-facts";
+import { backlinksStore } from "../../stores/global/backlinks";
 import {
-  configStore,
   PANEL_WIDTH_DEFAULT,
   PANEL_WIDTH_MAX,
   PANEL_WIDTH_MIN,
@@ -50,11 +50,27 @@ export default function RightPanel() {
     return { id: doc.id, path: doc.source_path };
   });
 
+  // The file alone, so a tab changing for any other reason does not read the
+  // same note again.
+  const openPath = createMemo(() => openNote()?.path ?? null);
+
   // One read for the whole panel: the outline and the properties are two
   // views of one answer, not two calls (ADR-036).
   const facts = createMemo(() => {
-    const note = openNote();
-    return note === null ? null : noteFactsStore.factsFor(note.path);
+    const path = openPath();
+    return path === null ? null : noteFactsStore.factsFor(path);
+  });
+
+  // A note the panel has stopped showing stops being followed. Without this
+  // every note visited while the panel was open stays held, so one change on
+  // disk costs a read per note visited rather than a read for the note shown.
+  createEffect(() => {
+    const path = openPath();
+    if (path === null) return;
+    onCleanup(() => {
+      noteFactsStore.release(path);
+      backlinksStore.release(path);
+    });
   });
 
   return (
@@ -78,7 +94,7 @@ export default function RightPanel() {
         direction={-1}
         onDrag={setDragWidth}
         onCommit={(next) => win.rightPanel.setWidth(next)}
-        onReset={() => configStore.setPanelWidth(PANEL_WIDTH_DEFAULT)}
+        onReset={() => win.rightPanel.setWidth(PANEL_WIDTH_DEFAULT)}
       />
       <div class="right-panel-inner">
         <div class="right-panel-scroll">

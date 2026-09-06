@@ -10,6 +10,7 @@ const REPO_ROOT = process.cwd();
 
 const SIDEBAR_DIR = "src/components/Sidebar";
 const RIGHT_PANEL_DIR = "src/components/RightPanel";
+const RESIZER_DIR = "src/components/Resizer";
 
 function componentsIn(dir: string): string[] {
   return readdirSync(resolve(REPO_ROOT, dir))
@@ -34,6 +35,7 @@ const MIGRATED = [
   "src/components/ShortcutEditor/ShortcutEditor.tsx",
   ...componentsIn(SIDEBAR_DIR),
   ...componentsIn(RIGHT_PANEL_DIR),
+  ...componentsIn(RESIZER_DIR),
 ];
 
 const ICON_OWNERS = ["src/components/Icon/Icon.tsx", "src/components/Icon/IconSprite.tsx"];
@@ -54,6 +56,7 @@ describe("migrated surfaces use the primitives", () => {
     expect(MIGRATED).toContain("src/components/RightPanel/BacklinksSection.tsx");
     expect(MIGRATED).toContain("src/components/RightPanel/OutlineSection.tsx");
     expect(MIGRATED).toContain("src/components/RightPanel/PropertiesSection.tsx");
+    expect(MIGRATED).toContain("src/components/Resizer/EdgeResizer.tsx");
   });
 
   it("no inline svg icon remains", () => {
