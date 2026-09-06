@@ -17,6 +17,7 @@
 //!   files the notes live in.
 //! - [`notes_index`]: the path-keyed index over the notes folder, and the
 //!   walk that reconciles it with what is on disk.
+//! - [`paths`]: the one spelling of a path the stores hand over.
 //! - [`maintenance`]: WAL checkpointing and freelist reclamation.
 //! - [`note_ops`]: creating, renaming, trashing and copying note files.
 //! - [`notes_migration`]: the one-time pass that turns every note into a
@@ -62,6 +63,8 @@ pub mod notes_index;
 pub mod notes_migration;
 /// Moving the notes folder, and emptying the archive into it.
 pub mod notes_move;
+/// The one spelling of a path the stores hand over.
+pub mod paths;
 /// Session snapshots and dirty-shutdown detection.
 pub mod recovery;
 /// The copy of the database taken before the notes migration (ADR-028).

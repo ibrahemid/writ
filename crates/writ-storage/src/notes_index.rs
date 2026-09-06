@@ -319,6 +319,10 @@ pub struct ReconcileOutcome {
 /// the watcher, and it must produce the same key the file had while it existed.
 /// When nothing resolves, the path is returned as it came in, which keys the
 /// row consistently even if it keys it by a spelling no walk will match.
+///
+/// The answer carries no Windows verbatim prefix
+/// ([`crate::paths::strip_verbatim_prefix`]), which is what lets a key stand
+/// beside the paths [`crate::workspace_store::list_dir`] hands the file tree.
 pub fn index_key(path: &Path) -> String {
     let resolved = std::fs::canonicalize(path)
         .ok()
@@ -329,13 +333,9 @@ pub fn index_key(path: &Path) -> String {
         })
         .unwrap_or_else(|| path.to_path_buf());
 
-    let text = resolved.to_string_lossy().into_owned();
-    // Windows canonicalisation yields a `\\?\` verbatim prefix that no other
-    // path in the app carries, matching `canonicalize_for_authorization`.
-    match text.strip_prefix(r"\\?\") {
-        Some(stripped) => stripped.to_string(),
-        None => text,
-    }
+    crate::paths::strip_verbatim_prefix(resolved)
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// `true` when the filesystem reports the file has no local data: an iCloud (or
