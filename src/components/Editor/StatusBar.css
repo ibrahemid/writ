@@ -156,3 +156,23 @@
 .statusbar-field--words {
   font-variant-numeric: tabular-nums;
 }
+
+/* A field that is also a control: it looks like the fields beside it and
+   answers to a click and to the keyboard like a button. */
+.statusbar-folder {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.statusbar-folder:hover {
+  color: var(--writ-fg);
+}
+
+.statusbar-folder:focus-visible {
+  outline: 2px solid var(--writ-accent);
+  outline-offset: -2px;
+  border-radius: var(--writ-r-control);
+}

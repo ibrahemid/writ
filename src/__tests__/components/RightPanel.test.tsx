@@ -10,6 +10,7 @@ import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 
 const h = vi.hoisted(() => ({
   panel: { open: true, width: 240 },
+  first_run: { hint_dismissed: false },
   isOpen: true,
   collapsed: new Set<string>(),
   toggleSection: vi.fn<(section: string) => void>(),

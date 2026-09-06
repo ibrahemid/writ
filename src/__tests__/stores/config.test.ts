@@ -16,6 +16,7 @@ const MOCK_CONFIG: WritConfig = {
   hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
   sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false, width: 240 },
   panel: { open: false, width: 240 },
+  first_run: { hint_dismissed: false },
   editor: { font_family: "JetBrains Mono", font_size: 18, word_wrap: true, tab_size: 4, autosave_debounce_ms: 500, markdown_typography: true, markdown_editing: true, status_bar: false },
   window: { width: 1200, height: 800, maximized: false },
   keybindings: {},

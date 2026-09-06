@@ -2,6 +2,8 @@ import { createMemo, Show } from "solid-js";
 import { useCommand } from "../../commands/registry";
 import { useEffectiveBinding } from "../../commands/keybindings";
 import { saveStatusStore } from "../../stores/global/save-status";
+import { notesStore } from "../../stores/global/notes";
+import { logFailure } from "../../lib/log";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import PreviewLayoutToggle from "../Preview/PreviewLayoutToggle";
 import PreviewScriptsToggle from "../Preview/PreviewScriptsToggle";
@@ -103,6 +105,20 @@ export default function StatusBar() {
       </div>
       <div class="statusbar-spacer" />
       <div class="statusbar-right">
+        {/* Where the notes are, and the way to them. The word names the
+            folder; the click opens it. */}
+        <button
+          type="button"
+          class="statusbar-field statusbar-folder"
+          title="Open the notes folder"
+          onClick={() =>
+            void notesStore
+              .showInFileManager()
+              .catch(() => logFailure("the notes folder could not be opened"))
+          }
+        >
+          Notes
+        </button>
         <span class="statusbar-field statusbar-field--cursor">{cursorPosition()}</span>
         <span class="statusbar-field">{language()}</span>
         <span class="statusbar-field">UTF-8</span>

@@ -83,19 +83,20 @@ pub enum RetitleOutcome {
 }
 
 /// [`auto_retitle_note`] without the IPC wrapper.
-pub fn auto_retitle_note_inner(
-    state: &AppState,
-    id: &str,
-    title: &str,
-) -> Result<RetitleOutcome, String> {
-    if title.trim().is_empty() {
-        return Ok(RetitleOutcome::Skipped);
-    }
+pub fn auto_retitle_note_inner(state: &AppState, id: &str) -> Result<RetitleOutcome, String> {
     let path = crate::commands::notes::note_path_for_id(state, id)?;
     let path = std::path::PathBuf::from(path);
     let Some(answer) = state.retitle_watch.answer(&path) else {
         return Ok(RetitleOutcome::Skipped);
     };
+    // The file, not the document: the save that led here has already landed,
+    // and the file is the only copy of the text (ADR-028).
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let Some(title) = writ_core::startup::first_line_title(&content) else {
+        return Ok(RetitleOutcome::Skipped);
+    };
+    let title = title.to_string();
+
     // Once, whichever way it goes: a note whose first line has been answered
     // for is never answered for again, so an edit to the first line an hour
     // later does not move the file under the person a second time.
@@ -103,12 +104,10 @@ pub fn auto_retitle_note_inner(
 
     match answer {
         RetitleAnswer::Rename => {
-            let note = crate::commands::notes::rename_note_inner(state, id, title)?;
+            let note = crate::commands::notes::rename_note_inner(state, id, &title)?;
             Ok(RetitleOutcome::Renamed { note })
         }
-        RetitleAnswer::Ask => Ok(RetitleOutcome::Ask {
-            title: title.to_string(),
-        }),
+        RetitleAnswer::Ask => Ok(RetitleOutcome::Ask { title }),
     }
 }
 
@@ -118,14 +117,11 @@ pub fn auto_retitle_note_inner(
 /// The rename goes through the same guarded path as the one in the menu, so it
 /// is stamped into the watcher's ignore set and recorded on the row in one
 /// write. Whether it may happen unasked is
-/// [`writ_core::startup::retitle_answer`].
+/// [`writ_core::startup::retitle_answer`], and the title is the note's own
+/// first line, read from the file the save just wrote.
 #[tauri::command]
-pub fn auto_retitle_note(
-    state: State<'_, AppState>,
-    id: String,
-    title: String,
-) -> Result<RetitleOutcome, String> {
-    auto_retitle_note_inner(&state, &id, &title)
+pub fn auto_retitle_note(state: State<'_, AppState>, id: String) -> Result<RetitleOutcome, String> {
+    auto_retitle_note_inner(&state, &id)
 }
 
 /// The word this host uses for the app that opens a folder.

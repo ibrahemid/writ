@@ -544,6 +544,22 @@ pub fn dated_note_name(now: DateTime<Utc>) -> String {
     format!("{}.md", crate::notes::date_stem(now))
 }
 
+/// The title a note's first line gives it, or `None` when the line names
+/// nothing yet.
+///
+/// A heading marker is punctuation, not part of the name a person would give
+/// the file, so it comes off; a line of nothing but markers and spaces names
+/// nothing. What survives is still a title and not a filename — sanitising it
+/// is [`crate::notes::note_file_stem`]'s job, at the rename.
+pub fn first_line_title(content: &str) -> Option<&str> {
+    let first = content.lines().next().unwrap_or_default();
+    let title = first.trim_start_matches('#').trim();
+    if title.is_empty() {
+        return None;
+    }
+    Some(title)
+}
+
 /// What Writ knows about a note it minted, at the moment the note's first
 /// line would rename its file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -737,6 +753,20 @@ mod tests {
             dated_note_name(now),
             format!("{}.md", crate::notes::date_stem(now))
         );
+    }
+
+    #[test]
+    fn a_first_line_gives_the_note_its_title_without_the_heading_marker() {
+        assert_eq!(first_line_title("Grocery list\n\nmilk"), Some("Grocery list"));
+        assert_eq!(first_line_title("## Grocery list"), Some("Grocery list"));
+        assert_eq!(first_line_title("  Grocery list  "), Some("Grocery list"));
+    }
+
+    #[test]
+    fn a_first_line_that_names_nothing_gives_no_title() {
+        assert_eq!(first_line_title(""), None);
+        assert_eq!(first_line_title("\nGrocery list"), None);
+        assert_eq!(first_line_title("###   "), None);
     }
 
     #[test]

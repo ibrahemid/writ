@@ -9,6 +9,7 @@ use writ_core::startup::dated_note_name;
 use writ_tauri_lib::commands::first_run::{
     auto_retitle_note_inner, dismiss_first_run_hint_inner, first_run_state_inner, RetitleOutcome,
 };
+use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
 use writ_tauri_lib::first_run::open_first_note;
 use writ_tauri_lib::state::AppState;
 
@@ -123,13 +124,19 @@ fn the_first_launch_state_carries_the_hint_until_it_is_dismissed() {
     );
 }
 
+/// Types `text` into the note and lets the save land, the way the editor does.
+fn type_into(state: &AppState, note: &writ_core::buffer::document::BufferDocument, text: &str) {
+    save_buffer_content_inner(state, &note.id, text).expect("save");
+}
+
 #[test]
 fn a_first_line_renames_the_note_it_was_typed_in() {
     let dir = tempfile::tempdir().expect("tempdir");
     let state = launch(dir.path());
     let note = open_first_note(&state).expect("a note");
+    type_into(&state, &note, "Grocery list\n\nmilk\n");
 
-    let outcome = auto_retitle_note_inner(&state, &note.id, "Grocery list").expect("retitle");
+    let outcome = auto_retitle_note_inner(&state, &note.id).expect("retitle");
     let RetitleOutcome::Renamed { note: renamed } = outcome else {
         panic!("a note nothing has touched is renamed");
     };
@@ -141,8 +148,9 @@ fn a_first_line_renames_the_note_it_was_typed_in() {
 
     // Once. The note is no longer watched, so a later first line leaves the
     // file where the person can now find it.
+    type_into(&state, &renamed, "Something else\n");
     assert!(matches!(
-        auto_retitle_note_inner(&state, &renamed.id, "Something else").expect("retitle"),
+        auto_retitle_note_inner(&state, &renamed.id).expect("retitle"),
         RetitleOutcome::Skipped
     ));
 }
@@ -154,9 +162,10 @@ fn a_note_something_else_has_touched_is_offered_the_rename_instead() {
     let note = open_first_note(&state).expect("a note");
     let path = std::path::PathBuf::from(note.source_path.clone().expect("a file"));
 
+    type_into(&state, &note, "# Grocery list\n");
     state.retitle_watch.changed_outside(&path);
 
-    let outcome = auto_retitle_note_inner(&state, &note.id, "Grocery list").expect("retitle");
+    let outcome = auto_retitle_note_inner(&state, &note.id).expect("retitle");
     let RetitleOutcome::Ask { title } = outcome else {
         panic!("a note something else has touched is asked about, not renamed");
     };
@@ -175,7 +184,7 @@ fn a_note_with_no_first_line_yet_is_left_alone() {
     let note = open_first_note(&state).expect("a note");
 
     assert!(matches!(
-        auto_retitle_note_inner(&state, &note.id, "   ").expect("retitle"),
+        auto_retitle_note_inner(&state, &note.id).expect("retitle"),
         RetitleOutcome::Skipped
     ));
     assert_eq!(

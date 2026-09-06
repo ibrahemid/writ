@@ -50,6 +50,7 @@ function configWithoutStatusBar(): WritConfig {
     hotkey: { toggle: "" },
     sidebar: { toggle: "", default_visible: false, position: "left", open: true, width: 240 },
     panel: { open: false, width: 240 },
+    first_run: { hint_dismissed: false },
     editor: {
       font_family: "monospace",
       font_size: 16,
