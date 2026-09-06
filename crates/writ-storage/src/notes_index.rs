@@ -24,7 +24,7 @@
 //! are indexed by name alone: the note is findable and openable, and its text
 //! joins the index the first time something else downloads it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
@@ -213,6 +213,38 @@ pub struct NoteFactsRow {
     pub tags: Vec<(String, u32)>,
     /// Headings, in document order.
     pub headings: Vec<HeadingRow>,
+}
+
+/// One note in the folder's link graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphNode {
+    /// Canonical path of the note, which is what every edge names it by.
+    pub path: String,
+    /// What the note is called, from [`writ_core::notes::note_display_name`].
+    pub name: String,
+    /// The first path segment under the notes root. Empty for a note sitting
+    /// in the root itself, and empty for a path the root does not contain.
+    pub folder: String,
+}
+
+/// A link between two notes, and how many times it is written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphEdge {
+    /// Canonical path of the note the links are written in.
+    pub from_path: String,
+    /// Canonical path of the note they reached.
+    pub to_path: String,
+    /// How many links in `from_path` resolved to `to_path`.
+    pub count: usize,
+}
+
+/// Every note in the folder and every resolved link among them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GraphRows {
+    /// One entry per indexed note, in path order.
+    pub nodes: Vec<GraphNode>,
+    /// One entry per linked pair, in `(from_path, to_path)` order.
+    pub edges: Vec<GraphEdge>,
 }
 
 /// Every indexed path, grouped by the names a link can call it by.
@@ -1078,6 +1110,68 @@ impl<'a> NotesIndex<'a> {
         Ok(rows)
     }
 
+    /// Every note in the folder and every resolved link among them.
+    ///
+    /// One statement per table, never a query per note: a folder of five
+    /// thousand notes is one read of `files` and one grouped read of `links`,
+    /// which is what keeps a graph the user opens from costing what a walk
+    /// costs.
+    ///
+    /// What is left out is as much of the answer as what is in it.
+    ///
+    /// - A link with no `to_path` is a link that reached no one note: it is
+    ///   unresolved, or it is ambiguous and the resolver refused to pick
+    ///   (ADR-034). Drawing it would draw a guess, so it is not an edge. The
+    ///   note it was written in is still a node.
+    /// - A note linking to itself is dropped: it is a loop on one node and it
+    ///   says nothing about the folder's shape.
+    /// - Links written more than once between the same pair collapse into
+    ///   `count`, so a note referenced twelve times is one edge with a weight
+    ///   rather than twelve lines drawn over each other.
+    /// - Only note files are nodes. The index also holds `.txt` and `.text`,
+    ///   which are findable and openable but are not notes a link can name, so
+    ///   an edge with either end outside the node set is dropped rather than
+    ///   drawn to a node that is not there.
+    pub fn graph(&self, notes_root: &Path) -> StorageResult<GraphRows> {
+        let prefix = root_prefix(notes_root);
+        let mut stmt = self.conn.prepare("SELECT path FROM files ORDER BY path")?;
+        let nodes = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(|path| is_note_file(path))
+            .map(|path| GraphNode {
+                name: notes::note_display_name(&path),
+                folder: folder_segment(&path, &prefix),
+                path,
+            })
+            .collect::<Vec<_>>();
+
+        let known: HashSet<&str> = nodes.iter().map(|node| node.path.as_str()).collect();
+        let mut stmt = self.conn.prepare(
+            "SELECT from_path, to_path, COUNT(*) FROM links
+              WHERE to_path IS NOT NULL AND to_path <> from_path
+              GROUP BY from_path, to_path
+              ORDER BY from_path, to_path",
+        )?;
+        let edges = stmt
+            .query_map([], |row| {
+                Ok(GraphEdge {
+                    from_path: row.get(0)?,
+                    to_path: row.get(1)?,
+                    count: row.get::<_, i64>(2)? as usize,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(|edge| {
+                known.contains(edge.from_path.as_str()) && known.contains(edge.to_path.as_str())
+            })
+            .collect();
+
+        Ok(GraphRows { nodes, edges })
+    }
+
     /// Every indexed note a link naming `name` could mean, in byte order.
     ///
     /// The list [`Resolution::Ambiguous`] hands the user, and the input the
@@ -1377,6 +1471,33 @@ fn root_prefix(path: &Path) -> String {
     text
 }
 
+/// Whether `path` names a note rather than one of the other text files the
+/// index holds.
+///
+/// The extension set is [`writ_core::notes::links`]'s, reached through
+/// [`links::strip_note_extension`] so the graph calls a file a note exactly
+/// when a `[[…]]` can name it. `.txt` and `.text` are indexed, searchable and
+/// openable, and they are not notes.
+fn is_note_file(path: &str) -> bool {
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    links::strip_note_extension(name).len() != name.len()
+}
+
+/// The first path segment of `path` under the notes root.
+///
+/// Empty for a note in the root itself, and empty for a path the root does not
+/// contain: a graph groups by folder, and a note with no folder above it
+/// belongs to no group rather than to an invented one.
+fn folder_segment(path: &str, root_prefix: &str) -> String {
+    let Some(relative) = path.strip_prefix(root_prefix) else {
+        return String::new();
+    };
+    match relative.split_once(['/', '\\']) {
+        Some((first, _)) => first.to_string(),
+        None => String::new(),
+    }
+}
+
 /// Whether `path`'s name is one no listing, index or watcher event carries:
 /// the name `write_atomic` gives the file it writes before renaming it into
 /// place, a sync client's in-flight file, an undownloaded placeholder, an
@@ -1611,6 +1732,12 @@ impl NotesIndexStore {
     /// [`NotesIndex::all_tags`].
     pub fn all_tags(&self) -> StorageResult<Vec<(String, usize)>> {
         NotesIndex::new(&self.conn()).all_tags()
+    }
+
+    /// Every note in the folder and the resolved links among them. See
+    /// [`NotesIndex::graph`].
+    pub fn graph(&self, notes_root: &Path) -> StorageResult<GraphRows> {
+        NotesIndex::new(&self.conn()).graph(notes_root)
     }
 
     /// The notes a link naming `name` could mean. See

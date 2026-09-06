@@ -461,6 +461,42 @@ fn index_5000_notes_reconcile_stays_under_budget() {
 }
 
 #[test]
+fn graph_over_5000_notes_stays_under_the_query_budget() {
+    if std::env::var("WRIT_PERF_GATE").is_err() {
+        return;
+    }
+
+    // The graph is one read of `files` and one grouped read of `links`, so it
+    // is held to the query budget a keystroke is held to rather than to the
+    // walk's: a folder graph the user opens must not cost what indexing costs.
+    let (_dir, notes, index) = build_notes_corpus(RECONCILE_CORPUS);
+    index
+        .reconcile(&notes, &|| false, &|_| false)
+        .expect("reconcile must not fail");
+
+    let start = Instant::now();
+    let rows = index.graph(&notes).expect("graph must not fail");
+    let elapsed = start.elapsed().as_millis();
+
+    assert_eq!(rows.nodes.len(), RECONCILE_CORPUS, "every note is a node");
+    assert!(
+        !rows.edges.is_empty(),
+        "the corpus links its notes together"
+    );
+    println!(
+        "graph over {RECONCILE_CORPUS} notes: {elapsed}ms, {} edges",
+        rows.edges.len()
+    );
+    assert!(
+        elapsed < KEYSTROKE_P95_BUDGET_MS,
+        "graph over {} notes took {}ms, over the {}ms budget",
+        RECONCILE_CORPUS,
+        elapsed,
+        KEYSTROKE_P95_BUDGET_MS,
+    );
+}
+
+#[test]
 fn search_hits_p95_under_50ms_and_p99_under_150ms_with_a_reconcile_running() {
     if std::env::var("WRIT_PERF_GATE").is_err() {
         return;

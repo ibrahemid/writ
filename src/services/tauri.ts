@@ -279,6 +279,101 @@ export async function noteNameCandidates(
   return invoke("note_name_candidates", { query, limit });
 }
 
+/** One link written in a note. */
+export interface NoteLink {
+  /** The target as it was written: no alias, no heading. */
+  to_target: string;
+  /** The note it reached, null when it reached none or more than one. */
+  to_path: string | null;
+  kind: string;
+  /** 1-based line the link is on. */
+  line: number;
+  /** 0-based character offset of the link inside that line. */
+  col: number;
+}
+
+/** One frontmatter property, its value as the JSON it is stored as. */
+export interface NoteProperty {
+  key: string;
+  value_json: string;
+}
+
+/** One `#tag` and the line it is on. */
+export interface NoteTag {
+  tag: string;
+  line: number;
+}
+
+/** One heading and the anchor a link matches it by. */
+export interface NoteHeading {
+  level: number;
+  text: string;
+  /** 1-based line the heading is on. */
+  line: number;
+  slug: string;
+}
+
+/** Everything the index holds about one note. */
+export interface NoteFacts {
+  links: NoteLink[];
+  properties: NoteProperty[];
+  tags: NoteTag[];
+  headings: NoteHeading[];
+}
+
+/**
+ * The links, properties, tags and headings of one note, in one call.
+ *
+ * A note the index does not hold reads as four empty lists, which is what a
+ * note with nothing in it reads as too.
+ */
+export async function noteFacts(path: string): Promise<NoteFacts> {
+  return invoke("note_facts", { path });
+}
+
+/** One tag the folder carries, with the number of notes carrying it. */
+export interface TagCount {
+  /** The tag without its leading `#`. */
+  tag: string;
+  count: number;
+}
+
+/** Every tag in the folder, most-used first. */
+export async function noteAllTags(): Promise<TagCount[]> {
+  return invoke("note_all_tags");
+}
+
+/** One note in the folder's link graph. */
+export interface GraphNode {
+  path: string;
+  name: string;
+  /** The first folder under the notes root, empty for a note in the root. */
+  folder: string;
+}
+
+/** A link between two notes, and how many times it is written. */
+export interface GraphEdge {
+  from_path: string;
+  to_path: string;
+  count: number;
+}
+
+/** The whole folder: every note, and every resolved link among them. */
+export interface NoteGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+/**
+ * Every note in the folder and the links among them.
+ *
+ * Only resolved links are edges: a target naming two notes picks neither, so
+ * it arrives as no edge rather than as a line drawn to a guess.
+ */
+export async function noteGraph(): Promise<NoteGraph> {
+  return invoke("note_graph");
+}
+
 /**
  * Creates the note a `[[…]]` target names and opens it.
  *
