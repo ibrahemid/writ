@@ -91,6 +91,32 @@ fn facts(index: &NotesIndexStore, root: &Path, relative: &str) -> NoteFactsRow {
     index.facts(&key(root, relative)).expect("facts")
 }
 
+/// Everything the index derived, note by note, in one order so two reads
+/// compare. `note_paths` is unordered, and an unordered comparison would pass
+/// or fail on row ids rather than on rows.
+fn all_facts(index: &NotesIndexStore) -> Vec<NoteFactsRow> {
+    let mut paths = index.note_paths().expect("note paths");
+    paths.sort();
+    paths
+        .iter()
+        .map(|path| index.facts(path).expect("facts"))
+        .collect()
+}
+
+/// Rewrites every file under `root` with the bytes it already holds, so the
+/// next walk reads it again rather than taking the size-and-mtime shortcut.
+fn touch_every_file(root: &Path) {
+    for entry in std::fs::read_dir(root).expect("read folder") {
+        let path = entry.expect("entry").path();
+        if path.is_dir() {
+            touch_every_file(&path);
+        } else {
+            let bytes = std::fs::read(&path).expect("read file");
+            std::fs::write(&path, bytes).expect("rewrite file");
+        }
+    }
+}
+
 fn edge_count(rows: &GraphRows, from: &str, to: &str) -> Option<usize> {
     rows.edges
         .iter()
@@ -377,12 +403,7 @@ fn the_graph_holds_every_note_and_every_resolved_link() {
 fn walking_the_folder_a_second_time_changes_nothing() {
     let (_dir, root, index) = opened();
 
-    let first: Vec<NoteFactsRow> = index
-        .note_paths()
-        .expect("note paths")
-        .iter()
-        .map(|path| index.facts(path).expect("facts"))
-        .collect();
+    let first = all_facts(&index);
     let tags = index.all_tags().expect("all_tags");
     let graph = index.graph(&root).expect("graph");
     let paths = indexed_paths(&index);
@@ -391,14 +412,42 @@ fn walking_the_folder_a_second_time_changes_nothing() {
         .reconcile(&root, &|| false, &|_| false)
         .expect("second reconcile");
     assert!(!outcome.cancelled);
+    assert_eq!(
+        (outcome.added, outcome.updated, outcome.removed),
+        (0, 0, 0),
+        "a file whose size and mtime have not moved is not read again"
+    );
 
-    let second: Vec<NoteFactsRow> = index
-        .note_paths()
-        .expect("note paths")
-        .iter()
-        .map(|path| index.facts(path).expect("facts"))
-        .collect();
-    assert_eq!(second, first, "no row is written twice and none is lost");
+    assert_eq!(all_facts(&index), first, "no row is lost");
+    assert_eq!(index.all_tags().expect("all_tags"), tags);
+    assert_eq!(index.graph(&root).expect("graph"), graph);
+    assert_eq!(indexed_paths(&index), paths);
+}
+
+#[test]
+fn reading_every_note_again_writes_the_same_rows() {
+    let (_dir, root, index) = opened();
+
+    let first = all_facts(&index);
+    let tags = index.all_tags().expect("all_tags");
+    let graph = index.graph(&root).expect("graph");
+    let paths = indexed_paths(&index);
+
+    touch_every_file(&root);
+    let outcome = index
+        .reconcile(&root, &|| false, &|_| false)
+        .expect("second reconcile");
+    assert_eq!(
+        (outcome.added, outcome.updated, outcome.removed),
+        (0, paths.len(), 0),
+        "every indexed file is read again, so the derived rows are written twice"
+    );
+
+    assert_eq!(
+        all_facts(&index),
+        first,
+        "a second write of the same facts replaces the first rather than joining it"
+    );
     assert_eq!(index.all_tags().expect("all_tags"), tags);
     assert_eq!(index.graph(&root).expect("graph"), graph);
     assert_eq!(indexed_paths(&index), paths);
