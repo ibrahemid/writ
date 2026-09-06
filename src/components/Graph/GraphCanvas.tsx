@@ -80,10 +80,11 @@ function radiusFor(degree: number): number {
  *
  * The open note is the one filled disc and the only thing wearing the accent;
  * its neighbours are hollow, and a link is a hairline quiet enough that a
- * dense note still reads as a shape rather than a mesh. The names are not
- * painted on: at this width they would collide, and the notes are already
- * listed as text in the section above, so the drawing says only where a note
- * sits and hovering one says which it is.
+ * dense note still reads as a shape rather than a mesh. Only the open note's
+ * name is painted on: at this width the rest would collide, so the drawing
+ * says where a note sits and hovering one says which it is. A neighbour is
+ * named as text elsewhere either way -- under "Links to this note" when it
+ * links here, in the note's own text when this note links to it.
  */
 export default function GraphCanvas(props: Props) {
   let canvas: HTMLCanvasElement | undefined;

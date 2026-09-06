@@ -70,7 +70,17 @@ test, which is the check that survives a change of engine.
 
 Every pair pushes apart, every link pulls together, the middle pulls everything
 in, and a positional pass afterwards holds every pair at a minimum separation
-so two notes cannot end up as one dot. There is no quadtree: at a
+so two notes cannot end up as one dot.
+
+How far that holds is a measured number rather than a promise: twelve notes in
+the panel's area, for a star, a ring and a clique alike, which is what
+`SEPARATION_HOLDS_TO` says and what the tests sweep seeds over. It is measured
+because the count that fits depends on the shape as much as on the area, and
+the shape that packs worst is the one where everything links to everything.
+Above it a hub note still settles, terminates and stays inside the area, but
+two of its neighbours may sit close enough to touch. The answer to that is a
+node cap, and the local view has none in this record: a note with more
+neighbours than the area holds draws them tight. There is no quadtree: at a
 neighbourhood's size the pairwise loop is cheaper than the tree that would
 avoid it, and the whole-folder view caps its node count instead.
 
@@ -119,10 +129,8 @@ same fixed step count either way, only the schedule differs.
 
 ### 8. The node cap is the whole-folder view's, and it is stated
 
-The neighbourhood drawing is bounded by the folder itself: one note's
-neighbours are a handful. The whole-folder view is not, so it renders at most
-2000 nodes, taking the largest connected component, and says in one line how
-many notes that is out of how many. A drawing that silently omits notes is
+The whole-folder view renders at most 2000 nodes, taking the largest connected
+component, and says in one line how many notes that is out of how many. A drawing that silently omits notes is
 worse than one that draws fewer and says so. The cap belongs to that view; this
 record is where it is written down.
 
@@ -139,8 +147,11 @@ notes being pulled back onto each other. Both views inherit that.
 - Layout cost is bounded by the step count, so a folder shape that will not
   settle costs a fixed amount and then stops.
 - A theme change repaints from new tokens with no reload and no second palette.
-- The drawing is never the only way to reach a note. The same neighbours are
-  listed as text in the panel above it, and the canvas carries a name and a
-  count for a reader who is not shown it.
+- The drawing is never the only way to reach a note, but the text that names a
+  neighbour is not all in one place. A note that links to the open one is
+  listed under "Links to this note", below the drawing; a note the open one
+  links to is named in the note's own text, in the link that made the edge.
+  Both are keyboard reachable, and the canvas carries a name and a count for a
+  reader who is not shown it.
 - The layout module has no dependency, so it runs under a bare `node` as
   readily as in the app, which is what makes the cross-process check possible.
