@@ -1,13 +1,21 @@
 import { createSignal, type Accessor } from "solid-js";
 import { onEvent, type UnlistenFn } from "../../services/events";
 import { noteAllTags, noteFacts, noteGraph } from "../../services/tauri";
-import type { NoteFacts, NoteGraph, TagCount } from "../../services/tauri";
+import type {
+  NoteFacts,
+  NoteGraph,
+  NoteHeading,
+  NoteLink,
+  NoteProperty,
+  NoteTag,
+  TagCount,
+} from "../../services/tauri";
 
 // Singleton state — Writ is single-window. Three reads of one index share one
 // listener and one cache: what a note says about itself, the folder's tags,
 // and the folder's link graph (ADR-036).
 
-export type { NoteFacts, NoteGraph, TagCount };
+export type { NoteFacts, NoteGraph, NoteHeading, NoteLink, NoteProperty, NoteTag, TagCount };
 
 /** Shown when the index cannot be read. Each list keeps whatever it last had. */
 const READ_FAILED_MESSAGE = "Could not read what the notes folder holds.";

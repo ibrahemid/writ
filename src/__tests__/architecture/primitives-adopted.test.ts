@@ -9,11 +9,12 @@ import { resolve, join } from "node:path";
 const REPO_ROOT = process.cwd();
 
 const SIDEBAR_DIR = "src/components/Sidebar";
+const RIGHT_PANEL_DIR = "src/components/RightPanel";
 
-function sidebarComponents(): string[] {
-  return readdirSync(resolve(REPO_ROOT, SIDEBAR_DIR))
+function componentsIn(dir: string): string[] {
+  return readdirSync(resolve(REPO_ROOT, dir))
     .filter((entry) => entry.endsWith(".tsx"))
-    .map((entry) => join(SIDEBAR_DIR, entry))
+    .map((entry) => join(dir, entry))
     .sort();
 }
 
@@ -31,7 +32,8 @@ const MIGRATED = [
   "src/components/PromptFill/PromptFillModal.tsx",
   "src/components/SettingsModal/SettingsModal.tsx",
   "src/components/ShortcutEditor/ShortcutEditor.tsx",
-  ...sidebarComponents(),
+  ...componentsIn(SIDEBAR_DIR),
+  ...componentsIn(RIGHT_PANEL_DIR),
 ];
 
 const ICON_OWNERS = ["src/components/Icon/Icon.tsx", "src/components/Icon/IconSprite.tsx"];
@@ -45,6 +47,13 @@ describe("migrated surfaces use the primitives", () => {
     expect(MIGRATED).toContain("src/components/Sidebar/Sidebar.tsx");
     expect(MIGRATED).toContain("src/components/Sidebar/TabItem.tsx");
     expect(MIGRATED).toContain("src/components/Sidebar/FileTree.tsx");
+  });
+
+  it("covers every component of the panel beside the note", () => {
+    expect(MIGRATED).toContain("src/components/RightPanel/RightPanel.tsx");
+    expect(MIGRATED).toContain("src/components/RightPanel/BacklinksSection.tsx");
+    expect(MIGRATED).toContain("src/components/RightPanel/OutlineSection.tsx");
+    expect(MIGRATED).toContain("src/components/RightPanel/PropertiesSection.tsx");
   });
 
   it("no inline svg icon remains", () => {
