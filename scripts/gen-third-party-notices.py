@@ -238,8 +238,9 @@ def load_vendored_notices() -> tuple[dict[tuple[str, str], str], set[tuple[str, 
 def load_bundled_assets() -> list[dict[str, object]]:
     """Files shipped inside the app that are neither a crate nor an npm package.
 
-    A bundled font has no package manager to declare its licence, so the entry
-    names the files it covers and the generator fails when one of them is gone.
+    A font file or a vendored library has no package manager to declare its
+    licence, so the entry names the files it covers and the generator fails
+    when one of them is gone.
     """
     with NOTICES_CONFIG.open("rb") as handle:
         config = tomllib.load(handle)
@@ -554,20 +555,20 @@ def render(
     add("# Third-party notices")
     add("")
     add(
-        "Writ links in the Rust crates, bundles the npm packages, and ships the font "
-        "files listed below. Their licences require the copyright notice and "
+        "Writ links in the Rust crates, bundles the npm packages, and ships the files "
+        "listed below. Their licences require the copyright notice and "
         "permission text to be distributed with the binaries, so both are reproduced "
         "in full."
     )
     add("")
-    fonts = len(bundled_assets)
-    font_clause = (
-        f" {fonts} font family is bundled as files rather than a package and is "
-        "listed below."
-        if fonts == 1
-        else f" {fonts} font families are bundled as files rather than packages "
-        "and are listed below."
-        if fonts
+    bundled = len(bundled_assets)
+    bundled_clause = (
+        " 1 font family or library is shipped as files rather than as a package "
+        "and is listed below."
+        if bundled == 1
+        else f" {bundled} font families and libraries are shipped as files rather "
+        "than as packages and are listed below."
+        if bundled
         else ""
     )
     add(
@@ -575,7 +576,7 @@ def render(
         "release is built for, and "
         f"{npm_package_count} npm packages, resolved from the production "
         "dependencies of the frontend bundle. Test and benchmark dependencies are "
-        "excluded: they are not shipped." + font_clause
+        "excluded: they are not shipped." + bundled_clause
     )
     add("")
     add(
@@ -586,7 +587,7 @@ def render(
 
     add("## Summary")
     add("")
-    add("| Licence | Rust crates | npm packages | Bundled fonts |")
+    add("| Licence | Rust crates | npm packages | Bundled files |")
     add("| --- | ---: | ---: | ---: |")
     counts: dict[str, list[int]] = {}
     for group in rust_groups + rust_unnamed:
@@ -596,8 +597,8 @@ def render(
     for asset in bundled_assets:
         counts.setdefault(str(asset["id"]), [0, 0, 0])[2] += 1
     for licence in sorted(counts):
-        rust_count, npm_count, font_count = counts[licence]
-        add(f"| {licence} | {rust_count or ''} | {npm_count or ''} | {font_count or ''} |")
+        rust_count, npm_count, bundled_count = counts[licence]
+        add(f"| {licence} | {rust_count or ''} | {npm_count or ''} | {bundled_count or ''} |")
     add("")
 
     add("## Rust crates")
@@ -674,11 +675,11 @@ def render(
         add("")
 
     if bundled_assets:
-        add("## Bundled fonts")
+        add("## Bundled files")
         add("")
         add(
-            "These files are compiled into the frontend bundle rather than installed "
-            "by a package manager. Each block names the files it covers."
+            "Font files and libraries that ship inside the app rather than being "
+            "installed by a package manager. Each block names the files it covers."
         )
         add("")
         for asset in bundled_assets:
