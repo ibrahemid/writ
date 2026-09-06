@@ -1110,6 +1110,28 @@ impl<'a> NotesIndex<'a> {
         Ok(rows)
     }
 
+    /// Every note carrying `tag`, in path order.
+    ///
+    /// The tag is matched whole: `project` answers with the notes carrying
+    /// `#project` and not with the notes carrying `#project/alpha`, which is a
+    /// tag of its own with a row of its own in [`all_tags`](Self::all_tags).
+    /// A note tagging itself twice comes back once.
+    ///
+    /// One statement, joined to `files` so a tag row left behind by a file the
+    /// index no longer holds cannot name a note that is gone.
+    pub fn paths_for_tag(&self, tag: &str) -> StorageResult<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT tags.path FROM tags
+               JOIN files ON files.path = tags.path
+              WHERE tags.tag = ?1
+              ORDER BY tags.path",
+        )?;
+        let rows = stmt
+            .query_map(params![tag], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// Every note in the folder and every resolved link among them.
     ///
     /// One statement per table, never a query per note: a folder of five
@@ -1732,6 +1754,11 @@ impl NotesIndexStore {
     /// [`NotesIndex::all_tags`].
     pub fn all_tags(&self) -> StorageResult<Vec<(String, usize)>> {
         NotesIndex::new(&self.conn()).all_tags()
+    }
+
+    /// Every note carrying one tag. See [`NotesIndex::paths_for_tag`].
+    pub fn paths_for_tag(&self, tag: &str) -> StorageResult<Vec<String>> {
+        NotesIndex::new(&self.conn()).paths_for_tag(tag)
     }
 
     /// Every note in the folder and the resolved links among them. See
