@@ -71,6 +71,7 @@ vi.mock("../../stores/global/note-facts", () => ({
   noteFactsStore: {
     factsFor: () => () => h.facts,
     graph: () => () => h.graph,
+    releaseGraph: vi.fn(),
     release: vi.fn(),
   },
 }));

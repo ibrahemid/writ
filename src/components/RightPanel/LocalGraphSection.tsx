@@ -1,4 +1,4 @@
-import { Show, createMemo } from "solid-js";
+import { Show, createMemo, onCleanup } from "solid-js";
 import PanelSection from "./PanelSection";
 import GraphCanvas from "../Graph/GraphCanvas";
 import { useWindow } from "../WindowProvider/WindowProvider";
@@ -24,6 +24,9 @@ interface Props {
 export default function LocalGraphSection(props: Props) {
   const win = useWindow();
   const graph = noteFactsStore.graph();
+  // A panel that has stopped showing the drawing stops the folder graph being
+  // re-read on every change on disk.
+  onCleanup(() => noteFactsStore.releaseGraph());
 
   const near = createMemo(() => {
     const rows = graph();

@@ -21,6 +21,8 @@ const h = vi.hoisted(() => ({
     edges: { from_path: string; to_path: string; count: number }[];
   },
   openFile: vi.fn<(path: string) => Promise<{ id: string } | null>>(),
+  holdGraph: vi.fn(),
+  releaseGraph: vi.fn(),
   collapsed: new Set<string>(),
 }));
 
@@ -29,7 +31,13 @@ vi.mock("../../stores/global/theme", () => ({
 }));
 
 vi.mock("../../stores/global/note-facts", () => ({
-  noteFactsStore: { graph: () => () => h.graph },
+  noteFactsStore: {
+    graph: () => {
+      h.holdGraph();
+      return () => h.graph;
+    },
+    releaseGraph: h.releaseGraph,
+  },
 }));
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
@@ -85,6 +93,8 @@ function stubContext(): CanvasRenderingContext2D {
 beforeEach(() => {
   h.graph = FOLDER;
   h.openFile.mockReset();
+  h.holdGraph.mockReset();
+  h.releaseGraph.mockReset();
   h.openFile.mockResolvedValue({ id: "buf-2" });
   h.collapsed = new Set();
 
@@ -154,6 +164,29 @@ describe("the section beside a note with nothing around it", () => {
     expect(queryByRole("img")).toBeNull();
     expect(container.querySelector("canvas")).toBeNull();
     expect(container.querySelector(".right-panel-section")).toBeNull();
+  });
+});
+
+describe("what the section holds while it is showing", () => {
+  it("hands the folder graph back when it goes away, and takes it again", () => {
+    const first = render(() => <LocalGraphSection path="Alpha.md" />);
+    expect(h.holdGraph).toHaveBeenCalledTimes(1);
+    expect(h.releaseGraph).not.toHaveBeenCalled();
+
+    first.unmount();
+    expect(h.releaseGraph).toHaveBeenCalledTimes(1);
+
+    const again = render(() => <LocalGraphSection path="Alpha.md" />);
+    expect(h.holdGraph).toHaveBeenCalledTimes(2);
+    again.unmount();
+    expect(h.releaseGraph).toHaveBeenCalledTimes(2);
+  });
+
+  it("hands it back even when it drew nothing", () => {
+    const { unmount } = render(() => <LocalGraphSection path="Nothing.md" />);
+    expect(h.holdGraph).toHaveBeenCalledTimes(1);
+    unmount();
+    expect(h.releaseGraph).toHaveBeenCalledTimes(1);
   });
 });
 

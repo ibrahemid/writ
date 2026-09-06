@@ -288,6 +288,41 @@ describe("noteFactsStore", () => {
     expect(rows().headings).toHaveLength(1);
   });
 
+  it("a graph nothing is showing is not re-read when the folder changes", async () => {
+    noteFactsStore.graph();
+    await settle();
+    noteFactsStore.releaseGraph();
+
+    notesChangedHandler()({ path: NOTE, removed: false });
+    await settle();
+
+    expect(mockedApi.noteGraph).toHaveBeenCalledTimes(1);
+  });
+
+  it("the graph stays held while a second surface is still showing it", async () => {
+    mockedApi.noteGraph.mockResolvedValue(
+      graph({ nodes: [{ path: NOTE, name: "Note", folder: "" }] }),
+    );
+    noteFactsStore.graph();
+    const second = noteFactsStore.graph();
+    await settle();
+    expect(mockedApi.noteGraph).toHaveBeenCalledTimes(1);
+
+    noteFactsStore.releaseGraph();
+    expect(second().nodes).not.toEqual([]);
+
+    notesChangedHandler()({ path: NOTE, removed: false });
+    await settle();
+    expect(mockedApi.noteGraph).toHaveBeenCalledTimes(2);
+
+    noteFactsStore.releaseGraph();
+    expect(second().nodes).toEqual([]);
+
+    notesChangedHandler()({ path: NOTE, removed: false });
+    await settle();
+    expect(mockedApi.noteGraph).toHaveBeenCalledTimes(2);
+  });
+
   it("a note nothing is showing is not re-read when the folder changes", async () => {
     noteFactsStore.factsFor(NOTE);
     await settle();
