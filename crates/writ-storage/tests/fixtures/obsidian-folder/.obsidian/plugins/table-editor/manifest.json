@@ -1,0 +1,7 @@
+{
+  "id": "table-editor",
+  "name": "Table Editor",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "isDesktopOnly": false
+}
