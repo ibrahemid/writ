@@ -321,6 +321,11 @@ fn tags_come_from_the_frontmatter_and_the_body_and_not_from_a_fence() {
         ],
         "a nested tag is matched whole"
     );
+    assert_eq!(
+        index.paths_for_tag("Project/Alpha").expect("paths"),
+        index.paths_for_tag("project/alpha").expect("paths"),
+        "the casing a tag was written in still finds the notes it files"
+    );
 }
 
 #[test]

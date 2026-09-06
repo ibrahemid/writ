@@ -21,7 +21,8 @@ changes on disk. Links, properties, tags and headings come out of that read.
 | Frontmatter `key: value` and `key: [a, b]` | Properties, listed with the note. |
 | A nested frontmatter map | Kept exactly as written and shown as text. |
 | `#tag`, `#project/alpha` | Tags. `#project/alpha` is one tag, listed under `project`. |
-| Frontmatter `tags:` and `tag:`, as a list or as items | Tags, same as the ones written in the text. |
+| Frontmatter `tags:` and `tag:`, as a list, as items, or as one line of comma- or space-separated names | Tags, same as the ones written in the text. |
+| `#Project` in one note, `#project` in another | One tag. The list files tags lowercased. |
 | A `#tag` inside a code fence | Left alone. It is an example, not a tag. |
 | Headings | The outline beside the note, and the anchors links point at. |
 | `> [!note]`, `> [!warning]`, and the other ten types | Callouts, aliases included. One written closed shows its title only. |
