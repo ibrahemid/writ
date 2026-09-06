@@ -76,9 +76,9 @@ colour by it without a second read. A note in the root itself has no folder,
 and so does a path the root does not contain: a note with nothing above it
 belongs to no group rather than to an invented one.
 
-The 5,000-note budget in ADR-028 section 7 covers it. On the reconcile corpus
-the whole graph, 5,000 nodes and 10,000 edges, comes back in 11 ms, held to the
-query budget a keystroke is held to rather than to the walk's.
+The 5,000-note budget in ADR-028 section 7 covers it. A budget test builds that
+corpus and reads the whole graph out of it, held to the query budget a keystroke
+is held to rather than to the walk's.
 
 ### 4. Invalidation is the watcher's event, never a poll
 

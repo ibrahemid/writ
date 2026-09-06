@@ -13,18 +13,30 @@ export type { NoteFacts, NoteGraph, TagCount };
 const READ_FAILED_MESSAGE = "Could not read what the notes folder holds.";
 
 /**
+ * An empty list that stays empty. The constants below are shared by every note
+ * that reads empty, so a caller sorting or pushing in place would edit what
+ * every other caller sees.
+ */
+function noRows<T>(): T[] {
+  return Object.freeze([]) as unknown as T[];
+}
+
+/**
  * What a note with nothing in it reads as, and what a note the index does not
  * hold reads as. Four empty lists, never a row standing in for one.
  */
 const NO_FACTS: NoteFacts = Object.freeze({
-  links: [],
-  properties: [],
-  tags: [],
-  headings: [],
+  links: noRows(),
+  properties: noRows(),
+  tags: noRows(),
+  headings: noRows(),
 }) as NoteFacts;
 
 /** What a folder with no links reads as. */
-const NO_GRAPH: NoteGraph = Object.freeze({ nodes: [], edges: [] }) as NoteGraph;
+const NO_GRAPH: NoteGraph = Object.freeze({
+  nodes: noRows(),
+  edges: noRows(),
+}) as NoteGraph;
 
 interface Cache<T> {
   value: Accessor<T>;
@@ -55,7 +67,7 @@ function createCache<T>(empty: T): Cache<T> {
 
 function createNoteFactsStore() {
   const facts = new Map<string, Cache<NoteFacts>>();
-  const tags = createCache<TagCount[]>([]);
+  const tags = createCache<TagCount[]>(noRows<TagCount>());
   const graph = createCache<NoteGraph>(NO_GRAPH);
   let subscription: Promise<UnlistenFn> | null = null;
 
@@ -209,7 +221,7 @@ function createNoteFactsStore() {
       cache.inFlight = null;
       cache.setError(null);
     }
-    tags.setValue([]);
+    tags.setValue(noRows<TagCount>());
     graph.setValue(NO_GRAPH);
     const held = subscription;
     subscription = null;

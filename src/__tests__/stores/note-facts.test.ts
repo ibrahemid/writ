@@ -205,4 +205,16 @@ describe("noteFactsStore", () => {
 
     expect(mockedApi.noteFacts).toHaveBeenCalledTimes(1);
   });
+
+  it("the empty lists a note reads are shared, so nothing can edit them in place", async () => {
+    const rows = noteFactsStore.factsFor(NOTE);
+    await settle();
+    noteFactsStore.release(NOTE);
+
+    expect(Object.isFrozen(rows().links)).toBe(true);
+    expect(Object.isFrozen(rows().properties)).toBe(true);
+    expect(Object.isFrozen(rows().tags)).toBe(true);
+    expect(Object.isFrozen(rows().headings)).toBe(true);
+    expect(() => rows().headings.push({ level: 1, text: "No", line: 1, slug: "no" })).toThrow();
+  });
 });
