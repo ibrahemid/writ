@@ -11,6 +11,9 @@ const mocks = vi.hoisted(() => ({
   dismissFirstRunHint: vi.fn(),
   autoRetitleNote: vi.fn(),
   renameNote: vi.fn(),
+  renameNoteWithLinks: vi.fn(),
+  listActiveBuffers: vi.fn(),
+  getBuffer: vi.fn(),
   config: vi.fn(),
 }));
 
@@ -18,10 +21,11 @@ vi.mock("../../services/tauri", () => ({
   firstRunState: mocks.firstRunState,
   dismissFirstRunHint: mocks.dismissFirstRunHint,
   autoRetitleNote: mocks.autoRetitleNote,
-  listActiveBuffers: vi.fn().mockResolvedValue([]),
+  listActiveBuffers: mocks.listActiveBuffers,
   listHistory: vi.fn().mockResolvedValue([]),
-  getBuffer: vi.fn(),
+  getBuffer: mocks.getBuffer,
   renameNote: mocks.renameNote,
+  renameNoteWithLinks: mocks.renameNoteWithLinks,
   previewListRenderers: vi.fn().mockResolvedValue([]),
   previewGetLayout: vi.fn().mockResolvedValue(null),
   previewSetLayout: vi.fn().mockResolvedValue(undefined),
@@ -32,6 +36,7 @@ vi.mock("../../services/tauri", () => ({
 vi.spyOn(configStore, "config").mockImplementation(() => mocks.config() as WritConfig);
 
 import FirstRunHint from "../../components/Editor/FirstRunHint";
+import { bufferRegistry } from "../../stores/global/buffer-registry";
 import {
   createFirstRunStore,
   firstRunStore,
@@ -67,6 +72,16 @@ describe("the first launch's one line", () => {
     mocks.dismissFirstRunHint.mockReset().mockResolvedValue(undefined);
     mocks.autoRetitleNote.mockReset().mockResolvedValue({ kind: "skipped" });
     mocks.renameNote.mockReset().mockResolvedValue({ id: "note-7", title: "Grocery list.md" });
+    mocks.renameNoteWithLinks.mockReset().mockResolvedValue({
+      renamed_path: "/notes/Grocery list.md",
+      updated: 1,
+      updated_paths: [],
+      skipped: [],
+    });
+    mocks.listActiveBuffers.mockReset().mockResolvedValue([]);
+    mocks.getBuffer
+      .mockReset()
+      .mockResolvedValue({ id: "note-7", title: "Grocery list.md", status: "active" });
     mocks.firstRunState.mockReset().mockResolvedValue({
       first_run: true,
       hint_dismissed: false,
@@ -153,8 +168,17 @@ describe("the first launch's one line", () => {
     expect(mocks.renameNote).not.toHaveBeenCalled();
   });
 
-  it("renames the note to the title the offer carried", async () => {
+  it("renames the note to the title the offer carried, and the links with it", async () => {
     mocks.autoRetitleNote.mockResolvedValue({ kind: "ask", title: "Grocery list" });
+    mocks.listActiveBuffers.mockResolvedValue([
+      {
+        id: "note-7",
+        title: "2026-09-07.md",
+        status: "active",
+        source_path: "/notes/2026-09-07.md",
+      },
+    ]);
+    await bufferRegistry.load();
     const { container } = mount();
     win!.tabs.setActiveTabId("note-7");
 
@@ -165,7 +189,16 @@ describe("the first launch's one line", () => {
       (button) => button.textContent === "Rename",
     );
     fireEvent.click(rename!);
-    await waitFor(() => expect(mocks.renameNote).toHaveBeenCalledWith("note-7", "Grocery list"));
+    // The offer is only reached once the note has been left or touched from
+    // outside, so a link naming its date can exist and follows the rename.
+    await waitFor(() =>
+      expect(mocks.renameNoteWithLinks).toHaveBeenCalledWith(
+        "/notes/2026-09-07.md",
+        "Grocery list",
+        true,
+      ),
+    );
+    expect(mocks.renameNote).not.toHaveBeenCalled();
     expect(container.querySelector(".first-run-offer")).toBeNull();
   });
 

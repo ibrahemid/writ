@@ -2,6 +2,7 @@ import { createSignal, createRoot } from "solid-js";
 import * as api from "../../services/tauri";
 import { onAutosaveSuccess } from "../../services/autosave";
 import { bufferRegistry } from "./buffer-registry";
+import { renameLinksStore } from "./rename-links";
 import { configStore } from "./config";
 import { logFailure } from "../../lib/log";
 
@@ -75,12 +76,21 @@ export function createFirstRunStore() {
     setOffer({ id, title: outcome.title });
   }
 
-  /** Takes the offer: the rename runs through the ordinary rename path. */
+  /**
+   * Takes the offer: the ordinary rename, and the notes that link to the note
+   * follow it.
+   *
+   * The unasked rename skips the links because the note was minted this
+   * launch and its tab has never been closed, so a `[[…]]` naming its date can
+   * only have been typed in the same session. The offer is the other case: it
+   * is reached because the tab was closed or something outside Writ touched
+   * the file, which is when a link to it can already exist.
+   */
   async function acceptOffer(): Promise<void> {
     const current = offer();
     if (current === null) return;
     setOffer(null);
-    await bufferRegistry.renameBuffer(current.id, current.title);
+    await renameLinksStore.renameWithLinks(current.id, current.title, true);
   }
 
   /** Leaves the note under the date it was named for. */
