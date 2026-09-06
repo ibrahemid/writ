@@ -22,8 +22,8 @@ describe("status bar fit", () => {
 
   it("is a size container so fields can shed as the editor narrows", () => {
     expect(block(".statusbar")).toMatch(/container-type:\s*inline-size/);
-    expect(CSS).toMatch(/@container \(max-width: \d+px\)\s*\{\s*\.statusbar-field:not\(\.statusbar-field--cursor\)\s*\{\s*display:\s*none/);
-    expect(CSS).toMatch(/@container \(max-width: \d+px\)[^@]*\.statusbar-right > \.statusbar-label\s*\{\s*display:\s*none/);
+    expect(CSS).toMatch(/@container \(max-width: [\d.]+em\)\s*\{\s*\.statusbar-field:not\(\.statusbar-field--cursor\)\s*\{\s*display:\s*none/);
+    expect(CSS).toMatch(/@container \(max-width: [\d.]+em\)[^@]*\.statusbar-right > \.statusbar-label\s*\{\s*display:\s*none/);
   });
 
   it("never drops the cursor position", () => {

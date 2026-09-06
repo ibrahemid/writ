@@ -11,7 +11,14 @@ import {
   Match,
   type JSX,
 } from "solid-js";
-import { configStore, EDITOR_FONT_MIN, EDITOR_FONT_MAX } from "../../stores/global/config";
+import {
+  configStore,
+  EDITOR_FONT_MIN,
+  EDITOR_FONT_MAX,
+  INTERFACE_TEXT_MIN,
+  INTERFACE_TEXT_MAX,
+  clampInterfaceTextSize,
+} from "../../stores/global/config";
 import { inboxStore } from "../../stores/global/inbox";
 import { themeStore } from "../../stores/global/theme";
 import { updateStore } from "../../stores/global/update";
@@ -62,7 +69,8 @@ import { isSettingAvailable } from "../../settings/availability";
 import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
 import Tooltip from "../Tooltip/Tooltip";
-import { ACCENTS } from "../../styles/generated/tokens";
+import { ACCENTS, TYPE } from "../../styles/generated/tokens";
+import { resolvePlatform } from "../../lib/platform";
 import "./SettingsModal.css";
 
 // Singleton state — Writ is single-window
@@ -1329,6 +1337,17 @@ function AppearanceSection() {
     void patchConfig((prev) => ({ ...prev, appearance: next }));
   }
 
+  // Unset means the platform's own size, which is what the stylesheet resolves;
+  // the row shows that number rather than an empty field.
+  const interfaceTextSize = () =>
+    appearance().interface_text_size ??
+    Math.round(parseFloat(TYPE[resolvePlatform()].ui.md.size));
+
+  function onInterfaceTextSizeChange(raw: string) {
+    const value = clampInterfaceTextSize(parseIntSafe(raw, interfaceTextSize()));
+    patchAppearance({ interface_text_size: value });
+  }
+
   return (
     <div data-section="appearance">
       <SectionLabel section="appearance" />
@@ -1383,6 +1402,22 @@ function AppearanceSection() {
             <option value={option.id}>{option.label}</option>
           ))}
         </select>
+      </SettingsRow>
+      <SettingsRow
+        id="appearance.interface_text_size"
+        label="Interface text size"
+        labelFor="setting-interface-text-size"
+      >
+        <input
+          id="setting-interface-text-size"
+          type="number"
+          class="settings-input settings-input-number"
+          data-setting="interface_text_size"
+          value={interfaceTextSize()}
+          min={INTERFACE_TEXT_MIN}
+          max={INTERFACE_TEXT_MAX}
+          onChange={(e) => onInterfaceTextSizeChange(e.currentTarget.value)}
+        />
       </SettingsRow>
       <SettingsRow id="appearance.theme" label="Theme" labelFor="setting-theme-preset">
         <select

@@ -196,11 +196,17 @@
 
 .settings-row-label {
   flex: 1;
+  /* Without this the label refuses to shrink and pushes its own control out of
+     the row at the top of the interface text range. */
+  min-width: 0;
   color: var(--writ-fg);
 }
 
 .settings-input {
-  height: 28px;
+  /* Floors, not fixed heights: these controls read --writ-ui-md, and the row
+     yields its label width rather than clipping the control. */
+  min-height: 28px;
+  flex-shrink: 0;
   background: var(--writ-bg-sunken);
   border: 0;
   border-radius: var(--writ-r-control);
@@ -223,7 +229,8 @@
 }
 
 .settings-select {
-  height: 28px;
+  min-height: 28px;
+  flex-shrink: 0;
   min-width: 132px;
   padding: 0 8px 0 10px;
   background: var(--writ-bg-sunken);
@@ -258,7 +265,7 @@
   font: inherit;
   font-size: var(--writ-ui-md);
   color: var(--writ-fg-muted);
-  height: 22px;
+  min-height: 22px;
   padding: 0 10px;
   border-radius: var(--writ-r-control);
   cursor: pointer;

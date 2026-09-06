@@ -18,6 +18,13 @@
     },
     "ui": {
       "$type": "dimension",
+      "size": {
+        "$description": "The interface text size. Every step below is a fixed ratio of it, so the Interface text size setting moves all chrome at once by overriding this one property on the root.",
+        "$value": {
+          "value": 13,
+          "unit": "px"
+        }
+      },
       "xs": {
         "$value": {
           "value": 11,

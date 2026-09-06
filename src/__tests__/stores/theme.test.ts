@@ -15,7 +15,7 @@ function fakeRoot(): HTMLElement {
 // The store is an app-global singleton, so each block states the appearance it
 // asserts against rather than inheriting the previous one.
 function pin(polarity: "light" | "dark") {
-  themeStore.setAppearance({ polarity, accent: "pine", prose_face: "system" });
+  themeStore.setAppearance({ polarity, accent: "pine", prose_face: "system", interface_text_size: null });
 }
 
 describe("themeStore", () => {
@@ -27,7 +27,7 @@ describe("themeStore", () => {
 
   it("defaults to writ-light", () => {
     expect(DEFAULT_PRESET_ID).toBe("writ-light");
-    themeStore.loadConfig({ preset: "", overrides: {} }, { polarity: "light", accent: "pine", prose_face: "system" });
+    themeStore.loadConfig({ preset: "", overrides: {} }, { polarity: "light", accent: "pine", prose_face: "system", interface_text_size: null });
     expect(themeStore.presetId()).toBe("writ-light");
     expect(themeStore.activePreset().name).toBe("Writ Light");
     expect(themeStore.polarity()).toBe("light");
@@ -62,12 +62,12 @@ describe("themeStore", () => {
     pin("light");
     themeStore.setPreset("warp-light");
     expect(themeStore.resolvedTokens()["accent"]).toBe(ACCENTS.pine.light.base);
-    themeStore.setAppearance({ polarity: "light", accent: "gold", prose_face: "system" });
+    themeStore.setAppearance({ polarity: "light", accent: "gold", prose_face: "system", interface_text_size: null });
     expect(themeStore.resolvedTokens()["accent"]).toBe(ACCENTS.gold.light.base);
   });
 
   it("the accent setting reaches a paired preset", () => {
-    themeStore.setAppearance({ polarity: "dark", accent: "gold", prose_face: "system" });
+    themeStore.setAppearance({ polarity: "dark", accent: "gold", prose_face: "system", interface_text_size: null });
     for (const id of ["writ-dark", "warp-dark"]) {
       themeStore.setPreset(id);
       expect(themeStore.accentApplies(), id).toBe(true);
@@ -80,7 +80,7 @@ describe("themeStore", () => {
   });
 
   it("a preset that carries its own palette keeps its own accent", () => {
-    themeStore.setAppearance({ polarity: "dark", accent: "gold", prose_face: "system" });
+    themeStore.setAppearance({ polarity: "dark", accent: "gold", prose_face: "system", interface_text_size: null });
     themeStore.setPreset("dracula");
     expect(themeStore.accentApplies()).toBe(false);
     expect(themeStore.resolvedTokens()["accent"]).toBe("#bd93f9");
@@ -91,7 +91,7 @@ describe("themeStore", () => {
 
   it("data-accent is only on the root while the setting paints the highlight", () => {
     const root = fakeRoot();
-    themeStore.setAppearance({ polarity: "dark", accent: "plum", prose_face: "system" });
+    themeStore.setAppearance({ polarity: "dark", accent: "plum", prose_face: "system", interface_text_size: null });
     themeStore.setPreset("writ-dark");
     themeStore.applyToRoot(root);
     expect(root.getAttribute("data-accent")).toBe("plum");
@@ -103,13 +103,13 @@ describe("themeStore", () => {
   });
 
   it("a user override beats the accent choice", () => {
-    themeStore.setAppearance({ polarity: "dark", accent: "gold", prose_face: "system" });
+    themeStore.setAppearance({ polarity: "dark", accent: "gold", prose_face: "system", interface_text_size: null });
     expect(themeStore.setOverride("accent", "#ff7b00")).toBe(true);
     expect(themeStore.resolvedTokens()["accent"]).toBe("#ff7b00");
   });
 
   it("system polarity swaps within a preset pair", () => {
-    themeStore.setAppearance({ polarity: "system", accent: "pine", prose_face: "system" });
+    themeStore.setAppearance({ polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null });
     themeStore.setPreset("warp-dark");
     themeStore.setSystemPolarity("light");
     expect(themeStore.activePreset().id).toBe("warp-light");
@@ -118,7 +118,7 @@ describe("themeStore", () => {
   });
 
   it("a preset with no pair ignores system polarity", () => {
-    themeStore.setAppearance({ polarity: "system", accent: "pine", prose_face: "system" });
+    themeStore.setAppearance({ polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null });
     themeStore.setPreset("tokyo-night");
     themeStore.setSystemPolarity("light");
     expect(themeStore.activePreset().id).toBe("tokyo-night");
@@ -161,10 +161,10 @@ describe("themeStore", () => {
 
   it("swaps the prose face token only when the alternate is chosen", () => {
     const root = fakeRoot();
-    themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "quattro" });
+    themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "quattro", interface_text_size: null });
     themeStore.applyToRoot(root);
     expect(root.style.getPropertyValue("--writ-font-prose")).toBe("var(--writ-font-prose-alt)");
-    themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "system" });
+    themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "system", interface_text_size: null });
     themeStore.applyToRoot(root);
     expect(root.style.getPropertyValue("--writ-font-prose")).toBe("");
   });
@@ -183,7 +183,7 @@ describe("themeStore", () => {
           "syntax.keyword": "#0f0f0f",
         },
       },
-      { polarity: "dark", accent: "pine", prose_face: "system" },
+      { polarity: "dark", accent: "pine", prose_face: "system", interface_text_size: null },
     );
     expect(themeStore.presetId()).toBe("dracula");
     expect(migrated).toEqual({
@@ -215,7 +215,7 @@ describe("themeStore", () => {
           "bg.sidebar": "#101010",
         },
       },
-      { polarity: "dark", accent: "pine", prose_face: "system" },
+      { polarity: "dark", accent: "pine", prose_face: "system", interface_text_size: null },
     );
     expect(migrated).toEqual({ "bg.sidebar": "#101010" });
     expect(themeStore.overrides()).toEqual({ "bg.sidebar": "#101010" });
@@ -224,7 +224,7 @@ describe("themeStore", () => {
   it("loadConfig reports nothing to write back for an already-current map", () => {
     const migrated = themeStore.loadConfig(
       { preset: "dracula", overrides: { "bg.canvas": "#123456" } },
-      { polarity: "dark", accent: "pine", prose_face: "system" },
+      { polarity: "dark", accent: "pine", prose_face: "system", interface_text_size: null },
     );
     expect(migrated).toBeNull();
     expect(themeStore.overrides()).toEqual({ "bg.canvas": "#123456" });
@@ -278,7 +278,7 @@ describe("theme polarity and fast boot", () => {
     themeStore.applyToRoot(root);
     expect(root.getAttribute("data-theme")).toBe("dark");
     expect(root.getAttribute("data-accent")).toBe("pine");
-    themeStore.setAppearance({ polarity: "light", accent: "plum", prose_face: "system" });
+    themeStore.setAppearance({ polarity: "light", accent: "plum", prose_face: "system", interface_text_size: null });
     themeStore.setPreset("warp-light");
     themeStore.applyToRoot(root);
     expect(root.getAttribute("data-theme")).toBe("light");
@@ -315,7 +315,7 @@ describe("theme polarity and fast boot", () => {
 describe("a theme change reaching the root", () => {
   beforeEach(() => {
     themeStore.resetOverrides();
-    themeStore.setAppearance({ polarity: "system", accent: "pine", prose_face: "system" });
+    themeStore.setAppearance({ polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null });
   });
 
   // Anything that paints from the DOM rather than from the store reads its

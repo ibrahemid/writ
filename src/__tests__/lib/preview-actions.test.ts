@@ -26,7 +26,7 @@ function configWith(runScripts: boolean): WritConfig {
     history: { max_entries: 500 },
     storage: { path: "~/.writ" },
     theme: { preset: "warp-dark", overrides: {} },
-    appearance: { polarity: "system", accent: "pine", prose_face: "system" },
+    appearance: { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
     commands: { usage: {} },
   workspace: { root: null },
   inbox: { path: null, focus: true },
