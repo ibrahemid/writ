@@ -22,6 +22,10 @@ const h = vi.hoisted(() => ({
     source_path: string | null;
   }[],
   backlinks: [] as unknown[],
+  graph: { nodes: [], edges: [] } as {
+    nodes: { path: string; name: string; folder: string }[];
+    edges: { from_path: string; to_path: string; count: number }[];
+  },
   facts: { links: [], properties: [], tags: [], headings: [] } as {
     links: unknown[];
     properties: { key: string; value_json: string }[];
@@ -64,7 +68,11 @@ vi.mock("../../stores/global/backlinks", () => ({
 }));
 
 vi.mock("../../stores/global/note-facts", () => ({
-  noteFactsStore: { factsFor: () => () => h.facts, release: vi.fn() },
+  noteFactsStore: {
+    factsFor: () => () => h.facts,
+    graph: () => () => h.graph,
+    release: vi.fn(),
+  },
 }));
 
 import RightPanel from "../../components/RightPanel/RightPanel";

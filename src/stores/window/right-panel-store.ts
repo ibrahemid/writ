@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js";
 import { configStore, clampPanelWidth } from "../global/config";
 
-export type RightPanelSection = "backlinks" | "outline" | "properties";
+export type RightPanelSection = "graph" | "backlinks" | "outline" | "properties";
 
 export type RightPanelStore = ReturnType<typeof createRightPanelStore>;
 

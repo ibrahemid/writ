@@ -1,6 +1,7 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import EdgeResizer from "../Resizer/EdgeResizer";
 import BacklinksSection from "./BacklinksSection";
+import LocalGraphSection from "./LocalGraphSection";
 import OutlineSection from "./OutlineSection";
 import PropertiesSection from "./PropertiesSection";
 import { useWindow } from "../WindowProvider/WindowProvider";
@@ -109,6 +110,7 @@ export default function RightPanel() {
           <Show when={openNote()}>
             {(note) => (
               <>
+                <LocalGraphSection path={note().path} />
                 <BacklinksSection path={note().path} />
                 <Show when={facts()}>
                   {(read) => (
