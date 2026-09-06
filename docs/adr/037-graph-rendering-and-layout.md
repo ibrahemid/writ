@@ -72,6 +72,14 @@ Every pair pushes apart, every link pulls together, the origin pulls everything
 in, and a positional pass afterwards holds every pair at a minimum separation
 so two notes cannot end up as one dot.
 
+Every note starts on an even lattice about a link apart, nudged off its point
+by a quarter of that. A folder's worth of notes dropped into one small square
+instead starts with notes on top of each other, and repulsion goes as one over
+the distance cubed: two thousand notes started that way threw each other out to
+a span of ten million units and never came back. Starting them at about the
+spacing they settle at costs nothing at ten notes and is what makes two
+thousand settle at all.
+
 None of that happens inside the canvas rectangle. The settle works in unbounded
 coordinates and `fitToView` scales and shifts the result into whatever room the
 canvas has, one scale for both axes so nothing is squashed. That split is what
@@ -89,6 +97,25 @@ undo; sharing them out lets the same folder settle into a packing. That pass
 also bounds the arithmetic: repulsion goes as one over the distance cubed, and
 a step that ends with no pair closer than the minimum is a step whose successor
 cannot work out an infinite force.
+
+The minimum is satisfied by making room first and pushing pairs apart second.
+The forces settle a drawing at whatever density they balance at, and past a few
+hundred notes that density has no room for the minimum at all: the pass would
+push pairs apart for ever, each push crowding another pair, and stop at its cap
+with notes still touching. So before the pass runs, the whole drawing is opened
+out until it holds a square the minimum across per note with a fifth to spare.
+That is one scale about its own centre, which says nothing about where any note
+sits relative to another. Past a couple of hundred notes the pass then finds its
+pairs through a grid of cells the minimum across rather than by walking every
+pair: two notes too close are in the same cell or a touching one, so it is the
+same answer for a fraction of the work.
+
+A whole folder settles for 120 steps at a minimum separation of twelve units
+(`FOLDER_LAYOUT_OPTIONS`), against the panel's 240 steps at twenty-two: the
+notes are smaller and there are more of them, and a longer settle buys a folder
+nothing a reader can see. Measured on an M-series laptop, two thousand notes
+settle in about 1.3 seconds, 10ms a step. The same folder before these three
+changes cost 21 seconds and came back a smear.
 
 The guarantee is in world units, and the canvas is what shrinks them. Two
 hundred notes fitted into a panel two hundred pixels wide are drawn as
@@ -133,6 +160,18 @@ happens on mount and again when the theme's resolved tokens change, never per
 frame. No colour is written in the file, which is what the architecture test
 over `src/` already enforces for CSS and now covers here too.
 
+The whole-folder view spends one more token the same way. A note's colour is
+its top-level folder's, and a folder's colour is `--writ-accent` turned round
+the hue circle in OKLCH by the folder's place in the sorted list, a golden
+angle a step, keeping the accent's lightness and chroma so no folder shouts and
+none disappears. A note in the root of the notes folder is drawn in
+`--writ-fg-muted`. There is no second palette to keep in step with a theme:
+change the accent and every folder follows. `src/lib/graph/color.ts` is pure
+and tested: sRGB to OKLCH and back, the turn, and the map from folders to
+colours. A search dims the notes it does not name to `--writ-icon-opacity` and drops
+their folder colour for `--writ-fg-faint`, because on the Windows and GNOME
+shells that token is 1 and opacity alone would dim nothing.
+
 ### 7. Reduced motion settles at once
 
 `prefers-reduced-motion: reduce` runs the whole settle synchronously and paints
@@ -140,12 +179,33 @@ one frame. No animation frame is asked for, so there is nothing to interrupt
 and nothing to see moving. The picture is the same picture: the settle is the
 same fixed step count either way, only the schedule differs.
 
+That holds up to four hundred notes, which is every neighbourhood and most
+folders. A whole folder is seconds of arithmetic, and a window that answers nothing for
+seconds is worse than the movement the setting asked to be spared: above that
+count the same settle runs in twelve-millisecond pieces across frames and still
+paints once, at the end. Nothing is seen moving either way.
+
+Without the setting the settle is paced by the frame: as many steps as fit
+eight milliseconds, up to eight of them, then a paint. A neighbourhood takes
+its eight steps a frame and opens out over half a second; two thousand notes
+take one step a frame and settle over about two seconds.
+
 ### 8. The node cap is the whole-folder view's, and it is stated
 
 The whole-folder view renders at most 2000 nodes, taking the largest connected
-component, and says in one line how many notes that is out of how many. A drawing that silently omits notes is
-worse than one that draws fewer and says so. The cap belongs to that view; this
-record is where it is written down.
+component, and says in one line how many notes that is out of how many: `2000
+of 2500 notes, the largest linked group`. A drawing that silently omits notes
+is worse than one that draws fewer and says so. The cap belongs to that view;
+this record is where it is written down.
+
+Under the cap every note is drawn, linked or not: a folder is its notes, and a
+note nothing links to is a fact worth seeing. Over it, the group of notes that
+reach each other is what survives, because a drawing of a folder's links is
+what the view is for and the notes outside the largest group say least about
+them. Two groups of the same size are settled by their first path, and a group
+larger than the cap on its own is cut down by how many notes each note touches,
+ties by path. The same folder always draws the same notes, whatever order the
+index listed them in.
 
 What the cap is about is legibility and cost, not correctness: the settle holds
 its minimum separation whatever it is handed (§3), and it is the fitting to the
@@ -160,12 +220,15 @@ a whole folder. Both views inherit that.
   machine, and a test can assert the coordinates rather than that a canvas
   exists.
 - Layout cost is bounded by the step count, so a folder shape that will not
-  settle costs a fixed amount and then stops.
+  settle costs a fixed amount and then stops. At the cap that bound is about
+  1.3 seconds of arithmetic, spread over frames.
 - A theme change repaints from new tokens with no reload and no second palette.
-- The drawing is never the only way to reach a note: every note it draws is a
-  row above it, under "Links" or under "Links to this note", and both are
-  keyboard reachable. The canvas carries a name and a count for a reader who is
-  not shown it, and the open note's name is left off the drawing rather than
-  painted illegibly small when the drawing is fitted down.
+- The drawing is never the only way to reach a note: in the panel every note it
+  draws is a row above it, under "Links" or under "Links to this note"; in the
+  whole-folder view the notes are the file tree the view is drawn over, which
+  lists every one of them and is keyboard reachable. The canvas carries a name
+  and a count for a reader who is not shown it, and the open note's name is
+  left off the drawing rather than painted illegibly small when the drawing is
+  fitted down.
 - The layout module has no dependency, so it runs under a bare `node` as
   readily as in the app, which is what makes the cross-process check possible.

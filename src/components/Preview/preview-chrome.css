@@ -36,7 +36,8 @@
 /* The preview pane is kept mounted across buffer/layout changes so its iframe
    is never torn down (#124); when no preview shows, the slot collapses out of
    the split via display:none rather than being removed from the DOM. */
-.preview-pane-slot.is-hidden {
+.preview-pane-slot.is-hidden,
+.preview-pane-slot[hidden] {
   display: none;
 }
 

@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   activeBuffer: (() => ({ id: "b1" }) as unknown as BufferDocument | null) as Accessor<
     BufferDocument | null
   >,
+  graphOpen: vi.fn(() => false),
 }));
 
 // The pane, the overlays and the bar each own their own IPC surface; this test
@@ -30,6 +31,9 @@ vi.mock("../../components/Editor/StatusBar", () => ({
   default: () => <div data-testid="statusbar" />,
 }));
 vi.mock("../../lib/use-active-buffer", () => ({ useActiveBuffer: () => mocks.activeBuffer }));
+vi.mock("../../components/Graph/FolderGraphView", () => ({
+  default: () => <div data-testid="folder-graph" />,
+}));
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
     editor: {
@@ -37,6 +41,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       isRemovedOnDisk: () => false,
       noteFileState: () => "present" as const,
     },
+    folderGraph: { isOpen: mocks.graphOpen },
   }),
 }));
 
@@ -152,6 +157,20 @@ describe("EditorArea", () => {
       expect(container.querySelector("[data-testid='preview-layout']")).not.toBeNull();
       unmount();
     }
+  });
+
+  it("mounts the folder graph over the note, with the preview still under it", () => {
+    mocks.config.mockReturnValue(configWith(true));
+    mocks.graphOpen.mockReturnValue(false);
+    const { container, unmount } = render(() => <EditorArea />);
+    expect(container.querySelector("[data-testid='folder-graph']")).toBeNull();
+    unmount();
+
+    mocks.graphOpen.mockReturnValue(true);
+    const open = render(() => <EditorArea />);
+    expect(open.container.querySelector("[data-testid='folder-graph']")).not.toBeNull();
+    expect(open.container.querySelector("[data-testid='preview-layout']")).not.toBeNull();
+    mocks.graphOpen.mockReturnValue(false);
   });
 
   it("hides the word count when no note is open", () => {

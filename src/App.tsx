@@ -419,6 +419,18 @@ function AppShell() {
     });
 
     registerCommand({
+      id: "folderGraph.open",
+      icon: "folder-simple",
+      label: "Connections",
+      description: "Show every note in the folder and the links between them",
+      scope: "app",
+      // Global, like the two toggles above: the editor holds focus while you
+      // write, and this is reached from there or from nowhere.
+      global: true,
+      execute: () => windowRegistry.getActive()?.folderGraph.open(),
+    });
+
+    registerCommand({
       id: "search.openContent",
       label: "Search text…",
       scope: "app",
