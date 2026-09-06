@@ -54,10 +54,16 @@ what a later launch has a file for. A flag inside the config cannot answer
 this: it has to be written before it can be read, and the launch that writes it
 is the one that needs the answer.
 
-The consequence is deliberate. Somebody who quits before anything persists gets
-a second first launch. Somebody upgrading never gets one, which is what matters:
-the line under the cursor must not appear for a person who has been using Writ
-for a year.
+The launch then writes the config itself, once it has opened its note, through
+the same `commands::config::persist_config` every command uses. So somebody who
+reads the line and quits without typing does not get a second first launch. The
+write is the last thing the launch does and nothing waits on it: a failure is
+logged with the path, the window is shown anyway, and the only cost is that the
+launch after it asks the same question again.
+
+Somebody upgrading never gets a first launch, which is what matters most: the
+line under the cursor must not appear for a person who has been using Writ for
+a year.
 
 ### 3. The first launch opens a note named for today
 
@@ -70,7 +76,17 @@ keystroke and not at quit.
 
 `first_run::open_first_note` runs in Tauri's setup hook, before the window is
 revealed, so the frontend's ordinary "open the last tab" path finds it. There
-is no first-run branch in the frontend's boot.
+is no first-run branch in the frontend's boot. It runs before the fallback
+reveal timer is armed and awaits no IPC — local file I/O and one database
+write — so nothing it does can leave the window hidden.
+
+Only an empty notes folder is minted into. A folder already holding today's
+note opens that note, a folder holding other notes opens the most recently
+written of them, and a session that left tabs open takes the ordinary restore
+path. A launch that finds work already done therefore adds nothing to it, which
+is what a returning person whose config went missing has. Minting is also what
+arms the retitle watch, so a note Writ found is never renamed from its own
+first line: only a note Writ made this launch can be.
 
 ### 4. One line, dismissed on the first keystroke, kept in the config
 
@@ -111,7 +127,16 @@ is the wrong place to guess.
 Every rename runs through `commands::notes::rename_note_inner`, so it is
 stamped into the ignore set and recorded on the row in one write, the same as a
 rename from the menu. It happens at most once per note: the note leaves the
-table the first time its first line is answered for.
+table the first time its first line is answered for, which is the file having
+moved or the question having been put — a rename the guard refuses answers
+nothing, and the next save may still ask.
+
+The unasked rename does not rewrite the notes that link to the one it renames,
+and cannot need to: the note was minted this launch and its tab has never been
+closed, so a `[[…]]` naming its date can only have been typed in the same
+session. Taking the offer goes through `rename_note_with_links` instead,
+because the offer is reached precisely when the note has been left or touched
+from outside, which is when a link to it can already exist.
 
 ### 6. All three platforms run the same first launch
 
@@ -122,10 +147,10 @@ macOS has a DMG.
 
 ## Consequences
 
-- A person who installs Writ and quits without typing sees the line again on
-  the next launch. The alternative — writing a config file at startup to mark
-  the launch — makes every later launch depend on a write that can fail, to
-  answer a question that a missing file already answers.
+- A launch that opens a note writes a config file it did not find, which is one
+  write on a path that had none. Nothing depends on it: a launch that cannot
+  write it shows its window all the same and asks the same question next time,
+  and the file it writes is the one every later config write already produces.
 - A note whose first line changes an hour later keeps its name. The rename is
   offered once, at the first save that has a first line, and never again.
 - `~/Writ` is a folder in the home directory that the person did not create,
