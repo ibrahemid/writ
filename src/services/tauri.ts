@@ -343,6 +343,16 @@ export async function noteAllTags(): Promise<TagCount[]> {
   return invoke("note_all_tags");
 }
 
+/**
+ * Every note carrying `tag`, in path order.
+ *
+ * The tag is matched whole: `project` names the notes carrying `#project`, not
+ * the notes carrying `#project/alpha`, which is a tag of its own.
+ */
+export async function notePathsForTag(tag: string): Promise<string[]> {
+  return invoke("note_paths_for_tag", { tag });
+}
+
 /** One note in the folder's link graph. */
 export interface GraphNode {
   path: string;

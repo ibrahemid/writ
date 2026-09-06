@@ -4,6 +4,7 @@ vi.mock("../../services/tauri", () => ({
   noteFacts: vi.fn(),
   noteAllTags: vi.fn(),
   noteGraph: vi.fn(),
+  notePathsForTag: vi.fn(),
 }));
 
 vi.mock("../../services/events", () => ({
@@ -70,6 +71,7 @@ describe("noteFactsStore", () => {
     mockedApi.noteFacts.mockResolvedValue(facts());
     mockedApi.noteAllTags.mockResolvedValue([]);
     mockedApi.noteGraph.mockResolvedValue(graph());
+    mockedApi.notePathsForTag.mockResolvedValue([]);
     mockedEvents.onEvent.mockResolvedValue(() => {});
   });
 
@@ -144,9 +146,10 @@ describe("noteFactsStore", () => {
     expect(mockedApi.noteGraph).toHaveBeenCalledTimes(2);
   });
 
-  it("one listener covers all three reads", async () => {
+  it("one listener covers every read", async () => {
     noteFactsStore.factsFor(NOTE);
     noteFactsStore.allTags();
+    noteFactsStore.pathsForTag("work");
     noteFactsStore.graph();
     await settle();
 
@@ -154,6 +157,88 @@ describe("noteFactsStore", () => {
       ([kind]) => kind === "notes:changed",
     );
     expect(subscriptions).toHaveLength(1);
+  });
+
+  it("reads one tag's notes once and serves every later ask from the cache", async () => {
+    mockedApi.notePathsForTag.mockResolvedValue([NOTE]);
+
+    const rows = noteFactsStore.pathsForTag("work");
+    await settle();
+
+    expect(rows()).toEqual([NOTE]);
+    expect(noteFactsStore.pathsForTag("work")()).toEqual([NOTE]);
+    await settle();
+    expect(mockedApi.notePathsForTag).toHaveBeenCalledTimes(1);
+    expect(mockedApi.notePathsForTag).toHaveBeenCalledWith("work");
+  });
+
+  it("a tag nothing carries reads as an empty list", async () => {
+    const rows = noteFactsStore.pathsForTag("nothing");
+    await settle();
+
+    expect(rows()).toEqual([]);
+  });
+
+  it("a note changing re-reads the notes of the tag on screen", async () => {
+    mockedApi.notePathsForTag.mockResolvedValue([NOTE]);
+    const rows = noteFactsStore.pathsForTag("work");
+    await settle();
+    expect(mockedApi.notePathsForTag).toHaveBeenCalledTimes(1);
+
+    mockedApi.notePathsForTag.mockResolvedValue([NOTE, "/notes/Other.md"]);
+    notesChangedHandler()({ path: NOTE, removed: false });
+    await settle();
+
+    expect(mockedApi.notePathsForTag).toHaveBeenCalledTimes(2);
+    expect(rows()).toEqual([NOTE, "/notes/Other.md"]);
+  });
+
+  it("a tag nothing is showing is not re-read when the folder changes", async () => {
+    noteFactsStore.pathsForTag("work");
+    noteFactsStore.allTags();
+    await settle();
+    noteFactsStore.releaseTag("work");
+
+    notesChangedHandler()({ path: NOTE, removed: false });
+    await settle();
+
+    expect(mockedApi.notePathsForTag).toHaveBeenCalledTimes(1);
+    expect(mockedApi.noteAllTags).toHaveBeenCalledTimes(2);
+  });
+
+  it("a released tag empties and is read again on the next ask", async () => {
+    mockedApi.notePathsForTag.mockResolvedValue([NOTE]);
+    const rows = noteFactsStore.pathsForTag("work");
+    await settle();
+    expect(rows()).toEqual([NOTE]);
+
+    noteFactsStore.releaseTag("work");
+    expect(rows()).toEqual([]);
+
+    noteFactsStore.pathsForTag("work");
+    await settle();
+    expect(mockedApi.notePathsForTag).toHaveBeenCalledTimes(2);
+    expect(rows()).toEqual([NOTE]);
+  });
+
+  it("a tag's notes landing after the folder changed are dropped", async () => {
+    const stale = deferred<string[]>();
+    const fresh = deferred<string[]>();
+    mockedApi.notePathsForTag.mockReturnValueOnce(stale.promise).mockReturnValueOnce(fresh.promise);
+
+    const rows = noteFactsStore.pathsForTag("work");
+    await settle();
+    notesChangedHandler()({ path: NOTE, removed: false });
+    await settle();
+    expect(mockedApi.notePathsForTag).toHaveBeenCalledTimes(2);
+
+    stale.resolve(["/notes/Stale.md"]);
+    await settle();
+    expect(rows()).toEqual([]);
+
+    fresh.resolve(["/notes/Fresh.md"]);
+    await settle();
+    expect(rows()).toEqual(["/notes/Fresh.md"]);
   });
 
   it("a note changing carries the new facts through the accessor a caller kept", async () => {
