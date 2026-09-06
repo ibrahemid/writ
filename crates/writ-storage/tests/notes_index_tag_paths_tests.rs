@@ -9,6 +9,7 @@ use std::path::Path;
 
 use tempfile::TempDir;
 use writ_storage::notes_index::{self, NotesIndexStore};
+use writ_storage::workspace_store;
 
 fn write_note(notes: &Path, name: &str, body: &str) {
     let path = notes.join(name);
@@ -87,4 +88,25 @@ fn a_tag_nothing_carries_names_no_notes() {
     let (_dir, _root, index) = indexed(&[("One.md", "#idea\n")]);
 
     assert!(index.paths_for_tag("nothing").expect("paths").is_empty());
+}
+
+#[test]
+fn the_paths_a_tag_names_are_the_paths_the_file_tree_lists() {
+    // The sidebar filters the tree by comparing these two strings. Both sides
+    // canonicalise, so a note reached through the folder listing and the same
+    // note reached through the index spell their path the same way; were they
+    // to drift, the filter would empty the tree instead of narrowing it.
+    let (_dir, root, index) = indexed(&[("Drafts/Launch.md", "#idea\n")]);
+
+    let listing = workspace_store::list_dir(&root, &root.join("Drafts")).expect("list_dir");
+    let listed = listing
+        .iter()
+        .find(|entry| entry.name == "Launch.md")
+        .expect("the note is in the listing");
+
+    assert_eq!(
+        index.paths_for_tag("idea").expect("paths"),
+        vec![listed.path.clone()]
+    );
+    assert_eq!(listed.path, key(&root, "Drafts/Launch.md"));
 }
