@@ -33,6 +33,7 @@ The [README](../README.md) lists the eight that describe the product. This is th
 - `Cmd+click` (`Ctrl` elsewhere) opens `http`, `https` and `mailto` links from the editor. Links are underlined only while the modifier is held.
 - A relative link such as `[spec](./notes/spec.md)` opens in Writ when it resolves inside the workspace.
 - A link clicked in the preview names its destination host and asks before opening.
+- A folder written in Obsidian opens as it is: [what carries over and what does not](./importing-from-obsidian.md).
 
 ## Spell check
 

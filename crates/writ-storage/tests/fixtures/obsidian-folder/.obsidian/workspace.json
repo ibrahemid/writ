@@ -1,0 +1,5 @@
+{
+  "main": { "id": "left", "type": "split", "children": [] },
+  "active": "left",
+  "lastOpenFiles": ["Index.md", "Projects/Alpha/Roadmap.md"]
+}

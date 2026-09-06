@@ -265,15 +265,25 @@ fn split_flow(inner: &str) -> Vec<&str> {
     out
 }
 
-/// Every `#tag` in the body of `text`, with the line it is on.
+/// Every tag in `text`, with the line it is on: the ones written under a
+/// frontmatter `tags` key first, then the `#tags` written in the body.
 ///
-/// A tag opens at the start of a line or after whitespace or an opening
+/// A body tag opens at the start of a line or after whitespace or an opening
 /// bracket, which is what keeps the fragment of `https://example.com#section`
 /// out of the list, and runs over letters, digits, `_`, `-` and `/`. A run of
-/// digits alone is a number, not a tag. Code fences, inline code and the
-/// frontmatter block are not scanned.
+/// digits alone is a number, not a tag. Code fences and inline code are not
+/// scanned, so a tag written inside an example stays an example.
+///
+/// A frontmatter tag is a tag the same way an inline one is: it is what the
+/// note is filed under, and a folder written in another editor puts most of
+/// its tags there ([`frontmatter_tags`]).
+///
+/// Every tag comes back lowercased. `#Project` and `#project` are the same
+/// tag to the person who wrote them, and two rows in the tag list is two
+/// halves of one pile. The note keeps the casing it was written with; only
+/// what the tag is filed under is folded.
 pub fn tags(text: &str) -> Vec<(String, u32)> {
-    let mut out = Vec::new();
+    let mut out = frontmatter_tags(text);
     for line in body_lines(text) {
         for (offset, segment) in code_free_segments(line.raw) {
             let mut chars = segment.char_indices().peekable();
@@ -287,7 +297,7 @@ pub fn tags(text: &str) -> Vec<(String, u32)> {
                     .take_while(|c| is_tag_char(*c))
                     .collect();
                 if is_tag(&body) {
-                    out.push((body.clone(), line.line));
+                    out.push((body.to_lowercase(), line.line));
                     for _ in 0..body.chars().count() {
                         chars.next();
                     }
@@ -296,6 +306,136 @@ pub fn tags(text: &str) -> Vec<(String, u32)> {
         }
     }
     out
+}
+
+/// The frontmatter keys a note's tags can be written under.
+///
+/// `tags` is the key Obsidian writes; `tag` is the singular spelling older
+/// notes carry. No other key is read as a tag: a `topics` list holds
+/// properties, and reading it as tags would file notes under words nobody
+/// tagged them with.
+const TAG_KEYS: &[&str] = &["tags", "tag"];
+
+/// Every tag written in the frontmatter of `text`, with the line it is on.
+///
+/// `tags: [a, b]` puts both tags on the line the key is written on, and a `-`
+/// list under `tags:` puts each tag on the line its item is written on, so a
+/// reader can be taken to the tag it clicked either way. Quotes and a leading
+/// `#` come off the value, and what is left has to be a tag [`is_tag`] answers
+/// for, so `tags: [2026]` and an empty entry add nothing.
+///
+/// A value written after the key holds as many tags as it names:
+/// `tags: work, urgent`, `tags: "work, urgent"` and `tags: work urgent` are
+/// all two tags, which is what the folders people arrive with carry. Inside a
+/// list the item is the tag, so `[two words]` is not one ([`TagValue`]).
+///
+/// The block is read line by line rather than through [`properties`]: the
+/// properties parser collects the block first and keeps no line numbers, and a
+/// tag without its line is a tag nothing can jump to.
+fn frontmatter_tags(text: &str) -> Vec<(String, u32)> {
+    let (Some(block), _) = split_frontmatter(text) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut in_tag_list = false;
+    for (index, line) in block.lines().enumerate().skip(1) {
+        let number = index as u32 + 1;
+        if line.trim_end() == "---" {
+            break;
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(item) = trimmed.strip_prefix('-') {
+            if in_tag_list {
+                push_tags(&mut out, without_comment(item), TagValue::Item, number);
+            }
+            continue;
+        }
+        // An indented line belongs to the value above it, which a nested map
+        // makes a block of its own keys. A `tags` key inside one is that map's,
+        // not the note's.
+        if line.starts_with([' ', '\t']) {
+            continue;
+        }
+        let Some((key, rest)) = split_key(trimmed) else {
+            in_tag_list = false;
+            continue;
+        };
+        if !TAG_KEYS.contains(&key.to_ascii_lowercase().as_str()) {
+            in_tag_list = false;
+            continue;
+        }
+        // The comment comes off before the value is read, so a note the writer
+        // left themselves neither becomes a tag nor takes the line's tags with
+        // it.
+        let rest = without_comment(rest).trim();
+        // A key with nothing after it opens the list the `-` items below it
+        // belong to.
+        in_tag_list = rest.is_empty();
+        if let Some(inner) = rest.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
+            for item in split_flow(inner) {
+                push_tags(&mut out, item, TagValue::Listed, number);
+            }
+        } else if !rest.is_empty() {
+            push_tags(&mut out, rest, TagValue::AfterTheKey, number);
+        }
+    }
+    out
+}
+
+/// Where a frontmatter tag value is written, which is what decides how many
+/// tags one value can hold.
+enum TagValue {
+    /// Written after the key. A comma and a space both separate two tags:
+    /// `tags: work, urgent` and `tags: work urgent` are two tags each.
+    AfterTheKey,
+    /// One `-` item. A comma still separates two tags; a space does not,
+    /// because the item is already a value of its own.
+    Item,
+    /// One item of a `[a, b]` list, which the list has already separated.
+    Listed,
+}
+
+/// Records every tag written in `raw` on `number`, dropping what is not one.
+///
+/// A piece is a tag when it is made of tag characters and [`is_tag`] answers
+/// for it, so a stray separator, an empty entry and `2026` add nothing while
+/// the pieces beside them are still kept.
+fn push_tags(out: &mut Vec<(String, u32)>, raw: &str, written: TagValue, number: u32) {
+    let value = raw.trim().trim_matches(['"', '\'']).trim();
+    let pieces: Vec<&str> = match written {
+        TagValue::AfterTheKey => value.split([',', ' ', '\t']).collect(),
+        TagValue::Item => value.split(',').collect(),
+        TagValue::Listed => vec![value],
+    };
+    for piece in pieces {
+        let piece = piece.trim().trim_matches(['"', '\'']).trim();
+        let body = piece.strip_prefix('#').unwrap_or(piece);
+        if body.chars().all(is_tag_char) && is_tag(body) {
+            out.push((body.to_lowercase(), number));
+        }
+    }
+}
+
+/// `value` with the comment a writer left on the line removed.
+///
+/// A `#` with nothing tag-shaped after it opens a YAML comment; a `#` in front
+/// of a tag character marks a tag. So `tags: work # mine later` is one tag and
+/// a note to the writer, `tags: #work #mine` is two tags, and
+/// `tags: [a, b] # mine` keeps its list.
+fn without_comment(value: &str) -> &str {
+    let mut from = 0;
+    while let Some(offset) = value[from..].find('#') {
+        let at = from + offset;
+        if value[at + 1..].chars().next().is_some_and(is_tag_char) {
+            from = at + 1;
+            continue;
+        }
+        return &value[..at];
+    }
+    value
 }
 
 /// Whether a `#` written after `before` can open a tag.
@@ -439,10 +579,105 @@ mod tests {
     }
 
     #[test]
-    fn a_tag_inside_code_or_frontmatter_is_not_scanned() {
-        assert!(tags("```\n#inbox\n```\n").is_empty());
-        assert!(tags("write `#inbox` for that\n").is_empty());
-        assert!(tags("---\ntags: [x]\n#inbox: y\n---\nbody\n").is_empty());
+    fn a_tag_inside_code_is_not_scanned() {
+        assert!(tags("```\n#reading\n```\n").is_empty());
+        assert!(tags("write `#reading` for that\n").is_empty());
+    }
+
+    #[test]
+    fn a_hash_in_the_frontmatter_block_is_not_an_inline_tag() {
+        assert!(tags("---\ntitle: x\n#reading: y\n---\nbody\n").is_empty());
+    }
+
+    #[test]
+    fn a_frontmatter_tag_list_carries_the_line_the_key_is_written_on() {
+        assert_eq!(
+            tags("---\ntitle: One\ntags: [alpha, project/beta]\n---\n\n#gamma\n"),
+            vec![
+                ("alpha".to_string(), 3),
+                ("project/beta".to_string(), 3),
+                ("gamma".to_string(), 6),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_frontmatter_tag_written_as_an_item_carries_its_own_line() {
+        assert_eq!(
+            tags("---\ntag: alpha\ntags:\n  - beta\n  - \"#project/gamma\"\n---\nbody\n"),
+            vec![
+                ("alpha".to_string(), 2),
+                ("beta".to_string(), 4),
+                ("project/gamma".to_string(), 5),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_frontmatter_value_that_is_not_a_tag_is_left_out() {
+        assert!(tags("---\ntags: [2026, \"\"]\ntopics: [alpha]\n---\nbody\n").is_empty());
+        assert!(tags("---\ncover:\n  tags: [alpha]\n---\nbody\n").is_empty());
+        assert!(tags("---\ntags: [two words]\n---\nbody\n").is_empty());
+    }
+
+    #[test]
+    fn a_frontmatter_tag_value_holds_as_many_tags_as_it_names() {
+        assert_eq!(
+            tags("---\ntags: work, urgent\n---\nbody\n"),
+            vec![("work".to_string(), 2), ("urgent".to_string(), 2)]
+        );
+        assert_eq!(
+            tags("---\ntags: \"work, urgent\"\n---\nbody\n"),
+            vec![("work".to_string(), 2), ("urgent".to_string(), 2)]
+        );
+        assert_eq!(
+            tags("---\ntags: work urgent\n---\nbody\n"),
+            vec![("work".to_string(), 2), ("urgent".to_string(), 2)]
+        );
+        assert_eq!(
+            tags("---\ntag: work, urgent\n---\nbody\n"),
+            vec![("work".to_string(), 2), ("urgent".to_string(), 2)],
+            "the older singular key holds a list the same way"
+        );
+        assert_eq!(
+            tags("---\ntags:\n  - work, urgent\n---\nbody\n"),
+            vec![("work".to_string(), 3), ("urgent".to_string(), 3)],
+            "and so does one item of a list"
+        );
+    }
+
+    #[test]
+    fn a_comment_on_a_tag_line_is_not_a_tag_and_takes_none_with_it() {
+        assert_eq!(
+            tags("---\ntags: [alpha, beta] # sort these\n---\nbody\n"),
+            vec![("alpha".to_string(), 2), ("beta".to_string(), 2)]
+        );
+        assert_eq!(
+            tags("---\ntags: work # mine later\n---\nbody\n"),
+            vec![("work".to_string(), 2)]
+        );
+        assert_eq!(
+            tags("---\ntags: #work #urgent\n---\nbody\n"),
+            vec![("work".to_string(), 2), ("urgent".to_string(), 2)],
+            "a hash in front of a tag character marks a tag rather than a comment"
+        );
+        assert_eq!(
+            tags("---\ntags: # the ones below\n  - work\n---\nbody\n"),
+            vec![("work".to_string(), 3)],
+            "a commented key still opens the list under it"
+        );
+    }
+
+    #[test]
+    fn one_tag_written_two_ways_is_one_tag() {
+        assert_eq!(
+            tags("---\ntags: [Project]\n---\n\n#project and #PROJECT\n"),
+            vec![
+                ("project".to_string(), 2),
+                ("project".to_string(), 5),
+                ("project".to_string(), 5),
+            ]
+        );
     }
 
     #[test]
