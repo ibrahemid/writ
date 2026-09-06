@@ -5,6 +5,7 @@ pub mod fts_scheduler;
 pub mod generated;
 pub mod hotkey;
 pub mod logging;
+pub mod menu;
 pub mod notes;
 pub mod poison;
 pub mod preview;
@@ -80,29 +81,10 @@ pub(crate) fn finish_shutdown(app_handle: &tauri::AppHandle) {
     }
 }
 
-/// The Quit item's id. Not in [`MENU_ACTION_IDS`]: quitting is the exit path's
-/// own business, not an action forwarded to the frontend.
+/// The Quit item's id. Not in the shared command list: quitting is the exit
+/// path's own business, not an action forwarded to the frontend.
 #[cfg(target_os = "macos")]
 const QUIT_MENU_ID: &str = "app.quit";
-
-#[cfg(target_os = "macos")]
-const MENU_ACTION_IDS: &[&str] = &[
-    "app.check_updates",
-    "file.open",
-    "note.new",
-    "note.today",
-    "note.rename",
-    "note.saveCopy",
-    "buffer.close",
-];
-
-#[cfg(target_os = "macos")]
-fn menu_action_for_id(id: &str) -> Option<&'static str> {
-    MENU_ACTION_IDS
-        .iter()
-        .copied()
-        .find(|&allowed| allowed == id)
-}
 
 /// Canonicalize and authorize OS-dropped paths into the set we will open.
 ///
@@ -120,24 +102,47 @@ fn dropped_paths_to_open(
     startup::authorize_and_canonicalize(authorized, &raw_paths)
 }
 
-/// Builds the native macOS menu bar.
+/// Adds one menu's commands from the shared list, with a separator between
+/// groups.
+#[cfg(target_os = "macos")]
+fn fill_section<'m>(
+    app: &'m tauri::App,
+    builder: tauri::menu::SubmenuBuilder<'m, tauri::Wry, tauri::App>,
+    section: menu::MenuSection,
+) -> Result<tauri::menu::SubmenuBuilder<'m, tauri::Wry, tauri::App>, Box<dyn std::error::Error>> {
+    use tauri::menu::MenuItemBuilder;
+
+    let mut builder = builder;
+    let mut last_group: Option<u8> = None;
+    for command in menu::commands_in(section, menu::MenuPlatform::Mac) {
+        if last_group.is_some_and(|group| group != command.group) {
+            builder = builder.separator();
+        }
+        last_group = Some(command.group);
+
+        let mut item = MenuItemBuilder::with_id(command.id.clone(), &command.label);
+        if let Some(accelerator) = &command.accelerator {
+            item = item.accelerator(accelerator);
+        }
+        builder = builder.item(&item.build(app)?);
+    }
+    Ok(builder)
+}
+
+/// Builds the native macOS menu bar from the shared command list
+/// (`src/commands/menu-commands.json`, read here through [`menu`]).
 ///
 /// macOS-only by design: it hosts the system menu bar that macOS apps are
-/// expected to provide, and its `CmdOrCtrl+O/N/W` accelerators are correct
-/// there. On Windows/Linux the window runs with `decorations: false`, so this
-/// menu would be invisible chrome while its accelerators collide with the
-/// platform translator. Every action it exposes (`app.check_updates`,
-/// `file.open`, `note.new`, `note.today`, `note.rename`, `note.saveCopy`,
-/// `buffer.close`) is also registered as a command palette entry in the
-/// frontend, most of them with a keyboard shortcut, so gating it off those
-/// platforms removes dead chrome without removing any reachable action.
+/// expected to provide, and its `CmdOrCtrl` accelerators are correct there. On
+/// Windows/Linux the window runs with `decorations: false`, so this menu would
+/// be invisible chrome while its accelerators collide with the platform
+/// translator. Every command in the list is offered on all three platforms —
+/// `AppMenu.tsx` carries the same list into the titlebar menu button — so
+/// gating this off those platforms removes chrome, never an action.
 #[cfg(target_os = "macos")]
 fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
     use writ_core::events::bus::WritEvent;
-
-    let check_updates =
-        MenuItemBuilder::with_id("app.check_updates", "Check for Updates…").build(app)?;
 
     // Not `PredefinedMenuItem::quit`: muda maps that to AppKit's `terminate:`,
     // which tears the process down without ever reaching the event loop, so no
@@ -148,46 +153,24 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .accelerator("CmdOrCtrl+Q")
         .build(app)?;
 
-    let app_menu = SubmenuBuilder::new(app, "Writ")
-        .items(&[
-            &PredefinedMenuItem::about(app, Some("About Writ"), None)?,
-            &PredefinedMenuItem::separator(app)?,
-            &check_updates,
-            &PredefinedMenuItem::separator(app)?,
-            &quit_item,
-        ])
+    // About sits above the list's app section, so the licences the list opens
+    // read as part of what About says about this build.
+    let app_menu = SubmenuBuilder::new(app, "Writ").item(&PredefinedMenuItem::about(
+        app,
+        Some("About Writ"),
+        None,
+    )?);
+    let app_menu = fill_section(app, app_menu, menu::MenuSection::App)?
+        .separator()
+        .item(&quit_item)
         .build()?;
 
-    let open_file = MenuItemBuilder::with_id("file.open", "Open File…")
-        .accelerator("CmdOrCtrl+O")
-        .build(app)?;
-    let quick_open = MenuItemBuilder::with_id("notes.quickOpen", "Open Note…")
-        .accelerator("CmdOrCtrl+Shift+O")
-        .build(app)?;
-    let new_note = MenuItemBuilder::with_id("note.new", "New Note")
-        .accelerator("CmdOrCtrl+N")
-        .build(app)?;
-    // No accelerator: the shortcut table is spec K1's.
-    let todays_note = MenuItemBuilder::with_id("note.today", "Today's Note").build(app)?;
-    let rename_note = MenuItemBuilder::with_id("note.rename", "Rename Note…").build(app)?;
-    let save_copy = MenuItemBuilder::with_id("note.saveCopy", "Save a Copy…").build(app)?;
-    let close_tab = MenuItemBuilder::with_id("buffer.close", "Close Tab")
-        .accelerator("CmdOrCtrl+W")
-        .build(app)?;
-
-    let file_menu = SubmenuBuilder::new(app, "File")
-        .items(&[
-            &new_note,
-            &todays_note,
-            &quick_open,
-            &open_file,
-            &PredefinedMenuItem::separator(app)?,
-            &rename_note,
-            &save_copy,
-            &PredefinedMenuItem::separator(app)?,
-            &close_tab,
-        ])
-        .build()?;
+    let file_menu = fill_section(
+        app,
+        SubmenuBuilder::new(app, "File"),
+        menu::MenuSection::File,
+    )?
+    .build()?;
 
     let edit_menu = SubmenuBuilder::new(app, "Edit")
         .undo()
@@ -197,12 +180,34 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .copy()
         .paste()
         .select_all()
-        .build()?;
+        .separator();
+    let edit_menu = fill_section(app, edit_menu, menu::MenuSection::Edit)?.build()?;
+
+    let view_menu = fill_section(
+        app,
+        SubmenuBuilder::new(app, "View"),
+        menu::MenuSection::View,
+    )?
+    .build()?;
 
     let window_menu = SubmenuBuilder::new(app, "Window").minimize().build()?;
 
+    let help_menu = fill_section(
+        app,
+        SubmenuBuilder::new(app, "Help"),
+        menu::MenuSection::Help,
+    )?
+    .build()?;
+
     let menu = MenuBuilder::new(app)
-        .items(&[&app_menu, &file_menu, &edit_menu, &window_menu])
+        .items(&[
+            &app_menu,
+            &file_menu,
+            &edit_menu,
+            &view_menu,
+            &window_menu,
+            &help_menu,
+        ])
         .build()?;
 
     app.set_menu(menu)?;
@@ -213,7 +218,7 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             app_handle.exit(0);
             return;
         }
-        if let Some(action) = menu_action_for_id(id) {
+        if let Some(action) = menu::menu_action_for_id(id) {
             let state = app_handle.state::<AppState>();
             state.event_bus.emit(WritEvent::MenuAction {
                 action: action.to_string(),
@@ -1289,28 +1294,12 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn menu_action_for_id_returns_each_whitelisted_id() {
-        for id in MENU_ACTION_IDS {
-            assert_eq!(menu_action_for_id(id), Some(*id));
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
     fn the_quit_item_is_not_forwarded_to_the_frontend() {
         assert_eq!(
-            menu_action_for_id(QUIT_MENU_ID),
+            menu::menu_action_for_id(QUIT_MENU_ID),
             None,
             "quit must reach the exit path, not the frontend's menu handler"
         );
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn menu_action_for_id_returns_none_for_unknown_ids() {
-        assert_eq!(menu_action_for_id(""), None);
-        assert_eq!(menu_action_for_id("unknown.command"), None);
-        assert_eq!(menu_action_for_id("file.open "), None);
     }
 
     #[test]

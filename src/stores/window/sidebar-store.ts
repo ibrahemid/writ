@@ -14,6 +14,7 @@ export function createSidebarStore() {
   const [searchTotal, setSearchTotal] = createSignal(0);
   const [searchMs, setSearchMs] = createSignal<number | null>(null);
   const [selectedTag, setSelectedTag] = createSignal<string | null>(null);
+  const [recentRequest, setRecentRequest] = createSignal(0);
 
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let searchGeneration = 0;
@@ -44,6 +45,18 @@ export function createSidebarStore() {
   function toggle() {
     setIsOpen((prev) => !prev);
     persist();
+  }
+
+  /**
+   * Opens the sidebar on the list of notes closed recently, which is where the
+   * File menu's Open Recent leads.
+   *
+   * A counter rather than a flag: asking twice running has to reach the
+   * section twice, and a flag that is already `true` reaches it once.
+   */
+  function showRecent() {
+    show();
+    setRecentRequest((count) => count + 1);
   }
 
   /**
@@ -119,5 +132,7 @@ export function createSidebarStore() {
     searchMs,
     selectedTag,
     selectTag,
+    recentRequest,
+    showRecent,
   };
 }

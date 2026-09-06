@@ -34,6 +34,7 @@ import { logFailure } from "./lib/log";
 import { armReveal } from "./lib/boot-reveal";
 import FirstRunHint from "./components/Editor/FirstRunHint";
 import { firstRunStore, watchSavesForRetitle } from "./stores/global/first-run";
+import { openThirdPartyNoticesBuffer } from "./stores/global/notices";
 import { workspaceStore } from "./stores/global/workspace";
 import { notesStore } from "./stores/global/notes";
 import { inboxStore } from "./stores/global/inbox";
@@ -163,6 +164,24 @@ function dismissHintOnFirstKeystroke(): () => void {
 function AppShell() {
   const win = useWindow();
   const unlisteners: UnlistenFn[] = [];
+
+  // Registered here rather than with the rest: the label names the app the
+  // folder opens in, and that word comes from Rust with the first-run state,
+  // so the registration follows the answer instead of the mount.
+  createEffect(() => {
+    registerCommand({
+      id: "notes.showFolder",
+      icon: "folder-open",
+      label: `Show notes folder in ${firstRunStore.fileManager()}`,
+      description: "Open the folder your notes are saved in",
+      scope: "app",
+      execute: () => {
+        void notesStore.showInFileManager().catch(() => {
+          showToast("Could not open the notes folder", "error");
+        });
+      },
+    });
+  });
 
   onMount(async () => {
     measureFirstPaint("cold");
@@ -425,6 +444,14 @@ function AppShell() {
         const history = bufferRegistry.historyList();
         if (history.length > 0) void w.tabs.restoreFromHistory(history[0].id);
       },
+    });
+
+    registerCommand({
+      id: "history.openRecent",
+      label: "Open recent",
+      description: "Show the notes closed most recently",
+      scope: "app",
+      execute: () => windowRegistry.getActive()?.sidebar.showRecent(),
     });
 
     registerCommand({
@@ -691,6 +718,27 @@ function AppShell() {
       scope: "app",
       global: true,
       execute: () => openSettings(),
+    });
+
+    registerCommand({
+      id: "app.thirdPartyNotices",
+      label: "Third-party licences",
+      description: "Open the licences of the code Writ is built on",
+      scope: "app",
+      execute: () => {
+        void (async () => {
+          try {
+            const { doc, reused } = await openThirdPartyNoticesBuffer();
+            const active = windowRegistry.getActive();
+            active?.tabs.setActiveTabId(doc.id);
+            // Reopening rewrites the same file, and activating a tab that is
+            // already active loads nothing, so the text is pulled in here.
+            if (reused) active?.editor.requestExternalReload(doc.id);
+          } catch {
+            showToast("Could not open the third-party licences", "error");
+          }
+        })();
+      },
     });
 
     registerCommand({

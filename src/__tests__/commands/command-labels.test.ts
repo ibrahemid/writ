@@ -5,6 +5,7 @@ import { getAllCommands, unregisterCommand } from "../../commands/registry";
 import { registerEditorCommands, EDITOR_COMMANDS } from "../../editor/editor-commands";
 import { registerAiCommands, unregisterAiCommands } from "../../commands/ai";
 import { REWRITE_ACTIONS } from "../../commands/rewrite-actions";
+import { MENU_COMMANDS } from "../../commands/menu-commands";
 
 // A screen reader reads the label and nothing else, so a command with an empty
 // one is registered but unreachable: it has a row in the palette and a line in
@@ -13,7 +14,6 @@ import { REWRITE_ACTIONS } from "../../commands/rewrite-actions";
 
 const ROOT = process.cwd();
 const SRC = resolve(ROOT, "src");
-const APP_MENU = readFileSync(resolve(SRC, "components/TitleBar/AppMenu.tsx"), "utf8");
 
 function walk(dir: string, files: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
@@ -121,9 +121,7 @@ describe("command labels", () => {
   });
 
   it("names only commands that are registered somewhere in the menu", () => {
-    const block = APP_MENU.match(/const MENU_COMMAND_IDS = \[([\s\S]*?)\] as const;/);
-    expect(block, "AppMenu declares MENU_COMMAND_IDS").toBeTruthy();
-    const menuIds = Array.from(block![1].matchAll(/"([^"]+)"/g)).map((m) => m[1]);
+    const menuIds = MENU_COMMANDS.map((entry) => entry.id);
     expect(menuIds.length).toBeGreaterThan(0);
     const registeredIds = new Set(REGISTRATIONS.map((r) => literalText(r.id)).filter(Boolean));
     const missing = menuIds.filter((id) => !registeredIds.has(id));
