@@ -111,15 +111,19 @@ pub fn auto_retitle_note_inner(state: &AppState, id: &str) -> Result<RetitleOutc
 
     // Once, whichever way it goes: a note whose first line has been answered
     // for is never answered for again, so an edit to the first line an hour
-    // later does not move the file under the person a second time.
-    state.retitle_watch.forget(&path);
-
+    // later does not move the file under the person a second time. Answered
+    // is the file having moved or the question having been put — a rename the
+    // guard refused answered nothing, and the next save may still ask.
     match answer {
         RetitleAnswer::Rename => {
             let note = crate::commands::notes::rename_note_inner(state, id, &title)?;
+            state.retitle_watch.forget(&path);
             Ok(RetitleOutcome::Renamed { note })
         }
-        RetitleAnswer::Ask => Ok(RetitleOutcome::Ask { title }),
+        RetitleAnswer::Ask => {
+            state.retitle_watch.forget(&path);
+            Ok(RetitleOutcome::Ask { title })
+        }
     }
 }
 
