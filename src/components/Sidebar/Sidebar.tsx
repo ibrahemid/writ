@@ -12,6 +12,7 @@ import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
 } from "../../stores/global/config";
+import EdgeResizer from "../Resizer/EdgeResizer";
 import SearchBar from "./SearchBar";
 import ActiveSection from "./ActiveSection";
 import FilesSection from "./FilesSection";
@@ -21,25 +22,6 @@ import HistorySection from "./HistorySection";
 import SearchResults from "./SearchResults";
 import SidebarEmpty from "./SidebarEmpty";
 import "./Sidebar.css";
-
-/** How far one arrow key moves the edge. */
-const KEYBOARD_STEP = 8;
-
-/**
- * Pointer capture keeps a drag alive over the editor and outside the window,
- * which is what makes document-level listeners unnecessary. jsdom implements
- * neither call, and a browser rejects an id it never captured, so both are
- * attempted rather than assumed.
- */
-function setCapture(handle: Element, pointerId: number, capture: boolean) {
-  try {
-    if (capture) handle.setPointerCapture(pointerId);
-    else handle.releasePointerCapture(pointerId);
-  } catch {
-    // No capture available: the drag still tracks while the pointer is over
-    // the handle, and release is a no-op.
-  }
-}
 
 export default function Sidebar() {
   const win = useWindow();
@@ -64,39 +46,9 @@ export default function Sidebar() {
   // Non-null only while a drag is in flight: the edge follows the pointer
   // without a disk write per frame, and release commits the settled width.
   const [dragWidth, setDragWidth] = createSignal<number | null>(null);
-  let dragStartX = 0;
-  let dragStartWidth = SIDEBAR_WIDTH_DEFAULT;
 
-  const width = () => dragWidth() ?? clampSidebarWidth(configStore.config().sidebar.width);
-
-  function startDrag(e: PointerEvent) {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    setCapture(e.currentTarget as Element, e.pointerId, true);
-    dragStartX = e.clientX;
-    dragStartWidth = width();
-    setDragWidth(dragStartWidth);
-  }
-
-  function moveDrag(e: PointerEvent) {
-    if (dragWidth() === null) return;
-    setDragWidth(clampSidebarWidth(dragStartWidth + (e.clientX - dragStartX)));
-  }
-
-  function endDrag(e: PointerEvent) {
-    const settled = dragWidth();
-    if (settled === null) return;
-    setCapture(e.currentTarget as Element, e.pointerId, false);
-    setDragWidth(null);
-    configStore.setSidebarWidth(settled);
-  }
-
-  function stepWidth(e: KeyboardEvent) {
-    const step = e.key === "ArrowLeft" ? -KEYBOARD_STEP : e.key === "ArrowRight" ? KEYBOARD_STEP : 0;
-    if (step === 0) return;
-    e.preventDefault();
-    configStore.setSidebarWidth(width() + step);
-  }
+  const settledWidth = () => clampSidebarWidth(configStore.config().sidebar.width);
+  const width = () => dragWidth() ?? settledWidth();
 
   return (
     <div
@@ -135,21 +87,16 @@ export default function Sidebar() {
           </div>
         </Show>
       </div>
-      <div
+      <EdgeResizer
         class="sidebar-resizer"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Sidebar width"
-        aria-valuemin={SIDEBAR_WIDTH_MIN}
-        aria-valuemax={SIDEBAR_WIDTH_MAX}
-        aria-valuenow={width()}
-        tabIndex={0}
-        onPointerDown={startDrag}
-        onPointerMove={moveDrag}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onKeyDown={stepWidth}
-        onDblClick={() => configStore.setSidebarWidth(SIDEBAR_WIDTH_DEFAULT)}
+        label="Sidebar width"
+        width={settledWidth}
+        min={SIDEBAR_WIDTH_MIN}
+        max={SIDEBAR_WIDTH_MAX}
+        direction={1}
+        onDrag={setDragWidth}
+        onCommit={(next) => configStore.setSidebarWidth(next)}
+        onReset={() => configStore.setSidebarWidth(SIDEBAR_WIDTH_DEFAULT)}
       />
     </div>
   );

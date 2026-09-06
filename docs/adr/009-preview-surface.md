@@ -478,7 +478,7 @@ shortcuts; no collision with `Shift+Shift` (palette), `Cmd+T`
 | `Cmd+Shift+R`       | Toggle preview-fullscreen (`Preview` mode)      | Active tab         |
 | `Esc`               | Exit preview-fullscreen → return to `Split`     | When fullscreen    |
 | `Cmd+Shift+O`       | Detach preview to a new window                  | Active tab         |
-| `Cmd+Shift+\`       | Swap split orientation (vertical/horizontal)    | When in `Split`    |
+| `Cmd+Shift+H`       | Swap split orientation (vertical/horizontal)    | When in `Split`    |
 | `Cmd+0`             | Reset split ratio to 50/50                      | When in `Split`    |
 
 `Cmd+Shift+O` is also reused (with different scope) by ADR-010 to open

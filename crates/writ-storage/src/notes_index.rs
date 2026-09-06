@@ -200,6 +200,10 @@ pub struct BacklinkRow {
     pub context: String,
     /// Whether the link means this note for certain.
     pub certainty: BacklinkCertainty,
+    /// The other notes the link might mean, by path, when it means more than
+    /// one. Empty for a link that means this note and no other, so a reader is
+    /// told which notes an ambiguity is between rather than that there is one.
+    pub candidates: Vec<String>,
 }
 
 /// Everything the index holds about one note beyond its `files` row.
@@ -902,10 +906,10 @@ impl<'a> NotesIndex<'a> {
     /// indexing it drops the facts derived from its text, the links among them,
     /// and it leaves every list until something downloads it.
     pub fn backlinks(&self, path: &str) -> StorageResult<Vec<BacklinkRow>> {
-        let mut found: Vec<(LinkRow, BacklinkCertainty)> = self
+        let mut found: Vec<(LinkRow, BacklinkCertainty, Vec<String>)> = self
             .links_to(path)?
             .into_iter()
-            .map(|row| (row, BacklinkCertainty::Resolved))
+            .map(|row| (row, BacklinkCertainty::Resolved, Vec::new()))
             .collect();
 
         // One name index for the whole call: `resolve_link` builds a fresh one
@@ -923,12 +927,18 @@ impl<'a> NotesIndex<'a> {
             }
             if let Resolution::Ambiguous(candidates) = names.resolve(&target, &row.from_path) {
                 if candidates.iter().any(|candidate| candidate == path) {
-                    found.push((row, BacklinkCertainty::Ambiguous));
+                    // The list the row is shown under is the one note it is
+                    // already filed against, so what it carries is the others.
+                    let others = candidates
+                        .into_iter()
+                        .filter(|candidate| candidate != path)
+                        .collect();
+                    found.push((row, BacklinkCertainty::Ambiguous, others));
                 }
             }
         }
 
-        found.sort_by(|(left, _), (right, _)| {
+        found.sort_by(|(left, ..), (right, ..)| {
             (&left.from_path, left.line, left.col).cmp(&(&right.from_path, right.line, right.col))
         });
         self.describe_backlinks(found)
@@ -939,7 +949,7 @@ impl<'a> NotesIndex<'a> {
     /// holds.
     fn describe_backlinks(
         &self,
-        found: Vec<(LinkRow, BacklinkCertainty)>,
+        found: Vec<(LinkRow, BacklinkCertainty, Vec<String>)>,
     ) -> StorageResult<Vec<BacklinkRow>> {
         let mut described = Vec::with_capacity(found.len());
         let mut start = 0usize;
@@ -947,7 +957,7 @@ impl<'a> NotesIndex<'a> {
             let from_path = found[start].0.from_path.clone();
             let end = found[start..]
                 .iter()
-                .position(|(row, _)| row.from_path != from_path)
+                .position(|(row, ..)| row.from_path != from_path)
                 .map_or(found.len(), |offset| start + offset);
 
             let content = self.note_text(&from_path)?;
@@ -957,7 +967,7 @@ impl<'a> NotesIndex<'a> {
             // The same parser that wrote the rows, so the alias and the row can
             // never disagree about which link is which.
             let scanned = links::scan(&content);
-            for (row, certainty) in &found[start..end] {
+            for (row, certainty, candidates) in &found[start..end] {
                 let written = scanned
                     .iter()
                     .find(|link| link.line == row.line && link.col == row.col);
@@ -973,6 +983,7 @@ impl<'a> NotesIndex<'a> {
                         .map(|link| snippet::sentence_at(&content, link.byte_range.start))
                         .unwrap_or_default(),
                     certainty: *certainty,
+                    candidates: candidates.clone(),
                 });
             }
             start = end;

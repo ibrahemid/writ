@@ -192,7 +192,7 @@ fn note_backlinks_flags_a_link_that_names_this_note_and_another() {
         ("Diary.md", "Wrote up [[Meeting]] after.\n"),
     ]);
 
-    for folder in ["projects", "archive"] {
+    for (folder, other) in [("projects", "archive"), ("archive", "projects")] {
         let rows = note_backlinks_inner(
             &index,
             root.join(folder)
@@ -203,6 +203,11 @@ fn note_backlinks_flags_a_link_that_names_this_note_and_another() {
         .expect("backlinks");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].certainty, "ambiguous");
+        assert_eq!(
+            rows[0].candidates,
+            vec![notes_index::index_key(&root.join(other).join("Meeting.md"))],
+            "the row names the other note the link could mean"
+        );
     }
 }
 

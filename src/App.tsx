@@ -3,6 +3,7 @@ import TitleBar from "./components/TitleBar/TitleBar";
 import WindowLights from "./components/TitleBar/WindowLights";
 import EditorArea from "./components/Editor/EditorArea";
 import Sidebar from "./components/Sidebar/Sidebar";
+import RightPanel from "./components/RightPanel/RightPanel";
 import CommandPalette, {
   openNoteSearch,
   toggleCommandPalette,
@@ -174,6 +175,7 @@ function AppShell() {
     unlisteners.push(await installCloseFlush([() => osWindowStore.flushGeometry()]));
     unlisteners.push(...(await startWindowLifecycle()));
     win.sidebar.hydrateFromConfig();
+    win.rightPanel.hydrateFromConfig();
     await bufferRegistry.load();
     await workspaceStore.hydrate().catch(() => undefined);
     await inboxStore.hydrate().catch(() => undefined);
@@ -401,6 +403,19 @@ function AppShell() {
       // must fire from the editor and from the sidebar search input alike.
       global: true,
       execute: () => windowRegistry.getActive()?.sidebar.toggle(),
+    });
+
+    registerCommand({
+      id: "panel.toggle",
+      icon: "link-simple",
+      label: "Toggle connections",
+      description: "Show or hide what links to this note, its outline and properties",
+      keybinding: "CmdOrCtrl+Shift+\\",
+      scope: "app",
+      // Global, for the same reason the sidebar's toggle is: the editor holds
+      // focus almost all the time, so a focus-gated chord would never reach it.
+      global: true,
+      execute: () => windowRegistry.getActive()?.rightPanel.toggle(),
     });
 
     registerCommand({
@@ -764,6 +779,7 @@ function AppShell() {
       <div class="app-body">
         <Sidebar />
         <EditorArea />
+        <RightPanel />
         {/* Last in the row and over both panes: the lights sit at the window's
             leading edge whatever the sidebar is doing under them. */}
         <WindowLights />

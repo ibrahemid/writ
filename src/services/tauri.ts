@@ -227,6 +227,9 @@ export interface Backlink {
   /** `ambiguous` when the link names this note and another one, and picks
    * neither. */
   certainty: BacklinkCertainty;
+  /** The other notes an ambiguous link might mean, by path. Empty when the
+   * link means this note and no other. */
+  candidates: string[];
 }
 
 export async function noteBacklinks(path: string): Promise<Backlink[]> {

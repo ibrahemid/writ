@@ -173,6 +173,40 @@ fn an_ambiguous_link_is_listed_under_every_note_it_might_mean() {
 }
 
 #[test]
+fn an_ambiguous_link_carries_the_other_note_it_might_mean() {
+    let (_dir, conn, notes) = fixture();
+    let one = write_note(&notes, "projects/Meeting.md", "# Meeting\n");
+    let two = write_note(&notes, "archive/Meeting.md", "# Meeting\n");
+    write_note(&notes, "Diary.md", "Wrote up [[Meeting]] after.\n");
+    walk(&conn, &notes);
+
+    assert_eq!(
+        backlinks(&conn, &one)[0].candidates,
+        vec![notes_index::index_key(&two)],
+        "the row is already filed under this note, so it carries the other one"
+    );
+    assert_eq!(
+        backlinks(&conn, &two)[0].candidates,
+        vec![notes_index::index_key(&one)]
+    );
+}
+
+#[test]
+fn a_link_that_means_one_note_carries_no_other_candidate() {
+    let (_dir, conn, notes) = fixture();
+    let target = write_note(&notes, "Target.md", "# Target\n");
+    write_note(&notes, "Source.md", "The plan is in [[Target]].\n");
+    walk(&conn, &notes);
+
+    let rows = backlinks(&conn, &target);
+    assert_eq!(rows[0].certainty, BacklinkCertainty::Resolved);
+    assert!(
+        rows[0].candidates.is_empty(),
+        "a settled link is between no notes"
+    );
+}
+
+#[test]
 fn a_link_that_reached_another_note_of_the_same_name_is_not_listed_here() {
     let (_dir, conn, notes) = fixture();
     // The shallower note wins the ranking, so the link resolves rather than

@@ -36,6 +36,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       closeTab: vi.fn(),
       restoreFromHistory: vi.fn(),
     },
+    rightPanel: { isOpen: () => false },
     editor: { activeFormats: () => ({}) },
   }),
 }));
