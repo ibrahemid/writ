@@ -29,6 +29,7 @@ use writ_core::preview::{
 use writ_storage::notes_index::NotesIndexStore;
 
 use super::{katex, mermaid, theme};
+use crate::preview::embeds::IndexEmbeds;
 use crate::preview::wikilinks::IndexWikilinks;
 
 /// Hard ceiling, mirroring the HTML renderer and ADR-009's 50 MB refusal.
@@ -74,29 +75,36 @@ fn is_url_segment(value: &str) -> bool {
 /// token is what tells the handler this document owns the scope it names.
 /// ADR-035.
 fn asset_resolver(scope: &AssetScope) -> impl Fn(&str) -> Option<String> + '_ {
+    move |reference: &str| asset_url(scope, reference)
+}
+
+/// One reference resolved under one scope.
+///
+/// Split out so an embedded note, whose scope is the outer one with its own
+/// folder in place of the embedding note's, mints its URLs through the same
+/// code and carries the same token.
+pub(crate) fn asset_url(scope: &AssetScope, reference: &str) -> Option<String> {
     let url_parts_are_safe = is_url_segment(&scope.buffer_id) && is_url_segment(&scope.token);
-    move |reference: &str| {
-        if !url_parts_are_safe || !is_file_reference(reference) {
-            return None;
-        }
-        match resolve_asset_reference(&scope.notes_root, &scope.note_dir, reference) {
-            Ok(found) => Some(format!(
-                "writ-preview://document/{ASSET_PREFIX}/{}/{}/{}/{}",
-                scope.buffer_id,
-                scope.token,
-                found.root.as_str(),
-                found.url_path
-            )),
-            Err(reason) => {
-                // Left as authored, so it renders as a broken image rather
-                // than as something served from outside the notes folder.
-                debug!(
-                    reason = reason.as_str(),
-                    buffer_id = scope.buffer_id,
-                    "preview asset reference not resolved"
-                );
-                None
-            }
+    if !url_parts_are_safe || !is_file_reference(reference) {
+        return None;
+    }
+    match resolve_asset_reference(&scope.notes_root, &scope.note_dir, reference) {
+        Ok(found) => Some(format!(
+            "writ-preview://document/{ASSET_PREFIX}/{}/{}/{}/{}",
+            scope.buffer_id,
+            scope.token,
+            found.root.as_str(),
+            found.url_path
+        )),
+        Err(reason) => {
+            // Left as authored, so it renders as a broken image rather than
+            // as something served from outside the notes folder.
+            debug!(
+                reason = reason.as_str(),
+                buffer_id = scope.buffer_id,
+                "preview asset reference not resolved"
+            );
+            None
         }
     }
 }
@@ -143,6 +151,19 @@ impl MarkdownRenderer {
             &scope.note_dir,
         ))
     }
+
+    /// The note-embed resolver for one render, under the same rule as
+    /// [`Self::wikilinks`]: a buffer with no file on disk has no folder to
+    /// rank targets against, so its `![[…]]` stays text.
+    fn embeds(&self, scope: Option<&AssetScope>) -> Option<IndexEmbeds> {
+        let index = self.notes_index.clone()?;
+        let scope = scope?;
+        Some(IndexEmbeds::new(
+            index,
+            scope.clone(),
+            writ_storage::buffer_store::dataless_flags,
+        ))
+    }
 }
 
 impl ContentRenderer for MarkdownRenderer {
@@ -170,6 +191,10 @@ impl ContentRenderer for MarkdownRenderer {
         let wikilinks = wikilinks
             .as_ref()
             .map(|resolver| resolver as &dyn writ_render::WikilinkResolver);
+        let embeds = self.embeds(request.assets.as_ref());
+        let embeds = embeds
+            .as_ref()
+            .map(|resolver| resolver as &dyn writ_render::NoteEmbedResolver);
         let fragment = match &request.assets {
             Some(scope) => {
                 let resolver = asset_resolver(scope);
@@ -177,11 +202,15 @@ impl ContentRenderer for MarkdownRenderer {
                     &request.buffer_text,
                     Some(&resolver),
                     wikilinks,
+                    embeds,
                 )
             }
-            None => {
-                writ_render::render_markdown_fragment_with(&request.buffer_text, None, wikilinks)
-            }
+            None => writ_render::render_markdown_fragment_with(
+                &request.buffer_text,
+                None,
+                wikilinks,
+                embeds,
+            ),
         };
         let head_extra = if fragment.has_math {
             katex::head_tags()

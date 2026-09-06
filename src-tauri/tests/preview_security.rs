@@ -21,8 +21,10 @@
 //! seeds the `writ-preview://` URL-parser fuzz target and grounds the
 //! threat model (`docs/security/html-preview.md`).
 
+use writ_core::preview::AssetScope;
 use writ_tauri_lib::preview::csp::build_document_csp;
 use writ_tauri_lib::preview::csp_eval::{Csp, Directive, Resource, Verdict};
+use writ_tauri_lib::preview::embeds::IndexEmbeds;
 use writ_tauri_lib::preview::handler::{chrome_asset, resolve, RenderedDoc};
 use writ_tauri_lib::preview::protocol::{clear_records, drain_records, Disposition, RefusalReason};
 
@@ -331,7 +333,7 @@ fn wikilink_html(label: &str, href: Option<&str>, resolved: bool) -> String {
             resolved,
         },
     };
-    writ_render::render_markdown_fragment_with("[[Target]]\n", None, Some(&resolver)).html
+    writ_render::render_markdown_fragment_with("[[Target]]\n", None, Some(&resolver), None).html
 }
 
 #[test]
@@ -370,4 +372,91 @@ fn only_a_resolved_wikilink_becomes_an_anchor() {
         assert!(!out.contains("<a "), "{out}");
         assert!(out.contains("writ-wikilink-missing"), "{out}");
     }
+}
+
+// --- 4. Note embeds: a target outside the notes folder names nothing ------
+
+/// A notes folder holding one note, plus a file outside it and a symlink
+/// inside it pointing at that file.
+fn embed_resolver() -> (tempfile::TempDir, IndexEmbeds) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path().join("notes");
+    std::fs::create_dir_all(&root).expect("notes");
+    std::fs::write(root.join("Note.md"), "# Note\n\nNote body.\n").expect("note");
+    std::fs::write(dir.path().join("outside.md"), OUTSIDE).expect("outside");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(dir.path().join("outside.md"), root.join("Linked.md"))
+        .expect("symlink");
+
+    let db_path = dir.path().join("writ.db");
+    let conn = writ_storage::database::connection::open_database(&db_path).expect("open");
+    writ_storage::database::migrations::run_migrations(&conn).expect("migrations");
+    drop(conn);
+
+    let index = std::sync::Arc::new(
+        writ_storage::notes_index::NotesIndexStore::open(&db_path).expect("index"),
+    );
+    index
+        .reconcile(&root, &|| false, &|_| false)
+        .expect("reconcile");
+    let scope = AssetScope {
+        notes_root: root.clone(),
+        note_dir: root,
+        buffer_id: "b1".to_string(),
+        token: "t1".to_string(),
+    };
+    (dir, IndexEmbeds::new(index, scope, local_bytes))
+}
+
+/// The text of the file outside the notes folder. A render that ever holds it
+/// read something an embed had no business reaching.
+const OUTSIDE: &str = "outside secret body";
+
+/// The dataless probe for a filesystem with nothing to report.
+fn local_bytes(_: &std::path::Path) -> Option<u32> {
+    None
+}
+
+/// An embed names a note through the index, which performs no path join and
+/// no canonicalisation, so a target written as a path names nothing. A
+/// symlink out of the notes folder is not indexed either (the walk does not
+/// follow links), so it cannot be named. Both render the plain span every
+/// unresolved target renders, and neither opens a file.
+#[test]
+fn a_note_embed_cannot_name_a_file_outside_the_notes_folder() {
+    let (_dir, resolver) = embed_resolver();
+    for target in [
+        "../../etc/passwd",
+        "/etc/passwd",
+        "../outside",
+        "../outside.md",
+        "..%2f..%2fetc%2fpasswd",
+        "notes/../../outside",
+        "./../outside",
+        "~/.ssh/id_rsa",
+        "..\\..\\outside",
+        "Linked",
+    ] {
+        let html = writ_render::render_markdown_fragment_with(
+            &format!("![[{target}]]\n"),
+            None,
+            None,
+            Some(&resolver as &dyn writ_render::NoteEmbedResolver),
+        )
+        .html;
+        assert!(html.contains("writ-embed-missing"), "{target}: {html}");
+        assert!(!html.contains("<section"), "{target}: {html}");
+        assert!(!html.contains(OUTSIDE), "{target}: {html}");
+    }
+
+    // The note that is genuinely in the folder still renders, so the loop
+    // above is refusing the target rather than the resolver being inert.
+    let ok = writ_render::render_markdown_fragment_with(
+        "![[Note]]\n",
+        None,
+        None,
+        Some(&resolver as &dyn writ_render::NoteEmbedResolver),
+    )
+    .html;
+    assert!(ok.contains("Note body."), "{ok}");
 }

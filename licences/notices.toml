@@ -166,3 +166,26 @@ files = [
 sources = [
     "https://raw.githubusercontent.com/iaolo/iA-Fonts/master/iA%20Writer%20Quattro/LICENSE.md",
 ]
+
+[[bundled]]
+name = "KaTeX 0.16.22"
+licence = "MIT"
+file = "katex.txt"
+files = [
+    "src-tauri/assets/katex/katex.min.js",
+    "src-tauri/assets/katex/katex.min.css",
+]
+sources = [
+    "https://raw.githubusercontent.com/KaTeX/KaTeX/v0.16.22/LICENSE",
+]
+
+[[bundled]]
+name = "Mermaid 11.15.0"
+licence = "MIT"
+file = "mermaid.txt"
+files = [
+    "src-tauri/assets/mermaid/mermaid.min.js",
+]
+sources = [
+    "https://raw.githubusercontent.com/mermaid-js/mermaid/v11.15.0/LICENSE",
+]

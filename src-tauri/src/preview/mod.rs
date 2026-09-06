@@ -16,6 +16,7 @@
 
 pub mod csp;
 pub mod csp_eval;
+pub mod embeds;
 pub mod handler;
 #[cfg(test)]
 pub mod log_capture;
