@@ -126,6 +126,11 @@ many notes that is out of how many. A drawing that silently omits notes is
 worse than one that draws fewer and says so. The cap belongs to that view; this
 record is where it is written down.
 
+The other bound on size is the settle's own: after each step the drawing is
+scaled about its middle to fill the area it was given, by at most 2.5x and
+never by less than 1x, so a two-note neighbourhood opens out without a pair of
+notes being pulled back onto each other. Both views inherit that.
+
 ## Consequences
 
 - A note's neighbourhood looks the same every time it is opened, on every

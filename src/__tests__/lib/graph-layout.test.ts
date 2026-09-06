@@ -116,6 +116,38 @@ describe("a settled graph", () => {
     expect(Math.max(spanX, spanY)).toBeGreaterThan(0.9);
   });
 
+  it("holds both when a shape leans on one side of the area", () => {
+    // A chain is the shape that opens out furthest before it meets an edge, so
+    // it is where scaling to fill the area could push a note past the padding
+    // or back onto its neighbour. Neither may happen, on any seed.
+    const nodes: LayoutNode[] = [
+      { path: "a.md" },
+      { path: "b.md" },
+      { path: "c.md" },
+      { path: "d.md" },
+    ];
+    const edges: LayoutEdge[] = [
+      { from: "a.md", to: "b.md" },
+      { from: "b.md", to: "c.md" },
+      { from: "c.md", to: "d.md" },
+    ];
+    const { width, height, padding, minSeparation } = DEFAULT_LAYOUT_OPTIONS;
+    for (let seed = 1; seed <= 60; seed += 1) {
+      const placed = [...simulate(nodes, edges, DEFAULT_LAYOUT_OPTIONS, seed).values()];
+      for (let i = 0; i < placed.length; i += 1) {
+        expect(placed[i].x).toBeGreaterThanOrEqual(padding - 1e-6);
+        expect(placed[i].x).toBeLessThanOrEqual(width - padding + 1e-6);
+        expect(placed[i].y).toBeGreaterThanOrEqual(padding - 1e-6);
+        expect(placed[i].y).toBeLessThanOrEqual(height - padding + 1e-6);
+        for (let j = i + 1; j < placed.length; j += 1) {
+          const dx = placed[j].x - placed[i].x;
+          const dy = placed[j].y - placed[i].y;
+          expect(Math.sqrt(dx * dx + dy * dy)).toBeGreaterThanOrEqual(minSeparation - 1e-6);
+        }
+      }
+    }
+  });
+
   it("stays inside the area it was given", () => {
     const { width, height, padding } = DEFAULT_LAYOUT_OPTIONS;
     for (const point of simulate(NODES, EDGES, DEFAULT_LAYOUT_OPTIONS, SEED).values()) {
