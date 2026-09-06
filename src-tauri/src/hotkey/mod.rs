@@ -180,6 +180,7 @@ pub fn setup_global_hotkey(app: &AppHandle) -> Result<(), Box<dyn std::error::Er
                 }
                 ToggleAction::Hide => {
                     window.hide().ok();
+                    crate::note_window_dismissed(app);
                     info!("window hidden via hotkey");
                 }
             }

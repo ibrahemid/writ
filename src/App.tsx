@@ -31,6 +31,7 @@ import { bufferRegistry } from "./stores/global/buffer-registry";
 import { saveStatusStore } from "./stores/global/save-status";
 import { basename } from "./lib/path";
 import { logFailure } from "./lib/log";
+import { armReveal } from "./lib/boot-reveal";
 import { workspaceStore } from "./stores/global/workspace";
 import { notesStore } from "./stores/global/notes";
 import { inboxStore } from "./stores/global/inbox";
@@ -226,27 +227,35 @@ function AppShell() {
 
     await emitFrontendReady();
 
-    if (win.tabs.activeTabId() === null) {
-      const active = bufferRegistry.activeTabs();
-      if (active.length === 0) {
-        await win.tabs.createTab();
-      } else {
-        win.tabs.setActiveTabId(active[active.length - 1].id);
+    // The window was created hidden to avoid a cold-start flash, so it takes a
+    // reveal to appear. Armed before the two steps below rather than sequenced
+    // after them: either can reject, and either can hang on a slow disk, and
+    // both of those used to end with an app running and no window on screen.
+    // Showing directly (not via requestAnimationFrame, which a browser may
+    // throttle for a hidden document) makes the window appear promptly without
+    // waiting on the Rust timer; the webview paints the already-built DOM as it
+    // becomes visible.
+    const reveal = armReveal(osWindowStore.reveal);
+    try {
+      if (win.tabs.activeTabId() === null) {
+        const active = bufferRegistry.activeTabs();
+        if (active.length === 0) {
+          await win.tabs.createTab();
+        } else {
+          win.tabs.setActiveTabId(active[active.length - 1].id);
+        }
       }
+
+      // Reapplied here rather than in the hidden Rust restore path: on Windows
+      // maximizing runs ShowWindow(SW_MAXIMIZE), which has no visibility guard,
+      // so it would put an unpainted frame on screen for the whole boot and turn
+      // the reveal into a no-op. By this point the webview has painted.
+      if (configStore.config().window.maximized) await osWindowStore.maximize();
+    } catch {
+      logFailure("the first tab could not be prepared");
+    } finally {
+      reveal.now();
     }
-
-    // Reapplied here rather than in the hidden Rust restore path: on Windows
-    // maximizing runs ShowWindow(SW_MAXIMIZE), which has no visibility guard,
-    // so it would put an unpainted frame on screen for the whole boot and turn
-    // the reveal below into a no-op. By this point the webview has painted.
-    if (configStore.config().window.maximized) await osWindowStore.maximize();
-
-    // The window was created hidden to avoid a cold-start flash; reveal it now
-    // that content and the active tab are in place. Showing directly (not via
-    // requestAnimationFrame, which a browser may throttle for a hidden
-    // document) makes the window appear promptly without waiting on the Rust
-    // fallback; the webview paints the already-built DOM as it becomes visible.
-    void osWindowStore.reveal();
 
     registerCommand({
       id: "note.new",

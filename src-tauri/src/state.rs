@@ -136,6 +136,16 @@ pub struct AppState {
     pub removal_holds: Arc<RemovalHolds>,
     pub pending_opens: Mutex<Vec<String>>,
     pub frontend_ready: AtomicBool,
+    /// Claimed by whichever caller brings the main window up at startup.
+    ///
+    /// The frontend signals its first paint and a timer stands behind it, so
+    /// both reach the window on a slow launch. The first to swap this owns the
+    /// show; the second only shows again if the window disagrees that it is up
+    /// ([`crate::window_state::decide_reveal`]).
+    pub window_revealed: AtomicBool,
+    /// Set when the user puts the window away, so the startup timer cannot
+    /// pull back a window that was dismissed while it was still counting.
+    pub window_dismissed: AtomicBool,
     pub transforms: RwLock<TransformRegistry>,
     pub event_bus: Arc<EventBus>,
     pub update_phase: Mutex<UpdatePhase>,
@@ -476,6 +486,8 @@ impl AppState {
             removal_holds: Arc::new(RemovalHolds::new()),
             pending_opens: Mutex::new(Vec::new()),
             frontend_ready: AtomicBool::new(false),
+            window_revealed: AtomicBool::new(false),
+            window_dismissed: AtomicBool::new(false),
             transforms: RwLock::new(transforms),
             event_bus: Arc::new(EventBus::new()),
             update_phase: Mutex::new(UpdatePhase::default()),

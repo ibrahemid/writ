@@ -62,6 +62,8 @@ fn make_state(dir: &TempDir) -> AppState {
         removal_holds: Default::default(),
         pending_opens: Mutex::new(Vec::new()),
         frontend_ready: AtomicBool::new(false),
+        window_revealed: AtomicBool::new(false),
+        window_dismissed: AtomicBool::new(false),
         transforms: RwLock::new(TransformRegistry::new()),
         event_bus: Arc::new(EventBus::new()),
         update_phase: Mutex::new(UpdatePhase::default()),
