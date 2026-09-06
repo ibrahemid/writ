@@ -56,6 +56,10 @@ fn default_panel_width() -> u16 {
     240
 }
 
+fn default_hint_dismissed() -> bool {
+    false
+}
+
 fn default_font_family() -> String {
     "monospace".to_string()
 }
@@ -266,6 +270,25 @@ impl Default for PanelConfig {
         Self {
             open: default_panel_open(),
             width: default_panel_width(),
+        }
+    }
+}
+
+/// What the first launch has already been told (`[first_run]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FirstRunConfig {
+    /// Whether the one line the first launch shows under the cursor has been
+    /// dismissed. It goes on the first keystroke and never comes back, and
+    /// the answer lives here rather than in web storage, which is per webview
+    /// and would bring the line back on a reinstall of the same profile.
+    #[serde(default = "default_hint_dismissed")]
+    pub hint_dismissed: bool,
+}
+
+impl Default for FirstRunConfig {
+    fn default() -> Self {
+        Self {
+            hint_dismissed: default_hint_dismissed(),
         }
     }
 }
@@ -529,6 +552,9 @@ pub struct WritConfig {
     /// The panel beside the note.
     #[serde(default)]
     pub panel: PanelConfig,
+    /// What the first launch has already been told.
+    #[serde(default)]
+    pub first_run: FirstRunConfig,
     /// Editor surface configuration.
     #[serde(default)]
     pub editor: EditorConfig,
@@ -582,6 +608,7 @@ impl Default for WritConfig {
             hotkey: HotkeyConfig::default(),
             sidebar: SidebarConfig::default(),
             panel: PanelConfig::default(),
+            first_run: FirstRunConfig::default(),
             editor: EditorConfig::default(),
             window: WindowConfig::default(),
             keybindings: default_keybindings(),
@@ -611,6 +638,18 @@ mod tests {
         assert_eq!(appearance.polarity, Polarity::System);
         assert_eq!(appearance.accent, Accent::Pine);
         assert_eq!(appearance.prose_face, ProseFace::System);
+    }
+
+    #[test]
+    fn first_run_hint_starts_undismissed_and_round_trips_through_toml() {
+        let fresh: WritConfig = toml::from_str("").unwrap();
+        assert!(!fresh.first_run.hint_dismissed);
+
+        let dismissed: WritConfig = toml::from_str("[first_run]\nhint_dismissed = true\n").unwrap();
+        assert!(dismissed.first_run.hint_dismissed);
+
+        let written: WritConfig = toml::from_str(&toml::to_string(&dismissed).unwrap()).unwrap();
+        assert!(written.first_run.hint_dismissed);
     }
 
     #[test]

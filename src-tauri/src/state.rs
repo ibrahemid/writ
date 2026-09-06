@@ -100,6 +100,14 @@ pub struct AppState {
     /// gate and every note command asks for it, and a held read guard would
     /// block the move for as long as the caller lives.
     pub notes_root: RwLock<PathBuf>,
+    /// Whether this launch found no config file
+    /// ([`writ_core::startup::is_first_run`]). Read once at startup and never
+    /// written: a launch is a first one or it is not, and the config file it
+    /// goes on to write must not change the answer mid-session.
+    pub first_run: bool,
+    /// What has happened to each note Writ minted and has not yet retitled
+    /// from its first line.
+    pub retitle_watch: Arc<crate::first_run::RetitleWatch>,
     /// The configured notes folder startup could not use, when it fell back to
     /// the default one. `None` on every ordinary launch. The Settings surface
     /// reads this to tell the user which folder was turned down, why, and
@@ -258,9 +266,13 @@ impl AppState {
         let notes_index = Arc::new(NotesIndexStore::open(&db_path)?);
 
         let config_path = writ_dir.join("config.toml");
+        // Asked before the config is read, because reading it is what a later
+        // launch would have a file to read: the absence of the file is the
+        // whole test (spec O1).
+        let first_run = writ_core::startup::is_first_run(config_path.exists());
         let config_store = ConfigStore::new(config_path);
         let config = config_store.read()?;
-        info!("config loaded");
+        info!(first_run, "config loaded");
 
         // The notes folder is where every note Writ mints lands, and the file
         // it lands in is the only copy of the text (ADR-028). It is resolved,
@@ -477,6 +489,8 @@ impl AppState {
             writ_dir,
             buffers_dir,
             notes_root: RwLock::new(notes_root),
+            first_run,
+            retitle_watch: Arc::new(crate::first_run::RetitleWatch::new()),
             notes_root_fallback: RwLock::new(notes_root_fallback),
             watcher_ignore,
             watcher: Mutex::new(None),

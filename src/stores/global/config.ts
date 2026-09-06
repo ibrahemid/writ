@@ -58,6 +58,7 @@ const DEFAULT_CONFIG: WritConfig = {
   },
   // Closed on a first launch: the window opens on a cursor and nothing else.
   panel: { open: false, width: PANEL_WIDTH_DEFAULT },
+  first_run: { hint_dismissed: false },
   editor: { font_family: "monospace", font_size: EDITOR_FONT_DEFAULT, word_wrap: true, tab_size: 2, autosave_debounce_ms: 1000, markdown_typography: true, markdown_editing: true, status_bar: false },
   window: { width: 1100, height: 720, maximized: false },
   keybindings: {},
@@ -100,6 +101,9 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
     panel: {
       open: incoming.panel?.open ?? false,
       width: clampPanelWidth(incoming.panel?.width ?? PANEL_WIDTH_DEFAULT),
+    },
+    first_run: {
+      hint_dismissed: incoming.first_run?.hint_dismissed ?? false,
     },
     commands: {
       usage: incoming.commands?.usage ?? {},

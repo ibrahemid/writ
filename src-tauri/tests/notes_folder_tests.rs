@@ -55,6 +55,8 @@ fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFall
         writ_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
+        first_run: false,
+        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(fallback),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),

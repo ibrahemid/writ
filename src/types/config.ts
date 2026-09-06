@@ -67,6 +67,12 @@ export interface PanelConfig {
   width: number;
 }
 
+/** What the first launch has already been told. */
+export interface FirstRunConfig {
+  /** The one line under the cursor goes on the first keystroke and stays gone. */
+  hint_dismissed: boolean;
+}
+
 export interface WritConfig {
   hotkey: { toggle: string };
   sidebar: {
@@ -78,6 +84,7 @@ export interface WritConfig {
     width: number;
   };
   panel: PanelConfig;
+  first_run: FirstRunConfig;
   editor: { font_family: string; font_size: number; word_wrap: boolean; tab_size: number; autosave_debounce_ms: number; markdown_typography: boolean; markdown_editing: boolean; status_bar: boolean };
   window: { width: number; height: number; x?: number | null; y?: number | null; maximized: boolean };
   keybindings: Record<string, string>;

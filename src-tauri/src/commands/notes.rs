@@ -81,7 +81,33 @@ pub fn new_note_inner(state: &AppState) -> Result<BufferDocument, String> {
 pub fn new_note_named_inner(state: &AppState, name: &str) -> Result<BufferDocument, String> {
     let now = chrono::Utc::now();
     let stem = writ_core::notes::note_file_stem_from_link(name, now);
-    create_note_at(state, &state.notes_root(), &stem)
+    let doc = create_note_at(state, &state.notes_root(), &stem)?;
+    // A note nobody named yet carries a date, and a date is the name the
+    // note's own first line may replace without being asked (spec O1). A note
+    // the person did name is already called what they called it.
+    if name.trim().is_empty() {
+        watch_for_retitle(state, &doc);
+    }
+    Ok(doc)
+}
+
+/// Creates the note named for today, file first, and opens it.
+///
+/// The file name is [`writ_core::startup::dated_note_name`] — the one date
+/// rule — so the note the first launch opens is the note today's date names.
+pub fn new_dated_note_inner(state: &AppState) -> Result<BufferDocument, String> {
+    let stem = writ_core::notes::date_stem(chrono::Utc::now());
+    let doc = create_note_at(state, &state.notes_root(), &stem)?;
+    watch_for_retitle(state, &doc);
+    Ok(doc)
+}
+
+/// Starts watching a freshly minted note, so its first line can be answered
+/// for once.
+fn watch_for_retitle(state: &AppState, doc: &BufferDocument) {
+    if let Some(path) = doc.source_path.as_deref() {
+        state.retitle_watch.watch(Path::new(path));
+    }
 }
 
 /// Creates the note a `[[…]]` target names, in the folder that target names,

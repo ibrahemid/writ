@@ -867,6 +867,11 @@ pub fn close_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         let doc = store.get(id).map_err(|e| e.to_string())?;
         forget_ignore_stamp(state, &doc, "commands::buffer::close_buffer");
+        // A note whose tab has been closed is one the person has already put
+        // away, so its first line no longer renames its file unasked.
+        if let Some(path) = doc.source_path.as_deref() {
+            state.retitle_watch.closed(std::path::Path::new(path));
+        }
         store.close(id).map_err(|e| e.to_string())?;
     }
     state.forget_disk_state(id);
@@ -883,6 +888,13 @@ pub fn close_buffer(state: State<'_, AppState>, id: String) -> Result<(), String
 pub fn close_buffers_inner(state: &AppState, ids: &[String]) -> Result<(), String> {
     {
         let store = state.store.lock().map_err(|e| e.to_string())?;
+        for id in ids {
+            if let Ok(doc) = store.get(id) {
+                if let Some(path) = doc.source_path.as_deref() {
+                    state.retitle_watch.closed(std::path::Path::new(path));
+                }
+            }
+        }
         store.close_many(ids).map_err(|e| e.to_string())?;
     }
     for id in ids {

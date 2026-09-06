@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod events;
+pub mod first_run;
 pub mod fts_scheduler;
 pub mod generated;
 pub mod hotkey;
@@ -586,6 +587,9 @@ pub fn run() {
             commands::notes::show_note_in_file_manager,
             commands::notes::show_notes_file_in_file_manager,
             commands::notes::get_notes_root,
+            commands::first_run::first_run_state,
+            commands::first_run::dismiss_first_run_hint,
+            commands::first_run::auto_retitle_note,
             commands::notes::get_notes_folder,
             commands::notes::show_notes_folder_in_finder,
             commands::notes::pick_notes_folder,
@@ -742,6 +746,30 @@ pub fn run() {
                         tracing::warn!(path = %path.display(), error = %e, "notes index update failed");
                     }
                 });
+            }
+
+            // A rename the note's own first line asks for is only safe while
+            // nothing outside Writ has looked at the note. The bus is where
+            // that is seen: every write Writ made has already been dropped by
+            // the watcher's ignore set before an event reaches here.
+            {
+                use writ_core::events::bus::WritEvent;
+                let state = app.state::<AppState>();
+                let watch = state.retitle_watch.clone();
+                state.event_bus.subscribe(move |event| {
+                    if let WritEvent::NotesChanged { path, .. } = event {
+                        watch.changed_outside(std::path::Path::new(path));
+                    }
+                });
+            }
+
+            // First launch opens a note the person can type in, and asks
+            // nothing on the way (spec O1). It runs before the window is
+            // shown, so the frontend's first load already finds the note in
+            // the store and takes its ordinary "open the last tab" path.
+            {
+                let state = app.state::<AppState>();
+                first_run::open_first_note(&state);
             }
 
             // The window is created hidden (tauri.conf `visible: false`) to kill
