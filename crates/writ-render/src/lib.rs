@@ -1429,6 +1429,21 @@ mod tests {
         render_markdown_fragment_with(text, None, Some(&Notes), Some(&Folder)).html
     }
 
+    // Turning the embed resolver on is what puts the pass that lifts a section
+    // out of its paragraph in the way of every document, so a document that
+    // embeds nothing has to come out of it byte for byte.
+    #[test]
+    fn a_document_with_no_embed_renders_unchanged_with_the_embed_resolver_on() {
+        let html = render_markdown_fragment_with(
+            PLAIN_DOCUMENT,
+            Some(&served),
+            Some(&Notes),
+            Some(&Folder),
+        )
+        .html;
+        assert_eq!(html, PLAIN_RESOLVED);
+    }
+
     #[test]
     fn every_callout_type_renders_with_its_own_data_callout() {
         for kind in [
