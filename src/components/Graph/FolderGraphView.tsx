@@ -186,7 +186,7 @@ export default function FolderGraphView() {
     >
       <div class="folder-graph-chrome">
         <h2 class="folder-graph-title" id={titleId}>
-          Connections
+          Graph
         </h2>
         <label class="folder-graph-search">
           <Icon name="magnifying-glass" size={14} />
@@ -208,7 +208,7 @@ export default function FolderGraphView() {
         class="folder-graph-close"
         variant="ghost"
         icon="x"
-        aria-label="Close"
+        aria-label="Close graph"
         onClick={() => win.folderGraph.close()}
       />
 

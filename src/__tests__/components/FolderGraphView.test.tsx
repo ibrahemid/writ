@@ -336,7 +336,7 @@ describe("closing it", () => {
   it("closes on the close button", () => {
     twoFolders();
     const view = render(() => <FolderGraphView />);
-    fireEvent.click(view.getByLabelText("Close"));
+    fireEvent.click(view.getByLabelText("Close graph"));
     expect(folderGraph.isOpen()).toBe(false);
   });
 

@@ -421,7 +421,7 @@ function AppShell() {
     registerCommand({
       id: "folderGraph.open",
       icon: "folder-simple",
-      label: "Connections",
+      label: "Open graph",
       description: "Show every note in the folder and the links between them",
       scope: "app",
       // Global, like the two toggles above: the editor holds focus while you
