@@ -16,6 +16,13 @@
         },
         "ui": {
           "$type": "dimension",
+          "size": {
+            "$description": "The interface text size on GNOME. The steps below keep their own ratios to it.",
+            "$value": {
+              "value": 14.67,
+              "unit": "px"
+            }
+          },
           "xs": {
             "$value": {
               "value": 12.03,

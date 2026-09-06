@@ -16,6 +16,13 @@
         },
         "ui": {
           "$type": "dimension",
+          "size": {
+            "$description": "The interface text size on Windows. The steps below keep their own ratios to it, so the 12px rows stay 12px at the default.",
+            "$value": {
+              "value": 14,
+              "unit": "px"
+            }
+          },
           "xs": {
             "$value": {
               "value": 12,

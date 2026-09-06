@@ -52,6 +52,8 @@ export interface AppearanceConfig {
   polarity: Polarity;
   accent: AccentId;
   prose_face: ProseFaceId;
+  /** Interface text size in px, or null to keep the platform's own size. */
+  interface_text_size: number | null;
 }
 
 export interface SpellingConfig {

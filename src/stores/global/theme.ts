@@ -29,7 +29,13 @@ const DEFAULT_APPEARANCE: AppearanceConfig = {
   polarity: "system",
   accent: "pine",
   prose_face: "system",
+  interface_text_size: null,
 };
+
+// The one root the generated sheet scales every --writ-ui-* step from. The
+// editor keeps its own --writ-editor-font-size, so interface size and editor
+// zoom move independently.
+const UI_SIZE_VAR = "--writ-ui-size";
 
 const [presetId, setPresetId] = createSignal<string>(DEFAULT_PRESET_ID);
 const [overrides, setOverridesSignal] = createSignal<ThemeOverrides>({});
@@ -139,6 +145,17 @@ export const themeStore = {
       const cssVar = tokenKeyToCssVar(key);
       root.style.setProperty(cssVar, value);
       vars[cssVar] = value;
+    }
+    // One property carries the interface text size; the generated sheet derives
+    // the eight steps from it. Unset removes the override so the platform layer
+    // resolves the size it was drawn with.
+    const interfaceSize = appearance().interface_text_size;
+    if (interfaceSize === null) {
+      root.style.removeProperty(UI_SIZE_VAR);
+    } else {
+      const size = `${interfaceSize}px`;
+      root.style.setProperty(UI_SIZE_VAR, size);
+      vars[UI_SIZE_VAR] = size;
     }
     // The alternate prose face is a swap of one token, so every surface that
     // reads --writ-font-prose follows it and nothing else moves.

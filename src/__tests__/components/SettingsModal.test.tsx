@@ -157,7 +157,7 @@ function baseConfig(): WritConfig {
     history: { max_entries: 500 },
     storage: { path: "~/.writ" },
     theme: { preset: "warp-dark", overrides: {} },
-    appearance: { polarity: "system", accent: "pine", prose_face: "system" },
+    appearance: { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
     commands: { usage: {} },
   workspace: { root: null },
   inbox: { path: null, focus: true },
@@ -403,7 +403,7 @@ describe("SettingsModal", () => {
     mocks.config.mockReturnValue({
       ...baseConfig(),
       theme: { preset: "writ-light", overrides: {} },
-      appearance: { polarity: "dark", accent: "pine", prose_face: "system" },
+      appearance: { polarity: "dark", accent: "pine", prose_face: "system", interface_text_size: null },
     });
     mocks.activePresetId.mockReturnValue("writ-dark");
     const { container } = render(() => <SettingsModal />);
@@ -417,7 +417,7 @@ describe("SettingsModal", () => {
     mocks.config.mockReturnValue({
       ...baseConfig(),
       theme: { preset: "writ-dark", overrides: {} },
-      appearance: { polarity: "light", accent: "pine", prose_face: "system" },
+      appearance: { polarity: "light", accent: "pine", prose_face: "system", interface_text_size: null },
     });
     mocks.activePresetId.mockReturnValue("writ-light");
     const { container } = render(() => <SettingsModal />);

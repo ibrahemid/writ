@@ -71,17 +71,28 @@ pub fn decide_reveal(
     }
 }
 
+/// What a Dock click should do with the main window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReopenAction {
+    /// Unminimize if it is minimized, show it, then focus it.
+    Reveal,
+    /// Something of Writ's is already on screen: raise it.
+    Focus,
+}
+
 /// Decides what a Dock click should do (macOS `applicationShouldHandleReopen`).
 ///
-/// `is_visible` is the main window's own answer, `Err` when it could not be
-/// read at all. An unreadable answer counts as hidden: the click is a request
-/// to see Writ, and showing a window that is already up costs nothing, while
-/// trusting a failed read costs the user every way back to the app.
-pub fn decide_reopen(has_visible_windows: bool, is_visible: Result<bool, ()>) -> RevealAction {
+/// `has_visible_windows` is AppKit's own count, sent with the click.
+/// `is_visible` is the main window's answer, `Err` when it could not be read.
+/// A click that arrives with nothing on screen reveals whatever either of them
+/// says: this is the user's only way back into an app that has no window, so
+/// it cannot be gated on the answer that loses the window in the first place.
+/// Focus alone is right only when a window really is up.
+pub fn decide_reopen(has_visible_windows: bool, is_visible: Result<bool, ()>) -> ReopenAction {
     if has_visible_windows && is_visible == Ok(true) {
-        RevealAction::Skip
+        ReopenAction::Focus
     } else {
-        RevealAction::Show
+        ReopenAction::Reveal
     }
 }
 
@@ -303,22 +314,27 @@ mod tests {
         assert_eq!(decide_reveal(false, true, Err(())), RevealAction::Skip);
     }
 
+    // A click with no window on screen is the recovery path, so none of the
+    // three answers the window can give may turn it into a no-op.
     #[test]
-    fn dock_click_shows_a_hidden_window() {
-        assert_eq!(decide_reopen(false, Ok(false)), RevealAction::Show);
+    fn dock_click_with_nothing_on_screen_always_reveals() {
+        assert_eq!(decide_reopen(false, Ok(false)), ReopenAction::Reveal);
+        assert_eq!(decide_reopen(false, Ok(true)), ReopenAction::Reveal);
+        assert_eq!(decide_reopen(false, Err(())), ReopenAction::Reveal);
     }
 
     #[test]
-    fn dock_click_leaves_a_visible_window_alone() {
-        assert_eq!(decide_reopen(true, Ok(true)), RevealAction::Skip);
+    fn dock_click_raises_a_window_that_is_up() {
+        assert_eq!(decide_reopen(true, Ok(true)), ReopenAction::Focus);
     }
 
     // AppKit counts windows across the app; ours answering "hidden" is the one
-    // that matters, since it is the only window Writ has.
+    // that matters, since it is the only window Writ has. Focus would leave a
+    // hidden window hidden.
     #[test]
-    fn dock_click_shows_a_main_window_that_is_hidden_anyway() {
-        assert_eq!(decide_reopen(true, Ok(false)), RevealAction::Show);
-        assert_eq!(decide_reopen(true, Err(())), RevealAction::Show);
+    fn dock_click_reveals_a_main_window_that_is_not_up() {
+        assert_eq!(decide_reopen(true, Ok(false)), ReopenAction::Reveal);
+        assert_eq!(decide_reopen(true, Err(())), ReopenAction::Reveal);
     }
 
     #[test]

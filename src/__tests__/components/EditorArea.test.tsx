@@ -66,7 +66,7 @@ function configWith(statusBar: boolean): WritConfig {
     history: { max_entries: 500 },
     storage: { path: "~/.writ" },
     theme: { preset: "writ-light", overrides: {} },
-    appearance: { polarity: "system", accent: "pine", prose_face: "system" },
+    appearance: { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
     commands: { usage: {} },
     preview: {
       default_layout_html: "split",
