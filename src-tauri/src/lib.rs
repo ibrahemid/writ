@@ -511,6 +511,7 @@ pub fn run() {
             commands::note_index::note_backlinks,
             commands::note_index::note_heading_line,
             commands::note_index::note_all_tags,
+            commands::note_index::note_paths_for_tag,
             commands::note_index::note_graph,
             commands::file::open_file,
             commands::file::open_file_confirmed,

@@ -1,6 +1,7 @@
-import { For, Show, createEffect, createSignal } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { workspaceStore } from "../../stores/global/workspace";
+import { noteFactsStore } from "../../stores/global/note-facts";
 import Icon from "../Icon/Icon";
 import { notesStore } from "../../stores/global/notes";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
@@ -18,6 +19,32 @@ import "./FileTree.css";
 const BASE_INDENT = 10;
 const INDENT_PER_LEVEL = 16;
 
+/**
+ * Whether the selected tag names `entry`: the note itself, or a note anywhere
+ * under a folder.
+ *
+ * A folder is kept for what it holds, which is a prefix test rather than a
+ * walk: a folder the user has never opened keeps the notes under it in the
+ * list without the tree loading a single directory to find out.
+ */
+function namesEntry(paths: ReadonlySet<string>, entry: WorkspaceEntry): boolean {
+  if (!entry.is_dir) return paths.has(entry.path);
+  const separator = entry.path.includes("\\") ? "\\" : "/";
+  const prefix = entry.path.endsWith(separator) ? entry.path : entry.path + separator;
+  for (const path of paths) {
+    if (path.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+/** `rows` under the tag filter, or all of them when no tag is selected. */
+function underFilter(
+  rows: WorkspaceEntry[],
+  paths: ReadonlySet<string> | null,
+): WorkspaceEntry[] {
+  return paths === null ? rows : rows.filter((entry) => namesEntry(paths, entry));
+}
+
 function moveTreeFocus(tree: HTMLElement, from: HTMLElement, delta: 1 | -1) {
   const items = Array.from(tree.querySelectorAll<HTMLElement>('[role="treeitem"]'));
   const index = items.indexOf(from);
@@ -29,28 +56,30 @@ interface TreeNodeProps {
   entry: WorkspaceEntry;
   level: number;
   tree: () => HTMLDivElement | undefined;
+  /** The notes the selected tag names, or `null` when no tag is selected. */
+  tagged: () => ReadonlySet<string> | null;
 }
 
 function TreeNode(props: TreeNodeProps) {
   const win = useWindow();
-  const [expanded, setExpanded] = createSignal(false);
+  const [open, setOpen] = createSignal(false);
 
-  const children = () => workspaceStore.entriesFor(props.entry.path) ?? [];
+  // Under a tag filter a folder is in the list only because a note under it
+  // carries the tag, so it opens itself rather than leaving that note behind a
+  // caret. Clearing the tag hands the folder back whatever the user had.
+  const expanded = () => open() || (props.entry.is_dir && props.tagged() !== null);
 
-  function expand() {
-    if (workspaceStore.entriesFor(props.entry.path) === undefined) {
+  const children = () => underFilter(workspaceStore.entriesFor(props.entry.path) ?? [], props.tagged());
+
+  createEffect(() => {
+    if (expanded() && workspaceStore.entriesFor(props.entry.path) === undefined) {
       void workspaceStore.loadDir(props.entry.path);
     }
-    setExpanded(true);
-  }
+  });
 
   function activate() {
     if (props.entry.is_dir) {
-      if (expanded()) {
-        setExpanded(false);
-      } else {
-        expand();
-      }
+      setOpen(!open());
     } else {
       void win.tabs.openFile(props.entry.path).catch(() => undefined);
     }
@@ -66,13 +95,13 @@ function TreeNode(props: TreeNodeProps) {
       case "ArrowRight":
         if (props.entry.is_dir && !expanded()) {
           e.preventDefault();
-          expand();
+          setOpen(true);
         }
         break;
       case "ArrowLeft":
         if (props.entry.is_dir && expanded()) {
           e.preventDefault();
-          setExpanded(false);
+          setOpen(false);
         }
         break;
       case "ArrowDown":
@@ -154,7 +183,14 @@ function TreeNode(props: TreeNodeProps) {
           style={{ "--tree-connector-left": connectorLeft() }}
         >
           <For each={children()}>
-            {(child) => <TreeNode entry={child} level={props.level + 1} tree={props.tree} />}
+            {(child) => (
+              <TreeNode
+                entry={child}
+                level={props.level + 1}
+                tree={props.tree}
+                tagged={props.tagged}
+              />
+            )}
           </For>
         </div>
       </Show>
@@ -164,6 +200,7 @@ function TreeNode(props: TreeNodeProps) {
 
 export default function FileTree() {
   let treeRef: HTMLDivElement | undefined;
+  const win = useWindow();
 
   createEffect(() => {
     const root = workspaceStore.root();
@@ -172,18 +209,44 @@ export default function FileTree() {
     }
   });
 
+  // The selected tag's notes are one read, cached per tag, and the same read
+  // the count in the tags section came from. Nothing here asks the index a
+  // second question to draw the filtered tree.
+  const tagged = createMemo<ReadonlySet<string> | null>(() => {
+    const tag = win.sidebar.selectedTag();
+    if (tag === null) return null;
+    return new Set(noteFactsStore.pathsForTag(tag)());
+  });
+
+  // A tag nothing is showing would be re-read on every change for nothing, so
+  // the list is handed back as soon as the selection leaves it.
+  let heldTag: string | null = null;
+  createEffect(() => {
+    const tag = win.sidebar.selectedTag();
+    if (heldTag !== null && heldTag !== tag) noteFactsStore.releaseTag(heldTag);
+    heldTag = tag;
+  });
+  onCleanup(() => {
+    if (heldTag !== null) noteFactsStore.releaseTag(heldTag);
+  });
+
   const rootEntries = () => {
     const root = workspaceStore.root();
-    return root ? (workspaceStore.entriesFor(root) ?? []) : [];
+    const rows = root ? (workspaceStore.entriesFor(root) ?? []) : [];
+    return underFilter(rows, tagged());
   };
 
   return (
     <div ref={treeRef} role="tree" aria-label="Files" class="file-tree">
       <For
         each={rootEntries()}
-        fallback={<div class="file-tree-empty">Empty folder</div>}
+        fallback={
+          <div class="file-tree-empty">
+            {tagged() === null ? "Empty folder" : "No notes with this tag"}
+          </div>
+        }
       >
-        {(entry) => <TreeNode entry={entry} level={1} tree={() => treeRef} />}
+        {(entry) => <TreeNode entry={entry} level={1} tree={() => treeRef} tagged={tagged} />}
       </For>
     </div>
   );

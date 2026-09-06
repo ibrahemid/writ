@@ -3,6 +3,7 @@ use std::path::Path;
 use writ_core::workspace::{is_ignored_name, sort_entries, WorkspaceEntry};
 
 use crate::errors::{StorageError, StorageResult};
+use crate::paths::strip_verbatim_prefix;
 
 /// Lists the immediate children of `dir` that are inside `workspace_root`.
 ///
@@ -12,6 +13,11 @@ use crate::errors::{StorageError, StorageResult};
 /// beside it, are excluded ([`is_ignored_name`]); a conflict copy is listed
 /// with `conflict_copy` set rather than excluded. The returned slice is sorted:
 /// directories first, then files, each group ordered case-insensitively.
+///
+/// An entry's path is the canonical one without the Windows verbatim prefix
+/// ([`strip_verbatim_prefix`]), the spelling
+/// [`crate::notes_index::index_key`] keys the index by: the tree and the index
+/// name the same note.
 pub fn list_dir(workspace_root: &Path, dir: &Path) -> StorageResult<Vec<WorkspaceEntry>> {
     let canonical_root = workspace_root.canonicalize().map_err(|e| {
         StorageError::Io(std::io::Error::new(
@@ -68,7 +74,9 @@ pub fn list_dir(workspace_root: &Path, dir: &Path) -> StorageResult<Vec<Workspac
 
         entries.push(WorkspaceEntry::new(
             name,
-            entry_path.to_string_lossy().into_owned(),
+            strip_verbatim_prefix(entry_path)
+                .to_string_lossy()
+                .into_owned(),
             is_dir,
         ));
     }

@@ -319,6 +319,10 @@ pub struct ReconcileOutcome {
 /// the watcher, and it must produce the same key the file had while it existed.
 /// When nothing resolves, the path is returned as it came in, which keys the
 /// row consistently even if it keys it by a spelling no walk will match.
+///
+/// The answer carries no Windows verbatim prefix
+/// ([`crate::paths::strip_verbatim_prefix`]), which is what lets a key stand
+/// beside the paths [`crate::workspace_store::list_dir`] hands the file tree.
 pub fn index_key(path: &Path) -> String {
     let resolved = std::fs::canonicalize(path)
         .ok()
@@ -329,13 +333,9 @@ pub fn index_key(path: &Path) -> String {
         })
         .unwrap_or_else(|| path.to_path_buf());
 
-    let text = resolved.to_string_lossy().into_owned();
-    // Windows canonicalisation yields a `\\?\` verbatim prefix that no other
-    // path in the app carries, matching `canonicalize_for_authorization`.
-    match text.strip_prefix(r"\\?\") {
-        Some(stripped) => stripped.to_string(),
-        None => text,
-    }
+    crate::paths::strip_verbatim_prefix(resolved)
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// `true` when the filesystem reports the file has no local data: an iCloud (or
@@ -1121,6 +1121,28 @@ impl<'a> NotesIndex<'a> {
         Ok(rows)
     }
 
+    /// Every note carrying `tag`, in path order.
+    ///
+    /// The tag is matched whole: `project` answers with the notes carrying
+    /// `#project` and not with the notes carrying `#project/alpha`, which is a
+    /// tag of its own with a row of its own in [`all_tags`](Self::all_tags).
+    /// A note tagging itself twice comes back once.
+    ///
+    /// One statement, joined to `files` so a tag row left behind by a file the
+    /// index no longer holds cannot name a note that is gone.
+    pub fn paths_for_tag(&self, tag: &str) -> StorageResult<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT tags.path FROM tags
+               JOIN files ON files.path = tags.path
+              WHERE tags.tag = ?1
+              ORDER BY tags.path",
+        )?;
+        let rows = stmt
+            .query_map(params![tag], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// Every note in the folder and every resolved link among them.
     ///
     /// One statement per table, never a query per note: a folder of five
@@ -1743,6 +1765,11 @@ impl NotesIndexStore {
     /// [`NotesIndex::all_tags`].
     pub fn all_tags(&self) -> StorageResult<Vec<(String, usize)>> {
         NotesIndex::new(&self.conn()).all_tags()
+    }
+
+    /// Every note carrying one tag. See [`NotesIndex::paths_for_tag`].
+    pub fn paths_for_tag(&self, tag: &str) -> StorageResult<Vec<String>> {
+        NotesIndex::new(&self.conn()).paths_for_tag(tag)
     }
 
     /// Every note in the folder and the resolved links among them. See

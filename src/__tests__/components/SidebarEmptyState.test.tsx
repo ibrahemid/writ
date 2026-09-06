@@ -51,6 +51,11 @@ vi.mock("../../services/tauri", () => ({
   renameBuffer: vi.fn(async () => {}),
   createBuffer: vi.fn(),
   searchBuffers: vi.fn(async () => [] as string[]),
+  // The tag list reads the index the moment the sidebar mounts.
+  noteAllTags: vi.fn(async () => []),
+}));
+vi.mock("../../services/events", () => ({
+  onEvent: vi.fn().mockResolvedValue(() => {}),
 }));
 
 afterEach(() => {

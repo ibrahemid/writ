@@ -1,0 +1,104 @@
+.tags-list {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0 8px;
+}
+
+/* 26px of fill inside 1px margins is the 28px row pitch the sidebar keeps. */
+.tags-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--writ-sidebar-row-fill);
+  margin: 1px 6px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--writ-r-pill);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--writ-fg);
+  font-family: inherit;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  transition: background var(--writ-motion);
+}
+
+.tags-row:hover {
+  background: var(--writ-bg-hover);
+}
+
+.tags-row.is-selected {
+  background: var(--writ-bg-selected);
+  font-weight: 500;
+}
+
+.tags-row:focus-visible {
+  border-radius: var(--writ-r-pill);
+  outline-offset: -2px;
+}
+
+.tags-row-hash {
+  flex-shrink: 0;
+  color: var(--writ-fg-faint);
+}
+
+.tags-row.is-selected .tags-row-hash {
+  color: var(--writ-accent);
+}
+
+.tags-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tags-row-count {
+  flex-shrink: 0;
+  color: var(--writ-fg-muted);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+
+/* A button sizes itself to its content unless a flex parent stretches it, and a
+   row that stops at its label puts the count under the name rather than at the
+   edge. */
+.tags-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.tags-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--writ-sidebar-row-fill);
+  margin: 1px 6px;
+  padding: 0 10px;
+  color: var(--writ-fg-muted);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+}
+
+.tags-group-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tags-group-count {
+  margin-left: auto;
+  color: var(--writ-fg-muted);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 16px past the parent label, which starts at 10px. */
+.tags-group .tags-row {
+  padding-left: 26px;
+}

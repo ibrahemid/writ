@@ -33,7 +33,7 @@ come out in.
 Nothing above the storage layer writes an index row. A surface that wants the
 index to change changes the file, and the walk and the watcher put the row
 where it belongs. The read model is a read model: `factsFor`, `allTags`,
-`graph`, and nothing that takes a value.
+`pathsForTag`, `graph`, and nothing that takes a value.
 
 This is what keeps the index deletable. A panel that could edit a property
 would be a second writer of a table whose first writer is a file on disk, and
@@ -48,6 +48,11 @@ the note's own tags are three readings of one row set, so they are one call.
 Four calls would also be four moments. A note saved between the second and the
 third would give a panel an outline from before the save beside properties from
 after it, and nothing in the UI would look wrong.
+
+`pathsForTag` is the fourth read: the notes one tag names, one statement over
+`tags` joined to `files`, cached per tag beside the other three. A tag matches
+whole, so `project` names the notes carrying `#project` and never the notes
+carrying `#project/alpha`, which the tag list holds as a tag of its own.
 
 ### 3. The graph is a query over `links`, not a second store
 

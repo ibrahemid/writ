@@ -235,6 +235,15 @@ pub fn note_all_tags_inner(index: &NotesIndexStore) -> Result<Vec<TagCountDto>, 
         .collect())
 }
 
+/// Every note carrying `tag`, in path order.
+///
+/// The tag is matched whole: `project` names the notes carrying `#project`,
+/// never the notes carrying `#project/alpha`, which the tag list holds as a
+/// tag of its own. A tag nothing carries answers with an empty list.
+pub fn note_paths_for_tag_inner(index: &NotesIndexStore, tag: &str) -> Result<Vec<String>, String> {
+    index.paths_for_tag(tag).map_err(|e| e.to_string())
+}
+
 /// The whole folder as notes and the links among them.
 ///
 /// Only resolved links are edges. A target naming two notes picks neither
@@ -364,6 +373,12 @@ pub fn note_facts(state: State<'_, AppState>, path: String) -> Result<NoteFactsD
 #[tauri::command]
 pub fn note_all_tags(state: State<'_, AppState>) -> Result<Vec<TagCountDto>, String> {
     note_all_tags_inner(&state.notes_index)
+}
+
+/// The notes one tag names. See [`note_paths_for_tag_inner`].
+#[tauri::command]
+pub fn note_paths_for_tag(state: State<'_, AppState>, tag: String) -> Result<Vec<String>, String> {
+    note_paths_for_tag_inner(&state.notes_index, &tag)
 }
 
 /// The folder's notes and the links among them. See [`note_graph_inner`].

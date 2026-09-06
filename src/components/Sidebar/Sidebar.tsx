@@ -16,6 +16,7 @@ import EdgeResizer from "../Resizer/EdgeResizer";
 import SearchBar from "./SearchBar";
 import ActiveSection from "./ActiveSection";
 import FilesSection from "./FilesSection";
+import TagsSection from "./TagsSection";
 import InboxSection from "./InboxSection";
 import HistorySection from "./HistorySection";
 import SearchResults from "./SearchResults";
@@ -73,6 +74,7 @@ export default function Sidebar() {
               <Show when={hasContent()} fallback={<SidebarEmpty />}>
                 <ActiveSection />
                 <FilesSection />
+                <TagsSection />
                 <InboxSection />
                 <HistorySection />
               </Show>
