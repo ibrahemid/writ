@@ -61,6 +61,12 @@ const SIDEBAR_TSX = readFileSync(
   resolve(process.cwd(), "src/components/Sidebar/Sidebar.tsx"),
   "utf8",
 );
+// One edge-drag implementation serves both edges of the window; the sidebar
+// says where its width lives and the handle owns the pointer.
+const EDGE_RESIZER_TSX = readFileSync(
+  resolve(process.cwd(), "src/components/Resizer/EdgeResizer.tsx"),
+  "utf8",
+);
 
 function mount() {
   const { container } = render(() => <Sidebar />);
@@ -199,6 +205,7 @@ describe("sidebar resize handle", () => {
     spy.mockRestore();
     expect(SIDEBAR_TSX).not.toContain("document.addEventListener");
     expect(SIDEBAR_TSX).not.toContain("document.querySelector");
-    expect(SIDEBAR_TSX).toContain("setPointerCapture");
+    expect(EDGE_RESIZER_TSX).not.toContain("document.addEventListener");
+    expect(EDGE_RESIZER_TSX).toContain("setPointerCapture");
   });
 });
