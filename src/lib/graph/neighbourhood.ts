@@ -1,0 +1,97 @@
+import type { LayoutEdge, LayoutNode } from "./layout";
+
+/**
+ * The notes one step from an open note, cut out of the folder's whole graph.
+ *
+ * The folder graph is the one read model both graphs consume (ADR-036), and
+ * cutting the neighbourhood out of it is what makes the drawing more than a
+ * star: a link between two of the neighbours is an edge here too, so how
+ * connected a note is has something to say and a radius can say it. The two
+ * lists the note itself carries, its links and what links to it, would only
+ * ever describe spokes.
+ */
+
+/** One note as the index reports it. */
+export interface GraphNodeRow {
+  path: string;
+  name: string;
+}
+
+/** One resolved link as the index reports it. */
+export interface GraphEdgeRow {
+  from_path: string;
+  to_path: string;
+}
+
+/** A note in the neighbourhood, and how many of the others it touches. */
+export interface NeighbourhoodNode extends LayoutNode {
+  name: string;
+  degree: number;
+}
+
+export interface Neighbourhood {
+  /** The open note first, then its neighbours by path, so a settle is stable. */
+  nodes: NeighbourhoodNode[];
+  edges: LayoutEdge[];
+}
+
+const EMPTY: Neighbourhood = { nodes: [], edges: [] };
+
+/** One key for a link whichever way round it was written. */
+function pairKey(a: string, b: string): string {
+  return a < b ? JSON.stringify([a, b]) : JSON.stringify([b, a]);
+}
+
+/**
+ * The open note and everything one link away from it, in either direction.
+ *
+ * A note nothing links to and that links to nothing comes back empty, and the
+ * section that asked draws nothing at all rather than a lone dot.
+ */
+export function neighbourhoodOf(
+  nodes: readonly GraphNodeRow[],
+  edges: readonly GraphEdgeRow[],
+  focusPath: string,
+): Neighbourhood {
+  const named = new Map<string, string>();
+  for (const node of nodes) named.set(node.path, node.name);
+  if (!named.has(focusPath)) return EMPTY;
+
+  const neighbours = new Set<string>();
+  for (const edge of edges) {
+    if (edge.from_path === edge.to_path) continue;
+    if (edge.from_path === focusPath) {
+      if (named.has(edge.to_path)) neighbours.add(edge.to_path);
+    } else if (edge.to_path === focusPath) {
+      if (named.has(edge.from_path)) neighbours.add(edge.from_path);
+    }
+  }
+  if (neighbours.size === 0) return EMPTY;
+
+  const kept = new Set(neighbours);
+  kept.add(focusPath);
+
+  const seen = new Set<string>();
+  const layoutEdges: LayoutEdge[] = [];
+  const degree = new Map<string, number>();
+  for (const edge of edges) {
+    if (edge.from_path === edge.to_path) continue;
+    if (!kept.has(edge.from_path) || !kept.has(edge.to_path)) continue;
+    const key = pairKey(edge.from_path, edge.to_path);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    layoutEdges.push({ from: edge.from_path, to: edge.to_path });
+    degree.set(edge.from_path, (degree.get(edge.from_path) ?? 0) + 1);
+    degree.set(edge.to_path, (degree.get(edge.to_path) ?? 0) + 1);
+  }
+
+  const ordered = [focusPath, ...[...neighbours].sort()];
+  return {
+    nodes: ordered.map((path) => ({
+      path,
+      name: named.get(path) ?? path,
+      degree: degree.get(path) ?? 0,
+    })),
+    edges: layoutEdges,
+  };
+}

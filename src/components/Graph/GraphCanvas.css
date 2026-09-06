@@ -1,0 +1,39 @@
+/* The drawing sits on the note's own ground rather than the panel's, which is
+   what says the dots are notes. Everything else is the panel's: the section's
+   side padding, the panel's type, the panel's muted second line. */
+
+.graph {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px var(--writ-space-3) var(--writ-space-2);
+}
+
+.graph-canvas {
+  display: block;
+  width: 100%;
+  height: 160px;
+  border-radius: var(--writ-r-card);
+  background: var(--writ-bg-canvas);
+  font-family: var(--writ-font-ui);
+  font-size: var(--writ-ui-xs);
+  cursor: default;
+  touch-action: none;
+}
+
+.graph-canvas.is-over {
+  cursor: pointer;
+}
+
+/* One line, always there. The name arrives and leaves without the section
+   under it moving. */
+.graph-hovered {
+  margin: 0;
+  min-height: var(--writ-ui-sm-lh);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

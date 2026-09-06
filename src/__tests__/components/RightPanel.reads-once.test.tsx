@@ -88,6 +88,7 @@ beforeEach(async () => {
     tags: [],
     headings: [{ level: 1, text: "Title", line: 1, slug: "title" }],
   });
+  mockedApi.noteGraph.mockResolvedValue({ nodes: [], edges: [] });
   mockedApi.noteBacklinks.mockResolvedValue([
     {
       from_path: "/notes/One.md",
@@ -113,6 +114,7 @@ describe("the panel reads one note once", () => {
     expect(mockedApi.noteFacts).toHaveBeenCalledTimes(1);
     expect(mockedApi.noteFacts).toHaveBeenCalledWith(NOTE);
     expect(mockedApi.noteBacklinks).toHaveBeenCalledTimes(1);
+    expect(mockedApi.noteGraph).toHaveBeenCalledTimes(1);
   });
 
   it("re-reads once per section on one notes:changed, not once per section each", async () => {
@@ -122,10 +124,12 @@ describe("the panel reads one note once", () => {
 
     mockedApi.noteFacts.mockClear();
     mockedApi.noteBacklinks.mockClear();
+    mockedApi.noteGraph.mockClear();
     for (const handler of notesChangedHandlers()) handler({ path: NOTE, removed: false });
     await settle();
 
     expect(mockedApi.noteFacts).toHaveBeenCalledTimes(1);
     expect(mockedApi.noteBacklinks).toHaveBeenCalledTimes(1);
+    expect(mockedApi.noteGraph).toHaveBeenCalledTimes(1);
   });
 });
