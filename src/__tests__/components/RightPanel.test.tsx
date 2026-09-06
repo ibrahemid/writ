@@ -74,6 +74,21 @@ vi.mock("../../stores/global/backlinks", () => ({
   backlinksStore: { backlinksFor: () => () => h.backlinks, release: vi.fn() },
 }));
 
+vi.mock("../../stores/global/link", () => ({
+  linkStore: {
+    resolveNoteLink: () =>
+      Promise.resolve({ status: "missing", path: null, candidates: [], heading_line: null }),
+  },
+}));
+
+// The drawing itself is GraphCanvas's own test. What the panel is asked here
+// is which notes it hands the drawing, so the stand-in says that in the DOM.
+vi.mock("../../components/Graph/GraphCanvas", () => ({
+  default: (props: { nodes: { path: string; name: string }[] }) => (
+    <p class="drawn">{props.nodes.map((node) => node.name).join(", ")}</p>
+  ),
+}));
+
 vi.mock("../../stores/global/note-facts", () => ({
   noteFactsStore: {
     factsFor: () => () => h.facts,
@@ -377,6 +392,67 @@ describe("sections are headed and reachable", () => {
     expect(toggles[0].getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(toggles[0]);
     expect(h.toggleSection).toHaveBeenCalledWith("outline");
+  });
+});
+
+describe("every section of a full panel", () => {
+  const NEIGHBOURS = {
+    nodes: [
+      { path: "/notes/Open.md", name: "Open", folder: "" },
+      { path: "/notes/Two.md", name: "Two", folder: "" },
+      { path: "/notes/Three.md", name: "Three", folder: "" },
+    ],
+    edges: [
+      { from_path: "/notes/Open.md", to_path: "/notes/Three.md", count: 1 },
+      { from_path: "/notes/Two.md", to_path: "/notes/Open.md", count: 1 },
+    ],
+  };
+
+  beforeEach(() => {
+    h.graph = NEIGHBOURS;
+    h.facts = {
+      links: [{ to_target: "Three", to_path: "/notes/Three.md", kind: "wikilink", line: 2, col: 0 }],
+      properties: [{ key: "status", value_json: '"draft"' }],
+      tags: [],
+      headings: [{ level: 1, text: "Title", line: 1, slug: "title" }],
+    };
+    h.backlinks = [
+      {
+        from_path: "/notes/Two.md",
+        from_name: "Two",
+        to_target: "Open",
+        alias: null,
+        kind: "wikilink",
+        line: 3,
+        col: 0,
+        context: "see Open",
+        certainty: "resolved",
+        candidates: [],
+      },
+    ];
+  });
+
+  it("reads down the note: its shape, its links, then the drawing and the details", () => {
+    const { container } = mount();
+    expect(headings(container)).toEqual([
+      "Outline",
+      "Links",
+      "Links to this note",
+      "Nearby notes",
+      "Properties",
+    ]);
+  });
+
+  it("names every note the drawing holds as text somewhere above it", () => {
+    const { container } = mount();
+    const drawn = (container.querySelector(".drawn")?.textContent ?? "")
+      .split(", ")
+      .filter((name) => name !== "" && name !== "Open");
+    expect(drawn.sort()).toEqual(["Three", "Two"]);
+    const listed = [...container.querySelectorAll(".right-panel-row-name")].map(
+      (el) => el.textContent?.trim() ?? "",
+    );
+    for (const name of drawn) expect(listed).toContain(name);
   });
 });
 

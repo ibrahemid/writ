@@ -258,3 +258,17 @@
   color: var(--writ-fg);
   opacity: 0.55;
 }
+
+/* A link the index settled on nothing is still one of the note's own words: it
+   is listed, and it is not a control, because there is nothing to open. */
+.right-panel-row-flat {
+  cursor: default;
+}
+
+.right-panel-row-flat:hover {
+  background: transparent;
+}
+
+.right-panel-row-unsettled {
+  color: var(--writ-fg-muted);
+}
