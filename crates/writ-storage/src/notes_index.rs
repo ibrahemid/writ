@@ -1128,6 +1128,10 @@ impl<'a> NotesIndex<'a> {
     /// tag of its own with a row of its own in [`all_tags`](Self::all_tags).
     /// A note tagging itself twice comes back once.
     ///
+    /// Case is folded on the way in, because it was folded on the way into the
+    /// rows: `Project` and `project` are one tag, and asking with the casing a
+    /// note was written in finds it (ADR-036).
+    ///
     /// One statement, joined to `files` so a tag row left behind by a file the
     /// index no longer holds cannot name a note that is gone.
     pub fn paths_for_tag(&self, tag: &str) -> StorageResult<Vec<String>> {
@@ -1138,7 +1142,7 @@ impl<'a> NotesIndex<'a> {
               ORDER BY tags.path",
         )?;
         let rows = stmt
-            .query_map(params![tag], |row| row.get::<_, String>(0))?
+            .query_map(params![tag.to_lowercase()], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }

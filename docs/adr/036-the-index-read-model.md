@@ -54,6 +54,12 @@ after it, and nothing in the UI would look wrong.
 whole, so `project` names the notes carrying `#project` and never the notes
 carrying `#project/alpha`, which the tag list holds as a tag of its own.
 
+A tag is filed lowercased, in the index and in every read over it. `#Project`
+at the top of one note and `#project` in the middle of another are one tag with
+one row and one count; two rows would be one pile split in half by a shift key.
+The match is therefore exact again once both sides are folded, which keeps
+`pathsForTag` a single indexed lookup rather than a scan.
+
 ### 3. The graph is a query over `links`, not a second store
 
 `NotesIndex::graph` reads `files` once and `links` once, grouped. There is no
