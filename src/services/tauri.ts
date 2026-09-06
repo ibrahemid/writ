@@ -662,15 +662,17 @@ export async function hideWindow(): Promise<void> {
 }
 
 // The window is created hidden to avoid the cold-start flash; the frontend
-// reveals it after its first paint (App onMount). Geometry is already restored
-// in Rust setup, so this only shows and focuses.
+// reveals it after its first paint (App onMount). Rust owns the reveal rather
+// than the window API here: the timer that stands behind this signal shows the
+// same window, and only one of them may win. Geometry is already restored in
+// Rust setup, so this only shows and focuses. Rust logs what it decided and
+// any refusal from AppKit; the catch here sees only a request that never
+// arrived.
 export async function showWindow(): Promise<void> {
   try {
-    const win = getCurrentWindow();
-    await win.show();
-    await win.setFocus();
+    await invoke("reveal_window");
   } catch {
-    return;
+    logFailure("the request to show the window did not reach Rust");
   }
 }
 

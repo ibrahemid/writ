@@ -276,6 +276,124 @@ fn spawn_notes_reconcile(
     });
 }
 
+/// How long the main window may stay hidden before Rust shows it without the
+/// frontend's signal.
+const FIRST_PAINT_FALLBACK: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Shows the main window and gives it focus, on the thread AppKit requires.
+///
+/// Every reveal goes through here, and every refusal is logged: a window that
+/// will not show is the one failure the user cannot see for themselves, since
+/// what it leaves behind is a running app with nothing on screen.
+fn show_main_window(app: &tauri::AppHandle, window: tauri::WebviewWindow, reason: &'static str) {
+    let dispatched = app.run_on_main_thread(move || {
+        if let Err(e) = window.show() {
+            tracing::warn!(reason, error = %e, "the window could not be shown");
+        }
+        if let Err(e) = window.set_focus() {
+            tracing::warn!(reason, error = %e, "the shown window could not be focused");
+        }
+    });
+    if let Err(e) = dispatched {
+        tracing::warn!(reason, error = %e, "the show never reached the main thread");
+    }
+}
+
+/// The `reason` every log line from a Dock click carries.
+#[cfg(target_os = "macos")]
+const DOCK_REOPEN: &str = "dock reopen";
+
+/// Brings the main window back for a Dock click.
+///
+/// This runs on the thread AppKit delivered the click on, which is the main
+/// one, so asking the window about itself here costs nothing. A minimized
+/// window has to come out of the Dock before it can be shown, and focus is
+/// last either way.
+#[cfg(target_os = "macos")]
+fn reveal_from_dock(window: &tauri::WebviewWindow) {
+    match window.is_minimized() {
+        Ok(true) => {
+            if let Err(e) = window.unminimize() {
+                tracing::warn!(reason = DOCK_REOPEN, error = %e, "the window could not be unminimized");
+            }
+        }
+        Ok(false) => {}
+        Err(e) => {
+            tracing::warn!(reason = DOCK_REOPEN, error = %e, "the window's minimized state could not be read");
+        }
+    }
+    if let Err(e) = window.show() {
+        tracing::warn!(reason = DOCK_REOPEN, error = %e, "the window could not be shown");
+    }
+    if let Err(e) = window.set_focus() {
+        tracing::warn!(reason = DOCK_REOPEN, error = %e, "the shown window could not be focused");
+    }
+}
+
+/// Brings the main window up once per launch, whoever asks first.
+///
+/// Writ starts its window hidden to kill the cold-start flash (PR #152), which
+/// makes showing it a step that has to happen rather than one that already
+/// did. Two callers own that step between them — the frontend after its first
+/// paint, and the timer behind it — and the claim in [`AppState`] is what
+/// keeps them from both driving AppKit at once.
+///
+/// Returns whether this call is the one that showed it.
+pub fn reveal_main_window(app: &tauri::AppHandle, reason: &'static str) -> bool {
+    let Some(window) = app.get_webview_window("main") else {
+        tracing::warn!(reason, "there is no main window to show");
+        return false;
+    };
+    let read_visible = || {
+        window.is_visible().map_err(|e| {
+            tracing::warn!(reason, error = %e, "the window's visibility could not be read");
+        })
+    };
+    if claim_reveal(&app.state::<AppState>(), read_visible) == window_state::RevealAction::Skip {
+        return false;
+    }
+    show_main_window(app, window.clone(), reason);
+    true
+}
+
+/// Takes the startup reveal for this caller, and answers what it should do.
+///
+/// The claim is a swap rather than a read: two callers reaching this at once
+/// have to come away with different answers, or a launch shows its window
+/// twice and AppKit gets the same window from two threads.
+///
+/// `read_visible` is a closure and not a value because reading the window's
+/// visibility means asking the main thread and waiting for the answer, and the
+/// launch that needs the timer most is the one whose main thread is too busy
+/// to give it: a wait there is a wait for the window itself. It is only asked
+/// when the answer can still change what happens.
+pub fn claim_reveal(
+    state: &AppState,
+    read_visible: impl FnOnce() -> Result<bool, ()>,
+) -> window_state::RevealAction {
+    let already_revealed = state
+        .window_revealed
+        .swap(true, std::sync::atomic::Ordering::SeqCst);
+    let dismissed = state
+        .window_dismissed
+        .load(std::sync::atomic::Ordering::SeqCst);
+    if !already_revealed || dismissed {
+        return window_state::decide_reveal(already_revealed, dismissed, Ok(false));
+    }
+    window_state::decide_reveal(already_revealed, dismissed, read_visible())
+}
+
+/// Records that the user put the window away, so the startup timer leaves
+/// it where they put it.
+///
+/// The timer runs for the first seconds of a launch, and a dismissal inside
+/// those seconds is still a dismissal: without this, hiding Writ right after
+/// opening it would bring it straight back.
+pub fn note_window_dismissed(app: &tauri::AppHandle) {
+    app.state::<AppState>()
+        .window_dismissed
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+}
 /// Applies the saved window geometry to the (hidden) main window before it is
 /// first shown, so the frontend never has to await IPC to resize on the cold
 /// path. The saved size is fitted to the work area of the monitor the window
@@ -526,6 +644,7 @@ pub fn run() {
             commands::config::get_config,
             commands::config::update_config,
             commands::window::confirm_quit_flush,
+            commands::window::reveal_window,
             commands::window::toggle_window,
             commands::window::compute_window_placement,
             commands::window::set_caption_button_metrics,
@@ -676,18 +795,14 @@ pub fn run() {
             let fallback_handle = handle.clone();
             tauri::async_runtime::spawn(async move {
                 tauri::async_runtime::spawn_blocking(|| {
-                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    std::thread::sleep(FIRST_PAINT_FALLBACK);
                 })
                 .await
                 .ok();
-                if let Some(window) = fallback_handle.get_webview_window("main") {
-                    if !window.is_visible().unwrap_or(true) {
-                        tracing::warn!(
-                            "frontend did not signal first paint; showing window via fallback"
-                        );
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
+                if reveal_main_window(&fallback_handle, "startup fallback") {
+                    tracing::warn!(
+                        "frontend did not signal first paint; showing window via fallback"
+                    );
                 }
             });
 
@@ -1079,6 +1194,35 @@ pub fn run() {
                     if let Some(window) = app_handle.get_webview_window("main") {
                         let _ = window.show();
                         let _ = window.set_focus();
+                    }
+                }
+            }
+        }
+
+        // Clicking the Dock icon of an app whose only window is hidden asks
+        // AppKit to reopen it, and AppKit has nothing to reopen: Writ hides its
+        // window rather than closing it, so the click reaches here or it does
+        // nothing at all. Answering it is what keeps a launch that ended with
+        // no window recoverable without quitting.
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen {
+            has_visible_windows,
+            ..
+        } = &event
+        {
+            if let Some(window) = app_handle.get_webview_window("main") {
+                let is_visible = window.is_visible().map_err(|e| {
+                    tracing::warn!(error = %e, "the window's visibility could not be read");
+                });
+                match window_state::decide_reopen(*has_visible_windows, is_visible) {
+                    window_state::ReopenAction::Reveal => {
+                        info!("window shown from the dock");
+                        reveal_from_dock(&window);
+                    }
+                    window_state::ReopenAction::Focus => {
+                        if let Err(e) = window.set_focus() {
+                            tracing::warn!(reason = DOCK_REOPEN, error = %e, "the window could not be focused");
+                        }
                     }
                 }
             }

@@ -33,6 +33,69 @@ pub fn decide_toggle(is_minimized: bool, is_visible: bool, is_focused: bool) -> 
     }
 }
 
+/// What a request to bring the main window up should do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevealAction {
+    /// Show the window and give it focus.
+    Show,
+    /// It is already someone else's to show; do nothing.
+    Skip,
+}
+
+/// Decides what a startup reveal request should do.
+///
+/// Two callers race on every launch: the frontend signals its first paint, and
+/// a timer stands behind it for the launch where that signal is late or never
+/// comes. `already_revealed` is the claim one of them has taken, `is_visible`
+/// the window's own answer with `Err` for a read that failed.
+///
+/// The claim alone would let the timer stand down on a launch where the show
+/// was taken and did not stick, which is the failure this exists for: a
+/// window that answers "visible" with nothing on screen, and a read that
+/// fails, both used to read as "already up" and cost the launch its window.
+/// So the claim only suppresses the second show while the window agrees it is
+/// there; anything else is worth showing again, because showing a window that
+/// is already up costs nothing.
+///
+/// `dismissed_by_user` is the one answer that outranks both: a window the user
+/// put away in the seconds the timer runs for is not a launch that lost it.
+pub fn decide_reveal(
+    already_revealed: bool,
+    dismissed_by_user: bool,
+    is_visible: Result<bool, ()>,
+) -> RevealAction {
+    if dismissed_by_user || (already_revealed && is_visible == Ok(true)) {
+        RevealAction::Skip
+    } else {
+        RevealAction::Show
+    }
+}
+
+/// What a Dock click should do with the main window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReopenAction {
+    /// Unminimize if it is minimized, show it, then focus it.
+    Reveal,
+    /// Something of Writ's is already on screen: raise it.
+    Focus,
+}
+
+/// Decides what a Dock click should do (macOS `applicationShouldHandleReopen`).
+///
+/// `has_visible_windows` is AppKit's own count, sent with the click.
+/// `is_visible` is the main window's answer, `Err` when it could not be read.
+/// A click that arrives with nothing on screen reveals whatever either of them
+/// says: this is the user's only way back into an app that has no window, so
+/// it cannot be gated on the answer that loses the window in the first place.
+/// Focus alone is right only when a window really is up.
+pub fn decide_reopen(has_visible_windows: bool, is_visible: Result<bool, ()>) -> ReopenAction {
+    if has_visible_windows && is_visible == Ok(true) {
+        ReopenAction::Focus
+    } else {
+        ReopenAction::Reveal
+    }
+}
+
 /// A rectangle in logical screen pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect {
@@ -212,6 +275,67 @@ pub fn plan_restore(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The launch nobody has shown yet: whatever the window says about itself,
+    // the caller that gets here first is the one that shows it.
+    #[test]
+    fn first_caller_shows_the_window() {
+        assert_eq!(decide_reveal(false, false, Ok(false)), RevealAction::Show);
+        assert_eq!(decide_reveal(false, false, Ok(true)), RevealAction::Show);
+        assert_eq!(decide_reveal(false, false, Err(())), RevealAction::Show);
+    }
+
+    // The ordinary launch: the frontend showed the window, the timer behind it
+    // finds it up and stands down.
+    #[test]
+    fn second_caller_leaves_a_shown_window_alone() {
+        assert_eq!(decide_reveal(true, false, Ok(true)), RevealAction::Skip);
+    }
+
+    // The launch this exists for. The show was claimed and the window is not
+    // there, so the claim is worth nothing and the second caller shows again.
+    #[test]
+    fn second_caller_shows_again_when_the_window_is_not_up() {
+        assert_eq!(decide_reveal(true, false, Ok(false)), RevealAction::Show);
+    }
+
+    // A read that failed says nothing about the window, and reading it as
+    // "already up" is what let a launch end with no window and no warning.
+    #[test]
+    fn unreadable_visibility_counts_as_hidden() {
+        assert_eq!(decide_reveal(true, false, Err(())), RevealAction::Show);
+    }
+
+    // Hiding Writ seconds after opening it is still hiding it; the timer must
+    // not pull the window back.
+    #[test]
+    fn a_dismissed_window_stays_away() {
+        assert_eq!(decide_reveal(true, true, Ok(false)), RevealAction::Skip);
+        assert_eq!(decide_reveal(false, true, Err(())), RevealAction::Skip);
+    }
+
+    // A click with no window on screen is the recovery path, so none of the
+    // three answers the window can give may turn it into a no-op.
+    #[test]
+    fn dock_click_with_nothing_on_screen_always_reveals() {
+        assert_eq!(decide_reopen(false, Ok(false)), ReopenAction::Reveal);
+        assert_eq!(decide_reopen(false, Ok(true)), ReopenAction::Reveal);
+        assert_eq!(decide_reopen(false, Err(())), ReopenAction::Reveal);
+    }
+
+    #[test]
+    fn dock_click_raises_a_window_that_is_up() {
+        assert_eq!(decide_reopen(true, Ok(true)), ReopenAction::Focus);
+    }
+
+    // AppKit counts windows across the app; ours answering "hidden" is the one
+    // that matters, since it is the only window Writ has. Focus would leave a
+    // hidden window hidden.
+    #[test]
+    fn dock_click_reveals_a_main_window_that_is_not_up() {
+        assert_eq!(decide_reopen(true, Ok(false)), ReopenAction::Reveal);
+        assert_eq!(decide_reopen(true, Err(())), ReopenAction::Reveal);
+    }
 
     #[test]
     fn minimized_window_unminimizes() {
