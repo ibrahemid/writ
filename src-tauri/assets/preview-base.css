@@ -279,6 +279,79 @@ sub, sup { font-size: 0.75em; line-height: 0; }
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--writ-preview-subtle); }
 
+/* Callouts. The accent is the only thing the type changes: one border, one
+   title colour, and the same box for all thirteen words a type is written
+   as. An unknown type keeps its word in `data-callout` and is styled by
+   `data-callout-type`, which the renderer resolves to `note`. */
+.writ-callout {
+  margin: 1.4em 0;
+  padding: 0.9em 1.1em;
+  border: 1px solid var(--writ-preview-border);
+  border-inline-start: 3px solid var(--writ-preview-accent);
+  border-radius: var(--writ-preview-r-card);
+  background: var(--writ-preview-bg-sunken);
+}
+
+.writ-callout-title {
+  font-weight: 600;
+  color: var(--writ-preview-accent);
+}
+
+.writ-callout-body > :first-child { margin-top: 0.6em; }
+.writ-callout-body > :last-child { margin-bottom: 0; }
+.writ-callout-body:empty { display: none; }
+
+/* A callout written closed shows its title and nothing else. */
+.writ-callout[data-fold="closed"] .writ-callout-body { display: none; }
+
+.writ-callout[data-callout-type="warning"],
+.writ-callout[data-callout-type="question"] {
+  border-inline-start-color: var(--writ-preview-status-warning);
+}
+
+.writ-callout[data-callout-type="warning"] .writ-callout-title,
+.writ-callout[data-callout-type="question"] .writ-callout-title {
+  color: var(--writ-preview-status-warning);
+}
+
+.writ-callout[data-callout-type="danger"],
+.writ-callout[data-callout-type="failure"],
+.writ-callout[data-callout-type="bug"] {
+  border-inline-start-color: var(--writ-preview-status-error);
+}
+
+.writ-callout[data-callout-type="danger"] .writ-callout-title,
+.writ-callout[data-callout-type="failure"] .writ-callout-title,
+.writ-callout[data-callout-type="bug"] .writ-callout-title {
+  color: var(--writ-preview-status-error);
+}
+
+.writ-callout[data-callout-type="success"] {
+  border-inline-start-color: var(--writ-preview-status-success);
+}
+
+.writ-callout[data-callout-type="success"] .writ-callout-title {
+  color: var(--writ-preview-status-success);
+}
+
+/* An embedded note, bounded so it reads as another note rather than as more
+   of this one. */
+.writ-embed {
+  display: block;
+  margin: 1.4em 0;
+  padding: 0.2em 1.1em;
+  border: 1px solid var(--writ-preview-border-soft);
+  border-radius: var(--writ-preview-r-card);
+}
+
+.writ-embed > :first-child { margin-top: 0.9em; }
+.writ-embed > :last-child { margin-bottom: 0.9em; }
+
+.writ-embed-placeholder,
+.writ-embed-missing {
+  color: var(--writ-preview-muted);
+}
+
 /* First-element top margins collapse so prose starts flush. */
 body > :first-child { margin-top: 0; }
 
