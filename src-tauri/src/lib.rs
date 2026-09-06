@@ -1168,6 +1168,30 @@ pub fn run() {
             }
         }
 
+        // Clicking the Dock icon of an app whose only window is hidden asks
+        // AppKit to reopen it, and AppKit has nothing to reopen: Writ hides its
+        // window rather than closing it, so the click reaches here or it does
+        // nothing at all. Answering it is what keeps a launch that ended with
+        // no window recoverable without quitting.
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen {
+            has_visible_windows,
+            ..
+        } = &event
+        {
+            if let Some(window) = app_handle.get_webview_window("main") {
+                let is_visible = window.is_visible().map_err(|e| {
+                    tracing::warn!(error = %e, "the window's visibility could not be read");
+                });
+                if window_state::decide_reopen(*has_visible_windows, is_visible)
+                    == window_state::RevealAction::Show
+                {
+                    info!("window shown from the dock");
+                    show_main_window(app_handle, window, "dock reopen");
+                }
+            }
+        }
+
         if let tauri::RunEvent::WindowEvent {
             event: tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }),
             ..

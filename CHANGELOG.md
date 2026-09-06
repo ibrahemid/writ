@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- A launch could leave Writ running with no window on screen. One place in Rust now shows the window, and a show that fails says so in the log.
+- A launch could leave Writ running with no window on screen and a dock icon that did nothing. One place in Rust now shows the window, a dock click brings back a window that is hidden, and a show that fails says so in the log.
 
 ## [0.4.0] - 2026-09-05
 

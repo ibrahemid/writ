@@ -71,6 +71,20 @@ pub fn decide_reveal(
     }
 }
 
+/// Decides what a Dock click should do (macOS `applicationShouldHandleReopen`).
+///
+/// `is_visible` is the main window's own answer, `Err` when it could not be
+/// read at all. An unreadable answer counts as hidden: the click is a request
+/// to see Writ, and showing a window that is already up costs nothing, while
+/// trusting a failed read costs the user every way back to the app.
+pub fn decide_reopen(has_visible_windows: bool, is_visible: Result<bool, ()>) -> RevealAction {
+    if has_visible_windows && is_visible == Ok(true) {
+        RevealAction::Skip
+    } else {
+        RevealAction::Show
+    }
+}
+
 /// A rectangle in logical screen pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect {
@@ -287,6 +301,24 @@ mod tests {
     fn a_dismissed_window_stays_away() {
         assert_eq!(decide_reveal(true, true, Ok(false)), RevealAction::Skip);
         assert_eq!(decide_reveal(false, true, Err(())), RevealAction::Skip);
+    }
+
+    #[test]
+    fn dock_click_shows_a_hidden_window() {
+        assert_eq!(decide_reopen(false, Ok(false)), RevealAction::Show);
+    }
+
+    #[test]
+    fn dock_click_leaves_a_visible_window_alone() {
+        assert_eq!(decide_reopen(true, Ok(true)), RevealAction::Skip);
+    }
+
+    // AppKit counts windows across the app; ours answering "hidden" is the one
+    // that matters, since it is the only window Writ has.
+    #[test]
+    fn dock_click_shows_a_main_window_that_is_hidden_anyway() {
+        assert_eq!(decide_reopen(true, Ok(false)), RevealAction::Show);
+        assert_eq!(decide_reopen(true, Err(())), RevealAction::Show);
     }
 
     #[test]
