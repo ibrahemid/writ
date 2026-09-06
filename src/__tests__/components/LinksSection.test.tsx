@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createSignal } from "solid-js";
 import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 import LinksSection from "../../components/RightPanel/LinksSection";
 import type { LinkResolution } from "../../services/tauri";
@@ -17,6 +18,9 @@ interface Link {
 
 const h = vi.hoisted(() => ({
   links: [] as Link[],
+  // Set by a test that reads the note again, so the facts the panel holds
+  // change the way they do when the file on disk does.
+  reread: null as null | (() => number),
   resolutions: {} as Record<string, LinkResolution>,
   openFile: vi.fn<(path: string) => Promise<{ id: string } | null>>(),
   resolveNoteLink: vi.fn<(from: string, target: string) => Promise<LinkResolution>>(),
@@ -25,7 +29,10 @@ const h = vi.hoisted(() => ({
 
 vi.mock("../../stores/global/note-facts", () => ({
   noteFactsStore: {
-    factsFor: () => () => ({ links: h.links, properties: [], tags: [], headings: [] }),
+    factsFor: () => () => {
+      h.reread?.();
+      return { links: h.links, properties: [], tags: [], headings: [] };
+    },
   },
 }));
 
@@ -57,6 +64,7 @@ function ambiguous(candidates: string[]): LinkResolution {
 
 beforeEach(() => {
   h.links = [];
+  h.reread = null;
   h.resolutions = {};
   h.collapsed = new Set();
   h.openFile.mockReset().mockResolvedValue({ id: "buf-2" });
@@ -117,6 +125,34 @@ describe("a link the index settled on nothing", () => {
     await findByText("Could also mean work/Notes or home/Notes");
     expect(names(container)).toEqual(["Notes"]);
     expect(container.querySelector("button.right-panel-row")).toBeNull();
+  });
+
+  it("keeps what it has been told when the note is read again", async () => {
+    const [reread, setReread] = createSignal(0);
+    h.reread = reread;
+    h.links = [link("Notes", null)];
+    h.resolutions = { Notes: ambiguous(["work/Notes.md", "home/Notes.md"]) };
+    const { findByText, getByText } = render(() => <LinksSection path="Alpha.md" />);
+    await findByText("Could also mean work/Notes or home/Notes");
+
+    h.links = [link("Notes", null), link("Beta", "Beta.md", 6)];
+    setReread(1);
+    expect(getByText("Could also mean work/Notes or home/Notes")).toBeTruthy();
+  });
+
+  it("drops what it was told about one note when the panel moves to another", async () => {
+    const [path, setPath] = createSignal("Alpha.md");
+    const [reread, setReread] = createSignal(0);
+    h.reread = reread;
+    h.links = [link("Notes", null)];
+    h.resolutions = { Notes: ambiguous(["work/Notes.md", "home/Notes.md"]) };
+    const { findByText, queryByText } = render(() => <LinksSection path={path()} />);
+    await findByText("Could also mean work/Notes or home/Notes");
+
+    h.resolutions = {};
+    setPath("Beta.md");
+    setReread(1);
+    expect(queryByText("Could also mean work/Notes or home/Notes")).toBeNull();
   });
 
   it("asks about a target once, however many times the note links to it", () => {

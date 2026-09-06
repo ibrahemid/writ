@@ -128,6 +128,7 @@ beforeEach(() => {
   h.graphReleases = 0;
   h.tabs = [{ id: "buf-1", source_path: "/notes/Open.md" }];
   h.backlinks = [];
+  h.graph = { nodes: [], edges: [] };
   h.facts = { links: [], properties: [], tags: [], headings: [] };
   h.toggleSection.mockClear();
   h.setWidth.mockClear();
@@ -160,6 +161,18 @@ describe("a note with nothing to show", () => {
     setActiveTabId(null);
     expect(headings(container)).toEqual([]);
     expect(h.graphReleases).toBe(h.graphHolds);
+  });
+
+  it("shows only the drawing for a note with neighbours and nothing written in it", () => {
+    h.graph = {
+      nodes: [
+        { path: "/notes/Open.md", name: "Open", folder: "" },
+        { path: "/notes/Two.md", name: "Two", folder: "" },
+      ],
+      edges: [{ from_path: "/notes/Two.md", to_path: "/notes/Open.md", count: 1 }],
+    };
+    const { container } = mount();
+    expect(headings(container)).toEqual(["Nearby notes"]);
   });
 
   it("shows nothing for a note that has never been written to a file", () => {

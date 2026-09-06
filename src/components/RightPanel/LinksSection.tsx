@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal } from "solid-js";
+import { For, Show, createEffect, createSignal, on } from "solid-js";
 import PanelSection from "./PanelSection";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { noteFactsStore, type NoteLink } from "../../stores/global/note-facts";
@@ -34,6 +34,15 @@ export default function LinksSection(props: Props) {
   const [resolutions, setResolutions] = createSignal<ReadonlyMap<string, LinkResolution>>(
     new Map(),
   );
+  // Answers are keyed by the note they were asked from, so a second note's
+  // rows never read the first one's.
+  createEffect(
+    on(
+      () => props.path,
+      () => setResolutions(new Map()),
+      { defer: true },
+    ),
+  );
 
   /** The targets the index picked no note for, each asked about once. */
   const unsettled = (): string[] => {
@@ -48,10 +57,13 @@ export default function LinksSection(props: Props) {
   // the index hands back, and it is what decides how the row reads. The answers
   // land one at a time; a target still being asked about reads as naming
   // nothing, which is what it looks like until something says otherwise.
+  //
+  // What has been answered is kept as the note is re-read, so a change on disk
+  // does not walk the rows back to unanswered and forward again. A note this
+  // no longer links to is an entry nothing reads.
   createEffect(() => {
     const from = props.path;
     const targets = unsettled();
-    setResolutions(new Map());
     for (const target of targets) {
       void linkStore.resolveNoteLink(from, target).then((resolution) => {
         if (from !== props.path) return;
