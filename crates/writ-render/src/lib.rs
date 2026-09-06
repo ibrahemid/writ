@@ -5,9 +5,13 @@
 #[cfg(feature = "wasm")]
 mod wasm;
 
+use std::cell::Cell;
+
 pub mod callout;
 
-use pulldown_cmark::{html, CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{
+    html, CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd,
+};
 
 /// Maps a file reference written in a document to a URL the host can serve.
 ///
@@ -270,7 +274,7 @@ pub fn render_markdown_fragment_with(
     wikilinks: Option<&dyn WikilinkResolver>,
     embeds: Option<&dyn NoteEmbedResolver>,
 ) -> MarkdownFragment {
-    render_fragment(text, asset_url, wikilinks, embeds, 0, &[])
+    render_fragment(text, asset_url, wikilinks, embeds, 0, &[], 0)
 }
 
 /// [`render_markdown_fragment_with`] plus where this render sits in a chain of
@@ -283,6 +287,7 @@ fn render_fragment(
     embeds: Option<&dyn NoteEmbedResolver>,
     depth: u8,
     visited: &[String],
+    heading_shift: u8,
 ) -> MarkdownFragment {
     let embedded;
     let text = match asset_url {
@@ -321,6 +326,7 @@ fn render_fragment(
         embeds,
         depth,
         visited,
+        host_heading: Cell::new(0),
     };
     for event in parser {
         if let Event::Text(ref chunk) = event {
@@ -378,6 +384,24 @@ fn render_fragment(
                     id,
                 }));
             }
+            Event::Start(Tag::Heading {
+                level,
+                id,
+                classes,
+                attrs,
+            }) => {
+                let level = shift_heading(level, heading_shift);
+                scan.host_heading.set(level as u8);
+                events.push(Event::Start(Tag::Heading {
+                    level,
+                    id,
+                    classes,
+                    attrs,
+                }));
+            }
+            Event::End(TagEnd::Heading(level)) => events.push(Event::End(TagEnd::Heading(
+                shift_heading(level, heading_shift),
+            ))),
             Event::Html(raw) => events.push(Event::Html(rewrite_html_img_src(raw, asset_url))),
             Event::InlineHtml(raw) => {
                 events.push(Event::InlineHtml(rewrite_html_img_src(raw, asset_url)))
@@ -397,6 +421,15 @@ fn render_fragment(
     }
 }
 
+/// One heading level moved down by `by`, never past `h6`.
+fn shift_heading(level: HeadingLevel, by: u8) -> HeadingLevel {
+    if by == 0 {
+        return level;
+    }
+    let shifted = (level as usize).saturating_add(by as usize).min(6);
+    HeadingLevel::try_from(shifted).unwrap_or(HeadingLevel::H6)
+}
+
 /// Everything the text scan needs to turn one `[[…]]` or `![[…]]` into markup.
 struct Scan<'a> {
     wikilinks: Option<&'a dyn WikilinkResolver>,
@@ -405,6 +438,10 @@ struct Scan<'a> {
     depth: u8,
     /// The keys of the notes this render is inside, outermost first.
     visited: &'a [String],
+    /// The level of the last heading this document opened, or 0 before the
+    /// first one. An embedded note's headings are moved below it, so a note
+    /// shown under a `###` cannot render an `<h1>` over it.
+    host_heading: Cell<u8>,
 }
 
 impl Scan<'_> {
@@ -552,9 +589,18 @@ fn embed_markup(inner: &str, resolver: &dyn NoteEmbedResolver, scan: &Scan<'_>) 
                 Some(base.embeds()),
                 scan.depth + 1,
                 &visited,
+                scan.host_heading.get(),
             )
         }
-        None => render_fragment(&body, None, None, Some(resolver), scan.depth + 1, &visited),
+        None => render_fragment(
+            &body,
+            None,
+            None,
+            Some(resolver),
+            scan.depth + 1,
+            &visited,
+            scan.host_heading.get(),
+        ),
     };
     Markup::Section(format!(
         "<section class=\"writ-embed\" data-target=\"{}\">{}</section>",
@@ -1389,6 +1435,7 @@ mod tests {
             "B" => Some("B body\n\n![[A]]\n"),
             "Chain3" => Some("Chain3 body\n"),
             "Baseless" => Some("baseless body [[Twice]]\n\n![](pic.png)\n"),
+            "Titled" => Some("# Title\n\nTitle body.\n\n## Under title\n\nDeeper.\n"),
             "Deep1" => Some("Deep1 body\n\n![[Deep2]]\n"),
             "Deep2" => Some("Deep2 body\n\n![[Deep3]]\n"),
             "Deep3" => Some("Deep3 body\n\n![[Deep4]]\n"),
@@ -1777,6 +1824,22 @@ mod tests {
         assert!(html.contains("baseless body [[Twice]]"), "{html}");
         assert!(!html.contains("writ-wikilink"), "{html}");
         assert!(html.contains("<img src=\"pic.png\""), "{html}");
+    }
+
+    #[test]
+    fn an_embedded_note_s_headings_are_demoted_below_the_one_it_sits_under() {
+        let html = with_embeds("### Section\n\n![[Titled]]\n");
+        assert!(html.contains("<h3>Section</h3>"), "{html}");
+        assert!(html.contains("<h4>Title</h4>"), "{html}");
+        assert!(html.contains("<h5>Under title</h5>"), "{html}");
+        assert!(!html.contains("<h1>"), "{html}");
+    }
+
+    #[test]
+    fn an_embed_under_no_heading_keeps_the_note_s_own_levels() {
+        let html = with_embeds("![[Titled]]\n");
+        assert!(html.contains("<h1>Title</h1>"), "{html}");
+        assert!(html.contains("<h2>Under title</h2>"), "{html}");
     }
 
     #[test]
