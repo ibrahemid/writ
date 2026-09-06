@@ -834,7 +834,9 @@ fn header_at(events: &[Event<'_>], index: usize) -> Option<(callout::Callout, us
     let mut consumed = texts;
     while !matches!(
         events.get(index + 2 + consumed),
-        None | Some(Event::SoftBreak) | Some(Event::HardBreak) | Some(Event::End(TagEnd::Paragraph))
+        None | Some(Event::SoftBreak)
+            | Some(Event::HardBreak)
+            | Some(Event::End(TagEnd::Paragraph))
     ) {
         consumed += 1;
     }
