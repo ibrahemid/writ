@@ -1,6 +1,8 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import EdgeResizer from "../Resizer/EdgeResizer";
 import BacklinksSection from "./BacklinksSection";
+import LinksSection from "./LinksSection";
+import LocalGraphSection from "./LocalGraphSection";
 import OutlineSection from "./OutlineSection";
 import PropertiesSection from "./PropertiesSection";
 import { useWindow } from "../WindowProvider/WindowProvider";
@@ -15,15 +17,20 @@ import {
 import "./RightPanel.css";
 
 /**
- * The panel beside the note: what links to it, its headings, its properties.
+ * The panel beside the note: its headings, the notes it links to, the notes
+ * that link to it, those notes drawn, and its properties.
  *
- * Every section reads one call. `factsFor` is asked for here, once, and the
- * accessor is handed down, so a change on disk re-reads the note once and
- * three sections follow it rather than each asking again.
+ * The two lists of links sit above the drawing, and every note the drawing
+ * holds is a row in one of them: the drawing is a second way to reach a note
+ * and never the only one.
+ *
+ * `factsFor` is asked for here, once, and the accessor is handed down, so a
+ * change on disk re-reads the note once and the sections that read it follow
+ * that rather than each asking again.
  *
  * A section with nothing in it renders nothing at all — no heading, no line
- * saying it is empty. A note with none of the three leaves the panel showing
- * its ground and its edge, which is the honest answer.
+ * saying it is empty. A note with none of them leaves the panel showing its
+ * ground and its edge, which is the honest answer.
  */
 export default function RightPanel() {
   const win = useWindow();
@@ -109,15 +116,13 @@ export default function RightPanel() {
           <Show when={openNote()}>
             {(note) => (
               <>
-                <BacklinksSection path={note().path} />
                 <Show when={facts()}>
-                  {(read) => (
-                    <>
-                      <OutlineSection facts={read()} bufferId={note().id} />
-                      <PropertiesSection facts={read()} />
-                    </>
-                  )}
+                  {(read) => <OutlineSection facts={read()} bufferId={note().id} />}
                 </Show>
+                <LinksSection path={note().path} />
+                <BacklinksSection path={note().path} />
+                <LocalGraphSection path={note().path} />
+                <Show when={facts()}>{(read) => <PropertiesSection facts={read()} />}</Show>
               </>
             )}
           </Show>

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { createEffect, createRoot } from "solid-js";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { flattenTheme, themeStore } from "../../stores/global/theme";
@@ -308,6 +309,39 @@ describe("theme polarity and fast boot", () => {
     expect(localStorage.getItem("writ-theme-vars")).toBe("{}");
     expect(localStorage.getItem("writ-theme-vars-v2")).toBe("{}");
     expect(localStorage.getItem("writ-theme-vars-v3")).not.toBe("{}");
+  });
+});
+
+describe("a theme change reaching the root", () => {
+  beforeEach(() => {
+    themeStore.resetOverrides();
+    themeStore.setAppearance({ polarity: "system", accent: "pine", prose_face: "system" });
+  });
+
+  // Anything that paints from the DOM rather than from the store reads its
+  // colours off the root when the theme changes: a canvas cannot inherit a
+  // custom property. The properties have to be on the root by then, or the
+  // reader paints the palette the theme is leaving.
+  it("has the new palette on the root before an effect sees the change", async () => {
+    themeStore.setSystemPolarity("dark");
+    const seen: string[] = [];
+    const stop = createRoot((dispose) => {
+      createEffect(() => {
+        themeStore.resolvedTokens();
+        seen.push(document.documentElement.style.getPropertyValue("--writ-bg-canvas"));
+      });
+      return dispose;
+    });
+    await Promise.resolve();
+    expect(seen).toHaveLength(1);
+    const wasDark = seen[0];
+
+    themeStore.setSystemPolarity("light");
+    await Promise.resolve();
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).not.toBe(wasDark);
+    expect(seen[1]).toBe(document.documentElement.style.getPropertyValue("--writ-bg-canvas"));
+    stop();
   });
 });
 

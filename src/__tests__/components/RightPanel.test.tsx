@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createSignal } from "solid-js";
 import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 
 // The panel beside the note. Every section is a view of one read of one note,
@@ -17,11 +18,18 @@ const h = vi.hoisted(() => ({
   requestReveal: vi.fn<(bufferId: string, line: number) => void>(),
   openFile: vi.fn<(path: string) => Promise<{ id: string } | null>>(),
   activeTabId: "buf-1" as string | null,
+  activeTabIdOverride: null as null | (() => string | null),
+  graphHolds: 0,
+  graphReleases: 0,
   tabs: [{ id: "buf-1", source_path: "/notes/Open.md" }] as {
     id: string;
     source_path: string | null;
   }[],
   backlinks: [] as unknown[],
+  graph: { nodes: [], edges: [] } as {
+    nodes: { path: string; name: string; folder: string }[];
+    edges: { from_path: string; to_path: string; count: number }[];
+  },
   facts: { links: [], properties: [], tags: [], headings: [] } as {
     links: unknown[];
     properties: { key: string; value_json: string }[];
@@ -50,7 +58,10 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       isCollapsed: (section: string) => h.collapsed.has(section),
       toggleSection: h.toggleSection,
     },
-    tabs: { activeTabId: () => h.activeTabId, openFile: h.openFile },
+    tabs: {
+      activeTabId: () => (h.activeTabIdOverride ? h.activeTabIdOverride() : h.activeTabId),
+      openFile: h.openFile,
+    },
     editor: { requestReveal: h.requestReveal },
   }),
 }));
@@ -63,8 +74,33 @@ vi.mock("../../stores/global/backlinks", () => ({
   backlinksStore: { backlinksFor: () => () => h.backlinks, release: vi.fn() },
 }));
 
+vi.mock("../../stores/global/link", () => ({
+  linkStore: {
+    resolveNoteLink: () =>
+      Promise.resolve({ status: "missing", path: null, candidates: [], heading_line: null }),
+  },
+}));
+
+// The drawing itself is GraphCanvas's own test. What the panel is asked here
+// is which notes it hands the drawing, so the stand-in says that in the DOM.
+vi.mock("../../components/Graph/GraphCanvas", () => ({
+  default: (props: { nodes: { path: string; name: string }[] }) => (
+    <p class="drawn">{props.nodes.map((node) => node.name).join(", ")}</p>
+  ),
+}));
+
 vi.mock("../../stores/global/note-facts", () => ({
-  noteFactsStore: { factsFor: () => () => h.facts, release: vi.fn() },
+  noteFactsStore: {
+    factsFor: () => () => h.facts,
+    graph: () => {
+      h.graphHolds += 1;
+      return () => h.graph;
+    },
+    releaseGraph: () => {
+      h.graphReleases += 1;
+    },
+    release: vi.fn(),
+  },
 }));
 
 import RightPanel from "../../components/RightPanel/RightPanel";
@@ -87,8 +123,12 @@ beforeEach(() => {
   h.isOpen = true;
   h.collapsed = new Set();
   h.activeTabId = "buf-1";
+  h.activeTabIdOverride = null;
+  h.graphHolds = 0;
+  h.graphReleases = 0;
   h.tabs = [{ id: "buf-1", source_path: "/notes/Open.md" }];
   h.backlinks = [];
+  h.graph = { nodes: [], edges: [] };
   h.facts = { links: [], properties: [], tags: [], headings: [] };
   h.toggleSection.mockClear();
   h.setWidth.mockClear();
@@ -111,6 +151,28 @@ describe("a note with nothing to show", () => {
     h.activeTabId = null;
     const { container } = mount();
     expect(headings(container)).toEqual([]);
+  });
+
+  it("hands the folder graph back when the last note closes", () => {
+    const [activeTabId, setActiveTabId] = createSignal<string | null>("buf-1");
+    h.activeTabIdOverride = activeTabId;
+    const { container } = mount();
+    expect(h.graphHolds).toBeGreaterThan(0);
+    setActiveTabId(null);
+    expect(headings(container)).toEqual([]);
+    expect(h.graphReleases).toBe(h.graphHolds);
+  });
+
+  it("shows only the drawing for a note with neighbours and nothing written in it", () => {
+    h.graph = {
+      nodes: [
+        { path: "/notes/Open.md", name: "Open", folder: "" },
+        { path: "/notes/Two.md", name: "Two", folder: "" },
+      ],
+      edges: [{ from_path: "/notes/Two.md", to_path: "/notes/Open.md", count: 1 }],
+    };
+    const { container } = mount();
+    expect(headings(container)).toEqual(["Nearby notes"]);
   });
 
   it("shows nothing for a note that has never been written to a file", () => {
@@ -343,6 +405,67 @@ describe("sections are headed and reachable", () => {
     expect(toggles[0].getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(toggles[0]);
     expect(h.toggleSection).toHaveBeenCalledWith("outline");
+  });
+});
+
+describe("every section of a full panel", () => {
+  const NEIGHBOURS = {
+    nodes: [
+      { path: "/notes/Open.md", name: "Open", folder: "" },
+      { path: "/notes/Two.md", name: "Two", folder: "" },
+      { path: "/notes/Three.md", name: "Three", folder: "" },
+    ],
+    edges: [
+      { from_path: "/notes/Open.md", to_path: "/notes/Three.md", count: 1 },
+      { from_path: "/notes/Two.md", to_path: "/notes/Open.md", count: 1 },
+    ],
+  };
+
+  beforeEach(() => {
+    h.graph = NEIGHBOURS;
+    h.facts = {
+      links: [{ to_target: "Three", to_path: "/notes/Three.md", kind: "wikilink", line: 2, col: 0 }],
+      properties: [{ key: "status", value_json: '"draft"' }],
+      tags: [],
+      headings: [{ level: 1, text: "Title", line: 1, slug: "title" }],
+    };
+    h.backlinks = [
+      {
+        from_path: "/notes/Two.md",
+        from_name: "Two",
+        to_target: "Open",
+        alias: null,
+        kind: "wikilink",
+        line: 3,
+        col: 0,
+        context: "see Open",
+        certainty: "resolved",
+        candidates: [],
+      },
+    ];
+  });
+
+  it("reads down the note: its shape, its links, then the drawing and the details", () => {
+    const { container } = mount();
+    expect(headings(container)).toEqual([
+      "Outline",
+      "Links",
+      "Links to this note",
+      "Nearby notes",
+      "Properties",
+    ]);
+  });
+
+  it("names every note the drawing holds as text somewhere above it", () => {
+    const { container } = mount();
+    const drawn = (container.querySelector(".drawn")?.textContent ?? "")
+      .split(", ")
+      .filter((name) => name !== "" && name !== "Open");
+    expect(drawn.sort()).toEqual(["Three", "Two"]);
+    const listed = [...container.querySelectorAll(".right-panel-row-name")].map(
+      (el) => el.textContent?.trim() ?? "",
+    );
+    for (const name of drawn) expect(listed).toContain(name);
   });
 });
 

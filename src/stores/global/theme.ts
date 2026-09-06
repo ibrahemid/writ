@@ -1,4 +1,4 @@
-import { createSignal, createMemo } from "solid-js";
+import { batch, createSignal, createMemo } from "solid-js";
 import type { Theme, ThemeOverrides, ThemeConfig, ThemePolarity } from "../../types/theme";
 import { migrateOverrideKey, tokenKey } from "../../types/theme";
 import type { AppearanceConfig } from "../../types/config";
@@ -115,6 +115,15 @@ export const themeStore = {
     return { ...base, ...overrides() };
   }),
 
+  /**
+   * Writes the resolved palette to the root as custom properties.
+   *
+   * Every mutator above pairs its signal write with this call inside `batch`.
+   * Without it the signal write flushes effects on the spot, so anything that
+   * reads a token off the DOM in response to the theme changing reads the
+   * palette the theme is leaving. Batched, the properties are on the root
+   * before any effect observes the change.
+   */
   applyToRoot(root: HTMLElement = document.documentElement): void {
     // The generated sheet keys its dark and accent layers on root attributes,
     // so both have to reach the DOM as well as the custom properties.
@@ -151,31 +160,41 @@ export const themeStore = {
 
   setPreset(id: string): void {
     if (!getPreset(id)) return;
-    setPresetId(id);
-    this.applyToRoot();
+    batch(() => {
+      setPresetId(id);
+      this.applyToRoot();
+    });
   },
 
   /** The OS light/dark setting changed; only follow-system reacts to it. */
   setSystemPolarity(next: ThemePolarity): void {
-    setSystemPolaritySignal(next);
-    this.applyToRoot();
+    batch(() => {
+      setSystemPolaritySignal(next);
+      this.applyToRoot();
+    });
   },
 
   setAppearance(next: AppearanceConfig): void {
-    setAppearanceSignal({ ...next });
-    this.applyToRoot();
+    batch(() => {
+      setAppearanceSignal({ ...next });
+      this.applyToRoot();
+    });
   },
 
   setOverride(key: string, value: string): boolean {
     if (!isValidColor(value)) return false;
-    setOverridesSignal((prev) => ({ ...prev, [key]: value }));
-    this.applyToRoot();
+    batch(() => {
+      setOverridesSignal((prev) => ({ ...prev, [key]: value }));
+      this.applyToRoot();
+    });
     return true;
   },
 
   resetOverrides(): void {
-    setOverridesSignal({});
-    this.applyToRoot();
+    batch(() => {
+      setOverridesSignal({});
+      this.applyToRoot();
+    });
   },
 
   /**
@@ -188,12 +207,6 @@ export const themeStore = {
    * `null` when the stored map was already current.
    */
   loadConfig(config: ThemeConfig, nextAppearance?: AppearanceConfig): ThemeOverrides | null {
-    if (config.preset && getPreset(config.preset)) {
-      setPresetId(config.preset);
-    } else {
-      setPresetId(DEFAULT_PRESET_ID);
-    }
-    if (nextAppearance) setAppearanceSignal({ ...nextAppearance });
     const stored = config.overrides ?? {};
     const valid: ThemeOverrides = {};
     let changed = false;
@@ -210,8 +223,16 @@ export const themeStore = {
       if (current !== key) changed = true;
       valid[current] = value;
     }
-    setOverridesSignal(valid);
-    this.applyToRoot();
+    batch(() => {
+      if (config.preset && getPreset(config.preset)) {
+        setPresetId(config.preset);
+      } else {
+        setPresetId(DEFAULT_PRESET_ID);
+      }
+      if (nextAppearance) setAppearanceSignal({ ...nextAppearance });
+      setOverridesSignal(valid);
+      this.applyToRoot();
+    });
     return changed ? valid : null;
   },
 

@@ -78,6 +78,8 @@ function createNoteFactsStore() {
   const tagPaths = new Map<string, Cache<string[]>>();
   const tags = createCache<TagCount[]>(noRows<TagCount>());
   const graph = createCache<NoteGraph>(NO_GRAPH);
+  /** How many surfaces are showing the folder graph right now. */
+  let graphHolds = 0;
   let subscription: Promise<UnlistenFn> | null = null;
 
   function factsCache(path: string): Cache<NoteFacts> {
@@ -207,14 +209,37 @@ function createNoteFactsStore() {
     return tags.error;
   }
 
-  /** Every note in the folder and the resolved links among them. */
+  /**
+   * Every note in the folder and the resolved links among them.
+   *
+   * The folder graph is one read for the whole app, so it is counted rather
+   * than flagged: two surfaces may draw from it at once and the last one to
+   * finish with it is the one that hands it back with [`releaseGraph`]. A
+   * caller that never releases costs a re-read of the graph per change for the
+   * rest of the session, which is what every caller cost before the count.
+   */
   function graphRows(): Accessor<NoteGraph> {
+    graphHolds += 1;
     if (!graph.held) {
       graph.held = true;
       void subscribe();
       void read(graph, noteGraph);
     }
     return graph.value;
+  }
+
+  /**
+   * Hands back one hold on the folder graph. The graph stops being re-read
+   * once the last one is handed back, and the next reader reads it again.
+   */
+  function releaseGraph(): void {
+    if (graphHolds > 0) graphHolds -= 1;
+    if (graphHolds > 0 || !graph.held) return;
+    graph.held = false;
+    graph.generation += 1;
+    graph.inFlight = null;
+    graph.setValue(NO_GRAPH);
+    graph.setError(null);
   }
 
   /** Why the last read of the graph failed, or `null`. */
@@ -272,6 +297,7 @@ function createNoteFactsStore() {
   async function reset(): Promise<void> {
     facts.clear();
     tagPaths.clear();
+    graphHolds = 0;
     for (const cache of [tags, graph]) {
       cache.held = false;
       cache.generation += 1;
@@ -295,6 +321,7 @@ function createNoteFactsStore() {
     releaseTag,
     graph: graphRows,
     graphError,
+    releaseGraph,
     refreshAll,
     release,
     reset,
