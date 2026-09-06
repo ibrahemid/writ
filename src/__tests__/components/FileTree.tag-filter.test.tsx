@@ -35,8 +35,17 @@ import FileTree from "../../components/Sidebar/FileTree";
 import { createSidebarStore, type SidebarStore } from "../../stores/window/sidebar-store";
 import { noteFactsStore } from "../../stores/global/note-facts";
 import * as api from "../../services/tauri";
+import * as events from "../../services/events";
 
 const mockedApi = vi.mocked(api);
+const mockedEvents = vi.mocked(events);
+
+/** The handler the store gave `onEvent`, so a test can deliver the event. */
+function notesChanged(): (payload: { path: string; removed: boolean }) => void {
+  const call = mockedEvents.onEvent.mock.calls.find(([kind]) => kind === "notes:changed");
+  expect(call, "the tree never subscribed to notes:changed").toBeDefined();
+  return call![1] as (payload: { path: string; removed: boolean }) => void;
+}
 
 function file(path: string): WorkspaceEntry {
   return { name: path.slice(path.lastIndexOf("/") + 1), path, is_dir: false, conflict_copy: null };
@@ -66,6 +75,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
   mockedApi.noteAllTags.mockResolvedValue([]);
   mockedApi.notePathsForTag.mockResolvedValue([]);
+  mockedEvents.onEvent.mockResolvedValue(() => {});
   h.entries = new Map();
   h.root = "/notes";
   sidebar = createSidebarStore();
@@ -104,6 +114,22 @@ describe("the file tree under a tag", () => {
     await settle();
 
     expect(names(container)).toEqual(["Drafts", "launch.md"]);
+  });
+
+  it("redraws the filtered tree when a note gains the tag", async () => {
+    h.entries.set("/notes", [file("/notes/Pricing.md"), file("/notes/Recipes.md")]);
+    mockedApi.notePathsForTag.mockResolvedValue(["/notes/Pricing.md"]);
+
+    const { container } = render(() => <FileTree />);
+    sidebar.selectTag("idea");
+    await settle();
+    expect(names(container)).toEqual(["Pricing.md"]);
+
+    mockedApi.notePathsForTag.mockResolvedValue(["/notes/Pricing.md", "/notes/Recipes.md"]);
+    notesChanged()({ path: "/notes/Recipes.md", removed: false });
+    await settle();
+
+    expect(names(container)).toEqual(["Pricing.md", "Recipes.md"]);
   });
 
   it("says so when no note in the folder carries the tag", async () => {
