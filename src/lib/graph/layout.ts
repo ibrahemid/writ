@@ -30,9 +30,6 @@ export interface Point {
 }
 
 export interface LayoutOptions {
-  /** The area to place into, in CSS pixels. */
-  width: number;
-  height: number;
   /** How many steps a settle takes. The loop never runs longer than this. */
   steps: number;
   /** How hard two notes push each other apart. */
@@ -47,13 +44,9 @@ export interface LayoutOptions {
   damping: number;
   /** No two notes end up closer than this, centre to centre. */
   minSeparation: number;
-  /** How far a note stays from the edge. */
-  padding: number;
 }
 
 export const DEFAULT_LAYOUT_OPTIONS: LayoutOptions = {
-  width: 216,
-  height: 160,
   steps: 240,
   repulsion: 1400,
   spring: 0.05,
@@ -61,21 +54,7 @@ export const DEFAULT_LAYOUT_OPTIONS: LayoutOptions = {
   centring: 0.012,
   damping: 0.82,
   minSeparation: 22,
-  padding: 14,
 };
-
-/**
- * How many notes a settle holds `minSeparation` for in the default area.
- *
- * The bound is measured rather than derived: how many notes fit depends on the
- * shape as much as on the area, and a folder's densest shape is the one where
- * everything links to everything, which packs worst. Held for a star, a ring
- * and a clique of this size across a seed sweep. Above it the notes still
- * settle, terminate and stay inside the area, but two of them may sit closer
- * than the minimum, and it is the drawing's node cap that answers that
- * (ADR-037).
- */
-export const SEPARATION_HOLDS_TO = 12;
 
 /**
  * A settle in progress: the paths in the order they were given, their
@@ -99,8 +78,15 @@ export interface LayoutState {
   readonly done: boolean;
 }
 
-/** How many times a step tries to satisfy the minimum separation. */
-const SEPARATION_PASSES = 6;
+/**
+ * How many times a step tries to satisfy the minimum separation.
+ *
+ * A pass walks every pair and pushes the ones sitting too close apart, which
+ * can leave a pair it already passed too close again, so it runs until a whole
+ * pass moves nothing. A settled drawing costs one pass; the cap is what a step
+ * that cannot satisfy every pair at once stops at rather than running forever.
+ */
+const SEPARATION_PASSES = 64;
 
 /** How far a settled drawing may be opened out to fill its area. */
 const MAX_FILL = 2.5;
@@ -133,11 +119,17 @@ function normaliseSeed(seed: number): number {
 }
 
 /**
- * A settle ready to run, with every note dropped into the middle of the area.
+ * A settle ready to run, with every note dropped near the origin.
  *
- * The starting square is deliberately smaller than the canvas: the forces open
- * the drawing out from the middle, which reads as the note's neighbours
- * arriving rather than as a field collapsing inwards.
+ * Coordinates are world units and nothing bounds them: the canvas fits what
+ * comes back into whatever room it has (`fitToView`), so the settle answers
+ * how the notes sit relative to each other and only that. The minimum
+ * separation is then a property of the settle and holds however many notes
+ * there are, rather than one an area can run out of room for.
+ *
+ * Every note starts inside one square about a link across; the forces open the
+ * drawing out from there, which reads as the note's neighbours arriving rather
+ * than as a field collapsing inwards.
  */
 export function beginLayout(
   nodes: readonly LayoutNode[],
@@ -149,19 +141,16 @@ export function beginLayout(
   const index = new Map<string, number>();
   paths.forEach((path, at) => index.set(path, at));
 
-  const midX = options.width / 2;
-  const midY = options.height / 2;
-  const spreadX = options.width / 3;
-  const spreadY = options.height / 3;
+  const spread = options.springLength;
 
   const x: number[] = [];
   const y: number[] = [];
   let state = normaliseSeed(seed);
   for (let i = 0; i < paths.length; i += 1) {
     state = nextSeed(state);
-    x.push(midX + (unitOf(state) - 0.5) * spreadX);
+    x.push((unitOf(state) - 0.5) * spread);
     state = nextSeed(state);
-    y.push(midY + (unitOf(state) - 0.5) * spreadY);
+    y.push((unitOf(state) - 0.5) * spread);
   }
 
   const links: [number, number][] = [];
@@ -193,10 +182,6 @@ export function beginLayout(
  * settle separate the same pair the same way.
  */
 function separate(x: number[], y: number[], options: LayoutOptions): void {
-  const minX = options.padding;
-  const maxX = options.width - options.padding;
-  const minY = options.padding;
-  const maxY = options.height - options.padding;
   const wanted = options.minSeparation;
 
   for (let pass = 0; pass < SEPARATION_PASSES; pass += 1) {
@@ -216,10 +201,10 @@ function separate(x: number[], y: number[], options: LayoutOptions): void {
         const share = (wanted - d) / 2 / d;
         const shiftX = dx * share;
         const shiftY = dy * share;
-        x[i] = clamp(x[i] - shiftX, minX, maxX);
-        y[i] = clamp(y[i] - shiftY, minY, maxY);
-        x[j] = clamp(x[j] + shiftX, minX, maxX);
-        y[j] = clamp(y[j] + shiftY, minY, maxY);
+        x[i] -= shiftX;
+        y[i] -= shiftY;
+        x[j] += shiftX;
+        y[j] += shiftY;
         moved = true;
       }
     }
@@ -228,89 +213,20 @@ function separate(x: number[], y: number[], options: LayoutOptions): void {
 }
 
 /**
- * Slides the whole drawing so what was placed sits in the middle of the area.
- *
- * Centring as a force only pulls towards the middle; where a graph comes to
- * rest is still decided by its shape, and a handful of notes reliably settles
- * off to one side with a third of the area empty. Moving the finished set is
- * the honest fix: every distance between two notes is untouched, and the shift
- * is held back so nothing crosses the padding it was already inside.
- */
-function recentre(x: number[], y: number[], options: LayoutOptions): void {
-  if (x.length === 0) return;
-  let lowX = x[0];
-  let highX = x[0];
-  let lowY = y[0];
-  let highY = y[0];
-  for (let i = 1; i < x.length; i += 1) {
-    if (x[i] < lowX) lowX = x[i];
-    if (x[i] > highX) highX = x[i];
-    if (y[i] < lowY) lowY = y[i];
-    if (y[i] > highY) highY = y[i];
-  }
-  const minX = options.padding;
-  const maxX = options.width - options.padding;
-  const minY = options.padding;
-  const maxY = options.height - options.padding;
-  const shiftX = clamp((minX + maxX) / 2 - (lowX + highX) / 2, minX - lowX, maxX - highX);
-  const shiftY = clamp((minY + maxY) / 2 - (lowY + highY) / 2, minY - lowY, maxY - highY);
-  for (let i = 0; i < x.length; i += 1) {
-    x[i] += shiftX;
-    y[i] += shiftY;
-  }
-}
-
-/**
- * Opens the drawing out until it fills the area it was given.
- *
- * The forces decide the shape; they do not decide the size, and what they
- * settle on depends on how many notes there are. Three notes huddle in a
- * quarter of the canvas and a dozen press against its edges. Scaling the
- * settled set about its own middle keeps every angle and every proportion and
- * lets a note's neighbourhood be legible at any count.
- *
- * Only ever larger, never smaller, so the minimum separation the pass before
- * this one just established cannot be undone here.
- */
-function fill(x: number[], y: number[], options: LayoutOptions): void {
-  if (x.length < 2) return;
-  let lowX = x[0];
-  let highX = x[0];
-  let lowY = y[0];
-  let highY = y[0];
-  for (let i = 1; i < x.length; i += 1) {
-    if (x[i] < lowX) lowX = x[i];
-    if (x[i] > highX) highX = x[i];
-    if (y[i] < lowY) lowY = y[i];
-    if (y[i] > highY) highY = y[i];
-  }
-  const spanX = highX - lowX;
-  const spanY = highY - lowY;
-  const roomX = options.width - options.padding * 2;
-  const roomY = options.height - options.padding * 2;
-  const byX = spanX > COINCIDENT ? roomX / spanX : MAX_FILL;
-  const byY = spanY > COINCIDENT ? roomY / spanY : MAX_FILL;
-  let scale = byX < byY ? byX : byY;
-  if (scale > MAX_FILL) scale = MAX_FILL;
-  if (scale <= 1) return;
-  const midX = (lowX + highX) / 2;
-  const midY = (lowY + highY) / 2;
-  for (let i = 0; i < x.length; i += 1) {
-    x[i] = midX + (x[i] - midX) * scale;
-    y[i] = midY + (y[i] - midY) * scale;
-  }
-}
-
-function clamp(value: number, low: number, high: number): number {
-  if (high < low) return low;
-  if (value < low) return low;
-  if (value > high) return high;
-  return value;
-}
-
-/**
  * One step of the settle: repulsion between every pair, a spring along every
- * link, a pull towards the middle, then the separation constraint.
+ * link, a pull towards the origin, then the separation constraint.
+ *
+ * A note's springs are shared out over its links rather than summed. A note
+ * linked to two others is pulled by two springs; one linked to two hundred
+ * would be pulled two hundred times as hard, and no separation pass can undo
+ * that every step. Sharing them out lets a folder where everything links to
+ * everything settle into a packing rather than a pile, which is what makes
+ * the minimum separation hold at any size.
+ *
+ * Separation runs last, so the positions a step ends on are the ones it just
+ * pushed apart. That is also what keeps the arithmetic finite: repulsion goes
+ * as one over the distance cubed, and a step that ends with no pair closer
+ * than the minimum is a step the next one's forces are bounded by.
  *
  * A new state comes back rather than the old one edited, so a caller holding
  * the frame before this one still holds what it drew.
@@ -346,6 +262,9 @@ export function step(state: LayoutState): LayoutState {
     }
   }
 
+  const sx = new Array<number>(count).fill(0);
+  const sy = new Array<number>(count).fill(0);
+  const degree = new Array<number>(count).fill(0);
   for (const [from, to] of state.links) {
     let dx = x[to] - x[from];
     let dy = y[to] - y[from];
@@ -357,33 +276,33 @@ export function step(state: LayoutState): LayoutState {
     }
     const d = Math.sqrt(d2);
     const pull = (options.spring * (d - options.springLength)) / d;
-    fx[from] += dx * pull;
-    fy[from] += dy * pull;
-    fx[to] -= dx * pull;
-    fy[to] -= dy * pull;
+    sx[from] += dx * pull;
+    sy[from] += dy * pull;
+    sx[to] -= dx * pull;
+    sy[to] -= dy * pull;
+    degree[from] += 1;
+    degree[to] += 1;
   }
 
-  const midX = options.width / 2;
-  const midY = options.height / 2;
   for (let i = 0; i < count; i += 1) {
-    fx[i] += (midX - x[i]) * options.centring;
-    fy[i] += (midY - y[i]) * options.centring;
+    const links = degree[i] > 1 ? degree[i] : 1;
+    fx[i] += sx[i] / links;
+    fy[i] += sy[i] / links;
   }
 
-  const minX = options.padding;
-  const maxX = options.width - options.padding;
-  const minY = options.padding;
-  const maxY = options.height - options.padding;
+  for (let i = 0; i < count; i += 1) {
+    fx[i] -= x[i] * options.centring;
+    fy[i] -= y[i] * options.centring;
+  }
+
   for (let i = 0; i < count; i += 1) {
     vx[i] = (vx[i] + fx[i]) * options.damping;
     vy[i] = (vy[i] + fy[i]) * options.damping;
-    x[i] = clamp(x[i] + vx[i], minX, maxX);
-    y[i] = clamp(y[i] + vy[i], minY, maxY);
+    x[i] += vx[i];
+    y[i] += vy[i];
   }
 
   separate(x, y, options);
-  fill(x, y, options);
-  recentre(x, y, options);
 
   const stepsTaken = state.stepsTaken + 1;
   return {

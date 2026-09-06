@@ -7,10 +7,10 @@ import {
   positions,
   step,
   type LayoutEdge,
-  type LayoutOptions,
   type LayoutState,
   type PlacedNode,
 } from "../../lib/graph/layout";
+import { fitToView, toScreen } from "../../lib/graph/view";
 import type { NeighbourhoodNode } from "../../lib/graph/neighbourhood";
 import "./GraphCanvas.css";
 
@@ -21,6 +21,15 @@ interface Props {
   focusPath: string;
   onOpen: (path: string) => void;
 }
+
+/** The room a drawing is fitted into before the canvas has been measured. */
+const DEFAULT_SIZE = { width: 216, height: 160 };
+
+/** How far the drawing stays from the canvas edge, in CSS pixels. */
+const VIEW_PADDING = 14;
+
+/** How small the open note's name may be drawn, and when it is left off. */
+const LABEL_MIN_SIZE = 9;
 
 /** How much of a step's settle runs per frame. */
 const STEPS_PER_FRAME = 8;
@@ -51,7 +60,8 @@ const TOKENS = {
 
 type Palette = Record<keyof typeof TOKENS, string> & {
   /** The canvas element's own face and size, so the label follows the app's. */
-  font: string;
+  face: string;
+  fontSize: number;
 };
 
 /**
@@ -95,7 +105,7 @@ export default function GraphCanvas(props: Props) {
   let palette: Palette | null = null;
   let placed: PlacedNode[] = [];
   let live = true;
-  let size = { width: DEFAULT_LAYOUT_OPTIONS.width, height: DEFAULT_LAYOUT_OPTIONS.height };
+  let size = { ...DEFAULT_SIZE };
 
   const [hovered, setHovered] = createSignal<string | null>(null);
 
@@ -120,12 +130,9 @@ export default function GraphCanvas(props: Props) {
       focus: read(TOKENS.focus),
       ring: read(TOKENS.ring),
       nodeFill: read(TOKENS.nodeFill),
-      font: `${style.fontSize} ${style.fontFamily}`,
+      face: style.fontFamily,
+      fontSize: Number.parseFloat(style.fontSize) || LABEL_MIN_SIZE,
     };
-  }
-
-  function optionsFor(): LayoutOptions {
-    return { ...DEFAULT_LAYOUT_OPTIONS, width: size.width, height: size.height };
   }
 
   function draw() {
@@ -135,15 +142,20 @@ export default function GraphCanvas(props: Props) {
 
     const paint = palette;
     const points = positions(state);
-    placed = props.nodes.map((node) => {
-      const point = points.get(node.path) ?? { x: size.width / 2, y: size.height / 2 };
-      return {
-        path: node.path,
-        x: point.x,
-        y: point.y,
-        radius: node.path === props.focusPath ? RADIUS_MAX : radiusFor(node.degree),
-      };
+    // The settle works in world units and says nothing about how big the panel
+    // is; what fits it into this canvas is the one scale and shift below, so
+    // the drawing keeps its proportions at any note count and at any width.
+    const world: PlacedNode[] = props.nodes.map((node) => ({
+      path: node.path,
+      ...(points.get(node.path) ?? { x: 0, y: 0 }),
+      radius: node.path === props.focusPath ? RADIUS_MAX : radiusFor(node.degree),
+    }));
+    const view = fitToView(world, {
+      width: size.width,
+      height: size.height,
+      padding: VIEW_PADDING,
     });
+    placed = world.map((node) => ({ ...node, ...toScreen(node, view) }));
     const by = new Map(placed.map((node) => [node.path, node] as const));
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -184,12 +196,18 @@ export default function GraphCanvas(props: Props) {
 
     const focus = by.get(props.focusPath);
     const name = focusNode()?.name;
-    if (focus && name) {
-      ctx.font = paint.font;
+    // A crowded folder is drawn small, and a name drawn at the app's size over
+    // it would cover the notes it belongs to. It shrinks with the drawing down
+    // to the size letters stop being letters at, and is left off below that:
+    // the canvas is named and counted for a reader either way, and every note
+    // it draws is a row in Links or Links to this note.
+    const labelSize = paint.fontSize * (view.scale < 1 ? view.scale : 1);
+    if (focus && name && labelSize >= LABEL_MIN_SIZE) {
+      ctx.font = `${labelSize}px ${paint.face}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       ctx.fillStyle = paint.label;
-      const room = size.width - DEFAULT_LAYOUT_OPTIONS.padding * 2;
+      const room = size.width - VIEW_PADDING * 2;
       const baseline = Math.min(focus.y + LABEL_OFFSET, size.height - LABEL_OFFSET * 2);
       // The name lands wherever the note settled, which is sometimes over a
       // link. Laying the ground back down around the letters keeps it legible
@@ -231,7 +249,7 @@ export default function GraphCanvas(props: Props) {
   function restart() {
     cancelFrame();
     if (props.nodes.length === 0) return;
-    state = beginLayout(props.nodes, props.edges, optionsFor(), seedFor(props.focusPath));
+    state = beginLayout(props.nodes, props.edges, DEFAULT_LAYOUT_OPTIONS, seedFor(props.focusPath));
     if (settlesAtOnce()) {
       while (!state.done) state = step(state);
       draw();
@@ -246,8 +264,8 @@ export default function GraphCanvas(props: Props) {
   function measure(element: HTMLCanvasElement) {
     const ratio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
     const rect = element.getBoundingClientRect();
-    const width = rect.width || DEFAULT_LAYOUT_OPTIONS.width;
-    const height = rect.height || DEFAULT_LAYOUT_OPTIONS.height;
+    const width = rect.width || DEFAULT_SIZE.width;
+    const height = rect.height || DEFAULT_SIZE.height;
     const changed = width !== size.width || height !== size.height;
     size = { width, height };
     element.width = Math.round(width * ratio);

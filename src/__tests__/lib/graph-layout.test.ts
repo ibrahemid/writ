@@ -4,7 +4,6 @@ import { pathToFileURL } from "node:url";
 import { describe, it, expect } from "vitest";
 import {
   DEFAULT_LAYOUT_OPTIONS,
-  SEPARATION_HOLDS_TO,
   beginLayout,
   nodeAt,
   positions,
@@ -85,78 +84,20 @@ describe("graph layout is deterministic", () => {
 describe("a settled graph", () => {
   it("holds every pair at the minimum separation", () => {
     const placed = [...simulate(NODES, EDGES, DEFAULT_LAYOUT_OPTIONS, SEED).values()];
-    let closest = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < placed.length; i += 1) {
-      for (let j = i + 1; j < placed.length; j += 1) {
-        const dx = placed[j].x - placed[i].x;
-        const dy = placed[j].y - placed[i].y;
-        closest = Math.min(closest, Math.sqrt(dx * dx + dy * dy));
-      }
-    }
-    expect(closest).toBeGreaterThanOrEqual(DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6);
+    expect(closestPair(placed)).toBeGreaterThanOrEqual(
+      DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6,
+    );
   });
 
-  it("sits in the middle of the area rather than off to one side", () => {
-    const { width, height } = DEFAULT_LAYOUT_OPTIONS;
+  it("settles around the middle of the world rather than drifting off", () => {
     const placed = [...simulate(NODES, EDGES, DEFAULT_LAYOUT_OPTIONS, SEED).values()];
     const xs = placed.map((point) => point.x);
     const ys = placed.map((point) => point.y);
     const midX = (Math.min(...xs) + Math.max(...xs)) / 2;
     const midY = (Math.min(...ys) + Math.max(...ys)) / 2;
-    expect(Math.abs(midX - width / 2)).toBeLessThan(1);
-    expect(Math.abs(midY - height / 2)).toBeLessThan(1);
-  });
-
-  it("opens out to fill the area rather than huddling in the middle", () => {
-    const { width, height, padding } = DEFAULT_LAYOUT_OPTIONS;
-    const placed = [...simulate(NODES, EDGES, DEFAULT_LAYOUT_OPTIONS, SEED).values()];
-    const xs = placed.map((point) => point.x);
-    const ys = placed.map((point) => point.y);
-    const spanX = (Math.max(...xs) - Math.min(...xs)) / (width - padding * 2);
-    const spanY = (Math.max(...ys) - Math.min(...ys)) / (height - padding * 2);
-    expect(Math.max(spanX, spanY)).toBeGreaterThan(0.9);
-  });
-
-  it("holds both when a shape leans on one side of the area", () => {
-    // A chain is the shape that opens out furthest before it meets an edge, so
-    // it is where scaling to fill the area could push a note past the padding
-    // or back onto its neighbour. Neither may happen, on any seed.
-    const nodes: LayoutNode[] = [
-      { path: "a.md" },
-      { path: "b.md" },
-      { path: "c.md" },
-      { path: "d.md" },
-    ];
-    const edges: LayoutEdge[] = [
-      { from: "a.md", to: "b.md" },
-      { from: "b.md", to: "c.md" },
-      { from: "c.md", to: "d.md" },
-    ];
-    const { width, height, padding, minSeparation } = DEFAULT_LAYOUT_OPTIONS;
-    for (let seed = 1; seed <= 60; seed += 1) {
-      const placed = [...simulate(nodes, edges, DEFAULT_LAYOUT_OPTIONS, seed).values()];
-      for (let i = 0; i < placed.length; i += 1) {
-        expect(placed[i].x).toBeGreaterThanOrEqual(padding - 1e-6);
-        expect(placed[i].x).toBeLessThanOrEqual(width - padding + 1e-6);
-        expect(placed[i].y).toBeGreaterThanOrEqual(padding - 1e-6);
-        expect(placed[i].y).toBeLessThanOrEqual(height - padding + 1e-6);
-        for (let j = i + 1; j < placed.length; j += 1) {
-          const dx = placed[j].x - placed[i].x;
-          const dy = placed[j].y - placed[i].y;
-          expect(Math.sqrt(dx * dx + dy * dy)).toBeGreaterThanOrEqual(minSeparation - 1e-6);
-        }
-      }
-    }
-  });
-
-  it("stays inside the area it was given", () => {
-    const { width, height, padding } = DEFAULT_LAYOUT_OPTIONS;
-    for (const point of simulate(NODES, EDGES, DEFAULT_LAYOUT_OPTIONS, SEED).values()) {
-      expect(point.x).toBeGreaterThanOrEqual(padding - 1e-6);
-      expect(point.x).toBeLessThanOrEqual(width - padding + 1e-6);
-      expect(point.y).toBeGreaterThanOrEqual(padding - 1e-6);
-      expect(point.y).toBeLessThanOrEqual(height - padding + 1e-6);
-    }
+    const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+    expect(Math.abs(midX)).toBeLessThan(span);
+    expect(Math.abs(midY)).toBeLessThan(span);
   });
 });
 
@@ -187,7 +128,19 @@ function clique(count: number): { nodes: LayoutNode[]; edges: LayoutEdge[] } {
   return { nodes, edges };
 }
 
+/**
+ * The two notes sitting closest together.
+ *
+ * A settle that blows up leaves NaN coordinates, and every distance between
+ * them is NaN too, which no comparison is ever true for. That would leave the
+ * closest pair reading as infinity — a settle that produced nothing at all
+ * passing the test for a settle that held every note apart. A run that lost a
+ * coordinate reports NaN, which fails.
+ */
 function closestPair(placed: { x: number; y: number }[]): number {
+  for (const point of placed) {
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return Number.NaN;
+  }
   let closest = Number.POSITIVE_INFINITY;
   for (let i = 0; i < placed.length; i += 1) {
     for (let j = i + 1; j < placed.length; j += 1) {
@@ -199,35 +152,71 @@ function closestPair(placed: { x: number; y: number }[]): number {
   return closest;
 }
 
+/** Runs a whole settle and says how many steps it took to get there. */
+function settle(
+  nodes: LayoutNode[],
+  edges: LayoutEdge[],
+  seed: number,
+): { placed: { x: number; y: number }[]; steps: number } {
+  let state = beginLayout(nodes, edges, DEFAULT_LAYOUT_OPTIONS, seed);
+  let steps = 0;
+  while (!state.done && steps <= DEFAULT_LAYOUT_OPTIONS.steps) {
+    state = step(state);
+    steps += 1;
+  }
+  return { placed: [...positions(state).values()], steps };
+}
+
 describe("the minimum separation", () => {
-  // These are the shapes the springs pull tight enough that pushing apart is
-  // the only thing holding the notes off each other: with the separation pass
-  // gone they settle on top of one another, which is what the pass exists to
-  // stop.
-  const shapes = { star, ring, clique };
+  // The settle works in world units and nothing bounds it, so how many notes
+  // are being placed is not a thing the minimum can run out of room for. A hub
+  // note and a folder where everything links to everything are the two shapes
+  // that pull hardest against it, and it holds for both at every size.
+  const shapes = { star, clique };
+  const sizes = [
+    { count: 8, seeds: 20 },
+    { count: 12, seeds: 20 },
+    { count: 64, seeds: 2 },
+    { count: 200, seeds: 2 },
+  ];
 
   for (const [name, shape] of Object.entries(shapes)) {
-    it(`holds every pair apart in a ${name} of ${SEPARATION_HOLDS_TO}`, () => {
-      const { nodes, edges } = shape(SEPARATION_HOLDS_TO);
-      for (let seed = 1; seed <= 40; seed += 1) {
-        const placed = [...simulate(nodes, edges, DEFAULT_LAYOUT_OPTIONS, seed).values()];
-        expect(closestPair(placed)).toBeGreaterThanOrEqual(
-          DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6,
-        );
-      }
-    });
+    for (const { count, seeds } of sizes) {
+      it(`holds every pair apart in a ${name} of ${count}`, () => {
+        const { nodes, edges } = shape(count);
+        for (let seed = 1; seed <= seeds; seed += 1) {
+          const run = settle(nodes, edges, seed);
+          expect(closestPair(run.placed)).toBeGreaterThanOrEqual(
+            DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6,
+          );
+          expect(run.steps).toBe(DEFAULT_LAYOUT_OPTIONS.steps);
+        }
+      });
+    }
   }
-});
 
-describe("opening the settle out to the area", () => {
-  it("takes a linked pair further apart than the link would leave them", () => {
-    // Two linked notes rest at the length of the link, which is a third of
-    // the area. Nothing but the fill pass takes them further.
-    const nodes: LayoutNode[] = [{ path: "a.md" }, { path: "b.md" }];
-    const edges: LayoutEdge[] = [{ from: "a.md", to: "b.md" }];
+  it("holds a folder far larger than one is drawn at apart", () => {
+    // Past a few hundred notes the forces alone stop being enough: the springs
+    // and the repulsion balance closer than the minimum, and what holds the
+    // notes off each other is the pass that pushes them apart until nothing
+    // moves. This is the size that says whether that pass is doing its job.
+    for (const shape of [star, clique]) {
+      const { nodes, edges } = shape(400);
+      const run = settle(nodes, edges, 1);
+      expect(closestPair(run.placed)).toBeGreaterThanOrEqual(
+        DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6,
+      );
+      expect(run.steps).toBe(DEFAULT_LAYOUT_OPTIONS.steps);
+    }
+  }, 30_000);
+
+  it("holds a loop apart too", () => {
+    const { nodes, edges } = ring(12);
     for (let seed = 1; seed <= 20; seed += 1) {
       const placed = [...simulate(nodes, edges, DEFAULT_LAYOUT_OPTIONS, seed).values()];
-      expect(closestPair(placed)).toBeGreaterThan(DEFAULT_LAYOUT_OPTIONS.springLength * 2);
+      expect(closestPair(placed)).toBeGreaterThanOrEqual(
+        DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6,
+      );
     }
   });
 });
