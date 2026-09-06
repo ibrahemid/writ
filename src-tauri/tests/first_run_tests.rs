@@ -381,3 +381,31 @@ fn a_rename_the_guard_refuses_leaves_the_note_answerable() {
         vec!["Grocery list.md".to_string()]
     );
 }
+
+#[test]
+fn a_launch_that_finds_open_tabs_leaves_them_to_the_frontend() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let notes = tempfile::tempdir().expect("notes dir");
+    std::fs::write(notes.path().join("Other.md"), "Something else\n").expect("a note");
+
+    let first = launch_with_notes(dir.path(), notes.path());
+    let opened = open_first_note(&first).expect("the note that is already there");
+    assert_eq!(opened_path(&opened).file_name(), Some("Other.md".as_ref()));
+    drop(first);
+
+    // The config goes, the database stays: the launch reads as a first one
+    // again, but the row from the last session is still open, so the frontend
+    // restores it and nothing here opens anything.
+    std::fs::remove_file(config_file(dir.path())).expect("the config goes");
+    let second = launch_with_notes(dir.path(), notes.path());
+    assert!(second.first_run);
+    assert!(
+        open_first_note(&second).is_none(),
+        "the tabs the last session left are the launch's answer"
+    );
+    assert_eq!(
+        notes_folder_entries(&second),
+        vec!["Other.md".to_string()],
+        "nothing was minted"
+    );
+}

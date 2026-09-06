@@ -67,7 +67,7 @@ function mount() {
 }
 
 describe("the first launch's one line", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     mocks.config.mockReset().mockReturnValue(CONFIG);
     mocks.dismissFirstRunHint.mockReset().mockResolvedValue(undefined);
     mocks.autoRetitleNote.mockReset().mockResolvedValue({ kind: "skipped" });
@@ -88,6 +88,9 @@ describe("the first launch's one line", () => {
       file_manager: "Finder",
     });
     firstRunStore.dismissOffer();
+    // The registry is a singleton: a test that seeds a buffer would leave it
+    // for the next one.
+    await bufferRegistry.load();
     win = null;
   });
 
