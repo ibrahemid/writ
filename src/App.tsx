@@ -291,6 +291,14 @@ function AppShell() {
     });
 
     registerCommand({
+      id: "note.today",
+      label: "Today's note",
+      description: "Open the note dated today, or create it",
+      scope: "app",
+      execute: () => void windowRegistry.getActive()?.tabs.todaysNote(),
+    });
+
+    registerCommand({
       id: "file.open",
       label: "Open file",
       description: "Open a file from disk into a new tab",

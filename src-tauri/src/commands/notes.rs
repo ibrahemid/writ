@@ -8,6 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use tauri::State;
 use tracing::{info, warn};
@@ -79,7 +80,7 @@ pub fn new_note_inner(state: &AppState) -> Result<BufferDocument, String> {
 /// [`new_note_from_link_inner`] reads the folder a target names rather than
 /// flattening it.
 pub fn new_note_named_inner(state: &AppState, name: &str) -> Result<BufferDocument, String> {
-    let now = chrono::Utc::now();
+    let now = Utc::now();
     let stem = writ_core::notes::note_file_stem_from_link(name, now);
     let doc = create_note_at(state, &state.notes_root(), &stem)?;
     // A note nobody named yet carries a date, and a date is the name the
@@ -94,12 +95,74 @@ pub fn new_note_named_inner(state: &AppState, name: &str) -> Result<BufferDocume
 /// Creates the note named for today, file first, and opens it.
 ///
 /// The file name is [`writ_core::startup::dated_note_name`] — the one date
-/// rule — so the note the first launch opens is the note today's date names.
-pub fn new_dated_note_inner(state: &AppState) -> Result<BufferDocument, String> {
-    let stem = writ_core::notes::date_stem(chrono::Utc::now());
-    let doc = create_note_at(state, &state.notes_root(), &stem)?;
-    watch_for_retitle(state, &doc);
-    Ok(doc)
+/// rule — so the note the first launch opens and the note `Today's Note`
+/// opens are the same note.
+///
+/// The retitle watch is armed by the caller rather than here. A note the
+/// first launch minted may take its name from its own first line; a note
+/// `Today's Note` minted may not, because a rename would leave the day
+/// without a note under its date and the next call would make a second one.
+pub fn new_dated_note_inner(
+    state: &AppState,
+    now: DateTime<Utc>,
+) -> Result<BufferDocument, String> {
+    let stem = writ_core::notes::date_stem(now);
+    create_note_at(state, &state.notes_root(), &stem)
+}
+
+/// The note today's date names, and whether this call is what made it.
+pub struct DatedNote {
+    /// The note, or `None` when the file is there and its bytes are not.
+    pub doc: Option<BufferDocument>,
+    /// Whether the file was created here rather than found.
+    pub minted: bool,
+}
+
+/// Opens `<notes>/<YYYY-MM-DD>.md`, creating it only when it is not there
+/// (spec D1).
+///
+/// One file a day. A note that is already there is opened through the
+/// ordinary open, so nothing it holds is rewritten and a note already in a
+/// tab keeps that tab; the mint runs only when there is nothing to open, and
+/// it goes through [`create_note_at`], so the guard and the index see the file
+/// the same way they see every other new note.
+///
+/// Both the first launch and `Today's Note` come here, so one place answers
+/// which file today is and one place decides whether to write.
+pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<DatedNote, String> {
+    let root = state.notes_root();
+    let name = writ_core::startup::dated_note_name(now);
+    let path = root.join(&name);
+    if path.is_file() {
+        let opened = crate::commands::file::open_file_from_path(state, &path.to_string_lossy())?;
+        return Ok(DatedNote {
+            doc: opened.doc,
+            minted: false,
+        });
+    }
+    // Today's name is already on something that is not a note file: a folder,
+    // or a link to one. Minting would dedupe around it and hand back a second
+    // file for the same day, one more on every ask, so the name is reported as
+    // taken instead.
+    if path.symlink_metadata().is_ok() {
+        return Err(name_is_taken(&name));
+    }
+    let doc = new_dated_note_inner(state, now)?;
+    Ok(DatedNote {
+        doc: Some(doc),
+        minted: true,
+    })
+}
+
+/// What today's note is answered with when its file is here and its text is
+/// still with the sync provider.
+const NOTE_IS_NOT_HERE_YET: &str = "That note is still being downloaded.";
+
+/// [`open_or_mint_dated_note`] for the menu item and the command that share it.
+pub fn todays_note_inner(state: &AppState, now: DateTime<Utc>) -> Result<BufferDocument, String> {
+    open_or_mint_dated_note(state, now)?
+        .doc
+        .ok_or_else(|| NOTE_IS_NOT_HERE_YET.to_string())
 }
 
 /// Starts watching a freshly minted note, so its first line can be answered
@@ -126,7 +189,7 @@ fn watch_for_retitle(state: &AppState, doc: &BufferDocument) {
 /// heading, the extension left on — which is the shape
 /// [`writ_core::notes::note_location_from_link`] reads.
 pub fn new_note_from_link_inner(state: &AppState, target: &str) -> Result<BufferDocument, String> {
-    let now = chrono::Utc::now();
+    let now = Utc::now();
     let location = writ_core::notes::note_location_from_link(target, now);
     let root = state.notes_root();
     let mut folder = root.clone();
@@ -189,6 +252,15 @@ fn create_note_at(state: &AppState, folder: &Path, stem: &str) -> Result<BufferD
     state.authorized_paths.record_blessed_source(canonical);
     state.record_disk_state_bytes(&doc.id, &path, b"");
     state.follow_note_file(&doc);
+
+    // The write is stamped into the watcher's ignore set, so the watcher never
+    // reports the file Writ itself just made and the index would not hear of
+    // the note until the next walk of the folder. It is indexed here instead,
+    // after the lock on the note rows has gone.
+    drop(store);
+    if let Err(error) = state.notes_index.index_path(&path) {
+        warn!(path = %path.display(), %error, "a new note could not be indexed");
+    }
     Ok(doc)
 }
 
@@ -196,6 +268,12 @@ fn create_note_at(state: &AppState, folder: &Path, stem: &str) -> Result<BufferD
 #[tauri::command]
 pub fn new_note(state: State<'_, AppState>) -> Result<BufferDocument, String> {
     new_note_inner(&state)
+}
+
+/// IPC: [`todays_note_inner`].
+#[tauri::command]
+pub fn todays_note(state: State<'_, AppState>) -> Result<BufferDocument, String> {
+    todays_note_inner(&state, Utc::now())
 }
 
 /// IPC: [`new_note_from_link_inner`].

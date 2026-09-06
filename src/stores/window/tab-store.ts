@@ -73,6 +73,14 @@ export function createTabStore(deps: {
     return doc;
   }
 
+  // Today's note may already be open, in which case the row that comes back
+  // is that tab's, and selecting it is the whole of the command.
+  async function todaysNote(): Promise<BufferDocument> {
+    const doc = await registry.todaysNote();
+    setActiveTabId(doc.id);
+    return doc;
+  }
+
   // The tab goes with the note. Selection moves to the survivor first, for the
   // same reason closeTab does it: a transient null active buffer recreates the
   // preview iframe, which hard-freezes the macOS webview.
@@ -229,6 +237,7 @@ export function createTabStore(deps: {
     loadAndActivate,
     createTab,
     newNote,
+    todaysNote,
     deleteNote,
     closeTab,
     closeOtherTabs,

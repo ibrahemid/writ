@@ -90,6 +90,7 @@ const MENU_ACTION_IDS: &[&str] = &[
     "app.check_updates",
     "file.open",
     "note.new",
+    "note.today",
     "note.rename",
     "note.saveCopy",
     "buffer.close",
@@ -126,10 +127,10 @@ fn dropped_paths_to_open(
 /// there. On Windows/Linux the window runs with `decorations: false`, so this
 /// menu would be invisible chrome while its accelerators collide with the
 /// platform translator. Every action it exposes (`app.check_updates`,
-/// `file.open`, `note.new`, `note.rename`, `note.saveCopy`, `buffer.close`) is
-/// also registered as a command palette entry and keyboard shortcut in the
-/// frontend, so gating it off those platforms removes dead chrome without
-/// removing any reachable action.
+/// `file.open`, `note.new`, `note.today`, `note.rename`, `note.saveCopy`,
+/// `buffer.close`) is also registered as a command palette entry in the
+/// frontend, most of them with a keyboard shortcut, so gating it off those
+/// platforms removes dead chrome without removing any reachable action.
 #[cfg(target_os = "macos")]
 fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
@@ -166,6 +167,8 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let new_note = MenuItemBuilder::with_id("note.new", "New Note")
         .accelerator("CmdOrCtrl+N")
         .build(app)?;
+    // No accelerator: the shortcut table is spec K1's.
+    let todays_note = MenuItemBuilder::with_id("note.today", "Today's Note").build(app)?;
     let rename_note = MenuItemBuilder::with_id("note.rename", "Rename Note…").build(app)?;
     let save_copy = MenuItemBuilder::with_id("note.saveCopy", "Save a Copy…").build(app)?;
     let close_tab = MenuItemBuilder::with_id("buffer.close", "Close Tab")
@@ -175,6 +178,7 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let file_menu = SubmenuBuilder::new(app, "File")
         .items(&[
             &new_note,
+            &todays_note,
             &quick_open,
             &open_file,
             &PredefinedMenuItem::separator(app)?,
@@ -608,6 +612,7 @@ pub fn run() {
             commands::buffer::update_tab_order,
             commands::buffer::rename_buffer,
             commands::notes::new_note,
+            commands::notes::todays_note,
             commands::notes::new_note_from_link,
             commands::notes::rename_note,
             commands::notes::count_links_to,

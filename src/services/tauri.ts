@@ -60,6 +60,11 @@ export async function newNote(): Promise<BufferDocument> {
   return invoke("new_note");
 }
 
+/** The note named for today, created if the notes folder has none yet. */
+export async function todaysNote(): Promise<BufferDocument> {
+  return invoke("todays_note");
+}
+
 export async function renameNote(id: string, title: string): Promise<BufferDocument> {
   return invoke("rename_note", { id, title });
 }
