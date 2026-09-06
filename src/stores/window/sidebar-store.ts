@@ -11,6 +11,7 @@ export function createSidebarStore() {
   const [searchHits, setSearchHits] = createSignal<SearchHit[]>([]);
   const [searchTotal, setSearchTotal] = createSignal(0);
   const [searchMs, setSearchMs] = createSignal<number | null>(null);
+  const [selectedTag, setSelectedTag] = createSignal<string | null>(null);
 
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let searchGeneration = 0;
@@ -41,6 +42,15 @@ export function createSidebarStore() {
   function toggle() {
     setIsOpen((prev) => !prev);
     persist();
+  }
+
+  /**
+   * Selects `tag`, or clears the selection when `tag` is the one already
+   * selected. One tag at a time: a second tag replaces the first rather than
+   * narrowing to both.
+   */
+  function selectTag(tag: string | null) {
+    setSelectedTag((current) => (tag === null || current === tag ? null : tag));
   }
 
   function clearResults() {
@@ -87,5 +97,7 @@ export function createSidebarStore() {
     searchHits,
     searchTotal,
     searchMs,
+    selectedTag,
+    selectTag,
   };
 }
