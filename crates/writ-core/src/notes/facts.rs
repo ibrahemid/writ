@@ -265,15 +265,20 @@ fn split_flow(inner: &str) -> Vec<&str> {
     out
 }
 
-/// Every `#tag` in the body of `text`, with the line it is on.
+/// Every tag in `text`, with the line it is on: the ones written under a
+/// frontmatter `tags` key first, then the `#tags` written in the body.
 ///
-/// A tag opens at the start of a line or after whitespace or an opening
+/// A body tag opens at the start of a line or after whitespace or an opening
 /// bracket, which is what keeps the fragment of `https://example.com#section`
 /// out of the list, and runs over letters, digits, `_`, `-` and `/`. A run of
-/// digits alone is a number, not a tag. Code fences, inline code and the
-/// frontmatter block are not scanned.
+/// digits alone is a number, not a tag. Code fences and inline code are not
+/// scanned, so a tag written inside an example stays an example.
+///
+/// A frontmatter tag is a tag the same way an inline one is: it is what the
+/// note is filed under, and a folder written in another editor puts most of
+/// its tags there ([`frontmatter_tags`]).
 pub fn tags(text: &str) -> Vec<(String, u32)> {
-    let mut out = Vec::new();
+    let mut out = frontmatter_tags(text);
     for line in body_lines(text) {
         for (offset, segment) in code_free_segments(line.raw) {
             let mut chars = segment.char_indices().peekable();
@@ -296,6 +301,84 @@ pub fn tags(text: &str) -> Vec<(String, u32)> {
         }
     }
     out
+}
+
+/// The frontmatter keys a note's tags can be written under.
+///
+/// `tags` is the key Obsidian writes; `tag` is the singular spelling older
+/// notes carry. No other key is read as a tag: a `topics` list holds
+/// properties, and reading it as tags would file notes under words nobody
+/// tagged them with.
+const TAG_KEYS: &[&str] = &["tags", "tag"];
+
+/// Every tag written in the frontmatter of `text`, with the line it is on.
+///
+/// `tags: [a, b]` puts both tags on the line the key is written on, and a `-`
+/// list under `tags:` puts each tag on the line its item is written on, so a
+/// reader can be taken to the tag it clicked either way. Quotes and a leading
+/// `#` come off the value, and what is left has to be a tag [`is_tag`] answers
+/// for, so `tags: [2026]` and an empty entry add nothing.
+///
+/// The block is read line by line rather than through [`properties`]: the
+/// properties parser collects the block first and keeps no line numbers, and a
+/// tag without its line is a tag nothing can jump to.
+fn frontmatter_tags(text: &str) -> Vec<(String, u32)> {
+    let (Some(block), _) = split_frontmatter(text) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut in_tag_list = false;
+    for (index, line) in block.lines().enumerate().skip(1) {
+        let number = index as u32 + 1;
+        if line.trim_end() == "---" {
+            break;
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(item) = trimmed.strip_prefix('-') {
+            if in_tag_list {
+                push_tag(&mut out, item, number);
+            }
+            continue;
+        }
+        // An indented line belongs to the value above it, which a nested map
+        // makes a block of its own keys. A `tags` key inside one is that map's,
+        // not the note's.
+        if line.starts_with([' ', '\t']) {
+            continue;
+        }
+        let Some((key, rest)) = split_key(trimmed) else {
+            in_tag_list = false;
+            continue;
+        };
+        if !TAG_KEYS.contains(&key.to_ascii_lowercase().as_str()) {
+            in_tag_list = false;
+            continue;
+        }
+        let rest = rest.trim();
+        // A key with nothing after it opens the list the `-` items below it
+        // belong to.
+        in_tag_list = rest.is_empty();
+        if let Some(inner) = rest.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
+            for item in split_flow(inner) {
+                push_tag(&mut out, item, number);
+            }
+        } else if !rest.is_empty() {
+            push_tag(&mut out, rest, number);
+        }
+    }
+    out
+}
+
+/// Records `raw` as a tag on `number`, or drops it when it is not one.
+fn push_tag(out: &mut Vec<(String, u32)>, raw: &str, number: u32) {
+    let value = raw.trim().trim_matches(['"', '\'']).trim();
+    let body = value.strip_prefix('#').unwrap_or(value);
+    if body.chars().all(is_tag_char) && is_tag(body) {
+        out.push((body.to_string(), number));
+    }
 }
 
 /// Whether a `#` written after `before` can open a tag.
@@ -439,10 +522,45 @@ mod tests {
     }
 
     #[test]
-    fn a_tag_inside_code_or_frontmatter_is_not_scanned() {
-        assert!(tags("```\n#inbox\n```\n").is_empty());
-        assert!(tags("write `#inbox` for that\n").is_empty());
-        assert!(tags("---\ntags: [x]\n#inbox: y\n---\nbody\n").is_empty());
+    fn a_tag_inside_code_is_not_scanned() {
+        assert!(tags("```\n#reading\n```\n").is_empty());
+        assert!(tags("write `#reading` for that\n").is_empty());
+    }
+
+    #[test]
+    fn a_hash_in_the_frontmatter_block_is_not_an_inline_tag() {
+        assert!(tags("---\ntitle: x\n#reading: y\n---\nbody\n").is_empty());
+    }
+
+    #[test]
+    fn a_frontmatter_tag_list_carries_the_line_the_key_is_written_on() {
+        assert_eq!(
+            tags("---\ntitle: One\ntags: [alpha, project/beta]\n---\n\n#gamma\n"),
+            vec![
+                ("alpha".to_string(), 3),
+                ("project/beta".to_string(), 3),
+                ("gamma".to_string(), 6),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_frontmatter_tag_written_as_an_item_carries_its_own_line() {
+        assert_eq!(
+            tags("---\ntag: alpha\ntags:\n  - beta\n  - \"#project/gamma\"\n---\nbody\n"),
+            vec![
+                ("alpha".to_string(), 2),
+                ("beta".to_string(), 4),
+                ("project/gamma".to_string(), 5),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_frontmatter_value_that_is_not_a_tag_is_left_out() {
+        assert!(tags("---\ntags: [2026, \"\"]\ntopics: [alpha]\n---\nbody\n").is_empty());
+        assert!(tags("---\ncover:\n  tags: [alpha]\n---\nbody\n").is_empty());
+        assert!(tags("---\ntags: [two words]\n---\nbody\n").is_empty());
     }
 
     #[test]

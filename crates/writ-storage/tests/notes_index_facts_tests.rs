@@ -68,7 +68,7 @@ fn a_walk_fills_all_four_derived_tables() {
     let path = write_note(
         &notes,
         "note.md",
-        "---\ntitle: Weekly\ntags: [a, b]\n---\n# Heading\n\n#inbox and [[Other]]\n",
+        "---\ntitle: Weekly\ntags: [a, b]\n---\n# Heading\n\n#reading and [[Other]]\n",
     );
     write_note(&notes, "Other.md", "the other note\n");
     walk(&conn, &notes);
@@ -76,7 +76,15 @@ fn a_walk_fills_all_four_derived_tables() {
     let key = notes_index::index_key(&path);
     let facts = NotesIndex::new(&conn).facts(&key).expect("facts");
     assert_eq!(facts.properties.len(), 2);
-    assert_eq!(facts.tags, vec![("inbox".to_string(), 7)]);
+    assert_eq!(
+        facts.tags,
+        vec![
+            ("a".to_string(), 3),
+            ("b".to_string(), 3),
+            ("reading".to_string(), 7)
+        ],
+        "a tag written in the frontmatter is indexed beside the ones in the body"
+    );
     assert_eq!(facts.headings.len(), 1);
     assert_eq!(facts.headings[0].slug, "heading");
     assert_eq!(facts.links.len(), 1);
