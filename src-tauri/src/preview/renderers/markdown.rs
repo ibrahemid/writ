@@ -29,6 +29,7 @@ use writ_core::preview::{
 use writ_storage::notes_index::NotesIndexStore;
 
 use super::{katex, mermaid, theme};
+use crate::preview::embeds::IndexEmbeds;
 use crate::preview::wikilinks::IndexWikilinks;
 
 /// Hard ceiling, mirroring the HTML renderer and ADR-009's 50 MB refusal.
@@ -143,6 +144,20 @@ impl MarkdownRenderer {
             &scope.note_dir,
         ))
     }
+
+    /// The note-embed resolver for one render, under the same rule as
+    /// [`Self::wikilinks`]: a buffer with no file on disk has no folder to
+    /// rank targets against, so its `![[…]]` stays text.
+    fn embeds(&self, scope: Option<&AssetScope>) -> Option<IndexEmbeds> {
+        let index = self.notes_index.clone()?;
+        let scope = scope?;
+        Some(IndexEmbeds::new(
+            index,
+            &scope.notes_root,
+            &scope.note_dir,
+            writ_storage::buffer_store::dataless_flags,
+        ))
+    }
 }
 
 impl ContentRenderer for MarkdownRenderer {
@@ -170,6 +185,10 @@ impl ContentRenderer for MarkdownRenderer {
         let wikilinks = wikilinks
             .as_ref()
             .map(|resolver| resolver as &dyn writ_render::WikilinkResolver);
+        let embeds = self.embeds(request.assets.as_ref());
+        let embeds = embeds
+            .as_ref()
+            .map(|resolver| resolver as &dyn writ_render::NoteEmbedResolver);
         let fragment = match &request.assets {
             Some(scope) => {
                 let resolver = asset_resolver(scope);
@@ -177,14 +196,14 @@ impl ContentRenderer for MarkdownRenderer {
                     &request.buffer_text,
                     Some(&resolver),
                     wikilinks,
-                    None,
+                    embeds,
                 )
             }
             None => writ_render::render_markdown_fragment_with(
                 &request.buffer_text,
                 None,
                 wikilinks,
-                None,
+                embeds,
             ),
         };
         let head_extra = if fragment.has_math {

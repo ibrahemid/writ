@@ -30,6 +30,15 @@
       "border-soft": {
         "$value": "#efede8"
       },
+      "status-success": {
+        "$value": "#178035"
+      },
+      "status-warning": {
+        "$value": "#9a6b00"
+      },
+      "status-error": {
+        "$value": "#a6392e"
+      },
       "code-bg": {
         "$value": "#f1efeb"
       },
@@ -151,6 +160,13 @@
           "value": 32,
           "unit": "px"
         }
+      },
+      "r-card": {
+        "$type": "dimension",
+        "$value": {
+          "value": 12,
+          "unit": "px"
+        }
       }
     },
     "dark": {
@@ -181,6 +197,15 @@
       },
       "border-soft": {
         "$value": "#272521"
+      },
+      "status-success": {
+        "$value": "#9ece6a"
+      },
+      "status-warning": {
+        "$value": "#e0af68"
+      },
+      "status-error": {
+        "$value": "#e08d82"
       },
       "code-bg": {
         "$value": "#171614"
@@ -301,6 +326,13 @@
         "$type": "dimension",
         "$value": {
           "value": 32,
+          "unit": "px"
+        }
+      },
+      "r-card": {
+        "$type": "dimension",
+        "$value": {
+          "value": 12,
           "unit": "px"
         }
       }
