@@ -71,6 +71,21 @@ function createBufferRegistry() {
     return doc;
   }
 
+  // One note a day: today's is opened when it is already there and made when
+  // it is not, and the row that comes back is the only honest name for it. A
+  // note that was closed comes back active, so the entry is replaced rather
+  // than left as the tab bar last saw it.
+  async function todaysNote(): Promise<BufferDocument> {
+    await flushAutosave();
+    const doc = await api.todaysNote();
+    setBuffers((prev) =>
+      prev.find((b) => b.id === doc.id)
+        ? prev.map((b) => (b.id === doc.id ? doc : b))
+        : [...prev, doc],
+    );
+    return doc;
+  }
+
   // Trashing is not undoable from inside Writ, so the pending write is dropped
   // rather than flushed: writing text into a file that is about to leave would
   // put it in the Trash too.
@@ -262,6 +277,7 @@ function createBufferRegistry() {
     load,
     createBuffer,
     newNote,
+    todaysNote,
     deleteNote,
     saveCopy,
     closeBuffer,

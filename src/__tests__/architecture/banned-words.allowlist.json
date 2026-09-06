@@ -175,19 +175,19 @@
   },
   {
     "file": "src/stores/global/buffer-registry.ts",
-    "line": 174,
+    "line": 189,
     "word": "MiB",
     "note": "size formatter unit, release 0.6"
   },
   {
     "file": "src/stores/global/buffer-registry.ts",
-    "line": 223,
+    "line": 238,
     "word": "syntax highlighting",
     "note": "large-file confirm message, release 0.6"
   },
   {
     "file": "src/stores/global/buffer-registry.ts",
-    "line": 223,
+    "line": 238,
     "word": "typography",
     "note": "large-file confirm message, release 0.6"
   },

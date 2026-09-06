@@ -121,16 +121,27 @@ fn first_note(state: &AppState) -> Result<Option<BufferDocument>, String> {
         return Ok(None);
     }
     let root = state.notes_root();
-    let today = root.join(writ_core::startup::dated_note_name(chrono::Utc::now()));
-    if today.is_file() {
-        return open_note_at(state, &today);
+    let now = chrono::Utc::now();
+    let today = root.join(writ_core::startup::dated_note_name(now));
+    if !today.is_file() {
+        if let Some(path) = newest_note_in(&root) {
+            return open_note_at(state, &path);
+        }
     }
-    match newest_note_in(&root) {
-        Some(path) => open_note_at(state, &path),
-        // Minting is what arms the retitle watch, so only a note Writ made
-        // this launch can be renamed from its own first line unasked.
-        None => crate::commands::notes::new_dated_note_inner(state).map(Some),
+    // Today's note, opened or made, is the same one `Today's Note` reaches.
+    let opened = crate::commands::notes::open_or_mint_dated_note(state, now)?;
+    // Minting is what arms the retitle watch, so only a note Writ made this
+    // launch can be renamed from its own first line unasked.
+    if opened.minted {
+        if let Some(path) = opened
+            .doc
+            .as_ref()
+            .and_then(|doc| doc.source_path.as_deref())
+        {
+            state.retitle_watch.watch(Path::new(path));
+        }
     }
+    Ok(opened.doc)
 }
 
 /// Whether the last session left tabs for the frontend to restore.

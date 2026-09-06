@@ -12,6 +12,7 @@ import { formatKeybinding } from "../../lib/keybinding-format";
  */
 const MENU_COMMAND_IDS = [
   "note.new",
+  "note.today",
   "file.open",
   "note.rename",
   "note.saveCopy",
