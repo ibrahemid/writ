@@ -130,15 +130,22 @@ pub struct DatedNote {
 /// Both the first launch and `Today's Note` come here, so one place answers
 /// which file today is and one place decides whether to write.
 pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<DatedNote, String> {
-    let path = state
-        .notes_root()
-        .join(writ_core::startup::dated_note_name(now));
+    let root = state.notes_root();
+    let name = writ_core::startup::dated_note_name(now);
+    let path = root.join(&name);
     if path.is_file() {
         let opened = crate::commands::file::open_file_from_path(state, &path.to_string_lossy())?;
         return Ok(DatedNote {
             doc: opened.doc,
             minted: false,
         });
+    }
+    // Today's name is already on something that is not a note file: a folder,
+    // or a link to one. Minting would dedupe around it and hand back a second
+    // file for the same day, one more on every ask, so the name is reported as
+    // taken instead.
+    if path.symlink_metadata().is_ok() {
+        return Err(name_is_taken(&name));
     }
     let doc = new_dated_note_inner(state, now)?;
     Ok(DatedNote {

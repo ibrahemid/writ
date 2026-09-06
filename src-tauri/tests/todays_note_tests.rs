@@ -185,3 +185,23 @@ fn a_note_it_makes_is_in_the_index_with_no_walk_of_the_folder() {
         "the note is searchable and linkable the moment it exists"
     );
 }
+
+#[test]
+fn a_folder_wearing_todays_name_is_reported_rather_than_worked_around() {
+    let data = tempfile::tempdir().expect("tempdir");
+    let notes = tempfile::tempdir().expect("tempdir");
+    let state = launch(data.path(), notes.path());
+    let now = local_instant(2026, 3, 18, 9, 30, 0);
+
+    let name = dated_note_name(now);
+    std::fs::create_dir(state.notes_root().join(&name)).expect("a folder in the way");
+
+    todays_note_inner(&state, now).expect_err("today's name is not free");
+    todays_note_inner(&state, now).expect_err("and asking again does not free it");
+
+    assert_eq!(
+        notes_folder_entries(&state),
+        vec![name],
+        "no second file for the day, however often it is asked for"
+    );
+}
