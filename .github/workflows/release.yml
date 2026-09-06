@@ -56,6 +56,15 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      # The site regenerates release.json at deploy, so a committed copy naming
+      # an older release is invisible until the download page serves the wrong
+      # links. A tag build stops here instead.
+      - name: Check site/src/data/release.json names this release
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        shell: bash
+        run: node scripts/check-release-json.mjs --tag "$TAG"
+
       - name: Generate changelog from conventional commits
         id: changelog
         env:
@@ -429,9 +438,19 @@ jobs:
           elif [ "$HAS_APPLE_NOTARIZE" != "true" ]; then
             echo "notarization secrets absent; pkg ships signed but without a ticket"
           else
-            xcrun notarytool submit "$PKG" \
+            # --wait has returned 0 on a rejected submission, so the status
+            # is read rather than inferred from the exit code.
+            SUBMISSION="$(xcrun notarytool submit "$PKG" \
               --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" \
-              --wait
+              --wait --output-format json)"
+            echo "$SUBMISSION"
+            STATUS="$(printf '%s' "$SUBMISSION" | jq -r '.status')"
+            if [ "$STATUS" != "Accepted" ]; then
+              echo "notarization of the pkg came back $STATUS" >&2
+              xcrun notarytool log "$(printf '%s' "$SUBMISSION" | jq -r '.id')" \
+                --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" >&2 || true
+              exit 1
+            fi
             PKG_NOTARIZED=true
             xcrun stapler staple "$PKG"
             xcrun stapler validate "$PKG"
@@ -462,15 +481,55 @@ jobs:
             exit 0
           fi
           DMG="$(ls target/universal-apple-darwin/release/bundle/dmg/Writ_*_universal.dmg)"
-          xcrun notarytool submit "$DMG" \
+          SUBMISSION="$(xcrun notarytool submit "$DMG" \
             --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" \
-            --wait
+            --wait --output-format json)"
+          echo "$SUBMISSION"
+          STATUS="$(printf '%s' "$SUBMISSION" | jq -r '.status')"
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "notarization of the dmg came back $STATUS" >&2
+            xcrun notarytool log "$(printf '%s' "$SUBMISSION" | jq -r '.id')" \
+              --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" >&2 || true
+            exit 1
+          fi
           xcrun stapler staple "$DMG"
           xcrun stapler validate "$DMG"
           # tauri-action already uploaded the pre-staple dmg; --clobber replaces
           # those bytes with the stapled copy.
           gh release upload "$TAG" "$DMG" --repo "$GITHUB_REPOSITORY" --clobber
           echo "DMG_STAPLED=true" >> "$GITHUB_ENV"
+
+      # Apple removed the Control-click override in Sequoia, so a build without
+      # a ticket sends the person to System Settings to allow it. A release
+      # that macOS will not open is not a release, and this says so rather than
+      # the release notes saying it.
+      - name: Require the mac artifacts to be notarized
+        if: matrix.os == 'macos-latest'
+        env:
+          # Only this repository holds the signing secrets. A fork builds and
+          # says so instead of failing on secrets it cannot have.
+          REQUIRED: ${{ github.repository == 'ibrahemid/writ' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$REQUIRED" != "true" ]; then
+            echo "no signing secrets belong to this repository; notarization is not required of this run"
+            exit 0
+          fi
+          FAILED=false
+          if [ "${PKG_STAPLED:-false}" != "true" ]; then
+            echo "the pkg is not notarized and stapled" >&2
+            FAILED=true
+          fi
+          if [ "${DMG_STAPLED:-false}" != "true" ]; then
+            echo "the dmg is not notarized and stapled" >&2
+            FAILED=true
+          fi
+          if [ "$FAILED" = "true" ]; then
+            echo "refusing to finish a release macOS would ask the person to allow by hand" >&2
+            exit 1
+          fi
+          echo "the pkg and the dmg are notarized and stapled"
 
       # The site reads this to decide whether it may show a notarized badge.
       - name: Upload release-meta.json

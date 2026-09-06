@@ -68,7 +68,21 @@
         "publisher": "Ibrahem ID",
         "copyright": "Copyright (c) 2026 Writ Contributors",
         "macOS": {
-            "minimumSystemVersion": "12.0"
+            "minimumSystemVersion": "12.0",
+            "dmg": {
+                "windowSize": {
+                    "width": 660,
+                    "height": 400
+                },
+                "appPosition": {
+                    "x": 180,
+                    "y": 190
+                },
+                "applicationFolderPosition": {
+                    "x": 480,
+                    "y": 190
+                }
+            }
         },
         "windows": {
             "wix": {
