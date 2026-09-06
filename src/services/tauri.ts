@@ -155,6 +155,40 @@ export async function showNotesFolderInFinder(): Promise<void> {
   return invoke("show_notes_folder_in_finder");
 }
 
+/** What this launch is, and the one word the first line substitutes. */
+export interface FirstRunState {
+  /** Whether this launch found no config file. */
+  first_run: boolean;
+  /** Whether the one line under the cursor has already been dismissed. */
+  hint_dismissed: boolean;
+  /** What this platform calls the app that opens a folder. */
+  file_manager: string;
+}
+
+export async function firstRunState(): Promise<FirstRunState> {
+  return invoke("first_run_state");
+}
+
+export async function dismissFirstRunHint(): Promise<void> {
+  return invoke("dismiss_first_run_hint");
+}
+
+/**
+ * What a note's first line did to the note's file name: it renamed it, it is
+ * offered as a question, the line does not name the note yet, or the note is
+ * not one this applies to.
+ */
+export type RetitleOutcome =
+  | { kind: "renamed"; note: BufferDocument }
+  | { kind: "ask"; title: string }
+  | { kind: "not_yet" }
+  | { kind: "skipped" };
+
+/** Renames a note Writ minted from its own first line, or offers to. */
+export async function autoRetitleNote(id: string): Promise<RetitleOutcome> {
+  return invoke("auto_retitle_note", { id });
+}
+
 /**
  * What moving the notes folder did. `collided` is non-empty only when nothing
  * moved: the destination already held those names.

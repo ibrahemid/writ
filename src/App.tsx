@@ -32,6 +32,8 @@ import { saveStatusStore } from "./stores/global/save-status";
 import { basename } from "./lib/path";
 import { logFailure } from "./lib/log";
 import { armReveal } from "./lib/boot-reveal";
+import FirstRunHint from "./components/Editor/FirstRunHint";
+import { firstRunStore, watchSavesForRetitle } from "./stores/global/first-run";
 import { workspaceStore } from "./stores/global/workspace";
 import { notesStore } from "./stores/global/notes";
 import { inboxStore } from "./stores/global/inbox";
@@ -139,6 +141,23 @@ function watchSystemPolarity(): UnlistenFn {
   query.addEventListener("change", onChange);
   themeStore.setSystemPolarity(query.matches ? "dark" : "light");
   return () => query.removeEventListener("change", onChange);
+}
+
+/**
+ * Takes the first launch's one line away on the first keystroke.
+ *
+ * A keydown rather than an edit: the line is about where the note goes, and
+ * the person has read it or not by the time they touch the keyboard. A
+ * modifier held on its own is not a keystroke.
+ */
+function dismissHintOnFirstKeystroke(): () => void {
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (["Shift", "Control", "Alt", "Meta"].includes(event.key)) return;
+    firstRunStore.dismissHint();
+    document.removeEventListener("keydown", onKeyDown);
+  };
+  document.addEventListener("keydown", onKeyDown);
+  return () => document.removeEventListener("keydown", onKeyDown);
 }
 
 function AppShell() {
@@ -760,6 +779,13 @@ function AppShell() {
       aiRewriteStore.handleStreamEvent(payload);
     });
     unlisteners.push(unlistenAi);
+
+    // What the first launch shows, and what a new note's first line may do to
+    // its file name. Not awaited: the window is revealed above, and a line
+    // under the cursor is not worth holding the first frame for.
+    void firstRunStore.load();
+    unlisteners.push(watchSavesForRetitle());
+    unlisteners.push(dismissHintOnFirstKeystroke());
   });
 
   onCleanup(() => {
@@ -789,6 +815,7 @@ function AppShell() {
         <Sidebar />
         <EditorArea />
         <RightPanel />
+        <FirstRunHint />
         {/* Last in the row and over both panes: the lights sit at the window's
             leading edge whatever the sidebar is doing under them. */}
         <WindowLights />

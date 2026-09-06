@@ -69,6 +69,7 @@ const DEFAULT_CONFIG: WritConfig = {
   },
   // Closed on a first launch: the window opens on a cursor and nothing else.
   panel: { open: false, width: PANEL_WIDTH_DEFAULT },
+  first_run: { hint_dismissed: false },
   editor: { font_family: "monospace", font_size: EDITOR_FONT_DEFAULT, word_wrap: true, tab_size: 2, autosave_debounce_ms: 1000, markdown_typography: true, markdown_editing: true, status_bar: false },
   window: { width: 1100, height: 720, maximized: false },
   keybindings: {},
@@ -111,6 +112,9 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
     panel: {
       open: incoming.panel?.open ?? false,
       width: clampPanelWidth(incoming.panel?.width ?? PANEL_WIDTH_DEFAULT),
+    },
+    first_run: {
+      hint_dismissed: incoming.first_run?.hint_dismissed ?? false,
     },
     commands: {
       usage: incoming.commands?.usage ?? {},
@@ -282,6 +286,16 @@ function createConfigStore() {
     await save(updated);
   }
 
+  // Rust has already written this one; the copy here catches up so the next
+  // whole-config write does not carry the old answer back over it. Writ's own
+  // config write is stamped into the watcher's ignore set, so nothing else
+  // tells this store the file moved.
+  function noteFirstRunHintDismissed() {
+    const current = config();
+    if (current.first_run.hint_dismissed) return;
+    setConfig({ ...current, first_run: { ...current.first_run, hint_dismissed: true } });
+  }
+
   function pruneCommandUsage(knownIds: ReadonlySet<string>) {
     const current = config();
     const pruned = pruneUsage(current.commands.usage, knownIds);
@@ -305,6 +319,7 @@ function createConfigStore() {
     setPanelWidth,
     clearCommandUsage,
     pruneCommandUsage,
+    noteFirstRunHintDismissed,
   };
 }
 
