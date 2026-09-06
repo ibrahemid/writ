@@ -27,6 +27,28 @@ fn launch(data_dir: &std::path::Path) -> AppState {
     state
 }
 
+/// Starts the app against a notes folder that is already there, which is what
+/// a returning person has.
+fn launch_with_notes(data_dir: &std::path::Path, notes_dir: &std::path::Path) -> AppState {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    std::env::set_var("WRIT_DATA_DIR", data_dir);
+    std::env::set_var("WRIT_NOTES_DIR", notes_dir);
+    let state = AppState::initialize().expect("app state");
+    std::env::remove_var("WRIT_DATA_DIR");
+    std::env::remove_var("WRIT_NOTES_DIR");
+    state
+}
+
+/// The config file a launch writes for itself.
+fn config_file(data_dir: &std::path::Path) -> std::path::PathBuf {
+    data_dir.join("config.toml")
+}
+
+/// The file a note was opened from.
+fn opened_path(note: &writ_core::buffer::document::BufferDocument) -> std::path::PathBuf {
+    std::path::PathBuf::from(note.source_path.clone().expect("a file"))
+}
+
 /// Every file and folder directly inside the notes folder, sorted.
 fn notes_folder_entries(state: &AppState) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(state.notes_root())
@@ -69,11 +91,13 @@ fn a_first_launch_creates_one_notes_folder_and_one_note_and_a_second_creates_nei
         note.source_path.as_deref().map(std::path::Path::new),
         Some(notes_root.join(dated_note_name(Utc::now())).as_path())
     );
+    // The launch writes the config itself, so nothing here has to stand in
+    // for a running app: from here the launch is not a first one.
+    assert!(
+        config_file(dir.path()).is_file(),
+        "the first launch records itself"
+    );
     drop(first);
-
-    // What a running app writes the moment anything persists: from here the
-    // launch is not a first one.
-    std::fs::write(dir.path().join("config.toml"), "").expect("config file");
 
     let second = launch(dir.path());
     assert!(!second.first_run, "a config file means a later launch");
@@ -176,12 +200,38 @@ fn a_note_something_else_has_touched_is_offered_the_rename_instead() {
         "nothing moved"
     );
 
-    // Taking the offer is the ordinary rename, with the title the offer
-    // carried: the same file name the unasked rename would have landed.
-    let renamed = writ_tauri_lib::commands::notes::rename_note_inner(&state, &note.id, &title)
-        .expect("rename");
-    assert_eq!(renamed.title, "Grocery list.md");
-    assert_eq!(notes_folder_entries(&state), vec!["Grocery list.md"]);
+    // Taking the offer lands the same file name the unasked rename would
+    // have, and it carries the links with it: the offer is only reached
+    // because something outside Writ already touched the note, which is when
+    // a link naming its date can exist.
+    let journal = state.notes_root().join("Journal.md");
+    let stem = writ_core::notes::date_stem(Utc::now());
+    std::fs::write(&journal, format!("see [[{stem}]]\n")).expect("a note that links to it");
+    state
+        .notes_index
+        .reconcile(&state.notes_root(), &|| false, &|_| false)
+        .expect("index");
+
+    let outcome = writ_tauri_lib::commands::notes::rename_note_with_links_inner(
+        &state,
+        &path.to_string_lossy(),
+        &title,
+        true,
+    )
+    .expect("rename");
+
+    assert_eq!(
+        outcome.updated, 1,
+        "the note that linked to it was rewritten"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&journal).expect("the linking note"),
+        "see [[Grocery list]]\n"
+    );
+    assert_eq!(
+        notes_folder_entries(&state),
+        vec!["Grocery list.md".to_string(), "Journal.md".to_string()]
+    );
 }
 
 #[test]
@@ -217,5 +267,117 @@ fn a_note_that_opens_with_frontmatter_keeps_its_date() {
     assert_eq!(
         notes_folder_entries(&state),
         vec![dated_note_name(Utc::now())]
+    );
+}
+
+#[test]
+fn a_launch_nobody_typed_in_still_records_itself_and_keeps_the_hint() {
+    let dir = tempfile::tempdir().expect("tempdir");
+
+    let first = launch(dir.path());
+    open_first_note(&first).expect("the first launch opens a note");
+    drop(first);
+
+    // Quit before the first keystroke: the config is there, and the one line
+    // is still undismissed because nothing dismissed it.
+    assert!(config_file(dir.path()).is_file());
+    let second = launch(dir.path());
+    let state = first_run_state_inner(&second).expect("first-run state");
+    assert!(!state.first_run, "a config file means a later launch");
+    assert!(!state.hint_dismissed, "nothing dismissed the line");
+    assert!(
+        open_first_note(&second).is_none(),
+        "a later launch mints nothing"
+    );
+    assert_eq!(
+        notes_folder_entries(&second),
+        vec![dated_note_name(Utc::now())],
+        "one note, from the launch that made it"
+    );
+}
+
+#[test]
+fn a_folder_that_already_holds_todays_note_opens_it_instead_of_minting() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let notes = tempfile::tempdir().expect("notes dir");
+    let today = notes.path().join(dated_note_name(Utc::now()));
+    std::fs::write(&today, "My existing notes\n").expect("today's note");
+    std::fs::write(notes.path().join("Other.md"), "Something else\n").expect("another note");
+
+    // Somebody who deleted the config: the launch reads as a first one, and
+    // the folder is not empty.
+    let state = launch_with_notes(dir.path(), notes.path());
+    assert!(state.first_run);
+    let note = open_first_note(&state).expect("the note that is already there");
+
+    assert_eq!(
+        notes_folder_entries(&state),
+        vec![dated_note_name(Utc::now()), "Other.md".to_string()],
+        "nothing was minted"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&today).expect("today's note"),
+        "My existing notes\n",
+        "and nothing was written over"
+    );
+    assert_eq!(opened_path(&note).file_name(), today.file_name());
+
+    // A note Writ did not mint is never renamed from its own first line: only
+    // minting arms the watch.
+    assert!(state.retitle_watch.answer(&opened_path(&note)).is_none());
+}
+
+#[test]
+fn a_folder_with_no_note_for_today_opens_the_newest_one() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let notes = tempfile::tempdir().expect("notes dir");
+    let older = notes.path().join("Older.md");
+    let newer = notes.path().join("Newer.md");
+    std::fs::write(&older, "Last month\n").expect("the older note");
+    std::fs::write(&newer, "Yesterday\n").expect("the newer note");
+    let an_hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    std::fs::File::options()
+        .write(true)
+        .open(&older)
+        .expect("the older note")
+        .set_modified(an_hour_ago)
+        .expect("an older timestamp");
+
+    let state = launch_with_notes(dir.path(), notes.path());
+    let note = open_first_note(&state).expect("the newest note");
+
+    assert_eq!(opened_path(&note).file_name(), newer.file_name());
+    assert_eq!(
+        notes_folder_entries(&state),
+        vec!["Newer.md".to_string(), "Older.md".to_string()],
+        "nothing was minted"
+    );
+}
+
+#[test]
+fn a_rename_the_guard_refuses_leaves_the_note_answerable() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let state = launch(dir.path());
+    let note = open_first_note(&state).expect("a note");
+    let path = opened_path(&note);
+
+    // The name the first line asks for is already taken, so the rename is
+    // refused rather than made.
+    let taken = state.notes_root().join("Grocery list.md");
+    std::fs::write(&taken, "somebody else's note\n").expect("the note in the way");
+    type_into(&state, &note, "Grocery list\n");
+    assert!(auto_retitle_note_inner(&state, &note.id).is_err());
+
+    // The refusal answered nothing, so the note is still watched and the next
+    // save still gets its name.
+    assert!(state.retitle_watch.answer(&path).is_some());
+    std::fs::remove_file(&taken).expect("the note in the way goes");
+    assert!(matches!(
+        auto_retitle_note_inner(&state, &note.id).expect("retitle"),
+        RetitleOutcome::Renamed { .. }
+    ));
+    assert_eq!(
+        notes_folder_entries(&state),
+        vec!["Grocery list.md".to_string()]
     );
 }
