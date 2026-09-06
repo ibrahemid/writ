@@ -29,6 +29,18 @@ export function clampSidebarWidth(width: number): number {
   return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(width)));
 }
 
+// Panel width bounds. The panel takes the sidebar's numbers so the two edges
+// of the window match, and its own constants so a later change to one bound
+// cannot move the other edge by accident.
+export const PANEL_WIDTH_MIN = 200;
+export const PANEL_WIDTH_MAX = 320;
+export const PANEL_WIDTH_DEFAULT = 240;
+
+export function clampPanelWidth(width: number): number {
+  if (!Number.isFinite(width)) return PANEL_WIDTH_DEFAULT;
+  return Math.min(PANEL_WIDTH_MAX, Math.max(PANEL_WIDTH_MIN, Math.round(width)));
+}
+
 const DEFAULT_APPEARANCE: AppearanceConfig = {
   polarity: "system",
   accent: "pine",
@@ -44,6 +56,8 @@ const DEFAULT_CONFIG: WritConfig = {
     open: true,
     width: SIDEBAR_WIDTH_DEFAULT,
   },
+  // Closed on a first launch: the window opens on a cursor and nothing else.
+  panel: { open: false, width: PANEL_WIDTH_DEFAULT },
   editor: { font_family: "monospace", font_size: EDITOR_FONT_DEFAULT, word_wrap: true, tab_size: 2, autosave_debounce_ms: 1000, markdown_typography: true, markdown_editing: true, status_bar: false },
   window: { width: 1100, height: 720, maximized: false },
   keybindings: {},
@@ -82,6 +96,10 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
     sidebar: {
       ...incoming.sidebar,
       width: clampSidebarWidth(incoming.sidebar?.width ?? SIDEBAR_WIDTH_DEFAULT),
+    },
+    panel: {
+      open: incoming.panel?.open ?? false,
+      width: clampPanelWidth(incoming.panel?.width ?? PANEL_WIDTH_DEFAULT),
     },
     commands: {
       usage: incoming.commands?.usage ?? {},
@@ -208,6 +226,23 @@ function createConfigStore() {
     schedulePersist();
   }
 
+  // The panel's toggle writes on each flip and its drag handle on release;
+  // both go through the same debounce as every other setting.
+  function setPanelOpen(open: boolean) {
+    const current = config();
+    if (current.panel.open === open) return;
+    setConfig({ ...current, panel: { ...current.panel, open } });
+    schedulePersist();
+  }
+
+  function setPanelWidth(width: number) {
+    const clamped = clampPanelWidth(width);
+    const current = config();
+    if (current.panel.width === clamped) return;
+    setConfig({ ...current, panel: { ...current.panel, width: clamped } });
+    schedulePersist();
+  }
+
   function schedulePersist() {
     if (flushTimer) clearTimeout(flushTimer);
     flushTimer = setTimeout(() => {
@@ -254,6 +289,8 @@ function createConfigStore() {
     recordCommandUse,
     setEditorFontSize,
     setSidebarWidth,
+    setPanelOpen,
+    setPanelWidth,
     clearCommandUsage,
     pruneCommandUsage,
   };

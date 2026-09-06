@@ -48,6 +48,14 @@ fn default_sidebar_width() -> u16 {
     240
 }
 
+fn default_panel_open() -> bool {
+    false
+}
+
+fn default_panel_width() -> u16 {
+    240
+}
+
 fn default_font_family() -> String {
     "monospace".to_string()
 }
@@ -236,6 +244,28 @@ impl Default for SidebarConfig {
             position: default_sidebar_position(),
             open: default_sidebar_open(),
             width: default_sidebar_width(),
+        }
+    }
+}
+
+/// The panel beside the note: what links to it, its outline, its properties.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PanelConfig {
+    /// Whether the panel was open at last save; restored across launches. A
+    /// first launch shows a cursor and nothing else, so this starts false.
+    #[serde(default = "default_panel_open")]
+    pub open: bool,
+    /// Panel width in CSS pixels, restored across launches. It takes the
+    /// sidebar's 240px and its 200-320 range so the two edges match.
+    #[serde(default = "default_panel_width")]
+    pub width: u16,
+}
+
+impl Default for PanelConfig {
+    fn default() -> Self {
+        Self {
+            open: default_panel_open(),
+            width: default_panel_width(),
         }
     }
 }
@@ -496,6 +526,9 @@ pub struct WritConfig {
     /// Sidebar configuration.
     #[serde(default)]
     pub sidebar: SidebarConfig,
+    /// The panel beside the note.
+    #[serde(default)]
+    pub panel: PanelConfig,
     /// Editor surface configuration.
     #[serde(default)]
     pub editor: EditorConfig,
@@ -548,6 +581,7 @@ impl Default for WritConfig {
         Self {
             hotkey: HotkeyConfig::default(),
             sidebar: SidebarConfig::default(),
+            panel: PanelConfig::default(),
             editor: EditorConfig::default(),
             window: WindowConfig::default(),
             keybindings: default_keybindings(),
