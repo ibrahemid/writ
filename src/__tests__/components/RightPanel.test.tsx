@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createSignal } from "solid-js";
 import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 
 // The panel beside the note. Every section is a view of one read of one note,
@@ -17,6 +18,9 @@ const h = vi.hoisted(() => ({
   requestReveal: vi.fn<(bufferId: string, line: number) => void>(),
   openFile: vi.fn<(path: string) => Promise<{ id: string } | null>>(),
   activeTabId: "buf-1" as string | null,
+  activeTabIdOverride: null as null | (() => string | null),
+  graphHolds: 0,
+  graphReleases: 0,
   tabs: [{ id: "buf-1", source_path: "/notes/Open.md" }] as {
     id: string;
     source_path: string | null;
@@ -54,7 +58,10 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       isCollapsed: (section: string) => h.collapsed.has(section),
       toggleSection: h.toggleSection,
     },
-    tabs: { activeTabId: () => h.activeTabId, openFile: h.openFile },
+    tabs: {
+      activeTabId: () => (h.activeTabIdOverride ? h.activeTabIdOverride() : h.activeTabId),
+      openFile: h.openFile,
+    },
     editor: { requestReveal: h.requestReveal },
   }),
 }));
@@ -70,8 +77,13 @@ vi.mock("../../stores/global/backlinks", () => ({
 vi.mock("../../stores/global/note-facts", () => ({
   noteFactsStore: {
     factsFor: () => () => h.facts,
-    graph: () => () => h.graph,
-    releaseGraph: vi.fn(),
+    graph: () => {
+      h.graphHolds += 1;
+      return () => h.graph;
+    },
+    releaseGraph: () => {
+      h.graphReleases += 1;
+    },
     release: vi.fn(),
   },
 }));
@@ -96,6 +108,9 @@ beforeEach(() => {
   h.isOpen = true;
   h.collapsed = new Set();
   h.activeTabId = "buf-1";
+  h.activeTabIdOverride = null;
+  h.graphHolds = 0;
+  h.graphReleases = 0;
   h.tabs = [{ id: "buf-1", source_path: "/notes/Open.md" }];
   h.backlinks = [];
   h.facts = { links: [], properties: [], tags: [], headings: [] };
@@ -120,6 +135,16 @@ describe("a note with nothing to show", () => {
     h.activeTabId = null;
     const { container } = mount();
     expect(headings(container)).toEqual([]);
+  });
+
+  it("hands the folder graph back when the last note closes", () => {
+    const [activeTabId, setActiveTabId] = createSignal<string | null>("buf-1");
+    h.activeTabIdOverride = activeTabId;
+    const { container } = mount();
+    expect(h.graphHolds).toBeGreaterThan(0);
+    setActiveTabId(null);
+    expect(headings(container)).toEqual([]);
+    expect(h.graphReleases).toBe(h.graphHolds);
   });
 
   it("shows nothing for a note that has never been written to a file", () => {
