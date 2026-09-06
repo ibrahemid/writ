@@ -65,6 +65,19 @@ export const DEFAULT_LAYOUT_OPTIONS: LayoutOptions = {
 };
 
 /**
+ * How many notes a settle holds `minSeparation` for in the default area.
+ *
+ * The bound is measured rather than derived: how many notes fit depends on the
+ * shape as much as on the area, and a folder's densest shape is the one where
+ * everything links to everything, which packs worst. Held for a star, a ring
+ * and a clique of this size across a seed sweep. Above it the notes still
+ * settle, terminate and stay inside the area, but two of them may sit closer
+ * than the minimum, and it is the drawing's node cap that answers that
+ * (ADR-037).
+ */
+export const SEPARATION_HOLDS_TO = 12;
+
+/**
  * A settle in progress: the paths in the order they were given, their
  * positions and speeds, and how far through the step count it is.
  *

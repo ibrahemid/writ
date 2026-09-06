@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { describe, it, expect } from "vitest";
 import {
   DEFAULT_LAYOUT_OPTIONS,
+  SEPARATION_HOLDS_TO,
   beginLayout,
   nodeAt,
   positions,
@@ -155,6 +156,78 @@ describe("a settled graph", () => {
       expect(point.x).toBeLessThanOrEqual(width - padding + 1e-6);
       expect(point.y).toBeGreaterThanOrEqual(padding - 1e-6);
       expect(point.y).toBeLessThanOrEqual(height - padding + 1e-6);
+    }
+  });
+});
+
+/** A hub note: everything links to the first note and to nothing else. */
+function star(count: number): { nodes: LayoutNode[]; edges: LayoutEdge[] } {
+  const nodes = Array.from({ length: count }, (_, i) => ({ path: `n${i}.md` }));
+  const edges = Array.from({ length: count - 1 }, (_, i) => ({
+    from: "n0.md",
+    to: `n${i + 1}.md`,
+  }));
+  return { nodes, edges };
+}
+
+/** A loop: each note links to the next and the last back to the first. */
+function ring(count: number): { nodes: LayoutNode[]; edges: LayoutEdge[] } {
+  const nodes = Array.from({ length: count }, (_, i) => ({ path: `n${i}.md` }));
+  const edges = nodes.map((node, i) => ({ from: node.path, to: nodes[(i + 1) % count].path }));
+  return { nodes, edges };
+}
+
+/** The densest shape a folder can make: everything links to everything. */
+function clique(count: number): { nodes: LayoutNode[]; edges: LayoutEdge[] } {
+  const nodes = Array.from({ length: count }, (_, i) => ({ path: `n${i}.md` }));
+  const edges: LayoutEdge[] = [];
+  for (let i = 0; i < count; i += 1) {
+    for (let j = i + 1; j < count; j += 1) edges.push({ from: `n${i}.md`, to: `n${j}.md` });
+  }
+  return { nodes, edges };
+}
+
+function closestPair(placed: { x: number; y: number }[]): number {
+  let closest = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < placed.length; i += 1) {
+    for (let j = i + 1; j < placed.length; j += 1) {
+      const dx = placed[j].x - placed[i].x;
+      const dy = placed[j].y - placed[i].y;
+      closest = Math.min(closest, Math.sqrt(dx * dx + dy * dy));
+    }
+  }
+  return closest;
+}
+
+describe("the minimum separation", () => {
+  // These are the shapes the springs pull tight enough that pushing apart is
+  // the only thing holding the notes off each other: with the separation pass
+  // gone they settle on top of one another, which is what the pass exists to
+  // stop.
+  const shapes = { star, ring, clique };
+
+  for (const [name, shape] of Object.entries(shapes)) {
+    it(`holds every pair apart in a ${name} of ${SEPARATION_HOLDS_TO}`, () => {
+      const { nodes, edges } = shape(SEPARATION_HOLDS_TO);
+      for (let seed = 1; seed <= 40; seed += 1) {
+        const placed = [...simulate(nodes, edges, DEFAULT_LAYOUT_OPTIONS, seed).values()];
+        expect(closestPair(placed)).toBeGreaterThanOrEqual(
+          DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6,
+        );
+      }
+    });
+  }
+});
+
+describe("opening the settle out to the area", () => {
+  it("takes a linked pair further apart than the link would leave them", () => {
+    // Two linked notes rest at the length of the link, which is a third of
+    // the area. Nothing but the fill pass takes them further.
+    const nodes: LayoutNode[] = [{ path: "a.md" }, { path: "b.md" }];
+    const edges: LayoutEdge[] = [{ from: "a.md", to: "b.md" }];
+    for (let seed = 1; seed <= 20; seed += 1) {
+      const placed = [...simulate(nodes, edges, DEFAULT_LAYOUT_OPTIONS, seed).values()];
+      expect(closestPair(placed)).toBeGreaterThan(DEFAULT_LAYOUT_OPTIONS.springLength * 2);
     }
   });
 });
