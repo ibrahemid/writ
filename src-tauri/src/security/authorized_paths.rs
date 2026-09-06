@@ -2,6 +2,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use writ_storage::paths::strip_verbatim_prefix;
+
 use crate::poison::recover_poison;
 
 #[derive(Default, Debug)]
@@ -116,7 +118,7 @@ pub fn paths_equal_for_authorization(a: &str, b: &str) -> bool {
 
 pub fn canonicalize_for_authorization(path: &Path) -> std::io::Result<String> {
     let canonical: PathBuf = std::fs::canonicalize(path)?;
-    let stripped = strip_unc_prefix(canonical);
+    let stripped = strip_verbatim_prefix(canonical);
     stripped
         .into_os_string()
         .into_string()
@@ -128,9 +130,11 @@ pub fn canonicalize_for_authorization(path: &Path) -> std::io::Result<String> {
 ///
 /// Both sides of the `starts_with` containment check must agree: on Windows,
 /// `std::fs::canonicalize` prefixes `\\?\`, and a root stored with the prefix
-/// never matches a candidate stripped of it.
+/// never matches a candidate stripped of it. The stores strip it the same way
+/// ([`strip_verbatim_prefix`]), so an authorized path and an indexed one are
+/// one spelling.
 pub fn canonicalize_root(path: &Path) -> std::io::Result<PathBuf> {
-    Ok(strip_unc_prefix(std::fs::canonicalize(path)?))
+    Ok(strip_verbatim_prefix(std::fs::canonicalize(path)?))
 }
 
 /// Resolves `path` against the filesystem as far as it exists, then appends
@@ -175,20 +179,6 @@ pub fn resolve_for_containment(path: &Path) -> Option<String> {
             Err(_) => return None,
         }
     }
-}
-
-#[cfg(windows)]
-fn strip_unc_prefix(path: PathBuf) -> PathBuf {
-    const UNC: &str = r"\\?\";
-    match path.to_str() {
-        Some(s) if s.starts_with(UNC) => PathBuf::from(&s[UNC.len()..]),
-        _ => path,
-    }
-}
-
-#[cfg(not(windows))]
-fn strip_unc_prefix(path: PathBuf) -> PathBuf {
-    path
 }
 
 #[cfg(test)]

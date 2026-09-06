@@ -1,5 +1,6 @@
 //! IPC coverage for the notes-index reads: `resolve_note_link`, `note_facts`,
-//! `note_name_candidates`, `note_backlinks`, `note_all_tags` and `note_graph`
+//! `note_name_candidates`, `note_backlinks`, `note_all_tags`,
+//! `note_paths_for_tag` and `note_graph`
 //! (ADR-034, ADR-036).
 //!
 //! Each command is exercised through its Tauri-free inner function against a
@@ -12,7 +13,8 @@ use tempfile::TempDir;
 use writ_storage::notes_index::{self, NotesIndexStore};
 use writ_tauri_lib::commands::note_index::{
     note_all_tags_inner, note_backlinks_inner, note_facts_inner, note_graph_inner,
-    note_heading_line_inner, note_name_candidates_inner, resolve_note_link_inner,
+    note_heading_line_inner, note_name_candidates_inner, note_paths_for_tag_inner,
+    resolve_note_link_inner,
 };
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
@@ -335,6 +337,39 @@ fn note_all_tags_on_a_folder_with_no_tags_is_an_empty_list() {
 }
 
 #[test]
+fn note_paths_for_tag_names_the_notes_carrying_the_tag() {
+    let (_dir, root, index) = indexed(&[
+        ("one.md", "#work twice: #work\n"),
+        ("two.md", "#work\n"),
+        ("three.md", "#work/monday\n"),
+    ]);
+
+    let paths = note_paths_for_tag_inner(&index, "work").expect("paths");
+
+    assert_eq!(
+        paths,
+        vec![
+            notes_index::index_key(&root.join("one.md")),
+            notes_index::index_key(&root.join("two.md")),
+        ],
+        "a note tagged twice is named once, and a nested tag is a tag of its own"
+    );
+    assert_eq!(
+        note_paths_for_tag_inner(&index, "work/monday").expect("paths"),
+        vec![notes_index::index_key(&root.join("three.md"))]
+    );
+}
+
+#[test]
+fn note_paths_for_tag_on_a_tag_nothing_carries_is_an_empty_list() {
+    let (_dir, _root, index) = indexed(&[("one.md", "#work\n")]);
+
+    assert!(note_paths_for_tag_inner(&index, "reading")
+        .expect("paths")
+        .is_empty());
+}
+
+#[test]
 fn note_graph_hands_over_the_notes_and_the_links_among_them() {
     let (_dir, root, index) = indexed(&[
         ("work/source.md", "see [[Target]] twice: [[Target]]\n"),
@@ -395,6 +430,7 @@ fn every_note_index_command_is_registered() {
         "commands::note_index::note_backlinks",
         "commands::note_index::note_heading_line",
         "commands::note_index::note_all_tags",
+        "commands::note_index::note_paths_for_tag",
         "commands::note_index::note_graph",
     ] {
         assert!(

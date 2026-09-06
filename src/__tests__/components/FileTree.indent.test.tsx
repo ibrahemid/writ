@@ -15,7 +15,10 @@ vi.mock("../../stores/global/workspace", () => ({
   },
 }));
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
-  useWindow: () => ({ tabs: { openFile: vi.fn(async () => undefined) } }),
+  useWindow: () => ({
+    tabs: { openFile: vi.fn(async () => undefined) },
+    sidebar: { selectedTag: () => null },
+  }),
 }));
 
 import FileTree from "../../components/Sidebar/FileTree";
