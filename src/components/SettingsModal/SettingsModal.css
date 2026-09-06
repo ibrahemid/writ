@@ -203,10 +203,10 @@
 }
 
 .settings-input {
-  /* Floors, not fixed heights: these controls read --writ-ui-md, and the row
-     yields its label width rather than clipping the control. */
+  /* A floor, not a fixed height: the control reads --writ-ui-md and has to grow
+     with it. A free-width text field still yields, since a squeezed one scrolls
+     while an unshrinkable one would push the row open. */
   min-height: 28px;
-  flex-shrink: 0;
   background: var(--writ-bg-sunken);
   border: 0;
   border-radius: var(--writ-r-control);
@@ -218,6 +218,8 @@
 }
 
 .settings-input-number {
+  /* A fixed-width field: it yields the label rather than cramping its digits. */
+  flex-shrink: 0;
   width: 84px;
   text-align: right;
   -moz-appearance: textfield;

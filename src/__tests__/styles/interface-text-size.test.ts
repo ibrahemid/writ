@@ -197,6 +197,13 @@ describe("interface text size on the document root", () => {
     expect(root.style.getPropertyValue(ROOT_VAR)).toBe("");
   });
 
+  it("takes the size from the config on the launch path, not only from the row", () => {
+    themeStore.loadConfig({ preset: "", overrides: {} }, appearance(18));
+    expect(root.style.getPropertyValue(ROOT_VAR)).toBe("18px");
+    themeStore.loadConfig({ preset: "", overrides: {} }, appearance(null));
+    expect(root.style.getPropertyValue(ROOT_VAR)).toBe("");
+  });
+
   it("never moves the editor font size", () => {
     for (const size of [12, 16, 22, null]) {
       themeStore.setAppearance(appearance(size));

@@ -90,7 +90,7 @@ describe("the status bar at the top of the interface text range", () => {
 describe("a settings row at the top of the interface text range", () => {
   it("yields the label rather than pushing the control out of the row", () => {
     declares(SETTINGS, ".settings-row-label", "min-width", /0/);
-    declares(SETTINGS, ".settings-input", "flex-shrink", /0/);
+    declares(SETTINGS, ".settings-input-number", "flex-shrink", /0/);
     declares(SETTINGS, ".settings-select", "flex-shrink", /0/);
   });
 
