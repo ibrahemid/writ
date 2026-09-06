@@ -18,7 +18,9 @@ export interface EditorCommandKey {
 // Shift+/ yields `?`, so the alias is inert there rather than wrong.
 export const EDITOR_COMMAND_KEYS: readonly EditorCommandKey[] = [
   { id: "editor.duplicateLine", label: "Duplicate Line", keybinding: "CmdOrCtrl+D" },
-  { id: "editor.deleteLine", label: "Delete Line", keybinding: "CmdOrCtrl+E", aliases: ["CmdOrCtrl+Shift+K"] },
+  // Cmd+E is Eject in Finder and Use Selection for Find in Cocoa, so deleting
+  // a line answers to Cmd+Shift+K alone.
+  { id: "editor.deleteLine", label: "Delete Line", keybinding: "CmdOrCtrl+Shift+K" },
   { id: "editor.moveLineUp", label: "Move Line Up", keybinding: "Shift+Alt+ArrowUp" },
   { id: "editor.moveLineDown", label: "Move Line Down", keybinding: "Shift+Alt+ArrowDown" },
   { id: "editor.toggleComment", label: "Toggle Comment", keybinding: "CmdOrCtrl+/", aliases: ["CmdOrCtrl+Shift+/"] },

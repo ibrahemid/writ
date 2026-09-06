@@ -460,6 +460,8 @@ function AppShell() {
       label: "Toggle sidebar",
       description: "Show or hide the tabs + history rail",
       keybinding: "CmdOrCtrl+\\",
+      // Finder's own sidebar chord, for the hand that already knows it.
+      keybindingAliases: ["CmdOrCtrl+Alt+S"],
       scope: "app",
       // Global: the editor holds focus almost all the time in a writing app, so
       // a focus-gated sidebar toggle would be unreachable from the keyboard. It
@@ -532,8 +534,9 @@ function AppShell() {
       id: "editor.replace",
       label: "Replace",
       description: "Find and replace text in the current document",
-      keybinding: "CmdOrCtrl+R",
-      keybindingAliases: ["CmdOrCtrl+Alt+F"],
+      // Cmd+R is Reload everywhere else on a Mac, and Cocoa has no top-level
+      // Replace chord. The Find bar carries the control instead.
+      keybinding: "CmdOrCtrl+Alt+F",
       scope: "editor",
       execute: () => findStore.showReplace(),
     });
