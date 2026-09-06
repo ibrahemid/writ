@@ -240,6 +240,7 @@ describe("backlinks", () => {
         col: 0,
         context: "see Open for the rest",
         certainty: "resolved",
+        candidates: [],
       },
       {
         from_path: "/notes/Two.md",
@@ -251,6 +252,7 @@ describe("backlinks", () => {
         col: 4,
         context: "also Open",
         certainty: "ambiguous",
+        candidates: ["/notes/archive/Open.md"],
       },
     ];
     const { container } = mount();
@@ -258,11 +260,32 @@ describe("backlinks", () => {
     const markers = [...container.querySelectorAll(".right-panel-row-marker")].map(
       (el) => el.textContent,
     );
-    expect(markers).toEqual(["Could name another note"]);
+    expect(markers).toEqual(["Could also mean archive/Open"]);
     const names = [...container.querySelectorAll(".right-panel-row-name")].map(
       (el) => el.textContent,
     );
     expect(names).toEqual(["One", "Two"]);
+  });
+
+  it("names every note an ambiguous link could mean instead", () => {
+    h.backlinks = [
+      {
+        from_path: "/notes/One.md",
+        from_name: "One",
+        to_target: "Open",
+        alias: null,
+        kind: "wikilink",
+        line: 3,
+        col: 0,
+        context: "see Open",
+        certainty: "ambiguous",
+        candidates: ["/notes/archive/Open.md", "/notes/team/Open.md"],
+      },
+    ];
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-row-marker")?.textContent?.trim()).toBe(
+      "Could also mean archive/Open or team/Open",
+    );
   });
 
   it("opens the linking note at the line the link is on", async () => {
@@ -277,6 +300,7 @@ describe("backlinks", () => {
         col: 0,
         context: "",
         certainty: "resolved",
+        candidates: [],
       },
     ];
     const { container } = mount();

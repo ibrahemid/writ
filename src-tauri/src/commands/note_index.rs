@@ -60,6 +60,9 @@ pub struct BacklinkDto {
     pub context: String,
     /// `resolved` or `ambiguous`.
     pub certainty: String,
+    /// The other notes an ambiguous link might mean, by path. Empty when the
+    /// link means this note and no other.
+    pub candidates: Vec<String>,
 }
 
 /// One frontmatter property, its value as the JSON it is stored as.
@@ -288,6 +291,7 @@ pub fn note_backlinks_inner(
             col: row.col,
             context: row.context,
             certainty: row.certainty.as_str().to_string(),
+            candidates: row.candidates,
         })
         .collect())
 }

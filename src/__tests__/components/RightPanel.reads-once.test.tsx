@@ -99,6 +99,7 @@ beforeEach(async () => {
       col: 0,
       context: "",
       certainty: "resolved",
+      candidates: [],
     },
   ]);
 });
