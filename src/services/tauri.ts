@@ -60,6 +60,11 @@ export async function newNote(): Promise<BufferDocument> {
   return invoke("new_note");
 }
 
+/** The note named for today, created if the notes folder has none yet. */
+export async function todaysNote(): Promise<BufferDocument> {
+  return invoke("todays_note");
+}
+
 export async function renameNote(id: string, title: string): Promise<BufferDocument> {
   return invoke("rename_note", { id, title });
 }
@@ -153,6 +158,40 @@ export async function getNotesFolder(): Promise<NotesFolderInfo> {
 
 export async function showNotesFolderInFinder(): Promise<void> {
   return invoke("show_notes_folder_in_finder");
+}
+
+/** What this launch is, and the one word the first line substitutes. */
+export interface FirstRunState {
+  /** Whether this launch found no config file. */
+  first_run: boolean;
+  /** Whether the one line under the cursor has already been dismissed. */
+  hint_dismissed: boolean;
+  /** What this platform calls the app that opens a folder. */
+  file_manager: string;
+}
+
+export async function firstRunState(): Promise<FirstRunState> {
+  return invoke("first_run_state");
+}
+
+export async function dismissFirstRunHint(): Promise<void> {
+  return invoke("dismiss_first_run_hint");
+}
+
+/**
+ * What a note's first line did to the note's file name: it renamed it, it is
+ * offered as a question, the line does not name the note yet, or the note is
+ * not one this applies to.
+ */
+export type RetitleOutcome =
+  | { kind: "renamed"; note: BufferDocument }
+  | { kind: "ask"; title: string }
+  | { kind: "not_yet" }
+  | { kind: "skipped" };
+
+/** Renames a note Writ minted from its own first line, or offers to. */
+export async function autoRetitleNote(id: string): Promise<RetitleOutcome> {
+  return invoke("auto_retitle_note", { id });
 }
 
 /**
@@ -662,15 +701,17 @@ export async function hideWindow(): Promise<void> {
 }
 
 // The window is created hidden to avoid the cold-start flash; the frontend
-// reveals it after its first paint (App onMount). Geometry is already restored
-// in Rust setup, so this only shows and focuses.
+// reveals it after its first paint (App onMount). Rust owns the reveal rather
+// than the window API here: the timer that stands behind this signal shows the
+// same window, and only one of them may win. Geometry is already restored in
+// Rust setup, so this only shows and focuses. Rust logs what it decided and
+// any refusal from AppKit; the catch here sees only a request that never
+// arrived.
 export async function showWindow(): Promise<void> {
   try {
-    const win = getCurrentWindow();
-    await win.show();
-    await win.setFocus();
+    await invoke("reveal_window");
   } catch {
-    return;
+    logFailure("the request to show the window did not reach Rust");
   }
 }
 

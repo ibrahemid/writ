@@ -75,6 +75,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "appearance.polarity", section: "appearance", title: "Light and dark", keywords: ["appearance", "light", "dark", "system", "theme", "polarity", "follow system"] },
   { id: "appearance.accent", section: "appearance", title: "Accent color", keywords: ["accent", "color", "pine", "highlight"] },
   { id: "appearance.prose_face", section: "appearance", title: "Prose typeface", keywords: ["font", "typeface", "prose", "writing", "ia writer", "quattro"] },
+  { id: "appearance.interface_text_size", section: "appearance", title: "Interface text size", keywords: ["interface", "text", "size", "ui", "font", "scale", "bigger", "smaller", "sidebar", "tabs"] },
   { id: "appearance.theme", section: "appearance", title: "Theme", keywords: ["theme", "color", "appearance", "preset", "dark", "light"] },
   { id: "appearance.custom_colors", section: "appearance", title: "Custom colors", keywords: ["theme", "colors", "custom", "palette"] },
   { id: "updates.auto_check", section: "updates", title: "Check for updates automatically", keywords: ["update", "auto", "check", "version"] },

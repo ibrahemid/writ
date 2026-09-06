@@ -1,5 +1,8 @@
 .statusbar {
-  height: var(--writ-statusbar-height);
+  /* A floor, not a fixed height: the bar reads --writ-ui-sm, so at the top of
+     the interface text range the line box is taller than the platform metric
+     and a fixed height would cut the descenders off. */
+  min-height: var(--writ-statusbar-height);
   background: var(--writ-bg-sidebar);
   display: flex;
   align-items: center;
@@ -11,6 +14,7 @@
   flex-shrink: 0;
   container-type: inline-size;
   overflow: hidden;
+  white-space: nowrap;
 }
 
 .statusbar-left,
@@ -26,14 +30,16 @@
 }
 
 /* The bar never clips its own controls: as the editor narrows, the
-   informational fields go first, then the palette cue's label. */
-@container (max-width: 860px) {
+   informational fields go first, then the palette cue's label. The widths are
+   em so a larger interface text sheds them sooner, at the same amount of text
+   rather than at the same number of pixels. */
+@container (max-width: 71.667em) {
   .statusbar-field:not(.statusbar-field--cursor) {
     display: none;
   }
 }
 
-@container (max-width: 700px) {
+@container (max-width: 58.333em) {
   .statusbar-tokens,
   .statusbar-right > .statusbar-label {
     display: none;
@@ -155,4 +161,24 @@
 .statusbar-field--cursor,
 .statusbar-field--words {
   font-variant-numeric: tabular-nums;
+}
+
+/* A field that is also a control: it looks like the fields beside it and
+   answers to a click and to the keyboard like a button. */
+.statusbar-folder {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.statusbar-folder:hover {
+  color: var(--writ-fg);
+}
+
+.statusbar-folder:focus-visible {
+  outline: 2px solid var(--writ-accent);
+  outline-offset: -2px;
+  border-radius: var(--writ-r-control);
 }

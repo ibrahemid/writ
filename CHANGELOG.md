@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- A launch could leave Writ running with no window on screen and a dock icon that did nothing. One place in Rust now shows the window, a dock click brings back a window that is hidden, and a show that fails says so in the log.
+
 ## [0.4.0] - 2026-09-05
 
 Notes now live as Markdown files in a notes folder (`~/Writ` by default). The file on disk is the only copy of a note's text; Writ's database keeps derived data only. The first launch moves existing notes into the folder and keeps a rollback copy of the database for ten launches.

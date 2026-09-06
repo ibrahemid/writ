@@ -47,7 +47,7 @@ describe("ThemeEditor", () => {
   beforeEach(() => {
     h.save.mockReset().mockResolvedValue(undefined);
     h.config.mockReset().mockReturnValue(baseConfig());
-    themeStore.setAppearance({ polarity: "light", accent: "pine", prose_face: "system" });
+    themeStore.setAppearance({ polarity: "light", accent: "pine", prose_face: "system", interface_text_size: null });
     themeStore.loadConfig({ preset: "writ-light", overrides: {} });
   });
 
@@ -121,7 +121,7 @@ describe("ThemeEditor", () => {
     // The swatches below it are the active preset's, so naming the stored half
     // would label a dark palette "Writ Light".
     const { container } = render(() => <ThemeEditor />);
-    themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "system" });
+    themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "system", interface_text_size: null });
     themeStore.loadConfig({ preset: "writ-light", overrides: {} });
     openThemeEditor();
     const select = container.querySelector<HTMLSelectElement>(".theme-editor-preset")!;

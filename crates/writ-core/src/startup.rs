@@ -10,6 +10,8 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
+use chrono::{DateTime, Utc};
+
 use crate::notes::DEFAULT_NOTES_FOLDER;
 
 /// Title of the dialog shown when Writ cannot finish starting.
@@ -507,9 +509,133 @@ pub fn data_dir_refusal_message(verdict: &DataDirVerdict) -> String {
     }
 }
 
+/// What each platform calls the app that opens a folder.
+///
+/// One word, substituted into the one line the first launch shows, so the
+/// sentence is the same on all three platforms and only the name of the app
+/// the click will open differs. Passed as data rather than read from `cfg!`
+/// inline, so all three answers are exercised from one host.
+pub fn file_manager_name(platform: Platform) -> &'static str {
+    match platform {
+        Platform::Macos => "Finder",
+        Platform::Windows => "File Explorer",
+        Platform::Linux => "Files",
+    }
+}
+
+/// Whether this launch is Writ's first.
+///
+/// The absence of a config file is the whole test (spec O1): a flag inside
+/// the config has to be written before it can be read, and the launch that
+/// would write it is the one that needs the answer. The adapter says whether
+/// the file is there; this says what that means.
+pub fn is_first_run(config_exists: bool) -> bool {
+    !config_exists
+}
+
+/// The file name of the note that belongs to the day `now` falls in locally.
+///
+/// One date rule. The stem is [`crate::notes::date_stem`], so the note the
+/// first launch opens and the note "Today's Note" opens are the same file on
+/// the same day, and a day boundary moves both at once. `now` is UTC and is
+/// converted here rather than by the caller, because the day a person calls
+/// today is the one their own clock is in.
+pub fn dated_note_name(now: DateTime<Utc>) -> String {
+    format!("{}.md", crate::notes::date_stem(now))
+}
+
+/// The title a note's first line gives it, or `None` when the line names
+/// nothing yet.
+///
+/// A heading or list marker is punctuation, not part of the name a person
+/// would give the file, so it comes off; a line of nothing but markers and
+/// spaces names nothing. Two lines name nothing however much text they carry:
+/// the frontmatter fence [`crate::notes::links::split_frontmatter`] reads,
+/// because the note's own text has not started yet, and a line holding a
+/// wikilink, because a link points at another note rather than naming this
+/// one; a line that only mentions a link on its way past is still a title.
+/// Both are common first keystrokes for somebody arriving from Obsidian,
+/// and this rename is not asked for, so an unclear line keeps the date.
+///
+/// What survives is still a title and not a filename — sanitising it is
+/// [`crate::notes::note_file_stem`]'s job, at the rename.
+pub fn first_line_title(content: &str) -> Option<&str> {
+    let first = content.lines().next().unwrap_or_default().trim();
+    if first == "---" {
+        return None;
+    }
+    let title = strip_line_marker(first).trim();
+    // A line that is only a link points at another note; a line that mentions
+    // one along the way is still a title.
+    if title.is_empty() || (title.starts_with("[[") && title.ends_with("]]")) {
+        return None;
+    }
+    // A line of nothing but markers is a list item or a rule with no text in
+    // it yet, whatever mix of them it is made of.
+    if title
+        .chars()
+        .all(|c| matches!(c, '#' | '-' | '*' | '+' | '>'))
+    {
+        return None;
+    }
+    Some(title)
+}
+
+/// Takes one leading markdown block marker off a line, if it has one.
+fn strip_line_marker(line: &str) -> &str {
+    let heading = line.trim_start_matches('#');
+    if heading.len() != line.len() {
+        return heading;
+    }
+    for marker in ["- ", "* ", "+ ", "> "] {
+        if let Some(rest) = line.strip_prefix(marker) {
+            return rest;
+        }
+    }
+    line
+}
+
+/// What Writ knows about a note it minted, at the moment the note's first
+/// line would rename its file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RetitleFacts {
+    /// Whether the tab holding the note has been closed since it was created.
+    pub has_been_closed: bool,
+    /// How many changes to the note's own path something other than Writ has
+    /// been seen making since it was created.
+    pub watcher_events_seen: u32,
+}
+
+/// What the first line of a note Writ minted may do to the note's file name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetitleAnswer {
+    /// Rename the file now, without asking.
+    Rename,
+    /// Ask first, in one line beside the note.
+    Ask,
+}
+
+/// Whether a note Writ minted may be renamed from its first line without
+/// asking.
+///
+/// A rename inside a synced folder is a delete plus a create on every other
+/// machine, and history is keyed by file identity plus path, so a rename the
+/// person did not ask for is only safe while nothing else has looked at the
+/// note yet. Two facts say nothing has: the tab has never been closed, and
+/// nothing outside Writ has touched the path since the note was created. Once
+/// either goes, the rename becomes a question instead of an action.
+pub fn retitle_answer(facts: RetitleFacts) -> RetitleAnswer {
+    if facts.has_been_closed || facts.watcher_events_seen > 0 {
+        return RetitleAnswer::Ask;
+    }
+    RetitleAnswer::Rename
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use chrono::TimeZone;
 
     fn failure() -> StartupFailure {
         StartupFailure::new(
@@ -615,5 +741,120 @@ mod tests {
         let body = format_failure_dialog(&failure(), Some(path));
         assert!(!body.contains("standard error"));
         assert!(format_failure_report(&failure(), Some(path)).contains("standard error"));
+    }
+
+    /// A UTC instant that reads as the given wall-clock time locally, so a
+    /// test can say which side of local midnight it means.
+    fn local_instant(
+        year: i32,
+        month: u32,
+        day: u32,
+        hour: u32,
+        minute: u32,
+        second: u32,
+    ) -> DateTime<Utc> {
+        chrono::Local
+            .with_ymd_and_hms(year, month, day, hour, minute, second)
+            .earliest()
+            .expect("a local wall-clock time this test can name")
+            .with_timezone(&Utc)
+    }
+
+    #[test]
+    fn file_manager_name_is_the_apps_own_word_on_each_platform() {
+        assert_eq!(file_manager_name(Platform::Macos), "Finder");
+        assert_eq!(file_manager_name(Platform::Windows), "File Explorer");
+        assert_eq!(file_manager_name(Platform::Linux), "Files");
+    }
+
+    #[test]
+    fn is_first_run_is_true_only_when_the_config_file_is_absent() {
+        assert!(is_first_run(false));
+        assert!(!is_first_run(true));
+    }
+
+    #[test]
+    fn dated_note_name_names_the_new_day_just_after_local_midnight() {
+        let before = local_instant(2026, 3, 17, 23, 59, 59);
+        let after = local_instant(2026, 3, 18, 0, 0, 1);
+        assert_eq!(dated_note_name(before), "2026-03-17.md");
+        assert_eq!(dated_note_name(after), "2026-03-18.md");
+    }
+
+    #[test]
+    fn dated_note_name_is_the_stem_rule_with_the_note_extension() {
+        let now = local_instant(2026, 3, 18, 12, 0, 0);
+        assert_eq!(
+            dated_note_name(now),
+            format!("{}.md", crate::notes::date_stem(now))
+        );
+    }
+
+    #[test]
+    fn a_first_line_gives_the_note_its_title_without_the_heading_marker() {
+        assert_eq!(
+            first_line_title("Grocery list\n\nmilk"),
+            Some("Grocery list")
+        );
+        assert_eq!(first_line_title("## Grocery list"), Some("Grocery list"));
+        assert_eq!(first_line_title("  Grocery list  "), Some("Grocery list"));
+        assert_eq!(first_line_title("- Grocery list"), Some("Grocery list"));
+        assert_eq!(first_line_title("> Grocery list"), Some("Grocery list"));
+    }
+
+    #[test]
+    fn a_first_line_that_names_nothing_gives_no_title() {
+        assert_eq!(first_line_title(""), None);
+        assert_eq!(first_line_title("\nGrocery list"), None);
+        assert_eq!(first_line_title("###   "), None);
+        assert_eq!(first_line_title("-   "), None);
+    }
+
+    #[test]
+    fn a_frontmatter_fence_or_a_link_leaves_the_note_its_date() {
+        assert_eq!(first_line_title("---\ntitle: Grocery list\n---\n"), None);
+        assert_eq!(first_line_title("  ---  \ntags: [a]"), None);
+        assert_eq!(first_line_title("[[Grocery list]]"), None);
+        assert_eq!(
+            first_line_title("Meeting with [[Bob]]"),
+            Some("Meeting with [[Bob]]")
+        );
+        assert_eq!(
+            first_line_title("--- and then some"),
+            Some("--- and then some")
+        );
+    }
+
+    #[test]
+    fn retitle_answer_renames_while_nothing_has_touched_the_note() {
+        assert_eq!(
+            retitle_answer(RetitleFacts::default()),
+            RetitleAnswer::Rename
+        );
+    }
+
+    #[test]
+    fn retitle_answer_asks_after_one_close_and_after_one_watcher_event() {
+        assert_eq!(
+            retitle_answer(RetitleFacts {
+                has_been_closed: true,
+                watcher_events_seen: 0,
+            }),
+            RetitleAnswer::Ask
+        );
+        assert_eq!(
+            retitle_answer(RetitleFacts {
+                has_been_closed: false,
+                watcher_events_seen: 1,
+            }),
+            RetitleAnswer::Ask
+        );
+        assert_eq!(
+            retitle_answer(RetitleFacts {
+                has_been_closed: true,
+                watcher_events_seen: 3,
+            }),
+            RetitleAnswer::Ask
+        );
     }
 }

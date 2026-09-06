@@ -150,13 +150,14 @@ function baseConfig(): WritConfig {
     hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
     sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false, width: 240 },
     panel: { open: false, width: 240 },
+    first_run: { hint_dismissed: false },
     editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true, status_bar: false },
     window: { width: 1100, height: 720, maximized: false },
     keybindings: {},
     history: { max_entries: 500 },
     storage: { path: "~/.writ" },
     theme: { preset: "warp-dark", overrides: {} },
-    appearance: { polarity: "system", accent: "pine", prose_face: "system" },
+    appearance: { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
     commands: { usage: {} },
   workspace: { root: null },
   inbox: { path: null, focus: true },
@@ -402,7 +403,7 @@ describe("SettingsModal", () => {
     mocks.config.mockReturnValue({
       ...baseConfig(),
       theme: { preset: "writ-light", overrides: {} },
-      appearance: { polarity: "dark", accent: "pine", prose_face: "system" },
+      appearance: { polarity: "dark", accent: "pine", prose_face: "system", interface_text_size: null },
     });
     mocks.activePresetId.mockReturnValue("writ-dark");
     const { container } = render(() => <SettingsModal />);
@@ -416,7 +417,7 @@ describe("SettingsModal", () => {
     mocks.config.mockReturnValue({
       ...baseConfig(),
       theme: { preset: "writ-dark", overrides: {} },
-      appearance: { polarity: "light", accent: "pine", prose_face: "system" },
+      appearance: { polarity: "light", accent: "pine", prose_face: "system", interface_text_size: null },
     });
     mocks.activePresetId.mockReturnValue("writ-light");
     const { container } = render(() => <SettingsModal />);

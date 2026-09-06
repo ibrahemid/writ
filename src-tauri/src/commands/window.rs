@@ -25,6 +25,17 @@ pub fn confirm_quit_flush(state: tauri::State<'_, AppState>) -> Result<(), Strin
     Ok(())
 }
 
+/// Brings the window up after the frontend's first paint.
+///
+/// The frontend does not show the window itself: the timer in setup shows the
+/// same window on a launch where this signal is late or never comes, and one
+/// claim in [`AppState`] has to settle which of them does it
+/// ([`crate::reveal_main_window`]).
+#[tauri::command]
+pub fn reveal_window(app: AppHandle) {
+    crate::reveal_main_window(&app, "frontend first paint");
+}
+
 #[tauri::command]
 pub fn toggle_window(app: AppHandle) -> Result<(), String> {
     let Some(window) = app.get_webview_window("main") else {
@@ -50,6 +61,7 @@ pub fn toggle_window(app: AppHandle) -> Result<(), String> {
         }
         ToggleAction::Hide => {
             window.hide().map_err(|e| e.to_string())?;
+            crate::note_window_dismissed(&app);
         }
     }
     Ok(())

@@ -55,6 +55,7 @@ function configWith(statusBar: boolean): WritConfig {
     hotkey: { toggle: "" },
     sidebar: { toggle: "", default_visible: false, position: "left", open: true, width: 240 },
     panel: { open: false, width: 240 },
+    first_run: { hint_dismissed: false },
     editor: {
       font_family: "monospace",
       font_size: 16,
@@ -70,7 +71,7 @@ function configWith(statusBar: boolean): WritConfig {
     history: { max_entries: 500 },
     storage: { path: "~/.writ" },
     theme: { preset: "writ-light", overrides: {} },
-    appearance: { polarity: "system", accent: "pine", prose_face: "system" },
+    appearance: { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
     commands: { usage: {} },
     preview: {
       default_layout_html: "split",

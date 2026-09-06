@@ -41,10 +41,21 @@ export function clampPanelWidth(width: number): number {
   return Math.min(PANEL_WIDTH_MAX, Math.max(PANEL_WIDTH_MIN, Math.round(width)));
 }
 
+// Interface text bounds (spec A1). The settings row and the root token both
+// read these; null keeps whatever size the platform layer already resolves.
+export const INTERFACE_TEXT_MIN = 12;
+export const INTERFACE_TEXT_MAX = 22;
+
+export function clampInterfaceTextSize(size: number): number | null {
+  if (!Number.isFinite(size)) return null;
+  return Math.min(INTERFACE_TEXT_MAX, Math.max(INTERFACE_TEXT_MIN, Math.round(size)));
+}
+
 const DEFAULT_APPEARANCE: AppearanceConfig = {
   polarity: "system",
   accent: "pine",
   prose_face: "system",
+  interface_text_size: null,
 };
 
 const DEFAULT_CONFIG: WritConfig = {
@@ -58,6 +69,7 @@ const DEFAULT_CONFIG: WritConfig = {
   },
   // Closed on a first launch: the window opens on a cursor and nothing else.
   panel: { open: false, width: PANEL_WIDTH_DEFAULT },
+  first_run: { hint_dismissed: false },
   editor: { font_family: "monospace", font_size: EDITOR_FONT_DEFAULT, word_wrap: true, tab_size: 2, autosave_debounce_ms: 1000, markdown_typography: true, markdown_editing: true, status_bar: false },
   window: { width: 1100, height: 720, maximized: false },
   keybindings: {},
@@ -101,6 +113,9 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
       open: incoming.panel?.open ?? false,
       width: clampPanelWidth(incoming.panel?.width ?? PANEL_WIDTH_DEFAULT),
     },
+    first_run: {
+      hint_dismissed: incoming.first_run?.hint_dismissed ?? false,
+    },
     commands: {
       usage: incoming.commands?.usage ?? {},
     },
@@ -116,6 +131,7 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
       polarity: incoming.appearance?.polarity ?? DEFAULT_APPEARANCE.polarity,
       accent: incoming.appearance?.accent ?? DEFAULT_APPEARANCE.accent,
       prose_face: incoming.appearance?.prose_face ?? DEFAULT_APPEARANCE.prose_face,
+      interface_text_size: incoming.appearance?.interface_text_size ?? null,
     },
     ai: {
       enabled: incoming.ai?.enabled ?? false,
@@ -270,6 +286,16 @@ function createConfigStore() {
     await save(updated);
   }
 
+  // Rust has already written this one; the copy here catches up so the next
+  // whole-config write does not carry the old answer back over it. Writ's own
+  // config write is stamped into the watcher's ignore set, so nothing else
+  // tells this store the file moved.
+  function noteFirstRunHintDismissed() {
+    const current = config();
+    if (current.first_run.hint_dismissed) return;
+    setConfig({ ...current, first_run: { ...current.first_run, hint_dismissed: true } });
+  }
+
   function pruneCommandUsage(knownIds: ReadonlySet<string>) {
     const current = config();
     const pruned = pruneUsage(current.commands.usage, knownIds);
@@ -293,6 +319,7 @@ function createConfigStore() {
     setPanelWidth,
     clearCommandUsage,
     pruneCommandUsage,
+    noteFirstRunHintDismissed,
   };
 }
 

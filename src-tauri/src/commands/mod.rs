@@ -4,6 +4,7 @@ pub mod cli;
 pub mod config;
 pub mod default_app;
 pub mod file;
+pub mod first_run;
 pub mod history;
 pub mod inbox;
 pub mod link;

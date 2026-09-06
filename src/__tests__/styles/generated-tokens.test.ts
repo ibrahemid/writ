@@ -22,6 +22,7 @@ const BASELINE_ROOT_TOKENS = [
   "--writ-font-prose",
   "--writ-font-prose-alt",
   "--writ-font-mono",
+  "--writ-ui-size",
   "--writ-ui-xs",
   "--writ-ui-xs-lh",
   "--writ-ui-sm",
@@ -158,9 +159,11 @@ describe("generated token outputs", () => {
 
   it("states the prose measure in px, because the app root is not 16px", () => {
     // global.css sets `html, body { font-size: var(--writ-ui-md) }`, so 1rem is
-    // 13px in this app and the baseline 44rem would draw a 572px column. The
-    // measure is absolute so the reading column is the 704px the baseline draws.
-    expect(ROOT_DECLS.get("--writ-ui-md")).toBe("13px");
+    // 13px in this app at the default interface size and the baseline 44rem
+    // would draw a 572px column. The measure is absolute so the reading column
+    // is the 704px the baseline draws.
+    expect(ROOT_DECLS.get("--writ-ui-size")).toBe("13px");
+    expect(ROOT_DECLS.get("--writ-ui-md")).toBe("calc(var(--writ-ui-size) * 13 / 13)");
     expect(ROOT_DECLS.get("--writ-prose-measure")).toBe("704px");
     for (const [platform, type] of Object.entries(TYPE)) {
       expect(type.prose.measure, `${platform} prose measure`).toBe("704px");

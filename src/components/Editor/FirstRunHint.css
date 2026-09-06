@@ -1,0 +1,91 @@
+/* The foot of the note's canvas. The layer takes no clicks of its own, so a
+   click anywhere it covers lands in the note; only the offer's own controls
+   take one. */
+.first-run-layer {
+  position: absolute;
+  bottom: 0;
+  z-index: var(--writ-z-chrome);
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-2);
+  /* The horizontal padding is the note's own, so the line starts where the
+     first character of the note does. */
+  padding: var(--writ-space-4) var(--writ-space-7);
+  pointer-events: none;
+}
+
+/* The quietest text on screen: it is there to be read once and then not
+   looked at again. */
+.first-run-hint {
+  margin: 0;
+  font-family: var(--writ-font-ui);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  letter-spacing: var(--writ-ui-tracking);
+  color: var(--writ-fg-faint);
+}
+
+.first-run-offer {
+  pointer-events: auto;
+  /* The note's measure. A row that runs the width of a wide window puts its
+     two controls a screen away from the question they answer. */
+  max-width: 704px;
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-3);
+  padding: var(--writ-space-2) var(--writ-space-3);
+  border: 1px solid var(--writ-border);
+  border-radius: var(--writ-r-card);
+  background: var(--writ-bg-raised);
+  font-family: var(--writ-font-ui);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg);
+}
+
+.first-run-offer-text {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.first-run-offer-action {
+  flex-shrink: 0;
+  padding: var(--writ-space-1) var(--writ-space-3);
+  border: 1px solid var(--writ-border);
+  border-radius: var(--writ-r-control);
+  background: var(--writ-bg-raised);
+  color: var(--writ-fg);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color var(--writ-motion-fast);
+}
+
+.first-run-offer-action:hover {
+  border-color: var(--writ-accent);
+}
+
+/* The one place the accent is spent here: the button that does the thing the
+   row is asking about. */
+.first-run-offer-action.is-primary {
+  border-color: var(--writ-accent);
+  background: var(--writ-accent);
+  color: var(--writ-accent-fg);
+}
+
+.first-run-offer-action.is-primary:hover {
+  border-color: var(--writ-accent-hover);
+  background: var(--writ-accent-hover);
+}
+
+.first-run-offer-action:focus-visible {
+  outline: 2px solid var(--writ-accent);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .first-run-offer-action {
+    transition: none;
+  }
+}

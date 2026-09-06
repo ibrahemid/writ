@@ -9,7 +9,10 @@
      itself rather than forking the ramp; every reader carries the fallback the
      token contract asks of a component-set property. */
   --writ-tab-tight: 6px;
-  height: 36px;
+  /* The platform metrics below are floors. A tab reads --writ-ui-md, so at the
+     top of the interface text range the label's line box is taller than the
+     metric; a fixed height would clip it instead of letting the strip grow. */
+  min-height: 36px;
   flex: none;
   display: flex;
   align-items: flex-end;
@@ -35,7 +38,7 @@
 }
 
 .tab {
-  height: 28px;
+  min-height: 28px;
   min-width: 100px;
   max-width: 200px;
   flex: 0 1 auto;
@@ -140,7 +143,7 @@
 
 .tab-add {
   width: 24px;
-  height: 28px;
+  min-height: 28px;
   flex: none;
   display: grid;
   place-items: center;
@@ -178,7 +181,7 @@
 /* GNOME: AdwTabBar draws chips in a taller bar, each one rounded on all four
    corners rather than seated on the page. */
 .tabbar[data-platform="linux"] {
-  height: 46px;
+  min-height: 46px;
   align-items: center;
 }
 
@@ -187,7 +190,7 @@
 }
 
 .tabbar[data-platform="linux"] .tab {
-  height: 26px;
+  min-height: 26px;
   position: relative;
   border-radius: var(--writ-r-tab);
 }
@@ -217,6 +220,6 @@
 }
 
 .tabbar[data-platform="linux"] .tab-add {
-  height: 26px;
+  min-height: 26px;
   border-radius: var(--writ-r-tab);
 }

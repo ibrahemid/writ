@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Bump the version across Cargo.toml (workspace), tauri.conf.json, package.json, and site/package.json.
+"""Bump the version across Cargo.toml (workspace), tauri.conf.json, package.json, site/package.json and site/src/data/release.json.
 
 Usage: bump_version.py <new_version>
 
 The new_version must be a valid semver without a leading v. All four files must
 exist and contain a single canonical version field at the expected key, or the
 script exits non-zero without writing any partial state.
+
+site/src/data/release.json names the release the repo is on, which the release
+workflow asserts against the tag before it builds anything. The bump moves its
+version, tag and download URLs and clears everything that describes artifacts
+that do not exist yet; the site deploy regenerates the whole file from the
+published release.
 """
 from __future__ import annotations
 
@@ -53,6 +59,30 @@ def bump_package_json(path: pathlib.Path, new_version: str) -> None:
     path.write_text(json.dumps(data, indent=indent) + "\n")
 
 
+def bump_release_json(path: pathlib.Path, new_version: str) -> None:
+    data = json.loads(path.read_text())
+    old_version = data.get("version")
+    if not old_version:
+        raise BumpError(f"No 'version' field in {path}")
+    data["version"] = new_version
+    data["tag"] = f"v{new_version}"
+    # publishedAt is left alone: the bump has no date to give, and the site
+    # deploy rewrites the whole file from the published release.
+    # Nothing has been built for this version, so nothing may claim it has.
+    data["published"] = False
+    data["notarized"] = False
+    data["hasChecksums"] = False
+    for platform in data.get("platforms", {}).values():
+        for key, value in list(platform.items()):
+            if key.startswith("sha256_"):
+                platform[key] = ""
+            elif key.startswith("size_"):
+                platform[key] = 0
+            elif isinstance(value, str):
+                platform[key] = value.replace(old_version, new_version)
+    path.write_text(json.dumps(data, indent=2) + "\n")
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("Usage: bump_version.py <new_version>", file=sys.stderr)
@@ -68,6 +98,10 @@ def main(argv: list[str]) -> int:
         "tauri.conf.json": (root / "src-tauri" / "tauri.conf.json", bump_tauri_conf),
         "package.json": (root / "package.json", bump_package_json),
         "site/package.json": (root / "site" / "package.json", bump_package_json),
+        "site/src/data/release.json": (
+            root / "site" / "src" / "data" / "release.json",
+            bump_release_json,
+        ),
     }
 
     for label, (path, _fn) in targets.items():

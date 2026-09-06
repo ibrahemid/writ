@@ -190,7 +190,10 @@ describe("tab strip visibility", () => {
 describe("tab appearance", () => {
   it("seats the strip on the sidebar ground at the baseline metrics", () => {
     const bar = ruleFor(".tabbar");
-    expect(bar.declarations.get("height")).toBe("36px");
+    // A floor, not a fixed height: the strip reads --writ-ui-md, so it grows
+    // with the interface text size rather than clipping the labels.
+    expect(bar.declarations.get("min-height")).toBe("36px");
+    expect(bar.declarations.get("height")).toBeUndefined();
     expect(bar.declarations.get("background")).toBe("var(--writ-bg-sidebar)");
     expect(bar.declarations.get("align-items")).toBe("flex-end");
     // The list scrolls under the tabs; the add control never scrolls away.
@@ -200,7 +203,8 @@ describe("tab appearance", () => {
 
   it("draws a borderless 28px tab with only its top corners rounded", () => {
     const tab = ruleFor(".tab");
-    expect(tab.declarations.get("height")).toBe("28px");
+    expect(tab.declarations.get("min-height")).toBe("28px");
+    expect(tab.declarations.get("height")).toBeUndefined();
     expect(tab.declarations.get("min-width")).toBe("100px");
     expect(tab.declarations.get("max-width")).toBe("200px");
     expect(tab.declarations.get("padding")).toBe("0 10px");
@@ -258,7 +262,7 @@ describe("tab appearance", () => {
     expect(close.declarations.get("height")).toBe("16px");
     const add = ruleFor(".tab-add");
     expect(add.declarations.get("width")).toBe("24px");
-    expect(add.declarations.get("height")).toBe("28px");
+    expect(add.declarations.get("min-height")).toBe("28px");
 
     open(2);
     const { container } = render(() => <TabBar />);
@@ -398,9 +402,11 @@ describe("platform layers", () => {
   });
 
   it("takes the AdwTabBar chip metrics on Linux", () => {
-    expect(ruleFor('.tabbar[data-platform="linux"]').declarations.get("height")).toBe("46px");
+    expect(ruleFor('.tabbar[data-platform="linux"]').declarations.get("min-height")).toBe(
+      "46px",
+    );
     const tab = ruleFor('.tabbar[data-platform="linux"] .tab');
-    expect(tab.declarations.get("height")).toBe("26px");
+    expect(tab.declarations.get("min-height")).toBe("26px");
     expect(tab.declarations.get("border-radius")).toBe("var(--writ-r-tab)");
     const active = ruleFor('.tabbar[data-platform="linux"] .tab-active');
     expect(active.declarations.get("background")).toBe("var(--writ-bg-selected)");

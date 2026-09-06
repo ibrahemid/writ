@@ -6,6 +6,7 @@ import { createRoot } from "solid-js";
 
 const h = vi.hoisted(() => ({
   panel: { open: false, width: 240 },
+  first_run: { hint_dismissed: false },
   setPanelOpen: vi.fn<(open: boolean) => void>(),
   setPanelWidth: vi.fn<(width: number) => void>(),
 }));

@@ -31,6 +31,9 @@ import { bufferRegistry } from "./stores/global/buffer-registry";
 import { saveStatusStore } from "./stores/global/save-status";
 import { basename } from "./lib/path";
 import { logFailure } from "./lib/log";
+import { armReveal } from "./lib/boot-reveal";
+import FirstRunHint from "./components/Editor/FirstRunHint";
+import { firstRunStore, watchSavesForRetitle } from "./stores/global/first-run";
 import { workspaceStore } from "./stores/global/workspace";
 import { notesStore } from "./stores/global/notes";
 import { inboxStore } from "./stores/global/inbox";
@@ -140,6 +143,23 @@ function watchSystemPolarity(): UnlistenFn {
   return () => query.removeEventListener("change", onChange);
 }
 
+/**
+ * Takes the first launch's one line away on the first keystroke.
+ *
+ * A keydown rather than an edit: the line is about where the note goes, and
+ * the person has read it or not by the time they touch the keyboard. A
+ * modifier held on its own is not a keystroke.
+ */
+function dismissHintOnFirstKeystroke(): () => void {
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (["Shift", "Control", "Alt", "Meta"].includes(event.key)) return;
+    firstRunStore.dismissHint();
+    document.removeEventListener("keydown", onKeyDown);
+  };
+  document.addEventListener("keydown", onKeyDown);
+  return () => document.removeEventListener("keydown", onKeyDown);
+}
+
 function AppShell() {
   const win = useWindow();
   const unlisteners: UnlistenFn[] = [];
@@ -226,27 +246,35 @@ function AppShell() {
 
     await emitFrontendReady();
 
-    if (win.tabs.activeTabId() === null) {
-      const active = bufferRegistry.activeTabs();
-      if (active.length === 0) {
-        await win.tabs.createTab();
-      } else {
-        win.tabs.setActiveTabId(active[active.length - 1].id);
+    // The window was created hidden to avoid a cold-start flash, so it takes a
+    // reveal to appear. Armed before the two steps below rather than sequenced
+    // after them: either can reject, and either can hang on a slow disk, and
+    // both of those used to end with an app running and no window on screen.
+    // Showing directly (not via requestAnimationFrame, which a browser may
+    // throttle for a hidden document) makes the window appear promptly without
+    // waiting on the Rust timer; the webview paints the already-built DOM as it
+    // becomes visible.
+    const reveal = armReveal(osWindowStore.reveal);
+    try {
+      if (win.tabs.activeTabId() === null) {
+        const active = bufferRegistry.activeTabs();
+        if (active.length === 0) {
+          await win.tabs.createTab();
+        } else {
+          win.tabs.setActiveTabId(active[active.length - 1].id);
+        }
       }
+
+      // Reapplied here rather than in the hidden Rust restore path: on Windows
+      // maximizing runs ShowWindow(SW_MAXIMIZE), which has no visibility guard,
+      // so it would put an unpainted frame on screen for the whole boot and turn
+      // the reveal into a no-op. By this point the webview has painted.
+      if (configStore.config().window.maximized) await osWindowStore.maximize();
+    } catch {
+      logFailure("the first tab could not be prepared");
+    } finally {
+      reveal.now();
     }
-
-    // Reapplied here rather than in the hidden Rust restore path: on Windows
-    // maximizing runs ShowWindow(SW_MAXIMIZE), which has no visibility guard,
-    // so it would put an unpainted frame on screen for the whole boot and turn
-    // the reveal below into a no-op. By this point the webview has painted.
-    if (configStore.config().window.maximized) await osWindowStore.maximize();
-
-    // The window was created hidden to avoid a cold-start flash; reveal it now
-    // that content and the active tab are in place. Showing directly (not via
-    // requestAnimationFrame, which a browser may throttle for a hidden
-    // document) makes the window appear promptly without waiting on the Rust
-    // fallback; the webview paints the already-built DOM as it becomes visible.
-    void osWindowStore.reveal();
 
     registerCommand({
       id: "note.new",
@@ -260,6 +288,14 @@ function AppShell() {
       scope: "app",
       global: true,
       execute: () => void windowRegistry.getActive()?.tabs.newNote(),
+    });
+
+    registerCommand({
+      id: "note.today",
+      label: "Today's note",
+      description: "Open the note dated today, or create it",
+      scope: "app",
+      execute: () => void windowRegistry.getActive()?.tabs.todaysNote(),
     });
 
     registerCommand({
@@ -763,6 +799,13 @@ function AppShell() {
       aiRewriteStore.handleStreamEvent(payload);
     });
     unlisteners.push(unlistenAi);
+
+    // What the first launch shows, and what a new note's first line may do to
+    // its file name. Not awaited: the window is revealed above, and a line
+    // under the cursor is not worth holding the first frame for.
+    void firstRunStore.load();
+    unlisteners.push(watchSavesForRetitle());
+    unlisteners.push(dismissHintOnFirstKeystroke());
   });
 
   onCleanup(() => {
@@ -792,6 +835,7 @@ function AppShell() {
         <Sidebar />
         <EditorArea />
         <RightPanel />
+        <FirstRunHint />
         {/* Last in the row and over both panes: the lights sit at the window's
             leading edge whatever the sidebar is doing under them. */}
         <WindowLights />
