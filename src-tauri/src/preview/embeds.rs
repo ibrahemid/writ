@@ -11,9 +11,11 @@ use std::sync::Arc;
 
 use writ_core::notes::guard::is_not_downloaded;
 use writ_core::notes::links::Resolution;
-use writ_render::{EmbedResolution, EmbedTarget, NoteEmbedResolver, MAX_EMBED_DEPTH};
+use writ_core::preview::AssetScope;
+use writ_render::{EmbedBase, EmbedResolution, EmbedTarget, NoteEmbedResolver, MAX_EMBED_DEPTH};
 use writ_storage::notes_index::{self, NotesIndexStore};
 
+use super::renderers::markdown::asset_url;
 use super::wikilinks::IndexWikilinks;
 use writ_render::WikilinkResolver;
 
@@ -42,24 +44,45 @@ pub struct IndexEmbeds {
     /// Writes the target's href and label, so an embed that renders as a link
     /// is written exactly as the link form of the same target would be.
     links: IndexWikilinks,
+    /// The render's asset scope with this note's folder in it. Everything else
+    /// is the outer render's, the token included: the token says which
+    /// document owns the scope, and an embedded note is part of that document
+    /// (ADR-035). Only the folder a relative reference is read from moves.
+    scope: AssetScope,
     /// How the filesystem is asked whether a file's bytes are local.
     dataless: DatalessProbe,
 }
 
 impl IndexEmbeds {
-    /// The resolver for a note in `note_dir` inside `notes_root`.
-    pub fn new(
-        index: Arc<NotesIndexStore>,
-        notes_root: &Path,
-        note_dir: &Path,
-        dataless: DatalessProbe,
-    ) -> Self {
+    /// The resolver for the note `scope` was built for.
+    pub fn new(index: Arc<NotesIndexStore>, scope: AssetScope, dataless: DatalessProbe) -> Self {
         Self {
-            from: notes_index::index_key(note_dir),
-            links: IndexWikilinks::new(Arc::clone(&index), notes_root, note_dir),
+            from: notes_index::index_key(&scope.note_dir),
+            links: IndexWikilinks::new(Arc::clone(&index), &scope.notes_root, &scope.note_dir),
             index,
+            scope,
             dataless,
         }
+    }
+
+    /// The same resolver rebased on the folder holding `note_path`.
+    ///
+    /// The target came out of the index, so its folder is already inside the
+    /// notes root: this moves the base a reference is read from, never the
+    /// roots it is confined to.
+    fn rebased_on(&self, note_path: &str) -> Self {
+        let note_dir = Path::new(note_path)
+            .parent()
+            .unwrap_or_else(|| Path::new(note_path))
+            .to_path_buf();
+        Self::new(
+            Arc::clone(&self.index),
+            AssetScope {
+                note_dir,
+                ..self.scope.clone()
+            },
+            self.dataless,
+        )
     }
 
     /// The target as `writ-render` writes it when it renders a link instead of
@@ -120,12 +143,27 @@ impl NoteEmbedResolver for IndexEmbeds {
             Ok(markdown) => EmbedResolution::Resolved {
                 target: self.target_for(inner, &path),
                 markdown,
+                base: Some(Box::new(self.rebased_on(&path))),
             },
             Err(error) => {
                 tracing::debug!(error = %error, "preview note embed could not be read");
                 EmbedResolution::Missing
             }
         }
+    }
+}
+
+impl EmbedBase for IndexEmbeds {
+    fn asset_url(&self, reference: &str) -> Option<String> {
+        asset_url(&self.scope, reference)
+    }
+
+    fn wikilinks(&self) -> Option<&dyn WikilinkResolver> {
+        Some(&self.links)
+    }
+
+    fn embeds(&self) -> &dyn NoteEmbedResolver {
+        self
     }
 }
 
@@ -166,15 +204,27 @@ mod tests {
         index
             .reconcile(&root, &|| false, &|_| false)
             .expect("reconcile");
-        let resolver = IndexEmbeds::new(index, &root, &root, dataless);
+        let resolver = IndexEmbeds::new(index, scope(&root, &root), dataless);
         (dir, resolver)
+    }
+
+    /// The asset scope of a render of a note in `note_dir`.
+    fn scope(notes_root: &Path, note_dir: &Path) -> AssetScope {
+        AssetScope {
+            notes_root: notes_root.to_path_buf(),
+            note_dir: note_dir.to_path_buf(),
+            buffer_id: "b1".to_string(),
+            token: "t1".to_string(),
+        }
     }
 
     #[test]
     fn a_note_that_exists_comes_back_with_its_text() {
         let (_dir, resolver) = fixture(local);
         match resolver.resolve("Note", 0, &[]) {
-            EmbedResolution::Resolved { target, markdown } => {
+            EmbedResolution::Resolved {
+                target, markdown, ..
+            } => {
                 assert!(markdown.contains("Note body."));
                 assert_eq!(target.label, "Note");
                 assert_eq!(target.href.as_deref(), Some("writ-note:Note.md"));
@@ -182,6 +232,56 @@ mod tests {
             }
             _ => panic!("Note names one note"),
         }
+    }
+
+    /// A folder where the same name answers in two places and the note being
+    /// embedded sits in one of them: `one/Twice.md`, `two/Twice.md`,
+    /// `two/Guest.md` linking `[[Twice]]` and showing `pic.png`, and
+    /// `one/Host.md` embedding Guest.
+    fn two_folder_fixture() -> (tempfile::TempDir, IndexEmbeds) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("notes");
+        fs::create_dir_all(root.join("one")).expect("one");
+        fs::create_dir_all(root.join("two")).expect("two");
+        fs::write(root.join("one/Twice.md"), "one\n").expect("one note");
+        fs::write(root.join("two/Twice.md"), "two\n").expect("two note");
+        fs::write(root.join("two/pic.png"), [0u8; 4]).expect("picture");
+        fs::write(
+            root.join("two/Guest.md"),
+            "guest body [[Twice]]\n\n![](pic.png)\n",
+        )
+        .expect("guest");
+        fs::write(root.join("one/Host.md"), "![[Guest]]\n").expect("host");
+
+        let db_path = dir.path().join("writ.db");
+        let conn = writ_storage::database::connection::open_database(&db_path).expect("open");
+        writ_storage::database::migrations::run_migrations(&conn).expect("migrations");
+        drop(conn);
+
+        let index = Arc::new(NotesIndexStore::open(&db_path).expect("index"));
+        index
+            .reconcile(&root, &|| false, &|_| false)
+            .expect("reconcile");
+        let host = root.join("one");
+        let resolver = IndexEmbeds::new(index, scope(&root, &host), local);
+        (dir, resolver)
+    }
+
+    // The bug this pins: rendered from `one/Host.md`, Guest's own `[[Twice]]`
+    // was ranked against `one/` and resolved to the wrong note, silently.
+    #[test]
+    fn an_embedded_note_resolves_its_links_and_images_from_its_own_folder() {
+        let (_dir, resolver) = two_folder_fixture();
+        let html = writ_render::render_markdown_fragment_with(
+            "![[Guest]]\n",
+            None,
+            None,
+            Some(&resolver as &dyn NoteEmbedResolver),
+        )
+        .html;
+        assert!(html.contains("writ-note:two/Twice.md"), "{html}");
+        assert!(!html.contains("writ-note:one/Twice.md"), "{html}");
+        assert!(html.contains("two/pic.png"), "{html}");
     }
 
     #[test]

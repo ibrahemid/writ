@@ -55,6 +55,24 @@ authored and `data-callout-type` carries the type the styling uses, which is
 `note` for anything the table does not name. Nothing an author wrote is
 dropped, and a stylesheet can reach a type this build has never heard of.
 
+**An embedded note is rendered against its own folder.** The resolver hands
+back an `EmbedBase` alongside the note's text: the folder's answers to a file
+reference, to a `[[…]]` and to a nested `![[…]]`. The same link in the same
+note therefore names the same note wherever it is shown. The base is the outer
+render's asset scope with the target's folder in place of the embedding note's
+and everything else, the token included, left alone: the token says which
+document owns the scope (ADR-035), and an embedded note is part of that
+document. Containment does not move with the base — a reference is still
+confined to the two roots, and the target's folder came out of the index, so it
+is already inside the notes root. A resolver that hands back no base has no
+notion of folders, so its note renders with no file and no link resolver rather
+than with the embedding note's.
+
+**An embedded note's headings are demoted below the heading it sits under.**
+Every heading in the note shifts down by the level of the host heading the
+embed was written under, clamped at `h6`, so an embed can never outrank the
+note showing it. An embed at the top of a document shifts nothing.
+
 **A resolved embed is lifted out of its paragraph.** The section it renders as
 is a block and a paragraph holds phrasing content, so the paragraph is split
 around it. A span — missing, ambiguous, or a cut point — stays inline, which
@@ -65,11 +83,6 @@ is where the link form of the same target sits.
 `render_markdown_fragment_with` takes a fourth parameter. The wasm entry point
 passes none of the four, so the site renders a callout (no resolver needed) and
 leaves `![[Some Note]]` as the text it was written as.
-
-An embedded note's relative image references resolve against the embedding
-note's folder, because the asset scope is the outer render's. A note embedded
-from another folder can therefore show a broken image where the same note
-renders correctly on its own.
 
 A callout written closed shows its title and no body, and cannot be opened: the
 markup is a `div`, and the preview document has no control that would fold it.

@@ -76,6 +76,10 @@ pub enum EmbedResolution {
         /// applied here, not by the host, so the slice is testable without a
         /// filesystem.
         markdown: String,
+        /// What the note's own references are resolved against. `None` from a
+        /// host that has no notion of folders, which renders the note with no
+        /// base at all rather than with the embedding note's.
+        base: Option<Box<dyn EmbedBase>>,
     },
     /// One note, whose bytes are not on this machine. The host reports this
     /// instead of reading, so an embed of an evicted note never asks a sync
@@ -99,6 +103,22 @@ pub enum EmbedResolution {
 /// limits to a [`EmbedResolution::Resolved`] it gets back regardless.
 pub trait NoteEmbedResolver {
     fn resolve(&self, target: &str, depth: u8, visited: &[&str]) -> EmbedResolution;
+}
+
+/// What one embedded note's own references are resolved against.
+///
+/// An embedded note is a note in its own right: its `[[…]]`, its relative
+/// image references and its own `![[…]]` all name things from where it sits,
+/// not from where it is shown. The host knows the target's folder, so it hands
+/// back the answers scoped to it and the crate renders the note against those.
+pub trait EmbedBase {
+    /// URL for a file reference written in the embedded note, or `None` to
+    /// leave it as authored.
+    fn asset_url(&self, reference: &str) -> Option<String>;
+    /// What a `[[…]]` in the embedded note points at.
+    fn wikilinks(&self) -> Option<&dyn WikilinkResolver>;
+    /// What a nested `![[…]]` in the embedded note points at.
+    fn embeds(&self) -> &dyn NoteEmbedResolver;
 }
 
 /// File extensions treated as an embeddable image in the `![[…]]` form.
@@ -297,7 +317,6 @@ fn render_fragment(
     // exactly as the parser produced it.
     let mut pending = String::new();
     let scan = Scan {
-        asset_url,
         wikilinks,
         embeds,
         depth,
@@ -380,7 +399,6 @@ fn render_fragment(
 
 /// Everything the text scan needs to turn one `[[…]]` or `![[…]]` into markup.
 struct Scan<'a> {
-    asset_url: Option<AssetResolver<'a>>,
     wikilinks: Option<&'a dyn WikilinkResolver>,
     embeds: Option<&'a dyn NoteEmbedResolver>,
     /// How many note embeds deep the document being rendered already is.
@@ -488,7 +506,7 @@ impl Markup {
 fn embed_markup(inner: &str, resolver: &dyn NoteEmbedResolver, scan: &Scan<'_>) -> Markup {
     let borrowed: Vec<&str> = scan.visited.iter().map(String::as_str).collect();
     let resolution = resolver.resolve(inner, scan.depth, &borrowed);
-    let (target, markdown) = match resolution {
+    let (target, markdown, base) = match resolution {
         // A target that names several notes picks none of them, and one that
         // names no note has nothing to show. Both read as text, exactly as the
         // link form of the same target does.
@@ -499,7 +517,11 @@ fn embed_markup(inner: &str, resolver: &dyn NoteEmbedResolver, scan: &Scan<'_>) 
         EmbedResolution::NotDownloaded { target } => {
             return Markup::Section(not_downloaded_html(inner, &target))
         }
-        EmbedResolution::Resolved { target, markdown } => (target, markdown),
+        EmbedResolution::Resolved {
+            target,
+            markdown,
+            base,
+        } => (target, markdown, base),
     };
     // The two limits are applied to what came back as well as passed to the
     // resolver, so a resolver that ignores them still cannot recurse.
@@ -514,14 +536,26 @@ fn embed_markup(inner: &str, resolver: &dyn NoteEmbedResolver, scan: &Scan<'_>) 
     };
     let mut visited = scan.visited.to_vec();
     visited.push(target.key);
-    let rendered = render_fragment(
-        &body,
-        scan.asset_url,
-        scan.wikilinks,
-        Some(resolver),
-        scan.depth + 1,
-        &visited,
-    );
+    // The note is rendered against its own folder, never the embedding note's:
+    // the same `[[…]]` in the same note has to name the same note wherever it
+    // is shown. A host that hands back no base has no folders to rebase on, so
+    // that note renders with no file or link resolver rather than with one
+    // belonging to somewhere else. The embed resolver is passed either way, so
+    // the depth and cycle limits hold whatever the host supplies.
+    let rendered = match &base {
+        Some(base) => {
+            let asset_url = |reference: &str| base.asset_url(reference);
+            render_fragment(
+                &body,
+                Some(&asset_url),
+                base.wikilinks(),
+                Some(base.embeds()),
+                scan.depth + 1,
+                &visited,
+            )
+        }
+        None => render_fragment(&body, None, None, Some(resolver), scan.depth + 1, &visited),
+    };
     Markup::Section(format!(
         "<section class=\"writ-embed\" data-target=\"{}\">{}</section>",
         escape_attribute(inner.trim()),
@@ -1354,6 +1388,7 @@ mod tests {
             "A" => Some("A body\n\n![[B]]\n"),
             "B" => Some("B body\n\n![[A]]\n"),
             "Chain3" => Some("Chain3 body\n"),
+            "Baseless" => Some("baseless body [[Twice]]\n\n![](pic.png)\n"),
             "Deep1" => Some("Deep1 body\n\n![[Deep2]]\n"),
             "Deep2" => Some("Deep2 body\n\n![[Deep3]]\n"),
             "Deep3" => Some("Deep3 body\n\n![[Deep4]]\n"),
@@ -1398,6 +1433,7 @@ mod tests {
                     Some(markdown) => EmbedResolution::Resolved {
                         target: known(name),
                         markdown: markdown.to_string(),
+                        base: None,
                     },
                 },
             }
@@ -1420,6 +1456,7 @@ mod tests {
                         href: Some(format!("{name}.md")),
                     },
                     markdown: markdown.to_string(),
+                    base: None,
                 },
             }
         }
@@ -1667,6 +1704,79 @@ mod tests {
     fn without_an_embed_resolver_a_note_embed_is_untouched() {
         let html = render_markdown_fragment("![[Chain3]]\n").html;
         assert_eq!(html, "<p>![[Chain3]]</p>\n");
+    }
+
+    /// A host that knows where each note sits: `Guest` lives in `two/`, and
+    /// the base it hands back answers for that folder.
+    struct Guests;
+
+    /// The folder `Guest` sits in, which is not the folder of the note
+    /// embedding it.
+    struct GuestFolder;
+
+    impl WikilinkResolver for GuestFolder {
+        fn resolve(&self, inner: &str) -> WikilinkRender {
+            WikilinkRender {
+                href: Some(format!("two/{inner}.md")),
+                label: inner.to_string(),
+                resolved: true,
+            }
+        }
+    }
+
+    impl EmbedBase for GuestFolder {
+        fn asset_url(&self, reference: &str) -> Option<String> {
+            Some(format!("two/{reference}"))
+        }
+
+        fn wikilinks(&self) -> Option<&dyn WikilinkResolver> {
+            Some(self)
+        }
+
+        fn embeds(&self) -> &dyn NoteEmbedResolver {
+            &Guests
+        }
+    }
+
+    impl NoteEmbedResolver for Guests {
+        fn resolve(&self, target: &str, _depth: u8, _visited: &[&str]) -> EmbedResolution {
+            if target.trim() != "Guest" {
+                return EmbedResolution::Missing;
+            }
+            EmbedResolution::Resolved {
+                target: EmbedTarget {
+                    key: "two/Guest.md".to_string(),
+                    label: "Guest".to_string(),
+                    href: Some("two/Guest.md".to_string()),
+                },
+                markdown: "guest body [[Twice]]\n\n![](pic.png)\n".to_string(),
+                base: Some(Box::new(GuestFolder)),
+            }
+        }
+    }
+
+    #[test]
+    fn an_embedded_note_resolves_its_own_links_and_images_against_its_own_folder() {
+        let html = render_markdown_fragment_with(
+            "![[Guest]]\n",
+            Some(&served),
+            Some(&Notes),
+            Some(&Guests),
+        )
+        .html;
+        assert!(html.contains("href=\"two/Twice.md\""), "{html}");
+        assert!(html.contains("src=\"two/pic.png\""), "{html}");
+        // The folder of the note doing the embedding reaches neither.
+        assert!(!html.contains("_note-asset"), "{html}");
+        assert!(!html.contains("href=\"Twice.md\""), "{html}");
+    }
+
+    #[test]
+    fn an_embedded_note_with_no_base_takes_none_from_the_note_embedding_it() {
+        let html = with_embeds("![[Baseless]]\n");
+        assert!(html.contains("baseless body [[Twice]]"), "{html}");
+        assert!(!html.contains("writ-wikilink"), "{html}");
+        assert!(html.contains("<img src=\"pic.png\""), "{html}");
     }
 
     #[test]
