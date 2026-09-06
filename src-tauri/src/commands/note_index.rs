@@ -94,6 +94,39 @@ pub struct NoteFactsDto {
     pub headings: Vec<HeadingDto>,
 }
 
+/// One tag the folder carries, with the number of notes carrying it.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct TagCountDto {
+    /// The tag without its leading `#`, as the index stores it.
+    pub tag: String,
+    /// How many notes carry it. A note tagged twice counts once.
+    pub count: usize,
+}
+
+/// One note in the folder's link graph.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct GraphNodeDto {
+    pub path: String,
+    pub name: String,
+    /// The first folder under the notes root, empty for a note in the root.
+    pub folder: String,
+}
+
+/// A link between two notes, and how many times it is written.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct GraphEdgeDto {
+    pub from_path: String,
+    pub to_path: String,
+    pub count: usize,
+}
+
+/// The whole folder: every note, and every resolved link among them.
+#[derive(Debug, Serialize, PartialEq, Eq, Default)]
+pub struct NoteGraphDto {
+    pub nodes: Vec<GraphNodeDto>,
+    pub edges: Vec<GraphEdgeDto>,
+}
+
 /// One note offered to a `[[` completion.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct NoteNameHit {
@@ -181,6 +214,51 @@ pub fn note_facts_inner(index: &NotesIndexStore, path: &str) -> Result<NoteFacts
                 text: heading.text,
                 line: heading.line,
                 slug: heading.slug,
+            })
+            .collect(),
+    })
+}
+
+/// Every tag the folder carries, most-used first.
+///
+/// A folder with no tags answers with an empty list: the sidebar renders
+/// nothing rather than a row saying there is nothing.
+pub fn note_all_tags_inner(index: &NotesIndexStore) -> Result<Vec<TagCountDto>, String> {
+    Ok(index
+        .all_tags()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|(tag, count)| TagCountDto { tag, count })
+        .collect())
+}
+
+/// The whole folder as notes and the links among them.
+///
+/// Only resolved links are edges. A target naming two notes picks neither
+/// (ADR-034), so it reaches the graph as no edge at all rather than as a line
+/// drawn to a guess.
+pub fn note_graph_inner(
+    index: &NotesIndexStore,
+    notes_root: &Path,
+) -> Result<NoteGraphDto, String> {
+    let rows = index.graph(notes_root).map_err(|e| e.to_string())?;
+    Ok(NoteGraphDto {
+        nodes: rows
+            .nodes
+            .into_iter()
+            .map(|node| GraphNodeDto {
+                path: node.path,
+                name: node.name,
+                folder: node.folder,
+            })
+            .collect(),
+        edges: rows
+            .edges
+            .into_iter()
+            .map(|edge| GraphEdgeDto {
+                from_path: edge.from_path,
+                to_path: edge.to_path,
+                count: edge.count,
             })
             .collect(),
     })
@@ -276,6 +354,18 @@ pub fn resolve_note_link(
 #[tauri::command]
 pub fn note_facts(state: State<'_, AppState>, path: String) -> Result<NoteFactsDto, String> {
     note_facts_inner(&state.notes_index, &path)
+}
+
+/// Every tag the folder carries. See [`note_all_tags_inner`].
+#[tauri::command]
+pub fn note_all_tags(state: State<'_, AppState>) -> Result<Vec<TagCountDto>, String> {
+    note_all_tags_inner(&state.notes_index)
+}
+
+/// The folder's notes and the links among them. See [`note_graph_inner`].
+#[tauri::command]
+pub fn note_graph(state: State<'_, AppState>) -> Result<NoteGraphDto, String> {
+    note_graph_inner(&state.notes_index, &state.notes_root())
 }
 
 /// The notes that link to one note. See [`note_backlinks_inner`].

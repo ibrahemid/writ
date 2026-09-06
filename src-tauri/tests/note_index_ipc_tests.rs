@@ -1,5 +1,6 @@
 //! IPC coverage for the notes-index reads: `resolve_note_link`, `note_facts`,
-//! `note_name_candidates` and `note_backlinks` (ADR-034).
+//! `note_name_candidates`, `note_backlinks`, `note_all_tags` and `note_graph`
+//! (ADR-034, ADR-036).
 //!
 //! Each command is exercised through its Tauri-free inner function against a
 //! real index over a real folder, so the assertions cover the path spelling and
@@ -10,8 +11,8 @@ use std::path::Path;
 use tempfile::TempDir;
 use writ_storage::notes_index::{self, NotesIndexStore};
 use writ_tauri_lib::commands::note_index::{
-    note_backlinks_inner, note_facts_inner, note_heading_line_inner, note_name_candidates_inner,
-    resolve_note_link_inner,
+    note_all_tags_inner, note_backlinks_inner, note_facts_inner, note_graph_inner,
+    note_heading_line_inner, note_name_candidates_inner, resolve_note_link_inner,
 };
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
@@ -305,6 +306,82 @@ fn note_heading_line_finds_the_line_from_the_anchor_and_from_the_text() {
 }
 
 #[test]
+fn note_all_tags_counts_the_notes_carrying_each_tag() {
+    let (_dir, _root, index) = indexed(&[
+        ("one.md", "#work and #work again\n\n#reading\n"),
+        ("two.md", "#work\n"),
+        ("three.md", "nothing tagged here\n"),
+    ]);
+
+    let tags = note_all_tags_inner(&index).expect("tags");
+
+    assert_eq!(tags[0].tag, "work");
+    assert_eq!(tags[0].count, 2, "a note tagged twice counts once");
+    assert!(tags
+        .iter()
+        .any(|row| row.tag == "reading" && row.count == 1));
+}
+
+#[test]
+fn note_all_tags_on_a_folder_with_no_tags_is_an_empty_list() {
+    let (_dir, _root, index) = indexed(&[("one.md", "# Plain\n\nno tags\n")]);
+
+    assert!(note_all_tags_inner(&index).expect("tags").is_empty());
+}
+
+#[test]
+fn note_graph_hands_over_the_notes_and_the_links_among_them() {
+    let (_dir, root, index) = indexed(&[
+        ("work/source.md", "see [[Target]] twice: [[Target]]\n"),
+        ("Target.md", "# Target\n"),
+    ]);
+
+    let graph = note_graph_inner(&index, &root).expect("graph");
+
+    let source = notes_index::index_key(&root.join("work/source.md"));
+    let target = notes_index::index_key(&root.join("Target.md"));
+    assert_eq!(graph.nodes.len(), 2);
+    let node = graph
+        .nodes
+        .iter()
+        .find(|node| node.path == source)
+        .expect("the linking note is a node");
+    assert_eq!(node.name, "source");
+    assert_eq!(node.folder, "work");
+    assert_eq!(graph.edges.len(), 1);
+    assert_eq!(graph.edges[0].from_path, source);
+    assert_eq!(graph.edges[0].to_path, target);
+    assert_eq!(graph.edges[0].count, 2);
+}
+
+#[test]
+fn note_graph_draws_no_edge_for_a_target_naming_two_notes() {
+    let (_dir, root, index) = indexed(&[
+        ("source.md", "see [[Target]]\n"),
+        ("one/Target.md", "# Target\n"),
+        ("two/Target.md", "# Target\n"),
+    ]);
+
+    let graph = note_graph_inner(&index, &root).expect("graph");
+
+    assert_eq!(graph.nodes.len(), 3);
+    assert!(
+        graph.edges.is_empty(),
+        "an ambiguous target reaches the surface as no edge, never as a guess"
+    );
+}
+
+#[test]
+fn note_graph_on_an_empty_folder_is_empty_rather_than_an_error() {
+    let (_dir, root, index) = indexed(&[]);
+
+    let graph = note_graph_inner(&index, &root).expect("graph");
+
+    assert!(graph.nodes.is_empty());
+    assert!(graph.edges.is_empty());
+}
+
+#[test]
 fn every_note_index_command_is_registered() {
     for command in [
         "commands::note_index::resolve_note_link",
@@ -312,6 +389,8 @@ fn every_note_index_command_is_registered() {
         "commands::note_index::note_name_candidates",
         "commands::note_index::note_backlinks",
         "commands::note_index::note_heading_line",
+        "commands::note_index::note_all_tags",
+        "commands::note_index::note_graph",
     ] {
         assert!(
             LIB_RS.contains(command),
