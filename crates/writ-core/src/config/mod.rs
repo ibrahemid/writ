@@ -21,7 +21,7 @@ pub use notes::NotesConfig;
 pub use preview::{DefaultLayout, PreviewConfig};
 pub use spelling::SpellingConfig;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 
 fn default_hotkey_toggle() -> String {
@@ -176,6 +176,25 @@ pub struct AppearanceConfig {
     /// Which face the note body is set in.
     #[serde(default = "default_prose_face")]
     pub prose_face: ProseFace,
+    /// Interface text size in px, within
+    /// [`INTERFACE_TEXT_SIZE_MIN`]..=[`INTERFACE_TEXT_SIZE_MAX`]. `None` leaves
+    /// the platform's own size in place, which is what the stylesheet already
+    /// resolves, so an unset config is not a value this has to name.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_interface_text_size",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub interface_text_size: Option<u8>,
+}
+
+/// Reads the interface text size, clamping a hand-edited file into range so an
+/// unreadable 4px or a 200px chrome can never reach the window.
+fn deserialize_interface_text_size<'de, D>(deserializer: D) -> Result<Option<u8>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Option::<u8>::deserialize(deserializer)?.map(clamp_interface_text_size))
 }
 
 impl Default for AppearanceConfig {
@@ -184,8 +203,19 @@ impl Default for AppearanceConfig {
             polarity: default_polarity(),
             accent: default_accent(),
             prose_face: default_prose_face(),
+            interface_text_size: None,
         }
     }
+}
+
+/// Smallest interface text size the settings row offers.
+pub const INTERFACE_TEXT_SIZE_MIN: u8 = 12;
+/// Largest interface text size the settings row offers.
+pub const INTERFACE_TEXT_SIZE_MAX: u8 = 22;
+
+/// Clamps an interface text size into the supported range.
+pub fn clamp_interface_text_size(size: u8) -> u8 {
+    size.clamp(INTERFACE_TEXT_SIZE_MIN, INTERFACE_TEXT_SIZE_MAX)
 }
 
 /// Which side of the window the sidebar is rendered on.
@@ -657,6 +687,45 @@ mod tests {
     fn default_theme_preset_is_writ_light() {
         let config: WritConfig = toml::from_str("").unwrap();
         assert_eq!(config.theme.preset, "writ-light");
+    }
+
+    #[test]
+    fn interface_text_size_is_unset_by_default() {
+        let config: WritConfig = toml::from_str("").unwrap();
+        assert_eq!(config.appearance.interface_text_size, None);
+        let serialized = toml::to_string(&config).unwrap();
+        assert!(!serialized.contains("interface_text_size"), "{serialized}");
+    }
+
+    #[test]
+    fn interface_text_size_round_trips_through_toml() {
+        let config: WritConfig =
+            toml::from_str("[appearance]\ninterface_text_size = 18\n").unwrap();
+        assert_eq!(config.appearance.interface_text_size, Some(18));
+        let parsed: WritConfig = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+        assert_eq!(parsed.appearance.interface_text_size, Some(18));
+    }
+
+    #[test]
+    fn interface_text_size_clamps_to_the_supported_range() {
+        assert_eq!(clamp_interface_text_size(4), INTERFACE_TEXT_SIZE_MIN);
+        assert_eq!(clamp_interface_text_size(99), INTERFACE_TEXT_SIZE_MAX);
+        assert_eq!(clamp_interface_text_size(16), 16);
+    }
+
+    #[test]
+    fn an_out_of_range_interface_text_size_is_clamped_on_read() {
+        let small: WritConfig = toml::from_str("[appearance]\ninterface_text_size = 4\n").unwrap();
+        assert_eq!(
+            small.appearance.interface_text_size,
+            Some(INTERFACE_TEXT_SIZE_MIN)
+        );
+        let large: WritConfig =
+            toml::from_str("[appearance]\ninterface_text_size = 200\n").unwrap();
+        assert_eq!(
+            large.appearance.interface_text_size,
+            Some(INTERFACE_TEXT_SIZE_MAX)
+        );
     }
 
     #[test]

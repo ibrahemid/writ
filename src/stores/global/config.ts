@@ -41,10 +41,21 @@ export function clampPanelWidth(width: number): number {
   return Math.min(PANEL_WIDTH_MAX, Math.max(PANEL_WIDTH_MIN, Math.round(width)));
 }
 
+// Interface text bounds (spec A1). The settings row and the root token both
+// read these; null keeps whatever size the platform layer already resolves.
+export const INTERFACE_TEXT_MIN = 12;
+export const INTERFACE_TEXT_MAX = 22;
+
+export function clampInterfaceTextSize(size: number): number | null {
+  if (!Number.isFinite(size)) return null;
+  return Math.min(INTERFACE_TEXT_MAX, Math.max(INTERFACE_TEXT_MIN, Math.round(size)));
+}
+
 const DEFAULT_APPEARANCE: AppearanceConfig = {
   polarity: "system",
   accent: "pine",
   prose_face: "system",
+  interface_text_size: null,
 };
 
 const DEFAULT_CONFIG: WritConfig = {
@@ -116,6 +127,7 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
       polarity: incoming.appearance?.polarity ?? DEFAULT_APPEARANCE.polarity,
       accent: incoming.appearance?.accent ?? DEFAULT_APPEARANCE.accent,
       prose_face: incoming.appearance?.prose_face ?? DEFAULT_APPEARANCE.prose_face,
+      interface_text_size: incoming.appearance?.interface_text_size ?? null,
     },
     ai: {
       enabled: incoming.ai?.enabled ?? false,

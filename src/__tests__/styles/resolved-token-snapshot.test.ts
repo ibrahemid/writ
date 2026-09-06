@@ -213,7 +213,7 @@ describe("token pipeline acceptance", () => {
     themeStore.resetOverrides();
     // Pinned, not followed: warp-dark and warp-light are a pair, so a system
     // polarity would resolve the light half on a light host.
-    themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "system" });
+    themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "system", interface_text_size: null });
     themeStore.setPreset("warp-dark");
     themeStore.applyToRoot(document.createElement("div"));
     const snapshot = JSON.parse(localStorage.getItem("writ-theme-vars-v3") as string) as {

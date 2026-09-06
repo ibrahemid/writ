@@ -78,8 +78,40 @@ function under(tokens, ...prefix) {
   return tokens.filter((token) => prefix.every((segment, i) => token.path[i] === segment));
 }
 
+// The eight UI type steps, which the CSS states as ratios of --writ-ui-size
+// rather than as pixels. `size` itself and `tracking` keep their own values.
+const UI_STEP_KEYS = new Set(["xs", "xs-lh", "sm", "sm-lh", "md", "md-lh", "lg", "lg-lh"]);
+const UI_ROOT_NAME = "--writ-ui-size";
+
+function pixels(raw) {
+  const n = Number(String(raw).replace(/px$/, ""));
+  if (!Number.isFinite(n)) throw new Error(`ui step ${raw} is not a pixel length`);
+  return n;
+}
+
+/**
+ * A UI step as a ratio of the root size, or null for any other token.
+ *
+ * The numerator is the step's own default and the denominator is the default
+ * root of the same layer, so each platform keeps the proportions it was drawn
+ * with: Windows resolves its 12px rows to 12px at a 14px root, and a user who
+ * moves the root carries those proportions with them.
+ */
+function uiStepRatio(token, layer) {
+  const path = token.path;
+  if (path[path.length - 2] !== "ui") return null;
+  const key = path[path.length - 1];
+  if (!UI_STEP_KEYS.has(key)) return null;
+  const rootPath = [...path.slice(0, -1), "size"].join(".");
+  const root = layer.find((other) => other.path.join(".") === rootPath);
+  if (!root) throw new Error(`${path.join(".")} has no sibling ui.size to scale against`);
+  return `calc(var(${UI_ROOT_NAME}) * ${pixels(value(token))} / ${pixels(value(root))})`;
+}
+
 function declarations(tokens) {
-  return tokens.map((token) => `  ${token.name}: ${value(token)};`).join("\n");
+  return tokens
+    .map((token) => `  ${token.name}: ${uiStepRatio(token, tokens) ?? value(token)};`)
+    .join("\n");
 }
 
 function block(selector, tokens) {
