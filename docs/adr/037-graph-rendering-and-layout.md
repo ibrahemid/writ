@@ -172,18 +172,19 @@ colours. A search dims the notes it does not name to `--writ-icon-opacity` and d
 their folder colour for `--writ-fg-faint`, because on the Windows and GNOME
 shells that token is 1 and opacity alone would dim nothing.
 
-### 7. Reduced motion settles at once
+### 7. Reduced motion paints once
 
-`prefers-reduced-motion: reduce` runs the whole settle synchronously and paints
-one frame. No animation frame is asked for, so there is nothing to interrupt
-and nothing to see moving. The picture is the same picture: the settle is the
-same fixed step count either way, only the schedule differs.
+`prefers-reduced-motion: reduce` paints one frame, at the end of the settle.
+Nothing is seen moving, which is what the setting asks for, and the picture is
+the same picture: the settle is the same fixed step count either way, only the
+schedule differs.
 
-That holds up to four hundred notes, which is every neighbourhood and most
-folders. A whole folder is seconds of arithmetic, and a window that answers nothing for
-seconds is worse than the movement the setting asked to be spared: above that
-count the same settle runs in twelve-millisecond pieces across frames and still
-paints once, at the end. Nothing is seen moving either way.
+Up to four hundred notes, which is every neighbourhood and most folders, that
+settle runs synchronously and no animation frame is asked for at all. A whole
+folder is seconds of arithmetic, and a window that answers nothing for seconds
+is worse than the movement the setting asked to be spared, so above that count
+the same settle runs in twelve-millisecond pieces across frames. Both paint
+once.
 
 Without the setting the settle is paced by the frame: as many steps as fit
 eight milliseconds, up to eight of them, then a paint. A neighbourhood takes

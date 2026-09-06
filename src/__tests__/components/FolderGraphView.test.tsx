@@ -311,6 +311,28 @@ describe("closing it", () => {
     expect(folderGraph.isOpen()).toBe(false);
   });
 
+  // Escape is the way out of a search as much as out of the drawing, so it is
+  // read before the field is left to its own keys.
+  it("closes on escape from the search field", () => {
+    twoFolders();
+    const view = render(() => <FolderGraphView />);
+    const field = view.getByLabelText("Search notes");
+    fireEvent.input(field, { target: { value: "note" } });
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(folderGraph.isOpen()).toBe(false);
+  });
+
+  // Escape is the way out of a search as much as out of the drawing, so it is
+  // read before the field is left to its own keys.
+  it("closes on escape from the search field", () => {
+    twoFolders();
+    const view = render(() => <FolderGraphView />);
+    const field = view.getByLabelText("Search notes");
+    fireEvent.input(field, { target: { value: "note" } });
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(folderGraph.isOpen()).toBe(false);
+  });
+
   it("closes on the close button", () => {
     twoFolders();
     const view = render(() => <FolderGraphView />);
