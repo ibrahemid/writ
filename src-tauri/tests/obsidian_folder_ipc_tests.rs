@@ -171,9 +171,15 @@ fn note_all_tags_counts_the_notes_carrying_each_tag() {
         tags.iter()
             .map(|tag| (tag.tag.as_str(), tag.count))
             .collect::<Vec<_>>(),
-        vec![("daily", 4), ("project/alpha", 3), ("reading", 2)],
+        vec![
+            ("daily", 4),
+            ("project/alpha", 4),
+            ("reading", 2),
+            ("work", 1),
+        ],
         "a tag written in the frontmatter counts beside the ones in the body, \
-         and a nested tag is one tag"
+         a comma-separated value holds both tags it names, and a nested tag is \
+         one tag"
     );
 }
 

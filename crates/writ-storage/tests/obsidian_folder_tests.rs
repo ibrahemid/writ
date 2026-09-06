@@ -284,6 +284,16 @@ fn tags_come_from_the_frontmatter_and_the_body_and_not_from_a_fence() {
         vec![("project/alpha".to_string(), 4), ("reading".to_string(), 5),],
         "a frontmatter list written as items carries the line of each item"
     );
+    assert_eq!(
+        facts(&index, &root, "Projects/Meeting.md").tags,
+        vec![
+            ("work".to_string(), 2),
+            ("project/alpha".to_string(), 2),
+            ("daily".to_string(), 7),
+        ],
+        "a value written after the key holds both tags it names, and the note \
+         the writer left themselves on that line is not a third"
+    );
     assert!(
         !index
             .all_tags()
@@ -296,8 +306,9 @@ fn tags_come_from_the_frontmatter_and_the_body_and_not_from_a_fence() {
         index.all_tags().expect("all_tags"),
         vec![
             ("daily".to_string(), 4),
-            ("project/alpha".to_string(), 3),
+            ("project/alpha".to_string(), 4),
             ("reading".to_string(), 2),
+            ("work".to_string(), 1),
         ],
     );
     assert_eq!(
@@ -306,6 +317,7 @@ fn tags_come_from_the_frontmatter_and_the_body_and_not_from_a_fence() {
             key(&root, "Alpha.md"),
             key(&root, "Index.md"),
             key(&root, "Projects/Alpha/Roadmap.md"),
+            key(&root, "Projects/Meeting.md"),
         ],
         "a nested tag is matched whole"
     );
@@ -330,6 +342,19 @@ fn frontmatter_properties_keep_their_scalar_list_and_nested_map() {
             ),
         ],
         "a map this parser does not model is kept as it was written rather than dropped"
+    );
+
+    assert_eq!(
+        facts(&index, &root, "Alpha.md").properties,
+        vec![
+            ("status".to_string(), "\"active\"".to_string()),
+            (
+                "tags".to_string(),
+                "[\"project/alpha\",\"reading\"]".to_string()
+            ),
+        ],
+        "a list written as items reaches the properties panel as the list it is, \
+         the same shape the flow form gives"
     );
 }
 
