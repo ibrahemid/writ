@@ -92,9 +92,9 @@ function radiusFor(degree: number): number {
  * its neighbours are hollow, and a link is a hairline quiet enough that a
  * dense note still reads as a shape rather than a mesh. Only the open note's
  * name is painted on: at this width the rest would collide, so the drawing
- * says where a note sits and hovering one says which it is. A neighbour is
- * named as text elsewhere either way -- under "Links to this note" when it
- * links here, in the note's own text when this note links to it.
+ * says where a note sits and hovering one says which it is. Every note it
+ * draws is listed as text above it either way, under "Links" or under "Links
+ * to this note".
  */
 export default function GraphCanvas(props: Props) {
   let canvas: HTMLCanvasElement | undefined;

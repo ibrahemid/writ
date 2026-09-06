@@ -66,23 +66,36 @@ The tests hold the property directly. The same rows and the same seed serialise
 byte for byte, in one process and in a second `node` process spawned by the
 test, which is the check that survives a change of engine.
 
-### 3. The forces are repulsion, springs and centring, and the step count is fixed
+### 3. The settle is in world units and the canvas fits it, so the minimum separation holds at any size
 
-Every pair pushes apart, every link pulls together, the middle pulls everything
+Every pair pushes apart, every link pulls together, the origin pulls everything
 in, and a positional pass afterwards holds every pair at a minimum separation
 so two notes cannot end up as one dot.
 
-How far that holds is a measured number rather than a promise: twelve notes in
-the panel's area, for a star, a ring and a clique alike, which is what
-`SEPARATION_HOLDS_TO` says and what the tests sweep seeds over. It is measured
-because the count that fits depends on the shape as much as on the area, and
-the shape that packs worst is the one where everything links to everything.
-Above it a hub note still settles, terminates and stays inside the area, but
-two of its neighbours may sit close enough to touch. The answer to that is a
-node cap, and the local view has none in this record: a note with more
-neighbours than the area holds draws them tight. There is no quadtree: at a
-neighbourhood's size the pairwise loop is cheaper than the tree that would
-avoid it, and the whole-folder view caps its node count instead.
+None of that happens inside the canvas rectangle. The settle works in unbounded
+coordinates and `fitToView` scales and shifts the result into whatever room the
+canvas has, one scale for both axes so nothing is squashed. That split is what
+makes the minimum separation a property of the settle rather than of the panel:
+there is no area to run out of, so a hub note with four neighbours and a folder
+where two hundred notes all link to each other both come back with every pair
+at least the minimum apart. The tests hold a star and a clique to it at eight,
+twelve, sixty-four and two hundred notes, and again at four hundred, which is
+the size where the forces alone stop being enough and the pass that pushes
+notes apart is the only thing doing it.
+
+A note's springs are shared out over its links rather than summed. Two hundred
+springs pulling one note inward every step is a pile no separation pass can
+undo; sharing them out lets the same folder settle into a packing. That pass
+also bounds the arithmetic: repulsion goes as one over the distance cubed, and
+a step that ends with no pair closer than the minimum is a step whose successor
+cannot work out an infinite force.
+
+The guarantee is in world units, and the canvas is what shrinks them. Two
+hundred notes fitted into a panel two hundred pixels wide are drawn as
+overlapping discs however far apart they settled; that is a legibility limit
+and what the node cap answers, not a correctness one. There is no quadtree: at
+a neighbourhood's size the pairwise loop is cheaper than the tree that would
+avoid it.
 
 `simulate` runs exactly the step count it is given. There is no energy
 threshold and no early stop, so a graph that never quiets down still costs one
@@ -134,10 +147,12 @@ component, and says in one line how many notes that is out of how many. A drawin
 worse than one that draws fewer and says so. The cap belongs to that view; this
 record is where it is written down.
 
-The other bound on size is the settle's own: after each step the drawing is
-scaled about its middle to fill the area it was given, by at most 2.5x and
-never by less than 1x, so a two-note neighbourhood opens out without a pair of
-notes being pulled back onto each other. Both views inherit that.
+What the cap is about is legibility and cost, not correctness: the settle holds
+its minimum separation whatever it is handed (§3), and it is the fitting to the
+canvas that turns a large folder into discs too small and too close to read.
+Fitting has a bound of its own at the other end: a drawing is opened out to at
+most 1.6x, so a two-note neighbourhood is not blown up until two notes read as
+a whole folder. Both views inherit that.
 
 ## Consequences
 
@@ -147,11 +162,10 @@ notes being pulled back onto each other. Both views inherit that.
 - Layout cost is bounded by the step count, so a folder shape that will not
   settle costs a fixed amount and then stops.
 - A theme change repaints from new tokens with no reload and no second palette.
-- The drawing is never the only way to reach a note, but the text that names a
-  neighbour is not all in one place. A note that links to the open one is
-  listed under "Links to this note", below the drawing; a note the open one
-  links to is named in the note's own text, in the link that made the edge.
-  Both are keyboard reachable, and the canvas carries a name and a count for a
-  reader who is not shown it.
+- The drawing is never the only way to reach a note: every note it draws is a
+  row above it, under "Links" or under "Links to this note", and both are
+  keyboard reachable. The canvas carries a name and a count for a reader who is
+  not shown it, and the open note's name is left off the drawing rather than
+  painted illegibly small when the drawing is fitted down.
 - The layout module has no dependency, so it runs under a bare `node` as
   readily as in the app, which is what makes the cross-process check possible.
