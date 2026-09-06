@@ -299,6 +299,37 @@ fn show_main_window(app: &tauri::AppHandle, window: tauri::WebviewWindow, reason
     }
 }
 
+/// The `reason` every log line from a Dock click carries.
+#[cfg(target_os = "macos")]
+const DOCK_REOPEN: &str = "dock reopen";
+
+/// Brings the main window back for a Dock click.
+///
+/// This runs on the thread AppKit delivered the click on, which is the main
+/// one, so asking the window about itself here costs nothing. A minimized
+/// window has to come out of the Dock before it can be shown, and focus is
+/// last either way.
+#[cfg(target_os = "macos")]
+fn reveal_from_dock(window: &tauri::WebviewWindow) {
+    match window.is_minimized() {
+        Ok(true) => {
+            if let Err(e) = window.unminimize() {
+                tracing::warn!(reason = DOCK_REOPEN, error = %e, "the window could not be unminimized");
+            }
+        }
+        Ok(false) => {}
+        Err(e) => {
+            tracing::warn!(reason = DOCK_REOPEN, error = %e, "the window's minimized state could not be read");
+        }
+    }
+    if let Err(e) = window.show() {
+        tracing::warn!(reason = DOCK_REOPEN, error = %e, "the window could not be shown");
+    }
+    if let Err(e) = window.set_focus() {
+        tracing::warn!(reason = DOCK_REOPEN, error = %e, "the shown window could not be focused");
+    }
+}
+
 /// Brings the main window up once per launch, whoever asks first.
 ///
 /// Writ starts its window hidden to kill the cold-start flash (PR #152), which
@@ -1183,11 +1214,16 @@ pub fn run() {
                 let is_visible = window.is_visible().map_err(|e| {
                     tracing::warn!(error = %e, "the window's visibility could not be read");
                 });
-                if window_state::decide_reopen(*has_visible_windows, is_visible)
-                    == window_state::RevealAction::Show
-                {
-                    info!("window shown from the dock");
-                    show_main_window(app_handle, window, "dock reopen");
+                match window_state::decide_reopen(*has_visible_windows, is_visible) {
+                    window_state::ReopenAction::Reveal => {
+                        info!("window shown from the dock");
+                        reveal_from_dock(&window);
+                    }
+                    window_state::ReopenAction::Focus => {
+                        if let Err(e) = window.set_focus() {
+                            tracing::warn!(reason = DOCK_REOPEN, error = %e, "the window could not be focused");
+                        }
+                    }
                 }
             }
         }
