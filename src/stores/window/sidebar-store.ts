@@ -1,7 +1,9 @@
-import { createSignal } from "solid-js";
+import { createEffect, createSignal, on } from "solid-js";
 import { searchBuffers, type SearchHit } from "../../services/tauri";
 import { flushAutosave } from "../../services/autosave";
 import { configStore } from "../global/config";
+import { noteFactsStore } from "../global/note-facts";
+import { workspaceStore } from "../global/workspace";
 
 export type SidebarStore = ReturnType<typeof createSidebarStore>;
 
@@ -52,6 +54,24 @@ export function createSidebarStore() {
   function selectTag(tag: string | null) {
     setSelectedTag((current) => (tag === null || current === tag ? null : tag));
   }
+
+  // A selected tag has one control, its row in the tags section, and the row
+  // belongs to the folder that grew it. Opening another folder would otherwise
+  // leave the note list filtered by a tag with no row to unselect.
+  createEffect(on(workspaceStore.root, () => setSelectedTag(null), { defer: true }));
+
+  // The same dead end from the other side: the tag's last use goes away, the
+  // row goes with it, and the filter would stay. A tag is only dropped once it
+  // has been seen in the folder's tags, so a selection made before that list
+  // has been read is not cleared by its empty starting value.
+  let seenInFolder: string | null = null;
+  createEffect(() => {
+    const tag = selectedTag();
+    if (tag === null) return;
+    const held = noteFactsStore.allTags()();
+    if (held.some((row) => row.tag === tag)) seenInFolder = tag;
+    else if (seenInFolder === tag) setSelectedTag(null);
+  });
 
   function clearResults() {
     setSearchHits([]);
