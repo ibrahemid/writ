@@ -1,0 +1,43 @@
+<h1>Heading</h1>
+<p>A paragraph with <code>inline code</code>, <em>emphasis</em>, <strong>strong</strong>, <del>struck</del> text and a
+<a href="https://example.com">link</a>.</p>
+<p>A wikilink to <a class="writ-wikilink" href="Note.md">Note</a>, one to <span class="writ-wikilink writ-wikilink-missing">Missing</span>, one to <span class="writ-wikilink writ-wikilink-missing">Both</span>, one with an alias
+<a class="writ-wikilink" href="Note.md">the note</a> and one with a heading <a class="writ-wikilink" href="Note.md">Note#Some Heading</a>.</p>
+<p>Inline math <span class="math math-inline">x^2 + y^2</span> and a display block:</p>
+<p><span class="math math-display">
+\int_0^1 x\,dx
+</span></p>
+<table><thead><tr><th>Column</th><th style="text-align: right">Other</th></tr></thead><tbody>
+<tr><td>one</td><td style="text-align: right">two</td></tr>
+<tr><td>three</td><td style="text-align: right">four</td></tr>
+</tbody></table>
+<pre class="mermaid">graph TD
+  A --&gt; B
+</pre>
+<pre><code class="language-rust">let x = 1;
+</code></pre>
+<p><img src="writ-preview://document/_note-asset/b/n/img.png" alt="alt text" /></p>
+<p><img src="writ-preview://document/_note-asset/b/n/picture.png" alt="picture.png" /></p>
+<p><img src="writ-preview://document/_note-asset/b/n/wide.png" alt="wide.png" /></p>
+<img src="writ-preview://document/_note-asset/b/n/raw.png" alt="raw">
+<ul>
+<li>a list item</li>
+<li>another, with <a class="writ-wikilink" href="Note.md">Note</a> in it</li>
+</ul>
+<blockquote>
+<p>A quotation with no callout marker.</p>
+</blockquote>
+<ol>
+<li>numbered</li>
+<li>list</li>
+</ol>
+<ul>
+<li><input disabled="" type="checkbox"/>
+a task</li>
+<li><input disabled="" type="checkbox" checked=""/>
+a done task</li>
+</ul>
+<p>Footnote reference<sup class="footnote-reference"><a href="#1">1</a></sup>.</p>
+<div class="footnote-definition" id="1"><sup class="footnote-definition-label">1</sup>
+<p>The footnote body.</p>
+</div>

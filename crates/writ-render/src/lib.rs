@@ -897,4 +897,30 @@ mod tests {
         assert!(html.contains("src=\"a.png\""));
         assert!(!html.contains("_note-asset"));
     }
+
+    /// The document the byte-identity pin renders, and what the crate rendered
+    /// for it before callouts and note embeds existed.
+    ///
+    /// It carries a table, math, a mermaid fence, every image reference form,
+    /// wikilinks and frontmatter, and no callout and no embed, so a change to
+    /// either of those that reaches a document using neither shows up here as
+    /// a diff.
+    const PLAIN_DOCUMENT: &str = include_str!("../tests/fixtures/plain-document.md");
+    const PLAIN_NO_RESOLVER: &str =
+        include_str!("../tests/fixtures/plain-document.no-resolver.html");
+    const PLAIN_RESOLVED: &str = include_str!("../tests/fixtures/plain-document.resolved.html");
+
+    #[test]
+    fn a_document_with_no_callout_and_no_embed_renders_unchanged() {
+        assert_eq!(
+            render_markdown_fragment(PLAIN_DOCUMENT).html,
+            PLAIN_NO_RESOLVER
+        );
+    }
+
+    #[test]
+    fn a_document_with_no_callout_and_no_embed_renders_unchanged_with_resolvers() {
+        let html = render_markdown_fragment_with(PLAIN_DOCUMENT, Some(&served), Some(&Notes)).html;
+        assert_eq!(html, PLAIN_RESOLVED);
+    }
 }
