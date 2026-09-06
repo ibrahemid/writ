@@ -10,7 +10,12 @@ vi.mock("../../services/events", () => ({
   onEvent: vi.fn().mockResolvedValue(() => {}),
 }));
 
-import { noteFactsStore, type NoteFacts, type NoteGraph } from "../../stores/global/note-facts";
+import {
+  noteFactsStore,
+  type NoteFacts,
+  type NoteGraph,
+  type TagCount,
+} from "../../stores/global/note-facts";
 import * as api from "../../services/tauri";
 import * as events from "../../services/events";
 
@@ -37,15 +42,18 @@ function notesChangedHandler(): (payload: { path: string; removed: boolean }) =>
 interface Deferred<T> {
   promise: Promise<T>;
   resolve: (value: T) => void;
+  reject: (reason: Error) => void;
 }
 
 /** A read the test finishes when it chooses, so two can overlap. */
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((res, rej) => {
     resolve = res;
+    reject = rej;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 /** Lets the store's fire-and-forget reads settle. */
@@ -216,5 +224,102 @@ describe("noteFactsStore", () => {
     expect(Object.isFrozen(rows().tags)).toBe(true);
     expect(Object.isFrozen(rows().headings)).toBe(true);
     expect(() => rows().headings.push({ level: 1, text: "No", line: 1, slug: "no" })).toThrow();
+  });
+
+  it("a note's facts landing after the folder changed are dropped", async () => {
+    const stale = deferred<NoteFacts>();
+    const fresh = deferred<NoteFacts>();
+    mockedApi.noteFacts.mockReturnValueOnce(stale.promise).mockReturnValueOnce(fresh.promise);
+
+    const rows = noteFactsStore.factsFor(NOTE);
+    await settle();
+    notesChangedHandler()({ path: NOTE, removed: false });
+    await settle();
+    expect(mockedApi.noteFacts).toHaveBeenCalledTimes(2);
+
+    stale.resolve(facts({ tags: [{ tag: "stale", line: 1 }] }));
+    await settle();
+    expect(rows().tags).toEqual([]);
+
+    fresh.resolve(facts({ tags: [{ tag: "fresh", line: 1 }] }));
+    await settle();
+    expect(rows().tags).toEqual([{ tag: "fresh", line: 1 }]);
+  });
+
+  it("a tag list landing after the folder changed is dropped", async () => {
+    const stale = deferred<TagCount[]>();
+    const fresh = deferred<TagCount[]>();
+    mockedApi.noteAllTags.mockReturnValueOnce(stale.promise).mockReturnValueOnce(fresh.promise);
+
+    const rows = noteFactsStore.allTags();
+    await settle();
+    notesChangedHandler()({ path: NOTE, removed: false });
+    await settle();
+    expect(mockedApi.noteAllTags).toHaveBeenCalledTimes(2);
+
+    stale.resolve([{ tag: "stale", count: 1 }]);
+    await settle();
+    expect(rows()).toEqual([]);
+
+    fresh.resolve([{ tag: "fresh", count: 2 }]);
+    await settle();
+    expect(rows()).toEqual([{ tag: "fresh", count: 2 }]);
+  });
+
+  it("a graph landing after the folder changed is dropped", async () => {
+    const stale = deferred<NoteGraph>();
+    const fresh = deferred<NoteGraph>();
+    mockedApi.noteGraph.mockReturnValueOnce(stale.promise).mockReturnValueOnce(fresh.promise);
+
+    const rows = noteFactsStore.graph();
+    await settle();
+    notesChangedHandler()({ path: NOTE, removed: false });
+    await settle();
+    expect(mockedApi.noteGraph).toHaveBeenCalledTimes(2);
+
+    stale.resolve(graph({ nodes: [{ path: NOTE, name: "Stale", folder: "" }] }));
+    await settle();
+    expect(rows().nodes).toEqual([]);
+
+    fresh.resolve(graph({ nodes: [{ path: NOTE, name: "Fresh", folder: "" }] }));
+    await settle();
+    expect(rows().nodes).toHaveLength(1);
+    expect(rows().nodes[0].name).toBe("Fresh");
+  });
+
+  it("a read failing after the folder changed does not report over the newer answer", async () => {
+    const stale = deferred<NoteFacts>();
+    const fresh = deferred<NoteFacts>();
+    mockedApi.noteFacts.mockReturnValueOnce(stale.promise).mockReturnValueOnce(fresh.promise);
+
+    const rows = noteFactsStore.factsFor(NOTE);
+    const failure = noteFactsStore.errorFor(NOTE);
+    await settle();
+    notesChangedHandler()({ path: NOTE, removed: false });
+    await settle();
+
+    fresh.resolve(facts({ tags: [{ tag: "fresh", line: 1 }] }));
+    await settle();
+    stale.reject(new Error("index is gone"));
+    await settle();
+
+    expect(failure()).toBeNull();
+    expect(rows().tags).toEqual([{ tag: "fresh", line: 1 }]);
+  });
+
+  it("a failed read leaves the cache free to read again on the next change", async () => {
+    mockedApi.noteFacts.mockRejectedValueOnce(new Error("index is gone"));
+    const rows = noteFactsStore.factsFor(NOTE);
+    const failure = noteFactsStore.errorFor(NOTE);
+    await settle();
+    expect(failure()).not.toBeNull();
+
+    mockedApi.noteFacts.mockResolvedValue(facts({ tags: [{ tag: "back", line: 1 }] }));
+    notesChangedHandler()({ path: NOTE, removed: false });
+    await settle();
+
+    expect(mockedApi.noteFacts).toHaveBeenCalledTimes(2);
+    expect(rows().tags).toHaveLength(1);
+    expect(failure()).toBeNull();
   });
 });
