@@ -5,6 +5,8 @@
 #[cfg(feature = "wasm")]
 mod wasm;
 
+pub mod callout;
+
 use pulldown_cmark::{html, CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd};
 
 /// Maps a file reference written in a document to a URL the host can serve.
@@ -35,6 +37,68 @@ pub struct WikilinkRender {
 pub trait WikilinkResolver {
     /// Resolves the text between the brackets, alias and heading included.
     fn resolve(&self, inner: &str) -> WikilinkRender;
+}
+
+/// How deep one document's note embeds are followed before the next one
+/// renders as a link instead.
+///
+/// Three is enough for a note that embeds a note that embeds a note, and it
+/// bounds the work a document can ask for however the notes are wired
+/// together. The cut is enforced here rather than left to the resolver, so a
+/// resolver that ignores its `depth` argument still cannot recurse.
+pub const MAX_EMBED_DEPTH: u8 = 3;
+
+/// The note one `![[…]]` names, once the host has found it.
+pub struct EmbedTarget {
+    /// The note's identity, stable across every way of naming it. Two
+    /// resolutions of the same note carry the same key, which is what the
+    /// cycle check compares.
+    pub key: String,
+    /// What the embed shows when it renders as a link rather than as content:
+    /// the target's alias when it has one, otherwise the name as written.
+    pub label: String,
+    /// Where that link points. `None` leaves it without a destination.
+    pub href: Option<String>,
+}
+
+/// What one `![[…]]` naming a note points at.
+///
+/// The first three states are the ones [`WikilinkResolver`] carries, under the
+/// same rule: a target that names several notes picks none of them. The other
+/// two are facts a link never has to report — the note was found and its text
+/// was deliberately not read, either because its bytes are not on this machine
+/// or because rendering it would repeat work already on the page.
+pub enum EmbedResolution {
+    /// One note, and the Markdown it holds.
+    Resolved {
+        target: EmbedTarget,
+        /// The whole note, frontmatter included. A `#Heading` in the embed is
+        /// applied here, not by the host, so the slice is testable without a
+        /// filesystem.
+        markdown: String,
+    },
+    /// One note, whose bytes are not on this machine. The host reports this
+    /// instead of reading, so an embed of an evicted note never asks a sync
+    /// provider to fetch it (ADR-028 §5).
+    NotDownloaded { target: EmbedTarget },
+    /// One note the host chose not to read because this render is already at
+    /// [`MAX_EMBED_DEPTH`] or is already inside that note.
+    Cut { target: EmbedTarget },
+    /// Several notes answer to the name.
+    Ambiguous,
+    /// No note answers to the name.
+    Missing,
+}
+
+/// Answers what one `![[…]]` naming a note points at.
+///
+/// `depth` is how many embeds deep the render already is and `visited` holds
+/// the keys of the notes it is inside, outermost first. Both are passed so an
+/// implementation can decline to read a file whose text would be thrown away;
+/// declining is [`EmbedResolution::Cut`], and the crate applies the same two
+/// limits to a [`EmbedResolution::Resolved`] it gets back regardless.
+pub trait NoteEmbedResolver {
+    fn resolve(&self, target: &str, depth: u8, visited: &[&str]) -> EmbedResolution;
 }
 
 /// File extensions treated as an embeddable image in the `![[…]]` form.
@@ -156,11 +220,11 @@ fn block_is_blank(raw: &str) -> bool {
 /// `MetadataBlock` the event loop drops, and a blank block, which the parser
 /// does not recognise, is split off first.
 pub fn render_markdown_fragment(text: &str) -> MarkdownFragment {
-    render_markdown_fragment_with(text, None, None)
+    render_markdown_fragment_with(text, None, None, None)
 }
 
-/// [`render_markdown_fragment`] with an optional file resolver and an optional
-/// wikilink resolver.
+/// [`render_markdown_fragment`] with an optional file resolver, an optional
+/// wikilink resolver and an optional note-embed resolver.
 ///
 /// When a file resolver is supplied, three reference forms are rewritten to
 /// the URL it returns: the Markdown image `![](img.png)`, the Obsidian embed
@@ -171,13 +235,34 @@ pub fn render_markdown_fragment(text: &str) -> MarkdownFragment {
 /// anchor for a target that names one note and a plain span for one that names
 /// none or several.
 ///
-/// Without either the output is byte-identical to what the crate has always
-/// produced, which is what keeps the site demo and the app in step on every
-/// document that embeds and links nothing.
+/// When a note-embed resolver is supplied, `![[Note]]` and `![[Note#Heading]]`
+/// outside code become a section holding that note, or that one heading of it,
+/// rendered by this same function. `![[img.png]]` stays an image either way.
+///
+/// Callouts need no resolver and render the same for every caller.
+///
+/// Without any of the three the output is byte-identical to what the crate has
+/// always produced for a document that carries no callout, which is what keeps
+/// the site demo and the app in step.
 pub fn render_markdown_fragment_with(
     text: &str,
     asset_url: Option<AssetResolver<'_>>,
     wikilinks: Option<&dyn WikilinkResolver>,
+    embeds: Option<&dyn NoteEmbedResolver>,
+) -> MarkdownFragment {
+    render_fragment(text, asset_url, wikilinks, embeds, 0, &[])
+}
+
+/// [`render_markdown_fragment_with`] plus where this render sits in a chain of
+/// note embeds: how many deep it already is, and the keys of the notes it is
+/// already inside.
+fn render_fragment(
+    text: &str,
+    asset_url: Option<AssetResolver<'_>>,
+    wikilinks: Option<&dyn WikilinkResolver>,
+    embeds: Option<&dyn NoteEmbedResolver>,
+    depth: u8,
+    visited: &[String],
 ) -> MarkdownFragment {
     let embedded;
     let text = match asset_url {
@@ -202,19 +287,30 @@ pub fn render_markdown_fragment_with(
     let mut in_metadata = false;
     let mut in_code_block = false;
     let mut mermaid_src = String::new();
+    // Where in `events` a rendered embed section landed. The pass that lifts a
+    // section out of the paragraph it was written in reads these rather than
+    // recognising the markup, so it acts on exactly what this loop produced.
+    let mut sections: Vec<usize> = Vec::new();
     // Consecutive text, gathered so a `[[…]]` the parser reports as five
     // separate text events (`[`, `[`, the target, `]`, `]`) is found whole.
     // Anything that is not text flushes it first, which keeps the event order
     // exactly as the parser produced it.
     let mut pending = String::new();
+    let scan = Scan {
+        asset_url,
+        wikilinks,
+        embeds,
+        depth,
+        visited,
+    };
     for event in parser {
         if let Event::Text(ref chunk) = event {
-            if wikilinks.is_some() && !in_mermaid && !in_metadata && !in_code_block {
+            if scan.is_on() && !in_mermaid && !in_metadata && !in_code_block {
                 pending.push_str(chunk);
                 continue;
             }
         }
-        flush_wikilinks(&mut pending, &mut events, wikilinks);
+        flush_inline(&mut pending, &mut events, &mut sections, &scan);
         match event {
             Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(ref info)))
                 if is_mermaid_info(info) =>
@@ -270,7 +366,9 @@ pub fn render_markdown_fragment_with(
             other => events.push(other),
         }
     }
-    flush_wikilinks(&mut pending, &mut events, wikilinks);
+    flush_inline(&mut pending, &mut events, &mut sections, &scan);
+    let events = lift_sections(events, &sections);
+    let events = wrap_callouts(events);
     let mut html_out = String::with_capacity(source.len() * 3 / 2);
     html::push_html(&mut html_out, events.into_iter());
     MarkdownFragment {
@@ -278,6 +376,376 @@ pub fn render_markdown_fragment_with(
         has_mermaid,
         has_math,
     }
+}
+
+/// Everything the text scan needs to turn one `[[…]]` or `![[…]]` into markup.
+struct Scan<'a> {
+    asset_url: Option<AssetResolver<'a>>,
+    wikilinks: Option<&'a dyn WikilinkResolver>,
+    embeds: Option<&'a dyn NoteEmbedResolver>,
+    /// How many note embeds deep the document being rendered already is.
+    depth: u8,
+    /// The keys of the notes this render is inside, outermost first.
+    visited: &'a [String],
+}
+
+impl Scan<'_> {
+    /// True when there is a reference form to look for at all. Without one the
+    /// text goes through as the parser reported it.
+    fn is_on(&self) -> bool {
+        self.wikilinks.is_some() || self.embeds.is_some()
+    }
+}
+
+/// Split gathered text into its plain runs, its wikilinks and its note embeds,
+/// pushing all three onto `events` in the order they were written and
+/// recording where each embed section landed.
+///
+/// Without either resolver the text goes back as one event, which is the whole
+/// of the site's behaviour: a wikilink stays the characters it was typed as.
+fn flush_inline<'a>(
+    pending: &mut String,
+    events: &mut Vec<Event<'a>>,
+    sections: &mut Vec<usize>,
+    scan: &Scan<'_>,
+) {
+    if pending.is_empty() {
+        return;
+    }
+    let text = std::mem::take(pending);
+    if !scan.is_on() {
+        events.push(Event::Text(CowStr::from(text)));
+        return;
+    }
+
+    let bytes = text.as_bytes();
+    let mut cursor = 0;
+    let mut plain_from = 0;
+    while let Some(offset) = text[cursor..].find("[[") {
+        let open = cursor + offset;
+        let Some(len) = text[open + 2..].find("]]") else {
+            break;
+        };
+        let inner = &text[open + 2..open + 2 + len];
+        // A nested `[` is not a target, and `[[]]` names nothing.
+        if inner.trim().is_empty() || inner.contains('[') {
+            cursor = open + 2;
+            continue;
+        }
+        let is_embed = open > 0 && bytes[open - 1] == b'!';
+        let rendered = match is_embed {
+            // An embed naming an image file is an image wherever it is
+            // rewritten, so it is never read as a note.
+            true if image_embed(inner).is_some() => None,
+            true => scan
+                .embeds
+                .map(|resolver| embed_markup(inner, resolver, scan)),
+            false => scan
+                .wikilinks
+                .map(|resolver| Markup::inline(wikilink_html(&resolver.resolve(inner)))),
+        };
+        let Some(rendered) = rendered else {
+            cursor = open + 2;
+            continue;
+        };
+        // The `!` belongs to the embed, not to the text before it.
+        let plain_to = if is_embed { open - 1 } else { open };
+        if plain_from < plain_to {
+            events.push(Event::Text(CowStr::from(
+                text[plain_from..plain_to].to_string(),
+            )));
+        }
+        match rendered {
+            Markup::Inline(html) => events.push(Event::InlineHtml(CowStr::from(html))),
+            Markup::Section(html) => {
+                sections.push(events.len());
+                events.push(Event::Html(CowStr::from(html)));
+            }
+        }
+        cursor = open + 2 + len + 2;
+        plain_from = cursor;
+    }
+    if plain_from < text.len() {
+        events.push(Event::Text(CowStr::from(text[plain_from..].to_string())));
+    }
+}
+
+/// One rendered reference and whether it stands on its own.
+enum Markup {
+    /// Phrasing content, which stays in the paragraph it was written in.
+    Inline(String),
+    /// A block, which is lifted out of that paragraph.
+    Section(String),
+}
+
+impl Markup {
+    fn inline(html: String) -> Self {
+        Markup::Inline(html)
+    }
+}
+
+/// The markup one `![[…]]` naming a note becomes.
+fn embed_markup(inner: &str, resolver: &dyn NoteEmbedResolver, scan: &Scan<'_>) -> Markup {
+    let borrowed: Vec<&str> = scan.visited.iter().map(String::as_str).collect();
+    let resolution = resolver.resolve(inner, scan.depth, &borrowed);
+    let (target, markdown) = match resolution {
+        // A target that names several notes picks none of them, and one that
+        // names no note has nothing to show. Both read as text, exactly as the
+        // link form of the same target does.
+        EmbedResolution::Ambiguous | EmbedResolution::Missing => {
+            return Markup::Inline(missing_embed_html(inner))
+        }
+        EmbedResolution::Cut { target } => return Markup::Inline(embed_link_html(&target)),
+        EmbedResolution::NotDownloaded { target } => {
+            return Markup::Section(not_downloaded_html(inner, &target))
+        }
+        EmbedResolution::Resolved { target, markdown } => (target, markdown),
+    };
+    // The two limits are applied to what came back as well as passed to the
+    // resolver, so a resolver that ignores them still cannot recurse.
+    if scan.depth >= MAX_EMBED_DEPTH || scan.visited.contains(&target.key) {
+        return Markup::Inline(embed_link_html(&target));
+    }
+    let body = match heading_section(&markdown, embed_heading(inner)) {
+        Some(body) => body,
+        // The note is there and the heading in the target is not, so the embed
+        // names nothing to show.
+        None => return Markup::Inline(missing_embed_html(inner)),
+    };
+    let mut visited = scan.visited.to_vec();
+    visited.push(target.key);
+    let rendered = render_fragment(
+        &body,
+        scan.asset_url,
+        scan.wikilinks,
+        Some(resolver),
+        scan.depth + 1,
+        &visited,
+    );
+    Markup::Section(format!(
+        "<section class=\"writ-embed\" data-target=\"{}\">{}</section>",
+        escape_attribute(inner.trim()),
+        rendered.html
+    ))
+}
+
+/// The heading a target names, or `None` when it names the whole note.
+fn embed_heading(inner: &str) -> Option<&str> {
+    let target = inner.split('|').next().unwrap_or(inner);
+    let heading = target.split_once('#')?.1.trim();
+    (!heading.is_empty()).then_some(heading)
+}
+
+/// The slice of `markdown` one heading owns: the heading line through to the
+/// next heading at the same level or shallower, or the whole text when the
+/// target named no heading.
+///
+/// `None` says the note holds no such heading. Headings are matched on their
+/// trimmed text, case-folded, which is how a target names one in prose.
+fn heading_section(markdown: &str, heading: Option<&str>) -> Option<String> {
+    let Some(wanted) = heading else {
+        return Some(markdown.to_string());
+    };
+    let wanted = wanted.to_lowercase();
+    let body = split_frontmatter(markdown).body;
+    let mut start: Option<(usize, usize)> = None;
+    let mut offset = 0;
+    for line in body.split_inclusive('\n') {
+        let end = offset + line.len();
+        if let Some((level, text)) = atx_heading(line) {
+            match start {
+                None if text.to_lowercase() == wanted => start = Some((offset, level)),
+                Some((from, opened)) if level <= opened => {
+                    return Some(body[from..offset].to_string())
+                }
+                _ => {}
+            }
+        }
+        offset = end;
+    }
+    start.map(|(from, _)| body[from..].to_string())
+}
+
+/// The level and text of an ATX heading line, or `None` for any other line.
+fn atx_heading(line: &str) -> Option<(usize, &str)> {
+    let trimmed = line.trim_end_matches(['\n', '\r']).trim_start();
+    let level = trimmed.chars().take_while(|c| *c == '#').count();
+    if level == 0 || level > 6 {
+        return None;
+    }
+    let rest = &trimmed[level..];
+    if !rest.is_empty() && !rest.starts_with(' ') && !rest.starts_with('\t') {
+        return None;
+    }
+    Some((level, rest.trim().trim_end_matches('#').trim()))
+}
+
+/// A target the index cannot name one note for, read as the text it was
+/// written as.
+fn missing_embed_html(inner: &str) -> String {
+    format!(
+        "<span class=\"writ-embed-missing\">{}</span>",
+        escape_text(inner.trim())
+    )
+}
+
+/// The link an embed renders as instead of repeating a note the page is
+/// already inside, or going deeper than [`MAX_EMBED_DEPTH`].
+fn embed_link_html(target: &EmbedTarget) -> String {
+    wikilink_html(&WikilinkRender {
+        href: target.href.clone(),
+        label: target.label.clone(),
+        resolved: target.href.is_some(),
+    })
+}
+
+/// What an embed of a note whose bytes are not on this machine shows.
+fn not_downloaded_html(inner: &str, target: &EmbedTarget) -> String {
+    format!(
+        "<section class=\"writ-embed\" data-target=\"{}\"><p class=\"writ-embed-placeholder\">\
+{} is not downloaded.</p></section>",
+        escape_attribute(inner.trim()),
+        escape_text(&target.label)
+    )
+}
+
+/// Lift each rendered embed section out of the paragraph it was written in.
+///
+/// A section is a block and a paragraph holds phrasing content, so a section
+/// left where it was written closes the `<p>` around it in every browser and
+/// the text after it lands outside. The paragraph is split instead: what came
+/// before the section stays in one, what comes after goes into another, and a
+/// paragraph that would hold nothing is dropped.
+fn lift_sections<'a>(events: Vec<Event<'a>>, sections: &[usize]) -> Vec<Event<'a>> {
+    if sections.is_empty() {
+        return events;
+    }
+    let mut out: Vec<Event<'a>> = Vec::with_capacity(events.len() + sections.len() * 2);
+    // Where the paragraph currently being read starts in `out`, when one is
+    // open. A section closes it and a new one opens after.
+    let mut paragraph: Option<usize> = None;
+    let mut split = false;
+    for (index, event) in events.into_iter().enumerate() {
+        match event {
+            Event::Start(Tag::Paragraph) => {
+                paragraph = Some(out.len());
+                split = false;
+                out.push(event);
+            }
+            Event::End(TagEnd::Paragraph) => {
+                match (paragraph, split) {
+                    // Nothing was written after the last section, so the
+                    // paragraph reopened for it holds nothing.
+                    (Some(at), true) if at + 1 == out.len() => {
+                        out.pop();
+                    }
+                    _ => out.push(event),
+                }
+                paragraph = None;
+            }
+            _ if sections.binary_search(&index).is_ok() => {
+                if let Some(at) = paragraph {
+                    if at + 1 == out.len() {
+                        // The section is the whole of the paragraph so far;
+                        // there is nothing to keep in front of it.
+                        out.pop();
+                    } else {
+                        out.push(Event::End(TagEnd::Paragraph));
+                    }
+                    split = true;
+                }
+                out.push(event);
+                if paragraph.is_some() {
+                    paragraph = Some(out.len());
+                    out.push(Event::Start(Tag::Paragraph));
+                }
+            }
+            _ => out.push(event),
+        }
+    }
+    out
+}
+
+/// Turn every blockquote that opens with `[!type]` into a callout.
+///
+/// The blockquote's own content is left exactly as the parser produced it, so
+/// a table, a math span or a mermaid fence inside a callout renders through
+/// the same events it would anywhere else, and a callout nested in a list or
+/// in another blockquote is found by the same rule as one at the top level.
+fn wrap_callouts(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
+    if !events
+        .iter()
+        .any(|event| matches!(event, Event::Start(Tag::BlockQuote(_))))
+    {
+        return events;
+    }
+    let mut out: Vec<Event> = Vec::with_capacity(events.len());
+    // One entry per open blockquote: true when it is a callout, so the right
+    // `</blockquote>` is the one that closes it.
+    let mut open: Vec<bool> = Vec::new();
+    let mut index = 0;
+    while index < events.len() {
+        match &events[index] {
+            Event::Start(Tag::BlockQuote(_)) => {
+                let Some((callout, texts)) = header_at(&events, index) else {
+                    open.push(false);
+                    out.push(events[index].clone());
+                    index += 1;
+                    continue;
+                };
+                open.push(true);
+                out.push(Event::Html(CowStr::from(callout::open_html(&callout))));
+                // Past the blockquote start, the paragraph the header opened
+                // and the text events the header was reported as.
+                index += 2 + texts;
+                match events.get(index) {
+                    // The header's line ran on into the body, which keeps the
+                    // paragraph it was written in.
+                    Some(Event::SoftBreak) => {
+                        index += 1;
+                        out.push(Event::Start(Tag::Paragraph));
+                    }
+                    // The header was the whole paragraph.
+                    Some(Event::End(TagEnd::Paragraph)) => index += 1,
+                    // Anything else on the header's own line is body text.
+                    _ => out.push(Event::Start(Tag::Paragraph)),
+                }
+            }
+            Event::End(TagEnd::BlockQuote(_)) => {
+                match open.pop() {
+                    Some(true) => out.push(Event::Html(CowStr::from(callout::close_html()))),
+                    _ => out.push(events[index].clone()),
+                }
+                index += 1;
+            }
+            _ => {
+                out.push(events[index].clone());
+                index += 1;
+            }
+        }
+    }
+    out
+}
+
+/// The callout the blockquote starting at `index` opens, and how many text
+/// events its header was reported as.
+///
+/// The header's line arrives as several text events, because `[` opens a link
+/// reference the parser reports separately, so the run of them is joined
+/// before it is read. Only the text of a first paragraph counts: a blockquote
+/// whose first block is a list or a fence carries no header, whatever it says.
+fn header_at(events: &[Event<'_>], index: usize) -> Option<(callout::Callout, usize)> {
+    match events.get(index + 1) {
+        Some(Event::Start(Tag::Paragraph)) => {}
+        _ => return None,
+    }
+    let mut line = String::new();
+    let mut texts = 0;
+    while let Some(Event::Text(text)) = events.get(index + 2 + texts) {
+        line.push_str(text);
+        texts += 1;
+    }
+    callout::parse(&line).map(|callout| (callout, texts))
 }
 
 /// Escape a value going into a double-quoted HTML attribute.
@@ -298,56 +766,6 @@ fn wikilink_html(render: &WikilinkRender) -> String {
             escape_attribute(href)
         ),
         _ => format!("<span class=\"writ-wikilink writ-wikilink-missing\">{label}</span>"),
-    }
-}
-
-/// Split gathered text into its plain runs and the wikilinks the resolver
-/// names, pushing both onto `events` in the order they were written.
-///
-/// Without a resolver the text goes back as one event, which is the whole of
-/// the site's behaviour: a wikilink stays the characters it was typed as.
-fn flush_wikilinks<'a>(
-    pending: &mut String,
-    events: &mut Vec<Event<'a>>,
-    wikilinks: Option<&dyn WikilinkResolver>,
-) {
-    if pending.is_empty() {
-        return;
-    }
-    let text = std::mem::take(pending);
-    let Some(resolver) = wikilinks else {
-        events.push(Event::Text(CowStr::from(text)));
-        return;
-    };
-
-    let bytes = text.as_bytes();
-    let mut cursor = 0;
-    let mut plain_from = 0;
-    while let Some(offset) = text[cursor..].find("[[") {
-        let open = cursor + offset;
-        let Some(len) = text[open + 2..].find("]]") else {
-            break;
-        };
-        let inner = &text[open + 2..open + 2 + len];
-        // `![[…]]` is an embed, not a link; a nested `[` is not a target; and
-        // `[[]]` names nothing.
-        let is_embed = open > 0 && bytes[open - 1] == b'!';
-        if is_embed || inner.trim().is_empty() || inner.contains('[') {
-            cursor = open + 2;
-            continue;
-        }
-        if plain_from < open {
-            events.push(Event::Text(CowStr::from(
-                text[plain_from..open].to_string(),
-            )));
-        }
-        let rendered = resolver.resolve(inner);
-        events.push(Event::InlineHtml(CowStr::from(wikilink_html(&rendered))));
-        cursor = open + 2 + len + 2;
-        plain_from = cursor;
-    }
-    if plain_from < text.len() {
-        events.push(Event::Text(CowStr::from(text[plain_from..].to_string())));
     }
 }
 
@@ -649,7 +1067,7 @@ mod tests {
     }
 
     fn with_assets(text: &str) -> String {
-        render_markdown_fragment_with(text, Some(&served), None).html
+        render_markdown_fragment_with(text, Some(&served), None, None).html
     }
 
     /// Resolver standing in for the notes index: every name but `Missing`
@@ -673,7 +1091,7 @@ mod tests {
     }
 
     fn with_wikilinks(text: &str) -> String {
-        render_markdown_fragment_with(text, None, Some(&Notes)).html
+        render_markdown_fragment_with(text, None, Some(&Notes), None).html
     }
 
     #[test]
@@ -920,7 +1338,334 @@ mod tests {
 
     #[test]
     fn a_document_with_no_callout_and_no_embed_renders_unchanged_with_resolvers() {
-        let html = render_markdown_fragment_with(PLAIN_DOCUMENT, Some(&served), Some(&Notes)).html;
+        let html =
+            render_markdown_fragment_with(PLAIN_DOCUMENT, Some(&served), Some(&Notes), None).html;
         assert_eq!(html, PLAIN_RESOLVED);
+    }
+
+    /// Resolver standing in for the notes folder: a fixed set of notes by
+    /// name, `Both` naming two of them and everything else naming none.
+    /// `Evicted` names one note whose bytes are not on this machine.
+    struct Folder;
+
+    /// What each note in the stand-in folder holds.
+    fn note_source(name: &str) -> Option<&'static str> {
+        match name {
+            "A" => Some("A body\n\n![[B]]\n"),
+            "B" => Some("B body\n\n![[A]]\n"),
+            "Chain3" => Some("Chain3 body\n"),
+            "Deep1" => Some("Deep1 body\n\n![[Deep2]]\n"),
+            "Deep2" => Some("Deep2 body\n\n![[Deep3]]\n"),
+            "Deep3" => Some("Deep3 body\n\n![[Deep4]]\n"),
+            "Deep4" => Some("Deep4 body\n"),
+            "Quo\"te" => Some("Quoted body\n"),
+            "Note" => Some(
+                "---\ntitle: Note\n---\n\nLead paragraph.\n\n## First\n\nFirst body.\n\n### Under first\n\nDeeper.\n\n## Second\n\nSecond body.\n",
+            ),
+            _ => None,
+        }
+    }
+
+    impl NoteEmbedResolver for Folder {
+        fn resolve(&self, target: &str, depth: u8, visited: &[&str]) -> EmbedResolution {
+            let name = target
+                .split('|')
+                .next()
+                .unwrap_or(target)
+                .split('#')
+                .next()
+                .unwrap_or(target)
+                .trim();
+            let known = |name: &str| EmbedTarget {
+                key: name.to_string(),
+                label: name.to_string(),
+                href: Some(format!("{name}.md")),
+            };
+            match name {
+                "Both" => EmbedResolution::Ambiguous,
+                "Evicted" => EmbedResolution::NotDownloaded {
+                    target: known("Evicted"),
+                },
+                _ => match note_source(name) {
+                    None => EmbedResolution::Missing,
+                    // The read is skipped for a target this render would cut
+                    // anyway, which is the whole reason the two are passed in.
+                    Some(_) if depth >= MAX_EMBED_DEPTH || visited.contains(&name) => {
+                        EmbedResolution::Cut {
+                            target: known(name),
+                        }
+                    }
+                    Some(markdown) => EmbedResolution::Resolved {
+                        target: known(name),
+                        markdown: markdown.to_string(),
+                    },
+                },
+            }
+        }
+    }
+
+    /// A resolver that always answers with the note it is asked for, ignoring
+    /// both limits, so the crate's own enforcement is what is under test.
+    struct Ignores;
+
+    impl NoteEmbedResolver for Ignores {
+        fn resolve(&self, target: &str, _depth: u8, _visited: &[&str]) -> EmbedResolution {
+            let name = target.split('#').next().unwrap_or(target).trim();
+            match note_source(name) {
+                None => EmbedResolution::Missing,
+                Some(markdown) => EmbedResolution::Resolved {
+                    target: EmbedTarget {
+                        key: name.to_string(),
+                        label: name.to_string(),
+                        href: Some(format!("{name}.md")),
+                    },
+                    markdown: markdown.to_string(),
+                },
+            }
+        }
+    }
+
+    fn with_embeds(text: &str) -> String {
+        render_markdown_fragment_with(text, None, Some(&Notes), Some(&Folder)).html
+    }
+
+    #[test]
+    fn every_callout_type_renders_with_its_own_data_callout() {
+        for kind in [
+            "note", "abstract", "info", "todo", "tip", "success", "question", "warning", "failure",
+            "danger", "bug", "example", "quote",
+        ] {
+            let html = render_markdown_fragment(&format!("> [!{kind}]\n> body\n")).html;
+            assert!(
+                html.contains(&format!("data-callout=\"{kind}\"")),
+                "{kind}: {html}"
+            );
+            assert!(
+                html.contains(&format!("data-callout-type=\"{kind}\"")),
+                "{kind}"
+            );
+            assert!(html.contains("<p>body</p>"), "{kind}: {html}");
+            assert!(!html.contains("<blockquote>"), "{kind}: {html}");
+        }
+    }
+
+    #[test]
+    fn a_fold_marker_and_a_title_reach_the_markup() {
+        let html = render_markdown_fragment("> [!tip]- Folded title\n> body\n").html;
+        assert!(html.contains("data-callout=\"tip\""));
+        assert!(html.contains("data-fold=\"closed\""));
+        assert!(html.contains("<div class=\"writ-callout-title\">Folded title</div>"));
+        assert!(html.contains("<p>body</p>"));
+
+        let open = render_markdown_fragment("> [!tip]+ Open title\n> body\n").html;
+        assert!(open.contains("data-fold=\"open\""));
+        assert!(render_markdown_fragment("> [!tip]\n> body\n")
+            .html
+            .contains("data-fold=\"none\""));
+    }
+
+    #[test]
+    fn a_callout_type_the_crate_does_not_know_falls_back_and_keeps_the_word() {
+        let html = render_markdown_fragment("> [!spaceship] Title\n> body\n").html;
+        assert!(html.contains("data-callout=\"spaceship\""));
+        assert!(html.contains("data-callout-type=\"note\""));
+    }
+
+    #[test]
+    fn a_callout_alias_resolves_to_its_type() {
+        let html = render_markdown_fragment("> [!tldr]\n> body\n").html;
+        assert!(html.contains("data-callout=\"tldr\""));
+        assert!(html.contains("data-callout-type=\"abstract\""));
+        assert!(html.contains("<div class=\"writ-callout-title\">Tldr</div>"));
+    }
+
+    #[test]
+    fn a_callout_nested_in_a_list_is_still_a_callout() {
+        let html = render_markdown_fragment("- item\n\n  > [!warning] Careful\n  > body\n").html;
+        assert!(html.contains("<ul>"));
+        assert!(html.contains("data-callout=\"warning\""), "{html}");
+        assert!(html.contains("<p>body</p>"), "{html}");
+    }
+
+    #[test]
+    fn a_callout_nested_in_a_blockquote_is_still_a_callout() {
+        let html = render_markdown_fragment("> outer\n>\n> > [!info] Inner\n> > body\n").html;
+        assert!(html.contains("<blockquote>"), "{html}");
+        assert!(html.contains("data-callout=\"info\""), "{html}");
+        assert!(html.contains("<p>outer</p>"), "{html}");
+        assert_eq!(html.matches("<blockquote>").count(), 1, "{html}");
+        assert_eq!(html.matches("</blockquote>").count(), 1, "{html}");
+    }
+
+    #[test]
+    fn a_blockquote_with_no_marker_stays_a_blockquote() {
+        let html = render_markdown_fragment("> just a quotation\n").html;
+        assert!(html.contains("<blockquote>"));
+        assert!(!html.contains("writ-callout"));
+    }
+
+    #[test]
+    fn a_callout_still_renders_a_table_a_math_span_and_a_mermaid_fence() {
+        let fragment = render_markdown_fragment(
+            "> [!example] Everything\n> \n> | a | b |\n> | --- | --- |\n> | 1 | 2 |\n> \n> Value $x^2$ here.\n> \n> ```mermaid\n> graph TD\n>   A --> B\n> ```\n",
+        );
+        let html = &fragment.html;
+        assert!(html.contains("data-callout=\"example\""), "{html}");
+        assert!(html.contains("<table>"), "{html}");
+        assert!(html.contains("<pre class=\"mermaid\">"), "{html}");
+        assert!(html.contains("x^2"), "{html}");
+        assert!(fragment.has_mermaid);
+        assert!(fragment.has_math);
+    }
+
+    #[test]
+    fn a_note_embed_becomes_a_section_holding_the_note() {
+        let html = with_embeds("![[Chain3]]\n");
+        assert!(
+            html.contains("<section class=\"writ-embed\" data-target=\"Chain3\">"),
+            "{html}"
+        );
+        assert!(html.contains("<p>Chain3 body</p>"), "{html}");
+        // A section is a block, so it never sits inside the paragraph it was
+        // written in.
+        assert!(!html.contains("<p><section"), "{html}");
+    }
+
+    #[test]
+    fn text_around_an_embed_keeps_its_place() {
+        let html = with_embeds("before ![[Chain3]] after\n");
+        assert!(html.starts_with("<p>before </p>"), "{html}");
+        assert!(html.contains("<p> after</p>"), "{html}");
+        assert!(!html.contains("<p></p>"), "{html}");
+    }
+
+    #[test]
+    fn an_embed_of_one_heading_renders_that_heading_only() {
+        let html = with_embeds("![[Note#First]]\n");
+        assert!(html.contains("data-target=\"Note#First\""), "{html}");
+        assert!(html.contains("<h2>First</h2>"), "{html}");
+        assert!(html.contains("First body"), "{html}");
+        // The deeper heading belongs to the section; the next one at the same
+        // level does not, and neither does what came before it.
+        assert!(html.contains("<h3>Under first</h3>"), "{html}");
+        assert!(!html.contains("Second body"), "{html}");
+        assert!(!html.contains("Lead paragraph"), "{html}");
+    }
+
+    #[test]
+    fn an_embed_of_a_heading_the_note_does_not_have_is_a_plain_span() {
+        let html = with_embeds("![[Note#Nowhere]]\n");
+        assert!(
+            html.contains("<span class=\"writ-embed-missing\">Note#Nowhere</span>"),
+            "{html}"
+        );
+        assert!(!html.contains("<section"), "{html}");
+    }
+
+    #[test]
+    fn a_cycle_stops_at_the_note_the_page_is_already_inside_and_that_point_is_a_link() {
+        let html = with_embeds("![[A]]\n");
+        assert!(html.contains("<p>A body</p>"), "{html}");
+        assert!(html.contains("<p>B body</p>"), "{html}");
+        assert_eq!(html.matches("A body").count(), 1, "{html}");
+        assert_eq!(html.matches("<section").count(), 2, "{html}");
+        assert!(
+            html.contains("<a class=\"writ-wikilink\" href=\"A.md\">A</a>"),
+            "{html}"
+        );
+    }
+
+    // A chain four notes long, through a resolver that answers every question
+    // and reads neither its depth nor its visited set: three embeds render and
+    // the fourth is a link.
+    #[test]
+    fn an_embed_chain_is_cut_three_deep_whatever_the_resolver_answers() {
+        let html = render_markdown_fragment_with("![[Deep1]]\n", None, None, Some(&Ignores)).html;
+        assert_eq!(html.matches("<section").count(), 3, "{html}");
+        assert!(html.contains("<p>Deep3 body</p>"), "{html}");
+        assert!(!html.contains("Deep4 body"), "{html}");
+        assert!(
+            html.contains("<a class=\"writ-wikilink\" href=\"Deep4.md\">Deep4</a>"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn an_ambiguous_embed_target_is_a_span_not_an_anchor() {
+        let html = with_embeds("![[Both]]\n");
+        assert!(
+            html.contains("<span class=\"writ-embed-missing\">Both</span>"),
+            "{html}"
+        );
+        assert!(!html.contains("<a "), "{html}");
+        assert!(!html.contains("<section"), "{html}");
+    }
+
+    #[test]
+    fn a_missing_embed_target_is_a_span() {
+        let html = with_embeds("![[Nowhere]]\n");
+        assert!(
+            html.contains("<span class=\"writ-embed-missing\">Nowhere</span>"),
+            "{html}"
+        );
+        assert!(!html.contains("<section"), "{html}");
+    }
+
+    #[test]
+    fn a_target_that_is_not_downloaded_renders_the_placeholder() {
+        let html = with_embeds("![[Evicted]]\n");
+        assert!(
+            html.contains("<p class=\"writ-embed-placeholder\">Evicted is not downloaded.</p>"),
+            "{html}"
+        );
+        assert!(html.contains("data-target=\"Evicted\""), "{html}");
+    }
+
+    #[test]
+    fn an_image_embed_is_still_an_image_when_a_note_resolver_is_present() {
+        let html = render_markdown_fragment_with(
+            "![[picture.png]]\n",
+            Some(&served),
+            Some(&Notes),
+            Some(&Folder),
+        )
+        .html;
+        assert!(html.contains("<img src=\"writ-preview://document/_note-asset/b/n/picture.png\""));
+        assert!(!html.contains("writ-embed"));
+    }
+
+    #[test]
+    fn an_image_embed_with_no_asset_resolver_is_not_read_as_a_note() {
+        let html = with_embeds("![[picture.png]]\n");
+        assert!(html.contains("![[picture.png]]"), "{html}");
+        assert!(!html.contains("writ-embed"), "{html}");
+    }
+
+    #[test]
+    fn an_embed_inside_code_is_not_resolved() {
+        let html = with_embeds("`![[Chain3]]`\n\n```\n![[Chain3]]\n```\n");
+        assert!(!html.contains("writ-embed"), "{html}");
+        assert!(!html.contains("Chain3 body"), "{html}");
+    }
+
+    #[test]
+    fn without_an_embed_resolver_a_note_embed_is_untouched() {
+        let html = render_markdown_fragment("![[Chain3]]\n").html;
+        assert_eq!(html, "<p>![[Chain3]]</p>\n");
+    }
+
+    #[test]
+    fn an_embed_target_is_escaped_wherever_it_is_written_out() {
+        let missing = with_embeds("![[a & b]]\n");
+        assert!(
+            missing.contains("<span class=\"writ-embed-missing\">a &amp; b</span>"),
+            "{missing}"
+        );
+        let resolved = with_embeds("![[Quo\"te]]\n");
+        assert!(
+            resolved.contains("data-target=\"Quo&quot;te\""),
+            "{resolved}"
+        );
+        assert!(resolved.contains("<p>Quoted body</p>"), "{resolved}");
     }
 }

@@ -177,11 +177,15 @@ impl ContentRenderer for MarkdownRenderer {
                     &request.buffer_text,
                     Some(&resolver),
                     wikilinks,
+                    None,
                 )
             }
-            None => {
-                writ_render::render_markdown_fragment_with(&request.buffer_text, None, wikilinks)
-            }
+            None => writ_render::render_markdown_fragment_with(
+                &request.buffer_text,
+                None,
+                wikilinks,
+                None,
+            ),
         };
         let head_extra = if fragment.has_math {
             katex::head_tags()

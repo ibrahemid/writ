@@ -331,7 +331,7 @@ fn wikilink_html(label: &str, href: Option<&str>, resolved: bool) -> String {
             resolved,
         },
     };
-    writ_render::render_markdown_fragment_with("[[Target]]\n", None, Some(&resolver)).html
+    writ_render::render_markdown_fragment_with("[[Target]]\n", None, Some(&resolver), None).html
 }
 
 #[test]
