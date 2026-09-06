@@ -1,0 +1,260 @@
+/* Mirrors the sidebar's rows: the same pitch, the same section header shape
+   and the same closed-to-open motion, on the other edge of the window. The
+   design baseline has no right-panel spec, so it is derived from those. */
+
+.right-panel {
+  position: relative;
+  flex-shrink: 0;
+  width: 0;
+  height: 100%;
+  background: var(--writ-bg-sidebar);
+  border-left: 1px solid var(--writ-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width var(--writ-motion);
+}
+
+/* The live width is the persisted one; the token stays the default. Bounds
+   are clamped in JS (clampPanelWidth), so nothing here needs a min/max-width
+   floor that would otherwise make expand pop straight to it. */
+.right-panel.is-open {
+  width: var(--writ-panel-live-width, var(--writ-sidebar-width));
+}
+
+.right-panel.is-resizing {
+  transition: none;
+}
+
+/* Content is laid out at its settled width for the whole open/close motion;
+   the outer element clips it instead of reflowing it. */
+.right-panel-inner {
+  flex: 1;
+  flex-shrink: 0;
+  min-height: 0;
+  width: var(--writ-panel-live-width, var(--writ-sidebar-width));
+  display: flex;
+  flex-direction: column;
+}
+
+.right-panel-resizer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 4px;
+  z-index: var(--writ-z-drag);
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+  transition: background var(--writ-motion);
+}
+
+.right-panel-resizer:hover {
+  background: var(--writ-border);
+}
+
+.right-panel-resizer:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: -2px;
+}
+
+.right-panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: var(--writ-space-3);
+}
+
+.right-panel-section {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.right-panel-section-title {
+  margin: 0;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  font-weight: inherit;
+}
+
+.right-panel-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 12px 4px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  letter-spacing: var(--writ-ui-tracking);
+  color: var(--writ-fg-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.right-panel-section-toggle:hover {
+  color: var(--writ-fg);
+}
+
+.right-panel-section-toggle:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: -2px;
+}
+
+.right-panel-list {
+  margin: 0;
+  padding: 2px 0;
+  list-style: none;
+}
+
+/* One row of the sidebar's pitch, with the fill inset by the 1px margin that
+   keeps two selected rows from touching. */
+.right-panel-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-height: var(--writ-sidebar-row-fill);
+  margin: 1px 0;
+  padding: 4px var(--writ-space-3);
+  border: none;
+  border-radius: var(--writ-r-row);
+  background: transparent;
+  font: inherit;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  color: var(--writ-fg);
+  text-align: left;
+  cursor: pointer;
+  /* A flex item is as wide as its content unless it is told otherwise, and a
+     quoted line is as long as the sentence it came from. The row keeps its
+     lines inside the panel so a narrow panel truncates rather than clips. */
+  min-width: 0;
+  overflow: hidden;
+}
+
+.right-panel-row > span {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.right-panel-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.right-panel-row:hover {
+  background: var(--writ-bg-hover);
+}
+
+.right-panel-row:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: -2px;
+}
+
+/* A heading is one line of the note: it is truncated rather than wrapped, so
+   the indentation stays legible as the note's shape. */
+.right-panel-heading {
+  min-height: var(--writ-sidebar-row-pitch);
+  justify-content: center;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.right-panel-row-context {
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Set off from the quoted sentence above it: that line is the note's words,
+   this one is the app naming what else the link could mean. */
+.right-panel-row-marker {
+  margin-top: 2px;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+}
+
+.right-panel-properties {
+  margin: 0;
+  padding: 2px var(--writ-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-2);
+}
+
+.right-panel-property {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.right-panel-property-key {
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+}
+
+.right-panel-property-value {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  color: var(--writ-fg);
+}
+
+.right-panel-property-text {
+  overflow-wrap: anywhere;
+}
+
+.right-panel-pill {
+  padding: 1px 8px;
+  border-radius: var(--writ-r-pill);
+  background: var(--writ-bg-sunken);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+}
+
+/* Windows paints the chrome as part of the window backdrop, GNOME as a
+   segment separated by an inset hairline rather than a border. */
+:root[data-platform="win"] .right-panel {
+  background: transparent;
+  border-left: 0;
+}
+
+:root[data-platform="win"] .right-panel-scroll {
+  padding-top: 4px;
+}
+
+:root[data-platform="win"] .right-panel-section-toggle {
+  padding: 14px 16px 6px;
+}
+
+:root[data-platform="linux"] .right-panel {
+  border-left: 0;
+  box-shadow: inset 1px 0 var(--writ-border-soft);
+}
+
+:root[data-platform="linux"] .right-panel-scroll {
+  padding-top: 6px;
+}
+
+:root[data-platform="linux"] .right-panel-section-toggle {
+  padding: 10px 14px 4px;
+  font-weight: 700;
+  color: var(--writ-fg);
+  opacity: 0.55;
+}

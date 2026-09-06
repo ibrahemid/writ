@@ -95,7 +95,9 @@ export function registerPreviewKeymap(): void {
     id: "preview.swapOrientation",
     label: "Preview: Swap split orientation",
     description: "Toggle vertical / horizontal split",
-    keybinding: "CmdOrCtrl+Shift+\\",
+    // Moved off CmdOrCtrl+Shift+\, which the panel beside the note now takes
+    // as the partner of the sidebar's CmdOrCtrl+\.
+    keybinding: "CmdOrCtrl+Shift+H",
     scope: "app",
     global: true,
     execute: () => {

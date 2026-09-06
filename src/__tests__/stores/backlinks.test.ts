@@ -28,6 +28,7 @@ function backlink(overrides: Partial<Backlink> = {}): Backlink {
     col: 4,
     context: "Mentions [[Target]] here.",
     certainty: "resolved",
+    candidates: [],
     ...overrides,
   };
 }

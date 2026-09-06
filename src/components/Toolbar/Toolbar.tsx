@@ -151,6 +151,17 @@ export default function Toolbar() {
         </For>
       </div>
 
+      <Tooltip label={tip("Connections", useEffectiveBinding("panel.toggle", "CmdOrCtrl+Shift+\\"))}>
+        <Button
+          variant="ghost"
+          class="writ-toolbar-btn"
+          icon="link-simple"
+          aria-label="Connections"
+          pressed={win.rightPanel.isOpen()}
+          onClick={() => executeCommand("panel.toggle")}
+        />
+      </Tooltip>
+
       {/* GNOME keeps search in the sidebar's own header segment. */}
       <Show when={!layout.headerBar}>
         <SearchBar />

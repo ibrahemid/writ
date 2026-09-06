@@ -7,6 +7,7 @@ import type { Platform } from "../../lib/platform";
 const h = vi.hoisted(() => ({
   platform: "mac" as "mac" | "win" | "linux",
   setSearchQuery: vi.fn(),
+  panelOpen: false,
   formats: {
     bold: false,
     italic: false,
@@ -37,6 +38,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       closeTab: vi.fn(),
       restoreFromHistory: vi.fn(),
     },
+    rightPanel: { isOpen: () => h.panelOpen },
     editor: { activeFormats: () => h.formats },
   }),
 }));
@@ -122,6 +124,7 @@ describe("Toolbar shape", () => {
       FORMAT_CONTROLS.map(([, label]) => label),
     );
     expect(container.querySelector("input.search-input")).not.toBeNull();
+    expect(control(container, "Connections")).not.toBeNull();
   });
 
   it("names every icon-only control without a title attribute", () => {
@@ -187,6 +190,21 @@ describe("Toolbar commands", () => {
     const { container } = render(() => <Toolbar />);
     fireEvent.click(control(container, "Toggle sidebar"));
     expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("runs panel.toggle from the connections control, and shows its state", () => {
+    const run = stub("panel.toggle", "Connections");
+    const { container } = render(() => <Toolbar />);
+    const button = control(container, "Connections");
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(button);
+    expect(run).toHaveBeenCalledOnce();
+
+    cleanup();
+    h.panelOpen = true;
+    const open = render(() => <Toolbar />);
+    expect(control(open.container, "Connections").getAttribute("aria-pressed")).toBe("true");
+    h.panelOpen = false;
   });
 
   it("runs note.new from New note", () => {

@@ -319,3 +319,34 @@ fn notes_section_round_trips_through_toml() {
     let restored: WritConfig = toml::from_str(&serialized).expect("deserialization failed");
     assert_eq!(restored.notes, config.notes);
 }
+
+#[test]
+fn panel_starts_closed_at_the_sidebar_width() {
+    let config = WritConfig::default();
+    assert!(!config.panel.open);
+    assert_eq!(config.panel.width, 240);
+}
+
+#[test]
+fn panel_defaults_when_the_section_is_absent() {
+    // Every config written before the panel existed has no [panel] table.
+    let config: WritConfig = toml::from_str("[editor]\nfont_size = 16\n").expect("no [panel]");
+    assert!(!config.panel.open);
+    assert_eq!(config.panel.width, 240);
+
+    let partial: WritConfig =
+        toml::from_str("[panel]\nopen = true\n").expect("[panel] without width");
+    assert!(partial.panel.open);
+    assert_eq!(partial.panel.width, 240);
+}
+
+#[test]
+fn panel_state_round_trips_through_toml() {
+    let toml_str = "[panel]\nopen = true\nwidth = 312\n";
+    let config: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
+
+    let serialized = toml::to_string(&config).expect("serialization failed");
+    let restored: WritConfig = toml::from_str(&serialized).expect("deserialization failed");
+    assert!(restored.panel.open);
+    assert_eq!(restored.panel.width, 312);
+}
