@@ -9,43 +9,44 @@ import {
 } from "../../settings";
 
 /**
- * The panel's words, pinned. A rename is a product decision, so it changes this
- * table in the same diff rather than passing quietly.
+ * The panel's words, pinned: label, section and the terms each row claims. A
+ * rename or a moved keyword is a product decision, so it changes this table in
+ * the same diff rather than passing quietly.
  */
-const EXPECTED_ROWS: ReadonlyArray<[string, string, string]> = [
-  ["notes.folder", "notes", "Notes folder"],
-  ["editor.font_size", "editor", "Font size"],
-  ["editor.tab_size", "editor", "Tab size"],
-  ["editor.word_wrap", "editor", "Word wrap"],
-  ["editor.markdown_typography", "editor", "Style headings and bold text as you type"],
-  ["editor.markdown_editing", "editor", "Markdown shortcuts"],
-  ["editor.spelling", "editor", "Spell check"],
-  ["editor.spelling_dialect", "editor", "Spelling"],
-  ["editor.status_bar", "editor", "Status bar"],
-  ["files.default_app", "files", "Open these file types with Writ"],
-  ["preview.run_scripts", "preview", "Allow HTML files to run their scripts"],
-  ["preview.layout_md", "preview", "When opening a Markdown file, show:"],
-  ["preview.layout_html", "preview", "When opening an HTML file, show:"],
-  ["ai.enabled", "ai", "Rewrite selected text"],
-  ["ai.preset", "ai", "Provider"],
-  ["ai.base_url", "ai", "Base URL"],
-  ["ai.model", "ai", "Model"],
-  ["ai.api_key", "ai", "API key"],
-  ["appearance.polarity", "appearance", "Light and dark"],
-  ["appearance.accent", "appearance", "Accent color"],
-  ["appearance.prose_face", "appearance", "Prose typeface"],
-  ["appearance.interface_text_size", "appearance", "Interface text size"],
-  ["appearance.theme", "appearance", "Theme"],
-  ["appearance.custom_colors", "appearance", "Custom colors"],
-  ["updates.auto_check", "updates", "Check for updates automatically"],
-  ["updates.check_now", "updates", "Check for updates now"],
-  ["shortcuts.edit", "shortcuts", "Keyboard shortcuts"],
-  ["files.cli", "advanced", "Terminal command"],
-  ["files.inbox_folder", "advanced", "Folder to watch for new files"],
-  ["files.inbox_focus", "advanced", "Bring Writ to the front when a new file arrives"],
-  ["preview.live_threshold", "advanced", "Stop live preview above"],
-  ["preview.refuse_threshold", "advanced", "Do not preview files above"],
-  ["storage.location", "advanced", "Writ's data folder"],
+const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
+  ["notes.folder", "notes", "Notes folder", ["notes", "folder", "where are my notes", "location", "path", "finder", "backup", "sync", "icloud", "dropbox"]],
+  ["editor.font_size", "editor", "Font size", ["font", "size", "text", "zoom"]],
+  ["editor.tab_size", "editor", "Tab size", ["tab", "indent", "spaces", "width"]],
+  ["editor.word_wrap", "editor", "Word wrap", ["wrap", "word", "line", "soft wrap"]],
+  ["editor.markdown_typography", "editor", "Style headings and bold text as you type", ["markdown", "headings", "bold", "italic", "styling", "formatting", "live"]],
+  ["editor.markdown_editing", "editor", "Markdown shortcuts", ["markdown", "editing", "bold", "italic", "strikethrough", "link", "shortcuts", "checkbox", "list"]],
+  ["editor.spelling", "editor", "Spell check", ["spell", "spelling", "check", "dictionary", "typos", "grammar"]],
+  ["editor.spelling_dialect", "editor", "Spelling", ["spelling", "english", "us", "uk", "american", "british", "canadian", "australian"]],
+  ["editor.status_bar", "editor", "Status bar", ["status bar", "line", "column", "encoding", "word count"]],
+  ["files.default_app", "files", "Open these file types with Writ", ["default", "default app", "open with", "file association", "txt", "text", "log", "markdown", "md", "json", "yaml", "toml", "config", "data", "csv", "code", "rust", "typescript", "python"]],
+  ["preview.run_scripts", "preview", "Allow HTML files to run their scripts", ["scripts", "javascript", "html", "run", "safety"]],
+  ["preview.layout_md", "preview", "When opening a Markdown file, show:", ["layout", "markdown", "md", "text", "preview", "split"]],
+  ["preview.layout_html", "preview", "When opening an HTML file, show:", ["layout", "html", "text", "preview", "split"]],
+  ["ai.enabled", "ai", "Rewrite selected text", ["ai", "rewrite", "proofread", "rephrase", "polish", "model", "llm", "ollama", "enable"]],
+  ["ai.preset", "ai", "Provider", ["ai", "provider", "preset", "ollama", "groq", "gemini", "deepseek", "openrouter", "custom"]],
+  ["ai.base_url", "ai", "Base URL", ["ai", "base url", "endpoint", "host", "server"]],
+  ["ai.model", "ai", "Model", ["ai", "model", "id"]],
+  ["ai.api_key", "ai", "API key", ["ai", "api key", "token", "secret", "credential"]],
+  ["appearance.polarity", "appearance", "Light and dark", ["appearance", "light", "dark", "system", "theme", "polarity", "follow system"]],
+  ["appearance.accent", "appearance", "Accent color", ["accent", "color", "pine", "highlight"]],
+  ["appearance.prose_face", "appearance", "Prose typeface", ["font", "typeface", "prose", "writing", "ia writer", "quattro"]],
+  ["appearance.interface_text_size", "appearance", "Interface text size", ["interface", "text", "size", "ui", "font", "scale", "bigger", "smaller", "sidebar", "tabs"]],
+  ["appearance.theme", "appearance", "Theme", ["theme", "color", "appearance", "preset", "dark", "light"]],
+  ["appearance.custom_colors", "appearance", "Custom colors", ["theme", "colors", "custom", "palette"]],
+  ["updates.auto_check", "updates", "Check for updates automatically", ["update", "auto", "check", "version"]],
+  ["updates.check_now", "updates", "Check for updates now", ["update", "check", "now", "version"]],
+  ["shortcuts.edit", "shortcuts", "Keyboard shortcuts", ["shortcut", "keyboard", "keybinding", "hotkey", "rebind"]],
+  ["files.cli", "advanced", "Terminal command", ["cli", "writ command", "terminal", "command line", "install"]],
+  ["files.inbox_folder", "advanced", "Folder to watch for new files", ["watch", "watched folder", "new files", "auto-open", "drop"]],
+  ["files.inbox_focus", "advanced", "Bring Writ to the front when a new file arrives", ["watch", "focus", "window", "front", "new file"]],
+  ["preview.live_threshold", "advanced", "Stop live preview above", ["preview", "live", "size", "mb", "large files"]],
+  ["preview.refuse_threshold", "advanced", "Do not preview files above", ["preview", "limit", "size", "mb", "large files"]],
+  ["storage.location", "advanced", "Writ's data folder", ["database", "sqlite", "db", "writ.db", "index", "logs", "settings file", "app data"]],
 ];
 
 /**
@@ -55,8 +56,8 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string]> = [
 const ALLOWLIST_RECORDS_BEFORE = 35;
 
 describe("settings vocabulary", () => {
-  it("settings_rows_carry_the_pinned_label_and_section", () => {
-    expect(SETTINGS_INDEX.map((e) => [e.id, e.section, e.title])).toEqual(
+  it("settings_rows_carry_the_pinned_label_section_and_keywords", () => {
+    expect(SETTINGS_INDEX.map((e) => [e.id, e.section, e.title, e.keywords])).toEqual(
       EXPECTED_ROWS.map((row) => [...row]),
     );
   });
@@ -105,7 +106,11 @@ describe("settings vocabulary", () => {
     }
     const dataFolder = SETTINGS_INDEX.find((e) => e.id === "storage.location")!;
     expect(dataFolder.section).toBe("advanced");
+    expect(dataFolder.title).toBe("Writ's data folder");
     expect(dataFolder.title).not.toMatch(/\.db/);
+    for (const term of ["notes", "folder", "backup", "sync"]) {
+      expect(dataFolder.keywords, term).not.toContain(term);
+    }
   });
 
   it("banned_words_allowlist_is_shorter_than_before", () => {
