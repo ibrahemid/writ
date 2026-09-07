@@ -98,10 +98,34 @@ describe("settings vocabulary", () => {
     expect(rankSettings("where are my notes")[0]?.id).toBe("notes.folder");
   });
 
+  // `folder` is the term the panel and the command palette used to disagree on:
+  // the palette lists rank order, so the watched-folder row led there.
+  it("folder_leads_with_the_notes_folder_row_not_the_watched_folder", () => {
+    const ranked = rankSettings("folder").map((e) => e.id);
+    expect(ranked[0]).toBe("notes.folder");
+    expect(ranked).toContain("files.inbox_folder");
+    expect(ranked.indexOf("notes.folder")).toBeLessThan(ranked.indexOf("files.inbox_folder"));
+  });
+
+  // The exact-keyword tier reorders results; it must never change which rows
+  // match, since a keyword equal to the query also contains it.
+  it("claiming_a_term_exactly_reorders_results_without_changing_the_set", () => {
+    for (const term of ["notes", "folder", "backup", "sync", "theme", "font", "markdown"]) {
+      const byScore = new Set(rankSettings(term).map((e) => e.id));
+      const byContains = SETTINGS_INDEX.filter(
+        (e) =>
+          e.title.toLowerCase().includes(term) ||
+          e.keywords.some((k) => k.toLowerCase().includes(term)) ||
+          SECTION_LABELS[e.section].toLowerCase().includes(term),
+      ).map((e) => e.id);
+      expect([...byScore].sort(), term).toEqual([...byContains].sort());
+    }
+  });
+
   // A `.db` path is never the answer to "where are my notes": the data folder
   // is a separate row, in Advanced, and its keywords must not compete.
   it("the_data_folder_row_does_not_outrank_the_notes_folder", () => {
-    for (const term of ["notes", "where are my notes", "backup", "sync"]) {
+    for (const term of ["notes", "folder", "where are my notes", "backup", "sync"]) {
       expect(rankSettings(term)[0]?.id, term).toBe("notes.folder");
     }
     const dataFolder = SETTINGS_INDEX.find((e) => e.id === "storage.location")!;

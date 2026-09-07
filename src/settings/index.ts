@@ -82,9 +82,25 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 /** The one row offering Writ as the handler for the claimable file types. */
 export const DEFAULT_APP_SETTING_ID = "files.default_app";
 
+/**
+ * How well one row answers a query, highest first:
+ *
+ *   6 the title is the query
+ *   5 a keyword is the query — the row claimed that exact word
+ *   4 the title starts with it
+ *   3 the title contains it
+ *   2 a keyword contains it
+ *   1 the section label contains it
+ *
+ * A keyword equal to the query also contains it, so the exact tier moves rows
+ * within the results and never adds or drops one. It is what puts `Notes
+ * folder`, which claims `folder`, above `Folder to watch for new files`, which
+ * only happens to start with the word.
+ */
 function scoreEntry(entry: SettingEntry, queryLower: string): number {
   const title = entry.title.toLowerCase();
-  if (title === queryLower) return 5;
+  if (title === queryLower) return 6;
+  if (entry.keywords.some((k) => k.toLowerCase() === queryLower)) return 5;
   if (title.startsWith(queryLower)) return 4;
   if (title.includes(queryLower)) return 3;
   if (entry.keywords.some((k) => k.toLowerCase().includes(queryLower))) return 2;
