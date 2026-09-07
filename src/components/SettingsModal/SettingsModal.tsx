@@ -1268,16 +1268,19 @@ function AppearanceSection() {
         label="Interface text size"
         labelFor="setting-interface-text-size"
       >
-        <input
-          id="setting-interface-text-size"
-          type="number"
-          class="settings-input settings-input-number"
-          data-setting="interface_text_size"
-          value={interfaceTextSize()}
-          min={INTERFACE_TEXT_MIN}
-          max={INTERFACE_TEXT_MAX}
-          onChange={(e) => onInterfaceTextSizeChange(e.currentTarget.value)}
-        />
+        <span class="settings-inbox-controls">
+          <input
+            id="setting-interface-text-size"
+            type="number"
+            class="settings-input settings-input-number"
+            data-setting="interface_text_size"
+            value={interfaceTextSize()}
+            min={INTERFACE_TEXT_MIN}
+            max={INTERFACE_TEXT_MAX}
+            onChange={(e) => onInterfaceTextSizeChange(e.currentTarget.value)}
+          />
+          <span class="settings-unit">px</span>
+        </span>
       </SettingsRow>
       <SettingsRow id="appearance.theme" label="Theme" labelFor="setting-theme-preset">
         <select
