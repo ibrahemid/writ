@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createRoot, createSignal } from "solid-js";
 import {
   createFolderGraphStore,
@@ -17,13 +17,19 @@ vi.mock("../../stores/global/notes", () => ({
 }));
 
 let store: FolderGraphStore;
+let dispose: () => void;
 
 beforeEach(() => {
   setRoot("/notes");
-  createRoot(() => {
+  // Held and disposed: a store left running watches the root for the rest of
+  // the file, so the next test's move would reach this one's store as well.
+  dispose = createRoot((disposeRoot) => {
     store = createFolderGraphStore();
+    return disposeRoot;
   });
 });
+
+afterEach(() => dispose());
 
 describe("moving the notes folder", () => {
   it("puts the search and the view back", () => {
@@ -45,16 +51,19 @@ describe("moving the notes folder", () => {
     expect(store.isOpen()).toBe(true);
   });
 
-  it("leaves what was searched for alone while the folder stays where it is", () => {
+  it("puts them back on every move, not only on the first", () => {
     store.open();
+    setRoot("/elsewhere");
+
     store.search("alpha");
     store.zoomOut();
     store.panLeft();
+    expect(store.pan()).toEqual({ x: PAN_STEP, y: 0 });
 
     setRoot("/notes");
 
-    expect(store.query()).toBe("alpha");
-    expect(store.zoom()).toBeLessThan(1);
-    expect(store.pan()).toEqual({ x: PAN_STEP, y: 0 });
+    expect(store.query()).toBe("");
+    expect(store.zoom()).toBe(1);
+    expect(store.pan()).toEqual({ x: 0, y: 0 });
   });
 });
