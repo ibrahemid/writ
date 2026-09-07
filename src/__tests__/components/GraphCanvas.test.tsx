@@ -304,6 +304,59 @@ describe("a drawing of one note", () => {
     expect(first.length).toBe(OTHER.length);
     expect(moved.slice(-first.length)).toEqual(first);
   });
+
+  // Two notes that link to each other hand the section the same two notes
+  // whichever of them is open, and it is still another drawing: the seed is the
+  // open note's path (ADR-037 §2), so the section under Beta looks the way a
+  // first look at Beta does rather than the way Alpha's drawing looked.
+  it("settles again for another note inside one set of notes", () => {
+    const [focus, setFocus] = createSignal("Alpha.md");
+    const shown = render(() => (
+      <GraphCanvas nodes={NODES} edges={EDGES} focusPath={focus()} onOpen={() => {}} />
+    ));
+
+    recorder.spots = [];
+    setFocus("Beta.md");
+    const moved = [...recorder.spots];
+    expect(moved.length).toBeGreaterThanOrEqual(NODES.length);
+    shown.unmount();
+
+    recorder.spots = [];
+    render(() => (
+      <GraphCanvas nodes={NODES} edges={EDGES} focusPath="Beta.md" onOpen={() => {}} />
+    ));
+    const first = [...recorder.spots];
+
+    expect(first.length).toBe(NODES.length);
+    expect(moved.slice(-first.length)).toEqual(first);
+  });
+});
+
+describe("a drawing of a set of notes", () => {
+  // The other half of the same call: a drawing that keeps its places settles
+  // from a seed of its own, so the note it rings moves the ring and nothing
+  // else. The whole-folder view is the one caller that asks for this.
+  it("leaves every note where it is when the note it rings changes", () => {
+    const [focus, setFocus] = createSignal("Alpha.md");
+    render(() => (
+      <GraphCanvas
+        nodes={NODES}
+        edges={EDGES}
+        focusPath={focus()}
+        keepsPlaces
+        onOpen={() => {}}
+      />
+    ));
+
+    recorder.spots = [];
+    setFocus("Beta.md");
+    const before = [...recorder.spots];
+    expect(before.length).toBe(NODES.length);
+
+    recorder.spots = [];
+    setFocus("Gamma.md");
+    expect(recorder.spots).toEqual(before);
+  });
 });
 
 describe("what unmounting lets go of", () => {

@@ -181,10 +181,10 @@ export default function GraphCanvas(props: Props) {
    * What the drawing is of: the notes and the links between them, in an order
    * two identical sets agree on.
    *
-   * A settle belongs to this and to nothing else. Which note is open, what was
-   * searched for and where the drawing has been taken all paint the same
-   * settle again, so choosing a note from a folder of two thousand does not
-   * rearrange the two thousand under the choice.
+   * A drawing that keeps its places settles on this and on nothing else. What
+   * was searched for, where the drawing has been taken and which note is open
+   * all paint the same settle again, so choosing a note from a folder of two
+   * thousand does not rearrange the two thousand under the choice.
    */
   const drawnSet = createMemo(() => {
     const paths = props.nodes.map((node) => node.path).sort();
@@ -492,9 +492,18 @@ export default function GraphCanvas(props: Props) {
     });
   });
 
+  // A drawing of one note settles from that note, so the note it is under is
+  // part of what it is a drawing of: two notes that link to each other give the
+  // section the same pair either way round, and it is still another drawing.
+  // A drawing that keeps its places settles from a seed of its own, so the note
+  // it rings says nothing about its shape and only the set restarts it.
+  const settleKey = createMemo(() =>
+    props.keepsPlaces ? drawnSet() : `${props.focusPath ?? ""}\n${drawnSet()}`,
+  );
+
   createEffect(
     on(
-      () => [drawnSet(), props.options] as const,
+      () => [settleKey(), props.options] as const,
       () => {
         if (canvas) restart();
       },
@@ -502,9 +511,10 @@ export default function GraphCanvas(props: Props) {
     ),
   );
 
-  // Moving the drawing, taking it in and out, searching it and opening a note
-  // from it all change what is painted and none of them change where a note
-  // settled, so they repaint rather than start the settle again.
+  // Moving the drawing, taking it in and out, searching it, and in a drawing
+  // that keeps its places opening a note from it, all change what is painted
+  // and none of them change where a note settled, so they repaint rather than
+  // start the settle again.
   createEffect(
     on(
       () => [props.zoom, props.pan, props.dimmed, props.colors, props.focusPath] as const,
