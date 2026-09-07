@@ -537,9 +537,8 @@ function FilesSection() {
     });
 
   // Files holds nothing but this row, so the section renders only where the row
-  // can. The startup probe warms the registry before Settings can open, so on a
-  // supported platform heading and row paint on the first render and this
-  // section's own round-trips only fill in the boxes.
+  // can. The registry answers first: App probes it at startup, before Settings
+  // can open, while this section re-queries on every visit.
   return (
     <Show when={hasSupportedDefaultAppTypes() || claimable().length > 0}>
       <div data-section="files">

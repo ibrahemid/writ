@@ -582,6 +582,7 @@ describe("SettingsModal", () => {
 
       const { container } = render(() => <SettingsModal />);
       await openFilesNav(container);
+      expect(container.querySelector("[data-section='files']")).not.toBeNull();
       await waitFor(() => expect(container.querySelector("[data-section='files']")).toBeNull());
       expect(filesHeading(container)).toBeUndefined();
       expect(container.querySelector("[data-default-app-type]")).toBeNull();
