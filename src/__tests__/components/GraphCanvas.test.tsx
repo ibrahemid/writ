@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createSignal } from "solid-js";
+import { batch, createSignal } from "solid-js";
 import { render, cleanup } from "@solidjs/testing-library";
 import GraphCanvas from "../../components/Graph/GraphCanvas";
 
@@ -47,6 +47,8 @@ interface Recorder {
   strokes: string[];
   paints: number;
   asked: string[];
+  /** Where every disc was drawn, which is where the settle put its note. */
+  spots: { x: number; y: number }[];
 }
 
 let recorder: Recorder;
@@ -86,7 +88,9 @@ function stubContext(record: Recorder): CanvasRenderingContext2D {
     beginPath: () => {},
     moveTo: () => {},
     lineTo: () => {},
-    arc: () => {},
+    arc: (x: number, y: number) => {
+      record.spots.push({ x, y });
+    },
     stroke: () => {
       record.paints += 1;
     },
@@ -120,7 +124,7 @@ function stubContext(record: Recorder): CanvasRenderingContext2D {
 }
 
 beforeEach(() => {
-  recorder = { fills: [], strokes: [], paints: 0, asked: [] };
+  recorder = { fills: [], strokes: [], paints: 0, asked: [], spots: [] };
   observers = [];
   frames = [];
   cancelled = [];
@@ -253,6 +257,52 @@ describe("motion", () => {
     mount();
     expect(frames).toEqual([]);
     expect(recorder.paints).toBeGreaterThan(0);
+  });
+});
+
+describe("a drawing of one note", () => {
+  const OTHER = [
+    { path: "Beta.md", name: "Beta", degree: 2 },
+    { path: "Alpha.md", name: "Alpha", degree: 1 },
+    { path: "Delta.md", name: "Delta", degree: 1 },
+  ];
+  const OTHER_EDGES = [
+    { from: "Beta.md", to: "Alpha.md" },
+    { from: "Beta.md", to: "Delta.md" },
+  ];
+
+  // The near-note drawing is of the note it is under: another note is another
+  // drawing, settled from that note's own seed, and it settles the same way
+  // whether the section was showing the note before it or has just arrived.
+  // The whole-folder view asks for the other behaviour by name (`keepsPlaces`).
+  it("settles again for another note, the way a first look at that note does", () => {
+    const [nodes, setNodes] = createSignal(NODES);
+    const [edges, setEdges] = createSignal(EDGES);
+    const [focus, setFocus] = createSignal("Alpha.md");
+    const switched = render(() => (
+      <GraphCanvas nodes={nodes()} edges={edges()} focusPath={focus()} onOpen={() => {}} />
+    ));
+
+    recorder.spots = [];
+    batch(() => {
+      setNodes(OTHER);
+      setEdges(OTHER_EDGES);
+      setFocus("Beta.md");
+    });
+    // The settle paints once and the note it rings paints once more; both are
+    // the same drawing, so the last painting of it is the one to hold.
+    const moved = [...recorder.spots];
+    expect(moved.length).toBeGreaterThanOrEqual(OTHER.length);
+    switched.unmount();
+
+    recorder.spots = [];
+    render(() => (
+      <GraphCanvas nodes={OTHER} edges={OTHER_EDGES} focusPath="Beta.md" onOpen={() => {}} />
+    ));
+    const first = [...recorder.spots];
+
+    expect(first.length).toBe(OTHER.length);
+    expect(moved.slice(-first.length)).toEqual(first);
   });
 });
 

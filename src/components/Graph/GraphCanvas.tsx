@@ -1,4 +1,4 @@
-import { createEffect, createSignal, on, onCleanup, onMount } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import { themeStore } from "../../stores/global/theme";
 import {
   DEFAULT_LAYOUT_OPTIONS,
@@ -39,6 +39,16 @@ interface Props {
   onZoomBy?: (factor: number) => void;
   /** Puts the canvas in the tab order, for a drawing that is moved by keys. */
   focusable?: boolean;
+  /**
+   * Set when the drawing is of a set of notes rather than of one note.
+   *
+   * A drawing of one note is a new drawing per note, settled from that note's
+   * own seed. A folder is one drawing that notes are written into and deleted
+   * from: it settles from a seed of its own, so which note is open says
+   * nothing about its shape, and a note that is still there stays where it
+   * settled when the set changes around it.
+   */
+  keepsPlaces?: boolean;
   class?: string;
 }
 
@@ -119,6 +129,9 @@ function seedFor(path: string): number {
   return seed;
 }
 
+/** The seed a drawing that is of no one note settles from. */
+const OWN_SEED = seedFor("");
+
 function samePalette(a: Palette, b: Palette): boolean {
   return (Object.keys(a) as (keyof Palette)[]).every((key) => a[key] === b[key]);
 }
@@ -164,6 +177,23 @@ export default function GraphCanvas(props: Props) {
   const [hovered, setHovered] = createSignal<string | null>(null);
 
   const options = () => props.options ?? DEFAULT_LAYOUT_OPTIONS;
+  /**
+   * What the drawing is of: the notes and the links between them, in an order
+   * two identical sets agree on.
+   *
+   * A settle belongs to this and to nothing else. Which note is open, what was
+   * searched for and where the drawing has been taken all paint the same
+   * settle again, so choosing a note from a folder of two thousand does not
+   * rearrange the two thousand under the choice.
+   */
+  const drawnSet = createMemo(() => {
+    const paths = props.nodes.map((node) => node.path).sort();
+    const links = props.edges
+      .map((edge) => (edge.from < edge.to ? [edge.from, edge.to] : [edge.to, edge.from]))
+      .map(([from, to]) => `${from}\u0000${to}`)
+      .sort();
+    return JSON.stringify([paths, links]);
+  });
   const focusNode = () => props.nodes.find((node) => node.path === props.focusPath) ?? null;
   const neighbourCount = () => Math.max(0, props.nodes.length - 1);
 
@@ -203,10 +233,15 @@ export default function GraphCanvas(props: Props) {
     // The settle works in world units and says nothing about how big the panel
     // is; what fits it into this canvas is the one scale and shift below, so
     // the drawing keeps its proportions at any note count and at any width.
+    // Every note is fitted with the room the largest disc takes rather than
+    // the room its own takes, so the fit is a property of where the notes
+    // settled and of nothing else. The open note is the one disc drawn at that
+    // size, and opening one from the drawing would otherwise re-fit every
+    // other note around it.
     const world: PlacedNode[] = props.nodes.map((node) => ({
       path: node.path,
       ...(points.get(node.path) ?? { x: 0, y: 0 }),
-      radius: node.path === props.focusPath ? RADIUS_MAX : radiusFor(node.degree),
+      radius: RADIUS_MAX,
     }));
     const fitted = fitToView(world, {
       width: size.width,
@@ -223,7 +258,11 @@ export default function GraphCanvas(props: Props) {
       offsetX: (fitted.offsetX - size.width / 2) * zoom + size.width / 2 + pan.x,
       offsetY: (fitted.offsetY - size.height / 2) * zoom + size.height / 2 + pan.y,
     };
-    placed = world.map((node) => ({ ...node, ...toScreen(node, view) }));
+    placed = world.map((node, at) => ({
+      ...node,
+      radius: node.path === props.focusPath ? RADIUS_MAX : radiusFor(props.nodes[at].degree),
+      ...toScreen(node, view),
+    }));
     const by = new Map(placed.map((node) => [node.path, node] as const));
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -380,7 +419,9 @@ export default function GraphCanvas(props: Props) {
   function restart() {
     cancelFrame();
     if (props.nodes.length === 0) return;
-    state = beginLayout(props.nodes, props.edges, options(), seedFor(props.focusPath));
+    const warm = props.keepsPlaces && state ? positions(state) : undefined;
+    const seed = props.keepsPlaces ? OWN_SEED : seedFor(props.focusPath);
+    state = beginLayout(props.nodes, props.edges, options(), seed, warm);
     if (settlesAtOnce()) {
       if (props.nodes.length <= SETTLE_AT_ONCE) {
         runToEnd();
@@ -453,7 +494,7 @@ export default function GraphCanvas(props: Props) {
 
   createEffect(
     on(
-      () => [props.focusPath, props.nodes, props.edges, props.options] as const,
+      () => [drawnSet(), props.options] as const,
       () => {
         if (canvas) restart();
       },
@@ -461,12 +502,12 @@ export default function GraphCanvas(props: Props) {
     ),
   );
 
-  // Moving the drawing, taking it in and out and searching it all change what
-  // is painted and none of them change where a note settled, so they repaint
-  // rather than start the settle again.
+  // Moving the drawing, taking it in and out, searching it and opening a note
+  // from it all change what is painted and none of them change where a note
+  // settled, so they repaint rather than start the settle again.
   createEffect(
     on(
-      () => [props.zoom, props.pan, props.dimmed, props.colors] as const,
+      () => [props.zoom, props.pan, props.dimmed, props.colors, props.focusPath] as const,
       () => {
         if (canvas && state) draw();
       },

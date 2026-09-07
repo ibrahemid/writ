@@ -163,12 +163,20 @@ function normaliseSeed(seed: number): number {
  * that no later step brings them back. Starting the notes at about the spacing
  * they settle at costs nothing at ten notes and is what makes two thousand
  * settle at all.
+ *
+ * `previous` is where the notes of an earlier settle ended up. A note named
+ * there starts where it already was and only the notes that are new to the
+ * set take a lattice point, so a note written or deleted on disk reads as
+ * that one change rather than as a drawing that rearranged itself. The seed
+ * is spent per note either way, so which notes were kept does not move the
+ * ones that were not.
  */
 export function beginLayout(
   nodes: readonly LayoutNode[],
   edges: readonly LayoutEdge[],
   options: LayoutOptions,
   seed: number,
+  previous?: ReadonlyMap<string, Point>,
 ): LayoutState {
   const paths = nodes.map((node) => node.path);
   const index = new Map<string, number>();
@@ -191,6 +199,12 @@ export function beginLayout(
     const shiftX = (unitOf(state) - 0.5) * pitch * 0.5;
     state = nextSeed(state);
     const shiftY = (unitOf(state) - 0.5) * pitch * 0.5;
+    const kept = previous?.get(paths[i]);
+    if (kept) {
+      x.push(kept.x);
+      y.push(kept.y);
+      continue;
+    }
     x.push((column - (columns - 1) / 2) * pitch + shiftX);
     y.push((row - (rows - 1) / 2) * pitch + shiftY);
   }
