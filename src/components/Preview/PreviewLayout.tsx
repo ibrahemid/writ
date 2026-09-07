@@ -161,8 +161,13 @@ export default function PreviewLayout(props: Props) {
 
       {/* The preview pane slot is ALWAYS in the DOM so its iframe is never torn
           down (writ-preview:// teardown freezes the macOS webview, #124). It is
-          hidden when no preview shows; the pane parks the iframe on a blank doc. */}
-      <div class="preview-pane-slot" classList={{ "is-hidden": !showsIframe() }}>
+          hidden when no preview shows, and again while the folder graph covers
+          the note; the pane parks the iframe on a blank doc. */}
+      <div
+        class="preview-pane-slot"
+        classList={{ "is-hidden": !showsIframe() }}
+        hidden={win.folderGraph.isOpen()}
+      >
         <PreviewPane
           buffer={props.buffer}
           contentType={contentType()}

@@ -5,6 +5,7 @@ import { createEditorStore, type EditorStore } from "./editor-store";
 import { createTabStore, type TabStore } from "./tab-store";
 import { createLayoutStore, type LayoutStore } from "./layout-store";
 import { createPreviewStore, type PreviewStore } from "./preview-store";
+import { createFolderGraphStore, type FolderGraphStore } from "./folder-graph-store";
 import { createDownloadStore, type DownloadStore } from "./download-store";
 import { bufferRegistry } from "../global/buffer-registry";
 
@@ -17,6 +18,7 @@ export interface WindowState {
   tabs: TabStore;
   layout: LayoutStore;
   preview: PreviewStore;
+  folderGraph: FolderGraphStore;
   downloads: DownloadStore;
 }
 
@@ -41,6 +43,7 @@ export function createWindowState(opts: CreateWindowStateOptions): WindowState {
     tabs,
     layout: createLayoutStore({ windowId: opts.windowId }),
     preview: createPreviewStore({ windowId: opts.windowId }),
+    folderGraph: createFolderGraphStore(),
     downloads,
   };
 }
