@@ -20,7 +20,10 @@
 //! file whose size and mtime match its row, so the walk that would refill them
 //! has to be told to read everything: clearing the derived-row census
 //! (`schema_meta::KEY_NOTES_FACTS_CENSUS`) is what tells it, through the
-//! rebuild path ADR-034 already gave it.
+//! rebuild path ADR-034 already gave it. The census lives in `schema_meta`, so
+//! a repair that finds that table gone too recreates it in the same
+//! transaction: the write that ends the repair cannot be the thing that fails
+//! it, or a database that lost both would refuse to open at all.
 
 use crate::errors::{StorageError, StorageResult};
 use crate::schema_meta;
@@ -29,6 +32,9 @@ use tracing::{info, warn};
 
 /// The four derived tables and their indexes, the DDL migration 40 applies.
 const DERIVED_DDL: &str = include_str!("notes_index_derived.sql");
+
+/// The key/value table the census is written to, the DDL migration 40 applies.
+const SCHEMA_META_DDL: &str = include_str!("schema_meta.sql");
 
 /// The full-text shadow over `files`, the DDL migration 40 applies.
 const FTS_DDL: &str = include_str!("notes_index_fts.sql");
@@ -56,21 +62,43 @@ pub const DERIVED_OBJECTS: &[&str] = &[
 /// The object [`FTS_DDL`] creates. Its own shadow tables are SQLite's to keep.
 pub const FTS_OBJECT: &str = "files_fts";
 
+/// The object [`SCHEMA_META_DDL`] creates, which the repair writes the cleared
+/// census to.
+pub const SCHEMA_META_OBJECT: &str = "schema_meta";
+
+/// Tables the index hangs off that this repair does not recreate. `files` is
+/// the walk's own record rather than something derived from it, and its
+/// columns are spread over migrations 40 and 42, so migration 40's DDL is not
+/// the whole of it.
+pub const UNREPAIRABLE_OBJECTS: &[&str] = &["files"];
+
 /// What [`repair_notes_index`] found.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IndexRepairOutcome {
     /// Every object was there, and nothing was written.
     Intact,
     /// Something was missing and the tables it belongs to were recreated. The
     /// next reconcile refills them.
     Repaired,
+    /// Something is missing that this repair does not recreate, so it wrote
+    /// nothing. The index stays broken and the names say what would have to be
+    /// put back for it to work, which is more than a launch that reports
+    /// nothing at all.
+    Unrepairable {
+        /// The objects that are gone, in the order they are checked.
+        missing: Vec<String>,
+    },
 }
 
 /// Recreates the notes-index tables that are missing from `conn`.
 ///
 /// Returns [`IndexRepairOutcome::Intact`] when there is nothing to do, which
 /// is every launch of a healthy database: the check is a handful of
-/// `sqlite_master` lookups and writes nothing.
+/// `sqlite_master` lookups and writes nothing. A database missing something
+/// this repair does not recreate ([`UNREPAIRABLE_OBJECTS`], or `schema_meta`
+/// with the index otherwise whole) is reported as
+/// [`IndexRepairOutcome::Unrepairable`] and left as it is: the launch it is on
+/// carries on rather than failing over a database that is already broken.
 ///
 /// A hole in the derived set is filled by dropping and recreating all four
 /// tables together rather than the missing one alone, so the set always comes
@@ -78,19 +106,30 @@ pub enum IndexRepairOutcome {
 /// walk that follows writes them back. `files_fts` is created when it is
 /// missing and never dropped when it is there: it shadows `files`, whose rows
 /// this repair does not touch, and dropping it would take the folder's
-/// searchable text out for the length of a walk.
+/// searchable text out for the length of a walk. `schema_meta` is recreated
+/// alongside them when it is gone, because the census the repair clears is
+/// written there.
 ///
 /// # Errors
 ///
 /// [`StorageError::IndexRepair`] when a table that is missing cannot be
 /// created.
 pub fn repair_notes_index(conn: &Connection) -> StorageResult<IndexRepairOutcome> {
-    if !object_exists(conn, "files")? {
-        // Below what a repair from the notes folder can reach: files is the
-        // walk's record, not a table derived from it. Recreating the tables
-        // that hang off it would build an index around a hole.
-        warn!("notes index has no files table; leaving the derived tables alone");
-        return Ok(IndexRepairOutcome::Intact);
+    let mut unrepairable = Vec::new();
+    for name in UNREPAIRABLE_OBJECTS {
+        if !object_exists(conn, name)? {
+            unrepairable.push((*name).to_string());
+        }
+    }
+    if !unrepairable.is_empty() {
+        warn!(
+            missing = unrepairable.join(", "),
+            "notes index is missing a table this repair does not recreate; \
+             leaving the derived tables alone"
+        );
+        return Ok(IndexRepairOutcome::Unrepairable {
+            missing: unrepairable,
+        });
     }
 
     let mut missing_derived = Vec::new();
@@ -100,8 +139,22 @@ pub fn repair_notes_index(conn: &Connection) -> StorageResult<IndexRepairOutcome
         }
     }
     let missing_fts = !object_exists(conn, FTS_OBJECT)?;
+    let missing_meta = !object_exists(conn, SCHEMA_META_OBJECT)?;
 
     if missing_derived.is_empty() && !missing_fts {
+        if missing_meta {
+            // Nothing here needs writing, so nothing here fails. Recreating the
+            // table empty on its own would tell the one-time notes migration it
+            // never ran (`notes_migration::is_settled`), which is a decision
+            // about that pass rather than about the index.
+            warn!(
+                missing = SCHEMA_META_OBJECT,
+                "notes index is intact; leaving the meta table to the pass that owns it"
+            );
+            return Ok(IndexRepairOutcome::Unrepairable {
+                missing: vec![SCHEMA_META_OBJECT.to_string()],
+            });
+        }
         return Ok(IndexRepairOutcome::Intact);
     }
 
@@ -110,6 +163,15 @@ pub fn repair_notes_index(conn: &Connection) -> StorageResult<IndexRepairOutcome
         .map_err(|e| StorageError::IndexRepair {
             message: format!("begin failed: {}", e),
         })?;
+
+    if missing_meta {
+        // Before the clear at the end of this transaction, which is what would
+        // otherwise fail and roll the whole repair back on every launch.
+        tx.execute_batch(SCHEMA_META_DDL)
+            .map_err(|e| StorageError::IndexRepair {
+                message: format!("recreating {} failed: {}", SCHEMA_META_OBJECT, e),
+            })?;
+    }
 
     if !missing_derived.is_empty() {
         for table in DERIVED_TABLES {
@@ -146,6 +208,7 @@ pub fn repair_notes_index(conn: &Connection) -> StorageResult<IndexRepairOutcome
     info!(
         derived = missing_derived.join(", "),
         files_fts = missing_fts,
+        schema_meta = missing_meta,
         "recreated missing notes index tables"
     );
     Ok(IndexRepairOutcome::Repaired)

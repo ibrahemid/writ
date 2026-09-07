@@ -13,7 +13,7 @@ use rusqlite::Connection;
 use tempfile::TempDir;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::index_repair::{
-    repair_notes_index, IndexRepairOutcome, DERIVED_OBJECTS, FTS_OBJECT,
+    repair_notes_index, IndexRepairOutcome, DERIVED_OBJECTS, FTS_OBJECT, SCHEMA_META_OBJECT,
 };
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::notes_index::{
@@ -159,6 +159,67 @@ fn drop_tables(db_path: &Path, tables: &[&str]) {
         conn.execute_batch(&format!("DROP TABLE {};", table))
             .expect("drop table");
     }
+}
+
+#[test]
+fn a_hole_beside_a_missing_meta_table_still_leaves_a_database_that_opens() {
+    let (_dir, root, db_path, before) = indexed();
+
+    // The two are created by one migration, so the corruption that takes one
+    // plausibly takes the other. The census the repair clears is written to
+    // schema_meta, which is what would fail the repair and, through it, the
+    // launch.
+    drop_tables(&db_path, &["links", SCHEMA_META_OBJECT]);
+
+    let conn = open_database(&db_path).expect("open_database");
+    run_migrations(&conn).expect("a database that lost both still opens");
+    assert!(object_exists(&conn, SCHEMA_META_OBJECT));
+    for name in DERIVED_OBJECTS {
+        assert!(object_exists(&conn, name), "{} was not recreated", name);
+    }
+    drop(conn);
+
+    assert_eq!(reconciled(&db_path, &root), before);
+}
+
+#[test]
+fn a_missing_meta_table_on_its_own_is_named_and_left() {
+    let (_dir, _root, db_path, _before) = indexed();
+
+    drop_tables(&db_path, &[SCHEMA_META_OBJECT]);
+
+    let conn = open_database(&db_path).expect("open_database");
+    assert_eq!(
+        repair_notes_index(&conn).expect("repair"),
+        IndexRepairOutcome::Unrepairable {
+            missing: vec![SCHEMA_META_OBJECT.to_string()],
+        },
+        "the index is whole, and recreating the table would tell the one-time \
+         notes migration it never ran"
+    );
+    run_migrations(&conn).expect("and the launch carries on");
+    assert!(!object_exists(&conn, SCHEMA_META_OBJECT));
+}
+
+#[test]
+fn a_database_without_files_names_what_it_cannot_repair() {
+    let (_dir, _root, db_path, _before) = indexed();
+
+    drop_tables(&db_path, &["links", "files"]);
+
+    let conn = open_database(&db_path).expect("open_database");
+    assert_eq!(
+        repair_notes_index(&conn).expect("repair"),
+        IndexRepairOutcome::Unrepairable {
+            missing: vec!["files".to_string()],
+        },
+        "an index around a hole is not an index, and the name says which hole"
+    );
+    run_migrations(&conn).expect("the launch carries on over a broken database");
+    assert!(
+        !object_exists(&conn, "links"),
+        "nothing was built on top of the missing table"
+    );
 }
 
 #[test]

@@ -8,12 +8,6 @@
 ALTER TABLE buffers ADD COLUMN migrated_path TEXT;
 ALTER TABLE buffers ADD COLUMN migrated_at INTEGER;
 
-CREATE TABLE schema_meta (
-    key        TEXT PRIMARY KEY,
-    value      TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-
 -- files is a rowid table: files_fts joins it on rowid, exactly as buffer_fts
 -- joins buffers. An index write must therefore be
 -- INSERT ... ON CONFLICT(path) DO UPDATE, never INSERT OR REPLACE, which
@@ -27,7 +21,7 @@ CREATE TABLE files (
     indexed_at TEXT NOT NULL
 );
 
--- links, properties, tags, headings and files_fts are created from
--- src/database/notes_index_derived.sql and src/database/notes_index_fts.sql,
--- appended to this migration. The repair that recreates them when a database
--- loses them reads the same two files.
+-- schema_meta, links, properties, tags, headings and files_fts are created
+-- from src/database/schema_meta.sql, notes_index_derived.sql and
+-- notes_index_fts.sql, appended to this migration. The repair that recreates
+-- them when a database loses them reads the same three files.

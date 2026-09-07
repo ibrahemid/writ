@@ -15,6 +15,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
         40,
         concat!(
             include_str!("../../migrations/040_notes_migration.sql"),
+            include_str!("schema_meta.sql"),
             include_str!("notes_index_derived.sql"),
             include_str!("notes_index_fts.sql"),
         ),
