@@ -55,7 +55,10 @@ import {
   claimDefaultApp,
 } from "../../stores/global/default-app";
 import type { ClaimableType, DefaultAppStatus } from "../../stores/global/default-app";
-import { markDefaultAppTypeSupported } from "../../stores/global/default-app-support";
+import {
+  hasSupportedDefaultAppTypes,
+  markDefaultAppTypeSupported,
+} from "../../stores/global/default-app-support";
 import {
   DEFAULT_APP_SETTING_ID,
   SECTION_LABELS,
@@ -533,11 +536,12 @@ function FilesSection() {
       return s !== undefined && s.status !== "unsupported";
     });
 
-  // The heading waits for the row. Files holds nothing else, so a failed or
-  // still-pending probe would otherwise leave a bare `Files` heading on macOS.
-  // The list only ever grows as types report in, so nothing appears and leaves.
+  // Files holds nothing but this row, so the section renders only where the row
+  // can. The startup probe warms the registry before Settings can open, so on a
+  // supported platform heading and row paint on the first render and this
+  // section's own round-trips only fill in the boxes.
   return (
-    <Show when={claimable().length > 0}>
+    <Show when={hasSupportedDefaultAppTypes() || claimable().length > 0}>
       <div data-section="files">
         <SectionLabel section="files" />
         <SettingsRow id={DEFAULT_APP_SETTING_ID} label="Open these file types with Writ">

@@ -559,13 +559,32 @@ describe("SettingsModal", () => {
       );
     }
 
-    it("hides the file types the platform cannot claim", async () => {
-      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "unsupported" });
+    // The macOS path: the startup probe answers before Settings can open, so
+    // heading and row are there to read the moment the nav switches.
+    it("shows the Files heading on first render once support is known", async () => {
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "no_handler" });
+      await probeDefaultAppSupport();
+      mocks.fetchDefaultAppTypes.mockReturnValue(new Promise(() => {}));
+
       const { container } = render(() => <SettingsModal />);
       await openFilesNav(container);
-      await waitFor(() => expect(mocks.fetchDefaultAppStatus).toHaveBeenCalled());
-      const boxes = container.querySelectorAll("[data-default-app-type]");
-      expect(boxes.length).toBe(0);
+      expect(filesHeading(container)).toBeDefined();
+      expect(container.querySelector("[data-section='files']")).not.toBeNull();
+      expect(container.querySelector("[data-setting-id='files.default_app']")).not.toBeNull();
+    });
+
+    // Support can be withdrawn: a type the startup probe counted answers
+    // unsupported here, which empties the registry and takes the row with it.
+    it("drops the Files heading when a known type turns out unclaimable", async () => {
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "no_handler" });
+      await probeDefaultAppSupport();
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "unsupported" });
+
+      const { container } = render(() => <SettingsModal />);
+      await openFilesNav(container);
+      await waitFor(() => expect(container.querySelector("[data-section='files']")).toBeNull());
+      expect(filesHeading(container)).toBeUndefined();
+      expect(container.querySelector("[data-default-app-type]")).toBeNull();
     });
 
     // A heading with nothing under it says less than no heading at all.
