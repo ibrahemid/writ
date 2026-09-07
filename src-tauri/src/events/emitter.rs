@@ -125,6 +125,12 @@ pub enum WritFrontendEvent {
 
     #[serde(rename = "titlebar:maximize-hit")]
     CaptionMaximizeHit { phase: CaptionHitPhase },
+
+    /// Whether the OS gave Writ the chord that shows and hides the window.
+    /// Raised at startup and again on every rebind, so the shortcut editor can
+    /// say a chord is taken rather than leaving a dead key.
+    #[serde(rename = "hotkey:status")]
+    HotkeyStatus(crate::hotkey::GlobalHotkeyStatus),
 }
 
 fn event_name(event: &WritFrontendEvent) -> &'static str {
@@ -148,6 +154,7 @@ fn event_name(event: &WritFrontendEvent) -> &'static str {
         WritFrontendEvent::LayoutChanged { .. } => "writ://preview-layout-changed",
         WritFrontendEvent::FlushBeforeQuit { .. } => "writ://flush-before-quit",
         WritFrontendEvent::CaptionMaximizeHit { .. } => "writ://titlebar-maximize-hit",
+        WritFrontendEvent::HotkeyStatus(..) => "writ://hotkey-status",
     }
 }
 

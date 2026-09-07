@@ -2,50 +2,46 @@ import { Show } from "solid-js";
 import { getCommand, executeCommand } from "../../commands/registry";
 import { showAnchoredMenu, type MenuItem } from "../ContextMenu/ContextMenu";
 import { formatKeybinding } from "../../lib/keybinding-format";
-
-/**
- * The actions the macOS native menu bar exposes (`MENU_ACTION_IDS` in
- * `src-tauri/src/lib.rs`), plus the palette, which on a platform with no menu
- * bar is the other way to reach everything else. Labels and shortcuts are read
- * from the command registry rather than restated here, so this stays one list
- * of ids and never drifts into a second accelerator table.
- */
-const MENU_COMMAND_IDS = [
-  "note.new",
-  "note.today",
-  "file.open",
-  "note.rename",
-  "note.saveCopy",
-  "buffer.close",
-  "palette.open",
-  "app.check_updates",
-] as const;
-
-/** Ids that open a group. A divider is drawn above them when they are not first. */
-const GROUP_OPENERS: ReadonlySet<string> = new Set([
-  "note.rename",
-  "buffer.close",
-  "palette.open",
-  "app.check_updates",
-]);
+import { MENU_SECTIONS, menuCommandsFor } from "../../commands/menu-commands";
+import { resolvePlatform } from "../../lib/platform";
 
 /**
  * Built per open, not once: commands register during `App`'s `onMount`, so a
  * list captured at module or component scope would read an empty registry.
+ *
+ * The order, the grouping and the membership all come from the shared list
+ * (`src/commands/menu-commands.json`), which is the same file the macOS menu
+ * bar is built from. Labels and shortcuts are read from the command registry
+ * rather than that list, so a label that names the platform's file manager
+ * says the word this platform uses.
  */
 export function appMenuItems(): MenuItem[] {
   const items: MenuItem[] = [];
-  for (const id of MENU_COMMAND_IDS) {
-    const command = getCommand(id);
-    if (!command) continue;
-    items.push({
-      label: command.label,
-      kbd: formatKeybinding(command.keybinding) || undefined,
-      separator: items.length > 0 && GROUP_OPENERS.has(id),
-      action: () => {
-        executeCommand(id);
-      },
-    });
+  const available = menuCommandsFor(resolvePlatform());
+
+  for (const section of MENU_SECTIONS) {
+    const entries = available.filter((entry) => entry.menu === section);
+    let lastGroup: number | null = null;
+
+    for (const entry of entries) {
+      const command = getCommand(entry.id);
+      if (!command) continue;
+      // A section always opens a run, so its first item divides from the one
+      // above it as a group change does.
+      const dividesFromPrevious = lastGroup === null || lastGroup !== entry.group;
+      lastGroup = entry.group;
+      items.push({
+        label: command.label,
+        kbd: formatKeybinding(command.keybinding) || undefined,
+        separator: items.length > 0 && dividesFromPrevious,
+        // Deferred so the command runs after `ContextMenu.close()` has put
+        // focus back on the button: a surface that takes focus synchronously
+        // would otherwise have it taken straight back.
+        action: () => {
+          queueMicrotask(() => executeCommand(entry.id));
+        },
+      });
+    }
   }
   return items;
 }
@@ -55,12 +51,11 @@ export function appMenuItems(): MenuItem[] {
  * carries a single button that opens them. `ContextMenu` owns the popup,
  * including keyboard navigation and returning focus here on dismiss.
  *
- * Passing the button as the trigger is what makes Escape land back on it. The
- * cost: `ContextMenu.close()` restores that focus synchronously right after the
- * action runs, so an entry added here must not focus its surface synchronously
- * or the button steals it straight back. Every command listed above defers
- * (the palette focuses in a requestAnimationFrame, the tab commands are async),
- * which is why the trigger is safe to pass today.
+ * Passing the button as the trigger is what makes Escape land back on it.
+ * `ContextMenu.close()` restores that focus right after the action runs, which
+ * is why `appMenuItems` runs the command in a microtask: the close happens
+ * first, and a surface that takes focus keeps it, whether it does so
+ * synchronously or a frame later.
  */
 interface Props {
   /** GNOME carries the primary menu as a glyph, not as the app name. */

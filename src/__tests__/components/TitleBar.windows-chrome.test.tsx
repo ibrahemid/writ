@@ -115,6 +115,7 @@ vi.mock("../../stores/global/config", () => ({
 
 import TitleBar from "../../components/TitleBar/TitleBar";
 import { registerCommand, unregisterCommand } from "../../commands/registry";
+import { menuCommandsFor } from "../../commands/menu-commands";
 import type { MenuItem } from "../../components/ContextMenu/ContextMenu";
 
 const MENU_COMMANDS = [
@@ -136,6 +137,21 @@ function renderOn(platform: Platform) {
 
 function openedMenuItems(): MenuItem[] {
   return mocks.showAnchoredMenu.mock.calls[0][1] as MenuItem[];
+}
+
+/** The shared list decides the order; the registry decides the wording. */
+function expectedLabels(): string[] {
+  const registered = new Map(MENU_COMMANDS.map((cmd) => [cmd.id, cmd.label]));
+  return menuCommandsFor("win")
+    .filter((entry) => registered.has(entry.id))
+    .map((entry) => registered.get(entry.id)!);
+}
+
+function expectedIds(): string[] {
+  const registered = new Set(MENU_COMMANDS.map((cmd) => cmd.id));
+  return menuCommandsFor("win")
+    .filter((entry) => registered.has(entry.id))
+    .map((entry) => entry.id);
 }
 
 beforeEach(() => {
@@ -182,15 +198,7 @@ describe("titlebar menu affordance carries the platforms with no menu bar", () =
     fireEvent.click(container.querySelector(".titlebar-appmenu")!);
 
     expect(mocks.showAnchoredMenu).toHaveBeenCalledTimes(1);
-    expect(openedMenuItems().map((item) => item.label)).toEqual([
-      "New note",
-      "Open file",
-      "Rename note…",
-      "Save a copy…",
-      "Close tab",
-      "Command palette",
-      "Check for Updates",
-    ]);
+    expect(openedMenuItems().map((item) => item.label)).toEqual(expectedLabels());
   });
 
   // GNOME's button-layout is 'appmenu:close': one control, not three.
@@ -418,20 +426,12 @@ describe("snap-layout overlay geometry", () => {
 });
 
 describe("Writ menu contents", () => {
-  it("lists the macOS menu actions plus the palette, in order", () => {
+  it("lists the shared menu commands, in the list's order", () => {
     const { container } = renderOn("win");
     fireEvent.click(container.querySelector(".titlebar-appmenu")!);
 
     expect(mocks.showAnchoredMenu).toHaveBeenCalledTimes(1);
-    expect(openedMenuItems().map((item) => item.label)).toEqual([
-      "New note",
-      "Open file",
-      "Rename note…",
-      "Save a copy…",
-      "Close tab",
-      "Command palette",
-      "Check for Updates",
-    ]);
+    expect(openedMenuItems().map((item) => item.label)).toEqual(expectedLabels());
   });
 
   it("takes labels and shortcuts from the command registry, not a second table", () => {
@@ -439,27 +439,22 @@ describe("Writ menu contents", () => {
     fireEvent.click(container.querySelector(".titlebar-appmenu")!);
 
     const items = openedMenuItems();
-    expect(items[0].kbd).toBe("Ctrl+N");
-    expect(items[1].kbd).toBe("Ctrl+O");
-    expect(items[4].kbd).toBe("Ctrl+W");
-    expect(items[6].kbd).toBeUndefined();
+    const kbd = (label: string) => items.find((item) => item.label === label)?.kbd;
+    expect(kbd("New note")).toBe("Ctrl+N");
+    expect(kbd("Open file")).toBe("Ctrl+O");
+    expect(kbd("Close tab")).toBe("Ctrl+W");
+    expect(kbd("Check for Updates")).toBeUndefined();
   });
 
-  it("dispatches each entry through the command registry", () => {
+  it("dispatches each entry through the command registry", async () => {
     const { container } = renderOn("win");
     fireEvent.click(container.querySelector(".titlebar-appmenu")!);
 
     for (const item of openedMenuItems()) item.action();
+    // The action runs in a microtask, so the menu's focus restore lands first.
+    await Promise.resolve();
 
-    expect(executed).toEqual([
-      "note.new",
-      "file.open",
-      "note.rename",
-      "note.saveCopy",
-      "buffer.close",
-      "palette.open",
-      "app.check_updates",
-    ]);
+    expect(executed).toEqual(expectedIds());
   });
 
   it("anchors the menu to the button and hands it back as the focus trigger", () => {

@@ -1152,6 +1152,22 @@ export async function revealStoragePath(): Promise<void> {
   return invoke("reveal_storage_path");
 }
 
+// --- The chord that shows and hides the window ---
+
+export interface GlobalHotkeyStatus {
+  chord: string;
+  /** `false` when the OS gave the chord to another app first. */
+  registered: boolean;
+}
+
+export async function globalHotkeyStatus(): Promise<GlobalHotkeyStatus> {
+  return invoke("global_hotkey_status");
+}
+
+export async function setGlobalHotkey(chord: string): Promise<GlobalHotkeyStatus> {
+  return invoke("set_global_hotkey", { chord });
+}
+
 // --- Third-party licences ---
 
 export async function openThirdPartyNotices(): Promise<FileOpenResult> {

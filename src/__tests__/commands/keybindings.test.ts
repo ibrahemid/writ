@@ -162,7 +162,7 @@ describe("keybindings", () => {
 });
 
 describe("editor.replace vs tab.rename chord", () => {
-  it("resolves Cmd+R to editor.replace, not tab.rename", () => {
+  it("resolves Cmd+Option+F to editor.replace, and leaves Cmd+R unbound", () => {
     // Neutralize the Cmd+R owner registered by the alias test above.
     unregisterCommand("test.alias");
 
@@ -178,8 +178,7 @@ describe("editor.replace vs tab.rename chord", () => {
     registerCommand({
       id: "editor.replace",
       label: "Replace",
-      keybinding: "CmdOrCtrl+R",
-      keybindingAliases: ["CmdOrCtrl+Alt+F"],
+      keybinding: "CmdOrCtrl+Alt+F",
       scope: "editor",
       execute: () => { replaced += 1; },
     });
@@ -194,7 +193,11 @@ describe("editor.replace vs tab.rename chord", () => {
     rebuildKeyMap();
 
     editor.focus();
-    expect(handleKeyDown(createKeyEvent({ key: "r", metaKey: true }))).toBe(true);
+    expect(handleKeyDown(createKeyEvent({ key: "f", metaKey: true, altKey: true }))).toBe(true);
+    expect(replaced).toBe(1);
+
+    // Cmd+R is Reload on this platform and reaches no command of Writ's.
+    expect(handleKeyDown(createKeyEvent({ key: "r", metaKey: true }))).toBe(false);
     expect(replaced).toBe(1);
     expect(renamed).toBe(0);
 

@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 import allowlistJson from "./banned-words.allowlist.json";
+import { MENU_COMMANDS } from "../../commands/menu-commands";
 
 // Known limits. A prop whose value is a const identifier rather than a literal
 // escapes the scan: only literals carry the word. The Rust half stops reading a
@@ -427,6 +428,18 @@ describe("banned words", () => {
       offenders,
       `ADR-028 §10 retires this vocabulary from user-visible strings: ${offenders.join(", ")}`,
     ).toEqual([]);
+  });
+
+  // The menu labels live in JSON, which the file walk above does not read, so
+  // they are checked here against the same vocabulary.
+  it("banned_words_have_no_violations_in_the_menu_labels", () => {
+    const offenders: string[] = [];
+    for (const entry of MENU_COMMANDS) {
+      for (const word of BANNED) {
+        if (WORD_RE.get(word)!.test(entry.label)) offenders.push(`${entry.id}:${word}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   it("banned_words_allowlist_has_no_stale_entries", () => {

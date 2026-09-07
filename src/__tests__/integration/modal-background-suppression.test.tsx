@@ -50,7 +50,12 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 
 vi.mock("../../stores/global/config", () => ({
   configStore: {
-    config: () => ({ commands: { usage: h.paletteUsage }, theme: {}, keybindings: {} }),
+    config: () => ({
+      commands: { usage: h.paletteUsage },
+      theme: {},
+      keybindings: {},
+      hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
+    }),
     recordCommandUse: h.recordCommandUse,
     save: h.saveConfig,
   },
