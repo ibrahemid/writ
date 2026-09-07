@@ -34,6 +34,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       searchTotal: () => 0,
       searchMs: () => null,
       selectedTag: () => null,
+      recentRequest: () => 0,
     },
     tabs: {
       activeTabId: () => h.activeId,

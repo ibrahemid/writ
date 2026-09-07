@@ -176,15 +176,19 @@ export default function ShortcutEditor() {
           nextKeybindings[cmd.id] = draft.binding;
         }
       }
+      // The OS holds this one, so it is asked first and the config records what
+      // it gave back: a chord Rust cannot parse is registered as the default,
+      // and saving the asked-for chord would leave a key that does nothing.
+      let toggle = configStore.config().hotkey.toggle;
+      if (toggleChanged) {
+        await hotkeyStore.rebind(nextToggle);
+        toggle = hotkeyStore.chord() || toggle;
+      }
       await configStore.save({
         ...configStore.config(),
         keybindings: nextKeybindings,
-        hotkey: { ...configStore.config().hotkey, toggle: nextToggle || configStore.config().hotkey.toggle },
+        hotkey: { ...configStore.config().hotkey, toggle },
       });
-      // The OS holds this one, so the config write is half the change: the
-      // chord has to be asked for before it works, and the answer is what the
-      // row shows.
-      if (toggleChanged) await hotkeyStore.rebind(nextToggle);
       setKeybindingOverrides(nextKeybindings);
       rebuildKeyMap();
       openSnapshot = { ...nextKeybindings };

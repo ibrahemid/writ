@@ -121,9 +121,14 @@ fn key_to_code(key: HotkeyKey) -> Option<Code> {
     })
 }
 
-fn resolve_shortcut(configured: &str) -> Shortcut {
+/// The shortcut to register, and the chord it actually stands for.
+///
+/// A chord that does not parse falls back to the default, and the caller is
+/// given the fallback rather than what it asked for: reporting the asked-for
+/// chord would show the settings surface a chord that is held by nothing.
+fn resolve_chord(configured: &str) -> (Shortcut, String) {
     match chord_from_config(configured) {
-        Ok(s) => s,
+        Ok(s) => (s, configured.to_string()),
         Err(e) => {
             let fallback = HotkeyConfig::default().toggle;
             warn!(
@@ -132,7 +137,8 @@ fn resolve_shortcut(configured: &str) -> Shortcut {
                 fallback = %fallback,
                 "invalid hotkey config; falling back to default"
             );
-            chord_from_config(&fallback).expect("default hotkey chord must parse")
+            let shortcut = chord_from_config(&fallback).expect("default hotkey chord must parse");
+            (shortcut, fallback)
         }
     }
 }
@@ -177,7 +183,7 @@ fn held_status() -> Option<GlobalHotkeyStatus> {
 /// the chord taken, and the one thing that must happen is that the surface
 /// offering a rebind is told.
 fn register_toggle(app: &AppHandle, chord: &str) -> GlobalHotkeyStatus {
-    let shortcut = resolve_shortcut(chord);
+    let (shortcut, chord) = resolve_chord(chord);
 
     // Writ registers this one chord, so clearing them all is clearing the
     // previous toggle, and it must happen before the new one is asked for:
@@ -206,10 +212,7 @@ fn register_toggle(app: &AppHandle, chord: &str) -> GlobalHotkeyStatus {
         }
     };
 
-    let status = GlobalHotkeyStatus {
-        chord: chord.to_string(),
-        registered,
-    };
+    let status = GlobalHotkeyStatus { chord, registered };
     record_status(status.clone());
     let _ = emit_event(app, WritFrontendEvent::HotkeyStatus(status.clone()));
     status
@@ -411,8 +414,13 @@ mod tests {
 
     #[test]
     fn resolve_shortcut_falls_back_to_default_on_parse_error() {
-        let shortcut = resolve_shortcut("garbage++");
+        let (shortcut, chord) = resolve_chord("garbage++");
         assert_eq!(shortcut.key, Code::Space);
         assert!(shortcut.mods.contains(Modifiers::SHIFT));
+        assert_eq!(
+            chord,
+            HotkeyConfig::default().toggle,
+            "a chord that does not parse is reported as the one that was registered instead"
+        );
     }
 }

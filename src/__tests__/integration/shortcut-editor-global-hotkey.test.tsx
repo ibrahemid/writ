@@ -112,4 +112,35 @@ describe("the chord that shows and hides the window", () => {
     expect(hotkeyStore.isTaken()).toBe(false);
     expect(hotkeyStore.chord()).toBe("CmdOrCtrl+Alt+Space");
   });
+
+  it("saves the chord the OS took, not the one that was asked for", async () => {
+    h.globalHotkeyStatus.mockResolvedValue({
+      chord: "CmdOrCtrl+Shift+Space",
+      registered: true,
+    });
+    // A chord the recorder can capture but the hotkey parser cannot read is
+    // registered as the default, and that is what the config has to hold.
+    h.setGlobalHotkey.mockResolvedValue({
+      chord: "CmdOrCtrl+Shift+Space",
+      registered: true,
+    });
+    h.saveConfig.mockClear();
+    await hotkeyStore.load();
+
+    const { container } = render(() => <ShortcutEditor />);
+    openShortcutEditor();
+
+    fireEvent.click(row(container).querySelector('[data-action="record-global-shortcut"]')!);
+    fireEvent.keyDown(document, { key: "F13", metaKey: true });
+
+    fireEvent.click(container.querySelector('[data-action="save-shortcuts"]')!);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(h.setGlobalHotkey).toHaveBeenCalledWith("CmdOrCtrl+F13");
+    expect(h.saveConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ hotkey: { toggle: "CmdOrCtrl+Shift+Space" } }),
+    );
+  });
 });

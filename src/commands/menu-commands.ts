@@ -9,9 +9,6 @@ import type { Platform } from "../lib/platform";
 // Labels here are the menu's own Title Case wording. `AppMenu.tsx` reads its
 // labels and shortcuts from the command registry instead, so the platform word
 // in "Show notes folder in …" stays whatever the host calls its file manager.
-//
-// The folder graph gets a View entry when it lands; it is not in this list yet
-// because the view it opens does not exist.
 
 export type MenuSection = "app" | "file" | "edit" | "view" | "window" | "help";
 
@@ -35,6 +32,8 @@ export const MENU_SECTIONS: readonly MenuSection[] = [
   "app",
   "file",
   "edit",
+  // The folder graph gets a View entry in `menu-commands.json` when it lands;
+  // it is not in the list yet because the view it opens does not exist.
   "view",
   "window",
   "help",
