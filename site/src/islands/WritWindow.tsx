@@ -33,7 +33,7 @@ import {
   spellingEntries,
   type Polarity,
 } from './writ/cm';
-import { EDITOR_COMMANDS } from '@app/editor/editor-command-table';
+import { FROZEN_EDITOR_COMMANDS } from './writ/frozen-commands';
 import {
   insertLink,
   toggleBold,
@@ -587,7 +587,7 @@ export default function WritWindow() {
         list.push({ id, name, binding, scope: 'editor', run: () => { runCm(cmd); setPaletteOpen(false); } });
       }
     }
-    for (const spec of EDITOR_COMMANDS) {
+    for (const spec of FROZEN_EDITOR_COMMANDS) {
       list.push({
         id: spec.id,
         name: spec.label,
