@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Show, createRoot, createSignal } from "solid-js";
 import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 import FolderGraphView from "../../components/Graph/FolderGraphView";
+import Palette from "../../components/Palette/Palette";
+import type { ResultProvider } from "../../components/Palette/types";
+import { executeCommand, registerCommand, unregisterCommand } from "../../commands/registry";
 import {
   createFolderGraphStore,
   MAX_ZOOM,
@@ -526,5 +529,116 @@ describe("what it does with focus", () => {
 
     folderGraph.close();
     expect(h.focusEditor).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("what it does with focus when the palette opened it", () => {
+  const OPEN_GRAPH = "folderGraph.open";
+
+  /** The palette's one row here: the command that opens the drawing. */
+  const COMMANDS: ResultProvider = {
+    id: "commands",
+    section: "Commands",
+    order: 0,
+    cap: 4,
+    query: () => [
+      { id: OPEN_GRAPH, label: "Open graph", execute: () => executeCommand(OPEN_GRAPH) },
+    ],
+  };
+
+  /**
+   * The note, and over it the palette the drawing is opened from.
+   *
+   * The palette traps focus and marks everything beside it `inert` while it is
+   * open, so the drawing mounting as a sibling of the note is the arrangement
+   * that decides whether it can take focus at all.
+   */
+  function pageUnderThePalette() {
+    const [open, setOpen] = createSignal(false);
+    const view = render(() => (
+      <>
+        <div class="app-body">
+          <input class="note-stand-in" />
+          <Show when={folderGraph.isOpen()}>
+            <FolderGraphView />
+          </Show>
+        </div>
+        <Palette
+          open={open()}
+          onClose={() => setOpen(false)}
+          providers={[COMMANDS]}
+          placeholder="Search commands"
+          label="Command palette"
+          inputLabel="Command search"
+        />
+      </>
+    ));
+    const note = view.container.querySelector<HTMLInputElement>(".note-stand-in")!;
+    note.focus();
+    setOpen(true);
+    return { view, note };
+  }
+
+  function chooseOpenGraph(view: { container: HTMLElement }) {
+    fireEvent.keyDown(view.container.querySelector(".palette-input")!, { key: "Enter" });
+  }
+
+  beforeEach(() => {
+    // The palette runs the command the app registers, not a stand-in for it.
+    // Registered here because the registration itself lives in `App`.
+    registerCommand({
+      id: OPEN_GRAPH,
+      label: "Open graph",
+      scope: "app",
+      global: true,
+      execute: () => folderGraph.open(),
+    });
+    folderGraph.close();
+  });
+
+  afterEach(() => unregisterCommand(OPEN_GRAPH));
+
+  it("takes focus, out from under the palette that opened it", () => {
+    twoFolders();
+    const { view } = pageUnderThePalette();
+
+    chooseOpenGraph(view);
+
+    const layer = layerOf(view);
+    // The palette has gone and taken its `inert` with it, so the layer is a
+    // part of the page that can hold focus, and it holds it: Escape, the
+    // arrows and the search field are all answered by the drawing rather than
+    // by the note it covers.
+    expect(view.container.querySelector(".palette")).toBe(null);
+    expect(layer.closest("[inert]")).toBe(null);
+    expect(document.activeElement).toBe(layer);
+  });
+
+  it("hands focus back to the note when it closes", () => {
+    twoFolders();
+    const { view, note } = pageUnderThePalette();
+    chooseOpenGraph(view);
+
+    fireEvent.keyDown(layerOf(view), { key: "Escape" });
+
+    expect(folderGraph.isOpen()).toBe(false);
+    expect(document.activeElement).toBe(note);
+    expect(h.focusEditor).not.toHaveBeenCalled();
+  });
+
+  // Neither a menu item nor a shortcut opens the drawing yet; both would run
+  // the command with no surface above the note, which is this.
+  it("takes focus when the command is run with nothing above the note", () => {
+    twoFolders();
+    const { view, note } = pageUnderThePalette();
+    fireEvent.keyDown(view.container.querySelector(".palette-input")!, { key: "Escape" });
+    expect(document.activeElement).toBe(note);
+
+    executeCommand(OPEN_GRAPH);
+
+    expect(document.activeElement).toBe(layerOf(view));
+
+    fireEvent.keyDown(layerOf(view), { key: "Escape" });
+    expect(document.activeElement).toBe(note);
   });
 });
