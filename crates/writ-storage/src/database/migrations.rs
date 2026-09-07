@@ -1,3 +1,4 @@
+use crate::database::index_repair::repair_notes_index;
 use crate::errors::{StorageError, StorageResult};
 use rusqlite::Connection;
 use tracing::info;
@@ -10,7 +11,15 @@ const MIGRATIONS: &[(i32, &str)] = &[
         include_str!("../../migrations/020_buffer_open_mode.sql"),
     ),
     (30, include_str!("../../migrations/030_fts_prefix.sql")),
-    (40, include_str!("../../migrations/040_notes_migration.sql")),
+    (
+        40,
+        concat!(
+            include_str!("../../migrations/040_notes_migration.sql"),
+            include_str!("schema_meta.sql"),
+            include_str!("notes_index_derived.sql"),
+            include_str!("notes_index_fts.sql"),
+        ),
+    ),
     (41, include_str!("../../migrations/041_drop_buffer_fts.sql")),
     (
         42,
@@ -60,6 +69,11 @@ pub fn applied_schema_version(conn: &Connection) -> StorageResult<i32> {
 /// highest version this binary embeds, it was written by a newer build
 /// and is refused with [`StorageError::SchemaTooNew`] rather than read
 /// through a stale column layout (audit blocker #53.8).
+///
+/// A version-gated runner recreates nothing in a database that records a
+/// current version, so the pass ends with
+/// [`repair_notes_index`](crate::database::index_repair::repair_notes_index),
+/// which puts back the notes-index tables a database lost some other way.
 pub fn run_migrations(conn: &Connection) -> StorageResult<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_version (
@@ -104,6 +118,8 @@ pub fn run_migrations(conn: &Connection) -> StorageResult<()> {
             info!(version = version, "applied migration");
         }
     }
+
+    repair_notes_index(conn)?;
 
     Ok(())
 }

@@ -39,6 +39,13 @@ pub enum StorageError {
         message: String,
     },
 
+    /// A notes-index table was missing and could not be recreated.
+    #[error("notes index repair failed: {message}")]
+    IndexRepair {
+        /// Human-readable description of the repair failure.
+        message: String,
+    },
+
     /// The database and on-disk state disagree in a way that could not
     /// be reconciled automatically.
     #[error("consistency error: {message}")]
