@@ -1,4 +1,12 @@
-import { createSignal, createEffect, onCleanup, createMemo, For, Show } from "solid-js";
+import {
+  createSignal,
+  createEffect,
+  onCleanup,
+  createMemo,
+  untrack,
+  For,
+  Show,
+} from "solid-js";
 import { useAllCommands } from "../../commands/registry";
 import {
   effectiveBinding,
@@ -69,9 +77,10 @@ export default function ShortcutEditor() {
     commands().filter((c) => c.scope === "editor"),
   );
 
-  // This seeding runs again whenever the command list or the held chord moves,
-  // saving included, so the one thing it must not carry off is a message about
-  // the save that just happened. That is cleared on the way in only.
+  // Seeding happens on the way in and nowhere else. It used to run again on
+  // every move of the command list, the config or the held chord, and each of
+  // those threw away rows that had been recorded but not saved yet:
+  // `hotkey:status` can land from outside the modal at any time.
   let wasOpen = false;
 
   createEffect(() => {
@@ -79,18 +88,32 @@ export default function ShortcutEditor() {
       wasOpen = false;
       return;
     }
-    const initial: Record<string, DraftEntry> = {};
-    const overrides = configStore.config().keybindings;
-    for (const cmd of commands()) {
-      const binding = overrides[cmd.id] ?? cmd.keybinding ?? "";
-      initial[cmd.id] = { binding };
-    }
-    setDrafts(initial);
-    setGlobalDraft(hotkeyStore.chord() || configStore.config().hotkey.toggle);
-    if (!wasOpen) setGlobalProblem("");
+    if (wasOpen) return;
+    untrack(() => {
+      const initial: Record<string, DraftEntry> = {};
+      const overrides = configStore.config().keybindings;
+      for (const cmd of commands()) {
+        const binding = overrides[cmd.id] ?? cmd.keybinding ?? "";
+        initial[cmd.id] = { binding };
+      }
+      setDrafts(initial);
+      setGlobalDraft(hotkeyStore.chord() || configStore.config().hotkey.toggle);
+      setGlobalProblem("");
+      setListeningId(null);
+      recorder.reset();
+    });
     wasOpen = true;
-    setListeningId(null);
-    recorder.reset();
+  });
+
+  // The window's chord is the one row the OS can move while the modal is up, so
+  // a status that lands then is merged into that row and leaves the rest alone.
+  createEffect(() => {
+    const held = hotkeyStore.chord();
+    untrack(() => {
+      if (!isOpen() || !held) return;
+      if (listeningId() === GLOBAL_TOGGLE_ROW) return;
+      setGlobalDraft(held);
+    });
   });
 
   function effectiveDraftMap(): Record<string, string> {

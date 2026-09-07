@@ -38,6 +38,7 @@ import ShortcutEditor, {
   closeShortcutEditor,
 } from "../../components/ShortcutEditor/ShortcutEditor";
 import { hotkeyStore } from "../../stores/global/hotkey";
+import { keybindingSegments } from "../../lib/keybinding-format";
 import { getAllCommands, registerCommand, unregisterCommand } from "../../commands/registry";
 
 function row(container: HTMLElement): HTMLElement {
@@ -60,6 +61,17 @@ function registerRenameCommand(): void {
 /** Lets the save handler's awaits, and the render they trigger, run out. */
 function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** The chord an ordinary row is showing, as the row's keycaps spell it. */
+function ordinaryRowChord(container: HTMLElement): string {
+  const found = container.querySelector<HTMLElement>(".shortcut-row:not([data-shortcut])");
+  expect(found, "the shortcut editor carries a row for the ordinary command").not.toBeNull();
+  return [...found!.querySelectorAll(".kbd-key")].map((key) => key.textContent).join("");
+}
+
+function chordAsShown(binding: string): string {
+  return keybindingSegments(binding).join("");
 }
 
 describe("the chord that shows and hides the window", () => {
@@ -240,5 +252,38 @@ describe("the chord that shows and hides the window", () => {
       row(container).querySelector('[data-state="unusable"]'),
       "a chord the OS gave to another app is taken, not unusable",
     ).toBeNull();
+  });
+
+  // `hotkey:status` is emitted by the Rust side, not by the modal, so the chord
+  // can move while the editor is up. It used to re-seed every row from the
+  // config, which took recorded but unsaved chords down with it.
+  it("keeps the recorded rows when the chord moves while the editor is open", async () => {
+    h.globalHotkeyStatus.mockResolvedValue({
+      chord: "CmdOrCtrl+Shift+Space",
+      registered: true,
+    });
+    h.setGlobalHotkey.mockResolvedValue({ chord: "CmdOrCtrl+Alt+Space", registered: true });
+    await hotkeyStore.load();
+    registerRenameCommand();
+
+    const { container } = render(() => <ShortcutEditor />);
+    openShortcutEditor();
+
+    fireEvent.click(container.querySelector('[data-action="record-shortcut"]')!);
+    fireEvent.keyDown(document, { key: "r", metaKey: true, altKey: true });
+    expect(ordinaryRowChord(container)).toBe(chordAsShown("CmdOrCtrl+Alt+R"));
+
+    // Nothing in the modal asked for this: it is the answer arriving on its own.
+    await hotkeyStore.rebind("CmdOrCtrl+Alt+Space");
+    await settle();
+
+    expect(
+      ordinaryRowChord(container),
+      "a status from outside the modal must not reach the other rows",
+    ).toBe(chordAsShown("CmdOrCtrl+Alt+R"));
+    expect(
+      row(container).textContent,
+      "the row the status is about takes the chord the OS now holds",
+    ).toContain(chordAsShown("CmdOrCtrl+Alt+Space"));
   });
 });
