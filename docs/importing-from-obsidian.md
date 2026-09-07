@@ -14,10 +14,10 @@ changes on disk. Links, properties, tags and headings come out of that read.
 |---|---|
 | Folders, file names, plain markdown | The files are the notes. Nothing moves. |
 | `[[Note]]`, `[[Folder/Note]]` | Opens the note. A folder in front of the name picks between notes that share it. |
-| `[[Note\|a label]]` | Opens the note, and the label is what the backlink list shows. |
+| `[[Note\|a label]]` | Opens the note, and the label is what that list shows. |
 | `[[Note#Heading]]` | Opens the note at that heading. |
 | A name two notes answer to | Both notes are offered. Writ never picks one for you. |
-| Links pointing at a note | The backlink list, with the sentence each link sits in. |
+| Links pointing at a note | The list of links to this note, with the sentence each link sits in. |
 | Frontmatter `key: value` and `key: [a, b]` | Properties, listed with the note. |
 | A nested frontmatter map | Kept exactly as written and shown as text. |
 | `#tag`, `#project/alpha` | Tags. `#project/alpha` is one tag, listed under `project`. |
@@ -25,10 +25,10 @@ changes on disk. Links, properties, tags and headings come out of that read.
 | `#Project` in one note, `#project` in another | One tag. The list files tags lowercased. |
 | A `#tag` inside a code fence | Left alone. It is an example, not a tag. |
 | Headings | The outline beside the note, and the anchors links point at. |
-| `> [!note]`, `> [!warning]`, and the other ten types | Callouts, aliases included. One written closed shows its title only. |
+| `> [!note]`, `> [!warning]`, and the other eleven types | Callouts, aliases included. One written closed shows its title only. |
 | `![[Note]]` | The note is shown in the page, up to three embeds deep. |
 | `![[image.png]]` | The image is shown. |
-| ` ```mermaid ` fences, `$x^2$`, tables, task lists, footnotes | All rendered, offline. Nothing is fetched from the web. |
+| ` ```mermaid ` fences, `$x^2$`, tables, task lists, footnotes | All rendered. Nothing is fetched from the web. |
 
 ## What does not
 

@@ -8,7 +8,7 @@
 //! blockquote and a callout holding a table, a math span or a mermaid fence
 //! all render through exactly the code that renders them anywhere else.
 
-/// The twelve Obsidian callout types and the aliases each answers to.
+/// The thirteen Obsidian callout types and the aliases each answers to.
 ///
 /// The first entry of a row is the type as `data-callout` carries it and the
 /// rest are the words that resolve to it. Case is folded before the lookup.
