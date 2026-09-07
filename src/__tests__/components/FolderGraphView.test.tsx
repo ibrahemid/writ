@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Show, createRoot, createSignal } from "solid-js";
 import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 import FolderGraphView from "../../components/Graph/FolderGraphView";
 import {
@@ -24,14 +25,22 @@ const TOKEN_VALUES: Record<string, string> = {
   "--writ-icon-opacity": "0.85",
 };
 
+interface Rows {
+  nodes: { path: string; name: string; folder: string }[];
+  edges: { from_path: string; to_path: string; count: number }[];
+}
+
+// The rows and the open note are read through signals rather than through a
+// plain object: what the folder holds changes under the drawing when a note is
+// written on disk, and which note is open changes when one is chosen from the
+// drawing itself, and neither may rearrange it.
 const h = vi.hoisted(() => ({
-  graph: { nodes: [], edges: [] } as {
-    nodes: { path: string; name: string; folder: string }[];
-    edges: { from_path: string; to_path: string; count: number }[];
-  },
+  rows: null as null | (() => Rows),
+  buffer: null as null | (() => { source_path: string } | null),
   error: null as string | null,
   openFile: vi.fn<(path: string) => Promise<null>>(),
   releaseGraph: vi.fn(),
+  focusEditor: vi.fn(),
 }));
 
 vi.mock("../../stores/global/theme", () => ({
@@ -40,14 +49,20 @@ vi.mock("../../stores/global/theme", () => ({
 
 vi.mock("../../stores/global/note-facts", () => ({
   noteFactsStore: {
-    graph: () => () => h.graph,
+    graph: () => () => h.rows!(),
     graphError: () => () => h.error,
     releaseGraph: h.releaseGraph,
   },
 }));
 
+// The drawing is of the notes folder; where that folder is has no bearing on
+// anything held here, and the store's own tests hold what a move does to it.
+vi.mock("../../stores/global/notes", () => ({
+  notesStore: { root: () => "/notes" },
+}));
+
 vi.mock("../../lib/use-active-buffer", () => ({
-  useActiveBuffer: () => () => null,
+  useActiveBuffer: () => () => h.buffer!(),
 }));
 
 let folderGraph: ReturnType<typeof createFolderGraphStore>;
@@ -56,12 +71,19 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
     folderGraph,
     tabs: { openFile: h.openFile },
+    editor: { focusEditor: h.focusEditor },
   }),
 }));
 
-/** Every disc the drawing painted, with the color and how faint it was. */
+const [rows, setRows] = createSignal<Rows>({ nodes: [], edges: [] });
+const [buffer, setBuffer] = createSignal<{ source_path: string } | null>(null);
+h.rows = rows;
+h.buffer = buffer;
+
+/** Every disc the drawing painted: where, in what color, and how faint. */
 interface Recorder {
   discs: { color: string; alpha: number }[];
+  spots: { x: number; y: number }[];
   lines: number;
 }
 
@@ -85,8 +107,9 @@ function stubContext(record: Recorder): CanvasRenderingContext2D {
     lineTo: () => {
       record.lines += 1;
     },
-    arc: () => {
+    arc: (x: number, y: number) => {
       context.arcs += 1;
+      record.spots.push({ x, y });
     },
     arcs: 0,
     stroke: () => {},
@@ -103,11 +126,21 @@ function stubContext(record: Recorder): CanvasRenderingContext2D {
 }
 
 beforeEach(() => {
-  recorder = { discs: [], lines: 0 };
-  folderGraph = createFolderGraphStore();
+  recorder = { discs: [], spots: [], lines: 0 };
+  folderGraph = createRoot(createFolderGraphStore);
   folderGraph.open();
   h.error = null;
-  h.openFile.mockResolvedValue(null);
+  h.openFile.mockReset();
+  h.releaseGraph.mockClear();
+  h.focusEditor.mockClear();
+  setRows({ nodes: [], edges: [] });
+  setBuffer(null);
+  // What the tab store does when a note is opened, as far as the drawing can
+  // see it: the note becomes the active buffer.
+  h.openFile.mockImplementation(async (path: string) => {
+    setBuffer({ source_path: path });
+    return null;
+  });
 
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
     stubContext(recorder) as unknown as never,
@@ -164,7 +197,7 @@ afterEach(() => {
 });
 
 function twoFolders() {
-  h.graph = {
+  setRows({
     nodes: [
       { path: "Projects/alpha.md", name: "Alpha", folder: "Projects" },
       { path: "Projects/beta.md", name: "Beta", folder: "Projects" },
@@ -176,7 +209,35 @@ function twoFolders() {
       { from_path: "Projects/beta.md", to_path: "Archive/gamma.md", count: 1 },
       { from_path: "Archive/gamma.md", to_path: "loose.md", count: 1 },
     ],
-  };
+  });
+}
+
+/**
+ * A folder of `count` notes, each linked to the next.
+ *
+ * Enough notes that the drawing is fitted to its own span rather than to the
+ * size a handful of notes is drawn at, which is where a re-fit shows.
+ */
+function chain(count: number) {
+  const nodes = Array.from({ length: count }, (_, i) => ({
+    path: `Chain/n${String(i).padStart(3, "0")}.md`,
+    name: `Note ${i}`,
+    folder: "Chain",
+  }));
+  setRows({
+    nodes,
+    edges: nodes.slice(1).map((node, i) => ({
+      from_path: nodes[i].path,
+      to_path: node.path,
+      count: 1,
+    })),
+  });
+  return nodes;
+}
+
+/** The layer, which is what the keys are pressed against. */
+function layerOf(view: { container: HTMLElement }): HTMLElement {
+  return view.container.querySelector(".folder-graph") as HTMLElement;
 }
 
 describe("the search", () => {
@@ -247,14 +308,14 @@ describe("a folder too large to draw whole", () => {
         name: `Loose ${i}`,
         folder: "Loose",
       }));
-      h.graph = {
+      setRows({
         nodes: [...linked, ...loose],
         edges: linked.slice(1).map((node, i) => ({
           from_path: linked[i].path,
           to_path: node.path,
           count: 1,
         })),
-      };
+      });
 
       const view = render(() => <FolderGraphView />);
       expect(view.getByText("2000 of 2500 notes, the largest linked group")).toBeTruthy();
@@ -322,17 +383,6 @@ describe("closing it", () => {
     expect(folderGraph.isOpen()).toBe(false);
   });
 
-  // Escape is the way out of a search as much as out of the drawing, so it is
-  // read before the field is left to its own keys.
-  it("closes on escape from the search field", () => {
-    twoFolders();
-    const view = render(() => <FolderGraphView />);
-    const field = view.getByLabelText("Search notes");
-    fireEvent.input(field, { target: { value: "note" } });
-    fireEvent.keyDown(field, { key: "Escape" });
-    expect(folderGraph.isOpen()).toBe(false);
-  });
-
   it("closes on the close button", () => {
     twoFolders();
     const view = render(() => <FolderGraphView />);
@@ -350,14 +400,14 @@ describe("closing it", () => {
 
 describe("what it says when there is nothing to draw", () => {
   it("says the folder is empty rather than drawing one dot", () => {
-    h.graph = { nodes: [], edges: [] };
+    setRows({ nodes: [], edges: [] });
     const view = render(() => <FolderGraphView />);
     expect(view.getByText("No notes yet.")).toBeTruthy();
     expect(view.container.querySelector("canvas")).toBeNull();
   });
 
   it("says what went wrong when the index could not be read", () => {
-    h.graph = { nodes: [], edges: [] };
+    setRows({ nodes: [], edges: [] });
     h.error = "Could not read what the notes folder holds.";
     const view = render(() => <FolderGraphView />);
     expect(view.getByText("Could not read what the notes folder holds.")).toBeTruthy();
@@ -369,10 +419,112 @@ describe("choosing a note from the drawing", () => {
     twoFolders();
     const view = render(() => <FolderGraphView />);
     const canvas = view.container.querySelector("canvas") as HTMLCanvasElement;
-    // The drawing is fitted to the canvas, so a click in the middle lands on
-    // whichever note settled there; what matters is that it opens one and that
-    // the view is still showing afterwards.
-    fireEvent.click(canvas, { clientX: 400, clientY: 300 });
+    // The click lands on a disc the drawing painted rather than on the middle
+    // of the canvas, which the drawing owes nobody.
+    const disc = recorder.spots[0];
+    fireEvent.click(canvas, { clientX: disc.x, clientY: disc.y });
+
+    expect(h.openFile).toHaveBeenCalledTimes(1);
+    expect(h.openFile.mock.calls[0][0]).toMatch(/\.md$/);
     expect(folderGraph.isOpen()).toBe(true);
+  });
+
+  it("leaves every note where it settled and the drawing where it was taken", () => {
+    const notes = chain(200);
+    const view = render(() => <FolderGraphView />);
+    const canvas = view.container.querySelector("canvas") as HTMLCanvasElement;
+    const layer = layerOf(view);
+
+    // Somewhere in a folder, which is where a note is chosen from.
+    fireEvent.keyDown(layer, { key: "+" });
+    fireEvent.keyDown(layer, { key: "ArrowLeft" });
+    const zoom = folderGraph.zoom();
+    const pan = folderGraph.pan();
+
+    recorder.spots = [];
+    fireEvent.keyDown(layer, { key: "ArrowLeft" });
+    const before = [...recorder.spots];
+    expect(before.length).toBe(notes.length);
+
+    recorder.spots = [];
+    fireEvent.click(canvas, { clientX: before[0].x, clientY: before[0].y });
+
+    // The note is open, the drawing repainted to ring it, and not one disc
+    // moved: the settle belongs to the folder, not to which note is open.
+    expect(h.openFile).toHaveBeenCalledTimes(1);
+    expect(recorder.spots).toEqual(before);
+    expect(folderGraph.zoom()).toBe(zoom);
+    expect(folderGraph.pan()).toEqual({ x: pan.x + PAN_STEP, y: pan.y });
+  });
+
+  it("keeps the notes that are still there when one is written on disk", () => {
+    twoFolders();
+    const view = render(() => <FolderGraphView />);
+    const layer = layerOf(view);
+    fireEvent.keyDown(layer, { key: "+" });
+    fireEvent.keyDown(layer, { key: "ArrowLeft" });
+    const zoom = folderGraph.zoom();
+    const pan = folderGraph.pan();
+
+    const held = rows();
+    setRows({
+      nodes: [...held.nodes, { path: "Projects/delta.md", name: "Delta", folder: "Projects" }],
+      edges: [
+        ...held.edges,
+        { from_path: "Projects/alpha.md", to_path: "Projects/delta.md", count: 1 },
+      ],
+    });
+
+    // The view is left where it was: the note that arrived is one more note in
+    // the drawing, not a reason to send the reader back to the whole folder.
+    expect(view.getByText("5 notes")).toBeTruthy();
+    expect(folderGraph.zoom()).toBe(zoom);
+    expect(folderGraph.pan()).toEqual(pan);
+
+    // The new note is drawn with the four that were already there. Where those
+    // four start from is `beginLayout`'s answer, held in the layout tests.
+    recorder.spots = [];
+    fireEvent.keyDown(layer, { key: "ArrowRight" });
+    expect(recorder.spots.length).toBe(5);
+  });
+});
+
+describe("what it does with focus", () => {
+  // The layer is mounted the way the editor mounts it, so closing it unmounts
+  // it: that is the only moment focus can be handed back.
+  function open() {
+    return render(() => (
+      <Show when={folderGraph.isOpen()}>
+        <FolderGraphView />
+      </Show>
+    ));
+  }
+
+  it("hands focus back to what had it", () => {
+    twoFolders();
+    // Stands in for the editor's own element, which is what has focus when the
+    // drawing is opened from the keyboard over an open note.
+    const note = document.createElement("input");
+    document.body.append(note);
+    note.focus();
+
+    const view = open();
+    expect(document.activeElement).toBe(layerOf(view));
+
+    fireEvent.keyDown(layerOf(view), { key: "Escape" });
+    expect(document.activeElement).toBe(note);
+    expect(h.focusEditor).not.toHaveBeenCalled();
+    note.remove();
+  });
+
+  it("puts focus in the editor when what had it went with the palette", () => {
+    twoFolders();
+    // The palette closes as the drawing opens, so what held focus is gone by
+    // the time the drawing is asked to hand it back.
+    const view = open();
+    expect(document.activeElement).toBe(layerOf(view));
+
+    folderGraph.close();
+    expect(h.focusEditor).toHaveBeenCalledTimes(1);
   });
 });

@@ -48,6 +48,11 @@ export default function FolderGraphView() {
 
   let layer: HTMLDivElement | undefined;
   let field: HTMLInputElement | undefined;
+  // What had focus when the layer took it, so closing hands it back. Every
+  // other layer in the app that takes focus returns it (`focus-trap.ts`), and
+  // the note is still there underneath: leaving focus on the body would mean
+  // typing into nothing until the note is clicked.
+  let returnFocusTo: HTMLElement | null = null;
   const titleId = createUniqueId();
   // The two colours the drawing is built from: the accent every folder's
   // colour is turned from, and what a note in no folder is drawn in. Both are
@@ -128,8 +133,18 @@ export default function FolderGraphView() {
     readTokens();
     // The layer takes focus so that Escape closes it and the arrows move the
     // drawing without anyone having to click the canvas first. What had focus
-    // is the note underneath, which the layer covers.
+    // is the note underneath, which the layer covers, so it is kept here to be
+    // handed back when the layer goes.
+    const held = document.activeElement;
+    returnFocusTo = held instanceof HTMLElement && held !== document.body ? held : null;
     layer?.focus();
+  });
+
+  // Closing puts focus back where it was, and in the editor when what held it
+  // has gone with the palette or the menu the drawing was opened from.
+  onCleanup(() => {
+    if (returnFocusTo?.isConnected) returnFocusTo.focus();
+    else win.editor.focusEditor();
   });
 
   // The accent is what every folder's colour is turned from, so a theme change
@@ -227,6 +242,7 @@ export default function FolderGraphView() {
           onPanBy={(dx, dy) => win.folderGraph.panBy(dx, dy)}
           onZoomBy={(factor) => win.folderGraph.zoomBy(factor)}
           focusable
+          keepsPlaces
           onOpen={(path) => void win.tabs.openFile(path).catch(() => null)}
         />
       </Show>
