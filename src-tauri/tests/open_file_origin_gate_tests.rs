@@ -142,7 +142,10 @@ fn open_file_rejects_path_that_was_never_authorized() {
     let result = open_file_from_path(&state, secret_str);
     assert!(result.is_err(), "expected gate to reject unauthorized open");
     assert!(
-        result.as_ref().unwrap_err().contains("not authorized"),
+        result
+            .as_ref()
+            .unwrap_err()
+            .contains("cannot open that file from here"),
         "unexpected error: {:?}",
         result
     );
@@ -197,7 +200,9 @@ fn open_file_authorization_is_single_use() {
         second.is_err(),
         "second open should require fresh authorization"
     );
-    assert!(second.unwrap_err().contains("not authorized"));
+    assert!(second
+        .unwrap_err()
+        .contains("cannot open that file from here"));
 }
 
 #[test]
@@ -243,7 +248,9 @@ fn save_to_source_rejects_unblessed_source_path() {
         result.is_err(),
         "unblessed source path must not be writable"
     );
-    assert!(result.unwrap_err().contains("not authorized"));
+    assert!(result
+        .unwrap_err()
+        .contains("cannot open that file from here"));
 
     let on_disk = std::fs::read_to_string(&file).unwrap();
     assert_eq!(on_disk, "original", "file must not have been overwritten");

@@ -17,7 +17,7 @@ use writ_core::watcher::change_event::ExternalChange;
 use writ_storage::buffer_store::BufferStore;
 
 const ERR_UNAUTHORIZED_PATH: &str =
-    "path not authorized: open files via the dialog or by dropping them onto the window";
+    "Writ cannot open that file from here. Use File > Open File, or drop it onto the window.";
 
 /// Returned to the frontend for every `open_file` call.
 ///
@@ -225,7 +225,7 @@ fn open_authorized_path(state: &AppState, canonical: &str) -> Result<FileOpenRes
 /// Performs the actual open after the frontend has confirmed.
 ///
 /// Called for the 50–500 MiB tier after `open_file` returns the confirmation
-/// sentinel and the user presses "Open anyway". The path must already be
+/// sentinel and the user confirms. The path must already be
 /// authorized (the original `open_file` call consumed the authorization token
 /// before returning the sentinel). Re-authorization is performed here via the
 /// workspace membership check or a freshly recorded token.

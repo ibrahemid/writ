@@ -450,7 +450,7 @@ describe("every section of a full panel", () => {
     const { container } = mount();
     expect(headings(container)).toEqual([
       "Outline",
-      "Links",
+      "Links from this note",
       "Links to this note",
       "Nearby notes",
       "Properties",

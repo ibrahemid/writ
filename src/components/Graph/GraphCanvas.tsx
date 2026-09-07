@@ -153,8 +153,8 @@ function now(): number {
  * dense note still reads as a shape rather than a mesh. Only the open note's
  * name is painted on: at this width the rest would collide, so the drawing
  * says where a note sits and hovering one says which it is. Every note it
- * draws is listed as text above it either way, under "Links" or under "Links
- * to this note".
+ * draws is listed as text above it either way, under "Links from this note" or
+ * under "Links to this note".
  *
  * The same canvas draws a whole folder (`FolderGraphView`), which is the same
  * drawing with a colour per folder, a search that dims what it does not name,

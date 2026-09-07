@@ -12,7 +12,7 @@ vi.mock("../../stores/global/default-app", () => ({
 
 import {
   probeDefaultAppSupport,
-  isDefaultAppTypeSupported,
+  hasSupportedDefaultAppTypes,
   markDefaultAppTypeSupported,
   clearDefaultAppSupport,
 } from "../../stores/global/default-app-support";
@@ -35,28 +35,31 @@ describe("default-app support registry", () => {
     );
 
     await probeDefaultAppSupport();
+    expect(hasSupportedDefaultAppTypes()).toBe(true);
 
-    expect(isDefaultAppTypeSupported("markdown")).toBe(true);
-    expect(isDefaultAppTypeSupported("source-code")).toBe(false);
+    // Dropping the one type that reported supported empties the registry, which
+    // is only true if the unsupported one was never recorded.
+    markDefaultAppTypeSupported("markdown", false);
+    expect(hasSupportedDefaultAppTypes()).toBe(false);
   });
 
   it("leaves the registry empty when listing types fails", async () => {
     h.fetchDefaultAppTypes.mockRejectedValue(new Error("no IPC"));
     await probeDefaultAppSupport();
-    expect(isDefaultAppTypeSupported("markdown")).toBe(false);
+    expect(hasSupportedDefaultAppTypes()).toBe(false);
   });
 
   it("treats a per-type status error as unsupported", async () => {
     h.fetchDefaultAppTypes.mockResolvedValue([type("markdown")]);
     h.fetchDefaultAppStatus.mockRejectedValue(new Error("boom"));
     await probeDefaultAppSupport();
-    expect(isDefaultAppTypeSupported("markdown")).toBe(false);
+    expect(hasSupportedDefaultAppTypes()).toBe(false);
   });
 
   it("updates support imperatively", () => {
     markDefaultAppTypeSupported("config-data", true);
-    expect(isDefaultAppTypeSupported("config-data")).toBe(true);
+    expect(hasSupportedDefaultAppTypes()).toBe(true);
     markDefaultAppTypeSupported("config-data", false);
-    expect(isDefaultAppTypeSupported("config-data")).toBe(false);
+    expect(hasSupportedDefaultAppTypes()).toBe(false);
   });
 });
