@@ -1,4 +1,5 @@
-import { createSignal } from "solid-js";
+import { createEffect, createSignal, on } from "solid-js";
+import { notesStore } from "../global/notes";
 
 export type FolderGraphStore = ReturnType<typeof createFolderGraphStore>;
 
@@ -99,6 +100,21 @@ export function createFolderGraphStore() {
     setZoom(1);
     setPanState(NO_PAN);
   }
+
+  // The drawing is of the notes folder, so moving the folder makes it a
+  // drawing of somewhere else. What was searched for and where the last folder
+  // had been taken say nothing about the new one, and a viewport left as it
+  // was would open on a corner of a drawing nobody has seen yet.
+  createEffect(
+    on(
+      notesStore.root,
+      () => {
+        setQuery("");
+        resetView();
+      },
+      { defer: true },
+    ),
+  );
 
   return {
     isOpen,
