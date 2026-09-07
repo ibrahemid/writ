@@ -224,6 +224,10 @@ a whole folder. Both views inherit that.
 - A note's neighbourhood looks the same every time it is opened, on every
   machine, and a test can assert the coordinates rather than that a canvas
   exists.
+- Opening the whole-folder view puts it back to the folder as it is now: the
+  search box is cleared and the zoom and pan return to the fitted drawing, so
+  opening it a second time while it is already up discards a search and a
+  viewport rather than returning to them.
 - Layout cost is bounded by the step count, so a folder shape that will not
   settle costs a fixed amount and then stops. At the cap that bound is about
   1.3 seconds of arithmetic, spread over frames.
