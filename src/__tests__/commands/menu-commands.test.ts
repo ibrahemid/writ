@@ -1,65 +1,24 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { registerCommand, unregisterCommand } from "../../commands/registry";
 import { MENU_COMMANDS, MENU_SECTIONS, menuCommandsFor } from "../../commands/menu-commands";
 import { appMenuItems } from "../../components/TitleBar/AppMenu";
+import { APP_REGISTRATIONS, type Registration } from "./app-registrations";
 
 // The shared list is the contract: the macOS menu bar is built from it in
 // `src-tauri/src/menu.rs`, and `AppMenu.tsx` builds the Windows and Linux menu
 // from the same entries. These tests hold the frontend half of that; the Rust
 // half is `menu::tests`.
 
-const APP_TSX = readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8");
-
-/** The object literal passed to a `registerCommand({ … })` call. */
-function objectLiteral(text: string, open: number): string {
-  let depth = 0;
-  for (let i = open; i < text.length; i += 1) {
-    if (text[i] === "{") depth += 1;
-    else if (text[i] === "}") {
-      depth -= 1;
-      if (depth === 0) return text.slice(open + 1, i);
-    }
-  }
-  throw new Error("unterminated registerCommand literal");
+/**
+ * The registration behind a menu entry. This fails rather than skipping: an id
+ * with no `registerCommand` renders nothing on Windows and Linux and routes
+ * nowhere from the macOS menu, which is exactly what these tests are for.
+ */
+function registrationFor(id: string): Registration {
+  const registration = APP_REGISTRATIONS.get(id);
+  expect(registration, `${id} is in the menu with no registerCommand in App.tsx`).toBeDefined();
+  return registration!;
 }
-
-function field(literal: string, name: string): string {
-  const match = literal.match(new RegExp(`(^|[\\s{,])${name}:\\s*([^\\n]+?),?\\s*$`, "m"));
-  return match ? match[2].trim() : "";
-}
-
-/** Strips the quotes, and the escaping a TypeScript literal needs. */
-function literalText(raw: string): string {
-  return raw.replace(/^["'`]|["'`]$/g, "").replace(/\\\\/g, "\\");
-}
-
-interface Registration {
-  label: string;
-  keybinding: string;
-}
-
-/** Every command `App.tsx` registers, by id, as written in the file. */
-function registrations(): Map<string, Registration> {
-  const found = new Map<string, Registration>();
-  const marker = "registerCommand({";
-  let at = APP_TSX.indexOf(marker);
-  while (at !== -1) {
-    const literal = objectLiteral(APP_TSX, at + marker.length - 1);
-    const id = literalText(field(literal, "id"));
-    if (id) {
-      found.set(id, {
-        label: literalText(field(literal, "label")),
-        keybinding: literalText(field(literal, "keybinding")),
-      });
-    }
-    at = APP_TSX.indexOf(marker, at + marker.length);
-  }
-  return found;
-}
-
-const REGISTRATIONS = registrations();
 
 /** Menu wording and palette wording differ in case and in the trailing "…". */
 function sameWords(menuLabel: string, registryLabel: string): boolean {
@@ -134,10 +93,13 @@ describe("the shared menu command list", () => {
     expect(MENU_COMMANDS.some((entry) => entry.menu === "help")).toBe(true);
   });
 
+  it("names only commands App.tsx registers", () => {
+    for (const entry of MENU_COMMANDS) registrationFor(entry.id);
+  });
+
   it("gives each entry the chord its command is registered with", () => {
     for (const entry of MENU_COMMANDS) {
-      const registration = REGISTRATIONS.get(entry.id);
-      if (!registration) continue;
+      const registration = registrationFor(entry.id);
       if (!entry.accelerator) continue;
       expect(registration.keybinding, entry.id).toBe(entry.accelerator);
     }
@@ -145,8 +107,8 @@ describe("the shared menu command list", () => {
 
   it("words each entry the way its command is worded", () => {
     for (const entry of MENU_COMMANDS) {
-      const registration = REGISTRATIONS.get(entry.id);
-      if (!registration || !registration.label) continue;
+      const registration = registrationFor(entry.id);
+      expect(registration.label, `${entry.id} is registered with no label`).not.toBe("");
       expect(
         sameWords(entry.label, registration.label),
         `${entry.id}: menu says "${entry.label}", the command says "${registration.label}"`,

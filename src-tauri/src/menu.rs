@@ -20,7 +20,6 @@ pub enum MenuSection {
     File,
     Edit,
     View,
-    Window,
     Help,
 }
 
@@ -34,11 +33,95 @@ pub enum MenuPlatform {
     Linux,
 }
 
+/// The action a menu item raises.
+///
+/// One variant per item the menus offer. An item id with no variant reaches
+/// nothing, which is what [`menu_action_for_id`] answers `None` for and what
+/// the tests below hold the shared list to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuAction {
+    ThirdPartyNotices,
+    OpenSettings,
+    CheckUpdates,
+    NewNote,
+    TodaysNote,
+    QuickOpenNote,
+    OpenFile,
+    OpenRecent,
+    ShowNotesFolder,
+    Save,
+    SaveCopy,
+    RenameNote,
+    CloseTab,
+    Find,
+    FindNext,
+    FindPrevious,
+    Replace,
+    ToggleSidebar,
+    TogglePanel,
+    OpenPalette,
+    CustomizeShortcuts,
+}
+
+impl MenuAction {
+    /// Every action the table routes to.
+    pub const ALL: [MenuAction; 21] = [
+        MenuAction::ThirdPartyNotices,
+        MenuAction::OpenSettings,
+        MenuAction::CheckUpdates,
+        MenuAction::NewNote,
+        MenuAction::TodaysNote,
+        MenuAction::QuickOpenNote,
+        MenuAction::OpenFile,
+        MenuAction::OpenRecent,
+        MenuAction::ShowNotesFolder,
+        MenuAction::Save,
+        MenuAction::SaveCopy,
+        MenuAction::RenameNote,
+        MenuAction::CloseTab,
+        MenuAction::Find,
+        MenuAction::FindNext,
+        MenuAction::FindPrevious,
+        MenuAction::Replace,
+        MenuAction::ToggleSidebar,
+        MenuAction::TogglePanel,
+        MenuAction::OpenPalette,
+        MenuAction::CustomizeShortcuts,
+    ];
+
+    /// The command id the frontend registry answers to. It is the wire format
+    /// `WritEvent::MenuAction` carries, so it is spelled the registry's way.
+    pub fn command_id(self) -> &'static str {
+        match self {
+            MenuAction::ThirdPartyNotices => "app.thirdPartyNotices",
+            MenuAction::OpenSettings => "settings.open",
+            MenuAction::CheckUpdates => "app.check_updates",
+            MenuAction::NewNote => "note.new",
+            MenuAction::TodaysNote => "note.today",
+            MenuAction::QuickOpenNote => "notes.quickOpen",
+            MenuAction::OpenFile => "file.open",
+            MenuAction::OpenRecent => "history.openRecent",
+            MenuAction::ShowNotesFolder => "notes.showFolder",
+            MenuAction::Save => "buffer.save",
+            MenuAction::SaveCopy => "note.saveCopy",
+            MenuAction::RenameNote => "note.rename",
+            MenuAction::CloseTab => "buffer.close",
+            MenuAction::Find => "editor.find",
+            MenuAction::FindNext => "editor.findNext",
+            MenuAction::FindPrevious => "editor.findPrevious",
+            MenuAction::Replace => "editor.replace",
+            MenuAction::ToggleSidebar => "sidebar.toggle",
+            MenuAction::TogglePanel => "panel.toggle",
+            MenuAction::OpenPalette => "palette.open",
+            MenuAction::CustomizeShortcuts => "shortcuts.customize",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct MenuCommand {
-    /// The command id the frontend registry answers to. It is also the menu
-    /// item's id, which is what makes [`menu_action_for_id`] a lookup rather
-    /// than a translation table.
+    /// The command id the frontend registry answers to, and the menu item's
+    /// own id. [`menu_action_for_id`] turns it back into a [`MenuAction`].
     pub id: String,
     /// The menu bar's wording, in the Title Case macOS menus use.
     pub label: String,
@@ -79,13 +162,33 @@ pub fn commands_in(
         .filter(move |command| command.menu == section && command.is_offered_on(platform))
 }
 
-/// The action a menu item id forwards to the frontend, or `None` for an id the
-/// shared list does not carry.
-pub fn menu_action_for_id(id: &str) -> Option<&'static str> {
-    menu_commands()
-        .iter()
-        .find(|command| command.id == id)
-        .map(|command| command.id.as_str())
+/// The action a menu item id forwards to the frontend, or `None` for an id
+/// this table does not route.
+pub fn menu_action_for_id(id: &str) -> Option<MenuAction> {
+    Some(match id {
+        "app.thirdPartyNotices" => MenuAction::ThirdPartyNotices,
+        "settings.open" => MenuAction::OpenSettings,
+        "app.check_updates" => MenuAction::CheckUpdates,
+        "note.new" => MenuAction::NewNote,
+        "note.today" => MenuAction::TodaysNote,
+        "notes.quickOpen" => MenuAction::QuickOpenNote,
+        "file.open" => MenuAction::OpenFile,
+        "history.openRecent" => MenuAction::OpenRecent,
+        "notes.showFolder" => MenuAction::ShowNotesFolder,
+        "buffer.save" => MenuAction::Save,
+        "note.saveCopy" => MenuAction::SaveCopy,
+        "note.rename" => MenuAction::RenameNote,
+        "buffer.close" => MenuAction::CloseTab,
+        "editor.find" => MenuAction::Find,
+        "editor.findNext" => MenuAction::FindNext,
+        "editor.findPrevious" => MenuAction::FindPrevious,
+        "editor.replace" => MenuAction::Replace,
+        "sidebar.toggle" => MenuAction::ToggleSidebar,
+        "panel.toggle" => MenuAction::TogglePanel,
+        "palette.open" => MenuAction::OpenPalette,
+        "shortcuts.customize" => MenuAction::CustomizeShortcuts,
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
@@ -101,19 +204,21 @@ mod tests {
     #[test]
     fn every_id_routes_and_every_route_is_an_id() {
         for command in menu_commands() {
+            let action = menu_action_for_id(&command.id)
+                .unwrap_or_else(|| panic!("{} is in the menu with no route", command.id));
             assert_eq!(
-                menu_action_for_id(&command.id),
-                Some(command.id.as_str()),
-                "{} is in the menu with no route",
+                action.command_id(),
+                command.id,
+                "{} routes to an action that names a different command",
                 command.id
             );
         }
+
         let ids: HashSet<&str> = menu_commands().iter().map(|c| c.id.as_str()).collect();
-        for command in menu_commands() {
+        for action in MenuAction::ALL {
             assert!(
-                ids.contains(menu_action_for_id(&command.id).unwrap()),
-                "{} routes to an action no item raises",
-                command.id
+                ids.contains(action.command_id()),
+                "{action:?} routes to a command no menu item raises"
             );
         }
     }

@@ -190,6 +190,11 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     )?
     .build()?;
 
+    // Chrome macOS expects of every app, built from the predefined item rather
+    // than from the shared list: minimizing is a window operation the OS
+    // performs, not a Writ command, and there is nothing for the Windows and
+    // Linux menu to carry in its place — those titlebars have their own
+    // minimize button.
     let window_menu = SubmenuBuilder::new(app, "Window").minimize().build()?;
 
     let help_menu = fill_section(
@@ -221,7 +226,7 @@ fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(action) = menu::menu_action_for_id(id) {
             let state = app_handle.state::<AppState>();
             state.event_bus.emit(WritEvent::MenuAction {
-                action: action.to_string(),
+                action: action.command_id().to_string(),
             });
         }
     });
