@@ -182,13 +182,13 @@ function createBufferRegistry() {
   }
 
   function formatBytes(n: number): string {
-    const GIB = 1024 * 1024 * 1024;
-    const MIB = 1024 * 1024;
-    const KIB = 1024;
-    if (n >= GIB) return `${(n / GIB).toFixed(1)} GiB`;
-    if (n >= MIB) return `${(n / MIB).toFixed(1)} MiB`;
-    if (n >= KIB) return `${Math.round(n / KIB)} KiB`;
-    return `${n} B`;
+    const GB = 1000 * 1000 * 1000;
+    const MB = 1000 * 1000;
+    const KB = 1000;
+    if (n >= GB) return `${(n / GB).toFixed(1)} GB`;
+    if (n >= MB) return `${(n / MB).toFixed(1)} MB`;
+    if (n >= KB) return `${Math.round(n / KB)} KB`;
+    return `${n} bytes`;
   }
 
   function registerOpenResult(result: FileOpenResult): OpenOutcome {
@@ -234,9 +234,9 @@ function createBufferRegistry() {
         const sizeBytes = parseInt(parts[2], 10);
         const sizeStr = formatBytes(sizeBytes);
         const confirmed = await requestConfirm({
-          title: "Open large file?",
-          message: `This file is ${sizeStr}. Opening it will disable syntax highlighting, typography, and line wrapping. It will also be excluded from search and crash recovery.\n\nContinue?`,
-          confirmLabel: "Open anyway",
+          title: "Open this file?",
+          message: `It is ${sizeStr}. Writ will show it as plain text, with no styling and no line wrapping, and will leave it out of search and crash recovery.\n\nOpen it?`,
+          confirmLabel: "Open",
           cancelLabel: "Cancel",
         });
         if (!confirmed) throw new Error("cancelled");

@@ -135,7 +135,7 @@ export default function HistorySection() {
     <Show when={rows().length > 0}>
       <div class="sidebar-section history-section" ref={sectionRef!} tabindex="-1">
         <div class="sidebar-section-title">
-          Recent
+          Recently closed
           <span class="sidebar-section-count">{total()}</span>
         </div>
         <div class="history-list" ref={listRef!}>
