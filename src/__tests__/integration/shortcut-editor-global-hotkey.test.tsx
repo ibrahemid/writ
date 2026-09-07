@@ -38,12 +38,28 @@ import ShortcutEditor, {
   closeShortcutEditor,
 } from "../../components/ShortcutEditor/ShortcutEditor";
 import { hotkeyStore } from "../../stores/global/hotkey";
-import { getAllCommands, unregisterCommand } from "../../commands/registry";
+import { getAllCommands, registerCommand, unregisterCommand } from "../../commands/registry";
 
 function row(container: HTMLElement): HTMLElement {
   const found = container.querySelector<HTMLElement>('[data-shortcut="global-toggle"]');
   expect(found, "the shortcut editor carries a row for the window's own chord").not.toBeNull();
   return found!;
+}
+
+/** One ordinary row to edit alongside the window's chord. */
+function registerRenameCommand(): void {
+  registerCommand({
+    id: "note.rename",
+    label: "Rename note",
+    keybinding: "F2",
+    scope: "app",
+    execute: () => {},
+  });
+}
+
+/** Lets the save handler's awaits, and the render they trigger, run out. */
+function settle(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe("the chord that shows and hides the window", () => {
@@ -118,10 +134,8 @@ describe("the chord that shows and hides the window", () => {
       chord: "CmdOrCtrl+Shift+Space",
       registered: true,
     });
-    // A chord the recorder can capture but the hotkey parser cannot read is
-    // registered as the default, and that is what the config has to hold.
     h.setGlobalHotkey.mockResolvedValue({
-      chord: "CmdOrCtrl+Shift+Space",
+      chord: "CmdOrCtrl+Alt+Space",
       registered: true,
     });
     h.saveConfig.mockClear();
@@ -131,16 +145,100 @@ describe("the chord that shows and hides the window", () => {
     openShortcutEditor();
 
     fireEvent.click(row(container).querySelector('[data-action="record-global-shortcut"]')!);
-    fireEvent.keyDown(document, { key: "F13", metaKey: true });
+    fireEvent.keyDown(document, { key: " ", metaKey: true, altKey: true });
 
     fireEvent.click(container.querySelector('[data-action="save-shortcuts"]')!);
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await settle();
 
-    expect(h.setGlobalHotkey).toHaveBeenCalledWith("CmdOrCtrl+F13");
+    expect(h.setGlobalHotkey).toHaveBeenCalledWith("CmdOrCtrl+Alt+Space");
     expect(h.saveConfig).toHaveBeenCalledWith(
-      expect.objectContaining({ hotkey: { toggle: "CmdOrCtrl+Shift+Space" } }),
+      expect.objectContaining({ hotkey: { toggle: "CmdOrCtrl+Alt+Space" } }),
     );
+  });
+
+  // `set_global_hotkey` parses before it registers, so a chord the recorder can
+  // capture but `writ_core::hotkey` cannot read comes back as a rejected call.
+  // `hotkey/mod.rs` holds the Rust half: both of these chords are `Err` there.
+  for (const [key, chord] of [
+    ["Backspace", "CmdOrCtrl+Shift+Backspace"],
+    ["F13", "CmdOrCtrl+F13"],
+  ] as const) {
+    it(`keeps the other rows, and says why, when ${chord} cannot be registered`, async () => {
+      h.globalHotkeyStatus.mockResolvedValue({
+        chord: "CmdOrCtrl+Shift+Space",
+        registered: true,
+      });
+      h.setGlobalHotkey.mockRejectedValue(new Error("hotkey chord parse failed: unknown token"));
+      h.saveConfig.mockClear();
+      await hotkeyStore.load();
+      registerRenameCommand();
+
+      const { container } = render(() => <ShortcutEditor />);
+      openShortcutEditor();
+
+      // One ordinary row is edited first: that write is what a refusal used to
+      // take down with it.
+      fireEvent.click(container.querySelector('[data-action="record-shortcut"]')!);
+      fireEvent.keyDown(document, { key: "r", metaKey: true, altKey: true });
+
+      fireEvent.click(row(container).querySelector('[data-action="record-global-shortcut"]')!);
+      fireEvent.keyDown(document, {
+        key,
+        metaKey: true,
+        shiftKey: chord.includes("Shift"),
+      });
+
+      fireEvent.click(container.querySelector('[data-action="save-shortcuts"]')!);
+      await settle();
+
+      expect(h.setGlobalHotkey).toHaveBeenCalledWith(chord);
+      expect(row(container).querySelector('[data-state="unusable"]')?.textContent).toContain(
+        "Writ can't use this shortcut",
+      );
+      expect(h.saveConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keybindings: { "note.rename": "CmdOrCtrl+Alt+R" },
+          hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
+        }),
+      );
+    });
+  }
+
+  it("writes the keybindings, and shows the chord as taken, when the OS refuses it", async () => {
+    h.globalHotkeyStatus.mockResolvedValue({
+      chord: "CmdOrCtrl+Shift+Space",
+      registered: true,
+    });
+    h.setGlobalHotkey.mockResolvedValue({
+      chord: "CmdOrCtrl+Alt+Space",
+      registered: false,
+    });
+    h.saveConfig.mockClear();
+    await hotkeyStore.load();
+    registerRenameCommand();
+
+    const { container } = render(() => <ShortcutEditor />);
+    openShortcutEditor();
+
+    fireEvent.click(container.querySelector('[data-action="record-shortcut"]')!);
+    fireEvent.keyDown(document, { key: "r", metaKey: true, altKey: true });
+
+    fireEvent.click(row(container).querySelector('[data-action="record-global-shortcut"]')!);
+    fireEvent.keyDown(document, { key: " ", metaKey: true, altKey: true });
+
+    fireEvent.click(container.querySelector('[data-action="save-shortcuts"]')!);
+    await settle();
+
+    expect(h.saveConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        keybindings: { "note.rename": "CmdOrCtrl+Alt+R" },
+        hotkey: { toggle: "CmdOrCtrl+Alt+Space" },
+      }),
+    );
+    expect(hotkeyStore.isTaken()).toBe(true);
+    expect(
+      row(container).querySelector('[data-state="unusable"]'),
+      "a chord the OS gave to another app is taken, not unusable",
+    ).toBeNull();
   });
 });

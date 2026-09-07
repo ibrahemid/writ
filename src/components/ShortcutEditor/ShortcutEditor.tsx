@@ -51,6 +51,7 @@ export default function ShortcutEditor() {
   const recorder = new ShortcutRecorder();
   const [drafts, setDrafts] = createSignal<Record<string, DraftEntry>>({});
   const [globalDraft, setGlobalDraft] = createSignal("");
+  const [globalProblem, setGlobalProblem] = createSignal("");
   const [listeningId, setListeningId] = createSignal<string | null>(null);
   let modalRef: HTMLDivElement | undefined;
 
@@ -68,8 +69,16 @@ export default function ShortcutEditor() {
     commands().filter((c) => c.scope === "editor"),
   );
 
+  // This seeding runs again whenever the command list or the held chord moves,
+  // saving included, so the one thing it must not carry off is a message about
+  // the save that just happened. That is cleared on the way in only.
+  let wasOpen = false;
+
   createEffect(() => {
-    if (!isOpen()) return;
+    if (!isOpen()) {
+      wasOpen = false;
+      return;
+    }
     const initial: Record<string, DraftEntry> = {};
     const overrides = configStore.config().keybindings;
     for (const cmd of commands()) {
@@ -78,6 +87,8 @@ export default function ShortcutEditor() {
     }
     setDrafts(initial);
     setGlobalDraft(hotkeyStore.chord() || configStore.config().hotkey.toggle);
+    if (!wasOpen) setGlobalProblem("");
+    wasOpen = true;
     setListeningId(null);
     recorder.reset();
   });
@@ -126,8 +137,10 @@ export default function ShortcutEditor() {
         altKey: event.altKey,
       });
       if (outcome.kind === "captured") {
-        if (id === GLOBAL_TOGGLE_ROW) setGlobalDraft(outcome.binding);
-        else setDraft(id, outcome.binding);
+        if (id === GLOBAL_TOGGLE_ROW) {
+          setGlobalDraft(outcome.binding);
+          setGlobalProblem("");
+        } else setDraft(id, outcome.binding);
         stopRecording();
       } else if (outcome.kind === "cancelled") {
         stopRecording();
@@ -157,6 +170,7 @@ export default function ShortcutEditor() {
 
   function handleResetAll() {
     setGlobalDraft(configStore.config().hotkey.toggle);
+    setGlobalProblem("");
     const next: Record<string, DraftEntry> = {};
     for (const cmd of commands()) {
       next[cmd.id] = { binding: cmd.keybinding ?? "" };
@@ -176,13 +190,22 @@ export default function ShortcutEditor() {
           nextKeybindings[cmd.id] = draft.binding;
         }
       }
-      // The OS holds this one, so it is asked first and the config records what
-      // it gave back: a chord Rust cannot parse is registered as the default,
-      // and saving the asked-for chord would leave a key that does nothing.
+      // The OS holds this one, so it is asked before anything is written and
+      // the config records what it gave back. The ask has a `try` of its own:
+      // `set_global_hotkey` rejects a chord the hotkey parser cannot read, and
+      // that refusal must cost the window's chord alone, never the rest of the
+      // rows on screen.
       let toggle = configStore.config().hotkey.toggle;
+      let toggleRefused = false;
+      setGlobalProblem("");
       if (toggleChanged) {
-        await hotkeyStore.rebind(nextToggle);
-        toggle = hotkeyStore.chord() || toggle;
+        try {
+          await hotkeyStore.rebind(nextToggle);
+          toggle = hotkeyStore.chord() || toggle;
+        } catch {
+          toggleRefused = true;
+          setGlobalProblem("Writ can't use this shortcut.");
+        }
       }
       await configStore.save({
         ...configStore.config(),
@@ -192,7 +215,8 @@ export default function ShortcutEditor() {
       setKeybindingOverrides(nextKeybindings);
       rebuildKeyMap();
       openSnapshot = { ...nextKeybindings };
-      showToast("Shortcuts saved", "success");
+      if (toggleRefused) showToast("Shortcuts saved. The window shortcut is unchanged.", "error");
+      else showToast("Shortcuts saved", "success");
     } catch {
       showToast("Failed to save shortcuts", "error");
     }
@@ -212,6 +236,11 @@ export default function ShortcutEditor() {
           <Show when={hotkeyStore.isTaken()}>
             <div class="shortcut-row-conflict" data-state="taken">
               Another app is using this shortcut.
+            </div>
+          </Show>
+          <Show when={globalProblem()}>
+            <div class="shortcut-row-conflict" data-state="unusable">
+              {globalProblem()}
             </div>
           </Show>
         </div>
@@ -245,7 +274,10 @@ export default function ShortcutEditor() {
           <Button
             variant="ghost"
             data-action="reset-global-shortcut"
-            onClick={() => setGlobalDraft(configStore.config().hotkey.toggle)}
+            onClick={() => {
+              setGlobalDraft(configStore.config().hotkey.toggle);
+              setGlobalProblem("");
+            }}
             disabled={globalDraft() === configStore.config().hotkey.toggle}
           >
             Reset

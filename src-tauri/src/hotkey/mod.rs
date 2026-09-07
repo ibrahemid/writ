@@ -201,6 +201,21 @@ fn register_toggle(app: &AppHandle, chord: &str) -> GlobalHotkeyStatus {
             }
         });
 
+    let status = status_from_outcome(chord, outcome);
+    record_status(status.clone());
+    let _ = emit_event(app, WritFrontendEvent::HotkeyStatus(status.clone()));
+    status
+}
+
+/// What the OS's answer means for the status the settings surface reads.
+///
+/// Split out of [`register_toggle`] so the refusal arm can be driven by a real
+/// plugin error rather than only by a live machine that already holds the
+/// chord.
+fn status_from_outcome(
+    chord: String,
+    outcome: Result<(), tauri_plugin_global_shortcut::Error>,
+) -> GlobalHotkeyStatus {
     let registered = match outcome {
         Ok(()) => {
             info!(chord = %chord, "global hotkey registered");
@@ -211,11 +226,7 @@ fn register_toggle(app: &AppHandle, chord: &str) -> GlobalHotkeyStatus {
             false
         }
     };
-
-    let status = GlobalHotkeyStatus { chord, registered };
-    record_status(status.clone());
-    let _ = emit_event(app, WritFrontendEvent::HotkeyStatus(status.clone()));
-    status
+    GlobalHotkeyStatus { chord, registered }
 }
 
 /// The toggle itself, lifted out of the registration so re-registering builds
@@ -410,6 +421,38 @@ mod tests {
     fn a_chord_the_editor_could_record_is_accepted_and_a_broken_one_is_not() {
         assert!(chord_from_config("CmdOrCtrl+Alt+Space").is_ok());
         assert!(chord_from_config("CmdOrCtrl+Shift").is_err());
+    }
+
+    #[test]
+    fn keys_the_recorder_can_capture_but_the_parser_cannot_read_are_refused() {
+        // `ShortcutRecorder` sends `event.key` through verbatim, so these do
+        // reach `set_global_hotkey`. It rejects them before anything is
+        // registered, and the shortcut editor's window row says why.
+        for chord in [
+            "CmdOrCtrl+Shift+Backspace",
+            "CmdOrCtrl+F13",
+            "CmdOrCtrl+Shift+Home",
+            "CmdOrCtrl+Shift+Delete",
+        ] {
+            assert!(
+                chord_from_config(chord).is_err(),
+                "{chord} must not reach the OS"
+            );
+        }
+    }
+
+    #[test]
+    fn a_chord_the_os_refuses_is_reported_as_taken() {
+        // The variant Carbon's refusal arrives as: `global_hotkey::Error`
+        // converts into `Error::GlobalHotkey` on its way out of the plugin.
+        let refusal =
+            tauri_plugin_global_shortcut::Error::GlobalHotkey("HotKey already registered".into());
+        let taken = status_from_outcome("CmdOrCtrl+Shift+Space".to_string(), Err(refusal));
+        assert_eq!(taken.chord, "CmdOrCtrl+Shift+Space");
+        assert!(!taken.registered, "a refused chord is not Writ's");
+
+        let given = status_from_outcome("CmdOrCtrl+Shift+Space".to_string(), Ok(()));
+        assert!(given.registered);
     }
 
     #[test]
