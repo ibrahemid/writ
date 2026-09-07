@@ -10,7 +10,9 @@ Two surfaces draw the folder's link graph: "Connections", the panel beside the
 note, which shows the open note and everything one link away from it, and
 "Graph", the whole-folder view that follows it, opened from the command palette
 as "Open graph". Both take their rows from the read model in ADR-036, and both
-have to turn those rows into coordinates and then into pixels.
+have to turn those rows into coordinates and then into pixels. Those are the
+names the app uses: the panel's section reads "Connections", the whole-folder
+view's heading reads "Graph", and the palette opens it as "Open graph".
 
 That is three separate calls, and each one has a wrong answer that costs
 something later:
