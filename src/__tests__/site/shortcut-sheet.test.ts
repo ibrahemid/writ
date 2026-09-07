@@ -7,9 +7,13 @@ import { EDITOR_COMMAND_KEYS } from "../../editor/editor-command-keys";
 // rather than the app's `EDITOR_COMMAND_KEYS`, so a chord that changes here does
 // not change the public page before the build carrying it is downloadable.
 //
-// The frozen copy has to be refreshed for the release that ships the new chords.
-// That is what the second test is: it starts asking once the site's release data
-// names the version this tree builds.
+// The frozen copy has to be refreshed for the release that ships the new chords,
+// and nothing in the repo moves at the moment a release is published: the deploy
+// regenerates `release.json` from the GitHub API and the committed copy is left
+// as it was. So the second test asks on either of two signals — the site's
+// release data naming the version this tree builds, which needs someone to have
+// committed it, or the version having moved past the one the sheet was frozen
+// for, which `scripts/bump_version.py` does on its own at the next release.
 
 function read<T>(path: string): T {
   return JSON.parse(readFileSync(resolve(process.cwd(), path), "utf8")) as T;
@@ -22,14 +26,19 @@ interface SiteShortcut {
   aliases?: string[];
 }
 
-const frozen = read<SiteShortcut[]>("site/src/data/shortcuts.json");
+const sheet = read<{ frozenThrough: string; keys: SiteShortcut[] }>(
+  "site/src/data/shortcuts.json",
+);
+const frozen = sheet.keys;
 const release = read<{ version: string; published: boolean }>("site/src/data/release.json");
 const appVersion = read<{ version: string }>("src-tauri/tauri.conf.json").version;
 
 /** The plain JSON shape of the app's table, for a value-by-value comparison. */
 const live = JSON.parse(JSON.stringify(EDITOR_COMMAND_KEYS)) as SiteShortcut[];
 
-const releaseShipsThisTree = release.published === true && release.version === appVersion;
+const releaseNamesThisTree = release.published === true && release.version === appVersion;
+const sheetIsOlderThanTheApp = sheet.frozenThrough !== appVersion;
+const theSiteOffersTheseChords = releaseNamesThisTree || sheetIsOlderThanTheApp;
 
 describe("the site's frozen shortcut sheet", () => {
   it("names the same commands the app has, in the same order", () => {
@@ -37,14 +46,14 @@ describe("the site's frozen shortcut sheet", () => {
     expect(frozen.map((entry) => entry.label)).toEqual(live.map((entry) => entry.label));
   });
 
-  it.skipIf(!releaseShipsThisTree)(
+  it.skipIf(!theSiteOffersTheseChords)(
     "carries the chords of the release the site offers",
     () => {
       expect(
         frozen,
-        `site/src/data/shortcuts.json still holds the chords of an earlier build. ` +
-          `The site offers v${release.version}, which is what this tree builds, so ` +
-          `refresh the file from EDITOR_COMMAND_KEYS.`,
+        `site/src/data/shortcuts.json holds the chords of v${sheet.frozenThrough} and ` +
+          `this tree builds v${appVersion}. Refresh the file from EDITOR_COMMAND_KEYS ` +
+          `and set frozenThrough to ${appVersion}.`,
       ).toEqual(live);
     },
   );

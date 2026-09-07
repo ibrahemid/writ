@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { MENU_COMMANDS } from "../../commands/menu-commands";
 import { EDITOR_COMMAND_KEYS } from "../../editor/editor-command-keys";
-import { APP_REGISTRATIONS } from "./app-registrations";
+import { APP_REGISTRATIONS, APP_TSX_COUNTS } from "./app-registrations";
 
 // Three tables hand out chords, and until now each was only checked against
 // itself: `App.tsx`'s `registerCommand` calls, `EDITOR_COMMAND_KEYS`, and the
@@ -51,5 +51,18 @@ describe("chords across the command registry, the editor table and the menu list
     expect(byChord.get("CmdOrCtrl+S"), "the registry").toContain("buffer.save");
     expect(byChord.get("CmdOrCtrl+Shift+K"), "the editor table").toContain("editor.deleteLine");
     expect(byChord.get("CmdOrCtrl+Shift+\\"), "the menu list").toContain("panel.toggle");
+  });
+
+  it("reads every registration App.tsx writes, so a silent parse gap cannot pass", () => {
+    const withKeybinding = [...APP_REGISTRATIONS.values()].filter(
+      (registration) => registration.keybinding.length > 0,
+    );
+    const withAliases = [...APP_REGISTRATIONS.values()].filter(
+      (registration) => registration.aliases.length > 0,
+    );
+
+    expect(APP_REGISTRATIONS.size, "commands read").toBe(APP_TSX_COUNTS.registerCommandCalls);
+    expect(withKeybinding.length, "chords read").toBe(APP_TSX_COUNTS.keybindingFields);
+    expect(withAliases.length, "alias lists read").toBe(APP_TSX_COUNTS.aliasFields);
   });
 });

@@ -5,6 +5,11 @@ declare module '*/shortcuts.json' {
     keybinding: string;
     aliases?: string[];
   }
-  const value: SiteShortcut[];
+  interface SiteShortcutSheet {
+    /** App version whose chords these are; a later version means a stale sheet. */
+    frozenThrough: string;
+    keys: SiteShortcut[];
+  }
+  const value: SiteShortcutSheet;
   export default value;
 }

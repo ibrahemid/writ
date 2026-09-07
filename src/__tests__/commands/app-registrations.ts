@@ -67,3 +67,14 @@ function registrations(): Map<string, Registration> {
 }
 
 export const APP_REGISTRATIONS = registrations();
+
+/**
+ * The same three things counted straight off the file text. A walker that
+ * quietly stops reading, or a field pattern that stops matching, leaves a gap
+ * between these numbers and what `APP_REGISTRATIONS` holds.
+ */
+export const APP_TSX_COUNTS = {
+  registerCommandCalls: (APP_TSX.match(/registerCommand\(\{/g) ?? []).length,
+  keybindingFields: (APP_TSX.match(/\bkeybinding:\s*"/g) ?? []).length,
+  aliasFields: (APP_TSX.match(/\bkeybindingAliases:/g) ?? []).length,
+};

@@ -44,7 +44,7 @@ const appShortcuts = [
 ];
 const kcCols = [
   { h: 'window & tabs', rows: appShortcuts.map((r) => ({ label: r.label, groups: r.bindings.map(seg) })) },
-  { h: 'editing', rows: EDIT_KEYS_SUBSET(editorShortcuts).map((c) => ({ label: c.label, groups: [seg(c.keybinding)] })) },
+  { h: 'editing', rows: EDIT_KEYS_SUBSET(editorShortcuts.keys).map((c) => ({ label: c.label, groups: [seg(c.keybinding)] })) },
 ];
 function EDIT_KEYS_SUBSET<T>(all: readonly T[]): readonly T[] { return all.slice(0, 8); }
 const summon = seg('CmdOrCtrl+Shift+Space');
