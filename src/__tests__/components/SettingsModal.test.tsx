@@ -579,6 +579,17 @@ describe("SettingsModal", () => {
       expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull();
     });
 
+    // Opening Settings the instant the app starts: no heading appears and then
+    // leaves, because the list only ever grows as types report in.
+    it("shows no Files heading while the type probe is still pending", async () => {
+      mocks.fetchDefaultAppTypes.mockReturnValue(new Promise(() => {}));
+      const { container } = render(() => <SettingsModal />);
+      await openFilesNav(container);
+      expect(filesHeading(container)).toBeUndefined();
+      expect(container.querySelector("[data-section='files']")).toBeNull();
+      expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull();
+    });
+
     it("shows no Files heading when the type probe fails", async () => {
       mocks.fetchDefaultAppTypes.mockRejectedValue(new Error("no IPC"));
       const { container } = render(() => <SettingsModal />);
