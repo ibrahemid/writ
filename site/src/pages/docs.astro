@@ -1,7 +1,8 @@
 ---
 import Site from '../layouts/Site.astro';
 import Doc from '../components/site/Doc.astro';
-import { EDITOR_COMMAND_KEYS } from '../../../src/editor/editor-command-keys';
+// The frozen sheet, not the app's live table. See `site/src/data/shortcuts.json`.
+import editorShortcuts from '../data/shortcuts.json';
 import { keybindingSegments } from '../../../src/lib/keybinding-format';
 const seg = (b: string) => keybindingSegments(b, { isMac: true });
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -79,7 +80,7 @@ make test 2>&1 | writ --title tests</code></pre>
         {windowKeys.map(([label, b]) => (
           <tr><td>{label}</td><td><span class="kc-keys">{seg(b!).map((k) => <kbd class="kc">{k}</kbd>)}</span></td></tr>
         ))}
-        {EDITOR_COMMAND_KEYS.map((c) => (
+        {editorShortcuts.map((c) => (
           <tr><td>{c.label}</td><td><span class="kc-keys">{seg(c.keybinding).map((k) => <kbd class="kc">{k}</kbd>)}</span></td></tr>
         ))}
       </table>

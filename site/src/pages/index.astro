@@ -9,7 +9,11 @@ import Ledger from '../components/site/Ledger.astro';
 import Install from '../components/site/Install.astro';
 import StatusBar from '../components/site/StatusBar.astro';
 import release from '../data/release.json';
-import { EDITOR_COMMAND_KEYS } from '../../../src/editor/editor-command-keys';
+// A frozen copy of the app's editor chords rather than the live table: the
+// site describes the build people can download, and the app's table moves
+// ahead of it between releases. `src/__tests__/site/shortcut-sheet.test.ts`
+// asks for a refresh once a release catches up.
+import editorShortcuts from '../data/shortcuts.json';
 import { keybindingSegments } from '../../../src/lib/keybinding-format';
 import warpLight from '../../../src/styles/themes/warp-light.json';
 import warpDark from '../../../src/styles/themes/warp-dark.json';
@@ -40,7 +44,7 @@ const appShortcuts = [
 ];
 const kcCols = [
   { h: 'window & tabs', rows: appShortcuts.map((r) => ({ label: r.label, groups: r.bindings.map(seg) })) },
-  { h: 'editing', rows: EDIT_KEYS_SUBSET(EDITOR_COMMAND_KEYS).map((c) => ({ label: c.label, groups: [seg(c.keybinding)] })) },
+  { h: 'editing', rows: EDIT_KEYS_SUBSET(editorShortcuts).map((c) => ({ label: c.label, groups: [seg(c.keybinding)] })) },
 ];
 function EDIT_KEYS_SUBSET<T>(all: readonly T[]): readonly T[] { return all.slice(0, 8); }
 const summon = seg('CmdOrCtrl+Shift+Space');
