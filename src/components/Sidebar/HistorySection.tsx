@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import TabItem from "./TabItem";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { useWindow } from "../WindowProvider/WindowProvider";
@@ -25,6 +25,7 @@ export default function HistorySection() {
   const win = useWindow();
 
   let listRef: HTMLDivElement | undefined;
+  let sectionRef: HTMLDivElement | undefined;
   let scroller: HTMLElement | null = null;
   let frame = 0;
   const [scrollTop, setScrollTop] = createSignal(0);
@@ -98,6 +99,20 @@ export default function HistorySection() {
     });
   });
 
+  // Open Recent leads here. The section is only in the tree when it has rows,
+  // so an ask with nothing closed yet leaves the sidebar open and stops there.
+  createEffect(
+    on(
+      () => win.sidebar.recentRequest(),
+      () => {
+        if (!sectionRef) return;
+        sectionRef.scrollIntoView({ block: "nearest" });
+        sectionRef.focus();
+      },
+      { defer: true },
+    ),
+  );
+
   function handleContextMenu(e: MouseEvent, id: string) {
     e.preventDefault();
     showContextMenu(e.clientX, e.clientY, [
@@ -118,9 +133,9 @@ export default function HistorySection() {
 
   return (
     <Show when={rows().length > 0}>
-      <div class="sidebar-section history-section">
+      <div class="sidebar-section history-section" ref={sectionRef!} tabindex="-1">
         <div class="sidebar-section-title">
-          Recent
+          Recently closed
           <span class="sidebar-section-count">{total()}</span>
         </div>
         <div class="history-list" ref={listRef!}>

@@ -26,7 +26,7 @@ import { editorThemeFor, writHighlight } from '@app/components/Editor/cm-theme';
 import { markdownTypographyPlugin } from '@app/editor/markdown-typography';
 import { markdownEditingExtension } from '@app/editor/markdown-editing';
 import { spellingExtension } from '@app/editor/spelling';
-import { EDITOR_COMMANDS, OWNED_CM_COMMANDS } from '@app/editor/editor-command-table';
+import { OWNED_CM_COMMANDS } from '@app/editor/editor-command-table';
 import { stripOwnedBindings } from '@app/editor/keymap-filter';
 import { register, getExtension } from '@app/editor/language-registry';
 import {
@@ -38,6 +38,7 @@ import {
 } from '@app/commands/markdown-format';
 import { addCursorUp, addCursorDown } from '@app/commands/multicursor';
 import { toCmKey } from './keys';
+import { FROZEN_EDITOR_COMMANDS } from './frozen-commands';
 
 export type Polarity = 'light' | 'dark';
 
@@ -75,9 +76,11 @@ const MULTICURSOR_BINDINGS: readonly KeyBinding[] = [
   { key: 'Alt-ArrowDown', run: addCursorDown, preventDefault: true },
 ];
 
-function editorCommandBindings(): KeyBinding[] {
+// Exported so a test can compare the demo's chords with the frozen sheet
+// without standing an editor up.
+export function editorCommandBindings(): KeyBinding[] {
   const out: KeyBinding[] = [];
-  for (const spec of EDITOR_COMMANDS) {
+  for (const spec of FROZEN_EDITOR_COMMANDS) {
     out.push({ key: toCmKey(spec.keybinding), run: spec.run, preventDefault: true });
     for (const alias of spec.aliases ?? []) {
       out.push({ key: toCmKey(alias), run: spec.run, preventDefault: true });

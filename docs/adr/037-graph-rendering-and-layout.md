@@ -224,16 +224,20 @@ a whole folder. Both views inherit that.
 - A note's neighbourhood looks the same every time it is opened, on every
   machine, and a test can assert the coordinates rather than that a canvas
   exists.
+- Opening the whole-folder view puts it back to the folder as it is now: the
+  search box is cleared and the zoom and pan return to the fitted drawing, so
+  opening it a second time while it is already up discards a search and a
+  viewport rather than returning to them.
 - Layout cost is bounded by the step count, so a folder shape that will not
   settle costs a fixed amount and then stops. At the cap that bound is about
   1.3 seconds of arithmetic, spread over frames.
 - A theme change repaints from new tokens with no reload and no second palette.
 - The drawing is never the only way to reach a note: in the panel every note it
-  draws is a row above it, under "Links" or under "Links to this note"; in the
-  whole-folder view the notes are the file tree the view is drawn over, which
-  lists every one of them and is keyboard reachable. The canvas carries a name
-  and a count for a reader who is not shown it, and the open note's name is
-  left off the drawing rather than painted illegibly small when the drawing is
-  fitted down.
+  draws is a row above it, under "Links from this note" or under "Links to this
+  note"; in the whole-folder view the notes are the file tree the view is drawn
+  over, which lists every one of them and is keyboard reachable. The canvas
+  carries a name and a count for a reader who is not shown it, and the open
+  note's name is left off the drawing rather than painted illegibly small when
+  the drawing is fitted down.
 - The layout module has no dependency, so it runs under a bare `node` as
   readily as in the app, which is what makes the cross-process check possible.

@@ -224,6 +224,24 @@ describe("sidebar-store (per-window factory)", () => {
     });
   });
 
+  describe("open recent", () => {
+    it("opens the sidebar and asks the recent section for attention", () => {
+      const before = sidebarStore.recentRequest();
+      sidebarStore.showRecent();
+
+      expect(sidebarStore.isOpen()).toBe(true);
+      expect(sidebarStore.recentRequest()).toBe(before + 1);
+    });
+
+    it("asks again when asked again, so a second press still lands", () => {
+      sidebarStore.showRecent();
+      const once = sidebarStore.recentRequest();
+      sidebarStore.showRecent();
+
+      expect(sidebarStore.recentRequest()).toBe(once + 1);
+    });
+  });
+
   describe("per-window isolation", () => {
     it("two instances are independent", () => {
       const a = createSidebarStore();

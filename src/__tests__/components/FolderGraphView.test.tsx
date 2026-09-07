@@ -422,7 +422,7 @@ describe("what it says when there is nothing to draw", () => {
   it("says the folder is empty rather than drawing one dot", () => {
     setRows({ nodes: [], edges: [] });
     const view = render(() => <FolderGraphView />);
-    expect(view.getByText("No notes yet.")).toBeTruthy();
+    expect(view.getByText("No notes yet")).toBeTruthy();
     expect(view.container.querySelector("canvas")).toBeNull();
   });
 

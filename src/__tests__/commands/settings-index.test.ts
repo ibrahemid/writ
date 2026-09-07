@@ -49,21 +49,18 @@ describe("settings index", () => {
   });
 
   it("matches by section label", () => {
-    const results = rankSettings("preview");
-    expect(results.every((e) => e.section === "preview")).toBe(true);
+    // "Advanced" is a section label and nothing else, so every hit is one the
+    // label alone surfaced.
+    const results = rankSettings("advanced");
+    expect(results.every((e) => e.section === "advanced")).toBe(true);
     expect(results.length).toBeGreaterThan(0);
   });
 
-  it("default-app entries use the real writ-core claimable group ids", () => {
-    // Mirrors crates/writ-core/src/default_app.rs claimable_types(); a drift here
-    // means a default-app row passes an id the backend cannot resolve.
-    const KNOWN_GROUP_IDS = ["plain-text", "markdown", "config-data", "source-code"];
-    const defaultAppEntries = SETTINGS_INDEX.filter((e) => e.id.startsWith("files.default_app."));
-    expect(defaultAppEntries.length).toBe(KNOWN_GROUP_IDS.length);
-    for (const entry of defaultAppEntries) {
-      const typeId = entry.id.slice("files.default_app.".length);
-      expect(KNOWN_GROUP_IDS).toContain(typeId);
-    }
+  it("offers one file-types row, not a row per claimable group", () => {
+    // The group ids now come from the backend at render time, so the index
+    // carries no id that could drift from crates/writ-core/src/default_app.rs.
+    const defaultAppEntries = SETTINGS_INDEX.filter((e) => e.id.startsWith("files.default_app"));
+    expect(defaultAppEntries.map((e) => e.id)).toEqual(["files.default_app"]);
   });
 
   it("reports section matches for filtering", () => {

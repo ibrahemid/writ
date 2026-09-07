@@ -3,6 +3,7 @@ import type { BufferDocument, FileOpenResult } from "../../types/buffer";
 import * as api from "../../services/tauri";
 import { cancelAutosave, flushAutosave, type SaveFailure } from "../../services/autosave";
 import { requestConfirm } from "../../components/ConfirmDialog/ConfirmDialog";
+import { formatBytes } from "../../lib/format-bytes";
 
 // What an open of a path came to. A file whose bytes a sync provider has not
 // put on this machine opens no note: it is downloaded first, and opened again
@@ -181,16 +182,6 @@ function createBufferRegistry() {
     setBuffers((prev) => prev.map((b) => (b.id === doc.id ? doc : b)));
   }
 
-  function formatBytes(n: number): string {
-    const GIB = 1024 * 1024 * 1024;
-    const MIB = 1024 * 1024;
-    const KIB = 1024;
-    if (n >= GIB) return `${(n / GIB).toFixed(1)} GiB`;
-    if (n >= MIB) return `${(n / MIB).toFixed(1)} MiB`;
-    if (n >= KIB) return `${Math.round(n / KIB)} KiB`;
-    return `${n} B`;
-  }
-
   function registerOpenResult(result: FileOpenResult): OpenOutcome {
     if (result.mode.kind === "NotDownloaded") {
       return {
@@ -234,9 +225,9 @@ function createBufferRegistry() {
         const sizeBytes = parseInt(parts[2], 10);
         const sizeStr = formatBytes(sizeBytes);
         const confirmed = await requestConfirm({
-          title: "Open large file?",
-          message: `This file is ${sizeStr}. Opening it will disable syntax highlighting, typography, and line wrapping. It will also be excluded from search and crash recovery.\n\nContinue?`,
-          confirmLabel: "Open anyway",
+          title: "Open this file?",
+          message: `It is ${sizeStr}. Writ will show it as plain text, with no styling and no line wrapping, and will leave it out of search and crash recovery.\n\nOpen it?`,
+          confirmLabel: "Open",
           cancelLabel: "Cancel",
         });
         if (!confirmed) throw new Error("cancelled");

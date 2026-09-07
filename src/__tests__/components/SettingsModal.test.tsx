@@ -10,6 +10,16 @@ const TEST_CLAIMABLE_TYPE = {
   utis: ["net.daringfireball.markdown"],
 };
 
+// The nav drops a section no row on this platform can fill, and Files holds
+// only the file-types row, which macOS alone can claim. jsdom reports no
+// platform, so name one before the module graph reads it.
+vi.hoisted(() => {
+  Object.defineProperty(globalThis.navigator, "platform", {
+    value: "MacIntel",
+    configurable: true,
+  });
+});
+
 const mocks = vi.hoisted(() => ({
   accentApplies: vi.fn(() => true),
   activePresetId: vi.fn(() => "warp-dark"),
@@ -277,6 +287,9 @@ describe("SettingsModal", () => {
   });
 
   it("switches to Files section on nav click", async () => {
+    // Files renders only once a type reports claimable, so the nav has
+    // something to switch to.
+    mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "no_handler" });
     const { container } = render(() => <SettingsModal />);
     openSettings();
     await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
@@ -334,22 +347,6 @@ describe("SettingsModal", () => {
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
     const saved = mocks.save.mock.calls[0][0] as WritConfig;
     expect(saved.editor.tab_size).toBe(4);
-  });
-
-  it("saves autosave delay from Files section", async () => {
-    const { container } = render(() => <SettingsModal />);
-    openSettings();
-    await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
-    const navItems = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
-    const filesNav = Array.from(navItems).find((n) => n.textContent?.toLowerCase().includes("files"));
-    fireEvent.click(filesNav!);
-    await waitFor(() => expect(container.querySelector("[data-section='files']")).not.toBeNull());
-    const autosaveInput = container.querySelector<HTMLInputElement>("[data-setting='autosave_debounce_ms']");
-    expect(autosaveInput).not.toBeNull();
-    fireEvent.change(autosaveInput!, { target: { value: "500" } });
-    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
-    const saved = mocks.save.mock.calls[0][0] as WritConfig;
-    expect(saved.editor.autosave_debounce_ms).toBe(500);
   });
 
   it("opens ThemeEditor from Appearance section", async () => {
@@ -542,157 +539,218 @@ describe("SettingsModal", () => {
     expect(saved.preview.run_scripts).toBe(false);
   });
 
-  describe("Files section — default app rows", () => {
-    async function openFilesSection(container: Element) {
+  describe("Files section — the file-types row", () => {
+    async function openFilesNav(container: Element) {
       openSettings();
       await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
       const navItems = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
       const filesNav = Array.from(navItems).find((n) => n.textContent?.toLowerCase().includes("files"));
       fireEvent.click(filesNav!);
+    }
+
+    async function openFilesSection(container: Element) {
+      await openFilesNav(container);
       await waitFor(() => expect(container.querySelector("[data-section='files']")).not.toBeNull());
     }
 
-    it("hides default-app rows when status is unsupported", async () => {
+    function filesHeading(container: Element): Element | undefined {
+      return Array.from(container.querySelectorAll(".settings-section-label")).find(
+        (el) => el.textContent === "Files",
+      );
+    }
+
+    // The macOS path: the startup probe answers before Settings can open, so
+    // heading and row are there to read the moment the nav switches.
+    it("shows the Files heading on first render once support is known", async () => {
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "no_handler" });
+      await probeDefaultAppSupport();
+      mocks.fetchDefaultAppTypes.mockReturnValue(new Promise(() => {}));
+
+      const { container } = render(() => <SettingsModal />);
+      await openFilesNav(container);
+      expect(filesHeading(container)).toBeDefined();
+      expect(container.querySelector("[data-section='files']")).not.toBeNull();
+      expect(container.querySelector("[data-setting-id='files.default_app']")).not.toBeNull();
+    });
+
+    // Support can be withdrawn: a type the startup probe counted answers
+    // unsupported here, which empties the registry and takes the row with it.
+    it("drops the Files heading when a known type turns out unclaimable", async () => {
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "no_handler" });
+      await probeDefaultAppSupport();
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "unsupported" });
+
+      const { container } = render(() => <SettingsModal />);
+      await openFilesNav(container);
+      expect(container.querySelector("[data-section='files']")).not.toBeNull();
+      await waitFor(() => expect(container.querySelector("[data-section='files']")).toBeNull());
+      expect(filesHeading(container)).toBeUndefined();
+      expect(container.querySelector("[data-default-app-type]")).toBeNull();
+    });
+
+    // A heading with nothing under it says less than no heading at all.
+    it("shows no Files heading when every type answers unsupported", async () => {
       mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "unsupported" });
       const { container } = render(() => <SettingsModal />);
-      await openFilesSection(container);
-      // Rows are hidden via <Show> when status is unsupported
-      const makeDefaultBtns = container.querySelectorAll("[data-action^='make-default-']");
-      expect(makeDefaultBtns.length).toBe(0);
+      await openFilesNav(container);
+      await waitFor(() => expect(mocks.fetchDefaultAppStatus).toHaveBeenCalled());
+      expect(filesHeading(container)).toBeUndefined();
+      expect(container.querySelector("[data-section='files']")).toBeNull();
+      expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull();
     });
 
-    it("shows 'Writ is the default' and hides Make default button when is_default", async () => {
-      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "is_default" });
+    // Opening Settings the instant the app starts: no heading appears and then
+    // leaves, because the list only ever grows as types report in.
+    it("shows no Files heading while the type probe is still pending", async () => {
+      mocks.fetchDefaultAppTypes.mockReturnValue(new Promise(() => {}));
       const { container } = render(() => <SettingsModal />);
-      await openFilesSection(container);
-      await waitFor(() => {
-        const status = container.querySelector(".settings-default-app-status-active");
-        expect(status).not.toBeNull();
-        expect(status!.textContent).toContain("Writ is the default");
-      });
-      const makeDefaultBtn = container.querySelector("[data-action='make-default-markdown']");
-      expect(makeDefaultBtn).toBeNull();
+      await openFilesNav(container);
+      expect(filesHeading(container)).toBeUndefined();
+      expect(container.querySelector("[data-section='files']")).toBeNull();
+      expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull();
     });
 
-    it("shows other app name and Make default button when other_app with name", async () => {
-      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "other_app", name: "TextEdit" });
+    it("shows no Files heading when the type probe fails", async () => {
+      mocks.fetchDefaultAppTypes.mockRejectedValue(new Error("no IPC"));
       const { container } = render(() => <SettingsModal />);
-      await openFilesSection(container);
-      await waitFor(() => {
-        const status = container.querySelector(".settings-default-app-status");
-        expect(status).not.toBeNull();
-        expect(status!.textContent).toContain("TextEdit is the default");
-      });
-      const makeDefaultBtn = container.querySelector("[data-action='make-default-markdown']");
-      expect(makeDefaultBtn).not.toBeNull();
+      await openFilesNav(container);
+      await waitFor(() => expect(mocks.fetchDefaultAppTypes).toHaveBeenCalled());
+      expect(filesHeading(container)).toBeUndefined();
+      expect(container.querySelector("[data-section='files']")).toBeNull();
+      expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull();
     });
 
-    it("shows generic label and Make default button when other_app without name", async () => {
-      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "other_app", name: null });
-      const { container } = render(() => <SettingsModal />);
-      await openFilesSection(container);
-      await waitFor(() => {
-        const status = container.querySelector(".settings-default-app-status");
-        expect(status).not.toBeNull();
-        expect(status!.textContent).toContain("Another app is the default");
-      });
-    });
-
-    it("shows 'No default set' and Make default button when no_handler", async () => {
+    it("offers one row holding a box per claimable type", async () => {
+      mocks.fetchDefaultAppTypes.mockResolvedValue([
+        TEST_CLAIMABLE_TYPE,
+        { id: "html", label: "Web pages", exts: ["html"], utis: ["public.html"] },
+      ]);
       mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "no_handler" });
       const { container } = render(() => <SettingsModal />);
       await openFilesSection(container);
       await waitFor(() => {
-        const status = container.querySelector(".settings-default-app-status");
-        expect(status).not.toBeNull();
-        expect(status!.textContent).toContain("No default set");
+        const ids = Array.from(
+          container.querySelectorAll<HTMLInputElement>("[data-default-app-type]"),
+        ).map((el) => el.dataset.defaultAppType);
+        expect(ids).toEqual(["markdown", "html"]);
       });
-      const makeDefaultBtn = container.querySelector("[data-action='make-default-markdown']");
-      expect(makeDefaultBtn).not.toBeNull();
+      expect(container.querySelectorAll("[data-setting-id^='files.default_app']").length).toBe(1);
     });
 
-    it("calls claimDefaultApp on Make default click", async () => {
-      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "other_app", name: "TextEdit" });
-      mocks.claimDefaultApp.mockResolvedValue(undefined);
+    it("checks and locks a type Writ already holds", async () => {
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "is_default" });
       const { container } = render(() => <SettingsModal />);
       await openFilesSection(container);
-      await waitFor(() => expect(container.querySelector("[data-action='make-default-markdown']")).not.toBeNull());
-      fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='make-default-markdown']")!);
-      await waitFor(() => expect(mocks.claimDefaultApp).toHaveBeenCalledWith("markdown"));
-    });
-
-    it("re-queries status after 800ms delay and reflects updated handler", async () => {
-      vi.useFakeTimers();
-      // Initial load returns other_app for both rows (md + html each call once on mount).
-      // After "Make default" + 800ms, the md row re-queries and gets is_default.
-      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "other_app", name: "TextEdit" });
-      mocks.claimDefaultApp.mockResolvedValue(undefined);
-      const { container } = render(() => <SettingsModal />);
-      await openFilesSection(container);
-      await waitFor(() => expect(container.querySelector("[data-action='make-default-markdown']")).not.toBeNull());
-
-      // Record call count after initial mount (2 rows × 1 call each = 2)
-      const callsBeforeClick = mocks.fetchDefaultAppStatus.mock.calls.length;
-
-      // Queue is_default for the next call (the re-query after 800ms)
-      mocks.fetchDefaultAppStatus.mockResolvedValueOnce({ status: "is_default" });
-
-      fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='make-default-markdown']")!);
-      await waitFor(() => expect(mocks.claimDefaultApp).toHaveBeenCalledWith("markdown"));
-
-      // Timer has not fired yet — no additional fetch calls
-      expect(mocks.fetchDefaultAppStatus).toHaveBeenCalledTimes(callsBeforeClick);
-
-      await vi.runAllTimersAsync();
-
-      // After the timer fires, fetchDefaultAppStatus is called once more and the
-      // row should flip to "Writ is the default" with the Make default button gone.
       await waitFor(() => {
-        expect(mocks.fetchDefaultAppStatus).toHaveBeenCalledTimes(callsBeforeClick + 1);
-        expect(container.querySelector(".settings-default-app-status-active")).not.toBeNull();
-        expect(container.querySelector("[data-action='make-default-markdown']")).toBeNull();
+        const box = container.querySelector<HTMLInputElement>(
+          "[data-default-app-type='markdown']",
+        );
+        expect(box).not.toBeNull();
+        expect(box!.checked).toBe(true);
+        expect(box!.disabled).toBe(true);
       });
+    });
 
-      vi.useRealTimers();
+    it("names the app that holds a type Writ does not", async () => {
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "other_app", name: "TextEdit" });
+      const { container } = render(() => <SettingsModal />);
+      await openFilesSection(container);
+      await waitFor(() => {
+        const box = container.querySelector<HTMLInputElement>(
+          "[data-default-app-type='markdown']",
+        );
+        expect(box).not.toBeNull();
+        expect(box!.checked).toBe(false);
+        expect(box!.disabled).toBe(false);
+      });
+      expect(container.querySelector(".settings-file-type-owner")!.textContent).toContain(
+        "TextEdit",
+      );
+    });
+
+    it("leaves the owner unnamed when the OS does not name it", async () => {
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "other_app", name: null });
+      const { container } = render(() => <SettingsModal />);
+      await openFilesSection(container);
+      await waitFor(() =>
+        expect(container.querySelector("[data-default-app-type='markdown']")).not.toBeNull(),
+      );
+      expect(container.querySelector(".settings-file-type-owner")).toBeNull();
+    });
+
+    // The claim is the only direction Launch Services offers, so the box has to
+    // round-trip: unchecked for a type another app holds, checked once Writ does.
+    it("claims each type from its own box and reflects the answer", async () => {
+      for (const typeId of ["markdown", "html"]) {
+        vi.useFakeTimers();
+        mocks.fetchDefaultAppTypes.mockResolvedValue([
+          TEST_CLAIMABLE_TYPE,
+          { id: "html", label: "Web pages", exts: ["html"], utis: ["public.html"] },
+        ]);
+        mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "other_app", name: "TextEdit" });
+        mocks.claimDefaultApp.mockResolvedValue(undefined);
+        const { container, unmount } = render(() => <SettingsModal />);
+        await openFilesSection(container);
+        const selector = `[data-default-app-type='${typeId}']`;
+        await waitFor(() =>
+          expect(container.querySelector<HTMLInputElement>(selector)!.checked).toBe(false),
+        );
+
+        mocks.fetchDefaultAppStatus.mockResolvedValueOnce({ status: "is_default" });
+        fireEvent.click(container.querySelector<HTMLInputElement>(selector)!);
+        await waitFor(() => expect(mocks.claimDefaultApp).toHaveBeenCalledWith(typeId));
+
+        await vi.runAllTimersAsync();
+        await waitFor(() => {
+          const box = container.querySelector<HTMLInputElement>(selector)!;
+          expect(box.checked).toBe(true);
+          expect(box.disabled).toBe(true);
+        });
+
+        vi.useRealTimers();
+        unmount();
+        closeSettings();
+        vi.clearAllMocks();
+      }
     });
   });
 
-  describe("Storage section", () => {
-    async function openStorageSection(container: Element) {
+  describe("Advanced section", () => {
+    async function openAdvancedSection(container: Element) {
       openSettings();
       await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
       const navItems = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
-      const storageNav = Array.from(navItems).find((n) => n.textContent?.toLowerCase().includes("storage"));
-      expect(storageNav).toBeTruthy();
-      fireEvent.click(storageNav!);
-      await waitFor(() => expect(container.querySelector("[data-section='storage']")).not.toBeNull());
+      const advancedNav = Array.from(navItems).find((n) =>
+        n.textContent?.toLowerCase().includes("advanced"),
+      );
+      expect(advancedNav).toBeTruthy();
+      fireEvent.click(advancedNav!);
+      await waitFor(() => expect(container.querySelector("[data-section='advanced']")).not.toBeNull());
     }
 
-    it("shows the database path", async () => {
+    it("shows the folder Writ keeps its own files in", async () => {
       const { container } = render(() => <SettingsModal />);
-      await openStorageSection(container);
+      await openAdvancedSection(container);
       await waitFor(() => {
         const path = container.querySelector("[data-storage-path]");
         expect(path).not.toBeNull();
-        expect(path!.textContent).toContain("/home/user/.writ/writ.db");
+        expect(path!.textContent).toBe("/home/user/.writ");
       });
     });
 
-    it("copies the path on Copy click", async () => {
+    it("copies the path on Copy path click", async () => {
       const { container } = render(() => <SettingsModal />);
-      await openStorageSection(container);
+      await openAdvancedSection(container);
       await waitFor(() =>
-        expect(container.querySelector("[data-storage-path]")!.textContent).toContain("writ.db"),
+        expect(container.querySelector("[data-storage-path]")!.textContent).toContain(".writ"),
       );
       fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='storage-copy']")!);
-      await waitFor(() =>
-        expect(mocks.copyStoragePath).toHaveBeenCalledWith("/home/user/.writ/writ.db"),
-      );
+      await waitFor(() => expect(mocks.copyStoragePath).toHaveBeenCalledWith("/home/user/.writ"));
     });
 
-    it("reveals the path on Reveal click", async () => {
+    it("opens the file manager on the show click", async () => {
       const { container } = render(() => <SettingsModal />);
-      await openStorageSection(container);
+      await openAdvancedSection(container);
       await waitFor(() =>
         expect(container.querySelector("[data-action='storage-reveal']")).not.toBeNull(),
       );
@@ -700,7 +758,21 @@ describe("SettingsModal", () => {
       await waitFor(() => expect(mocks.revealStoragePath).toHaveBeenCalledTimes(1));
     });
 
-    it("surfaces the storage location in search by keyword", async () => {
+    it("holds the rows a writer never needs", async () => {
+      const { container } = render(() => <SettingsModal />);
+      await openAdvancedSection(container);
+      for (const id of [
+        "files.inbox_folder",
+        "files.inbox_focus",
+        "preview.live_threshold",
+        "preview.refuse_threshold",
+        "storage.location",
+      ]) {
+        expect(container.querySelector(`[data-setting-id='${id}']`)).not.toBeNull();
+      }
+    });
+
+    it("surfaces the data folder in search by keyword", async () => {
       const { container } = render(() => <SettingsModal />);
       openSettings();
       await waitFor(() => expect(container.querySelector(".settings-search-input")).not.toBeNull());
@@ -710,69 +782,15 @@ describe("SettingsModal", () => {
         expect(container.querySelector("[data-setting-id='storage.location']")).not.toBeNull();
       });
     });
-  });
 
-  describe("Third-party licences row", () => {
-    async function openUpdatesSection(container: Element) {
-      openSettings("updates");
-      await waitFor(() =>
-        expect(container.querySelector("[data-action='third-party-notices']")).not.toBeNull(),
-      );
-    }
-
-    it("opens the notices as a buffer and closes the modal", async () => {
-      const { container } = render(() => <SettingsModal />);
-      await openUpdatesSection(container);
-      fireEvent.click(
-        container.querySelector<HTMLButtonElement>("[data-action='third-party-notices']")!,
-      );
-      await waitFor(() =>
-        expect(mocks.openThirdPartyNoticesBuffer).toHaveBeenCalledTimes(1),
-      );
-      await waitFor(() => expect(mocks.setActiveTabId).toHaveBeenCalledWith("notices-buffer"));
-      expect(mocks.requestExternalReload).not.toHaveBeenCalled();
-      await waitFor(() => expect(container.querySelector("[role='dialog']")).toBeNull());
-    });
-
-    it("reloads the view when the notices tab was already open", async () => {
-      mocks.openThirdPartyNoticesBuffer.mockResolvedValue({
-        doc: { id: "notices-buffer" },
-        reused: true,
-      });
-      const { container } = render(() => <SettingsModal />);
-      await openUpdatesSection(container);
-      fireEvent.click(
-        container.querySelector<HTMLButtonElement>("[data-action='third-party-notices']")!,
-      );
-      await waitFor(() =>
-        expect(mocks.requestExternalReload).toHaveBeenCalledWith("notices-buffer"),
-      );
-      expect(mocks.setActiveTabId).toHaveBeenCalledWith("notices-buffer");
-    });
-
-    it("keeps the modal open when the notices cannot be read", async () => {
-      mocks.openThirdPartyNoticesBuffer.mockRejectedValue(new Error("missing"));
-      const { container } = render(() => <SettingsModal />);
-      await openUpdatesSection(container);
-      fireEvent.click(
-        container.querySelector<HTMLButtonElement>("[data-action='third-party-notices']")!,
-      );
-      await waitFor(() =>
-        expect(mocks.openThirdPartyNoticesBuffer).toHaveBeenCalledTimes(1),
-      );
-      expect(mocks.setActiveTabId).not.toHaveBeenCalled();
-      expect(container.querySelector("[role='dialog']")).not.toBeNull();
-    });
-
-    it("surfaces the licences row in search by keyword", async () => {
+    it("keeps the licences off the settings panel", async () => {
       const { container } = render(() => <SettingsModal />);
       openSettings();
       await waitFor(() => expect(container.querySelector(".settings-search-input")).not.toBeNull());
       const input = container.querySelector<HTMLInputElement>(".settings-search-input")!;
       fireEvent.input(input, { target: { value: "copyright" } });
-      await waitFor(() => {
-        expect(container.querySelector("[data-setting-id='updates.third_party']")).not.toBeNull();
-      });
+      await waitFor(() => expect(container.querySelector(".settings-empty")).not.toBeNull());
+      expect(container.querySelector("[data-action='third-party-notices']")).toBeNull();
     });
   });
 
@@ -842,9 +860,7 @@ describe("SettingsModal", () => {
       await openAndSearch(container, "json");
       await waitFor(() => {
         expect(container.querySelector(".settings-empty")).toBeNull();
-        expect(
-          container.querySelector("[data-setting-id='files.default_app.config-data']"),
-        ).not.toBeNull();
+        expect(container.querySelector("[data-setting-id='files.default_app']")).not.toBeNull();
       });
     });
 
@@ -884,8 +900,8 @@ describe("SettingsModal", () => {
 
   describe("index parity", () => {
     it("every rendered setting row has an index entry and every entry renders", async () => {
-      // Render every claimable group the index knows about, all supported, so
-      // the dynamic default-app rows are present for the parity comparison.
+      // Render every claimable group, all supported, so the file-types row is
+      // present for the parity comparison.
       mocks.fetchDefaultAppTypes.mockResolvedValue(
         ["plain-text", "markdown", "config-data", "source-code"].map((id) => ({
           id,
@@ -1070,6 +1086,15 @@ describe("Notes section", () => {
       expect(mocks.notesCopyPath).toHaveBeenCalledTimes(1);
       expect(mocks.notesMove).toHaveBeenCalledTimes(1);
     });
+  });
+
+  // ADR-028 §2: a `writ.db` path is never the answer to "where are my notes".
+  it("shows the notes root and never a database path", async () => {
+    const { container } = await openNotes();
+    const row = container.querySelector("[data-setting-id='notes.folder']")!;
+    expect(row.querySelector("[data-notes-path]")!.textContent).toBe("~/Writ");
+    expect(row.textContent).not.toMatch(/\.db\b/);
+    expect(row.querySelector("[data-storage-path]")).toBeNull();
   });
 
   it("says nothing about a fallback on an ordinary launch", async () => {

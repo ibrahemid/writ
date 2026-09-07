@@ -89,7 +89,7 @@ export default function FolderGraphView() {
   const count = createMemo(() => {
     const graphNow = drawn();
     const shown = graphNow.nodes.length;
-    if (shown === 0) return "No notes yet.";
+    if (shown === 0) return "No notes yet";
     if (win.folderGraph.query().trim().length > 0) {
       return `${matching()} of ${shown} notes match`;
     }

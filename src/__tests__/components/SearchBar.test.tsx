@@ -52,3 +52,13 @@ describe("SearchBar focus", () => {
     expect(document.activeElement).toBe(input);
   });
 });
+
+describe("SearchBar wording", () => {
+  afterEach(() => cleanup());
+
+  it("names what the field searches", () => {
+    const { container } = render(() => <SearchBar />);
+    const input = container.querySelector<HTMLInputElement>("input.search-input");
+    expect(input?.placeholder).toBe("Search your notes");
+  });
+});

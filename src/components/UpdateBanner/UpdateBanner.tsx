@@ -1,16 +1,10 @@
 import { Show, Switch, Match, createEffect, onCleanup } from "solid-js";
 import { updateStore } from "../../stores/global/update";
+import { formatBytes } from "../../lib/format-bytes";
 import "./UpdateBanner.css";
 
 const UP_TO_DATE_VISIBLE_MS = 2500;
 const UNREACHABLE_COPY = "Couldn't reach the update server. Try again later.";
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${Math.round(kb)} KB`;
-  return `${(kb / 1024).toFixed(1)} MB`;
-}
 
 export default function UpdateBanner() {
   const phase = updateStore.phase;

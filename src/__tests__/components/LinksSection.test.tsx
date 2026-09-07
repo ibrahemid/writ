@@ -89,7 +89,7 @@ describe("the notes a note links to", () => {
       link("Beta", "Beta.md", 5),
     ];
     const { container, getByText } = render(() => <LinksSection path="Alpha.md" />);
-    expect(getByText("Links")).toBeTruthy();
+    expect(getByText("Links from this note")).toBeTruthy();
     expect(names(container)).toEqual(["Beta", "Gamma"]);
   });
 
@@ -102,7 +102,7 @@ describe("the notes a note links to", () => {
 
   it("renders nothing at all for a note that links to nothing", () => {
     const { container, queryByText } = render(() => <LinksSection path="Alpha.md" />);
-    expect(queryByText("Links")).toBeNull();
+    expect(queryByText("Links from this note")).toBeNull();
     expect(container.querySelector(".right-panel-section")).toBeNull();
   });
 });

@@ -34,10 +34,12 @@ import { logFailure } from "./lib/log";
 import { armReveal } from "./lib/boot-reveal";
 import FirstRunHint from "./components/Editor/FirstRunHint";
 import { firstRunStore, watchSavesForRetitle } from "./stores/global/first-run";
+import { openThirdPartyNoticesBuffer } from "./stores/global/notices";
 import { workspaceStore } from "./stores/global/workspace";
 import { notesStore } from "./stores/global/notes";
 import { inboxStore } from "./stores/global/inbox";
 import { updateStore } from "./stores/global/update";
+import { hotkeyStore } from "./stores/global/hotkey";
 import { configStore } from "./stores/global/config";
 import { themeStore } from "./stores/global/theme";
 import { osWindowStore } from "./stores/global/os-window";
@@ -163,6 +165,23 @@ function dismissHintOnFirstKeystroke(): () => void {
 function AppShell() {
   const win = useWindow();
   const unlisteners: UnlistenFn[] = [];
+
+  // Registered here rather than with the rest: the label names the app the
+  // folder opens in, and that word comes from Rust with the first-run state,
+  // so the registration follows the answer instead of the mount.
+  createEffect(() => {
+    registerCommand({
+      id: "notes.showFolder",
+      icon: "folder-open",
+      label: `Show notes folder in ${firstRunStore.fileManager()}`,
+      scope: "app",
+      execute: () => {
+        void notesStore.showInFileManager().catch(() => {
+          showToast("Could not open the notes folder", "error");
+        });
+      },
+    });
+  });
 
   onMount(async () => {
     measureFirstPaint("cold");
@@ -428,11 +447,21 @@ function AppShell() {
     });
 
     registerCommand({
+      id: "history.openRecent",
+      label: "Open recent",
+      description: "Show the notes closed most recently",
+      scope: "app",
+      execute: () => windowRegistry.getActive()?.sidebar.showRecent(),
+    });
+
+    registerCommand({
       id: "sidebar.toggle",
       icon: "sidebar-simple",
       label: "Toggle sidebar",
       description: "Show or hide the tabs + history rail",
       keybinding: "CmdOrCtrl+\\",
+      // Finder's own sidebar chord, for the hand that already knows it.
+      keybindingAliases: ["CmdOrCtrl+Alt+S"],
       scope: "app",
       // Global: the editor holds focus almost all the time in a writing app, so
       // a focus-gated sidebar toggle would be unreachable from the keyboard. It
@@ -517,8 +546,9 @@ function AppShell() {
       id: "editor.replace",
       label: "Replace",
       description: "Find and replace text in the current document",
-      keybinding: "CmdOrCtrl+R",
-      keybindingAliases: ["CmdOrCtrl+Alt+F"],
+      // Cmd+R is Reload everywhere else on a Mac, and Cocoa has no top-level
+      // Replace chord. The Find bar carries the control instead.
+      keybinding: "CmdOrCtrl+Alt+F",
       scope: "editor",
       execute: () => findStore.showReplace(),
     });
@@ -706,6 +736,27 @@ function AppShell() {
     });
 
     registerCommand({
+      id: "app.thirdPartyNotices",
+      label: "Third-party licences",
+      description: "Open the licences of the code Writ is built on",
+      scope: "app",
+      execute: () => {
+        void (async () => {
+          try {
+            const { doc, reused } = await openThirdPartyNoticesBuffer();
+            const active = windowRegistry.getActive();
+            active?.tabs.setActiveTabId(doc.id);
+            // Reopening rewrites the same file, and activating a tab that is
+            // already active loads nothing, so the text is pulled in here.
+            if (reused) active?.editor.requestExternalReload(doc.id);
+          } catch {
+            showToast("Could not open the third-party licences", "error");
+          }
+        })();
+      },
+    });
+
+    registerCommand({
       id: "app.check_updates",
       label: "Check for updates…",
       description: "Check whether a newer version of Writ is available",
@@ -794,6 +845,12 @@ function AppShell() {
 
     const unlistenUpdate = await updateStore.subscribe();
     unlisteners.push(unlistenUpdate);
+
+    // The window's own chord: read what the OS said at startup, then follow
+    // every rebind, so the shortcut editor can show a chord another app holds
+    // rather than a key that quietly does nothing.
+    unlisteners.push(await hotkeyStore.subscribe());
+    void hotkeyStore.load();
 
     const unlistenAi = await onEvent("ai:rewrite", (payload) => {
       aiRewriteStore.handleStreamEvent(payload);

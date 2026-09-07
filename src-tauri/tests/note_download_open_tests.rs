@@ -385,7 +385,9 @@ fn the_download_gate_refuses_a_path_nothing_authorized() {
         result.is_err(),
         "an unauthorized path may not be downloaded"
     );
-    assert!(result.unwrap_err().contains("not authorized"));
+    assert!(result
+        .unwrap_err()
+        .contains("cannot open that file from here"));
 }
 
 #[test]

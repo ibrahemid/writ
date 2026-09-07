@@ -26,7 +26,7 @@ import { PRESETS } from "../../styles/themes";
 import { openThemeEditor } from "../ThemeEditor/ThemeEditor";
 import { openShortcutEditor } from "../ShortcutEditor/ShortcutEditor";
 import { installFocusTrap } from "../../lib/focus-trap";
-import { SHOW_IN_FILE_MANAGER } from "../../lib/platform";
+import { FILE_MANAGER_NAME, IS_MAC, SHOW_IN_FILE_MANAGER } from "../../lib/platform";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showToast } from "../Notifications/Toast";
 import { fetchCliStatus, installCli } from "../../stores/global/cli";
@@ -42,7 +42,6 @@ import type { NotesFallbackReason } from "../../stores/global/notes";
 import { NotesSyncNote } from "./NotesSyncNote";
 import { copyStoragePath, fetchStorageInfo, revealStoragePath } from "../../stores/global/storage";
 import type { StorageInfo } from "../../stores/global/storage";
-import { openThirdPartyNoticesBuffer } from "../../stores/global/notices";
 import type {
   AccentId,
   AppearanceConfig,
@@ -56,16 +55,19 @@ import {
   claimDefaultApp,
 } from "../../stores/global/default-app";
 import type { ClaimableType, DefaultAppStatus } from "../../stores/global/default-app";
-import { markDefaultAppTypeSupported } from "../../stores/global/default-app-support";
 import {
+  hasSupportedDefaultAppTypes,
+  markDefaultAppTypeSupported,
+} from "../../stores/global/default-app-support";
+import {
+  DEFAULT_APP_SETTING_ID,
   SECTION_LABELS,
   SECTION_ORDER,
-  defaultAppSettingId,
   matchedSettingIds,
   rankSettings,
   type SettingsSection,
 } from "../../settings";
-import { isSettingAvailable } from "../../settings/availability";
+import { isSectionAvailable, isSettingAvailable } from "../../settings/availability";
 import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
 import Tooltip from "../Tooltip/Tooltip";
@@ -88,7 +90,10 @@ const [highlightId, setHighlightId] = createSignal<string | null>(null);
 
 export function openSettings(section?: SettingsSection, settingId?: string) {
   setQuery("");
-  setActiveSection(section ?? DEFAULT_SECTION);
+  // A section the platform cannot fill has no nav item, so landing on one would
+  // leave no way back out of it.
+  const target = section && isSectionAvailable(section) ? section : DEFAULT_SECTION;
+  setActiveSection(target);
   setHighlightId(settingId ?? null);
   setIsOpen(true);
 }
@@ -119,10 +124,9 @@ function useSearch(): SearchContextValue {
   return ctx;
 }
 
-const NAV_ITEMS: { id: SettingsSection; label: string }[] = SECTION_ORDER.map((id) => ({
-  id,
-  label: SECTION_LABELS[id],
-}));
+const NAV_ITEMS: { id: SettingsSection; label: string }[] = SECTION_ORDER.filter(
+  isSectionAvailable,
+).map((id) => ({ id, label: SECTION_LABELS[id] }));
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -142,7 +146,7 @@ async function patchConfig(patch: (prev: ReturnType<typeof configStore.config>) 
   try {
     await configStore.save(patch(configStore.config()));
   } catch {
-    showToast("Failed to save settings", "error");
+    showToast("Could not save your settings", "error");
   }
 }
 
@@ -376,18 +380,21 @@ function EditorSection() {
           onChange={onWordWrapToggle}
         />
       </SettingsRow>
-      <SettingsRow id="editor.markdown_typography" label="Markdown typography">
+      <SettingsRow
+        id="editor.markdown_typography"
+        label="Style headings and bold text as you type"
+      >
         <ToggleSwitch
           setting="markdown_typography"
-          label="Markdown typography"
+          label="Style headings and bold text as you type"
           checked={cfg().markdown_typography}
           onChange={onMarkdownTypographyToggle}
         />
       </SettingsRow>
-      <SettingsRow id="editor.markdown_editing" label="Markdown editing helpers">
+      <SettingsRow id="editor.markdown_editing" label="Markdown shortcuts">
         <ToggleSwitch
           setting="markdown_editing"
-          label="Markdown editing helpers"
+          label="Markdown shortcuts"
           checked={cfg().markdown_editing}
           onChange={onMarkdownEditingToggle}
         />
@@ -408,7 +415,7 @@ function EditorSection() {
           onChange={onSpellingToggle}
         />
       </SettingsRow>
-      <SettingsRow id="editor.spelling_dialect" label="Spelling dialect" labelFor="setting-spelling-dialect">
+      <SettingsRow id="editor.spelling_dialect" label="Spelling" labelFor="setting-spelling-dialect">
         <select
           id="setting-spelling-dialect"
           class="settings-select"
@@ -416,10 +423,10 @@ function EditorSection() {
           value={spelling().dialect}
           onChange={(e) => onSpellingDialectChange(e.currentTarget.value)}
         >
-          <option value="american">American</option>
-          <option value="british">British</option>
-          <option value="canadian">Canadian</option>
-          <option value="australian">Australian</option>
+          <option value="american">English (US)</option>
+          <option value="british">English (UK)</option>
+          <option value="canadian">English (Canada)</option>
+          <option value="australian">English (Australia)</option>
         </select>
       </SettingsRow>
     </div>
@@ -428,225 +435,133 @@ function EditorSection() {
 
 const REFRESH_DELAY_MS = 800;
 
-interface DefaultAppRowProps {
+interface DefaultAppItemProps {
   type: ClaimableType;
+  status: DefaultAppStatus;
+  claiming: boolean;
+  onClaim: (typeId: string) => void;
 }
 
-function DefaultAppRow(props: DefaultAppRowProps) {
-  const [status, setStatus] = createSignal<DefaultAppStatus | null>(null);
-  const [setting, setSetting] = createSignal(false);
+/**
+ * One file type in the default-app list.
+ *
+ * The box is checked and disabled once Writ holds the type: Launch Services has
+ * no give-it-back call, so an enabled box would offer an action that cannot
+ * run. The note under the list says where the handover is undone instead.
+ */
+function DefaultAppItem(props: DefaultAppItemProps) {
+  const extList = () => props.type.exts.map((e) => `.${e}`).join(", ");
+  const isDefault = () => props.status.status === "is_default";
+  const otherName = () =>
+    props.status.status === "other_app" ? (props.status.name ?? null) : null;
+
+  return (
+    <label class="settings-file-type">
+      <input
+        type="checkbox"
+        class="settings-file-type-box"
+        data-action={`make-default-${props.type.id}`}
+        data-default-app-type={props.type.id}
+        checked={isDefault()}
+        disabled={isDefault() || props.claiming}
+        aria-busy={props.claiming}
+        onChange={() => props.onClaim(props.type.id)}
+      />
+      <span class="settings-file-type-text">
+        <span class="settings-file-type-name">{props.type.label}</span>{" "}
+        <span class="settings-file-type-exts">{extList()}</span>
+        <Show when={otherName()}>
+          {(name) => <span class="settings-file-type-owner">Now opens in {name()}</span>}
+        </Show>
+      </span>
+    </label>
+  );
+}
+
+function FilesSection() {
+  const [types, setTypes] = createSignal<ClaimableType[]>([]);
+  const [statuses, setStatuses] = createSignal<Readonly<Record<string, DefaultAppStatus>>>({});
+  const [claimingId, setClaimingId] = createSignal<string | null>(null);
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const settingId = () => defaultAppSettingId(props.type.id);
-  const extList = () => props.type.exts.map((e) => `.${e}`).join(", ");
-
-  async function loadStatus() {
+  async function loadStatus(typeId: string) {
+    let next: DefaultAppStatus;
     try {
-      const s = await fetchDefaultAppStatus(props.type.id);
-      setStatus(s);
+      next = await fetchDefaultAppStatus(typeId);
     } catch {
-      // Non-macOS or sandboxed; treat as unsupported
-      setStatus({ status: "unsupported" });
+      // Non-macOS or sandboxed; treat as unsupported.
+      next = { status: "unsupported" };
     }
+    setStatuses((prev) => ({ ...prev, [typeId]: next }));
+    // Keep the shared support registry fresh as each type resolves, so search
+    // headers and the command palette never offer a row that will not render.
+    markDefaultAppTypeSupported(typeId, next.status !== "unsupported");
   }
 
   onMount(() => {
-    void loadStatus();
-  });
-
-  // Keep the shared support registry fresh as this row resolves (covers a
-  // post-startup change, e.g. after "Make default"), so search headers and the
-  // command palette never offer a row that will not render on this platform.
-  createEffect(() => {
-    const s = status();
-    if (s === null) return;
-    markDefaultAppTypeSupported(props.type.id, s.status !== "unsupported");
+    void fetchDefaultAppTypes()
+      .then((list) => {
+        setTypes(list);
+        return Promise.all(list.map((t) => loadStatus(t.id)));
+      })
+      .catch(() => setTypes([]));
   });
 
   onCleanup(() => {
     if (refreshTimer !== undefined) clearTimeout(refreshTimer);
   });
 
-  async function onMakeDefault() {
-    setSetting(true);
-    try {
-      await claimDefaultApp(props.type.id);
-    } catch (err) {
-      showToast(`Failed to set default for ${props.type.label}`, "error");
-      // A group spans several UTIs; a mid-loop failure may have claimed some.
-      // Re-query so the row reflects the real partial state, not a stale one.
-      void loadStatus().finally(() => setSetting(false));
-      return;
-    }
-    // LS registration is async at the OS level — re-query after a short delay
-    // and reflect the actual registered handler rather than assuming success.
-    refreshTimer = setTimeout(() => {
-      void loadStatus().finally(() => setSetting(false));
-    }, REFRESH_DELAY_MS);
+  function onClaim(typeId: string) {
+    setClaimingId(typeId);
+    void claimDefaultApp(typeId)
+      .then(() => {
+        // Launch Services registers asynchronously — re-query after a short
+        // delay and show the handler the OS actually recorded.
+        refreshTimer = setTimeout(() => {
+          void loadStatus(typeId).finally(() => setClaimingId(null));
+        }, REFRESH_DELAY_MS);
+      })
+      .catch(() => {
+        const label = types().find((t) => t.id === typeId)?.label ?? typeId;
+        showToast(`Could not make Writ the default for ${label}`, "error");
+        // A group spans several UTIs; a mid-loop failure may have claimed some.
+        // Re-query so the boxes reflect the real partial state, not a stale one.
+        void loadStatus(typeId).finally(() => setClaimingId(null));
+      });
   }
 
-  const currentStatus = () => status();
+  const claimable = () =>
+    types().filter((t) => {
+      const s = statuses()[t.id];
+      return s !== undefined && s.status !== "unsupported";
+    });
 
+  // Files holds nothing but this row, so the section renders only where the row
+  // can. The registry answers first: App probes it at startup, before Settings
+  // can open, while this section re-queries on every visit.
   return (
-    <Show when={currentStatus() !== null && currentStatus()!.status !== "unsupported"}>
-      <SettingsRow id={settingId()} label={props.type.label} caution={extList()}>
-        <div class="settings-default-app-ctrl">
-          <span
-            class="settings-default-app-status"
-            classList={{
-              "settings-default-app-status-active": currentStatus()?.status === "is_default",
-            }}
-            aria-live="polite"
-          >
-            {currentStatus()?.status === "is_default"
-              ? "Writ is the default"
-              : currentStatus()?.status === "other_app"
-                ? (currentStatus() as Extract<DefaultAppStatus, { status: "other_app" }>).name
-                  ? `${(currentStatus() as Extract<DefaultAppStatus, { status: "other_app" }>).name} is the default`
-                  : "Another app is the default"
-                : "No default set"}
-          </span>
-          <Show when={currentStatus()?.status !== "is_default"}>
-            <Button
-              data-action={`make-default-${props.type.id}`}
-              disabled={setting()}
-              aria-busy={setting()}
-              aria-label={`Make Writ the default app for ${props.type.label}`}
-              onClick={() => void onMakeDefault()}
-            >
-              {setting() ? "Setting…" : "Make default"}
-            </Button>
-          </Show>
-        </div>
-      </SettingsRow>
-    </Show>
-  );
-}
-
-function FilesSection() {
-  const cfg = () => configStore.config().editor;
-  const [isInstallingCli, setIsInstallingCli] = createSignal(false);
-  const [cliInstalled, setCliInstalled] = createSignal(false);
-  const inboxPath = () => inboxStore.path();
-  const inboxFocus = () => configStore.config().inbox.focus;
-  const [defaultAppTypes, setDefaultAppTypes] = createSignal<ClaimableType[]>([]);
-
-  function refreshCliStatus() {
-    void fetchCliStatus()
-      .then((s) => setCliInstalled(s.installed))
-      .catch(() => setCliInstalled(false));
-  }
-
-  onMount(() => {
-    refreshCliStatus();
-    void fetchDefaultAppTypes()
-      .then(setDefaultAppTypes)
-      .catch(() => setDefaultAppTypes([]));
-  });
-
-  function onAutosaveChange(raw: string) {
-    const value = clamp(parseIntSafe(raw, cfg().autosave_debounce_ms), 0, 10000);
-    void patchConfig((prev) => ({ ...prev, editor: { ...prev.editor, autosave_debounce_ms: value } }));
-  }
-
-  async function onInstallCli() {
-    if (isInstallingCli()) return;
-    setIsInstallingCli(true);
-    try {
-      const result = await installCli();
-      setCliInstalled(true);
-      showToast(`writ installed at ${result.symlink_path}`, "success");
-    } catch (err) {
-      const detail = typeof err === "string" ? err : String(err);
-      showToast(detail, "error");
-      refreshCliStatus();
-    } finally {
-      setIsInstallingCli(false);
-    }
-  }
-
-  function onInboxFocusToggle() {
-    void patchConfig((prev) => ({ ...prev, inbox: { ...prev.inbox, focus: !prev.inbox.focus } }));
-  }
-
-  return (
-    <div data-section="files">
-      <SectionLabel section="files" />
-      <SettingsRow id="files.autosave" label="Autosave delay (ms)" labelFor="setting-autosave">
-        <input
-          id="setting-autosave"
-          type="number"
-          class="settings-input settings-input-number"
-          data-setting="autosave_debounce_ms"
-          value={cfg().autosave_debounce_ms}
-          min={0}
-          max={10000}
-          onChange={(e) => onAutosaveChange(e.currentTarget.value)}
-        />
-      </SettingsRow>
-      <Show when={isSettingAvailable("files.cli")}>
-        <SettingsRow id="files.cli" label="Command-line tool">
-          <Show
-            when={!cliInstalled()}
-            fallback={
-              <span class="settings-default-app-status settings-default-app-status-active">
-                writ command installed
-              </span>
-            }
-          >
-            <Button
-              data-action="install-cli"
-              disabled={isInstallingCli()}
-              onClick={() => void onInstallCli()}
-            >
-              {isInstallingCli() ? "Installing…" : "Install `writ` command"}
-            </Button>
-          </Show>
-        </SettingsRow>
-      </Show>
-      <For each={defaultAppTypes()}>{(t) => <DefaultAppRow type={t} />}</For>
-      <SettingsRow id="files.inbox_folder" label="Watched inbox folder">
-        <Show
-          when={inboxPath()}
-          fallback={
-            <Button
-              data-action="inbox-watch"
-              onClick={() => void inboxStore.watchFolder()}
-            >
-              Watch folder…
-            </Button>
-          }
-        >
-          {(path) => (
-            <span class="settings-inbox-controls">
-              <Tooltip label={path()}>
-                <span class="settings-inbox-path">{path()}</span>
-              </Tooltip>
-              <Button
-                data-action="inbox-change"
-                onClick={() => void inboxStore.watchFolder()}
-              >
-                Change…
-              </Button>
-              <Button
-                data-action="inbox-clear"
-                onClick={() => void inboxStore.stopWatching()}
-              >
-                Clear
-              </Button>
+    <Show when={hasSupportedDefaultAppTypes() || claimable().length > 0}>
+      <div data-section="files">
+        <SectionLabel section="files" />
+        <SettingsRow id={DEFAULT_APP_SETTING_ID} label="Open these file types with Writ">
+          <span class="settings-file-types">
+            <For each={claimable()}>
+              {(t) => (
+                <DefaultAppItem
+                  type={t}
+                  status={statuses()[t.id]!}
+                  claiming={claimingId() === t.id}
+                  onClaim={onClaim}
+                />
+              )}
+            </For>
+            <span class="settings-file-types-note">
+              Writ keeps a type until you pick another app in {FILE_MANAGER_NAME}.
             </span>
-          )}
-        </Show>
-      </SettingsRow>
-      <SettingsRow id="files.inbox_focus" label="Focus window on inbox open">
-        <ToggleSwitch
-          setting="inbox_focus"
-          label="Focus window on inbox open"
-          checked={inboxFocus()}
-          onChange={onInboxFocusToggle}
-        />
-      </SettingsRow>
-    </div>
+          </span>
+        </SettingsRow>
+      </div>
+    </Show>
   );
 }
 
@@ -682,7 +597,7 @@ function NotesSection() {
     try {
       await notesStore.showInFileManager();
     } catch {
-      showToast("Could not open the file manager", "error");
+      showToast(`Could not open ${FILE_MANAGER_NAME}`, "error");
     }
   }
 
@@ -744,7 +659,8 @@ function NotesSection() {
   );
 }
 
-function StorageSection() {
+/** The Advanced row naming the folder Writ keeps its own files in. */
+function DataFolderRow() {
   const [info, setInfo] = createSignal<StorageInfo | null>(null);
 
   onMount(() => {
@@ -753,16 +669,16 @@ function StorageSection() {
       .catch(() => setInfo(null));
   });
 
-  async function onReveal() {
+  async function onShow() {
     try {
       await revealStoragePath();
     } catch {
-      showToast("Could not open the file manager", "error");
+      showToast(`Could not open ${FILE_MANAGER_NAME}`, "error");
     }
   }
 
   async function onCopy() {
-    const path = info()?.db_path;
+    const path = info()?.dir;
     if (!path) return;
     try {
       await copyStoragePath(path);
@@ -773,45 +689,26 @@ function StorageSection() {
   }
 
   return (
-    <div data-section="storage">
-      <SectionLabel section="storage" />
-      <SettingsRow id="storage.location" label="Storage location">
-        <span class="settings-inbox-controls">
-          <Tooltip label={info()?.db_path ?? ""}>
-            <span class="settings-inbox-path" data-storage-path>
-              {info()?.db_path ?? "…"}
-            </span>
-          </Tooltip>
-          <Button
-            data-action="storage-reveal"
-            onClick={() => void onReveal()}
-          >
-            Reveal
-          </Button>
-          <Button
-            data-action="storage-copy"
-            onClick={() => void onCopy()}
-          >
-            Copy
-          </Button>
-        </span>
-      </SettingsRow>
-    </div>
+    <SettingsRow id="storage.location" label="Writ's data folder">
+      <span class="settings-inbox-controls">
+        <Tooltip label={info()?.dir ?? ""}>
+          <span class="settings-inbox-path" data-storage-path>
+            {info()?.dir ?? "…"}
+          </span>
+        </Tooltip>
+        <Button data-action="storage-reveal" onClick={() => void onShow()}>
+          {SHOW_IN_FILE_MANAGER}
+        </Button>
+        <Button data-action="storage-copy" onClick={() => void onCopy()}>
+          Copy path
+        </Button>
+      </span>
+    </SettingsRow>
   );
 }
 
 function PreviewSection() {
   const cfg = () => configStore.config().preview;
-
-  function onLiveThresholdChange(raw: string) {
-    const value = clamp(parseFloatSafe(raw, cfg().live_render_threshold_mb), 0.1, 100);
-    void patchConfig((prev) => ({ ...prev, preview: { ...prev.preview, live_render_threshold_mb: value } }));
-  }
-
-  function onRefuseThresholdChange(raw: string) {
-    const value = clamp(parseFloatSafe(raw, cfg().render_refuse_threshold_mb), 1, 500);
-    void patchConfig((prev) => ({ ...prev, preview: { ...prev.preview, render_refuse_threshold_mb: value } }));
-  }
 
   function onRunScriptsToggle() {
     void patchConfig((prev) => ({ ...prev, preview: { ...prev.preview, run_scripts: !prev.preview.run_scripts } }));
@@ -830,54 +727,23 @@ function PreviewSection() {
   return (
     <div data-section="preview">
       <SectionLabel section="preview" />
-      <SettingsRow id="preview.live_threshold" label="Live render threshold (MB)" labelFor="setting-live-threshold">
-        <input
-          id="setting-live-threshold"
-          type="number"
-          class="settings-input settings-input-number"
-          data-setting="live_render_threshold_mb"
-          value={cfg().live_render_threshold_mb}
-          min={0.1}
-          max={100}
-          step={0.5}
-          onChange={(e) => onLiveThresholdChange(e.currentTarget.value)}
-        />
-      </SettingsRow>
-      <SettingsRow id="preview.refuse_threshold" label="Refuse render threshold (MB)" labelFor="setting-refuse-threshold">
-        <input
-          id="setting-refuse-threshold"
-          type="number"
-          class="settings-input settings-input-number"
-          data-setting="render_refuse_threshold_mb"
-          value={cfg().render_refuse_threshold_mb}
-          min={1}
-          max={500}
-          step={1}
-          onChange={(e) => onRefuseThresholdChange(e.currentTarget.value)}
-        />
-      </SettingsRow>
-      <SettingsRow id="preview.run_scripts" label="Run scripts by default">
+      <SettingsRow
+        id="preview.run_scripts"
+        label="Allow HTML files to run their scripts"
+        caution="Off is safer."
+      >
         <ToggleSwitch
           setting="run_scripts"
-          label="Run scripts by default"
+          label="Allow HTML files to run their scripts"
           checked={cfg().run_scripts}
           onChange={onRunScriptsToggle}
         />
       </SettingsRow>
-      <SettingsRow id="preview.layout_html" label="HTML default layout" labelFor="setting-layout-html">
-        <select
-          id="setting-layout-html"
-          class="settings-select"
-          data-setting="default_layout_html"
-          value={cfg().default_layout_html}
-          onChange={(e) => onDefaultLayoutHtmlChange(e.currentTarget.value)}
-        >
-          <option value="source">Source only</option>
-          <option value="split">Split</option>
-          <option value="preview">Preview only</option>
-        </select>
-      </SettingsRow>
-      <SettingsRow id="preview.layout_md" label="Markdown default layout" labelFor="setting-layout-md">
+      <SettingsRow
+        id="preview.layout_md"
+        label="When opening a Markdown file, show:"
+        labelFor="setting-layout-md"
+      >
         <select
           id="setting-layout-md"
           class="settings-select"
@@ -885,9 +751,26 @@ function PreviewSection() {
           value={cfg().default_layout_markdown}
           onChange={(e) => onDefaultLayoutMarkdownChange(e.currentTarget.value)}
         >
-          <option value="source">Source only</option>
-          <option value="split">Split</option>
-          <option value="preview">Preview only</option>
+          <option value="source">The text</option>
+          <option value="split">Text and preview</option>
+          <option value="preview">Preview</option>
+        </select>
+      </SettingsRow>
+      <SettingsRow
+        id="preview.layout_html"
+        label="When opening an HTML file, show:"
+        labelFor="setting-layout-html"
+      >
+        <select
+          id="setting-layout-html"
+          class="settings-select"
+          data-setting="default_layout_html"
+          value={cfg().default_layout_html}
+          onChange={(e) => onDefaultLayoutHtmlChange(e.currentTarget.value)}
+        >
+          <option value="source">The text</option>
+          <option value="split">Text and preview</option>
+          <option value="preview">Preview</option>
         </select>
       </SettingsRow>
     </div>
@@ -895,7 +778,6 @@ function PreviewSection() {
 }
 
 function UpdatesSection() {
-  const win = useWindow();
   const autoCheck = () => configStore.config().updater.auto_check;
 
   function onAutoCheckToggle() {
@@ -903,22 +785,6 @@ function UpdatesSection() {
       ...prev,
       updater: { ...prev.updater, auto_check: !prev.updater.auto_check },
     }));
-  }
-
-  async function onViewNotices() {
-    try {
-      const { doc, reused } = await openThirdPartyNoticesBuffer();
-      win.tabs.setActiveTabId(doc.id);
-      // Activating an already-active tab loads nothing, so the refreshed text
-      // has to be pulled into the view explicitly. The backend's own
-      // external-change event only fires when the regenerated file actually
-      // differs from what was there, so this direct call is what still
-      // covers the (more common) case where reopening rewrote identical text.
-      if (reused) win.editor.requestExternalReload(doc.id);
-      closeSettings();
-    } catch {
-      showToast("Could not open the third-party licences", "error");
-    }
   }
 
   return (
@@ -938,14 +804,6 @@ function UpdatesSection() {
           onClick={() => void updateStore.checkForUpdate()}
         >
           Check now
-        </Button>
-      </SettingsRow>
-      <SettingsRow id="updates.third_party" label="Third-party licences">
-        <Button
-          data-action="third-party-notices"
-          onClick={() => void onViewNotices()}
-        >
-          View
         </Button>
       </SettingsRow>
     </div>
@@ -1120,7 +978,7 @@ function AiSection() {
       setKeyState(state);
       setKeyInput("");
       if (state.memory_only) {
-        showToast("Key held in memory this session; the keychain was unavailable", "info");
+        showToast("Writ could not save your key, so you will enter it again next time", "info");
       }
     } catch {
       showToast("Could not save the API key", "error");
@@ -1276,7 +1134,9 @@ function AiSection() {
           </span>
         </SettingsRow>
         <Show when={keyState()?.is_set && keyState()?.memory_only}>
-          <div class="settings-ai-note">Key held in memory this session; it will be gone on restart.</div>
+          <div class="settings-ai-note">
+            Your key is not saved. You will enter it again next time you open Writ.
+          </div>
         </Show>
 
         {/* Not a setting row, so it opts into the search filter by hand: while
@@ -1408,16 +1268,19 @@ function AppearanceSection() {
         label="Interface text size"
         labelFor="setting-interface-text-size"
       >
-        <input
-          id="setting-interface-text-size"
-          type="number"
-          class="settings-input settings-input-number"
-          data-setting="interface_text_size"
-          value={interfaceTextSize()}
-          min={INTERFACE_TEXT_MIN}
-          max={INTERFACE_TEXT_MAX}
-          onChange={(e) => onInterfaceTextSizeChange(e.currentTarget.value)}
-        />
+        <span class="settings-inbox-controls">
+          <input
+            id="setting-interface-text-size"
+            type="number"
+            class="settings-input settings-input-number"
+            data-setting="interface_text_size"
+            value={interfaceTextSize()}
+            min={INTERFACE_TEXT_MIN}
+            max={INTERFACE_TEXT_MAX}
+            onChange={(e) => onInterfaceTextSizeChange(e.currentTarget.value)}
+          />
+          <span class="settings-unit">px</span>
+        </span>
       </SettingsRow>
       <SettingsRow id="appearance.theme" label="Theme" labelFor="setting-theme-preset">
         <select
@@ -1466,18 +1329,187 @@ function ShortcutsSection() {
   );
 }
 
+/**
+ * The rows a writer never needs: the terminal command, the watched folder, the
+ * two preview size limits and Writ's own data folder. Everything here answers a
+ * question the panel above it does not raise.
+ */
+function AdvancedSection() {
+  const preview = () => configStore.config().preview;
+  const [isInstallingCli, setIsInstallingCli] = createSignal(false);
+  const [cliInstalled, setCliInstalled] = createSignal(false);
+  const watchedPath = () => inboxStore.path();
+  const focusOnArrival = () => configStore.config().inbox.focus;
+
+  function refreshCliStatus() {
+    void fetchCliStatus()
+      .then((s) => setCliInstalled(s.installed))
+      .catch(() => setCliInstalled(false));
+  }
+
+  onMount(() => {
+    refreshCliStatus();
+  });
+
+  async function onInstallCli() {
+    if (isInstallingCli()) return;
+    setIsInstallingCli(true);
+    try {
+      const result = await installCli();
+      setCliInstalled(true);
+      showToast(`writ installed at ${result.symlink_path}`, "success");
+    } catch (err) {
+      const detail = typeof err === "string" ? err : String(err);
+      showToast(detail, "error");
+      refreshCliStatus();
+    } finally {
+      setIsInstallingCli(false);
+    }
+  }
+
+  function onFocusToggle() {
+    void patchConfig((prev) => ({ ...prev, inbox: { ...prev.inbox, focus: !prev.inbox.focus } }));
+  }
+
+  function onLiveLimitChange(raw: string) {
+    const value = clamp(parseFloatSafe(raw, preview().live_render_threshold_mb), 0.1, 100);
+    void patchConfig((prev) => ({
+      ...prev,
+      preview: { ...prev.preview, live_render_threshold_mb: value },
+    }));
+  }
+
+  function onHardLimitChange(raw: string) {
+    const value = clamp(parseFloatSafe(raw, preview().render_refuse_threshold_mb), 1, 500);
+    void patchConfig((prev) => ({
+      ...prev,
+      preview: { ...prev.preview, render_refuse_threshold_mb: value },
+    }));
+  }
+
+  return (
+    <div data-section="advanced">
+      <SectionLabel section="advanced" />
+      <Show when={isSettingAvailable("files.cli")}>
+        <SettingsRow
+          id="files.cli"
+          label="Terminal command"
+          caution={
+            !cliInstalled() && IS_MAC
+              ? "macOS will ask for your password to install this."
+              : undefined
+          }
+        >
+          <Show
+            when={!cliInstalled()}
+            fallback={
+              <span class="settings-default-app-status settings-default-app-status-active">
+                writ command installed
+              </span>
+            }
+          >
+            <Button
+              data-action="install-cli"
+              disabled={isInstallingCli()}
+              onClick={() => void onInstallCli()}
+            >
+              {isInstallingCli() ? "Installing…" : "Install the writ command"}
+            </Button>
+          </Show>
+        </SettingsRow>
+      </Show>
+      <SettingsRow id="files.inbox_folder" label="Folder to watch for new files">
+        <Show
+          when={watchedPath()}
+          fallback={
+            <Button data-action="inbox-watch" onClick={() => void inboxStore.watchFolder()}>
+              Choose folder…
+            </Button>
+          }
+        >
+          {(path) => (
+            <span class="settings-inbox-controls">
+              <Tooltip label={path()}>
+                <span class="settings-inbox-path">{path()}</span>
+              </Tooltip>
+              <Button data-action="inbox-change" onClick={() => void inboxStore.watchFolder()}>
+                Change…
+              </Button>
+              <Button data-action="inbox-clear" onClick={() => void inboxStore.stopWatching()}>
+                Stop watching
+              </Button>
+            </span>
+          )}
+        </Show>
+      </SettingsRow>
+      <SettingsRow
+        id="files.inbox_focus"
+        label="Bring Writ to the front when a new file arrives"
+      >
+        <ToggleSwitch
+          setting="inbox_focus"
+          label="Bring Writ to the front when a new file arrives"
+          checked={focusOnArrival()}
+          onChange={onFocusToggle}
+        />
+      </SettingsRow>
+      <SettingsRow
+        id="preview.live_threshold"
+        label="Stop live preview above"
+        labelFor="setting-live-limit"
+      >
+        <span class="settings-inbox-controls">
+          <input
+            id="setting-live-limit"
+            type="number"
+            class="settings-input settings-input-number"
+            data-setting="live_render_threshold_mb"
+            value={preview().live_render_threshold_mb}
+            min={0.1}
+            max={100}
+            step={0.5}
+            onChange={(e) => onLiveLimitChange(e.currentTarget.value)}
+          />
+          <span class="settings-unit">MB</span>
+        </span>
+      </SettingsRow>
+      <SettingsRow
+        id="preview.refuse_threshold"
+        label="Do not preview files above"
+        labelFor="setting-hard-limit"
+      >
+        <span class="settings-inbox-controls">
+          <input
+            id="setting-hard-limit"
+            type="number"
+            class="settings-input settings-input-number"
+            data-setting="render_refuse_threshold_mb"
+            value={preview().render_refuse_threshold_mb}
+            min={1}
+            max={500}
+            step={1}
+            onChange={(e) => onHardLimitChange(e.currentTarget.value)}
+          />
+          <span class="settings-unit">MB</span>
+        </span>
+      </SettingsRow>
+      <DataFolderRow />
+    </div>
+  );
+}
+
 function AllSections() {
   return (
     <>
       <NotesSection />
       <EditorSection />
       <FilesSection />
-      <StorageSection />
       <PreviewSection />
       <AiSection />
       <AppearanceSection />
       <UpdatesSection />
       <ShortcutsSection />
+      <AdvancedSection />
     </>
   );
 }
@@ -1624,12 +1656,12 @@ export default function SettingsModal() {
                       <Match when={activeSection() === "notes"}><NotesSection /></Match>
                       <Match when={activeSection() === "editor"}><EditorSection /></Match>
                       <Match when={activeSection() === "files"}><FilesSection /></Match>
-                      <Match when={activeSection() === "storage"}><StorageSection /></Match>
                       <Match when={activeSection() === "preview"}><PreviewSection /></Match>
                       <Match when={activeSection() === "ai"}><AiSection /></Match>
                       <Match when={activeSection() === "appearance"}><AppearanceSection /></Match>
                       <Match when={activeSection() === "updates"}><UpdatesSection /></Match>
                       <Match when={activeSection() === "shortcuts"}><ShortcutsSection /></Match>
+                      <Match when={activeSection() === "advanced"}><AdvancedSection /></Match>
                     </Switch>
                   }
                 >

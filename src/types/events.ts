@@ -17,6 +17,7 @@ export type WritEvent =
       };
     }
   | { kind: "menu:action"; payload: { action: string } }
+  | { kind: "hotkey:status"; payload: { chord: string; registered: boolean } }
   | { kind: "workspace:changed"; payload: { path: string; removed: boolean } }
   | { kind: "notes:changed"; payload: { path: string; removed: boolean } }
   | { kind: "notes:swept"; payload: { root: string } }

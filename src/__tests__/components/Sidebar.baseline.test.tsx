@@ -34,6 +34,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       searchTotal: () => 0,
       searchMs: () => null,
       selectedTag: () => null,
+      recentRequest: () => 0,
     },
     tabs: {
       activeTabId: () => h.activeId,
@@ -133,13 +134,13 @@ describe("sidebar section headers", () => {
     expect(head.querySelector(".sidebar-section-count")!.textContent).toBe("2");
   });
 
-  it("names the history section Recent, with its count", () => {
+  it("names the history section Recently closed, with its count", () => {
     h.history = [
       { ...doc("h1", "Kitchen rebuild", null), status: "history", closed_at: "2026-08-25T09:00:00.000Z" },
     ];
     const { container } = render(() => <HistorySection />);
     const head = container.querySelector(".sidebar-section-title")!;
-    expect(head.textContent).toBe("Recent1");
+    expect(head.textContent).toBe("Recently closed1");
   });
 
   it("names the folder section after the folder itself", () => {

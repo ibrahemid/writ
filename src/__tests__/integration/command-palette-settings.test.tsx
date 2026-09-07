@@ -103,7 +103,7 @@ describe("CommandPalette settings results", () => {
     const { container } = render(() => <CommandPalette />);
     openCommandPalette();
     await waitFor(() => expect(container.querySelector(".palette-input")).not.toBeNull());
-    await user.type(container.querySelector(".palette-input")!, "autosave");
+    await user.type(container.querySelector(".palette-input")!, "typeface");
     await waitFor(() => {
       expect(container.querySelector(".palette-section-results")).toBeNull();
       expect(container.querySelector(".palette-section-settings")).not.toBeNull();
@@ -135,14 +135,14 @@ describe("CommandPalette settings results", () => {
     const { container } = render(() => <CommandPalette />);
     openCommandPalette();
     await waitFor(() => expect(container.querySelector(".palette-input")).not.toBeNull());
-    await user.type(container.querySelector(".palette-input")!, "autosave");
+    await user.type(container.querySelector(".palette-input")!, "typeface");
     await waitFor(() => expect(container.querySelector(".palette-section-settings")).not.toBeNull());
     const item = container.querySelector<HTMLButtonElement>(
       ".palette-section-settings .palette-item",
     );
     expect(item).not.toBeNull();
     await user.click(item!);
-    expect(h.openSettings).toHaveBeenCalledWith("files", "files.autosave");
+    expect(h.openSettings).toHaveBeenCalledWith("appearance", "appearance.prose_face");
     expect(h.recordCommandUse).not.toHaveBeenCalled();
   });
 });

@@ -1,0 +1,28 @@
+[
+  { "id": "app.thirdPartyNotices", "label": "Third-Party Licences", "menu": "app", "group": 0, "platforms": ["mac", "win", "linux"] },
+  { "id": "settings.open", "label": "Settings…", "accelerator": "CmdOrCtrl+,", "menu": "app", "group": 1, "platforms": ["mac", "win", "linux"] },
+  { "id": "app.check_updates", "label": "Check for Updates…", "menu": "app", "group": 2, "platforms": ["mac", "win", "linux"] },
+
+  { "id": "note.new", "label": "New Note", "accelerator": "CmdOrCtrl+N", "menu": "file", "group": 0, "platforms": ["mac", "win", "linux"] },
+  { "id": "note.today", "label": "Today's Note", "menu": "file", "group": 0, "platforms": ["mac", "win", "linux"] },
+  { "id": "notes.quickOpen", "label": "Open Note…", "accelerator": "CmdOrCtrl+Shift+O", "menu": "file", "group": 1, "platforms": ["mac", "win", "linux"] },
+  { "id": "file.open", "label": "Open File…", "accelerator": "CmdOrCtrl+O", "menu": "file", "group": 1, "platforms": ["mac", "win", "linux"] },
+  { "id": "history.openRecent", "label": "Open Recent", "menu": "file", "group": 1, "platforms": ["mac", "win", "linux"] },
+  { "id": "notes.showFolder", "label": "Show Notes Folder in Finder", "menu": "file", "group": 1, "platforms": ["mac", "win", "linux"] },
+  { "id": "buffer.save", "label": "Save", "accelerator": "CmdOrCtrl+S", "menu": "file", "group": 2, "platforms": ["mac", "win", "linux"] },
+  { "id": "note.saveCopy", "label": "Save a Copy…", "menu": "file", "group": 2, "platforms": ["mac", "win", "linux"] },
+  { "id": "note.rename", "label": "Rename Note…", "menu": "file", "group": 2, "platforms": ["mac", "win", "linux"] },
+  { "id": "buffer.close", "label": "Close Tab", "accelerator": "CmdOrCtrl+W", "menu": "file", "group": 3, "platforms": ["mac", "win", "linux"] },
+
+  { "id": "editor.find", "label": "Find", "accelerator": "CmdOrCtrl+F", "menu": "edit", "group": 0, "platforms": ["mac", "win", "linux"] },
+  { "id": "editor.findNext", "label": "Find Next", "accelerator": "CmdOrCtrl+G", "menu": "edit", "group": 0, "platforms": ["mac", "win", "linux"] },
+  { "id": "editor.findPrevious", "label": "Find Previous", "accelerator": "CmdOrCtrl+Shift+G", "menu": "edit", "group": 0, "platforms": ["mac", "win", "linux"] },
+  { "id": "editor.replace", "label": "Replace", "accelerator": "CmdOrCtrl+Alt+F", "menu": "edit", "group": 0, "platforms": ["mac", "win", "linux"] },
+
+  { "id": "sidebar.toggle", "label": "Toggle Sidebar", "accelerator": "CmdOrCtrl+\\", "menu": "view", "group": 0, "platforms": ["mac", "win", "linux"] },
+  { "id": "panel.toggle", "label": "Toggle Connections", "accelerator": "CmdOrCtrl+Shift+\\", "menu": "view", "group": 0, "platforms": ["mac", "win", "linux"] },
+  { "id": "folderGraph.open", "label": "Open Graph", "menu": "view", "group": 1, "platforms": ["mac", "win", "linux"] },
+
+  { "id": "palette.open", "label": "Command Palette", "menu": "help", "group": 0, "platforms": ["mac", "win", "linux"] },
+  { "id": "shortcuts.customize", "label": "Customize Shortcuts…", "menu": "help", "group": 0, "platforms": ["mac", "win", "linux"] }
+]

@@ -30,15 +30,15 @@ const FORMAT_COMMANDS: Command[] = [
 // Every app/editor/preview chord registered outside this PR, mirroring the live
 // table so the boot-time conflict check is proven silent. It has to keep
 // mirroring it: a stub whose id no longer exists proves nothing about the app
-// that ships. Cmd+E is intentionally absent: it belongs to editor.deleteLine
-// (inline code moved to Cmd+Shift+E).
+// that ships. Cmd+E is bound to nothing: deleting a line answers to
+// Cmd+Shift+K, and inline code to Cmd+Shift+E.
 const OTHER_REGISTERED: Command[] = [
   stub("editor.addCursorUp", "Alt+ArrowUp"),
   stub("editor.addCursorDown", "Alt+ArrowDown"),
   stub("editor.find", "CmdOrCtrl+F"),
   stub("editor.findNext", "CmdOrCtrl+G"),
   stub("editor.findPrev", "CmdOrCtrl+Shift+G"),
-  stub("editor.replace", "CmdOrCtrl+R", ["CmdOrCtrl+Alt+F"]),
+  stub("editor.replace", "CmdOrCtrl+Alt+F"),
   stub("editor.zoomIn", "CmdOrCtrl+=", ["CmdOrCtrl+Shift++"]),
   stub("editor.zoomOut", "CmdOrCtrl+-"),
   stub("editor.zoomReset", "CmdOrCtrl+0"),
@@ -49,7 +49,7 @@ const OTHER_REGISTERED: Command[] = [
   stub("tab.prev", "CmdOrCtrl+["),
   stub("tab.next", "CmdOrCtrl+]"),
   stub("note.rename", "F2", ["CmdOrCtrl+Shift+S"]),
-  stub("sidebar.toggle", "CmdOrCtrl+\\"),
+  stub("sidebar.toggle", "CmdOrCtrl+\\", ["CmdOrCtrl+Alt+S"]),
   stub("buffer.save", "CmdOrCtrl+S"),
   stub("settings.open", "CmdOrCtrl+,"),
   stub("history.restoreLast", "CmdOrCtrl+Shift+T"),

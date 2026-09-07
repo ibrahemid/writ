@@ -16,7 +16,11 @@ const h = vi.hoisted(() => ({
 
 vi.mock("../../stores/global/config", () => ({
   configStore: {
-    config: () => ({ commands: { usage: {} }, keybindings: {} }),
+    config: () => ({
+      commands: { usage: {} },
+      keybindings: {},
+      hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
+    }),
     recordCommandUse: h.recordCommandUse,
     save: h.save,
   },

@@ -15,7 +15,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock("../../stores/global/config", () => ({
   configStore: {
-    config: () => ({ keybindings: {} }),
+    config: () => ({ keybindings: {}, hotkey: { toggle: "CmdOrCtrl+Shift+Space" } }),
     save: h.saveConfig,
   },
 }));

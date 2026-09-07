@@ -38,7 +38,7 @@ export default function SearchBar() {
           ref={(el) => (searchInputRef = el)}
           type="text"
           data-writ-focus-silent
-          placeholder="Search notes"
+          placeholder="Search your notes"
           value={win.sidebar.searchQuery()}
           onInput={(e) => win.sidebar.setSearchQuery(e.currentTarget.value)}
           class="search-input"
