@@ -287,6 +287,9 @@ describe("SettingsModal", () => {
   });
 
   it("switches to Files section on nav click", async () => {
+    // Files renders only once a type reports claimable, so the nav has
+    // something to switch to.
+    mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "no_handler" });
     const { container } = render(() => <SettingsModal />);
     openSettings();
     await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
@@ -537,21 +540,53 @@ describe("SettingsModal", () => {
   });
 
   describe("Files section — the file-types row", () => {
-    async function openFilesSection(container: Element) {
+    async function openFilesNav(container: Element) {
       openSettings();
       await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
       const navItems = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
       const filesNav = Array.from(navItems).find((n) => n.textContent?.toLowerCase().includes("files"));
       fireEvent.click(filesNav!);
+    }
+
+    async function openFilesSection(container: Element) {
+      await openFilesNav(container);
       await waitFor(() => expect(container.querySelector("[data-section='files']")).not.toBeNull());
+    }
+
+    function filesHeading(container: Element): Element | undefined {
+      return Array.from(container.querySelectorAll(".settings-section-label")).find(
+        (el) => el.textContent === "Files",
+      );
     }
 
     it("hides the file types the platform cannot claim", async () => {
       mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "unsupported" });
       const { container } = render(() => <SettingsModal />);
-      await openFilesSection(container);
+      await openFilesNav(container);
+      await waitFor(() => expect(mocks.fetchDefaultAppStatus).toHaveBeenCalled());
       const boxes = container.querySelectorAll("[data-default-app-type]");
       expect(boxes.length).toBe(0);
+    });
+
+    // A heading with nothing under it says less than no heading at all.
+    it("shows no Files heading when every type answers unsupported", async () => {
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "unsupported" });
+      const { container } = render(() => <SettingsModal />);
+      await openFilesNav(container);
+      await waitFor(() => expect(mocks.fetchDefaultAppStatus).toHaveBeenCalled());
+      expect(filesHeading(container)).toBeUndefined();
+      expect(container.querySelector("[data-section='files']")).toBeNull();
+      expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull();
+    });
+
+    it("shows no Files heading when the type probe fails", async () => {
+      mocks.fetchDefaultAppTypes.mockRejectedValue(new Error("no IPC"));
+      const { container } = render(() => <SettingsModal />);
+      await openFilesNav(container);
+      await waitFor(() => expect(mocks.fetchDefaultAppTypes).toHaveBeenCalled());
+      expect(filesHeading(container)).toBeUndefined();
+      expect(container.querySelector("[data-section='files']")).toBeNull();
+      expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull();
     });
 
     it("offers one row holding a box per claimable type", async () => {

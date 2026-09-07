@@ -533,10 +533,13 @@ function FilesSection() {
       return s !== undefined && s.status !== "unsupported";
     });
 
+  // The heading waits for the row. Files holds nothing else, so a failed or
+  // still-pending probe would otherwise leave a bare `Files` heading on macOS.
+  // The list only ever grows as types report in, so nothing appears and leaves.
   return (
-    <div data-section="files">
-      <SectionLabel section="files" />
-      <Show when={claimable().length > 0}>
+    <Show when={claimable().length > 0}>
+      <div data-section="files">
+        <SectionLabel section="files" />
         <SettingsRow id={DEFAULT_APP_SETTING_ID} label="Open these file types with Writ">
           <span class="settings-file-types">
             <For each={claimable()}>
@@ -554,8 +557,8 @@ function FilesSection() {
             </span>
           </span>
         </SettingsRow>
-      </Show>
-    </div>
+      </div>
+    </Show>
   );
 }
 
