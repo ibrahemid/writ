@@ -174,7 +174,6 @@ function AppShell() {
       id: "notes.showFolder",
       icon: "folder-open",
       label: `Show notes folder in ${firstRunStore.fileManager()}`,
-      description: "Open the folder your notes are saved in",
       scope: "app",
       execute: () => {
         void notesStore.showInFileManager().catch(() => {

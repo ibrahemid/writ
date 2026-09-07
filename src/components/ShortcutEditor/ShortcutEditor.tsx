@@ -207,7 +207,7 @@ export default function ShortcutEditor() {
           <div class="shortcut-row-desc">Works while another app is in front</div>
           <Show when={hotkeyStore.isTaken()}>
             <div class="shortcut-row-conflict" data-state="taken">
-              Another app is using this shortcut. Record a different one.
+              Another app is using this shortcut.
             </div>
           </Show>
         </div>
