@@ -87,10 +87,21 @@ describe("the shared menu command list", () => {
       "editor.replace",
       "sidebar.toggle",
       "panel.toggle",
+      "folderGraph.open",
     ]) {
       expect(ids, id).toContain(id);
     }
     expect(MENU_COMMANDS.some((entry) => entry.menu === "help")).toBe(true);
+  });
+
+  it("opens the folder graph from the View menu on every platform", () => {
+    for (const platform of ["mac", "win", "linux"] as const) {
+      const view = menuCommandsFor(platform).filter((entry) => entry.menu === "view");
+      expect(
+        view.map((entry) => entry.id),
+        `the View menu on ${platform}`,
+      ).toContain("folderGraph.open");
+    }
   });
 
   it("names only commands App.tsx registers", () => {

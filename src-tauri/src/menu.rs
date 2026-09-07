@@ -59,13 +59,14 @@ pub enum MenuAction {
     Replace,
     ToggleSidebar,
     TogglePanel,
+    OpenFolderGraph,
     OpenPalette,
     CustomizeShortcuts,
 }
 
 impl MenuAction {
     /// Every action the table routes to.
-    pub const ALL: [MenuAction; 21] = [
+    pub const ALL: [MenuAction; 22] = [
         MenuAction::ThirdPartyNotices,
         MenuAction::OpenSettings,
         MenuAction::CheckUpdates,
@@ -85,6 +86,7 @@ impl MenuAction {
         MenuAction::Replace,
         MenuAction::ToggleSidebar,
         MenuAction::TogglePanel,
+        MenuAction::OpenFolderGraph,
         MenuAction::OpenPalette,
         MenuAction::CustomizeShortcuts,
     ];
@@ -112,6 +114,7 @@ impl MenuAction {
             MenuAction::Replace => "editor.replace",
             MenuAction::ToggleSidebar => "sidebar.toggle",
             MenuAction::TogglePanel => "panel.toggle",
+            MenuAction::OpenFolderGraph => "folderGraph.open",
             MenuAction::OpenPalette => "palette.open",
             MenuAction::CustomizeShortcuts => "shortcuts.customize",
         }
@@ -185,6 +188,7 @@ pub fn menu_action_for_id(id: &str) -> Option<MenuAction> {
         "editor.replace" => MenuAction::Replace,
         "sidebar.toggle" => MenuAction::ToggleSidebar,
         "panel.toggle" => MenuAction::TogglePanel,
+        "folderGraph.open" => MenuAction::OpenFolderGraph,
         "palette.open" => MenuAction::OpenPalette,
         "shortcuts.customize" => MenuAction::CustomizeShortcuts,
         _ => return None,

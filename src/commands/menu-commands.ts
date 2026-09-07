@@ -37,8 +37,6 @@ export const MENU_SECTIONS: readonly MenuSection[] = [
   "app",
   "file",
   "edit",
-  // The folder graph gets a View entry in `menu-commands.json` when it lands;
-  // it is not in the list yet because the view it opens does not exist.
   "view",
   "help",
 ];

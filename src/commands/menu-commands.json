@@ -21,6 +21,7 @@
 
   { "id": "sidebar.toggle", "label": "Toggle Sidebar", "accelerator": "CmdOrCtrl+\\", "menu": "view", "group": 0, "platforms": ["mac", "win", "linux"] },
   { "id": "panel.toggle", "label": "Toggle Connections", "accelerator": "CmdOrCtrl+Shift+\\", "menu": "view", "group": 0, "platforms": ["mac", "win", "linux"] },
+  { "id": "folderGraph.open", "label": "Open Graph", "menu": "view", "group": 1, "platforms": ["mac", "win", "linux"] },
 
   { "id": "palette.open", "label": "Command Palette", "menu": "help", "group": 0, "platforms": ["mac", "win", "linux"] },
   { "id": "shortcuts.customize", "label": "Customize Shortcuts…", "menu": "help", "group": 0, "platforms": ["mac", "win", "linux"] }
