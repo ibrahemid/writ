@@ -50,6 +50,22 @@ vi.mock("../../stores/global/theme", () => ({
   themeStore: { resolvedTokens: () => TOKEN_VALUES },
 }));
 
+// How many settles were started. Frames never run here, and a folder's settle
+// starts again from where the last one stopped, so a restart changes nothing
+// about what is painted: it is counted rather than looked for in the drawing.
+const settles = vi.hoisted(() => ({ started: 0 }));
+
+vi.mock("../../lib/graph/layout", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/graph/layout")>();
+  return {
+    ...actual,
+    beginLayout: (...args: Parameters<typeof actual.beginLayout>) => {
+      settles.started += 1;
+      return actual.beginLayout(...args);
+    },
+  };
+});
+
 vi.mock("../../stores/global/note-facts", () => ({
   noteFactsStore: {
     graph: () => () => h.rows!(),
@@ -130,6 +146,7 @@ function stubContext(record: Recorder): CanvasRenderingContext2D {
 
 beforeEach(() => {
   recorder = { discs: [], spots: [], lines: 0 };
+  settles.started = 0;
   folderGraph = createRoot(createFolderGraphStore);
   folderGraph.open();
   h.error = null;
@@ -450,14 +467,39 @@ describe("choosing a note from the drawing", () => {
     expect(before.length).toBe(notes.length);
 
     recorder.spots = [];
+    const started = settles.started;
     fireEvent.click(canvas, { clientX: before[0].x, clientY: before[0].y });
 
     // The note is open, the drawing repainted to ring it, and not one disc
-    // moved: the settle belongs to the folder, not to which note is open.
+    // moved: the settle belongs to the folder, not to which note is open. The
+    // count says it as well as the places do, because a settle that keeps its
+    // places would have repainted the same drawing had one been started.
     expect(h.openFile).toHaveBeenCalledTimes(1);
+    expect(settles.started).toBe(started);
     expect(recorder.spots).toEqual(before);
     expect(folderGraph.zoom()).toBe(zoom);
     expect(folderGraph.pan()).toEqual({ x: pan.x + PAN_STEP, y: pan.y });
+
+    // One note written into the folder, linked to nothing and last of them by
+    // name: the same links, one more note. That is a folder the drawing has
+    // not settled, so it settles it, and a trigger that read the links and not
+    // the notes would sit still here.
+    const held = rows();
+    setRows({
+      nodes: [...held.nodes, { path: "Chain/zeta.md", name: "Zeta", folder: "Chain" }],
+      edges: held.edges,
+    });
+    expect(view.getByText(`${notes.length + 1} notes`)).toBeTruthy();
+    expect(settles.started).toBe(started + 1);
+
+    // The same note renamed: the same count of notes and the same links, one
+    // note by another name, and it is the last of them. A trigger that counted
+    // the notes, or that left any one of them out, would sit still here too.
+    setRows({
+      nodes: [...held.nodes, { path: "Chain/zeta-2.md", name: "Zeta", folder: "Chain" }],
+      edges: held.edges,
+    });
+    expect(settles.started).toBe(started + 2);
   });
 
   it("keeps the notes that are still there when one is written on disk", () => {
