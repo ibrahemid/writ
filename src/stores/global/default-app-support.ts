@@ -14,6 +14,11 @@ export function isDefaultAppTypeSupported(typeId: string): boolean {
   return supportedDefaultAppIds().has(typeId);
 }
 
+/** True once at least one claimable type resolved as supported on this platform. */
+export function hasSupportedDefaultAppTypes(): boolean {
+  return supportedDefaultAppIds().size > 0;
+}
+
 export function markDefaultAppTypeSupported(typeId: string, supported: boolean): void {
   setSupportedDefaultAppIds((prev) => {
     if (supported === prev.has(typeId)) return prev;

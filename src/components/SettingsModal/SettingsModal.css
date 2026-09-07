@@ -377,6 +377,49 @@
   color: var(--writ-accent);
 }
 
+.settings-file-types {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--writ-space-2);
+  min-width: 0;
+  padding: var(--writ-space-2) 0;
+}
+
+.settings-file-type {
+  display: flex;
+  align-items: baseline;
+  gap: var(--writ-space-2);
+  font-size: var(--writ-ui-sm);
+  color: var(--writ-fg);
+}
+
+.settings-file-type-box {
+  accent-color: var(--writ-accent);
+  margin: 0;
+}
+
+.settings-file-type-box:disabled {
+  cursor: default;
+}
+
+.settings-file-type-exts,
+.settings-file-type-owner {
+  font-size: var(--writ-ui-xs);
+  color: var(--writ-fg-faint);
+}
+
+.settings-file-types-note {
+  font-size: var(--writ-ui-xs);
+  color: var(--writ-fg-faint);
+  max-width: 340px;
+}
+
+.settings-unit {
+  font-size: var(--writ-ui-sm);
+  color: var(--writ-fg-muted);
+}
+
 .settings-row-caution {
   display: block;
   font-size: var(--writ-ui-sm);

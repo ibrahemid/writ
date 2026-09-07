@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   detectPlatform: vi.fn(() => "mac" as "mac" | "win" | "linux"),
-  isDefaultAppTypeSupported: vi.fn(() => true),
+  hasSupportedDefaultAppTypes: vi.fn(() => true),
 }));
 
 vi.mock("../../lib/platform", () => ({
@@ -12,7 +12,7 @@ vi.mock("../../lib/platform", () => ({
 }));
 
 vi.mock("../../stores/global/default-app-support", () => ({
-  isDefaultAppTypeSupported: mocks.isDefaultAppTypeSupported,
+  hasSupportedDefaultAppTypes: mocks.hasSupportedDefaultAppTypes,
 }));
 
 import { isSettingAvailable } from "../../settings/availability";
@@ -20,7 +20,7 @@ import { isSettingAvailable } from "../../settings/availability";
 describe("setting availability", () => {
   beforeEach(() => {
     mocks.detectPlatform.mockReturnValue("mac");
-    mocks.isDefaultAppTypeSupported.mockReturnValue(true);
+    mocks.hasSupportedDefaultAppTypes.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -41,14 +41,15 @@ describe("setting availability", () => {
 
   it("leaves every other row alone on Windows", () => {
     mocks.detectPlatform.mockReturnValue("win");
-    expect(isSettingAvailable("files.autosave")).toBe(true);
+    expect(isSettingAvailable("files.inbox_folder")).toBe(true);
     expect(isSettingAvailable("editor.font_size")).toBe(true);
   });
 
-  it("still reads the default-app store for a default-app row", () => {
-    mocks.isDefaultAppTypeSupported.mockReturnValue(false);
-    expect(isSettingAvailable("files.default_app.markdown")).toBe(false);
-    expect(mocks.isDefaultAppTypeSupported).toHaveBeenCalledWith("markdown");
+  it("hides the file-types row when no claimable type is supported", () => {
+    mocks.hasSupportedDefaultAppTypes.mockReturnValue(false);
+    expect(isSettingAvailable("files.default_app")).toBe(false);
+    mocks.hasSupportedDefaultAppTypes.mockReturnValue(true);
+    expect(isSettingAvailable("files.default_app")).toBe(true);
   });
 
   it("does not ask the platform about a row no platform gates", () => {

@@ -28,11 +28,14 @@ export function resolvePlatform(): Platform {
 export const IS_MAC = detectPlatform() === "mac";
 
 // What each platform calls its file manager, so a button names the app the
-// user will see when it opens.
-const FILE_MANAGER_LABELS: Record<Platform, string> = {
-  mac: "Show in Finder",
-  win: "Show in Explorer",
-  linux: "Show in Files",
+// user will see when it opens. Mirrors writ_core::startup::file_manager_name.
+const FILE_MANAGER_NAMES: Record<Platform, string> = {
+  mac: "Finder",
+  win: "Explorer",
+  linux: "Files",
 };
 
-export const SHOW_IN_FILE_MANAGER = FILE_MANAGER_LABELS[detectPlatform()];
+/** The host's own word for its file manager, for copy that names it in a sentence. */
+export const FILE_MANAGER_NAME = FILE_MANAGER_NAMES[detectPlatform()];
+
+export const SHOW_IN_FILE_MANAGER = `Show in ${FILE_MANAGER_NAME}`;
