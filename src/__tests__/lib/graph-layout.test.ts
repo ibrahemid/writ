@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { describe, it, expect } from "vitest";
 import {
   DEFAULT_LAYOUT_OPTIONS,
+  FOLDER_LAYOUT_OPTIONS,
   beginLayout,
   nodeAt,
   positions,
@@ -77,7 +78,8 @@ describe("graph layout is deterministic", () => {
       });
       expect(elsewhere).toBe(serialise(simulate(NODES, EDGES, DEFAULT_LAYOUT_OPTIONS, SEED)));
     },
-    30_000,
+    // Starting a second node process costs what the machine has left to give.
+    120_000,
   );
 });
 
@@ -157,10 +159,11 @@ function settle(
   nodes: LayoutNode[],
   edges: LayoutEdge[],
   seed: number,
+  options = DEFAULT_LAYOUT_OPTIONS,
 ): { placed: { x: number; y: number }[]; steps: number } {
-  let state = beginLayout(nodes, edges, DEFAULT_LAYOUT_OPTIONS, seed);
+  let state = beginLayout(nodes, edges, options, seed);
   let steps = 0;
-  while (!state.done && steps <= DEFAULT_LAYOUT_OPTIONS.steps) {
+  while (!state.done && steps <= options.steps) {
     state = step(state);
     steps += 1;
   }
@@ -180,35 +183,51 @@ describe("the minimum separation", () => {
     { count: 200, seeds: 2 },
   ];
 
+  // A settle of a few hundred notes is a second of arithmetic on a quiet
+  // machine and several on one running the rest of the suite beside it, so
+  // the sizes that cost anything say how long they may take rather than
+  // inheriting the default and failing on a busy machine.
+  const SETTLE_TIMEOUT_MS = 120_000;
+
   for (const [name, shape] of Object.entries(shapes)) {
     for (const { count, seeds } of sizes) {
-      it(`holds every pair apart in a ${name} of ${count}`, () => {
-        const { nodes, edges } = shape(count);
-        for (let seed = 1; seed <= seeds; seed += 1) {
-          const run = settle(nodes, edges, seed);
-          expect(closestPair(run.placed)).toBeGreaterThanOrEqual(
-            DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6,
-          );
-          expect(run.steps).toBe(DEFAULT_LAYOUT_OPTIONS.steps);
-        }
-      });
+      it(
+        `holds every pair apart in a ${name} of ${count}`,
+        () => {
+          const { nodes, edges } = shape(count);
+          for (let seed = 1; seed <= seeds; seed += 1) {
+            const run = settle(nodes, edges, seed);
+            expect(closestPair(run.placed)).toBeGreaterThanOrEqual(
+              DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6,
+            );
+            expect(run.steps).toBe(DEFAULT_LAYOUT_OPTIONS.steps);
+          }
+        },
+        SETTLE_TIMEOUT_MS,
+      );
     }
   }
 
-  it("holds a folder far larger than one is drawn at apart", () => {
-    // Past a few hundred notes the forces alone stop being enough: the springs
-    // and the repulsion balance closer than the minimum, and what holds the
-    // notes off each other is the pass that pushes them apart until nothing
-    // moves. This is the size that says whether that pass is doing its job.
-    for (const shape of [star, clique]) {
-      const { nodes, edges } = shape(400);
-      const run = settle(nodes, edges, 1);
-      expect(closestPair(run.placed)).toBeGreaterThanOrEqual(
-        DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6,
-      );
-      expect(run.steps).toBe(DEFAULT_LAYOUT_OPTIONS.steps);
-    }
-  }, 30_000);
+  // Past a few hundred notes the forces alone stop being enough: the springs
+  // and the repulsion balance closer than the minimum, and what holds the
+  // notes off each other is the room the drawing is opened out to and the pass
+  // that pushes the rest apart. This is the size that says whether that is
+  // doing its job. One shape per test: each is seconds of arithmetic, and two
+  // of them in one test is one test that takes twice as long to fail.
+  for (const [name, shape] of Object.entries(shapes)) {
+    it(
+      `holds a folder far larger than one is drawn at apart, in a ${name}`,
+      () => {
+        const { nodes, edges } = shape(400);
+        const run = settle(nodes, edges, 1);
+        expect(closestPair(run.placed)).toBeGreaterThanOrEqual(
+          DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6,
+        );
+        expect(run.steps).toBe(DEFAULT_LAYOUT_OPTIONS.steps);
+      },
+      SETTLE_TIMEOUT_MS,
+    );
+  }
 
   it("holds a loop apart too", () => {
     const { nodes, edges } = ring(12);
@@ -218,6 +237,67 @@ describe("the minimum separation", () => {
         DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6,
       );
     }
+  });
+
+  // Everything above settles with the numbers the notes around one note are
+  // settled with. A whole folder is settled with its own, which ask for a
+  // closer minimum in half the steps: whether the minimum still holds is a
+  // property of those numbers rather than of the ones a dozen notes get.
+  for (const [name, shape] of Object.entries(shapes)) {
+    it(
+      `holds a folder apart at the numbers a folder is settled with, in a ${name}`,
+      () => {
+        const { nodes, edges } = shape(400);
+        const run = settle(nodes, edges, 1, FOLDER_LAYOUT_OPTIONS);
+        expect(closestPair(run.placed)).toBeGreaterThanOrEqual(
+          FOLDER_LAYOUT_OPTIONS.minSeparation - 1e-6,
+        );
+        expect(run.steps).toBe(FOLDER_LAYOUT_OPTIONS.steps);
+      },
+      SETTLE_TIMEOUT_MS,
+    );
+  }
+});
+
+// A folder is one drawing that notes are written into and deleted from, and
+// the drawing is on screen while that happens: a note arriving may not be a
+// reason for the folder to rearrange itself around it.
+describe("a settle handed where the notes already were", () => {
+  const WITH_ONE_MORE: LayoutNode[] = [...NODES, { path: "k.md" }];
+
+  it("starts every note that is still there exactly where it was", () => {
+    const before = simulate(NODES, EDGES, DEFAULT_LAYOUT_OPTIONS, SEED);
+    const started = positions(
+      beginLayout(WITH_ONE_MORE, EDGES, DEFAULT_LAYOUT_OPTIONS, SEED, before),
+    );
+
+    for (const node of NODES) expect(started.get(node.path)).toEqual(before.get(node.path));
+    const fresh = started.get("k.md");
+    expect(fresh).toBeDefined();
+    expect(Number.isFinite(fresh!.x) && Number.isFinite(fresh!.y)).toBe(true);
+  });
+
+  it("settles from there into a drawing that still holds every pair apart", () => {
+    const before = simulate(NODES, EDGES, DEFAULT_LAYOUT_OPTIONS, SEED);
+    let state = beginLayout(WITH_ONE_MORE, EDGES, DEFAULT_LAYOUT_OPTIONS, SEED, before);
+    while (!state.done) state = step(state);
+
+    const placed = [...positions(state).values()];
+    expect(placed.length).toBe(WITH_ONE_MORE.length);
+    expect(closestPair(placed)).toBeGreaterThanOrEqual(DEFAULT_LAYOUT_OPTIONS.minSeparation - 1e-6);
+  });
+
+  it("leaves behind a note the folder no longer holds", () => {
+    const before = simulate(NODES, EDGES, DEFAULT_LAYOUT_OPTIONS, SEED);
+    const fewer = NODES.slice(0, NODES.length - 1);
+    const started = positions(beginLayout(fewer, EDGES, DEFAULT_LAYOUT_OPTIONS, SEED, before));
+    expect([...started.keys()]).toEqual(fewer.map((node) => node.path));
+  });
+
+  it("settles the same set the same way it did before, handed its own answer", () => {
+    const before = simulate(NODES, EDGES, DEFAULT_LAYOUT_OPTIONS, SEED);
+    const started = positions(beginLayout(NODES, EDGES, DEFAULT_LAYOUT_OPTIONS, SEED, before));
+    expect(serialise(started)).toBe(serialise(before));
   });
 });
 

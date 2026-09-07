@@ -20,7 +20,10 @@ vi.mock("../../services/events", () => ({
 const mocks = vi.hoisted(() => ({
   config: vi.fn(),
   activeBuffer: (() => null) as Accessor<BufferDocument | null>,
-  win: { editor: {}, tabs: {} } as unknown as Record<string, unknown>,
+  win: { editor: {}, tabs: {}, folderGraph: { isOpen: () => false } } as unknown as Record<
+    string,
+    unknown
+  >,
 }));
 
 vi.mock("../../components/Preview/PreviewLayout", () => ({
@@ -99,6 +102,7 @@ async function windowWithADownloadRunning() {
     editor,
     tabs: { closeTab: vi.fn() },
     downloads,
+    folderGraph: { isOpen: () => false },
   } as unknown as Record<string, unknown>;
   await downloads.start({ path: PATH, title: "away.md", provider: "iCloud Drive" });
   return { editor, downloads };

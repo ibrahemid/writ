@@ -10,6 +10,7 @@ import WordCount from "./WordCount";
 import FindOverlay from "../Find/FindOverlay";
 import SpellingPreview from "./SpellingPreview";
 import PreviewLayout from "../Preview/PreviewLayout";
+import FolderGraphView from "../Graph/FolderGraphView";
 import { useActiveBuffer } from "../../lib/use-active-buffer";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { configStore } from "../../stores/global/config";
@@ -69,6 +70,11 @@ export default function EditorArea() {
         </Show>
         <FindOverlay />
         <SpellingPreview />
+        {/* A layer over the note, mounted last so it covers it. The preview
+            under it keeps its element and is hidden with `hidden` (#127). */}
+        <Show when={win.folderGraph.isOpen()}>
+          <FolderGraphView />
+        </Show>
       </div>
       <Show when={statusBarOn()}>
         <StatusBar />

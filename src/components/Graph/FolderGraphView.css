@@ -1,0 +1,138 @@
+/* The whole folder over the note it was opened from. The ground is the note's
+   own, and the drawing runs edge to edge under the chrome: the search, the
+   count and the close sit on the drawing rather than in a bar over it, so the
+   room the notes get is the whole area. */
+
+.folder-graph {
+  position: absolute;
+  inset: 0;
+  z-index: var(--writ-z-chrome);
+  background: var(--writ-bg-canvas);
+  animation: folder-graph-in var(--writ-motion-fast);
+}
+
+/* The layer takes focus when it opens so Escape closes it; that focus is a
+   place to type from, not a control, so it is not ringed. */
+.folder-graph:focus {
+  outline: none;
+}
+
+@keyframes folder-graph-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .folder-graph {
+    animation: none;
+  }
+}
+
+.folder-graph-chrome {
+  position: absolute;
+  top: var(--writ-space-4);
+  left: var(--writ-space-4);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-2);
+  max-width: calc(100% - var(--writ-space-7));
+  /* The chrome is three small things in a corner of a drawing that is dragged
+     from anywhere: only the parts that are operated take the pointer. */
+  pointer-events: none;
+}
+
+.folder-graph-title {
+  margin: 0;
+  color: var(--writ-fg);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  letter-spacing: var(--writ-ui-tracking);
+  font-weight: 600;
+}
+
+.folder-graph-search {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(260px, 100%);
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-r-control);
+  background: var(--writ-bg-raised);
+  color: var(--writ-icon-color);
+  opacity: var(--writ-icon-opacity);
+  transition: border-color var(--writ-motion-fast);
+}
+
+.folder-graph-search:hover,
+.folder-graph-search:focus-within {
+  border-color: var(--writ-border);
+  opacity: 1;
+}
+
+.folder-graph-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--writ-fg);
+  font-family: var(--writ-font-ui);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  letter-spacing: var(--writ-ui-tracking);
+}
+
+.folder-graph-input::placeholder {
+  color: var(--writ-fg-faint);
+}
+
+.folder-graph-count {
+  margin: 0;
+  color: var(--writ-fg-muted);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  font-variant-numeric: tabular-nums;
+}
+
+.folder-graph-close {
+  position: absolute;
+  top: var(--writ-space-4);
+  right: var(--writ-space-4);
+  z-index: 1;
+}
+
+/* The drawing fills the layer. The canvas keeps its own ground, which is the
+   same ground, so there is no seam to see. */
+.folder-graph-drawing {
+  position: absolute;
+  inset: 0;
+  gap: 0;
+  padding: 0;
+}
+
+.folder-graph-drawing .graph-canvas {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  border-radius: 0;
+  cursor: grab;
+}
+
+.folder-graph-drawing .graph-canvas.is-over {
+  cursor: pointer;
+}
+
+.folder-graph-drawing .graph-canvas:active {
+  cursor: grabbing;
+}
+
+/* The name of whatever the pointer is over, along the bottom, out of the way
+   of the chrome in the opposite corner. */
+.folder-graph-drawing .graph-hovered {
+  padding: 0 var(--writ-space-4) var(--writ-space-4);
+}

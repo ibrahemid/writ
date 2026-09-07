@@ -209,9 +209,15 @@ export default function Palette(props: PaletteProps) {
     onCleanup(teardown);
   });
 
+  // The palette goes first and the row runs after it. A row that opens a layer
+  // of its own (the graph, settings, a dialog) then mounts into a page the
+  // palette has already let go of: `inert` is off the rest of the app, so the
+  // new layer can take focus, and focus has already been handed back, so the
+  // trap's restore cannot pull it off that layer a moment later. Running the
+  // row first mounted the new layer inside the palette's inert subtree.
   function handleSelect(result: PaletteResult) {
-    result.execute();
     props.onClose();
+    result.execute();
   }
 
   function scrollSelectedIntoView() {
