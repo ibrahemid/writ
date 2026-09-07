@@ -252,6 +252,10 @@ describe("the chord that shows and hides the window", () => {
       row(container).querySelector('[data-state="unusable"]'),
       "a chord the OS gave to another app is taken, not unusable",
     ).toBeNull();
+    expect(
+      row(container).textContent,
+      "the row shows the chord that was asked for, under the warning that it is taken",
+    ).toContain(chordAsShown("CmdOrCtrl+Alt+Space"));
   });
 
   // `hotkey:status` is emitted by the Rust side, not by the modal, so the chord
