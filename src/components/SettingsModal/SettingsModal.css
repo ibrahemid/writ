@@ -387,11 +387,17 @@
 }
 
 .settings-file-type {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr;
   align-items: baseline;
   gap: var(--writ-space-2);
+  max-width: 340px;
   font-size: var(--writ-ui-sm);
   color: var(--writ-fg);
+}
+
+.settings-file-type-text {
+  min-width: 0;
 }
 
 .settings-file-type-box {
@@ -407,6 +413,10 @@
 .settings-file-type-owner {
   font-size: var(--writ-ui-xs);
   color: var(--writ-fg-faint);
+}
+
+.settings-file-type-owner {
+  display: block;
 }
 
 .settings-file-types-note {

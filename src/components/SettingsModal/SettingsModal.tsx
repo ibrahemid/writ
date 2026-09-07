@@ -462,11 +462,13 @@ function DefaultAppItem(props: DefaultAppItemProps) {
         aria-busy={props.claiming}
         onChange={() => props.onClaim(props.type.id)}
       />
-      <span class="settings-file-type-name">{props.type.label}</span>
-      <span class="settings-file-type-exts">{extList()}</span>
-      <Show when={otherName()}>
-        {(name) => <span class="settings-file-type-owner">now opens in {name()}</span>}
-      </Show>
+      <span class="settings-file-type-text">
+        <span class="settings-file-type-name">{props.type.label}</span>{" "}
+        <span class="settings-file-type-exts">{extList()}</span>
+        <Show when={otherName()}>
+          {(name) => <span class="settings-file-type-owner">Now opens in {name()}</span>}
+        </Show>
+      </span>
     </label>
   );
 }
