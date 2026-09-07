@@ -183,22 +183,22 @@ fn a_hole_beside_a_missing_meta_table_still_leaves_a_database_that_opens() {
 }
 
 #[test]
-fn a_missing_meta_table_on_its_own_is_named_and_left() {
-    let (_dir, _root, db_path, _before) = indexed();
+fn a_missing_meta_table_on_its_own_is_recreated() {
+    let (_dir, root, db_path, before) = indexed();
 
     drop_tables(&db_path, &[SCHEMA_META_OBJECT]);
 
     let conn = open_database(&db_path).expect("open_database");
     assert_eq!(
         repair_notes_index(&conn).expect("repair"),
-        IndexRepairOutcome::Unrepairable {
-            missing: vec![SCHEMA_META_OBJECT.to_string()],
-        },
-        "the index is whole, and recreating the table would tell the one-time \
-         notes migration it never ran"
+        IndexRepairOutcome::Repaired,
+        "every reconcile reads the census, so the table it lives in is a hole \
+         like any other"
     );
-    run_migrations(&conn).expect("and the launch carries on");
-    assert!(!object_exists(&conn, SCHEMA_META_OBJECT));
+    assert!(object_exists(&conn, SCHEMA_META_OBJECT));
+    drop(conn);
+
+    assert_eq!(reconciled(&db_path, &root), before);
 }
 
 #[test]

@@ -21,9 +21,9 @@
 //! has to be told to read everything: clearing the derived-row census
 //! (`schema_meta::KEY_NOTES_FACTS_CENSUS`) is what tells it, through the
 //! rebuild path ADR-034 already gave it. The census lives in `schema_meta`, so
-//! a repair that finds that table gone too recreates it in the same
-//! transaction: the write that ends the repair cannot be the thing that fails
-//! it, or a database that lost both would refuse to open at all.
+//! that table is part of the set this repair recreates: without it the clear
+//! that ends the repair fails and takes the launch with it, and every later
+//! reconcile fails on the read.
 
 use crate::errors::{StorageError, StorageResult};
 use crate::schema_meta;
@@ -95,8 +95,7 @@ pub enum IndexRepairOutcome {
 /// Returns [`IndexRepairOutcome::Intact`] when there is nothing to do, which
 /// is every launch of a healthy database: the check is a handful of
 /// `sqlite_master` lookups and writes nothing. A database missing something
-/// this repair does not recreate ([`UNREPAIRABLE_OBJECTS`], or `schema_meta`
-/// with the index otherwise whole) is reported as
+/// this repair does not recreate ([`UNREPAIRABLE_OBJECTS`]) is reported as
 /// [`IndexRepairOutcome::Unrepairable`] and left as it is: the launch it is on
 /// carries on rather than failing over a database that is already broken.
 ///
@@ -106,9 +105,10 @@ pub enum IndexRepairOutcome {
 /// walk that follows writes them back. `files_fts` is created when it is
 /// missing and never dropped when it is there: it shadows `files`, whose rows
 /// this repair does not touch, and dropping it would take the folder's
-/// searchable text out for the length of a walk. `schema_meta` is recreated
-/// alongside them when it is gone, because the census the repair clears is
-/// written there.
+/// searchable text out for the length of a walk. `schema_meta` is a hole like
+/// any of them: the census the repair clears is written there, and every
+/// reconcile reads it, so a database that lost it is recreated and refilled by
+/// the walk that follows.
 ///
 /// # Errors
 ///
@@ -141,20 +141,7 @@ pub fn repair_notes_index(conn: &Connection) -> StorageResult<IndexRepairOutcome
     let missing_fts = !object_exists(conn, FTS_OBJECT)?;
     let missing_meta = !object_exists(conn, SCHEMA_META_OBJECT)?;
 
-    if missing_derived.is_empty() && !missing_fts {
-        if missing_meta {
-            // Nothing here needs writing, so nothing here fails. Recreating the
-            // table empty on its own would tell the one-time notes migration it
-            // never ran (`notes_migration::is_settled`), which is a decision
-            // about that pass rather than about the index.
-            warn!(
-                missing = SCHEMA_META_OBJECT,
-                "notes index is intact; leaving the meta table to the pass that owns it"
-            );
-            return Ok(IndexRepairOutcome::Unrepairable {
-                missing: vec![SCHEMA_META_OBJECT.to_string()],
-            });
-        }
+    if missing_derived.is_empty() && !missing_fts && !missing_meta {
         return Ok(IndexRepairOutcome::Intact);
     }
 
@@ -166,7 +153,11 @@ pub fn repair_notes_index(conn: &Connection) -> StorageResult<IndexRepairOutcome
 
     if missing_meta {
         // Before the clear at the end of this transaction, which is what would
-        // otherwise fail and roll the whole repair back on every launch.
+        // otherwise fail and roll the whole repair back on every launch. The
+        // table comes back empty, so the one-time notes migration reads its own
+        // stamp as absent and runs its idempotent pass again; that costs a fresh
+        // stamp and an empty report, where leaving the table out costs every
+        // later reconcile.
         tx.execute_batch(SCHEMA_META_DDL)
             .map_err(|e| StorageError::IndexRepair {
                 message: format!("recreating {} failed: {}", SCHEMA_META_OBJECT, e),
