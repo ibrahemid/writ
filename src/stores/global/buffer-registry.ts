@@ -3,6 +3,7 @@ import type { BufferDocument, FileOpenResult } from "../../types/buffer";
 import * as api from "../../services/tauri";
 import { cancelAutosave, flushAutosave, type SaveFailure } from "../../services/autosave";
 import { requestConfirm } from "../../components/ConfirmDialog/ConfirmDialog";
+import { formatBytes } from "../../lib/format-bytes";
 
 // What an open of a path came to. A file whose bytes a sync provider has not
 // put on this machine opens no note: it is downloaded first, and opened again
@@ -179,16 +180,6 @@ function createBufferRegistry() {
   async function renameBuffer(id: string, title: string): Promise<void> {
     const doc = await api.renameNote(id, title);
     setBuffers((prev) => prev.map((b) => (b.id === doc.id ? doc : b)));
-  }
-
-  function formatBytes(n: number): string {
-    const GB = 1000 * 1000 * 1000;
-    const MB = 1000 * 1000;
-    const KB = 1000;
-    if (n >= GB) return `${(n / GB).toFixed(1)} GB`;
-    if (n >= MB) return `${(n / MB).toFixed(1)} MB`;
-    if (n >= KB) return `${Math.round(n / KB)} KB`;
-    return `${n} bytes`;
   }
 
   function registerOpenResult(result: FileOpenResult): OpenOutcome {
