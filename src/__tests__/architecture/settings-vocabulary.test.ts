@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import { execFileSync } from "node:child_process";
 
 import allowlist from "./banned-words.allowlist.json";
 import {
@@ -49,15 +48,11 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string]> = [
   ["storage.location", "advanced", "Writ's data folder"],
 ];
 
-/** Records at `origin/main`, the number the allowlist may only fall below. */
-function allowlistCountOnMain(): number {
-  const json = execFileSync(
-    "git",
-    ["show", "origin/main:src/__tests__/architecture/banned-words.allowlist.json"],
-    { encoding: "utf8" },
-  );
-  return (JSON.parse(json) as unknown[]).length;
-}
+/**
+ * Records the allowlist held at 8077719, the number it may only fall below. A
+ * literal, not a `git show`: CI checks out a shallow tree with no `origin/main`.
+ */
+const ALLOWLIST_RECORDS_BEFORE = 35;
 
 describe("settings vocabulary", () => {
   it("settings_rows_carry_the_pinned_label_and_section", () => {
@@ -113,7 +108,7 @@ describe("settings vocabulary", () => {
     expect(dataFolder.title).not.toMatch(/\.db/);
   });
 
-  it("banned_words_allowlist_is_shorter_than_on_main", () => {
-    expect(allowlist.length).toBeLessThan(allowlistCountOnMain());
+  it("banned_words_allowlist_is_shorter_than_before", () => {
+    expect(allowlist.length).toBeLessThan(ALLOWLIST_RECORDS_BEFORE);
   });
 });

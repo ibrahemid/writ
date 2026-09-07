@@ -10,6 +10,16 @@ const TEST_CLAIMABLE_TYPE = {
   utis: ["net.daringfireball.markdown"],
 };
 
+// The nav drops a section no row on this platform can fill, and Files holds
+// only the file-types row, which macOS alone can claim. jsdom reports no
+// platform, so name one before the module graph reads it.
+vi.hoisted(() => {
+  Object.defineProperty(globalThis.navigator, "platform", {
+    value: "MacIntel",
+    configurable: true,
+  });
+});
+
 const mocks = vi.hoisted(() => ({
   accentApplies: vi.fn(() => true),
   activePresetId: vi.fn(() => "warp-dark"),

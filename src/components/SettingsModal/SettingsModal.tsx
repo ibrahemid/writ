@@ -64,7 +64,7 @@ import {
   rankSettings,
   type SettingsSection,
 } from "../../settings";
-import { isSettingAvailable } from "../../settings/availability";
+import { isSectionAvailable, isSettingAvailable } from "../../settings/availability";
 import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
 import Tooltip from "../Tooltip/Tooltip";
@@ -87,7 +87,10 @@ const [highlightId, setHighlightId] = createSignal<string | null>(null);
 
 export function openSettings(section?: SettingsSection, settingId?: string) {
   setQuery("");
-  setActiveSection(section ?? DEFAULT_SECTION);
+  // A section the platform cannot fill has no nav item, so landing on one would
+  // leave no way back out of it.
+  const target = section && isSectionAvailable(section) ? section : DEFAULT_SECTION;
+  setActiveSection(target);
   setHighlightId(settingId ?? null);
   setIsOpen(true);
 }
@@ -118,10 +121,9 @@ function useSearch(): SearchContextValue {
   return ctx;
 }
 
-const NAV_ITEMS: { id: SettingsSection; label: string }[] = SECTION_ORDER.map((id) => ({
-  id,
-  label: SECTION_LABELS[id],
-}));
+const NAV_ITEMS: { id: SettingsSection; label: string }[] = SECTION_ORDER.filter(
+  isSectionAvailable,
+).map((id) => ({ id, label: SECTION_LABELS[id] }));
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
