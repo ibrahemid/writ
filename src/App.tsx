@@ -39,6 +39,7 @@ import { workspaceStore } from "./stores/global/workspace";
 import { notesStore } from "./stores/global/notes";
 import { inboxStore } from "./stores/global/inbox";
 import { updateStore } from "./stores/global/update";
+import { hotkeyStore } from "./stores/global/hotkey";
 import { configStore } from "./stores/global/config";
 import { themeStore } from "./stores/global/theme";
 import { osWindowStore } from "./stores/global/os-window";
@@ -833,6 +834,12 @@ function AppShell() {
 
     const unlistenUpdate = await updateStore.subscribe();
     unlisteners.push(unlistenUpdate);
+
+    // The window's own chord: read what the OS said at startup, then follow
+    // every rebind, so the shortcut editor can show a chord another app holds
+    // rather than a key that quietly does nothing.
+    unlisteners.push(await hotkeyStore.subscribe());
+    void hotkeyStore.load();
 
     const unlistenAi = await onEvent("ai:rewrite", (payload) => {
       aiRewriteStore.handleStreamEvent(payload);

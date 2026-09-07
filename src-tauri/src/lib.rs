@@ -701,6 +701,8 @@ pub fn run() {
             commands::link::classify_external_url,
             commands::storage::get_storage_info,
             commands::storage::reveal_storage_path,
+            hotkey::global_hotkey_status,
+            hotkey::set_global_hotkey,
             commands::notices::open_third_party_notices,
             commands::ai::ai_rewrite,
             commands::ai::ai_cancel,

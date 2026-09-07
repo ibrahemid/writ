@@ -8,6 +8,7 @@ import {
 import { ShortcutRecorder, findConflicts } from "./recorder";
 import { keybindingSegments } from "../../lib/keybinding-format";
 import { configStore } from "../../stores/global/config";
+import { hotkeyStore } from "../../stores/global/hotkey";
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
 import { useWindow } from "../WindowProvider/WindowProvider";
@@ -38,10 +39,18 @@ interface DraftEntry {
   binding: string;
 }
 
+/**
+ * The row for the chord that shows and hides the window. Not a command: it is
+ * registered with the OS rather than with Writ's own key map, which is why it
+ * is the one row that can come back "taken".
+ */
+const GLOBAL_TOGGLE_ROW = "hotkey.toggle";
+
 export default function ShortcutEditor() {
   const win = useWindow();
   const recorder = new ShortcutRecorder();
   const [drafts, setDrafts] = createSignal<Record<string, DraftEntry>>({});
+  const [globalDraft, setGlobalDraft] = createSignal("");
   const [listeningId, setListeningId] = createSignal<string | null>(null);
   let modalRef: HTMLDivElement | undefined;
 
@@ -68,6 +77,7 @@ export default function ShortcutEditor() {
       initial[cmd.id] = { binding };
     }
     setDrafts(initial);
+    setGlobalDraft(hotkeyStore.chord() || configStore.config().hotkey.toggle);
     setListeningId(null);
     recorder.reset();
   });
@@ -116,7 +126,8 @@ export default function ShortcutEditor() {
         altKey: event.altKey,
       });
       if (outcome.kind === "captured") {
-        setDraft(id, outcome.binding);
+        if (id === GLOBAL_TOGGLE_ROW) setGlobalDraft(outcome.binding);
+        else setDraft(id, outcome.binding);
         stopRecording();
       } else if (outcome.kind === "cancelled") {
         stopRecording();
@@ -145,6 +156,7 @@ export default function ShortcutEditor() {
   }
 
   function handleResetAll() {
+    setGlobalDraft(configStore.config().hotkey.toggle);
     const next: Record<string, DraftEntry> = {};
     for (const cmd of commands()) {
       next[cmd.id] = { binding: cmd.keybinding ?? "" };
@@ -154,6 +166,8 @@ export default function ShortcutEditor() {
 
   async function handleSave() {
     try {
+      const nextToggle = globalDraft().trim();
+      const toggleChanged = nextToggle !== "" && nextToggle !== configStore.config().hotkey.toggle;
       const nextKeybindings: Record<string, string> = {};
       for (const cmd of commands()) {
         const draft = drafts()[cmd.id];
@@ -165,7 +179,12 @@ export default function ShortcutEditor() {
       await configStore.save({
         ...configStore.config(),
         keybindings: nextKeybindings,
+        hotkey: { ...configStore.config().hotkey, toggle: nextToggle || configStore.config().hotkey.toggle },
       });
+      // The OS holds this one, so the config write is half the change: the
+      // chord has to be asked for before it works, and the answer is what the
+      // row shows.
+      if (toggleChanged) await hotkeyStore.rebind(nextToggle);
       setKeybindingOverrides(nextKeybindings);
       rebuildKeyMap();
       openSnapshot = { ...nextKeybindings };
@@ -173,6 +192,63 @@ export default function ShortcutEditor() {
     } catch {
       showToast("Failed to save shortcuts", "error");
     }
+  }
+
+  // The one row the OS answers for. It carries the same recorder as the rest,
+  // and one thing they cannot show: a chord another app is already holding.
+  function renderGlobalRow() {
+    const isListening = () => listeningId() === GLOBAL_TOGGLE_ROW;
+    const segments = () => keybindingSegments(globalDraft());
+
+    return (
+      <div class="shortcut-row" data-shortcut="global-toggle">
+        <div class="shortcut-row-info">
+          <div class="shortcut-row-label">Show and hide Writ</div>
+          <div class="shortcut-row-desc">Works while another app is in front</div>
+          <Show when={hotkeyStore.isTaken()}>
+            <div class="shortcut-row-conflict" data-state="taken">
+              Another app is using this shortcut. Record a different one.
+            </div>
+          </Show>
+        </div>
+        <div class="shortcut-row-chip" aria-live="polite">
+          <Show
+            when={isListening()}
+            fallback={
+              <Show
+                when={segments().length > 0}
+                fallback={<span class="shortcut-row-empty">unset</span>}
+              >
+                <span class="kbd-chord">
+                  <For each={segments()}>{(seg) => <span class="kbd-key">{seg}</span>}</For>
+                </span>
+              </Show>
+            }
+          >
+            <span class="shortcut-row-listening">Press a key…</span>
+          </Show>
+        </div>
+        <div class="shortcut-row-controls">
+          <Button
+            variant="ghost"
+            data-action="record-global-shortcut"
+            onClick={() =>
+              isListening() ? stopRecording() : startRecording(GLOBAL_TOGGLE_ROW)
+            }
+          >
+            {isListening() ? "Cancel" : "Record"}
+          </Button>
+          <Button
+            variant="ghost"
+            data-action="reset-global-shortcut"
+            onClick={() => setGlobalDraft(configStore.config().hotkey.toggle)}
+            disabled={globalDraft() === configStore.config().hotkey.toggle}
+          >
+            Reset
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   function renderRow(cmd: Command) {
@@ -274,6 +350,8 @@ export default function ShortcutEditor() {
           </div>
 
           <div class="shortcut-editor-body">
+            <div class="shortcut-group-label">Window</div>
+            {renderGlobalRow()}
             <Show when={appCommands().length > 0}>
               <div class="shortcut-group-label">Commands</div>
               <For each={appCommands()}>{renderRow}</For>
