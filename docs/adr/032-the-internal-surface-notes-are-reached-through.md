@@ -178,38 +178,54 @@ caller yet.
 
 ADR-029 also asks what happens to the in-process transform registry. Nothing happens to it. It
 stays what ADR-006 and ADR-012 describe, in `crates/writ-plugin/src/transform/`, with the host
-surface beside it in the same crate as a separate module. The two do not overlap, because a
+surface re-exported beside it as a separate module (section 8). The two do not overlap, because a
 transform sees a string and a host call sees a note.
 
 ### 8. Where the code lives
 
-CLAUDE.md's crate boundary holds unchanged: `writ-plugin` depends on `writ-core` and nothing else.
-So `pub trait NoteHost`, `Capability`, `PermissionSet` and `HostError` are declared in
-`crates/writ-plugin/src/host/`, and the one implementation, `NoteHostImpl`, lives in
-`writ-storage`, which already depends on `writ-core` and already owns `NotesIndexStore` and
-`writ_storage::guarded`. The dependency runs from the implementation to the trait, so no boundary
-line moves and `writ-plugin` gains no dependency.
+`pub trait NoteHost`, `Capability`, `PermissionSet` and `HostError` are declared in
+`crates/writ-core/src/notes/host/`, beside `writ_core::notes::guard` and the `WriteOrigin` U3
+puts in `crates/writ-core/src/notes/write_origin.rs`, which section 4's write methods carry.
+`writ-plugin` re-exports them as `writ_plugin::host`, so a consumer reaching for the extension
+surface still finds it in one crate. The one implementation, `NoteHostImpl`, lives in
+`writ-storage`, which already owns `NotesIndexStore` and `writ_storage::guarded`. `src-tauri`
+already depends on `writ-core` and `writ-storage` (`src-tauri/Cargo.toml:20`, `:23`) and
+`writ-mcp` takes both when it is created (U4), so each constructs the implementation and holds it
+as a `NoteHost`.
 
-That constrains the signatures, and it is the part U9 has to get right. A trait in `writ-plugin`
+CLAUDE.md's boundaries hold unamended, and this split is what holds them. `writ-storage` keeps
+`writ-core` as its only workspace dependency, because the trait it implements is a `writ-core`
+type. `writ-plugin` keeps `writ-core` as its only workspace dependency, alongside the `serde`,
+`serde_json` and `thiserror` it already carries. Neither crate points at the other. Declaring the
+trait in `writ-plugin` instead would force a `writ-storage` edge to it, which CLAUDE.md's
+`writ-storage` line forbids, and that is the reason the types sit where they do.
+
+That constrains the signatures, and it is the part U9 has to get right. A trait in `writ-core`
 cannot name a `writ-storage` type, and the index read model is `writ-storage`'s: `LinkRow`
 (`crates/writ-storage/src/notes_index.rs:126`), `BacklinkRow` (`:180`), `NoteFactsRow` (`:211`),
 and `StorageResult` itself. So the trait's return types are declared beside the trait,
 `NoteHostImpl` maps the rows into them, and every method returns `Result<_, HostError>`.
-`writ_core::search::SearchHit` (`crates/writ-core/src/search.rs:33`) is the one type needing no
-mapping, because it is already in `writ-core`.
+
+`search_notes` returns a note-shaped hit of its own rather than `writ_core::search::SearchHit`.
+That type is the editor's, and it leads with `buffer_id` and `title`
+(`crates/writ-core/src/search.rs:35-37`), which names a copy of the text rather than the file
+ADR-028 makes the only one. A consumer of this surface holds no buffer and opens none, so its hit
+is a path, a line and an excerpt read from the file. Handing out a buffer id would be the mistake
+section 1 records against `PluginApi`, made a second time.
 
 ### 9. When it lands
 
 U9, once U4, U6 and U7 are in the tree and every method in section 3 has a working caller. The
 trait is lifted from call sites that already run rather than written ahead of them and fitted
 afterwards, which is the same rule ADR-006 applied to its own recording. U9 amends this record
-with a shipped note naming the trait, the implementation and the two consumers, in ADR-006's
-style.
+with a shipped note in ADR-006's style, naming the trait in `writ-core`, the re-export in
+`writ-plugin`, `NoteHostImpl` in `writ-storage`, and the two consumers. No `Cargo.toml` in the
+workspace gains a path dependency in that unit, and CLAUDE.md is not edited.
 
 U9 also removes what the extraction replaces. `PluginApi` (`crates/writ-plugin/src/api.rs:9`) has
 no implementation and its methods are buffer-shaped rather than note-shaped, so it goes, and
-`PluginManifest` with it unless something reads it by then. The crate ends U9 with one host
-surface, not two half-surfaces.
+`PluginManifest` with it unless something reads it by then. `writ-plugin` ends U9 with one host
+surface, re-exported, rather than two half-surfaces of its own.
 
 ## Consequences
 
