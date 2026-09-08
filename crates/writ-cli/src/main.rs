@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::process;
 
 use clap::Parser;
+use writ_cli::mcp;
 use writ_cli::verbs;
 use writ_cli::{
     is_empty_payload, no_path_action, piped_note_path, read_notes_root_from_config,
@@ -43,6 +44,9 @@ struct Cli {
 
 fn main() {
     let argv: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if let Some(parsed) = mcp::parse(&argv) {
+        run_mcp(parsed);
+    }
     if let Some(parsed) = verbs::parse(&argv) {
         run_verb(parsed);
     }
@@ -159,6 +163,59 @@ fn writ_paths() -> (PathBuf, PathBuf) {
         Err(error) => {
             eprintln!("writ: {error}");
             process::exit(1);
+        }
+    }
+}
+
+/// Serves the MCP server on stdio and exits. Never returns: a client owns this
+/// process for as long as it holds the pipe.
+///
+/// The index is opened read-only and is never created here, so a folder the app
+/// has not indexed yet serves its notes and refuses the index-derived tools
+/// rather than writing a database a second process would then be sharing.
+fn run_mcp(parsed: Result<mcp::Command, mcp::UsageError>) -> ! {
+    let command = match parsed {
+        Ok(command) => command,
+        Err(error) => {
+            eprintln!("writ: {error}");
+            eprintln!("{}", mcp::help());
+            process::exit(verbs::EXIT_USAGE);
+        }
+    };
+    if command == mcp::Command::Help {
+        println!("{}", mcp::help());
+        process::exit(verbs::EXIT_OK);
+    }
+
+    let (writ_dir, notes_dir) = writ_paths();
+    let gate = writ_mcp::consent::EnabledReads::new(mcp::server_is_enabled(&writ_dir));
+    let host = match writ_mcp::tools::ToolHost::open(
+        &notes_dir,
+        &writ_dir.join("writ.db"),
+        Box::new(gate),
+    ) {
+        Ok(host) => host,
+        Err(error) => {
+            eprintln!("writ: {error}");
+            process::exit(verbs::EXIT_FAILED);
+        }
+    };
+
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("writ: the server could not start: {error}");
+            process::exit(verbs::EXIT_FAILED);
+        }
+    };
+    match runtime.block_on(writ_mcp::server::serve_stdio(host)) {
+        Ok(()) => process::exit(verbs::EXIT_OK),
+        Err(error) => {
+            eprintln!("writ: {error}");
+            process::exit(verbs::EXIT_FAILED);
         }
     }
 }

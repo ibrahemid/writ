@@ -10068,8 +10068,11 @@ dependencies = [
  "dirs",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
  "toml 1.1.0+spec-1.1.0",
  "writ-core",
+ "writ-mcp",
  "writ-storage",
 ]
 

@@ -12,6 +12,8 @@
 //! become as a filename, the sanitiser here is the conservative subset the CLI
 //! has always applied, and the app re-sanitises anything it opens.
 
+/// The MCP server, reached as `writ mcp`.
+pub mod mcp;
 /// The note verbs: `links`, `backlinks`, `properties`, `tags`, `new`, `rename`
 /// and `trash`.
 pub mod verbs;
