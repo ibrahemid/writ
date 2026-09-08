@@ -129,6 +129,55 @@ describe("ThemeEditor", () => {
     expect(select.selectedOptions[0].textContent).toBe("Writ Dark");
   });
 
+  it("the select shows the preset just chosen, under a dark system", () => {
+    // The bug: with polarity on system and the system dark, choosing Writ
+    // Light swapped straight back to writ-dark under the light label.
+    const { container } = render(() => <ThemeEditor />);
+    themeStore.loadConfig(
+      { preset: "warp-dark", overrides: {} },
+      { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
+    );
+    themeStore.setSystemPolarity("dark");
+    openThemeEditor();
+    const select = container.querySelector<HTMLSelectElement>(".theme-editor-preset")!;
+    fireEvent.change(select, { target: { value: "writ-light" } });
+    expect(select.value).toBe("writ-light");
+    expect(themeStore.polarity()).toBe("light");
+    expect(themeStore.appearance().polarity).toBe("light");
+  });
+
+  it("saving writes the pinned polarity with the theme", async () => {
+    const { container } = render(() => <ThemeEditor />);
+    themeStore.loadConfig(
+      { preset: "writ-light", overrides: {} },
+      { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
+    );
+    openThemeEditor();
+    fireEvent.change(container.querySelector<HTMLSelectElement>(".theme-editor-preset")!, {
+      target: { value: "writ-dark" },
+    });
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='save-theme']")!);
+    await waitFor(() => expect(h.save).toHaveBeenCalledTimes(1));
+    const saved = h.save.mock.calls[0][0] as WritConfig;
+    expect(saved.theme.preset).toBe("writ-dark");
+    expect(saved.appearance.polarity).toBe("dark");
+  });
+
+  it("closing without saving puts the polarity back", () => {
+    const { container } = render(() => <ThemeEditor />);
+    themeStore.loadConfig(
+      { preset: "writ-light", overrides: {} },
+      { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
+    );
+    openThemeEditor();
+    fireEvent.change(container.querySelector<HTMLSelectElement>(".theme-editor-preset")!, {
+      target: { value: "writ-dark" },
+    });
+    closeThemeEditor();
+    expect(themeStore.appearance().polarity).toBe("system");
+    expect(themeStore.presetId()).toBe("writ-light");
+  });
+
   it("says the accent setting drives the accent tokens", () => {
     const { container } = render(() => <ThemeEditor />);
     openThemeEditor();

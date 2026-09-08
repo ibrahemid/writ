@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
 vi.mock("../../stores/global/theme", () => ({
   themeStore: {
     toConfig: () => ({}),
+    appearance: () => ({ polarity: "light", accent: "pine", prose_face: "system", interface_text_size: null }),
     loadConfig: vi.fn(),
     resolvedTokens: () => ({}),
     setOverride: vi.fn(),

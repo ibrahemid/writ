@@ -11,6 +11,7 @@ import {
   tokenKey,
 } from "../../types/theme";
 import type { TokenGroup, Theme, ThemeConfig } from "../../types/theme";
+import type { AppearanceConfig } from "../../types/config";
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
 import { showToast } from "../Notifications/Toast";
@@ -18,16 +19,22 @@ import "./ThemeEditor.css";
 
 // Singleton state — Writ is single-window
 const [isOpen, setIsOpen] = createSignal(false);
-let openSnapshot: ThemeConfig | null = null;
+// The appearance rides along: picking a preset pins its polarity, so closing
+// without saving has to put the polarity back as well as the preset.
+let openSnapshot: { theme: ThemeConfig; appearance: AppearanceConfig } | null = null;
+
+function snapshot(): { theme: ThemeConfig; appearance: AppearanceConfig } {
+  return { theme: themeStore.toConfig(), appearance: themeStore.appearance() };
+}
 
 export function openThemeEditor() {
-  openSnapshot = themeStore.toConfig();
+  openSnapshot = snapshot();
   setIsOpen(true);
 }
 
 export function closeThemeEditor() {
   if (openSnapshot) {
-    themeStore.loadConfig(openSnapshot);
+    themeStore.loadConfig(openSnapshot.theme, openSnapshot.appearance);
   }
   openSnapshot = null;
   setIsOpen(false);
@@ -62,8 +69,9 @@ export default function ThemeEditor() {
       await configStore.save({
         ...configStore.config(),
         theme: themeStore.toConfig(),
+        appearance: themeStore.appearance(),
       });
-      openSnapshot = themeStore.toConfig();
+      openSnapshot = snapshot();
       showToast("Theme saved", "success");
     } catch {
       showToast("Failed to save theme", "error");
