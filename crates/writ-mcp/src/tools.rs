@@ -264,9 +264,10 @@ impl ToolHost {
 
     /// Every note in the folder, path-ordered.
     ///
-    /// `prefix` is matched against each note's path relative to the folder, so
-    /// `Projects` lists that folder and nothing else. Answers from the folder,
-    /// not the index: the file is the only copy (ADR-028 section 1).
+    /// `prefix` is matched against the path relative to the folder and against
+    /// the path this method hands back, so `Projects` and the folder's own
+    /// spelling of it both list that folder and nothing else. Answers from the
+    /// folder, not the index: the file is the only copy (ADR-028 section 1).
     pub fn list_notes(
         &self,
         client: &ClientId,
@@ -294,12 +295,12 @@ impl ToolHost {
             let Some(relative) = relative_slug(&self.notes_root, path) else {
                 continue;
             };
+            let key = notes_index::index_key(path);
             if let Some(prefix) = prefix {
-                if !relative.starts_with(prefix) {
+                if !relative.starts_with(prefix) && !key.starts_with(prefix) {
                     continue;
                 }
             }
-            let key = notes_index::index_key(path);
             notes.push(NoteSummary {
                 name: writ_core::notes::note_display_name(&key),
                 path: key,
@@ -646,6 +647,13 @@ mod tests {
         assert_eq!(under.len(), 2);
         assert!(under.iter().all(|note| note.path.contains("Projects")));
 
+        let listed_prefix = under[0].path.clone();
+        let by_listed_path = host
+            .list_notes(&client(), Some(&listed_prefix), 100)
+            .expect("list");
+        assert_eq!(by_listed_path.len(), 1);
+        assert_eq!(by_listed_path[0].path, listed_prefix);
+
         let capped = host.list_notes(&client(), None, 1).expect("list");
         assert_eq!(capped.len(), 1);
     }
@@ -773,7 +781,8 @@ mod tests {
         let fixture = fixture();
         let one = write_note(&fixture, "Projects/Launch.md", "# one");
         write_note(&fixture, "Archive/Launch.md", "# another");
-        let linking = write_note(&fixture, "Plan.md", "see [[Launch]]\n");
+        write_note(&fixture, "Tessera.md", "# the other one");
+        let linking = write_note(&fixture, "Plan.md", "see [[Launch]] and [[Tessera]]\n");
         build_index(&fixture);
         let host = host(&fixture);
 
@@ -786,10 +795,25 @@ mod tests {
             .candidates
             .contains(&key(&fixture.notes.join("Archive/Launch.md"))));
 
+        // The unambiguous link in the same note resolves, so the ambiguous one
+        // carrying no path is the ambiguity and not an index that resolved
+        // nothing at all.
         let links = host
             .note_links(&client(), linking.to_str().expect("utf-8"))
             .expect("links");
-        assert_eq!(links[0].resolved_path, None);
+        let ambiguous = links
+            .iter()
+            .find(|link| link.target == "Launch")
+            .expect("the ambiguous link");
+        let resolved = links
+            .iter()
+            .find(|link| link.target == "Tessera")
+            .expect("the resolved link");
+        assert_eq!(ambiguous.resolved_path, None);
+        assert_eq!(
+            resolved.resolved_path,
+            Some(key(&fixture.notes.join("Tessera.md")))
+        );
     }
 
     #[test]

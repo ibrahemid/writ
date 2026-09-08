@@ -28,7 +28,8 @@ const INSTRUCTIONS: &str = "Reads the notes in the user's Writ folder. \
 /// Arguments to `list_notes`.
 #[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
 pub struct ListNotesArgs {
-    /// Only notes whose path inside the folder starts with this.
+    /// Only notes whose path starts with this, either the whole path
+    /// list_notes returns or the part of it inside the folder.
     pub prefix: Option<String>,
     /// Most notes to return. Up to 500.
     pub limit: Option<usize>,
