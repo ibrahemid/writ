@@ -65,7 +65,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "ai.base_url", section: "ai", title: "Base URL", keywords: ["ai", "base url", "endpoint", "host", "server"] },
   { id: "ai.model", section: "ai", title: "Model", keywords: ["ai", "model", "id"] },
   { id: "ai.api_key", section: "ai", title: "API key", keywords: ["ai", "api key", "token", "secret", "credential"] },
-  { id: "mcp.enabled", section: "programs", title: "Let other programs read and change your notes", keywords: ["mcp", "programs", "clients", "connect", "claude", "editor", "assistant", "tools", "server", "enable"] },
+  { id: "mcp.enabled", section: "programs", title: "Let other programs read and write your notes", keywords: ["mcp", "programs", "clients", "connect", "claude", "editor", "assistant", "tools", "server", "enable"] },
   { id: "mcp.command", section: "programs", title: "Command to give a program", keywords: ["mcp", "command", "copy", "paste", "configure", "setup", "stdio"] },
   { id: "mcp.clients", section: "programs", title: "Programs you approved", keywords: ["mcp", "programs", "approved", "clients", "permission", "read", "write", "revoke", "forget"] },
   { id: "mcp.activity", section: "programs", title: "Recent activity", keywords: ["activity", "log", "record", "calls", "what happened", "audit"] },

@@ -32,7 +32,7 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["ai.base_url", "ai", "Base URL", ["ai", "base url", "endpoint", "host", "server"]],
   ["ai.model", "ai", "Model", ["ai", "model", "id"]],
   ["ai.api_key", "ai", "API key", ["ai", "api key", "token", "secret", "credential"]],
-  ["mcp.enabled", "programs", "Let other programs read and change your notes", ["mcp", "programs", "clients", "connect", "claude", "editor", "assistant", "tools", "server", "enable"]],
+  ["mcp.enabled", "programs", "Let other programs read and write your notes", ["mcp", "programs", "clients", "connect", "claude", "editor", "assistant", "tools", "server", "enable"]],
   ["mcp.command", "programs", "Command to give a program", ["mcp", "command", "copy", "paste", "configure", "setup", "stdio"]],
   ["mcp.clients", "programs", "Programs you approved", ["mcp", "programs", "approved", "clients", "permission", "read", "write", "revoke", "forget"]],
   ["mcp.activity", "programs", "Recent activity", ["activity", "log", "record", "calls", "what happened", "audit"]],

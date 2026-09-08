@@ -1539,7 +1539,7 @@ function ProgramsSection() {
     try {
       await activityStore.setPermission(name, read, write);
     } catch {
-      showToast("The change could not be saved", "error");
+      showToast("Could not save the change", "error");
     }
   }
 
@@ -1547,7 +1547,7 @@ function ProgramsSection() {
     try {
       await activityStore.forget(name);
     } catch {
-      showToast("The program could not be forgotten", "error");
+      showToast("Could not forget the program", "error");
     }
   }
 
@@ -1555,10 +1555,10 @@ function ProgramsSection() {
     <div data-section="programs">
       <SectionLabel section="programs" />
 
-      <SettingsRow id="mcp.enabled" label="Let other programs read and change your notes">
+      <SettingsRow id="mcp.enabled" label="Let other programs read and write your notes">
         <ToggleSwitch
           setting="mcp_enabled"
-          label="Let other programs read and change your notes"
+          label="Let other programs read and write your notes"
           checked={mcp().enabled}
           onChange={onEnableToggle}
         />
@@ -1603,7 +1603,7 @@ function ProgramsSection() {
                       Write
                       <ToggleSwitch
                         setting={`mcp_write_${client.name}`}
-                        label={`Let ${client.name} change your notes`}
+                        label={`Let ${client.name} write your notes`}
                         checked={client.write}
                         onChange={() =>
                           void onSetPermission(client.name, client.read, !client.write)
