@@ -50,7 +50,7 @@ pub fn help() -> String {
         "The client launches this command; it opens no port.",
         "",
         "Turn it on with `enabled = true` under [mcp] in config.toml.",
-        "Until then every tool call is refused.",
+        "Until then no tool call is answered.",
         "",
         "Environment:",
         "  WRIT_NOTES_DIR  The notes folder to read, overriding the setting.",
