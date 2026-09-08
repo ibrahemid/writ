@@ -484,10 +484,22 @@ impl ToolHost {
     }
 
     /// The file a path argument names, refusing anything the folder does not
-    /// hold. Resolution happens before the file is opened, so a symlink out of
-    /// the folder is refused rather than followed (ADR-031 rule 3.7).
+    /// hold.
+    ///
+    /// A path that is not absolute is read from the notes folder, which is the
+    /// spelling `writ read` already takes and the one a client writes after
+    /// seeing a name. Joining happens before resolution, so `../` in a relative
+    /// argument is walked and refused like any other way out. Resolution
+    /// happens before the file is opened, so a symlink out of the folder is
+    /// refused rather than followed (ADR-031 rule 3.7).
     fn note_file(&self, path: &str) -> Result<PathBuf, ToolError> {
-        let file = resolve_inside(&self.notes_root, Path::new(path)).ok_or_else(|| {
+        let given = Path::new(path);
+        let candidate = if given.is_absolute() {
+            given.to_path_buf()
+        } else {
+            self.notes_root.join(given)
+        };
+        let file = resolve_inside(&self.notes_root, &candidate).ok_or_else(|| {
             ToolError::OutsideNotesFolder {
                 path: path.to_string(),
             }
@@ -916,15 +928,47 @@ mod tests {
     }
 
     #[test]
-    fn a_relative_path_is_refused() {
+    fn a_relative_path_is_read_from_the_notes_folder() {
         let fixture = fixture();
         write_note(&fixture, "Launch.md", "the text");
+        write_note(&fixture, "Ideas/Later.md", "the other text");
+
+        let host = host(&fixture);
+        assert_eq!(
+            host.read_note(&client(), "Launch.md").expect("read").text,
+            "the text"
+        );
+        assert_eq!(
+            host.read_note(&client(), "Ideas/Later.md")
+                .expect("read")
+                .text,
+            "the other text"
+        );
+    }
+
+    #[test]
+    fn a_relative_path_reaching_out_of_the_folder_is_refused() {
+        let fixture = fixture();
+        let outside = fixture.notes.parent().expect("parent").join("secrets.md");
+        std::fs::write(&outside, "somebody else's").expect("seed");
+
+        let refused = host(&fixture)
+            .read_note(&client(), "../secrets.md")
+            .expect_err("refused");
+
+        assert!(matches!(refused, ToolError::OutsideNotesFolder { .. }));
+        assert!(!refused.to_string().contains("somebody else's"));
+    }
+
+    #[test]
+    fn a_relative_path_the_folder_does_not_hold_is_reported_as_missing() {
+        let fixture = fixture();
 
         assert!(matches!(
             host(&fixture)
-                .read_note(&client(), "Launch.md")
+                .read_note(&client(), "Never-Written.md")
                 .expect_err("refused"),
-            ToolError::OutsideNotesFolder { .. }
+            ToolError::NotFound { .. }
         ));
     }
 

@@ -22,8 +22,8 @@ use crate::tools::{ToolError, ToolHost, MAX_RESULTS};
 const DEFAULT_LIMIT: usize = 100;
 
 /// What the server tells a client about itself.
-const INSTRUCTIONS: &str = "Reads the notes in the user's Writ folder. \
-     Paths are the ones list_notes returns. No tool here changes a note.";
+const INSTRUCTIONS: &str = "Reads the notes in the user's Writ folder. A path is one \
+     list_notes returns, or a path inside the folder. No tool here changes a note.";
 
 /// Arguments to `list_notes`.
 #[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
@@ -47,7 +47,8 @@ pub struct SearchNotesArgs {
 /// Arguments to every tool that names one note.
 #[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
 pub struct NotePathArgs {
-    /// The note's path, as list_notes returns it.
+    /// The note's path, as list_notes returns it, or a path inside the
+    /// notes folder such as Ideas/Launch.md.
     pub path: String,
 }
 
