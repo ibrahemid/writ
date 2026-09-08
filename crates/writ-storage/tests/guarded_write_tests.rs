@@ -17,8 +17,8 @@ use writ_core::notes::guard::{DiskState, SaveDecision, SF_DATALESS};
 use writ_core::notes::WriteOrigin;
 use writ_storage::errors::StorageError;
 use writ_storage::guarded::{
-    create_note_guarded, guard_rename, write_note_guarded, ConflictPolicy, CreateNote, DiskRead,
-    GuardedWrite, WriteCapture,
+    create_note_guarded, guard_rename, history_hook, write_note_guarded, ConflictPolicy,
+    CreateNote, DiskRead, GuardedWrite, WriteCapture,
 };
 
 /// What the file holds right now, as the adapter records it after a read.
@@ -58,6 +58,7 @@ fn saving<'a>(path: &'a Path, bytes: &'a [u8], last_known: Option<DiskState>) ->
 /// One write, as the version store saw it.
 struct Captured {
     target: PathBuf,
+    origin: WriteOrigin,
     before: Option<Vec<u8>>,
     after: DiskState,
 }
@@ -73,6 +74,7 @@ impl Captures {
         move |capture: WriteCapture<'_>| {
             self.seen.borrow_mut().push(Captured {
                 target: capture.target.to_path_buf(),
+                origin: capture.origin.clone(),
                 before: capture.before.map(<[u8]>::to_vec),
                 after: *capture.after,
             });
@@ -293,6 +295,7 @@ fn a_new_note_is_minted_under_the_origin_that_asked_for_it() {
     let seen = captures.seen.borrow();
     let captured = seen.first().expect("the write was captured");
     assert_eq!(captured.target, path);
+    assert_eq!(captured.origin, WriteOrigin::Cli);
     assert_eq!(
         captured.before, None,
         "a note that did not exist had nothing to capture"
@@ -314,6 +317,7 @@ fn a_write_that_landed_is_captured_once_with_what_the_file_held_before_it() {
     let seen = captures.seen.borrow();
     let captured = &seen[0];
     assert_eq!(captured.target, path);
+    assert_eq!(captured.origin, WriteOrigin::Editor);
     assert_eq!(
         captured.before.as_deref(),
         Some(b"what was there\n".as_slice())
@@ -341,6 +345,21 @@ fn a_write_that_never_landed_is_never_captured() {
     request.history = Some(&hook);
     write_note_guarded(request, None).expect("identical text is not a conflict");
     assert_eq!(captures.count(), 0);
+}
+
+#[test]
+fn the_hook_the_crate_ships_lets_the_write_through() {
+    let (_root, path) = seeded("what was there\n");
+    let mut request = saving(&path, b"what is there now\n", Some(recorded(&path)));
+    request.history = Some(&history_hook);
+
+    let outcome = write_note_guarded(request, None).expect("write");
+
+    assert_eq!(outcome.decision, SaveDecision::Proceed);
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read"),
+        "what is there now\n"
+    );
 }
 
 #[test]
