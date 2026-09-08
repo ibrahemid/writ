@@ -2,13 +2,17 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 
 import type { ActivityRecord } from "../../services/tauri";
+import type { PendingClient } from "../../stores/global/activity";
 
 const h = await vi.hoisted(async () => {
   const { createSignal } = await import("solid-js");
   const [records, setRecords] = createSignal<ActivityRecord[]>([]);
+  const [pending, setPending] = createSignal<PendingClient[]>([]);
   return {
     records,
     setRecords,
+    pending,
+    setPending,
     load: vi.fn().mockResolvedValue(undefined),
     refresh: vi.fn().mockResolvedValue(undefined),
     clear: vi.fn().mockResolvedValue(undefined),
@@ -20,6 +24,7 @@ vi.mock("../../stores/global/activity", () => ({
   ACTIVITY_POLL_MS: 5_000,
   activityStore: {
     records: h.records,
+    pending: h.pending,
     load: h.load,
     refresh: h.refresh,
     clear: h.clear,
@@ -44,6 +49,10 @@ function record(over: Partial<ActivityRecord> = {}): ActivityRecord {
   };
 }
 
+function waitingFor(name: string, at = "2026-09-09T10:30:00.000Z"): PendingClient {
+  return { name, version: "1.2.3", at };
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
 });
@@ -51,6 +60,7 @@ beforeEach(() => {
 afterEach(() => {
   closeActivity();
   h.setRecords([]);
+  h.setPending([]);
   h.load.mockClear();
   h.refresh.mockClear();
   h.clear.mockClear();
@@ -80,6 +90,7 @@ describe("ActivityPanel", () => {
       record({ decision: "pending", action: "read_note" }),
       record({ decision: "allow", actor: { kind: "client", name: "Zed", version: null } }),
     ]);
+    h.setPending([waitingFor("Claude Code")]);
     openActivity();
     const { container } = render(() => <ActivityPanel />);
 
@@ -108,16 +119,18 @@ describe("ActivityPanel", () => {
 
   it("says what happens next on a waiting row", () => {
     h.setRecords([record({ decision: "pending" })]);
+    h.setPending([waitingFor("Claude Code")]);
     openActivity();
     const { container } = render(() => <ActivityPanel />);
 
     expect(container.querySelector(".activity-decide-line")!.textContent!.trim()).toBe(
-      "Nothing is read or written until you approve it.",
+      "It reads and writes nothing until you approve it.",
     );
   });
 
   it("approving reading asks the store once, for reading only", () => {
     h.setRecords([record({ decision: "pending" })]);
+    h.setPending([waitingFor("Claude Code")]);
     openActivity();
     const { container } = render(() => <ActivityPanel />);
 
@@ -129,6 +142,7 @@ describe("ActivityPanel", () => {
 
   it("approving writing asks for both directions", () => {
     h.setRecords([record({ decision: "pending" })]);
+    h.setPending([waitingFor("Claude Code")]);
     openActivity();
     const { container } = render(() => <ActivityPanel />);
 
@@ -139,11 +153,13 @@ describe("ActivityPanel", () => {
 
   it("the row follows the store once the approval lands", () => {
     h.setRecords([record({ decision: "pending" })]);
+    h.setPending([waitingFor("Claude Code")]);
     openActivity();
     const { container } = render(() => <ActivityPanel />);
     expect(container.querySelector('[data-action="approve-read"]')).not.toBeNull();
 
     h.setRecords([record({ decision: "allow" })]);
+    h.setPending([]);
 
     expect(container.querySelector('[data-action="approve-read"]')).toBeNull();
     expect(container.querySelector(".activity-verdict")!.textContent).toBe("Allowed");
@@ -180,6 +196,30 @@ describe("ActivityPanel", () => {
     h.refresh.mockClear();
     vi.advanceTimersByTime(20_000);
     expect(h.refresh).not.toHaveBeenCalled();
+  });
+
+  it("offers one decision however many calls a program made", () => {
+    h.setRecords([
+      record({ decision: "pending", action: "list_notes" }),
+      record({ decision: "pending", action: "read_note" }),
+    ]);
+    h.setPending([waitingFor("Claude Code")]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    expect(container.querySelectorAll(".activity-row")).toHaveLength(2);
+    expect(container.querySelectorAll('[data-action="approve-read"]')).toHaveLength(1);
+  });
+
+  it("offers no decision on a program that is already on the list", () => {
+    h.setRecords([record({ decision: "pending" })]);
+    h.setPending([]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    expect(container.querySelector(".activity-row")).not.toBeNull();
+    expect(container.querySelector('[data-action="approve-read"]')).toBeNull();
+    expect(container.querySelector(".activity-decide-line")).toBeNull();
   });
 
   it("reads the log when it opens", () => {

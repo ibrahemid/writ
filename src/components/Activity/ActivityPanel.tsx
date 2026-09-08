@@ -1,4 +1,13 @@
-import { createEffect, createSignal, For, onCleanup, onMount, Show, createUniqueId } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+  createUniqueId,
+} from "solid-js";
 
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
@@ -59,21 +68,20 @@ function timeOf(at: string): string {
   return stamp.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
-function Row(props: { record: ActivityRecord }) {
+function Row(props: { record: ActivityRecord; decidable: boolean }) {
   const record = () => props.record;
   const name = () => actorName(record());
-  const waiting = () => record().decision === "pending" && record().actor.kind === "client";
 
   async function approve(read: boolean, write: boolean) {
     try {
       await activityStore.setPermission(name(), read, write);
     } catch {
-      showToast("The approval could not be saved", "error");
+      showToast("Could not save the approval", "error");
     }
   }
 
   return (
-    <li class="activity-row" classList={{ "activity-row-waiting": waiting() }}>
+    <li class="activity-row" classList={{ "activity-row-waiting": props.decidable }}>
       <span class="activity-time">{timeOf(record().at)}</span>
       <span class="activity-what">
         <span class="activity-program">{name()}</span>
@@ -85,10 +93,10 @@ function Row(props: { record: ActivityRecord }) {
       <span class="activity-verdict" data-decision={record().decision}>
         {VERDICT[record().decision]}
       </span>
-      <Show when={waiting()}>
+      <Show when={props.decidable}>
         <span class="activity-decide">
           <span class="activity-decide-line">
-            Nothing is read or written until you approve it.
+            It reads and writes nothing until you approve it.
           </span>
           <span class="activity-decide-controls">
             <Button data-action="approve-read" onClick={() => void approve(true, false)}>
@@ -126,11 +134,27 @@ function ActivityDialog() {
     onCleanup(teardown);
   });
 
+  // A program that made three waiting calls is still one decision, and a
+  // program already on the approved list is no decision at all. The store names
+  // who is actually waiting; the controls go on that program's newest row.
+  const decidable = createMemo(() => {
+    const waiting = new Set(activityStore.pending().map((client) => client.name));
+    const rows = new Set<number>();
+    activityStore.records().forEach((row, index) => {
+      if (row.actor.kind !== "client") return;
+      if (row.decision !== "pending") return;
+      if (!waiting.has(row.actor.name)) return;
+      waiting.delete(row.actor.name);
+      rows.add(index);
+    });
+    return rows;
+  });
+
   async function onClear() {
     try {
       await activityStore.clear();
     } catch {
-      showToast("The list could not be cleared", "error");
+      showToast("Could not clear the list", "error");
     }
   }
 
@@ -171,7 +195,11 @@ function ActivityDialog() {
           fallback={<p class="activity-empty">No program has called yet.</p>}
         >
           <ul class="activity-list">
-            <For each={activityStore.records()}>{(record) => <Row record={record} />}</For>
+            <For each={activityStore.records()}>
+              {(record, index) => (
+                <Row record={record} decidable={decidable().has(index())} />
+              )}
+            </For>
           </ul>
         </Show>
       </div>
