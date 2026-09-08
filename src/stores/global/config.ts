@@ -173,14 +173,15 @@ function createConfigStore() {
   let loadFailureReported = false;
   let persistFailureReported = false;
 
-  async function load() {
+  async function load(): Promise<boolean> {
     try {
       const loaded = await api.getConfig();
       setConfig(normalizeIncomingConfig(loaded));
       loadFailureReported = false;
+      return true;
     } catch {
       setConfig(DEFAULT_CONFIG);
-      if (loadFailureReported) return;
+      if (loadFailureReported) return false;
       loadFailureReported = true;
       logFailure("settings could not be read");
       showToast(
@@ -188,6 +189,7 @@ function createConfigStore() {
         "error",
         8000,
       );
+      return false;
     }
   }
 
