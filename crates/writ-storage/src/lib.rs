@@ -38,6 +38,8 @@
 #![warn(missing_docs)]
 #![warn(rustdoc::broken_intra_doc_links)]
 
+/// Append-only JSONL log of what the harness did.
+pub mod activity_log;
 /// Crash-safe file writes via temp-file + fsync + rename.
 pub mod atomic;
 /// High-level buffer CRUD built on top of [`database`].
