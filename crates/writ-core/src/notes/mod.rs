@@ -29,6 +29,11 @@ pub mod materialise;
 /// What each answer to a change outside Writ writes.
 pub mod reload;
 
+/// Who asked for a write to a note's file.
+pub mod write_origin;
+
+pub use write_origin::WriteOrigin;
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
