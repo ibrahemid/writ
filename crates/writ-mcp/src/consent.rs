@@ -2,42 +2,13 @@
 //!
 //! A client's name is a label it chose for itself and never an identity
 //! (ADR-031 rule 3.1), so the gate decides on what the user approved, not on
-//! what the client claims to be. The trait is the seam U5 fills with the real
-//! gate over `[mcp] approved_clients`; what ships here is [`DenyAll`] and
-//! [`EnabledReads`], which grants the read tools and nothing else.
+//! what the client claims to be. [`ClientId`] and [`Decision`] are
+//! `writ_core::activity`'s, re-exported here: the name the server saw, the
+//! verdict it reached and the line the log keeps are one set of types.
 
 use crate::tools::READ_TOOLS;
 
-/// The `clientInfo` a program sent at initialize.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct ClientId {
-    /// The name the program calls itself.
-    pub name: String,
-    /// Its version, when it sent one.
-    pub version: Option<String>,
-}
-
-impl ClientId {
-    /// A client identified by name alone.
-    pub fn named(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            version: None,
-        }
-    }
-}
-
-/// What the gate decided about one call.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Decision {
-    /// The call runs.
-    Allow,
-    /// The call is refused, and the user has already decided that.
-    Refuse,
-    /// The call is refused, and the user has not been asked yet. U5 turns this
-    /// into a row they can approve from.
-    Pending,
-}
+pub use writ_core::activity::{ClientId, Decision};
 
 /// Decides whether one client may run one tool.
 pub trait ConsentGate: Send + Sync {
