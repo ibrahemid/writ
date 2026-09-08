@@ -64,7 +64,7 @@ pub const INDEX_TOOLS: &[&str] = &[
 pub enum ToolError {
     /// The client has no approval for this direction.
     #[error(
-        "{client} is not approved to read notes. Approve it in Writ, under Connected programs."
+        "{client} is not approved to read notes. Set enabled = true under [mcp] in Writ's config.toml."
     )]
     NotApproved {
         /// The name the client sent.
@@ -830,6 +830,19 @@ mod tests {
             resolved.resolved_path,
             Some(key(&fixture.notes.join("Tessera.md")))
         );
+    }
+
+    #[test]
+    fn the_refusal_names_the_setting_that_turns_the_server_on() {
+        let message = ToolError::NotApproved {
+            client: "Claude Code".to_string(),
+            tool: "read_note".to_string(),
+        }
+        .to_string();
+
+        assert!(message.contains("Claude Code"));
+        assert!(message.contains("[mcp]"));
+        assert!(message.contains("config.toml"));
     }
 
     #[test]
