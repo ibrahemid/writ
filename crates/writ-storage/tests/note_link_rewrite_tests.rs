@@ -145,8 +145,8 @@ fn a_file_changed_underneath_is_refused() {
         } => {
             assert_eq!(named, path.to_string_lossy());
             assert!(
-                conflict_copy.is_none(),
-                "a rewrite that never happened sets nothing aside"
+                conflict_copy.is_some(),
+                "a refused rewrite left its side of the race nowhere"
             );
         }
         other => panic!("expected a changed file, got {other:?}"),
@@ -154,6 +154,46 @@ fn a_file_changed_underneath_is_refused() {
     assert_eq!(
         std::fs::read_to_string(&path).expect("read"),
         "somebody else wrote this, and [[Old note]]\n"
+    );
+}
+
+#[test]
+fn a_refused_rewrite_leaves_its_side_of_the_race_on_disk() {
+    // A link rewrite that loses a race used to refuse with nothing written
+    // anywhere, so the propagation left a link pointing at a name no note
+    // answers to and kept no record of what it wanted to write. Every refusal
+    // sets its own side aside (ADR-028 §5).
+    let (root, path) = seeded("see [[Old note]]\n");
+    let (target, all) = folder(&path, "Old note");
+    let last_known = recorded(&path);
+    std::fs::write(&path, "somebody else wrote this, and [[Old note]]\n").expect("write");
+
+    let error = note_ops::rewrite_links_in_file(
+        &path,
+        &renaming(&target, "New note", &all),
+        Some(last_known),
+        None,
+        None,
+    )
+    .expect_err("a file changed underneath should be refused");
+
+    let StorageError::SourceChangedOnDisk { conflict_copy, .. } = error else {
+        panic!("expected a changed file, got {error:?}");
+    };
+    let copy = conflict_copy.expect("the rewritten text has to reach disk");
+    assert_eq!(
+        std::fs::read_to_string(&copy).expect("read"),
+        "somebody else wrote this, and [[New note]]\n",
+        "the copy holds something other than the rewrite that was refused"
+    );
+    assert!(
+        Path::new(&copy).starts_with(root.path()),
+        "the copy landed outside the note's own folder"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read"),
+        "somebody else wrote this, and [[Old note]]\n",
+        "the refused rewrite landed anyway"
     );
 }
 
