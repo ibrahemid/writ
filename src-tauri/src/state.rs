@@ -823,14 +823,10 @@ impl AppState {
     /// matches component by component, so `<root>/../elsewhere.md` would
     /// otherwise read as contained on its way out of the folder.
     pub fn is_within_notes(&self, canonical_path: &str) -> bool {
-        let path = std::path::Path::new(canonical_path);
-        if path
-            .components()
-            .any(|component| component == std::path::Component::ParentDir)
-        {
-            return false;
-        }
-        path.starts_with(self.notes_root())
+        writ_core::notes::containment::is_inside(
+            &self.notes_root(),
+            std::path::Path::new(canonical_path),
+        )
     }
 
     /// Records what a buffer's file held at the moment Writ read or wrote it,

@@ -137,48 +137,20 @@ pub fn canonicalize_root(path: &Path) -> std::io::Result<PathBuf> {
     Ok(strip_verbatim_prefix(std::fs::canonicalize(path)?))
 }
 
-/// Resolves `path` against the filesystem as far as it exists, then appends
-/// the components that do not exist yet.
+/// [`writ_core::notes::containment::resolve_for_containment`] in the spelling
+/// every other path in this crate carries.
 ///
-/// Two callers need the answer for a path that does not exist yet: the write
-/// gate's containment check (a note being minted) and the data-folder guard,
-/// which has to know where `WRIT_DATA_DIR` will land before anything creates
-/// it. The watcher's ignore keys are built from this too
-/// ([`crate::watcher::handler::ignore_key_path`]), so a file being created is
-/// stamped under the path the watcher will deliver for it.
-///
-/// Walking up to the deepest existing ancestor is what makes the answer honest
-/// for a file Writ is about to create: every symlink and every `..` above the
-/// new name is resolved by `canonicalize`, and only names the filesystem has
-/// never seen are appended literally.
-///
-/// Returns `None` for a relative path, for a path whose unresolved tail is
-/// `..` or empty (`Path::file_name` yields nothing for either, so such a tail
-/// can never be appended), and for any resolution error other than a missing
-/// file.
+/// The walk-up rule lives in `writ-core` because the MCP tool surface applies
+/// it to a path a client chose (ADR-031 rule 3.7) and that crate imports no
+/// tauri. What is added here is the Windows verbatim prefix and the `String`
+/// the authorized-path stores are keyed by, so an authorized path and an
+/// indexed one stay one spelling.
 pub fn resolve_for_containment(path: &Path) -> Option<String> {
-    if !path.is_absolute() {
-        return None;
-    }
-
-    let mut unresolved: Vec<std::ffi::OsString> = Vec::new();
-    let mut cursor = path.to_path_buf();
-    loop {
-        match canonicalize_for_authorization(&cursor) {
-            Ok(base) => {
-                let mut resolved = PathBuf::from(base);
-                for name in unresolved.iter().rev() {
-                    resolved.push(name);
-                }
-                return resolved.into_os_string().into_string().ok();
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                unresolved.push(cursor.file_name()?.to_os_string());
-                cursor = cursor.parent()?.to_path_buf();
-            }
-            Err(_) => return None,
-        }
-    }
+    let resolved = writ_core::notes::containment::resolve_for_containment(path)?;
+    strip_verbatim_prefix(resolved)
+        .into_os_string()
+        .into_string()
+        .ok()
 }
 
 #[cfg(test)]
