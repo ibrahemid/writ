@@ -27,10 +27,10 @@ use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::hash::sha256_bytes;
 use writ_core::notes;
 
-use crate::buffer_store::write_guarded_by_stamp;
 use crate::buffer_store::BufferStore;
 use crate::database::queries;
 use crate::errors::StorageResult;
+use crate::guarded::write_guarded_by_stamp;
 use crate::rollback;
 use crate::schema_meta::{
     self, KEY_NOTES_MIGRATION_RAN_AT, KEY_NOTES_MIGRATION_REPORT,

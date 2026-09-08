@@ -7,10 +7,11 @@ use tempfile::TempDir;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::hash::{sha256_bytes, sha256_hex};
 use writ_core::notes::guard::{DiskState, SF_DATALESS};
-use writ_storage::buffer_store::{write_conflict_copy, BufferStore, RecoveredText};
+use writ_storage::buffer_store::{BufferStore, RecoveredText};
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::errors::StorageError;
+use writ_storage::guarded::write_conflict_copy;
 
 fn setup() -> (TempDir, BufferStore) {
     let dir = TempDir::new().expect("temp dir");

@@ -13,16 +13,17 @@
 
 use std::path::{Path, PathBuf};
 
-use writ_core::notes::guard::{decide_save, is_not_downloaded, DiskState, SaveDecision};
-use writ_core::notes::line_ending::LineEnding;
+use writ_core::notes::guard::{is_not_downloaded, DiskState};
 use writ_core::notes::links;
 use writ_core::notes::rename::{rewrite_links, Rewrite};
+use writ_core::notes::WriteOrigin;
 
-use crate::buffer_store::{
-    dataless_flags, read_disk_state, taken_names, write_guarded_by_stamp, BeforeWrite,
-    DatalessProbe,
-};
+use crate::buffer_store::{dataless_flags, BeforeWrite, DatalessProbe};
 use crate::errors::{StorageError, StorageResult};
+use crate::guarded::{
+    create_note_guarded, guard_rename, write_note_guarded, ConflictPolicy, CreateNote, DiskRead,
+    GuardedWrite,
+};
 use crate::notes_index::{indexes_as_note, names_a_note};
 use crate::workspace_search::build_walk;
 
@@ -39,15 +40,26 @@ pub const NOTE_EXTENSION: &str = "md";
 ///
 /// # Errors
 ///
-/// [`StorageError::NoteNameEmpty`] when `stem` holds nothing, and
-/// [`StorageError::Io`] when the folder cannot be created or the file cannot
-/// be written.
+/// [`create_note_guarded`]'s: [`StorageError::NoteNameEmpty`] when `stem`
+/// holds nothing, [`StorageError::NoteNameTaken`] when the deduped name is on
+/// disk anyway, and [`StorageError::Io`] when the folder cannot be created or
+/// the file cannot be written.
 pub fn create_note(
     notes_root: &Path,
     stem: &str,
+    origin: WriteOrigin,
     before_write: BeforeWrite<'_>,
 ) -> StorageResult<PathBuf> {
-    write_new_note(notes_root, stem, "", before_write)
+    create_note_guarded(
+        CreateNote {
+            notes_root,
+            stem,
+            content: "",
+            origin,
+            history: None,
+        },
+        before_write,
+    )
 }
 
 /// Writes `content` into `notes_root` as a new note named from `stem`,
@@ -64,47 +76,19 @@ pub fn save_copy(
     notes_root: &Path,
     stem: &str,
     content: &str,
+    origin: WriteOrigin,
     before_write: BeforeWrite<'_>,
 ) -> StorageResult<PathBuf> {
-    write_new_note(notes_root, stem, content, before_write)
-}
-
-/// The shared half of both: dedupe against the folder, stamp, write.
-///
-/// The name the dedupe picks is checked against the disk before the write. The
-/// dedupe reads the folder to learn which names are taken, and a folder it
-/// cannot list reads as empty — a folder without read permission, one on a
-/// share that answered nothing, a file another process created in between. The
-/// write that follows replaces whatever is at the path, so without this check a
-/// blind dedupe silently empties a note that was already there. Minting is the
-/// one operation that knows its file must not exist yet, so it is the one that
-/// can say so.
-fn write_new_note(
-    notes_root: &Path,
-    stem: &str,
-    content: &str,
-    before_write: BeforeWrite<'_>,
-) -> StorageResult<PathBuf> {
-    let stem = stem.trim();
-    if stem.is_empty() {
-        return Err(StorageError::NoteNameEmpty);
-    }
-    std::fs::create_dir_all(notes_root)?;
-    let name = writ_core::notes::dedupe_file_name(stem, NOTE_EXTENSION, &taken_names(notes_root));
-    let path = notes_root.join(&name);
-    // `symlink_metadata`, so a link left behind by something else counts as
-    // taken rather than being followed and written through.
-    if path.symlink_metadata().is_ok() {
-        return Err(StorageError::NoteNameTaken {
-            name,
-            folder: notes_root.to_path_buf(),
-        });
-    }
-    // A file that does not exist yet has no convention to keep, so a note Writ
-    // mints is LF whatever the text handed in carries.
-    let content = LineEnding::Lf.apply(content);
-    write_guarded_by_stamp(&path, content.as_bytes(), before_write)?;
-    Ok(path)
+    create_note_guarded(
+        CreateNote {
+            notes_root,
+            stem,
+            content,
+            origin,
+            history: None,
+        },
+        before_write,
+    )
 }
 
 /// Renames a note to `new_stem`, keeping its extension and its folder.
@@ -112,15 +96,10 @@ fn write_new_note(
 /// `new_stem` is already sanitised. The move is refused rather than performed
 /// when the name is empty, when the folder already holds that name, or when
 /// the file changed since `last_known` — the same guard a save runs
-/// ([`decide_save`]), because a rename that skips it moves a file whose
+/// ([`guard_rename`]), because a rename that skips it moves a file whose
 /// current contents Writ has never seen. Unlike a refused save there is no
 /// incoming text to set aside, so no dated copy is written and
 /// [`StorageError::SourceChangedOnDisk`] carries `conflict_copy: None`.
-///
-/// A file whose bytes are not on this machine is stopped before the compare
-/// read, because that read is what would pull it down (ADR-028 §5). A caller
-/// holding no record proceeds: "has this changed since Writ last looked" has
-/// no answer for a file Writ has not looked at.
 ///
 /// `before_write` stamps both the old and the new path before the move. One
 /// rename reaches the watcher as a delete of the first plus a create of the
@@ -144,6 +123,7 @@ pub fn rename_note(
     from: &Path,
     new_stem: &str,
     last_known: Option<DiskState>,
+    origin: WriteOrigin,
     before_write: BeforeWrite<'_>,
 ) -> StorageResult<PathBuf> {
     let new_stem = new_stem.trim();
@@ -171,27 +151,7 @@ pub fn rename_note(
         });
     }
 
-    if last_known.is_some() && is_not_downloaded(dataless_flags(from)) {
-        return Err(StorageError::SourceNotDownloaded {
-            path: from.to_string_lossy().into_owned(),
-        });
-    }
-
-    let on_disk = read_disk_state(from)?;
-    // The rename carries no text of its own, so there is no incoming hash to
-    // compare against; the last known digest stands in for it. Only one answer
-    // is read here — whether the guard refuses — so it does not matter which
-    // of the two permissive answers a file Writ last saw unchanged comes back
-    // with.
-    if let (Some(last_known), Some(state)) = (last_known, on_disk) {
-        if decide_save(Some(&last_known), Some(&state), last_known.hash) == SaveDecision::Refuse {
-            return Err(StorageError::SourceChangedOnDisk {
-                path: from.to_string_lossy().into_owned(),
-                disk_hash: writ_core::hash::digest_hex(state.hash),
-                conflict_copy: None,
-            });
-        }
-    }
+    guard_rename(from, last_known, origin)?;
 
     if let Some(stamp) = before_write {
         let bytes = std::fs::read(from).unwrap_or_default();
@@ -291,16 +251,23 @@ pub struct RewriteTarget<'a> {
 /// loud: a propagation that quietly leaves a file behind is worse than one
 /// that says which files it left (spec 627).
 ///
-/// The write goes through [`write_guarded_by_stamp`] like every other write
-/// this crate makes, so the file is stamped before it is replaced and the
-/// watcher does not read Writ's own edit as somebody else's.
+/// The write goes through [`write_note_guarded`] like every other write this
+/// crate makes, so the file is stamped before it is replaced and the watcher
+/// does not read Writ's own edit as somebody else's.
 ///
-/// Three refusals come before the write. A file whose bytes are not on this
-/// machine is stopped before the read, because the read is what would pull it
-/// down (ADR-028 §5). A file that changed since `last_known` is stopped by the
-/// same guard a save runs, because rewriting it would carry text Writ never
-/// saw. A file the filesystem will not replace — read-only, hard-linked, in a
-/// folder that will not take a write — is stopped by the write itself.
+/// Three refusals come with it. A file whose bytes are not on this machine is
+/// stopped before the read, because the read is what would pull it down
+/// (ADR-028 §5). A file that changed since `last_known` is stopped by the same
+/// guard a save runs, and the rewritten text is written beside it as a dated
+/// copy, because a propagation that loses a race has to leave its side on disk
+/// like every other refusal does (ADR-028 §5). A file the filesystem will not
+/// replace — read-only, hard-linked, in a folder that will not take a write —
+/// is stopped by the write itself.
+///
+/// The rewrite is computed before the guard is asked, because the copy a
+/// refusal writes is a copy of the rewritten text, and a file no link reaches
+/// is answered before either: there is nothing to write and so nothing to
+/// lose.
 ///
 /// Which links count is [`rewrite_links`]'s question to answer, note by note,
 /// from this file's own key ([`RewriteTarget`]).
@@ -340,29 +307,6 @@ pub fn rewrite_links_in_file(
         ))
     })?;
 
-    // The state of the file the rewrite is measured against is read from the
-    // bytes the rewrite is built from, not from a second read: two reads of a
-    // file something else is writing describe two different files, and the
-    // guard would then be answering about the one that was not rewritten.
-    if let Some(last_known) = last_known {
-        let metadata = std::fs::metadata(path).ok();
-        let state = DiskState {
-            hash: writ_core::hash::sha256_bytes(text.as_bytes()),
-            size: metadata
-                .as_ref()
-                .map(|m| m.len())
-                .unwrap_or(text.len() as u64),
-            mtime: metadata.as_ref().and_then(|m| m.modified().ok()),
-        };
-        if decide_save(Some(&last_known), Some(&state), last_known.hash) == SaveDecision::Refuse {
-            return Err(StorageError::SourceChangedOnDisk {
-                path: path.to_string_lossy().into_owned(),
-                disk_hash: writ_core::hash::digest_hex(state.hash),
-                conflict_copy: None,
-            });
-        }
-    }
-
     let from = crate::notes_index::index_key(path);
     let rewritten = match rewrite_links(
         &text,
@@ -376,7 +320,34 @@ pub fn rewrite_links_in_file(
         Rewrite::NoLink => return Ok(LinkRewrite::NoLink),
         Rewrite::NameNotUnique(other) => return Ok(LinkRewrite::NameNotUnique(other)),
     };
-    write_guarded_by_stamp(path, rewritten.as_bytes(), before_write)?;
+
+    // The state of the file the rewrite is measured against is read from the
+    // bytes the rewrite is built from, not from a second read: two reads of a
+    // file something else is writing describe two different files, and the
+    // guard would then be answering about the one that was not rewritten.
+    let metadata = std::fs::metadata(path).ok();
+    let on_disk = DiskState {
+        hash: writ_core::hash::sha256_bytes(text.as_bytes()),
+        size: metadata
+            .as_ref()
+            .map(|m| m.len())
+            .unwrap_or(text.len() as u64),
+        mtime: metadata.as_ref().and_then(|m| m.modified().ok()),
+    };
+
+    write_note_guarded(
+        GuardedWrite {
+            target: path,
+            bytes: rewritten.as_bytes(),
+            last_known,
+            on_disk: DiskRead::Read(Some(on_disk)),
+            dataless,
+            origin: WriteOrigin::RenamePropagation,
+            on_conflict: ConflictPolicy::RefuseWithCopy,
+            history: None,
+        },
+        before_write,
+    )?;
     Ok(LinkRewrite::Written)
 }
 

@@ -16,7 +16,7 @@ use writ_core::buffer::document::BufferDocument;
 use writ_core::buffer::manager::BufferManager;
 use writ_core::notes::guard::DiskState;
 use writ_core::notes::links;
-use writ_core::notes::{name_is_taken, rename_stem, NotesRootRefusal, NAME_IS_EMPTY};
+use writ_core::notes::{name_is_taken, rename_stem, NotesRootRefusal, WriteOrigin, NAME_IS_EMPTY};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::errors::{StorageError, StorageResult};
 use writ_storage::note_ops::{self, LinkRewrite};
@@ -239,8 +239,8 @@ fn folder_inside_notes(root: &Path, folder: PathBuf) -> Result<PathBuf, String> 
 fn create_note_at(state: &AppState, folder: &Path, stem: &str) -> Result<BufferDocument, String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let stamp = ignore_stamper(state);
-    let path =
-        note_ops::create_note(folder, stem, Some(&stamp)).map_err(|e| note_failure_message(&e))?;
+    let path = note_ops::create_note(folder, stem, WriteOrigin::Editor, Some(&stamp))
+        .map_err(|e| note_failure_message(&e))?;
     let canonical = canonicalize_for_authorization(&path).map_err(|e| e.to_string())?;
 
     let mut mgr = BufferManager::new().with_event_bus(state.event_bus.clone());
@@ -340,8 +340,14 @@ pub fn rename_note_recording(
     let stem = rename_stem(from, title).ok_or_else(|| NAME_IS_EMPTY.to_string())?;
 
     let stamp = ignore_stamper(state);
-    let to = note_ops::rename_note(from, &stem, state.disk_state(id), Some(&stamp))
-        .map_err(|e| note_failure_message(&e))?;
+    let to = note_ops::rename_note(
+        from,
+        &stem,
+        state.disk_state(id),
+        WriteOrigin::Editor,
+        Some(&stamp),
+    )
+    .map_err(|e| note_failure_message(&e))?;
     let to_text = to
         .to_str()
         .ok_or_else(|| format!("the file name {} cannot be recorded", to.display()))?;
@@ -724,7 +730,8 @@ fn rename_note_at(state: &AppState, from: &Path, new_name: &str) -> Result<PathB
     let stem =
         writ_core::notes::rename_stem(from, new_name).ok_or_else(|| NAME_IS_EMPTY.to_string())?;
     let stamp = ignore_stamper(state);
-    note_ops::rename_note(from, &stem, None, Some(&stamp)).map_err(|e| note_failure_message(&e))
+    note_ops::rename_note(from, &stem, None, WriteOrigin::Editor, Some(&stamp))
+        .map_err(|e| note_failure_message(&e))
 }
 
 /// What Writ last saw `path` hold, for a note it has open.
@@ -816,8 +823,14 @@ pub fn save_note_copy_inner(state: &AppState, id: &str, content: &str) -> Result
     let stem = writ_core::notes::note_file_stem(&copy_stem(&doc), chrono::Utc::now());
 
     let stamp = ignore_stamper(state);
-    let path = note_ops::save_copy(&state.notes_root(), &stem, content, Some(&stamp))
-        .map_err(|e| note_failure_message(&e))?;
+    let path = note_ops::save_copy(
+        &state.notes_root(),
+        &stem,
+        content,
+        WriteOrigin::Editor,
+        Some(&stamp),
+    )
+    .map_err(|e| note_failure_message(&e))?;
     path.to_str()
         .map(str::to_string)
         .ok_or_else(|| format!("the file name {} cannot be recorded", path.display()))

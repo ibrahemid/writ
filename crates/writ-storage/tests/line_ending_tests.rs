@@ -12,6 +12,7 @@ use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::hash::sha256_bytes;
 use writ_core::notes::guard::DiskState;
 use writ_core::notes::line_ending::LineEnding;
+use writ_core::notes::WriteOrigin;
 use writ_storage::buffer_store::{BufferStore, RecoveredText};
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
@@ -173,8 +174,14 @@ fn a_note_writ_creates_is_saved_in_lf() {
     let notes = dir.path().join("Writ");
     // A file that does not exist yet has no convention to keep, so the copy
     // lands in LF whatever the text handed in carries.
-    let path =
-        writ_storage::note_ops::save_copy(&notes, "Fresh", "one\r\ntwo\r\n", None).expect("copy");
+    let path = writ_storage::note_ops::save_copy(
+        &notes,
+        "Fresh",
+        "one\r\ntwo\r\n",
+        WriteOrigin::Editor,
+        None,
+    )
+    .expect("copy");
 
     assert_eq!(std::fs::read(&path).expect("read"), b"one\ntwo\n");
 }

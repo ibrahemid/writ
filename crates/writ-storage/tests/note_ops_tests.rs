@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 use writ_core::hash::sha256_bytes;
 use writ_core::notes::guard::DiskState;
+use writ_core::notes::WriteOrigin;
 use writ_storage::errors::StorageError;
 use writ_storage::note_ops;
 
@@ -24,7 +25,8 @@ fn recorded(path: &Path) -> DiskState {
 fn create_note_writes_a_file_immediately() {
     let root = TempDir::new().expect("temp dir");
 
-    let path = note_ops::create_note(root.path(), "2026-08-29", None).expect("create");
+    let path = note_ops::create_note(root.path(), "2026-08-29", WriteOrigin::Editor, None)
+        .expect("create");
 
     assert!(path.exists(), "{} was not created", path.display());
     assert_eq!(path, root.path().join("2026-08-29.md"));
@@ -44,7 +46,7 @@ fn create_note_refuses_rather_than_writing_over_a_note_the_dedupe_could_not_see(
     std::fs::write(&existing, "first").expect("seed");
     std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o300)).expect("chmod");
 
-    let outcome = note_ops::create_note(root.path(), "Notes", None);
+    let outcome = note_ops::create_note(root.path(), "Notes", WriteOrigin::Editor, None);
 
     std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).expect("chmod");
     assert!(
@@ -69,7 +71,8 @@ fn create_note_refuses_a_name_a_dangling_link_already_holds() {
 
     // The dedupe sees the name and picks `Notes 2.md`, so this only proves the
     // link is not followed and written through when the listing is what fails.
-    let path = note_ops::create_note(root.path(), "Notes", None).expect("create");
+    let path =
+        note_ops::create_note(root.path(), "Notes", WriteOrigin::Editor, None).expect("create");
     assert_eq!(path, root.path().join("Notes 2.md"));
     assert!(
         link.symlink_metadata().is_ok(),
@@ -87,7 +90,8 @@ fn create_note_makes_a_second_note_beside_a_decomposed_name() {
     let decomposed = root.path().join("Cafe\u{301}.md");
     std::fs::write(&decomposed, "first").expect("seed");
 
-    let path = note_ops::create_note(root.path(), "Caf\u{e9}", None).expect("create");
+    let path =
+        note_ops::create_note(root.path(), "Caf\u{e9}", WriteOrigin::Editor, None).expect("create");
 
     assert_eq!(path, root.path().join("Café 2.md"));
     assert_eq!(
@@ -102,7 +106,8 @@ fn create_note_dedupes_against_an_existing_name() {
     let root = TempDir::new().expect("temp dir");
     std::fs::write(root.path().join("Notes.md"), "first").expect("seed");
 
-    let path = note_ops::create_note(root.path(), "Notes", None).expect("create");
+    let path =
+        note_ops::create_note(root.path(), "Notes", WriteOrigin::Editor, None).expect("create");
 
     assert_eq!(path, root.path().join("Notes 2.md"));
     assert_eq!(
@@ -119,7 +124,14 @@ fn rename_note_moves_the_file_and_the_old_name_is_gone() {
     std::fs::write(&from, "the text").expect("seed");
     let last_known = recorded(&from);
 
-    let to = note_ops::rename_note(&from, "Grocery list", Some(last_known), None).expect("rename");
+    let to = note_ops::rename_note(
+        &from,
+        "Grocery list",
+        Some(last_known),
+        WriteOrigin::Editor,
+        None,
+    )
+    .expect("rename");
 
     assert_eq!(to, root.path().join("Grocery list.md"));
     assert!(!from.exists(), "the old name is still there");
@@ -135,8 +147,14 @@ fn rename_to_a_colliding_name_refuses_and_names_the_collision() {
     std::fs::write(&taken, "somebody else's").expect("seed");
     let last_known = recorded(&from);
 
-    let error = note_ops::rename_note(&from, "Grocery list", Some(last_known), None)
-        .expect_err("the rename should stop");
+    let error = note_ops::rename_note(
+        &from,
+        "Grocery list",
+        Some(last_known),
+        WriteOrigin::Editor,
+        None,
+    )
+    .expect_err("the rename should stop");
 
     match error {
         StorageError::NoteNameTaken { name, folder } => {
@@ -159,8 +177,14 @@ fn rename_to_an_empty_name_refuses() {
     let from = root.path().join("2026-08-29.md");
     std::fs::write(&from, "the text").expect("seed");
 
-    let error =
-        note_ops::rename_note(&from, "   ", Some(recorded(&from)), None).expect_err("no name");
+    let error = note_ops::rename_note(
+        &from,
+        "   ",
+        Some(recorded(&from)),
+        WriteOrigin::Editor,
+        None,
+    )
+    .expect_err("no name");
 
     assert!(matches!(error, StorageError::NoteNameEmpty), "{error:?}");
     assert!(from.exists());
@@ -174,8 +198,14 @@ fn rename_goes_through_the_disk_state_guard() {
     let last_known = recorded(&from);
     std::fs::write(&from, "what somebody else wrote").expect("write");
 
-    let error = note_ops::rename_note(&from, "Grocery list", Some(last_known), None)
-        .expect_err("the rename should stop");
+    let error = note_ops::rename_note(
+        &from,
+        "Grocery list",
+        Some(last_known),
+        WriteOrigin::Editor,
+        None,
+    )
+    .expect_err("the rename should stop");
 
     match error {
         StorageError::SourceChangedOnDisk {
@@ -295,14 +325,23 @@ fn every_write_is_stamped_before_it_happens() {
     let stamps = Stamps::default();
     let hook = stamps.hook();
 
-    let created = note_ops::create_note(root.path(), "2026-08-29", Some(&hook)).expect("create");
+    let created =
+        note_ops::create_note(root.path(), "2026-08-29", WriteOrigin::Editor, Some(&hook))
+            .expect("create");
     assert_eq!(stamps.paths(), vec![created.clone()]);
     assert!(
         !stamps.existed_at(&created),
         "the note was written before it was stamped"
     );
 
-    let copied = note_ops::save_copy(root.path(), "report", "the text", Some(&hook)).expect("copy");
+    let copied = note_ops::save_copy(
+        root.path(),
+        "report",
+        "the text",
+        WriteOrigin::Editor,
+        Some(&hook),
+    )
+    .expect("copy");
     assert!(
         !stamps.existed_at(&copied),
         "the copy was written before it was stamped"
@@ -321,8 +360,14 @@ fn a_rename_stamps_both_the_name_it_leaves_and_the_one_it_takes() {
     let stamps = Stamps::default();
     let hook = stamps.hook();
 
-    let to = note_ops::rename_note(&from, "Grocery list", Some(recorded(&from)), Some(&hook))
-        .expect("rename");
+    let to = note_ops::rename_note(
+        &from,
+        "Grocery list",
+        Some(recorded(&from)),
+        WriteOrigin::Editor,
+        Some(&hook),
+    )
+    .expect("rename");
 
     assert_eq!(stamps.paths(), vec![from.clone(), to.clone()]);
     assert!(
@@ -344,7 +389,8 @@ fn save_copy_writes_into_the_notes_folder_and_leaves_the_original_untouched() {
     let original = elsewhere.path().join("report.md");
     std::fs::write(&original, "the text").expect("seed");
 
-    let copy = note_ops::save_copy(root.path(), "report", "the text", None).expect("copy");
+    let copy = note_ops::save_copy(root.path(), "report", "the text", WriteOrigin::Editor, None)
+        .expect("copy");
 
     assert_eq!(copy, root.path().join("report.md"));
     assert_eq!(std::fs::read_to_string(&copy).expect("read"), "the text");

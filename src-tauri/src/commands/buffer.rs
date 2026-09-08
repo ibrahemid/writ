@@ -13,8 +13,9 @@ use writ_core::notes::guard::is_not_downloaded;
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::reload::{apply_choice, Action, ChangeChoice, Side};
 use writ_core::watcher::pending::HoldAnswer;
-use writ_storage::buffer_store::{dataless_flags, write_conflict_copy, BufferStore, NoteFileState};
+use writ_storage::buffer_store::{dataless_flags, BufferStore, NoteFileState};
 use writ_storage::errors::StorageError;
+use writ_storage::guarded::write_conflict_copy;
 
 /// Code a save carries when the file changed under Writ and the write was
 /// stopped.
