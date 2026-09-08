@@ -136,7 +136,8 @@ pub struct WriteOutcome {
 /// Writes `req.bytes` to `req.target` unless doing so would lose a change
 /// Writ never read.
 ///
-/// The guard is [`decide_save`] and this is its one call site. A file that
+/// The guard is [`decide_save`], called only from this module (here and in
+/// [`guard_rename`]). A file that
 /// already holds the incoming bytes is left alone and reported as written:
 /// rewriting identical bytes only moves the modification time and swaps the
 /// inode, which a sync client reads as an edit and uploads.
@@ -462,9 +463,9 @@ fn write_beside(
 /// Every write this crate performs goes through here, because a write the
 /// caller has not been told about first is a write its watcher reads as
 /// somebody else's edit. [`write_atomic`] has this one call site so that no
-/// future write can skip the stamp by reaching past it, and this function has
-/// its own single caller inside this module so that no future write can skip
-/// the guard either.
+/// future write can skip the stamp by reaching past it, and this function is
+/// called only from this module so that no future write can skip the guard
+/// either.
 ///
 /// The destination is asked whether it can be replaced before the stamp
 /// rather than after: an ignore entry for a write that never happens is one
