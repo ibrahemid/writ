@@ -1017,6 +1017,11 @@ mod tests {
             host.folder_tags(&client()).expect_err("no index"),
             ToolError::IndexUnavailable
         );
+
+        // Opening the host and running every tool against a folder with no
+        // index leaves the folder without one: the crate reads `writ.db` and
+        // never mints it (ADR-031 rule 1.3).
+        assert!(!fixture.db.exists());
     }
 
     #[test]
