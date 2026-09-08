@@ -50,6 +50,7 @@ const SCANNED_ROOTS: &[(&str, &str)] = &[
     ("../crates/writ-storage/src", "crates/writ-storage/src"),
     ("../crates/writ-render/src", "crates/writ-render/src"),
     ("../crates/writ-cli/src", "crates/writ-cli/src"),
+    ("../crates/writ-mcp/src", "crates/writ-mcp/src"),
     ("../crates/writ-plugin/src", "crates/writ-plugin/src"),
     ("../crates/writ-lint/src", "crates/writ-lint/src"),
 ];

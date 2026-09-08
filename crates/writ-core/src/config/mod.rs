@@ -9,6 +9,8 @@
 pub mod ai;
 /// Keybinding conflict reporting types.
 pub mod keybinding;
+/// MCP server configuration (`[mcp]`).
+pub mod mcp;
 /// Notes-folder configuration (`[notes]`).
 pub mod notes;
 /// Preview surface configuration (`[preview]`).
@@ -17,6 +19,7 @@ pub mod preview;
 pub mod spelling;
 
 pub use ai::AiConfig;
+pub use mcp::{ClientApproval, McpConfig};
 pub use notes::NotesConfig;
 pub use preview::{DefaultLayout, PreviewConfig};
 pub use spelling::SpellingConfig;
@@ -627,6 +630,9 @@ pub struct WritConfig {
     /// Opt-in rewrite configuration.
     #[serde(default)]
     pub ai: AiConfig,
+    /// MCP server configuration.
+    #[serde(default)]
+    pub mcp: McpConfig,
     /// Spell-check configuration.
     #[serde(default)]
     pub spelling: SpellingConfig,
@@ -653,6 +659,7 @@ impl Default for WritConfig {
             inbox: InboxConfig::default(),
             updater: UpdaterConfig::default(),
             ai: AiConfig::default(),
+            mcp: McpConfig::default(),
             spelling: SpellingConfig::default(),
         }
     }

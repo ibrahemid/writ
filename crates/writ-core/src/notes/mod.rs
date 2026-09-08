@@ -7,6 +7,8 @@
 //! mechanism — creating the folder, listing it, writing the file — lives in
 //! `writ-storage` and `writ-tauri`.
 
+/// Whether a path names a file the notes folder holds.
+pub mod containment;
 /// What a note says about itself: links, properties, tags and headings.
 pub mod facts;
 /// The write guard: whether a save may land on the file it is aimed at.

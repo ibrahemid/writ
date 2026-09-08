@@ -13,10 +13,13 @@ writ-core = { path = "../writ-core" }
 # (`cargo build -p writ-cli --release --target …`), where cargo unifies in no
 # feature from src-tauri and a system libsqlite3 may not be there to link.
 writ-storage = { path = "../writ-storage", features = ["bundled"] }
+writ-mcp = { path = "../writ-mcp" }
 chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
 dirs = "6"
 serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "macros"] }
 toml = "1.1"
 
 [dev-dependencies]
