@@ -230,5 +230,8 @@ and diffing ([ADR-030](./adr/030-design-system-tokens.md)).
 
 Individual decisions are documented in [`docs/adr/`](./adr/). Start with
 [ADR-001](./adr/001-tauri-over-electron.md) for the top-level shell choice and work forward.
-[ADR-028](./adr/028-files-are-the-only-copy.md) is the record for where a note's text lives, and
-[ADR-030](./adr/030-design-system-tokens.md) for the token layer.
+[ADR-028](./adr/028-files-are-the-only-copy.md) is the record for where a note's text lives,
+[ADR-030](./adr/030-design-system-tokens.md) for the token layer, and
+[ADR-031](./adr/031-the-ai-harness-and-what-leaves-the-machine.md) for what the AI surfaces reach
+and what leaves the machine. The assertions ADR-031 is walked against are listed in
+[the threat-model checklist](./threat-model.md).
