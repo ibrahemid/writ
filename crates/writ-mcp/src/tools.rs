@@ -63,9 +63,7 @@ pub const INDEX_TOOLS: &[&str] = &[
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ToolError {
     /// The client has no approval for this direction.
-    #[error(
-        "{client} is not approved to read notes. Set enabled = true under [mcp] in Writ's config.toml."
-    )]
+    #[error("{client} is not approved. Approve it in Writ's settings, under Connected programs.")]
     NotApproved {
         /// The name the client sent.
         client: String,
@@ -833,7 +831,7 @@ mod tests {
     }
 
     #[test]
-    fn the_refusal_names_the_setting_that_turns_the_server_on() {
+    fn the_refusal_names_the_client_and_where_it_is_approved() {
         let message = ToolError::NotApproved {
             client: "Claude Code".to_string(),
             tool: "read_note".to_string(),
@@ -841,8 +839,9 @@ mod tests {
         .to_string();
 
         assert!(message.contains("Claude Code"));
-        assert!(message.contains("[mcp]"));
-        assert!(message.contains("config.toml"));
+        assert!(message.contains("Connected programs"));
+        // Direction-neutral: the same refusal answers a write tool.
+        assert!(!message.contains("read"));
     }
 
     #[test]

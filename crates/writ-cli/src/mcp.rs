@@ -10,7 +10,6 @@
 //! and the index-derived tools say so.
 
 use std::ffi::OsString;
-use std::path::Path;
 
 /// The verb this module answers to.
 pub const VERB: &str = "mcp";
@@ -49,8 +48,8 @@ pub fn help() -> String {
         "Serves the notes folder to an MCP client over stdin and stdout.",
         "The client launches this command; it opens no port.",
         "",
-        "Turn it on with `enabled = true` under [mcp] in config.toml.",
-        "Until then no tool call is answered.",
+        "Turn it on in Writ's settings, under Connected programs, and",
+        "approve this program there. Until then no tool call is answered.",
         "",
         "Environment:",
         "  WRIT_NOTES_DIR  The notes folder to read, overriding the setting.",
@@ -85,24 +84,6 @@ fn parse_rest(rest: &[OsString]) -> Result<Command, UsageError> {
         }
     }
     Ok(command)
-}
-
-/// Whether `[mcp] enabled` is set in `<writ_dir>/config.toml`.
-///
-/// Absent, unreadable or unparseable reads as off, which is the default the
-/// config type carries: nothing here turns the server on by guessing.
-pub fn server_is_enabled(writ_dir: &Path) -> bool {
-    let Ok(text) = std::fs::read_to_string(writ_dir.join("config.toml")) else {
-        return false;
-    };
-    let Ok(document) = toml::from_str::<toml::Table>(&text) else {
-        return false;
-    };
-    document
-        .get("mcp")
-        .and_then(|section| section.get("enabled"))
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -149,37 +130,10 @@ mod tests {
     }
 
     #[test]
-    fn the_help_text_names_the_command_and_the_setting() {
+    fn the_help_text_names_the_command_and_where_it_is_turned_on() {
         let help = help();
         assert!(help.contains("writ mcp"));
-        assert!(help.contains("[mcp]"));
+        assert!(help.contains("Connected programs"));
         assert!(help.contains("stdin and stdout"));
-    }
-
-    #[test]
-    fn a_folder_with_no_config_reads_as_off() {
-        let dir = tempfile::TempDir::new().expect("temp dir");
-        assert!(!server_is_enabled(dir.path()));
-    }
-
-    #[test]
-    fn a_config_without_the_section_reads_as_off() {
-        let dir = tempfile::TempDir::new().expect("temp dir");
-        std::fs::write(dir.path().join("config.toml"), "[ai]\nenabled = true\n").expect("seed");
-        assert!(!server_is_enabled(dir.path()));
-    }
-
-    #[test]
-    fn a_config_that_turns_it_on_reads_as_on() {
-        let dir = tempfile::TempDir::new().expect("temp dir");
-        std::fs::write(dir.path().join("config.toml"), "[mcp]\nenabled = true\n").expect("seed");
-        assert!(server_is_enabled(dir.path()));
-    }
-
-    #[test]
-    fn a_config_that_is_not_toml_reads_as_off() {
-        let dir = tempfile::TempDir::new().expect("temp dir");
-        std::fs::write(dir.path().join("config.toml"), "[mcp\nenabled = true").expect("seed");
-        assert!(!server_is_enabled(dir.path()));
     }
 }

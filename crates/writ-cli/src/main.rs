@@ -188,7 +188,10 @@ fn run_mcp(parsed: Result<mcp::Command, mcp::UsageError>) -> ! {
     }
 
     let (writ_dir, notes_dir) = writ_paths();
-    let gate = writ_mcp::consent::EnabledReads::new(mcp::server_is_enabled(&writ_dir));
+    // The gate reads `[mcp]` itself, on every call: this process is long-lived
+    // and an approval granted in the app has to reach it without a restart
+    // (ADR-031 rule 3.5).
+    let gate = writ_mcp::consent::ConfigGate::new(&writ_dir);
     let host = match writ_mcp::tools::ToolHost::open(
         &notes_dir,
         &writ_dir.join("writ.db"),

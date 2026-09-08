@@ -21,6 +21,8 @@ writ-storage = { path = "../writ-storage", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+# The gate reads the `[mcp]` section of config.toml on every call.
+toml = "1.1"
 tokio = { version = "1", features = ["rt", "macros", "io-std", "sync"] }
 # Pinned exactly: rmcp crossed two major versions in two months, so a bump is a
 # deliberate PR. Default features are off to keep the HTTP transports, and the
@@ -30,5 +32,4 @@ rmcp = { version = "=3.2.0", default-features = false, features = ["server", "tr
 
 [dev-dependencies]
 tempfile = "3"
-toml = "1.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "time"] }
