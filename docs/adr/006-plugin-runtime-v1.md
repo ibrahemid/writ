@@ -10,6 +10,9 @@
 > The `apply` budget is enforced by `scripts/perf-gate.sh`, run before tagging a
 > release (`docs/perf-budgets.md`). ADR-012 extends this runtime with composite
 > transforms. Nothing in the decision changed; only the status label was stale.
+> [ADR-032](./032-the-internal-surface-notes-are-reached-through.md) extends this record with the
+> internal, capability-scoped surface that reaches whole notes, and repeats the rule below that
+> no code is user-installable and nothing is loaded from disk.
 
 ## Context
 
