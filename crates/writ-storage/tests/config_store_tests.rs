@@ -55,12 +55,14 @@ fn appearance_and_status_bar_survive_a_disk_round_trip() {
     config.appearance.polarity = Polarity::Dark;
     config.appearance.accent = Accent::WritBlue;
     config.appearance.prose_face = ProseFace::Quattro;
-    config.editor.status_bar = true;
+    // Off is the non-default now, so writing it is what proves the field
+    // rides the round trip rather than falling back to the default.
+    config.editor.status_bar = false;
 
     store.write(&config).expect("write failed");
     let read_back = store.read().expect("read failed");
     assert_eq!(read_back.appearance, config.appearance);
-    assert!(read_back.editor.status_bar);
+    assert!(!read_back.editor.status_bar);
 }
 
 #[test]
@@ -75,6 +77,6 @@ fn a_config_written_before_adr_030_reads_back_with_the_new_defaults() {
     let config = ConfigStore::new(path).read().expect("read failed");
     assert_eq!(config.editor.font_size, 14);
     assert_eq!(config.theme.preset, "warp-dark");
-    assert!(!config.editor.status_bar);
+    assert!(config.editor.status_bar);
     assert_eq!(config.appearance, AppearanceConfig::default());
 }

@@ -70,7 +70,7 @@ const DEFAULT_CONFIG: WritConfig = {
   // Closed on a first launch: the window opens on a cursor and nothing else.
   panel: { open: false, width: PANEL_WIDTH_DEFAULT },
   first_run: { hint_dismissed: false },
-  editor: { font_family: "monospace", font_size: EDITOR_FONT_DEFAULT, word_wrap: true, tab_size: 2, autosave_debounce_ms: 1000, markdown_typography: true, markdown_editing: true, status_bar: false },
+  editor: { font_family: "monospace", font_size: EDITOR_FONT_DEFAULT, word_wrap: true, tab_size: 2, autosave_debounce_ms: 1000, markdown_typography: true, markdown_editing: true, status_bar: true },
   window: { width: 1100, height: 720, maximized: false },
   keybindings: {},
   history: { max_entries: 500 },

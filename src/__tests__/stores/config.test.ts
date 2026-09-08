@@ -71,6 +71,9 @@ describe("configStore", () => {
       expect(resetConfig.editor.font_size).not.toBe(18);
       expect(resetConfig.hotkey.toggle).toBeTruthy();
       expect(resetConfig.editor.autosave_debounce_ms).toBeGreaterThan(0);
+      // Matches default_status_bar in writ-core: the fallback config and the
+      // one the backend writes have to agree on what a first launch shows.
+      expect(resetConfig.editor.status_bar).toBe(true);
       consoleSpy.mockRestore();
     });
   });
