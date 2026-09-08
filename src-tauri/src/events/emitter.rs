@@ -126,6 +126,15 @@ pub enum WritFrontendEvent {
     #[serde(rename = "titlebar:maximize-hit")]
     CaptionMaximizeHit { phase: CaptionHitPhase },
 
+    /// The activity log changed by the app's own hand. The `writ mcp` process
+    /// cannot emit, so this is not every change: the panel also re-reads on
+    /// open and while it is on screen.
+    ///
+    /// Empty struct rather than a unit variant, for the reason
+    /// [`WritFrontendEvent::FlushBeforeQuit`] gives.
+    #[serde(rename = "activity:changed")]
+    ActivityChanged {},
+
     /// Whether the OS gave Writ the chord that shows and hides the window.
     /// Raised at startup and again on every rebind, so the shortcut editor can
     /// say a chord is taken rather than leaving a dead key.
@@ -154,6 +163,7 @@ fn event_name(event: &WritFrontendEvent) -> &'static str {
         WritFrontendEvent::LayoutChanged { .. } => "writ://preview-layout-changed",
         WritFrontendEvent::FlushBeforeQuit { .. } => "writ://flush-before-quit",
         WritFrontendEvent::CaptionMaximizeHit { .. } => "writ://titlebar-maximize-hit",
+        WritFrontendEvent::ActivityChanged { .. } => "writ://activity",
         WritFrontendEvent::HotkeyStatus(..) => "writ://hotkey-status",
     }
 }

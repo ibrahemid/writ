@@ -40,6 +40,19 @@ export interface AiConfig {
   consented_hosts: string[];
 }
 
+/** What one program may do with the notes folder (ADR-031 section 3). */
+export interface ClientApproval {
+  name: string;
+  first_seen: string;
+  read: boolean;
+  write: boolean;
+}
+
+export interface McpConfig {
+  enabled: boolean;
+  approved_clients: ClientApproval[];
+}
+
 export type SpellingDialect = "american" | "british" | "canadian" | "australian";
 
 /** Follow the OS setting, or pin one polarity. */
@@ -100,5 +113,6 @@ export interface WritConfig {
   inbox: InboxConfig;
   updater: UpdaterConfig;
   ai: AiConfig;
+  mcp: McpConfig;
   spelling: SpellingConfig;
 }

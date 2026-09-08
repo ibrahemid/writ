@@ -56,6 +56,19 @@ const SIDECAR_NOT_FOUND: &str = "The writ command line tool could not be located
 /// nowhere on the user's PATH.
 const INSTALL_TARGET: &str = "/usr/local/bin/writ";
 
+/// The `writ` command a client is pointed at when this build bundles none.
+///
+/// Unix takes the linked copy, which is where [`install_cli`] puts it. Windows
+/// has no such directory: the installer puts `writ.exe` on the PATH itself, so
+/// the bare name is what resolves there.
+pub(crate) fn path_command_fallback() -> &'static str {
+    if cfg!(windows) {
+        "writ.exe"
+    } else {
+        INSTALL_TARGET
+    }
+}
+
 /// What [`install_cli`] answers on a platform with nowhere to put the command.
 const INSTALL_UNSUPPORTED: &str =
     "The writ command is already on your PATH; Writ's installer puts it there.";
@@ -75,12 +88,14 @@ fn sidecar_candidate(exe_dir: &Path) -> std::path::PathBuf {
     exe_dir.join(sidecar_name())
 }
 
-/// Resolves the path to the bundled `writ` sidecar binary.
+/// The bundled `writ` binary this build ships, when it is there.
 ///
 /// Anchored on the running executable rather than the resource directory: Tauri
 /// places sidecars beside the main binary, while `resource_dir()` points at a
-/// sibling `Resources/` folder that does not contain it.
-fn resolve_sidecar_path() -> Option<std::path::PathBuf> {
+/// sibling `Resources/` folder that does not contain it. Also what the
+/// connected-programs row hands a client, so the command it is given names the
+/// build that is running.
+pub(crate) fn bundled_cli_path() -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let candidate = sidecar_candidate(exe.parent()?);
     candidate.exists().then_some(candidate)
@@ -177,7 +192,7 @@ pub fn install_cli() -> Result<InstallCliResult, String> {
         return Err(INSTALL_UNSUPPORTED.to_string());
     }
     let target = std::path::PathBuf::from(INSTALL_TARGET);
-    let sidecar = resolve_sidecar_path().ok_or_else(|| SIDECAR_NOT_FOUND.to_string())?;
+    let sidecar = bundled_cli_path().ok_or_else(|| SIDECAR_NOT_FOUND.to_string())?;
     let manual = format!("ln -sf \"{}\" \"{}\"", sidecar.display(), target.display());
 
     match link_directly(&sidecar, &target) {
