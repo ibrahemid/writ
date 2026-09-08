@@ -12,6 +12,7 @@ import SearchPalette, { toggleSearchPalette } from "./components/SearchPalette/S
 import ThemeEditor, { openThemeEditor } from "./components/ThemeEditor/ThemeEditor";
 import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/ShortcutEditor";
 import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
+import ActivityPanel, { openActivity } from "./components/Activity/ActivityPanel";
 import NotesMigrationReport from "./components/NotesMigrationReport/NotesMigrationReport";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
 import { renameLinksStore } from "./stores/global/rename-links";
@@ -726,6 +727,15 @@ function AppShell() {
     });
 
     registerCommand({
+      id: "activity.open",
+      icon: "list-bullets",
+      label: "Activity",
+      description: "What connected programs did with your notes",
+      scope: "app",
+      execute: () => openActivity(),
+    });
+
+    registerCommand({
       id: "settings.open",
       icon: "gear",
       label: "Settings",
@@ -901,6 +911,7 @@ function AppShell() {
       <CommandPalette />
       <SearchPalette />
       <SettingsModal />
+      <ActivityPanel />
       <ThemeEditor />
       <ShortcutEditor />
       <ContextMenu />

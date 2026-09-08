@@ -12,6 +12,7 @@ import {
   type ClientApproval,
   type McpServerCommand,
 } from "../../services/tauri";
+import { writeClipboardText } from "../../services/clipboard";
 import { logFailure } from "../../lib/log";
 
 export type { ActivityRecord, ClientApproval, McpServerCommand };
@@ -92,16 +93,24 @@ function subscribe(): Promise<UnlistenFn> {
 /** Reads the log, the approvals and the command, and starts listening. */
 async function load(): Promise<void> {
   void subscribe();
-  await Promise.all([refresh(), refreshClients(), loadServerCommand()]);
+  await Promise.all([refresh(), refreshClients(), loadCommand()]);
 }
 
-async function loadServerCommand(): Promise<void> {
+/** Reads the command a client is given, once per session. */
+async function loadCommand(): Promise<void> {
   if (serverCommand()) return;
   try {
     setServerCommand(await mcpServerCommand());
   } catch {
     logFailure("the server command could not be read");
   }
+}
+
+/** Puts the command on the clipboard, for pasting into a client. */
+async function copyCommand(): Promise<void> {
+  const command = serverCommand()?.command;
+  if (!command) return;
+  await writeClipboardText(command);
 }
 
 /** Forgets both generations of the log. */
@@ -132,6 +141,8 @@ export const activityStore = {
   load,
   refresh,
   refreshClients,
+  loadCommand,
+  copyCommand,
   clear,
   setPermission,
   forget,

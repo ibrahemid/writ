@@ -1,0 +1,190 @@
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { render, cleanup, fireEvent } from "@solidjs/testing-library";
+
+import type { ActivityRecord } from "../../services/tauri";
+
+const h = await vi.hoisted(async () => {
+  const { createSignal } = await import("solid-js");
+  const [records, setRecords] = createSignal<ActivityRecord[]>([]);
+  return {
+    records,
+    setRecords,
+    load: vi.fn().mockResolvedValue(undefined),
+    refresh: vi.fn().mockResolvedValue(undefined),
+    clear: vi.fn().mockResolvedValue(undefined),
+    setPermission: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+vi.mock("../../stores/global/activity", () => ({
+  ACTIVITY_POLL_MS: 5_000,
+  activityStore: {
+    records: h.records,
+    load: h.load,
+    refresh: h.refresh,
+    clear: h.clear,
+    setPermission: h.setPermission,
+  },
+}));
+
+import ActivityPanel, {
+  openActivity,
+  closeActivity,
+} from "../../components/Activity/ActivityPanel";
+
+function record(over: Partial<ActivityRecord> = {}): ActivityRecord {
+  return {
+    at: "2026-09-09T10:30:00.000Z",
+    actor: { kind: "client", name: "Claude Code", version: "1.2.3" },
+    action: "read_note",
+    path: "Ideas/Tessera.md",
+    decision: "allow",
+    bytes: 412,
+    ...over,
+  };
+}
+
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  closeActivity();
+  h.setRecords([]);
+  h.load.mockClear();
+  h.refresh.mockClear();
+  h.clear.mockClear();
+  h.setPermission.mockClear();
+  vi.useRealTimers();
+  cleanup();
+});
+
+describe("ActivityPanel", () => {
+  it("renders nothing until it is opened", () => {
+    const { container } = render(() => <ActivityPanel />);
+    expect(container.querySelector(".activity-modal")).toBeNull();
+  });
+
+  it("renders one line when nothing has called yet", () => {
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    const empty = container.querySelectorAll(".activity-empty");
+    expect(empty).toHaveLength(1);
+    expect(empty[0].textContent).toBe("No program has called yet.");
+    expect(container.querySelector(".activity-list")).toBeNull();
+  });
+
+  it("gives a waiting row both approve controls and an allowed row none", () => {
+    h.setRecords([
+      record({ decision: "pending", action: "read_note" }),
+      record({ decision: "allow", actor: { kind: "client", name: "Zed", version: null } }),
+    ]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    const rows = Array.from(container.querySelectorAll(".activity-row"));
+    expect(rows).toHaveLength(2);
+
+    expect(rows[0].querySelector('[data-action="approve-read"]')).not.toBeNull();
+    expect(rows[0].querySelector('[data-action="approve-write"]')).not.toBeNull();
+    expect(rows[0].querySelector(".activity-verdict")!.textContent).toBe("Waiting");
+
+    expect(rows[1].querySelector('[data-action="approve-read"]')).toBeNull();
+    expect(rows[1].querySelector('[data-action="approve-write"]')).toBeNull();
+    expect(rows[1].querySelector(".activity-verdict")!.textContent).toBe("Allowed");
+  });
+
+  it("names the program, the call and the note on a row", () => {
+    h.setRecords([record()]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    const row = container.querySelector(".activity-row")!;
+    expect(row.querySelector(".activity-program")!.textContent).toBe("Claude Code");
+    expect(row.querySelector(".activity-action")!.textContent).toBe("read_note");
+    expect(row.querySelector(".activity-note")!.textContent).toBe("Ideas/Tessera.md");
+  });
+
+  it("says what happens next on a waiting row", () => {
+    h.setRecords([record({ decision: "pending" })]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    expect(container.querySelector(".activity-decide-line")!.textContent!.trim()).toBe(
+      "Nothing is read or written until you approve it.",
+    );
+  });
+
+  it("approving reading asks the store once, for reading only", () => {
+    h.setRecords([record({ decision: "pending" })]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    fireEvent.click(container.querySelector('[data-action="approve-read"]')!);
+
+    expect(h.setPermission).toHaveBeenCalledTimes(1);
+    expect(h.setPermission).toHaveBeenCalledWith("Claude Code", true, false);
+  });
+
+  it("approving writing asks for both directions", () => {
+    h.setRecords([record({ decision: "pending" })]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    fireEvent.click(container.querySelector('[data-action="approve-write"]')!);
+
+    expect(h.setPermission).toHaveBeenCalledWith("Claude Code", true, true);
+  });
+
+  it("the row follows the store once the approval lands", () => {
+    h.setRecords([record({ decision: "pending" })]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+    expect(container.querySelector('[data-action="approve-read"]')).not.toBeNull();
+
+    h.setRecords([record({ decision: "allow" })]);
+
+    expect(container.querySelector('[data-action="approve-read"]')).toBeNull();
+    expect(container.querySelector(".activity-verdict")!.textContent).toBe("Allowed");
+  });
+
+  it("clearing asks the store", () => {
+    h.setRecords([record()]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    fireEvent.click(container.querySelector('[data-action="activity-clear"]')!);
+
+    expect(h.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers no clear control with nothing to clear", () => {
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+    expect(container.querySelector('[data-action="activity-clear"]')).toBeNull();
+  });
+
+  it("polls only while it is on screen", () => {
+    render(() => <ActivityPanel />);
+
+    // Closed: no interval was ever started.
+    vi.advanceTimersByTime(20_000);
+    expect(h.refresh).not.toHaveBeenCalled();
+
+    openActivity();
+    vi.advanceTimersByTime(10_000);
+    expect(h.refresh).toHaveBeenCalledTimes(2);
+
+    closeActivity();
+    h.refresh.mockClear();
+    vi.advanceTimersByTime(20_000);
+    expect(h.refresh).not.toHaveBeenCalled();
+  });
+
+  it("reads the log when it opens", () => {
+    openActivity();
+    render(() => <ActivityPanel />);
+    expect(h.load).toHaveBeenCalledTimes(1);
+  });
+});
