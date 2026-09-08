@@ -12,6 +12,7 @@
 //! - [`database`]: raw connection management, migrations, and query
 //!   primitives.
 //! - [`buffer_store`]: high-level buffer CRUD on top of `database`.
+//! - [`guarded`]: the one way a note's file is written.
 //! - [`config_store`]: TOML config load and save.
 //! - [`consistency`]: startup checks that reconcile the database with the
 //!   files the notes live in.
@@ -49,6 +50,8 @@ pub mod consistency;
 pub mod database;
 /// Crate-wide error and result types.
 pub mod errors;
+/// The one way a note's file is written (ADR-028 section 5).
+pub mod guarded;
 /// Watched-inbox file listing.
 pub mod inbox_store;
 /// Per-buffer preview layout persistence (ADR-009).

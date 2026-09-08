@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use writ_core::notes::links::Resolution;
 use writ_core::notes::{
-    name_is_taken, note_display_name, note_file_stem, rename_stem, NAME_IS_EMPTY,
+    name_is_taken, note_display_name, note_file_stem, rename_stem, WriteOrigin, NAME_IS_EMPTY,
 };
 use writ_storage::database::migrations::binary_schema_version;
 use writ_storage::errors::StorageError;
@@ -746,7 +746,7 @@ fn path_outcome(json: bool, path: &Path, previous: Option<&Path>) -> Outcome {
 /// suppress.
 fn new_note(name: Option<&str>, json: bool, ctx: &Context) -> Outcome {
     let stem = note_file_stem(name.unwrap_or(""), ctx.now);
-    match note_ops::create_note(&ctx.notes_dir, &stem, None) {
+    match note_ops::create_note(&ctx.notes_dir, &stem, WriteOrigin::Cli, None) {
         Ok(path) => path_outcome(json, &path, None),
         Err(error) => Outcome::failed(format!(
             "cannot create a note in {}: {}",
@@ -777,7 +777,7 @@ fn rename_note(arg: &str, new_name: &str, json: bool, ctx: &Context) -> Outcome 
     let Some(stem) = rename_stem(&from, new_name) else {
         return Outcome::failed(NAME_IS_EMPTY.to_string());
     };
-    match note_ops::rename_note(&from, &stem, None, None) {
+    match note_ops::rename_note(&from, &stem, None, WriteOrigin::Cli, None) {
         Ok(to) => path_outcome(json, &to, Some(&from)),
         Err(error) => Outcome::failed(format!(
             "cannot rename {}: {}",

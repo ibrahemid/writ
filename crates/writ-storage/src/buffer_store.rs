@@ -6,16 +6,18 @@ use writ_core::file_ops::THRESHOLD_NORMAL_BYTES;
 use rusqlite::Connection;
 use tracing::warn;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
-use writ_core::hash::Sha256Digest;
-use writ_core::notes::guard::{decide_save, is_not_downloaded, DiskState, SaveDecision};
+use writ_core::notes::guard::{is_not_downloaded, DiskState};
 use writ_core::notes::line_ending::LineEnding;
+use writ_core::notes::WriteOrigin;
 use writ_core::recovery::{
     fingerprint_buffers, should_snapshot, RecoveredBuffer, SnapshotFingerprint,
 };
 
-use crate::atomic::{write_atomic, AtomicWriteError};
 use crate::database::queries;
 use crate::errors::{StorageError, StorageResult};
+use crate::guarded::{
+    write_note_guarded, write_recovered_copy, ConflictPolicy, DiskRead, GuardedWrite,
+};
 use crate::maintenance::{self, DatabaseStats, MaintenanceOutcome};
 use crate::notes_index;
 use crate::recovery::dirty_shutdown::check_dirty_shutdown;
@@ -584,13 +586,11 @@ impl BufferStore {
     /// rejected rather than written anywhere else: the caller has to attach a
     /// file first ([`Self::attach_source_path`]).
     ///
-    /// The decision is [`decide_save`]'s. When it stops the write, the
-    /// incoming text is written beside the note as a dated copy first, so a
-    /// refusal never ends with the user's text nowhere (ADR-028 §5), and the
-    /// error names where it went.
-    ///
-    /// A file whose bytes are not on this machine is stopped before the
-    /// compare read, because that read is what would pull it down.
+    /// The guard is [`write_note_guarded`]'s, and so is everything that
+    /// follows from it: the dated copy a refusal leaves beside the note, and
+    /// the refusal of a file whose bytes are not on this machine. What this
+    /// adds is the row — the read-only check, the file the note is attached
+    /// to, and the line ending that file keeps.
     ///
     /// # Errors
     ///
@@ -622,59 +622,34 @@ impl BufferStore {
             .clone();
         let path = Path::new(&source_path);
 
-        if is_not_downloaded(dataless_flags(path)) {
-            return Err(StorageError::SourceNotDownloaded { path: source_path });
-        }
-
         // The file's own line ending goes back on before anything is hashed,
         // so the digest compared against the disk is a digest of the bytes
         // that will land there. Hashing the editor's LF text instead would
         // make every save of an untouched Windows note look like a change.
         let content = doc.line_ending.apply(content);
-        let content = content.as_ref();
 
-        let incoming = writ_core::hash::sha256_bytes(content.as_bytes());
-        let on_disk = read_disk_state(path)?;
-        let decision = decide_save(last_known.as_ref(), on_disk.as_ref(), incoming);
-
-        // The two decisions that stop a write can only come from a file that
-        // is there, so the arms that read one are the only ones that need it.
-        // A `None` alongside either could only mean the file went missing
-        // between the two reads, which proceeds.
-        match (decision, on_disk) {
-            (SaveDecision::AlreadyIdentical, Some(state)) => Ok((doc, state)),
-            (SaveDecision::Refuse, Some(state)) => {
-                let conflict_copy = match write_conflict_copy(
-                    path,
-                    content,
-                    chrono::Utc::now(),
-                    before_write,
-                ) {
-                    Ok(written) => Some(written.to_string_lossy().into_owned()),
-                    Err(e) => {
-                        warn!(path = %path.display(), error = %e, "the copy beside the note could not be written");
-                        None
-                    }
-                };
-                Err(StorageError::SourceChangedOnDisk {
-                    path: source_path,
-                    disk_hash: writ_core::hash::digest_hex(state.hash),
-                    conflict_copy,
-                })
-            }
-            _ => {
-                write_guarded_by_stamp(path, content.as_bytes(), before_write)?;
-                Ok((doc, written_state(path, incoming, content.len() as u64)))
-            }
-        }
+        let outcome = write_note_guarded(
+            GuardedWrite {
+                target: path,
+                bytes: content.as_bytes(),
+                last_known,
+                on_disk: DiskRead::Fresh,
+                dataless: None,
+                origin: WriteOrigin::Editor,
+                on_conflict: ConflictPolicy::RefuseWithCopy,
+                history: None,
+            },
+            before_write,
+        )?;
+        Ok((doc, outcome.disk_state))
     }
 
     /// Writes text recovered from the crash snapshot into the note's file,
     /// unless the file moved on while Writ was down.
     ///
     /// The relaunch is the one caller that holds text and no record of the
-    /// file it belongs to, so [`decide_save`] has nothing to compare and would
-    /// proceed. It must not: a sync client can deliver a newer version of a
+    /// file it belongs to, so the guard has nothing to compare and would let
+    /// it through. It must not: a sync client can deliver a newer version of a
     /// note between the crash and the relaunch, and writing a pre-crash
     /// snapshot over it destroys work with nothing left to recover it from.
     ///
@@ -771,16 +746,26 @@ impl BufferStore {
             // to restore. Writing it anyway would move the modification time
             // and swap the inode for bytes that did not change, which a sync
             // client reads as an edit and uploads. Same answer the save path
-            // gives ([`SaveDecision::AlreadyIdentical`]).
+            // gives.
             return Ok(RecoveredText::Restored(state));
         }
 
-        write_guarded_by_stamp(path, content.as_bytes(), before_write)?;
-        Ok(RecoveredText::Restored(written_state(
-            path,
-            incoming,
-            content.len() as u64,
-        )))
+        let outcome = write_note_guarded(
+            GuardedWrite {
+                target: path,
+                bytes: content.as_bytes(),
+                last_known: None,
+                // The read above found no file at the path, so there is
+                // nothing for the guard to weigh the write against.
+                on_disk: DiskRead::Read(None),
+                dataless,
+                origin: WriteOrigin::Restore,
+                on_conflict: ConflictPolicy::RefuseOnly,
+                history: None,
+            },
+            before_write,
+        )?;
+        Ok(RecoveredText::Restored(outcome.disk_state))
     }
 
     /// Records the line ending read off the note's file.
@@ -1018,19 +1003,6 @@ pub fn read_disk_state(path: &Path) -> StorageResult<Option<DiskState>> {
     Ok(read_note_file_state(path)?.map(|state| state.disk))
 }
 
-/// The state of a file just written, without reading it back.
-///
-/// The digest and the length are what was written; only the modification time
-/// has to come from the filesystem, and a file whose metadata cannot be read
-/// records none rather than failing a save that already landed.
-fn written_state(path: &Path, hash: Sha256Digest, size: u64) -> DiskState {
-    DiskState {
-        hash,
-        size,
-        mtime: std::fs::metadata(path).ok().and_then(|m| m.modified().ok()),
-    }
-}
-
 /// The names `dir` already holds, lowercased the way the dedupe compares them.
 pub(crate) fn taken_names(dir: &Path) -> std::collections::HashSet<String> {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -1040,135 +1012,6 @@ pub(crate) fn taken_names(dir: &Path) -> std::collections::HashSet<String> {
         .filter_map(Result::ok)
         .map(|entry| entry.file_name().to_string_lossy().to_lowercase())
         .collect()
-}
-
-/// Writes `content` beside `note_path` as a dated copy and returns the path
-/// written.
-///
-/// This is what keeps a refused save from ending with the user's text nowhere
-/// (ADR-028 §5). The name comes from [`writ_core::notes::conflict_file_name`]
-/// and dedupes Finder-style, so two refusals inside the same second produce
-/// two files rather than one overwriting the other.
-///
-/// # Errors
-///
-/// [`StorageError::Consistency`] when the note has no folder to be written
-/// beside, and [`StorageError::Io`] when the copy cannot be written.
-pub fn write_conflict_copy(
-    note_path: &Path,
-    content: &str,
-    now: chrono::DateTime<chrono::Utc>,
-    before_write: BeforeWrite<'_>,
-) -> StorageResult<PathBuf> {
-    write_beside(
-        note_path,
-        content,
-        before_write,
-        |stem, now| writ_core::notes::conflict_file_name(stem, "", now),
-        now,
-    )
-}
-
-/// Writes `content` beside `note_path` as a dated copy the crash snapshot was
-/// holding, and returns the path written.
-///
-/// The relaunch counterpart of [`write_conflict_copy`]: same folder, same
-/// dedupe, a name that says where the text came from
-/// ([`writ_core::notes::recovered_file_name`]).
-///
-/// # Errors
-///
-/// [`StorageError::Consistency`] when the note has no folder to be written
-/// beside, and [`StorageError::Io`] when the copy cannot be written.
-pub fn write_recovered_copy(
-    note_path: &Path,
-    content: &str,
-    now: chrono::DateTime<chrono::Utc>,
-    before_write: BeforeWrite<'_>,
-) -> StorageResult<PathBuf> {
-    write_beside(
-        note_path,
-        content,
-        before_write,
-        |stem, now| writ_core::notes::recovered_file_name(stem, "", now),
-        now,
-    )
-}
-
-/// The shared half of both dated copies: name from `name_stem`, dedupe against
-/// the folder, stamp, write.
-fn write_beside(
-    note_path: &Path,
-    content: &str,
-    before_write: BeforeWrite<'_>,
-    name_stem: impl Fn(&str, chrono::DateTime<chrono::Utc>) -> String,
-    now: chrono::DateTime<chrono::Utc>,
-) -> StorageResult<PathBuf> {
-    let dir = note_path
-        .parent()
-        .ok_or_else(|| StorageError::Consistency {
-            message: format!("{} has no folder to be written beside", note_path.display()),
-        })?;
-    let stem = note_path
-        .file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let extension = note_path
-        .extension()
-        .map(|ext| ext.to_string_lossy().into_owned())
-        .unwrap_or_default();
-
-    let name =
-        writ_core::notes::dedupe_file_name(&name_stem(&stem, now), &extension, &taken_names(dir));
-    let target = dir.join(name);
-    write_guarded_by_stamp(&target, content.as_bytes(), before_write)?;
-    Ok(target)
-}
-
-/// Refuses, stamps, then writes, in that order.
-///
-/// Every write this crate performs goes through here, because a write the
-/// caller has not been told about first is a write its watcher reads as
-/// somebody else's edit. [`write_atomic`] has this one call site so that no
-/// future write can skip the stamp by reaching past it.
-///
-/// The destination is asked whether it can be replaced before the stamp
-/// rather than after: an ignore entry for a write that never happens is one
-/// the watcher spends on the next real change carrying those bytes.
-/// [`write_atomic`] asks again, so a caller reaching for it directly is
-/// covered too.
-pub(crate) fn write_guarded_by_stamp(
-    target: &Path,
-    bytes: &[u8],
-    before_write: BeforeWrite<'_>,
-) -> StorageResult<()> {
-    crate::atomic::refuse_unreplaceable_destination(target)
-        .map_err(|e| refusal_as_storage_error(target, e))?;
-    if let Some(stamp) = before_write {
-        stamp(target, bytes);
-    }
-    write_atomic(target, bytes).map_err(|e| refusal_as_storage_error(target, e))
-}
-
-/// Names the file a refused write was aimed at.
-///
-/// [`AtomicWriteError`] knows what it found and nothing about where; the
-/// error the editor reads has to carry the path, because it is what the
-/// message names.
-fn refusal_as_storage_error(target: &Path, error: AtomicWriteError) -> StorageError {
-    match error {
-        AtomicWriteError::HardLinked { links } => StorageError::HardLinkedDestination {
-            path: target.display().to_string(),
-            links,
-        },
-        AtomicWriteError::ReadOnly => StorageError::DestinationReadOnly {
-            path: target.display().to_string(),
-        },
-        AtomicWriteError::FolderNotWritable => StorageError::DestinationFolderNotWritable {
-            path: target.display().to_string(),
-        },
-        AtomicWriteError::Io(e) => StorageError::Io(e),
-    }
 }
 
 fn read_source_text(doc: &BufferDocument) -> String {
