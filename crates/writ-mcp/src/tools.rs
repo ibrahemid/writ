@@ -131,7 +131,8 @@ pub struct NoteContent {
 pub struct SearchResult {
     /// The note's path.
     pub path: String,
-    /// What the note is called.
+    /// What the note is called: the file name without its extension, the same
+    /// shape `list_notes` takes back.
     pub name: String,
     /// 1-based line the match is on, or `None` when the name matched.
     pub line: Option<u32>,
@@ -336,15 +337,18 @@ impl ToolHost {
 
         Ok(hits
             .into_iter()
-            .map(|hit| SearchResult {
-                path: hit.path.unwrap_or_default(),
-                name: hit.title,
-                line: hit.line,
-                excerpt: hit
-                    .snippet
-                    .into_iter()
-                    .map(|segment| segment.text)
-                    .collect(),
+            .map(|hit| {
+                let path = hit.path.unwrap_or_default();
+                SearchResult {
+                    name: writ_core::notes::note_display_name(&path),
+                    path,
+                    line: hit.line,
+                    excerpt: hit
+                        .snippet
+                        .into_iter()
+                        .map(|segment| segment.text)
+                        .collect(),
+                }
             })
             .collect())
     }
@@ -826,6 +830,23 @@ mod tests {
             resolved.resolved_path,
             Some(key(&fixture.notes.join("Tessera.md")))
         );
+    }
+
+    #[test]
+    fn the_two_listing_tools_name_a_note_the_same_way() {
+        let fixture = fixture();
+        write_note(&fixture, "Launch.md", "the rerank pass ships on Monday");
+        build_index(&fixture);
+        let host = host(&fixture);
+
+        let listed = host.list_notes(&client(), None, 100).expect("list");
+        let found = host.search_notes(&client(), "rerank", 50).expect("search");
+
+        assert_eq!(listed.len(), 1);
+        assert_eq!(found.len(), 1);
+        assert_eq!(listed[0].path, found[0].path);
+        assert_eq!(listed[0].name, found[0].name);
+        assert_eq!(listed[0].name, "Launch");
     }
 
     #[test]
