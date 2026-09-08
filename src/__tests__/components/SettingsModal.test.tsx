@@ -23,6 +23,8 @@ vi.hoisted(() => {
 const mocks = vi.hoisted(() => ({
   accentApplies: vi.fn(() => true),
   activePresetId: vi.fn(() => "warp-dark"),
+  polarity: vi.fn(() => "light"),
+  setPreset: vi.fn(),
   save: vi.fn().mockResolvedValue(undefined),
   config: vi.fn(),
   focusEditor: vi.fn(),
@@ -139,10 +141,10 @@ vi.mock("../../components/ShortcutEditor/ShortcutEditor", () => ({
 
 vi.mock("../../stores/global/theme", () => ({
   themeStore: {
-    setPreset: vi.fn(),
+    setPreset: mocks.setPreset,
     setAppearance: vi.fn(),
     accentApplies: () => mocks.accentApplies(),
-    polarity: () => "light",
+    polarity: () => mocks.polarity(),
     activePreset: () => ({ id: mocks.activePresetId() }),
   },
 }));
@@ -191,6 +193,8 @@ describe("SettingsModal", () => {
     mocks.save.mockReset().mockResolvedValue(undefined);
     mocks.accentApplies.mockReset().mockReturnValue(true);
     mocks.activePresetId.mockReset().mockReturnValue("warp-dark");
+    mocks.polarity.mockReset().mockReturnValue("light");
+    mocks.setPreset.mockReset();
     mocks.config.mockReset().mockReturnValue(baseConfig());
     mocks.openThemeEditor.mockReset();
     mocks.openShortcutEditor.mockReset();
@@ -391,6 +395,22 @@ describe("SettingsModal", () => {
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
     const saved = mocks.save.mock.calls[0][0] as WritConfig;
     expect(saved.theme.preset).toBe("warp-light");
+  });
+
+  // Choosing a preset is a light/dark choice. Left on system, the pair swap
+  // rendered the dark half under the name the user had just picked, so the
+  // pinned polarity has to reach disk with the preset, in one write.
+  it("saves the preset and the polarity it pins in one write", async () => {
+    mocks.polarity.mockReturnValue("light");
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+    const presetSelect = container.querySelector<HTMLSelectElement>("[data-setting='theme_preset']");
+    fireEvent.change(presetSelect!, { target: { value: "warp-light" } });
+    expect(mocks.setPreset).toHaveBeenCalledWith("warp-light");
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
+    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    expect(saved.theme.preset).toBe("warp-light");
+    expect(saved.appearance.polarity).toBe("light");
   });
 
   // The stored preset is one half of a pair; polarity picks the half that

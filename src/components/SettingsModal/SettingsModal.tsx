@@ -1188,7 +1188,14 @@ function AppearanceSection() {
 
   function onPresetChange(id: string) {
     themeStore.setPreset(id);
-    void patchConfig((prev) => ({ ...prev, theme: { ...prev.theme, preset: id } }));
+    // The preset pins the polarity it belongs to, so the row that renders and
+    // the config on disk agree. Both go out in the same write.
+    const polarity = themeStore.polarity();
+    void patchConfig((prev) => ({
+      ...prev,
+      theme: { ...prev.theme, preset: id },
+      appearance: { ...prev.appearance, polarity },
+    }));
   }
 
   function patchAppearance(patch: Partial<AppearanceConfig>) {

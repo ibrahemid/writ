@@ -109,7 +109,7 @@ fn default_theme_preset() -> String {
 }
 
 fn default_status_bar() -> bool {
-    false
+    true
 }
 
 fn default_polarity() -> Polarity {
@@ -683,9 +683,9 @@ mod tests {
     }
 
     #[test]
-    fn editor_status_bar_defaults_off() {
+    fn editor_status_bar_defaults_on() {
         let config: WritConfig = toml::from_str("").unwrap();
-        assert!(!config.editor.status_bar);
+        assert!(config.editor.status_bar);
     }
 
     #[test]
@@ -785,7 +785,7 @@ mod tests {
         let config: WritConfig = toml::from_str(source).unwrap();
         assert_eq!(config.editor.font_size, 14);
         assert!(!config.editor.word_wrap);
-        assert!(!config.editor.status_bar);
+        assert!(config.editor.status_bar);
         assert_eq!(config.theme.preset, "warp-dark");
         assert_eq!(config.appearance, AppearanceConfig::default());
     }

@@ -41,6 +41,7 @@ import { inboxStore } from "./stores/global/inbox";
 import { updateStore } from "./stores/global/update";
 import { hotkeyStore } from "./stores/global/hotkey";
 import { configStore } from "./stores/global/config";
+import { syncConfigFromDisk } from "./stores/global/config-sync";
 import { themeStore } from "./stores/global/theme";
 import { osWindowStore } from "./stores/global/os-window";
 import { windowRegistry } from "./stores/global/window-registry";
@@ -803,7 +804,7 @@ function AppShell() {
     unlisteners.push(uninstallKeyboardHandler);
 
     const unlisten1 = await onEvent("config:changed", () => {
-      configStore.load();
+      void syncConfigFromDisk();
     });
     unlisteners.push(unlisten1);
 

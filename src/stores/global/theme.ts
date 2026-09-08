@@ -175,10 +175,19 @@ export const themeStore = {
     }
   },
 
+  /**
+   * Picking a preset by name is also a light/dark choice, so it pins
+   * `appearance.polarity` to the preset's own side. Left on `system`, the pair
+   * swap would render the other half under the name the user just chose, and
+   * the picker could never produce a light app on a dark system.
+   */
   setPreset(id: string): void {
-    if (!getPreset(id)) return;
+    const preset = getPreset(id);
+    if (!preset) return;
     batch(() => {
       setPresetId(id);
+      const own = preset.polarity;
+      if (own) setAppearanceSignal((prev) => ({ ...prev, polarity: own }));
       this.applyToRoot();
     });
   },

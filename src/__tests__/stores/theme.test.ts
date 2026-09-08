@@ -109,8 +109,10 @@ describe("themeStore", () => {
   });
 
   it("system polarity swaps within a preset pair", () => {
-    themeStore.setAppearance({ polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null });
+    // Appearance last: choosing a preset pins its own polarity, so the stored
+    // preset has to be in place before the setting goes back to system.
     themeStore.setPreset("warp-dark");
+    themeStore.setAppearance({ polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null });
     themeStore.setSystemPolarity("light");
     expect(themeStore.activePreset().id).toBe("warp-light");
     themeStore.setSystemPolarity("dark");
@@ -118,11 +120,73 @@ describe("themeStore", () => {
   });
 
   it("a preset with no pair ignores system polarity", () => {
-    themeStore.setAppearance({ polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null });
-    themeStore.setPreset("tokyo-night");
+    // Loaded from disk, not picked: the picker pins a polarity, so a saved
+    // config is the way an unpaired preset sits under the system setting.
+    themeStore.loadConfig(
+      { preset: "tokyo-night", overrides: {} },
+      { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
+    );
     themeStore.setSystemPolarity("light");
     expect(themeStore.activePreset().id).toBe("tokyo-night");
     expect(themeStore.polarity()).toBe("dark");
+  });
+
+  it("choosing a preset pins its own polarity", () => {
+    // The bug: on a dark system with polarity following it, picking Writ Light
+    // set the preset and the pair swap put writ-dark back on the screen.
+    const root = fakeRoot();
+    themeStore.loadConfig(
+      { preset: "warp-dark", overrides: {} },
+      { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
+    );
+    themeStore.setSystemPolarity("dark");
+    themeStore.setPreset("writ-light");
+    themeStore.applyToRoot(root);
+    expect(themeStore.activePreset().id).toBe("writ-light");
+    expect(themeStore.polarity()).toBe("light");
+    expect(themeStore.appearance().polarity).toBe("light");
+    expect(root.getAttribute("data-theme")).toBe("light");
+  });
+
+  it("choosing a dark preset under a light system pins dark", () => {
+    themeStore.loadConfig(
+      { preset: "writ-light", overrides: {} },
+      { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
+    );
+    themeStore.setSystemPolarity("light");
+    themeStore.setPreset("warp-dark");
+    expect(themeStore.activePreset().id).toBe("warp-dark");
+    expect(themeStore.polarity()).toBe("dark");
+    expect(themeStore.appearance().polarity).toBe("dark");
+  });
+
+  it("an unpaired preset pins the one polarity it has", () => {
+    themeStore.loadConfig(
+      { preset: "writ-light", overrides: {} },
+      { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
+    );
+    themeStore.setPreset("tokyo-night");
+    expect(themeStore.appearance().polarity).toBe("dark");
+  });
+
+  it("System after a preset choice follows the system again", () => {
+    themeStore.setPreset("writ-light");
+    expect(themeStore.appearance().polarity).toBe("light");
+    themeStore.setAppearance({ polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null });
+    themeStore.setSystemPolarity("dark");
+    expect(themeStore.activePreset().id).toBe("writ-dark");
+    themeStore.setSystemPolarity("light");
+    expect(themeStore.activePreset().id).toBe("writ-light");
+  });
+
+  it("loading a saved config leaves the system setting alone", () => {
+    // Boot must not pin: a config that says system has to still say system
+    // after the preset it stores is applied.
+    themeStore.loadConfig(
+      { preset: "warp-dark", overrides: {} },
+      { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
+    );
+    expect(themeStore.appearance().polarity).toBe("system");
   });
 
   it("setOverride takes precedence over preset values", () => {
@@ -157,6 +221,7 @@ describe("themeStore", () => {
   it("ignores unknown preset ids", () => {
     themeStore.setPreset("does-not-exist");
     expect(themeStore.presetId()).toBe("warp-dark");
+    expect(themeStore.appearance().polarity).toBe("dark");
   });
 
   it("swaps the prose face token only when the alternate is chosen", () => {

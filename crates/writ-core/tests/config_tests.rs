@@ -119,13 +119,14 @@ fn config_round_trip_preserves_appearance_and_status_bar() {
     config.appearance.polarity = Polarity::Dark;
     config.appearance.accent = Accent::Terracotta;
     config.appearance.prose_face = ProseFace::Quattro;
-    config.editor.status_bar = true;
+    // The default is on, so off is the value a round trip has to carry.
+    config.editor.status_bar = false;
 
     let toml_str = toml::to_string(&config).expect("serialization failed");
     assert!(toml_str.contains("[appearance]"), "{toml_str}");
     let restored: WritConfig = toml::from_str(&toml_str).expect("deserialization failed");
     assert_eq!(restored.appearance, config.appearance);
-    assert!(restored.editor.status_bar);
+    assert!(!restored.editor.status_bar);
 }
 
 #[test]

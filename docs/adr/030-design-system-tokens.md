@@ -355,9 +355,9 @@ segment, and a single circular close button at the right from
 - **Dark is the baseline dark neutrals**, not the old `#0e0e14` palette.
 - **Accent is pine**, with writ-blue, terracotta, slate, plum and gold offered
   in Settings.
-- **The status bar is off by default**, behind `editor.status_bar`. When on it
-  carries Ln/Col, language, encoding and word count. When off, the word count
-  shows at the top right of the editor.
+- **The status bar is on by default**, behind `editor.status_bar`. It carries
+  Ln/Col, language, encoding and word count. `editor.status_bar = false` hides
+  it, and the word count shows at the top right of the editor.
 - **The command palette** has no scrim: a shadowed sheet over the note, 640px
   wide, a 40px input, 32px rows.
 - **The tab strip is hidden at one note.** Tabs are borderless, 28px on a 36px
@@ -449,12 +449,11 @@ Kept:
 
 ## Consequences
 
-- Writ opens light, with sans prose at 16px, no status bar and no tab strip at
-  one note. For anyone used to the current build this is a different product on
-  first paint. The Warp Dark preset plus `editor.status_bar` restores the old
-  reading closely enough that the change is reversible in Settings, and the four
-  terminal presets are unchanged in spirit even though their JSON is rewritten
-  to the new schema.
+- Writ opens light, with sans prose at 16px and no tab strip at one note. For
+  anyone used to the current build this is a different product on first paint.
+  The Warp Dark preset restores the old reading closely enough that the change
+  is reversible in Settings, and the four terminal presets are unchanged in
+  spirit even though their JSON is rewritten to the new schema.
 - Existing configs are not lost: a config naming `warp-dark` keeps getting
   warp-dark, because the preset survives the conversion under the same id. Only
   the default for a config that names nothing changes.
