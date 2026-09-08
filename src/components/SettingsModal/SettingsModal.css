@@ -556,3 +556,54 @@
 .settings-ai-connection-status[data-tone="error"] {
   color: var(--writ-danger);
 }
+
+/* Connected programs. The client list is rows inside one settings row, so it
+   sits on the same pitch as the sidebar's and needs no card of its own. */
+.settings-programs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.settings-program {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--writ-space-4);
+  min-height: var(--writ-sidebar-row-pitch);
+}
+
+.settings-program-name {
+  color: var(--writ-fg);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-program-grants {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-3);
+  flex-shrink: 0;
+}
+
+.settings-program-grant {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-2);
+  color: var(--writ-fg-muted);
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+}
+
+.settings-programs-none {
+  color: var(--writ-fg-muted);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+}

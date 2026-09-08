@@ -41,6 +41,8 @@ import { notesStore } from "../../stores/global/notes";
 import type { NotesFallbackReason } from "../../stores/global/notes";
 import { NotesSyncNote } from "./NotesSyncNote";
 import { copyStoragePath, fetchStorageInfo, revealStoragePath } from "../../stores/global/storage";
+import { activityStore } from "../../stores/global/activity";
+import { openActivity } from "../Activity/ActivityPanel";
 import type { StorageInfo } from "../../stores/global/storage";
 import type {
   AccentId,
@@ -1505,6 +1507,138 @@ function AdvancedSection() {
   );
 }
 
+/**
+ * Which programs may reach the notes folder, and how one is pointed at it.
+ *
+ * Turning the switch on approves nobody: a program's first call waits for the
+ * user to decide on it, in Activity (ADR-031 rules 3.2 and 7.2). Reading and
+ * writing are separate grants, so a program approved to read never writes.
+ */
+function ProgramsSection() {
+  const mcp = () => configStore.config().mcp;
+
+  onMount(() => {
+    void activityStore.refreshClients();
+    void activityStore.loadCommand();
+  });
+
+  function onEnableToggle() {
+    void patchConfig((prev) => ({ ...prev, mcp: { ...prev.mcp, enabled: !prev.mcp.enabled } }));
+  }
+
+  async function onCopyCommand() {
+    try {
+      await activityStore.copyCommand();
+      showToast("Command copied", "success");
+    } catch {
+      showToast("Could not copy the command", "error");
+    }
+  }
+
+  async function onSetPermission(name: string, read: boolean, write: boolean) {
+    try {
+      await activityStore.setPermission(name, read, write);
+    } catch {
+      showToast("The change could not be saved", "error");
+    }
+  }
+
+  async function onForget(name: string) {
+    try {
+      await activityStore.forget(name);
+    } catch {
+      showToast("The program could not be forgotten", "error");
+    }
+  }
+
+  return (
+    <div data-section="programs">
+      <SectionLabel section="programs" />
+
+      <SettingsRow id="mcp.enabled" label="Let other programs read and change your notes">
+        <ToggleSwitch
+          setting="mcp_enabled"
+          label="Let other programs read and change your notes"
+          checked={mcp().enabled}
+          onChange={onEnableToggle}
+        />
+      </SettingsRow>
+
+      <SettingsRow id="mcp.command" label="Command to give a program">
+        <span class="settings-inbox-controls">
+          <Tooltip label={activityStore.serverCommand()?.command ?? ""}>
+            <span class="settings-inbox-path" data-mcp-command>
+              {activityStore.serverCommand()?.command ?? "…"}
+            </span>
+          </Tooltip>
+          <Button data-action="mcp-copy-command" onClick={() => void onCopyCommand()}>
+            Copy command
+          </Button>
+        </span>
+      </SettingsRow>
+
+      <SettingsRow id="mcp.clients" label="Programs you approved">
+        <Show
+          when={activityStore.clients().length > 0}
+          fallback={<span class="settings-programs-none">None yet.</span>}
+        >
+          <ul class="settings-programs">
+            <For each={activityStore.clients()}>
+              {(client) => (
+                <li class="settings-program" data-program={client.name}>
+                  <span class="settings-program-name">{client.name}</span>
+                  <span class="settings-program-grants">
+                    <label class="settings-program-grant">
+                      Read
+                      <ToggleSwitch
+                        setting={`mcp_read_${client.name}`}
+                        label={`Let ${client.name} read your notes`}
+                        checked={client.read}
+                        onChange={() =>
+                          void onSetPermission(client.name, !client.read, client.write)
+                        }
+                      />
+                    </label>
+                    <label class="settings-program-grant">
+                      Write
+                      <ToggleSwitch
+                        setting={`mcp_write_${client.name}`}
+                        label={`Let ${client.name} change your notes`}
+                        checked={client.write}
+                        onChange={() =>
+                          void onSetPermission(client.name, client.read, !client.write)
+                        }
+                      />
+                    </label>
+                    <Button
+                      data-action="mcp-forget"
+                      onClick={() => void onForget(client.name)}
+                    >
+                      Forget
+                    </Button>
+                  </span>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+      </SettingsRow>
+
+      <SettingsRow id="mcp.activity" label="Recent activity">
+        <Button
+          data-action="mcp-open-activity"
+          onClick={() => {
+            closeSettings();
+            openActivity();
+          }}
+        >
+          Open
+        </Button>
+      </SettingsRow>
+    </div>
+  );
+}
+
 function AllSections() {
   return (
     <>
@@ -1513,6 +1647,7 @@ function AllSections() {
       <FilesSection />
       <PreviewSection />
       <AiSection />
+      <ProgramsSection />
       <AppearanceSection />
       <UpdatesSection />
       <ShortcutsSection />
@@ -1665,6 +1800,7 @@ export default function SettingsModal() {
                       <Match when={activeSection() === "files"}><FilesSection /></Match>
                       <Match when={activeSection() === "preview"}><PreviewSection /></Match>
                       <Match when={activeSection() === "ai"}><AiSection /></Match>
+                      <Match when={activeSection() === "programs"}><ProgramsSection /></Match>
                       <Match when={activeSection() === "appearance"}><AppearanceSection /></Match>
                       <Match when={activeSection() === "updates"}><UpdatesSection /></Match>
                       <Match when={activeSection() === "shortcuts"}><ShortcutsSection /></Match>
