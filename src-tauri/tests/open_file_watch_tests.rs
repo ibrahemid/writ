@@ -670,3 +670,89 @@ fn a_write_from_a_connected_program_reaches_the_tab_as_somebody_elses_edit() {
         "the write landed on the file, not on a copy of it"
     );
 }
+
+#[test]
+fn an_applied_proposal_reaches_the_tab_as_somebody_elses_edit() {
+    // The chat pane's Apply takes the same route a connected program's write
+    // takes: through the guarded facade with no ignore stamp, so the tab
+    // holding that note reconciles through the folder watcher rather than
+    // sitting on text the file no longer has (ADR-033). A stamp here would be
+    // swallowed by the mechanism that keeps Writ's own saves from returning,
+    // and the tab would learn nothing, so its absence is what is under test.
+    let notes = TempDir::new().expect("notes dir");
+    let data = TempDir::new().expect("data dir");
+    let root = canonical(notes.path());
+    let note = root.join("Launch.md");
+    let read_by_the_tab = b"as the tab read it\n";
+    std::fs::write(&note, read_by_the_tab).expect("seed note");
+
+    let (bus, rx) = bus_with_channel();
+    let ignore = create_ignore_set();
+    let open_files = start_open_file_watcher(
+        bus.clone(),
+        ignore.clone(),
+        &root,
+        TabsThatHaveRead::holding("note-1", &note, read_by_the_tab),
+    )
+    .expect("start the open file watcher");
+    open_files
+        .registry()
+        .lock()
+        .expect("registry")
+        .watch_parent_of("note-1", &note);
+    let _notes_watcher = start_notes_watcher(
+        bus,
+        root.clone(),
+        ignore,
+        open_files.open_notes(),
+        TabsThatHaveRead::holding("note-1", &note, read_by_the_tab),
+    )
+    .expect("start the notes watcher");
+
+    let written = "as the pane applied it\n";
+    let outcome = writ_tauri_lib::commands::chat::apply_proposal_inner(
+        &root,
+        data.path(),
+        "api.example.com",
+        "Launch.md",
+        written,
+        &writ_core::hash::sha256_hex(read_by_the_tab),
+    )
+    .expect("the proposal is applied");
+    assert_eq!(outcome.path, "Launch.md");
+
+    let seen = collect_external(&rx);
+    assert_eq!(
+        seen.len(),
+        1,
+        "the tab must be told once about an applied proposal, saw {seen:?}"
+    );
+    match &seen[0] {
+        WritEvent::BufferExternal {
+            buffer_id,
+            path,
+            change,
+            new_path,
+            disk_hash,
+        } => {
+            assert_eq!(buffer_id, "note-1");
+            assert_eq!(resolved(Path::new(path)), resolved(&note));
+            assert_eq!(
+                *change,
+                writ_core::watcher::change_event::ExternalChange::Modified
+            );
+            assert_eq!(*new_path, None);
+            assert_eq!(
+                disk_hash.as_deref(),
+                Some(writ_core::hash::comparison_digest_hex(written.as_bytes()).as_str()),
+                "the tab reconciles against what the file holds now"
+            );
+        }
+        other => panic!("expected BufferExternal, got {other:?}"),
+    }
+    assert_eq!(
+        std::fs::read_to_string(&note).expect("read the note back"),
+        written,
+        "the proposal landed on the file, not on a copy of it"
+    );
+}
