@@ -1863,8 +1863,11 @@ mod tests {
             .create_note(&client(), "Caf\u{e9}", "the note a client asked for\n")
             .expect_err("a name the folder holds another spelling of is taken");
 
+        // The name in the error is the one the client asked for, spelled the
+        // way it asked for it, and it is a file name rather than a path:
+        // `name_is_taken` puts it in front of a reader.
         assert!(
-            matches!(refusal, ToolError::NameTaken { .. }),
+            matches!(&refusal, ToolError::NameTaken { name } if name == "Caf\u{e9}.md"),
             "{refusal:?}"
         );
         assert_eq!(
@@ -1960,8 +1963,10 @@ mod tests {
             .rename_note(&client(), "Launch.md", "Ship")
             .expect_err("a taken name is not written over");
 
+        // A rename builds its own error, so it is worth saying here too that
+        // what reaches `name_is_taken` is a file name and not a path.
         assert!(
-            matches!(refusal, ToolError::NameTaken { .. }),
+            matches!(&refusal, ToolError::NameTaken { name } if name == "Ship.md"),
             "{refusal:?}"
         );
         assert_eq!(std::fs::read_to_string(&note).expect("read"), "# Launch\n");
