@@ -142,3 +142,61 @@ fn reading_a_folder_nothing_has_written_leaves_it_empty() {
         "reading the file wrote to the folder: {left:?}"
     );
 }
+
+/// The cap is on distinct names, not on calls: a program that keeps calling
+/// under one name never evicts anyone.
+#[test]
+fn a_name_past_the_cap_drops_the_one_waiting_longest_since_its_last_call() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let over = pending_clients::MAX_WAITING + 6;
+    for index in 0..over {
+        let name = format!("Program {index:03}");
+        note_calls_at(dir.path(), &ClientId::named(&name), 1, at(index as i64)).expect("note");
+    }
+
+    let waiting = pending_clients::read(dir.path());
+    assert_eq!(waiting.len(), pending_clients::MAX_WAITING);
+
+    let names: Vec<&str> = waiting.iter().map(|entry| entry.name.as_str()).collect();
+    assert!(
+        !names.contains(&"Program 000"),
+        "the oldest entry survived: {names:?}"
+    );
+    assert!(
+        !names.contains(&"Program 005"),
+        "the sixth-oldest entry survived: {names:?}"
+    );
+    assert_eq!(names.first().copied(), Some("Program 006"));
+    assert_eq!(
+        names.last().copied(),
+        Some(format!("Program {:03}", over - 1)).as_deref()
+    );
+}
+
+#[test]
+fn the_name_being_recorded_is_never_the_one_evicted() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    for index in 0..pending_clients::MAX_WAITING {
+        let name = format!("Program {index:03}");
+        note_calls_at(
+            dir.path(),
+            &ClientId::named(&name),
+            1,
+            at(index as i64 + 10),
+        )
+        .expect("note");
+    }
+
+    // A call recorded behind every entry already there: it still lands, and it
+    // is the oldest of the others that goes.
+    note_calls_at(dir.path(), &ClientId::named("Late"), 1, at(0)).expect("note");
+
+    let waiting = pending_clients::read(dir.path());
+    assert_eq!(waiting.len(), pending_clients::MAX_WAITING);
+    let names: Vec<&str> = waiting.iter().map(|entry| entry.name.as_str()).collect();
+    assert!(
+        names.contains(&"Late"),
+        "the call being recorded evicted itself: {names:?}"
+    );
+    assert!(!names.contains(&"Program 000"));
+}

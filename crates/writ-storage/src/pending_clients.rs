@@ -5,7 +5,8 @@
 //! and rotates, so a program looping calls the gate is refusing writes its own
 //! rows over the pending ones the user needed in order to decide about it
 //! (ADR-031 rule 5.4 caps the log; rule 7.2 wants the client shown). One entry
-//! per name is unevictable by volume.
+//! per name, so no volume of calls evicts anyone; only a name past
+//! [`MAX_WAITING`] does, and it takes the oldest last call with it.
 //!
 //! Written through [`crate::atomic::write_atomic`], under the same lock the
 //! activity log takes, so a reader never sees half a file and two servers never
@@ -21,6 +22,13 @@ use crate::errors::StorageResult;
 
 /// The file inside the data folder.
 const FILE: &str = "mcp-pending.json";
+
+/// How many names the file holds. Past this the entry with the oldest last
+/// call is dropped, so a program spraying names cannot grow the file without
+/// end and cannot push the cost of one update up with it. What this does not
+/// bound is the number of writes: a name never seen before is written the
+/// moment it calls, by design, so each new name still costs one write.
+pub const MAX_WAITING: usize = 64;
 
 /// The shape on disk. An object rather than a bare array, so a later field can
 /// be added without every older build failing to parse the file.
@@ -82,6 +90,7 @@ pub fn note_calls_at(
                 file.clients.push(entry);
             }
         }
+        evict_oldest(file, &client.name);
     })
 }
 
@@ -102,6 +111,27 @@ fn with_file(dir: &Path, change: impl FnOnce(&mut PendingFile)) -> StorageResult
     let written = write_unlocked(dir, &file);
     let _ = lock.unlock();
     written
+}
+
+/// Drops entries until the file is back under the cap, oldest last call first.
+///
+/// `keep` is the name the caller just wrote, which is never the one dropped:
+/// the clock is the caller's, so a call recorded behind the others would
+/// otherwise evict itself and the update would do nothing.
+fn evict_oldest(file: &mut PendingFile, keep: &str) {
+    while file.clients.len() > MAX_WAITING {
+        let Some(index) = file
+            .clients
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.name != keep)
+            .min_by_key(|(_, entry)| entry.last_seen)
+            .map(|(index, _)| index)
+        else {
+            break;
+        };
+        file.clients.remove(index);
+    }
 }
 
 fn read_unlocked(dir: &Path) -> PendingFile {
