@@ -1740,6 +1740,13 @@ mod tests {
             std::fs::read_to_string(&outside).expect("read back"),
             "not a note of this folder\n"
         );
+        for entry in std::fs::read_dir(&fixture.writ).expect("read the folder") {
+            let name = entry.expect("an entry").file_name();
+            assert!(
+                !name.to_string_lossy().contains("conflict"),
+                "{name:?} is a copy of what was sent, so the path was opened before it was turned down"
+            );
+        }
     }
 
     #[test]
