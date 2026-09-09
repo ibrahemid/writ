@@ -312,7 +312,10 @@ async fn a_served_session_writes_the_note_the_client_named() {
         receipt["bytes"].as_u64(),
         Some("# Launch\n\nthe text a client sent\n".len() as u64)
     );
-    assert!(receipt["path"].as_str().expect("a path").ends_with("Launch.md"));
+    assert!(receipt["path"]
+        .as_str()
+        .expect("a path")
+        .ends_with("Launch.md"));
 
     drop(writer);
     drop(reader);

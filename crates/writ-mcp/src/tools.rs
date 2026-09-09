@@ -1604,8 +1604,13 @@ mod tests {
     fn a_deny_all_gate_refuses_a_read() {
         let fixture = fixture();
         write_note(&fixture, "Launch.md", "the text");
-        let host = ToolHost::open(&fixture.notes, &fixture.db, &fixture.writ, Box::new(DenyAll))
-            .expect("host");
+        let host = ToolHost::open(
+            &fixture.notes,
+            &fixture.db,
+            &fixture.writ,
+            Box::new(DenyAll),
+        )
+        .expect("host");
 
         assert!(matches!(
             host.list_notes(&client(), None, 100).expect_err("refused"),
