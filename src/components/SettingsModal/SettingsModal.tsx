@@ -1248,74 +1248,72 @@ function AiChatRows() {
         />
       </SettingsRow>
 
-      <Show when={cfg().enabled}>
-        <SettingsRow id="ai.chat_provider" label="Chat provider" labelFor="setting-chat-provider">
-          <select
-            id="setting-chat-provider"
-            class="settings-select"
-            data-setting="ai_chat_provider"
-            value={cfg().provider}
-            onChange={(e) => onProviderChange(e.currentTarget.value)}
+      <SettingsRow id="ai.chat_provider" label="Chat provider" labelFor="setting-chat-provider">
+        <select
+          id="setting-chat-provider"
+          class="settings-select"
+          data-setting="ai_chat_provider"
+          value={cfg().provider}
+          onChange={(e) => onProviderChange(e.currentTarget.value)}
+        >
+          <option value="openai_compatible">Ollama or another OpenAI-compatible server</option>
+          <option value="anthropic">Anthropic</option>
+        </select>
+      </SettingsRow>
+
+      <SettingsRow id="ai.chat_base_url" label="Chat base URL" labelFor="setting-chat-base-url">
+        <input
+          id="setting-chat-base-url"
+          type="text"
+          class="settings-input"
+          data-setting="ai_chat_base_url"
+          spellcheck={false}
+          autocomplete="off"
+          value={cfg().base_url}
+          onChange={(e) => patchChat({ base_url: e.currentTarget.value.trim() })}
+        />
+      </SettingsRow>
+
+      <SettingsRow id="ai.chat_model" label="Chat model" labelFor="setting-chat-model">
+        <input
+          id="setting-chat-model"
+          type="text"
+          class="settings-input"
+          data-setting="ai_chat_model"
+          spellcheck={false}
+          autocomplete="off"
+          placeholder="Model id"
+          value={cfg().model}
+          onChange={(e) => patchChat({ model: e.currentTarget.value.trim() })}
+        />
+      </SettingsRow>
+
+      <SettingsRow id="ai.chat_api_key" label="Chat API key">
+        <span class="settings-inbox-controls">
+          <input
+            type="password"
+            class="settings-input"
+            data-setting="ai_chat_api_key"
+            spellcheck={false}
+            autocomplete="off"
+            placeholder={keyState()?.is_set ? "Key set" : "Not set"}
+            value={keyInput()}
+            onInput={(e) => setKeyInput(e.currentTarget.value)}
+          />
+          <Button
+            data-action="chat-set-key"
+            disabled={keyBusy() || keyInput().length === 0}
+            onClick={() => void onSetKey()}
           >
-            <option value="openai_compatible">Ollama or another OpenAI-compatible server</option>
-            <option value="anthropic">Anthropic</option>
-          </select>
-        </SettingsRow>
-
-        <SettingsRow id="ai.chat_base_url" label="Chat base URL" labelFor="setting-chat-base-url">
-          <input
-            id="setting-chat-base-url"
-            type="text"
-            class="settings-input"
-            data-setting="ai_chat_base_url"
-            spellcheck={false}
-            autocomplete="off"
-            value={cfg().base_url}
-            onChange={(e) => patchChat({ base_url: e.currentTarget.value.trim() })}
-          />
-        </SettingsRow>
-
-        <SettingsRow id="ai.chat_model" label="Chat model" labelFor="setting-chat-model">
-          <input
-            id="setting-chat-model"
-            type="text"
-            class="settings-input"
-            data-setting="ai_chat_model"
-            spellcheck={false}
-            autocomplete="off"
-            placeholder="Model id"
-            value={cfg().model}
-            onChange={(e) => patchChat({ model: e.currentTarget.value.trim() })}
-          />
-        </SettingsRow>
-
-        <SettingsRow id="ai.chat_api_key" label="Chat API key">
-          <span class="settings-inbox-controls">
-            <input
-              type="password"
-              class="settings-input"
-              data-setting="ai_chat_api_key"
-              spellcheck={false}
-              autocomplete="off"
-              placeholder={keyState()?.is_set ? "Key set" : "Not set"}
-              value={keyInput()}
-              onInput={(e) => setKeyInput(e.currentTarget.value)}
-            />
-            <Button
-              data-action="chat-set-key"
-              disabled={keyBusy() || keyInput().length === 0}
-              onClick={() => void onSetKey()}
-            >
-              Save
+            Save
+          </Button>
+          <Show when={keyState()?.is_set}>
+            <Button data-action="chat-clear-key" disabled={keyBusy()} onClick={() => void onClearKey()}>
+              Clear
             </Button>
-            <Show when={keyState()?.is_set}>
-              <Button data-action="chat-clear-key" disabled={keyBusy()} onClick={() => void onClearKey()}>
-                Clear
-              </Button>
-            </Show>
-          </span>
-        </SettingsRow>
-      </Show>
+          </Show>
+        </span>
+      </SettingsRow>
     </>
   );
 }

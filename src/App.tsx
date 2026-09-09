@@ -53,7 +53,7 @@ import { findStore } from "./stores/global/find-store";
 import { registerTransformCommands } from "./commands/transforms";
 import { registerPromptCommands } from "./commands/prompt";
 import { registerAiCommands, unregisterAiCommands } from "./commands/ai";
-import { registerChatCommands, unregisterChatCommands } from "./commands/chat";
+import { syncChatCommands } from "./commands/chat";
 import { chatStore } from "./stores/global/chat";
 import { aiRewriteStore } from "./stores/global/ai-rewrite";
 import AiRewriteOverlay from "./components/AiRewrite/AiRewriteOverlay";
@@ -907,12 +907,8 @@ function AppShell() {
   // The chat pane's command exists only while the pane does, and a pane turned
   // off while it was showing takes its column with it.
   createEffect(() => {
-    if (configStore.config().ai.chat.enabled) {
-      registerChatCommands();
-      return;
-    }
-    unregisterChatCommands();
-    win.chatPanel.hide();
+    syncChatCommands();
+    if (!configStore.config().ai.chat.enabled) win.chatPanel.hide();
   });
 
   return (

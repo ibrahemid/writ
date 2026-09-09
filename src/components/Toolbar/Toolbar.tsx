@@ -6,6 +6,7 @@ import type { IconName } from "../Icon/Icon";
 import type { ActiveFormats } from "../../types/editor";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { executeCommand, useCommand } from "../../commands/registry";
+import { CHAT_TOGGLE_COMMAND_ID } from "../../commands/chat";
 import { useEffectiveBinding } from "../../commands/keybindings";
 import { formatKeybinding } from "../../lib/keybinding-format";
 import { resolvePlatform } from "../../lib/platform";
@@ -161,6 +162,22 @@ export default function Toolbar() {
           onClick={() => executeCommand("panel.toggle")}
         />
       </Tooltip>
+
+      {/* The chat control is here only while the pane it opens exists: the
+          command is registered from `ai.chat.enabled`, so asking the registry
+          asks the setting without reading it twice. */}
+      <Show when={useCommand(CHAT_TOGGLE_COMMAND_ID) !== undefined}>
+        <Tooltip label={tip("Chat", useEffectiveBinding(CHAT_TOGGLE_COMMAND_ID, undefined))}>
+          <Button
+            variant="ghost"
+            class="writ-toolbar-btn"
+            icon="chat-text"
+            aria-label="Chat"
+            pressed={win.chatPanel.isOpen()}
+            onClick={() => executeCommand(CHAT_TOGGLE_COMMAND_ID)}
+          />
+        </Tooltip>
+      </Show>
 
       {/* GNOME keeps search in the sidebar's own header segment. */}
       <Show when={!layout.headerBar}>

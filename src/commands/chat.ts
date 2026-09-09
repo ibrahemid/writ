@@ -3,6 +3,7 @@ import { requestConfirm } from "../components/ConfirmDialog/ConfirmDialog";
 import { showToast } from "../components/Notifications/Toast";
 import { openSettings } from "../components/SettingsModal/SettingsModal";
 import { chatStore, totalBytes, type Attachment } from "../stores/global/chat";
+import { configStore } from "../stores/global/config";
 import { windowRegistry } from "../stores/global/window-registry";
 import type { ChatEndpointState } from "../services/tauri";
 import { aiConsentHost } from "../services/tauri";
@@ -120,6 +121,15 @@ export function toggleChatPane() {
 }
 
 let registered = false;
+
+/** Puts the palette entry where the setting says it should be.
+ *
+ * The pane's command exists only while the pane does, so a palette that lists
+ * it is a palette in a build where it can be opened. */
+export function syncChatCommands() {
+  if (configStore.config().ai.chat.enabled) registerChatCommands();
+  else unregisterChatCommands();
+}
 
 export function registerChatCommands() {
   if (registered) return;
