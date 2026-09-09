@@ -122,6 +122,32 @@ describe("ActivityPanel", () => {
     expect(decision.querySelector(".activity-program")!.textContent).toBe("Zed");
   });
 
+  it("dates the first call of a program first seen on an earlier day", () => {
+    const earlier = "2026-09-02T10:00:00.000Z";
+    h.setPending([{ ...waitingFor("Claude Code"), first_seen: earlier }]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    const dated = new Date(earlier).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    expect(container.querySelector(".activity-waiting-when")!.textContent).toBe(`since ${dated}`);
+  });
+
+  it("gives the time alone for a program first seen today", () => {
+    const today = new Date();
+    today.setHours(10, 0, 0, 0);
+    h.setPending([{ ...waitingFor("Claude Code"), first_seen: today.toISOString() }]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    const time = today.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    expect(container.querySelector(".activity-waiting-when")!.textContent).toBe(`since ${time}`);
+  });
+
   it("names the program, the call and the note on a row", () => {
     h.setRecords([record()]);
     openActivity();

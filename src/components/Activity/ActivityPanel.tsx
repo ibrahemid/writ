@@ -60,6 +60,24 @@ function timeOf(at: string): string {
   return stamp.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
+/**
+ * When a program first called: the time today, the date and time before that.
+ *
+ * A waiting program stays on the list until it is decided on, so its first call
+ * can be days old and an hour on its own would read as today.
+ */
+function firstSeenLabel(at: string): string {
+  const stamp = new Date(at);
+  if (Number.isNaN(stamp.getTime())) return "";
+  if (stamp.toDateString() === new Date().toDateString()) return timeOf(at);
+  return stamp.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function Row(props: { record: ActivityRecord }) {
   const record = () => props.record;
 
@@ -102,7 +120,9 @@ function Waiting(props: { client: PendingClient }) {
     <li class="activity-waiting" data-program={props.client.name}>
       <span class="activity-waiting-what">
         <span class="activity-program">{name()}</span>
-        <span class="activity-waiting-when">since {timeOf(props.client.first_seen)}</span>
+        <Show when={firstSeenLabel(props.client.first_seen)}>
+          {(label) => <span class="activity-waiting-when">since {label()}</span>}
+        </Show>
       </span>
       <span class="activity-decide-line">It reads and writes nothing until you approve it.</span>
       <span class="activity-decide-controls">
