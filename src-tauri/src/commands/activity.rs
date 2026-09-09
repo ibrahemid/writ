@@ -62,6 +62,35 @@ pub struct McpServerCommand {
     pub command: String,
 }
 
+/// What an approved program can do, split the way the two grants are.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct McpTools {
+    /// The tools the read grant covers.
+    pub read: Vec<String>,
+    /// The tools the write grant covers.
+    pub write: Vec<String>,
+}
+
+/// IPC: the tools an approved program can call.
+///
+/// Read from `writ_core::tools`, the same list the server registers and the
+/// gate splits on, so the settings row cannot promise a tool that is not there
+/// or hide one that is. The app does not depend on `writ-mcp` for this: the
+/// names are policy and live in core.
+#[tauri::command]
+pub fn mcp_tools() -> McpTools {
+    McpTools {
+        read: writ_core::tools::READ_TOOLS
+            .iter()
+            .map(|name| name.to_string())
+            .collect(),
+        write: writ_core::tools::WRITE_TOOLS
+            .iter()
+            .map(|name| name.to_string())
+            .collect(),
+    }
+}
+
 // --- Activity ---------------------------------------------------------------
 
 /// The newest records, newest first, held to [`MAX_ACTIVITY_LIMIT`].
