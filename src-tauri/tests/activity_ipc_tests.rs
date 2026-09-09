@@ -14,6 +14,7 @@ use writ_tauri_lib::commands::activity::{
 };
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
+const ACTIVITY_RS: &str = include_str!("../src/commands/activity.rs");
 
 const COMMANDS: &[&str] = &[
     "commands::activity::activity_recent",
@@ -202,4 +203,21 @@ fn every_command_is_in_the_invoke_handler() {
             "{command} is not in the invoke handler, so the editor cannot call it"
         );
     }
+}
+
+/// `persist_config` puts the write in the watcher's ignore set, so an approval
+/// saved from the app is never reported back as an external edit. Without an
+/// event of its own the frontend keeps the settings it loaded, and the next
+/// settings edit sends that whole stale copy back and drops the approval.
+#[test]
+fn saving_an_approval_tells_the_frontend_the_settings_moved() {
+    let body = ACTIVITY_RS
+        .split_once("fn write_approvals(")
+        .expect("write_approvals is where the approvals are persisted")
+        .1;
+
+    assert!(
+        body.contains("WritFrontendEvent::ConfigChanged"),
+        "an approval written from the app must announce the settings change"
+    );
 }

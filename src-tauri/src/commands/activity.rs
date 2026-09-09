@@ -186,6 +186,18 @@ fn write_approvals(
         guard.mcp.approved_clients = previous;
         return Err(reason);
     }
+    // `persist_config` records the write in the watcher's ignore set, so the
+    // file change never comes back as external and the frontend's copy of the
+    // settings would keep the old list. The next settings edit sends that copy
+    // whole, which would drop the approval just written.
+    if let Err(error) = emit_event(
+        app,
+        WritFrontendEvent::ConfigChanged {
+            keys: vec!["mcp".to_string()],
+        },
+    ) {
+        tracing::warn!(error = %error, "failed to emit config event");
+    }
     Ok(mcp_clients_inner(&updated.mcp))
 }
 
@@ -196,9 +208,11 @@ const SERVE_VERB: &str = "mcp";
 
 /// The command line for `binary`.
 ///
-/// Absolute, because a client launched from the desktop inherits a short PATH
-/// and a bare `writ` would not be found there. Quoted, because an app installed
-/// under a folder with a space in its name is the normal case on macOS.
+/// Quoted, because an app installed under a folder with a space in its name is
+/// the normal case on macOS. A client launched from the desktop inherits a
+/// short PATH, so [`resolved_cli_path`] hands this a full path wherever one is
+/// known; on Windows the installer puts `writ.exe` on the PATH itself and the
+/// bare name is what resolves.
 pub fn server_command_for(binary: &Path) -> McpServerCommand {
     let path = binary.display().to_string();
     McpServerCommand {
