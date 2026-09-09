@@ -14,14 +14,15 @@ use writ_core::chat::{ChatError, ChatTurn, Provider, Role};
 use writ_core::config::{AiChatConfig, AiConfig};
 use writ_tauri_lib::commands::ai::AiKeyState;
 use writ_tauri_lib::commands::chat::{
-    apply_proposal_inner, discard_proposal_inner, endpoint_state_from, key_account, note_file_in,
-    prepare_chat, read_attached_in, ChatState,
+    apply_proposal_inner, attached_sizes_in, discard_proposal_inner, endpoint_state_from,
+    key_account, note_file_in, prepare_chat, read_attached_in, ChatState,
 };
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
 
 const COMMANDS: &[&str] = &[
     "commands::chat::chat_state",
+    "commands::chat::chat_attached_sizes",
     "commands::chat::chat_send",
     "commands::chat::chat_cancel",
     "commands::chat::chat_apply_proposal",
@@ -115,6 +116,46 @@ fn chat_state_names_the_keychain_account_of_each_provider() {
         key_account(&config("http://localhost:11434/v1", "telepathy")),
         None
     );
+}
+
+// --- chat_attached_sizes ----------------------------------------------------
+
+#[test]
+fn chat_attached_sizes_reads_the_bytes_the_file_holds_now() {
+    let (notes, _writ) = folders();
+    let root = root(&notes);
+    std::fs::create_dir_all(root.join("Ideas")).expect("folder");
+    std::fs::write(root.join("Ideas/Later.md"), "a longer second text\n").expect("write");
+
+    let sizes = attached_sizes_in(
+        &root,
+        &["Launch.md".to_string(), "Ideas/Later.md".to_string()],
+    )
+    .expect("sizes");
+    assert_eq!(sizes.len(), 2);
+    assert_eq!(sizes[0].path, "Launch.md");
+    assert_eq!(sizes[0].bytes, "the first text\n".len() as u64);
+    assert_eq!(sizes[1].path, "Ideas/Later.md");
+    assert_eq!(sizes[1].bytes, "a longer second text\n".len() as u64);
+
+    // Rewritten by another program after the tab read it: the dialog states
+    // what a send would carry, not what the tab remembers.
+    std::fs::write(root.join("Launch.md"), "much more text than before\n").expect("rewrite");
+    let sizes = attached_sizes_in(&root, &["Launch.md".to_string()]).expect("sizes");
+    assert_eq!(sizes[0].bytes, "much more text than before\n".len() as u64);
+}
+
+#[test]
+fn chat_attached_sizes_refuses_a_path_outside_the_notes_folder() {
+    let (notes, _writ) = folders();
+    let root = root(&notes);
+    let outside = tempfile::TempDir::new().expect("elsewhere");
+    std::fs::write(outside.path().join("Secret.md"), "not yours\n").expect("write");
+    let path = std::fs::canonicalize(outside.path().join("Secret.md")).expect("canonical");
+
+    let error =
+        attached_sizes_in(&root, &[path.to_string_lossy().into_owned()]).expect_err("refused");
+    assert!(error.contains("notes folder"), "got: {error}");
 }
 
 // --- chat_send --------------------------------------------------------------

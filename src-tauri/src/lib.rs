@@ -719,6 +719,7 @@ pub fn run() {
             commands::ai::ai_endpoint_state,
             commands::ai::ai_consent_host,
             commands::chat::chat_state,
+            commands::chat::chat_attached_sizes,
             commands::chat::chat_send,
             commands::chat::chat_cancel,
             commands::chat::chat_apply_proposal,

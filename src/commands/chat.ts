@@ -108,10 +108,21 @@ export async function clearBlockersBeforeSending(
   return true;
 }
 
-/** Sends the draft after the blockers are cleared. */
+/** Sends the draft after the blockers are cleared.
+ *
+ * The dialog is shown the sizes the files hold now, not the sizes the tabs
+ * recorded when they read them, so the number a person agrees to is the number
+ * that leaves the machine. */
 export async function sendChatMessage() {
   if (!chatStore.draft().trim()) return;
-  if (!(await clearBlockersBeforeSending(chatStore.attachments()))) return;
+  let attachments = chatStore.attachments();
+  try {
+    attachments = await chatStore.attachedOnDisk();
+  } catch {
+    showToast("Could not read the attached notes.", "error");
+    return;
+  }
+  if (!(await clearBlockersBeforeSending(attachments))) return;
   await chatStore.send();
 }
 

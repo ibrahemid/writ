@@ -1294,6 +1294,16 @@ export async function chatState(): Promise<ChatEndpointState> {
   return invoke("chat_state");
 }
 
+/** A note's size on disk, as the send dialog must state it. */
+export interface ChatAttachedSize {
+  path: string;
+  bytes: number;
+}
+
+export async function chatAttachedSizes(paths: string[]): Promise<ChatAttachedSize[]> {
+  return invoke("chat_attached_sizes", { paths });
+}
+
 export async function chatSend(
   conversationId: string,
   turns: ChatTurn[],

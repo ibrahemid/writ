@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   endpointState: vi.fn(),
   send: vi.fn(),
   attachments: vi.fn<() => { path: string; name: string; bytes: number }[]>(() => []),
+  attachedOnDisk: vi.fn<() => Promise<{ path: string; name: string; bytes: number }[]>>(),
   draft: vi.fn(() => "what does it argue"),
   consentHost: vi.fn(),
   config: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock("../../stores/global/chat", () => ({
   chatStore: {
     endpointState: mocks.endpointState,
     attachments: mocks.attachments,
+    attachedOnDisk: mocks.attachedOnDisk,
     draft: mocks.draft,
     send: mocks.send,
   },
@@ -96,6 +98,7 @@ beforeEach(() => {
   mocks.consentHost.mockReset().mockResolvedValue(endpoint());
   mocks.send.mockReset().mockResolvedValue(undefined);
   mocks.attachments.mockReturnValue(NOTES);
+  mocks.attachedOnDisk.mockReset().mockResolvedValue(NOTES);
   mocks.registerCommand.mockReset();
   mocks.unregisterCommand.mockReset();
 });
@@ -178,6 +181,28 @@ describe("the blockers before a send", () => {
     );
     expect(await clearBlockersBeforeSending(NOTES)).toBe(true);
     expect(mocks.requestConfirm).not.toHaveBeenCalled();
+  });
+
+  it("counts the bytes the file holds, not the bytes a tab recorded", async () => {
+    // The tab read Launch.md at 8 KB; another program has since doubled it.
+    // The number a person agrees to has to be the number that is sent.
+    mocks.attachedOnDisk.mockResolvedValue([
+      { path: "/notes/Launch.md", name: "Launch.md", bytes: 16 * 1024 },
+      NOTES[1],
+    ]);
+    mocks.endpointState.mockResolvedValue(endpoint({ is_consented: false }));
+    await sendChatMessage();
+    const asked = mocks.requestConfirm.mock.calls[0][0];
+    expect(asked.message).toContain("22 KB");
+    expect(asked.message).not.toContain("14 KB");
+  });
+
+  it("sends nothing when the attached notes cannot be read", async () => {
+    mocks.attachedOnDisk.mockRejectedValue("gone");
+    await sendChatMessage();
+    expect(mocks.requestConfirm).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.showToast).toHaveBeenCalled();
   });
 
   it("sends only after the blockers are cleared", async () => {

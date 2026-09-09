@@ -1,6 +1,7 @@
 import { createSignal, createRoot } from "solid-js";
 import {
   chatState,
+  chatAttachedSizes,
   chatSend,
   chatCancel,
   chatApplyProposal,
@@ -224,6 +225,17 @@ function createChatStore() {
     handleStreamEvent,
     /** Where the chat endpoint points and what it still needs. */
     endpointState: (): Promise<ChatEndpointState> => chatState(),
+    /** The attached notes with the sizes the files hold now.
+     *
+     * A tab records a note's size when it reads it, and another program can
+     * rewrite the file after that. The dialog asking to send it must state the
+     * bytes the send will carry, so it asks disk rather than the tab. */
+    async attachedOnDisk(): Promise<Attachment[]> {
+      const current = attachments();
+      const sizes = await chatAttachedSizes(current.map((note) => note.path));
+      const byPath = new Map(sizes.map((note) => [note.path, note.bytes]));
+      return current.map((note) => ({ ...note, bytes: byPath.get(note.path) ?? note.bytes }));
+    },
   };
 }
 

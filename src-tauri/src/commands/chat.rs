@@ -228,6 +228,16 @@ pub fn chat_state(app: AppHandle) -> ChatEndpointState {
     endpoint_state_from(&cfg, key_state)
 }
 
+/// The sizes the send dialog must state, read off disk at the moment it asks.
+#[tauri::command]
+pub fn chat_attached_sizes(
+    app: AppHandle,
+    paths: Vec<String>,
+) -> Result<Vec<AttachedSize>, String> {
+    let notes_root = app.state::<AppState>().notes_root();
+    attached_sizes_in(&notes_root, &paths)
+}
+
 /// Everything a stream needs, resolved from config and validated.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PreparedChat {
@@ -362,6 +372,42 @@ fn relative_key(notes_root: &Path, file: &Path) -> Result<String, String> {
                 .unwrap_or_default();
             outside_notes(&path)
         })
+}
+
+/// A note's size on disk, as the dialog that asks to send it must state it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttachedSize {
+    /// The note's folder-relative key.
+    pub path: String,
+    /// What the file holds now, which is what a send would carry.
+    pub bytes: u64,
+}
+
+/// The sizes of the notes the call named.
+///
+/// The dialog asking to send them must state the bytes the send will read, not
+/// what a tab last recorded: a note another program rewrote since the tab
+/// synced would otherwise be consented to under the wrong number. Metadata
+/// only, so asking costs no note text.
+pub fn attached_sizes_in(notes_root: &Path, paths: &[String]) -> Result<Vec<AttachedSize>, String> {
+    if paths.len() > MAX_ATTACHED_NOTES {
+        return Err(format!(
+            "Attach at most {MAX_ATTACHED_NOTES} notes to one conversation."
+        ));
+    }
+    let mut sizes: Vec<AttachedSize> = Vec::with_capacity(paths.len());
+    for path in paths {
+        let file = note_file_in(notes_root, path)?;
+        let key = relative_key(notes_root, &file)?;
+        if sizes.iter().any(|note| note.path == key) {
+            continue;
+        }
+        let bytes = std::fs::metadata(&file)
+            .map(|m| m.len())
+            .map_err(|_| format!("{key} could not be read."))?;
+        sizes.push(AttachedSize { path: key, bytes });
+    }
+    Ok(sizes)
 }
 
 /// Reads the notes the call named, in the order it named them.
