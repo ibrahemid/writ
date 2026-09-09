@@ -545,8 +545,14 @@ enum StreamEvent {
 enum SseLine {
     Chunk(String),
     Done,
+    /// The server reported a failure mid-stream. Carries nothing it wrote: an
+    /// error frame's fields are response text, which can quote the request.
+    Failed,
     Ignore,
 }
+
+/// What a rewrite says when the server ends the stream with an error frame.
+const STREAM_FAILED: &str = "The model server ended the reply.";
 
 /// Parses a single already-trimmed SSE line.
 ///
@@ -557,7 +563,8 @@ fn parse_sse_line(line: &str) -> SseLine {
     match writ_core::chat::parse_delta(writ_core::chat::Provider::OpenAiCompatible, line) {
         writ_core::chat::Delta::Text(content) => SseLine::Chunk(content),
         writ_core::chat::Delta::Done => SseLine::Done,
-        writ_core::chat::Delta::Failed | writ_core::chat::Delta::Ignore => SseLine::Ignore,
+        writ_core::chat::Delta::Failed => SseLine::Failed,
+        writ_core::chat::Delta::Ignore => SseLine::Ignore,
     }
 }
 
@@ -632,6 +639,13 @@ async fn run_rewrite_stream(
                 SseLine::Chunk(content) => on_event(StreamEvent::Chunk(content)),
                 SseLine::Done => {
                     on_event(StreamEvent::Done);
+                    return;
+                }
+                // Ending as Done would hand back an empty rewrite that reads
+                // as a model with nothing to say.
+                SseLine::Failed => {
+                    tracing::warn!("the model server ended the stream with an error frame");
+                    on_event(StreamEvent::Error(STREAM_FAILED.to_string()));
                     return;
                 }
                 SseLine::Ignore => {}
@@ -1059,6 +1073,32 @@ mod tests {
         assert!(matches!(
             parse_sse_line("data: {\"choices\":[{\"delta\":{}}]}"),
             SseLine::Ignore
+        ));
+    }
+
+    #[test]
+    fn parse_sse_reads_a_recorded_error_frame_as_a_failure() {
+        // The same recorded frames the chat pane reads its grammar against:
+        // one rewrite and one chat request against the same server must not
+        // disagree about what an error frame means.
+        const OPENAI_ERROR_STREAM: &str =
+            include_str!("../../../crates/writ-core/tests/fixtures/chat/openai-error.sse");
+        let failures = OPENAI_ERROR_STREAM
+            .lines()
+            .filter(|line| matches!(parse_sse_line(line), SseLine::Failed))
+            .count();
+        assert_eq!(failures, 2, "both spellings of the frame end the stream");
+
+        // Nothing the server wrote is carried out: the sentence a rewrite
+        // shows is fixed, and the token in the fixture is in neither.
+        assert!(!STREAM_FAILED.contains("ZZ-server-text-that-must-never-be-logged"));
+        assert!(matches!(
+            parse_sse_line("data: {\"error\":null}"),
+            SseLine::Ignore
+        ));
+        assert!(matches!(
+            parse_sse_line("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}],\"error\":null}"),
+            SseLine::Chunk(c) if c == "hi"
         ));
     }
 
