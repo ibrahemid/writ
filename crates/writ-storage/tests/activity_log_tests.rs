@@ -115,7 +115,7 @@ fn only_one_generation_is_kept() {
         .expect("list")
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.file_name().to_string_lossy().to_string())
-        .filter(|name| name.starts_with("activity"))
+        .filter(|name| name.ends_with(".jsonl"))
         .collect();
     assert_eq!(generations.len(), 2, "{generations:?}");
 }
@@ -253,4 +253,67 @@ fn a_log_read_whole_still_stops_at_the_limit() {
     let recent = read_recent(dir.path(), 3);
     let actions: Vec<&str> = recent.iter().map(|r| r.action.as_str()).collect();
     assert_eq!(actions, ["call_4", "call_3", "call_2"]);
+}
+
+/// Fills the current file to just under the cap with lines that parse, so the
+/// next few appends are the ones that cross it.
+fn fill_to_just_under_the_cap(dir: &std::path::Path) {
+    std::fs::create_dir_all(dir).expect("dir");
+    let mut line = serde_json::to_vec(&record("filler")).expect("serialise");
+    line.push(b'\n');
+
+    let mut file = std::fs::File::create(current_path(dir)).expect("create");
+    let mut written = 0u64;
+    while written + line.len() as u64 + 4_096 < ROTATE_AT_BYTES {
+        file.write_all(&line).expect("write");
+        written += line.len() as u64;
+    }
+    file.flush().expect("flush");
+}
+
+/// Two writers reaching the cap together used to both rename the current file.
+/// The loser either found the source gone and failed the append, or renamed a
+/// nearly empty current file over the generation the winner had just filled.
+#[test]
+fn a_rotation_under_two_appenders_loses_no_record() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let root = dir.path().to_path_buf();
+    fill_to_just_under_the_cap(&root);
+
+    let failures: Vec<String> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..2)
+            .map(|writer| {
+                let root = root.clone();
+                scope.spawn(move || {
+                    let mut failed = Vec::new();
+                    for index in 0..20 {
+                        let entry = record(&format!("w{writer}_{index}"));
+                        if let Err(error) = activity_log::append(&root, &entry) {
+                            failed.push(format!("{error}"));
+                        }
+                    }
+                    failed
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|handle| handle.join().expect("writer"))
+            .collect()
+    });
+
+    assert!(failures.is_empty(), "appends failed: {failures:?}");
+
+    let recent = read_recent(&root, 10_000);
+    let written: std::collections::HashSet<&str> = recent
+        .iter()
+        .map(|entry| entry.action.as_str())
+        .filter(|action| action.starts_with('w'))
+        .collect();
+    assert_eq!(
+        written.len(),
+        40,
+        "records went missing across the rotation: {} of 40",
+        written.len()
+    );
 }
