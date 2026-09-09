@@ -260,6 +260,26 @@ fn chat_apply_proposal_writes_the_note_and_records_it() {
 }
 
 #[test]
+fn a_refused_note_in_a_subfolder_keeps_its_folder_relative_key() {
+    let (notes, writ) = folders();
+    let root = root(&notes);
+    std::fs::create_dir_all(root.join("Ideas")).expect("folder");
+    let before = writ_core::hash::sha256_hex(b"the first text\n");
+    std::fs::write(root.join("Ideas/Launch.md"), "somebody else wrote this\n").expect("write");
+
+    let error = apply_proposal_inner(
+        &root,
+        writ.path(),
+        "api.example.com",
+        "Ideas/Launch.md",
+        "the model's text\n",
+        &before,
+    )
+    .expect_err("refused");
+    assert!(error.starts_with("Ideas/Launch.md "), "got: {error}");
+}
+
+#[test]
 fn chat_apply_proposal_refuses_a_note_that_changed_and_leaves_a_copy() {
     let (notes, writ) = folders();
     let root = root(&notes);
@@ -275,7 +295,6 @@ fn chat_apply_proposal_refuses_a_note_that_changed_and_leaves_a_copy() {
         &before,
     )
     .expect_err("refused");
-    assert!(error.to_lowercase().contains("changed"), "got: {error}");
 
     assert_eq!(
         std::fs::read_to_string(root.join("Launch.md")).expect("read"),
@@ -289,6 +308,16 @@ fn chat_apply_proposal_refuses_a_note_that_changed_and_leaves_a_copy() {
         .filter(|name| name != "Launch.md")
         .collect();
     assert_eq!(copies.len(), 1, "the refused text is on disk: {copies:?}");
+
+    // The sentence the pane shows: the note by the key every other chat
+    // surface names it by, and the copy the proposed text went to. No
+    // absolute path, because the pane never shows one.
+    assert!(error.contains("Launch.md"), "got: {error}");
+    assert!(error.contains(&copies[0]), "got: {error}");
+    assert!(
+        !error.contains(root.to_string_lossy().as_ref()),
+        "the refusal named the folder: {error}"
+    );
     assert_eq!(
         std::fs::read_to_string(root.join(&copies[0])).expect("read copy"),
         "the model's text\n"

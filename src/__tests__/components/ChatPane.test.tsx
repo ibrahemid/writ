@@ -279,21 +279,22 @@ describe("the chat column", () => {
   });
 
   it("shows the refusal when the note changed after the offer was made", async () => {
-    mocks.chatApplyProposal.mockRejectedValue(
-      "Launch.md changed on disk. Your text is in Launch (conflict 2026-09-10).md",
-    );
+    // Word for word what `apply_proposal_inner` rejects with when the guard
+    // refuses; the sentence is asserted against the command itself in
+    // src-tauri/tests/chat_ipc_tests.rs.
+    const REFUSAL =
+      "Launch.md changed since the offer was made. " +
+      "The proposed text is beside it in Launch (conflict 2026-09-10-120000).md.";
+    mocks.chatApplyProposal.mockRejectedValue(REFUSAL);
     const { container, getByText } = open();
     await exchange();
     await waitFor(() => expect(container.querySelector(".chat-proposal")).not.toBeNull());
 
     fireEvent.click(getByText("Apply"));
 
-    await waitFor(() => {
-      const verdict = container.querySelector(".chat-proposal-verdict")?.textContent ?? "";
-      expect(verdict).toContain("changed on disk");
-      expect(verdict).toContain("conflict");
-    });
-    expect(container.querySelector(".chat-proposal-verdict")?.textContent).not.toBe("Applied.");
+    await waitFor(() =>
+      expect(container.querySelector(".chat-proposal-verdict")?.textContent).toBe(REFUSAL),
+    );
   });
 
   it("discarding records the offer and writes nothing", async () => {

@@ -39,6 +39,7 @@ use writ_core::hash::digest_from_hex;
 use writ_core::notes::guard::DiskState;
 use writ_core::notes::WriteOrigin;
 use writ_core::polish;
+use writ_storage::errors::StorageError;
 use writ_storage::guarded::{write_note_guarded, ConflictPolicy, DiskRead, GuardedWrite};
 
 use super::ai::AiKeyState;
@@ -465,8 +466,32 @@ pub fn apply_proposal_inner(
                 Decision::Refuse,
                 None,
             );
-            Err(error.to_string())
+            Err(refusal(&key, &error))
         }
+    }
+}
+
+/// What the pane shows when a write does not happen.
+///
+/// `StorageError`'s own Display is written for logs and names the absolute
+/// path (`crates/writ-storage/src/errors.rs`). The pane names notes by their
+/// folder-relative key everywhere else, and the one thing a person needs from
+/// a refusal is where the text they were about to apply went instead.
+fn refusal(key: &str, error: &StorageError) -> String {
+    match error {
+        StorageError::SourceChangedOnDisk { conflict_copy, .. } => match conflict_copy {
+            Some(copy) => {
+                let copy_name = Path::new(copy)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| copy.clone());
+                format!("{key} changed since the offer was made. The proposed text is beside it in {copy_name}.")
+            }
+            None => format!(
+                "{key} changed since the offer was made, and the proposed text could not be written beside it."
+            ),
+        },
+        _ => format!("{key} was not written."),
     }
 }
 
