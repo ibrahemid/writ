@@ -123,32 +123,36 @@
   color: var(--writ-status-warning);
 }
 
-.activity-row-waiting {
-  grid-template-areas:
-    "time what verdict"
-    ".    decide decide";
-  padding-top: var(--writ-space-2);
-  padding-bottom: var(--writ-space-3);
+/* Waiting programs sit above the log rather than in it. A decision is one per
+   program however many calls it made, and the log is capped, so a row is the
+   wrong place to keep one. */
+.activity-waiting-list {
+  margin: 0;
+  padding: var(--writ-space-3) 0;
+  list-style: none;
+  border-bottom: 1px solid var(--writ-border-soft);
+  flex-shrink: 0;
 }
 
-.activity-row-waiting .activity-time {
-  grid-area: time;
-}
-
-.activity-row-waiting .activity-what {
-  grid-area: what;
-}
-
-.activity-row-waiting .activity-verdict {
-  grid-area: verdict;
-}
-
-.activity-decide {
-  grid-area: decide;
+.activity-waiting {
   display: flex;
   flex-direction: column;
   gap: var(--writ-space-2);
-  padding-top: var(--writ-space-1);
+  padding: var(--writ-space-2) var(--writ-space-5);
+}
+
+.activity-waiting-what {
+  display: flex;
+  align-items: baseline;
+  gap: var(--writ-space-2);
+  min-width: 0;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+}
+
+.activity-waiting-when {
+  color: var(--writ-fg-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .activity-decide-line {

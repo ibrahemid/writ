@@ -1302,7 +1302,28 @@ export async function activityClear(): Promise<void> {
   return invoke("activity_clear");
 }
 
-export async function mcpClients(): Promise<ClientApproval[]> {
+/**
+ * A program the harness has seen that nobody has decided on.
+ *
+ * Read from `mcp-pending.json` rather than from the activity log, which is
+ * capped: a program looping calls it is not allowed to make cannot push itself
+ * out of this list.
+ */
+export interface PendingClient {
+  name: string;
+  version: string | null;
+  first_seen: string;
+  last_seen: string;
+  calls: number;
+}
+
+/** Every program the harness knows about, decided on or not. */
+export interface McpClients {
+  approved: ClientApproval[];
+  waiting: PendingClient[];
+}
+
+export async function mcpClients(): Promise<McpClients> {
   return invoke("mcp_clients");
 }
 
@@ -1311,11 +1332,11 @@ export async function mcpSetClientPermission(
   name: string,
   read: boolean,
   write: boolean,
-): Promise<ClientApproval[]> {
+): Promise<McpClients> {
   return invoke("mcp_set_client_permission", { name, read, write });
 }
 
-export async function mcpForgetClient(name: string): Promise<ClientApproval[]> {
+export async function mcpForgetClient(name: string): Promise<McpClients> {
   return invoke("mcp_forget_client", { name });
 }
 

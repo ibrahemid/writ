@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 
-import type { ActivityRecord, ClientApproval } from "../../services/tauri";
+import type { ActivityRecord, ClientApproval, PendingClient } from "../../services/tauri";
 
 const h = vi.hoisted(() => ({
   activityRecent: vi.fn(),
@@ -24,7 +24,7 @@ vi.mock("../../services/tauri", () => ({
 vi.mock("../../services/events", () => ({ onEvent: h.onEvent }));
 vi.mock("../../services/clipboard", () => ({ writeClipboardText: h.writeClipboardText }));
 
-import { activityStore, ACTIVITY_LIMIT, __testing } from "../../stores/global/activity";
+import { activityStore, ACTIVITY_LIMIT } from "../../stores/global/activity";
 
 function record(over: Partial<ActivityRecord> = {}): ActivityRecord {
   return {
@@ -42,57 +42,53 @@ function approval(name: string, read: boolean, write: boolean): ClientApproval {
   return { name, first_seen: "2026-09-09T10:00:00Z", read, write };
 }
 
+function waiting(name: string): PendingClient {
+  return {
+    name,
+    version: "1.2.3",
+    first_seen: "2026-09-09T10:00:00Z",
+    last_seen: "2026-09-09T10:30:00Z",
+    calls: 4,
+  };
+}
+
+function answer(approved: ClientApproval[], pending: PendingClient[] = []) {
+  return { approved, waiting: pending };
+}
+
 afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("pending clients", () => {
-  it("names a program the log is waiting on", () => {
-    const pending = __testing.pendingFrom(
-      [record({ decision: "pending" })],
-      [],
-    );
-    expect(pending).toEqual([
-      { name: "Claude Code", version: "1.2.3", at: "2026-09-09T10:30:00.000Z" },
+describe("waiting programs", () => {
+  it("takes the waiting list from the command, not from the log", async () => {
+    h.activityRecent.mockResolvedValue([record({ decision: "pending" })]);
+    h.mcpClients.mockResolvedValue(answer([], [waiting("Claude Code")]));
+
+    await activityStore.refreshClients();
+
+    expect(activityStore.pending()).toEqual([waiting("Claude Code")]);
+  });
+
+  it("a log full of waiting rows with nobody on the list waits on nobody", async () => {
+    h.activityRecent.mockResolvedValue([
+      record({ decision: "pending" }),
+      record({ decision: "pending", action: "list_notes" }),
     ]);
-  });
+    h.mcpClients.mockResolvedValue(answer([], []));
 
-  it("names a program once however many calls it made", () => {
-    const pending = __testing.pendingFrom(
-      [
-        record({ decision: "pending", action: "read_note" }),
-        record({ decision: "pending", action: "list_notes" }),
-      ],
-      [],
-    );
-    expect(pending).toHaveLength(1);
-  });
+    await activityStore.refresh();
+    await activityStore.refreshClients();
 
-  it("does not wait on a program that was already decided on", () => {
-    const pending = __testing.pendingFrom(
-      [record({ decision: "pending" })],
-      [approval("Claude Code", false, false)],
-    );
-    expect(pending).toEqual([]);
-  });
-
-  it("ignores rows that are not a waiting client", () => {
-    const pending = __testing.pendingFrom(
-      [
-        record({ decision: "allow" }),
-        record({ decision: "refuse" }),
-        record({ decision: "pending", actor: { kind: "app" } }),
-      ],
-      [],
-    );
-    expect(pending).toEqual([]);
+    expect(activityStore.records()).toHaveLength(2);
+    expect(activityStore.pending()).toEqual([]);
   });
 });
 
 describe("activityStore", () => {
   it("reads the log, the approvals and the command on load", async () => {
     h.activityRecent.mockResolvedValue([record()]);
-    h.mcpClients.mockResolvedValue([approval("Claude Code", true, false)]);
+    h.mcpClients.mockResolvedValue(answer([approval("Claude Code", true, false)]));
     h.mcpServerCommand.mockResolvedValue({ path: "/usr/local/bin/writ", command: '"/usr/local/bin/writ" mcp' });
 
     await activityStore.load();
@@ -105,7 +101,7 @@ describe("activityStore", () => {
 
   it("listens for the app's own changes once, however often it is loaded", async () => {
     h.activityRecent.mockResolvedValue([]);
-    h.mcpClients.mockResolvedValue([]);
+    h.mcpClients.mockResolvedValue(answer([]));
     h.mcpServerCommand.mockResolvedValue({ path: "", command: "" });
 
     // A fresh module, so the count is this test's own: the listener is a
@@ -136,18 +132,37 @@ describe("activityStore", () => {
     expect(activityStore.records()).toEqual([]);
   });
 
-  it("setting a permission takes the list the command answered with", async () => {
-    h.mcpSetClientPermission.mockResolvedValue([approval("Claude Code", true, true)]);
+  it("setting a permission takes both lists the command answered with", async () => {
+    h.mcpSetClientPermission.mockResolvedValue(answer([approval("Claude Code", true, true)]));
     h.activityRecent.mockResolvedValue([]);
 
     await activityStore.setPermission("Claude Code", true, true);
 
     expect(h.mcpSetClientPermission).toHaveBeenCalledWith("Claude Code", true, true);
     expect(activityStore.clients()).toEqual([approval("Claude Code", true, true)]);
+    expect(activityStore.pending()).toEqual([]);
+  });
+
+  it("granting writing grants reading with it", async () => {
+    h.mcpSetClientPermission.mockResolvedValue(answer([approval("Claude Code", true, true)]));
+    h.activityRecent.mockResolvedValue([]);
+
+    await activityStore.setPermission("Claude Code", false, true);
+
+    expect(h.mcpSetClientPermission).toHaveBeenCalledWith("Claude Code", true, true);
+  });
+
+  it("revoking reading revokes writing with it", async () => {
+    h.mcpSetClientPermission.mockResolvedValue(answer([approval("Claude Code", false, false)]));
+    h.activityRecent.mockResolvedValue([]);
+
+    await activityStore.setPermission("Claude Code", false, false);
+
+    expect(h.mcpSetClientPermission).toHaveBeenCalledWith("Claude Code", false, false);
   });
 
   it("forgetting takes the program off the list", async () => {
-    h.mcpForgetClient.mockResolvedValue([]);
+    h.mcpForgetClient.mockResolvedValue(answer([]));
     h.activityRecent.mockResolvedValue([]);
 
     await activityStore.forget("Claude Code");

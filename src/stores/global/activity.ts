@@ -1,4 +1,4 @@
-import { createSignal, type Accessor } from "solid-js";
+import { createSignal } from "solid-js";
 
 import { onEvent, type UnlistenFn } from "../../services/events";
 import {
@@ -10,12 +10,14 @@ import {
   mcpSetClientPermission,
   type ActivityRecord,
   type ClientApproval,
+  type McpClients,
   type McpServerCommand,
+  type PendingClient,
 } from "../../services/tauri";
 import { writeClipboardText } from "../../services/clipboard";
 import { logFailure } from "../../lib/log";
 
-export type { ActivityRecord, ClientApproval, McpServerCommand };
+export type { ActivityRecord, ClientApproval, McpServerCommand, PendingClient };
 
 // Singleton state — Writ is single-window
 
@@ -27,39 +29,14 @@ export const ACTIVITY_POLL_MS = 5_000;
 
 const [records, setRecords] = createSignal<ActivityRecord[]>([]);
 const [clients, setClients] = createSignal<ClientApproval[]>([]);
+const [pending, setPending] = createSignal<PendingClient[]>([]);
 const [serverCommand, setServerCommand] = createSignal<McpServerCommand | null>(null);
 
 let subscription: Promise<UnlistenFn> | null = null;
 
-/**
- * A program the log has seen that the user has not decided on yet.
- *
- * Derived from the records rather than stored: the `writ mcp` process writes
- * the pending line and has no way to tell a running app about it, so the log is
- * where a waiting program shows up. A name that is on the approved list is not
- * waiting, whichever way that decision went.
- */
-export interface PendingClient {
-  name: string;
-  version: string | null;
-  /** The newest call it made, as the record spells the time. */
-  at: string;
-}
-
-function pendingFrom(rows: ActivityRecord[], decided: ClientApproval[]): PendingClient[] {
-  const known = new Set(decided.map((client) => client.name));
-  const waiting = new Map<string, PendingClient>();
-  for (const row of rows) {
-    if (row.decision !== "pending") continue;
-    if (row.actor.kind !== "client") continue;
-    if (known.has(row.actor.name) || waiting.has(row.actor.name)) continue;
-    waiting.set(row.actor.name, {
-      name: row.actor.name,
-      version: row.actor.version,
-      at: row.at,
-    });
-  }
-  return [...waiting.values()];
+function takeClients(answer: McpClients): void {
+  setClients(answer.approved);
+  setPending(answer.waiting);
 }
 
 async function refresh(): Promise<void> {
@@ -72,7 +49,7 @@ async function refresh(): Promise<void> {
 
 async function refreshClients(): Promise<void> {
   try {
-    setClients(await mcpClients());
+    takeClients(await mcpClients());
   } catch {
     logFailure("the list of connected programs could not be read");
   }
@@ -90,7 +67,7 @@ function subscribe(): Promise<UnlistenFn> {
   return subscription;
 }
 
-/** Reads the log, the approvals and the command, and starts listening. */
+/** Reads the log, the programs and the command, and starts listening. */
 async function load(): Promise<void> {
   void subscribe();
   await Promise.all([refresh(), refreshClients(), loadCommand()]);
@@ -119,19 +96,23 @@ async function clear(): Promise<void> {
   setRecords([]);
 }
 
-/** Grants or revokes one program's directions, by the name it sent. */
+/**
+ * Grants or revokes one program's directions, by the name it sent.
+ *
+ * Writing carries reading with it: every write tool reads the note before it
+ * replaces it, so a grant of one without the other would refuse calls the user
+ * had just approved.
+ */
 async function setPermission(name: string, read: boolean, write: boolean): Promise<void> {
-  setClients(await mcpSetClientPermission(name, read, write));
+  takeClients(await mcpSetClientPermission(name, read || write, write));
   await refresh();
 }
 
 /** Takes a program off the list, so its next call waits to be decided on. */
 async function forget(name: string): Promise<void> {
-  setClients(await mcpForgetClient(name));
+  takeClients(await mcpForgetClient(name));
   await refresh();
 }
-
-const pending: Accessor<PendingClient[]> = () => pendingFrom(records(), clients());
 
 export const activityStore = {
   records,
@@ -147,6 +128,3 @@ export const activityStore = {
   setPermission,
   forget,
 };
-
-/** Test seam: the derivation, without the signals around it. */
-export const __testing = { pendingFrom };

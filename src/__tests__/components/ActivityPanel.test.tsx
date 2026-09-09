@@ -49,8 +49,14 @@ function record(over: Partial<ActivityRecord> = {}): ActivityRecord {
   };
 }
 
-function waitingFor(name: string, at = "2026-09-09T10:30:00.000Z"): PendingClient {
-  return { name, version: "1.2.3", at };
+function waitingFor(name: string): PendingClient {
+  return {
+    name,
+    version: "1.2.3",
+    first_seen: "2026-09-09T10:00:00.000Z",
+    last_seen: "2026-09-09T10:30:00.000Z",
+    calls: 4,
+  };
 }
 
 beforeEach(() => {
@@ -85,7 +91,7 @@ describe("ActivityPanel", () => {
     expect(container.querySelector(".activity-list")).toBeNull();
   });
 
-  it("gives a waiting row both approve controls and an allowed row none", () => {
+  it("keeps the decisions out of the log rows", () => {
     h.setRecords([
       record({ decision: "pending", action: "read_note" }),
       record({ decision: "allow", actor: { kind: "client", name: "Zed", version: null } }),
@@ -96,14 +102,24 @@ describe("ActivityPanel", () => {
 
     const rows = Array.from(container.querySelectorAll(".activity-row"));
     expect(rows).toHaveLength(2);
-
-    expect(rows[0].querySelector('[data-action="approve-read"]')).not.toBeNull();
-    expect(rows[0].querySelector('[data-action="approve-write"]')).not.toBeNull();
+    expect(rows[0].querySelector('[data-action="approve-read"]')).toBeNull();
     expect(rows[0].querySelector(".activity-verdict")!.textContent).toBe("Waiting");
-
-    expect(rows[1].querySelector('[data-action="approve-read"]')).toBeNull();
-    expect(rows[1].querySelector('[data-action="approve-write"]')).toBeNull();
     expect(rows[1].querySelector(".activity-verdict")!.textContent).toBe("Allowed");
+
+    const decisions = container.querySelectorAll(".activity-waiting");
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0].querySelector('[data-action="approve-read"]')).not.toBeNull();
+    expect(decisions[0].querySelector('[data-action="approve-write"]')).not.toBeNull();
+  });
+
+  it("names a waiting program even with nothing about it left in the log", () => {
+    h.setRecords([record({ decision: "allow" })]);
+    h.setPending([waitingFor("Zed")]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    const decision = container.querySelector(".activity-waiting")!;
+    expect(decision.querySelector(".activity-program")!.textContent).toBe("Zed");
   });
 
   it("names the program, the call and the note on a row", () => {
@@ -117,8 +133,7 @@ describe("ActivityPanel", () => {
     expect(row.querySelector(".activity-note")!.textContent).toBe("Ideas/Tessera.md");
   });
 
-  it("says what happens next on a waiting row", () => {
-    h.setRecords([record({ decision: "pending" })]);
+  it("says what happens next on a waiting program", () => {
     h.setPending([waitingFor("Claude Code")]);
     openActivity();
     const { container } = render(() => <ActivityPanel />);
@@ -129,7 +144,6 @@ describe("ActivityPanel", () => {
   });
 
   it("approving reading asks the store once, for reading only", () => {
-    h.setRecords([record({ decision: "pending" })]);
     h.setPending([waitingFor("Claude Code")]);
     openActivity();
     const { container } = render(() => <ActivityPanel />);
@@ -140,29 +154,29 @@ describe("ActivityPanel", () => {
     expect(h.setPermission).toHaveBeenCalledWith("Claude Code", true, false);
   });
 
-  it("approving writing asks for both directions", () => {
-    h.setRecords([record({ decision: "pending" })]);
+  it("the writing control says it grants reading too, and grants it", () => {
     h.setPending([waitingFor("Claude Code")]);
     openActivity();
     const { container } = render(() => <ActivityPanel />);
 
-    fireEvent.click(container.querySelector('[data-action="approve-write"]')!);
+    const control = container.querySelector('[data-action="approve-write"]')!;
+    expect(control.textContent).toBe("Approve reading and writing");
 
+    fireEvent.click(control);
     expect(h.setPermission).toHaveBeenCalledWith("Claude Code", true, true);
   });
 
-  it("the row follows the store once the approval lands", () => {
+  it("the decision goes away once the approval lands", () => {
     h.setRecords([record({ decision: "pending" })]);
     h.setPending([waitingFor("Claude Code")]);
     openActivity();
     const { container } = render(() => <ActivityPanel />);
     expect(container.querySelector('[data-action="approve-read"]')).not.toBeNull();
 
-    h.setRecords([record({ decision: "allow" })]);
     h.setPending([]);
 
+    expect(container.querySelector(".activity-waiting")).toBeNull();
     expect(container.querySelector('[data-action="approve-read"]')).toBeNull();
-    expect(container.querySelector(".activity-verdict")!.textContent).toBe("Allowed");
   });
 
   it("clearing asks the store", () => {
@@ -218,7 +232,7 @@ describe("ActivityPanel", () => {
     const { container } = render(() => <ActivityPanel />);
 
     expect(container.querySelector(".activity-row")).not.toBeNull();
-    expect(container.querySelector('[data-action="approve-read"]')).toBeNull();
+    expect(container.querySelector(".activity-waiting")).toBeNull();
     expect(container.querySelector(".activity-decide-line")).toBeNull();
   });
 
