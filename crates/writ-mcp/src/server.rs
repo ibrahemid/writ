@@ -206,9 +206,9 @@ impl WritServer {
 
     #[tool(
         name = "write_note",
-        description = "Replace the text of a note that is there. Pass expected_hash, the \
-            hash read_note gave you, and a note edited since you read it is left alone and \
-            your text is written beside it instead."
+        description = "Replace the text of a note that already exists. Pass expected_hash, \
+            the hash read_note gave you, and a note edited since you read it is left alone, \
+            with your text written beside it."
     )]
     async fn write_note(
         &self,

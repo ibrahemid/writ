@@ -575,7 +575,10 @@ impl ToolHost {
     /// argument to this method overwrites a note the guard held back.
     ///
     /// The bytes land as they were handed in. Nothing reflows the file, so
-    /// frontmatter comes back out the way it went in.
+    /// frontmatter comes back out the way it went in. Text the note already
+    /// holds is not written again: the receipt says what the file holds and
+    /// the modification time does not move, which is what keeps a sync client
+    /// from uploading a change nobody made.
     pub fn write_note(
         &self,
         client: &ClientId,
