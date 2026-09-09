@@ -51,6 +51,45 @@ pub enum Decision {
     Pending,
 }
 
+/// A client the harness has seen and the user has not decided on.
+///
+/// Kept apart from the activity log on purpose: the log is capped and rotates,
+/// so a program looping calls it is not allowed to make can push the rows the
+/// user needs in order to decide about it off the end. This record is one entry
+/// per name, so no volume of calls can evict it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingClient {
+    /// The name the program sent.
+    pub name: String,
+    /// Its version, when it sent one. The newest one seen under this name.
+    #[serde(default)]
+    pub version: Option<String>,
+    /// When a call from this name was first seen.
+    pub first_seen: chrono::DateTime<chrono::Utc>,
+    /// When one was last recorded here.
+    pub last_seen: chrono::DateTime<chrono::Utc>,
+    /// How many calls have been recorded under this name.
+    ///
+    /// The file is written at most once a minute per client, so a process that
+    /// exits mid-minute takes its unwritten calls with it: this is a floor, not
+    /// a meter. Nothing decides anything on it.
+    #[serde(default)]
+    pub calls: u64,
+}
+
+impl PendingClient {
+    /// A client seen for the first time, at `now`.
+    pub fn first_call(client: &ClientId, now: chrono::DateTime<chrono::Utc>) -> Self {
+        Self {
+            name: client.name.clone(),
+            version: client.version.clone(),
+            first_seen: now,
+            last_seen: now,
+            calls: 1,
+        }
+    }
+}
+
 /// Who the action was performed for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]

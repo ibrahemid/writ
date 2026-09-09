@@ -6,11 +6,11 @@
 //! The last test asserts every one of them is in the invoke handler, since a
 //! command that is not registered cannot be called however well it behaves.
 
-use writ_core::activity::{ActivityRecord, Actor, Decision};
+use writ_core::activity::{ActivityRecord, Actor, ClientId, Decision};
 use writ_core::config::mcp::{ClientApproval, McpConfig};
 use writ_tauri_lib::commands::activity::{
     activity_clear_inner, activity_recent_inner, forget_client_inner, mcp_clients_inner,
-    server_command_for, set_client_permission_inner, ApprovalError, MAX_ACTIVITY_LIMIT,
+    server_command_for, set_client_permission_inner, waiting_in, ApprovalError, MAX_ACTIVITY_LIMIT,
 };
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
@@ -219,5 +219,66 @@ fn saving_an_approval_tells_the_frontend_the_settings_moved() {
     assert!(
         body.contains("WritFrontendEvent::ConfigChanged"),
         "an approval written from the app must announce the settings change"
+    );
+}
+
+/// A program that only made calls the gate refused is still one the user has to
+/// decide on, so it comes back from `mcp_clients` even though the settings hold
+/// no approval for it.
+#[test]
+fn a_waiting_program_is_listed_beside_the_approved_ones() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    writ_storage::pending_clients::note_calls(dir.path(), &ClientId::named("Zed"), 3)
+        .expect("note");
+
+    let approved = vec![ClientApproval {
+        name: "Claude Code".to_string(),
+        first_seen: chrono::Utc::now(),
+        read: true,
+        write: false,
+    }];
+
+    let waiting = waiting_in(dir.path(), &approved);
+    assert_eq!(waiting.len(), 1);
+    assert_eq!(waiting[0].name, "Zed");
+    assert_eq!(waiting[0].calls, 3);
+}
+
+/// The approval is what counts: an entry the server left behind is not a second
+/// decision to make.
+#[test]
+fn a_program_already_decided_on_is_not_also_waiting() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    writ_storage::pending_clients::note_calls(dir.path(), &ClientId::named("Claude Code"), 1)
+        .expect("note");
+
+    let approved = vec![ClientApproval {
+        name: "Claude Code".to_string(),
+        first_seen: chrono::Utc::now(),
+        read: false,
+        write: false,
+    }];
+
+    assert!(waiting_in(dir.path(), &approved).is_empty());
+}
+
+#[test]
+fn a_folder_with_no_waiting_file_lists_nobody() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    assert!(waiting_in(dir.path(), &[]).is_empty());
+}
+
+/// Both write commands drop the entry, so the panel stops offering a decision
+/// that has been made.
+#[test]
+fn deciding_on_a_program_is_wired_to_clear_its_waiting_entry() {
+    let body = ACTIVITY_RS
+        .split_once("fn write_approvals(")
+        .expect("write_approvals is where both write commands land")
+        .1;
+
+    assert!(
+        body.contains("pending_clients::forget"),
+        "a decided program must be taken off the waiting list"
     );
 }

@@ -70,6 +70,8 @@ pub mod notes_migration;
 pub mod notes_move;
 /// The one spelling of a path the stores hand over.
 pub mod paths;
+/// Programs the harness has seen and the user has not decided on.
+pub mod pending_clients;
 /// Session snapshots and dirty-shutdown detection.
 pub mod recovery;
 /// The copy of the database taken before the notes migration (ADR-028).

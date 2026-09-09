@@ -10,10 +10,11 @@
 //! host takes when nothing was supplied, and [`EnabledReads`] is a fixture the
 //! protocol tests drive; nothing in production constructs either.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::Deserialize;
 use writ_core::activity::{ActivityRecord, Actor};
@@ -113,11 +114,33 @@ struct Cached {
 /// went (rule 5.5). The gate sees the client and the tool and not the path, so
 /// the record names the tool; a consumer that knows which note it touched adds
 /// that where it writes.
+///
+/// A client it has nobody's decision about is also written to
+/// `mcp-pending.json`, once, however many calls it makes. The log is capped, so
+/// a program looping calls it is refusing would otherwise push its own pending
+/// rows off the end and leave the user nothing to decide on.
 #[derive(Debug)]
 pub struct ConfigGate {
     writ_dir: PathBuf,
     cached: Mutex<Cached>,
     parses: AtomicUsize,
+    waiting: Mutex<HashMap<String, Waiting>>,
+}
+
+/// How often one client's entry in `mcp-pending.json` is rewritten. The first
+/// call from a name is written at once; after that the file moves at most this
+/// often, whatever rate the client calls at.
+const PENDING_WRITE_EVERY: Duration = Duration::from_secs(60);
+
+/// What this process knows about one waiting client since it started.
+#[derive(Debug)]
+struct Waiting {
+    /// When its entry was last written.
+    written: Instant,
+    /// Calls counted since that write. Carried into the next one, so a client
+    /// calling faster than the file is written still has every call counted
+    /// unless the process exits first.
+    unwritten: u64,
 }
 
 impl ConfigGate {
@@ -127,6 +150,7 @@ impl ConfigGate {
             writ_dir: writ_dir.into(),
             cached: Mutex::new(Cached::default()),
             parses: AtomicUsize::new(0),
+            waiting: Mutex::new(HashMap::new()),
         }
     }
 
@@ -165,6 +189,54 @@ impl ConfigGate {
     fn record(&self, client: &ClientId, tool: &str, decision: Decision) {
         let record = ActivityRecord::now(Actor::from(client), tool, decision);
         let _ = writ_storage::activity_log::append(&self.writ_dir, &record);
+        if decision == Decision::Pending {
+            self.note_waiting(client);
+        }
+    }
+
+    /// Adds the client to `mcp-pending.json`, at most once a minute.
+    ///
+    /// The first call from a name is written straight away, so the user sees it
+    /// as soon as it happens. After that the counted calls accumulate here and
+    /// go in with the next write.
+    fn note_waiting(&self, client: &ClientId) {
+        let now = Instant::now();
+        let due = {
+            let mut waiting = self
+                .waiting
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            match waiting.get_mut(&client.name) {
+                Some(seen) => {
+                    seen.unwritten += 1;
+                    if now.duration_since(seen.written) < PENDING_WRITE_EVERY {
+                        None
+                    } else {
+                        Some(std::mem::replace(&mut seen.unwritten, 0))
+                    }
+                }
+                None => {
+                    waiting.insert(
+                        client.name.clone(),
+                        Waiting {
+                            written: now,
+                            unwritten: 0,
+                        },
+                    );
+                    Some(1)
+                }
+            }
+        };
+
+        let Some(calls) = due else { return };
+        let _ = writ_storage::pending_clients::note_calls(&self.writ_dir, client, calls);
+        let mut waiting = self
+            .waiting
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(seen) = waiting.get_mut(&client.name) {
+            seen.written = now;
+        }
     }
 }
 
@@ -337,6 +409,102 @@ mod tests {
         gate.decide(&ClientId::named("Claude Code"), "list_notes");
 
         assert_eq!(records(dir.path()).len(), 2);
+    }
+
+    /// The activity log is capped, so a program looping calls it is not allowed
+    /// to make would otherwise push its own pending rows off the end. The file
+    /// the panel reads holds one entry per name and does not grow with the
+    /// calls.
+    #[test]
+    fn a_client_refused_ten_thousand_times_is_recorded_once() {
+        let dir = config_dir();
+        write_config(dir.path(), "[mcp]\nenabled = true\n");
+        let gate = ConfigGate::new(dir.path());
+
+        for _ in 0..10_000 {
+            assert_eq!(
+                gate.decide(&ClientId::named("Claude Code"), "read_note"),
+                Decision::Pending
+            );
+        }
+
+        let waiting = writ_storage::pending_clients::read(dir.path());
+        assert_eq!(waiting.len(), 1);
+        assert_eq!(waiting[0].name, "Claude Code");
+
+        let size = std::fs::metadata(writ_storage::pending_clients::path(dir.path()))
+            .expect("the file")
+            .len();
+        assert!(size < 4_096, "the file grew with the calls: {size} bytes");
+    }
+
+    #[test]
+    fn a_decided_client_is_never_written_to_the_waiting_file() {
+        let dir = config_dir();
+        write_config(
+            dir.path(),
+            "[mcp]\nenabled = true\n[[mcp.approved_clients]]\nname = \"Claude Code\"\nread = true\n",
+        );
+        let gate = ConfigGate::new(dir.path());
+
+        gate.decide(&ClientId::named("Claude Code"), "read_note");
+        gate.decide(&ClientId::named("Claude Code"), "write_note");
+
+        assert!(writ_storage::pending_clients::read(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn two_waiting_clients_are_two_entries() {
+        let dir = config_dir();
+        write_config(dir.path(), "[mcp]\nenabled = true\n");
+        let gate = ConfigGate::new(dir.path());
+
+        gate.decide(&ClientId::named("Claude Code"), "read_note");
+        gate.decide(&ClientId::named("Zed"), "read_note");
+
+        let names: Vec<String> = writ_storage::pending_clients::read(dir.path())
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        assert_eq!(names.len(), 2);
+        assert!(names.contains(&"Claude Code".to_string()));
+        assert!(names.contains(&"Zed".to_string()));
+    }
+
+    /// Approval is granted in the app and nowhere else (ADR-031 rule 3.4). What
+    /// the server writes is the log and the file naming who is waiting; the
+    /// settings it decides from it only ever reads.
+    #[test]
+    fn deciding_writes_the_log_and_the_waiting_file_and_nothing_else() {
+        let dir = config_dir();
+        let settings = "[mcp]\nenabled = true\n";
+        write_config(dir.path(), settings);
+        let gate = ConfigGate::new(dir.path());
+
+        gate.decide(&ClientId::named("Claude Code"), "read_note");
+        gate.decide(&ClientId::named("Claude Code"), "write_note");
+
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(CONFIG_FILE)).expect("settings"),
+            settings,
+            "the gate edited the settings it decides from"
+        );
+
+        let mut written: Vec<String> = std::fs::read_dir(dir.path())
+            .expect("list")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .collect();
+        written.sort();
+        assert_eq!(
+            written,
+            [
+                "activity.jsonl",
+                "activity.lock",
+                "config.toml",
+                "mcp-pending.json"
+            ]
+        );
     }
 
     #[test]

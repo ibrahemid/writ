@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
-use writ_core::activity::ActivityRecord;
+use writ_core::activity::{ActivityRecord, PendingClient};
 use writ_core::config::mcp::{ClientApproval, McpConfig};
 
 use crate::events::emitter::{emit_event, WritFrontendEvent};
@@ -37,6 +37,20 @@ pub enum ApprovalError {
     /// nothing to store.
     #[error("A program that sent no name cannot be approved.")]
     NoName,
+}
+
+/// Every program the harness knows about.
+///
+/// Two lists rather than one, because the two are not the same thing: an
+/// approval is a decision the user made and lives in `config.toml`, while a
+/// waiting program is one the harness saw and nobody has decided on, held in
+/// `mcp-pending.json` so no volume of calls can push it out of the capped log.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct McpClients {
+    /// Decided on, in either direction or neither, sorted by name.
+    pub approved: Vec<ClientApproval>,
+    /// Seen and not decided on, oldest first seen first.
+    pub waiting: Vec<PendingClient>,
 }
 
 /// The command a client is given, and the file it runs.
@@ -133,12 +147,34 @@ pub fn forget_client_inner(config: &mut McpConfig, name: &str) {
         .retain(|approval| approval.name != name);
 }
 
-/// IPC: the clients the user has decided on.
+/// IPC: every program the harness knows about.
 #[tauri::command]
-pub fn mcp_clients(app: AppHandle) -> Vec<ClientApproval> {
+pub fn mcp_clients(app: AppHandle) -> McpClients {
     let state = app.state::<AppState>();
-    let guard = recover_poison(state.config.lock(), "commands::activity::mcp_clients");
-    mcp_clients_inner(&guard.mcp)
+    let approved = {
+        let guard = recover_poison(state.config.lock(), "commands::activity::mcp_clients");
+        mcp_clients_inner(&guard.mcp)
+    };
+    McpClients {
+        waiting: waiting_in(&state.writ_dir, &approved),
+        approved,
+    }
+}
+
+/// Who is waiting, minus anyone already decided on.
+///
+/// A program can be in both files for one call: the server writes the waiting
+/// entry, the user approves it in the app, and the entry is dropped there. If a
+/// write fails on the way, the approval is what counts.
+pub fn waiting_in(writ_dir: &Path, approved: &[ClientApproval]) -> Vec<PendingClient> {
+    let decided: std::collections::HashSet<&str> = approved
+        .iter()
+        .map(|approval| approval.name.as_str())
+        .collect();
+    writ_storage::pending_clients::read(writ_dir)
+        .into_iter()
+        .filter(|entry| !decided.contains(entry.name.as_str()))
+        .collect()
 }
 
 /// IPC: set what one client may do.
@@ -148,16 +184,16 @@ pub fn mcp_set_client_permission(
     name: String,
     read: bool,
     write: bool,
-) -> Result<Vec<ClientApproval>, String> {
-    write_approvals(&app, "mcp_set_client_permission", |mcp| {
+) -> Result<McpClients, String> {
+    write_approvals(&app, "mcp_set_client_permission", &name, |mcp| {
         set_client_permission_inner(mcp, &name, read, write).map_err(|e| e.to_string())
     })
 }
 
 /// IPC: forget one client.
 #[tauri::command]
-pub fn mcp_forget_client(app: AppHandle, name: String) -> Result<Vec<ClientApproval>, String> {
-    write_approvals(&app, "mcp_forget_client", |mcp| {
+pub fn mcp_forget_client(app: AppHandle, name: String) -> Result<McpClients, String> {
+    write_approvals(&app, "mcp_forget_client", &name, |mcp| {
         forget_client_inner(mcp, &name);
         Ok(())
     })
@@ -172,8 +208,9 @@ pub fn mcp_forget_client(app: AppHandle, name: String) -> Result<Vec<ClientAppro
 fn write_approvals(
     app: &AppHandle,
     location: &'static str,
+    name: &str,
     change: impl FnOnce(&mut McpConfig) -> Result<(), String>,
-) -> Result<Vec<ClientApproval>, String> {
+) -> Result<McpClients, String> {
     let state = app.state::<AppState>();
     let (updated, previous) = {
         let mut guard = recover_poison(state.config.lock(), location);
@@ -198,7 +235,19 @@ fn write_approvals(
     ) {
         tracing::warn!(error = %error, "failed to emit config event");
     }
-    Ok(mcp_clients_inner(&updated.mcp))
+
+    // The decision is made, so the program is no longer one to decide on. A
+    // failed write leaves a stale entry, which the filter in `waiting_in` hides
+    // anyway once the name is on the approved list.
+    if let Err(error) = writ_storage::pending_clients::forget(&state.writ_dir, name) {
+        tracing::warn!(error = %error, "failed to clear the waiting client");
+    }
+
+    let approved = mcp_clients_inner(&updated.mcp);
+    Ok(McpClients {
+        waiting: waiting_in(&state.writ_dir, &approved),
+        approved,
+    })
 }
 
 // --- The command a client is given ------------------------------------------
