@@ -109,7 +109,7 @@ export default function ChatPane() {
         class="chat-pane"
         classList={{ "is-open": isOpen(), "is-resizing": dragWidth() !== null }}
         style={{ "--writ-chat-live-width": `${width()}px` }}
-        aria-label="Chat"
+        aria-labelledby="chat-pane-title"
         aria-hidden={isOpen() ? undefined : "true"}
         ref={column}
       >
@@ -127,7 +127,9 @@ export default function ChatPane() {
 
         <div class="chat-pane-inner">
           <header class="chat-pane-header">
-            <h2 class="chat-pane-title">Chat</h2>
+            <h2 class="chat-pane-title" id="chat-pane-title">
+              Chat
+            </h2>
             <Tooltip label="Close chat">
               <Button
                 variant="ghost"

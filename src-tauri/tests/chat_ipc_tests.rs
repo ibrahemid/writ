@@ -104,8 +104,9 @@ fn chat_state_refuses_plaintext_to_a_remote_host() {
 fn chat_state_names_the_keychain_account_of_each_provider() {
     assert_eq!(
         key_account(&config("https://api.anthropic.com", "anthropic")),
-        Some("chat:anthropic")
+        Some(Provider::Anthropic.key_account())
     );
+    assert_eq!(Provider::Anthropic.key_account(), "chat:anthropic");
     // The rewrite path's account for that provider id would be the bare word,
     // and the two must never meet in the keychain.
     assert_ne!(
