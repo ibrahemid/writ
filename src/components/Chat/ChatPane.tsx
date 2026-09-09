@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
 import Tooltip from "../Tooltip/Tooltip";
@@ -79,9 +79,9 @@ export default function ChatPane() {
   let transcript: HTMLDivElement | undefined;
   createEffect(() => {
     const messages = chatStore.messages();
-    const streaming = chatStore.status();
+    // Read so a frame that only lengthens the last message still moves it.
+    chatStore.status();
     if (!transcript || messages.length === 0) return;
-    void streaming;
     transcript.scrollTop = transcript.scrollHeight;
   });
 
@@ -96,8 +96,6 @@ export default function ChatPane() {
   createEffect(() => {
     if (!isOpen()) setPicking(false);
   });
-
-  onCleanup(() => setPicking(false));
 
   function onComposerKeyDown(event: KeyboardEvent) {
     if (event.key !== "Enter" || event.shiftKey) return;
