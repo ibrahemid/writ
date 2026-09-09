@@ -362,21 +362,58 @@ pub fn ai_endpoint_state(app: AppHandle) -> Result<AiEndpointState, String> {
     Ok(endpoint_state_from(&cfg, key_state))
 }
 
-/// Records the send notice for the currently configured host and persists it.
+/// Which endpoint a consent is being granted for.
+///
+/// Consent is per host, and the two surfaces have separate base URLs, so the
+/// caller says which one it is asking about. The record itself is one list
+/// (`ai.consented_hosts`): a host consented to from either surface is
+/// consented to for both, and consenting to one host never covers another
+/// (ADR-031 rule 6.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConsentSurface {
+    /// The rewrite endpoint (`ai.base_url`).
+    Rewrite,
+    /// The chat endpoint (`ai.chat.base_url`).
+    Chat,
+}
+
+impl ConsentSurface {
+    /// Reads the wire id. Anything unrecognised is the rewrite endpoint, which
+    /// is the surface that shipped first and the one a caller sending nothing
+    /// means.
+    pub fn parse(id: Option<&str>) -> Self {
+        match id {
+            Some("chat") => Self::Chat,
+            _ => Self::Rewrite,
+        }
+    }
+
+    /// The base URL this surface sends to.
+    pub fn base_url(self, cfg: &AiConfig) -> &str {
+        match self {
+            Self::Rewrite => &cfg.base_url,
+            Self::Chat => &cfg.chat.base_url,
+        }
+    }
+}
+
+/// Records the send notice for the host `surface` is configured to reach.
 ///
 /// The host is resolved here rather than supplied by the caller, so consent is
-/// always stored under the exact string [`prepare_request`] later checks — a
+/// always stored under the exact string the guard later checks — a
 /// client-computed host could never drift out of agreement with the guard.
 /// Refuses a local or disallowed endpoint: there is nothing to consent to.
 #[tauri::command]
-pub fn ai_consent_host(app: AppHandle) -> Result<AiEndpointState, String> {
+pub fn ai_consent_host(app: AppHandle, surface: Option<String>) -> Result<AiEndpointState, String> {
     let state = app.state::<AppState>();
+    let surface = ConsentSurface::parse(surface.as_deref());
     let mut config = {
         let guard = recover_poison(state.config.lock(), "commands::ai::ai_consent_host");
         guard.clone()
     };
 
-    let target = polish::resolve_endpoint(&config.ai.base_url).map_err(|e| e.to_string())?;
+    let target =
+        polish::resolve_endpoint(surface.base_url(&config.ai)).map_err(|e| e.to_string())?;
     if !target.is_allowed {
         return Err(PolishError::EndpointNotAllowed.to_string());
     }

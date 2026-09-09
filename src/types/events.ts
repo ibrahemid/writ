@@ -1,4 +1,5 @@
 import type { UpdatePhase } from "./update";
+import type { ChatProposal } from "../services/tauri";
 
 export type WritEvent =
   | { kind: "buffer:opened"; payload: { id: string; title: string } }
@@ -26,6 +27,17 @@ export type WritEvent =
   | {
       kind: "ai:rewrite";
       payload: { request_id: string; kind: "chunk" | "done" | "error"; text?: string };
+    }
+  | {
+      kind: "ai:chat";
+      payload: {
+        conversation_id: string;
+        kind: "chunk" | "done" | "error";
+        text?: string;
+        /** Whole-note text a reply asked for, carried by the `done` frame and
+         * applied by nobody until a person says so (ADR-031 rule 4.3). */
+        proposals?: ChatProposal[];
+      };
     }
   | {
       kind: "note:download";
