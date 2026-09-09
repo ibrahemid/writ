@@ -723,6 +723,7 @@ pub fn run() {
             commands::activity::mcp_set_client_permission,
             commands::activity::mcp_forget_client,
             commands::activity::mcp_server_command,
+            commands::activity::mcp_tools,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

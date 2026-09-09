@@ -67,6 +67,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "ai.api_key", section: "ai", title: "API key", keywords: ["ai", "api key", "token", "secret", "credential"] },
   { id: "mcp.enabled", section: "programs", title: "Let other programs read and write your notes", keywords: ["mcp", "programs", "clients", "connect", "claude", "editor", "assistant", "tools", "server", "enable"] },
   { id: "mcp.command", section: "programs", title: "Command to give a program", keywords: ["mcp", "command", "copy", "paste", "configure", "setup", "stdio"] },
+  { id: "mcp.tools", section: "programs", title: "What a program can do", keywords: ["mcp", "tools", "read", "write", "rename", "create", "delete", "permission"] },
   { id: "mcp.clients", section: "programs", title: "Programs you approved", keywords: ["mcp", "programs", "approved", "clients", "permission", "read", "write", "revoke", "forget"] },
   { id: "mcp.activity", section: "programs", title: "Recent activity", keywords: ["activity", "log", "record", "calls", "what happened", "audit"] },
   { id: "appearance.polarity", section: "appearance", title: "Light and dark", keywords: ["appearance", "light", "dark", "system", "theme", "polarity", "follow system"] },

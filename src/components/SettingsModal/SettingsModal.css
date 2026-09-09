@@ -607,3 +607,37 @@
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
 }
+
+/* The tools behind each grant. Two rows, name then names, so the reader can
+   line the grant up with the switch of the same name two rows down. */
+.settings-tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.settings-tool-grant {
+  display: flex;
+  align-items: baseline;
+  gap: var(--writ-space-3);
+  min-width: 0;
+}
+
+.settings-tool-grant-name {
+  color: var(--writ-fg);
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+  flex: 0 0 4rem;
+}
+
+.settings-tool-names {
+  color: var(--writ-fg-muted);
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

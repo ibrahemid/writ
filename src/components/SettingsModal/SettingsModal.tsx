@@ -1513,6 +1513,10 @@ function AdvancedSection() {
  * Turning the switch on approves nobody: a program's first call waits for the
  * user to decide on it, in Activity (ADR-031 rules 3.2 and 7.2). Reading and
  * writing are separate grants, so a program approved to read never writes.
+ *
+ * The tool list under each grant comes from the server's own list, over
+ * `mcp_tools`. A list written out here would go stale the first time a tool
+ * was added, and the user would be granting one thing while reading another.
  */
 function ProgramsSection() {
   const mcp = () => configStore.config().mcp;
@@ -1520,6 +1524,7 @@ function ProgramsSection() {
   onMount(() => {
     void activityStore.refreshClients();
     void activityStore.loadCommand();
+    void activityStore.loadTools();
   });
 
   function onEnableToggle() {
@@ -1575,6 +1580,30 @@ function ProgramsSection() {
             Copy command
           </Button>
         </span>
+      </SettingsRow>
+
+      <SettingsRow
+        id="mcp.tools"
+        label="What a program can do"
+        caution="Writing replaces, makes and renames notes. Nothing deletes one, and a rename leaves other notes pointing at the old name."
+      >
+        <Show
+          when={activityStore.tools()}
+          fallback={<span class="settings-programs-none">…</span>}
+        >
+          {(tools) => (
+            <ul class="settings-tools">
+              <li class="settings-tool-grant" data-grant="read">
+                <span class="settings-tool-grant-name">Reading</span>
+                <span class="settings-tool-names">{tools().read.join(", ")}</span>
+              </li>
+              <li class="settings-tool-grant" data-grant="write">
+                <span class="settings-tool-grant-name">Writing</span>
+                <span class="settings-tool-names">{tools().write.join(", ")}</span>
+              </li>
+            </ul>
+          )}
+        </Show>
       </SettingsRow>
 
       <SettingsRow

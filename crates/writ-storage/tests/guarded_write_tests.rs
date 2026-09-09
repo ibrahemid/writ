@@ -18,7 +18,7 @@ use writ_core::notes::WriteOrigin;
 use writ_storage::errors::StorageError;
 use writ_storage::guarded::{
     create_note_guarded, guard_rename, history_hook, write_note_guarded, ConflictPolicy,
-    CreateNote, DiskRead, GuardedWrite, WriteCapture,
+    CreateNote, DiskRead, GuardedWrite, TakenName, WriteCapture,
 };
 
 /// What the file holds right now, as the adapter records it after a read.
@@ -252,6 +252,7 @@ fn a_new_note_whose_name_is_already_on_disk_is_refused_without_truncating_it() {
             stem: "Notes",
             content: "the new note\n",
             origin: WriteOrigin::Editor,
+            on_taken_name: TakenName::Dedupe,
             history: None,
         },
         None,
@@ -270,6 +271,62 @@ fn a_new_note_whose_name_is_already_on_disk_is_refused_without_truncating_it() {
 }
 
 #[test]
+fn a_mint_that_refuses_a_taken_name_names_the_one_that_was_asked_for() {
+    // The dedupe folds a name to NFC and lowercase, so `notes.md` holds the
+    // name `Notes`, and a caller that wanted that name is told so rather than
+    // handed `Notes 2.md`.
+    let root = TempDir::new().expect("temp dir");
+    let taken = root.path().join("notes.md");
+    std::fs::write(&taken, "what was already there\n").expect("seed");
+
+    let outcome = create_note_guarded(
+        CreateNote {
+            notes_root: root.path(),
+            stem: "Notes",
+            content: "the new note\n",
+            origin: WriteOrigin::Cli,
+            on_taken_name: TakenName::Refuse,
+            history: None,
+        },
+        None,
+    );
+
+    let Err(StorageError::NoteNameTaken { name, .. }) = outcome else {
+        panic!("expected a taken name, got {outcome:?}");
+    };
+    assert_eq!(
+        name, "Notes.md",
+        "the name in the error is the one asked for"
+    );
+    assert!(!root.path().join("Notes 2.md").exists());
+    assert_eq!(
+        std::fs::read_to_string(&taken).expect("read"),
+        "what was already there\n"
+    );
+}
+
+#[test]
+fn a_mint_that_dedupes_still_takes_the_name_beside_the_one_that_is_there() {
+    let root = TempDir::new().expect("temp dir");
+    std::fs::write(root.path().join("notes.md"), "what was already there\n").expect("seed");
+
+    let path = create_note_guarded(
+        CreateNote {
+            notes_root: root.path(),
+            stem: "Notes",
+            content: "the new note\n",
+            origin: WriteOrigin::Editor,
+            on_taken_name: TakenName::Dedupe,
+            history: None,
+        },
+        None,
+    )
+    .expect("create");
+
+    assert_eq!(path, root.path().join("Notes 2.md"));
+}
+
+#[test]
 fn a_new_note_is_minted_under_the_origin_that_asked_for_it() {
     let root = TempDir::new().expect("temp dir");
     let captures = Captures::default();
@@ -281,6 +338,7 @@ fn a_new_note_is_minted_under_the_origin_that_asked_for_it() {
             stem: "Notes",
             content: "the new note\n",
             origin: WriteOrigin::Cli,
+            on_taken_name: TakenName::Dedupe,
             history: Some(&hook),
         },
         None,

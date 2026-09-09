@@ -44,6 +44,22 @@ pub enum ConflictPolicy {
     RefuseOnly,
 }
 
+/// What minting does about a name the folder already holds.
+///
+/// Both readings of "that name is taken" are right, for different callers, so
+/// the caller says which one it means rather than the folder deciding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TakenName {
+    /// Mint `Launch 2.md` beside `Launch.md`. What a person who asked for a
+    /// new note wants: the note appears, and the note already there is left
+    /// alone.
+    Dedupe,
+    /// Answer [`StorageError::NoteNameTaken`] and mint nothing. What a program
+    /// that asked for a name needs: text put in `Launch 2` by a caller that
+    /// asked for `Launch` is in a note that caller did not name.
+    Refuse,
+}
+
 /// How the guard learns what the file holds now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiskRead {
@@ -115,6 +131,8 @@ pub struct CreateNote<'a> {
     pub content: &'a str,
     /// What asked for the note.
     pub origin: WriteOrigin,
+    /// What a name the folder already holds does.
+    pub on_taken_name: TakenName,
     /// Where the write is captured, if anywhere.
     pub history: HistoryHook<'a>,
 }
@@ -231,12 +249,19 @@ pub fn write_note_guarded(
 /// the one operation that knows its file must not exist yet, so it is the one
 /// that can say so.
 ///
+/// [`TakenName::Refuse`] is answered from the same reading of the folder the
+/// dedupe uses, which folds a name to NFC and lowercase
+/// ([`writ_core::notes::dedupe_file_name`]). A caller that compares the exact
+/// path itself gets the filesystem's answer instead of this one, and the two
+/// part company on a case-sensitive volume and on a decomposed name.
+///
 /// # Errors
 ///
 /// [`StorageError::NoteNameEmpty`] when `req.stem` holds nothing,
-/// [`StorageError::NoteNameTaken`] when the deduped name is on disk anyway,
-/// and [`StorageError::Io`] when the folder cannot be created or the file
-/// cannot be written.
+/// [`StorageError::NoteNameTaken`] when the name asked for is taken and
+/// `req.on_taken_name` is [`TakenName::Refuse`], or when the deduped name is
+/// on disk anyway, and [`StorageError::Io`] when the folder cannot be created
+/// or the file cannot be written.
 pub fn create_note_guarded(
     req: CreateNote<'_>,
     before_write: BeforeWrite<'_>,
@@ -246,11 +271,21 @@ pub fn create_note_guarded(
         return Err(StorageError::NoteNameEmpty);
     }
     std::fs::create_dir_all(req.notes_root)?;
+    let asked_for = format!("{stem}.{}", crate::note_ops::NOTE_EXTENSION);
     let name = writ_core::notes::dedupe_file_name(
         stem,
         crate::note_ops::NOTE_EXTENSION,
         &taken_names(req.notes_root),
     );
+    // The name in the error is the one the caller asked for, not the one the
+    // dedupe would have picked: a caller told `Launch 2.md` is taken is being
+    // told about a name it never mentioned.
+    if req.on_taken_name == TakenName::Refuse && name != asked_for {
+        return Err(StorageError::NoteNameTaken {
+            name: asked_for,
+            folder: req.notes_root.to_path_buf(),
+        });
+    }
     let path = req.notes_root.join(&name);
     // `symlink_metadata`, so a link left behind by something else counts as
     // taken rather than being followed and written through.

@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   mcpSetClientPermission: vi.fn(),
   mcpForgetClient: vi.fn(),
   mcpServerCommand: vi.fn(),
+  mcpTools: vi.fn(),
   writeClipboardText: vi.fn().mockResolvedValue(undefined),
   onEvent: vi.fn().mockResolvedValue(() => {}),
 }));
@@ -20,6 +21,7 @@ vi.mock("../../services/tauri", () => ({
   mcpSetClientPermission: h.mcpSetClientPermission,
   mcpForgetClient: h.mcpForgetClient,
   mcpServerCommand: h.mcpServerCommand,
+  mcpTools: h.mcpTools,
 }));
 vi.mock("../../services/events", () => ({ onEvent: h.onEvent }));
 vi.mock("../../services/clipboard", () => ({ writeClipboardText: h.writeClipboardText }));
@@ -169,6 +171,46 @@ describe("activityStore", () => {
 
     expect(h.mcpForgetClient).toHaveBeenCalledWith("Claude Code");
     expect(activityStore.clients()).toEqual([]);
+  });
+
+  // The tool list is read once per session and kept, so each of these takes
+  // its own copy of the module rather than reading what the one before left.
+  async function freshStore() {
+    vi.resetModules();
+    const fresh = await import("../../stores/global/activity");
+    return fresh.activityStore;
+  }
+
+  it("reads the tool list the server registers", async () => {
+    const store = await freshStore();
+    h.mcpTools.mockResolvedValue({ read: ["read_note"], write: ["write_note"] });
+
+    await store.loadTools();
+
+    expect(store.tools()).toEqual({ read: ["read_note"], write: ["write_note"] });
+  });
+
+  it("asks for the tool list once, however often the section is opened", async () => {
+    const store = await freshStore();
+    h.mcpTools.mockResolvedValue({ read: ["read_note"], write: ["write_note"] });
+
+    await store.loadTools();
+    await store.loadTools();
+
+    expect(h.mcpTools).toHaveBeenCalledTimes(1);
+  });
+
+  it("a tool list that cannot be read leaves the row empty and asks again", async () => {
+    const store = await freshStore();
+    h.mcpTools.mockRejectedValueOnce(new Error("no answer"));
+
+    await expect(store.loadTools()).resolves.toBeUndefined();
+    expect(store.tools()).toBeNull();
+
+    h.mcpTools.mockResolvedValue({ read: ["read_note"], write: ["write_note"] });
+    await store.loadTools();
+
+    expect(store.tools()?.write).toEqual(["write_note"]);
   });
 
   it("copying puts the whole command on the clipboard", async () => {

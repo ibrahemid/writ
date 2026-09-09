@@ -564,3 +564,109 @@ fn a_burst_that_stops_while_a_sweep_stands_is_swept_once_more() {
         "the changes the cooldown swallowed were never swept"
     );
 }
+
+#[test]
+fn a_write_from_a_connected_program_reaches_the_tab_as_somebody_elses_edit() {
+    // The route a tool call takes to a tab, end to end, with no channel of its
+    // own: the client's process writes the file through the guarded facade
+    // with no ignore stamp, the notes watcher sees the write, and the tab
+    // holding that note is told once (ADR-031 rule 4 and ADR-033). A stamp on
+    // that write would be swallowed by the very mechanism that keeps Writ's
+    // own saves from returning, so its absence is the thing under test.
+    let notes = TempDir::new().expect("notes dir");
+    let data = TempDir::new().expect("data dir");
+    // One spelling of the folder for every side. A tab keyed by the path
+    // `TempDir` hands back and a watcher rooted at the canonical one are two
+    // folders as far as the registry can tell: Windows hands out the short
+    // `RUNNER~1` form, `ToolHost::open` canonicalises whatever it is given,
+    // and an event under one spelling never finds a tab under the other.
+    let root = canonical(notes.path());
+    let note = root.join("Launch.md");
+    let read_by_the_tab = b"as the tab read it\n";
+    std::fs::write(&note, read_by_the_tab).expect("seed note");
+    std::fs::write(
+        data.path().join("config.toml"),
+        "[mcp]\nenabled = true\n\n[[mcp.approved_clients]]\nname = \"Test Client\"\nread = true\nwrite = true\n",
+    )
+    .expect("seed the settings the gate reads");
+
+    let (bus, rx) = bus_with_channel();
+    let ignore = create_ignore_set();
+    let open_files = start_open_file_watcher(
+        bus.clone(),
+        ignore.clone(),
+        &root,
+        TabsThatHaveRead::holding("note-1", &note, read_by_the_tab),
+    )
+    .expect("start the open file watcher");
+    open_files
+        .registry()
+        .lock()
+        .expect("registry")
+        .watch_parent_of("note-1", &note);
+    let _notes_watcher = start_notes_watcher(
+        bus,
+        root.clone(),
+        ignore,
+        open_files.open_notes(),
+        TabsThatHaveRead::holding("note-1", &note, read_by_the_tab),
+    )
+    .expect("start the notes watcher");
+
+    // The server's own host, over the same folder, holding no index and no
+    // ignore set — which is everything the process a client launches has.
+    let host = writ_mcp::tools::ToolHost::open(
+        &root,
+        &data.path().join("writ.db"),
+        data.path(),
+        Box::new(writ_mcp::consent::ConfigGate::new(data.path())),
+    )
+    .expect("open the folder the way the served process does");
+    let written = b"as a program left it\n";
+    std::thread::spawn(move || {
+        host.write_note(
+            &writ_core::activity::ClientId::named("Test Client"),
+            "Launch.md",
+            std::str::from_utf8(written).expect("utf-8"),
+            None,
+        )
+        .expect("the write is made");
+    })
+    .join()
+    .expect("the writing thread finished");
+
+    let seen = collect_external(&rx);
+    assert_eq!(
+        seen.len(),
+        1,
+        "the tab must be told once about a program's write, saw {seen:?}"
+    );
+    match &seen[0] {
+        WritEvent::BufferExternal {
+            buffer_id,
+            path,
+            change,
+            new_path,
+            disk_hash,
+        } => {
+            assert_eq!(buffer_id, "note-1");
+            assert_eq!(resolved(Path::new(path)), resolved(&note));
+            assert_eq!(
+                *change,
+                writ_core::watcher::change_event::ExternalChange::Modified
+            );
+            assert_eq!(*new_path, None);
+            assert_eq!(
+                disk_hash.as_deref(),
+                Some(writ_core::hash::comparison_digest_hex(written).as_str()),
+                "the tab reconciles against what the file holds now"
+            );
+        }
+        other => panic!("expected BufferExternal, got {other:?}"),
+    }
+    assert_eq!(
+        std::fs::read(&note).expect("read the note back"),
+        written,
+        "the write landed on the file, not on a copy of it"
+    );
+}

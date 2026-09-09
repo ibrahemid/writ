@@ -33,6 +33,7 @@
 //!   placeholders (ADR-015).
 //! - [`recovery`]: crash-recovery policy types and resolution logic.
 //! - [`startup`]: startup-failure report formatting and location policy.
+//! - [`tools`]: the tools a connected program can call (ADR-031, ADR-032).
 //! - [`update`]: update lifecycle phases and transition policy.
 //! - [`watcher`]: external-change representation and ignore stamps.
 //! - [`workspace`]: workspace-level state (reserved).
@@ -83,6 +84,8 @@ pub mod recovery;
 pub mod search;
 /// Startup-failure report formatting and report-location policy.
 pub mod startup;
+/// The tools a connected program can call, named once.
+pub mod tools;
 /// Update lifecycle phases and transition policy.
 pub mod update;
 /// External-change events and conflict-resolution policy.

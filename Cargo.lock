@@ -10201,6 +10201,7 @@ dependencies = [
  "windows 0.61.3",
  "writ-core",
  "writ-lint",
+ "writ-mcp",
  "writ-plugin",
  "writ-render",
  "writ-storage",

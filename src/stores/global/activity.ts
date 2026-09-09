@@ -8,16 +8,18 @@ import {
   mcpForgetClient,
   mcpServerCommand,
   mcpSetClientPermission,
+  mcpTools,
   type ActivityRecord,
   type ClientApproval,
   type McpClients,
   type McpServerCommand,
+  type McpTools,
   type PendingClient,
 } from "../../services/tauri";
 import { writeClipboardText } from "../../services/clipboard";
 import { logFailure } from "../../lib/log";
 
-export type { ActivityRecord, ClientApproval, McpServerCommand, PendingClient };
+export type { ActivityRecord, ClientApproval, McpServerCommand, McpTools, PendingClient };
 
 // Singleton state — Writ is single-window
 
@@ -31,6 +33,7 @@ const [records, setRecords] = createSignal<ActivityRecord[]>([]);
 const [clients, setClients] = createSignal<ClientApproval[]>([]);
 const [pending, setPending] = createSignal<PendingClient[]>([]);
 const [serverCommand, setServerCommand] = createSignal<McpServerCommand | null>(null);
+const [tools, setTools] = createSignal<McpTools | null>(null);
 
 let subscription: Promise<UnlistenFn> | null = null;
 
@@ -95,6 +98,16 @@ async function loadCommand(): Promise<void> {
   }
 }
 
+/** Reads the tool list the server registers, once per session. */
+async function loadTools(): Promise<void> {
+  if (tools()) return;
+  try {
+    setTools(await mcpTools());
+  } catch {
+    logFailure("the tool list could not be read");
+  }
+}
+
 /** Puts the command on the clipboard, for pasting into a client. */
 async function copyCommand(): Promise<void> {
   const command = serverCommand()?.command;
@@ -131,10 +144,12 @@ export const activityStore = {
   clients,
   pending,
   serverCommand,
+  tools,
   load,
   refresh,
   refreshClients,
   loadCommand,
+  loadTools,
   copyCommand,
   clear,
   setPermission,

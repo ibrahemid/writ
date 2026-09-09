@@ -54,6 +54,36 @@ pub fn digest_hex(digest: Sha256Digest) -> String {
     out
 }
 
+/// The digest 64 lowercase hex characters spell, or `None` for anything else.
+///
+/// The inverse of [`digest_hex`], for a digest that has been out of the
+/// process and come back: a client hands one back to say which text it read
+/// before it rewrote a note. Anything that is not exactly 64 hex characters is
+/// `None` rather than a guess, because a caller that mistyped the digest of
+/// the text it read is asking about a file it has not seen.
+pub fn digest_from_hex(hex: &str) -> Option<Sha256Digest> {
+    if hex.len() != 64 {
+        return None;
+    }
+    let mut digest = [0u8; 32];
+    let (pairs, _) = hex.as_bytes().as_chunks::<2>();
+    for (byte, [high, low]) in digest.iter_mut().zip(pairs) {
+        let high = nibble(*high)?;
+        let low = nibble(*low)?;
+        *byte = (high << 4) | low;
+    }
+    Some(digest)
+}
+
+/// One lowercase hex character as its value.
+fn nibble(character: u8) -> Option<u8> {
+    match character {
+        b'0'..=b'9' => Some(character - b'0'),
+        b'a'..=b'f' => Some(character - b'a' + 10),
+        _ => None,
+    }
+}
+
 /// `bytes` with every line break as a single `\n`.
 ///
 /// The one normalisation rule, mirrored by `normaliseLineEndings` in
@@ -112,5 +142,21 @@ mod tests {
     #[test]
     fn equal_input_gives_an_equal_digest() {
         assert_eq!(sha256_bytes(b"same"), sha256_bytes(b"same"));
+    }
+
+    #[test]
+    fn a_digest_survives_a_round_trip_through_hex() {
+        let digest = sha256_bytes(b"writ");
+        assert_eq!(digest_from_hex(&digest_hex(digest)), Some(digest));
+    }
+
+    #[test]
+    fn anything_that_is_not_sixty_four_hex_characters_is_no_digest() {
+        let hex = sha256_hex(b"writ");
+        assert_eq!(digest_from_hex(""), None);
+        assert_eq!(digest_from_hex(&hex[..63]), None);
+        assert_eq!(digest_from_hex(&format!("{hex}0")), None);
+        assert_eq!(digest_from_hex(&hex.to_uppercase()), None);
+        assert_eq!(digest_from_hex(&"z".repeat(64)), None);
     }
 }

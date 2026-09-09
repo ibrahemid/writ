@@ -48,6 +48,14 @@ const mocks = vi.hoisted(() => ({
   notesShowInFileManager: vi.fn(),
   notesCopyPath: vi.fn(),
   notesMove: vi.fn(),
+  activityRecent: vi.fn().mockResolvedValue([]),
+  activityClear: vi.fn().mockResolvedValue(undefined),
+  mcpClients: vi.fn().mockResolvedValue({ approved: [], waiting: [] }),
+  mcpSetClientPermission: vi.fn(),
+  mcpForgetClient: vi.fn(),
+  mcpServerCommand: vi.fn().mockResolvedValue({ path: "/usr/local/bin/writ", command: "writ mcp" }),
+  mcpTools: vi.fn(),
+  onEvent: vi.fn().mockResolvedValue(() => {}),
   aiCheckConnection: vi.fn().mockResolvedValue({
     reachable: true,
     model_listed: true,
@@ -83,6 +91,18 @@ vi.mock("../../services/tauri", () => ({
   aiEndpointState: mocks.aiEndpointState,
   aiConsentHost: mocks.aiConsentHost,
   aiCheckConnection: mocks.aiCheckConnection,
+  activityRecent: mocks.activityRecent,
+  activityClear: mocks.activityClear,
+  mcpClients: mocks.mcpClients,
+  mcpSetClientPermission: mocks.mcpSetClientPermission,
+  mcpForgetClient: mocks.mcpForgetClient,
+  mcpServerCommand: mocks.mcpServerCommand,
+  mcpTools: mocks.mcpTools,
+}));
+
+vi.mock("../../services/events", () => ({
+  onEvent: mocks.onEvent,
+  emitFrontendReady: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../stores/global/default-app", () => ({
@@ -1165,5 +1185,43 @@ describe("Notes section", () => {
     expect(container.querySelector("[data-notes-sync]")?.textContent).toBe(
       "Writ has no sync. Put the notes folder in iCloud Drive, Dropbox, or Google Drive and your notes sync with it. Use one sync service per folder.",
     );
+  });
+});
+
+describe("Connected programs section — the tool row", () => {
+  beforeEach(() => {
+    mocks.config.mockReset().mockReturnValue(baseConfig());
+    mocks.mcpClients.mockReset().mockResolvedValue({ approved: [], waiting: [] });
+    mocks.mcpServerCommand
+      .mockReset()
+      .mockResolvedValue({ path: "/usr/local/bin/writ", command: "writ mcp" });
+    mocks.mcpTools.mockReset().mockResolvedValue({
+      read: ["list_notes", "read_note"],
+      write: ["write_note", "create_note", "rename_note"],
+    });
+  });
+
+  afterEach(() => {
+    closeSettings();
+    cleanup();
+  });
+
+  async function openPrograms() {
+    const result = render(() => <SettingsModal />);
+    openSettings("programs");
+    await waitFor(() =>
+      expect(result.container.querySelector("[data-setting-id='mcp.tools']")).not.toBeNull(),
+    );
+    return result;
+  }
+
+  it("lists the tools the server registers, under the grant each one needs", async () => {
+    const { container } = await openPrograms();
+
+    await waitFor(() => expect(container.querySelector(".settings-tools")).not.toBeNull());
+    const read = container.querySelector("[data-grant='read'] .settings-tool-names");
+    const write = container.querySelector("[data-grant='write'] .settings-tool-names");
+    expect(read?.textContent).toBe("list_notes, read_note");
+    expect(write?.textContent).toBe("write_note, create_note, rename_note");
   });
 });

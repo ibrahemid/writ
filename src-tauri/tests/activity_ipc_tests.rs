@@ -1,4 +1,4 @@
-//! Coverage for the six activity and connected-program commands (ADR-031).
+//! Coverage for the seven activity and connected-program commands (ADR-031).
 //!
 //! Each is exercised through its Tauri-free inner function, against a real log
 //! folder and a real `[mcp]` section, so the assertions cover what the panel
@@ -9,7 +9,7 @@
 use writ_core::activity::{ActivityRecord, Actor, ClientId, Decision};
 use writ_core::config::mcp::{ClientApproval, McpConfig};
 use writ_tauri_lib::commands::activity::{
-    activity_clear_inner, activity_recent_inner, forget_client_inner, mcp_clients_inner,
+    activity_clear_inner, activity_recent_inner, forget_client_inner, mcp_clients_inner, mcp_tools,
     server_command_for, set_client_permission_inner, waiting_in, ApprovalError, MAX_ACTIVITY_LIMIT,
 };
 
@@ -23,6 +23,7 @@ const COMMANDS: &[&str] = &[
     "commands::activity::mcp_set_client_permission",
     "commands::activity::mcp_forget_client",
     "commands::activity::mcp_server_command",
+    "commands::activity::mcp_tools",
 ];
 
 fn record(action: &str, decision: Decision) -> ActivityRecord {
@@ -281,4 +282,42 @@ fn deciding_on_a_program_is_wired_to_clear_its_waiting_entry() {
         body.contains("pending_clients::forget"),
         "a decided program must be taken off the waiting list"
     );
+}
+
+/// The settings row tells the user what an approved program can do. A
+/// hand-written list there would go stale the first time a tool was added, and
+/// the user would be reading a promise the server no longer keeps. Both sides
+/// read `writ_core::tools`; this is the assertion that they agree.
+#[test]
+fn the_settings_row_lists_the_tools_the_served_process_registers() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let host = writ_mcp::tools::ToolHost::open(
+        dir.path(),
+        &dir.path().join("writ.db"),
+        dir.path(),
+        Box::new(writ_mcp::consent::DenyAll),
+    )
+    .expect("host");
+    let mut registered = writ_mcp::server::WritServer::new(host).tool_names();
+    registered.sort();
+
+    let tools = mcp_tools();
+    let mut shown: Vec<String> = tools.read.into_iter().chain(tools.write).collect();
+    shown.sort();
+
+    assert_eq!(shown, registered);
+}
+
+#[test]
+fn the_write_half_of_the_settings_row_is_the_three_write_tools() {
+    let tools = mcp_tools();
+
+    assert_eq!(
+        tools.write,
+        vec!["write_note", "create_note", "rename_note"]
+    );
+    for absent in ["delete_note", "trash_note", "move_note"] {
+        assert!(!tools.read.contains(&absent.to_string()), "{absent}");
+        assert!(!tools.write.contains(&absent.to_string()), "{absent}");
+    }
 }

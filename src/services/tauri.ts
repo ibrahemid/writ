@@ -1348,3 +1348,18 @@ export interface McpServerCommand {
 export async function mcpServerCommand(): Promise<McpServerCommand> {
   return invoke("mcp_server_command");
 }
+
+/**
+ * What an approved program can do, split the way the two grants are.
+ *
+ * Read from the server's own list rather than written out in the settings row,
+ * so the row cannot promise a tool that is not there.
+ */
+export interface McpTools {
+  read: string[];
+  write: string[];
+}
+
+export async function mcpTools(): Promise<McpTools> {
+  return invoke("mcp_tools");
+}
