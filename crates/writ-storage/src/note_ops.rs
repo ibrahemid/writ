@@ -22,7 +22,7 @@ use crate::buffer_store::{dataless_flags, BeforeWrite, DatalessProbe};
 use crate::errors::{StorageError, StorageResult};
 use crate::guarded::{
     create_note_guarded, guard_rename, write_note_guarded, ConflictPolicy, CreateNote, DiskRead,
-    GuardedWrite,
+    GuardedWrite, TakenName,
 };
 use crate::notes_index::{indexes_as_note, names_a_note};
 use crate::workspace_search::build_walk;
@@ -56,6 +56,7 @@ pub fn create_note(
             stem,
             content: "",
             origin,
+            on_taken_name: TakenName::Dedupe,
             history: None,
         },
         before_write,
@@ -85,6 +86,7 @@ pub fn save_copy(
             stem,
             content,
             origin,
+            on_taken_name: TakenName::Dedupe,
             history: None,
         },
         before_write,

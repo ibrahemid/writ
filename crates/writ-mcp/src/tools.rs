@@ -44,6 +44,7 @@ use writ_storage::database::migrations::binary_schema_version;
 use writ_storage::errors::StorageError;
 use writ_storage::guarded::{
     create_note_guarded, write_note_guarded, ConflictPolicy, CreateNote, DiskRead, GuardedWrite,
+    TakenName,
 };
 use writ_storage::notes_index::{self, BacklinkCertainty, NotesIndexStore};
 
@@ -607,6 +608,9 @@ impl ToolHost {
     /// sanitises one ([`writ_core::notes::sanitize_title`]), so a name that
     /// spells a path is a name and not a path. A note of that name already in
     /// the folder is answered with [`ToolError::NameTaken`] and left alone.
+    /// Already in the folder is the facade's reading of it, which folds a name
+    /// to NFC and lowercase, so `launch.md` holds the name `Launch` on a
+    /// volume that tells the two apart as readily as on one that does not.
     ///
     /// A minted file is LF, whatever the text handed in carries. That is the
     /// one place a write tool does not land the bytes verbatim, and it applies
@@ -737,23 +741,19 @@ impl ToolHost {
     ) -> Result<WriteReceipt, ToolError> {
         self.text_fits(content)?;
         let stem = writ_core::notes::sanitize_title(name).ok_or(ToolError::NameEmpty)?;
-        let file_name = format!("{stem}.{NOTE_EXTENSION}");
-        // The facade dedupes a taken name into `Launch 2.md`, which is what a
-        // person clicking New note wants and the wrong answer for a program: a
-        // client that asked for `Launch` and got `Launch 2` has put its text
-        // in a note it did not name and cannot find. So a taken name is
-        // answered here, before anything is written. `symlink_metadata`, so a
-        // link left by something else counts as taken rather than being
-        // written through.
-        if self.notes_root.join(&file_name).symlink_metadata().is_ok() {
-            return Err(ToolError::NameTaken { name: file_name });
-        }
+        // The dedupe is what a person who asked for a new note wants and the
+        // wrong answer for a program: a client that asked for `Launch` and got
+        // `Launch 2` has put its text in a note it did not name. The facade
+        // holds the folding rule for what "taken" means, so it is asked rather
+        // than second-guessed: a check here against the exact path would be
+        // the filesystem's answer, and a case-sensitive volume folds nothing.
         let minted = create_note_guarded(
             CreateNote {
                 notes_root: &self.notes_root,
                 stem: &stem,
                 content,
                 origin: self.origin(client),
+                on_taken_name: TakenName::Refuse,
                 history: None,
             },
             None,
@@ -1073,6 +1073,15 @@ mod tests {
 
     fn client() -> ClientId {
         ClientId::named("Test Client")
+    }
+
+    /// How many notes the folder holds, top level.
+    fn notes_in(fixture: &Fixture) -> usize {
+        std::fs::read_dir(&fixture.notes)
+            .expect("read the folder")
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "md"))
+            .count()
     }
 
     /// The path a tool takes back for a file on disk.
@@ -1771,6 +1780,53 @@ mod tests {
             !fixture.notes.join("Launch 2.md").exists(),
             "nothing is minted under a name the client did not ask for"
         );
+    }
+
+    #[test]
+    fn create_note_is_refused_when_the_folder_holds_the_name_in_another_case() {
+        // The exact path is the filesystem's answer to "is this taken", and a
+        // case-sensitive volume answers no. The folder's own answer folds, and
+        // that is the one the note is minted under, so it is the one asked.
+        let fixture = fixture();
+        let note = write_note(&fixture, "launch.md", "the note that is there\n");
+        let host = approved_host(&fixture, true, true);
+
+        let refusal = host
+            .create_note(&client(), "Launch", "the note a client asked for\n")
+            .expect_err("a name the folder holds in another case is taken");
+
+        assert!(
+            matches!(&refusal, ToolError::NameTaken { name } if name == "Launch.md"),
+            "{refusal:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read back"),
+            "the note that is there\n"
+        );
+        assert_eq!(notes_in(&fixture), 1, "a second note was minted");
+    }
+
+    #[test]
+    fn create_note_is_refused_when_the_folder_holds_the_name_spelled_another_way() {
+        // The same name written with a combining accent rather than a single
+        // character. The fold the mint runs reads them as one name.
+        let fixture = fixture();
+        let note = write_note(&fixture, "Cafe\u{301}.md", "the note that is there\n");
+        let host = approved_host(&fixture, true, true);
+
+        let refusal = host
+            .create_note(&client(), "Caf\u{e9}", "the note a client asked for\n")
+            .expect_err("a name the folder holds another spelling of is taken");
+
+        assert!(
+            matches!(refusal, ToolError::NameTaken { .. }),
+            "{refusal:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read back"),
+            "the note that is there\n"
+        );
+        assert_eq!(notes_in(&fixture), 1, "a second note was minted");
     }
 
     #[test]
