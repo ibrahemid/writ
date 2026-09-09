@@ -39,7 +39,18 @@ function takeClients(answer: McpClients): void {
   setPending(answer.waiting);
 }
 
+/**
+ * Everything the panel shows: the log and who is waiting to be decided on.
+ *
+ * One call for both, because both go stale the same way. The waiting list is
+ * its own file rather than a reading of the log, so a caller that re-read only
+ * the log left a program that first called while the panel was open invisible.
+ */
 async function refresh(): Promise<void> {
+  await Promise.all([refreshLog(), refreshClients()]);
+}
+
+async function refreshLog(): Promise<void> {
   try {
     setRecords(await activityRecent(ACTIVITY_LIMIT));
   } catch {
@@ -47,6 +58,7 @@ async function refresh(): Promise<void> {
   }
 }
 
+/** The programs alone, for the settings section, which shows no log. */
 async function refreshClients(): Promise<void> {
   try {
     takeClients(await mcpClients());
@@ -70,7 +82,7 @@ function subscribe(): Promise<UnlistenFn> {
 /** Reads the log, the programs and the command, and starts listening. */
 async function load(): Promise<void> {
   void subscribe();
-  await Promise.all([refresh(), refreshClients(), loadCommand()]);
+  await Promise.all([refresh(), loadCommand()]);
 }
 
 /** Reads the command a client is given, once per session. */
@@ -105,13 +117,13 @@ async function clear(): Promise<void> {
  */
 async function setPermission(name: string, read: boolean, write: boolean): Promise<void> {
   takeClients(await mcpSetClientPermission(name, read || write, write));
-  await refresh();
+  await refreshLog();
 }
 
 /** Takes a program off the list, so its next call waits to be decided on. */
 async function forget(name: string): Promise<void> {
   takeClients(await mcpForgetClient(name));
-  await refresh();
+  await refreshLog();
 }
 
 export const activityStore = {
