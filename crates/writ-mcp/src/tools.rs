@@ -593,9 +593,11 @@ impl ToolHost {
         self.record(
             client,
             "write_note",
-            written
-                .as_ref()
-                .map_or(path, |receipt| receipt.path.as_str()),
+            &self.logged_path(
+                written
+                    .as_ref()
+                    .map_or(path, |receipt| receipt.path.as_str()),
+            ),
             Some(content.len() as u64),
             decision_of(&written),
         );
@@ -627,9 +629,10 @@ impl ToolHost {
         self.record(
             client,
             "create_note",
-            created
-                .as_ref()
-                .map_or(name, |receipt| receipt.path.as_str()),
+            &created.as_ref().map_or_else(
+                |_| minted_slug(name),
+                |receipt| self.logged_path(&receipt.path),
+            ),
             Some(content.len() as u64),
             decision_of(&created),
         );
@@ -659,9 +662,11 @@ impl ToolHost {
         self.record(
             client,
             "rename_note",
-            renamed
-                .as_ref()
-                .map_or(path, |(receipt, _)| receipt.path.as_str()),
+            &self.logged_path(
+                renamed
+                    .as_ref()
+                    .map_or(path, |(receipt, _)| receipt.path.as_str()),
+            ),
             renamed.as_ref().ok().map(|(_, bytes)| *bytes),
             decision_of(&renamed),
         );
@@ -833,6 +838,28 @@ impl ToolHost {
         Ok(())
     }
 
+    /// The spelling of a note the activity log takes: relative to the notes
+    /// folder, forward slashes, whichever way the call went.
+    ///
+    /// The user reads one list, so a note is spelled one way in it. An allowed
+    /// write naming `Projects/Writ.md` beside a refused one naming
+    /// `/Users/…/Notes/Projects/Writ.md` is the same note written twice as far
+    /// as anybody reading can tell. It also keeps the folder this machine
+    /// keeps its notes in out of a file the user may hand to somebody.
+    ///
+    /// Pure, and it stays pure: a refused call opens no file, so nothing here
+    /// resolves, stats or lists anything. A path the folder does not hold is
+    /// left as the client wrote it, because there is no note to name.
+    fn logged_path(&self, path: &str) -> String {
+        let given = Path::new(path);
+        let candidate = if given.is_absolute() {
+            given.to_path_buf()
+        } else {
+            self.notes_root.join(given)
+        };
+        relative_slug(&self.notes_root, &candidate).unwrap_or_else(|| path.to_string())
+    }
+
     /// Appends what one write did to the activity log.
     ///
     /// The gate has already recorded the call it decided on, naming the client
@@ -922,6 +949,18 @@ fn decision_of<T>(result: &Result<T, ToolError>) -> Decision {
         Ok(_) => Decision::Allow,
         Err(_) => Decision::Refuse,
     }
+}
+
+/// The note a `create_note` call names, in the log's spelling.
+///
+/// A refused call has no minted file to name, so the name is spelled the way
+/// the file would have been: the log says `Ship it.md` whether the note was
+/// minted or turned down, rather than a path one time and a bare name the
+/// next. A name that sanitises to nothing is left as it was written.
+fn minted_slug(name: &str) -> String {
+    writ_core::notes::sanitize_title(name)
+        .map(|stem| format!("{stem}.{NOTE_EXTENSION}"))
+        .unwrap_or_else(|| name.to_string())
 }
 
 /// A storage refusal as the tool's own, naming the path the client wrote.
@@ -1063,8 +1102,14 @@ mod tests {
         writ_storage::activity_log::read_recent(&fixture.writ, 100)
     }
 
-    /// The records that name a note, which is the half a write adds.
-    fn records_naming_a_note(fixture: &Fixture) -> Vec<writ_core::activity::ActivityRecord> {
+    /// The records a tool wrote, which are the ones naming a note.
+    ///
+    /// Two records land for one write call: the gate writes the client, the
+    /// tool and the decision for every call it decides on, and the tool then
+    /// writes the fuller line, naming the note and the length the gate never
+    /// sees. That is U5's shape, not this unit's; a test that wants both lines
+    /// reads [`records`]. This is the tool's own half.
+    fn records_a_tool_wrote(fixture: &Fixture) -> Vec<writ_core::activity::ActivityRecord> {
         records(fixture)
             .into_iter()
             .filter(|record| record.path.is_some())
@@ -1694,7 +1739,7 @@ mod tests {
 
         assert!(matches!(refusal, ToolError::NotApproved { .. }));
         assert_eq!(std::fs::read(&note).expect("read back"), b"before\n");
-        let named = records_naming_a_note(&fixture);
+        let named = records_a_tool_wrote(&fixture);
         assert_eq!(named.len(), 1, "one record names the note: {named:?}");
         assert_eq!(named[0].decision, Decision::Refuse);
         assert_eq!(named[0].action, "write_note");
@@ -2018,18 +2063,87 @@ mod tests {
     #[test]
     fn a_write_that_lands_appends_one_record_naming_the_note_and_its_length() {
         let fixture = fixture();
-        let note = write_note(&fixture, "Launch.md", "before\n");
+        write_note(&fixture, "Launch.md", "before\n");
         let host = approved_host(&fixture, true, true);
 
         host.write_note(&client(), "Launch.md", "after\n", None)
             .expect("the write is made");
 
-        let named = records_naming_a_note(&fixture);
+        let named = records_a_tool_wrote(&fixture);
         assert_eq!(named.len(), 1, "{named:?}");
         assert_eq!(named[0].action, "write_note");
         assert_eq!(named[0].decision, Decision::Allow);
-        assert_eq!(named[0].path.as_deref(), Some(Path::new(&key(&note))));
+        assert_eq!(named[0].path.as_deref(), Some(Path::new("Launch.md")));
         assert_eq!(named[0].bytes, Some("after\n".len() as u64));
+    }
+
+    #[test]
+    fn the_log_spells_a_note_the_same_way_whichever_way_the_call_went() {
+        let fixture = fixture();
+        write_note(&fixture, "Projects/Writ.md", "before\n");
+        // The gate reads one approvals file, so the refused calls are made
+        // first and the approval is granted after them.
+        let read_only = approved_host(&fixture, true, false);
+        read_only
+            .write_note(&client(), "Projects/Writ.md", "after\n", None)
+            .expect_err("not approved to write");
+        read_only
+            .create_note(&client(), "Ship it", "text\n")
+            .expect_err("not approved to write");
+
+        let allowed = approved_host(&fixture, true, true);
+        allowed
+            .write_note(&client(), "Projects/Writ.md", "after\n", None)
+            .expect("write");
+        allowed
+            .create_note(&client(), "Ship it", "text\n")
+            .expect("create");
+        allowed
+            .rename_note(&client(), "Projects/Writ.md", "Landed")
+            .expect("rename");
+
+        let mut spelled: Vec<String> = records_a_tool_wrote(&fixture)
+            .into_iter()
+            .filter_map(|record| Some(record.path?.to_string_lossy().into_owned()))
+            .collect();
+        spelled.reverse();
+        assert_eq!(
+            spelled,
+            vec![
+                "Projects/Writ.md",
+                "Ship it.md",
+                "Projects/Writ.md",
+                "Ship it.md",
+                "Projects/Landed.md",
+            ],
+            "a note is spelled one way in the log, folder-relative, allowed or not"
+        );
+    }
+
+    #[test]
+    fn one_write_call_leaves_the_gates_line_and_the_tools_line() {
+        // U5's shape, spelled out rather than filtered: the gate records every
+        // call it decides on, and the tool then records the note and the
+        // length the gate never sees. A test that reads only the tool's half
+        // reads `records_a_tool_wrote`.
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, true);
+
+        host.write_note(&client(), "Launch.md", "after\n", None)
+            .expect("write");
+
+        let all = records(&fixture);
+        assert_eq!(all.len(), 2, "{all:?}");
+        assert_eq!(all[0].action, "write_note");
+        assert_eq!(all[0].decision, Decision::Allow);
+        assert_eq!(all[0].path.as_deref(), Some(Path::new("Launch.md")));
+        assert_eq!(all[0].bytes, Some("after\n".len() as u64));
+        assert_eq!(all[1].action, "write_note");
+        assert_eq!(all[1].decision, Decision::Allow);
+        assert_eq!(all[1].path, None, "the gate never sees the note");
+        assert_eq!(all[1].bytes, None);
+        assert_eq!(std::fs::read_to_string(&note).expect("read"), "after\n");
     }
 
     #[test]
@@ -2045,7 +2159,7 @@ mod tests {
         host.rename_note(&client(), "Launch.md", "Landed")
             .expect("rename");
 
-        let actions: Vec<String> = records_naming_a_note(&fixture)
+        let actions: Vec<String> = records_a_tool_wrote(&fixture)
             .into_iter()
             .map(|record| record.action)
             .collect();
