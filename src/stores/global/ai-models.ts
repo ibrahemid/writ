@@ -9,6 +9,7 @@ const CURATED: Record<AiPreset, string[]> = {
   gemini: ["gemini-2.5-flash", "gemini-2.5-flash-lite"],
   deepseek: ["deepseek-chat", "deepseek-reasoner"],
   openrouter: ["meta-llama/llama-3.3-70b-instruct:free", "deepseek/deepseek-chat-v3-0324:free"],
+  anthropic: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
   custom: [],
 };
 

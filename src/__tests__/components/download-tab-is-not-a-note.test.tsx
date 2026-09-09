@@ -53,6 +53,7 @@ function configWithoutStatusBar(): WritConfig {
     hotkey: { toggle: "" },
     sidebar: { toggle: "", default_visible: false, position: "left", open: true, width: 240 },
     panel: { open: false, width: 240 },
+    chat_panel: { open: false, width: 380 },
     first_run: { hint_dismissed: false },
     editor: {
       font_family: "monospace",
@@ -88,7 +89,7 @@ function configWithoutStatusBar(): WritConfig {
       preset: "ollama",
       base_url: "http://localhost:11434/v1",
       model: "",
-      consented_hosts: [],
+      consented_hosts: [], chat: { enabled: false, provider: "openai_compatible", base_url: "http://localhost:11434/v1", model: "" },
     },
     mcp: { enabled: false, approved_clients: [] },
     spelling: { enabled: false, dialect: "american", ignored_words: [] },

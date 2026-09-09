@@ -182,6 +182,7 @@ function baseConfig(): WritConfig {
     hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
     sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false, width: 240 },
     panel: { open: false, width: 240 },
+    chat_panel: { open: false, width: 380 },
     first_run: { hint_dismissed: false },
     editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true, status_bar: false },
     window: { width: 1100, height: 720, maximized: false },
@@ -194,7 +195,7 @@ function baseConfig(): WritConfig {
   workspace: { root: null },
   inbox: { path: null, focus: true },
   updater: { auto_check: true },
-  ai: { enabled: false, preset: "ollama", base_url: "http://localhost:11434/v1", model: "", consented_hosts: [] },
+  ai: { enabled: false, preset: "ollama", base_url: "http://localhost:11434/v1", model: "", consented_hosts: [], chat: { enabled: false, provider: "openai_compatible", base_url: "http://localhost:11434/v1", model: "" } },
   mcp: { enabled: false, approved_clients: [] },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
     preview: {
@@ -990,7 +991,7 @@ describe("AI consent notice", () => {
         preset: "deepseek",
         base_url: "https://api.deepseek.com/v1",
         model: "deepseek-chat",
-        consented_hosts: [],
+        consented_hosts: [], chat: { enabled: false, provider: "openai_compatible", base_url: "http://localhost:11434/v1", model: "" },
       },
     });
     const result = render(() => <SettingsModal />);

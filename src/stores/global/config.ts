@@ -41,6 +41,17 @@ export function clampPanelWidth(width: number): number {
   return Math.min(PANEL_WIDTH_MAX, Math.max(PANEL_WIDTH_MIN, Math.round(width)));
 }
 
+// Chat column bounds. Wider than the panel's range because the column holds a
+// conversation and, while one is open, a proposal beside the note it changes.
+export const CHAT_WIDTH_MIN = 320;
+export const CHAT_WIDTH_MAX = 520;
+export const CHAT_WIDTH_DEFAULT = 380;
+
+export function clampChatWidth(width: number): number {
+  if (!Number.isFinite(width)) return CHAT_WIDTH_DEFAULT;
+  return Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, Math.round(width)));
+}
+
 // Interface text bounds (spec A1). The settings row and the root token both
 // read these; null keeps whatever size the platform layer already resolves.
 export const INTERFACE_TEXT_MIN = 12;
@@ -69,6 +80,7 @@ const DEFAULT_CONFIG: WritConfig = {
   },
   // Closed on a first launch: the window opens on a cursor and nothing else.
   panel: { open: false, width: PANEL_WIDTH_DEFAULT },
+  chat_panel: { open: false, width: CHAT_WIDTH_DEFAULT },
   first_run: { hint_dismissed: false },
   editor: { font_family: "monospace", font_size: EDITOR_FONT_DEFAULT, word_wrap: true, tab_size: 2, autosave_debounce_ms: 1000, markdown_typography: true, markdown_editing: true, status_bar: true },
   window: { width: 1100, height: 720, maximized: false },
@@ -96,6 +108,12 @@ const DEFAULT_CONFIG: WritConfig = {
     base_url: "http://localhost:11434/v1",
     model: "",
     consented_hosts: [],
+    chat: {
+      enabled: false,
+      provider: "openai_compatible",
+      base_url: "http://localhost:11434/v1",
+      model: "",
+    },
   },
   mcp: { enabled: false, approved_clients: [] },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
@@ -113,6 +131,10 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
     panel: {
       open: incoming.panel?.open ?? false,
       width: clampPanelWidth(incoming.panel?.width ?? PANEL_WIDTH_DEFAULT),
+    },
+    chat_panel: {
+      open: incoming.chat_panel?.open ?? false,
+      width: clampChatWidth(incoming.chat_panel?.width ?? CHAT_WIDTH_DEFAULT),
     },
     first_run: {
       hint_dismissed: incoming.first_run?.hint_dismissed ?? false,
@@ -140,6 +162,12 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
       base_url: incoming.ai?.base_url ?? "http://localhost:11434/v1",
       model: incoming.ai?.model ?? "",
       consented_hosts: incoming.ai?.consented_hosts ?? [],
+      chat: {
+        enabled: incoming.ai?.chat?.enabled ?? false,
+        provider: incoming.ai?.chat?.provider ?? "openai_compatible",
+        base_url: incoming.ai?.chat?.base_url ?? "http://localhost:11434/v1",
+        model: incoming.ai?.chat?.model ?? "",
+      },
     },
     mcp: {
       enabled: incoming.mcp?.enabled ?? false,
@@ -266,6 +294,23 @@ function createConfigStore() {
     schedulePersist();
   }
 
+  // The chat column remembers what the panel beside the note remembers, in
+  // the same file and on the same debounce.
+  function setChatPanelOpen(open: boolean) {
+    const current = config();
+    if (current.chat_panel.open === open) return;
+    setConfig({ ...current, chat_panel: { ...current.chat_panel, open } });
+    schedulePersist();
+  }
+
+  function setChatPanelWidth(width: number) {
+    const clamped = clampChatWidth(width);
+    const current = config();
+    if (current.chat_panel.width === clamped) return;
+    setConfig({ ...current, chat_panel: { ...current.chat_panel, width: clamped } });
+    schedulePersist();
+  }
+
   function schedulePersist() {
     if (flushTimer) clearTimeout(flushTimer);
     flushTimer = setTimeout(() => {
@@ -324,6 +369,8 @@ function createConfigStore() {
     setSidebarWidth,
     setPanelOpen,
     setPanelWidth,
+    setChatPanelOpen,
+    setChatPanelWidth,
     clearCommandUsage,
     pruneCommandUsage,
     noteFirstRunHintDismissed,
