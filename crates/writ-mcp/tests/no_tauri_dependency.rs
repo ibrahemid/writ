@@ -82,7 +82,6 @@ fn reachable_crates(manifest_dir: &Path) -> BTreeSet<String> {
             "metadata",
             "--format-version",
             "1",
-            "--offline",
             "--locked",
             "--manifest-path",
         ])
