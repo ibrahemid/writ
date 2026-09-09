@@ -1577,7 +1577,11 @@ function ProgramsSection() {
         </span>
       </SettingsRow>
 
-      <SettingsRow id="mcp.clients" label="Programs you approved">
+      <SettingsRow
+        id="mcp.clients"
+        label="Programs you approved"
+        caution="Writing includes reading. Turning reading off turns writing off too."
+      >
         <Show
           when={activityStore.clients().length > 0}
           fallback={<span class="settings-programs-none">None yet.</span>}
@@ -1595,7 +1599,7 @@ function ProgramsSection() {
                         label={`Let ${client.name} read your notes`}
                         checked={client.read}
                         onChange={() =>
-                          void onSetPermission(client.name, !client.read, client.write)
+                          void onSetPermission(client.name, !client.read, client.read ? false : client.write)
                         }
                       />
                     </label>
@@ -1606,7 +1610,7 @@ function ProgramsSection() {
                         label={`Let ${client.name} write your notes`}
                         checked={client.write}
                         onChange={() =>
-                          void onSetPermission(client.name, client.read, !client.write)
+                          void onSetPermission(client.name, true, !client.write)
                         }
                       />
                     </label>
