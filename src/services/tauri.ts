@@ -1257,6 +1257,20 @@ export interface ChatTurn {
   content: string;
 }
 
+/** A note the request carried, as the model read it. */
+export interface ChatAttachedNote {
+  path: string;
+  text: string;
+  before_hash: string;
+}
+
+/** What a send was accepted as. The notes come back so a proposal can be shown
+ * beside the text the model actually read. */
+export interface ChatSendAccepted {
+  conversation_id: string;
+  attached: ChatAttachedNote[];
+}
+
 /** A change to one note a reply asked for and nobody has applied.
  *
  * `before_hash` is what Writ read when the request was built, never something
@@ -1284,7 +1298,7 @@ export async function chatSend(
   conversationId: string,
   turns: ChatTurn[],
   contextPaths: string[],
-): Promise<string> {
+): Promise<ChatSendAccepted> {
   return invoke("chat_send", { conversationId, turns, contextPaths });
 }
 

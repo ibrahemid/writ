@@ -135,6 +135,20 @@ pub struct ChatTurnDto {
     pub content: String,
 }
 
+/// What a send was accepted as: the id its frames carry, and the notes the
+/// request was built from.
+///
+/// The notes come back so the pane can show a proposal beside what the model
+/// actually read, which is the text `before_hash` describes rather than
+/// whatever the file holds by the time the reply lands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ChatSendAccepted {
+    /// The conversation the frames are keyed by.
+    pub conversation_id: String,
+    /// What the request carried, in the order it carried it.
+    pub attached: Vec<AttachedNote>,
+}
+
 /// What a proposal the user applied did to the note.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProposalOutcome {
@@ -643,7 +657,7 @@ pub async fn chat_send(
     conversation_id: String,
     turns: Vec<ChatTurnDto>,
     context_paths: Vec<String>,
-) -> Result<String, String> {
+) -> Result<ChatSendAccepted, String> {
     let turns: Vec<ChatTurn> = turns.into_iter().map(ChatTurn::from).collect();
     let cfg = chat_config(&app);
 
@@ -663,6 +677,7 @@ pub async fn chat_send(
     let client = super::ai::build_client()?;
     let cancel = app.state::<ChatState>().begin(&conversation_id);
 
+    let attached = prepared.context.clone();
     let task_app = app.clone();
     let task_id = conversation_id.clone();
     tauri::async_runtime::spawn(async move {
@@ -683,7 +698,10 @@ pub async fn chat_send(
         task_app.state::<ChatState>().finish(&task_id);
     });
 
-    Ok(conversation_id)
+    Ok(ChatSendAccepted {
+        conversation_id,
+        attached,
+    })
 }
 
 /// Signals a live reply to stop. Further deltas are dropped and no terminal

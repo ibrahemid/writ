@@ -1,0 +1,347 @@
+/* The chat column takes the panel's construction — a clipped edge column that
+   lays its content out at the settled width — and the sidebar's row pitch,
+   spacing and section headings. What it does not take is the panel's width:
+   a conversation and a proposal beside the text it replaces need 320-520. */
+
+.chat-pane {
+  position: relative;
+  flex-shrink: 0;
+  width: 0;
+  height: 100%;
+  background: var(--writ-bg-sidebar);
+  border-left: 1px solid var(--writ-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width var(--writ-motion);
+}
+
+.chat-pane.is-open {
+  width: var(--writ-chat-live-width, 380px);
+}
+
+.chat-pane.is-resizing {
+  transition: none;
+}
+
+/* Content is laid out at its settled width for the whole open/close motion;
+   the outer element clips it instead of reflowing it. */
+.chat-pane-inner {
+  flex: 1;
+  flex-shrink: 0;
+  min-height: 0;
+  width: var(--writ-chat-live-width, 380px);
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-pane-resizer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 4px;
+  z-index: var(--writ-z-drag);
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+  transition: background var(--writ-motion);
+}
+
+.chat-pane-resizer:hover {
+  background: var(--writ-border);
+}
+
+.chat-pane-resizer:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: -2px;
+}
+
+.chat-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--writ-space-2);
+  padding: var(--writ-space-2) var(--writ-space-3);
+  flex-shrink: 0;
+}
+
+.chat-pane-title {
+  margin: 0;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  font-weight: inherit;
+  color: var(--writ-fg);
+}
+
+.chat-section-title {
+  margin: 0;
+  padding: 0 var(--writ-space-3) 4px;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  font-weight: inherit;
+  letter-spacing: var(--writ-ui-tracking);
+  color: var(--writ-fg-muted);
+}
+
+/* What the model can read sits above the conversation and stays there: it is
+   the whole of what leaves the machine, so it is never scrolled out of sight. */
+.chat-attached {
+  flex-shrink: 0;
+  padding-bottom: var(--writ-space-2);
+  border-bottom: 1px solid var(--writ-border-soft);
+}
+
+.chat-attached-list {
+  margin: 0;
+  padding: 0 var(--writ-space-2);
+  list-style: none;
+}
+
+.chat-attached-row,
+.chat-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: var(--writ-sidebar-row-fill);
+  margin: 1px 0;
+  padding: 2px var(--writ-space-2);
+  border: none;
+  border-radius: var(--writ-r-row);
+  background: transparent;
+  font: inherit;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  color: var(--writ-fg);
+  text-align: left;
+  min-width: 0;
+}
+
+.chat-pick-row {
+  cursor: pointer;
+}
+
+.chat-pick-row:hover {
+  background: var(--writ-bg-hover);
+}
+
+.chat-pick-row:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: -2px;
+}
+
+.chat-attached-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-attached-size {
+  flex-shrink: 0;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-attached > .writ-btn {
+  margin: 2px var(--writ-space-3);
+}
+
+.chat-empty {
+  margin: 0;
+  padding: 4px var(--writ-space-3) var(--writ-space-2);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+}
+
+.chat-transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-3);
+  padding: var(--writ-space-3);
+}
+
+/* A person's turn carries a fill; a reply sits on the pane's own ground. The
+   fill is the whole of the distinction — no name label, no avatar. */
+.chat-turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-2);
+  min-width: 0;
+}
+
+.chat-turn.is-mine .chat-turn-text {
+  align-self: flex-end;
+  max-width: 90%;
+  padding: 6px var(--writ-space-2);
+  border-radius: var(--writ-r-card);
+  background: var(--writ-bg-sunken);
+}
+
+.chat-turn-text {
+  margin: 0;
+  font-size: var(--writ-ui-md);
+  line-height: 1.55;
+  color: var(--writ-fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-error {
+  margin: 0;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-status-error);
+}
+
+/* An offered change: the note's text as the model read it, the text it would
+   be replaced with, and the two answers. Nothing here has written anything. */
+.chat-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-2);
+  padding: var(--writ-space-2);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-r-card);
+  background: var(--writ-bg-raised);
+  min-width: 0;
+}
+
+.chat-proposal-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--writ-fg);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+}
+
+.chat-proposal-summary {
+  margin: 0;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  color: var(--writ-fg);
+}
+
+.chat-proposal-panes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-2);
+  min-width: 0;
+}
+
+.chat-proposal-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-1);
+  min-width: 0;
+}
+
+.chat-proposal-label {
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+  color: var(--writ-fg-faint);
+}
+
+.chat-proposal-body {
+  max-height: 12rem;
+  overflow-y: auto;
+  padding: var(--writ-space-2);
+  border-radius: var(--writ-r-media);
+  background: var(--writ-bg-sunken);
+  font-size: var(--writ-ui-sm);
+  line-height: 1.5;
+  color: var(--writ-fg-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-proposal-new {
+  color: var(--writ-fg);
+}
+
+.chat-proposal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--writ-space-2);
+}
+
+.chat-proposal-verdict {
+  margin: 0;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+}
+
+.chat-composer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-2);
+  padding: var(--writ-space-3);
+  border-top: 1px solid var(--writ-border-soft);
+}
+
+.chat-composer-input {
+  width: 100%;
+  resize: none;
+  padding: var(--writ-space-2);
+  border: 1px solid var(--writ-border);
+  border-radius: var(--writ-r-control);
+  background: var(--writ-bg-canvas);
+  color: var(--writ-fg);
+  font: inherit;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+}
+
+.chat-composer-input:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: -2px;
+}
+
+.chat-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--writ-space-2);
+}
+
+/* Windows paints the chrome as part of the window backdrop, GNOME as a
+   segment separated by an inset hairline rather than a border. */
+:root[data-platform="win"] .chat-pane {
+  background: transparent;
+  border-left: 0;
+}
+
+:root[data-platform="win"] .chat-pane-header {
+  padding: var(--writ-space-2) var(--writ-space-4);
+}
+
+:root[data-platform="linux"] .chat-pane {
+  border-left: 0;
+  box-shadow: inset 1px 0 var(--writ-border-soft);
+}
+
+:root[data-platform="linux"] .chat-section-title {
+  font-weight: 700;
+  color: var(--writ-fg);
+  opacity: 0.55;
+}
+
+/* Streamed text appends with no animation of its own in any setting; what is
+   left to answer for here is the column's own open and close. */
+@media (prefers-reduced-motion: reduce) {
+  .chat-pane,
+  .chat-pane-resizer {
+    transition: none;
+  }
+}

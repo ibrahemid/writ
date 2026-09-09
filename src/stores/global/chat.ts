@@ -6,13 +6,14 @@ import {
   chatApplyProposal,
   chatDiscardProposal,
   type ChatEndpointState,
+  type ChatAttachedNote,
   type ChatProposal,
   type ChatProposalOutcome,
   type ChatTurn,
 } from "../../services/tauri";
 import type { WritEvent } from "../../types/events";
 
-export type { ChatEndpointState, ChatProposal };
+export type { ChatAttachedNote, ChatEndpointState, ChatProposal };
 
 type ChatPayload = Extract<WritEvent, { kind: "ai:chat" }>["payload"];
 
@@ -33,6 +34,9 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   proposals: ChatProposal[];
+  /** What the request carried, so a proposal can be read beside the text the
+   * model was given rather than beside whatever the file holds now. */
+  context: ChatAttachedNote[];
   /** Proposals already applied or discarded, by path, so a decided one stops
    * offering its two buttons without leaving the reply that made it. */
   decided: Record<string, "applied" | "discarded" | "refused">;
@@ -96,11 +100,12 @@ function createChatStore() {
     setStatus("streaming");
     setConversationId(id);
     try {
-      await chatSend(
+      const accepted = await chatSend(
         id,
         turns,
         attachments().map((note) => note.path),
       );
+      if (conversationId() === id) setContext(accepted.attached);
     } catch (error) {
       if (conversationId() !== id) return;
       setStatus("error");
@@ -138,6 +143,16 @@ function createChatStore() {
       const last = next[next.length - 1];
       if (!last || last.role !== "assistant") return current;
       next[next.length - 1] = { ...last, content: last.content + text };
+      return next;
+    });
+  }
+
+  function setContext(context: ChatAttachedNote[]) {
+    setMessages((current) => {
+      const next = [...current];
+      const last = next[next.length - 1];
+      if (!last || last.role !== "assistant") return current;
+      next[next.length - 1] = { ...last, context };
       return next;
     });
   }
@@ -213,7 +228,7 @@ function createChatStore() {
 }
 
 function message(role: Message["role"], content: string): Message {
-  return { role, content, proposals: [], decided: {}, refusal: {} };
+  return { role, content, proposals: [], context: [], decided: {}, refusal: {} };
 }
 
 function newConversationId(): string {
