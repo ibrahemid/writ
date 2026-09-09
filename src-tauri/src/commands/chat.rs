@@ -1157,6 +1157,24 @@ mod stream_tests {
                 Some(12),
             );
         });
+        // The positive control comes first. Every negative assertion below is
+        // of the form "this string is not in the buffer", which a buffer that
+        // never filled satisfies for the wrong reason. Each of the three calls
+        // above writes exactly one line, and all three have to be here before
+        // the absence of anything else means a thing.
+        assert!(
+            logs.contains("sending a chat request"),
+            "the request line did not reach the capture: {logs}"
+        );
+        assert!(
+            logs.contains("chat request rejected"),
+            "the rejection line did not reach the capture: {logs}"
+        );
+        assert!(
+            logs.contains("the activity log did not take a chat record"),
+            "the activity line did not reach the capture: {logs}"
+        );
+
         assert!(!logs.contains(SECRET_KEY), "a key reached the log: {logs}");
         assert!(!logs.contains(NOTE_TEXT), "a note reached the log: {logs}");
         assert!(
@@ -1199,6 +1217,10 @@ mod stream_tests {
         assert!(
             !streaming.contains(SERVER_ERROR_TEXT),
             "the server's own words reached the log: {streaming}"
+        );
+        assert!(
+            streaming.contains("the model server ended the stream with an error frame"),
+            "the failure line did not reach the capture: {streaming}"
         );
         assert!(
             streaming.contains("127.0.0.1"),
@@ -1295,30 +1317,16 @@ mod tests_support {
     }
 
     /// What `tracing` wrote while `run` ran.
+    ///
+    /// Through `preview::log_capture`, which is a `Layer` on the process-wide
+    /// registry rather than a thread-local subscriber. `tracing` caches each
+    /// callsite's interest globally and recomputes it from whatever the
+    /// registering thread's default is, so a thread-local capture goes deaf to
+    /// any callsite a parallel test touched first while holding no subscriber.
+    /// A rule §1.7 assertion of the form `!logs.contains(SECRET)` would then
+    /// pass because the line never arrived, which is why the test that uses
+    /// this asserts what it expects to find before asserting what it must not.
     pub fn captured_logs(run: impl FnOnce()) -> String {
-        let buffer = Arc::new(Mutex::new(Vec::<u8>::new()));
-        let sink = buffer.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_ansi(false)
-            .with_max_level(tracing::Level::TRACE)
-            .with_writer(move || Sink(sink.clone()))
-            .finish();
-        tracing::subscriber::with_default(subscriber, run);
-        let bytes = buffer.lock().expect("logs").clone();
-        String::from_utf8_lossy(&bytes).into_owned()
-    }
-
-    /// The capturing subscriber's writer.
-    pub struct Sink(pub Arc<Mutex<Vec<u8>>>);
-
-    impl Write for Sink {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().expect("logs").extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
+        crate::preview::log_capture::capture(run).1.join("\n")
     }
 }
