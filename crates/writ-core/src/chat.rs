@@ -340,6 +340,12 @@ fn parse_openai_payload(payload: &str) -> Delta {
     let Ok(value) = serde_json::from_str::<Value>(payload) else {
         return Delta::Ignore;
     };
+    // A server that fails mid-stream sends one of these and closes. Without
+    // this arm the reply reads as complete and empty, which is a failed
+    // request the pane cannot tell from a model with nothing to say.
+    if value.get("error").is_some_and(Value::is_object) {
+        return Delta::Failed;
+    }
     let content = value
         .get("choices")
         .and_then(|c| c.get(0))
@@ -418,6 +424,7 @@ mod tests {
     /// asserted without a network.
     const ANTHROPIC_STREAM: &str = include_str!("../tests/fixtures/chat/anthropic-stream.sse");
     const OPENAI_STREAM: &str = include_str!("../tests/fixtures/chat/openai-stream.sse");
+    const OPENAI_ERROR_STREAM: &str = include_str!("../tests/fixtures/chat/openai-error.sse");
     const ANTHROPIC_REQUEST: &str = include_str!("../tests/fixtures/chat/anthropic-request.json");
     const OPENAI_REQUEST: &str = include_str!("../tests/fixtures/chat/openai-request.json");
 
@@ -646,6 +653,18 @@ mod tests {
             ),
             Delta::Ignore
         );
+    }
+
+    #[test]
+    fn a_recorded_openai_error_frame_ends_the_stream_rather_than_completing_it() {
+        // Recorded from a server that ran out of memory mid-reply. The frame
+        // is read for the fact of the failure; its wording stays in the frame.
+        let deltas: Vec<Delta> = OPENAI_ERROR_STREAM
+            .lines()
+            .map(|line| parse_delta(Provider::OpenAiCompatible, line))
+            .filter(|delta| !matches!(delta, Delta::Ignore))
+            .collect();
+        assert_eq!(deltas, vec![Delta::Failed]);
     }
 
     #[test]
