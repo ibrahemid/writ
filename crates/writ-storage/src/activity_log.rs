@@ -146,25 +146,16 @@ pub fn read_recent(dir: &Path, limit: usize) -> Vec<ActivityRecord> {
 /// A file that is not there is already cleared, so its absence is not an error.
 /// The lock file stays: it is what the writers contend on, not a generation.
 pub fn clear(dir: &Path) -> StorageResult<()> {
-    // No lock file means nothing has ever appended here, so there is no writer
-    // to wait for and no file to create in a folder being emptied.
-    let Some(lock) = exclusive_guard(dir) else {
-        return remove_generations(dir);
-    };
+    // Nothing to clear means nothing to lock, and a folder being emptied is not
+    // a folder to create a lock file in.
+    if !current_path(dir).exists() && !previous_path(dir).exists() {
+        return Ok(());
+    }
+    let lock = open_lock(dir)?;
+    lock.lock()?;
     let removed = remove_generations(dir);
     let _ = lock.unlock();
     removed
-}
-
-/// The exclusive lock over an existing lock file, or `None` when there is none.
-fn exclusive_guard(dir: &Path) -> Option<File> {
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(lock_path(dir))
-        .ok()?;
-    file.lock().ok()?;
-    Some(file)
 }
 
 fn remove_generations(dir: &Path) -> StorageResult<()> {
