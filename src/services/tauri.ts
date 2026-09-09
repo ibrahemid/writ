@@ -1296,7 +1296,10 @@ export async function chatState(): Promise<ChatEndpointState> {
 
 /** A note's size on disk, as the send dialog must state it. */
 export interface ChatAttachedSize {
+  /** The path that was asked about, echoed back, so a caller can join on it. */
   path: string;
+  /** The note's folder-relative key. */
+  key: string;
   bytes: number;
 }
 

@@ -183,9 +183,10 @@ describe("the blockers before a send", () => {
     expect(mocks.requestConfirm).not.toHaveBeenCalled();
   });
 
-  it("counts the bytes the file holds, not the bytes a tab recorded", async () => {
-    // The tab read Launch.md at 8 KB; another program has since doubled it.
-    // The number a person agrees to has to be the number that is sent.
+  it("asks about the sizes on disk, not the sizes the tabs recorded", async () => {
+    // Only that the dialog is built from the refreshed list. What that list
+    // holds is the mapping's job, asserted against the real code in
+    // src/__tests__/stores/chat-attached-sizes.test.ts.
     mocks.attachedOnDisk.mockResolvedValue([
       { path: "/notes/Launch.md", name: "Launch.md", bytes: 16 * 1024 },
       NOTES[1],
@@ -194,7 +195,6 @@ describe("the blockers before a send", () => {
     await sendChatMessage();
     const asked = mocks.requestConfirm.mock.calls[0][0];
     expect(asked.message).toContain("22 KB");
-    expect(asked.message).not.toContain("14 KB");
   });
 
   it("sends nothing when the attached notes cannot be read", async () => {

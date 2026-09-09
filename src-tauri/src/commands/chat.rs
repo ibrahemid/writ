@@ -377,8 +377,16 @@ fn relative_key(notes_root: &Path, file: &Path) -> Result<String, String> {
 /// A note's size on disk, as the dialog that asks to send it must state it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AttachedSize {
-    /// The note's folder-relative key.
+    /// The path the caller asked about, echoed back exactly as it was given.
+    ///
+    /// The pane holds absolute source paths and this command answers about
+    /// notes it resolves and keys by folder-relative name; a caller joining
+    /// its own list to this answer needs a string it already has, or the join
+    /// misses on every row and quietly keeps whatever it started with.
     pub path: String,
+    /// The note's folder-relative key, which is how every other chat surface
+    /// names it.
+    pub key: String,
     /// What the file holds now, which is what a send would carry.
     pub bytes: u64,
 }
@@ -399,13 +407,19 @@ pub fn attached_sizes_in(notes_root: &Path, paths: &[String]) -> Result<Vec<Atta
     for path in paths {
         let file = note_file_in(notes_root, path)?;
         let key = relative_key(notes_root, &file)?;
-        if sizes.iter().any(|note| note.path == key) {
+        // Two spellings of one note are one row, and the first spelling asked
+        // about is the one answered under.
+        if sizes.iter().any(|note| note.key == key) {
             continue;
         }
         let bytes = std::fs::metadata(&file)
             .map(|m| m.len())
             .map_err(|_| format!("{key} could not be read."))?;
-        sizes.push(AttachedSize { path: key, bytes });
+        sizes.push(AttachedSize {
+            path: path.clone(),
+            key,
+            bytes,
+        });
     }
     Ok(sizes)
 }

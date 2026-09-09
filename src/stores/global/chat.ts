@@ -233,6 +233,9 @@ function createChatStore() {
     async attachedOnDisk(): Promise<Attachment[]> {
       const current = attachments();
       const sizes = await chatAttachedSizes(current.map((note) => note.path));
+      // Keyed by the path that was asked about, which is the absolute one
+      // these attachments hold. The command's own folder-relative key names
+      // the same note in a different shape and would miss every row.
       const byPath = new Map(sizes.map((note) => [note.path, note.bytes]));
       return current.map((note) => ({ ...note, bytes: byPath.get(note.path) ?? note.bytes }));
     },

@@ -122,6 +122,24 @@ fn chat_state_names_the_keychain_account_of_each_provider() {
 // --- chat_attached_sizes ----------------------------------------------------
 
 #[test]
+fn chat_attached_sizes_answers_under_the_path_it_was_given() {
+    // What the pane holds is the absolute source path, and it joins its own
+    // list to this answer. An answer keyed only by the folder-relative name
+    // would miss every row and leave the stale tab size in the dialog.
+    let (notes, _writ) = folders();
+    let root = root(&notes);
+    std::fs::create_dir_all(root.join("Ideas")).expect("folder");
+    std::fs::write(root.join("Ideas/Later.md"), "a longer second text\n").expect("write");
+    let absolute = root.join("Ideas/Later.md").to_string_lossy().into_owned();
+
+    let sizes = attached_sizes_in(&root, &[absolute.clone()]).expect("sizes");
+    assert_eq!(sizes.len(), 1);
+    assert_eq!(sizes[0].path, absolute, "the path asked about comes back");
+    assert_eq!(sizes[0].key, "Ideas/Later.md");
+    assert_eq!(sizes[0].bytes, "a longer second text\n".len() as u64);
+}
+
+#[test]
 fn chat_attached_sizes_reads_the_bytes_the_file_holds_now() {
     let (notes, _writ) = folders();
     let root = root(&notes);
@@ -134,9 +152,9 @@ fn chat_attached_sizes_reads_the_bytes_the_file_holds_now() {
     )
     .expect("sizes");
     assert_eq!(sizes.len(), 2);
-    assert_eq!(sizes[0].path, "Launch.md");
+    assert_eq!(sizes[0].key, "Launch.md");
     assert_eq!(sizes[0].bytes, "the first text\n".len() as u64);
-    assert_eq!(sizes[1].path, "Ideas/Later.md");
+    assert_eq!(sizes[1].key, "Ideas/Later.md");
     assert_eq!(sizes[1].bytes, "a longer second text\n".len() as u64);
 
     // Rewritten by another program after the tab read it: the dialog states
