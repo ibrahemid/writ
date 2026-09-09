@@ -1,0 +1,15 @@
+{
+  "model": "claude-opus-5",
+  "max_tokens": 16000,
+  "stream": true,
+  "system": "SYSTEM",
+  "messages": [
+    {
+      "role": "user",
+      "content": "<attached-notes>\n<note path=\"Ideas/Launch.md\">\nThe launch is in March.\n</note>\n</attached-notes>"
+    },
+    { "role": "user", "content": "What does this note argue?" },
+    { "role": "assistant", "content": "That March is late." },
+    { "role": "user", "content": "Propose a fix." }
+  ]
+}
