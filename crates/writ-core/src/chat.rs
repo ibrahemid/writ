@@ -280,10 +280,13 @@ pub enum Delta {
     Text(String),
     /// The reply is complete.
     Done,
-    /// The provider reported a failure mid-stream. Carries its machine
-    /// category only — never the message beside it, which can quote the
-    /// request (ADR-031 rule 5.2).
-    Failed(String),
+    /// The provider reported a failure mid-stream.
+    ///
+    /// Nothing the server wrote comes out with it. The frame's `type` and
+    /// `message` are both response text a host chooses, so neither may be
+    /// shown and neither may be logged (ADR-031 rule 5.2); a caller has the
+    /// fact that the stream failed, which is all it can act on.
+    Failed,
     /// A keep-alive, a frame carrying no text, or a line that did not parse.
     Ignore,
 }
@@ -325,14 +328,7 @@ fn parse_anthropic_payload(payload: &str) -> Delta {
             }
         }
         Some("message_stop") => Delta::Done,
-        Some("error") => Delta::Failed(
-            value
-                .get("error")
-                .and_then(|e| e.get("type"))
-                .and_then(Value::as_str)
-                .unwrap_or("error")
-                .to_string(),
-        ),
+        Some("error") => Delta::Failed,
         _ => Delta::Ignore,
     }
 }
@@ -653,13 +649,15 @@ mod tests {
     }
 
     #[test]
-    fn a_mid_stream_error_carries_its_category_and_nothing_else() {
+    fn a_mid_stream_error_carries_nothing_the_server_wrote() {
+        // Both fields are the host's own text. Neither comes back, so neither
+        // can reach a log line or the pane by way of this parser.
         assert_eq!(
             parse_delta(
                 Provider::Anthropic,
                 "data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"
             ),
-            Delta::Failed("overloaded_error".to_string())
+            Delta::Failed
         );
     }
 

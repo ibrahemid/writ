@@ -557,7 +557,7 @@ fn parse_sse_line(line: &str) -> SseLine {
     match writ_core::chat::parse_delta(writ_core::chat::Provider::OpenAiCompatible, line) {
         writ_core::chat::Delta::Text(content) => SseLine::Chunk(content),
         writ_core::chat::Delta::Done => SseLine::Done,
-        writ_core::chat::Delta::Failed(_) | writ_core::chat::Delta::Ignore => SseLine::Ignore,
+        writ_core::chat::Delta::Failed | writ_core::chat::Delta::Ignore => SseLine::Ignore,
     }
 }
 

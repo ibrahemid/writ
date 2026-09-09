@@ -635,10 +635,15 @@ async fn run_chat_stream(
                     on_event(ChatEvent::Done);
                     return;
                 }
-                // The category is the whole of what the provider said that may
-                // be shown: the message beside it can quote the request.
-                Delta::Failed(kind) => {
-                    tracing::warn!(kind = %kind, "the model server ended the stream");
+                // Nothing the server wrote is shown or logged: an error
+                // frame's fields are response text, which can quote the
+                // request the note went out in (rule 5.2, rule §1.7). The
+                // host and the fact of the failure are the whole record.
+                Delta::Failed => {
+                    tracing::warn!(
+                        host = %prepared.host,
+                        "the model server ended the stream with an error frame"
+                    );
                     on_event(ChatEvent::Error(
                         "The model server ended the reply.".to_string(),
                     ));
@@ -1083,6 +1088,43 @@ mod stream_tests {
         );
         assert!(logs.contains("127.0.0.1"), "the host is loggable: {logs}");
         assert!(logs.contains("401"), "the status is loggable: {logs}");
+
+        // The stream's failure arm, driven end to end rather than described:
+        // a host answers with an error frame it wrote every word of.
+        let (base, _seen) = tests_support::spawn_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: text/event-stream\r\nConnection: close\r\n",
+            ANTHROPIC_ERROR_STREAM,
+        );
+        let streamed = prepared_for(&base, Provider::Anthropic, Some(SECRET_KEY));
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = seen.clone();
+        let streaming = captured_logs(|| {
+            let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            tauri::async_runtime::block_on(async {
+                let client = super::super::ai::build_client().expect("client");
+                run_chat_stream(&client, &streamed, &cancel, |event| {
+                    if let ChatEvent::Error(message) = event {
+                        sink.lock().expect("events").push(message);
+                    }
+                })
+                .await;
+            });
+        });
+        assert!(
+            !streaming.contains(SERVER_ERROR_TEXT),
+            "the server's own words reached the log: {streaming}"
+        );
+        assert!(
+            streaming.contains("127.0.0.1"),
+            "the host is still loggable: {streaming}"
+        );
+        let shown = seen.lock().expect("events").clone();
+        assert_eq!(
+            shown,
+            vec!["The model server ended the reply.".to_string()],
+            "the pane is shown a fixed sentence and nothing the host wrote"
+        );
     }
 }
 
@@ -1101,6 +1143,15 @@ mod tests_support {
 
     /// The reply those frames spell out.
     pub const RECORDED_REPLY: &str = "The note argues one thing.";
+
+    /// An error frame the host chose the wording of, served over the socket so
+    /// the stream's own failure arm runs. Both of its fields carry the token,
+    /// so a line that quoted either one fails the rule §1.7 test.
+    pub const ANTHROPIC_ERROR_STREAM: &str =
+        include_str!("../../../crates/writ-core/tests/fixtures/chat/anthropic-error.sse");
+
+    /// The wording in that frame, which is response text and nothing else.
+    pub const SERVER_ERROR_TEXT: &str = "ZZ-server-text-that-must-never-be-logged";
 
     pub const SECRET_KEY: &str = "sk-do-not-log-me";
     pub const NOTE_TEXT: &str = "the note said this and it is nobody else's business";
