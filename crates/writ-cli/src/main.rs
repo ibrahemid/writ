@@ -195,6 +195,7 @@ fn run_mcp(parsed: Result<mcp::Command, mcp::UsageError>) -> ! {
     let host = match writ_mcp::tools::ToolHost::open(
         &notes_dir,
         &writ_dir.join("writ.db"),
+        &writ_dir,
         Box::new(gate),
     ) {
         Ok(host) => host,

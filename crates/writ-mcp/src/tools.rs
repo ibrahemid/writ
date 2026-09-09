@@ -11,6 +11,22 @@
 //! [`ToolHost::list_notes`] and [`ToolHost::read_note`] still answer from the
 //! folder and the six index-derived tools return [`ToolError::IndexUnavailable`].
 //!
+//! The three write tools change a note's file and nothing else. They write
+//! through `writ_storage::guarded`, the one writer of a note's file
+//! (ADR-032 section 4), under `WriteOrigin::Mcp` and
+//! `ConflictPolicy::RefuseWithCopy`, so a note that changed since the client
+//! read it keeps what it holds and the client's text lands beside it. There is
+//! no argument that turns that into an overwrite.
+//!
+//! Nothing here stamps the app's ignore set, and that is load-bearing rather
+//! than a gap. The stamp is how Writ tells its own writes apart from somebody
+//! else's; a write from this process **is** somebody else's, and the running
+//! app is meant to learn about it through the folder watcher and reconcile the
+//! open tab (ADR-033). A stamped write would be swallowed. The `BeforeWrite`
+//! hook is therefore `None` on every call this module makes, which is also the
+//! only thing it could be: the ignore set lives in the app process and this
+//! one is the client's child.
+//!
 //! The method bodies are shaped for U9 to lift onto `writ_plugin::host::NoteHost`
 //! (ADR-032 section 3): the consent check is the first line and the rest of the
 //! body is the operation, so the check can be replaced by a capability check
@@ -18,8 +34,17 @@
 
 use std::path::{Path, PathBuf};
 
+use writ_core::activity::{ActivityRecord, Actor};
+use writ_core::hash::{digest_from_hex, digest_hex};
 use writ_core::notes::containment::{resolve_for_containment, resolve_inside};
+use writ_core::notes::guard::{is_not_downloaded, DiskState};
+use writ_core::notes::WriteOrigin;
+use writ_storage::buffer_store::{dataless_flags, read_disk_state};
 use writ_storage::database::migrations::binary_schema_version;
+use writ_storage::errors::StorageError;
+use writ_storage::guarded::{
+    create_note_guarded, write_note_guarded, ConflictPolicy, CreateNote, DiskRead, GuardedWrite,
+};
 use writ_storage::notes_index::{self, BacklinkCertainty, NotesIndexStore};
 
 use crate::consent::{ClientId, ConsentGate, Decision};
@@ -33,18 +58,13 @@ pub const MAX_RESULTS: usize = 500;
 /// The extension `list_notes` counts as a note.
 const NOTE_EXTENSION: &str = "md";
 
-/// The tools registered in 0.5's read half, in the order `tools/list` reports
-/// them. No write tool is in this crate.
-pub const READ_TOOLS: &[&str] = &[
-    "list_notes",
-    "search_notes",
-    "read_note",
-    "note_links",
-    "note_backlinks",
-    "note_properties",
-    "note_tags",
-    "folder_tags",
-];
+/// The tools that only read, and the tools that change a note.
+///
+/// Both lists live in `writ-core` and are re-exported here: the server
+/// registers them, the gate reads the split, and the settings row shows the
+/// user the same names, so none of the three can drift
+/// ([`writ_core::tools`]).
+pub use writ_core::tools::{READ_TOOLS, WRITE_TOOLS};
 
 /// The tools that answer from the index and cannot answer without it.
 pub const INDEX_TOOLS: &[&str] = &[
@@ -100,6 +120,50 @@ pub enum ToolError {
         /// The path as the client wrote it.
         path: String,
     },
+    /// The text handed in is over [`MAX_NOTE_BYTES`].
+    #[error("That is {bytes} bytes. A tool writes up to {MAX_NOTE_BYTES} bytes.")]
+    TooMuchText {
+        /// How many bytes the client sent.
+        bytes: u64,
+    },
+    /// The note holds something other than what the client read, so the write
+    /// was not made. The client's text is beside the note.
+    #[error("{path} changed on disk after it was read, and was left as it is.{}",
+        .conflict_copy.as_ref().map(|copy| format!(" What you sent is at {copy}.")).unwrap_or_default())]
+    Conflict {
+        /// The path as the client wrote it.
+        path: String,
+        /// The dated copy the client's text was written to, when one could be
+        /// written.
+        conflict_copy: Option<String>,
+    },
+    /// `expected_hash` is not the 64 hex characters a read hands back.
+    #[error("expected_hash for {path} has to be the hash read_note returned.")]
+    HashNotUnderstood {
+        /// The path as the client wrote it.
+        path: String,
+    },
+    /// The name handed in holds nothing a file can be called.
+    #[error("{}", writ_core::notes::NAME_IS_EMPTY)]
+    NameEmpty,
+    /// A note of that name is already in the folder.
+    #[error("{}", writ_core::notes::name_is_taken(name))]
+    NameTaken {
+        /// The name as the folder would spell it.
+        name: String,
+    },
+    /// The file's bytes are not on this machine yet.
+    #[error("{path} has not finished downloading to this machine.")]
+    NotDownloaded {
+        /// The path as the client wrote it.
+        path: String,
+    },
+    /// The file is there and this process could not write it.
+    #[error("{path} could not be written.")]
+    Unwritable {
+        /// The path as the client wrote it.
+        path: String,
+    },
 }
 
 /// One note in the folder.
@@ -120,8 +184,35 @@ pub struct NoteContent {
     pub path: String,
     /// The file's length in bytes.
     pub bytes: u64,
+    /// SHA-256 of the file's bytes, in lowercase hex.
+    ///
+    /// This is what `write_note` takes as `expected_hash`: a client that reads
+    /// a note, thinks, and writes it back hands this value over and the write
+    /// is made only if the note still holds the text this hash names.
+    pub hash: String,
     /// The whole file, frontmatter included.
     pub text: String,
+}
+
+/// Where a write landed and what the file holds afterwards.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WriteReceipt {
+    /// The note's path, in the spelling every other tool takes back.
+    pub path: String,
+    /// The file's length in bytes.
+    pub bytes: u64,
+    /// SHA-256 of the file's bytes, the value the next write passes as
+    /// `expected_hash`.
+    pub hash: String,
+}
+
+/// Where a renamed note went, and where it was.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RenameReceipt {
+    /// The note's path now.
+    pub path: String,
+    /// The path it had before.
+    pub previous_path: String,
 }
 
 /// One search hit.
@@ -211,6 +302,7 @@ pub struct FolderTag {
 /// The notes folder and the index over it, behind a consent gate.
 pub struct ToolHost {
     notes_root: PathBuf,
+    writ_dir: PathBuf,
     index: Option<NotesIndexStore>,
     gate: Box<dyn ConsentGate>,
 }
@@ -219,6 +311,7 @@ impl std::fmt::Debug for ToolHost {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ToolHost")
             .field("notes_root", &self.notes_root)
+            .field("writ_dir", &self.writ_dir)
             .field("index", &self.index.is_some())
             .finish_non_exhaustive()
     }
@@ -237,6 +330,7 @@ impl ToolHost {
     pub fn open(
         notes_root: &Path,
         db_path: &Path,
+        writ_dir: &Path,
         gate: Box<dyn ConsentGate>,
     ) -> Result<Self, ToolError> {
         let resolved = resolve_for_containment(notes_root)
@@ -246,6 +340,7 @@ impl ToolHost {
             })?;
         Ok(Self {
             notes_root: resolved,
+            writ_dir: writ_dir.to_path_buf(),
             index: open_index(db_path),
             gate,
         })
@@ -373,6 +468,7 @@ impl ToolHost {
         Ok(NoteContent {
             path: notes_index::index_key(&file),
             bytes,
+            hash: writ_core::hash::sha256_hex(text.as_bytes()),
             text,
         })
     }
@@ -467,6 +563,295 @@ impl ToolHost {
 
     /// Refuses the call unless the gate allows this client this tool.
     ///
+    /// Replaces the text of the note at `path`.
+    ///
+    /// `expected_hash` is the `hash` [`ToolHost::read_note`] handed back. Given
+    /// it, the write is made only while the note still holds that text: a note
+    /// somebody edited in between keeps what it holds, the text handed in is
+    /// put beside it as a dated copy, and [`ToolError::Conflict`] names the
+    /// copy (ADR-028 section 5). Omitted, the write is made against whatever
+    /// the file holds now, and keeping a stale read from landing on a newer
+    /// note is then the client's own business. There is no third option: no
+    /// argument to this method overwrites a note the guard held back.
+    ///
+    /// The bytes land as they were handed in. Nothing reflows the file, so
+    /// frontmatter comes back out the way it went in.
+    pub fn write_note(
+        &self,
+        client: &ClientId,
+        path: &str,
+        content: &str,
+        expected_hash: Option<&str>,
+    ) -> Result<WriteReceipt, ToolError> {
+        let allowed = self.allow(client, "write_note");
+        let written =
+            allowed.and_then(|()| self.replace_text(client, path, content, expected_hash));
+        self.record(
+            client,
+            "write_note",
+            written
+                .as_ref()
+                .map_or(path, |receipt| receipt.path.as_str()),
+            Some(content.len() as u64),
+            decision_of(&written),
+        );
+        written
+    }
+
+    /// Mints a note called `name` in the notes folder.
+    ///
+    /// The name is sanitised into a filename the way every other surface
+    /// sanitises one ([`writ_core::notes::sanitize_title`]), so a name that
+    /// spells a path is a name and not a path. A note of that name already in
+    /// the folder is answered with [`ToolError::NameTaken`] and left alone.
+    ///
+    /// A minted file is LF, whatever the text handed in carries. That is the
+    /// one place a write tool does not land the bytes verbatim, and it applies
+    /// only to a file that has no line-ending convention yet because it has
+    /// never existed.
+    pub fn create_note(
+        &self,
+        client: &ClientId,
+        name: &str,
+        content: &str,
+    ) -> Result<WriteReceipt, ToolError> {
+        let allowed = self.allow(client, "create_note");
+        let created = allowed.and_then(|()| self.mint_note(client, name, content));
+        self.record(
+            client,
+            "create_note",
+            created
+                .as_ref()
+                .map_or(name, |receipt| receipt.path.as_str()),
+            Some(content.len() as u64),
+            decision_of(&created),
+        );
+        created
+    }
+
+    /// Renames the note at `path` to `new_name`, inside the folder it is in.
+    ///
+    /// **No link in any other note is rewritten.** A rename that updates the
+    /// links pointing at a note is an offer made to the user, with the count
+    /// in front of them and a way back afterwards; a bulk rewrite of a folder
+    /// on a program's say-so is the thing that offer exists to prevent
+    /// (ADR-031 rule 4.7). A client that renames a note leaves the links that
+    /// named it pointing at the old name.
+    ///
+    /// The rename goes through the same guard a write does, so a note whose
+    /// bytes are not on this machine is left where it is rather than pulled
+    /// down.
+    pub fn rename_note(
+        &self,
+        client: &ClientId,
+        path: &str,
+        new_name: &str,
+    ) -> Result<RenameReceipt, ToolError> {
+        let allowed = self.allow(client, "rename_note");
+        let renamed = allowed.and_then(|()| self.move_name(client, path, new_name));
+        self.record(
+            client,
+            "rename_note",
+            renamed
+                .as_ref()
+                .map_or(path, |(receipt, _)| receipt.path.as_str()),
+            renamed.as_ref().ok().map(|(_, bytes)| *bytes),
+            decision_of(&renamed),
+        );
+        renamed.map(|(receipt, _)| receipt)
+    }
+
+    /// [`ToolHost::write_note`] past the gate.
+    fn replace_text(
+        &self,
+        client: &ClientId,
+        path: &str,
+        content: &str,
+        expected_hash: Option<&str>,
+    ) -> Result<WriteReceipt, ToolError> {
+        self.text_fits(content)?;
+        let file = self.note_file(path)?;
+        // Asked before the read below, because the read is what would pull an
+        // evicted file down (ADR-028 section 5). The guard asks the same
+        // question, and asking it here is what lets the state below be read
+        // once and handed over rather than read again inside it.
+        if is_not_downloaded(dataless_flags(&file)) {
+            return Err(ToolError::NotDownloaded {
+                path: path.to_string(),
+            });
+        }
+        let on_disk = read_disk_state(&file).map_err(|_| ToolError::Unreadable {
+            path: path.to_string(),
+        })?;
+        // With a hash from the client, only its digest is read out of this:
+        // `decide_save` compares digests and never the length or the
+        // modification time, and a client that read the note over the wire
+        // knows neither of those two about the file it read. Without one, what
+        // the file holds now stands in, which is the same thing as having no
+        // expectation and also lets a write of the text the note already holds
+        // be recognised and skipped.
+        let last_known = match expected_hash {
+            Some(hex) => Some(DiskState {
+                hash: digest_from_hex(hex).ok_or_else(|| ToolError::HashNotUnderstood {
+                    path: path.to_string(),
+                })?,
+                size: 0,
+                mtime: None,
+            }),
+            None => on_disk,
+        };
+        let outcome = write_note_guarded(
+            GuardedWrite {
+                target: &file,
+                bytes: content.as_bytes(),
+                last_known,
+                // Read once, above, from the same bytes the digests here
+                // describe.
+                on_disk: DiskRead::Read(on_disk),
+                dataless: None,
+                origin: self.origin(client),
+                on_conflict: ConflictPolicy::RefuseWithCopy,
+                history: None,
+            },
+            // No ignore stamp: this write is meant to reach the running app as
+            // somebody else's, through the folder watcher (ADR-033).
+            None,
+        )
+        .map_err(|error| write_error(path, error))?;
+        Ok(WriteReceipt {
+            path: notes_index::index_key(&file),
+            bytes: outcome.disk_state.size,
+            hash: digest_hex(outcome.disk_state.hash),
+        })
+    }
+
+    /// [`ToolHost::create_note`] past the gate.
+    fn mint_note(
+        &self,
+        client: &ClientId,
+        name: &str,
+        content: &str,
+    ) -> Result<WriteReceipt, ToolError> {
+        self.text_fits(content)?;
+        let stem = writ_core::notes::sanitize_title(name).ok_or(ToolError::NameEmpty)?;
+        let file_name = format!("{stem}.{NOTE_EXTENSION}");
+        // The facade dedupes a taken name into `Launch 2.md`, which is what a
+        // person clicking New note wants and the wrong answer for a program: a
+        // client that asked for `Launch` and got `Launch 2` has put its text
+        // in a note it did not name and cannot find. So a taken name is
+        // answered here, before anything is written. `symlink_metadata`, so a
+        // link left by something else counts as taken rather than being
+        // written through.
+        if self.notes_root.join(&file_name).symlink_metadata().is_ok() {
+            return Err(ToolError::NameTaken { name: file_name });
+        }
+        let minted = create_note_guarded(
+            CreateNote {
+                notes_root: &self.notes_root,
+                stem: &stem,
+                content,
+                origin: self.origin(client),
+                history: None,
+            },
+            None,
+        )
+        .map_err(|error| write_error(name, error))?;
+        // Read back rather than hashed here: the facade lands a minted note as
+        // LF, so what the client handed in is not always what the file holds.
+        let state =
+            read_disk_state(&minted)
+                .ok()
+                .flatten()
+                .ok_or_else(|| ToolError::Unwritable {
+                    path: name.to_string(),
+                })?;
+        Ok(WriteReceipt {
+            path: notes_index::index_key(&minted),
+            bytes: state.size,
+            hash: digest_hex(state.hash),
+        })
+    }
+
+    /// [`ToolHost::rename_note`] past the gate, with the file's length for the
+    /// record.
+    fn move_name(
+        &self,
+        client: &ClientId,
+        path: &str,
+        new_name: &str,
+    ) -> Result<(RenameReceipt, u64), ToolError> {
+        let file = self.note_file(path)?;
+        // Maps a separator to a space, so a new name that spells a path names
+        // a file in the folder the note is already in and cannot walk out of
+        // it.
+        let stem = writ_core::notes::rename_stem(&file, new_name).ok_or(ToolError::NameEmpty)?;
+        // Asked before the read below, because the read is what would pull an
+        // evicted file down (ADR-028 section 5).
+        if is_not_downloaded(dataless_flags(&file)) {
+            return Err(ToolError::NotDownloaded {
+                path: path.to_string(),
+            });
+        }
+        let last_known = read_disk_state(&file).map_err(|_| ToolError::Unreadable {
+            path: path.to_string(),
+        })?;
+        let bytes = last_known.map_or(0, |state| state.size);
+        let moved = writ_storage::note_ops::rename_note(
+            &file,
+            &stem,
+            last_known,
+            self.origin(client),
+            // No ignore stamp, for the reason `replace_text` gives.
+            None,
+        )
+        .map_err(|error| write_error(path, error))?;
+        Ok((
+            RenameReceipt {
+                path: notes_index::index_key(&moved),
+                previous_path: notes_index::index_key(&file),
+            },
+            bytes,
+        ))
+    }
+
+    /// The origin every write from this host carries.
+    fn origin(&self, client: &ClientId) -> WriteOrigin {
+        WriteOrigin::Mcp {
+            client: client.name.clone(),
+        }
+    }
+
+    /// Holds an incoming text to the same ceiling a read is held to.
+    fn text_fits(&self, content: &str) -> Result<(), ToolError> {
+        let bytes = content.len() as u64;
+        if bytes > MAX_NOTE_BYTES {
+            return Err(ToolError::TooMuchText { bytes });
+        }
+        Ok(())
+    }
+
+    /// Appends what one write did to the activity log.
+    ///
+    /// The gate has already recorded the call it decided on, naming the client
+    /// and the tool. This is the line that also names the note and the length,
+    /// which the gate never sees. A data folder that cannot be written to is
+    /// not a reason to answer differently: the write already happened or
+    /// already did not.
+    fn record(
+        &self,
+        client: &ClientId,
+        tool: &str,
+        path: &str,
+        bytes: Option<u64>,
+        decision: Decision,
+    ) {
+        let mut record = ActivityRecord::now(Actor::from(client), tool, decision).with_path(path);
+        if let Some(bytes) = bytes {
+            record = record.with_bytes(bytes);
+        }
+        let _ = writ_storage::activity_log::append(&self.writ_dir, &record);
+    }
+
     /// Called first by every method, so a refusal opens no file and runs no
     /// query. `Pending` refuses too: U5 is what turns it into a row the user
     /// can act on.
@@ -528,6 +913,36 @@ impl ToolHost {
     }
 }
 
+/// What the log says about a call that reached the operation.
+fn decision_of<T>(result: &Result<T, ToolError>) -> Decision {
+    match result {
+        Ok(_) => Decision::Allow,
+        Err(_) => Decision::Refuse,
+    }
+}
+
+/// A storage refusal as the tool's own, naming the path the client wrote.
+///
+/// Every message a client sees names a path, a name or a length. The digest
+/// the guard carries and the folder it names are the app's own spellings of
+/// this machine, and neither is in the answer.
+fn write_error(path: &str, error: StorageError) -> ToolError {
+    match error {
+        StorageError::SourceChangedOnDisk { conflict_copy, .. } => ToolError::Conflict {
+            path: path.to_string(),
+            conflict_copy,
+        },
+        StorageError::SourceNotDownloaded { .. } => ToolError::NotDownloaded {
+            path: path.to_string(),
+        },
+        StorageError::NoteNameEmpty => ToolError::NameEmpty,
+        StorageError::NoteNameTaken { name, .. } => ToolError::NameTaken { name },
+        _ => ToolError::Unwritable {
+            path: path.to_string(),
+        },
+    }
+}
+
 /// The wire spelling of a backlink's certainty.
 fn certainty_word(certainty: BacklinkCertainty) -> &'static str {
     certainty.as_str()
@@ -566,11 +981,13 @@ mod tests {
     use crate::consent::{DenyAll, EnabledReads};
     use tempfile::TempDir;
 
-    /// A notes folder, and the path its index would live at.
+    /// A notes folder, the data folder beside it, and the path the index would
+    /// live at.
     struct Fixture {
         _dir: TempDir,
         notes: PathBuf,
         db: PathBuf,
+        writ: PathBuf,
     }
 
     fn fixture() -> Fixture {
@@ -579,6 +996,7 @@ mod tests {
         std::fs::create_dir_all(&notes).expect("notes folder");
         Fixture {
             db: dir.path().join("writ.db"),
+            writ: dir.path().to_path_buf(),
             notes,
             _dir: dir,
         }
@@ -608,9 +1026,46 @@ mod tests {
         ToolHost::open(
             &fixture.notes,
             &fixture.db,
+            &fixture.writ,
             Box::new(EnabledReads::new(true)),
         )
         .expect("host")
+    }
+
+    /// A host on the gate production runs, over a folder whose settings grant
+    /// the test client `read` and `write` as stated.
+    ///
+    /// The real gate rather than a fixture, because the write half's own tests
+    /// are about what the user granted and about what the log then says, and a
+    /// double that grants everything and records nothing answers neither.
+    fn approved_host(fixture: &Fixture, read: bool, write: bool) -> ToolHost {
+        std::fs::write(
+            fixture.writ.join("config.toml"),
+            format!(
+                "[mcp]\nenabled = true\n\n[[mcp.approved_clients]]\nname = \"Test Client\"\nread = {read}\nwrite = {write}\n"
+            ),
+        )
+        .expect("seed the settings file");
+        ToolHost::open(
+            &fixture.notes,
+            &fixture.db,
+            &fixture.writ,
+            Box::new(crate::consent::ConfigGate::new(&fixture.writ)),
+        )
+        .expect("host")
+    }
+
+    /// Every activity record the folder holds, newest first.
+    fn records(fixture: &Fixture) -> Vec<writ_core::activity::ActivityRecord> {
+        writ_storage::activity_log::read_recent(&fixture.writ, 100)
+    }
+
+    /// The records that name a note, which is the half a write adds.
+    fn records_naming_a_note(fixture: &Fixture) -> Vec<writ_core::activity::ActivityRecord> {
+        records(fixture)
+            .into_iter()
+            .filter(|record| record.path.is_some())
+            .collect()
     }
 
     fn client() -> ClientId {
@@ -1118,6 +1573,7 @@ mod tests {
         let host = ToolHost::open(
             &fixture.notes,
             &fixture.db,
+            &fixture.writ,
             Box::new(EnabledReads::new(false)),
         )
         .expect("host");
@@ -1148,7 +1604,8 @@ mod tests {
     fn a_deny_all_gate_refuses_a_read() {
         let fixture = fixture();
         write_note(&fixture, "Launch.md", "the text");
-        let host = ToolHost::open(&fixture.notes, &fixture.db, Box::new(DenyAll)).expect("host");
+        let host = ToolHost::open(&fixture.notes, &fixture.db, &fixture.writ, Box::new(DenyAll))
+            .expect("host");
 
         assert!(matches!(
             host.list_notes(&client(), None, 100).expect_err("refused"),
@@ -1171,7 +1628,8 @@ mod tests {
         let missing = fixture.notes.join("nowhere");
 
         assert!(matches!(
-            ToolHost::open(&missing, &fixture.db, Box::new(DenyAll)).expect_err("no folder"),
+            ToolHost::open(&missing, &fixture.db, &fixture.writ, Box::new(DenyAll))
+                .expect_err("no folder"),
             ToolError::NotFound { .. }
         ));
         assert!(!missing.exists());
@@ -1184,5 +1642,422 @@ mod tests {
 
         assert!(!host.has_index());
         assert!(!fixture.db.exists());
+    }
+
+    // The write half. Every test below names one acceptance criterion of the
+    // unit that added the three write tools.
+
+    #[test]
+    fn a_write_from_an_approved_client_lands_byte_exactly_and_returns_the_new_hash() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, true);
+        let text = "after\r\nwith its own line endings\r\n";
+
+        let receipt = host
+            .write_note(&client(), "Launch.md", text, None)
+            .expect("the write is made");
+
+        assert_eq!(std::fs::read(&note).expect("read back"), text.as_bytes());
+        assert_eq!(receipt.path, key(&note));
+        assert_eq!(receipt.bytes, text.len() as u64);
+        assert_eq!(receipt.hash, writ_core::hash::sha256_hex(text.as_bytes()));
+    }
+
+    #[test]
+    fn a_write_from_a_read_only_client_is_not_made_and_one_record_says_so() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, false);
+        let text = "after\n";
+
+        let refusal = host
+            .write_note(&client(), "Launch.md", text, None)
+            .expect_err("a client approved to read does not write");
+
+        assert!(matches!(refusal, ToolError::NotApproved { .. }));
+        assert_eq!(std::fs::read(&note).expect("read back"), b"before\n");
+        let named = records_naming_a_note(&fixture);
+        assert_eq!(named.len(), 1, "one record names the note: {named:?}");
+        assert_eq!(named[0].decision, Decision::Refuse);
+        assert_eq!(named[0].action, "write_note");
+        assert_eq!(named[0].bytes, Some(text.len() as u64));
+    }
+
+    #[test]
+    fn a_write_against_a_note_changed_underneath_is_not_made_and_the_text_lands_beside_it() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "as it was read\n");
+        let host = approved_host(&fixture, true, true);
+        let read = host.read_note(&client(), "Launch.md").expect("read");
+        std::fs::write(&note, "as somebody else left it\n").expect("edit underneath");
+
+        let refusal = host
+            .write_note(
+                &client(),
+                "Launch.md",
+                "what the client sent\n",
+                Some(&read.hash),
+            )
+            .expect_err("a note changed underneath is left alone");
+
+        let ToolError::Conflict { conflict_copy, .. } = refusal else {
+            panic!("expected a conflict, got {refusal:?}");
+        };
+        let copy = PathBuf::from(conflict_copy.expect("the text is kept beside the note"));
+        assert!(copy.is_file(), "{} is not there", copy.display());
+        assert_eq!(
+            std::fs::read_to_string(&copy).expect("read the copy"),
+            "what the client sent\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read the note"),
+            "as somebody else left it\n"
+        );
+    }
+
+    #[test]
+    fn a_write_to_a_path_outside_the_notes_folder_opens_nothing() {
+        let fixture = fixture();
+        let outside = fixture.writ.join("outside.md");
+        std::fs::write(&outside, "not a note of this folder\n").expect("seed");
+        let host = approved_host(&fixture, true, true);
+
+        let refusal = host
+            .write_note(&client(), "../outside.md", "overwritten\n", None)
+            .expect_err("a path out of the folder is not written");
+
+        assert!(matches!(refusal, ToolError::OutsideNotesFolder { .. }));
+        assert_eq!(
+            std::fs::read_to_string(&outside).expect("read back"),
+            "not a note of this folder\n"
+        );
+    }
+
+    #[test]
+    fn create_note_with_a_taken_name_leaves_the_note_that_is_there_alone() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "the note that is there\n");
+        let host = approved_host(&fixture, true, true);
+
+        let refusal = host
+            .create_note(&client(), "Launch", "the note a client asked for\n")
+            .expect_err("a taken name is answered rather than deduped");
+
+        assert!(
+            matches!(&refusal, ToolError::NameTaken { name } if name == "Launch.md"),
+            "{refusal:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read back"),
+            "the note that is there\n"
+        );
+        assert!(
+            !fixture.notes.join("Launch 2.md").exists(),
+            "nothing is minted under a name the client did not ask for"
+        );
+    }
+
+    #[test]
+    fn create_note_mints_the_note_and_answers_with_where_it_went() {
+        let fixture = fixture();
+        let host = approved_host(&fixture, true, true);
+
+        let receipt = host
+            .create_note(&client(), "Ship it", "# Ship it\n")
+            .expect("the note is minted");
+
+        let minted = fixture.notes.join("Ship it.md");
+        assert!(minted.is_file());
+        assert_eq!(receipt.path, key(&minted));
+        assert_eq!(
+            std::fs::read_to_string(&minted).expect("read back"),
+            "# Ship it\n"
+        );
+        assert_eq!(receipt.bytes, "# Ship it\n".len() as u64);
+    }
+
+    #[test]
+    fn a_minted_note_is_lf_whatever_the_client_sent() {
+        let fixture = fixture();
+        let host = approved_host(&fixture, true, true);
+
+        let receipt = host
+            .create_note(&client(), "Ship it", "one\r\ntwo\r\n")
+            .expect("minted");
+
+        let minted = fixture.notes.join("Ship it.md");
+        assert_eq!(
+            std::fs::read(&minted).expect("read back"),
+            b"one\ntwo\n",
+            "a file that never existed has no line-ending convention to keep"
+        );
+        assert_eq!(receipt.hash, writ_core::hash::sha256_hex(b"one\ntwo\n"));
+        assert_eq!(receipt.bytes, 8);
+    }
+
+    #[test]
+    fn a_name_that_spells_a_path_names_a_note_in_the_folder() {
+        let fixture = fixture();
+        let host = approved_host(&fixture, true, true);
+
+        let receipt = host
+            .create_note(&client(), "../../escaped", "text\n")
+            .expect("minted");
+
+        assert!(receipt.path.starts_with(&key(&fixture.notes)));
+        assert!(!fixture.writ.join("escaped.md").exists());
+    }
+
+    #[test]
+    fn rename_note_moves_the_file_and_rewrites_no_link_in_any_other_note() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "# Launch\n");
+        let linking = write_note(&fixture, "Index.md", "see [[Launch]] for the date\n");
+        let before = std::fs::read(&linking).expect("read the linking note");
+        let host = approved_host(&fixture, true, true);
+
+        let receipt = host
+            .rename_note(&client(), "Launch.md", "Ship")
+            .expect("the note is renamed");
+
+        let moved = fixture.notes.join("Ship.md");
+        assert!(moved.is_file());
+        assert!(!note.exists());
+        assert_eq!(receipt.path, key(&moved));
+        assert_eq!(receipt.previous_path, key(&note));
+        assert_eq!(
+            std::fs::read(&linking).expect("read it back"),
+            before,
+            "a client's rename rewrites no link in any other note"
+        );
+    }
+
+    #[test]
+    fn a_rename_to_a_name_the_folder_holds_leaves_both_notes_alone() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "# Launch\n");
+        let taken = write_note(&fixture, "Ship.md", "# Ship\n");
+        let host = approved_host(&fixture, true, true);
+
+        let refusal = host
+            .rename_note(&client(), "Launch.md", "Ship")
+            .expect_err("a taken name is not written over");
+
+        assert!(
+            matches!(refusal, ToolError::NameTaken { .. }),
+            "{refusal:?}"
+        );
+        assert_eq!(std::fs::read_to_string(&note).expect("read"), "# Launch\n");
+        assert_eq!(std::fs::read_to_string(&taken).expect("read"), "# Ship\n");
+    }
+
+    #[test]
+    fn a_new_name_that_spells_a_path_renames_inside_the_folder() {
+        let fixture = fixture();
+        write_note(&fixture, "Launch.md", "# Launch\n");
+        let host = approved_host(&fixture, true, true);
+
+        let receipt = host
+            .rename_note(&client(), "Launch.md", "../../escaped")
+            .expect("renamed");
+
+        assert!(
+            receipt.path.starts_with(&key(&fixture.notes)),
+            "{receipt:?}"
+        );
+        assert!(!fixture.writ.join("escaped.md").exists());
+    }
+
+    #[test]
+    fn frontmatter_round_trips_unchanged_through_write_note() {
+        let fixture = fixture();
+        let text = "---\ntitle:  Launch\ntags: [a,  b]\n# a comment\n---\n\nbody\n";
+        let note = write_note(&fixture, "Launch.md", text);
+        let host = approved_host(&fixture, true, true);
+
+        let read = host.read_note(&client(), "Launch.md").expect("read");
+        let edited = read.text.replace("body\n", "body, one word longer\n");
+        host.write_note(&client(), "Launch.md", &edited, Some(&read.hash))
+            .expect("the write is made");
+
+        let after = std::fs::read_to_string(&note).expect("read back");
+        let (frontmatter, _) = after.split_once("\n---\n").expect("a closing marker");
+        assert_eq!(
+            frontmatter,
+            "---\ntitle:  Launch\ntags: [a,  b]\n# a comment"
+        );
+        assert!(after.ends_with("body, one word longer\n"));
+    }
+
+    #[test]
+    fn the_hash_read_note_returns_is_the_one_write_note_takes() {
+        let fixture = fixture();
+        write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, true);
+
+        let read = host.read_note(&client(), "Launch.md").expect("read");
+        let receipt = host
+            .write_note(&client(), "Launch.md", "after\n", Some(&read.hash))
+            .expect("the hash a read handed back is accepted");
+
+        let again = host.read_note(&client(), "Launch.md").expect("read again");
+        assert_eq!(again.hash, receipt.hash);
+    }
+
+    #[test]
+    fn an_expected_hash_that_is_not_a_hash_is_answered_and_writes_nothing() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, true);
+
+        let refusal = host
+            .write_note(&client(), "Launch.md", "after\n", Some("not a hash"))
+            .expect_err("a hash that cannot be read is not treated as no hash at all");
+
+        assert!(matches!(refusal, ToolError::HashNotUnderstood { .. }));
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read back"),
+            "before\n"
+        );
+    }
+
+    #[test]
+    fn a_write_of_the_text_the_note_already_holds_answers_with_the_hash_it_has() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "the same text\n");
+        let before = std::fs::metadata(&note).expect("metadata").modified().ok();
+        let host = approved_host(&fixture, true, true);
+
+        let receipt = host
+            .write_note(&client(), "Launch.md", "the same text\n", None)
+            .expect("identical text is not a conflict");
+
+        assert_eq!(
+            receipt.hash,
+            writ_core::hash::sha256_hex(b"the same text\n")
+        );
+        assert_eq!(
+            std::fs::metadata(&note).expect("metadata").modified().ok(),
+            before,
+            "nothing is rewritten, so a sync client has nothing to upload"
+        );
+    }
+
+    #[test]
+    fn a_write_that_lands_appends_one_record_naming_the_note_and_its_length() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, true);
+
+        host.write_note(&client(), "Launch.md", "after\n", None)
+            .expect("the write is made");
+
+        let named = records_naming_a_note(&fixture);
+        assert_eq!(named.len(), 1, "{named:?}");
+        assert_eq!(named[0].action, "write_note");
+        assert_eq!(named[0].decision, Decision::Allow);
+        assert_eq!(named[0].path.as_deref(), Some(Path::new(&key(&note))));
+        assert_eq!(named[0].bytes, Some("after\n".len() as u64));
+    }
+
+    #[test]
+    fn every_write_tool_records_what_it_did() {
+        let fixture = fixture();
+        write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, true);
+
+        host.write_note(&client(), "Launch.md", "after\n", None)
+            .expect("write");
+        host.create_note(&client(), "Ship it", "text\n")
+            .expect("create");
+        host.rename_note(&client(), "Launch.md", "Landed")
+            .expect("rename");
+
+        let actions: Vec<String> = records_naming_a_note(&fixture)
+            .into_iter()
+            .map(|record| record.action)
+            .collect();
+        assert_eq!(actions, vec!["rename_note", "create_note", "write_note"]);
+    }
+
+    #[test]
+    fn a_create_and_a_rename_from_a_read_only_client_change_nothing() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "# Launch\n");
+        let host = approved_host(&fixture, true, false);
+
+        assert!(matches!(
+            host.create_note(&client(), "Ship it", "text\n")
+                .expect_err("not approved to write"),
+            ToolError::NotApproved { .. }
+        ));
+        assert!(matches!(
+            host.rename_note(&client(), "Launch.md", "Landed")
+                .expect_err("not approved to write"),
+            ToolError::NotApproved { .. }
+        ));
+        assert!(note.is_file());
+        assert!(!fixture.notes.join("Ship it.md").exists());
+        assert!(!fixture.notes.join("Landed.md").exists());
+    }
+
+    #[test]
+    fn text_over_the_ceiling_is_not_written() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, true);
+        let long = "x".repeat(MAX_NOTE_BYTES as usize + 1);
+
+        assert!(matches!(
+            host.write_note(&client(), "Launch.md", &long, None)
+                .expect_err("over the ceiling"),
+            ToolError::TooMuchText { .. }
+        ));
+        assert!(matches!(
+            host.create_note(&client(), "Long", &long)
+                .expect_err("over the ceiling"),
+            ToolError::TooMuchText { .. }
+        ));
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read back"),
+            "before\n"
+        );
+    }
+
+    #[test]
+    fn a_write_to_a_note_that_is_not_there_mints_nothing() {
+        let fixture = fixture();
+        let host = approved_host(&fixture, true, true);
+
+        assert!(matches!(
+            host.write_note(&client(), "Missing.md", "text\n", None)
+                .expect_err("write_note replaces a note, it does not mint one"),
+            ToolError::NotFound { .. }
+        ));
+        assert!(!fixture.notes.join("Missing.md").exists());
+    }
+
+    #[test]
+    fn a_deny_all_gate_writes_nothing() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "before\n");
+        let host = ToolHost::open(
+            &fixture.notes,
+            &fixture.db,
+            &fixture.writ,
+            Box::new(DenyAll),
+        )
+        .expect("host");
+
+        assert!(matches!(
+            host.write_note(&client(), "Launch.md", "after\n", None)
+                .expect_err("nobody is approved"),
+            ToolError::NotApproved { .. }
+        ));
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read back"),
+            "before\n"
+        );
     }
 }

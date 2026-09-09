@@ -22,8 +22,9 @@ use crate::tools::{ToolError, ToolHost, MAX_RESULTS};
 const DEFAULT_LIMIT: usize = 100;
 
 /// What the server tells a client about itself.
-const INSTRUCTIONS: &str = "Reads the notes in the user's Writ folder. A path is one \
-     list_notes returns, or a path inside the folder. No tool here changes a note.";
+const INSTRUCTIONS: &str = "Reads and writes the notes in the user's Writ folder. A path is \
+     one list_notes returns, or a path inside the folder. Reading and writing are approved \
+     separately, in Writ. Nothing here deletes a note.";
 
 /// Arguments to `list_notes`.
 #[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
@@ -50,6 +51,43 @@ pub struct NotePathArgs {
     /// The note's path, as list_notes returns it, or a path inside the
     /// notes folder such as Ideas/Launch.md.
     pub path: String,
+}
+
+/// Arguments to `write_note`.
+#[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
+pub struct WriteNoteArgs {
+    /// The note's path, as list_notes returns it, or a path inside the
+    /// notes folder such as Ideas/Launch.md. The note has to be there
+    /// already; create_note is what makes a new one.
+    pub path: String,
+    /// The whole note, frontmatter included. It replaces what the file
+    /// holds, byte for byte.
+    pub content: String,
+    /// The hash read_note returned for this note. Pass it and the write is
+    /// made only while the note still holds the text you read; a note
+    /// somebody edited in between is left alone and your text is written
+    /// beside it. Leave it out and the write lands on whatever the file
+    /// holds now.
+    pub expected_hash: Option<String>,
+}
+
+/// Arguments to `create_note`.
+#[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
+pub struct CreateNoteArgs {
+    /// What to call the note. It becomes the file name, in the notes
+    /// folder. A name already taken is not written over.
+    pub name: String,
+    /// The text the note starts with.
+    pub content: String,
+}
+
+/// Arguments to `rename_note`.
+#[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
+pub struct RenameNoteArgs {
+    /// The note's path, as list_notes returns it.
+    pub path: String,
+    /// What to call it instead. It stays in the folder it is in.
+    pub new_name: String,
 }
 
 /// The MCP server over one notes folder.
@@ -165,6 +203,57 @@ impl WritServer {
     async fn folder_tags(&self, peer: Peer<RoleServer>) -> Result<CallToolResult, ErrorData> {
         answer(self.host.folder_tags(&client_of(&peer)))
     }
+
+    #[tool(
+        name = "write_note",
+        description = "Replace the text of a note that is there. Pass expected_hash, the \
+            hash read_note gave you, and a note edited since you read it is left alone and \
+            your text is written beside it instead."
+    )]
+    async fn write_note(
+        &self,
+        peer: Peer<RoleServer>,
+        Parameters(args): Parameters<WriteNoteArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        answer(self.host.write_note(
+            &client_of(&peer),
+            &args.path,
+            &args.content,
+            args.expected_hash.as_deref(),
+        ))
+    }
+
+    #[tool(
+        name = "create_note",
+        description = "Make a new note in the folder. A name the folder already holds is \
+            not written over."
+    )]
+    async fn create_note(
+        &self,
+        peer: Peer<RoleServer>,
+        Parameters(args): Parameters<CreateNoteArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        answer(
+            self.host
+                .create_note(&client_of(&peer), &args.name, &args.content),
+        )
+    }
+
+    #[tool(
+        name = "rename_note",
+        description = "Rename a note, inside the folder it is in. Links in other notes are \
+            not updated: they keep pointing at the old name."
+    )]
+    async fn rename_note(
+        &self,
+        peer: Peer<RoleServer>,
+        Parameters(args): Parameters<RenameNoteArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        answer(
+            self.host
+                .rename_note(&client_of(&peer), &args.path, &args.new_name),
+        )
+    }
 }
 
 #[tool_handler]
@@ -249,13 +338,20 @@ fn mcp_error(error: ToolError) -> ErrorData {
     let message = error.to_string();
     match error {
         ToolError::NotApproved { .. } => ErrorData::invalid_request(message, None),
-        ToolError::OutsideNotesFolder { .. } | ToolError::TooLarge { .. } => {
-            ErrorData::invalid_params(message, None)
-        }
+        ToolError::OutsideNotesFolder { .. }
+        | ToolError::TooLarge { .. }
+        | ToolError::TooMuchText { .. }
+        | ToolError::HashNotUnderstood { .. }
+        | ToolError::NameEmpty
+        | ToolError::NameTaken { .. } => ErrorData::invalid_params(message, None),
         ToolError::NotFound { .. } => ErrorData::resource_not_found(message, None),
-        ToolError::IndexUnavailable | ToolError::Unreadable { .. } => {
-            ErrorData::internal_error(message, None)
-        }
+        // A conflict is the note's answer to the call, not a fault in it: the
+        // client asked about a note it had read and the note has moved on.
+        ToolError::Conflict { .. } => ErrorData::invalid_request(message, None),
+        ToolError::IndexUnavailable
+        | ToolError::Unreadable { .. }
+        | ToolError::Unwritable { .. }
+        | ToolError::NotDownloaded { .. } => ErrorData::internal_error(message, None),
     }
 }
 
@@ -263,36 +359,49 @@ fn mcp_error(error: ToolError) -> ErrorData {
 mod tests {
     use super::*;
     use crate::consent::{DenyAll, EnabledReads};
-    use crate::tools::READ_TOOLS;
+    use crate::tools::{READ_TOOLS, WRITE_TOOLS};
 
     fn host(root: &std::path::Path, enabled: bool) -> ToolHost {
         let db = root.join("writ.db");
         if enabled {
-            ToolHost::open(root, &db, Box::new(EnabledReads::new(true))).expect("host")
+            ToolHost::open(root, &db, root, Box::new(EnabledReads::new(true))).expect("host")
         } else {
-            ToolHost::open(root, &db, Box::new(DenyAll)).expect("host")
+            ToolHost::open(root, &db, root, Box::new(DenyAll)).expect("host")
         }
     }
 
     #[test]
-    fn the_registered_tools_are_the_read_tools_and_nothing_else() {
+    fn the_registered_tools_are_the_ones_writ_core_names_and_nothing_else() {
         let dir = tempfile::TempDir::new().expect("temp dir");
         let server = WritServer::new(host(dir.path(), true));
 
         let mut names = server.tool_names();
         names.sort();
-        let mut expected: Vec<String> = READ_TOOLS.iter().map(|name| name.to_string()).collect();
+        let mut expected: Vec<String> = READ_TOOLS
+            .iter()
+            .chain(WRITE_TOOLS.iter())
+            .map(|name| name.to_string())
+            .collect();
         expected.sort();
 
-        assert_eq!(names, expected);
+        assert_eq!(
+            names, expected,
+            "the settings row is generated from writ_core::tools, so it has to be this set"
+        );
     }
 
     #[test]
-    fn no_write_tool_is_registered() {
+    fn no_tool_deletes_trashes_or_moves_a_note() {
         let dir = tempfile::TempDir::new().expect("temp dir");
         let server = WritServer::new(host(dir.path(), true));
 
-        for name in ["write_note", "create_note", "rename_note", "trash_note"] {
+        for name in [
+            "delete_note",
+            "trash_note",
+            "move_note",
+            "remove_note",
+            "note_delete",
+        ] {
             assert!(!server.tool_names().contains(&name.to_string()), "{name}");
         }
     }
