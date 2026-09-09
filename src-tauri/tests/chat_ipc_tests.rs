@@ -132,7 +132,7 @@ fn chat_attached_sizes_answers_under_the_path_it_was_given() {
     std::fs::write(root.join("Ideas/Later.md"), "a longer second text\n").expect("write");
     let absolute = root.join("Ideas/Later.md").to_string_lossy().into_owned();
 
-    let sizes = attached_sizes_in(&root, &[absolute.clone()]).expect("sizes");
+    let sizes = attached_sizes_in(&root, std::slice::from_ref(&absolute)).expect("sizes");
     assert_eq!(sizes.len(), 1);
     assert_eq!(sizes[0].path, absolute, "the path asked about comes back");
     assert_eq!(sizes[0].key, "Ideas/Later.md");

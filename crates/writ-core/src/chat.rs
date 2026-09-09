@@ -350,7 +350,11 @@ fn parse_openai_payload(payload: &str) -> Delta {
     // A server that fails mid-stream sends one of these and closes. Without
     // this arm the reply reads as complete and empty, which is a failed
     // request the pane cannot tell from a model with nothing to say.
-    if value.get("error").is_some_and(Value::is_object) {
+    //
+    // Any shape counts. The field is an object in the OpenAI spelling and a
+    // bare string in several servers that copy it, and a stream that carried
+    // one and was read as a finished reply is the failure this arm exists for.
+    if value.get("error").is_some() {
         return Delta::Failed;
     }
     let content = value
@@ -683,7 +687,14 @@ mod tests {
             .map(|line| parse_delta(Provider::OpenAiCompatible, line))
             .filter(|delta| !matches!(delta, Delta::Ignore))
             .collect();
-        assert_eq!(deltas, vec![Delta::Failed]);
+        // Two frames, because servers that copy the spelling do not all copy
+        // the shape: the object the OpenAI schema describes, and the bare
+        // string several local servers send instead. Both end the stream.
+        assert_eq!(deltas, vec![Delta::Failed, Delta::Failed]);
+        assert_eq!(
+            parse_delta(Provider::OpenAiCompatible, "data: {\"error\":null}"),
+            Delta::Failed
+        );
     }
 
     #[test]
