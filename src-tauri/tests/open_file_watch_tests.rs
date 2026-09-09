@@ -575,7 +575,13 @@ fn a_write_from_a_connected_program_reaches_the_tab_as_somebody_elses_edit() {
     // own saves from returning, so its absence is the thing under test.
     let notes = TempDir::new().expect("notes dir");
     let data = TempDir::new().expect("data dir");
-    let note = notes.path().join("Launch.md");
+    // One spelling of the folder for every side. A tab keyed by the path
+    // `TempDir` hands back and a watcher rooted at the canonical one are two
+    // folders as far as the registry can tell: Windows hands out the short
+    // `RUNNER~1` form, `ToolHost::open` canonicalises whatever it is given,
+    // and an event under one spelling never finds a tab under the other.
+    let root = canonical(notes.path());
+    let note = root.join("Launch.md");
     let read_by_the_tab = b"as the tab read it\n";
     std::fs::write(&note, read_by_the_tab).expect("seed note");
     std::fs::write(
@@ -589,7 +595,7 @@ fn a_write_from_a_connected_program_reaches_the_tab_as_somebody_elses_edit() {
     let open_files = start_open_file_watcher(
         bus.clone(),
         ignore.clone(),
-        notes.path(),
+        &root,
         TabsThatHaveRead::holding("note-1", &note, read_by_the_tab),
     )
     .expect("start the open file watcher");
@@ -600,7 +606,7 @@ fn a_write_from_a_connected_program_reaches_the_tab_as_somebody_elses_edit() {
         .watch_parent_of("note-1", &note);
     let _notes_watcher = start_notes_watcher(
         bus,
-        canonical(notes.path()),
+        root.clone(),
         ignore,
         open_files.open_notes(),
         TabsThatHaveRead::holding("note-1", &note, read_by_the_tab),
@@ -610,7 +616,7 @@ fn a_write_from_a_connected_program_reaches_the_tab_as_somebody_elses_edit() {
     // The server's own host, over the same folder, holding no index and no
     // ignore set — which is everything the process a client launches has.
     let host = writ_mcp::tools::ToolHost::open(
-        notes.path(),
+        &root,
         &data.path().join("writ.db"),
         data.path(),
         Box::new(writ_mcp::consent::ConfigGate::new(data.path())),
