@@ -87,6 +87,19 @@ pub enum WritFrontendEvent {
         text: Option<String>,
     },
 
+    /// One frame of a chat reply, or its terminal state. `proposals` is
+    /// carried only by the `done` frame and holds whole-note text the user has
+    /// not applied to anything (ADR-031 rule 4.3).
+    #[serde(rename = "ai:chat")]
+    AiChat {
+        conversation_id: String,
+        kind: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        proposals: Vec<writ_core::chat::Proposal>,
+    },
+
     #[serde(rename = "note:download")]
     NoteDownload {
         path: String,
@@ -157,6 +170,7 @@ fn event_name(event: &WritFrontendEvent) -> &'static str {
         WritFrontendEvent::NotesSwept { .. } => "writ://notes-swept",
         WritFrontendEvent::UpdateStatus(..) => "writ://update-status",
         WritFrontendEvent::AiRewrite { .. } => "writ://ai-rewrite",
+        WritFrontendEvent::AiChat { .. } => "writ://ai-chat",
         WritFrontendEvent::NoteDownload { .. } => "writ://note-download",
         WritFrontendEvent::PreviewRendered { .. } => "writ://preview-rendered",
         WritFrontendEvent::PreviewError { .. } => "writ://preview-error",

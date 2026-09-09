@@ -41,6 +41,23 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// Overall request budget for a single rewrite.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// The key stored for one account, from the keychain or from this session's
+/// memory. The account is the provider id, so the surface asking for it never
+/// reaches another provider's credential.
+pub(crate) fn key_for(app: &AppHandle, account: &str) -> Option<String> {
+    let ai = app.state::<AiState>();
+    let memory = recover_poison(ai.keys.lock(), "commands::ai::key_for");
+    resolve_key(&ai, &memory, account)
+}
+
+/// Whether a key is stored for one account, and whether it is confined to this
+/// session's memory.
+pub(crate) fn key_state_for(app: &AppHandle, account: &str) -> AiKeyState {
+    let ai = app.state::<AiState>();
+    let memory = recover_poison(ai.keys.lock(), "commands::ai::key_state_for");
+    key_state(&ai, &memory, account)
+}
+
 /// Session-scoped runtime state for rewriting, managed separately from
 /// [`AppState`] so the large app initializer stays untouched.
 #[derive(Default)]
@@ -474,7 +491,7 @@ fn prepare_request(
 
 /// Whether the send notice was accepted for `host`. Membership is exact: a
 /// consent given for one provider never covers another.
-fn is_consented(cfg: &AiConfig, host: &str) -> bool {
+pub(crate) fn is_consented(cfg: &AiConfig, host: &str) -> bool {
     cfg.consented_hosts.iter().any(|h| h == host)
 }
 
@@ -494,31 +511,16 @@ enum SseLine {
     Ignore,
 }
 
-/// Parses a single already-trimmed SSE line. Non-`data:` lines, keep-alives,
-/// empty deltas, and unparseable payloads are ignored.
+/// Parses a single already-trimmed SSE line.
+///
+/// The grammar is [`writ_core::chat::parse_delta`]'s: the rewrite stream and
+/// the chat pane read the same `chat/completions` frames, so there is one
+/// answer to what a line means rather than two that can drift.
 fn parse_sse_line(line: &str) -> SseLine {
-    let Some(rest) = line.strip_prefix("data:") else {
-        return SseLine::Ignore;
-    };
-    let payload = rest.trim();
-    if payload.is_empty() {
-        return SseLine::Ignore;
-    }
-    if payload == "[DONE]" {
-        return SseLine::Done;
-    }
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
-        return SseLine::Ignore;
-    };
-    let content = value
-        .get("choices")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("delta"))
-        .and_then(|d| d.get("content"))
-        .and_then(|t| t.as_str());
-    match content {
-        Some(s) if !s.is_empty() => SseLine::Chunk(s.to_string()),
-        _ => SseLine::Ignore,
+    match writ_core::chat::parse_delta(writ_core::chat::Provider::OpenAiCompatible, line) {
+        writ_core::chat::Delta::Text(content) => SseLine::Chunk(content),
+        writ_core::chat::Delta::Done => SseLine::Done,
+        writ_core::chat::Delta::Failed(_) | writ_core::chat::Delta::Ignore => SseLine::Ignore,
     }
 }
 
@@ -526,7 +528,7 @@ fn parse_sse_line(line: &str) -> SseLine {
 /// trailing partial line in place. Splitting the byte buffer on `\n` is
 /// UTF-8-safe because a newline never appears inside a multibyte sequence, so a
 /// chunk boundary mid-character cannot corrupt a decoded line.
-fn drain_complete_lines(buf: &mut Vec<u8>) -> Vec<String> {
+pub(crate) fn drain_complete_lines(buf: &mut Vec<u8>) -> Vec<String> {
     let mut lines = Vec::new();
     while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
         let raw: Vec<u8> = buf.drain(..=pos).collect();
@@ -608,7 +610,7 @@ async fn run_rewrite_stream(
 
 /// Turns a connection failure into a plain message, hinting at a stopped local
 /// server when the target was loopback.
-fn connection_error_message(err: &reqwest::Error, is_localhost: bool) -> String {
+pub(crate) fn connection_error_message(err: &reqwest::Error, is_localhost: bool) -> String {
     if err.is_connect() && is_localhost {
         return "Could not reach the local model server. Is Ollama running?".to_string();
     }
@@ -618,7 +620,7 @@ fn connection_error_message(err: &reqwest::Error, is_localhost: bool) -> String 
 /// Redacts any URL from an error string so a configured endpoint (which may
 /// carry a token in a query) never reaches logs or the UI. Mirrors the update
 /// path's redaction; falls back to a generic message when nothing is left.
-fn sanitize_ai_error(raw: &str) -> String {
+pub(crate) fn sanitize_ai_error(raw: &str) -> String {
     const REDACTED: &str = "<redacted-url>";
     let mut out = String::with_capacity(raw.len());
     let mut rest = raw;
@@ -663,7 +665,7 @@ fn ensure_crypto_provider() {
 /// refused: following a 3xx would re-send the request body (the user's text) to
 /// the `Location` host, escaping the endpoint guard, so a 3xx surfaces as an
 /// error status instead.
-fn build_client() -> Result<reqwest::Client, String> {
+pub(crate) fn build_client() -> Result<reqwest::Client, String> {
     ensure_crypto_provider();
     reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
@@ -1000,6 +1002,7 @@ mod tests {
             base_url: "http://localhost:11434/v1".to_string(),
             model: "llama3".to_string(),
             consented_hosts: Vec::new(),
+            chat: writ_core::config::AiChatConfig::default(),
         }
     }
 
