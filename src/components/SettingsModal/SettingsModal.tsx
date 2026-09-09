@@ -47,6 +47,7 @@ import type { StorageInfo } from "../../stores/global/storage";
 import type {
   AccentId,
   AppearanceConfig,
+  ChatProvider,
   DefaultLayout,
   Polarity,
   ProseFaceId,
@@ -1142,6 +1143,8 @@ function AiSection() {
           </div>
         </Show>
 
+        <AiChatRows />
+
         {/* Not a setting row, so it opts into the search filter by hand: while
             searching it shows only when its own section does. */}
         <Show when={search.sectionVisible("ai")}>
@@ -1160,6 +1163,160 @@ function AiSection() {
         </Show>
 
     </div>
+  );
+}
+
+const CHAT_PROVIDER_BASE_URLS: Record<string, string> = {
+  openai_compatible: "http://localhost:11434/v1",
+  anthropic: "https://api.anthropic.com",
+};
+
+/** The chat pane's own switch, endpoint, model and key.
+ *
+ * Its own endpoint because the model a person talks to is not always the one
+ * that proofreads a paragraph, and its own key because the account a key is
+ * stored under is the provider's. Consent is not its own: a host allowed here
+ * is the same record the rewrite path reads. */
+function AiChatRows() {
+  const cfg = () => configStore.config().ai.chat;
+  const [keyState, setKeyState] = createSignal<AiKeyState | null>(null);
+  const [keyInput, setKeyInput] = createSignal("");
+  const [keyBusy, setKeyBusy] = createSignal(false);
+
+  createEffect(() => {
+    const account = cfg().provider;
+    if (!cfg().enabled) return;
+    void aiRewriteStore
+      .hasApiKey(account)
+      .then(setKeyState)
+      .catch(() => setKeyState(null));
+  });
+
+  function patchChat(next: Partial<ReturnType<typeof cfg>>) {
+    void patchConfig((prev) => ({
+      ...prev,
+      ai: { ...prev.ai, chat: { ...prev.ai.chat, ...next } },
+    }));
+  }
+
+  function onProviderChange(raw: string) {
+    patchChat({
+      provider: raw as ChatProvider,
+      base_url: CHAT_PROVIDER_BASE_URLS[raw] ?? cfg().base_url,
+      model: defaultModelFor(raw === "anthropic" ? "anthropic" : "ollama"),
+    });
+  }
+
+  async function onSetKey() {
+    const key = keyInput();
+    if (!key || keyBusy()) return;
+    setKeyBusy(true);
+    try {
+      const state = await aiRewriteStore.setApiKey(cfg().provider, key);
+      setKeyState(state);
+      setKeyInput("");
+      if (state.memory_only) {
+        showToast("Writ could not save your key, so you will enter it again next time", "info");
+      }
+    } catch {
+      showToast("Could not save the API key", "error");
+    } finally {
+      setKeyBusy(false);
+    }
+  }
+
+  async function onClearKey() {
+    if (keyBusy()) return;
+    setKeyBusy(true);
+    try {
+      setKeyState(await aiRewriteStore.clearApiKey(cfg().provider));
+    } catch {
+      showToast("Could not clear the API key", "error");
+    } finally {
+      setKeyBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <SettingsRow id="ai.chat_enabled" label="Chat about the notes you attach">
+        <ToggleSwitch
+          setting="ai_chat_enabled"
+          label="Chat about the notes you attach"
+          checked={cfg().enabled}
+          onChange={() => patchChat({ enabled: !cfg().enabled })}
+        />
+      </SettingsRow>
+
+      <Show when={cfg().enabled}>
+        <SettingsRow id="ai.chat_provider" label="Chat provider" labelFor="setting-chat-provider">
+          <select
+            id="setting-chat-provider"
+            class="settings-select"
+            data-setting="ai_chat_provider"
+            value={cfg().provider}
+            onChange={(e) => onProviderChange(e.currentTarget.value)}
+          >
+            <option value="openai_compatible">Ollama or another OpenAI-compatible server</option>
+            <option value="anthropic">Anthropic</option>
+          </select>
+        </SettingsRow>
+
+        <SettingsRow id="ai.chat_base_url" label="Chat base URL" labelFor="setting-chat-base-url">
+          <input
+            id="setting-chat-base-url"
+            type="text"
+            class="settings-input"
+            data-setting="ai_chat_base_url"
+            spellcheck={false}
+            autocomplete="off"
+            value={cfg().base_url}
+            onChange={(e) => patchChat({ base_url: e.currentTarget.value.trim() })}
+          />
+        </SettingsRow>
+
+        <SettingsRow id="ai.chat_model" label="Chat model" labelFor="setting-chat-model">
+          <input
+            id="setting-chat-model"
+            type="text"
+            class="settings-input"
+            data-setting="ai_chat_model"
+            spellcheck={false}
+            autocomplete="off"
+            placeholder="Model id"
+            value={cfg().model}
+            onChange={(e) => patchChat({ model: e.currentTarget.value.trim() })}
+          />
+        </SettingsRow>
+
+        <SettingsRow id="ai.chat_api_key" label="Chat API key">
+          <span class="settings-inbox-controls">
+            <input
+              type="password"
+              class="settings-input"
+              data-setting="ai_chat_api_key"
+              spellcheck={false}
+              autocomplete="off"
+              placeholder={keyState()?.is_set ? "Key set" : "Not set"}
+              value={keyInput()}
+              onInput={(e) => setKeyInput(e.currentTarget.value)}
+            />
+            <Button
+              data-action="chat-set-key"
+              disabled={keyBusy() || keyInput().length === 0}
+              onClick={() => void onSetKey()}
+            >
+              Save
+            </Button>
+            <Show when={keyState()?.is_set}>
+              <Button data-action="chat-clear-key" disabled={keyBusy()} onClick={() => void onClearKey()}>
+                Clear
+              </Button>
+            </Show>
+          </span>
+        </SettingsRow>
+      </Show>
+    </>
   );
 }
 
