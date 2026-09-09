@@ -347,26 +347,34 @@ fn parse_openai_payload(payload: &str) -> Delta {
     let Ok(value) = serde_json::from_str::<Value>(payload) else {
         return Delta::Ignore;
     };
-    // A server that fails mid-stream sends one of these and closes. Without
-    // this arm the reply reads as complete and empty, which is a failed
-    // request the pane cannot tell from a model with nothing to say.
-    //
-    // Any shape counts. The field is an object in the OpenAI spelling and a
-    // bare string in several servers that copy it, and a stream that carried
-    // one and was read as a finished reply is the failure this arm exists for.
-    if value.get("error").is_some() {
-        return Delta::Failed;
-    }
+    // Text first. Plenty of servers carry `"error": null` on every chunk
+    // because it is in their response schema, and a chunk that says something
+    // has said it whatever else the frame carries.
     let content = value
         .get("choices")
         .and_then(|c| c.get(0))
         .and_then(|c| c.get("delta"))
         .and_then(|d| d.get("content"))
         .and_then(Value::as_str);
-    match content {
-        Some(text) if !text.is_empty() => Delta::Text(text.to_string()),
-        _ => Delta::Ignore,
+    if let Some(text) = content {
+        if !text.is_empty() {
+            return Delta::Text(text.to_string());
+        }
     }
+    // A server that fails mid-stream sends one of these and closes. Without
+    // this arm the reply reads as complete and empty, which is a failed
+    // request the pane cannot tell from a model with nothing to say.
+    //
+    // Any shape that is not `null` counts: the field is an object in the
+    // OpenAI spelling and a bare string in several servers that copy it, and
+    // `null` is what a server writes when nothing went wrong.
+    if value
+        .get("error")
+        .is_some_and(|reported| !reported.is_null())
+    {
+        return Delta::Failed;
+    }
+    Delta::Ignore
 }
 
 /// The fence that opens a proposal.
@@ -691,8 +699,34 @@ mod tests {
         // the shape: the object the OpenAI schema describes, and the bare
         // string several local servers send instead. Both end the stream.
         assert_eq!(deltas, vec![Delta::Failed, Delta::Failed]);
+        // `null` is what a server writes when nothing went wrong.
         assert_eq!(
             parse_delta(Provider::OpenAiCompatible, "data: {\"error\":null}"),
+            Delta::Ignore
+        );
+        // And a chunk that carries the field beside real content still
+        // delivers the content.
+        assert_eq!(
+            parse_delta(
+                Provider::OpenAiCompatible,
+                "data: {\"id\":\"c1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"}}],\"error\":null}"
+            ),
+            Delta::Text("hello".to_string())
+        );
+        // A frame reporting a real failure ends the stream even when it
+        // carries an empty delta beside it.
+        assert_eq!(
+            parse_delta(
+                Provider::OpenAiCompatible,
+                "data: {\"choices\":[{\"index\":0,\"delta\":{}}],\"error\":{\"message\":\"out of memory\"}}"
+            ),
+            Delta::Failed
+        );
+        assert_eq!(
+            parse_delta(
+                Provider::OpenAiCompatible,
+                "data: {\"choices\":[],\"error\":\"out of memory\"}"
+            ),
             Delta::Failed
         );
     }
