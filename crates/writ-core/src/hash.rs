@@ -66,9 +66,10 @@ pub fn digest_from_hex(hex: &str) -> Option<Sha256Digest> {
         return None;
     }
     let mut digest = [0u8; 32];
-    for (byte, pair) in digest.iter_mut().zip(hex.as_bytes().chunks_exact(2)) {
-        let high = nibble(pair[0])?;
-        let low = nibble(pair[1])?;
+    let (pairs, _) = hex.as_bytes().as_chunks::<2>();
+    for (byte, [high, low]) in digest.iter_mut().zip(pairs) {
+        let high = nibble(*high)?;
+        let low = nibble(*low)?;
         *byte = (high << 4) | low;
     }
     Some(digest)
