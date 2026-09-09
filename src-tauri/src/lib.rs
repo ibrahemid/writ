@@ -717,6 +717,12 @@ pub fn run() {
             commands::ai::ai_has_api_key,
             commands::ai::ai_endpoint_state,
             commands::ai::ai_consent_host,
+            commands::activity::activity_recent,
+            commands::activity::activity_clear,
+            commands::activity::mcp_clients,
+            commands::activity::mcp_set_client_permission,
+            commands::activity::mcp_forget_client,
+            commands::activity::mcp_server_command,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

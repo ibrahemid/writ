@@ -90,6 +90,7 @@ function configWithoutStatusBar(): WritConfig {
       model: "",
       consented_hosts: [],
     },
+    mcp: { enabled: false, approved_clients: [] },
     spelling: { enabled: false, dialect: "american", ignored_words: [] },
   };
 }

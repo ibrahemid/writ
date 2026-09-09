@@ -27,6 +27,7 @@ const EVENT_MAP: Record<EventKind, string> = {
   "preview:error": "writ://preview-error",
   "preview:layout_changed": "writ://preview-layout-changed",
   "quit:flush": "writ://flush-before-quit",
+  "activity:changed": "writ://activity",
   "titlebar:maximize-hit": "writ://titlebar-maximize-hit",
 };
 

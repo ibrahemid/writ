@@ -4,6 +4,7 @@ export type SettingsSection =
   | "files"
   | "preview"
   | "ai"
+  | "programs"
   | "appearance"
   | "updates"
   | "shortcuts"
@@ -25,6 +26,7 @@ export const SECTION_LABELS: Record<SettingsSection, string> = {
   files: "Files",
   preview: "Preview",
   ai: "AI rewriting",
+  programs: "Connected programs",
   appearance: "Appearance",
   updates: "Updates",
   shortcuts: "Shortcuts",
@@ -37,6 +39,7 @@ export const SECTION_ORDER: SettingsSection[] = [
   "files",
   "preview",
   "ai",
+  "programs",
   "appearance",
   "updates",
   "shortcuts",
@@ -62,6 +65,10 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "ai.base_url", section: "ai", title: "Base URL", keywords: ["ai", "base url", "endpoint", "host", "server"] },
   { id: "ai.model", section: "ai", title: "Model", keywords: ["ai", "model", "id"] },
   { id: "ai.api_key", section: "ai", title: "API key", keywords: ["ai", "api key", "token", "secret", "credential"] },
+  { id: "mcp.enabled", section: "programs", title: "Let other programs read and write your notes", keywords: ["mcp", "programs", "clients", "connect", "claude", "editor", "assistant", "tools", "server", "enable"] },
+  { id: "mcp.command", section: "programs", title: "Command to give a program", keywords: ["mcp", "command", "copy", "paste", "configure", "setup", "stdio"] },
+  { id: "mcp.clients", section: "programs", title: "Programs you approved", keywords: ["mcp", "programs", "approved", "clients", "permission", "read", "write", "revoke", "forget"] },
+  { id: "mcp.activity", section: "programs", title: "Recent activity", keywords: ["activity", "log", "record", "calls", "what happened", "audit"] },
   { id: "appearance.polarity", section: "appearance", title: "Light and dark", keywords: ["appearance", "light", "dark", "system", "theme", "polarity", "follow system"] },
   { id: "appearance.accent", section: "appearance", title: "Accent color", keywords: ["accent", "color", "pine", "highlight"] },
   { id: "appearance.prose_face", section: "appearance", title: "Prose typeface", keywords: ["font", "typeface", "prose", "writing", "ia writer", "quattro"] },

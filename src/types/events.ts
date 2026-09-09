@@ -50,6 +50,7 @@ export type WritEvent =
       payload: { buffer_id: string; window_id: number; layout: string; ratio: number | null };
     }
   | { kind: "quit:flush"; payload: Record<string, never> }
+  | { kind: "activity:changed"; payload: Record<string, never> }
   | { kind: "titlebar:maximize-hit"; payload: { phase: CaptionHitPhase } };
 
 export type CaptionHitPhase = "enter" | "leave" | "press" | "click";

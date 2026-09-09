@@ -41,6 +41,8 @@
 #![warn(missing_docs)]
 #![warn(rustdoc::broken_intra_doc_links)]
 
+/// What Writ did on someone else's behalf, and what it decided about it.
+pub mod activity;
 /// Buffer document model and in-memory manager.
 pub mod buffer;
 /// Command registry types for the command palette.

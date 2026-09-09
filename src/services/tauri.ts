@@ -6,7 +6,9 @@ import type {
   FileOpenResult,
   ResolveOutcome,
 } from "../types/buffer";
-import type { WritConfig } from "../types/config";
+import type { ClientApproval, WritConfig } from "../types/config";
+
+export type { ClientApproval };
 import type { TransformDescriptor } from "../types/transforms";
 import type { ThemePolarity } from "../types/theme";
 import type { LinkVerdict } from "../types/link";
@@ -1267,4 +1269,82 @@ export async function showAndFocusWindow(): Promise<void> {
   } catch {
     return;
   }
+}
+
+// --- Activity and connected programs (ADR-031) ------------------------------
+
+/** What the record was written for. `kind` is the discriminant Rust tags with. */
+export type ActivityActor =
+  | { kind: "client"; name: string; version: string | null }
+  | { kind: "chat"; host: string }
+  | { kind: "app" };
+
+export type ActivityDecision = "allow" | "refuse" | "pending";
+
+/**
+ * One line of the activity log. There is no field here that can hold what a
+ * note said, and there is none on the Rust type either (ADR-031 rule 5.1).
+ */
+export interface ActivityRecord {
+  at: string;
+  actor: ActivityActor;
+  action: string;
+  path: string | null;
+  decision: ActivityDecision;
+  bytes: number | null;
+}
+
+export async function activityRecent(limit: number): Promise<ActivityRecord[]> {
+  return invoke("activity_recent", { limit });
+}
+
+export async function activityClear(): Promise<void> {
+  return invoke("activity_clear");
+}
+
+/**
+ * A program the harness has seen that nobody has decided on.
+ *
+ * Read from `mcp-pending.json` rather than from the activity log, which is
+ * capped: a program looping calls it is not allowed to make cannot push itself
+ * out of this list.
+ */
+export interface PendingClient {
+  name: string;
+  version: string | null;
+  first_seen: string;
+  last_seen: string;
+  calls: number;
+}
+
+/** Every program the harness knows about, decided on or not. */
+export interface McpClients {
+  approved: ClientApproval[];
+  waiting: PendingClient[];
+}
+
+export async function mcpClients(): Promise<McpClients> {
+  return invoke("mcp_clients");
+}
+
+/** Grants or revokes one direction for one program, by the name it sent. */
+export async function mcpSetClientPermission(
+  name: string,
+  read: boolean,
+  write: boolean,
+): Promise<McpClients> {
+  return invoke("mcp_set_client_permission", { name, read, write });
+}
+
+export async function mcpForgetClient(name: string): Promise<McpClients> {
+  return invoke("mcp_forget_client", { name });
+}
+
+export interface McpServerCommand {
+  path: string;
+  command: string;
+}
+
+export async function mcpServerCommand(): Promise<McpServerCommand> {
+  return invoke("mcp_server_command");
 }

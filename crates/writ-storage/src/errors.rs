@@ -39,6 +39,10 @@ pub enum StorageError {
         message: String,
     },
 
+    /// A file could not be replaced in one step.
+    #[error("atomic write failed: {0}")]
+    AtomicWrite(#[from] crate::atomic::AtomicWriteError),
+
     /// A notes-index table was missing and could not be recreated.
     #[error("notes index repair failed: {message}")]
     IndexRepair {

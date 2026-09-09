@@ -97,6 +97,7 @@ const DEFAULT_CONFIG: WritConfig = {
     model: "",
     consented_hosts: [],
   },
+  mcp: { enabled: false, approved_clients: [] },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
 };
 
@@ -139,6 +140,10 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
       base_url: incoming.ai?.base_url ?? "http://localhost:11434/v1",
       model: incoming.ai?.model ?? "",
       consented_hosts: incoming.ai?.consented_hosts ?? [],
+    },
+    mcp: {
+      enabled: incoming.mcp?.enabled ?? false,
+      approved_clients: incoming.mcp?.approved_clients ?? [],
     },
     spelling: {
       enabled: incoming.spelling?.enabled ?? false,
