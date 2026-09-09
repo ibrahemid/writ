@@ -64,10 +64,17 @@ impl Provider {
 
     /// The keychain account a key for this provider is stored under.
     ///
-    /// Anthropic keeps its own, so a chat key and the rewrite path's key are
-    /// never the same credential unless the user made them so.
+    /// Namespaced, because the rewrite path stores its key under a bare preset
+    /// id read from `config.toml` and nothing constrains what that id says. An
+    /// unprefixed account would let one hand-edited line point both surfaces
+    /// at one credential: the rewrite key row would read `Key set` for a key
+    /// entered in the chat row, and clearing one row would destroy the other's
+    /// key. No preset id carries the prefix, so no pair can meet.
     pub fn key_account(self) -> &'static str {
-        self.as_str()
+        match self {
+            Self::Anthropic => "chat:anthropic",
+            Self::OpenAiCompatible => "chat:openai_compatible",
+        }
     }
 }
 
@@ -537,6 +544,18 @@ mod tests {
             Provider::Anthropic.key_account(),
             Provider::OpenAiCompatible.key_account()
         );
+    }
+
+    #[test]
+    fn a_chat_key_account_is_namespaced_away_from_every_rewrite_preset() {
+        // The rewrite path's account is a preset id straight out of
+        // `config.toml`, and a preset id is a bare word. The prefix is what
+        // keeps a hand-edited `preset = "anthropic"` off the chat pane's key.
+        for provider in [Provider::Anthropic, Provider::OpenAiCompatible] {
+            let account = provider.key_account();
+            assert!(account.starts_with("chat:"), "{account} is not namespaced");
+            assert_ne!(account, provider.as_str());
+        }
     }
 
     #[test]

@@ -30,18 +30,9 @@ export interface UpdaterConfig {
   auto_check: boolean;
 }
 
-/** A provider id, which is also the keychain account its key is stored under.
- *
- * `anthropic` is a chat provider: it speaks the Messages API, so the rewrite
- * path, which speaks `chat/completions` only, does not offer it. */
-export type AiPreset =
-  | "ollama"
-  | "groq"
-  | "gemini"
-  | "deepseek"
-  | "openrouter"
-  | "anthropic"
-  | "custom";
+/** A rewrite preset id, which is also the keychain account its key is stored
+ * under. The rewrite path speaks `chat/completions` only. */
+export type AiPreset = "ollama" | "groq" | "gemini" | "deepseek" | "openrouter" | "custom";
 
 /** Which wire format the chat endpoint speaks. */
 export type ChatProvider = "anthropic" | "openai_compatible";

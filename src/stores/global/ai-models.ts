@@ -1,4 +1,4 @@
-import type { AiPreset } from "../../types/config";
+import type { AiPreset, ChatProvider } from "../../types/config";
 
 // Curated fallback model ids per provider, used when the live /models list is
 // unavailable. Suggestions only — not a guarantee the id is installed or
@@ -9,9 +9,20 @@ const CURATED: Record<AiPreset, string[]> = {
   gemini: ["gemini-2.5-flash", "gemini-2.5-flash-lite"],
   deepseek: ["deepseek-chat", "deepseek-reasoner"],
   openrouter: ["meta-llama/llama-3.3-70b-instruct:free", "deepseek/deepseek-chat-v3-0324:free"],
-  anthropic: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
   custom: [],
 };
+
+// The chat pane's own suggestions, kept apart from the rewrite presets: it
+// speaks the Messages API too, and its keys live under their own accounts.
+const CHAT_CURATED: Record<ChatProvider, string[]> = {
+  anthropic: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
+  openai_compatible: ["qwen3:4b", "qwen3:8b", "gemma3:4b", "llama3.2:3b"],
+};
+
+/** The model to offer when the chat provider changes. */
+export function defaultChatModel(provider: string): string {
+  return CHAT_CURATED[provider as ChatProvider]?.[0] ?? "";
+}
 
 /** Curated suggestions for a preset (empty for custom). */
 export function curatedModels(preset: string): string[] {

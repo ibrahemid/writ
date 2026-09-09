@@ -18,6 +18,7 @@ import {
   INTERFACE_TEXT_MIN,
   INTERFACE_TEXT_MAX,
   clampInterfaceTextSize,
+  chatKeyAccount,
 } from "../../stores/global/config";
 import { inboxStore } from "../../stores/global/inbox";
 import { themeStore } from "../../stores/global/theme";
@@ -36,7 +37,12 @@ import {
   type AiEndpointState,
 } from "../../stores/global/ai-rewrite";
 import { aiConnectionStore, connectionDisplay } from "../../stores/global/ai-connection";
-import { modelOptions, defaultModelFor, resolveAutoModel } from "../../stores/global/ai-models";
+import {
+  modelOptions,
+  defaultModelFor,
+  defaultChatModel,
+  resolveAutoModel,
+} from "../../stores/global/ai-models";
 import { notesStore } from "../../stores/global/notes";
 import type { NotesFallbackReason } from "../../stores/global/notes";
 import { NotesSyncNote } from "./NotesSyncNote";
@@ -819,7 +825,6 @@ const AI_PRESET_BASE_URLS: Record<string, string> = {
   gemini: "https://generativelanguage.googleapis.com/v1beta/openai",
   deepseek: "https://api.deepseek.com/v1",
   openrouter: "https://openrouter.ai/api/v1",
-  anthropic: "https://api.anthropic.com",
   custom: "",
 };
 
@@ -1184,7 +1189,7 @@ function AiChatRows() {
   const [keyBusy, setKeyBusy] = createSignal(false);
 
   createEffect(() => {
-    const account = cfg().provider;
+    const account = chatKeyAccount(cfg().provider);
     if (!cfg().enabled) return;
     void aiRewriteStore
       .hasApiKey(account)
@@ -1203,7 +1208,7 @@ function AiChatRows() {
     patchChat({
       provider: raw as ChatProvider,
       base_url: CHAT_PROVIDER_BASE_URLS[raw] ?? cfg().base_url,
-      model: defaultModelFor(raw === "anthropic" ? "anthropic" : "ollama"),
+      model: defaultChatModel(raw),
     });
   }
 
@@ -1212,7 +1217,7 @@ function AiChatRows() {
     if (!key || keyBusy()) return;
     setKeyBusy(true);
     try {
-      const state = await aiRewriteStore.setApiKey(cfg().provider, key);
+      const state = await aiRewriteStore.setApiKey(chatKeyAccount(cfg().provider), key);
       setKeyState(state);
       setKeyInput("");
       if (state.memory_only) {
@@ -1229,7 +1234,7 @@ function AiChatRows() {
     if (keyBusy()) return;
     setKeyBusy(true);
     try {
-      setKeyState(await aiRewriteStore.clearApiKey(cfg().provider));
+      setKeyState(await aiRewriteStore.clearApiKey(chatKeyAccount(cfg().provider)));
     } catch {
       showToast("Could not clear the API key", "error");
     } finally {

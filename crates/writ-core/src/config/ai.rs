@@ -95,8 +95,13 @@ pub struct AiConfig {
     #[serde(default = "default_enabled")]
     pub enabled: bool,
     /// Provider preset id: `ollama`, `groq`, `gemini`, `deepseek`,
-    /// `openrouter`, `anthropic`, or `custom`. Drives the default `base_url`
-    /// and the keychain account under which the key is stored.
+    /// `openrouter`, or `custom`. Drives the default `base_url` and the
+    /// keychain account under which the key is stored.
+    ///
+    /// The chat pane's providers are not preset ids: it speaks the Messages
+    /// API as well as `chat/completions`, this path speaks only the latter,
+    /// and its keys live under their own namespaced accounts
+    /// ([`writ_core::chat::Provider::key_account`]).
     #[serde(default = "default_preset")]
     pub preset: String,
     /// OpenAI-compatible API base, ending before `/chat/completions`. Defaults

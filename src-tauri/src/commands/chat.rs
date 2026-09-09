@@ -954,9 +954,9 @@ mod tests {
     fn each_provider_names_its_own_keychain_account() {
         let mut cfg = config(true, "https://api.anthropic.com", "claude-opus-5");
         cfg.chat.provider = "anthropic".to_string();
-        assert_eq!(key_account(&cfg), Some("anthropic"));
+        assert_eq!(key_account(&cfg), Some("chat:anthropic"));
         cfg.chat.provider = "openai_compatible".to_string();
-        assert_eq!(key_account(&cfg), Some("openai_compatible"));
+        assert_eq!(key_account(&cfg), Some("chat:openai_compatible"));
         cfg.chat.provider = "telepathy".to_string();
         assert_eq!(key_account(&cfg), None);
     }

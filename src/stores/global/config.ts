@@ -1,5 +1,11 @@
 import { createSignal, createRoot } from "solid-js";
-import type { AppearanceConfig, WritConfig, CommandUsage } from "../../types/config";
+import type {
+  AiPreset,
+  AppearanceConfig,
+  ChatProvider,
+  CommandUsage,
+  WritConfig,
+} from "../../types/config";
 import * as api from "../../services/tauri";
 import { showToast } from "../../components/Notifications/Toast";
 import { logFailure } from "../../lib/log";
@@ -50,6 +56,33 @@ export const CHAT_WIDTH_DEFAULT = 380;
 export function clampChatWidth(width: number): number {
   if (!Number.isFinite(width)) return CHAT_WIDTH_DEFAULT;
   return Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, Math.round(width)));
+}
+
+// Every rewrite preset id, as an exhaustive map so the list and the type
+// cannot drift: a missing or an extra key is a type error.
+const REWRITE_PRESETS: Record<AiPreset, true> = {
+  ollama: true,
+  groq: true,
+  gemini: true,
+  deepseek: true,
+  openrouter: true,
+  custom: true,
+};
+
+/** The rewrite preset ids, which are also the keychain accounts it uses. */
+export const AI_PRESETS = Object.keys(REWRITE_PRESETS) as AiPreset[];
+
+/** The chat providers, which are not preset ids. */
+export const CHAT_PROVIDERS: ChatProvider[] = ["anthropic", "openai_compatible"];
+
+/** The keychain account a chat key is stored under.
+ *
+ * Namespaced away from the rewrite path's accounts, which are bare preset ids
+ * read from config.toml: without the prefix a hand-edited `preset` could point
+ * both surfaces at one credential, so clearing one key row would destroy the
+ * other's. Mirrors `writ_core::chat::Provider::key_account`. */
+export function chatKeyAccount(provider: string): string {
+  return `chat:${provider}`;
 }
 
 // Interface text bounds (spec A1). The settings row and the root token both
