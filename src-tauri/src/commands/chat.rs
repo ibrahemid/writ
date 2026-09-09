@@ -345,14 +345,22 @@ fn outside_notes(path: &str) -> String {
 /// The note's path as the pane lists it and a proposal names it: relative to
 /// the notes folder, so nothing that leaves the machine carries the absolute
 /// path of the folder it came from.
-fn relative_key(notes_root: &Path, file: &Path) -> String {
-    match file.strip_prefix(notes_root) {
-        Ok(rest) => rest.to_string_lossy().into_owned(),
-        Err(_) => file
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default(),
-    }
+///
+/// [`note_file_in`] has already established that the folder holds the file, so
+/// the prefix is there to strip. It is an error rather than a fallback because
+/// the only thing left to fall back to is the bare file name, and that would
+/// give `Ideas/Launch.md` and `Archive/Launch.md` one key: two different notes
+/// the pane could not tell apart and a proposal could apply to the wrong one.
+fn relative_key(notes_root: &Path, file: &Path) -> Result<String, String> {
+    file.strip_prefix(notes_root)
+        .map(|rest| rest.to_string_lossy().into_owned())
+        .map_err(|_| {
+            let path = file
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            outside_notes(&path)
+        })
 }
 
 /// Reads the notes the call named, in the order it named them.
@@ -368,7 +376,7 @@ pub fn read_attached_in(notes_root: &Path, paths: &[String]) -> Result<Vec<Attac
     let mut notes: Vec<AttachedNote> = Vec::with_capacity(paths.len());
     for path in paths {
         let file = note_file_in(notes_root, path)?;
-        let key = relative_key(notes_root, &file);
+        let key = relative_key(notes_root, &file)?;
         if notes.iter().any(|note| note.path == key) {
             continue;
         }
@@ -406,7 +414,7 @@ pub fn apply_proposal_inner(
     before_hash: &str,
 ) -> Result<ProposalOutcome, String> {
     let file = note_file_in(notes_root, path)?;
-    let key = relative_key(notes_root, &file);
+    let key = relative_key(notes_root, &file)?;
     let Some(digest) = digest_from_hex(before_hash) else {
         return Err(format!("The recorded state of {key} is not readable."));
     };
@@ -469,7 +477,7 @@ pub fn apply_proposal_inner(
 /// the folder does not hold is still recorded, under the name it was given.
 pub fn discard_proposal_inner(notes_root: &Path, writ_dir: &Path, host: &str, path: &str) {
     let key = note_file_in(notes_root, path)
-        .map(|file| relative_key(notes_root, &file))
+        .and_then(|file| relative_key(notes_root, &file))
         .unwrap_or_else(|_| path.to_string());
     record_proposal(
         writ_dir,
@@ -799,6 +807,20 @@ mod tests {
 
     fn no_key(_account: &str) -> Option<String> {
         None
+    }
+
+    #[test]
+    fn a_path_the_folder_does_not_hold_has_no_key() {
+        assert_eq!(
+            relative_key(Path::new("/notes"), Path::new("/notes/Ideas/Launch.md")),
+            Ok("Ideas/Launch.md".to_string())
+        );
+        // Two notes of the same name in different folders never collapse into
+        // one key: a path the root does not prefix is refused instead.
+        assert_eq!(
+            relative_key(Path::new("/notes"), Path::new("/elsewhere/Launch.md")),
+            Err("Launch.md is not in the notes folder.".to_string())
+        );
     }
 
     #[test]

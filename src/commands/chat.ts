@@ -52,7 +52,7 @@ export async function clearBlockersBeforeSending(
   if (!endpoint.enabled) {
     const open = await requestConfirm({
       title: "Chat is turned off",
-      message: "Turn it on in AI settings to use this pane.",
+      message: "Turn it on in AI settings.",
       confirmLabel: "Open settings",
     });
     if (open) openSettings("ai", "ai.chat_enabled");

@@ -139,11 +139,13 @@ export default function ChatPane() {
             </Tooltip>
           </header>
 
-          <section class="chat-attached" aria-label="Attached notes">
-            <h3 class="chat-section-title">Notes it can read</h3>
+          <section class="chat-attached" aria-labelledby="chat-attached-title">
+            <h3 class="chat-section-title" id="chat-attached-title">
+              Notes it can read
+            </h3>
             <Show
               when={chatStore.attachments().length > 0}
-              fallback={<p class="chat-empty">No notes attached. Nothing is sent yet.</p>}
+              fallback={<p class="chat-empty">No notes attached.</p>}
             >
               <ul class="chat-attached-list">
                 <For each={chatStore.attachments()}>
@@ -208,8 +210,7 @@ export default function ChatPane() {
               when={chatStore.messages().length > 0}
               fallback={
                 <p class="chat-empty">
-                  Ask about the notes above. Answers can offer a change, which you read and apply
-                  yourself.
+                  An answer can propose a change to a note, which you apply or discard.
                 </p>
               }
             >
