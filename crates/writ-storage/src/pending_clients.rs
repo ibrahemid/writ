@@ -41,9 +41,7 @@ pub fn path(dir: &Path) -> PathBuf {
 /// waiting: this is a convenience for the settings surface, and a bad file is
 /// not a reason to fail a call.
 pub fn read(dir: &Path) -> Vec<PendingClient> {
-    let _guard = activity_log::open_lock(dir)
-        .ok()
-        .and_then(|file| file.lock_shared().ok().map(|()| file));
+    let _guard = activity_log::shared_guard(dir);
     let mut clients = read_unlocked(dir).clients;
     clients.sort_by_key(|entry| entry.first_seen);
     clients

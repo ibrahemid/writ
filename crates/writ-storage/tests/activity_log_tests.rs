@@ -317,3 +317,26 @@ fn a_rotation_under_two_appenders_loses_no_record() {
         written.len()
     );
 }
+
+#[test]
+fn reading_a_folder_nothing_has_written_leaves_it_empty() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+
+    assert!(read_recent(dir.path(), 10).is_empty());
+    activity_log::clear(dir.path()).expect("clear");
+
+    let left: Vec<String> = std::fs::read_dir(dir.path())
+        .expect("read dir")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    assert!(
+        left.is_empty(),
+        "reading the log wrote to the folder: {left:?}"
+    );
+}

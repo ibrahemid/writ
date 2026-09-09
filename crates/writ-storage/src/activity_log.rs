@@ -146,11 +146,25 @@ pub fn read_recent(dir: &Path, limit: usize) -> Vec<ActivityRecord> {
 /// A file that is not there is already cleared, so its absence is not an error.
 /// The lock file stays: it is what the writers contend on, not a generation.
 pub fn clear(dir: &Path) -> StorageResult<()> {
-    let lock = open_lock(dir)?;
-    lock.lock()?;
+    // No lock file means nothing has ever appended here, so there is no writer
+    // to wait for and no file to create in a folder being emptied.
+    let Some(lock) = exclusive_guard(dir) else {
+        return remove_generations(dir);
+    };
     let removed = remove_generations(dir);
     let _ = lock.unlock();
     removed
+}
+
+/// The exclusive lock over an existing lock file, or `None` when there is none.
+fn exclusive_guard(dir: &Path) -> Option<File> {
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(lock_path(dir))
+        .ok()?;
+    file.lock().ok()?;
+    Some(file)
 }
 
 fn remove_generations(dir: &Path) -> StorageResult<()> {
@@ -164,11 +178,14 @@ fn remove_generations(dir: &Path) -> StorageResult<()> {
     Ok(())
 }
 
-/// The shared lock, held for as long as the returned handle lives. `None` when
-/// the folder cannot be locked, which leaves a read unguarded rather than
-/// empty-handed.
-fn shared_guard(dir: &Path) -> Option<File> {
-    let file = open_lock(dir).ok()?;
+/// The shared lock, held for as long as the returned handle lives.
+///
+/// Opens the lock file without creating it, so reading the folder never writes
+/// to it: before the first append there is no writer to contend with, and
+/// `None` is the honest answer. `None` also covers a folder that cannot be
+/// locked, which leaves a read unguarded rather than empty-handed.
+pub fn shared_guard(dir: &Path) -> Option<File> {
+    let file = OpenOptions::new().read(true).open(lock_path(dir)).ok()?;
     file.lock_shared().ok()?;
     Some(file)
 }

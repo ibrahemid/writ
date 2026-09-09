@@ -120,3 +120,25 @@ fn a_later_version_from_the_same_name_replaces_the_recorded_one() {
     let waiting = pending_clients::read(dir.path());
     assert_eq!(waiting[0].version.as_deref(), Some("1.2.3"));
 }
+
+#[test]
+fn reading_a_folder_nothing_has_written_leaves_it_empty() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+
+    assert!(pending_clients::read(dir.path()).is_empty());
+
+    let left: Vec<String> = std::fs::read_dir(dir.path())
+        .expect("read dir")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    assert!(
+        left.is_empty(),
+        "reading the file wrote to the folder: {left:?}"
+    );
+}
