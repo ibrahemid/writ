@@ -13,9 +13,8 @@
 //! the one thing a torn write from an older build could leave behind must not
 //! take the panel down with it.
 
-use std::collections::VecDeque;
 use std::fs::OpenOptions;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use writ_core::activity::ActivityRecord;
@@ -30,6 +29,13 @@ const CURRENT: &str = "activity.jsonl";
 
 /// The one generation kept behind it.
 const PREVIOUS: &str = "activity.1.jsonl";
+
+/// How much of the end of a file is read at a time when walking backwards for
+/// the newest records. The panel asks for a couple of hundred and a record is
+/// a few hundred bytes, so the first window answers unless the lines are far
+/// longer than a record — a full file at [`ROTATE_AT_BYTES`] is not parsed
+/// whole to hand back its last page.
+const TAIL_CHUNK: u64 = 64 * 1024;
 
 /// Where the log is written inside `dir`.
 pub fn current_path(dir: &Path) -> PathBuf {
@@ -115,19 +121,55 @@ fn rotate_if_full(dir: &Path, incoming: u64) -> StorageResult<()> {
 
 /// The last `limit` parseable records of one file, oldest first.
 fn tail_of(path: &Path, limit: usize) -> Vec<ActivityRecord> {
-    let Ok(file) = std::fs::File::open(path) else {
+    let Some((bytes, from_start)) = tail_bytes(path, limit) else {
         return Vec::new();
     };
-    let mut kept: VecDeque<ActivityRecord> = VecDeque::with_capacity(limit.min(1024));
-    for line in BufReader::new(file).lines() {
-        let Ok(line) = line else { continue };
-        let Ok(record) = serde_json::from_str::<ActivityRecord>(&line) else {
-            continue;
-        };
-        if kept.len() == limit {
-            kept.pop_front();
+    let text = String::from_utf8_lossy(&bytes);
+    let lines: Vec<&str> = text.lines().collect();
+
+    // A window that did not reach the start of the file cut its first line in
+    // half, so that one is dropped rather than handed to the parser.
+    let usable = if from_start || lines.is_empty() {
+        &lines[..]
+    } else {
+        &lines[1..]
+    };
+
+    let mut newest: Vec<ActivityRecord> = usable
+        .iter()
+        .rev()
+        .filter_map(|line| serde_json::from_str::<ActivityRecord>(line).ok())
+        .take(limit)
+        .collect();
+    newest.reverse();
+    newest
+}
+
+/// The end of `path`, wide enough to hold `limit` whole lines, and whether the
+/// window reached the start of the file.
+///
+/// Doubles the window until it spans more than `limit` line endings, so a log
+/// of unusually long records still answers in full rather than short.
+fn tail_bytes(path: &Path, limit: usize) -> Option<(Vec<u8>, bool)> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let mut window = TAIL_CHUNK;
+
+    loop {
+        let start = len.saturating_sub(window);
+        file.seek(SeekFrom::Start(start)).ok()?;
+
+        let span = len - start;
+        let mut bytes = Vec::with_capacity(span as usize);
+        Read::by_ref(&mut file)
+            .take(span)
+            .read_to_end(&mut bytes)
+            .ok()?;
+
+        let from_start = start == 0;
+        if from_start || bytes.iter().filter(|byte| **byte == b'\n').count() > limit {
+            return Some((bytes, from_start));
         }
-        kept.push_back(record);
+        window = window.saturating_mul(2);
     }
-    kept.into()
 }

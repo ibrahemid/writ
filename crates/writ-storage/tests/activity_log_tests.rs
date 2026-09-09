@@ -197,3 +197,60 @@ fn two_appenders_writing_at_once_leave_one_line_per_record() {
     actions.dedup();
     assert_eq!(actions.len(), 1_000, "every record survived exactly once");
 }
+
+#[test]
+fn a_file_longer_than_one_read_window_still_answers_with_the_newest() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let mut seeded = String::new();
+    for index in 0..2_000 {
+        let line = serde_json::to_string(&record(&format!("call_{index}"))).expect("serialise");
+        seeded.push_str(&line);
+        seeded.push('\n');
+    }
+    assert!(
+        seeded.len() > 256 * 1024,
+        "the seed must be several read windows long"
+    );
+    std::fs::create_dir_all(dir.path()).expect("dir");
+    std::fs::write(current_path(dir.path()), &seeded).expect("seed");
+
+    let recent = read_recent(dir.path(), 10);
+    let actions: Vec<&str> = recent.iter().map(|r| r.action.as_str()).collect();
+    assert_eq!(actions[0], "call_1999");
+    assert_eq!(actions[9], "call_1990");
+}
+
+#[test]
+fn a_window_widens_until_it_holds_the_whole_limit() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let mut seeded = String::new();
+    let mut index = 0;
+    while seeded.len() < 200 * 1024 {
+        let line = serde_json::to_string(&record(&format!("call_{index}"))).expect("serialise");
+        seeded.push_str(&line);
+        seeded.push('\n');
+        index += 1;
+    }
+    std::fs::create_dir_all(dir.path()).expect("dir");
+    std::fs::write(current_path(dir.path()), &seeded).expect("seed");
+
+    // More records than one window holds, so the window is widened rather than
+    // answering short.
+    let recent = read_recent(dir.path(), 900);
+    assert_eq!(recent.len(), 900);
+    for (offset, entry) in recent.iter().enumerate() {
+        assert_eq!(entry.action, format!("call_{}", index - 1 - offset));
+    }
+}
+
+#[test]
+fn a_log_read_whole_still_stops_at_the_limit() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    for index in 0..5 {
+        activity_log::append(dir.path(), &record(&format!("call_{index}"))).expect("append");
+    }
+
+    let recent = read_recent(dir.path(), 3);
+    let actions: Vec<&str> = recent.iter().map(|r| r.action.as_str()).collect();
+    assert_eq!(actions, ["call_4", "call_3", "call_2"]);
+}
