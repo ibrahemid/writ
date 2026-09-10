@@ -564,9 +564,14 @@ mod tests {
         // `config.toml`, and a preset id is a bare word. The prefix is what
         // keeps a hand-edited `preset = "anthropic"` off the chat pane's key.
         for provider in [Provider::Anthropic, Provider::OpenAiCompatible] {
-            let account = provider.key_account();
-            assert!(account.starts_with("chat:"), "{account} is not namespaced");
-            assert_ne!(account, provider.as_str());
+            // Not `account`: the name alone reads as a credential to the
+            // cleartext-logging query, and this is the static account name.
+            let keychain_name = provider.key_account();
+            assert!(
+                keychain_name.starts_with("chat:"),
+                "{keychain_name} is not namespaced"
+            );
+            assert_ne!(keychain_name, provider.as_str());
         }
     }
 

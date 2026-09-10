@@ -406,18 +406,18 @@ pub fn attached_sizes_in(notes_root: &Path, paths: &[String]) -> Result<Vec<Atta
     let mut sizes: Vec<AttachedSize> = Vec::with_capacity(paths.len());
     for path in paths {
         let file = note_file_in(notes_root, path)?;
-        let key = relative_key(notes_root, &file)?;
+        let note_key = relative_key(notes_root, &file)?;
         // Two spellings of one note are one row, and the first spelling asked
         // about is the one answered under.
-        if sizes.iter().any(|note| note.key == key) {
+        if sizes.iter().any(|note| note.key == note_key) {
             continue;
         }
         let bytes = std::fs::metadata(&file)
             .map(|m| m.len())
-            .map_err(|_| format!("{key} could not be read."))?;
+            .map_err(|_| format!("{note_key} could not be read."))?;
         sizes.push(AttachedSize {
             path: path.clone(),
-            key,
+            key: note_key,
             bytes,
         });
     }
@@ -437,21 +437,21 @@ pub fn read_attached_in(notes_root: &Path, paths: &[String]) -> Result<Vec<Attac
     let mut notes: Vec<AttachedNote> = Vec::with_capacity(paths.len());
     for path in paths {
         let file = note_file_in(notes_root, path)?;
-        let key = relative_key(notes_root, &file)?;
-        if notes.iter().any(|note| note.path == key) {
+        let note_key = relative_key(notes_root, &file)?;
+        if notes.iter().any(|note| note.path == note_key) {
             continue;
         }
         let size = std::fs::metadata(&file)
             .map(|m| m.len())
             .unwrap_or_default();
         if size > MAX_ATTACHED_BYTES {
-            return Err(format!("{key} is too large to attach."));
+            return Err(format!("{note_key} is too large to attach."));
         }
-        let bytes = std::fs::read(&file).map_err(|_| format!("{key} could not be read."))?;
-        let text = String::from_utf8(bytes).map_err(|_| format!("{key} is not text."))?;
+        let bytes = std::fs::read(&file).map_err(|_| format!("{note_key} could not be read."))?;
+        let text = String::from_utf8(bytes).map_err(|_| format!("{note_key} is not text."))?;
         notes.push(AttachedNote {
             before_hash: writ_core::hash::sha256_hex(text.as_bytes()),
-            path: key,
+            path: note_key,
             text,
         });
     }
@@ -475,9 +475,9 @@ pub fn apply_proposal_inner(
     before_hash: &str,
 ) -> Result<ProposalOutcome, String> {
     let file = note_file_in(notes_root, path)?;
-    let key = relative_key(notes_root, &file)?;
+    let note_key = relative_key(notes_root, &file)?;
     let Some(digest) = digest_from_hex(before_hash) else {
-        return Err(format!("The recorded state of {key} is not readable."));
+        return Err(format!("The recorded state of {note_key} is not readable."));
     };
 
     let outcome = write_note_guarded(
@@ -507,12 +507,12 @@ pub fn apply_proposal_inner(
                 writ_dir,
                 host,
                 "apply_proposal",
-                &key,
+                &note_key,
                 Decision::Allow,
                 Some(written.disk_state.size),
             );
             Ok(ProposalOutcome {
-                path: key,
+                path: note_key,
                 hash: writ_core::hash::digest_hex(written.disk_state.hash),
                 bytes: written.disk_state.size,
             })
@@ -522,11 +522,11 @@ pub fn apply_proposal_inner(
                 writ_dir,
                 host,
                 "apply_proposal",
-                &key,
+                &note_key,
                 Decision::Refuse,
                 None,
             );
-            Err(refusal(&key, &error))
+            Err(refusal(&note_key, &error))
         }
     }
 }
@@ -535,9 +535,9 @@ pub fn apply_proposal_inner(
 ///
 /// `StorageError`'s own Display is written for logs and names the absolute
 /// path (`crates/writ-storage/src/errors.rs`). The pane names notes by their
-/// folder-relative key everywhere else, and the one thing a person needs from
+/// folder-relative note_key everywhere else, and the one thing a person needs from
 /// a refusal is where the text they were about to apply went instead.
-fn refusal(key: &str, error: &StorageError) -> String {
+fn refusal(note_key: &str, error: &StorageError) -> String {
     match error {
         StorageError::SourceChangedOnDisk { conflict_copy, .. } => match conflict_copy {
             Some(copy) => {
@@ -545,13 +545,13 @@ fn refusal(key: &str, error: &StorageError) -> String {
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_else(|| copy.clone());
-                format!("{key} changed since the offer was made. The proposed text is beside it in {copy_name}.")
+                format!("{note_key} changed since the offer was made. The proposed text is beside it in {copy_name}.")
             }
             None => format!(
-                "{key} changed since the offer was made, and the proposed text could not be written beside it."
+                "{note_key} changed since the offer was made, and the proposed text could not be written beside it."
             ),
         },
-        _ => format!("{key} was not written."),
+        _ => format!("{note_key} was not written."),
     }
 }
 
@@ -561,14 +561,14 @@ fn refusal(key: &str, error: &StorageError) -> String {
 /// model asked for does not depend on the answer (ADR-031 rule 5.5). A path
 /// the folder does not hold is still recorded, under the name it was given.
 pub fn discard_proposal_inner(notes_root: &Path, writ_dir: &Path, host: &str, path: &str) {
-    let key = note_file_in(notes_root, path)
+    let note_key = note_file_in(notes_root, path)
         .and_then(|file| relative_key(notes_root, &file))
         .unwrap_or_else(|_| path.to_string());
     record_proposal(
         writ_dir,
         host,
         "discard_proposal",
-        &key,
+        &note_key,
         Decision::Refuse,
         None,
     );
@@ -582,7 +582,7 @@ fn record_proposal(
     writ_dir: &Path,
     host: &str,
     action: &str,
-    key: &str,
+    note_key: &str,
     decision: Decision,
     bytes: Option<u64>,
 ) {
@@ -593,7 +593,7 @@ fn record_proposal(
         action,
         decision,
     )
-    .with_path(key);
+    .with_path(note_key);
     if let Some(bytes) = bytes {
         record = record.with_bytes(bytes);
     }
