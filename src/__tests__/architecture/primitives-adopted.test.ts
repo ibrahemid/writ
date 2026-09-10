@@ -11,6 +11,7 @@ const REPO_ROOT = process.cwd();
 const SIDEBAR_DIR = "src/components/Sidebar";
 const RIGHT_PANEL_DIR = "src/components/RightPanel";
 const RESIZER_DIR = "src/components/Resizer";
+const CHAT_DIR = "src/components/Chat";
 
 function componentsIn(dir: string): string[] {
   return readdirSync(resolve(REPO_ROOT, dir))
@@ -36,6 +37,7 @@ const MIGRATED = [
   ...componentsIn(SIDEBAR_DIR),
   ...componentsIn(RIGHT_PANEL_DIR),
   ...componentsIn(RESIZER_DIR),
+  ...componentsIn(CHAT_DIR),
 ];
 
 const ICON_OWNERS = ["src/components/Icon/Icon.tsx", "src/components/Icon/IconSprite.tsx"];
@@ -49,6 +51,10 @@ describe("migrated surfaces use the primitives", () => {
     expect(MIGRATED).toContain("src/components/Sidebar/Sidebar.tsx");
     expect(MIGRATED).toContain("src/components/Sidebar/TabItem.tsx");
     expect(MIGRATED).toContain("src/components/Sidebar/FileTree.tsx");
+  });
+
+  it("covers the chat column", () => {
+    expect(MIGRATED).toContain("src/components/Chat/ChatPane.tsx");
   });
 
   it("covers every component of the panel beside the note", () => {

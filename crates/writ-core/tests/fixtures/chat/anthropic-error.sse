@@ -1,0 +1,6 @@
+event: message_start
+data: {"type":"message_start","message":{"id":"msg_01","type":"message","role":"assistant","model":"claude-opus-5","content":[],"stop_reason":null,"usage":{"input_tokens":812,"output_tokens":1}}}
+
+event: error
+data: {"type":"error","error":{"type":"ZZ-server-text-that-must-never-be-logged","message":"ZZ-server-text-that-must-never-be-logged"}}
+

@@ -30,7 +30,20 @@ export interface UpdaterConfig {
   auto_check: boolean;
 }
 
+/** A rewrite preset id, which is also the keychain account its key is stored
+ * under. The rewrite path speaks `chat/completions` only. */
 export type AiPreset = "ollama" | "groq" | "gemini" | "deepseek" | "openrouter" | "custom";
+
+/** Which wire format the chat endpoint speaks. */
+export type ChatProvider = "anthropic" | "openai_compatible";
+
+/** The chat pane's own switch, endpoint and model (`[ai.chat]`). */
+export interface AiChatConfig {
+  enabled: boolean;
+  provider: ChatProvider;
+  base_url: string;
+  model: string;
+}
 
 export interface AiConfig {
   enabled: boolean;
@@ -38,6 +51,7 @@ export interface AiConfig {
   base_url: string;
   model: string;
   consented_hosts: string[];
+  chat: AiChatConfig;
 }
 
 /** What one program may do with the notes folder (ADR-031 section 3). */
@@ -82,6 +96,13 @@ export interface PanelConfig {
   width: number;
 }
 
+/** The chat pane's column: showing or not, and how wide. */
+export interface ChatPanelConfig {
+  open: boolean;
+  /** Width in CSS pixels, clamped to the resize range. */
+  width: number;
+}
+
 /** What the first launch has already been told. */
 export interface FirstRunConfig {
   /** The one line under the cursor goes on the first keystroke and stays gone. */
@@ -99,6 +120,7 @@ export interface WritConfig {
     width: number;
   };
   panel: PanelConfig;
+  chat_panel: ChatPanelConfig;
   first_run: FirstRunConfig;
   editor: { font_family: string; font_size: number; word_wrap: boolean; tab_size: number; autosave_debounce_ms: number; markdown_typography: boolean; markdown_editing: boolean; status_bar: boolean };
   window: { width: number; height: number; x?: number | null; y?: number | null; maximized: boolean };

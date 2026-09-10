@@ -1,0 +1,6 @@
+data: {"id":"chatcmpl-01","object":"chat.completion.chunk","model":"llama3","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}
+
+data: {"error":{"message":"ZZ-server-text-that-must-never-be-logged","type":"ZZ-server-text-that-must-never-be-logged","code":null}}
+
+data: {"error":"model requires more system memory"}
+

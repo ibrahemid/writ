@@ -47,6 +47,7 @@ use writ_storage::guarded::{
     TakenName,
 };
 use writ_storage::notes_index::{self, BacklinkCertainty, NotesIndexStore};
+use writ_storage::paths::{file_name_only, relative_slug};
 
 use crate::consent::{ClientId, ConsentGate, Decision};
 
@@ -959,17 +960,6 @@ fn decision_of<T>(result: &Result<T, ToolError>) -> Decision {
 /// the file would have been: the log says `Ship it.md` whether the note was
 /// minted or turned down, rather than a path one time and a bare name the
 /// next. A name that sanitises to nothing is left as it was written.
-/// The file name at the end of a path argument.
-///
-/// What the log takes when a note cannot be spelled relative to the notes
-/// folder. A name says which note without saying where the folder is.
-fn file_name_only(path: &str) -> String {
-    Path::new(path)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.to_string())
-}
-
 fn minted_slug(name: &str) -> String {
     writ_core::notes::sanitize_title(name)
         .map(|stem| format!("{stem}.{NOTE_EXTENSION}"))
@@ -1001,28 +991,6 @@ fn write_error(path: &str, error: StorageError) -> ToolError {
 /// The wire spelling of a backlink's certainty.
 fn certainty_word(certainty: BacklinkCertainty) -> &'static str {
     certainty.as_str()
-}
-
-/// `path` relative to `root`, with forward slashes, or `None` when it is not
-/// under the root.
-///
-/// Both sides drop the `\\?\` Windows canonicalisation adds before they are
-/// compared ([`writ_storage::paths::strip_verbatim_prefix`]). The two spellings
-/// arrive from different places: the notes root came through
-/// `resolve_for_containment`, which keeps the verbatim form, and a write
-/// receipt carries `notes_index::index_key`, which drops it. Comparing the two
-/// as they come answers `None` on Windows for a file plainly in the folder.
-fn relative_slug(root: &Path, path: &Path) -> Option<String> {
-    let root = writ_storage::paths::strip_verbatim_prefix(root.to_path_buf());
-    let path = writ_storage::paths::strip_verbatim_prefix(path.to_path_buf());
-    let relative = path.strip_prefix(&root).ok()?;
-    Some(
-        relative
-            .components()
-            .map(|component| component.as_os_str().to_string_lossy().into_owned())
-            .collect::<Vec<_>>()
-            .join("/"),
-    )
 }
 
 /// Opens the index read-only, or `None` when there is nothing to open.

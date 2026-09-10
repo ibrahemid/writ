@@ -1201,9 +1201,16 @@ export async function aiEndpointState(): Promise<AiEndpointState> {
   return invoke("ai_endpoint_state");
 }
 
-/** Records the send notice for the currently configured host. */
-export async function aiConsentHost(): Promise<AiEndpointState> {
-  return invoke("ai_consent_host");
+/** Which endpoint the consent is being granted for. Consent is recorded per
+ * host in one list, and the two surfaces have separate base URLs, so the call
+ * says which one it means. */
+export type ConsentSurface = "rewrite" | "chat";
+
+/** Records the send notice for the host that surface is configured to reach. */
+export async function aiConsentHost(
+  surface: ConsentSurface = "rewrite",
+): Promise<AiEndpointState> {
+  return invoke("ai_consent_host", { surface });
 }
 
 export async function aiRewrite(
@@ -1222,6 +1229,106 @@ export async function aiRewrite(
 
 export async function aiCancel(requestId: string): Promise<void> {
   return invoke("ai_cancel", { requestId });
+}
+
+// --- Chat (opt-in) ---
+
+/** Which wire format the chat endpoint speaks. */
+export type ChatProvider = "anthropic" | "openai_compatible";
+
+/** Where the chat endpoint points and what it still needs. The host is
+ * resolved in Rust by the same code the send guard uses, so the frontend never
+ * parses a base URL itself. */
+export interface ChatEndpointState {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  host: string | null;
+  host_port: string | null;
+  is_hosted: boolean;
+  is_allowed: boolean;
+  is_consented: boolean;
+  key_state: AiKeyState;
+}
+
+/** One turn of the conversation. */
+export interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/** A note the request carried, as the model read it. */
+export interface ChatAttachedNote {
+  path: string;
+  text: string;
+  before_hash: string;
+}
+
+/** What a send was accepted as. The notes come back so a proposal can be shown
+ * beside the text the model actually read. */
+export interface ChatSendAccepted {
+  conversation_id: string;
+  attached: ChatAttachedNote[];
+}
+
+/** A change to one note a reply asked for and nobody has applied.
+ *
+ * `before_hash` is what Writ read when the request was built, never something
+ * the model supplied: applying carries it back as the note's last known state,
+ * so a note that changed in between is refused rather than overwritten. */
+export interface ChatProposal {
+  path: string;
+  before_hash: string;
+  new_content: string;
+  summary: string;
+}
+
+/** What applying a proposal did to the note. */
+export interface ChatProposalOutcome {
+  path: string;
+  hash: string;
+  bytes: number;
+}
+
+export async function chatState(): Promise<ChatEndpointState> {
+  return invoke("chat_state");
+}
+
+/** A note's size on disk, as the send dialog must state it. */
+export interface ChatAttachedSize {
+  /** The path that was asked about, echoed back, so a caller can join on it. */
+  path: string;
+  /** The note's folder-relative key. */
+  key: string;
+  bytes: number;
+}
+
+export async function chatAttachedSizes(paths: string[]): Promise<ChatAttachedSize[]> {
+  return invoke("chat_attached_sizes", { paths });
+}
+
+export async function chatSend(
+  conversationId: string,
+  turns: ChatTurn[],
+  contextPaths: string[],
+): Promise<ChatSendAccepted> {
+  return invoke("chat_send", { conversationId, turns, contextPaths });
+}
+
+export async function chatCancel(conversationId: string): Promise<void> {
+  return invoke("chat_cancel", { conversationId });
+}
+
+export async function chatApplyProposal(
+  path: string,
+  newContent: string,
+  beforeHash: string,
+): Promise<ChatProposalOutcome> {
+  return invoke("chat_apply_proposal", { path, newContent, beforeHash });
+}
+
+export async function chatDiscardProposal(path: string): Promise<void> {
+  return invoke("chat_discard_proposal", { path });
 }
 
 export interface AiConnectionStatus {

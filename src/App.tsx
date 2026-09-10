@@ -4,6 +4,7 @@ import WindowLights from "./components/TitleBar/WindowLights";
 import EditorArea from "./components/Editor/EditorArea";
 import Sidebar from "./components/Sidebar/Sidebar";
 import RightPanel from "./components/RightPanel/RightPanel";
+import ChatPane from "./components/Chat/ChatPane";
 import CommandPalette, {
   openNoteSearch,
   toggleCommandPalette,
@@ -52,6 +53,8 @@ import { findStore } from "./stores/global/find-store";
 import { registerTransformCommands } from "./commands/transforms";
 import { registerPromptCommands } from "./commands/prompt";
 import { registerAiCommands, unregisterAiCommands } from "./commands/ai";
+import { syncChatCommands } from "./commands/chat";
+import { chatStore } from "./stores/global/chat";
 import { aiRewriteStore } from "./stores/global/ai-rewrite";
 import AiRewriteOverlay from "./components/AiRewrite/AiRewriteOverlay";
 import PromptFillModal from "./components/PromptFill/PromptFillModal";
@@ -217,6 +220,7 @@ function AppShell() {
     unlisteners.push(...(await startWindowLifecycle()));
     win.sidebar.hydrateFromConfig();
     win.rightPanel.hydrateFromConfig();
+    win.chatPanel.hydrateFromConfig();
     await bufferRegistry.load();
     await workspaceStore.hydrate().catch(() => undefined);
     await inboxStore.hydrate().catch(() => undefined);
@@ -868,6 +872,11 @@ function AppShell() {
     });
     unlisteners.push(unlistenAi);
 
+    const unlistenChat = await onEvent("ai:chat", (payload) => {
+      chatStore.handleStreamEvent(payload);
+    });
+    unlisteners.push(unlistenChat);
+
     // What the first launch shows, and what a new note's first line may do to
     // its file name. Not awaited: the window is revealed above, and a line
     // under the cursor is not worth holding the first frame for.
@@ -895,6 +904,13 @@ function AppShell() {
     else unregisterAiCommands();
   });
 
+  // The chat pane's command exists only while the pane does, and a pane turned
+  // off while it was showing takes its column with it.
+  createEffect(() => {
+    syncChatCommands();
+    if (!configStore.config().ai.chat.enabled) win.chatPanel.hide();
+  });
+
   return (
     <AppFrame>
       <IconSprite />
@@ -903,6 +919,7 @@ function AppShell() {
         <Sidebar />
         <EditorArea />
         <RightPanel />
+        <ChatPane />
         <FirstRunHint />
         {/* Last in the row and over both panes: the lights sit at the window's
             leading edge whatever the sidebar is doing under them. */}

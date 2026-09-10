@@ -23,6 +23,7 @@ const EVENT_MAP: Record<EventKind, string> = {
   "note:download": "writ://note-download",
   "update:status": "writ://update-status",
   "ai:rewrite": "writ://ai-rewrite",
+  "ai:chat": "writ://ai-chat",
   "preview:rendered": "writ://preview-rendered",
   "preview:error": "writ://preview-error",
   "preview:layout_changed": "writ://preview-layout-changed",

@@ -1,6 +1,7 @@
 import { createFocusStore, type FocusStore } from "./focus-store";
 import { createSidebarStore, type SidebarStore } from "./sidebar-store";
 import { createRightPanelStore, type RightPanelStore } from "./right-panel-store";
+import { createChatPanelStore, type ChatPanelStore } from "./chat-panel-store";
 import { createEditorStore, type EditorStore } from "./editor-store";
 import { createTabStore, type TabStore } from "./tab-store";
 import { createLayoutStore, type LayoutStore } from "./layout-store";
@@ -14,6 +15,7 @@ export interface WindowState {
   focus: FocusStore;
   sidebar: SidebarStore;
   rightPanel: RightPanelStore;
+  chatPanel: ChatPanelStore;
   editor: EditorStore;
   tabs: TabStore;
   layout: LayoutStore;
@@ -39,6 +41,7 @@ export function createWindowState(opts: CreateWindowStateOptions): WindowState {
     focus: createFocusStore(),
     sidebar: createSidebarStore(),
     rightPanel: createRightPanelStore(),
+    chatPanel: createChatPanelStore(),
     editor,
     tabs,
     layout: createLayoutStore({ windowId: opts.windowId }),

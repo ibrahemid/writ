@@ -18,7 +18,7 @@ pub mod preview;
 /// Spell-check configuration (`[spelling]`).
 pub mod spelling;
 
-pub use ai::AiConfig;
+pub use ai::{AiChatConfig, AiConfig};
 pub use mcp::{ClientApproval, McpConfig};
 pub use notes::NotesConfig;
 pub use preview::{DefaultLayout, PreviewConfig};
@@ -57,6 +57,14 @@ fn default_panel_open() -> bool {
 
 fn default_panel_width() -> u16 {
     240
+}
+
+fn default_chat_panel_open() -> bool {
+    false
+}
+
+fn default_chat_panel_width() -> u16 {
+    380
 }
 
 fn default_hint_dismissed() -> bool {
@@ -303,6 +311,32 @@ impl Default for PanelConfig {
         Self {
             open: default_panel_open(),
             width: default_panel_width(),
+        }
+    }
+}
+
+/// The chat pane's column (`[chat_panel]`).
+///
+/// Layout rather than feature: whether the pane is showing and how wide it is
+/// live here, and whether it exists at all is `[ai.chat] enabled`. It is its
+/// own column and not a section of `[panel]`, so it takes its own 320-520
+/// range: a conversation and a proposal beside the note it changes need more
+/// width than a list of links does.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatPanelConfig {
+    /// Whether the pane was showing at last save; restored across launches.
+    #[serde(default = "default_chat_panel_open")]
+    pub open: bool,
+    /// Column width in CSS pixels, restored across launches.
+    #[serde(default = "default_chat_panel_width")]
+    pub width: u16,
+}
+
+impl Default for ChatPanelConfig {
+    fn default() -> Self {
+        Self {
+            open: default_chat_panel_open(),
+            width: default_chat_panel_width(),
         }
     }
 }
@@ -585,6 +619,9 @@ pub struct WritConfig {
     /// The panel beside the note.
     #[serde(default)]
     pub panel: PanelConfig,
+    /// The chat pane's column.
+    #[serde(default)]
+    pub chat_panel: ChatPanelConfig,
     /// What the first launch has already been told.
     #[serde(default)]
     pub first_run: FirstRunConfig,
@@ -644,6 +681,7 @@ impl Default for WritConfig {
             hotkey: HotkeyConfig::default(),
             sidebar: SidebarConfig::default(),
             panel: PanelConfig::default(),
+            chat_panel: ChatPanelConfig::default(),
             first_run: FirstRunConfig::default(),
             editor: EditorConfig::default(),
             window: WindowConfig::default(),
@@ -668,6 +706,21 @@ impl Default for WritConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_chat_column_starts_closed_and_wider_than_the_panel() {
+        let chat = ChatPanelConfig::default();
+        assert!(!chat.open);
+        assert_eq!(chat.width, 380);
+        assert!(chat.width > PanelConfig::default().width);
+    }
+
+    #[test]
+    fn a_config_written_before_the_chat_column_existed_upgrades() {
+        let cfg: WritConfig = toml::from_str("[panel]\nopen = true\nwidth = 300").unwrap();
+        assert_eq!(cfg.chat_panel, ChatPanelConfig::default());
+        assert!(cfg.panel.open);
+    }
 
     #[test]
     fn appearance_defaults_to_system_pine_system_face() {

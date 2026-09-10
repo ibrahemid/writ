@@ -14,6 +14,7 @@
 //! # Module layout
 //!
 //! - [`buffer`]: document model and the in-memory [`buffer::BufferManager`].
+//! - [`chat`]: request shape and stream grammar for the chat pane (ADR-031).
 //! - [`command`]: command registry types for palette-driven actions.
 //! - [`config`]: typed user configuration with serde defaults.
 //! - [`errors`]: crate-wide [`errors::WritError`] / [`errors::WritResult`].
@@ -46,6 +47,8 @@
 pub mod activity;
 /// Buffer document model and in-memory manager.
 pub mod buffer;
+/// Request shape and stream grammar for the chat pane.
+pub mod chat;
 /// Command registry types for the command palette.
 pub mod command;
 /// Typed configuration schema with serde defaults.

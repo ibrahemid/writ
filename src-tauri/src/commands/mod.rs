@@ -1,6 +1,7 @@
 pub mod activity;
 pub mod ai;
 pub mod buffer;
+pub mod chat;
 pub mod cli;
 pub mod config;
 pub mod default_app;

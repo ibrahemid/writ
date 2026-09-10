@@ -41,6 +41,23 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// Overall request budget for a single rewrite.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// The key stored for one account, from the keychain or from this session's
+/// memory. The account is the provider id, so the surface asking for it never
+/// reaches another provider's credential.
+pub(crate) fn key_for(app: &AppHandle, account: &str) -> Option<String> {
+    let ai = app.state::<AiState>();
+    let memory = recover_poison(ai.keys.lock(), "commands::ai::key_for");
+    resolve_key(&ai, &memory, account)
+}
+
+/// Whether a key is stored for one account, and whether it is confined to this
+/// session's memory.
+pub(crate) fn key_state_for(app: &AppHandle, account: &str) -> AiKeyState {
+    let ai = app.state::<AiState>();
+    let memory = recover_poison(ai.keys.lock(), "commands::ai::key_state_for");
+    key_state(&ai, &memory, account)
+}
+
 /// Session-scoped runtime state for rewriting, managed separately from
 /// [`AppState`] so the large app initializer stays untouched.
 #[derive(Default)]
@@ -345,21 +362,58 @@ pub fn ai_endpoint_state(app: AppHandle) -> Result<AiEndpointState, String> {
     Ok(endpoint_state_from(&cfg, key_state))
 }
 
-/// Records the send notice for the currently configured host and persists it.
+/// Which endpoint a consent is being granted for.
+///
+/// Consent is per host, and the two surfaces have separate base URLs, so the
+/// caller says which one it is asking about. The record itself is one list
+/// (`ai.consented_hosts`): a host consented to from either surface is
+/// consented to for both, and consenting to one host never covers another
+/// (ADR-031 rule 6.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConsentSurface {
+    /// The rewrite endpoint (`ai.base_url`).
+    Rewrite,
+    /// The chat endpoint (`ai.chat.base_url`).
+    Chat,
+}
+
+impl ConsentSurface {
+    /// Reads the wire id. Anything unrecognised is the rewrite endpoint, which
+    /// is the surface that shipped first and the one a caller sending nothing
+    /// means.
+    pub fn parse(id: Option<&str>) -> Self {
+        match id {
+            Some("chat") => Self::Chat,
+            _ => Self::Rewrite,
+        }
+    }
+
+    /// The base URL this surface sends to.
+    pub fn base_url(self, cfg: &AiConfig) -> &str {
+        match self {
+            Self::Rewrite => &cfg.base_url,
+            Self::Chat => &cfg.chat.base_url,
+        }
+    }
+}
+
+/// Records the send notice for the host `surface` is configured to reach.
 ///
 /// The host is resolved here rather than supplied by the caller, so consent is
-/// always stored under the exact string [`prepare_request`] later checks — a
+/// always stored under the exact string the guard later checks — a
 /// client-computed host could never drift out of agreement with the guard.
 /// Refuses a local or disallowed endpoint: there is nothing to consent to.
 #[tauri::command]
-pub fn ai_consent_host(app: AppHandle) -> Result<AiEndpointState, String> {
+pub fn ai_consent_host(app: AppHandle, surface: Option<String>) -> Result<AiEndpointState, String> {
     let state = app.state::<AppState>();
+    let surface = ConsentSurface::parse(surface.as_deref());
     let mut config = {
         let guard = recover_poison(state.config.lock(), "commands::ai::ai_consent_host");
         guard.clone()
     };
 
-    let target = polish::resolve_endpoint(&config.ai.base_url).map_err(|e| e.to_string())?;
+    let target =
+        polish::resolve_endpoint(surface.base_url(&config.ai)).map_err(|e| e.to_string())?;
     if !target.is_allowed {
         return Err(PolishError::EndpointNotAllowed.to_string());
     }
@@ -474,7 +528,7 @@ fn prepare_request(
 
 /// Whether the send notice was accepted for `host`. Membership is exact: a
 /// consent given for one provider never covers another.
-fn is_consented(cfg: &AiConfig, host: &str) -> bool {
+pub(crate) fn is_consented(cfg: &AiConfig, host: &str) -> bool {
     cfg.consented_hosts.iter().any(|h| h == host)
 }
 
@@ -491,34 +545,26 @@ enum StreamEvent {
 enum SseLine {
     Chunk(String),
     Done,
+    /// The server reported a failure mid-stream. Carries nothing it wrote: an
+    /// error frame's fields are response text, which can quote the request.
+    Failed,
     Ignore,
 }
 
-/// Parses a single already-trimmed SSE line. Non-`data:` lines, keep-alives,
-/// empty deltas, and unparseable payloads are ignored.
+/// What a rewrite says when the server ends the stream with an error frame.
+const STREAM_FAILED: &str = "The model server ended the reply.";
+
+/// Parses a single already-trimmed SSE line.
+///
+/// The grammar is [`writ_core::chat::parse_delta`]'s: the rewrite stream and
+/// the chat pane read the same `chat/completions` frames, so there is one
+/// answer to what a line means rather than two that can drift.
 fn parse_sse_line(line: &str) -> SseLine {
-    let Some(rest) = line.strip_prefix("data:") else {
-        return SseLine::Ignore;
-    };
-    let payload = rest.trim();
-    if payload.is_empty() {
-        return SseLine::Ignore;
-    }
-    if payload == "[DONE]" {
-        return SseLine::Done;
-    }
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
-        return SseLine::Ignore;
-    };
-    let content = value
-        .get("choices")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("delta"))
-        .and_then(|d| d.get("content"))
-        .and_then(|t| t.as_str());
-    match content {
-        Some(s) if !s.is_empty() => SseLine::Chunk(s.to_string()),
-        _ => SseLine::Ignore,
+    match writ_core::chat::parse_delta(writ_core::chat::Provider::OpenAiCompatible, line) {
+        writ_core::chat::Delta::Text(content) => SseLine::Chunk(content),
+        writ_core::chat::Delta::Done => SseLine::Done,
+        writ_core::chat::Delta::Failed => SseLine::Failed,
+        writ_core::chat::Delta::Ignore => SseLine::Ignore,
     }
 }
 
@@ -526,7 +572,7 @@ fn parse_sse_line(line: &str) -> SseLine {
 /// trailing partial line in place. Splitting the byte buffer on `\n` is
 /// UTF-8-safe because a newline never appears inside a multibyte sequence, so a
 /// chunk boundary mid-character cannot corrupt a decoded line.
-fn drain_complete_lines(buf: &mut Vec<u8>) -> Vec<String> {
+pub(crate) fn drain_complete_lines(buf: &mut Vec<u8>) -> Vec<String> {
     let mut lines = Vec::new();
     while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
         let raw: Vec<u8> = buf.drain(..=pos).collect();
@@ -595,6 +641,13 @@ async fn run_rewrite_stream(
                     on_event(StreamEvent::Done);
                     return;
                 }
+                // Ending as Done would hand back an empty rewrite that reads
+                // as a model with nothing to say.
+                SseLine::Failed => {
+                    tracing::warn!("the model server ended the stream with an error frame");
+                    on_event(StreamEvent::Error(STREAM_FAILED.to_string()));
+                    return;
+                }
                 SseLine::Ignore => {}
             }
         }
@@ -608,7 +661,7 @@ async fn run_rewrite_stream(
 
 /// Turns a connection failure into a plain message, hinting at a stopped local
 /// server when the target was loopback.
-fn connection_error_message(err: &reqwest::Error, is_localhost: bool) -> String {
+pub(crate) fn connection_error_message(err: &reqwest::Error, is_localhost: bool) -> String {
     if err.is_connect() && is_localhost {
         return "Could not reach the local model server. Is Ollama running?".to_string();
     }
@@ -618,7 +671,7 @@ fn connection_error_message(err: &reqwest::Error, is_localhost: bool) -> String 
 /// Redacts any URL from an error string so a configured endpoint (which may
 /// carry a token in a query) never reaches logs or the UI. Mirrors the update
 /// path's redaction; falls back to a generic message when nothing is left.
-fn sanitize_ai_error(raw: &str) -> String {
+pub(crate) fn sanitize_ai_error(raw: &str) -> String {
     const REDACTED: &str = "<redacted-url>";
     let mut out = String::with_capacity(raw.len());
     let mut rest = raw;
@@ -663,7 +716,7 @@ fn ensure_crypto_provider() {
 /// refused: following a 3xx would re-send the request body (the user's text) to
 /// the `Location` host, escaping the endpoint guard, so a 3xx surfaces as an
 /// error status instead.
-fn build_client() -> Result<reqwest::Client, String> {
+pub(crate) fn build_client() -> Result<reqwest::Client, String> {
     ensure_crypto_provider();
     reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
@@ -1000,6 +1053,7 @@ mod tests {
             base_url: "http://localhost:11434/v1".to_string(),
             model: "llama3".to_string(),
             consented_hosts: Vec::new(),
+            chat: writ_core::config::AiChatConfig::default(),
         }
     }
 
@@ -1019,6 +1073,32 @@ mod tests {
         assert!(matches!(
             parse_sse_line("data: {\"choices\":[{\"delta\":{}}]}"),
             SseLine::Ignore
+        ));
+    }
+
+    #[test]
+    fn parse_sse_reads_a_recorded_error_frame_as_a_failure() {
+        // The same recorded frames the chat pane reads its grammar against:
+        // one rewrite and one chat request against the same server must not
+        // disagree about what an error frame means.
+        const OPENAI_ERROR_STREAM: &str =
+            include_str!("../../../crates/writ-core/tests/fixtures/chat/openai-error.sse");
+        let failures = OPENAI_ERROR_STREAM
+            .lines()
+            .filter(|line| matches!(parse_sse_line(line), SseLine::Failed))
+            .count();
+        assert_eq!(failures, 2, "both spellings of the frame end the stream");
+
+        // Nothing the server wrote is carried out: the sentence a rewrite
+        // shows is fixed, and the token in the fixture is in neither.
+        assert!(!STREAM_FAILED.contains("ZZ-server-text-that-must-never-be-logged"));
+        assert!(matches!(
+            parse_sse_line("data: {\"error\":null}"),
+            SseLine::Ignore
+        ));
+        assert!(matches!(
+            parse_sse_line("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}],\"error\":null}"),
+            SseLine::Chunk(c) if c == "hi"
         ));
     }
 

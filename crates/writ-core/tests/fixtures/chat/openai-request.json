@@ -1,0 +1,14 @@
+{
+  "model": "llama3",
+  "stream": true,
+  "messages": [
+    { "role": "system", "content": "SYSTEM" },
+    {
+      "role": "user",
+      "content": "<attached-notes>\n<note path=\"Ideas/Launch.md\">\nThe launch is in March.\n</note>\n</attached-notes>"
+    },
+    { "role": "user", "content": "What does this note argue?" },
+    { "role": "assistant", "content": "That March is late." },
+    { "role": "user", "content": "Propose a fix." }
+  ]
+}
