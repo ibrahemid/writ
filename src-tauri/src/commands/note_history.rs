@@ -21,6 +21,7 @@ use tauri::State;
 use writ_core::activity::{ActivityRecord, Actor, Decision};
 use writ_core::notes::guard::DiskState;
 use writ_core::notes::WriteOrigin;
+use writ_storage::buffer_store::BeforeWrite;
 use writ_storage::errors::StorageError;
 use writ_storage::guarded::{
     keep_versions, write_note_guarded, write_recovered_copy, ConflictPolicy, DiskRead,
@@ -177,6 +178,11 @@ pub fn restore_note_version_inner(
 /// The way to read an old version without giving up the current one: the note
 /// is left exactly as it is.
 ///
+/// `stamp` is the watcher's ignore hook, which the app passes. Both dated
+/// copies written into the notes folder take it — this one and the conflict
+/// copy in `commands::buffer` — so the folder watcher treats the two the same
+/// way rather than announcing one of them as somebody else's file.
+///
 /// # Errors
 ///
 /// The entry is not in the index, its text cannot be read or is not text, or
@@ -187,12 +193,13 @@ pub fn copy_note_version_inner(
     store: &NoteHistoryStore,
     version_id: i64,
     now: DateTime<Utc>,
+    stamp: BeforeWrite<'_>,
 ) -> Result<VersionCopy, String> {
     let (file, note) = note_file_of(notes_root, store, version_id)?;
     let bytes = store.content(version_id).map_err(|e| unreadable(&e))?;
     let length = bytes.len() as u64;
     let text = String::from_utf8(bytes).map_err(|_| format!("{note} is not text."))?;
-    match write_recovered_copy(&file, &text, now, None) {
+    match write_recovered_copy(&file, &text, now, stamp) {
         Ok(copy) => {
             record(
                 writ_dir,
@@ -346,11 +353,13 @@ pub fn copy_note_version(
     version_id: i64,
 ) -> Result<VersionCopy, String> {
     let notes_root = state.notes_root();
+    let stamp = crate::commands::buffer::ignore_stamper(&state);
     copy_note_version_inner(
         &notes_root,
         &state.writ_dir,
         &state.note_history,
         version_id,
         Utc::now(),
+        Some(&stamp),
     )
 }

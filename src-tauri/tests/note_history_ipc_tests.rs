@@ -7,7 +7,7 @@
 //! registered cannot be called however well it behaves.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use tempfile::TempDir;
@@ -290,6 +290,7 @@ fn copying_a_version_leaves_the_note_alone() {
         &folder.store,
         first,
         chrono::Utc::now(),
+        None,
     )
     .expect("copy");
 
@@ -303,6 +304,37 @@ fn copying_a_version_leaves_the_note_alone() {
         std::fs::read(&path).expect("read"),
         b"the second\n",
         "the note is untouched"
+    );
+}
+
+#[test]
+fn a_version_copy_is_stamped_for_the_watcher_like_a_conflict_copy() {
+    let folder = Folder::new();
+    let path = folder.note("Launch.md", b"the first\n", 60);
+    let version = folder.versions(&path)[0].id;
+
+    let stamped: Mutex<Vec<(PathBuf, Vec<u8>)>> = Mutex::new(Vec::new());
+    let hook = |written: &Path, bytes: &[u8]| {
+        stamped
+            .lock()
+            .expect("the stamp list")
+            .push((written.to_path_buf(), bytes.to_vec()));
+    };
+
+    let copy = copy_note_version_inner(
+        &folder.notes,
+        &folder.writ_dir,
+        &folder.store,
+        version,
+        chrono::Utc::now(),
+        Some(&hook),
+    )
+    .expect("copy");
+
+    assert_eq!(
+        stamped.into_inner().expect("the stamp list"),
+        vec![(folder.notes.join(&copy.name), b"the first\n".to_vec())],
+        "the watcher is told about the file before it appears"
     );
 }
 
@@ -327,6 +359,7 @@ fn a_restore_and_a_copy_each_leave_a_line_in_the_activity_log_naming_no_text() {
         &folder.store,
         version,
         chrono::Utc::now(),
+        None,
     )
     .expect("copy");
 
