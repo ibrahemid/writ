@@ -633,7 +633,7 @@ function AppShell() {
     registerCommand({
       id: "note.versions",
       label: "Revert to…",
-      description: "Read what this note used to hold, and put a version back",
+      description: "Read earlier versions of this note, and put one back",
       scope: "app",
       isAvailable: () => activeNotePath() !== null,
       execute: () => {
