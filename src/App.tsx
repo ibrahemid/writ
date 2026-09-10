@@ -14,6 +14,7 @@ import ThemeEditor, { openThemeEditor } from "./components/ThemeEditor/ThemeEdit
 import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/ShortcutEditor";
 import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
 import ActivityPanel, { openActivity } from "./components/Activity/ActivityPanel";
+import NoteHistoryPanel, { openNoteVersions } from "./components/NoteHistory/NoteHistoryPanel";
 import NotesMigrationReport from "./components/NotesMigrationReport/NotesMigrationReport";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
 import { renameLinksStore } from "./stores/global/rename-links";
@@ -165,6 +166,13 @@ function dismissHintOnFirstKeystroke(): () => void {
   };
   document.addEventListener("keydown", onKeyDown);
   return () => document.removeEventListener("keydown", onKeyDown);
+}
+
+/** The file behind the tab in front, for a tab that has one. */
+function activeNotePath(): string | null {
+  const id = windowRegistry.getActive()?.tabs.activeTabId();
+  if (!id) return null;
+  return bufferRegistry.activeTabs().find((b) => b.id === id)?.source_path ?? null;
 }
 
 function AppShell() {
@@ -623,6 +631,18 @@ function AppShell() {
     });
 
     registerCommand({
+      id: "note.versions",
+      label: "Revert to…",
+      description: "Read what this note used to hold, and put a version back",
+      scope: "app",
+      isAvailable: () => activeNotePath() !== null,
+      execute: () => {
+        const path = activeNotePath();
+        if (path) openNoteVersions(path);
+      },
+    });
+
+    registerCommand({
       id: "note.undoRename",
       label: "Undo rename",
       description: "Put the note's name back, and the links that were updated",
@@ -929,6 +949,7 @@ function AppShell() {
       <SearchPalette />
       <SettingsModal />
       <ActivityPanel />
+      <NoteHistoryPanel />
       <ThemeEditor />
       <ShortcutEditor />
       <ContextMenu />

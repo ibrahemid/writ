@@ -1,0 +1,182 @@
+/* A note's own past, read the way the sidebar is read: a column of times on
+   the sidebar's pitch, and the text of whichever one is selected beside it.
+   The list carries the colour — the selected row's fill — and the text pane
+   carries none, so the eye lands on the version being chosen rather than on
+   the panel. */
+
+@keyframes note-versions-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.note-versions-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--writ-overlay-scrim);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 64px 24px;
+  z-index: var(--writ-z-modal);
+}
+
+.note-versions-modal {
+  width: min(760px, calc(100vw - 48px));
+  height: min(560px, calc(100vh - 128px));
+  background: var(--writ-bg-raised);
+  border: 0;
+  border-radius: var(--writ-r-modal);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--writ-shadow-modal);
+  font-family: var(--writ-font-ui);
+  animation: note-versions-in var(--writ-motion) forwards;
+}
+
+.note-versions-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--writ-space-3);
+  padding: var(--writ-space-4) var(--writ-space-5);
+  border-bottom: 1px solid var(--writ-border-soft);
+  flex-shrink: 0;
+}
+
+.note-versions-title {
+  font-size: var(--writ-ui-lg);
+  line-height: var(--writ-ui-lg-lh);
+  font-weight: 600;
+  color: var(--writ-fg);
+}
+
+.note-versions-note {
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-versions-header-controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-2);
+}
+
+.note-versions-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 220px 1fr;
+}
+
+.note-versions-list {
+  margin: 0;
+  padding: var(--writ-space-2) 0;
+  list-style: none;
+  overflow-y: auto;
+  border-right: 1px solid var(--writ-border-soft);
+}
+
+.note-versions-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--writ-space-2);
+  min-height: var(--writ-sidebar-row-pitch);
+  padding: 0 var(--writ-space-4);
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-sidebar-row-fill);
+  color: var(--writ-fg);
+  text-align: left;
+  transition: background var(--writ-motion-fast);
+}
+
+.note-versions-row:hover {
+  background: var(--writ-bg-hover);
+}
+
+.note-versions-row[aria-current="true"] {
+  background: var(--writ-bg-selected);
+}
+
+.note-versions-row:focus-visible {
+  outline-offset: -2px;
+}
+
+.note-version-when {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.note-version-size {
+  color: var(--writ-fg-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.note-versions-reading {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.note-versions-text {
+  flex: 1;
+  margin: 0;
+  padding: var(--writ-space-4) var(--writ-space-5);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--writ-font-prose);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-md-lh);
+  color: var(--writ-fg);
+}
+
+.note-versions-controls {
+  display: flex;
+  gap: var(--writ-space-2);
+  padding: var(--writ-space-3) var(--writ-space-5);
+  border-top: 1px solid var(--writ-border-soft);
+  flex-shrink: 0;
+}
+
+.note-versions-empty {
+  padding: var(--writ-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-1);
+}
+
+.note-versions-empty-line {
+  margin: 0;
+  color: var(--writ-fg);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+}
+
+.note-versions-empty-hint {
+  margin: 0;
+  color: var(--writ-fg-muted);
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .note-versions-modal {
+    animation: none;
+  }
+
+  .note-versions-row {
+    transition: none;
+  }
+}
