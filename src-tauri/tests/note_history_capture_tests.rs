@@ -323,6 +323,7 @@ fn a_restore_moments_after_a_save_keeps_the_text_that_save_wrote() {
     let first = app.version_holding(&path, b"the first\n");
     restore_note_version_inner(
         &app.state.notes_root(),
+        &app.state.writ_dir,
         &app.state.note_history,
         first,
         app.state.disk_state(&id),
@@ -346,6 +347,7 @@ fn restoring_back_moments_later_returns_the_note_to_what_the_save_wrote() {
     let first = app.version_holding(&path, b"the first\n");
     restore_note_version_inner(
         &app.state.notes_root(),
+        &app.state.writ_dir,
         &app.state.note_history,
         first,
         app.state.disk_state(&id),
@@ -355,6 +357,7 @@ fn restoring_back_moments_later_returns_the_note_to_what_the_save_wrote() {
     let second = app.version_holding(&path, b"the second\n");
     restore_note_version_inner(
         &app.state.notes_root(),
+        &app.state.writ_dir,
         &app.state.note_history,
         second,
         None,
@@ -390,6 +393,7 @@ fn the_announcement_a_restore_raises_does_not_keep_the_restored_text_twice() {
     let last_known = app.state.disk_state(&id);
     restore_note_version_inner(
         &app.state.notes_root(),
+        &app.state.writ_dir,
         &app.state.note_history,
         first.id,
         last_known,

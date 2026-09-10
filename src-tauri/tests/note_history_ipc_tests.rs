@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use tempfile::TempDir;
+use writ_core::activity::{Actor, Decision};
 use writ_core::notes::guard::DiskState;
 use writ_storage::note_history::NoteHistoryStore;
 use writ_tauri_lib::commands::note_history::{
@@ -33,6 +34,7 @@ const COMMANDS: &[&str] = &[
 struct Folder {
     dir: TempDir,
     notes: PathBuf,
+    writ_dir: PathBuf,
     store: NoteHistoryStore,
 }
 
@@ -48,7 +50,12 @@ impl Folder {
         let store = NoteHistoryStore::open(&writ_dir).expect("version store");
         store.set_notes_root(notes.clone());
         store.set_probe(Arc::new(PlatformIdentity));
-        Self { dir, notes, store }
+        Self {
+            dir,
+            notes,
+            writ_dir,
+            store,
+        }
     }
 
     /// Writes a note and keeps that text, at `seconds_ago`.
@@ -159,7 +166,8 @@ fn restoring_a_version_writes_it_back_and_keeps_the_text_it_replaced() {
     let first = listed[1].id;
 
     let restored =
-        restore_note_version_inner(&folder.notes, &folder.store, first, None).expect("restore");
+        restore_note_version_inner(&folder.notes, &folder.writ_dir, &folder.store, first, None)
+            .expect("restore");
 
     assert_eq!(restored.note, "Launch.md");
     assert_eq!(std::fs::read(&path).expect("read"), b"the first\n");
@@ -186,14 +194,22 @@ fn restoring_twice_returns_the_note_to_where_it_started() {
     folder.keep(&path, b"the second\n", 30);
 
     let first = folder.versions(&path)[1].id;
-    restore_note_version_inner(&folder.notes, &folder.store, first, None).expect("restore");
+    restore_note_version_inner(&folder.notes, &folder.writ_dir, &folder.store, first, None)
+        .expect("restore");
 
     let back = folder
         .versions(&path)
         .into_iter()
         .find(|entry| folder.text_of(entry) == "the second\n")
         .expect("the text the restore replaced");
-    restore_note_version_inner(&folder.notes, &folder.store, back.id, None).expect("restore back");
+    restore_note_version_inner(
+        &folder.notes,
+        &folder.writ_dir,
+        &folder.store,
+        back.id,
+        None,
+    )
+    .expect("restore back");
 
     assert_eq!(std::fs::read(&path).expect("read"), b"the second\n");
 }
@@ -207,8 +223,14 @@ fn a_note_changed_underneath_is_refused_and_the_version_is_written_beside_it() {
     std::fs::write(&path, b"what somebody else wrote\n").expect("overwrite");
 
     let version = folder.versions(&path)[0].id;
-    let error = restore_note_version_inner(&folder.notes, &folder.store, version, Some(last_known))
-        .expect_err("refused");
+    let error = restore_note_version_inner(
+        &folder.notes,
+        &folder.writ_dir,
+        &folder.store,
+        version,
+        Some(last_known),
+    )
+    .expect_err("refused");
 
     assert!(
         error.starts_with("Launch.md changed on disk."),
@@ -242,7 +264,14 @@ fn a_restore_puts_back_every_byte_it_was_given() {
     std::fs::write(&path, "something else\n").expect("overwrite");
 
     let version = folder.versions(&path)[0].id;
-    restore_note_version_inner(&folder.notes, &folder.store, version, None).expect("restore");
+    restore_note_version_inner(
+        &folder.notes,
+        &folder.writ_dir,
+        &folder.store,
+        version,
+        None,
+    )
+    .expect("restore");
 
     assert_eq!(std::fs::read(&path).expect("read"), original);
 }
@@ -255,8 +284,14 @@ fn copying_a_version_leaves_the_note_alone() {
     folder.keep(&path, b"the second\n", 30);
 
     let first = folder.versions(&path)[1].id;
-    let copy = copy_note_version_inner(&folder.notes, &folder.store, first, chrono::Utc::now())
-        .expect("copy");
+    let copy = copy_note_version_inner(
+        &folder.notes,
+        &folder.writ_dir,
+        &folder.store,
+        first,
+        chrono::Utc::now(),
+    )
+    .expect("copy");
 
     assert!(copy.name.starts_with("Launch ("), "got: {}", copy.name);
     assert!(copy.name.ends_with(".md"), "got: {}", copy.name);
@@ -268,6 +303,49 @@ fn copying_a_version_leaves_the_note_alone() {
         std::fs::read(&path).expect("read"),
         b"the second\n",
         "the note is untouched"
+    );
+}
+
+#[test]
+fn a_restore_and_a_copy_each_leave_a_line_in_the_activity_log_naming_no_text() {
+    let folder = Folder::new();
+    let text = b"the only text this note ever held\n";
+    let path = folder.note("Launch.md", text, 60);
+    let version = folder.versions(&path)[0].id;
+
+    restore_note_version_inner(
+        &folder.notes,
+        &folder.writ_dir,
+        &folder.store,
+        version,
+        None,
+    )
+    .expect("restore");
+    copy_note_version_inner(
+        &folder.notes,
+        &folder.writ_dir,
+        &folder.store,
+        version,
+        chrono::Utc::now(),
+    )
+    .expect("copy");
+
+    let lines = writ_storage::activity_log::read_recent(&folder.writ_dir, 10);
+    for action in ["restore_note_version", "copy_note_version"] {
+        let line = lines
+            .iter()
+            .find(|record| record.action == action)
+            .unwrap_or_else(|| panic!("{action} left no line: {lines:?}"));
+        assert_eq!(line.actor, Actor::App);
+        assert_eq!(line.decision, Decision::Allow);
+        assert_eq!(line.path.as_deref(), Some(Path::new("Launch.md")));
+        assert_eq!(line.bytes, Some(text.len() as u64));
+    }
+
+    let written = format!("{lines:?}");
+    assert!(
+        !written.contains("the only text this note ever held"),
+        "a log line holds a length and a name, never what the note said: {written}"
     );
 }
 

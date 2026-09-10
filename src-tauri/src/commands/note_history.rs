@@ -18,6 +18,7 @@ use std::time::SystemTime;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use tauri::State;
+use writ_core::activity::{ActivityRecord, Actor, Decision};
 use writ_core::notes::guard::DiskState;
 use writ_core::notes::WriteOrigin;
 use writ_storage::errors::StorageError;
@@ -119,6 +120,7 @@ pub fn note_version_content_inner(
 /// instead.
 pub fn restore_note_version_inner(
     notes_root: &Path,
+    writ_dir: &Path,
     store: &NoteHistoryStore,
     version_id: i64,
     last_known: Option<DiskState>,
@@ -141,12 +143,33 @@ pub fn restore_note_version_inner(
             history: Some(&keep as &dyn Fn(WriteCapture<'_>)),
         },
         None,
-    )
-    .map_err(|e| refusal(&note, &e))?;
-    Ok(RestoredVersion {
-        note,
-        bytes: written.disk_state.size,
-    })
+    );
+
+    match written {
+        Ok(written) => {
+            record(
+                writ_dir,
+                "restore_note_version",
+                &note,
+                Decision::Allow,
+                Some(written.disk_state.size),
+            );
+            Ok(RestoredVersion {
+                note,
+                bytes: written.disk_state.size,
+            })
+        }
+        Err(error) => {
+            record(
+                writ_dir,
+                "restore_note_version",
+                &note,
+                Decision::Refuse,
+                None,
+            );
+            Err(refusal(&note, &error))
+        }
+    }
 }
 
 /// Writes the text of one entry beside its note as a dated file.
@@ -160,18 +183,52 @@ pub fn restore_note_version_inner(
 /// the file beside the note cannot be written.
 pub fn copy_note_version_inner(
     notes_root: &Path,
+    writ_dir: &Path,
     store: &NoteHistoryStore,
     version_id: i64,
     now: DateTime<Utc>,
 ) -> Result<VersionCopy, String> {
     let (file, note) = note_file_of(notes_root, store, version_id)?;
     let bytes = store.content(version_id).map_err(|e| unreadable(&e))?;
+    let length = bytes.len() as u64;
     let text = String::from_utf8(bytes).map_err(|_| format!("{note} is not text."))?;
-    let copy = write_recovered_copy(&file, &text, now, None)
-        .map_err(|_| format!("The copy of {note} could not be written."))?;
-    Ok(VersionCopy {
-        name: file_name_only(&copy.to_string_lossy()),
-    })
+    match write_recovered_copy(&file, &text, now, None) {
+        Ok(copy) => {
+            record(
+                writ_dir,
+                "copy_note_version",
+                &note,
+                Decision::Allow,
+                Some(length),
+            );
+            Ok(VersionCopy {
+                name: file_name_only(&copy.to_string_lossy()),
+            })
+        }
+        Err(_) => {
+            record(writ_dir, "copy_note_version", &note, Decision::Refuse, None);
+            Err(format!("The copy of {note} could not be written."))
+        }
+    }
+}
+
+/// Appends one line to the activity log for a write this module made.
+///
+/// The record is Writ acting on the person's own request (`Actor::App`), and
+/// it carries the note's folder-relative name and the length of the text and
+/// nothing else: `ActivityRecord` has no field a note's text fits in, so rule
+/// 1.7 holds by construction.
+///
+/// A log that cannot be written is not fatal. The write it describes has
+/// already happened, and losing the line does not undo it.
+fn record(writ_dir: &Path, action: &str, note: &str, decision: Decision, bytes: Option<u64>) {
+    let mut line = ActivityRecord::now(Actor::App, action, decision).with_path(note);
+    if let Some(bytes) = bytes {
+        line = line.with_bytes(bytes);
+    }
+    if let Err(error) = writ_storage::activity_log::append(writ_dir, &line) {
+        tracing::warn!(error = %error, "the activity log did not take a version record");
+    }
 }
 
 /// The file an entry belongs to, and the name to put in front of a person.
@@ -273,7 +330,13 @@ pub fn restore_note_version(
     // never read.
     let (file, _) = note_file_of(&notes_root, &state.note_history, version_id)?;
     let last_known = recorded_state(&state, &file);
-    restore_note_version_inner(&notes_root, &state.note_history, version_id, last_known)
+    restore_note_version_inner(
+        &notes_root,
+        &state.writ_dir,
+        &state.note_history,
+        version_id,
+        last_known,
+    )
 }
 
 /// IPC: [`copy_note_version_inner`].
@@ -283,5 +346,11 @@ pub fn copy_note_version(
     version_id: i64,
 ) -> Result<VersionCopy, String> {
     let notes_root = state.notes_root();
-    copy_note_version_inner(&notes_root, &state.note_history, version_id, Utc::now())
+    copy_note_version_inner(
+        &notes_root,
+        &state.writ_dir,
+        &state.note_history,
+        version_id,
+        Utc::now(),
+    )
 }
