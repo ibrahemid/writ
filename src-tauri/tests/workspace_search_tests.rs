@@ -57,6 +57,10 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
     let config_path = writ_dir.join("config.toml");
     let config_store = ConfigStore::new(config_path);
 
+    let note_history = Arc::new(
+        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+    );
+
     AppState {
         store: Mutex::new(store),
         config_store,
@@ -73,6 +77,7 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
         open_file_watcher: Mutex::new(None),
         file_tracking: Mutex::new(None),
         notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
+        note_history,
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
         notes_reconcile: Arc::new(ReconcileGate::new()),
         quit: Arc::new(QuitState::new()),

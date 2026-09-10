@@ -44,6 +44,10 @@ fn make_state(dir: &TempDir) -> AppState {
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
 
+    let note_history = Arc::new(
+        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+    );
+
     AppState {
         store: Mutex::new(BufferStore::new(conn, buffers_dir.clone())),
         config_store: ConfigStore::new(writ_dir.join("config.toml")),
@@ -60,6 +64,7 @@ fn make_state(dir: &TempDir) -> AppState {
         open_file_watcher: Mutex::new(None),
         file_tracking: Mutex::new(None),
         notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
+        note_history,
         notes_index_cancel: Arc::new(AtomicBool::new(false)),
         notes_reconcile: Arc::new(ReconcileGate::new()),
         quit: Arc::new(QuitState::new()),

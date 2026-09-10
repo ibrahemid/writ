@@ -17,6 +17,44 @@ use writ_storage::buffer_store::{dataless_flags, BufferStore, NoteFileState};
 use writ_storage::errors::StorageError;
 use writ_storage::guarded::write_conflict_copy;
 
+/// The one place a change from outside a write reaches the version store.
+///
+/// A reload is not a write, so it never reaches the facade's hook
+/// (`writ_storage::guarded::history_hook`), and neither does a conflict
+/// resolution or a file another program overwrote while Writ had it open.
+/// Those are this seam, and between them the two are the whole set: nothing
+/// captures inside the editor, inside a store, or at a third writer.
+///
+/// What this buys is the case Obsidian's file recovery does not cover
+/// (spec 481): the text a note held before something else wrote over it is
+/// kept, and it is kept before the tab takes the new one.
+///
+/// The merge window never applies here. It exists to collapse a run of Writ's
+/// own saves, each of which leaves its text in the file for the next one to
+/// replace; every text this seam sees is one Writ did not write and cannot
+/// produce again, and two of them inside ten seconds is two programs writing,
+/// not one person typing. There is no storm to collapse either: a text the
+/// store already holds is deduped by its digest, so a tab reopened on a file
+/// nothing touched costs nothing.
+///
+/// A note the notes folder does not hold is not versioned, and neither is a
+/// row whose text is not the file's — a binary read back as a hex dump is not
+/// a version of anything. A failure is logged and swallowed: a reload that
+/// could not be recorded is still a reload.
+pub(crate) fn keep_what_was_seen(state: &AppState, path: &Path, bytes: &[u8]) {
+    let Some(note) = state.note_history.key_for(path) else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    if let Err(e) = state.note_history.capture_replaced(&note, bytes, now) {
+        tracing::warn!(
+            note = %writ_storage::paths::file_name_only(&path.to_string_lossy()),
+            error = %e,
+            "this version of the note could not be kept"
+        );
+    }
+}
+
 /// Code a save carries when the file changed under Writ and the write was
 /// stopped.
 ///
@@ -509,7 +547,12 @@ pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, 
         } else {
             state.record_disk_state_bytes(id, path, content.as_bytes());
             // The reload of an externally changed note comes through here, so
-            // a file that gained or lost its carriage returns while Writ had
+            // this is where the text the tab is about to be given is kept.
+            // The text it is replacing was kept when Writ read or wrote it,
+            // which is what puts the pre-overwrite text in the store before
+            // the reload lands.
+            keep_what_was_seen(state, path, content.as_bytes());
+            // A file that gained or lost its carriage returns while Writ had
             // it open is followed rather than written back the old way.
             let ending = writ_core::notes::line_ending::LineEnding::detect(&content);
             if ending != doc.line_ending {
@@ -619,13 +662,35 @@ fn note_disk_state_of(path: &Path, st_flags: Option<u32>) -> Result<NoteDiskAnsw
 /// same reason a save's destination is ([`save_buffer_content_inner`]).
 #[tauri::command]
 pub fn note_disk_state(state: State<'_, AppState>, id: String) -> Result<NoteDiskAnswer, String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    let doc = store.get(&id).map_err(|e| e.to_string())?;
-    let Some(source_path) = doc.source_path.as_deref() else {
-        return Ok(NoteDiskAnswer::NoFile);
+    note_disk_state_inner(&state, &id)
+}
+
+/// [`note_disk_state`] as everything but the IPC boundary sees it.
+pub fn note_disk_state_inner(state: &AppState, id: &str) -> Result<NoteDiskAnswer, String> {
+    let (source_path, read_only) = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        let doc = store.get(id).map_err(|e| e.to_string())?;
+        let Some(source_path) = doc.source_path else {
+            return Ok(NoteDiskAnswer::NoFile);
+        };
+        (source_path, doc.read_only)
     };
-    let path = Path::new(source_path);
-    note_disk_state_of(path, writ_storage::buffer_store::dataless_flags(path))
+    let path = Path::new(&source_path);
+    let answer = note_disk_state_of(path, writ_storage::buffer_store::dataless_flags(path))?;
+    // This is what a tab asks after it is told its file changed, and the
+    // answer decides whether it reloads at all. A tab that leaves the
+    // question standing still leaves the text on disk in the store, so a
+    // second change over the top of the first does not take the first with
+    // it. Nothing is read for a file the store would refuse anyway.
+    if let NoteDiskAnswer::Described { disk } = &answer {
+        if !read_only && writ_core::note_history::is_versionable(disk.size) {
+            match std::fs::read(path) {
+                Ok(bytes) => keep_what_was_seen(state, path, &bytes),
+                Err(e) => tracing::debug!(error = %e, "the file could not be read for its version"),
+            }
+        }
+    }
+    Ok(answer)
 }
 
 /// What resolving a change outside Writ left behind.
@@ -744,6 +809,13 @@ pub fn resolve_external_change_at(
             disk_hash,
         });
     }
+
+    // Both sides, before either is applied (ADR-028 §5, spec 205). The file's
+    // text is about to be replaced or the tab's is about to be dropped, and
+    // which of the two it is depends on an answer that has not run yet.
+    keep_what_was_seen(state, path, &disk_bytes);
+    let mine = line_ending.apply(content);
+    keep_what_was_seen(state, path, mine.as_bytes());
 
     let outcome = apply_choice(choice);
     let losing: Cow<'_, str> = match outcome.write_conflict_copy_of {
