@@ -231,6 +231,14 @@ impl NoteHistoryStore {
     /// [`StorageError::Database`] when the index cannot be read.
     pub fn versions(&self, key: &VersionKey) -> StorageResult<Vec<VersionEntry>> {
         let conn = self.conn();
+        // Reading a note's versions can write one row. `resolve_note` asks the
+        // path first and, when the path has moved, repairs the note's row from
+        // its durable identity — which is how a note renamed while nothing was
+        // watching still lists what it held under its old name. The repair has
+        // to happen on whichever call arrives first, and for a note nobody
+        // saves again that call is this one. So this read takes the store's
+        // write lock like every other call; one process holds it (`set_history`
+        // has a single caller) and the panel asks once per open.
         let Some(note) = resolve_note(&conn, key, Mint::No)? else {
             return Ok(Vec::new());
         };
