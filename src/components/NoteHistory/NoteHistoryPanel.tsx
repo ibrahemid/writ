@@ -120,7 +120,7 @@ function VersionsDialog() {
       >
         <div class="note-versions-header">
           <span id={titleId} class="note-versions-title">
-            Versions
+            Earlier versions
           </span>
           <Show when={noteVersionsStore.path()}>
             {(path) => <span class="note-versions-note">{nameOf(path())}</span>}

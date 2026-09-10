@@ -61,7 +61,7 @@ export default function SearchResults() {
       ]);
     } else if (row.source === "history") {
       showContextMenu(e.clientX, e.clientY, [
-        { label: "Restore", action: () => void win.tabs.restoreFromHistory(row.id) },
+        { label: "Reopen", action: () => void win.tabs.restoreFromHistory(row.id) },
         {
           label: "Delete",
           action: () => void bufferRegistry.deleteFromHistory(row.id),
