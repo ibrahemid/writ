@@ -12,6 +12,7 @@ use std::time::{Duration, SystemTime};
 use tempfile::TempDir;
 use writ_core::note_history::{VersionKey, MAX_VERSIONS_PER_NOTE};
 use writ_core::notes::identity::{FileIdentity, IdentityProbe};
+use writ_core::notes::WriteOrigin;
 use writ_storage::errors::StorageError;
 use writ_storage::note_history::{Kept, NoteHistoryStore};
 
@@ -136,7 +137,7 @@ fn a_text_is_kept_and_comes_back_byte_for_byte() {
 
     let id = fixture
         .store
-        .capture(&key, &bytes, at(1_000))
+        .capture(&key, &bytes, at(1_000), &WriteOrigin::Editor)
         .expect("capture")
         .entry()
         .expect("an entry");
@@ -151,11 +152,11 @@ fn the_texts_live_under_the_data_directory_and_never_in_the_notes_folder() {
     let key = fixture.key(&path);
     fixture
         .store
-        .capture(&key, b"one\n", at(1_000))
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
         .expect("capture");
     fixture
         .store
-        .capture(&key, b"two\n", at(2_000))
+        .capture(&key, b"two\n", at(2_000), &WriteOrigin::Editor)
         .expect("capture");
 
     let in_notes = walk(&fixture.notes);
@@ -196,6 +197,7 @@ fn a_run_of_saves_inside_the_window_is_one_entry_and_the_next_one_is_another() {
                 &key,
                 text.as_bytes(),
                 start + Duration::from_millis(save * 90),
+                &WriteOrigin::Editor,
             )
             .expect("capture");
     }
@@ -207,9 +209,50 @@ fn a_run_of_saves_inside_the_window_is_one_entry_and_the_next_one_is_another() {
             &key,
             b"the eleventh second\n",
             start + Duration::from_secs(11),
+            &WriteOrigin::Editor,
         )
         .expect("capture");
     assert_eq!(fixture.store.versions(&key).expect("versions").len(), 2);
+}
+
+#[test]
+fn a_write_that_is_not_the_editors_is_never_absorbed_by_a_run_of_saves() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "the first\n");
+    let key = fixture.key(&path);
+    let start = at(1_000);
+
+    fixture
+        .store
+        .capture(&key, b"the second\n", start, &WriteOrigin::Editor)
+        .expect("save");
+    // Three seconds later, well inside the window a save would have joined.
+    let put_back = fixture
+        .store
+        .capture(
+            &key,
+            b"the first\n",
+            start + Duration::from_secs(3),
+            &WriteOrigin::Restore,
+        )
+        .expect("restore");
+
+    assert!(
+        matches!(put_back, Kept::Added(_)),
+        "a restore is a version of its own: {put_back:?}"
+    );
+    let texts: Vec<Vec<u8>> = fixture
+        .store
+        .versions(&key)
+        .expect("versions")
+        .into_iter()
+        .map(|entry| fixture.store.content(entry.id).expect("text"))
+        .collect();
+    assert_eq!(
+        texts,
+        vec![b"the first\n".to_vec(), b"the second\n".to_vec()],
+        "the text the restore landed on is still there to go back to"
+    );
 }
 
 #[test]
@@ -221,7 +264,12 @@ fn an_idle_save_storm_costs_nothing() {
     for save in 0..50u64 {
         fixture
             .store
-            .capture(&key, b"unchanged\n", at(1_000 + save * 60))
+            .capture(
+                &key,
+                b"unchanged\n",
+                at(1_000 + save * 60),
+                &WriteOrigin::Editor,
+            )
             .expect("capture");
     }
     assert_eq!(
@@ -240,7 +288,7 @@ fn a_text_about_to_be_replaced_is_kept_even_inside_the_window() {
 
     fixture
         .store
-        .capture(&key, b"mine\n", at(1_000))
+        .capture(&key, b"mine\n", at(1_000), &WriteOrigin::Editor)
         .expect("capture");
     fixture
         .store
@@ -265,7 +313,7 @@ fn a_note_over_the_ceiling_is_not_versioned_at_all() {
     assert_eq!(
         fixture
             .store
-            .capture(&key, &big, at(1_000))
+            .capture(&key, &big, at(1_000), &WriteOrigin::Editor)
             .expect("capture"),
         Kept::Nothing
     );
@@ -289,7 +337,7 @@ fn a_note_renamed_inside_the_folder_keeps_its_history_through_its_identity() {
     let key = fixture.key(&path);
     fixture
         .store
-        .capture(&key, b"one\n", at(1_000))
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
         .expect("capture");
 
     let renamed = fixture.notes.join("Ship it.md");
@@ -312,7 +360,7 @@ fn moving_the_notes_folder_keeps_every_notes_history() {
     let key = fixture.key(&path);
     fixture
         .store
-        .capture(&key, b"one\n", at(1_000))
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
         .expect("capture");
 
     let moved = fixture._home.path().join("Notes moved");
@@ -344,7 +392,7 @@ fn a_note_that_took_a_name_another_one_left_lists_what_that_name_held() {
     let key = fixture.key(&path);
     fixture
         .store
-        .capture(&key, b"the first\n", at(1_000))
+        .capture(&key, b"the first\n", at(1_000), &WriteOrigin::Editor)
         .expect("capture");
     std::fs::rename(&path, fixture.notes.join("Launch old.md")).expect("rename");
 
@@ -352,7 +400,12 @@ fn a_note_that_took_a_name_another_one_left_lists_what_that_name_held() {
     let second_key = fixture.store.key_for(&second).expect("key");
     fixture
         .store
-        .capture(&second_key, b"a different note\n", at(2_000))
+        .capture(
+            &second_key,
+            b"a different note\n",
+            at(2_000),
+            &WriteOrigin::Editor,
+        )
         .expect("capture");
 
     let versions = fixture.store.versions(&second_key).expect("versions");
@@ -380,13 +433,13 @@ fn a_volume_with_no_stable_id_still_keeps_a_notes_history_under_its_path() {
 
     fixture
         .store
-        .capture(&key, b"one\n", at(1_000))
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
         .expect("capture");
     std::fs::write(&path, "two\n").expect("write");
     let later = fixture.store.key_for(&path).expect("key");
     fixture
         .store
-        .capture(&later, b"two\n", at(2_000))
+        .capture(&later, b"two\n", at(2_000), &WriteOrigin::Editor)
         .expect("capture");
 
     assert_eq!(
@@ -403,7 +456,12 @@ fn a_note_whose_file_is_gone_still_answers_for_its_history() {
     let key = fixture.key(&path);
     fixture
         .store
-        .capture(&key, b"the last thing it said\n", at(1_000))
+        .capture(
+            &key,
+            b"the last thing it said\n",
+            at(1_000),
+            &WriteOrigin::Editor,
+        )
         .expect("capture");
     std::fs::remove_file(&path).expect("delete");
 
@@ -439,7 +497,12 @@ fn pruning_gives_back_the_disk_and_not_only_the_rows() {
         let text = format!("draft {save}\n");
         fixture
             .store
-            .capture(&key, text.as_bytes(), old + Duration::from_secs(save * 60))
+            .capture(
+                &key,
+                text.as_bytes(),
+                old + Duration::from_secs(save * 60),
+                &WriteOrigin::Editor,
+            )
             .expect("capture");
     }
     assert_eq!(walk(&fixture.writ_dir.join("history")).len(), 5);
@@ -468,15 +531,15 @@ fn two_entries_holding_one_text_keep_it_until_both_are_gone() {
     // There and back again: two entries, one text.
     fixture
         .store
-        .capture(&key, b"one\n", at(1_000))
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
         .expect("capture");
     fixture
         .store
-        .capture(&key, b"two\n", at(2_000))
+        .capture(&key, b"two\n", at(2_000), &WriteOrigin::Editor)
         .expect("capture");
     fixture
         .store
-        .capture(&key, b"one\n", at(3_000))
+        .capture(&key, b"one\n", at(3_000), &WriteOrigin::Editor)
         .expect("capture");
     assert_eq!(fixture.store.versions(&key).expect("versions").len(), 3);
     assert_eq!(walk(&fixture.writ_dir.join("history")).len(), 2);
@@ -508,7 +571,12 @@ fn ten_thousand_saves_of_one_note_leave_two_hundred_versions_and_a_small_store()
         text.extend_from_slice(save.to_string().as_bytes());
         fixture
             .store
-            .capture(&key, &text, start + Duration::from_secs(save * 60))
+            .capture(
+                &key,
+                &text,
+                start + Duration::from_secs(save * 60),
+                &WriteOrigin::Editor,
+            )
             .expect("capture");
     }
     let last = start + Duration::from_secs(10_000 * 60);

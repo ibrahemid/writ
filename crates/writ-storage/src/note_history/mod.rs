@@ -26,6 +26,7 @@ use writ_core::note_history::{
     is_versionable, prune_plan, should_capture, VersionFacts, VersionKey,
 };
 use writ_core::notes::identity::{FileIdentity, IdentityProbe};
+use writ_core::notes::WriteOrigin;
 
 use crate::errors::{StorageError, StorageResult};
 use crate::maintenance::{checkpoint_truncate, read_stats, MaintenanceOutcome};
@@ -175,19 +176,30 @@ impl NoteHistoryStore {
         Some(VersionKey::new(identity, PathBuf::from(slug)))
     }
 
-    /// Keeps `bytes` as a version of the note `key` names.
+    /// Keeps `bytes` as a version of the note `key` names, as `origin` wrote
+    /// it.
     ///
-    /// A text [`writ_core::note_history::should_capture`] turned down inside
-    /// the merge window becomes the newest entry rather than a second one
+    /// A text the editor wrote that
+    /// [`writ_core::note_history::should_capture`] turned down inside the
+    /// merge window becomes the newest entry rather than a second one
     /// ([`Kept::Merged`]), so a run of saves is one version of the note
-    /// holding the last text the run wrote.
+    /// holding the last text the run wrote. Every other origin is an entry of
+    /// its own or nothing at all ([`Merge::for_origin`]): a restore that
+    /// merged into the save it landed on would sweep the text it was there to
+    /// let somebody go back to.
     ///
     /// # Errors
     ///
     /// [`StorageError::Io`] when the text cannot be written and
     /// [`StorageError::Database`] when the index cannot be read or written.
-    pub fn capture(&self, key: &VersionKey, bytes: &[u8], at: SystemTime) -> StorageResult<Kept> {
-        self.record(key, bytes, at, Merge::Window)
+    pub fn capture(
+        &self,
+        key: &VersionKey,
+        bytes: &[u8],
+        at: SystemTime,
+        origin: &WriteOrigin,
+    ) -> StorageResult<Kept> {
+        self.record(key, bytes, at, Merge::for_origin(origin))
     }
 
     /// Keeps `bytes` as a version of the note `key` names, whatever the merge
@@ -561,8 +573,37 @@ enum Merge {
     /// The ordinary rule: a text captured inside the window is merged into
     /// the entry before it.
     Window,
-    /// For a text that is about to stop existing.
+    /// For a text that is about to stop existing, and for every write that is
+    /// not the editor's own.
     Never,
+}
+
+impl Merge {
+    /// Which writes a run of saves is allowed to absorb: the editor's, and
+    /// nothing else.
+    ///
+    /// Merging replaces the newest entry's text and sweeps the one it held,
+    /// which is right for the next keystroke of a run somebody is typing and
+    /// wrong for everything else. A restore, an applied proposal, a program's
+    /// write and a rename all land on a note the person may have saved
+    /// seconds earlier, and merging one of those into that save would take
+    /// the saved text out of the store — the one text the restore is there to
+    /// go back to.
+    ///
+    /// Autosave and the save keystroke both reach here as
+    /// [`WriteOrigin::Editor`] (`crate::buffer_store`), so the run this
+    /// collapses is the whole of it.
+    fn for_origin(origin: &WriteOrigin) -> Self {
+        match origin {
+            WriteOrigin::Editor => Merge::Window,
+            WriteOrigin::Autosave
+            | WriteOrigin::Restore
+            | WriteOrigin::Chat
+            | WriteOrigin::Cli
+            | WriteOrigin::Mcp { .. }
+            | WriteOrigin::RenamePropagation => Merge::Never,
+        }
+    }
 }
 
 /// Whether a note with no row yet gets one.

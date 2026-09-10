@@ -137,7 +137,7 @@ pub fn history_hook(store: &NoteHistoryStore, capture: WriteCapture<'_>) {
             );
         }
     }
-    if let Err(e) = store.capture(&note, capture.bytes, now) {
+    if let Err(e) = store.capture(&note, capture.bytes, now, capture.origin) {
         warn!(
             note = %file_name_only(&capture.target.to_string_lossy()),
             error = %e,

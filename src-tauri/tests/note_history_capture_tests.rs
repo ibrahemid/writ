@@ -147,6 +147,23 @@ impl App {
         (id, PathBuf::from(canonical))
     }
 
+    /// The entry holding `text`, which is what a restore is asked for by id.
+    fn version_holding(&self, path: &Path, text: &[u8]) -> i64 {
+        let note = self
+            .state
+            .note_history
+            .key_for(path)
+            .expect("a note inside the folder");
+        self.state
+            .note_history
+            .versions(&note)
+            .expect("versions")
+            .into_iter()
+            .find(|entry| self.state.note_history.content(entry.id).expect("text") == text.to_vec())
+            .map(|entry| entry.id)
+            .expect("an entry holding that text")
+    }
+
     /// Every text the store holds for the note at `path`, newest first.
     fn versions_of(&self, path: &Path) -> Vec<Vec<u8>> {
         let note = self
@@ -293,6 +310,58 @@ fn a_save_keeps_the_text_it_wrote() {
         app.versions_of(&path),
         vec![b"the second\n".to_vec(), b"the first\n".to_vec()]
     );
+}
+
+#[test]
+fn a_restore_moments_after_a_save_keeps_the_text_that_save_wrote() {
+    let app = App::new();
+    let (id, path) = app.open("Launch.md", "the first\n");
+    save_buffer_content_inner(&app.state, &id, "the second\n").expect("save");
+
+    // No wait: the restore lands inside the ten seconds a run of saves
+    // collapses into one version.
+    let first = app.version_holding(&path, b"the first\n");
+    restore_note_version_inner(
+        &app.state.notes_root(),
+        &app.state.note_history,
+        first,
+        app.state.disk_state(&id),
+    )
+    .expect("restore");
+
+    assert_eq!(std::fs::read(&path).expect("read"), b"the first\n");
+    let kept = app.versions_of(&path);
+    assert!(
+        kept.contains(&b"the second\n".to_vec()),
+        "the text the restore replaced is still there: {kept:?}"
+    );
+}
+
+#[test]
+fn restoring_back_moments_later_returns_the_note_to_what_the_save_wrote() {
+    let app = App::new();
+    let (id, path) = app.open("Launch.md", "the first\n");
+    save_buffer_content_inner(&app.state, &id, "the second\n").expect("save");
+
+    let first = app.version_holding(&path, b"the first\n");
+    restore_note_version_inner(
+        &app.state.notes_root(),
+        &app.state.note_history,
+        first,
+        app.state.disk_state(&id),
+    )
+    .expect("restore");
+
+    let second = app.version_holding(&path, b"the second\n");
+    restore_note_version_inner(
+        &app.state.notes_root(),
+        &app.state.note_history,
+        second,
+        None,
+    )
+    .expect("restore back");
+
+    assert_eq!(std::fs::read(&path).expect("read"), b"the second\n");
 }
 
 #[test]
