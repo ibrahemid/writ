@@ -1145,11 +1145,23 @@ mod stream_tests {
     #[test]
     fn no_key_prompt_note_or_reply_reaches_a_log_line() {
         let prepared = prepared_for("http://127.0.0.1:1", Provider::Anthropic, Some(SECRET_KEY));
+
+        // A data folder the append cannot create, on every OS: a regular file
+        // stands where a parent directory would have to be, so `create_dir_all`
+        // fails on the component rather than on a permission the platform
+        // happens to grant. An unwritable absolute path is not portable — the
+        // root of a Windows drive is writable, the directory gets made, the
+        // append succeeds and the WARN this asserts is never written.
+        let unwritable = tempfile::TempDir::new().expect("temp dir");
+        let blocker = unwritable.path().join("not-a-folder");
+        std::fs::write(&blocker, b"a file, not a folder\n").expect("seed the blocker");
+        let writ_dir = blocker.join("child");
+
         let logs = captured_logs(|| {
             log_request(&prepared, NOTE_TEXT.len(), 1);
             log_rejected(401);
             record_proposal(
-                Path::new("/nowhere/at/all"),
+                &writ_dir,
                 "127.0.0.1",
                 "apply_proposal",
                 "Ideas/Launch.md",
@@ -1157,6 +1169,19 @@ mod stream_tests {
                 Some(12),
             );
         });
+        // The blocker is still the thing that stopped the append: a change
+        // that made `open_lock` fail somewhere else would still write the
+        // warning below, and this test would pass for a reason it did not
+        // arrange.
+        assert!(
+            blocker.is_file(),
+            "the append was stopped by something other than the file in its path"
+        );
+        assert!(
+            !writ_dir.exists(),
+            "the data folder was created after all: {writ_dir:?}"
+        );
+
         // The positive control comes first. Every negative assertion below is
         // of the form "this string is not in the buffer", which a buffer that
         // never filled satisfies for the wrong reason. Each of the three calls
