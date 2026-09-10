@@ -960,7 +960,6 @@ fn decision_of<T>(result: &Result<T, ToolError>) -> Decision {
 /// the file would have been: the log says `Ship it.md` whether the note was
 /// minted or turned down, rather than a path one time and a bare name the
 /// next. A name that sanitises to nothing is left as it was written.
-
 fn minted_slug(name: &str) -> String {
     writ_core::notes::sanitize_title(name)
         .map(|stem| format!("{stem}.{NOTE_EXTENSION}"))
