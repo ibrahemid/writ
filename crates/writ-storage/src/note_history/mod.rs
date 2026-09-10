@@ -318,7 +318,7 @@ impl NoteHistoryStore {
     /// entry is gone from the index either way, and a file left behind is
     /// picked up by the next pass.
     pub fn prune(&self, now: SystemTime) -> StorageResult<PruneOutcome> {
-        let conn = self.conn();
+        let mut conn = self.conn();
         let facts = read_facts(&conn)?;
         let plan = prune_plan(&facts, now);
         if plan.is_empty() {
@@ -330,25 +330,31 @@ impl NoteHistoryStore {
             });
         }
 
+        // One transaction, dropped rather than committed on the way out of
+        // any `?`: a pass that stops halfway leaves the index as it was, and
+        // the texts are swept afterwards from what the commit actually says.
         let mut orphaned: HashSet<String> = HashSet::new();
         {
-            let mut statement = conn.prepare("SELECT hash FROM versions WHERE id = ?1")?;
-            let mut delete = conn.prepare("DELETE FROM versions WHERE id = ?1")?;
-            conn.execute_batch("BEGIN")?;
-            for id in &plan.retire {
-                let hash: Option<String> =
-                    statement.query_row([id], |row| row.get(0)).optional()?;
-                delete.execute([id])?;
-                if let Some(hash) = hash {
-                    orphaned.insert(hash);
+            let transaction = conn.transaction()?;
+            {
+                let mut statement =
+                    transaction.prepare("SELECT hash FROM versions WHERE id = ?1")?;
+                let mut delete = transaction.prepare("DELETE FROM versions WHERE id = ?1")?;
+                for id in &plan.retire {
+                    let hash: Option<String> =
+                        statement.query_row([id], |row| row.get(0)).optional()?;
+                    delete.execute([id])?;
+                    if let Some(hash) = hash {
+                        orphaned.insert(hash);
+                    }
                 }
             }
-            conn.execute_batch("COMMIT")?;
+            transaction.execute(
+                "DELETE FROM notes WHERE id NOT IN (SELECT DISTINCT note_id FROM versions)",
+                [],
+            )?;
+            transaction.commit()?;
         }
-        conn.execute(
-            "DELETE FROM notes WHERE id NOT IN (SELECT DISTINCT note_id FROM versions)",
-            [],
-        )?;
 
         let mut texts_deleted = 0;
         let mut bytes_freed = 0;
