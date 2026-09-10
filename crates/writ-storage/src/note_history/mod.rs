@@ -50,6 +50,34 @@ pub struct VersionEntry {
     pub hash: String,
 }
 
+/// What became of one text handed to the store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kept {
+    /// An entry of its own.
+    Added(i64),
+    /// The newest entry, which was inside the merge window and made by the
+    /// same run of saves, now holds this text instead of the one it had.
+    Merged(i64),
+    /// Nothing. The store already holds this text, or the note is over the
+    /// size ceiling, or it is not a note the store keys.
+    Nothing,
+}
+
+impl Kept {
+    /// The entry this text ended up in, if it ended up in one.
+    pub fn entry(&self) -> Option<i64> {
+        match self {
+            Self::Added(id) | Self::Merged(id) => Some(*id),
+            Self::Nothing => None,
+        }
+    }
+
+    /// Whether this text earned an entry of its own.
+    pub fn is_new_entry(&self) -> bool {
+        matches!(self, Self::Added(_))
+    }
+}
+
 /// What a pruning pass did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PruneOutcome {
@@ -149,20 +177,16 @@ impl NoteHistoryStore {
 
     /// Keeps `bytes` as a version of the note `key` names.
     ///
-    /// Returns the entry made, or `None` for a text
-    /// [`writ_core::note_history::should_capture`] said was not worth one and
-    /// for a note over the size ceiling.
+    /// A text [`writ_core::note_history::should_capture`] turned down inside
+    /// the merge window becomes the newest entry rather than a second one
+    /// ([`Kept::Merged`]), so a run of saves is one version of the note
+    /// holding the last text the run wrote.
     ///
     /// # Errors
     ///
     /// [`StorageError::Io`] when the text cannot be written and
     /// [`StorageError::Database`] when the index cannot be read or written.
-    pub fn capture(
-        &self,
-        key: &VersionKey,
-        bytes: &[u8],
-        at: SystemTime,
-    ) -> StorageResult<Option<i64>> {
+    pub fn capture(&self, key: &VersionKey, bytes: &[u8], at: SystemTime) -> StorageResult<Kept> {
         self.record(key, bytes, at, Merge::Window)
     }
 
@@ -184,7 +208,7 @@ impl NoteHistoryStore {
         key: &VersionKey,
         bytes: &[u8],
         at: SystemTime,
-    ) -> StorageResult<Option<i64>> {
+    ) -> StorageResult<Kept> {
         self.record(key, bytes, at, Merge::Never)
     }
 
@@ -378,34 +402,67 @@ impl NoteHistoryStore {
         bytes: &[u8],
         at: SystemTime,
         merge: Merge,
-    ) -> StorageResult<Option<i64>> {
+    ) -> StorageResult<Kept> {
         if !is_versionable(bytes.len() as u64) {
-            return Ok(None);
+            return Ok(Kept::Nothing);
         }
         let hash = sha256_hex(bytes);
         let Some(digest) = digest_from_hex(&hash) else {
-            return Ok(None);
+            return Ok(Kept::Nothing);
         };
         let conn = self.conn();
         let Some(note) = resolve_note(&conn, key, Mint::Yes)? else {
-            return Ok(None);
+            return Ok(Kept::Nothing);
         };
-        let newest: Option<(i64, String)> = conn
+        let newest: Option<Newest> = conn
             .query_row(
-                "SELECT at_ms, hash FROM versions WHERE note_id = ?1 \
+                "SELECT id, at_ms, hash, merges FROM versions WHERE note_id = ?1 \
                  ORDER BY at_ms DESC, id DESC LIMIT 1",
                 [note],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| {
+                    Ok(Newest {
+                        id: row.get(0)?,
+                        at_ms: row.get(1)?,
+                        hash: row.get(2)?,
+                        merges: row.get::<_, i64>(3)? != 0,
+                    })
+                },
             )
             .optional()?;
-        let last_hash: Option<Sha256Digest> =
-            newest.as_ref().and_then(|(_, hash)| digest_from_hex(hash));
+        let last_hash: Option<Sha256Digest> = newest
+            .as_ref()
+            .and_then(|newest| digest_from_hex(&newest.hash));
+        // The window is measured against the run of saves this one would join,
+        // never against an entry the external-change seam made: a save two
+        // seconds after a note was opened is the first save of a run, not the
+        // second text of one, and merging it into what the file held before
+        // anybody typed would leave the save nowhere.
         let last_at = match merge {
-            Merge::Window => newest.as_ref().map(|(at_ms, _)| from_millis(*at_ms)),
+            Merge::Window => newest
+                .as_ref()
+                .filter(|newest| newest.merges)
+                .map(|newest| from_millis(newest.at_ms)),
             Merge::Never => None,
         };
         if !should_capture(last_at, at, digest, last_hash) {
-            return Ok(None);
+            // Inside the window, and the newest entry is this same run of
+            // saves: it becomes the text this save wrote. Dropping the text
+            // instead would leave the run's latest work nowhere but the file,
+            // and something else writing that file a second later would take
+            // it. The entry keeps the time it was made, so the window is the
+            // window and not a rolling one a long session never closes.
+            let mergeable = newest.as_ref().is_some_and(|newest| newest.merges);
+            if merge == Merge::Window && mergeable && last_hash != Some(digest) {
+                let newest = newest.expect("mergeable implies an entry");
+                self.write_blob(&hash, bytes)?;
+                conn.execute(
+                    "UPDATE versions SET hash = ?1, bytes = ?2 WHERE id = ?3",
+                    rusqlite::params![&hash, bytes.len() as i64, newest.id],
+                )?;
+                self.forget_text(&conn, &newest.hash)?;
+                return Ok(Kept::Merged(newest.id));
+            }
+            return Ok(Kept::Nothing);
         }
 
         // The text lands before the row that names it. A text with no row is
@@ -413,10 +470,41 @@ impl NoteHistoryStore {
         // is an entry that cannot be restored.
         self.write_blob(&hash, bytes)?;
         conn.execute(
-            "INSERT INTO versions (note_id, at_ms, bytes, hash) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![note, as_millis(at), bytes.len() as i64, &hash],
+            "INSERT INTO versions (note_id, at_ms, bytes, hash, merges) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                note,
+                as_millis(at),
+                bytes.len() as i64,
+                &hash,
+                i64::from(merge == Merge::Window)
+            ],
         )?;
-        Ok(Some(conn.last_insert_rowid()))
+        Ok(Kept::Added(conn.last_insert_rowid()))
+    }
+
+    /// Deletes a text no entry names any more.
+    ///
+    /// Called where one entry stops naming it — a merge — rather than only
+    /// from [`Self::prune`], so a run of saves does not leave one file per
+    /// keystroke behind for a pass that may be days away.
+    fn forget_text(&self, conn: &Connection, hash: &str) -> StorageResult<()> {
+        let still_held: Option<i64> = conn
+            .query_row(
+                "SELECT 1 FROM versions WHERE hash = ?1 LIMIT 1",
+                [hash],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if still_held.is_some() {
+            return Ok(());
+        }
+        match std::fs::remove_file(self.blob_path(hash)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => warn!(error = %e, "a text no version names could not be deleted"),
+        }
+        Ok(())
     }
 
     /// Where the text with this digest is kept.
@@ -452,6 +540,19 @@ impl NoteHistoryStore {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+}
+
+/// The newest entry a note has, which is what a capture is weighed against.
+struct Newest {
+    id: i64,
+    at_ms: i64,
+    hash: String,
+    /// Whether a save inside the window may become this entry.
+    ///
+    /// True for the entries a run of saves makes and false for the ones the
+    /// external-change seam makes: a text Writ did not write is not part of
+    /// anybody's run of saves and must not be written over by one.
+    merges: bool,
 }
 
 /// Whether the merge window applies to one capture.
@@ -490,7 +591,8 @@ fn create_schema(conn: &Connection) -> StorageResult<()> {
             note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
             at_ms INTEGER NOT NULL,
             bytes INTEGER NOT NULL,
-            hash TEXT NOT NULL
+            hash TEXT NOT NULL,
+            merges INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS versions_by_note ON versions(note_id, at_ms DESC, id DESC);
         CREATE INDEX IF NOT EXISTS versions_by_hash ON versions(hash);

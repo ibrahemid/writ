@@ -104,20 +104,17 @@ pub type HistoryHook<'a> = Option<&'a dyn Fn(WriteCapture<'_>)>;
 
 /// What a write hands the version store.
 ///
-/// One decision per write, and it is the merge window's
-/// ([`writ_core::note_history::should_capture`]) about the text that landed.
-/// A run of autosaves inside the window is one version of the note, which is
-/// what the window is for; the text of each intermediate save is in the file
-/// until the next one replaces it, and the file is where a person's text
-/// lives (ADR-028 §1).
+/// Two texts, in the order they existed. What the file held before this write
+/// is offered first, and it earns an entry only when the store does not
+/// already hold it — after a save it is the entry that save made, so the
+/// common case costs a digest and nothing else. What it earns an entry for is
+/// the text nothing else can get back: the note as it was before the first
+/// save of a session, and, where the guard let a write through against no
+/// record, whatever the file was holding.
 ///
-/// A write that is kept also keeps what it landed on, stamped a moment
-/// earlier so the two read in the order they happened. That text is the one
-/// this cannot get back: the note as it was before the first save of a
-/// session, and, where the guard let a write through against no record at
-/// all, whatever the file was holding. A write the window merged away keeps
-/// nothing, because the text it replaced is the text the entry before it
-/// already holds.
+/// Then the text that landed, under the merge window
+/// ([`writ_core::note_history::should_capture`]): a run of autosaves is one
+/// version of the note, holding the last text the run wrote.
 ///
 /// A failure is logged and swallowed. A save that landed has landed, and a
 /// version store that could not keep a copy of it is not a reason to tell the
@@ -127,31 +124,24 @@ pub fn history_hook(store: &NoteHistoryStore, capture: WriteCapture<'_>) {
         return;
     };
     let now = SystemTime::now();
-    let kept = match store.capture(&note, capture.bytes, now) {
-        Ok(kept) => kept,
-        Err(e) => {
+    if let Some(before) = capture.before {
+        // A moment earlier, so the two read in the order they happened.
+        let earlier = now
+            .checked_sub(std::time::Duration::from_millis(1))
+            .unwrap_or(now);
+        if let Err(e) = store.capture_replaced(&note, before, earlier) {
             warn!(
                 note = %file_name_only(&capture.target.to_string_lossy()),
                 error = %e,
-                "this version of the note could not be kept"
+                "what the note held before this write could not be kept"
             );
-            return;
         }
-    };
-    if kept.is_none() {
-        return;
     }
-    let Some(before) = capture.before else {
-        return;
-    };
-    let a_moment_earlier = now
-        .checked_sub(std::time::Duration::from_millis(1))
-        .unwrap_or(now);
-    if let Err(e) = store.capture_replaced(&note, before, a_moment_earlier) {
+    if let Err(e) = store.capture(&note, capture.bytes, now) {
         warn!(
             note = %file_name_only(&capture.target.to_string_lossy()),
             error = %e,
-            "what the note held before this write could not be kept"
+            "this version of the note could not be kept"
         );
     }
 }

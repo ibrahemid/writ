@@ -13,7 +13,7 @@ use tempfile::TempDir;
 use writ_core::note_history::{VersionKey, MAX_VERSIONS_PER_NOTE};
 use writ_core::notes::identity::{FileIdentity, IdentityProbe};
 use writ_storage::errors::StorageError;
-use writ_storage::note_history::NoteHistoryStore;
+use writ_storage::note_history::{Kept, NoteHistoryStore};
 
 /// The platform's answer on Unix, and a description everywhere else.
 ///
@@ -138,6 +138,7 @@ fn a_text_is_kept_and_comes_back_byte_for_byte() {
         .store
         .capture(&key, &bytes, at(1_000))
         .expect("capture")
+        .entry()
         .expect("an entry");
 
     assert_eq!(fixture.store.content(id).expect("content"), bytes);
@@ -266,7 +267,7 @@ fn a_note_over_the_ceiling_is_not_versioned_at_all() {
             .store
             .capture(&key, &big, at(1_000))
             .expect("capture"),
-        None
+        Kept::Nothing
     );
     assert!(fixture.store.versions(&key).expect("versions").is_empty());
     assert!(walk(&fixture.writ_dir.join("history")).is_empty());
