@@ -17,9 +17,10 @@ use writ_core::notes::guard::{DiskState, SaveDecision, SF_DATALESS};
 use writ_core::notes::WriteOrigin;
 use writ_storage::errors::StorageError;
 use writ_storage::guarded::{
-    create_note_guarded, guard_rename, history_hook, write_note_guarded, ConflictPolicy,
+    create_note_guarded, guard_rename, keep_versions, write_note_guarded, ConflictPolicy,
     CreateNote, DiskRead, GuardedWrite, TakenName, WriteCapture,
 };
+use writ_storage::note_history::NoteHistoryStore;
 
 /// What the file holds right now, as the adapter records it after a read.
 fn recorded(path: &Path) -> DiskState {
@@ -406,17 +407,66 @@ fn a_write_that_never_landed_is_never_captured() {
 }
 
 #[test]
-fn the_hook_the_crate_ships_lets_the_write_through() {
-    let (_root, path) = seeded("what was there\n");
-    let mut request = saving(&path, b"what is there now\n", Some(recorded(&path)));
-    request.history = Some(&history_hook);
+fn the_hook_the_crate_ships_keeps_both_texts_and_lets_the_write_through() {
+    let (root, path) = seeded("what was there\n");
+    let data = TempDir::new().expect("temp dir");
+    let versions = NoteHistoryStore::open(data.path()).expect("open the store");
+    versions.set_notes_root(root.path().to_path_buf());
+    let keep = keep_versions(&versions);
 
+    let mut request = saving(&path, b"what is there now\n", Some(recorded(&path)));
+    request.history = Some(&keep);
     let outcome = write_note_guarded(request, None).expect("write");
 
     assert_eq!(outcome.decision, SaveDecision::Proceed);
     assert_eq!(
         std::fs::read_to_string(&path).expect("read"),
         "what is there now\n"
+    );
+
+    let note = versions.key_for(&path).expect("a note inside the folder");
+    let kept = versions.versions(&note).expect("versions");
+    assert_eq!(
+        kept.len(),
+        2,
+        "the text that landed and the one it landed on"
+    );
+    assert_eq!(
+        versions.content(kept[0].id).expect("content"),
+        b"what is there now\n"
+    );
+    assert_eq!(
+        versions.content(kept[1].id).expect("content"),
+        b"what was there\n"
+    );
+}
+
+#[test]
+fn a_run_of_saves_inside_the_merge_window_keeps_one_version_of_the_note() {
+    let (root, path) = seeded("what was there\n");
+    let data = TempDir::new().expect("temp dir");
+    let versions = NoteHistoryStore::open(data.path()).expect("open the store");
+    versions.set_notes_root(root.path().to_path_buf());
+    let keep = keep_versions(&versions);
+
+    for save in 0..20 {
+        let text = format!("draft {save}\n");
+        let mut request = saving(&path, text.as_bytes(), Some(recorded(&path)));
+        request.history = Some(&keep);
+        write_note_guarded(request, None).expect("write");
+    }
+
+    let note = versions.key_for(&path).expect("a note inside the folder");
+    let kept = versions.versions(&note).expect("versions");
+    assert_eq!(
+        kept.len(),
+        2,
+        "the first save's text, and the text the note had before it"
+    );
+    assert_eq!(
+        versions.content(kept[1].id).expect("content"),
+        b"what was there\n",
+        "the one text the run could not have got back"
     );
 }
 

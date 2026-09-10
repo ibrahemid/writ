@@ -318,6 +318,7 @@ fn chat_apply_proposal_writes_the_note_and_records_it() {
         "Launch.md",
         "the second text\n",
         &before,
+        None,
     )
     .expect("applied");
 
@@ -355,6 +356,7 @@ fn a_refused_note_in_a_subfolder_keeps_its_folder_relative_key() {
         "Ideas/Launch.md",
         "the model's text\n",
         &before,
+        None,
     )
     .expect_err("refused");
     assert!(error.starts_with("Ideas/Launch.md "), "got: {error}");
@@ -374,6 +376,7 @@ fn chat_apply_proposal_refuses_a_note_that_changed_and_leaves_a_copy() {
         "Launch.md",
         "the model's text\n",
         &before,
+        None,
     )
     .expect_err("refused");
 
@@ -425,6 +428,7 @@ fn chat_apply_proposal_refuses_a_path_outside_the_notes_folder() {
         &stranger.to_string_lossy(),
         "owned\n",
         &before,
+        None,
     )
     .expect_err("refused");
     assert!(error.contains("notes folder"), "got: {error}");
@@ -446,6 +450,7 @@ fn chat_apply_proposal_refuses_a_hash_it_cannot_read() {
         "Launch.md",
         "the model's text\n",
         "not-a-digest",
+        None,
     )
     .expect_err("refused");
     assert!(error.contains("Launch.md"), "got: {error}");

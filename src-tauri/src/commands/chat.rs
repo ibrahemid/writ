@@ -486,6 +486,7 @@ pub fn apply_proposal_inner(
     path: &str,
     new_content: &str,
     before_hash: &str,
+    history: Option<&writ_storage::note_history::NoteHistoryStore>,
 ) -> Result<ProposalOutcome, String> {
     let file = note_file_in(notes_root, path)?;
     let note_key = relative_key(notes_root, &file)?;
@@ -493,6 +494,7 @@ pub fn apply_proposal_inner(
         return Err(format!("The recorded state of {note_key} is not readable."));
     };
 
+    let keep = history.map(writ_storage::guarded::keep_versions);
     let outcome = write_note_guarded(
         GuardedWrite {
             target: &file,
@@ -509,7 +511,9 @@ pub fn apply_proposal_inner(
             dataless: None,
             origin: WriteOrigin::Chat,
             on_conflict: ConflictPolicy::RefuseWithCopy,
-            history: None,
+            history: keep
+                .as_ref()
+                .map(|hook| hook as &dyn Fn(writ_storage::guarded::WriteCapture<'_>)),
         },
         None,
     );
@@ -842,6 +846,7 @@ pub fn chat_apply_proposal(
         &path,
         &new_content,
         &before_hash,
+        Some(&app.state::<AppState>().note_history),
     );
     announce_activity(&app);
     outcome

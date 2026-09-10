@@ -18,6 +18,7 @@
 //! version store is filled in.
 
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
 use tracing::warn;
@@ -31,6 +32,8 @@ use crate::buffer_store::{
     dataless_flags, read_disk_state, taken_names, BeforeWrite, DatalessProbe,
 };
 use crate::errors::{StorageError, StorageResult};
+use crate::note_history::NoteHistoryStore;
+use crate::paths::file_name_only;
 
 /// What a refusal does with the text it was handed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +84,12 @@ pub struct WriteCapture<'a> {
     /// What the file held immediately before, or `None` when there was no
     /// file at the path.
     pub before: Option<&'a [u8]>,
+    /// The bytes that landed.
+    ///
+    /// Not read back off the disk: a second read describes whatever was
+    /// written after this one, and the version a person restores has to be
+    /// the text this write put there.
+    pub bytes: &'a [u8],
     /// What the file holds now.
     pub after: &'a DiskState,
 }
@@ -88,14 +97,73 @@ pub struct WriteCapture<'a> {
 /// The seam a version store is hung on: called once per write that landed,
 /// never for a write that was refused and never for one that was not needed.
 ///
-/// `None` for a caller keeping no versions, which is every caller today.
+/// `None` for a caller keeping no versions: the command line and the MCP
+/// server, which run in their own processes and write no database of the
+/// app's, and every test that is not about versions.
 pub type HistoryHook<'a> = Option<&'a dyn Fn(WriteCapture<'_>)>;
 
-/// What a hook that keeps nothing does with a write.
+/// What a write hands the version store.
 ///
-/// The default while nothing versions a note's text: the write is handed over
-/// and dropped.
-pub fn history_hook(_capture: WriteCapture<'_>) {}
+/// One decision per write, and it is the merge window's
+/// ([`writ_core::note_history::should_capture`]) about the text that landed.
+/// A run of autosaves inside the window is one version of the note, which is
+/// what the window is for; the text of each intermediate save is in the file
+/// until the next one replaces it, and the file is where a person's text
+/// lives (ADR-028 §1).
+///
+/// A write that is kept also keeps what it landed on, stamped a moment
+/// earlier so the two read in the order they happened. That text is the one
+/// this cannot get back: the note as it was before the first save of a
+/// session, and, where the guard let a write through against no record at
+/// all, whatever the file was holding. A write the window merged away keeps
+/// nothing, because the text it replaced is the text the entry before it
+/// already holds.
+///
+/// A failure is logged and swallowed. A save that landed has landed, and a
+/// version store that could not keep a copy of it is not a reason to tell the
+/// user their text did not reach the disk.
+pub fn history_hook(store: &NoteHistoryStore, capture: WriteCapture<'_>) {
+    let Some(note) = store.key_for(capture.target) else {
+        return;
+    };
+    let now = SystemTime::now();
+    let kept = match store.capture(&note, capture.bytes, now) {
+        Ok(kept) => kept,
+        Err(e) => {
+            warn!(
+                note = %file_name_only(&capture.target.to_string_lossy()),
+                error = %e,
+                "this version of the note could not be kept"
+            );
+            return;
+        }
+    };
+    if kept.is_none() {
+        return;
+    }
+    let Some(before) = capture.before else {
+        return;
+    };
+    let a_moment_earlier = now
+        .checked_sub(std::time::Duration::from_millis(1))
+        .unwrap_or(now);
+    if let Err(e) = store.capture_replaced(&note, before, a_moment_earlier) {
+        warn!(
+            note = %file_name_only(&capture.target.to_string_lossy()),
+            error = %e,
+            "what the note held before this write could not be kept"
+        );
+    }
+}
+
+/// Binds [`history_hook`] to a store, for a caller that keeps versions.
+///
+/// The two lines a caller writes are `let keep = versions.map(keep_versions);`
+/// and `keep.as_ref().map(|hook| hook as &dyn Fn(WriteCapture<'_>))`: the
+/// closure has to be owned by the caller for the write to borrow it.
+pub fn keep_versions(store: &NoteHistoryStore) -> impl Fn(WriteCapture<'_>) + '_ {
+    move |capture| history_hook(store, capture)
+}
 
 /// One write of a note's file, and everything the guard needs to judge it.
 pub struct GuardedWrite<'a> {
@@ -226,6 +294,7 @@ pub fn write_note_guarded(
                     target,
                     origin: &req.origin,
                     before: before.as_deref(),
+                    bytes: req.bytes,
                     after: &after,
                 });
             }
