@@ -73,6 +73,8 @@ pub mod inbox;
 pub mod link;
 /// Database bloat policy driving the startup vacuum.
 pub mod maintenance;
+/// What of a note's past is kept, and what is dropped — spec H1.
+pub mod note_history;
 /// Notes-folder policy: root resolution, title sanitisation, dedupe — ADR-028.
 pub mod notes;
 /// Prompt construction and endpoint policy for opt-in text rewriting.
