@@ -60,6 +60,8 @@ pub mod inbox_store;
 pub mod layout_state;
 /// WAL checkpointing and freelist reclamation.
 pub mod maintenance;
+/// The texts a note used to hold, and the index over them — spec H1.
+pub mod note_history;
 /// Creating, renaming, trashing and copying the files notes live in.
 pub mod note_ops;
 /// The path-keyed index over the notes folder (ADR-028 section 7).

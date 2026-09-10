@@ -130,6 +130,16 @@ pub enum StorageError {
         path: String,
     },
 
+    /// A version was asked for that the store does not hold.
+    ///
+    /// The entry was pruned between the panel listing it and the person
+    /// choosing it, or the text it names is not on disk any more.
+    #[error("version {id} is not in the store")]
+    VersionMissing {
+        /// The entry that was asked for.
+        id: i64,
+    },
+
     /// A note was asked to take a name with nothing in it.
     ///
     /// The wording here is for logs. What the editor says is written at the
