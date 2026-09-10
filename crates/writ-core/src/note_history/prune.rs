@@ -8,8 +8,13 @@
 //! One thing is held back from every pass. A note's newest entry is the last
 //! text of that note the store holds, and a note that has been deleted has no
 //! file to fall back on, so it is given up only when nothing else is left to
-//! give. That is what keeps the store from spending its whole budget on one
-//! busy note while the notes nobody has touched this month lose everything.
+//! give. No note is emptied while another note still holds more than one
+//! entry.
+//!
+//! When even that is not enough — the last entries alone are over the size
+//! cap — the loss is unavoidable and the only question is whose. It falls on
+//! the note holding the most bytes, oldest entry first, so a folder of small
+//! notes is not emptied to keep one large one whole.
 
 use std::collections::HashMap;
 use std::time::SystemTime;
@@ -52,8 +57,10 @@ impl PrunePlan {
 /// newest entry survives every pass while any other note still holds more
 /// than one, so no note is emptied to spare a note that is over its cap.
 /// Once every note is down to its last entry and the store is still over
-/// [`MAX_STORE_BYTES`], the oldest of those goes: a cap that cannot be met is
-/// worse than a note that loses its last version.
+/// [`MAX_STORE_BYTES`], the note holding the most bytes gives up its oldest
+/// entry, and again until the store fits: a cap that cannot be met is worse
+/// than a note that loses its last version, and the note costing the most is
+/// the one to ask first.
 pub fn prune_plan(entries: &[VersionFacts], now: SystemTime) -> PrunePlan {
     let mut alive = vec![true; entries.len()];
     let mut held: HashMap<i64, usize> = HashMap::new();
@@ -102,8 +109,8 @@ pub fn prune_plan(entries: &[VersionFacts], now: SystemTime) -> PrunePlan {
     }
 
     // Total size. Oldest first among the entries that are not the last their
-    // note has, then, only if the store is still over, oldest first among
-    // those.
+    // note has, then, only if the store is still over, the last entries of
+    // the notes holding the most bytes.
     let mut total: u64 = alive
         .iter()
         .zip(entries)
@@ -120,13 +127,16 @@ pub fn prune_plan(entries: &[VersionFacts], now: SystemTime) -> PrunePlan {
         total -= entries[i].bytes;
         take(i, entries, &mut alive, &mut held, &mut retire);
     }
-    for &i in &oldest_first {
-        if total <= MAX_STORE_BYTES {
+    while total > MAX_STORE_BYTES {
+        let Some(note) = costliest_note(entries, &alive) else {
             break;
-        }
-        if !alive[i] {
-            continue;
-        }
+        };
+        let Some(&i) = oldest_first
+            .iter()
+            .find(|&&i| alive[i] && entries[i].note == note)
+        else {
+            break;
+        };
         total -= entries[i].bytes;
         take(i, entries, &mut alive, &mut held, &mut retire);
     }
@@ -135,6 +145,32 @@ pub fn prune_plan(entries: &[VersionFacts], now: SystemTime) -> PrunePlan {
     PrunePlan {
         retire: retire.into_iter().map(|i| entries[i].id).collect(),
     }
+}
+
+/// The note whose live entries add up to the most bytes, and the lowest note
+/// id of the notes that tie, so a plan does not depend on iteration order.
+///
+/// Asked once per entry the fallback gives up rather than once for the pass:
+/// each answer changes what the next one is, and the fallback runs only when
+/// the last entries alone are over the cap.
+fn costliest_note(entries: &[VersionFacts], alive: &[bool]) -> Option<i64> {
+    let mut bytes_by_note: HashMap<i64, u64> = HashMap::new();
+    for (i, entry) in entries.iter().enumerate() {
+        if alive[i] {
+            *bytes_by_note.entry(entry.note).or_insert(0) += entry.bytes;
+        }
+    }
+    let mut costliest: Option<(u64, i64)> = None;
+    for (&note, &bytes) in &bytes_by_note {
+        let takes_it = match costliest {
+            None => true,
+            Some((most, held)) => bytes > most || (bytes == most && note < held),
+        };
+        if takes_it {
+            costliest = Some((bytes, note));
+        }
+    }
+    costliest.map(|(_, note)| note)
 }
 
 /// Whether an entry made at `at` has outlived [`RETENTION`].
@@ -284,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn a_store_over_the_cap_with_nothing_left_to_give_takes_the_oldest_last_entry() {
+    fn a_store_over_the_cap_with_nothing_left_to_give_takes_a_last_entry() {
         let entries = [
             entry(1, 1, 3 * DAY, 200 * MB),
             entry(2, 2, 2 * DAY, 200 * MB),
@@ -293,6 +329,18 @@ mod tests {
             prune_plan(&entries, now()).retire,
             vec![1],
             "a cap that cannot be met is worse than a note losing its last text"
+        );
+    }
+
+    #[test]
+    fn the_note_holding_the_most_gives_up_its_last_entry_before_a_smaller_one_does() {
+        // The oldest entry belongs to a note costing a kilobyte; the store is
+        // over its cap because one other note holds nearly all of it.
+        let entries = [entry(1, 1, 9 * DAY, 1_024), entry(2, 2, 1 * DAY, 260 * MB)];
+        assert_eq!(
+            prune_plan(&entries, now()).retire,
+            vec![2],
+            "the note costing the most is asked first, and the small note keeps its text"
         );
     }
 
