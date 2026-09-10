@@ -35,6 +35,7 @@ use writ_tauri_lib::commands::buffer::{
     read_buffer_content_inner, resolve_external_change_at, save_buffer_content_inner,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
+use writ_tauri_lib::commands::note_history::restore_note_version_inner;
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
 use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
@@ -291,6 +292,56 @@ fn a_save_keeps_the_text_it_wrote() {
     assert_eq!(
         app.versions_of(&path),
         vec![b"the second\n".to_vec(), b"the first\n".to_vec()]
+    );
+}
+
+#[test]
+fn the_announcement_a_restore_raises_does_not_keep_the_restored_text_twice() {
+    let app = App::new();
+    let (id, path) = app.open("Launch.md", "the first\n");
+    save_buffer_content_inner(&app.state, &id, "the second\n").expect("save");
+
+    // The version holding the text the note started with.
+    let note = app
+        .state
+        .note_history
+        .key_for(&path)
+        .expect("a note inside the folder");
+    let first = app
+        .state
+        .note_history
+        .versions(&note)
+        .expect("versions")
+        .into_iter()
+        .find(|entry| {
+            app.state.note_history.content(entry.id).expect("text") == b"the first\n".to_vec()
+        })
+        .expect("the text the note started with");
+
+    let last_known = app.state.disk_state(&id);
+    restore_note_version_inner(
+        &app.state.notes_root(),
+        &app.state.note_history,
+        first.id,
+        last_known,
+    )
+    .expect("restore");
+
+    let after_restore = app.versions_of(&path);
+    assert_eq!(
+        after_restore.first().map(Vec::as_slice),
+        Some(b"the first\n".as_slice())
+    );
+
+    // A restore is written without an ignore stamp, so the folder watcher
+    // announces it and the tab asks what its file holds. That read is seam
+    // two, and the text it finds is the one the restore already kept.
+    writ_tauri_lib::commands::buffer::note_disk_state_inner(&app.state, &id).expect("state");
+
+    assert_eq!(
+        app.versions_of(&path),
+        after_restore,
+        "the announcement a restore raises keeps nothing new"
     );
 }
 

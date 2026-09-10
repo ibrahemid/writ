@@ -266,6 +266,11 @@ pub fn restore_note_version(
     version_id: i64,
 ) -> Result<RestoredVersion, String> {
     let notes_root = state.notes_root();
+    // Resolved twice, here and inside the write, so the write always judges
+    // the folder as it stands when it runs. A folder that moved in between
+    // leaves `last_known` describing a file the write is not aimed at, which
+    // the guard answers by refusing rather than by replacing something it
+    // never read.
     let (file, _) = note_file_of(&notes_root, &state.note_history, version_id)?;
     let last_known = recorded_state(&state, &file);
     restore_note_version_inner(&notes_root, &state.note_history, version_id, last_known)
