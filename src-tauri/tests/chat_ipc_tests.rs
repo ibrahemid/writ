@@ -175,6 +175,27 @@ fn chat_attached_sizes_refuses_a_path_outside_the_notes_folder() {
     let error =
         attached_sizes_in(&root, &[path.to_string_lossy().into_owned()]).expect_err("refused");
     assert!(error.contains("notes folder"), "got: {error}");
+    // The sentence names the note and stops there: where the folder it was
+    // looked for in sits on this machine is nobody's business, least of all a
+    // model's, and on Windows that path arrives in its `\\?\` form.
+    assert!(error.starts_with("Secret.md "), "got: {error}");
+    assert!(
+        !error.contains(outside.path().to_string_lossy().as_ref()),
+        "the refusal named the folder: {error}"
+    );
+}
+
+#[test]
+fn chat_attached_sizes_reads_a_notes_folder_spelled_as_the_app_carries_it() {
+    // The root the commands are handed has not been through `canonicalize`,
+    // and a resolved file has: on macOS /var is a link to /private/var, on
+    // Windows the resolved form drops the `\\?\` prefix the root keeps.
+    // Comparing the two as they come refuses a note plainly in the folder.
+    let (notes, _writ) = folders();
+    let sizes = attached_sizes_in(notes.path(), &["Launch.md".to_string()]).expect("sizes");
+    assert_eq!(sizes.len(), 1);
+    assert_eq!(sizes[0].key, "Launch.md");
+    assert_eq!(sizes[0].bytes, "the first text\n".len() as u64);
 }
 
 // --- chat_send --------------------------------------------------------------
@@ -452,6 +473,29 @@ fn chat_discard_proposal_records_the_offer_and_touches_no_file() {
     assert_eq!(log[0].decision, Decision::Refuse);
     assert_eq!(log[0].path.as_deref(), Some(Path::new("Launch.md")));
     assert_eq!(log[0].bytes, None, "a discard wrote no bytes");
+}
+
+#[test]
+fn chat_discard_proposal_records_a_stranger_by_its_name_alone() {
+    let (notes, writ) = folders();
+    let outside = tempfile::TempDir::new().expect("other folder");
+    let stranger = outside.path().join("Secrets.md");
+    std::fs::write(&stranger, "not yours\n").expect("write");
+
+    discard_proposal_inner(
+        &root(&notes),
+        writ.path(),
+        "api.example.com",
+        &stranger.to_string_lossy(),
+    );
+
+    let log = log_of(writ.path());
+    assert_eq!(log.len(), 1);
+    assert_eq!(
+        log[0].path.as_deref(),
+        Some(Path::new("Secrets.md")),
+        "the log names the note, never the folder layout of the machine"
+    );
 }
 
 // --- Registration -----------------------------------------------------------

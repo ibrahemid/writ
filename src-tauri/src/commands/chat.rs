@@ -41,6 +41,7 @@ use writ_core::notes::WriteOrigin;
 use writ_core::polish;
 use writ_storage::errors::StorageError;
 use writ_storage::guarded::{write_note_guarded, ConflictPolicy, DiskRead, GuardedWrite};
+use writ_storage::paths::{file_name_only, relative_slug};
 
 use super::ai::AiKeyState;
 use crate::events::{emit_event, WritFrontendEvent};
@@ -325,32 +326,51 @@ pub fn prepare_chat(
     })
 }
 
+/// The notes folder in the one spelling every path here is compared against.
+///
+/// `resolve_for_containment` hands back a canonical path with the Windows
+/// `\\?\` prefix dropped, and the root the app carries has been through
+/// neither step: on Windows `\\?\C:\notes` never prefixes `C:\notes\a.md`, so
+/// a note plainly in the folder is refused. Both sides go through the same
+/// canonicalisation before they meet. A root the filesystem cannot resolve is
+/// compared as it stands, which is what the check did before.
+fn canonical_notes_root(notes_root: &Path) -> PathBuf {
+    crate::security::canonicalize_root(notes_root).unwrap_or_else(|_| notes_root.to_path_buf())
+}
+
 /// The note file a folder-relative (or absolute) path names.
 ///
 /// Every existing part of the path is canonicalised before the containment
 /// check, so neither the file nor a linked directory above it can carry an
 /// answer out of the notes folder.
 pub fn note_file_in(notes_root: &Path, path: &str) -> Result<PathBuf, String> {
+    let root = canonical_notes_root(notes_root);
     let given = Path::new(path);
     let candidate = match given.is_absolute() {
         true => given.to_path_buf(),
-        false => notes_root.join(given),
+        false => root.join(given),
     };
     let Some(resolved) = crate::security::resolve_for_containment(&candidate) else {
         return Err(outside_notes(path));
     };
-    if !writ_core::notes::containment::is_inside(notes_root, Path::new(&resolved)) {
+    if !writ_core::notes::containment::is_inside(&root, Path::new(&resolved)) {
         return Err(outside_notes(path));
     }
     let file = PathBuf::from(resolved);
     if !file.is_file() {
-        return Err(format!("{path} is not a note."));
+        return Err(format!("{} is not a note.", file_name_only(path)));
     }
     Ok(file)
 }
 
+/// A refusal names the note, never the folder it was looked for in.
+///
+/// The path that reaches here is the caller's own, which for the pane is the
+/// absolute source path of an open tab. Where the folder sits on this machine
+/// is not something a person needs from the sentence, and it is not something
+/// a model reading the pane should be handed either (ADR-031 rule 5.2).
 fn outside_notes(path: &str) -> String {
-    format!("{path} is not in the notes folder.")
+    format!("{} is not in the notes folder.", file_name_only(path))
 }
 
 /// The note's path as the pane lists it and a proposal names it: relative to
@@ -363,15 +383,8 @@ fn outside_notes(path: &str) -> String {
 /// give `Ideas/Launch.md` and `Archive/Launch.md` one key: two different notes
 /// the pane could not tell apart and a proposal could apply to the wrong one.
 fn relative_key(notes_root: &Path, file: &Path) -> Result<String, String> {
-    file.strip_prefix(notes_root)
-        .map(|rest| rest.to_string_lossy().into_owned())
-        .map_err(|_| {
-            let path = file
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            outside_notes(&path)
-        })
+    let root = canonical_notes_root(notes_root);
+    relative_slug(&root, file).ok_or_else(|| outside_notes(&file.to_string_lossy()))
 }
 
 /// A note's size on disk, as the dialog that asks to send it must state it.
@@ -563,7 +576,7 @@ fn refusal(note_key: &str, error: &StorageError) -> String {
 pub fn discard_proposal_inner(notes_root: &Path, writ_dir: &Path, host: &str, path: &str) {
     let note_key = note_file_in(notes_root, path)
         .and_then(|file| relative_key(notes_root, &file))
-        .unwrap_or_else(|_| path.to_string());
+        .unwrap_or_else(|_| file_name_only(path));
     record_proposal(
         writ_dir,
         host,
@@ -910,6 +923,31 @@ mod tests {
         assert_eq!(
             relative_key(Path::new("/notes"), Path::new("/elsewhere/Launch.md")),
             Err("Launch.md is not in the notes folder.".to_string())
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_verbatim_root_holds_the_note_it_names() {
+        // The two spellings Windows hands the two sides: the root as the app
+        // carries it, and the file as `resolve_for_containment` answers with
+        // the prefix dropped. Compared as they come, a note plainly in the
+        // folder has no key and the pane loses the row.
+        assert_eq!(
+            relative_key(
+                Path::new(r"\\?\C:\notes"),
+                Path::new(r"C:\notes\Ideas\Launch.md")
+            ),
+            Ok("Ideas/Launch.md".to_string())
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_refusal_names_a_windows_note_without_its_folder() {
+        assert_eq!(
+            outside_notes(r"C:\Users\someone\private\Secrets.md"),
+            "Secrets.md is not in the notes folder."
         );
     }
 
