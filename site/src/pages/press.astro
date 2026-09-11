@@ -6,20 +6,20 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const repo = 'https://github.com/ibrahemid/writ';
 ---
 <Site title="Writ press kit" description="Name, one-line description, icon files, screenshots and facts about Writ for articles and listings." path="/press/">
-  <Doc eyebrow="press" title="Press kit." shot="still-split-note" shotAlt="Meeting notes in Writ, source on the left and the rendered note on the right" lead="Everything needed to write about Writ accurately, in one place.">
+  <Doc eyebrow="press" title="Press kit." shot="still-split-note" shotAlt="Meeting notes in Writ, source on the left and the rendered note on the right" lead="What is needed to write about Writ accurately, in one place.">
     <div class="doc-body">
       <h2>The facts</h2>
       <table>
         <tr><td>Name</td><td>Writ. Capital W, no article, never "Writ app".</td></tr>
-        <tr><td>One line</td><td>A scratchpad that is already open: one hotkey over any app, saved as you type, every note searchable.</td></tr>
-        <tr><td>What it does</td><td>Brings up a notes window over whatever you are doing with a global hotkey. Notes are plain text files, written as you type and kept forever. Markdown, HTML, Mermaid and KaTeX render beside the source. One search covers every note ever opened and any folder you point it at.</td></tr>
+        <tr><td>One line</td><td>Notes kept as Markdown files, with links and a graph, and an MCP server so the assistant you already use can read them.</td></tr>
+        <tr><td>What it does</td><td>Keeps every note as a Markdown file in a folder you can see in Finder. Wikilinks, backlinks, tags and properties are read from the files; a Connections panel and a graph show them. Markdown, HTML, Mermaid and KaTeX render beside the source. One hotkey brings the window over any app. An MCP server lets a program the user approves read, and separately write, notes; a chat pane sends only the notes the user attaches.</td></tr>
         <tr><td>Platforms</td><td>macOS 12+, Windows 10+, Linux (x86_64).</td></tr>
         <tr><td>Price and license</td><td>Free. Open source under MIT.</td></tr>
         <tr><td>Current version</td><td>{release.version}, released {release.publishedAt.slice(0, 10)}.</td></tr>
         <tr><td>Public since</td><td>April 2026. Source, decision records and release history at <a href={repo}>github.com/ibrahemid/writ</a>.</td></tr>
         <tr><td>Made by</td><td>Ibrahem (ibrahemid on GitHub), one person.</td></tr>
-        <tr><td>Built with</td><td>Rust and Tauri 2 for the shell; SolidJS and CodeMirror 6 for the editor; SQLite for metadata and search.</td></tr>
-        <tr><td>Privacy</td><td>Offline, no account, no telemetry. The one feature that can send text off the machine (rewrite with a hosted model) is off by default and asks before the first send.</td></tr>
+        <tr><td>Built with</td><td>Rust and Tauri 2 for the shell; SolidJS and CodeMirror 6 for the editor; SQLite for the index.</td></tr>
+        <tr><td>Privacy</td><td>Offline, no account, no telemetry. Rewriting, chat and connected programs are off by default; the first send to any host and the first call from any program wait for the user's approval.</td></tr>
         <tr><td>Contact</td><td><a href="mailto:ibrahemid@gmail.com">ibrahemid@gmail.com</a></td></tr>
       </table>
 
@@ -36,8 +36,8 @@ const repo = 'https://github.com/ibrahemid/writ';
 
       <h2>How to describe it</h2>
       <ul>
-        <li>"Scratchpad", "notes window", "always-open notes". Not "markdown editor" as the headline, not "IDE", not "second brain".</li>
-        <li>Next to Obsidian, not against it: Writ has no backlinks, plugins, mobile or sync, and does not claim to replace a vault.</li>
+        <li>"Notes on disk", "notes as files", "a notes app". Not "markdown editor" as the headline, and not "IDE".</li>
+        <li>Next to Obsidian, not against it: Writ opens a folder written in Obsidian as it is, and has no plugins, mobile app or sync.</li>
         <li>No performance numbers have been published. Please do not cite one.</li>
       </ul>
     </div>
