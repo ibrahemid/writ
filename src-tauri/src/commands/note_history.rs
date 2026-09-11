@@ -51,6 +51,12 @@ pub struct RestoredVersion {
     pub note: String,
     /// What the file holds now.
     pub bytes: u64,
+    /// What the write left on the file, for the caller holding the tab: the
+    /// tab's record of the file has to describe the restore the way it
+    /// describes a save, or the next write reads Writ's own text as somebody
+    /// else's. The panel has no use for it, so it is not sent.
+    #[serde(skip)]
+    pub disk_state: DiskState,
 }
 
 /// The file a copy left in the folder.
@@ -108,7 +114,9 @@ pub fn note_version_content_inner(
 /// Writes the text of one entry back to its note.
 ///
 /// The write captures before it lands, so what the note held is an entry of
-/// its own and restoring is undone by restoring again.
+/// its own and restoring is undone by restoring again. The undo needs the
+/// tab's record of the file to describe this write, which is the caller's:
+/// [`restore_note_version_for_tab`] is the one that has a tab.
 ///
 /// `last_known` is what Writ last read from the file, from the tab holding it.
 /// A note nothing has open passes `None` and the write proceeds: nothing stale
@@ -158,6 +166,7 @@ pub fn restore_note_version_inner(
             Ok(RestoredVersion {
                 note,
                 bytes: written.disk_state.size,
+                disk_state: written.disk_state,
             })
         }
         Err(error) => {
@@ -261,15 +270,13 @@ pub fn note_file_of(
     Ok((PathBuf::from(resolved), note))
 }
 
-/// What Writ last read from the file, when a tab is holding it.
-fn recorded_state(state: &AppState, file: &Path) -> Option<DiskState> {
-    let doc = {
-        let store = state.store.lock().ok()?;
-        store
-            .find_active_by_source_path(&file.to_string_lossy())
-            .ok()??
-    };
-    state.disk_state(&doc.id)
+/// The tab holding `file`, when one has it open.
+fn open_tab_id(state: &AppState, file: &Path) -> Option<String> {
+    let store = state.store.lock().ok()?;
+    let doc = store
+        .find_active_by_source_path(&file.to_string_lossy())
+        .ok()??;
+    Some(doc.id)
 }
 
 /// Milliseconds since the epoch, and zero for a clock before it.
@@ -323,10 +330,16 @@ pub fn note_version_content(state: State<'_, AppState>, version_id: i64) -> Resu
     note_version_content_inner(&state.note_history, version_id)
 }
 
-/// IPC: [`restore_note_version_inner`].
-#[tauri::command]
-pub fn restore_note_version(
-    state: State<'_, AppState>,
+/// [`restore_note_version_inner`] for the tab that has the note open.
+///
+/// The write itself is the inner function's. What is here is the tab: what
+/// Writ last read from the file goes in as `last_known`.
+///
+/// # Errors
+///
+/// Whatever the restore itself refused for.
+pub fn restore_note_version_for_tab(
+    state: &AppState,
     version_id: i64,
 ) -> Result<RestoredVersion, String> {
     let notes_root = state.notes_root();
@@ -336,14 +349,33 @@ pub fn restore_note_version(
     // the guard answers by refusing rather than by replacing something it
     // never read.
     let (file, _) = note_file_of(&notes_root, &state.note_history, version_id)?;
-    let last_known = recorded_state(&state, &file);
-    restore_note_version_inner(
+    let tab = open_tab_id(state, &file);
+    let last_known = tab.as_deref().and_then(|id| state.disk_state(id));
+    let restored = restore_note_version_inner(
         &notes_root,
         &state.writ_dir,
         &state.note_history,
         version_id,
         last_known,
-    )
+    )?;
+    // What a save does with what it wrote (`commands::buffer`). Without it
+    // the tab's record still describes the text the restore replaced, and the
+    // next restore — the row above, which is how a restore is undone — reads
+    // Writ's own write as a change somebody else made and refuses it into a
+    // dated copy. A note nothing has open has no record to keep.
+    if let Some(id) = tab {
+        state.set_disk_state(&id, restored.disk_state);
+    }
+    Ok(restored)
+}
+
+/// IPC: [`restore_note_version_for_tab`].
+#[tauri::command]
+pub fn restore_note_version(
+    state: State<'_, AppState>,
+    version_id: i64,
+) -> Result<RestoredVersion, String> {
+    restore_note_version_for_tab(&state, version_id)
 }
 
 /// IPC: [`copy_note_version_inner`].

@@ -35,7 +35,9 @@ use writ_tauri_lib::commands::buffer::{
     read_buffer_content_inner, resolve_external_change_at, save_buffer_content_inner,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
-use writ_tauri_lib::commands::note_history::restore_note_version_inner;
+use writ_tauri_lib::commands::note_history::{
+    restore_note_version_for_tab, restore_note_version_inner,
+};
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
 use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
@@ -376,23 +378,20 @@ fn restoring_back_moments_later_returns_the_note_to_what_the_save_wrote() {
     let (id, path) = app.open("Launch.md", "the first\n");
     save_buffer_content_inner(&app.state, &id, "the second\n").expect("save");
 
+    // Through the seam the command uses, so the first restore leaves the tab
+    // holding a record of what it wrote.
     let first = app.version_holding(&path, b"the first\n");
-    restore_note_version_inner(
-        &app.state.notes_root(),
-        &app.state.writ_dir,
-        &app.state.note_history,
-        first,
-        app.state.disk_state(&id),
-    )
-    .expect("restore");
+    restore_note_version_for_tab(&app.state, first).expect("restore");
 
+    // And the second is handed that record, which is what the command hands
+    // it for a note somebody has open.
     let second = app.version_holding(&path, b"the second\n");
     restore_note_version_inner(
         &app.state.notes_root(),
         &app.state.writ_dir,
         &app.state.note_history,
         second,
-        None,
+        app.state.disk_state(&id),
     )
     .expect("restore back");
 

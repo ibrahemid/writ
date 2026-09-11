@@ -5,19 +5,44 @@
 //! panel receives and what the folder holds afterwards. The last test asserts
 //! every one of them is in the invoke handler, since a command that is not
 //! registered cannot be called however well it behaves.
+//!
+//! The exception is a restore clicked twice, which turns on the record a tab
+//! keeps of its file rather than on the write: that one runs against an app
+//! with the note open.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime};
 
 use tempfile::TempDir;
 use writ_core::activity::{Actor, Decision};
+use writ_core::config::WritConfig;
+use writ_core::events::bus::EventBus;
 use writ_core::notes::guard::DiskState;
+use writ_core::preview::ContentRendererRegistry;
+use writ_core::update::UpdatePhase;
+use writ_core::watcher::reconcile::ReconcileGate;
+use writ_plugin::transform::TransformRegistry;
+use writ_storage::buffer_store::BufferStore;
+use writ_storage::config_store::ConfigStore;
+use writ_storage::database::connection::open_database;
+use writ_storage::database::migrations::run_migrations;
+use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::note_history::NoteHistoryStore;
+use writ_storage::notes_index::NotesIndexStore;
+use writ_tauri_lib::commands::buffer::{read_buffer_content_inner, save_buffer_content_inner};
+use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::commands::note_history::{
     copy_note_version_inner, note_version_content_inner, note_versions_inner,
-    restore_note_version_inner, NoteVersion,
+    restore_note_version_for_tab, restore_note_version_inner, NoteVersion,
 };
+use writ_tauri_lib::preview::handler::RenderCache;
+use writ_tauri_lib::quit::QuitState;
+use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
+use writ_tauri_lib::state::AppState;
+use writ_tauri_lib::watcher::handler::create_ignore_set;
 use writ_tauri_lib::watcher::identity::PlatformIdentity;
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
@@ -91,6 +116,149 @@ impl Folder {
             size: bytes.len() as u64,
             mtime: None,
         }
+    }
+
+    /// The names the folder holds, sorted.
+    fn names(&self) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(&self.notes)
+            .expect("read the folder")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        names.sort();
+        names
+    }
+}
+
+/// The app as it runs, for the one test that needs a tab: a notes folder, a
+/// version store wired to it, and a buffer store that hands its writes to
+/// that store.
+///
+/// Built here rather than shared, which is how every other file under
+/// `tests/` builds an `AppState`.
+struct Running {
+    _dir: TempDir,
+    notes: PathBuf,
+    state: AppState,
+}
+
+impl Running {
+    fn new() -> Self {
+        let dir = TempDir::new().expect("temp dir");
+        let writ_dir = dir.path().join("data");
+        let buffers_dir = writ_dir.join("buffers");
+        std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
+
+        let notes_root = writ_dir.join("Writ");
+        std::fs::create_dir_all(&notes_root).expect("notes folder");
+        let notes_root =
+            writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+
+        let db_path = writ_dir.join("writ.db");
+        let conn = open_database(&db_path).expect("open db");
+        run_migrations(&conn).expect("migrations");
+
+        let note_history = Arc::new(NoteHistoryStore::open(&writ_dir).expect("version store"));
+        note_history.set_notes_root(notes_root.clone());
+        note_history.set_probe(Arc::new(
+            writ_tauri_lib::watcher::identity::PlatformIdentity,
+        ));
+
+        let mut store = BufferStore::new(conn, buffers_dir.clone());
+        store.set_notes_root(notes_root.clone());
+        store.set_history(Arc::clone(&note_history));
+
+        let state = AppState {
+            store: Mutex::new(store),
+            config_store: ConfigStore::new(writ_dir.join("config.toml")),
+            config: Mutex::new(WritConfig::default()),
+            writ_dir: writ_dir.clone(),
+            buffers_dir,
+            notes_root: RwLock::new(notes_root.clone()),
+            first_run: false,
+            retitle_watch: Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+            notes_root_fallback: RwLock::new(None),
+            watcher_ignore: create_ignore_set(),
+            watcher: Mutex::new(None),
+            notes_watcher: Mutex::new(None),
+            open_file_watcher: Mutex::new(None),
+            file_tracking: Mutex::new(None),
+            notes_index: Arc::new(NotesIndexStore::open(&db_path).expect("notes index db")),
+            note_history,
+            notes_index_cancel: Arc::new(AtomicBool::new(false)),
+            notes_reconcile: Arc::new(ReconcileGate::new()),
+            quit: Arc::new(QuitState::new()),
+            removal_holds: Default::default(),
+            pending_opens: Mutex::new(Vec::new()),
+            frontend_ready: AtomicBool::new(false),
+            window_revealed: AtomicBool::new(false),
+            window_dismissed: AtomicBool::new(false),
+            transforms: RwLock::new(TransformRegistry::new()),
+            event_bus: Arc::new(EventBus::new()),
+            update_phase: Mutex::new(UpdatePhase::default()),
+            authorized_paths: AuthorizedPaths::new(),
+            preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
+            preview_render_cache: Arc::new(RenderCache::new()),
+            layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
+            recovered_buffers: Mutex::new(Vec::new()),
+            was_dirty_shutdown: false,
+            workspace_root: Mutex::new(None),
+            workspace_watcher: Mutex::new(None),
+            inbox_root: Mutex::new(None),
+            inbox_watcher: Mutex::new(None),
+            fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+            workspace_index: Arc::new(RwLock::new(
+                writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            )),
+            search_generation: Arc::new(AtomicU64::new(0)),
+            last_disk_hash: Mutex::new(HashMap::new()),
+            source_records: Mutex::new(HashMap::new()),
+            unsaved_on_exit: Mutex::new(HashMap::new()),
+        };
+        Self {
+            _dir: dir,
+            notes: notes_root,
+            state,
+        }
+    }
+
+    /// Opens a note in the notes folder the way the frontend reaches one.
+    fn open(&self, name: &str, text: &str) -> (String, PathBuf) {
+        let path = self.notes.join(name);
+        std::fs::write(&path, text).expect("write");
+        let canonical = canonicalize_for_authorization(&path).expect("canonical");
+        self.state
+            .authorized_paths
+            .record_for_open(canonical.clone());
+        let opened = open_file_from_path(&self.state, &canonical).expect("open");
+        let id = opened.doc.expect("the file opened").id;
+        // The editor loads a tab's text through `read_buffer_content` right
+        // after the open (`buffer-registry.ts` `readContent`), which is the
+        // read this seam hangs on.
+        read_buffer_content_inner(&self.state, &id).expect("read");
+        (id, PathBuf::from(canonical))
+    }
+
+    /// The entry holding `text`, which is what a restore is asked for by id.
+    fn version_holding(&self, path: &Path, text: &[u8]) -> i64 {
+        let note = self
+            .state
+            .note_history
+            .key_for(path)
+            .expect("a note inside the folder");
+        self.state
+            .note_history
+            .versions(&note)
+            .expect("versions")
+            .into_iter()
+            .find(|entry| self.state.note_history.content(entry.id).expect("text") == text.to_vec())
+            .map(|entry| entry.id)
+            .expect("an entry holding that text")
     }
 
     /// The names the folder holds, sorted.
@@ -202,12 +370,16 @@ fn restoring_twice_returns_the_note_to_where_it_started() {
         .into_iter()
         .find(|entry| folder.text_of(entry) == "the second\n")
         .expect("the text the restore replaced");
+    // What the tab holding the note has recorded by now: the first restore
+    // wrote `the first`, and a restore tells the tab what it wrote the way a
+    // save does. `None` here would be the one case the command never reaches,
+    // a note nothing has open.
     restore_note_version_inner(
         &folder.notes,
         &folder.writ_dir,
         &folder.store,
         back.id,
-        None,
+        Some(Folder::last_known(b"the first\n")),
     )
     .expect("restore back");
 
@@ -390,4 +562,26 @@ fn every_version_command_is_in_the_invoke_handler() {
             "{command} is not registered in the invoke handler"
         );
     }
+}
+
+#[test]
+fn a_restore_undone_by_the_row_above_it_lands_rather_than_reading_as_a_change_on_disk() {
+    let app = Running::new();
+    let (id, path) = app.open("Launch.md", "the first\n");
+    save_buffer_content_inner(&app.state, &id, "the second\n").expect("save");
+
+    // The panel stays open on the same list, so the way back from a restore
+    // is the row above it, one click later.
+    let first = app.version_holding(&path, b"the first\n");
+    restore_note_version_for_tab(&app.state, first).expect("restore");
+    let second = app.version_holding(&path, b"the second\n");
+    restore_note_version_for_tab(&app.state, second)
+        .expect("the second restore is the first one undone, not a file somebody else changed");
+
+    assert_eq!(std::fs::read(&path).expect("read"), b"the second\n");
+    assert_eq!(
+        app.names(),
+        vec!["Launch.md".to_string()],
+        "a restore Writ itself wrote leaves no dated copy behind"
+    );
 }
