@@ -49,3 +49,4 @@ src-tauri/binaries/writ-*
 
 # Release artifacts downloaded by workflows (never committed)
 /artifacts/
+AGENTS.md

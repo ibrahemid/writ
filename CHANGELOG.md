@@ -6,9 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+Notes link to each other, and Writ reads the folder to show what connects them. `[[Name]]` links a note by name, a panel called Connections lists the notes that link back, and a Graph view draws the whole folder. Other programs reach notes through an MCP server, one approved client at a time, and a chat pane whose edits arrive as proposals. Nothing leaves the machine unless the client the user chose sends it. The app opens light by default with six accent colours and one menu bar on every platform.
+
+### Added
+
+- Links between notes. `[[Name]]` completes from the notes in the folder, opens the target on Cmd+click or Enter, offers to create a note that does not exist yet, and asks which note is meant when a name fits two. A Markdown link to a `.md` file resolves the same way. Renaming a note offers to rewrite the links that point at it, says how many before the rename, and lists any file it could not change.
+- The index. Links, frontmatter properties, tags and headings are read from every note in the folder and follow files that change inside or outside Writ. The `writ` command answers from the same index with `links`, `backlinks`, `properties` and `tags`, gains `new`, `rename` and `trash`, and prints `--json` on request.
+- Connections, a panel beside the note (Cmd+Shift+\): the notes that link here with the sentence each link sits in, the outline of headings, and the note's properties.
+- Tags in the sidebar with counts. Nested tags group under their parent, and selecting a tag filters the notes list.
+- A graph of the notes around the open one, and a Graph view over the whole folder with search and one colour per top-level folder. Positions hold from one opening to the next.
+- Preview renders callouts, notes embedded with `![[Note]]` or `![[Note#Heading]]` up to three deep, and a note's own images and attachments, beside the tables, math and Mermaid diagrams it already drew offline.
+- A folder written in Obsidian opens as it is. Links by name, path, alias and heading, properties, tags and callouts carry over, and `.obsidian` and `.trash` contribute nothing. `docs/importing-from-obsidian.md` lists what carries over and what does not.
+- First launch. The notes folder is `~/Writ`, a note named for today opens, and one line under the cursor says where the notes are. Nothing is asked. File > Today's Note opens the same note on any later day.
+- One menu bar on macOS, Windows and Linux from a single command list, with Show Notes Folder, Recently Closed and Open Graph. The window hotkey can be changed in Settings; Save asks the OS first and reports the chord it actually holds.
+- Interface text size in Settings, 12 to 22 px, scaling the sidebar, tabs, status bar, palette and settings together. The editor's own zoom stays separate.
+- A light default that follows the system, with six accents (pine is the default) and the terminal presets kept as choices. The status bar is on by default. Sidebar, toolbar, tabs, palette, settings and dialogs are redrawn to one design, with the title bar drawn per platform.
+- Save state per note: the status bar says saved only while the text matches the file, and a save that fails shows a bar under the note with the cause in a plain sentence.
+- An MCP server, `writ mcp`, that another program starts over stdio. Reads: list, search, read, links, backlinks, properties, tags. Writes, under a separate permission: write, create and rename. It is off until enabled, and every client is refused until it is approved in Settings. It refuses a write that would overwrite a newer file when the client passes the hash it read. Nothing in it deletes a note. It opens no port and makes no request of its own.
+- Connected programs in Settings, with read and write switches per client and a Forget control, and an Activity panel listing every call: time, client, tool, note, decision and byte count. The log holds no note text, prompts, replies or keys.
+- A chat pane, off by default, that talks to a local model or a hosted endpoint with an API key. Only attached notes are sent; the send dialog names the host and the bytes first. Every edit the model suggests arrives as a proposal beside the current text with Apply and Discard, and a note that changed since the proposal refuses the apply and leaves a conflict copy.
+
+### Changed
+
+- When a note's file changes outside Writ, a clean tab takes the new text in one undoable step that keeps the cursor and scroll. A tab with unsaved edits shows a bar with three choices, and whichever side is not kept is written beside the note before anything is replaced. Files opened from outside the notes folder are watched the same way.
+- A note keeps its tab when its file is moved, renamed or rewritten by another program. A note iCloud has not brought down yet opens on a download state naming the service instead of blocking the app.
+- A save keeps the file's Finder tags, creation date, permissions and line endings, and saving unchanged text no longer rewrites the file.
+- Every write to a note, from the editor, the `writ` command, a rename, a link rewrite, a connected program or a chat proposal, goes through one guarded path that refuses to overwrite a newer file and leaves a conflict copy.
+- Sync clients' temp files and stubs never show up as notes. Conflict copies from Syncthing and Writ's own conflict files are listed and marked in the file tree.
+- Settings rows are named in plain words and grouped by what people look for: Notes folder first, the data folder, watched folder and preview limits under Advanced. The sidebar search field says what it searches, and the history section is Recently closed.
+- Delete Line moves to Cmd+Shift+K and Replace to Cmd+Option+F, freeing the chords macOS claims. Cmd+Option+S joins Cmd+\ for the sidebar. The preview split swap is Cmd+Shift+H.
+- Choosing a light or dark preset pins that side; the System option in Settings is the way back to following the OS.
+
 ### Fixed
 
 - A launch could leave Writ running with no window on screen and a dock icon that did nothing. One place in Rust now shows the window, a dock click brings back a window that is hidden, and a show that fails says so in the log.
+- Name search ranked the whole absolute path, so a query could match the folders above the notes root. Ranking now runs over the path relative to the notes folder.
+- On Windows a save that landed while another program held the file open failed with a permission error. It now retries and names the real cause.
+- A database that lost its index tables is rebuilt on launch instead of failing every launch.
+- Frontmatter `tags:` lines, including comma-separated ones, and the `tag:` key reach the index. Tag names are filed lowercased, so `#Project` and `#project` are one tag.
+- A link rewrite that lost a race against an outside edit refused without leaving the losing side on disk. It now leaves a conflict copy like every other refusal.
+- The theme store wrote eleven dead properties to the page on every boot, one of them as `[object Object]`.
+- A rewrite whose provider returned an error ended the stream silently. The error is now shown.
 
 ## [0.4.0] - 2026-09-05
 

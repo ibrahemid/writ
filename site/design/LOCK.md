@@ -34,7 +34,7 @@ Borrow only:
 ## Media strategy
 
 Real captures only. No CSS-drawn windows, popovers, dialogs or terminals.
-- Exists (docs/media): hero-light.gif, hero-dark.gif, command-palette.png, html-split.png, search-all-buffers.png. All v0.1-era and developer-seeded; used only where the content is not the point.
+- Exists (docs/media): hero-light.gif, hero-dark.gif, command-palette.png, html-split.png, search-all-notes.png. All v0.1-era and developer-seeded; used only where the content is not the point.
 - Produced this pass from the real app (docs/design/2026-08-24/app/): stills of the non-developer buffers in split view, search everywhere, settings, the empty sidebar. These replace the v0.1 stills where the content is the point.
 - Owed (site/docs/captures.md, exact specs): summon loop (hero), search loop, inbox loop, themes loop, Obsidian open comparison. Every owed loop has a slot with fixed aspect ratio, a real still as poster, and the play gated on intersection and reduced-motion.
 
