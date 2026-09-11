@@ -12,7 +12,9 @@
 > transforms. Nothing in the decision changed; only the status label was stale.
 > [ADR-032](./032-the-internal-surface-notes-are-reached-through.md) extends this record with the
 > internal, capability-scoped surface that reaches whole notes, and repeats the rule below that
-> no code is user-installable and nothing is loaded from disk.
+> no code is user-installable and nothing is loaded from disk. It also removed the two stubs the
+> consequence below left in place: `PluginApi` and `PluginManifest` are gone, and `writ-plugin`
+> now carries the transform runtime and the re-exported host surface.
 
 ## Context
 

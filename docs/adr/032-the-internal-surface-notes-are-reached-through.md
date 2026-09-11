@@ -2,7 +2,27 @@
 
 ## Status
 
-Accepted, 2026-09-09.
+Accepted, shipped (recorded 2026-09-12).
+
+> **Shipped.** `NoteHost`, `Capability`, `PermissionSet`, `HostError` and the return types are in
+> `crates/writ-core/src/notes/host/`, re-exported as `writ_plugin::host`. The one implementation,
+> `NoteHostImpl`, is in `crates/writ-storage/src/note_host.rs`. Both consumers hold a permission
+> set and neither opens the index or the write facade itself: `crates/writ-mcp/src/tools.rs`
+> derives a set from the gate's verdict, and `src-tauri/src/commands/chat.rs` holds
+> `context_permissions()` and `apply_permissions()`. `crates/writ-storage/tests/note_host_authority.rs`
+> reads both sources and keeps it that way. No `Cargo.toml` in the workspace gained a path
+> dependency, and CLAUDE.md was not edited.
+>
+> The surface carries one method section 3 did not list. `note_summary` reads a note's name and
+> length without its text, because the send dialog states the bytes before it asks, and it checks
+> `ReadNote`: a note's size is a fact about that note.
+>
+> Two things landed differently from the decision above. The context builder holds `{ReadNote}`
+> rather than section 5's `{ListNotes, ReadNote}`, because the pane attaches the tabs the user
+> named and lists nothing, and section 1's own rule is that a capability with no caller is not
+> held. And the activity record stayed with each consumer rather than moving into the host as
+> section 4 describes, because a record names the tool and the actor, which the host is not told
+> and does not need.
 
 Extends [ADR-006](./006-plugin-runtime-v1.md) and does not supersede it. ADR-006's rule is
 repeated here rather than relaxed: no user-installable code, no dynamic loading, and no manifest
