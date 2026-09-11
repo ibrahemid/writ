@@ -1,22 +1,23 @@
-//! Plugin surface for the Writ editor.
+//! Extension surface for the Writ editor.
 //!
-//! `writ-plugin` defines the extension boundary as a pair of lightweight,
-//! dependency-light modules:
+//! Two modules, neither of which loads anything from disk:
 //!
-//! - [`manifest`] declares the shape of a plugin's metadata file.
-//! - [`api`] declares the trait that the host exposes to plugin code.
+//! - [`host`] is the capability-scoped surface a program reaches a whole note
+//!   through, re-exported from `writ-core` so a consumer finds the extension
+//!   boundary in one crate (ADR-032 section 8).
+//! - [`transform`] is the in-process text-transform trait, its registry and the
+//!   built-ins (ADR-006, ADR-012). A transform sees a string; a host call sees
+//!   a note.
 //!
-//! Everything here is intentionally stable and free of runtime concerns so
-//! that plugins can target this crate without pulling in storage, Tauri, or
-//! other host-side dependencies.
+//! Nothing here is user-installable and no third-party code is loaded. The
+//! surface is internal to Writ's own binary and carries no compatibility
+//! guarantee, because it has no caller outside this tree.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![warn(rustdoc::broken_intra_doc_links)]
 
-/// Host-side API surface exposed to plugins.
-pub mod api;
-/// Metadata declared by a Writ plugin on disk.
-pub mod manifest;
+pub use writ_core::notes::host;
+
 /// Text-transform trait, registry, and built-in transforms.
 pub mod transform;

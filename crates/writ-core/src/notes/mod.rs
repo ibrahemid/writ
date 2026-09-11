@@ -13,6 +13,8 @@ pub mod containment;
 pub mod facts;
 /// The write guard: whether a save may land on the file it is aimed at.
 pub mod guard;
+/// The capability-scoped surface a program reaches a note through.
+pub mod host;
 /// Which line ending a file uses, and how to keep it across a save.
 pub mod line_ending;
 /// Link syntax and link resolution (ADR-034).

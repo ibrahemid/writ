@@ -10127,7 +10127,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.19",
- "toml 1.1.0+spec-1.1.0",
  "writ-core",
 ]
 
