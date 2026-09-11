@@ -357,6 +357,12 @@ fn a_file_the_notes_folder_does_not_hold_has_no_key() {
     assert!(fixture.store.key_for(&stranger).is_none());
 }
 
+// The fixture's probe answers with an inode on unix and with the fallback
+// everywhere else (`Probe` above), and a fallback cannot recognise the same
+// file at another name. The app's Windows probe reads a durable file id
+// (`src-tauri/src/watcher/identity.rs`); what this crate can test on Windows is
+// the fallback arm, below.
+#[cfg(unix)]
 #[test]
 fn a_note_renamed_inside_the_folder_keeps_its_history_through_its_identity() {
     let fixture = Fixture::new();
@@ -377,6 +383,36 @@ fn a_note_renamed_inside_the_folder_keeps_its_history_through_its_identity() {
     assert_eq!(
         fixture.store.content(versions[0].id).expect("content"),
         b"one\n"
+    );
+}
+
+#[cfg(not(unix))]
+#[test]
+fn a_note_renamed_where_no_id_can_be_read_keeps_its_history_under_the_old_name() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&path);
+    assert!(
+        key.durable_identity().is_none(),
+        "the fallback is what this fixture describes a file by off unix"
+    );
+    fixture
+        .store
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
+        .expect("capture");
+
+    let renamed = fixture.notes.join("Ship it.md");
+    std::fs::rename(&path, &renamed).expect("rename");
+
+    let after = fixture.store.key_for(&renamed).expect("key");
+    assert!(
+        fixture.store.versions(&after).expect("versions").is_empty(),
+        "a name nothing was kept under has nothing, where no id can follow the file"
+    );
+    assert_eq!(
+        fixture.store.versions(&key).expect("versions").len(),
+        1,
+        "the path is the whole of the key, so the old name still answers"
     );
 }
 
