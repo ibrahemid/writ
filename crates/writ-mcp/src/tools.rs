@@ -139,7 +139,7 @@ pub enum ToolError {
         /// The path as the client wrote it.
         path: String,
         /// The dated copy the client's text was written to, when one could be
-        /// written.
+        /// written, spelled relative to the notes folder the way `path` is.
         conflict_copy: Option<String>,
     },
     /// `expected_hash` is not the 64 hex characters a read hands back.
@@ -297,7 +297,7 @@ impl ToolHost {
     ) -> Result<Vec<NoteSummary>, ToolError> {
         let host = self.permit(client, "list_notes")?;
         host.list_notes(prefix, limit.min(MAX_RESULTS))
-            .map_err(|error| tool_error(client, "list_notes", error))
+            .map_err(|error| tool_error(self.host.notes_root(), client, "list_notes", error))
     }
 
     /// Up to `limit` notes whose text matches `query`.
@@ -313,21 +313,21 @@ impl ToolHost {
     ) -> Result<Vec<SearchResult>, ToolError> {
         let host = self.permit(client, "search_notes")?;
         host.search_notes(query, limit.min(MAX_RESULTS))
-            .map_err(|error| tool_error(client, "search_notes", error))
+            .map_err(|error| tool_error(self.host.notes_root(), client, "search_notes", error))
     }
 
     /// The whole file at `path`, frontmatter included.
     pub fn read_note(&self, client: &ClientId, path: &str) -> Result<NoteContent, ToolError> {
         let host = self.permit(client, "read_note")?;
         host.read_note(path)
-            .map_err(|error| tool_error(client, "read_note", error))
+            .map_err(|error| tool_error(self.host.notes_root(), client, "read_note", error))
     }
 
     /// Every link written in the note at `path`.
     pub fn note_links(&self, client: &ClientId, path: &str) -> Result<Vec<NoteLink>, ToolError> {
         let host = self.permit(client, "note_links")?;
         host.note_links(path)
-            .map_err(|error| tool_error(client, "note_links", error))
+            .map_err(|error| tool_error(self.host.notes_root(), client, "note_links", error))
     }
 
     /// Every link in another note that points at the note at `path`.
@@ -338,7 +338,7 @@ impl ToolHost {
     ) -> Result<Vec<NoteBacklink>, ToolError> {
         let host = self.permit(client, "note_backlinks")?;
         host.note_backlinks(path)
-            .map_err(|error| tool_error(client, "note_backlinks", error))
+            .map_err(|error| tool_error(self.host.notes_root(), client, "note_backlinks", error))
     }
 
     /// The frontmatter properties of the note at `path`.
@@ -348,9 +348,9 @@ impl ToolHost {
         path: &str,
     ) -> Result<Vec<NoteProperty>, ToolError> {
         let host = self.permit(client, "note_properties")?;
-        let facts = host
-            .note_facts(path)
-            .map_err(|error| tool_error(client, "note_properties", error))?;
+        let facts = host.note_facts(path).map_err(|error| {
+            tool_error(self.host.notes_root(), client, "note_properties", error)
+        })?;
         Ok(facts
             .properties
             .into_iter()
@@ -363,7 +363,7 @@ impl ToolHost {
         let host = self.permit(client, "note_tags")?;
         let facts = host
             .note_facts(path)
-            .map_err(|error| tool_error(client, "note_tags", error))?;
+            .map_err(|error| tool_error(self.host.notes_root(), client, "note_tags", error))?;
         Ok(facts
             .tags
             .into_iter()
@@ -375,7 +375,7 @@ impl ToolHost {
     pub fn folder_tags(&self, client: &ClientId) -> Result<Vec<FolderTag>, ToolError> {
         let host = self.permit(client, "folder_tags")?;
         host.folder_tags()
-            .map_err(|error| tool_error(client, "folder_tags", error))
+            .map_err(|error| tool_error(self.host.notes_root(), client, "folder_tags", error))
     }
 
     /// Replaces the text of the note at `path`.
@@ -511,7 +511,7 @@ impl ToolHost {
             None => None,
         };
         host.write_note(path, content, last_known, self.origin(client))
-            .map_err(|error| tool_error(client, "write_note", error))
+            .map_err(|error| tool_error(self.host.notes_root(), client, "write_note", error))
     }
 
     /// [`ToolHost::create_note`] past the gate.
@@ -524,7 +524,7 @@ impl ToolHost {
     ) -> Result<WriteReceipt, ToolError> {
         self.text_fits(content)?;
         host.create_note(name, content, self.origin(client))
-            .map_err(|error| tool_error(client, "create_note", error))
+            .map_err(|error| tool_error(self.host.notes_root(), client, "create_note", error))
     }
 
     /// [`ToolHost::rename_note`] past the gate, with the file's length for the
@@ -538,7 +538,7 @@ impl ToolHost {
     ) -> Result<(RenameReceipt, u64), ToolError> {
         let moved = host
             .rename_note(path, new_name, self.origin(client))
-            .map_err(|error| tool_error(client, "rename_note", error))?;
+            .map_err(|error| tool_error(self.host.notes_root(), client, "rename_note", error))?;
         Ok((
             RenameReceipt {
                 path: moved.path,
@@ -662,14 +662,15 @@ fn minted_slug(name: &str) -> String {
 ///
 /// Every message a client sees names a path, a name or a length. The digest the
 /// guard carries and the folder it names are the app's own spellings of this
-/// machine, and neither is in the answer.
+/// machine, and neither is in the answer: a conflict copy is spelled relative
+/// to `root`, the way the client spelled the note.
 ///
 /// A text that is not UTF-8 and a file that would not open are one sentence
 /// here, because they are one situation to a client: the note did not come
 /// back. `NotPermitted` is the gate's answer spelled the gate's way, which is
 /// the only way it can arise: a set is derived from a verdict and never from an
 /// argument.
-fn tool_error(client: &ClientId, tool: &str, error: HostError) -> ToolError {
+fn tool_error(root: &Path, client: &ClientId, tool: &str, error: HostError) -> ToolError {
     match error {
         HostError::NotPermitted { .. } => ToolError::NotApproved {
             client: client.name.clone(),
@@ -687,7 +688,9 @@ fn tool_error(client: &ClientId, tool: &str, error: HostError) -> ToolError {
             conflict_copy,
         } => ToolError::Conflict {
             path,
-            conflict_copy,
+            conflict_copy: conflict_copy.map(|copy| {
+                relative_slug(root, Path::new(&copy)).unwrap_or_else(|| file_name_only(&copy))
+            }),
         },
         HostError::NameEmpty => ToolError::NameEmpty,
         HostError::NameTaken { name } => ToolError::NameTaken { name },
@@ -1447,10 +1450,20 @@ mod tests {
             )
             .expect_err("a note changed underneath is left alone");
 
+        let message = refusal.to_string();
         let ToolError::Conflict { conflict_copy, .. } = refusal else {
             panic!("expected a conflict, got {refusal:?}");
         };
-        let copy = PathBuf::from(conflict_copy.expect("the text is kept beside the note"));
+        let copy_key = conflict_copy.expect("the text is kept beside the note");
+        assert!(
+            !Path::new(&copy_key).is_absolute() && !copy_key.contains('/'),
+            "the copy is named the way the client named the note, not by where the folder is: {copy_key}"
+        );
+        assert!(
+            !message.contains(fixture.notes.to_str().expect("utf-8 root")),
+            "the folder's location is not in the answer: {message}"
+        );
+        let copy = fixture.notes.join(&copy_key);
         assert!(copy.is_file(), "{} is not there", copy.display());
         assert_eq!(
             std::fs::read_to_string(&copy).expect("read the copy"),
@@ -1459,6 +1472,39 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&note).expect("read the note"),
             "as somebody else left it\n"
+        );
+    }
+
+    #[test]
+    fn a_conflict_copy_in_a_subfolder_is_named_from_the_notes_folder_down() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "projects/Launch.md", "as it was read\n");
+        let host = approved_host(&fixture, true, true);
+        let read = host
+            .read_note(&client(), "projects/Launch.md")
+            .expect("read");
+        std::fs::write(&note, "as somebody else left it\n").expect("edit underneath");
+
+        let refusal = host
+            .write_note(
+                &client(),
+                "projects/Launch.md",
+                "what the client sent\n",
+                Some(&read.hash),
+            )
+            .expect_err("a note changed underneath is left alone");
+
+        let ToolError::Conflict { conflict_copy, .. } = refusal else {
+            panic!("expected a conflict, got {refusal:?}");
+        };
+        let copy_key = conflict_copy.expect("the text is kept beside the note");
+        assert!(
+            copy_key.starts_with("projects/Launch") && copy_key.ends_with(".md"),
+            "{copy_key}"
+        );
+        assert!(
+            fixture.notes.join(&copy_key).is_file(),
+            "{copy_key} is not there"
         );
     }
 
