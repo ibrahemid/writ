@@ -42,7 +42,7 @@ export function createFilesProvider(options: FilesProviderOptions = {}): ResultP
           id: `file:buffer:${target.doc.id}`,
           icon: "file-text",
           label: target.doc.title,
-          detail: target.doc.source_path ?? (target.kind === "history" ? "History" : "Scratch"),
+          detail: target.doc.source_path ?? (target.kind === "history" ? "Recently closed" : "Scratch"),
           execute: () => openTarget({ kind: target.kind, id: target.doc.id }),
         });
       }

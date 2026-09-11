@@ -62,6 +62,7 @@ fn a_link_is_rewritten_in_place() {
         None,
         None,
         None,
+        None,
     )
     .expect("the rewrite should land");
 
@@ -81,6 +82,7 @@ fn a_file_naming_the_note_nowhere_is_not_written() {
     let written = note_ops::rewrite_links_in_file(
         &path,
         &renaming(&target, "New note", &all),
+        None,
         None,
         None,
         None,
@@ -104,6 +106,7 @@ fn a_file_that_is_not_downloaded_is_refused_before_it_is_read() {
         &renaming(&target, "New note", &all),
         None,
         Some(&probe),
+        None,
         None,
     )
     .expect_err("an evicted file should be refused");
@@ -132,6 +135,7 @@ fn a_file_changed_underneath_is_refused() {
         &path,
         &renaming(&target, "New note", &all),
         Some(last_known),
+        None,
         None,
         None,
     )
@@ -174,6 +178,7 @@ fn a_refused_rewrite_leaves_its_side_of_the_race_on_disk() {
         Some(last_known),
         None,
         None,
+        None,
     )
     .expect_err("a file changed underneath should be refused");
 
@@ -209,6 +214,7 @@ fn a_file_unchanged_since_writ_read_it_is_rewritten() {
         Some(last_known),
         None,
         None,
+        None,
     )
     .expect("the guard should let this through");
 
@@ -231,6 +237,7 @@ fn a_read_only_file_is_refused() {
     let error = note_ops::rewrite_links_in_file(
         &path,
         &renaming(&target, "New note", &all),
+        None,
         None,
         None,
         None,
@@ -276,6 +283,7 @@ fn the_rewrite_is_stamped_before_it_lands() {
         None,
         None,
         Some(&stamp),
+        None,
     )
     .expect("the rewrite should land");
 
@@ -303,15 +311,29 @@ fn the_reverse_rewrite_restores_the_file_byte_for_byte() {
     let all = vec![old.clone(), new.clone(), index_key(&path)];
 
     assert_eq!(
-        note_ops::rewrite_links_in_file(&path, &renaming(&old, "New note", &all), None, None, None)
-            .expect("the rewrite should land"),
+        note_ops::rewrite_links_in_file(
+            &path,
+            &renaming(&old, "New note", &all),
+            None,
+            None,
+            None,
+            None
+        )
+        .expect("the rewrite should land"),
         LinkRewrite::Written
     );
     assert_ne!(std::fs::read(&path).expect("read"), before);
 
     assert_eq!(
-        note_ops::rewrite_links_in_file(&path, &renaming(&new, "Old note", &all), None, None, None)
-            .expect("the undo should land"),
+        note_ops::rewrite_links_in_file(
+            &path,
+            &renaming(&new, "Old note", &all),
+            None,
+            None,
+            None,
+            None
+        )
+        .expect("the undo should land"),
         LinkRewrite::Written
     );
     assert_eq!(
@@ -342,6 +364,7 @@ fn a_name_a_file_outside_the_candidate_list_answers_to_is_refused() {
             candidates: &all,
             unindexed: &[index_key(&elsewhere)],
         },
+        None,
         None,
         None,
         None,

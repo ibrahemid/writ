@@ -664,6 +664,11 @@ function NotesSection() {
           <NotesSyncNote provider={folder()?.sync_provider ?? null} />
         </span>
       </SettingsRow>
+      <SettingsRow id="notes.versions" label="Versions">
+        <span class="settings-notes-note" data-notes-retention>
+          Writ keeps a version each time a note is saved, for up to 30 days or 200 versions.
+        </span>
+      </SettingsRow>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use writ_core::file_ops::THRESHOLD_NORMAL_BYTES;
 
@@ -16,9 +17,10 @@ use writ_core::recovery::{
 use crate::database::queries;
 use crate::errors::{StorageError, StorageResult};
 use crate::guarded::{
-    write_note_guarded, write_recovered_copy, ConflictPolicy, DiskRead, GuardedWrite,
+    write_note_guarded, write_recovered_copy, ConflictPolicy, DiskRead, GuardedWrite, WriteCapture,
 };
 use crate::maintenance::{self, DatabaseStats, MaintenanceOutcome};
+use crate::note_history::NoteHistoryStore;
 use crate::notes_index;
 use crate::recovery::dirty_shutdown::check_dirty_shutdown;
 use crate::recovery::snapshot::SnapshotManager;
@@ -94,6 +96,13 @@ pub struct BufferStore {
     /// alone and [`notes_index::reconcile`] owns it outright, so a store with
     /// no notes folder can never index a file that is not a note.
     notes_root: Option<PathBuf>,
+    /// Where the text a write replaces, and the text it lands, are kept.
+    ///
+    /// `None` until the adapter hands one over, which is every test that is
+    /// not about versions and every process that is not the app: the command
+    /// line and the MCP server write notes without writing any database of
+    /// the app's (ADR-031, and §4's one-writer rule for each SQLite file).
+    history: Option<Arc<NoteHistoryStore>>,
     last_snapshot_fingerprint: Option<SnapshotFingerprint>,
 }
 
@@ -104,6 +113,7 @@ impl BufferStore {
             conn,
             buffers_dir,
             notes_root: None,
+            history: None,
             last_snapshot_fingerprint: None,
         }
     }
@@ -116,6 +126,14 @@ impl BufferStore {
     /// folder. Set once, at startup, from the resolved notes folder.
     pub fn set_notes_root(&mut self, root: PathBuf) {
         self.notes_root = Some(root);
+    }
+
+    /// Names the store that keeps what a note used to hold (spec H1).
+    ///
+    /// Set once, at startup, by the app. A store without one saves exactly as
+    /// it did before and keeps no versions.
+    pub fn set_history(&mut self, history: Arc<NoteHistoryStore>) {
+        self.history = Some(history);
     }
 
     /// Returns the path to the retired mirror directory.
@@ -628,6 +646,7 @@ impl BufferStore {
         // make every save of an untouched Windows note look like a change.
         let content = doc.line_ending.apply(content);
 
+        let keep = self.history.as_deref().map(crate::guarded::keep_versions);
         let outcome = write_note_guarded(
             GuardedWrite {
                 target: path,
@@ -637,7 +656,7 @@ impl BufferStore {
                 dataless: None,
                 origin: WriteOrigin::Editor,
                 on_conflict: ConflictPolicy::RefuseWithCopy,
-                history: None,
+                history: keep.as_ref().map(|hook| hook as &dyn Fn(WriteCapture<'_>)),
             },
             before_write,
         )?;
@@ -750,6 +769,7 @@ impl BufferStore {
             return Ok(RecoveredText::Restored(state));
         }
 
+        let keep = self.history.as_deref().map(crate::guarded::keep_versions);
         let outcome = write_note_guarded(
             GuardedWrite {
                 target: path,
@@ -761,7 +781,7 @@ impl BufferStore {
                 dataless,
                 origin: WriteOrigin::Restore,
                 on_conflict: ConflictPolicy::RefuseOnly,
-                history: None,
+                history: keep.as_ref().map(|hook| hook as &dyn Fn(WriteCapture<'_>)),
             },
             before_write,
         )?;

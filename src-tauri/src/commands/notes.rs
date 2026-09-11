@@ -662,6 +662,7 @@ fn rename_and_propagate(
             last_known,
             None,
             Some(&stamp),
+            Some(&state.note_history),
         ) {
             Ok(LinkRewrite::Written) => updated_paths.push(path_text(&file)),
             // The index named the file, its text did not: a link that reads

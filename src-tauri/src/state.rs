@@ -21,6 +21,7 @@ use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 
 use writ_storage::layout_state::LayoutStateStore;
+use writ_storage::note_history::NoteHistoryStore;
 use writ_storage::notes_index::NotesIndexStore;
 
 use crate::fts_scheduler::FtsScheduler;
@@ -167,6 +168,10 @@ pub struct AppState {
     /// its own connection so the startup reconcile never queues behind a save
     /// and a keystroke never queues behind the reconcile.
     pub notes_index: Arc<NotesIndexStore>,
+    /// The texts every note used to hold (spec H1). Its own database file and
+    /// its own folder under the data directory, written by this process and
+    /// no other.
+    pub note_history: Arc<NoteHistoryStore>,
     /// Set when the reconcile thread should stop, which is shutdown. The
     /// thread polls it per entry, so a quit during a large walk does not wait
     /// for the walk.
@@ -306,7 +311,16 @@ impl AppState {
             return Err(Box::new(writ_core::startup::DataDirRefused(verdict)));
         }
 
+        // The version store is opened before the buffer store is handed to
+        // anything, so no save can land before there is somewhere to keep
+        // what it replaced. A store that will not open costs versions and
+        // nothing else: the app runs, saves land, nothing is kept.
+        let note_history = Arc::new(NoteHistoryStore::open(&writ_dir)?);
+        note_history.set_notes_root(notes_root.clone());
+        note_history.set_probe(Arc::new(crate::watcher::identity::PlatformIdentity));
+
         let mut store = BufferStore::new(conn, buffers_dir.clone());
+        store.set_history(Arc::clone(&note_history));
         // A save is stamped into the watcher's ignore set before it lands, so
         // the notes watcher never sees Writ's own writes: the store indexes
         // them itself, and needs to know which folder is the notes folder to
@@ -433,6 +447,21 @@ impl AppState {
             Err(e) => warn!(error = %e, "database maintenance failed"),
         }
 
+        // The version store is kept on the same schedule, and for the same
+        // reason: a table written on every save and pruned on a timer leaves
+        // a file of free pages behind. Retention runs here rather than after
+        // a save, so what a person is waiting on is never a prune
+        // (`writ_core::maintenance`).
+        match note_history.prune(std::time::SystemTime::now()) {
+            Ok(outcome) if outcome.retired > 0 => info!(
+                retired = outcome.retired,
+                bytes_freed = outcome.bytes_freed,
+                "retired versions of notes past what is kept"
+            ),
+            Ok(_) => {}
+            Err(e) => warn!(error = %e, "note version retention failed"),
+        }
+
         let watcher_ignore = crate::watcher::handler::create_ignore_set();
 
         let authorized_paths = AuthorizedPaths::new();
@@ -510,6 +539,7 @@ impl AppState {
             preview_render_cache: Arc::new(RenderCache::new()),
             layout_state,
             notes_index,
+            note_history,
             notes_index_cancel: Arc::new(AtomicBool::new(false)),
             notes_reconcile: Arc::new(ReconcileGate::new()),
             quit: Arc::new(QuitState::new()),
@@ -543,6 +573,10 @@ impl AppState {
     /// paths by [`Self::is_within_notes`], and a spelling that differs would
     /// lock every note in the folder out of saving.
     pub fn set_notes_root(&self, root: PathBuf) {
+        // Every version is keyed by where its note sits inside this folder,
+        // so the store is told before anything can capture against the old
+        // one.
+        self.note_history.set_notes_root(root.clone());
         let mut guard = recover_poison(self.notes_root.write(), "state::set_notes_root");
         *guard = root.clone();
         drop(guard);

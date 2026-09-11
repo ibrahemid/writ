@@ -15,6 +15,7 @@ import {
  */
 const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["notes.folder", "notes", "Notes folder", ["notes", "folder", "where are my notes", "location", "path", "finder", "backup", "sync", "icloud", "dropbox"]],
+  ["notes.versions", "notes", "Versions", ["versions", "version", "restore", "revert", "older", "previous", "keep", "retention", "days"]],
   ["editor.font_size", "editor", "Font size", ["font", "size", "text", "zoom"]],
   ["editor.tab_size", "editor", "Tab size", ["tab", "indent", "spaces", "width"]],
   ["editor.word_wrap", "editor", "Word wrap", ["wrap", "word", "line", "soft wrap"]],

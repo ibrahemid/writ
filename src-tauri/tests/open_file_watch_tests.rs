@@ -717,6 +717,7 @@ fn an_applied_proposal_reaches_the_tab_as_somebody_elses_edit() {
         "Launch.md",
         written,
         &writ_core::hash::sha256_hex(read_by_the_tab),
+        None,
     )
     .expect("the proposal is applied");
     assert_eq!(outcome.path, "Launch.md");

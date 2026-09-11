@@ -489,6 +489,50 @@ export async function noteDiskState(id: string): Promise<NoteDiskAnswer> {
   return invoke("note_disk_state", { id });
 }
 
+/** One text a note used to hold. */
+export interface NoteVersion {
+  /** What the other three commands take. */
+  id: number;
+  /** When the text was kept, in milliseconds since the epoch. */
+  at_ms: number;
+  /** What the text costs in bytes. */
+  bytes: number;
+}
+
+/** What a restore put back. */
+export interface RestoredVersion {
+  /** The note, relative to the notes folder. */
+  note: string;
+  /** What the file holds now, in bytes. */
+  bytes: number;
+}
+
+/** The file a copy left beside the note. */
+export interface VersionCopy {
+  /** The name of the new file. */
+  name: string;
+}
+
+/** Every text kept for the note at `path`, newest first. */
+export async function noteVersions(path: string): Promise<NoteVersion[]> {
+  return invoke("note_versions", { path });
+}
+
+/** The text one version holds. */
+export async function noteVersionContent(versionId: number): Promise<string> {
+  return invoke("note_version_content", { versionId });
+}
+
+/** Writes one version back to its note. */
+export async function restoreNoteVersion(versionId: number): Promise<RestoredVersion> {
+  return invoke("restore_note_version", { versionId });
+}
+
+/** Writes one version beside its note as a dated file. */
+export async function copyNoteVersion(versionId: number): Promise<VersionCopy> {
+  return invoke("copy_note_version", { versionId });
+}
+
 /**
  * Carries out what the person chose about a file that changed outside Writ.
  *

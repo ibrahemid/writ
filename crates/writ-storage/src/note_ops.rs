@@ -277,7 +277,9 @@ pub struct RewriteTarget<'a> {
 /// `last_known` is what Writ last saw the file hold, for a file it has looked
 /// at; `None` for one it has not, whose "has this changed" has no answer.
 /// `dataless` is the eviction probe ([`DatalessProbe`]): `None` asks the
-/// filesystem, which is what the app does.
+/// filesystem, which is what the app does. `history` is the version store,
+/// for the caller that keeps one: a rename propagation rewrites a note
+/// nobody has open, so what that note said before is worth keeping.
 ///
 /// # Errors
 ///
@@ -290,6 +292,7 @@ pub fn rewrite_links_in_file(
     last_known: Option<DiskState>,
     dataless: DatalessProbe<'_>,
     before_write: BeforeWrite<'_>,
+    history: Option<&crate::note_history::NoteHistoryStore>,
 ) -> StorageResult<LinkRewrite> {
     let flags = match dataless {
         Some(probe) => probe(path),
@@ -337,6 +340,7 @@ pub fn rewrite_links_in_file(
         mtime: metadata.as_ref().and_then(|m| m.modified().ok()),
     };
 
+    let keep = history.map(crate::guarded::keep_versions);
     write_note_guarded(
         GuardedWrite {
             target: path,
@@ -346,7 +350,9 @@ pub fn rewrite_links_in_file(
             dataless,
             origin: WriteOrigin::RenamePropagation,
             on_conflict: ConflictPolicy::RefuseWithCopy,
-            history: None,
+            history: keep
+                .as_ref()
+                .map(|hook| hook as &dyn Fn(crate::guarded::WriteCapture<'_>)),
         },
         before_write,
     )?;

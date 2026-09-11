@@ -116,7 +116,7 @@ export default function HistorySection() {
   function handleContextMenu(e: MouseEvent, id: string) {
     e.preventDefault();
     showContextMenu(e.clientX, e.clientY, [
-      { label: "Restore", action: () => void win.tabs.restoreFromHistory(id) },
+      { label: "Reopen", action: () => void win.tabs.restoreFromHistory(id) },
       {
         label: "Delete",
         action: () => void bufferRegistry.deleteFromHistory(id),

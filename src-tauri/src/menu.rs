@@ -52,6 +52,7 @@ pub enum MenuAction {
     Save,
     SaveCopy,
     RenameNote,
+    OpenNoteVersions,
     CloseTab,
     Find,
     FindNext,
@@ -66,7 +67,7 @@ pub enum MenuAction {
 
 impl MenuAction {
     /// Every action the table routes to.
-    pub const ALL: [MenuAction; 22] = [
+    pub const ALL: [MenuAction; 23] = [
         MenuAction::ThirdPartyNotices,
         MenuAction::OpenSettings,
         MenuAction::CheckUpdates,
@@ -79,6 +80,7 @@ impl MenuAction {
         MenuAction::Save,
         MenuAction::SaveCopy,
         MenuAction::RenameNote,
+        MenuAction::OpenNoteVersions,
         MenuAction::CloseTab,
         MenuAction::Find,
         MenuAction::FindNext,
@@ -107,6 +109,7 @@ impl MenuAction {
             MenuAction::Save => "buffer.save",
             MenuAction::SaveCopy => "note.saveCopy",
             MenuAction::RenameNote => "note.rename",
+            MenuAction::OpenNoteVersions => "note.versions",
             MenuAction::CloseTab => "buffer.close",
             MenuAction::Find => "editor.find",
             MenuAction::FindNext => "editor.findNext",
@@ -181,6 +184,7 @@ pub fn menu_action_for_id(id: &str) -> Option<MenuAction> {
         "buffer.save" => MenuAction::Save,
         "note.saveCopy" => MenuAction::SaveCopy,
         "note.rename" => MenuAction::RenameNote,
+        "note.versions" => MenuAction::OpenNoteVersions,
         "buffer.close" => MenuAction::CloseTab,
         "editor.find" => MenuAction::Find,
         "editor.findNext" => MenuAction::FindNext,

@@ -12,6 +12,7 @@
   { "id": "buffer.save", "label": "Save", "accelerator": "CmdOrCtrl+S", "menu": "file", "group": 2, "platforms": ["mac", "win", "linux"] },
   { "id": "note.saveCopy", "label": "Save a Copy…", "menu": "file", "group": 2, "platforms": ["mac", "win", "linux"] },
   { "id": "note.rename", "label": "Rename Note…", "menu": "file", "group": 2, "platforms": ["mac", "win", "linux"] },
+  { "id": "note.versions", "label": "Revert To…", "menu": "file", "group": 2, "platforms": ["mac", "win", "linux"] },
   { "id": "buffer.close", "label": "Close Tab", "accelerator": "CmdOrCtrl+W", "menu": "file", "group": 3, "platforms": ["mac", "win", "linux"] },
 
   { "id": "editor.find", "label": "Find", "accelerator": "CmdOrCtrl+F", "menu": "edit", "group": 0, "platforms": ["mac", "win", "linux"] },

@@ -14,12 +14,16 @@ const SRC = resolve(REPO_ROOT, "src");
 const SETTINGS_INDEX_FILE = resolve(SRC, "settings", "index.ts");
 
 // ADR-028 §10, verbatim. The operator's four (vault, buffer, scratchpad,
-// second brain) are the first four.
+// second brain) are the first four; the three after them are spec H1's, which
+// names what a note used to hold a version and nothing else.
 const BANNED = [
   "vault",
   "buffer",
   "scratchpad",
   "second brain",
+  "snapshot",
+  "history buffer",
+  "restore point",
   "render surface",
   "inbox",
   "reveal",
