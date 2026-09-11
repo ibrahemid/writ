@@ -5,6 +5,14 @@
 //! method takes the calling client and puts it to the [`ConsentGate`] before it
 //! opens anything, so a refusal costs no read (ADR-031 rule 3.2).
 //!
+//! What an allowed call may then do belongs to the note host. The gate's
+//! verdict becomes a [`PermissionSet`] and the call runs through a handle
+//! holding it, so the operation sits behind a check rather than after one
+//! (ADR-032). What stays here is the wire: the argument checks a client can
+//! fail, the clamp on how much one call answers with, the sentence a refusal is
+//! spelled as, and the activity record, which names a tool and an actor the
+//! host knows nothing about.
+//!
 //! Notes are read from the folder and facts about them from the index, which is
 //! opened read-only: this process creates no database, runs no migration and
 //! changes no row (ADR-031 rule 1.3). With the index absent or unreadable,
@@ -12,53 +20,40 @@
 //! folder and the six index-derived tools return [`ToolError::IndexUnavailable`].
 //!
 //! The three write tools change a note's file and nothing else. They write
-//! through `writ_storage::guarded`, the one writer of a note's file
-//! (ADR-032 section 4), under `WriteOrigin::Mcp` and
-//! `ConflictPolicy::RefuseWithCopy`, so a note that changed since the client
-//! read it keeps what it holds and the client's text lands beside it. There is
-//! no argument that turns that into an overwrite.
+//! through the one facade a note's file is ever written by (ADR-032 section 4),
+//! under `WriteOrigin::Mcp` and a policy that refuses with a copy, so a note
+//! that changed since the client read it keeps what it holds and the client's
+//! text lands beside it. There is no argument that turns that into an
+//! overwrite.
 //!
 //! Nothing here stamps the app's ignore set, and that is load-bearing rather
 //! than a gap. The stamp is how Writ tells its own writes apart from somebody
 //! else's; a write from this process **is** somebody else's, and the running
 //! app is meant to learn about it through the folder watcher and reconcile the
-//! open tab (ADR-033). A stamped write would be swallowed. The `BeforeWrite`
-//! hook is therefore `None` on every call this module makes, which is also the
-//! only thing it could be: the ignore set lives in the app process and this
-//! one is the client's child.
-//!
-//! The method bodies are shaped for U9 to lift onto `writ_plugin::host::NoteHost`
-//! (ADR-032 section 3): the consent check is the first line and the rest of the
-//! body is the operation, so the check can be replaced by a capability check
-//! without the operation moving.
+//! open tab (ADR-033). A stamped write would be swallowed. It is also the only
+//! thing it could be: the ignore set lives in the app process and this one is
+//! the client's child.
 
 use std::path::{Path, PathBuf};
 
 use writ_core::activity::{ActivityRecord, Actor};
-use writ_core::hash::{digest_from_hex, digest_hex};
-use writ_core::notes::containment::{resolve_for_containment, resolve_inside};
-use writ_core::notes::guard::{is_not_downloaded, DiskState};
+use writ_core::hash::digest_from_hex;
+use writ_core::notes::host::{Capability, HostError, NoteHost, PermissionSet};
 use writ_core::notes::WriteOrigin;
-use writ_storage::buffer_store::{dataless_flags, read_disk_state};
-use writ_storage::database::migrations::binary_schema_version;
-use writ_storage::errors::StorageError;
-use writ_storage::guarded::{
-    create_note_guarded, write_note_guarded, ConflictPolicy, CreateNote, DiskRead, GuardedWrite,
-    TakenName,
-};
-use writ_storage::notes_index::{self, BacklinkCertainty, NotesIndexStore};
+use writ_storage::note_host::NoteHostImpl;
 use writ_storage::paths::{file_name_only, relative_slug};
 
 use crate::consent::{ClientId, ConsentGate, Decision};
 
-/// Largest note a tool reads, in bytes (ADR-031 rule 4.8).
-pub const MAX_NOTE_BYTES: u64 = 2 * 1024 * 1024;
+/// Largest note a tool reads, in bytes (ADR-031 rule 4.8): the note host's
+/// ceiling, which every surface reading a whole note is held to.
+pub use writ_core::notes::host::MAX_NOTE_BYTES;
+
+/// The extension a minted note's file carries.
+const NOTE_EXTENSION: &str = "md";
 
 /// Most notes or hits one call answers with, whatever the caller asked for.
 pub const MAX_RESULTS: usize = 500;
-
-/// The extension `list_notes` counts as a note.
-const NOTE_EXTENSION: &str = "md";
 
 /// The tools that only read, and the tools that change a note.
 ///
@@ -67,6 +62,14 @@ const NOTE_EXTENSION: &str = "md";
 /// user the same names, so none of the three can drift
 /// ([`writ_core::tools`]).
 pub use writ_core::tools::{READ_TOOLS, WRITE_TOOLS};
+
+/// The answers a tool hands back, which are the host's own shapes: one note in
+/// the folder, a note's text, a search hit, a link, a backlink, a folder tag,
+/// and where a write landed.
+pub use writ_core::notes::host::{
+    FolderTag, NoteBacklink, NoteContent, NoteHit as SearchResult, NoteLink, NoteSummary,
+    WriteReceipt,
+};
 
 /// The tools that answer from the index and cannot answer without it.
 pub const INDEX_TOOLS: &[&str] = &[
@@ -168,110 +171,17 @@ pub enum ToolError {
     },
 }
 
-/// One note in the folder.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct NoteSummary {
-    /// The note's path, in the spelling every other tool takes back.
-    pub path: String,
-    /// What the note is called: the file name without its extension.
-    pub name: String,
-    /// The file's length in bytes.
-    pub bytes: u64,
-}
-
-/// A note's text, as the file holds it.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct NoteContent {
-    /// The note's path.
-    pub path: String,
-    /// The file's length in bytes.
-    pub bytes: u64,
-    /// SHA-256 of the file's bytes, in lowercase hex.
-    ///
-    /// This is what `write_note` takes as `expected_hash`: a client that reads
-    /// a note, thinks, and writes it back hands this value over and the write
-    /// is made only if the note still holds the text this hash names.
-    pub hash: String,
-    /// The whole file, frontmatter included.
-    pub text: String,
-}
-
-/// Where a write landed and what the file holds afterwards.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct WriteReceipt {
-    /// The note's path, in the spelling every other tool takes back.
-    pub path: String,
-    /// The file's length in bytes.
-    pub bytes: u64,
-    /// SHA-256 of the file's bytes, the value the next write passes as
-    /// `expected_hash`.
-    pub hash: String,
-}
-
 /// Where a renamed note went, and where it was.
+///
+/// The host answers with the file's length as well, which the activity record
+/// takes and a client is not told: a rename changes no byte, so a length on the
+/// wire would be a number with nothing to say.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RenameReceipt {
     /// The note's path now.
     pub path: String,
     /// The path it had before.
     pub previous_path: String,
-}
-
-/// One search hit.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct SearchResult {
-    /// The note's path.
-    pub path: String,
-    /// What the note is called: the file name without its extension, the same
-    /// shape `list_notes` takes back.
-    pub name: String,
-    /// 1-based line the match is on, or `None` when the name matched.
-    pub line: Option<u32>,
-    /// The matching line, cut to a readable length.
-    pub excerpt: String,
-}
-
-/// One link written in a note.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct NoteLink {
-    /// The link's target as it was written: no alias, no heading.
-    pub target: String,
-    /// The note the target resolved to. `None` when it resolved to nothing, and
-    /// `None` when it names more than one note: an ambiguous link is never
-    /// resolved to a guess (ADR-036 section 6).
-    pub resolved_path: Option<String>,
-    /// `wikilink` or `markdown`.
-    pub kind: String,
-    /// 1-based line the link is on.
-    pub line: u32,
-    /// 0-based character offset of the link inside that line.
-    pub column: u32,
-}
-
-/// One link in another note that points at this one.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct NoteBacklink {
-    /// Path of the note the link is written in.
-    pub from_path: String,
-    /// What that note is called.
-    pub from_name: String,
-    /// The link's target as it was written.
-    pub target: String,
-    /// A wikilink's `|alias`, when it has one.
-    pub alias: Option<String>,
-    /// `wikilink` or `markdown`.
-    pub kind: String,
-    /// 1-based line the link is on.
-    pub line: u32,
-    /// 0-based character offset of the link inside that line.
-    pub column: u32,
-    /// The sentence the link sits in.
-    pub context: String,
-    /// `resolved` when the link means this note and no other, `ambiguous` when
-    /// it names this one and at least one more.
-    pub certainty: String,
-    /// The other notes an ambiguous link might mean. Empty for a resolved one.
-    pub candidates: Vec<String>,
 }
 
 /// One frontmatter property.
@@ -292,29 +202,45 @@ pub struct NoteTag {
     pub line: u32,
 }
 
-/// One tag in the folder, with how many notes carry it.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct FolderTag {
-    /// The tag, without its `#`.
-    pub tag: String,
-    /// How many notes carry it.
-    pub notes: usize,
+/// What an allowed read tool may ask the host for.
+///
+/// One set for every read, because U5 approves a direction and not a tool: a
+/// client approved to read may call any of the eight.
+pub fn read_permissions() -> PermissionSet {
+    [
+        Capability::ListNotes,
+        Capability::ReadNote,
+        Capability::SearchNotes,
+        Capability::ReadIndex,
+    ]
+    .into_iter()
+    .collect()
+}
+
+/// What an allowed write tool may ask the host for.
+pub fn write_permissions() -> PermissionSet {
+    [
+        Capability::WriteNote,
+        Capability::CreateNote,
+        Capability::RenameNote,
+    ]
+    .into_iter()
+    .collect()
 }
 
 /// The notes folder and the index over it, behind a consent gate.
 pub struct ToolHost {
-    notes_root: PathBuf,
     writ_dir: PathBuf,
-    index: Option<NotesIndexStore>,
+    host: NoteHostImpl<'static>,
     gate: Box<dyn ConsentGate>,
 }
 
 impl std::fmt::Debug for ToolHost {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ToolHost")
-            .field("notes_root", &self.notes_root)
+            .field("notes_root", &self.host.notes_root())
             .field("writ_dir", &self.writ_dir)
-            .field("index", &self.index.is_some())
+            .field("index", &self.host.has_index())
             .finish_non_exhaustive()
     }
 }
@@ -327,35 +253,34 @@ impl ToolHost {
     /// that read the folder still answer, and the rest say so
     /// ([`ToolError::IndexUnavailable`]).
     ///
-    /// The root is resolved here so every containment check compares two paths
-    /// the filesystem spells the same way.
+    /// The host is opened holding nothing. Each call derives its set from the
+    /// gate's verdict, so there is no handle in this process that may write
+    /// before a client has been approved to.
     pub fn open(
         notes_root: &Path,
         db_path: &Path,
         writ_dir: &Path,
         gate: Box<dyn ConsentGate>,
     ) -> Result<Self, ToolError> {
-        let resolved = resolve_for_containment(notes_root)
-            .filter(|root| root.is_dir())
-            .ok_or_else(|| ToolError::NotFound {
+        let host = NoteHostImpl::open(notes_root, Some(db_path), PermissionSet::default())
+            .map_err(|_| ToolError::NotFound {
                 path: notes_root.display().to_string(),
             })?;
         Ok(Self {
-            notes_root: resolved,
             writ_dir: writ_dir.to_path_buf(),
-            index: open_index(db_path),
+            host,
             gate,
         })
     }
 
     /// The folder every path argument is checked against.
     pub fn notes_root(&self) -> &Path {
-        &self.notes_root
+        self.host.notes_root()
     }
 
     /// Whether the index answered when the host was opened.
     pub fn has_index(&self) -> bool {
-        self.index.is_some()
+        self.host.has_index()
     }
 
     /// Every note in the folder, path-ordered.
@@ -370,42 +295,9 @@ impl ToolHost {
         prefix: Option<&str>,
         limit: usize,
     ) -> Result<Vec<NoteSummary>, ToolError> {
-        self.allow(client, "list_notes")?;
-
-        let mut notes = Vec::new();
-        for entry in writ_storage::workspace_search::build_walk(&self.notes_root).build() {
-            let Ok(entry) = entry else { continue };
-            if !entry.file_type().is_some_and(|kind| kind.is_file()) {
-                continue;
-            }
-            let path = entry.path();
-            if writ_core::workspace::path_has_ignored_name(&self.notes_root, path) {
-                continue;
-            }
-            if !path
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case(NOTE_EXTENSION))
-            {
-                continue;
-            }
-            let Some(relative) = relative_slug(&self.notes_root, path) else {
-                continue;
-            };
-            let key = notes_index::index_key(path);
-            if let Some(prefix) = prefix {
-                if !relative.starts_with(prefix) && !key.starts_with(prefix) {
-                    continue;
-                }
-            }
-            notes.push(NoteSummary {
-                name: writ_core::notes::note_display_name(&key),
-                path: key,
-                bytes: std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0),
-            });
-        }
-        notes.sort_by(|a, b| a.path.cmp(&b.path));
-        notes.truncate(limit.min(MAX_RESULTS));
-        Ok(notes)
+        let host = self.permit(client, "list_notes")?;
+        host.list_notes(prefix, limit.min(MAX_RESULTS))
+            .map_err(|error| tool_error(client, "list_notes", error))
     }
 
     /// Up to `limit` notes whose text matches `query`.
@@ -419,81 +311,23 @@ impl ToolHost {
         query: &str,
         limit: usize,
     ) -> Result<Vec<SearchResult>, ToolError> {
-        self.allow(client, "search_notes")?;
-        let index = self.index()?;
-
-        let Some(expression) = writ_core::search::to_prefix_match(query) else {
-            return Ok(Vec::new());
-        };
-        let terms = writ_core::search::search_terms(query);
-        let hits = index
-            .search_hits(&expression, &terms, limit.min(MAX_RESULTS))
-            .map_err(|_| ToolError::IndexUnavailable)?;
-
-        Ok(hits
-            .into_iter()
-            .map(|hit| {
-                let path = hit.path.unwrap_or_default();
-                SearchResult {
-                    name: writ_core::notes::note_display_name(&path),
-                    path,
-                    line: hit.line,
-                    excerpt: hit
-                        .snippet
-                        .into_iter()
-                        .map(|segment| segment.text)
-                        .collect(),
-                }
-            })
-            .collect())
+        let host = self.permit(client, "search_notes")?;
+        host.search_notes(query, limit.min(MAX_RESULTS))
+            .map_err(|error| tool_error(client, "search_notes", error))
     }
 
     /// The whole file at `path`, frontmatter included.
     pub fn read_note(&self, client: &ClientId, path: &str) -> Result<NoteContent, ToolError> {
-        self.allow(client, "read_note")?;
-        let file = self.note_file(path)?;
-
-        let bytes = std::fs::metadata(&file)
-            .map_err(|_| ToolError::NotFound {
-                path: path.to_string(),
-            })?
-            .len();
-        if bytes > MAX_NOTE_BYTES {
-            return Err(ToolError::TooLarge {
-                path: path.to_string(),
-                bytes,
-            });
-        }
-        let text = std::fs::read_to_string(&file).map_err(|_| ToolError::Unreadable {
-            path: path.to_string(),
-        })?;
-        Ok(NoteContent {
-            path: notes_index::index_key(&file),
-            bytes,
-            hash: writ_core::hash::sha256_hex(text.as_bytes()),
-            text,
-        })
+        let host = self.permit(client, "read_note")?;
+        host.read_note(path)
+            .map_err(|error| tool_error(client, "read_note", error))
     }
 
     /// Every link written in the note at `path`.
     pub fn note_links(&self, client: &ClientId, path: &str) -> Result<Vec<NoteLink>, ToolError> {
-        self.allow(client, "note_links")?;
-        let index = self.index()?;
-        let key = self.note_key(path)?;
-
-        let rows = index
-            .links_from(&key)
-            .map_err(|_| ToolError::IndexUnavailable)?;
-        Ok(rows
-            .into_iter()
-            .map(|row| NoteLink {
-                target: row.to_target,
-                resolved_path: row.to_path,
-                kind: row.kind,
-                line: row.line,
-                column: row.col,
-            })
-            .collect())
+        let host = self.permit(client, "note_links")?;
+        host.note_links(path)
+            .map_err(|error| tool_error(client, "note_links", error))
     }
 
     /// Every link in another note that points at the note at `path`.
@@ -502,28 +336,9 @@ impl ToolHost {
         client: &ClientId,
         path: &str,
     ) -> Result<Vec<NoteBacklink>, ToolError> {
-        self.allow(client, "note_backlinks")?;
-        let index = self.index()?;
-        let key = self.note_key(path)?;
-
-        let rows = index
-            .backlinks(&key)
-            .map_err(|_| ToolError::IndexUnavailable)?;
-        Ok(rows
-            .into_iter()
-            .map(|row| NoteBacklink {
-                from_path: row.from_path,
-                from_name: row.from_name,
-                target: row.to_target,
-                alias: row.alias,
-                kind: row.kind,
-                line: row.line,
-                column: row.col,
-                context: row.context,
-                certainty: certainty_word(row.certainty).to_string(),
-                candidates: row.candidates,
-            })
-            .collect())
+        let host = self.permit(client, "note_backlinks")?;
+        host.note_backlinks(path)
+            .map_err(|error| tool_error(client, "note_backlinks", error))
     }
 
     /// The frontmatter properties of the note at `path`.
@@ -532,8 +347,10 @@ impl ToolHost {
         client: &ClientId,
         path: &str,
     ) -> Result<Vec<NoteProperty>, ToolError> {
-        self.allow(client, "note_properties")?;
-        let facts = self.facts(path)?;
+        let host = self.permit(client, "note_properties")?;
+        let facts = host
+            .note_facts(path)
+            .map_err(|error| tool_error(client, "note_properties", error))?;
         Ok(facts
             .properties
             .into_iter()
@@ -543,8 +360,10 @@ impl ToolHost {
 
     /// The tags written in the note at `path`.
     pub fn note_tags(&self, client: &ClientId, path: &str) -> Result<Vec<NoteTag>, ToolError> {
-        self.allow(client, "note_tags")?;
-        let facts = self.facts(path)?;
+        let host = self.permit(client, "note_tags")?;
+        let facts = host
+            .note_facts(path)
+            .map_err(|error| tool_error(client, "note_tags", error))?;
         Ok(facts
             .tags
             .into_iter()
@@ -554,17 +373,11 @@ impl ToolHost {
 
     /// Every tag in the folder, with the number of notes carrying each.
     pub fn folder_tags(&self, client: &ClientId) -> Result<Vec<FolderTag>, ToolError> {
-        self.allow(client, "folder_tags")?;
-        let index = self.index()?;
-        let rows = index.all_tags().map_err(|_| ToolError::IndexUnavailable)?;
-        Ok(rows
-            .into_iter()
-            .map(|(tag, notes)| FolderTag { tag, notes })
-            .collect())
+        let host = self.permit(client, "folder_tags")?;
+        host.folder_tags()
+            .map_err(|error| tool_error(client, "folder_tags", error))
     }
 
-    /// Refuses the call unless the gate allows this client this tool.
-    ///
     /// Replaces the text of the note at `path`.
     ///
     /// `expected_hash` is the `hash` [`ToolHost::read_note`] handed back. Given
@@ -588,9 +401,9 @@ impl ToolHost {
         content: &str,
         expected_hash: Option<&str>,
     ) -> Result<WriteReceipt, ToolError> {
-        let allowed = self.allow(client, "write_note");
-        let written =
-            allowed.and_then(|()| self.replace_text(client, path, content, expected_hash));
+        let permitted = self.permit(client, "write_note");
+        let written = permitted
+            .and_then(|host| self.replace_text(&host, client, path, content, expected_hash));
         self.record(
             client,
             "write_note",
@@ -625,8 +438,8 @@ impl ToolHost {
         name: &str,
         content: &str,
     ) -> Result<WriteReceipt, ToolError> {
-        let allowed = self.allow(client, "create_note");
-        let created = allowed.and_then(|()| self.mint_note(client, name, content));
+        let permitted = self.permit(client, "create_note");
+        let created = permitted.and_then(|host| self.mint_note(&host, client, name, content));
         self.record(
             client,
             "create_note",
@@ -658,8 +471,8 @@ impl ToolHost {
         path: &str,
         new_name: &str,
     ) -> Result<RenameReceipt, ToolError> {
-        let allowed = self.allow(client, "rename_note");
-        let renamed = allowed.and_then(|()| self.move_name(client, path, new_name));
+        let permitted = self.permit(client, "rename_note");
+        let renamed = permitted.and_then(|host| self.move_name(&host, client, path, new_name));
         self.record(
             client,
             "rename_note",
@@ -677,149 +490,61 @@ impl ToolHost {
     /// [`ToolHost::write_note`] past the gate.
     fn replace_text(
         &self,
+        host: &NoteHostImpl<'_>,
         client: &ClientId,
         path: &str,
         content: &str,
         expected_hash: Option<&str>,
     ) -> Result<WriteReceipt, ToolError> {
         self.text_fits(content)?;
-        let file = self.note_file(path)?;
-        // Asked before the read below, because the read is what would pull an
-        // evicted file down (ADR-028 section 5). The guard asks the same
-        // question, and asking it here is what lets the state below be read
-        // once and handed over rather than read again inside it.
-        if is_not_downloaded(dataless_flags(&file)) {
-            return Err(ToolError::NotDownloaded {
-                path: path.to_string(),
-            });
-        }
-        let on_disk = read_disk_state(&file).map_err(|_| ToolError::Unreadable {
-            path: path.to_string(),
-        })?;
-        // With a hash from the client, only its digest is read out of this:
-        // `decide_save` compares digests and never the length or the
-        // modification time, and a client that read the note over the wire
-        // knows neither of those two about the file it read. Without one, what
-        // the file holds now stands in, which is the same thing as having no
-        // expectation and also lets a write of the text the note already holds
-        // be recognised and skipped.
+        // Read as a digest and no further: a client that read the note over the
+        // wire knows neither the length nor the modification time of the file
+        // it read, and the guard compares digests.
         let last_known = match expected_hash {
-            Some(hex) => Some(DiskState {
-                hash: digest_from_hex(hex).ok_or_else(|| ToolError::HashNotUnderstood {
-                    path: path.to_string(),
-                })?,
-                size: 0,
-                mtime: None,
-            }),
-            None => on_disk,
+            Some(hex) => {
+                Some(
+                    digest_from_hex(hex).ok_or_else(|| ToolError::HashNotUnderstood {
+                        path: path.to_string(),
+                    })?,
+                )
+            }
+            None => None,
         };
-        let outcome = write_note_guarded(
-            GuardedWrite {
-                target: &file,
-                bytes: content.as_bytes(),
-                last_known,
-                // Read once, above, from the same bytes the digests here
-                // describe.
-                on_disk: DiskRead::Read(on_disk),
-                dataless: None,
-                origin: self.origin(client),
-                on_conflict: ConflictPolicy::RefuseWithCopy,
-                history: None,
-            },
-            // No ignore stamp: this write is meant to reach the running app as
-            // somebody else's, through the folder watcher (ADR-033).
-            None,
-        )
-        .map_err(|error| write_error(path, error))?;
-        Ok(WriteReceipt {
-            path: notes_index::index_key(&file),
-            bytes: outcome.disk_state.size,
-            hash: digest_hex(outcome.disk_state.hash),
-        })
+        host.write_note(path, content, last_known, self.origin(client))
+            .map_err(|error| tool_error(client, "write_note", error))
     }
 
     /// [`ToolHost::create_note`] past the gate.
     fn mint_note(
         &self,
+        host: &NoteHostImpl<'_>,
         client: &ClientId,
         name: &str,
         content: &str,
     ) -> Result<WriteReceipt, ToolError> {
         self.text_fits(content)?;
-        let stem = writ_core::notes::sanitize_title(name).ok_or(ToolError::NameEmpty)?;
-        // The dedupe is what a person who asked for a new note wants and the
-        // wrong answer for a program: a client that asked for `Launch` and got
-        // `Launch 2` has put its text in a note it did not name. The facade
-        // holds the folding rule for what "taken" means, so it is asked rather
-        // than second-guessed: a check here against the exact path would be
-        // the filesystem's answer, and a case-sensitive volume folds nothing.
-        let minted = create_note_guarded(
-            CreateNote {
-                notes_root: &self.notes_root,
-                stem: &stem,
-                content,
-                origin: self.origin(client),
-                on_taken_name: TakenName::Refuse,
-                history: None,
-            },
-            None,
-        )
-        .map_err(|error| write_error(name, error))?;
-        // Read back rather than hashed here: the facade lands a minted note as
-        // LF, so what the client handed in is not always what the file holds.
-        let state =
-            read_disk_state(&minted)
-                .ok()
-                .flatten()
-                .ok_or_else(|| ToolError::Unwritable {
-                    path: name.to_string(),
-                })?;
-        Ok(WriteReceipt {
-            path: notes_index::index_key(&minted),
-            bytes: state.size,
-            hash: digest_hex(state.hash),
-        })
+        host.create_note(name, content, self.origin(client))
+            .map_err(|error| tool_error(client, "create_note", error))
     }
 
     /// [`ToolHost::rename_note`] past the gate, with the file's length for the
     /// record.
     fn move_name(
         &self,
+        host: &NoteHostImpl<'_>,
         client: &ClientId,
         path: &str,
         new_name: &str,
     ) -> Result<(RenameReceipt, u64), ToolError> {
-        let file = self.note_file(path)?;
-        // Maps a separator to a space, so a new name that spells a path names
-        // a file in the folder the note is already in and cannot walk out of
-        // it.
-        let stem = writ_core::notes::rename_stem(&file, new_name).ok_or(ToolError::NameEmpty)?;
-        // Asked before the read below, because the read is what would pull an
-        // evicted file down (ADR-028 section 5).
-        if is_not_downloaded(dataless_flags(&file)) {
-            return Err(ToolError::NotDownloaded {
-                path: path.to_string(),
-            });
-        }
-        let last_known = read_disk_state(&file).map_err(|_| ToolError::Unreadable {
-            path: path.to_string(),
-        })?;
-        let bytes = last_known.map_or(0, |state| state.size);
-        let moved = writ_storage::note_ops::rename_note(
-            &file,
-            &stem,
-            last_known,
-            self.origin(client),
-            // No ignore stamp, for the reason `replace_text` gives.
-            None,
-        )
-        .map_err(|error| write_error(path, error))?;
+        let moved = host
+            .rename_note(path, new_name, self.origin(client))
+            .map_err(|error| tool_error(client, "rename_note", error))?;
         Ok((
             RenameReceipt {
-                path: notes_index::index_key(&moved),
-                previous_path: notes_index::index_key(&file),
+                path: moved.path,
+                previous_path: moved.previous_path,
             },
-            bytes,
+            moved.bytes,
         ))
     }
 
@@ -854,13 +579,14 @@ impl ToolHost {
     /// what a client sent is a machine's folder layout in a file the user may
     /// hand to somebody.
     fn logged_path(&self, path: &str) -> String {
+        let root = self.host.notes_root();
         let given = Path::new(path);
         let candidate = if given.is_absolute() {
             given.to_path_buf()
         } else {
-            self.notes_root.join(given)
+            root.join(given)
         };
-        relative_slug(&self.notes_root, &candidate).unwrap_or_else(|| file_name_only(path))
+        relative_slug(root, &candidate).unwrap_or_else(|| file_name_only(path))
     }
 
     /// Appends what one write did to the activity log.
@@ -885,9 +611,22 @@ impl ToolHost {
         let _ = writ_storage::activity_log::append(&self.writ_dir, &record);
     }
 
-    /// Called first by every method, so a refusal opens no file and runs no
-    /// query. `Pending` refuses too: U5 is what turns it into a row the user
-    /// can act on.
+    /// Called first by every method: the gate decides once, and an allowed call
+    /// gets a handle holding what its direction may ask for.
+    ///
+    /// A refusal never reaches the host, so it opens no file and runs no query.
+    /// `Pending` refuses too: U5 is what turns it into a row the user can act
+    /// on.
+    fn permit(&self, client: &ClientId, tool: &str) -> Result<NoteHostImpl<'static>, ToolError> {
+        self.allow(client, tool)?;
+        let held = match writ_core::tools::is_write_tool(tool) {
+            true => write_permissions(),
+            false => read_permissions(),
+        };
+        Ok(self.host.with_permissions(held))
+    }
+
+    /// The gate's verdict on this client calling this tool.
     fn allow(&self, client: &ClientId, tool: &str) -> Result<(), ToolError> {
         match self.gate.decide(client, tool) {
             Decision::Allow => Ok(()),
@@ -896,53 +635,6 @@ impl ToolHost {
                 tool: tool.to_string(),
             }),
         }
-    }
-
-    /// The index, or [`ToolError::IndexUnavailable`] when there is none.
-    fn index(&self) -> Result<&NotesIndexStore, ToolError> {
-        self.index.as_ref().ok_or(ToolError::IndexUnavailable)
-    }
-
-    /// The file a path argument names, refusing anything the folder does not
-    /// hold.
-    ///
-    /// A path that is not absolute is read from the notes folder, which is the
-    /// spelling `writ read` already takes and the one a client writes after
-    /// seeing a name. Joining happens before resolution, so `../` in a relative
-    /// argument is walked and refused like any other way out. Resolution
-    /// happens before the file is opened, so a symlink out of the folder is
-    /// refused rather than followed (ADR-031 rule 3.7).
-    fn note_file(&self, path: &str) -> Result<PathBuf, ToolError> {
-        let given = Path::new(path);
-        let candidate = if given.is_absolute() {
-            given.to_path_buf()
-        } else {
-            self.notes_root.join(given)
-        };
-        let file = resolve_inside(&self.notes_root, &candidate).ok_or_else(|| {
-            ToolError::OutsideNotesFolder {
-                path: path.to_string(),
-            }
-        })?;
-        if !file.is_file() {
-            return Err(ToolError::NotFound {
-                path: path.to_string(),
-            });
-        }
-        Ok(file)
-    }
-
-    /// The index key of the note a path argument names.
-    fn note_key(&self, path: &str) -> Result<String, ToolError> {
-        Ok(notes_index::index_key(&self.note_file(path)?))
-    }
-
-    /// Everything the index holds about one note, read once for the two tools
-    /// that cut a slice out of it (ADR-036 section 2).
-    fn facts(&self, path: &str) -> Result<writ_storage::notes_index::NoteFactsRow, ToolError> {
-        let index = self.index()?;
-        let key = self.note_key(path)?;
-        index.facts(&key).map_err(|_| ToolError::IndexUnavailable)
     }
 }
 
@@ -966,46 +658,48 @@ fn minted_slug(name: &str) -> String {
         .unwrap_or_else(|| name.to_string())
 }
 
-/// A storage refusal as the tool's own, naming the path the client wrote.
+/// A host refusal as the tool's own, naming the path the client wrote.
 ///
-/// Every message a client sees names a path, a name or a length. The digest
-/// the guard carries and the folder it names are the app's own spellings of
-/// this machine, and neither is in the answer.
-fn write_error(path: &str, error: StorageError) -> ToolError {
+/// Every message a client sees names a path, a name or a length. The digest the
+/// guard carries and the folder it names are the app's own spellings of this
+/// machine, and neither is in the answer.
+///
+/// A text that is not UTF-8 and a file that would not open are one sentence
+/// here, because they are one situation to a client: the note did not come
+/// back. `NotPermitted` is the gate's answer spelled the gate's way, which is
+/// the only way it can arise: a set is derived from a verdict and never from an
+/// argument.
+fn tool_error(client: &ClientId, tool: &str, error: HostError) -> ToolError {
     match error {
-        StorageError::SourceChangedOnDisk { conflict_copy, .. } => ToolError::Conflict {
-            path: path.to_string(),
+        HostError::NotPermitted { .. } => ToolError::NotApproved {
+            client: client.name.clone(),
+            tool: tool.to_string(),
+        },
+        HostError::OutsideNotesFolder { path } => ToolError::OutsideNotesFolder { path },
+        HostError::IndexUnavailable => ToolError::IndexUnavailable,
+        HostError::NotFound { path } => ToolError::NotFound { path },
+        HostError::TooLarge { path, bytes } => ToolError::TooLarge { path, bytes },
+        HostError::Unreadable { path } | HostError::NotText { path } => {
+            ToolError::Unreadable { path }
+        }
+        HostError::Conflict {
+            path,
+            conflict_copy,
+        } => ToolError::Conflict {
+            path,
             conflict_copy,
         },
-        StorageError::SourceNotDownloaded { .. } => ToolError::NotDownloaded {
-            path: path.to_string(),
-        },
-        StorageError::NoteNameEmpty => ToolError::NameEmpty,
-        StorageError::NoteNameTaken { name, .. } => ToolError::NameTaken { name },
-        _ => ToolError::Unwritable {
-            path: path.to_string(),
-        },
+        HostError::NameEmpty => ToolError::NameEmpty,
+        HostError::NameTaken { name } => ToolError::NameTaken { name },
+        HostError::NotDownloaded { path } => ToolError::NotDownloaded { path },
+        HostError::Unwritable { path } => ToolError::Unwritable { path },
     }
 }
 
-/// The wire spelling of a backlink's certainty.
-fn certainty_word(certainty: BacklinkCertainty) -> &'static str {
-    certainty.as_str()
-}
-
-/// Opens the index read-only, or `None` when there is nothing to open.
-///
-/// The schema check is `writ`'s: a database older than this build has columns a
-/// read may not find, and a newer one was written by a build that knows more.
-/// Both are the same situation to a client as an absent one, and none of the
-/// three is repaired here.
-fn open_index(db_path: &Path) -> Option<NotesIndexStore> {
-    if !db_path.is_file() {
-        return None;
-    }
-    let store = NotesIndexStore::open_read_only(db_path).ok()?;
-    (store.schema_version().ok()? == binary_schema_version()).then_some(store)
-}
+// The tests below read the index directly, to check a tool's answer against the
+// rows it came from.
+#[cfg(test)]
+use writ_storage::notes_index::{self, NotesIndexStore};
 
 #[cfg(test)]
 mod tests {
