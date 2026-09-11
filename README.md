@@ -4,7 +4,7 @@
 
 # Writ
 
-Notes as plain Markdown files in a folder you can open in Finder. Writ links them, searches them and shows what connects them, and nothing leaves the machine.
+Notes as plain Markdown files in a folder you can open in Finder. Writ reads the folder and shows what links to what.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/ibrahemid/writ/ci.yml?branch=main&label=CI&logo=github)](https://github.com/ibrahemid/writ/actions)
 [![Release](https://img.shields.io/github/v/release/ibrahemid/writ?include_prereleases&sort=semver)](https://github.com/ibrahemid/writ/releases/latest)
@@ -26,9 +26,9 @@ AI assistance was used to write code inside those decisions, not to make them.
 
 ## Why I built this
 
-I keep notes as Markdown files because files outlive apps. The apps that work that way tend to ask for a system first: plugins to pick, a folder scheme to commit to, a graph that means little until it has been configured. The apps that ask nothing keep the text somewhere you cannot see.
+I keep notes as Markdown files because files outlive apps. The apps that work that way tend to ask for a system first, plugins to pick and a folder scheme to commit to before the first note. The apps that ask nothing keep the text somewhere you cannot see.
 
-I wanted the folder of files with the ease of a notes app. Open it, write, and let the app work out what connects to what. Writ is that. The folder is the only copy of your notes. Links, backlinks, tags and the graph are read from the files, so anything else that edits the folder is fine, and deleting Writ's database loses nothing. One hotkey brings the window back with the note you left.
+I wanted the folder of files with the ease of a notes app. Open the folder and write. The app works out what connects to what. Writ is that. The folder is the only copy of your notes. Links, backlinks, tags and the graph are read from the files, so anything else that edits the folder is fine, and deleting Writ's database loses nothing. One hotkey brings the window back with the note you left.
 
 ## Features
 
@@ -48,7 +48,7 @@ Spell check, selection rewrites, prompt fill, text transforms, link handling and
 
 ## Other programs and AI
 
-Writ ships an MCP server. A client starts it with `writ mcp` over stdio; there is no port. It is off until you turn it on in Settings, and each client is approved by name, with read and write as separate permissions. Every call is listed in the Activity panel with the client, the tool, the note and the decision, never the note's text. A write that would overwrite a newer file is refused when the client passes the hash it read.
+Writ ships an MCP server. A client starts it with `writ mcp` over stdio. There is no port. It is off until you turn it on in Settings, and each client is approved by name, with read and write as separate permissions. Every call is listed in the Activity panel with the client, the tool, the note and the decision, never the note's text. A write that would overwrite a newer file is refused when the client passes the hash it read.
 
 The chat pane talks to a local model or a hosted one with your own key, off by default. Only the notes you attach are sent, and Writ names the host and the size before the first send. Edits from the model arrive as proposals you apply or discard.
 
@@ -64,7 +64,7 @@ Each of these is recorded in [docs/adr/](docs/adr/); the short version:
 - **The preview trusts nothing.** Markdown, HTML, Mermaid and KaTeX render from runtimes bundled into the app, and the preview blocks all network access.
 - **The core does not know Tauri exists.** `writ-core`, `writ-storage`, `writ-render`, `writ-mcp` and `writ-plugin` are plain Rust crates with no Tauri dependency; the shell is a thin adapter. The boundary is enforced by the build, not by convention.
 - **One guarded write.** The editor, the `writ` command, a rename, a link rewrite, a connected program and a chat proposal all write a note through the same path, which refuses to overwrite a newer file and leaves a conflict copy beside the note.
-- **Other programs are welcome, by name.** The CLI, the watched folder, default-app registration and the MCP server all exist so that something else can make or read a file and Writ is where it opens, rendered and searchable.
+- **Files from anywhere.** The CLI, the watched folder, default-app registration and the MCP server exist so that something else can make or read a file and Writ is where it opens, rendered and searchable.
 
 ```mermaid
 flowchart LR
@@ -149,7 +149,7 @@ The same list drives the menu bar on every platform, and every chord can be chan
 
 ## Where things live
 
-Your notes are the `.md` files in the notes folder, `~/Writ` unless you moved it in Settings. That folder is the backup; put it in iCloud Drive, Dropbox or Google Drive and the notes go with it.
+Your notes are the `.md` files in the notes folder, `~/Writ` unless you moved it in Settings. That folder is the backup. Put it in iCloud Drive, Dropbox or Google Drive and the notes go with it.
 
 Writ's own data folder, `~/.writ`, holds `writ.db` with the index and window state, `config.toml`, the activity log and `logs/`. None of it is the text of a note. The one exception is the last second of typing, held in the database until its save lands. Delete `writ.db` and Writ rebuilds it on the next launch.
 

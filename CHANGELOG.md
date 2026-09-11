@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Notes link to each other, and Writ reads the folder to show what connects them. `[[Name]]` links a note by name, a panel called Connections lists the notes that link back, and a Graph view draws the whole folder. Other programs reach notes through a bundled MCP server that each client has to be approved for, and a chat pane whose edits arrive as proposals. Nothing leaves the machine unless the client the user chose sends it. The app opens light by default with six accent colours and one menu bar on every platform.
+Notes link to each other, and Writ reads the folder to show what connects them. `[[Name]]` links a note by name, a panel called Connections lists the notes that link back, and a Graph view draws the whole folder. Other programs reach notes through an MCP server, one approved client at a time, and a chat pane whose edits arrive as proposals. Nothing leaves the machine unless the client the user chose sends it. The app opens light by default with six accent colours and one menu bar on every platform.
 
 ### Added
 
@@ -20,9 +20,9 @@ Notes link to each other, and Writ reads the folder to show what connects them. 
 - First launch. The notes folder is `~/Writ`, a note named for today opens, and one line under the cursor says where the notes are. Nothing is asked. File > Today's Note opens the same note on any later day.
 - One menu bar on macOS, Windows and Linux from a single command list, with Show Notes Folder, Recently Closed and Open Graph. The window hotkey can be changed in Settings; Save asks the OS first and reports the chord it actually holds.
 - Interface text size in Settings, 12 to 22 px, scaling the sidebar, tabs, status bar, palette and settings together. The editor's own zoom stays separate.
-- A light default that follows the system, with six accents (pine is the default) and the terminal presets kept as choices. The status bar is on by default. Sidebar, toolbar, tabs, palette, settings and dialogs are rebuilt on one token set, with the title bar drawn per platform.
+- A light default that follows the system, with six accents (pine is the default) and the terminal presets kept as choices. The status bar is on by default. Sidebar, toolbar, tabs, palette, settings and dialogs are redrawn to one design, with the title bar drawn per platform.
 - Save state per note: the status bar says saved only while the text matches the file, and a save that fails shows a bar under the note with the cause in a plain sentence.
-- An MCP server, `writ mcp`, that another program starts over stdio. It reads: list, search, read, links, backlinks, properties, tags. It writes, under a separate permission: write, create and rename. It is off until enabled, refuses every client until that client is approved in Settings, refuses a write that would overwrite a newer file when the client passes the hash it read, never deletes a note, opens no port, and makes no request of its own.
+- An MCP server, `writ mcp`, that another program starts over stdio. Reads: list, search, read, links, backlinks, properties, tags. Writes, under a separate permission: write, create and rename. It is off until enabled, and every client is refused until it is approved in Settings. It refuses a write that would overwrite a newer file when the client passes the hash it read. Nothing in it deletes a note. It opens no port and makes no request of its own.
 - Connected programs in Settings, with read and write switches per client and a Forget control, and an Activity panel listing every call: time, client, tool, note, decision and byte count. The log holds no note text, prompts, replies or keys.
 - A chat pane, off by default, that talks to a local model or a hosted endpoint with an API key. Only attached notes are sent; the send dialog names the host and the bytes first. Every edit the model suggests arrives as a proposal beside the current text with Apply and Discard, and a note that changed since the proposal refuses the apply and leaves a conflict copy.
 
