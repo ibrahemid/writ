@@ -301,6 +301,38 @@ fn a_note_deleted_externally_keeps_its_last_known_text() {
 }
 
 #[test]
+fn a_note_deleted_externally_and_never_saved_here_is_restorable_through_revert_to() {
+    let app = App::new();
+    // Opened, read into the editor, and never saved in this session: the
+    // open read is the only entry the store will ever hold for it.
+    let (id, path) = app.open("Launch.md", "written by another program\n");
+
+    std::fs::remove_file(&path).expect("delete");
+    assert!(!path.exists(), "the file is gone before the restore");
+
+    let kept = app.version_holding(&path, b"written by another program\n");
+    restore_note_version_inner(
+        &app.state.notes_root(),
+        &app.state.writ_dir,
+        &app.state.note_history,
+        kept,
+        app.state.disk_state(&id),
+    )
+    .expect("a note that is gone is still a note a version can bring back");
+
+    assert_eq!(
+        std::fs::read(&path).expect("the restore put the file back"),
+        b"written by another program\n",
+        "the restore writes the last text the file held, byte for byte"
+    );
+    assert_eq!(
+        app.versions_of(&path).first().map(Vec::as_slice),
+        Some(b"written by another program\n".as_slice()),
+        "the restore itself is recorded, so it can be undone by restoring again"
+    );
+}
+
+#[test]
 fn a_save_keeps_the_text_it_wrote() {
     let app = App::new();
     let (id, path) = app.open("Launch.md", "the first\n");
