@@ -8,9 +8,12 @@
 //! A restore is a write like any other, so it goes through
 //! [`write_note_guarded`] with the guard's answer intact: a note that changed
 //! under Writ is refused and the text being restored is written beside it
-//! (ADR-028 §5). It is unstamped, so the tab holding the note hears about it
-//! through the folder watcher and reconciles (ADR-033) — which is also what
-//! puts the restored text in front of the person who asked for it.
+//! (ADR-028 §5). It stays unstamped, but the tab holding the note hears
+//! about it from here rather than from the folder watcher: a restore that
+//! landed tells the tab what it wrote, in the watcher's own event, so the
+//! restored text goes in front of the person who asked for it and the tab
+//! reconciles (ADR-033). The watcher's own report of the same write is no
+//! news, because the record the restore keeps already describes the file.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -57,6 +60,13 @@ pub struct RestoredVersion {
     /// else's. The panel has no use for it, so it is not sent.
     #[serde(skip)]
     pub disk_state: DiskState,
+    /// The text that was put back, for the caller telling the tab about it.
+    /// The digest the tab compares its document against is taken over line
+    /// endings ([`writ_core::hash::comparison_digest_hex`]) and the one in
+    /// `disk_state` is not, so the bytes themselves are what carries. The
+    /// panel has no use for them either, so they are not sent.
+    #[serde(skip)]
+    pub content: Vec<u8>,
 }
 
 /// The file a copy left in the folder.
@@ -167,6 +177,7 @@ pub fn restore_note_version_inner(
                 note,
                 bytes: written.disk_state.size,
                 disk_state: written.disk_state,
+                content: bytes,
             })
         }
         Err(error) => {
@@ -365,6 +376,22 @@ pub fn restore_note_version_for_tab(
     // dated copy. A note nothing has open has no record to keep.
     if let Some(id) = tab {
         state.set_disk_state(&id, restored.disk_state);
+        // The record is half of it. The other half is the tab, which shows
+        // the text the restore replaced until something tells it otherwise,
+        // and the folder watcher no longer will: it compares that record
+        // against the file and the two now agree, so the restore reads as a
+        // write the tab already knows about. The event is the watcher's own,
+        // built by the constructor both watchers use, so a restore reaches a
+        // tab in the same shape as anybody else's write and takes the same
+        // path through the frontend: a reload for a clean tab, a prompt for
+        // one holding unsaved text.
+        state
+            .event_bus
+            .emit(crate::watcher::open_files::open_note_modified(
+                &id,
+                &file,
+                Some(&restored.content),
+            ));
     }
     Ok(restored)
 }

@@ -432,9 +432,10 @@ fn the_announcement_a_restore_raises_does_not_keep_the_restored_text_twice() {
         Some(b"the first\n".as_slice())
     );
 
-    // A restore is written without an ignore stamp, so the folder watcher
-    // announces it and the tab asks what its file holds. That read is seam
-    // two, and the text it finds is the one the restore already kept.
+    // A restore tells the tab holding the note what it wrote
+    // (`restore_note_version_for_tab`), and the tab answers by asking what
+    // its file holds. That read is seam two, and the text it finds is the one
+    // the restore already kept.
     writ_tauri_lib::commands::buffer::note_disk_state_inner(&app.state, &id).expect("state");
 
     assert_eq!(

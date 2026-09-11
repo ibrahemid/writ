@@ -19,10 +19,11 @@ use std::time::{Duration, SystemTime};
 use tempfile::TempDir;
 use writ_core::activity::{Actor, Decision};
 use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
+use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::notes::guard::DiskState;
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
+use writ_core::watcher::change_event::{modification_is_news, ExternalChange};
 use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
@@ -276,6 +277,34 @@ impl Running {
         names.sort();
         names
     }
+
+    /// Collects what the bus carries from here on.
+    ///
+    /// Attached at the point a test is about to act, not at the open, so what
+    /// it holds is the answer to that one call rather than everything the
+    /// setup raised on the way there.
+    fn events(&self) -> Arc<Mutex<Vec<WritEvent>>> {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let collected = Arc::clone(&events);
+        self.state.event_bus.subscribe(move |event| {
+            collected
+                .lock()
+                .expect("collected events")
+                .push(event.clone());
+        });
+        events
+    }
+}
+
+/// The external-change events among what was collected.
+fn external_events(events: &Mutex<Vec<WritEvent>>) -> Vec<WritEvent> {
+    events
+        .lock()
+        .expect("collected events")
+        .iter()
+        .filter(|event| matches!(event, WritEvent::BufferExternal { .. }))
+        .cloned()
+        .collect()
 }
 
 #[test]
@@ -583,5 +612,126 @@ fn a_restore_undone_by_the_row_above_it_lands_rather_than_reading_as_a_change_on
         app.names(),
         vec!["Launch.md".to_string()],
         "a restore Writ itself wrote leaves no dated copy behind"
+    );
+}
+
+#[test]
+fn a_restore_tells_the_tab_holding_the_note_what_it_put_on_the_file() {
+    let app = Running::new();
+    let (id, path) = app.open("Launch.md", "the first\n");
+    save_buffer_content_inner(&app.state, &id, "the second\n").expect("save");
+    let first = app.version_holding(&path, b"the first\n");
+
+    let events = app.events();
+    restore_note_version_for_tab(&app.state, first).expect("restore");
+
+    let raised = external_events(&events);
+    assert_eq!(
+        raised.len(),
+        1,
+        "a restore tells the tab holding the note once: {raised:?}"
+    );
+    match &raised[0] {
+        WritEvent::BufferExternal {
+            buffer_id,
+            path: told,
+            change,
+            new_path,
+            disk_hash,
+        } => {
+            assert_eq!(buffer_id, &id, "the tab holding the note");
+            assert_eq!(Path::new(told), path.as_path());
+            assert_eq!(change, &ExternalChange::Modified);
+            assert_eq!(new_path, &None);
+            assert_eq!(
+                disk_hash.as_deref(),
+                Some(writ_core::hash::comparison_digest_hex(b"the first\n").as_str()),
+                "the digest is the restored text's, in the form the editor compares its \
+                 document against"
+            );
+        }
+        other => panic!("a restore is a modification: {other:?}"),
+    }
+}
+
+#[test]
+fn a_restore_the_guard_refuses_tells_the_tab_nothing() {
+    let app = Running::new();
+    let (id, path) = app.open("Launch.md", "the first\n");
+    save_buffer_content_inner(&app.state, &id, "the second\n").expect("save");
+    let first = app.version_holding(&path, b"the first\n");
+    // A write the tab never read, so what Writ recorded for it no longer
+    // describes the file and the guard refuses the restore.
+    std::fs::write(&path, b"somebody else\n").expect("write");
+    let recorded = app.state.disk_state(&id).expect("a record of the file");
+
+    let events = app.events();
+    restore_note_version_for_tab(&app.state, first)
+        .expect_err("a note that changed underneath is refused");
+
+    assert!(
+        external_events(&events).is_empty(),
+        "a restore that did not land has nothing to tell the tab"
+    );
+    assert_eq!(
+        app.state.disk_state(&id),
+        Some(recorded),
+        "a refused restore leaves the tab's record of its file alone"
+    );
+}
+
+#[test]
+fn a_restore_of_a_note_nothing_has_open_tells_no_tab() {
+    let app = Running::new();
+    let path = app.notes.join("Launch.md");
+    std::fs::write(&path, b"the second\n").expect("write");
+    let note = app
+        .state
+        .note_history
+        .key_for(&path)
+        .expect("a note inside the folder");
+    app.state
+        .note_history
+        .capture_replaced(
+            &note,
+            b"the first\n",
+            SystemTime::now() - Duration::from_secs(60),
+        )
+        .expect("keep the text");
+    let first = app.version_holding(&path, b"the first\n");
+
+    let events = app.events();
+    restore_note_version_for_tab(&app.state, first).expect("restore");
+
+    assert_eq!(std::fs::read(&path).expect("read"), b"the first\n");
+    assert!(
+        external_events(&events).is_empty(),
+        "a note no tab holds has nobody to tell"
+    );
+}
+
+#[test]
+fn the_watcher_has_nothing_to_add_once_a_restore_has_told_the_tab() {
+    let app = Running::new();
+    let (id, path) = app.open("Launch.md", "the first\n");
+    save_buffer_content_inner(&app.state, &id, "the second\n").expect("save");
+    let first = app.version_holding(&path, b"the first\n");
+
+    let events = app.events();
+    restore_note_version_for_tab(&app.state, first).expect("restore");
+
+    // The two halves of telling the tab what the restore wrote: the command
+    // raises the event, and the record it keeps is what makes the watcher's
+    // own report of the same write no news rather than a second announcement.
+    assert_eq!(
+        external_events(&events).len(),
+        1,
+        "the command tells the tab what the restore wrote"
+    );
+    let recorded = app.state.disk_state(&id).expect("a record of the file");
+    let on_disk = writ_core::hash::sha256_bytes(&std::fs::read(&path).expect("read"));
+    assert!(
+        !modification_is_news(Some(recorded.hash), Some(on_disk), false),
+        "the watcher reporting the restore is telling the tab what it already knows"
     );
 }
