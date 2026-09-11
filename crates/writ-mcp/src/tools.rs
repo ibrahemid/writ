@@ -6,7 +6,7 @@
 //! opens anything, so a refusal costs no read (ADR-031 rule 3.2).
 //!
 //! What an allowed call may then do belongs to the note host. The gate's
-//! verdict becomes a [`PermissionSet`] and the call runs through a handle
+//! verdict becomes a [`writ_core::notes::host::PermissionSet`] and the call runs through a handle
 //! holding it, so the operation sits behind a check rather than after one
 //! (ADR-032). What stays here is the wire: the argument checks a client can
 //! fail, the clamp on how much one call answers with, the sentence a refusal is

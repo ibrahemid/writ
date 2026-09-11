@@ -5,8 +5,8 @@
 //! so what a note can be asked for, and what it costs to ask, is decided once.
 //!
 //! There is no ambient authority. Every method checks a [`Capability`] against
-//! the [`PermissionSet`] the implementation was opened with, as its first line,
-//! and a call without the matching capability answers
+//! the [`capability::PermissionSet`] the implementation was opened with, as its
+//! first line, and a call without the matching capability answers
 //! [`HostError::NotPermitted`] before it resolves a path, stats a file or asks
 //! the index. A consumer whose set holds no write capability has no code path
 //! to a write.

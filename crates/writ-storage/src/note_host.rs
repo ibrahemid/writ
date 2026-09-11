@@ -6,7 +6,7 @@
 //! and the chat pane, and neither reaches past it.
 //!
 //! Every method opens with its capability check, so a call the consumer's
-//! [`PermissionSet`] does not cover resolves no path, stats no file and asks
+//! [`writ_core::notes::host::PermissionSet`] does not cover resolves no path, stats no file and asks
 //! the index nothing. That ordering is the whole of the sandbox: a check that
 //! ran after the resolution would already have told a caller whether a path
 //! outside the folder exists.
@@ -99,10 +99,11 @@ impl<'a> NoteHostImpl<'a> {
         }
     }
 
-    /// The same handle, capturing every write it makes into `history`.
+    /// The same handle, capturing what it replaces into `history`.
     ///
     /// The app passes its store; a process that keeps no history passes `None`
-    /// and the writes are made without one.
+    /// and the writes are made without one. A minted note has no text to keep a
+    /// version of, so [`NoteHost::create_note`] captures nothing either way.
     pub fn with_history(mut self, history: Option<&'a NoteHistoryStore>) -> Self {
         self.history = history;
         self
@@ -438,7 +439,6 @@ impl NoteHost for NoteHostImpl<'_> {
         // holds the folding rule for what "taken" means, so it is asked rather
         // than second-guessed: a check here against the exact path would be the
         // filesystem's answer, and a case-sensitive volume folds nothing.
-        let keep = self.history.map(keep_versions);
         let minted = create_note_guarded(
             CreateNote {
                 notes_root: &self.notes_root,
@@ -446,7 +446,8 @@ impl NoteHost for NoteHostImpl<'_> {
                 content,
                 origin,
                 on_taken_name: TakenName::Refuse,
-                history: keep.as_ref().map(|hook| hook as &dyn Fn(WriteCapture<'_>)),
+                // A note that did not exist has no earlier text to keep.
+                history: None,
             },
             None,
         )
