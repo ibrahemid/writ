@@ -383,12 +383,12 @@ impl NoteHost for NoteHostImpl<'_> {
         let on_disk = read_disk_state(&file).map_err(|_| HostError::Unreadable {
             path: path.to_string(),
         })?;
-        // With a digest from the caller, only that is compared: `decide_save`
-        // reads neither the length nor the modification time, and a caller that
-        // read the note over a wire knows neither about the file it read.
-        // Without one, what the file holds now stands in, which is the same
-        // thing as having no expectation and also lets a write of the text the
-        // note already holds be recognised and skipped.
+        // With a digest from the caller, only that is compared: the guard reads
+        // neither the length nor the modification time, and a caller that read
+        // the note over a wire knows neither about the file it read. Without
+        // one, what the file holds now stands in, which is the same thing as
+        // having no expectation and also lets a write of the text the note
+        // already holds be recognised and skipped.
         let last_known = match last_known {
             Some(hash) => Some(DiskState {
                 hash,
