@@ -3,27 +3,32 @@ import Site from '../../layouts/Site.astro';
 import Doc from '../../components/site/Doc.astro';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
-<Site title="Writ next to Obsidian" description="Keep the vault. Writ is the scratchpad beside it: one hotkey, no config, and it opens your vault's .md files directly." path="/vs/obsidian/">
-  <Doc eyebrow="compare" title="Writ next to Obsidian." shot="still-vault" shotAlt="An Obsidian vault open as a folder in Writ: the tree in the sidebar, a note rendered beside its source" lead="Obsidian is where a life's notes live. Writ is for the text that never makes it that far: the thing you need to jot during a call, the draft you want to read rendered, the file someone sent. Most people who use both keep both.">
+<Site title="Writ next to Obsidian" description="Both keep notes as Markdown files in a folder, and both can open the same one. Obsidian is the deeper tool. Writ asks less of you before the first sentence." path="/vs/obsidian/">
+  <Doc eyebrow="compare" title="Writ next to Obsidian." shot="still-vault" shotAlt="A folder written in Obsidian open in Writ: the tree in the sidebar, a note rendered beside its source" lead="Both keep notes as Markdown files in a folder, and both can open the same folder. Obsidian is the deeper tool. Writ asks less of you before the first sentence, and it is the one that is already open.">
     <div class="doc-body">
-      <h2>What each one is for</h2>
+      <h2>Side by side</h2>
       <table>
         <tr><th></th><th>Obsidian</th><th>Writ</th></tr>
-        <tr><td>Shape</td><td>A vault: a folder of linked notes you organize.</td><td>A scratchpad: notes you throw in, kept and searchable.</td></tr>
-        <tr><td>Getting to it</td><td>Launch the app, open the vault.</td><td>Already running. One hotkey over any app.</td></tr>
-        <tr><td>Your files</td><td>Plain .md in the vault folder.</td><td>Plain .txt in <code>~/.writ/buffers</code>, and any file on disk you open.</td></tr>
-        <tr><td>Links between notes</td><td>Wikilinks, backlinks, graph.</td><td>Relative links inside an open folder. Wikilinks and backlinks are planned, not shipped.</td></tr>
-        <tr><td>Plugins</td><td>Thousands.</td><td>None. Text transforms and an opt-in rewrite are built in.</td></tr>
+        <tr><td>Your files</td><td>Plain .md in a folder you chose.</td><td>Plain .md in a folder you chose. It opens the folder Obsidian wrote, as it is.</td></tr>
+        <tr><td>First run</td><td>Choose a folder, then settle the settings.</td><td>Opens on <code>~/Writ</code> and asks nothing. Change the folder later if you want to.</td></tr>
+        <tr><td>Getting to it</td><td>Launch the app.</td><td>Already running. One hotkey over any app.</td></tr>
+        <tr><td>Links</td><td><code>[[Wikilinks]]</code>, backlinks, graph.</td><td>The same syntax. Backlinks in the Connections panel with the sentence each sits in; a graph of the open note or the whole folder.</td></tr>
+        <tr><td>Properties and tags</td><td>Frontmatter and <code>#tags</code>.</td><td>Read from the same frontmatter and the same <code>#tags</code>.</td></tr>
+        <tr><td>Plugins</td><td>Thousands, installed per folder.</td><td>None. Text transforms, rewriting and an MCP server are built in.</td></tr>
+        <tr><td>AI</td><td>Through community plugins.</td><td>An MCP server for the assistant you already use, and a chat pane over the notes you attach. Both off by default.</td></tr>
         <tr><td>Mobile and sync</td><td>Apps on every platform, paid sync.</td><td>Desktop only. Sync is whatever you do with the folder.</td></tr>
-        <tr><td>Rendering</td><td>Live preview and reading view.</td><td>Source beside rendered, plus HTML, Mermaid and KaTeX.</td></tr>
+        <tr><td>Rendering</td><td>Live preview and reading view.</td><td>Source beside the rendered note, or either alone. Also HTML, Mermaid and KaTeX.</td></tr>
         <tr><td>Price</td><td>Free for personal use; sync and publish are paid.</td><td>Free. MIT.</td></tr>
       </table>
 
-      <h2>Using Writ on a vault</h2>
-      <p>A vault is a folder of markdown files, so Writ can open it as a folder: the sidebar shows the tree, search covers every file's contents, and relative links open inside Writ. Obsidian's <code>[[wikilinks]]</code> show as text for now. Edits you make go back to the file with <kbd class="kc">⌘</kbd><kbd class="kc">S</kbd>, and Obsidian sees them like any other change on disk. The <a href={`${base}/guides/obsidian-vault-files/`}>guide</a> walks through it.</p>
+      <h2>One folder, both apps</h2>
+      <p>Point Writ at the folder Obsidian uses and the notes open from where they are. Links, aliases, properties, tags, callouts and embeds read as written. Writ skips <code>.obsidian/</code> and never writes to it, so Obsidian keeps working from the same folder. The <a href={`${base}/guides/obsidian-vault-files/`}>guide</a> lists what carries over and what does not.</p>
 
-      <h2>Where Writ is the wrong tool</h2>
-      <p>If what you want is a second brain, with backlinks, a graph, daily notes, plugins, and your phone in sync, that is Obsidian's job and Writ does not do it. If what you want is a window that is already open when a thought arrives, and a record of every such window you ever opened, that is Writ's.</p>
+      <h2>Where Obsidian is the better tool</h2>
+      <p>Canvas, block references, templates, a plugin for anything, your phone in sync. Writ does none of it, and a note a plugin wrote shows the text the file holds.</p>
+
+      <h2>Where Writ is the easier one</h2>
+      <p>There is nothing to set up. The window is there on a hotkey, the note is a file from the first keystroke, and you never decide on a structure before writing. When you want a program to read your notes, it is one command from Settings, and you approve each program by hand.</p>
 
       <div class="doc-cta">
         <a href={`${base}/download/`} class="v2-btn-primary">Download Writ</a>

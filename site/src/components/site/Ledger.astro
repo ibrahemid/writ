@@ -19,18 +19,23 @@ const { kcCols, presets } = Astro.props;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 const rows: { name: string; fact: string; keys?: string[]; mono?: string }[] = [
-  { name: 'Open links', fact: 'Web links open in your browser, file links open in Writ. You see the destination before anything opens.', keys: ['⌘', 'Click'] },
+  { name: 'Open links', fact: 'Web links open in your browser, note links open in Writ. You see the destination before anything opens.', keys: ['⌘', 'Click'] },
   { name: 'Command palette', fact: 'Every command and setting, searchable.', keys: ['⇧', '⇧'] },
+  { name: "Today's note", fact: 'One dated note per day, from the File menu. Open it again and it is the same file.' },
+  { name: 'Open by name', fact: "Type part of a note's name and open it.", keys: ['⌘', '⇧', 'O'] },
+  { name: 'Tags', fact: 'A #tag in the text or in the frontmatter. The sidebar lists them.' },
+  { name: 'Properties', fact: 'Frontmatter key: value pairs, listed with the note and kept exactly as written.' },
   { name: 'Go to line', fact: 'A colon and a number, from the search palette.', mono: ':42' },
-  { name: 'Folders', fact: 'Point Writ at a folder and it lists in the sidebar; search covers its files too.' },
-  { name: 'Watched inbox', fact: 'Files dropped into one folder list themselves and open as they arrive.' },
+  { name: 'Folders', fact: 'Point Writ at another folder and it lists in the sidebar; search covers its files too.' },
   { name: 'Default app', fact: 'Make Writ the app for .md, .txt, .log and other text. Double-click opens here.' },
-  { name: 'From a terminal', fact: 'Send a file or a command\'s output to the open window.', mono: 'writ notes.md' },
+  { name: 'From a terminal', fact: "Open a file, or send a command's output in as a new note.", mono: 'writ notes.md' },
+  { name: 'Watched folder', fact: 'Files dropped into one folder open as they arrive. Under Advanced.' },
   { name: 'Tabs', fact: 'Reopen a closed one, rename on double-click.', keys: ['⌘', '⇧', 'T'] },
   { name: 'Tidy text', fact: 'Trim trailing spaces, straighten quotes, collapse runs of spaces. Each one a command.' },
   { name: 'Spelling', fact: 'Runs on your machine, off until you turn it on. Double-click a flagged word to fix it.' },
   { name: 'Rewrite', fact: 'Proofread or rephrase a selection with a local model or your own key. Off by default.' },
   { name: 'Zoom', fact: 'One level scales the editor and the rendered note together.', keys: ['⌘', '='] },
+  { name: 'Interface text size', fact: 'Sidebar, tabs and settings scale from one setting in Appearance.' },
   { name: 'Right to left', fact: 'Arabic, Hebrew and Persian lines set their own direction.' },
 ];
 ---

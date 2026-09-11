@@ -34,11 +34,13 @@ const appShortcuts = [
   { label: 'Toggle window', bindings: ['CmdOrCtrl+Shift+Space'] },
   { label: 'Command palette', bindings: ['Shift+Shift'] },
   { label: 'Search everywhere', bindings: ['CmdOrCtrl+Shift+F'] },
-  { label: 'New note', bindings: ['CmdOrCtrl+T'] },
+  { label: 'New note', bindings: ['CmdOrCtrl+N'] },
+  { label: 'Open note by name', bindings: ['CmdOrCtrl+Shift+O'] },
   { label: 'Close tab', bindings: ['CmdOrCtrl+W'] },
   { label: 'Switch tabs', bindings: ['CmdOrCtrl+[', 'CmdOrCtrl+]'] },
   { label: 'Save to the file', bindings: ['CmdOrCtrl+S'] },
   { label: 'Toggle sidebar', bindings: ['CmdOrCtrl+\\'] },
+  { label: 'Connections panel', bindings: ['CmdOrCtrl+Shift+\\'] },
   { label: 'Find in note', bindings: ['CmdOrCtrl+F'] },
   { label: 'Bold / italic / link', bindings: ['CmdOrCtrl+B', 'CmdOrCtrl+I', 'CmdOrCtrl+K'] },
 ];
@@ -49,8 +51,10 @@ const kcCols = [
 function EDIT_KEYS_SUBSET<T>(all: readonly T[]): readonly T[] { return all.slice(0, 8); }
 const summon = seg('CmdOrCtrl+Shift+Space');
 const searchKeys = seg('CmdOrCtrl+Shift+F');
+const openByNameKeys = seg('CmdOrCtrl+Shift+O');
+const connectionsKeys = seg('CmdOrCtrl+Shift+\\');
 ---
-<Site title="Already open. Still there next month. | Writ" path="/" heroDark>
+<Site title="Notes on disk. Already open. | Writ" path="/" heroDark>
   <main id="top" class="page">
     <div class="spine" aria-hidden="true"></div>
 
@@ -75,12 +79,12 @@ const searchKeys = seg('CmdOrCtrl+Shift+F');
       <span class="mark" aria-hidden="true"><span class="gm-h">##</span> loop</span>
       <div class="mo">
         <h2 class="sec-h2">Twenty seconds, start to finish.</h2>
-        <p class="sec-p">Bring it up, read or write, put it away. Nothing to save, nothing to name, nothing to find again later.</p>
+        <p class="sec-p">Bring it up, read or write, put it away. The note is a file in your folder from the first line.</p>
       </div>
       <div class="strip u-full mo-g">
         <Capture name="beat-summon" alt="The Writ window on top of other apps, the last note still open" sizes="(max-width: 720px) 100vw, 33vw" />
         <Capture name="still-split-note" alt="Meeting notes in split view: source on the left, the rendered note with a ticked checkbox on the right" sizes="(max-width: 720px) 100vw, 33vw" />
-        <Capture name="still-sidebar-history" alt="The sidebar listing the open notes and every earlier note by time" sizes="(max-width: 720px) 100vw, 33vw" />
+        <Capture name="still-sidebar-history" alt="The sidebar listing the open notes and the recently closed ones" sizes="(max-width: 720px) 100vw, 33vw" />
       </div>
       <div class="beats u-wide mo-g">
         <div>
@@ -93,7 +97,7 @@ const searchKeys = seg('CmdOrCtrl+Shift+F');
         </div>
         <div>
           <div class="beat-h"><span class="kc-keys">{summon.map((k) => <kbd class="kc">{k}</kbd>)}</span> Put it away</div>
-          <p class="beat-p">The same key. It is there next time, and so is everything you put in it before.</p>
+          <p class="beat-p">The same key. The file is in the folder, and the window is there next time.</p>
         </div>
       </div>
     </section>
@@ -116,13 +120,55 @@ const searchKeys = seg('CmdOrCtrl+Shift+F');
       </div>
     </section>
 
+    <section class="band sec" id="files">
+      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> files</span>
+      <div class="twoup u-bleed-r">
+        <div class="mo">
+          <h2 class="sec-h2 sec-h2-lg">Your notes are files.</h2>
+          <p class="sec-p">One Markdown file per note. Writ writes nothing else into the folder.</p>
+          <div class="mech">
+            <div class="mech-row"><span class="mech-k">one folder</span><span><code>~/Writ</code> until you pick another. Settings, Notes shows the path, opens it in Finder, and moves it with every note in it.</span></div>
+            <div class="mech-row"><span class="mech-k">one file per note</span><span>The tab name is the file name. Rename the tab and the file renames. Delete sends it to the Trash.</span></div>
+            <div class="mech-row"><span class="mech-k">written as you type</span><span>The file is written a second after you stop. <kbd class="kc">⌘</kbd><kbd class="kc">S</kbd> writes it at once.</span></div>
+            <div class="mech-row"><span class="mech-k">changed outside Writ</span><span>The folder is watched. A save that would overwrite a newer file is refused, and the unsaved text lands beside the note as a dated conflict copy.</span></div>
+            <div class="mech-row"><span class="mech-k">earlier versions</span><span>Writ keeps one each time the note is saved, for thirty days, in its own data folder. Read or restore any of them from the note.</span></div>
+            <div class="mech-row"><span class="mech-k">an index beside them</span><span>SQLite holds the search index and the window state, never a copy of your text. Delete it and you lose no note.</span></div>
+          </div>
+        </div>
+        <Capture name="still-notes-folder" alt="The notes folder in Finder: one Markdown file per note" class="shot-win shot-bleed-r mo" sizes="(max-width: 880px) 100vw, 45vw" />
+      </div>
+    </section>
+
+    <section class="band sec" id="links">
+      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> links</span>
+      <div class="mo">
+        <h2 class="sec-h2">Links, backlinks, a graph.</h2>
+        <p class="sec-p">Write <code>[[Note]]</code> and the link opens the note. <span class="kc-keys">{connectionsKeys.map((k) => <kbd class="kc">{k}</kbd>)}</span> opens Connections beside it: every note that links here, with the sentence each link sits in, the outline, and the properties from the frontmatter. Tags sit in the sidebar. Graph draws the notes around the open one, or the whole folder, with a search box and a colour per folder.</p>
+      </div>
+      <div class="strip strip-2 u-full mo-g">
+        <Capture name="still-connections" alt="A note with the Connections panel beside it: the notes that link here, each with its sentence, then the outline and properties" sizes="(max-width: 720px) 100vw, 50vw" />
+        <Capture name="still-graph" alt="The graph of a whole notes folder, one colour per folder, a note highlighted from the search box" sizes="(max-width: 720px) 100vw, 50vw" />
+      </div>
+    </section>
+
+    <section class="band band-tint" id="search">
+      <span class="mark" aria-hidden="true" style="padding-top:78px"><span class="gm-h">##</span> find</span>
+      <div class="sec mo" style="padding-top:72px">
+        <h2 class="sec-h2 sec-h2-lg">Find the thing you wrote in March.</h2>
+        <p class="sec-p"><span class="kc-keys">{searchKeys.map((k) => <kbd class="kc">{k}</kbd>)}</span> searches every note in the folder and any other folder you point it at. Results fill in as you type. Enter opens the note on the matching line. <span class="kc-keys">{openByNameKeys.map((k) => <kbd class="kc">{k}</kbd>)}</span> opens a note by name.</p>
+      </div>
+      <div class="u-wide mo" style="margin-top:36px">
+        <Loop name="search" poster="still-search" alt="Search everywhere open with the query radiator, matches listed across notes and a folder" width={1200} height={750} class="shot-win" sizes="(max-width: 1440px) 100vw, 1340px" />
+      </div>
+    </section>
+
     <section class="band sec" id="open">
       <span class="mark" aria-hidden="true"><span class="gm-h">##</span> open</span>
       <div class="twoup u-bleed-l">
         <Capture name="still-html" alt="An HTML newsletter open in Writ, source on the left and the rendered page on the right" class="shot-win shot-bleed-l mo" sizes="(max-width: 880px) 100vw, 60vw" />
         <div class="mo">
           <h2 class="sec-h2">Open what lands on you.</h2>
-          <p class="sec-p">A newsletter someone forwarded, a flowchart pasted from a chat, a formula from a course. Writ draws them as they are meant to look. Code, configs and logs open as plain text, and large files open without a wait.</p>
+          <p class="sec-p">A newsletter someone forwarded, a flowchart pasted from a chat, a formula from a course. Writ draws them as they are meant to look, with callouts, tables and embedded notes. Code, configs and logs open as plain text, and large files open without a wait.</p>
         </div>
       </div>
       <div class="strip strip-2 u-full mo-g" style="margin-top:56px">
@@ -131,74 +177,45 @@ const searchKeys = seg('CmdOrCtrl+Shift+F');
       </div>
     </section>
 
-    <section class="band band-tint" id="search">
-      <span class="mark" aria-hidden="true" style="padding-top:78px"><span class="gm-h">##</span> find</span>
-      <div class="sec mo" style="padding-top:72px">
-        <h2 class="sec-h2 sec-h2-lg">Find the thing you wrote in March.</h2>
-        <p class="sec-p"><span class="kc-keys">{searchKeys.map((k) => <kbd class="kc">{k}</kbd>)}</span> searches every note you ever opened here, and any folder you point it at. Results fill in as you type. Enter opens the note on the matching line.</p>
-      </div>
-      <div class="u-wide mo" style="margin-top:36px">
-        <Loop name="search" poster="still-search" alt="Search everywhere open with the query radiator, matches listed across notes and a folder" width={1200} height={750} class="shot-win" sizes="(max-width: 1440px) 100vw, 1340px" />
-      </div>
-    </section>
-
-    <section class="band sec" id="keeps">
-      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> keeps</span>
+    <section class="band sec" id="programs">
+      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> programs</span>
       <div class="twoup u-bleed-r">
         <div class="mo">
-          <h2 class="sec-h2 sec-h2-lg">It doesn't lose things.</h2>
-          <p class="sec-p">Not a feature you switch on. The way the files are kept.</p>
-          <div class="mech">
-            <div class="mech-row"><span class="mech-k">one file per note</span><span>Every note is a plain text file in <code>~/.writ/buffers</code>. Open the folder in anything.</span></div>
-            <div class="mech-row"><span class="mech-k">written as you type</span><span>The file is written moments after you stop typing. There is no save step to forget.</span></div>
-            <div class="mech-row"><span class="mech-k">an index beside them</span><span>SQLite keeps what you opened and when; a full-text index covers every note that was ever here.</span></div>
-            <div class="mech-row"><span class="mech-k">restart, crash, force quit</span><span>The session comes back as you left it, tabs and all.</span></div>
-            <div class="mech-row"><span class="mech-k">opened a file?</span><span><kbd class="kc">⌘</kbd><kbd class="kc">S</kbd> writes back to that file. Edits you have not saved stay in Writ.</span></div>
-          </div>
+          <h2 class="sec-h2 sec-h2-lg">The assistant you already use can read your notes.</h2>
+          <p class="sec-p">Writ ships an MCP server. Give Claude Code, Claude Desktop, Cursor or any other MCP client the one command from Settings, Connected programs, and it can list, search and read your notes, follow links and backlinks, and read properties and tags. Writing is a separate approval. The first call from a new program waits until you approve it, and every call is listed in Settings.</p>
+          <p class="sec-p">The chat pane sends the notes you attach and nothing else. When it proposes an edit, you read the proposal beside the note and apply it yourself. It talks to Anthropic, a local Ollama model, or any OpenAI-compatible endpoint with your own key.</p>
+          <p class="sec-p">Both are off until you turn them on.</p>
         </div>
-        <Capture name="still-finder-buffers" alt="The buffers folder in Finder: one plain text file per note" class="shot-win shot-bleed-r mo" sizes="(max-width: 880px) 100vw, 45vw" />
+        <Capture name="still-chat" alt="The chat pane beside a note, the attached notes listed at the top and a proposed edit shown next to the note's text" class="shot-win shot-bleed-r mo" sizes="(max-width: 880px) 100vw, 45vw" />
       </div>
     </section>
 
     <section class="band sec" id="from">
       <span class="mark" aria-hidden="true"><span class="gm-h">##</span> from</span>
-      <div class="mo">
-        <h2 class="sec-h2">Coming from somewhere else.</h2>
-      </div>
-      <div class="threeup u-wide mo-g">
-        <a class="from" href={`${base}/vs/obsidian/`}>
-          <div class="from-h">Obsidian</div>
-          <p class="from-p">Keep the vault. Writ is the scratchpad next to it: nothing to configure, nothing to file, and it opens the vault's own files.</p>
-          <div class="from-l">Writ next to Obsidian →</div>
-        </a>
-        <a class="from" href={`${base}/vs/typora/`}>
-          <div class="from-h">Typora</div>
-          <p class="from-p">The same instinct about rendering. Writ adds the hotkey, the persistence and search over everything, and it is free and open source.</p>
-          <div class="from-l">Writ next to Typora →</div>
-        </a>
-        <a class="from" href={`${base}/vs/apple-notes/`}>
-          <div class="from-h">Apple Notes</div>
-          <p class="from-p">Plain files you can open anywhere instead of a database. Markdown instead of rich text. And it opens files.</p>
-          <div class="from-l">Writ next to Apple Notes →</div>
-        </a>
+      <div class="twoup u-bleed-l">
+        <Capture name="still-vault" alt="A folder written in Obsidian open in Writ: the tree in the sidebar, a note rendered beside its source" class="shot-win shot-bleed-l mo" sizes="(max-width: 880px) 100vw, 60vw" />
+        <div class="mo">
+          <h2 class="sec-h2">Coming from Obsidian.</h2>
+          <p class="sec-p">Point Writ at the folder Obsidian uses. Links, aliases, properties, tags and callouts read as written, and both apps keep using the same files. Nothing is copied or converted.</p>
+          <p class="sec-p"><a href={`${base}/vs/obsidian/`}>Writ next to Obsidian</a> sets the two side by side. The <a href={`${base}/guides/obsidian-vault-files/`}>guide</a> lists what carries over and what does not.</p>
+        </div>
       </div>
     </section>
 
     <section class="band sec" id="private">
       <span class="mark" aria-hidden="true"><span class="gm-h">##</span> private</span>
       <div class="mo">
-        <h2 class="sec-h2">Nothing leaves your machine.</h2>
+        <h2 class="sec-h2">Nothing leaves your machine unless a program you chose sends it.</h2>
         <div class="facts">
-          <div class="fact"><b>Offline.</b> Rendering, search and spelling run locally.</div>
-          <div class="fact"><b>No account.</b> Download, open, type.</div>
-          <div class="fact"><b>No telemetry.</b> The app sends nothing. The update check can be turned off.</div>
-          <div class="fact"><b>Rewrite is off</b> until you turn it on, and asks before the first send to any host.</div>
-          <div class="fact"><b>Open source</b> under MIT, with the decision records in the repo.</div>
-          <div class="fact"><b>Checksums</b> published with every release; updates verify a signed manifest.</div>
+          <div class="fact"><b>Files only.</b> Your text lives in the notes folder. The database holds an index, never a copy.</div>
+          <div class="fact"><b>Offline.</b> Rendering, search and spelling run locally. No account, no telemetry.</div>
+          <div class="fact"><b>Rewrite and chat are off</b> until you turn them on, and ask before the first send to any host.</div>
+          <div class="fact"><b>Connected programs are off</b> by default. You approve each one, reading and writing separately, and the list of calls stays on your disk.</div>
+          <div class="fact"><b>Keys in the keychain.</b> An API key is never written to the settings file or the database.</div>
+          <div class="fact"><b>Open source</b> under MIT. Checksums with every release; updates verify a signed manifest.</div>
         </div>
       </div>
     </section>
-
     <Ledger kcCols={kcCols} presets={presets} />
     <Install />
   </main>

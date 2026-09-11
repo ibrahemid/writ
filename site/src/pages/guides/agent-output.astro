@@ -3,30 +3,39 @@ import Site from '../../layouts/Site.astro';
 import Doc from '../../components/site/Doc.astro';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
-<Site title="Read what an agent wrote, and find it again next week" description="Set a watched inbox so every report an agent or script writes opens in Writ as it lands, rendered, and stays searchable afterwards." path="/guides/agent-output/">
-  <Doc eyebrow="guide" title="Read what an agent wrote, and find it again next week." shot="still-inbox" shotAlt="The watched inbox folder in the sidebar with a report that just arrived, rendered" lead="An agent hands you a 200-line plan. You read fifteen lines, close it, and three days later cannot remember where it went. A watched inbox fixes both halves.">
+<Site title="Give an assistant your notes with MCP" description="Turn on Writ's MCP server, paste one command into Claude Code or another MCP client, approve what the program may do, and see every call it made." path="/guides/agent-output/">
+  <Doc eyebrow="guide" title="Give an assistant your notes with MCP." shot="still-inbox" shotAlt="A report that a program wrote, open and rendered in Writ" lead="Writ ships an MCP server. A program you connect can search and read your notes, and, if you allow it, write them. Nothing is approved until you say so, and every call is listed.">
     <div class="doc-body">
-      <h2>1. Pick a folder</h2>
-      <p>Make one folder for agent output, for example <code>~/agent-out</code>. In Writ, Settings, Files, Watched inbox folder: choose it.</p>
+      <h2>1. Turn the server on</h2>
+      <p>Settings, Connected programs, "Let other programs read and write your notes". This starts nothing by itself: the program you connect launches the server when it needs it, over its own input and output. Writ opens no port.</p>
 
-      <h2>2. Point the agent at it</h2>
-      <p>Have the agent or script write its reports there. A Claude Code hook, a Makefile target, a cron job: anything that writes a file.</p>
-      <pre><code># a shell step at the end of a task
-cp plan.md ~/agent-out/$(date +%H%M)-plan.md
+      <h2>2. Give the program the command</h2>
+      <p>The same settings section shows the command and has a Copy button. Paste it where your client keeps its MCP servers. For Claude Code:</p>
+      <pre><code>claude mcp add writ -- "/Applications/Writ.app/Contents/MacOS/writ" mcp</code></pre>
+      <p>For a client that reads a JSON file:</p>
+      <pre><code>{`{
+  "mcpServers": {
+    "writ": {
+      "command": "/Applications/Writ.app/Contents/MacOS/writ",
+      "args": ["mcp"]
+    }
+  }
+}`}</code></pre>
+      <p>On Windows and Linux the path is the one Settings shows for your install.</p>
 
-# or straight from a pipe, no folder needed
-some-command | writ --title "some-command"</code></pre>
+      <h2>3. Approve the first call</h2>
+      <p>The first call from a program is refused and shows up under Programs you approved, waiting. Approve reading, and separately writing, for that program. Approving reading never grants writing. Take either away in the same list, or by editing <code>config.toml</code>; the change applies on the next call.</p>
 
-      <h2>3. Read it as it lands</h2>
-      <p>Each new file in the folder opens in a tab, rendered, and the window comes to the front. Files already in the folder when you set the inbox are left alone, and a burst of arrivals collapses into one notice instead of a tab storm. If the window coming forward while you type is unwelcome, turn off "Focus window on inbox open" and the tabs open quietly.</p>
+      <h2>4. What it can do</h2>
+      <p>With reading approved: list the notes, search them, read one, and read a note's links, backlinks, properties and tags. With writing approved: write a note, create one, rename one. No tool deletes or trashes a note. A write that would overwrite a newer file is refused, and the program's text lands beside the note as a conflict copy. Nothing outside the notes folder is reachable.</p>
 
-      <h2>4. Find it next week</h2>
-      <p><kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">F</kbd>, type a phrase you remember. Inbox files are in the same search as every other note, and the sidebar's history lists them by the time you last had them open.</p>
+      <h2>5. See what it did</h2>
+      <p>Recent activity, in the same settings section, lists every call: the program, the tool, the note, and whether it was allowed, refused or left waiting. Never the text. The list is a file in Writ's data folder and stays on your machine.</p>
 
-      <h2>Why a plain folder</h2>
-      <p>No daemon to install, no integration to keep up with a tool that changes every month. Anything that can write a file can feed the inbox, and the files stay readable by everything else.</p>
-      <p>The preview has no network access, so an HTML report from a tool you do not fully trust renders without loading anything from the web. Scripts inside it run only if you turn that on.</p>
-      <p>Details: <a href={`${base}/docs/#inbox`}>the inbox in the docs</a>.</p>
+      <h2>Reports that land as files</h2>
+      <p>If a script or an agent writes files rather than calling tools, Settings, Advanced, Folder to watch for new files opens each file as it lands and brings the window forward. Have the program write there, or send its output in directly:</p>
+      <pre><code>make test 2>&1 | writ --title tests</code></pre>
+      <p>The output becomes a note in the folder, so search finds it next week.</p>
     </div>
   </Doc>
 </Site>
