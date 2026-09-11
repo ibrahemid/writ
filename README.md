@@ -4,9 +4,7 @@
 
 # Writ
 
-An always-open scratchpad. One hotkey brings the window back with everything you dropped in it still there.
-
-Buffers save themselves and stay searchable for good. Files render in place, offline.
+Notes as plain Markdown files in a folder you can open in Finder. Writ links them, searches them and shows what connects them, and nothing leaves the machine.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/ibrahemid/writ/ci.yml?branch=main&label=CI&logo=github)](https://github.com/ibrahemid/writ/actions)
 [![Release](https://img.shields.io/github/v/release/ibrahemid/writ?include_prereleases&sort=semver)](https://github.com/ibrahemid/writ/releases/latest)
@@ -23,42 +21,50 @@ Buffers save themselves and stay searchable for good. Files render in place, off
   <img src="docs/media/hero-light.gif" alt="Markdown typed in Writ's split pane, rendered live as it is written" width="100%">
 </picture>
 
-**How it's built.** The architecture was decided by hand and the reasoning is on record: 27 decision records in [docs/adr/](docs/adr/), crate and layer boundaries enforced by the build, and the commit history behind both.
+**How it's built.** The architecture was decided by hand and the reasoning is on record: 39 decision records in [docs/adr/](docs/adr/), crate and layer boundaries enforced by the build, and the commit history behind both.
 AI assistance was used to write code inside those decisions, not to make them.
 
 ## Why I built this
 
-Most of what I open in a day is not code. It is prompts, specs, plans, agent output, knowledge files, the occasional config. Markdown everywhere, half of it written by a machine, and all of it needs a quick look or a quick edit before I move on.
+I keep notes as Markdown files because files outlive apps. The apps that work that way tend to ask for a system first: plugins to pick, a folder scheme to commit to, a graph that means little until it has been configured. The apps that ask nothing keep the text somewhere you cannot see.
 
-Nothing I tried fits. Notepad++ is not my taste. Sublime is fast, but closing a pile of scratch tabs means a save dialog for every one of them. VS Code drags an IDE's worth of noise into a single markdown file. Obsidian is for people whose life is in their vault. Typora got one thing right: it treats a document the way a browser treats a page. You open it to read it, not to manage it.
-
-Writ extends that to how I work: resident and summoned, not launched. One hotkey and the window is there, holding everything I dumped into it before. Buffers persist on their own, search reaches all of them, and files render in place, offline. Read, change, dismiss.
+I wanted the folder of files with the ease of a notes app. Open it, write, and let the app work out what connects to what. Writ is that. The folder is the only copy of your notes. Links, backlinks, tags and the graph are read from the files, so anything else that edits the folder is fine, and deleting Writ's database loses nothing. One hotkey brings the window back with the note you left.
 
 ## Features
 
-- Global hotkey summons the window from anywhere: `Cmd+Shift+Space` on macOS, `Ctrl+Shift+Space` on Windows and Linux
-- Autosave on every keystroke; a restart or a crash brings the session back as it was
-- Search everywhere on `Cmd+Shift+F`: every buffer, open or from history, plus workspace file names and contents
-- Split-pane live preview for Markdown, HTML, Mermaid diagrams and KaTeX math, rendered offline with scroll sync
-- Command palette on double-tap `Shift`, reaching every command, setting and buffer
-- Workspace folders with a file tree, plus a watched inbox that opens new files as they arrive
-- A `writ` CLI, and Writ can register as the default app for text, config and source files
-- Local-only storage, no account, no telemetry
+- Notes are `.md` files in `~/Writ`, or any folder you pick. Renaming a note renames the file; deleting one moves it to the Trash. Nothing is copied or converted.
+- `[[Name]]` links a note by name. The Connections panel beside the note lists the notes that link back, the outline and the properties.
+- Tags in the sidebar, a graph of the notes around the open one, and a Graph view of the whole folder.
+- Live preview for Markdown with callouts, embedded notes, tables, Mermaid diagrams and math, rendered offline. HTML files render in place.
+- A change made outside Writ shows up at once. A note with unsaved edits asks before anything is replaced, and a save never overwrites a newer file.
+- A folder written in Obsidian opens as it is: [what carries over and what does not](docs/importing-from-obsidian.md).
+- Global hotkey summons the window from anywhere: `Cmd+Shift+Space` on macOS, `Ctrl+Shift+Space` on Windows and Linux. The app stays resident.
+- Search everywhere on `Cmd+Shift+F`: every note by name and content, plus the contents of any folder you open.
+- Command palette on double-tap `Shift`, reaching every command, setting and note.
+- Light by default, with six accents and dark presets. Interface text size is one setting.
+- Runs without an account and sends no telemetry.
 
 Spell check, selection rewrites, prompt fill, text transforms, link handling and the rest are in [docs/FEATURES.md](docs/FEATURES.md).
 
-Wikilinks and backlinks are on the way. They are not in a release yet.
+## Other programs and AI
+
+Writ ships an MCP server. A client starts it with `writ mcp` over stdio; there is no port. It is off until you turn it on in Settings, and each client is approved by name, with read and write as separate permissions. Every call is listed in the Activity panel with the client, the tool, the note and the decision, never the note's text. A write that would overwrite a newer file is refused when the client passes the hash it read.
+
+The chat pane talks to a local model or a hosted one with your own key, off by default. Only the notes you attach are sent, and Writ names the host and the size before the first send. Edits from the model arrive as proposals you apply or discard.
+
+Nothing leaves the machine unless the client you chose sends it. Writ itself makes two kinds of request: to the AI host you configured, and the update check, which can be turned off. [ADR-031](docs/adr/031-the-ai-harness-and-what-leaves-the-machine.md) is the record; [docs/threat-model.md](docs/threat-model.md) is the checklist it is held to.
 
 ## Design decisions
 
 Each of these is recorded in [docs/adr/](docs/adr/); the short version:
 
-- **Text on disk, metadata in SQLite.** Each buffer's text is a plain file under `~/.writ/buffers/`; `writ.db` carries the metadata and the full-text index. That split is what makes autosave-per-keystroke, restart persistence, and instant full-text search possible. Files you open still save back to their own path; the buffers directory is the scratch layer where most text starts and much of it ends.
+- **Files are the only copy of your notes.** Each note is a `.md` file in the notes folder. `writ.db` holds what Writ works out from the files: the search index, links, tags, properties and window state. Delete it and Writ rebuilds it; no note is lost. A file opened from anywhere else saves back to its own path.
 - **Resident, not launched.** The app starts hidden and keeps running in the background, so the hotkey shows a window instead of booting a program. Cold start time stops mattering because it happens once.
-- **Keyboard first.** Every command, setting, and buffer is reachable from the palette. The mouse is optional.
-- **The preview trusts nothing.** Markdown, HTML, Mermaid, and KaTeX render from runtimes bundled into the app, and the preview blocks all network access.
-- **The core does not know Tauri exists.** `writ-core`, `writ-storage`, `writ-render`, and `writ-plugin` are plain Rust crates with no Tauri dependency; the shell is a thin adapter. The boundary is enforced by the build, not by convention.
-- **Built to catch what other tools produce.** The CLI, the watched inbox, and default-app registration all serve the same case: something else made a file, and Writ is where it opens, rendered and searchable.
+- **Keyboard first.** Every command, setting and note is reachable from the palette. The mouse is optional.
+- **The preview trusts nothing.** Markdown, HTML, Mermaid and KaTeX render from runtimes bundled into the app, and the preview blocks all network access.
+- **The core does not know Tauri exists.** `writ-core`, `writ-storage`, `writ-render`, `writ-mcp` and `writ-plugin` are plain Rust crates with no Tauri dependency; the shell is a thin adapter. The boundary is enforced by the build, not by convention.
+- **One guarded write.** The editor, the `writ` command, a rename, a link rewrite, a connected program and a chat proposal all write a note through the same path, which refuses to overwrite a newer file and leaves a conflict copy beside the note.
+- **Other programs are welcome, by name.** The CLI, the watched folder, default-app registration and the MCP server all exist so that something else can make or read a file and Writ is where it opens, rendered and searchable.
 
 ```mermaid
 flowchart LR
@@ -69,7 +75,7 @@ flowchart LR
 
     HK([global hotkey]):::entry
     CLI([writ CLI]):::entry
-    INBOX([watched inbox]):::entry
+    MCP([writ mcp, stdio]):::entry
     ASSOC([default app for .md, .log, .toml]):::entry
 
     subgraph FRONT [frontend · SolidJS]
@@ -88,33 +94,34 @@ flowchart LR
         direction LR
         WC[writ-core<br>policy]:::crate
         WR[writ-render<br>markdown · mermaid · katex]:::crate
-        WS[writ-storage<br>persistence]:::crate
+        WS[writ-storage<br>guarded writes · index]:::crate
     end
 
-    HK & CLI & INBOX & ASSOC --> SHELL
+    HK & CLI & ASSOC --> SHELL
+    MCP --> WS
     SV -- invoke --> CMD
     EVT -. events .-> SV
     FSW -. fs changes .-> EVT
     CMD --> WC
     WC --> WR --> PV[offline preview<br>network blocked]
     WC --> WS
-    WS --> DB[(SQLite<br>WAL + FTS5)]:::data
-    WS --> FS[(files on disk)]:::data
+    WS --> DB[(SQLite index<br>FTS5 · links · tags)]:::data
+    WS --> FS[(notes folder<br>.md files)]:::data
 
     class FRONT,SHELL,CORE zone
 ```
 
 ## See it in action
 
-**Search everywhere.** One query, every open buffer and everything in history.
+**Search everywhere.** One query, every note by name and content.
 
-<img src="docs/media/search-all-buffers.png" alt="Full-text search matching across every open and historical buffer" width="100%">
+<img src="docs/media/search-all-notes.png" alt="Full-text search matching across every note" width="100%">
 
 **Live preview.** An HTML file in split view, rendered by the app with the network blocked.
 
 <img src="docs/media/html-split.png" alt="HTML file in split view, scripts on, the preview rendering the page offline" width="100%">
 
-**Command palette.** Double-tap `Shift` for commands, settings and buffers.
+**Command palette.** Double-tap `Shift` for commands, settings and notes.
 
 <img src="docs/media/command-palette.png" alt="Command palette with recent commands and shortcuts" width="100%">
 
@@ -125,7 +132,8 @@ The [landing page](https://writ.ibrahemid.com) has a live editor you can try in 
 | Action | Shortcut |
 |---|---|
 | Toggle window | `Cmd+Shift+Space` |
-| New tab | `Cmd+T` |
+| New note | `Cmd+N` |
+| Open note by name | `Cmd+Shift+O` |
 | Close tab | `Cmd+W` |
 | Switch tabs | `Cmd+[` / `Cmd+]` |
 | Reopen closed tab | `Cmd+Shift+T` |
@@ -133,10 +141,17 @@ The [landing page](https://writ.ibrahemid.com) has a live editor you can try in 
 | Search everywhere | `Cmd+Shift+F` |
 | Save | `Cmd+S` |
 | Toggle sidebar | `Cmd+\` |
-| Rename tab | Double-click tab |
+| Toggle Connections | `Cmd+Shift+\` |
+| Rename note | Double-click tab |
 | Find in document | `Cmd+F` |
 
-Writ keeps its state in `~/.writ`: buffer text as plain files under `buffers/`, metadata and the search index in `writ.db`, anything piped into the `writ` CLI in `piped/`, plus `config.toml` and `logs/`.
+The same list drives the menu bar on every platform, and every chord can be changed in Settings.
+
+## Where things live
+
+Your notes are the `.md` files in the notes folder, `~/Writ` unless you moved it in Settings. That folder is the backup; put it in iCloud Drive, Dropbox or Google Drive and the notes go with it.
+
+Writ's own data folder, `~/.writ`, holds `writ.db` with the index and window state, `config.toml`, the activity log and `logs/`. None of it is the text of a note. The one exception is the last second of typing, held in the database until its save lands. Delete `writ.db` and Writ rebuilds it on the next launch.
 
 ## Install
 
@@ -175,8 +190,8 @@ The installer or app bundle is written to `src-tauri/target/release/bundle/`.
 | Desktop shell | Tauri v2 |
 | Frontend | SolidJS + Vite |
 | Editor | CodeMirror 6 |
-| Storage | Plain files + SQLite (WAL mode, FTS5) |
-| Core logic | Rust: `writ-core`, `writ-storage`, `writ-render`, `writ-plugin` |
+| Storage | Markdown files + SQLite index (WAL mode, FTS5) |
+| Core logic | Rust: `writ-core`, `writ-storage`, `writ-render`, `writ-mcp`, `writ-plugin` |
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system design and [docs/adr/](docs/adr/) for architecture decision records.
 
