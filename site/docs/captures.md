@@ -1,5 +1,16 @@
 # Capture list for the site revamp
 
+Status 2026-09-12: the 1.0 copy pass added four still slots that render as owed captions until a capture lands, all from the release build with `WRIT_DATA_DIR` and `WRIT_NOTES_DIR` isolated, light and dark at 2x, no identifying paths:
+
+| File | On screen |
+|---|---|
+| `still-notes-folder` | Finder on the notes folder, one Markdown file per note (replaces the owed `still-finder-buffers`) |
+| `still-connections` | A note with the Connections panel open beside it: the notes that link here with their sentences, the outline, the properties |
+| `still-graph` | The whole-folder graph, one colour per folder, a note highlighted from the search box |
+| `still-chat` | The chat pane beside a note, attached notes listed at the top, a proposed edit shown next to the note's text |
+
+The stills that already ship (`still-split-note`, `still-sidebar-history`, `still-settings`, `still-vault`, `still-inbox`, `still-search`) are 0.3 captures and are owed a 1.0 retake in the same set.
+
 Status 2026-08-24: the split-view, search, mermaid, KaTeX, HTML, sidebar-history and settings stills now come from the real app (docs/design/2026-08-24/app/, copied into site/src/assets/captures/). The five loops below and the Finder still are still owed. The hero (`summon`) and the find band (`search`) are live Loop slots: drop `site/public/media/<name>-{light,dark}.{webm,mp4}` in and they play on scroll with the current still as the poster (site/src/components/site/Loop.astro). Shots 3-5 currently render as stills; wire a Loop where the capture lands.
 
 Owed, in order of impact:

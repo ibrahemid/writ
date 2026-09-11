@@ -91,7 +91,7 @@ export const releases: ChangelogRelease[] = [
     version: "0.3.0",
     date: "2026-07-30",
     notes: [
-      { kind: 'added', text: "search everywhere on Cmd+Shift+F: one palette over commands, settings, and every buffer, open or from history. with a workspace folder open it also matches file names and greps file contents, streaming results as you type. prefixes route the query: > commands, # content, : go to line." },
+      { kind: 'added', text: "search everywhere on Cmd+Shift+F: one palette over commands, settings, and every note, open or from history. with a workspace folder open it also matches file names and greps file contents, streaming results as you type. prefixes route the query: > commands, # content, : go to line." },
       { kind: 'added', text: "Cmd+click (Ctrl elsewhere) opens http, https, and mailto links from the editor; a relative link that resolves inside the workspace opens in Writ. a link clicked in the preview names its host and asks before opening." },
       { kind: 'added', text: "a Writ context menu in the editor: spelling corrections on a flagged word, link actions, clipboard verbs, rewrite actions on a selection, and a workspace search seeded with it." },
       { kind: 'added', text: "spelling corrections in place: double-click a flagged word to pick a suggestion or add that word to the dictionary." },
@@ -132,7 +132,7 @@ export const releases: ChangelogRelease[] = [
       { kind: 'added', text: "global hotkey brings the window up over anything: Cmd+Shift+Space on macOS, Ctrl+Shift+Space on Linux and Windows." },
       { kind: 'added', text: "tabbed CodeMirror 6 editor with language detection by extension and file content, live Markdown typography, and reopen-closed recovery." },
       { kind: 'added', text: "find and replace overlay with a live match count." },
-      { kind: 'added', text: "full-text search across every buffer, with a results panel showing snippets and line numbers, backed by SQLite FTS5." },
+      { kind: 'added', text: "full-text search across every note, with a results panel showing snippets and line numbers, backed by SQLite FTS5." },
       { kind: 'added', text: "command palette on double-tap Shift." },
       { kind: 'added', text: "settings window on Cmd+, with searchable settings and configurable shortcuts." },
       { kind: 'added', text: "editor and preview font zoom." },

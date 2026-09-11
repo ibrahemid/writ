@@ -539,26 +539,26 @@ export default function WritWindow() {
 
   const commands = useMemo<DemoCommand[]>(() => {
     const list: DemoCommand[] = [
-      { id: 'newtab', name: 'New Tab', description: 'Open a fresh scratch buffer.', binding: 'CmdOrCtrl+T', scope: 'app', run: cmdNewTab },
-      { id: 'closetab', name: 'Close Tab', description: 'Close the active buffer.', binding: 'CmdOrCtrl+W', scope: 'app', run: () => closeTab(activeId) },
-      { id: 'nexttab', name: 'Next Tab', description: 'Jump to the next open buffer.', binding: 'CmdOrCtrl+]', scope: 'app', run: () => {
+      { id: 'newtab', name: 'New Tab', description: 'Open a fresh note.', binding: 'CmdOrCtrl+T', scope: 'app', run: cmdNewTab },
+      { id: 'closetab', name: 'Close Tab', description: 'Close the active note.', binding: 'CmdOrCtrl+W', scope: 'app', run: () => closeTab(activeId) },
+      { id: 'nexttab', name: 'Next Tab', description: 'Jump to the next open note.', binding: 'CmdOrCtrl+]', scope: 'app', run: () => {
         const i = tabs.indexOf(activeId);
         open(tabs[(i + 1) % tabs.length] ?? activeId);
       } },
-      { id: 'prevtab', name: 'Previous Tab', description: 'Jump to the previous open buffer.', binding: 'CmdOrCtrl+[', scope: 'app', run: () => {
+      { id: 'prevtab', name: 'Previous Tab', description: 'Jump to the previous open note.', binding: 'CmdOrCtrl+[', scope: 'app', run: () => {
         const i = tabs.indexOf(activeId);
         open(tabs[(i - 1 + tabs.length) % tabs.length] ?? activeId);
       } },
-      { id: 'renametab', name: 'Rename Tab', description: 'Rename the active buffer inline.', binding: 'F2', scope: 'app', run: () => startRename(activeId) },
-      { id: 'save', name: 'Save', description: 'Write the buffer to disk now.', binding: 'CmdOrCtrl+S', scope: 'app', run: () => { saveNow(); setPaletteOpen(false); } },
-      { id: 'togglesidebar', name: 'Toggle Sidebar', description: 'Show or hide the buffer list.', binding: 'CmdOrCtrl+\\', scope: 'app', run: () => { setSidebarOpen((s) => !s); setPaletteOpen(false); } },
+      { id: 'renametab', name: 'Rename Tab', description: 'Rename the active note inline.', binding: 'F2', scope: 'app', run: () => startRename(activeId) },
+      { id: 'save', name: 'Save', description: 'Write the note to disk now.', binding: 'CmdOrCtrl+S', scope: 'app', run: () => { saveNow(); setPaletteOpen(false); } },
+      { id: 'togglesidebar', name: 'Toggle Sidebar', description: 'Show or hide the note list.', binding: 'CmdOrCtrl+\\', scope: 'app', run: () => { setSidebarOpen((s) => !s); setPaletteOpen(false); } },
       { id: 'find', name: 'Find', description: 'Focus the search field.', binding: 'CmdOrCtrl+F', scope: 'app', run: focusSearch },
-      { id: 'search', name: 'Search', description: 'Full-text search across every buffer.', scope: 'app', run: focusSearch },
+      { id: 'search', name: 'Search', description: 'Full-text search across every note.', scope: 'app', run: focusSearch },
       { id: 'zoomin', name: 'Zoom In', description: 'Increase editor scale.', binding: 'CmdOrCtrl+=', scope: 'app', run: zoomIn },
       { id: 'zoomout', name: 'Zoom Out', description: 'Decrease editor scale.', binding: 'CmdOrCtrl+-', scope: 'app', run: zoomOut },
       { id: 'zoomreset', name: 'Reset Zoom', description: 'Return to 100%.', binding: 'CmdOrCtrl+0', scope: 'app', run: zoomReset },
       { id: 'watchinbox', name: 'Watch Inbox', description: 'Auto-open files dropped into the inbox folder.', scope: 'app', run: () => { setWatching((w) => !w); setSidebarOpen(true); setPaletteOpen(false); } },
-      { id: 'copyprompt', name: 'Copy as Prompt', description: 'Copy the buffer, cleaned, to the clipboard.', scope: 'app', run: copyPrompt },
+      { id: 'copyprompt', name: 'Copy as Prompt', description: 'Copy the note, cleaned, to the clipboard.', scope: 'app', run: copyPrompt },
     ];
     for (const t of TEXT_TRANSFORMS) {
       list.push({
