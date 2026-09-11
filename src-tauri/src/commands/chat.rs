@@ -9,9 +9,9 @@
 //!
 //! What it does not do is add a second anything. The keychain, the HTTP
 //! client, the timeouts, the URL redaction and the host-consent record are
-//! [`super::ai`]'s and are reused here (ADR-031 rules 2.6 and 6.1), and the
-//! only writer of a note file is
-//! [`writ_storage::guarded::write_note_guarded`].
+//! [`super::ai`]'s and are reused here (ADR-031 rules 2.6 and 6.1), and every
+//! note this module reads or writes is reached through the note host, holding
+//! the narrowest set of capabilities the surface needs (ADR-032).
 //!
 //! Privacy invariants enforced here:
 //! - The request is assembled from the notes named in the call and nothing
@@ -36,22 +36,16 @@ use writ_core::activity::{ActivityRecord, Actor, Decision};
 use writ_core::chat::{self, AttachedNote, ChatError, ChatTurn, Delta, Proposal, Provider};
 use writ_core::config::AiConfig;
 use writ_core::hash::digest_from_hex;
-use writ_core::notes::guard::DiskState;
+use writ_core::notes::host::{Capability, HostError, NoteHost, PermissionSet};
 use writ_core::notes::WriteOrigin;
 use writ_core::polish;
-use writ_storage::errors::StorageError;
-use writ_storage::guarded::{write_note_guarded, ConflictPolicy, DiskRead, GuardedWrite};
+use writ_storage::note_host::NoteHostImpl;
 use writ_storage::paths::{file_name_only, relative_slug};
 
 use super::ai::AiKeyState;
 use crate::events::{emit_event, WritFrontendEvent};
 use crate::poison::recover_poison;
 use crate::state::AppState;
-
-/// The largest note the pane will attach. A note past this is refused by name
-/// rather than truncated: half a note read as the whole one is what a proposal
-/// would then be built from.
-const MAX_ATTACHED_BYTES: u64 = 2 * 1024 * 1024;
 
 /// How many notes one request may carry, so a loop in a caller cannot assemble
 /// an unbounded body.
@@ -404,6 +398,47 @@ pub struct AttachedSize {
     pub bytes: u64,
 }
 
+/// What the side a model's reply can influence may ask for.
+///
+/// One capability. The pane attaches the tabs the user named and lists nothing,
+/// and a capability with no caller is not held. There is no write here, which is
+/// what turns ADR-031 rule 4.3 into a property of the type rather than a habit
+/// of the code.
+pub fn context_permissions() -> PermissionSet {
+    [Capability::ReadNote].into_iter().collect()
+}
+
+/// What applying a proposal may ask for.
+///
+/// Applying runs from the user's `Apply` and from nothing the model produced,
+/// so it is the one place the pane holds a write and it holds nothing else.
+pub fn apply_permissions() -> PermissionSet {
+    [Capability::WriteNote].into_iter().collect()
+}
+
+/// A host over the notes folder holding [`context_permissions`].
+///
+/// Opened per note rather than per call: a call that names no note reads
+/// nothing, and the folder has already been resolved by the time this is asked
+/// for.
+fn context_host(notes_root: &Path, note_key: &str) -> Result<NoteHostImpl<'static>, String> {
+    NoteHostImpl::open(notes_root, None, context_permissions())
+        .map_err(|_| format!("{note_key} could not be read."))
+}
+
+/// What the pane shows when a note it was told to attach does not come back.
+///
+/// The pane names notes by their folder-relative key everywhere else, and a
+/// host answer names the path the caller handed in, which for the pane is the
+/// absolute source path of an open tab (ADR-031 rule 5.2).
+fn unattachable(note_key: &str, error: &HostError) -> String {
+    match error {
+        HostError::TooLarge { .. } => format!("{note_key} is too large to attach."),
+        HostError::NotText { .. } => format!("{note_key} is not text."),
+        _ => format!("{note_key} could not be read."),
+    }
+}
+
 /// The sizes of the notes the call named.
 ///
 /// The dialog asking to send them must state the bytes the send will read, not
@@ -425,13 +460,13 @@ pub fn attached_sizes_in(notes_root: &Path, paths: &[String]) -> Result<Vec<Atta
         if sizes.iter().any(|note| note.key == note_key) {
             continue;
         }
-        let bytes = std::fs::metadata(&file)
-            .map(|m| m.len())
-            .map_err(|_| format!("{note_key} could not be read."))?;
+        let summary = context_host(notes_root, &note_key)?
+            .note_summary(path)
+            .map_err(|error| unattachable(&note_key, &error))?;
         sizes.push(AttachedSize {
             path: path.clone(),
             key: note_key,
-            bytes,
+            bytes: summary.bytes,
         });
     }
     Ok(sizes)
@@ -454,18 +489,13 @@ pub fn read_attached_in(notes_root: &Path, paths: &[String]) -> Result<Vec<Attac
         if notes.iter().any(|note| note.path == note_key) {
             continue;
         }
-        let size = std::fs::metadata(&file)
-            .map(|m| m.len())
-            .unwrap_or_default();
-        if size > MAX_ATTACHED_BYTES {
-            return Err(format!("{note_key} is too large to attach."));
-        }
-        let bytes = std::fs::read(&file).map_err(|_| format!("{note_key} could not be read."))?;
-        let text = String::from_utf8(bytes).map_err(|_| format!("{note_key} is not text."))?;
+        let content = context_host(notes_root, &note_key)?
+            .read_note(path)
+            .map_err(|error| unattachable(&note_key, &error))?;
         notes.push(AttachedNote {
-            before_hash: writ_core::hash::sha256_hex(text.as_bytes()),
+            before_hash: content.hash,
             path: note_key,
-            text,
+            text: content.text,
         });
     }
     Ok(notes)
@@ -473,7 +503,7 @@ pub fn read_attached_in(notes_root: &Path, paths: &[String]) -> Result<Vec<Attac
 
 /// Writes one proposal and records what became of it.
 ///
-/// The guard is [`write_note_guarded`]'s, with the proposal's `before_hash` as
+/// The host holds [`apply_permissions`] and the proposal's `before_hash` is
 /// what Writ last saw the note hold: a note changed since the proposal was
 /// made is refused, and the refusal writes the proposed text beside it as a
 /// dated copy rather than over it (ADR-031 rule 4.3). The write carries no
@@ -494,29 +524,13 @@ pub fn apply_proposal_inner(
         return Err(format!("The recorded state of {note_key} is not readable."));
     };
 
-    let keep = history.map(writ_storage::guarded::keep_versions);
-    let outcome = write_note_guarded(
-        GuardedWrite {
-            target: &file,
-            bytes: new_content.as_bytes(),
-            // Only the digest is read out of this: `decide_save` compares
-            // digests, never the length or the modification time, neither of
-            // which the pane knew about the text it showed.
-            last_known: Some(DiskState {
-                hash: digest,
-                size: 0,
-                mtime: None,
-            }),
-            on_disk: DiskRead::Fresh,
-            dataless: None,
-            origin: WriteOrigin::Chat,
-            on_conflict: ConflictPolicy::RefuseWithCopy,
-            history: keep
-                .as_ref()
-                .map(|hook| hook as &dyn Fn(writ_storage::guarded::WriteCapture<'_>)),
-        },
-        None,
-    );
+    // Only the digest is handed over: the guard compares digests, never the
+    // length or the modification time, neither of which the pane knew about the
+    // text it showed.
+    let applier = NoteHostImpl::open(notes_root, None, apply_permissions())
+        .map_err(|_| format!("{note_key} was not written."))?
+        .with_history(history);
+    let outcome = applier.write_note(path, new_content, Some(digest), WriteOrigin::Chat);
 
     match outcome {
         Ok(written) => {
@@ -526,12 +540,12 @@ pub fn apply_proposal_inner(
                 "apply_proposal",
                 &note_key,
                 Decision::Allow,
-                Some(written.disk_state.size),
+                Some(written.bytes),
             );
             Ok(ProposalOutcome {
                 path: note_key,
-                hash: writ_core::hash::digest_hex(written.disk_state.hash),
-                bytes: written.disk_state.size,
+                hash: written.hash,
+                bytes: written.bytes,
             })
         }
         Err(error) => {
@@ -550,13 +564,12 @@ pub fn apply_proposal_inner(
 
 /// What the pane shows when a write does not happen.
 ///
-/// `StorageError`'s own Display is written for logs and names the absolute
-/// path (`crates/writ-storage/src/errors.rs`). The pane names notes by their
-/// folder-relative note_key everywhere else, and the one thing a person needs from
-/// a refusal is where the text they were about to apply went instead.
-fn refusal(note_key: &str, error: &StorageError) -> String {
+/// The pane names notes by their folder-relative key everywhere else, and the
+/// one thing a person needs from a refusal is where the text they were about to
+/// apply went instead.
+fn refusal(note_key: &str, error: &HostError) -> String {
     match error {
-        StorageError::SourceChangedOnDisk { conflict_copy, .. } => match conflict_copy {
+        HostError::Conflict { conflict_copy, .. } => match conflict_copy {
             Some(copy) => {
                 let copy_name = Path::new(copy)
                     .file_name()
