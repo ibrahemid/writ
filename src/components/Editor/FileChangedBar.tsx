@@ -51,7 +51,7 @@ export default function FileChangedBar(props: { noteId: string | null }) {
           aria-labelledby="file-changed-bar-text"
         >
           <p class="file-changed-bar-text" id="file-changed-bar-text">
-            This file changed outside Writ.
+            This file changed on disk.
           </p>
           <div class="file-changed-bar-actions">
             <button

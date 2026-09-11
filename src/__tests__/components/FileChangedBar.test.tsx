@@ -62,7 +62,7 @@ describe("FileChangedBar", () => {
 
     const bar = container.querySelector<HTMLElement>(".file-changed-bar")!;
     expect(bar.getAttribute("role")).toBe("alertdialog");
-    expect(bar.textContent).toContain("This file changed outside Writ.");
+    expect(bar.textContent).toContain("This file changed on disk.");
     expect(buttons(container).map((one) => one.textContent)).toEqual([
       "Keep mine",
       "Use the file on disk",
@@ -82,7 +82,7 @@ describe("FileChangedBar", () => {
     const bar = container.querySelector<HTMLElement>(".file-changed-bar")!;
     const label = bar.getAttribute("aria-labelledby")!;
     expect(container.ownerDocument.getElementById(label)?.textContent).toBe(
-      "This file changed outside Writ.",
+      "This file changed on disk.",
     );
   });
 
