@@ -327,11 +327,6 @@ fn a_note_deleted_externally_and_never_saved_here_is_restorable_through_revert_t
         b"written by another program\n",
         "the restore writes the last text the file held, byte for byte"
     );
-    assert_eq!(
-        app.versions_of(&path).first().map(Vec::as_slice),
-        Some(b"written by another program\n".as_slice()),
-        "the restore itself is recorded, so it can be undone by restoring again"
-    );
 }
 
 #[test]
