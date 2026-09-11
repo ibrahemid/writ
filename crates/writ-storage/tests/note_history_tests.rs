@@ -256,6 +256,33 @@ fn a_write_that_is_not_the_editors_is_never_absorbed_by_a_run_of_saves() {
 }
 
 #[test]
+fn a_run_of_autosaves_inside_the_window_is_one_entry_like_a_run_of_saves() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "draft\n");
+    let key = fixture.key(&path);
+
+    let start = at(1_000);
+    for tick in 0..20u64 {
+        let text = format!("draft {tick}\n");
+        fixture
+            .store
+            .capture(
+                &key,
+                text.as_bytes(),
+                start + Duration::from_millis(tick * 400),
+                &WriteOrigin::Autosave,
+            )
+            .expect("capture");
+    }
+
+    assert_eq!(
+        fixture.store.versions(&key).expect("versions").len(),
+        1,
+        "an autosave is the editor writing, so a run of them collapses the way a run of saves does"
+    );
+}
+
+#[test]
 fn an_idle_save_storm_costs_nothing() {
     let fixture = Fixture::new();
     let path = fixture.note("Launch.md", "unchanged\n");

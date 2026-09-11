@@ -593,8 +593,8 @@ enum Merge {
 }
 
 impl Merge {
-    /// Which writes a run of saves is allowed to absorb: the editor's, and
-    /// nothing else.
+    /// Which writes a run of saves is allowed to absorb: the ones the editor
+    /// makes as somebody types, and nothing else.
     ///
     /// Merging replaces the newest entry's text and sweeps the one it held,
     /// which is right for the next keystroke of a run somebody is typing and
@@ -605,13 +605,14 @@ impl Merge {
     /// go back to.
     ///
     /// Autosave and the save keystroke both reach here as
-    /// [`WriteOrigin::Editor`] (`crate::buffer_store`), so the run this
-    /// collapses is the whole of it.
+    /// [`WriteOrigin::Editor`] today (`crate::buffer_store`), so the run this
+    /// collapses is the whole of it. [`WriteOrigin::Autosave`] names the same
+    /// writer and merges the same way, so a caller that starts labelling its
+    /// autosaves gets the run collapsed rather than one entry per tick.
     fn for_origin(origin: &WriteOrigin) -> Self {
         match origin {
-            WriteOrigin::Editor => Merge::Window,
-            WriteOrigin::Autosave
-            | WriteOrigin::Restore
+            WriteOrigin::Editor | WriteOrigin::Autosave => Merge::Window,
+            WriteOrigin::Restore
             | WriteOrigin::Chat
             | WriteOrigin::Cli
             | WriteOrigin::Mcp { .. }
