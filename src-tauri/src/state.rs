@@ -575,7 +575,8 @@ impl AppState {
     pub fn reload_config_from_disk(&self) -> bool {
         match self.config_store.read() {
             Ok(fresh) => {
-                let mut guard = recover_poison(self.config.lock(), "state::reload_config_from_disk");
+                let mut guard =
+                    recover_poison(self.config.lock(), "state::reload_config_from_disk");
                 *guard = fresh;
                 true
             }

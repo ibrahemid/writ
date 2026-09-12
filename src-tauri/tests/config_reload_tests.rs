@@ -25,9 +25,7 @@ fn config_text(state: &AppState) -> String {
     let config = state.config.lock().expect("config lock");
     format!(
         "{}|{}|{:?}",
-        config.sidebar.width,
-        config.editor.font_size,
-        config.sidebar.collapsed
+        config.sidebar.width, config.editor.font_size, config.sidebar.collapsed
     )
 }
 
