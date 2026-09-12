@@ -24,6 +24,7 @@ pub use notes::NotesConfig;
 pub use preview::{DefaultLayout, PreviewConfig};
 pub use spelling::SpellingConfig;
 
+use serde::de::IntoDeserializer;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 
@@ -243,6 +244,58 @@ pub enum SidebarPosition {
     Right,
 }
 
+/// One section of the sidebar. A section can fold to its heading or be
+/// switched off in Settings; either state is kept by id, and [`ALL`] lists
+/// the sections in the order the sidebar draws them.
+///
+/// [`ALL`]: SidebarSection::ALL
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SidebarSection {
+    /// The notes folder as a tree.
+    Folder,
+    /// Every tag the folder carries, each under its parent.
+    Tags,
+    /// Files dropped into the watched folder.
+    Inbox,
+    /// Notes opened lately.
+    Recent,
+}
+
+impl SidebarSection {
+    /// Every section, in the order the sidebar draws them.
+    pub const ALL: [SidebarSection; 4] = [
+        SidebarSection::Folder,
+        SidebarSection::Tags,
+        SidebarSection::Inbox,
+        SidebarSection::Recent,
+    ];
+}
+
+/// Reads a list of section ids, keeping the ones the sidebar knows and
+/// dropping the rest, so a hand-edited file or a section from another version
+/// cannot fail the whole config. Ids are folded to lowercase first. The
+/// survivors come back once each, in [`SidebarSection::ALL`] order.
+fn deserialize_sidebar_sections<'de, D>(deserializer: D) -> Result<Vec<SidebarSection>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let ids = Vec::<String>::deserialize(deserializer)?;
+    let known: Vec<SidebarSection> = ids
+        .iter()
+        .filter_map(|id| {
+            let folded = id.to_lowercase();
+            let parsed: Result<SidebarSection, serde::de::value::Error> =
+                SidebarSection::deserialize(folded.as_str().into_deserializer());
+            parsed.ok()
+        })
+        .collect();
+    Ok(SidebarSection::ALL
+        .into_iter()
+        .filter(|section| known.contains(section))
+        .collect())
+}
+
 /// Global hotkey configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HotkeyConfig {
@@ -279,6 +332,13 @@ pub struct SidebarConfig {
     /// the sidebar 240px, resizable between 200 and 320.
     #[serde(default = "default_sidebar_width")]
     pub width: u16,
+    /// Sections folded to their heading at last save, restored across
+    /// launches.
+    #[serde(default, deserialize_with = "deserialize_sidebar_sections")]
+    pub collapsed: Vec<SidebarSection>,
+    /// Sections switched off in Settings.
+    #[serde(default, deserialize_with = "deserialize_sidebar_sections")]
+    pub hidden: Vec<SidebarSection>,
 }
 
 impl Default for SidebarConfig {
@@ -289,6 +349,8 @@ impl Default for SidebarConfig {
             position: default_sidebar_position(),
             open: default_sidebar_open(),
             width: default_sidebar_width(),
+            collapsed: Vec::new(),
+            hidden: Vec::new(),
         }
     }
 }
@@ -942,5 +1004,91 @@ mod tests {
         let parsed: WritConfig = toml::from_str(&serialized).unwrap();
         assert_eq!(parsed.inbox.path.as_deref(), Some("/tmp/inbox"));
         assert!(!parsed.inbox.focus);
+    }
+
+    #[test]
+    fn sidebar_sections_start_neither_folded_nor_hidden() {
+        let sidebar = SidebarConfig::default();
+        assert!(sidebar.collapsed.is_empty());
+        assert!(sidebar.hidden.is_empty());
+        let fresh: WritConfig = toml::from_str("").unwrap();
+        assert_eq!(fresh.sidebar, sidebar);
+    }
+
+    #[test]
+    fn sidebar_sections_are_listed_in_drawing_order() {
+        assert_eq!(
+            SidebarSection::ALL,
+            [
+                SidebarSection::Folder,
+                SidebarSection::Tags,
+                SidebarSection::Inbox,
+                SidebarSection::Recent,
+            ]
+        );
+    }
+
+    #[test]
+    fn sidebar_sections_round_trip_through_toml() {
+        let mut config = WritConfig::default();
+        config.sidebar.collapsed = vec![SidebarSection::Tags, SidebarSection::Recent];
+        config.sidebar.hidden = vec![SidebarSection::Inbox];
+
+        let serialized = toml::to_string(&config).unwrap();
+        assert!(
+            serialized.contains("collapsed = [\"tags\", \"recent\"]"),
+            "{serialized}"
+        );
+        assert!(serialized.contains("hidden = [\"inbox\"]"), "{serialized}");
+        let parsed: WritConfig = toml::from_str(&serialized).unwrap();
+        assert_eq!(parsed.sidebar, config.sidebar);
+    }
+
+    #[test]
+    fn a_sidebar_table_written_before_sections_existed_loads_with_none() {
+        let config: WritConfig = toml::from_str("[sidebar]\nopen = false\nwidth = 300\n").unwrap();
+        assert!(!config.sidebar.open);
+        assert_eq!(config.sidebar.width, 300);
+        assert!(config.sidebar.collapsed.is_empty());
+        assert!(config.sidebar.hidden.is_empty());
+    }
+
+    #[test]
+    fn section_ids_the_sidebar_does_not_know_are_dropped_and_the_rest_come_once_in_order() {
+        let config: WritConfig =
+            toml::from_str("[sidebar]\ncollapsed = [\"open\", \"recent\", \"recent\", \"Tags\"]\n")
+                .unwrap();
+        assert_eq!(
+            config.sidebar.collapsed,
+            vec![SidebarSection::Tags, SidebarSection::Recent]
+        );
+        assert!(config.sidebar.hidden.is_empty());
+    }
+
+    #[test]
+    fn the_default_config_writes_empty_section_lists() {
+        let serialized = toml::to_string(&WritConfig::default()).unwrap();
+        assert!(serialized.contains("collapsed = []"), "{serialized}");
+        assert!(serialized.contains("hidden = []"), "{serialized}");
+    }
+
+    #[test]
+    fn sidebar_sections_round_trip_through_json_as_lowercase_ids() {
+        let mut config = WritConfig::default();
+        config.sidebar.collapsed = vec![SidebarSection::Folder];
+        config.sidebar.hidden = vec![SidebarSection::Tags, SidebarSection::Recent];
+
+        let json = serde_json::to_value(&config).unwrap();
+        assert_eq!(json["sidebar"]["collapsed"], serde_json::json!(["folder"]));
+        assert_eq!(
+            json["sidebar"]["hidden"],
+            serde_json::json!(["tags", "recent"])
+        );
+        let parsed: WritConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.sidebar, config.sidebar);
+
+        let from_frontend: WritConfig =
+            serde_json::from_str(r#"{"sidebar":{"collapsed":["tags","tags","graph"]}}"#).unwrap();
+        assert_eq!(from_frontend.sidebar.collapsed, vec![SidebarSection::Tags]);
     }
 }
