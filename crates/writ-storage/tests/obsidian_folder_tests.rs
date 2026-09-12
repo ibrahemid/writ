@@ -319,7 +319,12 @@ fn tags_come_from_the_frontmatter_and_the_body_and_not_from_a_fence() {
             key(&root, "Projects/Alpha/Roadmap.md"),
             key(&root, "Projects/Meeting.md"),
         ],
-        "a nested tag is matched whole"
+        "a nested tag names its own subtree"
+    );
+    assert_eq!(
+        index.paths_for_tag("project").expect("paths"),
+        index.paths_for_tag("project/alpha").expect("paths"),
+        "a parent no note carries still names the notes under it"
     );
     assert_eq!(
         index.paths_for_tag("Project/Alpha").expect("paths"),

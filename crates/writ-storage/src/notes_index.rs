@@ -1121,12 +1121,16 @@ impl<'a> NotesIndex<'a> {
         Ok(rows)
     }
 
-    /// Every note carrying `tag`, in path order.
+    /// Every note carrying `tag` or a tag under it, in path order.
     ///
-    /// The tag is matched whole: `project` answers with the notes carrying
-    /// `#project` and not with the notes carrying `#project/alpha`, which is a
-    /// tag of its own with a row of its own in [`all_tags`](Self::all_tags).
-    /// A note tagging itself twice comes back once.
+    /// `project` answers with the notes carrying `#project`, `#project/alpha`
+    /// and `#project/alpha/x`; `project/alpha` answers with its own subtree.
+    /// That is what lets the tag list show each tag once under its parent and
+    /// a parent row filter its whole family. A sibling that merely shares a
+    /// prefix (`projects`, `project-x`) is outside the family, which is why
+    /// the prefix test is a `substr` against `tag || '/'` and not a `LIKE`: a
+    /// `_` inside a tag is a character, never a wildcard. A note tagging
+    /// itself twice comes back once.
     ///
     /// Case is folded on the way in, because it was folded on the way into the
     /// rows: `Project` and `project` are one tag, and asking with the casing a
@@ -1139,6 +1143,7 @@ impl<'a> NotesIndex<'a> {
             "SELECT DISTINCT tags.path FROM tags
                JOIN files ON files.path = tags.path
               WHERE tags.tag = ?1
+                 OR substr(tags.tag, 1, length(?1) + 1) = ?1 || '/'
               ORDER BY tags.path",
         )?;
         let rows = stmt
@@ -1771,7 +1776,8 @@ impl NotesIndexStore {
         NotesIndex::new(&self.conn()).all_tags()
     }
 
-    /// Every note carrying one tag. See [`NotesIndex::paths_for_tag`].
+    /// Every note carrying one tag or a tag under it. See
+    /// [`NotesIndex::paths_for_tag`].
     pub fn paths_for_tag(&self, tag: &str) -> StorageResult<Vec<String>> {
         NotesIndex::new(&self.conn()).paths_for_tag(tag)
     }
