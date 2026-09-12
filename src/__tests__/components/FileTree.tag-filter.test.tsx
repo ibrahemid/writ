@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createRoot } from "solid-js";
 import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 import type { WorkspaceEntry } from "../../types/workspace";
 
@@ -75,6 +76,9 @@ function names(container: HTMLElement): string[] {
 }
 
 let sidebar: SidebarStore;
+// The store's effects outlive a test unless its root is disposed, and one left
+// holding a selected tag would read the tag list again on the next reset.
+let disposeSidebar: () => void = () => {};
 
 beforeEach(async () => {
   await noteFactsStore.reset();
@@ -84,12 +88,16 @@ beforeEach(async () => {
   mockedEvents.onEvent.mockResolvedValue(() => {});
   h.entries = new Map();
   h.setRoot("/notes");
-  sidebar = createSidebarStore();
+  disposeSidebar = createRoot((dispose) => {
+    sidebar = createSidebarStore();
+    return dispose;
+  });
   h.sidebar = sidebar;
 });
 
 afterEach(() => {
   cleanup();
+  disposeSidebar();
 });
 
 describe("the file tree under a tag", () => {
@@ -167,7 +175,7 @@ describe("the file tree under a tag", () => {
       </>
     ));
     await settle();
-    fireEvent.click(container.querySelector(".tags-row")!);
+    fireEvent.click(container.querySelector('.tags-row[role="treeitem"]')!);
     await settle();
     expect(names(container)).toEqual(["Pricing.md"]);
 
@@ -192,7 +200,7 @@ describe("the file tree under a tag", () => {
       </>
     ));
     await settle();
-    fireEvent.click(container.querySelector(".tags-row")!);
+    fireEvent.click(container.querySelector('.tags-row[role="treeitem"]')!);
     await settle();
 
     mockedApi.noteAllTags.mockResolvedValue([{ tag: "idea", count: 1 }]);
@@ -201,6 +209,44 @@ describe("the file tree under a tag", () => {
 
     expect(sidebar.selectedTag()).toBe("idea");
     expect(names(container)).toEqual(["Pricing.md"]);
+  });
+
+  it("shows the whole family from one read when the parent tag is picked", async () => {
+    h.entries.set("/notes", [
+      file("/notes/Pricing.md"),
+      file("/notes/Alpha.md"),
+      file("/notes/Recipes.md"),
+    ]);
+    mockedApi.noteAllTags.mockResolvedValue([
+      { tag: "project", count: 1 },
+      { tag: "project/alpha", count: 1 },
+    ]);
+    // The index answers the tag and every tag under it, so the tree draws
+    // what comes back without asking about the children.
+    mockedApi.notePathsForTag.mockResolvedValue(["/notes/Pricing.md", "/notes/Alpha.md"]);
+
+    const { container } = render(() => (
+      <>
+        <TagsSection />
+        <FileTree />
+      </>
+    ));
+    await settle();
+    const [project, alpha] = Array.from(
+      container.querySelectorAll<HTMLElement>('.tags-row[role="treeitem"]'),
+    );
+    expect(project.querySelector(".tags-row-name")!.textContent).toBe("project");
+
+    fireEvent.click(project);
+    await settle();
+    expect(mockedApi.notePathsForTag.mock.calls.map(([tag]) => tag)).toEqual(["project"]);
+    expect(names(container)).toEqual(["Pricing.md", "Alpha.md"]);
+
+    mockedApi.notePathsForTag.mockResolvedValue(["/notes/Alpha.md"]);
+    fireEvent.click(alpha);
+    await settle();
+    expect(mockedApi.notePathsForTag).toHaveBeenLastCalledWith("project/alpha");
+    expect(names(container)).toEqual(["Alpha.md"]);
   });
 
   it("says so when no note in the folder carries the tag", async () => {

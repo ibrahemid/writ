@@ -12,6 +12,7 @@ import {
   showNotesFileInFileManager,
 } from "../../lib/note-actions";
 import { startRenameActiveTab } from "../Editor/TabBar";
+import { moveTreeFocus } from "../../lib/tree-focus";
 import type { WorkspaceEntry } from "../../types/workspace";
 import "./FileTree.css";
 
@@ -43,13 +44,6 @@ function underFilter(
   paths: ReadonlySet<string> | null,
 ): WorkspaceEntry[] {
   return paths === null ? rows : rows.filter((entry) => namesEntry(paths, entry));
-}
-
-function moveTreeFocus(tree: HTMLElement, from: HTMLElement, delta: 1 | -1) {
-  const items = Array.from(tree.querySelectorAll<HTMLElement>('[role="treeitem"]'));
-  const index = items.indexOf(from);
-  if (index === -1) return;
-  items[index + delta]?.focus();
 }
 
 interface TreeNodeProps {
@@ -209,9 +203,10 @@ export default function FileTree() {
     }
   });
 
-  // The selected tag's notes are one read, cached per tag, and the same read
-  // the count in the tags section came from. Nothing here asks the index a
-  // second question to draw the filtered tree.
+  // The selected tag's notes are one read, cached per tag. The index answers
+  // the tag and every tag under it, so selecting `project` lists the notes
+  // tagged `project/alpha` too, and nothing here asks a second question about
+  // the children to draw the filtered tree.
   const tagged = createMemo<ReadonlySet<string> | null>(() => {
     const tag = win.sidebar.selectedTag();
     if (tag === null) return null;
