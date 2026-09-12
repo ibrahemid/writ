@@ -8,12 +8,15 @@
   display: block;
 }
 
+/* The same box as every other row: 26px of fill inside 1px margins, 6px in
+   from the sidebar edge, so a hover fill lines up with the tree above it. */
 .inbox-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
+  width: calc(100% - 12px);
   height: var(--writ-sidebar-row-fill);
+  margin: 1px 6px;
   padding: 0 10px;
   border: none;
   border-radius: var(--writ-r-row);

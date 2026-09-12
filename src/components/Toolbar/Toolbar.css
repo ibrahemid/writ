@@ -130,7 +130,6 @@
   border-radius: var(--writ-r-control);
   background: var(--writ-win-input-active);
   border: 1px solid var(--writ-win-stroke);
-  border-bottom: 2px solid var(--writ-accent);
 }
 
 /* The second AdwToolbarView row under the header bar: same ground, no rule

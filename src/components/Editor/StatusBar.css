@@ -46,6 +46,15 @@
   }
 }
 
+/* Narrower still, the two chips go before the layout control is clipped; both
+   have a row in Settings. */
+@container (max-width: 32em) {
+  .spelling-chip,
+  .scripts-toggle {
+    display: none;
+  }
+}
+
 .statusbar-spacer {
   flex: 1;
 }
