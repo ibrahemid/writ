@@ -22,16 +22,6 @@
   opacity: var(--writ-icon-opacity-hover);
 }
 
-.tab-item-active {
-  background: var(--writ-bg-selected);
-  font-weight: 500;
-}
-
-.tab-item-active .writ-icon {
-  color: var(--writ-accent);
-  opacity: 1;
-}
-
 .tab-item-title {
   flex: 1;
   min-width: 0;
@@ -129,7 +119,6 @@
   color: var(--writ-status-error);
 }
 
-/* Windows carries selection on a 3 x 16px accent bar, never on the icon. */
 :root[data-platform="win"] .tab-item {
   gap: 0;
   margin: 2px 4px;
@@ -144,32 +133,8 @@
   margin-left: 4px;
 }
 
-:root[data-platform="win"] .tab-item-active {
-  font-weight: 400;
-}
-
-:root[data-platform="win"] .tab-item-active .writ-icon {
-  color: var(--writ-icon-color);
-  opacity: 1;
-}
-
-.tab-item-pill {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  margin-top: -8px;
-  width: 3px;
-  height: 16px;
-  border-radius: var(--writ-r-indicator);
-  background: var(--writ-accent);
-}
-
 :root[data-platform="linux"] .tab-item {
   gap: 10px;
   margin: 0 6px 2px;
   padding: 0 8px;
-}
-
-:root[data-platform="linux"] .tab-item-active {
-  font-weight: 400;
 }

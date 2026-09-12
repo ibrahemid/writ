@@ -1,11 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { BufferDocument } from "../../types/buffer";
-import {
-  groupActiveByDirectory,
-  bucketHistoryByTime,
-  relativeTime,
-  SCRATCH_GROUP_KEY,
-} from "../../components/Sidebar/grouping";
+import { bucketHistoryByTime, relativeTime } from "../../components/Sidebar/grouping";
 
 function mk(over: Partial<BufferDocument>): BufferDocument {
   return {
@@ -30,48 +25,6 @@ function mk(over: Partial<BufferDocument>): BufferDocument {
 const DAY = 86_400_000;
 const NOW = new Date("2026-05-21T12:00:00.000Z").getTime();
 const daysAgo = (n: number) => new Date(NOW - n * DAY).toISOString();
-
-describe("groupActiveByDirectory", () => {
-  it("puts the group holding the active tab first", () => {
-    const a = mk({ id: "a", source_path: "/proj/alpha/one.rs", tab_order: 0 });
-    const b = mk({ id: "b", source_path: "/proj/zeta/two.rs", tab_order: 1 });
-    const groups = groupActiveByDirectory([a, b], "b");
-    expect(groups[0].items.map((i) => i.id)).toContain("b");
-  });
-
-  it("alphabetizes other directory groups case-insensitively", () => {
-    const a = mk({ id: "a", source_path: "/proj/Zeta/one.rs", tab_order: 0 });
-    const b = mk({ id: "b", source_path: "/proj/alpha/two.rs", tab_order: 1 });
-    const groups = groupActiveByDirectory([a, b], null);
-    expect(groups.map((g) => g.label)).toEqual(["alpha", "Zeta"]);
-  });
-
-  it("places the scratch group last", () => {
-    const scratch = mk({ id: "s", source_path: null, tab_order: 0 });
-    const file = mk({ id: "f", source_path: "/proj/src/x.rs", tab_order: 1 });
-    const groups = groupActiveByDirectory([scratch, file], null);
-    expect(groups[groups.length - 1].key).toBe(SCRATCH_GROUP_KEY);
-    expect(groups[groups.length - 1].label).toBe("Scratch");
-  });
-
-  it("orders items within a group by tab_order", () => {
-    const a = mk({ id: "a", source_path: "/proj/src/a.rs", tab_order: 2 });
-    const b = mk({ id: "b", source_path: "/proj/src/b.rs", tab_order: 0 });
-    const c = mk({ id: "c", source_path: "/proj/src/c.rs", tab_order: 1 });
-    const groups = groupActiveByDirectory([a, b, c], null);
-    expect(groups[0].items.map((i) => i.id)).toEqual(["b", "c", "a"]);
-  });
-
-  it("derives the group label from the immediate parent directory", () => {
-    const f = mk({ id: "f", source_path: "/home/me/crates/writ-storage/src/x.rs" });
-    const groups = groupActiveByDirectory([f], null);
-    expect(groups[0].label).toBe("src");
-  });
-
-  it("produces no groups for an empty active list", () => {
-    expect(groupActiveByDirectory([], null)).toEqual([]);
-  });
-});
 
 describe("bucketHistoryByTime", () => {
   it("buckets across today, yesterday, last 7, last 30, older", () => {

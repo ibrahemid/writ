@@ -52,32 +52,30 @@ afterEach(() => {
   historyRows = [histDoc];
 });
 
-describe("sidebar: opening a history buffer keeps it visible", () => {
-  it("moves the buffer into the Active section instead of dropping it", async () => {
+describe("sidebar: restoring a note from history", () => {
+  it("takes its row out of Recently closed, and the section once nothing is left", async () => {
     const { bufferRegistry } = await import("../../stores/global/buffer-registry");
     const { windowRegistry } = await import("../../stores/global/window-registry");
     const WindowProvider = (await import("../../components/WindowProvider/WindowProvider")).default;
-    const ActiveSection = (await import("../../components/Sidebar/ActiveSection")).default;
     const HistorySection = (await import("../../components/Sidebar/HistorySection")).default;
 
     await bufferRegistry.load();
 
     const { container } = render(() => (
       <WindowProvider windowId={9001}>
-        <ActiveSection />
         <HistorySection />
       </WindowProvider>
     ));
 
     const historyBefore = container.querySelector<HTMLElement>(".history-section")!;
     expect(within(historyBefore).queryByText("notes.rs")).toBeTruthy();
-    expect(container.querySelector(".active-section")).toBeNull();
 
     await windowRegistry.getActive()!.tabs.restoreFromHistory("h1");
 
-    const activeAfter = container.querySelector<HTMLElement>(".active-section")!;
-    expect(activeAfter).toBeTruthy();
-    expect(within(activeAfter).queryByText("notes.rs")).toBeTruthy();
+    // The open note lives on the tab strip now, so the sidebar has no row for
+    // it and nothing left to head.
+    expect(bufferRegistry.activeTabs().map((tab) => tab.id)).toEqual(["h1"]);
+    expect(container.querySelector(".tab-item")).toBeNull();
     expect(container.querySelector(".history-section")).toBeNull();
   });
 });

@@ -14,7 +14,6 @@ import {
 } from "../../stores/global/config";
 import EdgeResizer from "../Resizer/EdgeResizer";
 import SearchBar from "./SearchBar";
-import ActiveSection from "./ActiveSection";
 import FilesSection from "./FilesSection";
 import TagsSection from "./TagsSection";
 import InboxSection from "./InboxSection";
@@ -37,7 +36,6 @@ export default function Sidebar() {
   const searching = createMemo(() => win.sidebar.searchQuery().trim().length > 0);
   const hasContent = createMemo(
     () =>
-      bufferRegistry.activeTabs().length > 0 ||
       bufferRegistry.historyList().length > 0 ||
       workspaceStore.root() !== null ||
       inboxStore.path() !== null,
@@ -72,7 +70,6 @@ export default function Sidebar() {
           fallback={
             <div class="sidebar-scroll">
               <Show when={hasContent()} fallback={<SidebarEmpty />}>
-                <ActiveSection />
                 <FilesSection />
                 <TagsSection />
                 <InboxSection />

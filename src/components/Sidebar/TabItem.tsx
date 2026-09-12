@@ -1,20 +1,13 @@
 import { Show } from "solid-js";
 import { abbreviateTitle } from "../../lib/buffer-name";
 import Icon, { type IconName } from "../Icon/Icon";
-import SaveMarker from "../SaveMarker/SaveMarker";
 import Tooltip from "../Tooltip/Tooltip";
-import { resolvePlatform } from "../../lib/platform";
 import "./TabItem.css";
 
 interface Props {
   /** The row's visible name. Not a `title` attribute: rows carry a Tooltip. */
   label: string;
   icon?: IconName;
-  // Set for a row that stands for an open note, so it can carry the mark for
-  // text that is not on disk. A history row stands for a closed one and has
-  // nothing to say about saving.
-  noteId?: string;
-  isActive?: boolean;
   onClick: () => void;
   onClose?: () => void;
   onRestore?: () => void;
@@ -23,10 +16,6 @@ interface Props {
 }
 
 export default function TabItem(props: Props) {
-  // Writ is single-window and the shell never changes platform at runtime, so
-  // this is read once per row rather than tracked.
-  const isWindows = resolvePlatform() === "win";
-
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
@@ -36,22 +25,18 @@ export default function TabItem(props: Props) {
 
   return (
     <div
-      class={`tab-item ${props.isActive ? "tab-item-active" : ""}`}
+      class="tab-item"
       role="button"
       tabIndex={0}
       onClick={props.onClick}
       onKeyDown={handleKeyDown}
     >
-      <Show when={props.isActive && isWindows}>
-        <span class="tab-item-pill" aria-hidden="true" />
-      </Show>
       <Show when={props.icon}>
         {(name) => <Icon name={name()} />}
       </Show>
       <Tooltip label={props.label} requiresTruncation>
         <span class="tab-item-title">{abbreviateTitle(props.label)}</span>
       </Tooltip>
-      <Show when={props.noteId}>{(id) => <SaveMarker noteId={id()} />}</Show>
       {props.secondary && <span class="tab-item-secondary">{props.secondary}</span>}
       {props.trailing && <span class="tab-item-trailing">{props.trailing}</span>}
       <div class="tab-item-actions">

@@ -28,7 +28,6 @@ vi.mock("../../components/Sidebar/SearchBar", () => ({
   default: () => <input class="sidebar-search-input" />,
   focusSearchBar: vi.fn(),
 }));
-vi.mock("../../components/Sidebar/ActiveSection", () => ({ default: () => null }));
 vi.mock("../../components/Sidebar/FilesSection", () => ({ default: () => null }));
 vi.mock("../../components/Sidebar/InboxSection", () => ({ default: () => null }));
 vi.mock("../../components/Sidebar/HistorySection", () => ({ default: () => null }));
