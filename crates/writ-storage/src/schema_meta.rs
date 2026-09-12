@@ -24,6 +24,10 @@ pub const KEY_NOTES_MIGRATION_REPORT_DISMISSED: &str = "notes_migration_report_d
 /// `"<facts rows>:<file rows>"`. See
 /// [`crate::notes_index::reconcile`] for what the pair is compared against.
 pub const KEY_NOTES_FACTS_CENSUS: &str = "notes_facts_census";
+/// The [`writ_core::notes::facts::READING`] the four derived tables were last
+/// filled under, so a change in what is read out of a note reads every file
+/// again once. See [`crate::notes_index::reconcile`].
+pub const KEY_NOTES_FACTS_READING: &str = "notes_facts_reading";
 /// Absolute path of the pre-migration copy of the database.
 pub const KEY_ROLLBACK_COPY_PATH: &str = "notes_migration_rollback_path";
 /// How many launches the pre-migration copy has survived.

@@ -1309,7 +1309,9 @@ impl<'a> NotesIndex<'a> {
 /// re-read — so a pass that finds fewer derived rows than the last complete
 /// pass left behind, over a file count that has not shrunk, re-reads every
 /// file. The census is kept in `schema_meta`, so an index written before the
-/// four tables were filled at all rebuilds on its first pass.
+/// four tables were filled at all rebuilds on its first pass. So does an index
+/// filled under another [`facts::READING`], recorded beside the census: the
+/// rows are re-derived once, then left alone again.
 pub fn reconcile(
     conn: &Connection,
     notes_root: &Path,
@@ -1324,15 +1326,21 @@ pub fn reconcile(
         .collect();
     let name_only = index.name_only_paths()?;
     let census = index.facts_census()?;
-    let rebuild_facts = match read_facts_census(conn)? {
-        // Nothing recorded: either the index is empty, or it was written before
-        // this pass knew how to derive anything, and those rows need one read.
-        None => census.1 > 0,
-        // Fewer derived rows than the last complete pass left, over at least as
-        // many files. Notes deleted outside Writ take their rows with them and
-        // shrink both numbers, which is not this.
-        Some((rows, files)) => census.0 < rows && census.1 >= files,
-    };
+    // Rows derived under another reading of a note match their files' size and
+    // mtime exactly, so nothing else would touch them. They are not wrong for
+    // the files; they are wrong for what a note now means.
+    let stale_reading = read_facts_reading(conn)? != Some(facts::READING);
+    let rebuild_facts = stale_reading
+        || match read_facts_census(conn)? {
+            // Nothing recorded: either the index is empty, or it was written
+            // before this pass knew how to derive anything, and those rows need
+            // one read.
+            None => census.1 > 0,
+            // Fewer derived rows than the last complete pass left, over at
+            // least as many files. Notes deleted outside Writ take their rows
+            // with them and shrink both numbers, which is not this.
+            Some((rows, files)) => census.0 < rows && census.1 >= files,
+        };
     // Built once from what the index already holds and grown as the walk finds
     // notes it did not. A note linked before the walk reaches it resolves to
     // nothing here and is filled in by the backfill at the end.
@@ -1482,9 +1490,23 @@ pub fn reconcile(
             schema_meta::KEY_NOTES_FACTS_CENSUS,
             &format!("{}:{}", after.0, after.1),
         )?;
+        schema_meta::set(
+            conn,
+            schema_meta::KEY_NOTES_FACTS_READING,
+            &facts::READING.to_string(),
+        )?;
     }
 
     Ok(outcome)
+}
+
+/// The reading the last complete [`reconcile`] derived its rows under, or
+/// `None` when nothing is recorded or the row is not a number.
+fn read_facts_reading(conn: &Connection) -> StorageResult<Option<u32>> {
+    Ok(
+        schema_meta::get(conn, schema_meta::KEY_NOTES_FACTS_READING)?
+            .and_then(|value| value.parse().ok()),
+    )
 }
 
 /// The derived-row census the last complete [`reconcile`] recorded, or `None`

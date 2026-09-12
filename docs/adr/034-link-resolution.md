@@ -136,6 +136,12 @@ Two limits, stated rather than discovered:
 - Emptying *some* of the four tables is caught whenever it lowers the total,
   which it does in every case except emptying a table that was already empty.
 
+A change in the reading is the other reason every file is re-read. What
+`writ_core::notes::facts` reads out of a note carries a number, `READING`,
+recorded in `schema_meta` beside the census, and a pass that finds a different
+one, or none, reads the folder once. Rows derived under an older reading match
+their files' size and mtime exactly, so nothing else would touch them.
+
 ### 6. Headings are matched by slug
 
 `[[Note#Some Heading]]` is matched against `headings.slug`, which is the
