@@ -1,18 +1,3 @@
-.inbox-section-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding-right: 12px;
-}
-
-.inbox-section-head .sidebar-section-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .inbox-list {
   display: flex;
   flex-direction: column;
@@ -65,11 +50,4 @@
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
   font-variant-numeric: tabular-nums;
-}
-
-.inbox-empty {
-  padding: 4px 12px 8px;
-  color: var(--writ-fg-faint);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
 }

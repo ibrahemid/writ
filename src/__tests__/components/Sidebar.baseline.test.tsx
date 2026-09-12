@@ -119,14 +119,14 @@ describe("sidebar section headers", () => {
   it("names the history section Recently closed, with its count", () => {
     h.history = [doc("h1", "Kitchen rebuild", null)];
     const { container } = render(() => <HistorySection />);
-    const head = container.querySelector(".sidebar-section-title")!;
+    const head = container.querySelector(".sidebar-section-heading")!;
     expect(head.textContent).toBe("Recently closed1");
   });
 
   it("names the folder section after the folder itself", () => {
     h.root = "/Users/me/Documents/Writ";
     const { container } = render(() => <FilesSection />);
-    expect(container.querySelector(".sidebar-section-title")!.textContent).toBe("Writ");
+    expect(container.querySelector(".sidebar-section-heading")!.textContent).toBe("Writ");
   });
 
   it("is absent when no folder is open", () => {

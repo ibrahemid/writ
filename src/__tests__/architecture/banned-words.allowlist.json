@@ -13,7 +13,7 @@
   },
   {
     "file": "src/components/Sidebar/InboxSection.tsx",
-    "line": 13,
+    "line": 14,
     "word": "inbox",
     "note": "sidebar section title, release 0.6"
   },

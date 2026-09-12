@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import TabItem from "./TabItem";
+import SidebarSection from "./SidebarSection";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
@@ -21,11 +22,17 @@ const HEADER_HEIGHT_ESTIMATE = 24;
 // flashes blank space before the next frame computes a new window.
 const OVERSCAN_PX = 240;
 
-export default function HistorySection() {
+interface HistoryListProps {
+  rows: () => HistoryRow[];
+}
+
+// The list is its own component so that folding the section disposes it and
+// unfolding mounts it again: the scroller listener and the measured geometry
+// belong to a list that is on screen, never to the heading above it.
+function HistoryList(props: HistoryListProps) {
   const win = useWindow();
 
   let listRef: HTMLDivElement | undefined;
-  let sectionRef: HTMLDivElement | undefined;
   let scroller: HTMLElement | null = null;
   let frame = 0;
   const [scrollTop, setScrollTop] = createSignal(0);
@@ -33,25 +40,15 @@ export default function HistorySection() {
   const [itemHeight, setItemHeight] = createSignal(ITEM_HEIGHT_ESTIMATE);
   const [headerHeight, setHeaderHeight] = createSignal(HEADER_HEIGHT_ESTIMATE);
 
-  // One `now` snapshot per recompute, threaded into both the bucketing and
-  // each row's relative time — no per-row Date.now(), no per-render churn.
-  const rows = createMemo<HistoryRow[]>(() => {
-    const now = Date.now();
-    const buckets = bucketHistoryByTime(bufferRegistry.historyList(), now);
-    return flattenBuckets(buckets, now);
-  });
-
   const offsets = createMemo(() =>
-    buildOffsets(rows(), (r) => (r.kind === "header" ? headerHeight() : itemHeight())),
+    buildOffsets(props.rows(), (r) => (r.kind === "header" ? headerHeight() : itemHeight())),
   );
 
   const slice = createMemo(() =>
     sliceWindow(offsets(), scrollTop(), viewportHeight() || 1, OVERSCAN_PX),
   );
 
-  const visibleRows = createMemo(() => rows().slice(slice().start, slice().end));
-
-  const total = createMemo(() => rows().filter((row) => row.kind !== "header").length);
+  const visibleRows = createMemo(() => props.rows().slice(slice().start, slice().end));
 
   // The sidebar scrolls as one outer container; the history list is only part
   // of it. Track where the list sits inside that scroller from live rects so
@@ -99,20 +96,6 @@ export default function HistorySection() {
     });
   });
 
-  // Open Recent leads here. The section is only in the tree when it has rows,
-  // so an ask with nothing closed yet leaves the sidebar open and stops there.
-  createEffect(
-    on(
-      () => win.sidebar.recentRequest(),
-      () => {
-        if (!sectionRef) return;
-        sectionRef.scrollIntoView({ block: "nearest" });
-        sectionRef.focus();
-      },
-      { defer: true },
-    ),
-  );
-
   function handleContextMenu(e: MouseEvent, id: string) {
     e.preventDefault();
     showContextMenu(e.clientX, e.clientY, [
@@ -132,43 +115,79 @@ export default function HistorySection() {
   }
 
   return (
+    <div class="history-list" ref={listRef!}>
+      <div style={{ height: `${slice().padTop}px` }} />
+      <For each={visibleRows()}>
+        {(row) =>
+          row.kind === "header" ? (
+            <div
+              class="history-group-title"
+              ref={(el) => queueMicrotask(() => measure(el, headerHeight, setHeaderHeight))}
+            >
+              {row.label}
+            </div>
+          ) : (
+            <div
+              onContextMenu={(e) => handleContextMenu(e, row.item.id)}
+              ref={(el) => queueMicrotask(() => measure(el, itemHeight, setItemHeight))}
+            >
+              <TabItem
+                label={row.item.title}
+                icon="file-text"
+                trailing={row.trailing}
+                onClick={() => void win.tabs.restoreFromHistory(row.item.id)}
+                onRestore={() => void win.tabs.restoreFromHistory(row.item.id)}
+                onClose={() => void bufferRegistry.deleteFromHistory(row.item.id)}
+              />
+            </div>
+          )
+        }
+      </For>
+      <div style={{ height: `${slice().padBottom}px` }} />
+    </div>
+  );
+}
+
+export default function HistorySection() {
+  const win = useWindow();
+  let sectionRef: HTMLElement | undefined;
+
+  // One `now` snapshot per recompute, threaded into both the bucketing and
+  // each row's relative time — no per-row Date.now(), no per-render churn.
+  const rows = createMemo<HistoryRow[]>(() => {
+    const now = Date.now();
+    const buckets = bucketHistoryByTime(bufferRegistry.historyList(), now);
+    return flattenBuckets(buckets, now);
+  });
+
+  const total = createMemo(() => rows().filter((row) => row.kind !== "header").length);
+
+  // Open Recent leads here. The section is only in the tree when it has rows,
+  // so an ask with nothing closed yet leaves the sidebar open and stops there.
+  createEffect(
+    on(
+      () => win.sidebar.recentRequest(),
+      () => {
+        if (!sectionRef) return;
+        sectionRef.scrollIntoView({ block: "nearest" });
+        sectionRef.focus();
+      },
+      { defer: true },
+    ),
+  );
+
+  return (
     <Show when={rows().length > 0}>
-      <div class="sidebar-section history-section" ref={sectionRef!} tabindex="-1">
-        <div class="sidebar-section-title">
-          Recently closed
-          <span class="sidebar-section-count">{total()}</span>
-        </div>
-        <div class="history-list" ref={listRef!}>
-          <div style={{ height: `${slice().padTop}px` }} />
-          <For each={visibleRows()}>
-            {(row) =>
-              row.kind === "header" ? (
-                <div
-                  class="history-group-title"
-                  ref={(el) => queueMicrotask(() => measure(el, headerHeight, setHeaderHeight))}
-                >
-                  {row.label}
-                </div>
-              ) : (
-                <div
-                  onContextMenu={(e) => handleContextMenu(e, row.item.id)}
-                  ref={(el) => queueMicrotask(() => measure(el, itemHeight, setItemHeight))}
-                >
-                  <TabItem
-                    label={row.item.title}
-                    icon="file-text"
-                    trailing={row.trailing}
-                    onClick={() => void win.tabs.restoreFromHistory(row.item.id)}
-                    onRestore={() => void win.tabs.restoreFromHistory(row.item.id)}
-                    onClose={() => void bufferRegistry.deleteFromHistory(row.item.id)}
-                  />
-                </div>
-              )
-            }
-          </For>
-          <div style={{ height: `${slice().padBottom}px` }} />
-        </div>
-      </div>
+      <SidebarSection
+        id="recent"
+        heading="Recently closed"
+        count={total()}
+        class="history-section"
+        focusable
+        ref={(el) => (sectionRef = el)}
+      >
+        <HistoryList rows={rows} />
+      </SidebarSection>
     </Show>
   );
 }

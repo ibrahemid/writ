@@ -39,7 +39,7 @@ vi.mock("../../stores/global/buffer-registry", () => ({
   bufferRegistry: { activeTabs: () => [], historyList: () => [], historyTotal: () => 0 },
 }));
 vi.mock("../../stores/global/workspace", () => ({ workspaceStore: { root: () => null } }));
-vi.mock("../../stores/global/inbox", () => ({ inboxStore: { path: () => null } }));
+vi.mock("../../stores/global/inbox", () => ({ inboxStore: { files: () => [] } }));
 vi.mock("../../components/Sidebar/SearchBar", () => ({
   default: () => <input class="sidebar-search-input" />,
   focusSearchBar: vi.fn(),

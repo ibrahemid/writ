@@ -33,19 +33,27 @@ describe("InboxSection", () => {
     expect(container.querySelector(".inbox-section")).toBeNull();
   });
 
-  it("shows the folder name and the empty state when watched but no files", () => {
+  it("renders nothing while the watched folder has no files", () => {
     h.setPath("/Users/me/Downloads/reports");
     const { container } = render(() => <InboxSection />);
-    expect(container.querySelector(".sidebar-section-title")!.textContent).toContain(
+    expect(container.querySelector(".inbox-section")).toBeNull();
+    expect(container.textContent).toBe("");
+  });
+
+  it("heads the section with the folder name once a file arrives", () => {
+    h.setPath("/Users/me/Downloads/reports");
+    h.setFiles([{ name: "a.md", path: "/Users/me/Downloads/reports/a.md", size_bytes: 1 }]);
+    const { container } = render(() => <InboxSection />);
+    expect(container.querySelector(".sidebar-section-heading")!.textContent).toContain(
       "Inbox · reports",
     );
-    expect(container.querySelector(".inbox-empty")!.textContent).toBe("No files yet");
   });
 
   it("does not repeat the name when the folder is itself called Inbox", () => {
     h.setPath("/Users/me/Inbox");
+    h.setFiles([{ name: "a.md", path: "/Users/me/Inbox/a.md", size_bytes: 1 }]);
     const { container } = render(() => <InboxSection />);
-    expect(container.querySelector(".sidebar-section-title")!.textContent!.trim()).toBe("Inbox");
+    expect(container.querySelector(".sidebar-section-heading")!.textContent!.trim()).toBe("Inbox");
   });
 
   it("lists files with formatted sizes", () => {
@@ -72,8 +80,9 @@ describe("InboxSection", () => {
 
   it("stops watching from the header action", () => {
     h.setPath("/inbox");
+    h.setFiles([{ name: "a.md", path: "/inbox/a.md", size_bytes: 1 }]);
     const { container } = render(() => <InboxSection />);
-    fireEvent.click(container.querySelector(".inbox-section-action")!);
+    fireEvent.click(container.querySelector(".sidebar-section-action")!);
     expect(h.stopWatching).toHaveBeenCalled();
   });
 });

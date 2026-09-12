@@ -55,6 +55,10 @@ export function createSidebarStore() {
    * section twice, and a flag that is already `true` reaches it once.
    */
   function showRecent() {
+    // The ask has to land on the list, so a section switched off in Settings
+    // or folded to its heading is opened first.
+    configStore.setSidebarSectionHidden("recent", false);
+    configStore.setSidebarSectionCollapsed("recent", false);
     show();
     setRecentRequest((count) => count + 1);
   }
@@ -76,13 +80,15 @@ export function createSidebarStore() {
   // The same dead end from the other side: the tag's last use goes away, the
   // row goes with it, and the filter would stay. A tag is only dropped once it
   // has been seen in the folder's tags, so a selection made before that list
-  // has been read is not cleared by its empty starting value.
+  // has been read is not cleared by its empty starting value. A parent row is
+  // held by any tag under it: `project` stays while `project/alpha` is used.
   let seenInFolder: string | null = null;
   createEffect(() => {
     const tag = selectedTag();
     if (tag === null) return;
     const held = noteFactsStore.allTags()();
-    if (held.some((row) => row.tag === tag)) seenInFolder = tag;
+    const family = `${tag}/`;
+    if (held.some((row) => row.tag === tag || row.tag.startsWith(family))) seenInFolder = tag;
     else if (seenInFolder === tag) setSelectedTag(null);
   });
 

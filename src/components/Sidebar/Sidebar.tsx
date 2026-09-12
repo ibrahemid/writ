@@ -38,7 +38,7 @@ export default function Sidebar() {
     () =>
       bufferRegistry.historyList().length > 0 ||
       workspaceStore.root() !== null ||
-      inboxStore.path() !== null,
+      inboxStore.files().length > 0,
   );
 
   // Non-null only while a drag is in flight: the edge follows the pointer
