@@ -566,6 +566,26 @@ impl AppState {
         recover_poison(self.notes_root.read(), "state::notes_root").clone()
     }
 
+    /// Reads config.toml again after another program wrote it, so the copy
+    /// every command answers from is the file's and not the one from launch.
+    ///
+    /// A file that no longer parses leaves the running config alone: the
+    /// person editing it gets the last good state, never the defaults, and
+    /// the reason is logged. Returns whether the copy was replaced.
+    pub fn reload_config_from_disk(&self) -> bool {
+        match self.config_store.read() {
+            Ok(fresh) => {
+                let mut guard = recover_poison(self.config.lock(), "state::reload_config_from_disk");
+                *guard = fresh;
+                true
+            }
+            Err(error) => {
+                tracing::warn!(%error, "config.toml changed on disk but could not be read");
+                false
+            }
+        }
+    }
+
     /// Points Writ at a different notes folder, after its files have been
     /// moved there.
     ///

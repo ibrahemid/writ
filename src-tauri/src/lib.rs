@@ -739,6 +739,21 @@ pub fn run() {
         .setup(move |app| {
             let handle = app.handle().clone();
 
+            // An edit to config.toml from outside Writ is read back into the
+            // copy every command answers from. Subscribed ahead of the bridge,
+            // so by the time the frontend hears the file changed and asks for
+            // the config, the answer is the file's.
+            {
+                use writ_core::events::bus::WritEvent;
+                let state = app.state::<AppState>();
+                let reload_handle = handle.clone();
+                state.event_bus.subscribe(move |event| {
+                    if let WritEvent::ConfigChanged { .. } = event {
+                        reload_handle.state::<AppState>().reload_config_from_disk();
+                    }
+                });
+            }
+
             {
                 let state = app.state::<AppState>();
                 let bridge_handle = handle.clone();
