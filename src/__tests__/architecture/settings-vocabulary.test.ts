@@ -49,6 +49,10 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["appearance.interface_text_size", "appearance", "Interface text size", ["interface", "text", "size", "ui", "font", "scale", "bigger", "smaller", "sidebar", "tabs"]],
   ["appearance.theme", "appearance", "Theme", ["theme", "color", "appearance", "preset", "dark", "light"]],
   ["appearance.custom_colors", "appearance", "Custom colors", ["theme", "colors", "custom", "palette"]],
+  ["sidebar.folder", "sidebar", "Show notes", ["sidebar", "notes", "folder", "files", "tree", "show", "hide"]],
+  ["sidebar.tags", "sidebar", "Show tags", ["sidebar", "tags", "show", "hide"]],
+  ["sidebar.inbox", "sidebar", "Show watched folder", ["sidebar", "watch", "watched folder", "new files", "show", "hide"]],
+  ["sidebar.recent", "sidebar", "Show recently closed", ["sidebar", "recent", "recently closed", "closed", "show", "hide"]],
   ["updates.auto_check", "updates", "Check for updates automatically", ["update", "auto", "check", "version"]],
   ["updates.check_now", "updates", "Check for updates now", ["update", "check", "now", "version"]],
   ["shortcuts.edit", "shortcuts", "Keyboard shortcuts", ["shortcut", "keyboard", "keybinding", "hotkey", "rebind"]],
@@ -82,6 +86,7 @@ describe("settings vocabulary", () => {
       "ai",
       "programs",
       "appearance",
+      "sidebar",
       "updates",
       "shortcuts",
       "advanced",
@@ -94,6 +99,7 @@ describe("settings vocabulary", () => {
       "AI rewriting",
       "Connected programs",
       "Appearance",
+      "Sidebar",
       "Updates",
       "Shortcuts",
       "Advanced",
@@ -148,6 +154,13 @@ describe("settings vocabulary", () => {
     for (const term of ["notes", "folder", "backup", "sync"]) {
       expect(dataFolder.keywords, term).not.toContain(term);
     }
+  });
+
+  // The watched-folder section is "inbox" in config and nowhere in the panel's
+  // words, so the id alone must not answer a search for it.
+  it("inbox_surfaces_no_sidebar_row", () => {
+    expect(rankSettings("inbox").filter((e) => e.section === "sidebar")).toEqual([]);
+    expect(rankSettings("watched folder").map((e) => e.id)).toContain("sidebar.inbox");
   });
 
   it("banned_words_allowlist_is_shorter_than_before", () => {

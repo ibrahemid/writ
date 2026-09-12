@@ -6,6 +6,7 @@ export type SettingsSection =
   | "ai"
   | "programs"
   | "appearance"
+  | "sidebar"
   | "updates"
   | "shortcuts"
   | "advanced";
@@ -28,6 +29,7 @@ export const SECTION_LABELS: Record<SettingsSection, string> = {
   ai: "AI rewriting",
   programs: "Connected programs",
   appearance: "Appearance",
+  sidebar: "Sidebar",
   updates: "Updates",
   shortcuts: "Shortcuts",
   advanced: "Advanced",
@@ -41,6 +43,7 @@ export const SECTION_ORDER: SettingsSection[] = [
   "ai",
   "programs",
   "appearance",
+  "sidebar",
   "updates",
   "shortcuts",
   "advanced",
@@ -82,6 +85,10 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "appearance.interface_text_size", section: "appearance", title: "Interface text size", keywords: ["interface", "text", "size", "ui", "font", "scale", "bigger", "smaller", "sidebar", "tabs"] },
   { id: "appearance.theme", section: "appearance", title: "Theme", keywords: ["theme", "color", "appearance", "preset", "dark", "light"] },
   { id: "appearance.custom_colors", section: "appearance", title: "Custom colors", keywords: ["theme", "colors", "custom", "palette"] },
+  { id: "sidebar.folder", section: "sidebar", title: "Show notes", keywords: ["sidebar", "notes", "folder", "files", "tree", "show", "hide"] },
+  { id: "sidebar.tags", section: "sidebar", title: "Show tags", keywords: ["sidebar", "tags", "show", "hide"] },
+  { id: "sidebar.inbox", section: "sidebar", title: "Show watched folder", keywords: ["sidebar", "watch", "watched folder", "new files", "show", "hide"] },
+  { id: "sidebar.recent", section: "sidebar", title: "Show recently closed", keywords: ["sidebar", "recent", "recently closed", "closed", "show", "hide"] },
   { id: "updates.auto_check", section: "updates", title: "Check for updates automatically", keywords: ["update", "auto", "check", "version"] },
   { id: "updates.check_now", section: "updates", title: "Check for updates now", keywords: ["update", "check", "now", "version"] },
   { id: "shortcuts.edit", section: "shortcuts", title: "Keyboard shortcuts", keywords: ["shortcut", "keyboard", "keybinding", "hotkey", "rebind"] },
