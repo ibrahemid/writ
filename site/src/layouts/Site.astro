@@ -1,28 +1,22 @@
 ---
-import '../../design-system/colors_and_type.css';
-import '../styles/base.css';
-import TopHeader from '../components/site/TopHeader.astro';
-import SiteFooter from '../components/site/SiteFooter.astro';
+import '../styles/tokens.css';
+import '../styles/site.css';
+import interUrl from '../../design-system/fonts/inter-latin-variable.woff2?url';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
 import release from '../data/release.json';
+import { COLORS } from '../../../src/styles/generated/tokens';
 
 interface Props {
+  /** The page's H1. The document title is this plus " | Writ". */
   title: string;
-  description?: string;
-  path?: string;
-  heroDark?: boolean;
-  jsonLd?: Record<string, unknown>;
+  description: string;
+  path: string;
   /** Pages that have no address of their own: 404 is served under any path. */
   unlisted?: boolean;
 }
 
-const {
-  title,
-  description = 'Notes kept as Markdown files in a folder you can see. Links, backlinks and a graph from the files, and an MCP server for the assistant you already use. One hotkey over any app. Free, offline, macOS, Windows, Linux.',
-  path = '/',
-  heroDark = false,
-  jsonLd,
-  unlisted = false,
-} = Astro.props;
+const { title, description, path, unlisted = false } = Astro.props;
 
 const SITE_URL = 'https://writ.ibrahemid.com';
 
@@ -36,8 +30,8 @@ const ANALYTICS_SITE_ID = '0707b80b-a533-44a9-9bdf-c1eee7576372';
 const analyticsSrc = import.meta.env.PUBLIC_UMAMI_SRC ?? '';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const canonical = SITE_URL + base + path;
-const ogImage = SITE_URL + base + '/brand/og-v2.png';
-const ld = jsonLd ?? {
+const ogImage = SITE_URL + base + '/brand/og-1-0.png';
+const ld = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
   name: 'Writ',
@@ -51,18 +45,23 @@ const ld = jsonLd ?? {
   url: SITE_URL + base + '/',
   screenshot: ogImage,
 };
+// The face is declared here rather than in a stylesheet so the preload and
+// the @font-face carry the same hashed URL the build gives the file.
+const fontFace = `@font-face{font-family:"Inter";font-style:normal;font-weight:400 600;font-display:swap;src:url("${interUrl}") format("woff2-variations")}`;
 ---
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#f6f4ef" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0b0b11" media="(prefers-color-scheme: dark)" />
-    <title>{title}</title>
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content={COLORS.light.bgCanvas} />
+    <title>{title} | Writ</title>
     <meta name="description" content={description} />
     {unlisted ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical} />}
+
+    <link rel="preload" href={interUrl} as="font" type="font/woff2" crossorigin />
+    <style is:inline set:html={fontFace}></style>
 
     <link rel="icon" type="image/png" sizes="32x32" href={`${base}/brand/icon-32.png`} />
     <link rel="icon" type="image/png" sizes="128x128" href={`${base}/brand/icon-128.png`} />
@@ -70,55 +69,25 @@ const ld = jsonLd ?? {
 
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonical} />
-    <meta property="og:title" content={title} />
+    <meta property="og:title" content={`${title} | Writ`} />
     <meta property="og:description" content={description} />
     <meta property="og:image" content={ogImage} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content={title} />
+    <meta name="twitter:title" content={`${title} | Writ`} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImage} />
-    <script type="application/ld+json" set:html={JSON.stringify(ld)} />
+    <script is:inline type="application/ld+json" set:html={JSON.stringify(ld)} />
 
     {analyticsSrc && (
       <script is:inline defer src={analyticsSrc} data-website-id={ANALYTICS_SITE_ID} data-domains="writ.ibrahemid.com" data-do-not-track="true"></script>
     )}
-
-    <script is:inline>
-      (function () {
-        try {
-          var t = localStorage.getItem('writ:theme');
-          var dark = t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
-          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
-        } catch (_) {}
-      })();
-    </script>
   </head>
   <body>
-    <a href="#content" class="skip-link">Skip to content</a>
-    <div class="v2-page">
-      <TopHeader onDark={heroDark} />
-      <div id="content" tabindex="-1">
-        <slot />
-      </div>
-      <SiteFooter />
-    </div>
+    <a href="#content" class="skip">Skip to content</a>
+    <Nav />
+    <slot />
+    <Footer />
   </body>
 </html>
-
-<style is:global>
-  .skip-link {
-    position: absolute;
-    left: -9999px;
-    top: 0;
-    z-index: 100;
-    padding: 10px 16px;
-    background: var(--accent);
-    color: var(--accent-foreground);
-    border-radius: 0 0 8px 0;
-    font-family: var(--font-mono);
-    font-size: 13px;
-  }
-  .skip-link:focus { left: 0; }
-</style>

@@ -1,11 +1,11 @@
 # Fonts
 
-Latin subsets of three families, each under the SIL Open Font License 1.1. The
-licence text for a family, including its copyright notice, sits next to the
-files it covers.
+One family, the Latin subset of Inter as a variable font, under the SIL Open
+Font License 1.1. The licence text sits next to the file.
 
-| Files | Family | Licence | Upstream |
+| File | Family | Licence | Upstream |
 | --- | --- | --- | --- |
-| `bricolage-grotesque-latin-opsz.woff2` | Bricolage Grotesque | `OFL-bricolage-grotesque.txt` | https://github.com/ateliertriay/bricolage |
 | `inter-latin-variable.woff2` | Inter | `OFL-inter.txt` | https://github.com/rsms/inter |
-| `jetbrains-mono-latin-400.woff2`, `-500`, `-600` | JetBrains Mono | `OFL-jetbrains-mono.txt` | https://github.com/JetBrains/JetBrainsMono |
+
+The site uses weights 400, 500 and 600 only. Code inside `<code>` is set in the
+platform's own monospace stack and loads no file.

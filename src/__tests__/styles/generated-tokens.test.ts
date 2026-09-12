@@ -9,7 +9,7 @@ const GENERATED = [
   "src/styles/generated/theme.css",
   "src/styles/generated/tokens.ts",
   "src-tauri/assets/generated/preview-tokens.css",
-  "site/design-system/generated/tokens.css",
+  "site/src/styles/tokens.css",
 ];
 
 const THEME_CSS = readFileSync(resolve(ROOT, "src/styles/generated/theme.css"), "utf8");

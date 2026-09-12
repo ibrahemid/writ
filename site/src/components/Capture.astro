@@ -1,0 +1,37 @@
+---
+import { Picture } from 'astro:assets';
+import type { ImageMetadata } from 'astro';
+
+interface Props {
+  /** File stem under src/assets/captures, without the `-light.png` suffix. */
+  name: string;
+  alt: string;
+  class?: string;
+  sizes?: string;
+  loading?: 'lazy' | 'eager';
+  fetchpriority?: 'high' | 'auto';
+}
+
+const {
+  name,
+  alt,
+  class: cls = 'window',
+  sizes = '(max-width: 1200px) 100vw, 1200px',
+  loading = 'lazy',
+  fetchpriority = 'auto',
+} = Astro.props;
+
+// The site is light only. Captures are 2x PNGs from the harness; a slot with
+// no capture yet renders as a neutral box at the window's aspect ratio, and the
+// page is not ready to ship while one remains.
+const all = import.meta.glob<ImageMetadata>('/src/assets/captures/*-light.png', { eager: true, import: 'default' });
+const src = Object.entries(all).find(([p]) => p.endsWith(`/${name}-light.png`))?.[1];
+const widths = src ? [640, 960, 1320, 1920].filter((w) => w < src.width).concat(src.width) : [];
+---
+{src ? (
+  <figure class={cls}>
+    <Picture src={src} alt={alt} formats={['avif', 'webp']} widths={widths} sizes={sizes} loading={loading} fetchpriority={fetchpriority} />
+  </figure>
+) : (
+  <figure class:list={[cls, 'owed']} role="img" aria-label={alt} data-capture={name}></figure>
+)}

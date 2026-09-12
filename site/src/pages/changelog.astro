@@ -1,122 +1,20 @@
 ---
-import Site from "../layouts/Site.astro";
-import { releases } from "../data/changelog";
-import Capture from "../components/site/Capture.astro";
-
-const kindColor: Record<string, string> = {
-  added:   'var(--accent)',
-  changed: 'var(--warn)',
-  fixed:   'var(--success)',
-  removed: 'var(--err)',
-};
+import Prose from '../layouts/Prose.astro';
+import { releases } from '../data/changelog';
 ---
-<Site
-  title="Writ changelog"
-  description="What ships in each release of Writ."
-  path="/changelog/"
->
-  <main class="page" id="top">
-  <section class="band doc cl">
-    <header class="cl-head">
-      <span class="doc-eyebrow">changelog</span>
-      <h1 class="doc-h1">What changed.</h1>
-    </header>
-    <div class="u-bleed-r doc-wide">
-      <Capture name="still-split-note" alt="The current release: meeting notes in split view" class="shot-win shot-bleed-r" sizes="(max-width: 880px) 100vw, 1200px" />
-    </div>
-    <div class="cl-wrap u-wide" style="margin-top:40px">
-
-      {releases.map((rel) => (
-        <article class="rel" id={`v${rel.version}`}>
-          <hr class="rel-rule" />
-          <header class="rel-head">
-            <h2>v{rel.version}</h2>
-            <span class="rel-date">{rel.date}</span>
-            {rel.label && <span class="rel-label">{rel.label}</span>}
-          </header>
-          <ul class="rel-notes">
-            {rel.notes.map((n) => (
-              <li>
-                <span class="rel-kind" style={{ color: kindColor[n.kind] || 'var(--muted)' }}>{n.kind}</span>
-                <span class="rel-text">{n.text}</span>
-              </li>
-            ))}
-          </ul>
-        </article>
-      ))}
-    </div>
-  </section>
-  </main>
-
-  <style>
-    .cl { padding-bottom: 6rem; }
-    .cl-wrap { display: flex; flex-direction: column; gap: 0; }
-    .cl-head { max-width: var(--measure); }
-    .cl-head { display: flex; flex-direction: column; gap: 0.5rem; }
-    .cl-sub { color: var(--muted); margin: 0; font-family: var(--font-mono); font-size: 13px; }
-
-    /* Version and date sit in a left rail, the notes run beside them at the
-       reading measure: one release is one row, the rule spans the whole width. */
-    .rel {
-      display: grid;
-      grid-template-columns: 200px minmax(0, var(--measure));
-      gap: 0 clamp(24px, 4vw, 64px);
-      padding: 1.5rem 0 2.5rem;
-    }
-    .rel-rule { grid-column: 1 / -1; border: none; border-top: 1px solid var(--line); margin: 0 0 1.25rem; }
-    .rel-head {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 0.35rem;
-    }
-    @media (max-width: 720px) {
-      .rel { grid-template-columns: 1fr; gap: 0.75rem 0; }
-    }
-    .rel-head h2 {
-      margin: 0;
-      font-family: var(--font-mono);
-      font-size: 1.1rem;
-      color: var(--accent);
-      letter-spacing: -0.01em;
-    }
-    .rel-date {
-      font-family: var(--font-mono);
-      font-size: 12px;
-      color: var(--muted);
-      font-variant-numeric: tabular-nums;
-    }
-    .rel-label {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--subtle);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-    .rel-notes { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.25rem; }
-    .rel-notes li {
-      display: grid;
-      grid-template-columns: 72px 1fr;
-      gap: 0.75rem;
-      align-items: baseline;
-      padding: 0.35rem 0;
-    }
-    .rel-kind {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-weight: 600;
-    }
-    .rel-text {
-      font-family: var(--font-mono);
-      font-size: 13px;
-      color: var(--muted);
-      line-height: 1.6;
-    }
-
-    @media (max-width: 640px) {
-      .rel-notes li { grid-template-columns: 56px 1fr; }
-    }
-  </style>
-</Site>
+<Prose title="Changelog" description="What ships in each release of Writ." path="/changelog/">
+  {releases.map((rel) => (
+    <article class="rel" id={`v${rel.version}`}>
+      <h2>v{rel.version}{rel.label && `: ${rel.label}`}</h2>
+      <time class="rel-date" datetime={rel.date}>{rel.date}</time>
+      <ul>
+        {rel.notes.map((n) => (
+          <li>
+            <span class="rel-kind">{n.kind}</span>
+            <span>{n.text}</span>
+          </li>
+        ))}
+      </ul>
+    </article>
+  ))}
+</Prose>

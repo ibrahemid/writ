@@ -1,0 +1,63 @@
+{
+  "site": {
+    "$description": "The site's own layout and type scale. Colour, spacing 1 to 7, radius, motion and fonts come from base and the light colour layer; only what the site adds on top lives here.",
+    "container": { "$type": "dimension", "$value": { "value": 1120, "unit": "px" } },
+    "measure": { "$type": "dimension", "$value": { "value": 60, "unit": "ch" } },
+    "measure-prose": { "$type": "dimension", "$value": { "value": 68, "unit": "ch" } },
+    "gutter": { "$type": "dimension", "$value": { "value": 24, "unit": "px" } },
+    "hairline": { "$type": "dimension", "$value": { "value": 1, "unit": "px" } },
+    "media-width": { "$type": "dimension", "$value": { "value": 1200, "unit": "px" } },
+    "nav-height": { "$type": "dimension", "$value": { "value": 56, "unit": "px" } },
+    "control-height": { "$type": "dimension", "$value": { "value": 44, "unit": "px" } },
+    "text": {
+      "$type": "dimension",
+      "xs": { "$value": { "value": 13, "unit": "px" } },
+      "sm": { "$value": { "value": 15, "unit": "px" } },
+      "md": { "$value": { "value": 17, "unit": "px" } },
+      "lg": { "$value": { "value": 19, "unit": "px" } },
+      "h3": { "$value": { "value": 22, "unit": "px" } },
+      "h2": { "$value": { "value": 28, "unit": "px" } },
+      "h2-lg": { "$value": { "value": 32, "unit": "px" } },
+      "h1": { "$value": { "value": 44, "unit": "px" } },
+      "h1-md": { "$value": { "value": 60, "unit": "px" } },
+      "h1-lg": { "$value": { "value": 72, "unit": "px" } }
+    },
+    "lh": {
+      "$type": "number",
+      "body": { "$value": 1.6 },
+      "tight": { "$value": 1.15 },
+      "display": { "$value": 1.05 }
+    },
+    "tracking": {
+      "$type": "dimension",
+      "display": { "$value": { "value": -0.025, "unit": "em" } },
+      "heading": { "$value": { "value": -0.02, "unit": "em" } }
+    },
+    "space": {
+      "$type": "dimension",
+      "8": { "$value": { "value": 48, "unit": "px" } },
+      "9": { "$value": { "value": 64, "unit": "px" } },
+      "10": { "$value": { "value": 96, "unit": "px" } },
+      "11": { "$value": { "value": 128, "unit": "px" } }
+    },
+    "shadow": {
+      "$type": "shadow",
+      "window": {
+        "$value": [{ "offsetX": "0", "offsetY": "40px", "blur": "80px", "spread": "-24px", "color": "rgba(0, 0, 0, .25)" }],
+        "$description": "The one shadow, used on app windows only."
+      }
+    },
+    "motion": {
+      "$type": "duration",
+      "crossfade": { "$value": { "value": 350, "unit": "ms" } },
+      "noun-interval": { "$value": { "value": 2400, "unit": "ms" } }
+    },
+    "bp": {
+      "$type": "dimension",
+      "$description": "The one breakpoint set. Media queries cannot read custom properties, so site.css repeats these three values as literals and nothing else does.",
+      "sm": { "$value": { "value": 640, "unit": "px" } },
+      "md": { "$value": { "value": 880, "unit": "px" } },
+      "lg": { "$value": { "value": 1200, "unit": "px" } }
+    }
+  }
+}

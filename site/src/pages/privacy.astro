@@ -1,162 +1,138 @@
 ---
-import Site from "../layouts/Site.astro";
-import Capture from "../components/site/Capture.astro";
+import Prose from '../layouts/Prose.astro';
 ---
-<Site
-  title="Writ privacy"
-  description="Your notes are files in a folder on your disk. No account, no telemetry. Rewriting, chat and connected programs are off by default, and nothing leaves the machine unless a program you chose sends it."
-  path="/privacy/"
->
-  <main class="page" id="top">
-  <section class="band doc">
-    <div class="pr-wrap">
-      <header class="pr-head">
-        <span class="doc-eyebrow">privacy · reviewed 2026-09-12</span>
-        <h1 class="doc-h1">Where your notes live, and what leaves the machine.</h1>
-      </header>
-      <Capture name="still-settings" alt="Writ settings" class="shot-win" sizes="(max-width: 880px) 100vw, 720px" />
+<Prose title="Privacy" description="Your notes are files in a folder on your disk. No account, no telemetry. Rewriting, chat and connected programs are off by default, and nothing leaves the machine unless a program you chose sends it." path="/privacy/" lead="Where your notes live, and what leaves the machine. Reviewed 2026-09-12.">
+  <h2>Your notes are files</h2>
+  <p>
+    Every note is a Markdown file in your notes folder, <code>~/Writ</code> unless you moved it.
+    <code>Settings &rarr; Notes</code> shows the path. Writ writes nothing into that folder except the notes
+    themselves. Anything you pipe into the <code>writ</code> command becomes a note there like any other.
+  </p>
+  <p>
+    Writ's own data is in <code>~/.writ</code>. <code>writ.db</code> holds the search index, the links, tags
+    and properties read from your files, tab order and window state. It holds no copy of a note's text; delete
+    it and you lose no note. <code>config.toml</code> holds your settings. <code>logs/</code> records what the
+    app did and the paths it opened, not the text inside them; logs rotate daily and are not deleted on a
+    schedule.
+  </p>
+  <p>
+    Two things in that folder do hold text. Earlier versions of your notes, kept each time a note is saved, for
+    thirty days and up to two hundred versions per note, so that a bad edit or a program's write can be undone.
+    A note over 2&nbsp;MB is not versioned. And text you have typed that has not yet reached its file is held in a
+    recovery record until the write lands. Neither is written into the notes folder, so a sync client never
+    carries them.
+  </p>
 
-      <div class="doc-body pr-body">
-        <h2>Your notes are files</h2>
-        <p>
-          Every note is a Markdown file in your notes folder, <code>~/Writ</code> unless you moved it.
-          <code>Settings &rarr; Notes</code> shows the path. Writ writes nothing into that folder except the notes
-          themselves. Anything you pipe into the <code>writ</code> command becomes a note there like any other.
-        </p>
-        <p>
-          Writ's own data is in <code>~/.writ</code>. <code>writ.db</code> holds the search index, the links, tags
-          and properties read from your files, tab order and window state. It holds no copy of a note's text; delete
-          it and you lose no note. <code>config.toml</code> holds your settings. <code>logs/</code> records what the
-          app did and the paths it opened, not the text inside them; logs rotate daily and are not deleted on a
-          schedule.
-        </p>
-        <p>
-          Two things in that folder do hold text. Earlier versions of your notes, kept each time a note is saved, for
-          thirty days and up to two hundred versions per note, so that a bad edit or a program's write can be undone.
-          A note over 2&nbsp;MB is not versioned. And text you have typed that has not yet reached its file is held in a
-          recovery record until the write lands. Neither is written into the notes folder, so a sync client never
-          carries them.
-        </p>
+  <h2>What the app does on the network</h2>
+  <p>
+    With rewriting, chat and connected programs off, which is the default, the app makes one kind of outbound
+    request: it fetches a static release manifest from GitHub and compares your platform and version on your
+    machine. That happens on its own shortly after launch, no more than once a day, and whenever it is asked for in
+    <code>Settings &rarr; Updates</code>. The request carries nothing about you beyond what any HTTP request
+    carries. Turn the automatic one off with <code>Check for updates automatically</code>. Installing an update
+    downloads the release from GitHub and checks it against a signing key built into the app.
+  </p>
+  <p>
+    Spell check runs against a dictionary bundled in the app and makes no requests. The preview pane runs under a
+    fixed content-security-policy (<code>default-src 'none'</code>) in an isolated origin, so rendered HTML makes
+    no network calls. Writ sends no crash reports, usage data, or telemetry.
+  </p>
 
-        <h2>What the app does on the network</h2>
-        <p>
-          With rewriting, chat and connected programs off, which is the default, the app makes one kind of outbound
-          request: it fetches a static release manifest from GitHub and compares your platform and version on your
-          machine. That happens on its own shortly after launch, no more than once a day, and whenever it is asked for in
-          <code>Settings &rarr; Updates</code>. The request carries nothing about you beyond what any HTTP request
-          carries. Turn the automatic one off with <code>Check for updates automatically</code>. Installing an update
-          downloads the release from GitHub and checks it against a signing key built into the app.
-        </p>
-        <p>
-          Spell check runs against a dictionary bundled in the app and makes no requests. The preview pane runs under a
-          fixed content-security-policy (<code>default-src 'none'</code>) in an isolated origin, so rendered HTML makes
-          no network calls. Writ sends no crash reports, usage data, or telemetry.
-        </p>
+  <h2>Rewriting text</h2>
+  <p>
+    Writ can rewrite a selection through an OpenAI-compatible endpoint. It is off by default; turn it on in
+    <code>Settings &rarr; AI rewriting</code>. The default endpoint is a local Ollama server at
+    <code>http://localhost:11434/v1</code>, which keeps the request on your machine.
+  </p>
+  <p>
+    Point it at a hosted provider and Writ asks once, naming the host, before it sends that host anything: the
+    text you rewrite, or the check that the endpoint is reachable. The answer is recorded for that host alone, so
+    agreeing to one provider does not cover another or a hand-edited URL. The request body carries the text being
+    rewritten, the instruction for the action you picked, and the model id. With nothing selected, Writ asks
+    before sending the whole note instead. An endpoint that is neither local nor <code>https</code> is refused
+    before any bytes leave.
+  </p>
+  <p>
+    While the feature is on, Writ checks whether the endpoint is reachable by requesting its model list, from
+    Settings and from the Rewrite menu in the status bar. That request carries your API key and no document
+    text, and it is not sent to a hosted endpoint you have not agreed to.
+  </p>
 
-        <h2>Rewriting text</h2>
-        <p>
-          Writ can rewrite a selection through an OpenAI-compatible endpoint. It is off by default; turn it on in
-          <code>Settings &rarr; AI rewriting</code>. The default endpoint is a local Ollama server at
-          <code>http://localhost:11434/v1</code>, which keeps the request on your machine.
-        </p>
-        <p>
-          Point it at a hosted provider and Writ asks once, naming the host, before it sends that host anything: the
-          text you rewrite, or the check that the endpoint is reachable. The answer is recorded for that host alone, so
-          agreeing to one provider does not cover another or a hand-edited URL. The request body carries the text being
-          rewritten, the instruction for the action you picked, and the model id. With nothing selected, Writ asks
-          before sending the whole note instead. An endpoint that is neither local nor <code>https</code> is refused
-          before any bytes leave.
-        </p>
-        <p>
-          While the feature is on, Writ checks whether the endpoint is reachable by requesting its model list, from
-          Settings and from the Rewrite menu in the status bar. That request carries your API key and no document
-          text, and it is not sent to a hosted endpoint you have not agreed to.
-        </p>
+  <h2>Chat</h2>
+  <p>
+    The chat pane is off by default; turn it on in <code>Settings &rarr; AI rewriting</code>. A request carries
+    the notes you attached, the conversation so far, and the model id, to the provider you chose: Anthropic, a
+    local Ollama server, or an OpenAI-compatible endpoint. Nothing else in the folder is read for it. The pane
+    lists what is attached, and attaching a note is your action. The same per-host consent applies: Writ asks
+    once, naming the host, before the first send.
+  </p>
+  <p>
+    The pane never writes a note. When it proposes an edit, you read the proposal beside the note's current text
+    and apply it yourself. There is no setting that applies proposals on their own. A note that changed after the
+    proposal was made is not overwritten; the proposal is refused and the text lands beside the note as a conflict
+    copy.
+  </p>
 
-        <h2>Chat</h2>
-        <p>
-          The chat pane is off by default; turn it on in <code>Settings &rarr; AI rewriting</code>. A request carries
-          the notes you attached, the conversation so far, and the model id, to the provider you chose: Anthropic, a
-          local Ollama server, or an OpenAI-compatible endpoint. Nothing else in the folder is read for it. The pane
-          lists what is attached, and attaching a note is your action. The same per-host consent applies: Writ asks
-          once, naming the host, before the first send.
-        </p>
-        <p>
-          The pane never writes a note. When it proposes an edit, you read the proposal beside the note's current text
-          and apply it yourself. There is no setting that applies proposals on their own. A note that changed after the
-          proposal was made is not overwritten; the proposal is refused and the text lands beside the note as a conflict
-          copy.
-        </p>
+  <h2>Connected programs</h2>
+  <p>
+    Writ ships an MCP server, <code>writ mcp</code>, so a program you choose can work with your notes.
+    It is off by default; turn it on in <code>Settings &rarr; Connected programs</code>, which also shows the
+    command to give the program. The program starts the server itself and speaks to it over that process's own
+    input and output. Writ opens no port, and the server makes no network request of any kind. Where that program
+    sends what it reads is that program's business and its own consent prompt.
+  </p>
+  <p>
+    Turning the server on approves nobody. The first call from a program is refused and waits in Settings until
+    you approve that program. Reading and writing are approved separately; approving reading never grants writing.
+    Either can be withdrawn in Settings or by editing <code>config.toml</code>, and takes effect on the next call.
+  </p>
+  <p>
+    With reading approved, a program can list, search and read notes, and read a note's links, backlinks,
+    properties and tags. With writing approved, it can write, create and rename a note. No tool deletes or trashes
+    one. A write that would overwrite a newer file is refused and the program's text lands beside the note as a
+    conflict copy. A file outside the notes folder is out of reach.
+  </p>
 
-        <h2>Connected programs</h2>
-        <p>
-          Writ ships an MCP server, <code>writ mcp</code>, so a program you choose can work with your notes.
-          It is off by default; turn it on in <code>Settings &rarr; Connected programs</code>, which also shows the
-          command to give the program. The program starts the server itself and speaks to it over that process's own
-          input and output. Writ opens no port, and the server makes no network request of any kind. Where that program
-          sends what it reads is that program's business and its own consent prompt.
-        </p>
-        <p>
-          Turning the server on approves nobody. The first call from a program is refused and waits in Settings until
-          you approve that program. Reading and writing are approved separately; approving reading never grants writing.
-          Either can be withdrawn in Settings or by editing <code>config.toml</code>, and takes effect on the next call.
-        </p>
-        <p>
-          With reading approved, a program can list, search and read notes, and read a note's links, backlinks,
-          properties and tags. With writing approved, it can write, create and rename a note. No tool deletes or trashes
-          one. A write that would overwrite a newer file is refused and the program's text lands beside the note as a
-          conflict copy. A file outside the notes folder is out of reach.
-        </p>
+  <h2>The activity list</h2>
+  <p>
+    Every call from a program, whether it was allowed, refused or left waiting, and every chat proposal, whether
+    you applied or discarded it, is appended to <code>activity.jsonl</code> in <code>~/.writ</code>. A record
+    names the program, the tool, the note and the decision, never the text. The file stays on your disk, is
+    capped at 5&nbsp;MB with one older generation kept, and shows in
+    <code>Settings &rarr; Connected programs &rarr; Recent activity</code>.
+  </p>
 
-        <h2>The activity list</h2>
-        <p>
-          Every call from a program, whether it was allowed, refused or left waiting, and every chat proposal, whether
-          you applied or discarded it, is appended to <code>activity.jsonl</code> in <code>~/.writ</code>. A record
-          names the program, the tool, the note and the decision, never the text. The file stays on your disk, is
-          capped at 5&nbsp;MB with one older generation kept, and shows in
-          <code>Settings &rarr; Connected programs &rarr; Recent activity</code>.
-        </p>
+  <h2>Keys</h2>
+  <p>
+    On macOS and Windows an API key, for rewriting or for chat, is stored in the system keychain under the
+    service <code>com.writ.ai</code>. On other platforms it is held in memory for the session and is gone on
+    restart. It is never written to <code>config.toml</code>, the database or a log.
+  </p>
 
-        <h2>Keys</h2>
-        <p>
-          On macOS and Windows an API key, for rewriting or for chat, is stored in the system keychain under the
-          service <code>com.writ.ai</code>. On other platforms it is held in memory for the session and is gone on
-          restart. It is never written to <code>config.toml</code>, the database or a log.
-        </p>
+  <h2>What this site does</h2>
+  <p>
+    This site is a static export served from GitHub Pages. It self-hosts its one font.
+    It counts page views with a self-hosted Umami instance at stats.ibrahemid.com, which stores
+    no IP addresses and shares nothing with third parties. It sets no cookies and does not embed
+    third-party widgets.
+  </p>
 
-        <h2>What this site does</h2>
-        <p>
-          This site is a static export served from GitHub Pages. It self-hosts its fonts.
-          It counts page views with a self-hosted Umami instance at stats.ibrahemid.com, which stores
-          no IP addresses and shares nothing with third parties. It sets no cookies and does not embed
-          third-party widgets.
-        </p>
+  <h2>Backup and deletion</h2>
+  <p>
+    Back up the notes folder; it is the notes. <code>~/.writ</code> holds settings, the index and earlier
+    versions, and can be rebuilt from the folder apart from the versions.
+  </p>
+  <p>
+    Delete <code>~/.writ</code> to return the app to a fresh install. The notes folder and any file you opened
+    elsewhere on disk are untouched. An API key is not in that directory: clear it from
+    <code>Settings &rarr; AI rewriting</code>, or from your keychain.
+  </p>
 
-        <h2>Backup and deletion</h2>
-        <p>
-          Back up the notes folder; it is the notes. <code>~/.writ</code> holds settings, the index and earlier
-          versions, and can be rebuilt from the folder apart from the versions.
-        </p>
-        <p>
-          Delete <code>~/.writ</code> to return the app to a fresh install. The notes folder and any file you opened
-          elsewhere on disk are untouched. An API key is not in that directory: clear it from
-          <code>Settings &rarr; AI rewriting</code>, or from your keychain.
-        </p>
-
-        <h2>Source of truth</h2>
-        <p>
-          Everything above is in the repository:
-          <a href="https://github.com/ibrahemid/writ" rel="noopener" target="_blank">github.com/ibrahemid/writ</a>,
-          with the decisions behind it in <code>docs/adr/031</code> and the checks in <code>docs/threat-model.md</code>.
-          If you find a network call this page does not describe, file an issue and it will be treated as a bug.
-        </p>
-      </div>
-    </div>
-  </section>
-  </main>
-
-  <style>
-    .pr-wrap { max-width: var(--measure); display: flex; flex-direction: column; gap: 1rem; padding-bottom: 6rem; }
-    .pr-head { display: flex; flex-direction: column; gap: 0.5rem; }
-  </style>
-</Site>
+  <h2>Source of truth</h2>
+  <p>
+    Everything above is in the repository:
+    <a href="https://github.com/ibrahemid/writ" rel="noopener" target="_blank">github.com/ibrahemid/writ</a>,
+    with the decisions behind it in <code>docs/adr/031</code> and the checks in <code>docs/threat-model.md</code>.
+    If you find a network call this page does not describe, file an issue and it will be treated as a bug.
+  </p>
+</Prose>

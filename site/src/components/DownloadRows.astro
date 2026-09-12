@@ -1,0 +1,65 @@
+---
+import release from '../data/release.json';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const repo = 'https://github.com/ibrahemid/writ';
+const sumsUrl = `${repo}/releases/download/${release.tag}/SHA256SUMS.txt`;
+const mb = (n: number | undefined): string => (n ? `${Math.round(n / 1048576)}\u00a0MB` : '');
+const p = release.platforms;
+
+interface Link {
+  label: string;
+  href: string;
+  size: number;
+}
+
+const rows: { os: string; req: string; links: Link[] }[] = [
+  {
+    os: 'macOS',
+    req: '12 or later, Apple silicon and Intel',
+    links: [
+      { label: '.pkg', href: p.mac.pkg, size: p.mac.size_pkg },
+      { label: '.dmg', href: p.mac.dmg, size: p.mac.size_dmg },
+    ],
+  },
+  {
+    os: 'Windows',
+    req: '10 or later, 64-bit',
+    links: [{ label: '.msi', href: p.win.msi, size: p.win.size_msi }],
+  },
+  {
+    os: 'Linux',
+    req: 'x86_64',
+    links: [
+      { label: '.AppImage', href: p.linux.appImage, size: p.linux.size_appImage },
+      { label: '.deb', href: p.linux.deb, size: p.linux.size_deb },
+    ],
+  },
+];
+
+const lines = [
+  'brew trust ibrahemid/writ',
+  'brew install --cask ibrahemid/writ/writ',
+  'winget install -e --id ibrahemid.Writ',
+  'yay -S writ-bin',
+];
+---
+<div class="dl-rows">
+  {rows.map((r) => (
+    <div class="dl-row">
+      <span><span class="dl-os">{r.os}</span><span class="dl-req">{r.req}</span></span>
+      <span class="dl-links">
+        {r.links.filter((l) => l.href !== '#').map((l) => (
+          <a href={l.href}>{l.label}{mb(l.size) && ` · ${mb(l.size)}`}</a>
+        ))}
+      </span>
+      <a class="dl-sha" href={sumsUrl}>SHA256</a>
+    </div>
+  ))}
+</div>
+<div class="dl-code">
+  {lines.map((l) => <code>{l}</code>)}
+</div>
+<p class="dl-privacy">
+  Nothing leaves your machine unless you turn on chat, rewriting or a connected program, and the one request Writ makes on its own, the update check, can be turned off (<a href={`${base}/privacy/`}>privacy</a>).
+</p>

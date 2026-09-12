@@ -1,9 +1,10 @@
 ---
-import Site from '../layouts/Site.astro';
-import Doc from '../components/site/Doc.astro';
+import Prose from '../layouts/Prose.astro';
+import Capture from '../components/Capture.astro';
 // The frozen sheet, not the app's live table. See `site/src/data/shortcuts.json`.
 import editorShortcuts from '../data/shortcuts.json';
 import { keybindingSegments } from '../../../src/lib/keybinding-format';
+
 const seg = (b: string) => keybindingSegments(b, { isMac: true });
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const windowKeys = [
@@ -23,79 +24,94 @@ const windowKeys = [
   ['Zoom in / out', 'CmdOrCtrl+='],
 ];
 ---
-<Site title="Writ docs" description="How Writ keeps notes, the hotkey, search, links, connected programs, the command line, default-app setup, themes and every shortcut." path="/docs/">
-  <Doc eyebrow="docs" title="How Writ works." shot="still-split-note" shotAlt="Meeting notes in Writ, source on the left and the rendered note on the right" lead="Short, in the order you will meet things. The same facts in more detail live in the repo's docs folder.">
-    <nav class="doc-toc" aria-label="On this page">
-      <a href="#hotkey">Hotkey</a><a href="#notes">Where notes live</a><a href="#search">Search</a><a href="#render">Rendering</a><a href="#files">Files and folders</a><a href="#links">Links</a><a href="#programs">Connected programs</a><a href="#inbox">Watched folder</a><a href="#cli">Command line</a><a href="#default-app">Default app</a><a href="#spelling">Spelling</a><a href="#rewrite">Rewrite</a><a href="#themes">Themes</a><a href="#shortcuts">Shortcuts</a><a href="#config">Config</a>
-    </nav>
-    <div class="doc-body">
-      <h2 id="hotkey">The hotkey</h2>
-      <p>Writ starts hidden and stays running. <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">Space</kbd> (<kbd class="kc">Ctrl</kbd><kbd class="kc">⇧</kbd><kbd class="kc">Space</kbd> on Windows and Linux) brings the window up over whatever is in front; the same keys put it away. The window comes back where it was, on the tab you were on. Change the key in Settings, Shortcuts.</p>
+<Prose title="How Writ works" description="Where notes live, the hotkey, search, links, the preview, connected programs, the command line, a folder written in Obsidian, themes and every shortcut." path="/docs/" lead="Short, in the order you will meet things. The same facts in more detail live in the repo's docs folder.">
+  <nav class="toc" aria-label="On this page">
+    <a href="#install">Install</a><a href="#hotkey">Hotkey</a><a href="#notes">Where notes live</a><a href="#search">Search</a><a href="#links">Links</a><a href="#preview">Preview</a><a href="#files">Files and folders</a><a href="#obsidian">A folder written in Obsidian</a><a href="#programs">Connected programs</a><a href="#inbox">Watched folder</a><a href="#cli">Command line</a><a href="#default-app">Default app</a><a href="#spelling">Spelling</a><a href="#rewrite">Rewrite</a><a href="#appearance">Appearance</a><a href="#shortcuts">Shortcuts</a><a href="#config">Config</a>
+  </nav>
 
-      <h2 id="notes">Where notes live</h2>
-      <p>Every note is a Markdown file in the notes folder, <code>~/Writ</code> unless you choose another in Settings, Notes. Writ writes the file a second after you stop typing; <kbd class="kc">⌘</kbd><kbd class="kc">S</kbd> writes it at once. A new tab is a new file, the tab name is the file name, and Delete moves the file to the Trash. Closing a tab keeps the file; the sidebar lists recently closed notes, and search covers every note in the folder.</p>
-      <p>The folder is watched, so a change made in another program shows up in Writ. A save that would overwrite a newer file is refused, and the unsaved text is written beside the note as a dated conflict copy. Earlier versions of a note are kept for thirty days in Writ's own data folder and can be read or restored from the note.</p>
-      <p>In <code>~/.writ</code>, <code>writ.db</code> (SQLite) holds the search index, the links, tags and properties read from the files, and window state, never a copy of a note's text. If the database is deleted, the notes are still there.</p>
+  <h2 id="install">Install</h2>
+  <p>Builds for macOS, Windows and Linux are on the <a href={`${base}/download/`}>download page</a> with their checksums, or from a package manager:</p>
+  <pre><code>brew trust ibrahemid/writ
+brew install --cask ibrahemid/writ/writ
+winget install -e --id ibrahemid.Writ
+yay -S writ-bin
+curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh</code></pre>
+  <p>The first launch asks nothing and opens today's note.</p>
 
-      <h2 id="search">Search</h2>
-      <p><kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">F</kbd> opens one palette over commands, settings and the text of every note, open or in history. With a folder open it adds the folder's file names and greps file contents on each keystroke. Results are grouped by where they came from; <kbd class="kc">Enter</kbd> opens the match on its line.</p>
-      <ul>
-        <li><code>&gt;</code> limits the query to commands</li>
-        <li><code>#</code> limits it to note contents</li>
-        <li><code>:42</code> jumps to line 42 of the current note</li>
-      </ul>
-      <p><kbd class="kc">⌘</kbd><kbd class="kc">F</kbd> finds within the current note.</p>
+  <h2 id="hotkey">The hotkey</h2>
+  <p>Writ starts hidden and stays running. <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">Space</kbd> (<kbd class="kc">Ctrl</kbd><kbd class="kc">⇧</kbd><kbd class="kc">Space</kbd> on Windows and Linux) brings the window up over whatever is in front; the same keys put it away. The window comes back where it was, on the tab you were on. Change the key in Settings, Shortcuts. The menu bar is the same on macOS, Windows and Linux.</p>
 
-      <h2 id="links">Links</h2>
-      <p>Write <code>[[Note]]</code>, or <code>[[Folder/Note]]</code> when two notes share a name, and the link opens the note. <code>[[Note#Heading]]</code> opens it at the heading. <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">\</kbd> opens the Connections panel beside the note: the notes that link here, each with the sentence the link sits in, the outline, and the properties from the frontmatter. Tags written as <code>#tag</code> in the text or in the frontmatter are listed in the sidebar. Open graph, from the palette, draws the notes around the open one; the whole folder has its own view with a search box and a color per folder.</p>
+  <h2 id="notes">Where notes live</h2>
+  <p>Every note is a Markdown file in the notes folder, <code>~/Writ</code> unless you choose another in Settings, Notes. Writ writes the file a second after you stop typing; <kbd class="kc">⌘</kbd><kbd class="kc">S</kbd> writes it at once. A new tab is a new file, the tab name is the file name, and Delete moves the file to the Trash. Closing a tab keeps the file; the sidebar lists recently closed notes, and search covers every note in the folder.</p>
+  <p>The folder is watched, so a change made in another program shows up at once. A note with unsaved edits asks before anything is replaced, and a save never overwrites a newer file: the unsaved text is written beside the note as a dated conflict copy instead.</p>
+  <p>Earlier versions of a note are kept each time it is saved. A run of saves inside ten seconds is one version; versions are kept for thirty days, at most two hundred per note and 250 MB in all, in Writ's own data folder and never inside the notes folder. Revert To puts one back, and the restore itself is kept as a version.</p>
+  <p>In <code>~/.writ</code>, <code>writ.db</code> (SQLite) holds the search index, the links, tags and properties read from the files, and window state, never a copy of a note's text. If the database is deleted, the notes are still there.</p>
 
-      <h2 id="render">Rendering</h2>
-      <p>Markdown, HTML, Mermaid diagrams and KaTeX math render in a pane beside the source, from runtimes bundled with the app. Callouts, tables, footnotes and embedded notes render too. The status bar switches between Source, Split and Preview; the two panes scroll together. The preview has no network access: an HTML note cannot load anything from the web, and a link in it names its destination and asks before opening.</p>
-      <p>Lists continue on <kbd class="kc">Enter</kbd>, checkboxes toggle on click in either pane, and <kbd class="kc">⌘</kbd><kbd class="kc">B</kbd>, <kbd class="kc">⌘</kbd><kbd class="kc">I</kbd>, <kbd class="kc">⌘</kbd><kbd class="kc">K</kbd> wrap the selection. Code, configs and logs open as text with highlighting for the language; binary files open as hex; very large files open with highlighting off.</p>
+  <h2 id="search">Search</h2>
+  <Capture name="search" alt="Search everywhere open, matches listed across notes" />
+  <p><kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">F</kbd> opens one palette over commands, settings and the text of every note, open or in history. With a folder open it adds the folder's file names and greps file contents on each keystroke. Results are grouped by where they came from; <kbd class="kc">Enter</kbd> opens the match on its line.</p>
+  <ul>
+    <li><code>&gt;</code> limits the query to commands</li>
+    <li><code>#</code> limits it to note contents</li>
+    <li><code>:42</code> jumps to line 42 of the current note</li>
+  </ul>
+  <p><kbd class="kc">⌘</kbd><kbd class="kc">F</kbd> finds within the current note, and <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">O</kbd> opens a note by name.</p>
 
-      <h2 id="files">Files and folders</h2>
-      <p>Drag a file onto the window, double-click it in Finder once Writ is the default app, or run <code>writ path</code>. Open a folder (Settings, Files, or drag it in) and the sidebar shows its tree; relative links such as <code>[spec](./notes/spec.md)</code> then open inside Writ.</p>
+  <h2 id="links">Links</h2>
+  <p>Write <code>[[Note]]</code>, or <code>[[Folder/Note]]</code> when two notes share a name, and the link opens the note. <code>[[Note#Heading]]</code> opens it at the heading. <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">\</kbd> opens the Connections panel beside the note: the notes that link here, each with the sentence the link sits in, the outline, and the properties from the frontmatter. Renaming a note offers to rewrite the links that point at it. Tags written as <code>#tag</code> in the text or in the frontmatter are listed in the sidebar. Graph, from the palette, draws the notes around the open one; Graph view draws the whole folder, with a search box and a color per folder.</p>
 
-      <h2 id="programs">Connected programs</h2>
-      <p>Off by default. Settings, Connected programs turns on the MCP server and shows the command to paste into a client such as Claude Code or Cursor. The first call from a program waits there until you approve it; reading and writing are approved separately. An approved reader can list, search and read notes and their links, backlinks, properties and tags; an approved writer can write, create and rename a note, and nothing can delete one. Recent activity lists every call. The <a href={`${base}/guides/agent-output/`}>guide</a> walks through the setup.</p>
-      <p>Chat, also off by default and under Settings, AI rewriting, opens a pane that sends the notes you attach and nothing else. A proposed edit shows beside the note and is applied only when you click.</p>
+  <h2 id="preview">Preview</h2>
+  <Capture name="preview-rich" alt="A note rendered beside its source: a callout, a table, an embedded note and a diagram" />
+  <p>Markdown, HTML, Mermaid diagrams and KaTeX math render in a pane beside the source, from runtimes bundled with the app, offline. Callouts, tables, footnotes and embedded notes render too. The status bar switches between Source, Split and Preview; the two panes scroll together. The preview has no network access: an HTML note cannot load anything from the web, and a link in it names its destination and asks before opening.</p>
+  <p>Lists continue on <kbd class="kc">Enter</kbd>, checkboxes toggle on click in either pane, and <kbd class="kc">⌘</kbd><kbd class="kc">B</kbd>, <kbd class="kc">⌘</kbd><kbd class="kc">I</kbd>, <kbd class="kc">⌘</kbd><kbd class="kc">K</kbd> wrap the selection. Code, configs and logs open as text with highlighting for the language; binary files open as hex; very large files open with highlighting off.</p>
 
-      <h2 id="inbox">Watched folder</h2>
-      <p>Point Settings, Advanced, Folder to watch for new files at a folder. Any file that appears there after that moment opens by itself and the window comes forward. Files that were already in the folder are left alone, and more than three arrivals in two seconds collapse into one notice instead of a pile of tabs. Turn off "Bring Writ to the front when a new file arrives" if you want arrivals to stay quiet.</p>
+  <h2 id="files">Files and folders</h2>
+  <p>Drag a file onto the window, double-click it in Finder once Writ is the default app, or run <code>writ path</code>. Open a folder (Settings, Files, or drag it in) and the sidebar shows its tree; relative links such as <code>[spec](./notes/spec.md)</code> then open inside Writ.</p>
 
-      <h2 id="cli">Command line</h2>
-      <p>The <code>writ</code> command opens files in the running app. Install it from Settings, Advanced, Terminal command (macOS asks for an administrator password once to link it into <code>/usr/local/bin</code>).</p>
-      <pre><code>writ notes.md            # open a file
+  <h2 id="obsidian">A folder written in Obsidian</h2>
+  <Capture name="obsidian-folder" alt="A folder written in Obsidian open in Writ: the tree in the sidebar, a note rendered beside its source" />
+  <p>Point Settings, Notes at the folder Obsidian uses and it opens as it is. Links, aliases, properties, tags, callouts and embeds read as written, and both apps keep using the same files. Nothing is copied or converted. The <a href={`${base}/guides/obsidian-vault-files/`}>guide</a> lists what carries over and what does not, and <a href={`${base}/vs/obsidian/`}>Writ next to Obsidian</a> sets the two side by side.</p>
+
+  <h2 id="programs">Connected programs</h2>
+  <p>Off by default. Settings, Connected programs turns on the MCP server and shows the command to paste into a client such as Claude Code or Cursor. The first call from a program waits there until you approve it; reading and writing are approved separately. An approved reader can list, search and read notes and their links, backlinks, properties and tags; an approved writer can write, create and rename a note, and nothing can delete one. A write that would overwrite a newer file is refused. Recent activity lists every call without the note's text. The <a href={`${base}/guides/agent-output/`}>guide</a> walks through the setup.</p>
+  <p>Chat, also off by default and under Settings, AI rewriting, opens a pane that sends the notes you attach and nothing else, to Anthropic, a local Ollama model, or an OpenAI-compatible endpoint with your own key. A proposed edit shows beside the note and is applied only when you click.</p>
+
+  <h2 id="inbox">Watched folder</h2>
+  <p>Point Settings, Advanced, Folder to watch for new files at a folder. Any file that appears there after that moment opens by itself and the window comes forward. Files that were already in the folder are left alone, and more than three arrivals in two seconds collapse into one notice instead of a pile of tabs. Turn off "Bring Writ to the front when a new file arrives" if you want arrivals to stay quiet.</p>
+
+  <h2 id="cli">Command line</h2>
+  <p>The <code>writ</code> command opens files in the running app. Install it from Settings, Advanced, Terminal command (macOS asks for an administrator password once to link it into <code>/usr/local/bin</code>).</p>
+  <pre><code>writ notes.md            # open a file
 writ .                   # open the folder
 pbpaste | writ           # anything on stdin becomes a note
 make test 2>&1 | writ --title tests</code></pre>
-      <p>Piped text becomes a note in the notes folder, so it stays after the terminal closes.</p>
+  <p>Piped text becomes a note in the notes folder, so it stays after the terminal closes.</p>
 
-      <h2 id="default-app">Default app</h2>
-      <p>Settings, Files has a Make default row for each group: Markdown, plain text and logs, config and data, source code (macOS). macOS keeps the choice per file type; the guide on <a href={`${base}/guides/default-md-app/`}>making Writ the app for .md</a> walks through it.</p>
+  <h2 id="default-app">Default app</h2>
+  <p>Settings, Files has a Make default row for each group: Markdown, plain text and logs, config and data, source code (macOS). macOS keeps the choice per file type; the guide on <a href={`${base}/guides/default-md-app/`}>making Writ the app for .md</a> walks through it.</p>
 
-      <h2 id="spelling">Spelling</h2>
-      <p>Off by default. Turn it on from the status bar or Settings, Editor. It runs on your machine. Double-click a flagged word to accept a correction, fix every occurrence, or add the word to your dictionary. Code, links and tokens like <code>API</code> are not flagged.</p>
+  <h2 id="spelling">Spelling</h2>
+  <p>Off by default. Turn it on from the status bar or Settings, Editor. It runs on your machine. Double-click a flagged word to accept a correction, fix every occurrence, or add the word to your dictionary. Code, links and tokens like <code>API</code> are not flagged.</p>
 
-      <h2 id="rewrite">Rewrite</h2>
-      <p>Off by default. Turn it on in Settings, AI rewriting. Select text, right-click, Rewrite: proofread, rephrase, polish, improve prompt, or your own instruction. The result shows as a diff you apply or discard. It uses a local model through Ollama if you have one, or any OpenAI-compatible endpoint with your own key, which is stored in the system keychain. Writ asks before the first request to any host off your machine and sends only the selected text.</p>
+  <h2 id="rewrite">Rewrite</h2>
+  <p>Off by default. Turn it on in Settings, AI rewriting. Select text, right-click, Rewrite: proofread, rephrase, polish, improve prompt, or your own instruction. The result shows as a diff you apply or discard. It uses a local model through Ollama if you have one, or any OpenAI-compatible endpoint with your own key, which is stored in the system keychain. Writ asks before the first request to any host off your machine and sends only the selected text.</p>
 
-      <h2 id="themes">Themes</h2>
-      <p>Six presets (Warp light and dark, Tokyo Night, Catppuccin Mocha, Dracula, Solarized dark), each with every color editable in Settings, Appearance. Zoom scales the editor and the rendered pane together.</p>
+  <h2 id="appearance">Appearance</h2>
+  <p>Light by default, with six accents to choose from in Settings, Appearance; the dark presets are still there. Interface text size is a setting of its own, and Zoom scales the editor and the rendered pane together.</p>
 
-      <h2 id="shortcuts">Shortcuts</h2>
-      <p>Every one of these can be changed in Settings, Shortcuts. macOS keys shown; Windows and Linux use Ctrl for ⌘.</p>
-      <table>
-        {windowKeys.map(([label, b]) => (
-          <tr><td>{label}</td><td><span class="kc-keys">{seg(b!).map((k) => <kbd class="kc">{k}</kbd>)}</span></td></tr>
-        ))}
-        {editorShortcuts.keys.map((c) => (
-          <tr><td>{c.label}</td><td><span class="kc-keys">{seg(c.keybinding).map((k) => <kbd class="kc">{k}</kbd>)}</span></td></tr>
-        ))}
-      </table>
+  <h2 id="shortcuts">Shortcuts</h2>
+  <p>Every one of these can be changed in Settings, Shortcuts. macOS keys shown; Windows and Linux use Ctrl for ⌘.</p>
+  <table>
+    <tbody>
+    {windowKeys.map(([label, b]) => (
+      <tr><td>{label}</td><td>{seg(b!).map((k) => <kbd class="kc">{k}</kbd>)}</td></tr>
+    ))}
+    {editorShortcuts.keys.map((c) => (
+      <tr><td>{c.label}</td><td>{seg(c.keybinding).map((k) => <kbd class="kc">{k}</kbd>)}</td></tr>
+    ))}
+  </tbody>
+  </table>
 
-      <h2 id="config">Config</h2>
-      <p>Everything in Settings is also in <code>~/.writ/config.toml</code>, including which programs you approved. Logs are in <code>~/.writ/logs/</code> and record what the app did and which paths it opened, never the text. The update check runs on start and can be turned off.</p>
-    </div>
-  </Doc>
-</Site>
+  <h2 id="config">Config</h2>
+  <p>Everything in Settings is also in <code>~/.writ/config.toml</code>, including which programs you approved. Logs are in <code>~/.writ/logs/</code> and record what the app did and which paths it opened, never the text. The update check runs on start and can be turned off.</p>
+</Prose>
