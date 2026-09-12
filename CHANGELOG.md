@@ -33,6 +33,7 @@ Notes link to each other, and Writ reads the folder to show what connects them. 
 - A save keeps the file's Finder tags, creation date, permissions and line endings, and saving unchanged text no longer rewrites the file.
 - Every write to a note, from the editor, the `writ` command, a rename, a link rewrite, a connected program or a chat proposal, goes through one guarded path that refuses to overwrite a newer file and leaves a conflict copy.
 - Sync clients' temp files and stubs never show up as notes. Conflict copies from Syncthing and Writ's own conflict files are listed and marked in the file tree.
+- Sidebar sections fold on their heading and stay folded across launches, and Settings has a switch to hide each one. A nested tag is listed once, under its parent, by its last segment; selecting the parent lists the notes under it too. The sidebar no longer repeats the open notes; the tabs are that list.
 - Settings rows are named in plain words and grouped by what people look for: Notes folder first, the data folder, watched folder and preview limits under Advanced. The sidebar search field says what it searches, and the history section is Recently closed.
 - Delete Line moves to Cmd+Shift+K and Replace to Cmd+Option+F, freeing the chords macOS claims. Cmd+Option+S joins Cmd+\ for the sidebar. The preview split swap is Cmd+Shift+H.
 - Choosing a light or dark preset pins that side; the System option in Settings is the way back to following the OS.
