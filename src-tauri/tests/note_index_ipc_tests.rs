@@ -350,13 +350,15 @@ fn note_paths_for_tag_names_the_notes_carrying_the_tag() {
         paths,
         vec![
             notes_index::index_key(&root.join("one.md")),
+            notes_index::index_key(&root.join("three.md")),
             notes_index::index_key(&root.join("two.md")),
         ],
-        "a note tagged twice is named once, and a nested tag is a tag of its own"
+        "a note tagged twice is named once, and a nested tag's note is under its parent"
     );
     assert_eq!(
         note_paths_for_tag_inner(&index, "work/monday").expect("paths"),
-        vec![notes_index::index_key(&root.join("three.md"))]
+        vec![notes_index::index_key(&root.join("three.md"))],
+        "a nested tag names only its own subtree"
     );
 }
 

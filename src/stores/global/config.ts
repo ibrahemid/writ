@@ -4,11 +4,13 @@ import type {
   AppearanceConfig,
   ChatProvider,
   CommandUsage,
+  SidebarSectionId,
   WritConfig,
 } from "../../types/config";
 import * as api from "../../services/tauri";
 import { showToast } from "../../components/Notifications/Toast";
 import { logFailure } from "../../lib/log";
+import { knownSidebarSections, withSidebarSection } from "../../lib/sidebar-sections";
 
 // Singleton — app-global, not window-scoped (ADR-009 E3).
 // Config is shared by every window; mutations persist to disk for all.
@@ -110,6 +112,8 @@ const DEFAULT_CONFIG: WritConfig = {
     position: "left",
     open: true,
     width: SIDEBAR_WIDTH_DEFAULT,
+    collapsed: [],
+    hidden: [],
   },
   // Closed on a first launch: the window opens on a cursor and nothing else.
   panel: { open: false, width: PANEL_WIDTH_DEFAULT },
@@ -160,6 +164,8 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
     sidebar: {
       ...incoming.sidebar,
       width: clampSidebarWidth(incoming.sidebar?.width ?? SIDEBAR_WIDTH_DEFAULT),
+      collapsed: knownSidebarSections(incoming.sidebar?.collapsed),
+      hidden: knownSidebarSections(incoming.sidebar?.hidden),
     },
     panel: {
       open: incoming.panel?.open ?? false,
@@ -310,6 +316,32 @@ function createConfigStore() {
     schedulePersist();
   }
 
+  function isSidebarSectionCollapsed(id: SidebarSectionId): boolean {
+    return config().sidebar.collapsed.includes(id);
+  }
+
+  function isSidebarSectionHidden(id: SidebarSectionId): boolean {
+    return config().sidebar.hidden.includes(id);
+  }
+
+  // A fold is restored on the next launch, so it is written like the width:
+  // once per flip, on the shared debounce.
+  function setSidebarSectionCollapsed(id: SidebarSectionId, collapsed: boolean) {
+    const current = config();
+    const next = withSidebarSection(current.sidebar.collapsed, id, collapsed);
+    if (next === current.sidebar.collapsed) return;
+    setConfig({ ...current, sidebar: { ...current.sidebar, collapsed: [...next] } });
+    schedulePersist();
+  }
+
+  function setSidebarSectionHidden(id: SidebarSectionId, hidden: boolean) {
+    const current = config();
+    const next = withSidebarSection(current.sidebar.hidden, id, hidden);
+    if (next === current.sidebar.hidden) return;
+    setConfig({ ...current, sidebar: { ...current.sidebar, hidden: [...next] } });
+    schedulePersist();
+  }
+
   // The panel's toggle writes on each flip and its drag handle on release;
   // both go through the same debounce as every other setting.
   function setPanelOpen(open: boolean) {
@@ -400,6 +432,10 @@ function createConfigStore() {
     recordCommandUse,
     setEditorFontSize,
     setSidebarWidth,
+    isSidebarSectionCollapsed,
+    isSidebarSectionHidden,
+    setSidebarSectionCollapsed,
+    setSidebarSectionHidden,
     setPanelOpen,
     setPanelWidth,
     setChatPanelOpen,

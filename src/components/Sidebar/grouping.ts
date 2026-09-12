@@ -1,69 +1,8 @@
 import type { BufferDocument } from "../../types/buffer";
 
-export const SCRATCH_GROUP_KEY = "__scratch__";
-
-export interface ActiveGroup {
-  key: string;
-  label: string;
-  items: BufferDocument[];
-}
-
 export interface HistoryBucket {
   label: string;
   items: BufferDocument[];
-}
-
-function splitPath(p: string): string[] {
-  return p.split(/[/\\]/).filter(Boolean);
-}
-
-function directoryKey(sourcePath: string): string {
-  const segments = splitPath(sourcePath);
-  segments.pop();
-  return segments.join("/");
-}
-
-function directoryLabel(key: string): string {
-  const segments = key.split("/").filter(Boolean);
-  return segments.length > 0 ? segments[segments.length - 1] : "/";
-}
-
-export function groupActiveByDirectory(
-  active: readonly BufferDocument[],
-  activeTabId: string | null,
-): ActiveGroup[] {
-  const byKey = new Map<string, ActiveGroup>();
-
-  for (const buffer of active) {
-    const key = buffer.source_path
-      ? directoryKey(buffer.source_path)
-      : SCRATCH_GROUP_KEY;
-    const label = key === SCRATCH_GROUP_KEY ? "Scratch" : directoryLabel(key);
-    const group = byKey.get(key);
-    if (group) {
-      group.items.push(buffer);
-    } else {
-      byKey.set(key, { key, label, items: [buffer] });
-    }
-  }
-
-  const groups = Array.from(byKey.values());
-  for (const group of groups) {
-    group.items.sort((a, b) => a.tab_order - b.tab_order);
-  }
-
-  const activeKey = activeTabId
-    ? groups.find((g) => g.items.some((i) => i.id === activeTabId))?.key
-    : undefined;
-
-  return groups.sort((a, b) => {
-    if (a.key === activeKey) return -1;
-    if (b.key === activeKey) return 1;
-    if (a.key === SCRATCH_GROUP_KEY) return 1;
-    if (b.key === SCRATCH_GROUP_KEY) return -1;
-    const byLabel = a.label.toLowerCase().localeCompare(b.label.toLowerCase());
-    return byLabel !== 0 ? byLabel : a.key.localeCompare(b.key);
-  });
 }
 
 const DAY_MS = 86_400_000;

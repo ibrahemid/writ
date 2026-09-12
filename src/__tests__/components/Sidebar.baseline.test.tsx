@@ -5,19 +5,16 @@ import { render, cleanup } from "@solidjs/testing-library";
 import type { BufferDocument } from "../../types/buffer";
 
 // The sidebar on the accepted baseline: sentence-case section headers named as
-// plain nouns, rows on the row tokens, selection as a neutral fill with an
-// accent icon, and no accent rail anywhere.
+// plain nouns, rows on the row tokens, and no accent rail anywhere.
 
 const h = vi.hoisted(() => ({
-  active: [] as BufferDocument[],
   history: [] as BufferDocument[],
-  activeId: null as string | null,
   root: null as string | null,
 }));
 
 vi.mock("../../stores/global/buffer-registry", () => ({
   bufferRegistry: {
-    activeTabs: () => h.active,
+    activeTabs: () => [],
     historyList: () => h.history,
     historyTotal: () => h.history.length,
     deleteFromHistory: vi.fn(),
@@ -37,7 +34,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       recentRequest: () => 0,
     },
     tabs: {
-      activeTabId: () => h.activeId,
+      activeTabId: () => null,
       setActiveTabId: vi.fn(),
       closeTab: vi.fn(),
       closeOtherTabs: vi.fn(),
@@ -57,16 +54,11 @@ vi.mock("../../stores/global/workspace", () => ({
 }));
 vi.mock("../../components/ContextMenu/ContextMenu", () => ({ showContextMenu: vi.fn() }));
 
-import ActiveSection from "../../components/Sidebar/ActiveSection";
 import HistorySection from "../../components/Sidebar/HistorySection";
 import FilesSection from "../../components/Sidebar/FilesSection";
 
 const TAB_ITEM_CSS = readFileSync(
   resolve(process.cwd(), "src/components/Sidebar/TabItem.css"),
-  "utf8",
-);
-const ACTIVE_CSS = readFileSync(
-  resolve(process.cwd(), "src/components/Sidebar/ActiveSection.css"),
   "utf8",
 );
 const SIDEBAR_CSS = readFileSync(
@@ -102,7 +94,7 @@ function doc(id: string, title: string, sourcePath: string | null): BufferDocume
     id,
     title,
     filename: title,
-    status: sourcePath ? "active" : "active",
+    status: "history",
     language: null,
     source_path: sourcePath,
     cursor_pos: 0,
@@ -110,7 +102,7 @@ function doc(id: string, title: string, sourcePath: string | null): BufferDocume
     tab_order: 0,
     created_at: "2026-08-25T10:00:00.000Z",
     updated_at: "2026-08-25T10:00:00.000Z",
-    closed_at: null,
+    closed_at: "2026-08-25T09:00:00.000Z",
     read_only: false,
     size_bytes: 0,
     line_ending: "lf",
@@ -118,35 +110,23 @@ function doc(id: string, title: string, sourcePath: string | null): BufferDocume
 }
 
 afterEach(() => {
-  h.active = [];
   h.history = [];
-  h.activeId = null;
   h.root = null;
   cleanup();
 });
 
 describe("sidebar section headers", () => {
-  it("names the open section Open, in sentence case, with its count", () => {
-    h.active = [doc("a", "Meeting notes", null), doc("b", "Pricing draft", null)];
-    const { container } = render(() => <ActiveSection />);
-    const head = container.querySelector(".sidebar-section-title")!;
-    expect(head.textContent).toBe("Open2");
-    expect(head.querySelector(".sidebar-section-count")!.textContent).toBe("2");
-  });
-
   it("names the history section Recently closed, with its count", () => {
-    h.history = [
-      { ...doc("h1", "Kitchen rebuild", null), status: "history", closed_at: "2026-08-25T09:00:00.000Z" },
-    ];
+    h.history = [doc("h1", "Kitchen rebuild", null)];
     const { container } = render(() => <HistorySection />);
-    const head = container.querySelector(".sidebar-section-title")!;
+    const head = container.querySelector(".sidebar-section-heading")!;
     expect(head.textContent).toBe("Recently closed1");
   });
 
   it("names the folder section after the folder itself", () => {
     h.root = "/Users/me/Documents/Writ";
     const { container } = render(() => <FilesSection />);
-    expect(container.querySelector(".sidebar-section-title")!.textContent).toBe("Writ");
+    expect(container.querySelector(".sidebar-section-heading")!.textContent).toBe("Writ");
   });
 
   it("is absent when no folder is open", () => {
@@ -163,30 +143,16 @@ describe("sidebar section headers", () => {
 });
 
 describe("sidebar rows", () => {
-  it("marks only the selected row, and draws no rail", () => {
-    h.active = [doc("a", "Meeting notes", null), doc("b", "Pricing draft", null)];
-    h.activeId = "b";
-    const { container } = render(() => <ActiveSection />);
-    const rows = Array.from(container.querySelectorAll(".tab-item"));
-    expect(rows).toHaveLength(2);
-    expect(rows.map((row) => row.classList.contains("tab-item-active"))).toEqual([false, true]);
+  it("draws no rail and spends no accent on a row", () => {
+    h.history = [doc("h1", "Meeting notes", null), doc("h2", "Pricing draft", null)];
+    const { container } = render(() => <HistorySection />);
+    expect(container.querySelectorAll(".tab-item")).toHaveLength(2);
     expect(container.querySelector(".tab-item-pill")).toBeNull();
-    expect(TAB_ITEM_CSS).not.toContain(".tab-item-active::before");
-  });
-
-  it("carries selection as a neutral fill at weight 500", () => {
-    expect(TAB_ITEM_CSS).toMatch(
-      /\.tab-item-active\s*\{[^}]*background:\s*var\(--writ-bg-selected\)[^}]*font-weight:\s*500/,
-    );
-    expect(TAB_ITEM_CSS).toMatch(/\.tab-item:hover\s*\{\s*background:\s*var\(--writ-bg-hover\)/);
-  });
-
-  it("spends the accent on the selected row's icon and nowhere else on the row", () => {
-    expect(TAB_ITEM_CSS).toMatch(
-      /\.tab-item-active \.writ-icon\s*\{[^}]*color:\s*var\(--writ-accent\)/,
-    );
+    expect(TAB_ITEM_CSS).not.toContain(".tab-item-active");
+    expect(TAB_ITEM_CSS).not.toContain(".tab-item-pill");
     const rowRule = /\.tab-item\s*\{[^}]*\}/.exec(TAB_ITEM_CSS)![0];
     expect(rowRule).not.toContain("--writ-accent");
+    expect(TAB_ITEM_CSS).toMatch(/\.tab-item:hover\s*\{\s*background:\s*var\(--writ-bg-hover\)/);
   });
 
   it("gives a search result the same box as a note row", () => {
@@ -215,34 +181,8 @@ describe("sidebar rows", () => {
   });
 
   it("gives every row a note icon", () => {
-    h.active = [doc("a", "Meeting notes", null)];
-    const { container } = render(() => <ActiveSection />);
+    h.history = [doc("h1", "Meeting notes", null)];
+    const { container } = render(() => <HistorySection />);
     expect(container.querySelector(".tab-item use")!.getAttribute("href")).toBe("#ph-file-text");
-  });
-
-  it("indents a child row 16px past the parent label", () => {
-    // The group head's label starts at 26px; a child's at 42px.
-    expect(ACTIVE_CSS).toMatch(/\.active-group-items \.tab-item\s*\{\s*padding-left:\s*42px/);
-    expect(ACTIVE_CSS).toMatch(
-      /\[data-platform="win"\] \.active-group-items \.tab-item\s*\{\s*padding-left:\s*32px/,
-    );
-  });
-
-  it("lists notes with no file behind them under Open with no group label", () => {
-    h.active = [doc("a", "Meeting notes", null)];
-    const { container } = render(() => <ActiveSection />);
-    expect(container.querySelector(".active-group-head")).toBeNull();
-    expect(container.textContent).not.toContain("Scratch");
-  });
-
-  it("still groups rows that share a folder, under that folder's name", () => {
-    h.active = [
-      doc("a", "Meeting notes", "/Users/me/Writ/Meeting notes.md"),
-      doc("b", "Pricing draft", "/Users/me/Writ/Pricing draft.md"),
-    ];
-    const { container } = render(() => <ActiveSection />);
-    const head = container.querySelector(".active-group-head")!;
-    expect(head.querySelector(".active-group-name")!.textContent).toBe("Writ");
-    expect(head.querySelector(".active-group-count")!.textContent).toBe("2");
   });
 });

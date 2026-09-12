@@ -1,18 +1,3 @@
-.inbox-section-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding-right: 12px;
-}
-
-.inbox-section-head .sidebar-section-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .inbox-list {
   display: flex;
   flex-direction: column;
@@ -23,13 +8,16 @@
   display: block;
 }
 
+/* The same box as every other row: 26px of fill inside 1px margins, 6px in
+   from the sidebar edge, so a hover fill lines up with the tree above it. */
 .inbox-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
+  width: calc(100% - 12px);
   height: var(--writ-sidebar-row-fill);
-  padding: 0 10px;
+  margin: 1px 6px;
+  padding: 0 10px 0 30px;
   border: none;
   border-radius: var(--writ-r-row);
   background: transparent;
@@ -65,11 +53,4 @@
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
   font-variant-numeric: tabular-nums;
-}
-
-.inbox-empty {
-  padding: 4px 12px 8px;
-  color: var(--writ-fg-faint);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
 }

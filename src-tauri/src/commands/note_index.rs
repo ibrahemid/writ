@@ -235,11 +235,12 @@ pub fn note_all_tags_inner(index: &NotesIndexStore) -> Result<Vec<TagCountDto>, 
         .collect())
 }
 
-/// Every note carrying `tag`, in path order.
+/// Every note carrying `tag` or a tag under it, in path order.
 ///
-/// The tag is matched whole: `project` names the notes carrying `#project`,
-/// never the notes carrying `#project/alpha`, which the tag list holds as a
-/// tag of its own. A tag nothing carries answers with an empty list.
+/// `project` names the notes carrying `#project` and the notes carrying
+/// `#project/alpha`, so the parent row in the tag list filters its whole
+/// family; `project/alpha` names only its own subtree. A tag nothing carries,
+/// and nothing sits under, answers with an empty list.
 pub fn note_paths_for_tag_inner(index: &NotesIndexStore, tag: &str) -> Result<Vec<String>, String> {
     index.paths_for_tag(tag).map_err(|e| e.to_string())
 }
@@ -375,7 +376,8 @@ pub fn note_all_tags(state: State<'_, AppState>) -> Result<Vec<TagCountDto>, Str
     note_all_tags_inner(&state.notes_index)
 }
 
-/// The notes one tag names. See [`note_paths_for_tag_inner`].
+/// The notes one tag and the tags under it name. See
+/// [`note_paths_for_tag_inner`].
 #[tauri::command]
 pub fn note_paths_for_tag(state: State<'_, AppState>, tag: String) -> Result<Vec<String>, String> {
     note_paths_for_tag_inner(&state.notes_index, &tag)

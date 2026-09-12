@@ -45,6 +45,16 @@ pub struct NoteFacts {
     pub headings: Vec<Heading>,
 }
 
+/// Which reading of a note the facts came from.
+///
+/// Raised when what this module reads out of a note changes, so an index built
+/// under an older reading is read again once instead of keeping its rows until
+/// each file happens to change. The index records it beside its census
+/// (`writ_storage::notes_index::reconcile`).
+///
+/// 2: a colour and an anchor in pasted markup are not tags.
+pub const READING: u32 = 2;
+
 /// Reads every fact out of `text`.
 pub fn extract(text: &str) -> NoteFacts {
     NoteFacts {
@@ -271,8 +281,9 @@ fn split_flow(inner: &str) -> Vec<&str> {
 /// A body tag opens at the start of a line or after whitespace or an opening
 /// bracket, which is what keeps the fragment of `https://example.com#section`
 /// out of the list, and runs over letters, digits, `_`, `-` and `/`. A run of
-/// digits alone is a number, not a tag. Code fences and inline code are not
-/// scanned, so a tag written inside an example stays an example.
+/// digits alone is a number, not a tag, and `#fff` written the way a
+/// stylesheet writes it is a colour ([`is_colour`]). Code fences and inline
+/// code are not scanned, so a tag written inside an example stays an example.
 ///
 /// A frontmatter tag is a tag the same way an inline one is: it is what the
 /// note is filed under, and a folder written in another editor puts most of
@@ -296,11 +307,12 @@ pub fn tags(text: &str) -> Vec<(String, u32)> {
                     .skip(1)
                     .take_while(|c| is_tag_char(*c))
                     .collect();
-                if is_tag(&body) {
+                let after = segment[at + 1 + body.len()..].chars().next();
+                if is_tag(&body) && !is_colour(&body, &line.raw[..offset + at], after) {
                     out.push((body.to_lowercase(), line.line));
-                    for _ in 0..body.chars().count() {
-                        chars.next();
-                    }
+                }
+                for _ in 0..body.chars().count() {
+                    chars.next();
                 }
             }
         }
@@ -440,19 +452,23 @@ fn without_comment(value: &str) -> &str {
 
 /// Whether a `#` written after `before` can open a tag.
 ///
-/// The character in front of it decides, with one exception: `](#anchor)` is a
-/// markdown link to a heading in this note, never a tag. Reading those as tags
-/// puts the section names of every note that carries a table of contents into
-/// the tag list.
+/// The character in front of it decides, with the exceptions pasted markup
+/// brings into a note: `](#anchor)` is a link to a heading in this note,
+/// `url(#arrow)` names a shape in an SVG, and `href="#top"` is an attribute.
+/// None of them is a tag, and reading them as tags puts the section names of
+/// every note that carries a table of contents, and the ids of every pasted
+/// diagram, into the tag list. `(#work)` and `"#home"` in prose still open.
 fn opens_a_tag(before: &str) -> bool {
     let mut back = before.chars().rev();
     let Some(previous) = back.next() else {
         return true;
     };
-    if previous == '(' {
-        return back.next() != Some(']');
+    let earlier = back.next();
+    match previous {
+        '(' => !earlier.is_some_and(|c| c == ']' || c == '_' || c.is_alphanumeric()),
+        '"' | '\'' => earlier != Some('='),
+        _ => previous.is_whitespace() || matches!(previous, '[' | '{' | '>'),
     }
-    previous.is_whitespace() || matches!(previous, '[' | '{' | '>' | '"' | '\'')
 }
 
 /// Whether `ch` can appear in a tag.
@@ -463,6 +479,38 @@ fn is_tag_char(ch: char) -> bool {
 /// Whether `body` is a tag rather than a number, a bare separator or nothing.
 fn is_tag(body: &str) -> bool {
     !body.is_empty() && body.chars().any(|c| c.is_alphabetic() || c == '_')
+}
+
+/// Whether `#body`, written after `before` and in front of `after`, is a
+/// colour rather than a tag.
+///
+/// Three, four, six or eight hex digits is the shape of a CSS colour, and a
+/// pasted stylesheet or HTML mail puts that shape into a note by the dozen.
+/// The shape alone does not decide: `#bad`, `#cafe` and `#dead` are words, and
+/// `#b2b` is what someone files a client under. So a colour is that shape
+/// written the way a stylesheet writes a value, after a colon or a quote or
+/// before a `;` or a `}`; or one letter or one short run repeated, `#fff` and
+/// `#fafafa`; or, at four digits and up, a run with a digit in it, which no
+/// word is.
+///
+/// Only a `#` in the body is read this way. `tags: [fff]` in the frontmatter
+/// has no other reading, and stays the tag it was filed under.
+fn is_colour(body: &str, before: &str, after: Option<char>) -> bool {
+    if !matches!(body.len(), 3 | 4 | 6 | 8) || !body.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return false;
+    }
+    let lead = before.trim_end();
+    let styled = lead.ends_with([':', '"', '\'']) || matches!(after, Some(';' | '}'));
+    styled || repeats(body) || (body.len() > 3 && body.bytes().any(|b| b.is_ascii_digit()))
+}
+
+/// Whether `body` is one short run written over and over: `fff`, `fafafa`,
+/// `abcabc`.
+fn repeats(body: &str) -> bool {
+    let bytes = body.as_bytes();
+    (1..=bytes.len() / 2).any(|unit| {
+        bytes.len().is_multiple_of(unit) && bytes.chunks(unit).all(|chunk| chunk == &bytes[..unit])
+    })
 }
 
 /// Every ATX heading in the body of `text`, each with the anchor a link points
@@ -582,6 +630,55 @@ mod tests {
     fn a_tag_inside_code_is_not_scanned() {
         assert!(tags("```\n#reading\n```\n").is_empty());
         assert!(tags("write `#reading` for that\n").is_empty());
+    }
+
+    #[test]
+    fn a_colour_is_not_a_tag() {
+        let css = "  .card{border:1px solid #D9DEE8;background:#fff}\n\
+                   --ink: #16161e; --card: #fff;\n\
+                   <path fill=\"#7A8095\"/>\n\
+                   Background #fafafa and border #E3E6EE\n\
+                   Primary: #0a7d4f\n\
+                   #fff #eee #ffffff #ababab #abcabc #deadbeef;\n";
+        assert!(tags(css).is_empty(), "{:?}", tags(css));
+    }
+
+    #[test]
+    fn a_word_shaped_like_a_colour_is_still_a_tag() {
+        assert_eq!(
+            tags("#cafe #dead #abc #b2b #e2e #facade\n")
+                .into_iter()
+                .map(|(tag, _)| tag)
+                .collect::<Vec<_>>(),
+            vec!["cafe", "dead", "abc", "b2b", "e2e", "facade"]
+        );
+    }
+
+    #[test]
+    fn a_colour_in_the_frontmatter_tag_list_is_the_tag_it_was_filed_under() {
+        assert_eq!(
+            tags("---\ntags: [fff, 0a7d4f]\n---\n"),
+            vec![("fff".to_string(), 2), ("0a7d4f".to_string(), 2)]
+        );
+    }
+
+    #[test]
+    fn an_anchor_or_an_id_in_pasted_markup_is_not_a_tag() {
+        let markup = "<a href=\"#top\">up</a> <a href='#faq'>faq</a>\n\
+                      <path marker-end=\"url(#aA)\" d=\"M0,0\"/>\n\
+                      [contents](#section) and f(#x)\n";
+        assert!(tags(markup).is_empty(), "{:?}", tags(markup));
+    }
+
+    #[test]
+    fn a_tag_in_brackets_or_quotes_in_prose_still_opens() {
+        assert_eq!(
+            tags("filed (#work) and \"#home\" and '#errand'\n")
+                .into_iter()
+                .map(|(tag, _)| tag)
+                .collect::<Vec<_>>(),
+            vec!["work", "home", "errand"]
+        );
     }
 
     #[test]

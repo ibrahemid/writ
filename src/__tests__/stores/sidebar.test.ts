@@ -1,5 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+const facts = await vi.hoisted(async () => {
+  const { createSignal } = await import("solid-js");
+  const [tags, setTags] = createSignal<{ tag: string; count: number }[]>([]);
+  return { tags, setTags };
+});
+
+vi.mock("../../stores/global/note-facts", () => ({
+  noteFactsStore: { allTags: () => facts.tags },
+}));
+
 vi.mock("../../services/tauri", () => ({
   searchBuffers: vi.fn().mockResolvedValue({ hits: [], total: 0 }),
   getConfig: vi.fn(),
@@ -37,6 +47,8 @@ function buildConfig(overrides: Partial<WritConfig["sidebar"]> = {}): WritConfig
       position: "left",
       open: false,
       width: 240,
+      collapsed: [],
+      hidden: [],
       ...overrides,
     },
     panel: { open: false, width: 240 },
@@ -241,6 +253,44 @@ describe("sidebar-store (per-window factory)", () => {
       sidebarStore.showRecent();
 
       expect(sidebarStore.recentRequest()).toBe(once + 1);
+    });
+
+    it("switches the section back on and unfolds it, so the ask has somewhere to land", () => {
+      configStore.setSidebarSectionHidden("recent", true);
+      configStore.setSidebarSectionCollapsed("recent", true);
+
+      sidebarStore.showRecent();
+
+      expect(configStore.isSidebarSectionHidden("recent")).toBe(false);
+      expect(configStore.isSidebarSectionCollapsed("recent")).toBe(false);
+      expect(sidebarStore.isOpen()).toBe(true);
+    });
+  });
+
+  describe("selected tag", () => {
+    afterEach(() => {
+      facts.setTags([]);
+    });
+
+    it("stays selected while only a child of it is held in the folder", () => {
+      facts.setTags([{ tag: "project/alpha", count: 1 }]);
+      sidebarStore.selectTag("project");
+
+      expect(sidebarStore.selectedTag()).toBe("project");
+    });
+
+    it("clears once the whole family is gone from the folder", () => {
+      facts.setTags([{ tag: "project/alpha", count: 1 }]);
+      sidebarStore.selectTag("project");
+      facts.setTags([{ tag: "projector", count: 1 }]);
+
+      expect(sidebarStore.selectedTag()).toBeNull();
+    });
+
+    it("keeps a selection the folder has not answered for yet", () => {
+      sidebarStore.selectTag("project");
+
+      expect(sidebarStore.selectedTag()).toBe("project");
     });
   });
 

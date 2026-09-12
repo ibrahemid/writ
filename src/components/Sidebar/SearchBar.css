@@ -34,6 +34,7 @@
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);
   color: var(--writ-fg);
+  text-overflow: ellipsis;
 }
 
 .search-input:focus {
@@ -42,6 +43,7 @@
 
 .search-input::placeholder {
   color: var(--writ-fg-faint);
+  text-overflow: ellipsis;
 }
 
 .search-count {

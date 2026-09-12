@@ -57,6 +57,7 @@ import type {
   DefaultLayout,
   Polarity,
   ProseFaceId,
+  SidebarSectionId,
 } from "../../types/config";
 import {
   fetchDefaultAppTypes,
@@ -1485,6 +1486,38 @@ function AppearanceSection() {
   );
 }
 
+const SIDEBAR_ROWS: { id: string; section: SidebarSectionId; title: string; setting: string }[] = [
+  { id: "sidebar.folder", section: "folder", title: "Show notes", setting: "sidebar_folder" },
+  { id: "sidebar.tags", section: "tags", title: "Show tags", setting: "sidebar_tags" },
+  { id: "sidebar.inbox", section: "inbox", title: "Show watched folder", setting: "sidebar_inbox" },
+  { id: "sidebar.recent", section: "recent", title: "Show recently closed", setting: "sidebar_recent" },
+];
+
+function SidebarSettingsSection() {
+  return (
+    <div data-section="sidebar">
+      <SectionLabel section="sidebar" />
+      <For each={SIDEBAR_ROWS}>
+        {(row) => (
+          <SettingsRow id={row.id} label={row.title}>
+            <ToggleSwitch
+              setting={row.setting}
+              label={row.title}
+              checked={!configStore.isSidebarSectionHidden(row.section)}
+              onChange={() =>
+                configStore.setSidebarSectionHidden(
+                  row.section,
+                  !configStore.isSidebarSectionHidden(row.section),
+                )
+              }
+            />
+          </SettingsRow>
+        )}
+      </For>
+    </div>
+  );
+}
+
 function ShortcutsSection() {
   return (
     <div data-section="shortcuts">
@@ -1848,6 +1881,7 @@ function AllSections() {
       <AiSection />
       <ProgramsSection />
       <AppearanceSection />
+      <SidebarSettingsSection />
       <UpdatesSection />
       <ShortcutsSection />
       <AdvancedSection />
@@ -2001,6 +2035,7 @@ export default function SettingsModal() {
                       <Match when={activeSection() === "ai"}><AiSection /></Match>
                       <Match when={activeSection() === "programs"}><ProgramsSection /></Match>
                       <Match when={activeSection() === "appearance"}><AppearanceSection /></Match>
+                      <Match when={activeSection() === "sidebar"}><SidebarSettingsSection /></Match>
                       <Match when={activeSection() === "updates"}><UpdatesSection /></Match>
                       <Match when={activeSection() === "shortcuts"}><ShortcutsSection /></Match>
                       <Match when={activeSection() === "advanced"}><AdvancedSection /></Match>

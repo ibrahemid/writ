@@ -15,6 +15,7 @@ use writ_core::notes::links::Resolution;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::notes_index::{self, NotesIndex, NotesIndexStore};
+use writ_storage::schema_meta;
 
 fn never_cancelled() -> impl Fn() -> bool {
     || false
@@ -305,6 +306,64 @@ fn emptying_the_four_tables_and_reconciling_rebuilds_them() {
         "reconcile must rebuild what it derived"
     );
     assert_every_target_matches_a_fresh_resolve(&conn);
+}
+
+#[test]
+fn rows_derived_under_an_older_reading_are_read_again_once() {
+    let (_dir, conn, notes) = fixture();
+    write_note(&notes, "one.md", "# One\n\n#tag\n");
+    walk(&conn, &notes);
+    assert_eq!(
+        schema_meta::get(&conn, schema_meta::KEY_NOTES_FACTS_READING).expect("get"),
+        Some(writ_core::notes::facts::READING.to_string()),
+        "a complete pass records the reading it derived under"
+    );
+
+    // A row no reading derives, planted so a re-read shows by its absence. It
+    // raises the census rather than lowering it, so the census rule stays quiet.
+    let path: String = conn
+        .query_row("SELECT path FROM tags", [], |row| row.get(0))
+        .expect("a tag row");
+    let planted = |conn: &Connection| -> bool {
+        conn.query_row(
+            "SELECT count(*) FROM tags WHERE tag = 'planted'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .expect("count")
+            > 0
+    };
+    conn.execute(
+        "INSERT INTO tags (path, tag, line) VALUES (?1, 'planted', 1)",
+        [&path],
+    )
+    .expect("plant");
+
+    walk(&conn, &notes);
+    assert!(
+        planted(&conn),
+        "the same reading over unchanged files reads nothing again"
+    );
+
+    schema_meta::set(&conn, schema_meta::KEY_NOTES_FACTS_READING, "1").expect("older reading");
+    walk(&conn, &notes);
+    assert!(!planted(&conn), "an older reading re-reads every file");
+    assert_eq!(
+        counts(&conn).2,
+        1,
+        "and derives what the current reading derives"
+    );
+
+    conn.execute(
+        "INSERT INTO tags (path, tag, line) VALUES (?1, 'planted', 1)",
+        [&path],
+    )
+    .expect("plant again");
+    walk(&conn, &notes);
+    assert!(
+        planted(&conn),
+        "once re-read, the folder is left alone again"
+    );
 }
 
 /// Every stored `to_path` must be what resolving that link again answers.

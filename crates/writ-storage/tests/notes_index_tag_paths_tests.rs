@@ -1,9 +1,11 @@
 //! The notes one tag names: `NotesIndex::paths_for_tag` (ADR-036).
 //!
 //! The tag list says how many notes carry a tag; this says which. What is
-//! tested here is what the sidebar's tag filter stands on: a whole-tag match,
-//! a nested tag standing on its own rather than under its first segment, and
-//! a note counted once however often it writes the tag.
+//! tested here is what the sidebar's tag filter stands on: a tag names its
+//! own notes and the notes under it, so a parent row filters its family and
+//! a child row filters its own subtree; a sibling that merely shares a prefix
+//! is outside the family; and a note is counted once however often it writes
+//! the tag.
 
 use std::path::Path;
 
@@ -59,16 +61,99 @@ fn a_tag_names_the_notes_carrying_it() {
 }
 
 #[test]
-fn a_nested_tag_is_not_a_note_of_its_first_segment() {
+fn a_tag_names_its_own_notes_and_the_notes_under_it() {
     let (_dir, root, index) =
         indexed(&[("Alpha.md", "#project/alpha\n"), ("Plan.md", "#project\n")]);
+
+    assert_eq!(
+        index.paths_for_tag("project").expect("paths"),
+        vec![key(&root, "Alpha.md"), key(&root, "Plan.md")]
+    );
+    assert_eq!(
+        index.paths_for_tag("project/alpha").expect("paths"),
+        vec![key(&root, "Alpha.md")]
+    );
+}
+
+#[test]
+fn a_tag_three_levels_down_is_under_both_of_its_parents() {
+    let (_dir, root, index) = indexed(&[
+        ("Deep.md", "#project/alpha/x\n"),
+        ("Alpha.md", "#project/alpha\n"),
+        ("Plan.md", "#project\n"),
+    ]);
+
+    assert_eq!(
+        index.paths_for_tag("project").expect("paths"),
+        vec![
+            key(&root, "Alpha.md"),
+            key(&root, "Deep.md"),
+            key(&root, "Plan.md"),
+        ]
+    );
+    assert_eq!(
+        index.paths_for_tag("project/alpha").expect("paths"),
+        vec![key(&root, "Alpha.md"), key(&root, "Deep.md")]
+    );
+    assert_eq!(
+        index.paths_for_tag("project/alpha/x").expect("paths"),
+        vec![key(&root, "Deep.md")]
+    );
+}
+
+#[test]
+fn a_sibling_sharing_a_prefix_is_not_under_the_tag() {
+    let (_dir, root, index) = indexed(&[
+        ("Plan.md", "#project\n"),
+        ("Many.md", "#projects\n"),
+        ("Dash.md", "#project-x\n"),
+        ("Under.md", "#projects/one\n"),
+    ]);
 
     assert_eq!(
         index.paths_for_tag("project").expect("paths"),
         vec![key(&root, "Plan.md")]
     );
     assert_eq!(
-        index.paths_for_tag("project/alpha").expect("paths"),
+        index.paths_for_tag("projects").expect("paths"),
+        vec![key(&root, "Many.md"), key(&root, "Under.md")]
+    );
+}
+
+#[test]
+fn an_underscore_in_the_asked_tag_is_a_character_and_not_a_wildcard() {
+    let (_dir, root, index) = indexed(&[("Mine.md", "#my_tag/one\n"), ("Other.md", "#myxtag/y\n")]);
+
+    assert_eq!(
+        index.paths_for_tag("my_tag").expect("paths"),
+        vec![key(&root, "Mine.md")]
+    );
+}
+
+#[test]
+fn a_parent_no_note_carries_still_names_the_notes_under_it() {
+    let (_dir, root, index) = indexed(&[
+        ("Alpha.md", "#project/alpha\n"),
+        ("Beta.md", "#project/beta\n"),
+    ]);
+
+    assert_eq!(
+        index.paths_for_tag("project").expect("paths"),
+        vec![key(&root, "Alpha.md"), key(&root, "Beta.md")]
+    );
+}
+
+#[test]
+fn the_casing_a_tag_is_asked_with_still_finds_the_family() {
+    let (_dir, root, index) =
+        indexed(&[("Alpha.md", "#Project/Alpha\n"), ("Plan.md", "#project\n")]);
+
+    assert_eq!(
+        index.paths_for_tag("Project").expect("paths"),
+        vec![key(&root, "Alpha.md"), key(&root, "Plan.md")]
+    );
+    assert_eq!(
+        index.paths_for_tag("PROJECT/alpha").expect("paths"),
         vec![key(&root, "Alpha.md")]
     );
 }

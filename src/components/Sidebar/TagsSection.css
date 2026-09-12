@@ -1,6 +1,4 @@
-.tags-list {
-  display: flex;
-  flex-direction: column;
+.tags-tree {
   padding: 2px 0 8px;
 }
 
@@ -11,16 +9,16 @@
   gap: 8px;
   height: var(--writ-sidebar-row-fill);
   margin: 1px 6px;
-  padding: 0 10px;
-  border: none;
+  padding-right: 10px;
   border-radius: var(--writ-r-pill);
-  background: transparent;
-  text-align: left;
   cursor: pointer;
   color: var(--writ-fg);
-  font-family: inherit;
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);
+  white-space: nowrap;
+  overflow: hidden;
+  user-select: none;
+  outline: none;
   transition: background var(--writ-motion);
 }
 
@@ -34,8 +32,20 @@
 }
 
 .tags-row:focus-visible {
-  border-radius: var(--writ-r-pill);
+  outline: 2px solid var(--writ-accent);
   outline-offset: -2px;
+}
+
+.tags-row-caret {
+  display: inline-flex;
+  flex: none;
+  width: 12px;
+  color: var(--writ-fg-faint);
+}
+
+.tags-row-caret .writ-icon {
+  color: currentColor;
+  opacity: 1;
 }
 
 .tags-row-hash {
@@ -52,7 +62,6 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .tags-row-count {
@@ -64,41 +73,17 @@
   font-weight: 400;
 }
 
-/* A button sizes itself to its content unless a flex parent stretches it, and a
-   row that stops at its label puts the count under the name rather than at the
-   edge. */
-.tags-group {
-  display: flex;
-  flex-direction: column;
+.tags-children {
+  position: relative;
 }
 
-.tags-group-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: var(--writ-sidebar-row-fill);
-  margin: 1px 6px;
-  padding: 0 10px;
-  color: var(--writ-fg-muted);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-}
-
-.tags-group-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tags-group-count {
-  margin-left: auto;
-  color: var(--writ-fg-muted);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  font-variant-numeric: tabular-nums;
-}
-
-/* 16px past the parent label, which starts at 10px. */
-.tags-group .tags-row {
-  padding-left: 26px;
+.tags-children::before {
+  content: "";
+  position: absolute;
+  left: var(--tree-connector-left, 14px);
+  top: 0;
+  bottom: 4px;
+  width: 1px;
+  background: var(--writ-border-soft);
+  pointer-events: none;
 }

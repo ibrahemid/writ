@@ -24,6 +24,7 @@ changes on disk. Links, properties, tags and headings come out of that read.
 | Frontmatter `tags:` and `tag:`, as a list, as items, or as one line of comma- or space-separated names | Tags, same as the ones written in the text. |
 | `#Project` in one note, `#project` in another | One tag. The list files tags lowercased. |
 | A `#tag` inside a code fence | Left alone. It is an example, not a tag. |
+| `#fff` and `#0a7d4f` in pasted CSS, `href="#top"` and `url(#arrow)` in pasted HTML | Left alone. A colour and an anchor are not tags. |
 | Headings | The outline beside the note, and the anchors links point at. |
 | `> [!note]`, `> [!warning]`, and the other eleven types | Callouts, aliases included. One written closed shows its title only. |
 | `![[Note]]` | The note is shown in the page, up to three embeds deep. |

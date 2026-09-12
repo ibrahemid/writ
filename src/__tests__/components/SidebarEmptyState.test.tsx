@@ -99,13 +99,13 @@ describe("sidebar empty state", () => {
     expect(container.querySelector(".history-section")).toBeTruthy();
   });
 
-  it("does not show the empty state when active tabs exist", async () => {
+  it("shows the empty state when only open tabs exist, since those live on the tab strip", async () => {
     activeRows = [{ ...histDoc, id: "a1", status: "active", closed_at: null }];
     historyRows = [];
     const { container } = await renderSidebar(9503);
 
-    expect(container.querySelector(".sidebar-empty")).toBeNull();
-    expect(container.querySelector(".active-section")).toBeTruthy();
+    expect(container.querySelector(".sidebar-empty")).toBeTruthy();
+    expect(container.querySelector(".tab-item")).toBeNull();
   });
 
   it("does not show the empty state while searching, even with no buffers", async () => {

@@ -4,14 +4,17 @@ import { basename } from "../../lib/path";
 import Icon from "../Icon/Icon";
 import Tooltip from "../Tooltip/Tooltip";
 import FileTree from "./FileTree";
+import SidebarSection from "./SidebarSection";
 
 export default function FilesSection() {
   return (
     <Show when={workspaceStore.root()}>
       {(root) => (
-        <div class="sidebar-section files-section">
-          <div class="files-section-head">
-            <div class="sidebar-section-title">{basename(root())}</div>
+        <SidebarSection
+          id="folder"
+          heading={basename(root())}
+          class="files-section"
+          action={
             <Tooltip label="Close folder">
               <button
                 type="button"
@@ -22,9 +25,10 @@ export default function FilesSection() {
                 <Icon name="x" size={16} />
               </button>
             </Tooltip>
-          </div>
+          }
+        >
           <FileTree />
-        </div>
+        </SidebarSection>
       )}
     </Show>
   );

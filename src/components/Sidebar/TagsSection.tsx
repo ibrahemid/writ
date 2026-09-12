@@ -1,106 +1,161 @@
-import { For, Show, createMemo, type JSX } from "solid-js";
+import { For, Show, createMemo, createSignal } from "solid-js";
 import { useWindow } from "../WindowProvider/WindowProvider";
-import { noteFactsStore, type TagCount } from "../../stores/global/note-facts";
+import { noteFactsStore } from "../../stores/global/note-facts";
+import { buildTagTree, type TagNode } from "../../lib/tag-tree";
+import { moveTreeFocus } from "../../lib/tree-focus";
+import Icon from "../Icon/Icon";
+import SidebarSection from "./SidebarSection";
 import "./TagsSection.css";
 
-/** One tag, as the index stores it, and the notes carrying it. */
-export interface TagRow {
-  /** The tag without its leading `#`. `project/alpha` is one tag. */
-  tag: string;
-  /** Notes carrying it. A note tagged twice counts once. */
-  count: number;
+// The same step as the folder tree above: a child row sits 16px past its
+// parent's label (ADR-030 decision 4).
+const BASE_INDENT = 10;
+const INDENT_PER_LEVEL = 16;
+
+interface TagRowProps {
+  node: TagNode;
+  level: number;
+  tree: () => HTMLDivElement | undefined;
+  folded: () => ReadonlySet<string>;
+  setFolded: (tag: string, folded: boolean) => void;
 }
 
-/** Tags sharing a first segment, under the segment they share. */
-export interface TagGroup {
-  /** The shared segment: `project` for `project/alpha`. */
-  name: string;
-  /** The tags under it, the segment's own tag first when it is used. */
-  rows: TagRow[];
-  /** The rows added up. A note in two of them counts in each. */
-  subtotal: number;
-}
-
-/** A tag standing on its own, or a group of tags sharing a first segment. */
-export type TagNode = { kind: "tag"; row: TagRow } | { kind: "group"; group: TagGroup };
-
-/**
- * Groups `tags` by the segment before their first slash.
- *
- * A segment carrying one tag stays a plain row: a group of one is a heading
- * over nothing. The order the index hands over is kept, so the most-used tag
- * leads and its group leads with it.
- */
-export function buildTagTree(tags: TagCount[]): TagNode[] {
-  const bySegment = new Map<string, TagRow[]>();
-  for (const { tag, count } of tags) {
-    const segment = tag.split("/")[0];
-    const rows = bySegment.get(segment);
-    if (rows) rows.push({ tag, count });
-    else bySegment.set(segment, [{ tag, count }]);
-  }
-
-  const nodes: TagNode[] = [];
-  for (const [name, rows] of bySegment) {
-    if (rows.length === 1) {
-      nodes.push({ kind: "tag", row: rows[0] });
-      continue;
-    }
-    // The segment's own tag reads as the parent of the rows under it, so it
-    // leads them however often it is used.
-    const ordered = [...rows].sort((a, b) => Number(b.tag === name) - Number(a.tag === name));
-    const subtotal = rows.reduce((total, row) => total + row.count, 0);
-    nodes.push({ kind: "group", group: { name, rows: ordered, subtotal } });
-  }
-  return nodes;
-}
-
-export default function TagsSection() {
+function TagRow(props: TagRowProps) {
   const win = useWindow();
-  const tags = noteFactsStore.allTags();
-  const nodes = createMemo(() => buildTagTree(tags()));
+  const hasChildren = () => props.node.children.length > 0;
+  const expanded = () => hasChildren() && !props.folded().has(props.node.tag);
+  const selected = () => win.sidebar.selectedTag() === props.node.tag;
 
-  function row(entry: TagRow, nested: boolean): JSX.Element {
-    const selected = () => win.sidebar.selectedTag() === entry.tag;
-    return (
-      <button
-        type="button"
+  function select() {
+    win.sidebar.selectTag(props.node.tag);
+  }
+
+  function toggleFromCaret(e: MouseEvent) {
+    if (!hasChildren()) return;
+    e.stopPropagation();
+    props.setFolded(props.node.tag, expanded());
+  }
+
+  function handleKeyDown(e: KeyboardEvent) {
+    switch (e.key) {
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        select();
+        break;
+      case "ArrowRight":
+        if (hasChildren() && !expanded()) {
+          e.preventDefault();
+          props.setFolded(props.node.tag, false);
+        }
+        break;
+      case "ArrowLeft":
+        if (expanded()) {
+          e.preventDefault();
+          props.setFolded(props.node.tag, true);
+        }
+        break;
+      case "ArrowDown":
+      case "ArrowUp": {
+        e.preventDefault();
+        const tree = props.tree();
+        if (!tree) break;
+        moveTreeFocus(tree, e.currentTarget as HTMLElement, e.key === "ArrowDown" ? 1 : -1);
+        break;
+      }
+    }
+  }
+
+  const paddingLeft = () => `${BASE_INDENT + (props.level - 1) * INDENT_PER_LEVEL}px`;
+  const connectorLeft = () => `${BASE_INDENT + (props.level - 1) * INDENT_PER_LEVEL + 8}px`;
+
+  return (
+    <>
+      <div
+        role="treeitem"
+        aria-expanded={hasChildren() ? expanded() : undefined}
+        aria-level={props.level}
+        aria-selected={selected()}
+        tabIndex={0}
         class="tags-row"
-        classList={{ "is-nested": nested, "is-selected": selected() }}
-        aria-pressed={selected() ? "true" : "false"}
-        onClick={() => win.sidebar.selectTag(entry.tag)}
+        classList={{ "is-selected": selected() }}
+        style={{ "padding-left": paddingLeft() }}
+        onClick={select}
+        onKeyDown={handleKeyDown}
       >
+        <span class="tags-row-caret" aria-hidden="true" onClick={toggleFromCaret}>
+          <Show when={hasChildren()}>
+            <Icon name={expanded() ? "caret-down" : "caret-right"} size={12} />
+          </Show>
+        </span>
         <span class="tags-row-hash" aria-hidden="true">
           #
         </span>
-        <span class="tags-row-name">{entry.tag}</span>
-        <span class="tags-row-count">{entry.count}</span>
-      </button>
-    );
-  }
-
-  function groupBlock(group: TagGroup): JSX.Element {
-    return (
-      <div class="tags-group">
-        <div class="tags-group-head">
-          <span class="tags-group-name">{group.name}</span>
-          <span class="tags-group-count">{group.subtotal}</span>
-        </div>
-        <For each={group.rows}>{(entry) => row(entry, true)}</For>
+        <span class="tags-row-name">{props.node.name}</span>
+        <Show when={props.node.count > 0}>
+          <span class="tags-row-count">{props.node.count}</span>
+        </Show>
       </div>
-    );
+      <Show when={expanded()}>
+        <div
+          role="group"
+          class="tags-children"
+          style={{ "--tree-connector-left": connectorLeft() }}
+        >
+          <For each={props.node.children}>
+            {(child) => (
+              <TagRow
+                node={child}
+                level={props.level + 1}
+                tree={props.tree}
+                folded={props.folded}
+                setFolded={props.setFolded}
+              />
+            )}
+          </For>
+        </div>
+      </Show>
+    </>
+  );
+}
+
+export default function TagsSection() {
+  let treeRef: HTMLDivElement | undefined;
+  const tags = noteFactsStore.allTags();
+  const nodes = createMemo(() => buildTagTree(tags()));
+
+  // Which parents are folded lasts for the window, not across launches:
+  // everything starts open, and a tag that stops being a parent is forgotten
+  // with its row.
+  const [folded, setFolded] = createSignal<ReadonlySet<string>>(new Set());
+
+  function foldTag(tag: string, fold: boolean) {
+    setFolded((current) => {
+      if (current.has(tag) === fold) return current;
+      const next = new Set(current);
+      if (fold) next.add(tag);
+      else next.delete(tag);
+      return next;
+    });
   }
 
   return (
     <Show when={nodes().length > 0}>
-      <div class="sidebar-section tags-section">
-        <div class="sidebar-section-title">Tags</div>
-        <div class="tags-list">
+      <SidebarSection id="tags" heading="Tags" class="tags-section">
+        <div ref={treeRef} role="tree" aria-label="Tags" class="tags-tree">
           <For each={nodes()}>
-            {(node) => (node.kind === "group" ? groupBlock(node.group) : row(node.row, false))}
+            {(node) => (
+              <TagRow
+                node={node}
+                level={1}
+                tree={() => treeRef}
+                folded={folded}
+                setFolded={foldTag}
+              />
+            )}
           </For>
         </div>
-      </div>
+      </SidebarSection>
     </Show>
   );
 }

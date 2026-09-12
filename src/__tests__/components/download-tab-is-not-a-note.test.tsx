@@ -51,7 +51,7 @@ const PATH = "/notes/away.md";
 function configWithoutStatusBar(): WritConfig {
   return {
     hotkey: { toggle: "" },
-    sidebar: { toggle: "", default_visible: false, position: "left", open: true, width: 240 },
+    sidebar: { toggle: "", default_visible: false, position: "left", open: true, width: 240, collapsed: [], hidden: [] },
     panel: { open: false, width: 240 },
     chat_panel: { open: false, width: 380 },
     first_run: { hint_dismissed: false },

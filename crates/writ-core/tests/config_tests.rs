@@ -1,4 +1,6 @@
-use writ_core::config::{Accent, CommandUsage, Polarity, ProseFace, SidebarPosition, WritConfig};
+use writ_core::config::{
+    Accent, CommandUsage, Polarity, ProseFace, SidebarPosition, SidebarSection, WritConfig,
+};
 
 #[test]
 fn default_config_has_expected_values() {
@@ -12,6 +14,8 @@ fn default_config_has_expected_values() {
     assert!(config.sidebar.open);
     assert_eq!(config.sidebar.position, SidebarPosition::Left);
     assert_eq!(config.sidebar.width, 240);
+    assert!(config.sidebar.collapsed.is_empty());
+    assert!(config.sidebar.hidden.is_empty());
 
     assert_eq!(config.editor.font_family, "monospace");
     assert_eq!(config.editor.font_size, 16);
@@ -41,6 +45,8 @@ fn config_serializes_to_toml() {
     assert!(toml_str.contains("[keybindings]"));
     assert!(toml_str.contains("[history]"));
     assert!(toml_str.contains("[storage]"));
+    assert!(toml_str.contains("collapsed = []"), "{toml_str}");
+    assert!(toml_str.contains("hidden = []"), "{toml_str}");
 }
 
 #[test]
@@ -287,6 +293,33 @@ fn sidebar_width_defaults_when_the_section_is_absent() {
         toml::from_str("[sidebar]\nopen = false\n").expect("[sidebar] without width");
     assert_eq!(partial.sidebar.width, 240);
     assert!(!partial.sidebar.open);
+}
+
+#[test]
+fn sidebar_sections_default_when_the_table_predates_them() {
+    let parsed: WritConfig =
+        toml::from_str("[sidebar]\nopen = true\nwidth = 240\n").expect("deserialization failed");
+    assert!(parsed.sidebar.collapsed.is_empty());
+    assert!(parsed.sidebar.hidden.is_empty());
+}
+
+#[test]
+fn sidebar_sections_round_trip_through_toml() {
+    let mut config = WritConfig::default();
+    config.sidebar.collapsed = vec![SidebarSection::Tags];
+    config.sidebar.hidden = vec![SidebarSection::Inbox, SidebarSection::Recent];
+    let toml_str = toml::to_string(&config).expect("serialization failed");
+    let restored: WritConfig = toml::from_str(&toml_str).expect("deserialization failed");
+    assert_eq!(restored.sidebar, config.sidebar);
+}
+
+#[test]
+fn a_section_id_from_another_version_does_not_fail_the_config() {
+    let toml_str =
+        "[sidebar]\nhidden = [\"graph\", \"inbox\"]\ncollapsed = [\"Recent\", \"recent\"]\n";
+    let parsed: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert_eq!(parsed.sidebar.hidden, vec![SidebarSection::Inbox]);
+    assert_eq!(parsed.sidebar.collapsed, vec![SidebarSection::Recent]);
 }
 
 #[test]

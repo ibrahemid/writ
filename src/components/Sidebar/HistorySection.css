@@ -2,10 +2,30 @@
   padding: 2px 0;
 }
 
+/* Lines up with the section name, which sits past the disclosure's 16px inset,
+   12px caret and 6px gap. */
 .history-group-title {
-  padding: 12px 12px 4px;
+  padding: 12px 12px 4px 34px;
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
   letter-spacing: var(--writ-ui-tracking);
   color: var(--writ-fg-muted);
+}
+
+:root[data-platform="win"] .history-group-title {
+  padding: 14px 16px 6px 34px;
+}
+
+:root[data-platform="linux"] .history-group-title {
+  padding: 10px 14px 4px 34px;
+}
+
+/* A closed note has no caret, but its icon and name keep the tree's columns:
+   the 12px caret slot and 8px gap stay as inset. */
+.history-list .tab-item {
+  padding-left: 30px;
+}
+
+:root[data-platform="win"] .history-list .tab-item {
+  padding-left: 20px;
 }

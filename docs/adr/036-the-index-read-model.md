@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. Amended 2026-09-12: `pathsForTag` names the tag and the tags under it (section 2).
 
 ## Context
 
@@ -50,9 +50,14 @@ third would give a panel an outline from before the save beside properties from
 after it, and nothing in the UI would look wrong.
 
 `pathsForTag` is the fourth read: the notes one tag names, one statement over
-`tags` joined to `files`, cached per tag beside the other three. A tag matches
-whole, so `project` names the notes carrying `#project` and never the notes
-carrying `#project/alpha`, which the tag list holds as a tag of its own.
+`tags` joined to `files`, cached per tag beside the other three. A tag names
+its own notes and the notes under it: `project` answers with the notes
+carrying `#project` and the notes carrying `#project/alpha`, and
+`project/alpha` answers with its own subtree. The tag list shows each tag
+once, under its parent, so the parent row filters its family and a child row
+filters its own tag; a sibling that merely shares a prefix (`projects`) is
+outside the family. The match is still an equality on the folded string plus
+one prefix test against the tag followed by a slash, never a `LIKE`.
 
 A tag is filed lowercased, in the index and in every read over it. `#Project`
 at the top of one note and `#project` in the middle of another are one tag with
