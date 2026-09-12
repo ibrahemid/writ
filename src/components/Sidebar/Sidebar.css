@@ -117,12 +117,14 @@
   font-weight: inherit;
 }
 
+/* The caret sits 16px in, the column the tree rows' own carets use, so every
+   disclosure in the sidebar shares one edge. */
 .sidebar-section-toggle {
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 12px 12px 4px;
+  padding: 12px 12px 4px 16px;
   border: none;
   background: transparent;
   font: inherit;
@@ -236,7 +238,7 @@
 
 :root[data-platform="linux"] .sidebar-section-title,
 :root[data-platform="linux"] .sidebar-section-toggle {
-  padding: 10px 14px 4px;
+  padding: 10px 14px 4px 16px;
   font-weight: 700;
   color: var(--writ-fg);
   opacity: 0.55;

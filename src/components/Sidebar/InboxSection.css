@@ -17,7 +17,7 @@
   width: calc(100% - 12px);
   height: var(--writ-sidebar-row-fill);
   margin: 1px 6px;
-  padding: 0 10px;
+  padding: 0 10px 0 30px;
   border: none;
   border-radius: var(--writ-r-row);
   background: transparent;

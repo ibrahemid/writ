@@ -52,6 +52,7 @@ export default function InboxSection() {
                     class="inbox-item"
                     onClick={() => void win.tabs.openFile(file.path)}
                   >
+                    <Icon name="file-text" />
                     <span class="inbox-item-name">{file.name}</span>
                     <span class="inbox-item-size">{formatBytes(file.size_bytes)}</span>
                   </button>
