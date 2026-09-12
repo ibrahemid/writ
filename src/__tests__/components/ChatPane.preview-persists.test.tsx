@@ -95,6 +95,8 @@ function chatConfig(): WritConfig {
       position: "left",
       open: false,
       width: 240,
+      collapsed: [],
+      hidden: [],
     },
     panel: { open: false, width: 240 },
     chat_panel: { open: false, width: 380 },

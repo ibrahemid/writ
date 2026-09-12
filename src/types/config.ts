@@ -109,16 +109,25 @@ export interface FirstRunConfig {
   hint_dismissed: boolean;
 }
 
+/** The sidebar's sections, in the order the sidebar draws them. */
+export type SidebarSectionId = "folder" | "tags" | "inbox" | "recent";
+
+export interface SidebarConfig {
+  toggle: string;
+  default_visible: boolean;
+  position: "left" | "right";
+  open: boolean;
+  /** Width in CSS pixels, clamped to the resize range. */
+  width: number;
+  /** Sections folded to their heading at last save, restored across launches. */
+  collapsed: SidebarSectionId[];
+  /** Sections switched off in Settings; a hidden section renders nothing. */
+  hidden: SidebarSectionId[];
+}
+
 export interface WritConfig {
   hotkey: { toggle: string };
-  sidebar: {
-    toggle: string;
-    default_visible: boolean;
-    position: "left" | "right";
-    open: boolean;
-    /** Width in CSS pixels, clamped to the resize range. */
-    width: number;
-  };
+  sidebar: SidebarConfig;
   panel: PanelConfig;
   chat_panel: ChatPanelConfig;
   first_run: FirstRunConfig;

@@ -180,7 +180,7 @@ import { clearDefaultAppSupport, probeDefaultAppSupport } from "../../stores/glo
 function baseConfig(): WritConfig {
   return {
     hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
-    sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false, width: 240 },
+    sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false, width: 240, collapsed: [], hidden: [] },
     panel: { open: false, width: 240 },
     chat_panel: { open: false, width: 380 },
     first_run: { hint_dismissed: false },

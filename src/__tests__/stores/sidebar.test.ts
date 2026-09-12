@@ -37,6 +37,8 @@ function buildConfig(overrides: Partial<WritConfig["sidebar"]> = {}): WritConfig
       position: "left",
       open: false,
       width: 240,
+      collapsed: [],
+      hidden: [],
       ...overrides,
     },
     panel: { open: false, width: 240 },

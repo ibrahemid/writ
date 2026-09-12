@@ -14,7 +14,7 @@ const mockedUpdateConfig = vi.mocked(updateConfig);
 
 const MOCK_CONFIG: WritConfig = {
   hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
-  sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false, width: 240 },
+  sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false, width: 240, collapsed: [], hidden: [] },
   panel: { open: false, width: 240 },
   chat_panel: { open: false, width: 380 },
   first_run: { hint_dismissed: false },
@@ -306,6 +306,106 @@ describe("configStore", () => {
       mockedUpdateConfig.mockClear();
 
       configStore.setSidebarWidth(260);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(mockedUpdateConfig).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("sidebar sections", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    });
+
+    it("reads no folded or hidden sections from a config that predates them", async () => {
+      const legacy = { ...MOCK_CONFIG, sidebar: { ...MOCK_CONFIG.sidebar } } as WritConfig;
+      delete (legacy.sidebar as Partial<WritConfig["sidebar"]>).collapsed;
+      delete (legacy.sidebar as Partial<WritConfig["sidebar"]>).hidden;
+      mockedGetConfig.mockResolvedValueOnce(legacy);
+
+      await configStore.load();
+
+      expect(configStore.config().sidebar.collapsed).toEqual([]);
+      expect(configStore.config().sidebar.hidden).toEqual([]);
+      expect(configStore.isSidebarSectionCollapsed("tags")).toBe(false);
+      expect(configStore.isSidebarSectionHidden("tags")).toBe(false);
+    });
+
+    it("keeps only the sections it knows from a hand-edited file", async () => {
+      mockedGetConfig.mockResolvedValueOnce({
+        ...MOCK_CONFIG,
+        sidebar: {
+          ...MOCK_CONFIG.sidebar,
+          collapsed: ["open", "recent", "recent"],
+          hidden: ["tags", 4],
+        } as unknown as WritConfig["sidebar"],
+      });
+
+      await configStore.load();
+
+      expect(configStore.config().sidebar.collapsed).toEqual(["recent"]);
+      expect(configStore.config().sidebar.hidden).toEqual(["tags"]);
+    });
+
+    it("persists a fold once per flip and restores it on the next read", async () => {
+      await configStore.save(MOCK_CONFIG);
+      mockedUpdateConfig.mockClear();
+
+      configStore.setSidebarSectionCollapsed("recent", true);
+      expect(configStore.isSidebarSectionCollapsed("recent")).toBe(true);
+      configStore.setSidebarSectionCollapsed("folder", true);
+
+      await vi.advanceTimersByTimeAsync(750);
+      expect(mockedUpdateConfig).toHaveBeenCalledTimes(1);
+      const written = mockedUpdateConfig.mock.calls[0][0];
+      expect(written.sidebar.collapsed).toEqual(["folder", "recent"]);
+
+      mockedGetConfig.mockResolvedValueOnce(written);
+      await configStore.load();
+      expect(configStore.isSidebarSectionCollapsed("folder")).toBe(true);
+      expect(configStore.isSidebarSectionCollapsed("recent")).toBe(true);
+      expect(configStore.isSidebarSectionCollapsed("tags")).toBe(false);
+    });
+
+    it("unfolds a section and writes the change", async () => {
+      await configStore.save({
+        ...MOCK_CONFIG,
+        sidebar: { ...MOCK_CONFIG.sidebar, collapsed: ["tags", "recent"] },
+      });
+      mockedUpdateConfig.mockClear();
+
+      configStore.setSidebarSectionCollapsed("tags", false);
+
+      expect(configStore.config().sidebar.collapsed).toEqual(["recent"]);
+      await vi.advanceTimersByTimeAsync(750);
+      expect(mockedUpdateConfig.mock.calls[0][0].sidebar.collapsed).toEqual(["recent"]);
+    });
+
+    it("hides and shows a section through the same write", async () => {
+      await configStore.save(MOCK_CONFIG);
+      mockedUpdateConfig.mockClear();
+
+      configStore.setSidebarSectionHidden("inbox", true);
+      expect(configStore.isSidebarSectionHidden("inbox")).toBe(true);
+      expect(configStore.isSidebarSectionCollapsed("inbox")).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(750);
+      expect(mockedUpdateConfig.mock.calls[0][0].sidebar.hidden).toEqual(["inbox"]);
+
+      configStore.setSidebarSectionHidden("inbox", false);
+      expect(configStore.config().sidebar.hidden).toEqual([]);
+    });
+
+    it("does not schedule a write when the state is unchanged", async () => {
+      await configStore.save(MOCK_CONFIG);
+      mockedUpdateConfig.mockClear();
+
+      configStore.setSidebarSectionCollapsed("tags", false);
+      configStore.setSidebarSectionHidden("tags", false);
 
       await vi.advanceTimersByTimeAsync(1000);
       expect(mockedUpdateConfig).not.toHaveBeenCalled();
