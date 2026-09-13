@@ -28,6 +28,7 @@ Notes link to each other, and Writ reads the folder to show what connects them. 
 
 ### Changed
 
+- The app icon takes the accent the app opens with: the W is now pine on the same dark tile, in the dock, the taskbar, the site and the share image.
 - When a note's file changes outside Writ, a clean tab takes the new text in one undoable step that keeps the cursor and scroll. A tab with unsaved edits shows a bar with three choices, and whichever side is not kept is written beside the note before anything is replaced. Files opened from outside the notes folder are watched the same way.
 - A note keeps its tab when its file is moved, renamed or rewritten by another program. A note iCloud has not brought down yet opens on a download state naming the service instead of blocking the app.
 - A save keeps the file's Finder tags, creation date, permissions and line endings, and saving unchanged text no longer rewrites the file.
