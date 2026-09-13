@@ -1,512 +1,117 @@
 ---
 import Site from '../layouts/Site.astro';
-import '../styles/landing.css';
-import Hero from '../components/site/Hero.astro';
-import Loop from '../components/site/Loop.astro';
-import Capture from '../components/site/Capture.astro';
-import WindowRow from '../components/site/WindowRow.astro';
-import Ledger from '../components/site/Ledger.astro';
-import Install from '../components/site/Install.astro';
-import StatusBar from '../components/site/StatusBar.astro';
+import Capture from '../components/Capture.astro';
+import Feature from '../components/Feature.astro';
+import DownloadRows from '../components/DownloadRows.astro';
 import release from '../data/release.json';
-// A frozen copy of the app's editor chords rather than the live table: the
-// site describes the build people can download, and the app's table moves
-// ahead of it between releases. `src/__tests__/site/shortcut-sheet.test.ts`
-// asks for a refresh once a release catches up.
-import editorShortcuts from '../data/shortcuts.json';
-import { keybindingSegments } from '../../../src/lib/keybinding-format';
-import warpLight from '../../../src/styles/themes/warp-light.json';
-import warpDark from '../../../src/styles/themes/warp-dark.json';
-import tokyoNight from '../../../src/styles/themes/tokyo-night.json';
-import dracula from '../../../src/styles/themes/dracula.json';
-import solarizedDark from '../../../src/styles/themes/solarized-dark.json';
-import catppuccinMocha from '../../../src/styles/themes/catppuccin-mocha.json';
 
-const presets = [warpLight, warpDark, tokyoNight, dracula, solarizedDark, catppuccinMocha];
-const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-const published = release.published === true;
-const mb = (n: number | undefined) => (n ? `${Math.round(n / 1048576)} MB` : '');
-
-// Keycaps use the app's own segmenter so the sheet matches the window exactly.
-// isMac is forced: navigator is undefined at build time and would default to non-mac.
-const seg = (binding: string) => keybindingSegments(binding, { isMac: true });
-const appShortcuts = [
-  { label: 'Toggle window', bindings: ['CmdOrCtrl+Shift+Space'] },
-  { label: 'Command palette', bindings: ['Shift+Shift'] },
-  { label: 'Search everywhere', bindings: ['CmdOrCtrl+Shift+F'] },
-  { label: 'New note', bindings: ['CmdOrCtrl+N'] },
-  { label: 'Open note by name', bindings: ['CmdOrCtrl+Shift+O'] },
-  { label: 'Close tab', bindings: ['CmdOrCtrl+W'] },
-  { label: 'Switch tabs', bindings: ['CmdOrCtrl+[', 'CmdOrCtrl+]'] },
-  { label: 'Save to the file', bindings: ['CmdOrCtrl+S'] },
-  { label: 'Toggle sidebar', bindings: ['CmdOrCtrl+\\'] },
-  { label: 'Connections panel', bindings: ['CmdOrCtrl+Shift+\\'] },
-  { label: 'Find in note', bindings: ['CmdOrCtrl+F'] },
-  { label: 'Bold / italic / link', bindings: ['CmdOrCtrl+B', 'CmdOrCtrl+I', 'CmdOrCtrl+K'] },
-];
-const kcCols = [
-  { h: 'window & tabs', rows: appShortcuts.map((r) => ({ label: r.label, groups: r.bindings.map(seg) })) },
-  { h: 'editing', rows: EDIT_KEYS_SUBSET(editorShortcuts.keys).map((c) => ({ label: c.label, groups: [seg(c.keybinding)] })) },
-];
-function EDIT_KEYS_SUBSET<T>(all: readonly T[]): readonly T[] { return all.slice(0, 8); }
-const summon = seg('CmdOrCtrl+Shift+Space');
-const searchKeys = seg('CmdOrCtrl+Shift+F');
-const openByNameKeys = seg('CmdOrCtrl+Shift+O');
-const connectionsKeys = seg('CmdOrCtrl+Shift+\\');
+const repo = 'https://github.com/ibrahemid/writ';
+const NOUNS = ['note', 'scratchpad', 'Markdown editor', 'journal', 'to-do list'];
+const mb = (n: number | undefined): string => (n ? `${Math.round(n / 1048576)}\u00a0MB` : '');
+const detail = [`v${release.version}`, 'macOS 12+', 'Windows 10+', 'Linux', mb(release.platforms.mac.size_pkg)]
+  .filter(Boolean)
+  .join(' · ');
+const p = release.platforms;
 ---
-<Site title="Notes on disk. Already open. | Writ" path="/" heroDark>
-  <main id="top" class="page">
-    <div class="spine" aria-hidden="true"></div>
-
-    <section class="band hero-band" data-theme="dark" id="hero">
-      <div class="hero-grid u-wide">
-        <div class="hero-copy">
-          <Hero>
-            <Fragment slot="meta">
-              {published
-                ? `v${release.version} · macOS 12+, Apple silicon and Intel, ${mb(release.platforms.mac.size_pkg)} · Windows 10+, ${mb(release.platforms.win.size_msi)} · Linux, ${mb(release.platforms.linux.size_appImage)}`
-                : 'macOS 12+ · Windows · Linux'}
-            </Fragment>
-          </Hero>
-        </div>
-        <div class="hero-media">
-          <Loop name="summon" poster="summon-poster" alt="Writ appearing over a browser and a chat window after the hotkey, four notes already open" width={1600} height={1100} preload="metadata" loading="eager" fetchpriority="high" sizes="(max-width: 1180px) 100vw, 56vw" />
-        </div>
+<Site
+  title="The only note app you need"
+  description="Notes as Markdown files in a folder you can open, with links, a graph and an MCP server built in. Free, offline, for macOS, Windows and Linux."
+  path="/"
+>
+  <main id="content">
+    <section class="hero wrap">
+      <h1 class="hero-h1">
+        The only <br class="br-sm" /><span class="noun-slot" data-noun-slot>{NOUNS.map((n, i) => (
+          <span class:list={['noun', { 'is-on': i === 0 }]}>{n}</span>
+        ))}</span><br /> app you need
+      </h1>
+      <p class="hero-sub">Markdown files in a folder you can open, with links, a graph and an MCP server built in.</p>
+      <div class="hero-ctas">
+        <a
+          href={p.mac.pkg}
+          class="btn btn-primary"
+          data-dl
+          data-mac={p.mac.pkg}
+          data-mac-name="macOS"
+          data-win={p.win.msi}
+          data-win-name="Windows"
+          data-linux={p.linux.appImage}
+          data-linux-name="Linux"
+        >Download for macOS</a>
+        <a href={repo} class="btn btn-text" rel="noopener">GitHub</a>
       </div>
+      <p class="hero-detail">{detail}</p>
     </section>
+    <div class="hero-media wrap-media">
+      <Capture name="hero-window" alt="The Writ window: the notes folder in the sidebar, a note open with its rendered preview beside it" loading="eager" fetchpriority="high" />
+    </div>
 
-    <section class="band sec hero-after" id="loop">
-      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> loop</span>
-      <div class="mo">
-        <h2 class="sec-h2">Twenty seconds, start to finish.</h2>
-        <p class="sec-p">Bring it up, read or write, put it away. The note is a file in your folder from the first line.</p>
-      </div>
-      <div class="strip u-full mo-g">
-        <Capture name="beat-summon" alt="The Writ window on top of other apps, the last note still open" sizes="(max-width: 720px) 100vw, 33vw" />
-        <Capture name="still-split-note" alt="Meeting notes in split view: source on the left, the rendered note with a ticked checkbox on the right" sizes="(max-width: 720px) 100vw, 33vw" />
-        <Capture name="still-sidebar-history" alt="The sidebar listing the open notes and the recently closed ones" sizes="(max-width: 720px) 100vw, 33vw" />
-      </div>
-      <div class="beats u-wide mo-g">
-        <div>
-          <div class="beat-h"><span class="kc-keys">{summon.map((k) => <kbd class="kc">{k}</kbd>)}</span> Bring it up</div>
-          <p class="beat-p">It is already running. The window comes up over the browser, the call, the spreadsheet.</p>
-        </div>
-        <div>
-          <div class="beat-h">Read or write</div>
-          <p class="beat-p">Source on the left, the rendered note on the right. Lists continue on Enter, checkboxes tick on click.</p>
-        </div>
-        <div>
-          <div class="beat-h"><span class="kc-keys">{summon.map((k) => <kbd class="kc">{k}</kbd>)}</span> Put it away</div>
-          <p class="beat-p">The same key. The file is in the folder, and the window is there next time.</p>
-        </div>
-      </div>
-    </section>
+    <Feature id="files" title="Every note is a file" capture="notes-folder" alt="The notes folder in Finder, one Markdown file per note">
+      <p>Notes are plain Markdown files in a folder you can open, <code>~/Writ</code> unless you move it. The folder is the only copy: the database holds an index and window state and can be deleted without losing a note.</p>
+    </Feature>
 
-    <section class="band sec" id="editor">
-      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> window</span>
-      <div class="mo">
-        <h2 class="sec-h2">Try it here.</h2>
-        <p class="sec-p">The app's own editor, running in this page. Type in it, switch tabs, press <kbd class="kc">⇧</kbd><kbd class="kc">⇧</kbd> for the command palette. Load something into it:</p>
-        <div class="trig-row">
-          <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="md"><span class="trig-g">#</span> Meeting notes</button>
-          <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="html"><span class="trig-g">&lt;/&gt;</span> A newsletter</button>
-          <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="mermaid"><span class="trig-g">A→B</span> A flowchart</button>
-          <button class="gtrig" type="button" data-cmd="loadFmt" data-arg="math"><span class="trig-g">∑</span> A formula</button>
-          <button class="gtrig" type="button" data-cmd="searchAll" data-arg="radiator"><span class="trig-g">⌕</span> Search for “radiator”</button>
-        </div>
-      </div>
-      <div class="u-wide win-row mo">
-        <WindowRow />
-      </div>
-    </section>
+    <Feature id="links" title="Links and Connections" capture="connections" alt="A note with the Connections panel beside it: the notes that link here, the outline and the properties" flip>
+      <p>Write <code>[[Name]]</code> to link a note by name. The Connections panel lists the notes that link back, the outline and the properties, and renaming a note offers to rewrite the links that point at it.</p>
+    </Feature>
 
-    <section class="band sec" id="files">
-      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> files</span>
-      <div class="twoup u-bleed-r">
-        <div class="mo">
-          <h2 class="sec-h2 sec-h2-lg">Your notes are files.</h2>
-          <p class="sec-p">One Markdown file per note. Writ writes nothing else into the folder.</p>
-          <div class="mech">
-            <div class="mech-row"><span class="mech-k">one folder</span><span><code>~/Writ</code> until you pick another. Settings, Notes shows the path, opens it in Finder, and moves it with every note in it.</span></div>
-            <div class="mech-row"><span class="mech-k">one file per note</span><span>The tab name is the file name. Rename the tab and the file renames. Delete sends it to the Trash.</span></div>
-            <div class="mech-row"><span class="mech-k">written as you type</span><span>The file is written a second after you stop. <kbd class="kc">⌘</kbd><kbd class="kc">S</kbd> writes it at once.</span></div>
-            <div class="mech-row"><span class="mech-k">changed outside Writ</span><span>The folder is watched. A save that would overwrite a newer file is refused, and the unsaved text lands beside the note as a dated conflict copy.</span></div>
-            <div class="mech-row"><span class="mech-k">earlier versions</span><span>Writ keeps one each time the note is saved, for thirty days, in its own data folder. Read or restore any of them from the note.</span></div>
-            <div class="mech-row"><span class="mech-k">an index beside them</span><span>SQLite holds the search index and the window state, never a copy of your text. Delete it and you lose no note.</span></div>
-          </div>
-        </div>
-        <Capture name="still-notes-folder" alt="The notes folder in Finder: one Markdown file per note" class="shot-win shot-bleed-r mo" sizes="(max-width: 880px) 100vw, 45vw" />
-      </div>
-    </section>
+    <Feature id="graph" title="Graph" capture="graph-folder" alt="Graph view of a whole notes folder, one color per folder">
+      <p>Nearby notes draws the ones linked around the note you have open. Graph view draws the whole folder, and tags sit in the sidebar.</p>
+    </Feature>
 
-    <section class="band sec" id="links">
-      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> links</span>
-      <div class="mo">
-        <h2 class="sec-h2">Links, backlinks, a graph.</h2>
-        <p class="sec-p">Write <code>[[Note]]</code> and the link opens the note. <span class="kc-keys">{connectionsKeys.map((k) => <kbd class="kc">{k}</kbd>)}</span> opens Connections beside it: every note that links here, with the sentence each link sits in, the outline, and the properties from the frontmatter. Tags sit in the sidebar. Graph draws the notes around the open one, or the whole folder, with a search box and a color per folder.</p>
-      </div>
-      <div class="strip strip-2 u-full mo-g">
-        <Capture name="still-connections" alt="A note with the Connections panel beside it: the notes that link here, each with its sentence, then the outline and properties" sizes="(max-width: 720px) 100vw, 50vw" />
-        <Capture name="still-graph" alt="The graph of a whole notes folder, one color per folder, a note highlighted from the search box" sizes="(max-width: 720px) 100vw, 50vw" />
-      </div>
-    </section>
+    <Feature id="programs" title="Programs" capture="chat" alt="The chat pane beside a note, the attached notes listed at the top and a proposed edit shown next to the text" flip>
+      <p>Writ ships an MCP server, off by default: approve each program by name, reading and writing separately, and every call is listed in the Activity panel without the note's text. The chat pane, also off by default, sends only the notes you attach and returns edits as proposals you apply or discard.</p>
+    </Feature>
 
-    <section class="band band-tint" id="search">
-      <span class="mark" aria-hidden="true" style="padding-top:78px"><span class="gm-h">##</span> find</span>
-      <div class="sec mo" style="padding-top:72px">
-        <h2 class="sec-h2 sec-h2-lg">Find the thing you wrote in March.</h2>
-        <p class="sec-p"><span class="kc-keys">{searchKeys.map((k) => <kbd class="kc">{k}</kbd>)}</span> searches every note in the folder and any other folder you point it at. Results fill in as you type. Enter opens the note on the matching line. <span class="kc-keys">{openByNameKeys.map((k) => <kbd class="kc">{k}</kbd>)}</span> opens a note by name.</p>
-      </div>
-      <div class="u-wide mo" style="margin-top:36px">
-        <Loop name="search" poster="still-search" alt="Search everywhere open with the query radiator, matches listed across notes and a folder" width={1200} height={750} class="shot-win" sizes="(max-width: 1440px) 100vw, 1340px" />
-      </div>
-    </section>
+    <Feature id="versions" title="Earlier versions" capture="versions" alt="The earlier versions of a note listed beside it, with Revert To on one of them">
+      <p>Writ keeps a version each time a note is saved, for thirty days, in its own data folder and never inside the notes folder. Revert To puts one back.</p>
+    </Feature>
 
-    <section class="band sec" id="open">
-      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> open</span>
-      <div class="twoup u-bleed-l">
-        <Capture name="still-html" alt="An HTML newsletter open in Writ, source on the left and the rendered page on the right" class="shot-win shot-bleed-l mo" sizes="(max-width: 880px) 100vw, 60vw" />
-        <div class="mo">
-          <h2 class="sec-h2">Open what lands on you.</h2>
-          <p class="sec-p">A newsletter someone forwarded, a flowchart pasted from a chat, a formula from a course. Writ draws them as they are meant to look, with callouts, tables and embedded notes. Code, configs and logs open as plain text, and large files open without a wait.</p>
-        </div>
-      </div>
-      <div class="strip strip-2 u-full mo-g" style="margin-top:56px">
-        <Capture name="still-mermaid" alt="A moving-day flowchart drawn from a fenced mermaid block" sizes="(max-width: 720px) 100vw, 50vw" />
-        <Capture name="still-katex" alt="A loan repayment formula set as display math" sizes="(max-width: 720px) 100vw, 50vw" />
-      </div>
+    <section class="download wrap" id="download">
+      <h2>Download</h2>
+      <DownloadRows />
     </section>
-
-    <section class="band sec" id="programs">
-      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> programs</span>
-      <div class="twoup u-bleed-r">
-        <div class="mo">
-          <h2 class="sec-h2 sec-h2-lg">The assistant you already use can read your notes.</h2>
-          <p class="sec-p">Writ ships an MCP server. Give Claude Code, Claude Desktop, Cursor or any other MCP client the one command from Settings, Connected programs, and it can list, search and read your notes, follow links and backlinks, and read properties and tags. Writing is a separate approval. The first call from a new program waits until you approve it, and every call is listed in Settings.</p>
-          <p class="sec-p">The chat pane sends the notes you attach and nothing else. When it proposes an edit, you read the proposal beside the note and apply it yourself. It talks to Anthropic, a local Ollama model, or any OpenAI-compatible endpoint with your own key.</p>
-          <p class="sec-p">Both are off until you turn them on.</p>
-        </div>
-        <Capture name="still-chat" alt="The chat pane beside a note, the attached notes listed at the top and a proposed edit shown next to the note's text" class="shot-win shot-bleed-r mo" sizes="(max-width: 880px) 100vw, 45vw" />
-      </div>
-    </section>
-
-    <section class="band sec" id="from">
-      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> from</span>
-      <div class="twoup u-bleed-l">
-        <Capture name="still-vault" alt="A folder written in Obsidian open in Writ: the tree in the sidebar, a note rendered beside its source" class="shot-win shot-bleed-l mo" sizes="(max-width: 880px) 100vw, 60vw" />
-        <div class="mo">
-          <h2 class="sec-h2">Coming from Obsidian.</h2>
-          <p class="sec-p">Point Writ at the folder Obsidian uses. Links, aliases, properties, tags and callouts read as written, and both apps keep using the same files. Nothing is copied or converted.</p>
-          <p class="sec-p"><a href={`${base}/vs/obsidian/`}>Writ next to Obsidian</a> sets the two side by side. The <a href={`${base}/guides/obsidian-vault-files/`}>guide</a> lists what carries over and what does not.</p>
-        </div>
-      </div>
-    </section>
-
-    <section class="band sec" id="private">
-      <span class="mark" aria-hidden="true"><span class="gm-h">##</span> private</span>
-      <div class="mo">
-        <h2 class="sec-h2">Nothing leaves your machine unless a program you chose sends it.</h2>
-        <div class="facts">
-          <div class="fact"><b>Files only.</b> Your text lives in the notes folder. The database holds an index, never a copy.</div>
-          <div class="fact"><b>Offline.</b> Rendering, search and spelling run locally. No account, no telemetry.</div>
-          <div class="fact"><b>Rewrite and chat are off</b> until you turn them on, and ask before the first send to any host.</div>
-          <div class="fact"><b>Connected programs are off</b> by default. You approve each one, reading and writing separately, and the list of calls stays on your disk.</div>
-          <div class="fact"><b>Keys in the keychain.</b> An API key is never written to the settings file or the database.</div>
-          <div class="fact"><b>Open source</b> under MIT. Checksums with every release; updates verify a signed manifest.</div>
-        </div>
-      </div>
-    </section>
-    <Ledger kcCols={kcCols} presets={presets} />
-    <Install />
   </main>
-  <StatusBar />
 </Site>
 
-<script>
+<script is:inline>
+  // The noun in the H1 crossfades through the list every 2.4 s. Without JS,
+  // or under prefers-reduced-motion, the first noun is the whole line.
   (function () {
-    document.querySelectorAll('[data-cmd]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const action = el.getAttribute('data-cmd');
-        const arg = el.getAttribute('data-arg') || undefined;
-        if (!action) return;
-        document.dispatchEvent(new CustomEvent('writ:cmd', { detail: { action, arg } }));
-      });
-    });
-  })();
-</script>
-
-<script>
-  // Additive motion: every section is visible from the first paint. With JS and
-  // motion on, a section gets `.in` as it enters the viewport, which plays a
-  // short staggered rise on its children. Sections already on screen at load
-  // skip the animation.
-  (function () {
-    const root = document.documentElement;
-    if (!root.hasAttribute('data-writ-intro')) return;
-    const sections = Array.from(document.querySelectorAll<HTMLElement>('.sec, .band-tint'));
-    if (!('IntersectionObserver' in window)) return;
-    const vh = window.innerHeight;
-    const io = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((e) => {
-          if (!e.isIntersecting) return;
-          io.unobserve(e.target);
-          const el = e.target as HTMLElement;
-          if (el.getBoundingClientRect().top < vh * 0.9 && performance.now() < 600) return;
-          el.classList.add('in');
-        });
-      },
-      { threshold: 0.08, rootMargin: '0px 0px -6% 0px' },
-    );
-    sections.forEach((el) => io.observe(el));
-  })();
-</script>
-
-<script>
-  // Loops: a poster is the default. `data-loop` is only on the page when the
-  // build found clips for both themes, so arming can never request a file that
-  // was not shipped. On entering the viewport (motion on) the video takes the
-  // sources for the theme in use and plays; only once it is actually playing
-  // does it cover the poster. A refused play() leaves the poster in place.
-  (function () {
-    const prefers = (q: string): boolean => {
-      try {
-        return window.matchMedia ? window.matchMedia(q).matches : false;
-      } catch (_) {
-        return false;
-      }
-    };
-    if (prefers('(prefers-reduced-motion: reduce)') || !('IntersectionObserver' in window)) return;
-    const loops = Array.from(document.querySelectorAll<HTMLElement>('[data-loop]'));
-    if (loops.length === 0) return;
-    const theme = () => (document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
-    const arm = (box: HTMLElement) => {
-      const v = box.querySelector<HTMLVideoElement>('video[data-loop-video]');
-      if (!v || v.dataset.armed) return;
-      v.dataset.armed = '1';
-      const t = theme();
-      v.querySelectorAll<HTMLSourceElement>('source[data-src]').forEach((s) => {
-        const src = s.dataset.src || '';
-        s.src = src.replace(/-light\.(webm|mp4)$/, `-${t}.$1`);
-      });
-      v.addEventListener('playing', () => box.setAttribute('data-video-playing', ''), { once: true });
-      v.load();
-      v.play().catch(() => {});
-    };
-    const io = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((e) => {
-          const box = e.target as HTMLElement;
-          const v = box.querySelector<HTMLVideoElement>('video');
-          if (e.isIntersecting) {
-            arm(box);
-            if (v && box.hasAttribute('data-video-playing')) v.play().catch(() => {});
-          } else if (v && !v.paused) {
-            v.pause();
-          }
-        });
-      },
-      { threshold: 0.2 },
-    );
-    loops.forEach((l) => io.observe(l));
-  })();
-</script>
-
-<script>
-  // One rAF-coalesced driver owns everything position-bound: the spine grows to
-  // the read position and the page status bar tracks the active section.
-  (function () {
-    const root = document.documentElement;
-    const main = document.getElementById('top');
-    const spine = document.querySelector<HTMLElement>('.spine');
-    const toks = Array.from(document.querySelectorAll<HTMLElement>('.pb-tok[data-sect]'));
-    const targets = toks
-      .map((t) => ({ t, el: document.getElementById(t.dataset.sect || '') }))
-      .filter((x): x is { t: HTMLElement; el: HTMLElement } => Boolean(x.el));
-    if (!main) return;
-
-    const motion = root.hasAttribute('data-writ-intro');
-    let target = 0;
-    let current = -1;
-    let raf = 0;
-
-    const settle = () => {
-      raf = 0;
-      if (spine && motion) {
-        current = current < 0 ? target : current + (target - current) * 0.22;
-        if (Math.abs(target - current) < 0.002) current = target;
-        spine.style.setProperty('--spine-p', current.toFixed(4));
-        if (current !== target) raf = requestAnimationFrame(settle);
-      }
-    };
-
-    const measure = () => {
-      const rect = main.getBoundingClientRect();
-      const read = Math.min(Math.max(window.innerHeight - rect.top, 0), rect.height);
-      target = rect.height > 0 ? read / rect.height : 1;
-      if (!raf) raf = requestAnimationFrame(settle);
-
-      let active: HTMLElement | null = null;
-      const cut = window.innerHeight * 0.4;
-      for (const { t, el } of targets) {
-        if (el.getBoundingClientRect().top <= cut) active = t;
-      }
-      const maxScroll = root.scrollHeight - window.innerHeight;
-      if (maxScroll - window.scrollY < 4 && targets.length > 0) {
-        active = targets[targets.length - 1]!.t;
-      }
-      toks.forEach((t) => {
-        const on = t === (active ?? toks[0]);
-        t.classList.toggle('on', on);
-        if (on) t.setAttribute('aria-current', 'true');
-        else t.removeAttribute('aria-current');
-      });
-    };
-
-    // The spine reads as one line threaded past the page rather than one drawn
-    // over it: anything that crosses its column interrupts it and it picks up
-    // again below. Purely visual, so a failure here leaves the plain line.
-    // Painted or text-bearing boxes only, never layout wrappers: a wrapper
-    // that merely spans the column would blank the line along its whole run.
-    // Anything in the content column starts on the line and is filtered out by
-    // the straddle test below, so in practice this catches what bleeds wider.
-    const CROSSERS = [
-      '.shot', '.plat-card', '.oneliners', '.kc-grid', '.mech', '.ledger',
-      '.from', '.wwx-win', '.band-tint', 'pre', 'table',
-      'h1', 'h2', 'h3', 'h4', 'p', 'li', 'figcaption', 'kbd', '.mark',
-    ].join(', ');
-    const GAP_PAD = 16;
-    const MIN_RUN = 40;
-
-    const measureGaps = () => {
-      if (!spine || !motion) return;
-      if (getComputedStyle(spine).display === 'none') {
-        spine.removeAttribute('data-gaps');
-        return;
-      }
-      const line = spine.getBoundingClientRect();
-      const x = line.left + line.width / 2;
-      const origin = line.top + window.scrollY;
-      const height = line.height;
-      if (height <= 0) return;
-
-      const spans: [number, number][] = [];
-      for (const el of Array.from(document.querySelectorAll<HTMLElement>(CROSSERS))) {
-        const r = el.getBoundingClientRect();
-        // Only something that genuinely straddles the column edge counts;
-        // a block that merely starts on it is what the line runs alongside.
-        if (r.width <= 0 || r.height <= 0) continue;
-        if (r.left > x - 4 || r.right < x + 4) continue;
-        const top = r.top + window.scrollY - origin - GAP_PAD;
-        const bottom = r.bottom + window.scrollY - origin + GAP_PAD;
-        spans.push([Math.max(0, top), Math.min(height, bottom)]);
-      }
-      if (spans.length === 0) {
-        spine.removeAttribute('data-gaps');
-        return;
-      }
-
-      spans.sort((a, b) => a[0] - b[0]);
-      const merged: [number, number][] = [];
-      for (const span of spans) {
-        const last = merged[merged.length - 1];
-        if (last && span[0] <= last[1]) last[1] = Math.max(last[1], span[1]);
-        else merged.push([span[0], span[1]]);
-      }
-
-      // A run too short to read as a line is noise; fold it into the gap
-      // beside it so what is left is a few deliberate strokes.
-      const runs: [number, number][] = [];
-      let at = 0;
-      for (const [top, bottom] of merged) {
-        if (top > at) runs.push([at, top]);
-        at = Math.max(at, bottom);
-      }
-      if (at < height) runs.push([at, height]);
-      const kept = runs.filter(([top, bottom]) => bottom - top >= MIN_RUN);
-      if (kept.length === 0) {
-        spine.removeAttribute('data-gaps');
-        return;
-      }
-
-      const stops: string[] = [];
-      let cursor = 0;
-      for (const [top, bottom] of kept) {
-        if (top > cursor) stops.push(`transparent ${cursor.toFixed(1)}px ${top.toFixed(1)}px`);
-        stops.push(`var(--line) ${top.toFixed(1)}px ${bottom.toFixed(1)}px`);
-        cursor = bottom;
-      }
-      if (cursor < height) stops.push(`transparent ${cursor.toFixed(1)}px ${height.toFixed(1)}px`);
-      spine.style.setProperty('--spine-fill', `linear-gradient(to bottom, ${stops.join(', ')})`);
-      spine.setAttribute('data-gaps', '');
-    };
-
-    let queued = false;
-    const onScroll = () => {
-      if (queued) return;
-      queued = true;
-      requestAnimationFrame(() => {
-        queued = false;
-        measure();
-      });
-    };
-    let layoutQueued = false;
-    const onLayout = () => {
-      if (layoutQueued) return;
-      layoutQueued = true;
-      requestAnimationFrame(() => {
-        layoutQueued = false;
-        measureGaps();
-        measure();
-      });
-    };
-    window.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('resize', onLayout, { passive: true });
-    // Images and the demo island settle after first paint and move everything
-    // below them, so the gaps are taken again once the page stops changing.
-    if ('ResizeObserver' in window) {
-      const ro = new ResizeObserver(onLayout);
-      ro.observe(main);
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var slot = document.querySelector('[data-noun-slot]');
+    if (!slot) return;
+    var nouns = Array.prototype.slice.call(slot.querySelectorAll('.noun'));
+    if (nouns.length < 2) return;
+    // The bundler may rewrite 2400ms as 2.4s, so the unit is read, not assumed.
+    var raw = getComputedStyle(slot).getPropertyValue('--writ-site-motion-noun-interval').trim();
+    var interval = (parseFloat(raw) || 2.4) * (/ms$/.test(raw) ? 1 : 1000);
+    var i = 0;
+    slot.classList.add('is-live');
+    function fit() {
+      slot.style.width = nouns[i].offsetWidth + 'px';
     }
-    window.addEventListener('load', onLayout);
-    measureGaps();
-    measure();
+    fit();
+    window.addEventListener('resize', fit);
+    window.setInterval(function () {
+      nouns[i].classList.remove('is-on');
+      i = (i + 1) % nouns.length;
+      nouns[i].classList.add('is-on');
+      fit();
+    }, interval);
   })();
 </script>
 
-<script>
+<script is:inline>
+  // The primary button names the visitor's OS and links to its build; the
+  // markup defaults to macOS for readers without JS.
   (function () {
-    interface NavUAD {
-      userAgentData?: { platform?: string };
-    }
-    const detectPlatform = (): 'mac' | 'win' | 'linux' => {
-      const uad = (navigator as unknown as NavUAD).userAgentData;
-      const p = (uad?.platform || navigator.userAgent || '').toLowerCase();
-      if (p.includes('win')) return 'win';
-      if (p.includes('linux') && !p.includes('android')) return 'linux';
-      return 'mac';
-    };
-    const plat = detectPlatform();
-    document.querySelectorAll<HTMLElement>('.plat-card').forEach((card) => {
-      card.classList.toggle('featured', card.dataset.plat === plat);
-    });
-    document.querySelectorAll<HTMLElement>('.oneliners').forEach((box) => {
-      box.addEventListener('click', (e) => {
-        const btn = (e.target as HTMLElement | null)?.closest<HTMLElement>('.copybtn');
-        if (!btn) return;
-        const text = btn.dataset.copy;
-        const labelEl = btn.querySelector('span');
-        if (!text || !labelEl) return;
-        navigator.clipboard?.writeText(text).then(() => {
-          const prev = labelEl.textContent;
-          labelEl.textContent = 'copied';
-          btn.classList.add('copied');
-          window.setTimeout(() => {
-            labelEl.textContent = prev;
-            btn.classList.remove('copied');
-          }, 1400);
-        }).catch(() => {});
-      });
-    });
+    var a = document.querySelector('[data-dl]');
+    if (!a) return;
+    var p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+    var ua = navigator.userAgent || '';
+    var os = /win/i.test(p) ? 'win' : /linux/i.test(p) && !/android/i.test(ua) ? 'linux' : /mac/i.test(p) ? 'mac' : '';
+    if (!os || !a.dataset[os] || a.dataset[os] === '#') return;
+    a.href = a.dataset[os];
+    a.textContent = 'Download for ' + a.dataset[os + 'Name'];
   })();
 </script>

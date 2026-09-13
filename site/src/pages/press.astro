@@ -1,45 +1,40 @@
 ---
-import Site from '../layouts/Site.astro';
-import Doc from '../components/site/Doc.astro';
+import Prose from '../layouts/Prose.astro';
 import release from '../data/release.json';
+
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const repo = 'https://github.com/ibrahemid/writ';
 ---
-<Site title="Writ press kit" description="Name, one-line description, icon files, screenshots and facts about Writ for articles and listings." path="/press/">
-  <Doc eyebrow="press" title="Press kit." shot="still-split-note" shotAlt="Meeting notes in Writ, source on the left and the rendered note on the right" lead="What is needed to write about Writ accurately, in one place.">
-    <div class="doc-body">
-      <h2>The facts</h2>
-      <table>
-        <tr><td>Name</td><td>Writ. Capital W, no article, never "Writ app".</td></tr>
-        <tr><td>One line</td><td>Notes kept as Markdown files, with links and a graph, and an MCP server so the assistant you already use can read them.</td></tr>
-        <tr><td>What it does</td><td>Keeps every note as a Markdown file in a folder you can see in Finder. Wikilinks, backlinks, tags and properties are read from the files; a Connections panel and a graph show them. Markdown, HTML, Mermaid and KaTeX render beside the source. One hotkey brings the window over any app. An MCP server lets a program the user approves read, and separately write, notes; a chat pane sends only the notes the user attaches.</td></tr>
-        <tr><td>Platforms</td><td>macOS 12+, Windows 10+, Linux (x86_64).</td></tr>
-        <tr><td>Price and license</td><td>Free. Open source under MIT.</td></tr>
-        <tr><td>Current version</td><td>{release.version}, released {release.publishedAt.slice(0, 10)}.</td></tr>
-        <tr><td>Public since</td><td>April 2026. Source, decision records and release history at <a href={repo}>github.com/ibrahemid/writ</a>.</td></tr>
-        <tr><td>Made by</td><td>Ibrahem (ibrahemid on GitHub), one person.</td></tr>
-        <tr><td>Built with</td><td>Rust and Tauri 2 for the shell; SolidJS and CodeMirror 6 for the editor; SQLite for the index.</td></tr>
-        <tr><td>Privacy</td><td>Offline, no account, no telemetry. Rewriting, chat and connected programs are off by default; the first send to any host and the first call from any program wait for the user's approval.</td></tr>
-        <tr><td>Contact</td><td><a href="mailto:ibrahemid@gmail.com">ibrahemid@gmail.com</a></td></tr>
-      </table>
-
-      <h2>Icon</h2>
-      <div class="press-assets">
-        <a class="press-asset" href={`${base}/brand/icon-256.png`} download><img src={`${base}/brand/icon-256.png`} alt="Writ icon" width="64" height="64" /><span>icon-256.png</span></a>
-        <a class="press-asset" href={`${base}/brand/icon-128.png`} download><img src={`${base}/brand/icon-128.png`} alt="" width="64" height="64" /><span>icon-128.png</span></a>
-        <a class="press-asset" href={`${base}/brand/og-v2.png`} download><img src={`${base}/brand/icon-32.png`} alt="" width="64" height="64" /><span>og-v2.png · 1200×630</span></a>
-      </div>
-      <p>Use the icon on its own, unrotated, on any background. Do not recolor it or set it inside another shape.</p>
-
-      <h2>Screenshots</h2>
-      <p>Captures of the real app at 2×, light and dark, are in the repo under <a href={`${repo}/tree/main/docs/media`}>docs/media</a> and <a href={`${repo}/tree/main/docs/design`}>docs/design</a>. Take your own freely; the window is the product.</p>
-
-      <h2>How to describe it</h2>
-      <ul>
-        <li>"Notes on disk", "notes as files", "a notes app". Not "markdown editor" as the headline, and not "IDE".</li>
-        <li>Next to Obsidian, not against it: Writ opens a folder written in Obsidian as it is, and has no plugins, mobile app or sync.</li>
-        <li>No performance numbers have been published. Please do not cite one.</li>
-      </ul>
-    </div>
-  </Doc>
-</Site>
+<Prose title="Press kit" description="Name, one-line description, icon files, screenshots and facts about Writ for articles and listings." path="/press/" lead="What is needed to write about Writ accurately, in one place.">
+  <h2>The facts</h2>
+  <table>
+    <tbody>
+    <tr><td>Name</td><td>Writ. Capital W, no article, never "Writ app".</td></tr>
+    <tr><td>One line</td><td>Notes kept as Markdown files, with links and a graph, and an MCP server so the assistant you already use can read them.</td></tr>
+    <tr><td>What it does</td><td>Keeps every note as a Markdown file in a folder you can open. Wikilinks, backlinks, tags and properties are read from the files; a Connections panel and a graph show them. Markdown, HTML, Mermaid and KaTeX render beside the source. One hotkey brings the window over any app. An MCP server lets a program the user approves read, and separately write, notes; a chat pane sends only the notes the user attaches.</td></tr>
+    <tr><td>Platforms</td><td>macOS 12+, Windows 10+, Linux (x86_64).</td></tr>
+    <tr><td>Price and license</td><td>Free. Open source under MIT.</td></tr>
+    <tr><td>Current version</td><td>{release.version}, released {release.publishedAt.slice(0, 10)}.</td></tr>
+    <tr><td>Public since</td><td>April 2026. Source, decision records and release history at <a href={repo}>github.com/ibrahemid/writ</a>.</td></tr>
+    <tr><td>Made by</td><td>Ibrahem (ibrahemid on GitHub), one person.</td></tr>
+    <tr><td>Built with</td><td>Rust and Tauri 2 for the shell; SolidJS and CodeMirror 6 for the editor; SQLite for the index.</td></tr>
+    <tr><td>Privacy</td><td>Offline, no account, no telemetry. Rewriting, chat and connected programs are off by default; the first send to any host and the first call from any program wait for the user's approval.</td></tr>
+    <tr><td>Contact</td><td><a href="mailto:ibrahemid@gmail.com">ibrahemid@gmail.com</a></td></tr>
+  </tbody>
+  </table>
+  <h2>Icon and share image</h2>
+  <ul>
+    <li><a href={`${base}/brand/icon-256.png`} download>icon-256.png</a></li>
+    <li><a href={`${base}/brand/icon-128.png`} download>icon-128.png</a></li>
+    <li><a href={`${base}/brand/og-1-0.png`} download>og-1-0.png</a>, 1200 by 630</li>
+  </ul>
+  <p>Use the icon on its own, unrotated, on any background. Do not recolor it or set it inside another shape.</p>
+  <h2>Screenshots</h2>
+  <p>Captures of the real app at 2x are in the repo under <a href={`${repo}/tree/main/docs/media`}>docs/media</a> and <a href={`${repo}/tree/main/docs/design`}>docs/design</a>. Take your own freely; the window is the product.</p>
+  <h2>How to describe it</h2>
+  <ul>
+    <li>"Notes on disk", "notes as files", "a notes app". Not "markdown editor" as the headline, and not "IDE".</li>
+    <li>Next to Obsidian, not against it: Writ opens a folder written in Obsidian as it is, and has no plugins, mobile app or sync.</li>
+    <li>No performance numbers have been published. Please do not cite one.</li>
+  </ul>
+</Prose>

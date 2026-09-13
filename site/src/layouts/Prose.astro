@@ -1,0 +1,22 @@
+---
+import Site from './Site.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  path: string;
+  lead?: string;
+  unlisted?: boolean;
+}
+
+const { title, description, path, lead, unlisted = false } = Astro.props;
+---
+<Site title={title} description={description} path={path} unlisted={unlisted}>
+  <main id="content" class="wrap">
+    <article class="prose">
+      <h1>{title}</h1>
+      {lead && <p class="lead">{lead}</p>}
+      <slot />
+    </article>
+  </main>
+</Site>

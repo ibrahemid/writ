@@ -1,0 +1,13 @@
+---
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const repo = 'https://github.com/ibrahemid/writ';
+---
+<footer class="footer">
+  <nav class="wrap footer-in" aria-label="Footer">
+    <a href={`${base}/docs/`}>Docs</a>
+    <a href={`${base}/changelog/`}>Changelog</a>
+    <a href={`${base}/privacy/`}>Privacy</a>
+    <a href={`${base}/press/`}>Press</a>
+    <a href={repo} rel="noopener">GitHub</a>
+  </nav>
+</footer>

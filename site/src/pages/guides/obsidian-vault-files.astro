@@ -1,43 +1,35 @@
 ---
-import Site from '../../layouts/Site.astro';
-import Doc from '../../components/site/Doc.astro';
+import Prose from '../../layouts/Prose.astro';
+
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
-<Site title="Open a folder written in Obsidian" description="Point Writ at the folder Obsidian uses. Links, aliases, properties, tags and callouts read as written, nothing is copied or converted, and both apps keep using the same files." path="/guides/obsidian-vault-files/">
-  <Doc eyebrow="guide" title="Open a folder written in Obsidian." shot="still-vault" shotAlt="A folder written in Obsidian open in Writ" lead="There is no import step. Writ reads the folder where it is, and Obsidian keeps working from it.">
-    <div class="doc-body">
-      <h2>1. Point Writ at the folder</h2>
-      <p>Settings, Notes, Notes folder: choose the folder Obsidian was using. Writ reads it once, then follows changes on disk. Nothing is copied, converted or rewritten. To try it without changing your notes folder, start Writ with <code>WRIT_NOTES_DIR</code> set to the folder instead.</p>
-
-      <h2>2. What carries over</h2>
-      <ul>
-        <li>Folders, file names and the markdown itself. The files are the notes; nothing moves.</li>
-        <li><code>[[Note]]</code>, <code>[[Folder/Note]]</code>, <code>[[Note|a label]]</code> and <code>[[Note#Heading]]</code> all open the note. When two notes share a name, both are offered; Writ never picks one for you.</li>
-        <li>Links pointing at a note appear in the Connections panel, with the sentence each one sits in.</li>
-        <li>Frontmatter <code>key: value</code> pairs are properties. A nested map is kept as written and shown as text.</li>
-        <li><code>#tag</code> in the text, and <code>tags:</code> in the frontmatter as a list or one line. <code>#project/alpha</code> is one tag, listed under <code>project</code>. Tags fold to lowercase, so <code>#Project</code> and <code>#project</code> are one. A tag inside a code fence is left alone.</li>
-        <li>Headings become the outline beside the note and the anchors links point at.</li>
-        <li><code>&gt; [!note]</code>, <code>&gt; [!warning]</code> and the other callout types, aliases included. One written closed shows its title only.</li>
-        <li><code>![[Note]]</code> shows the note in the page, up to three embeds deep. <code>![[image.png]]</code> shows the image.</li>
-        <li>Mermaid fences, <code>$x^2$</code> math, tables, task lists and footnotes render. Nothing is fetched from the web.</li>
-      </ul>
-
-      <h2>3. What does not</h2>
-      <ul>
-        <li><code>.obsidian/</code>: appearance, hotkeys, plugin settings. Set them again in Writ. The folder is skipped whole and never written to, so Obsidian keeps working from it.</li>
-        <li>Community plugins. None run. A note a plugin wrote shows the text the file holds, so a Dataview query or a Templater tag renders as the characters it is.</li>
-        <li><code>.canvas</code> files open as the text they hold. Keep the drawing in Obsidian.</li>
-        <li><code>obsidian://</code> links are not opened. Rewrite the ones worth keeping as <code>[[Note]]</code>.</li>
-        <li><code>aliases:</code> is kept as a property, but a link that names an alias finds nothing. Link by file name, or rename the note.</li>
-        <li>Block references, <code>[[Note#^a1b2]]</code>, open the note at its top. Embedding one section shows the whole note.</li>
-        <li><code>.trash/</code> is skipped. To bring a note back, move the file out of it.</li>
-      </ul>
-
-      <h2>4. Using both</h2>
-      <p>Writ writes only notes into the folder: files you create and files you edit. Its settings and index live in its own data folder. If both apps have the same note open, the last save wins, so keep one of them closed on that note. If a file changes under Writ, a save that would overwrite it is refused and your text lands beside the note as a conflict copy.</p>
-
-      <h2>What stays in Obsidian</h2>
-      <p>Canvas, plugins, templates, block references, Obsidian Sync and Publish. See <a href={`${base}/vs/obsidian/`}>Writ next to Obsidian</a>.</p>
-    </div>
-  </Doc>
-</Site>
+<Prose title="Open a folder written in Obsidian" description="Point Writ at the folder Obsidian uses. Links, aliases, properties, tags and callouts read as written, nothing is copied or converted, and both apps keep using the same files." path="/guides/obsidian-vault-files/" lead="There is no import step. Writ reads the folder where it is, and Obsidian keeps working from it.">
+  <h2>1. Point Writ at the folder</h2>
+  <p>Settings, Notes, Notes folder: choose the folder Obsidian was using. Writ reads it once, then follows changes on disk. Nothing is copied, converted or rewritten. To try it without changing your notes folder, start Writ with <code>WRIT_NOTES_DIR</code> set to the folder instead.</p>
+  <h2>2. What carries over</h2>
+  <ul>
+    <li>Folders, file names and the markdown itself. The files are the notes; nothing moves.</li>
+    <li><code>[[Note]]</code>, <code>[[Folder/Note]]</code>, <code>[[Note|a label]]</code> and <code>[[Note#Heading]]</code> all open the note. When two notes share a name, both are offered; Writ never picks one for you.</li>
+    <li>Links pointing at a note appear in the Connections panel, with the sentence each one sits in.</li>
+    <li>Frontmatter <code>key: value</code> pairs are properties. A nested map is kept as written and shown as text.</li>
+    <li><code>#tag</code> in the text, and <code>tags:</code> in the frontmatter as a list or one line. <code>#project/alpha</code> is one tag, listed under <code>project</code>. Tags fold to lowercase, so <code>#Project</code> and <code>#project</code> are one. A tag inside a code fence is left alone.</li>
+    <li>Headings become the outline beside the note and the anchors links point at.</li>
+    <li><code>&gt; [!note]</code>, <code>&gt; [!warning]</code> and the other callout types, aliases included. One written closed shows its title only.</li>
+    <li><code>![[Note]]</code> shows the note in the page, up to three embeds deep. <code>![[image.png]]</code> shows the image.</li>
+    <li>Mermaid fences, <code>$x^2$</code> math, tables, task lists and footnotes render. Nothing is fetched from the web.</li>
+  </ul>
+  <h2>3. What does not</h2>
+  <ul>
+    <li><code>.obsidian/</code>: appearance, hotkeys, plugin settings. Set them again in Writ. The folder is skipped whole and never written to, so Obsidian keeps working from it.</li>
+    <li>Community plugins. None run. A note a plugin wrote shows the text the file holds, so a Dataview query or a Templater tag renders as the characters it is.</li>
+    <li><code>.canvas</code> files open as the text they hold. Keep the drawing in Obsidian.</li>
+    <li><code>obsidian://</code> links are not opened. Rewrite the ones worth keeping as <code>[[Note]]</code>.</li>
+    <li><code>aliases:</code> is kept as a property, but a link that names an alias finds nothing. Link by file name, or rename the note.</li>
+    <li>Block references, <code>[[Note#^a1b2]]</code>, open the note at its top. Embedding one section shows the whole note.</li>
+    <li><code>.trash/</code> is skipped. To bring a note back, move the file out of it.</li>
+  </ul>
+  <h2>4. Using both</h2>
+  <p>Writ writes only notes into the folder: files you create and files you edit. Its settings and index live in its own data folder. If both apps have the same note open, the last save wins, so keep one of them closed on that note. If a file changes under Writ, a save that would overwrite it is refused and your text lands beside the note as a conflict copy.</p>
+  <h2>What stays in Obsidian</h2>
+  <p>Canvas, plugins, templates, block references, Obsidian Sync and Publish. See <a href={`${base}/vs/obsidian/`}>Writ next to Obsidian</a>.</p>
+</Prose>

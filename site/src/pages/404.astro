@@ -1,18 +1,14 @@
 ---
-import Site from '../layouts/Site.astro';
-import Doc from '../components/site/Doc.astro';
+import Prose from '../layouts/Prose.astro';
+
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
-<Site title="Page not found" description="The page you asked for does not exist." path="/404/" unlisted>
-  <Doc eyebrow="404" title="Nothing at this address." shot="still-sidebar-history" shotAlt="The Writ sidebar listing open notes and recently closed ones" lead="The link is wrong or the page moved. Nothing of yours was lost.">
-    <div class="doc-body">
-      <ul>
-        <li><a href={`${base}/`}>Home</a></li>
-        <li><a href={`${base}/download/`}>Download</a></li>
-        <li><a href={`${base}/docs/`}>Docs</a></li>
-        <li><a href={`${base}/guides/`}>Guides</a></li>
-        <li><a href={`${base}/changelog/`}>Changelog</a></li>
-      </ul>
-    </div>
-  </Doc>
-</Site>
+<Prose title="Nothing at this address" description="The page you asked for does not exist." path="/404/" lead="The link is wrong or the page moved. Nothing of yours was lost." unlisted>
+  <ul>
+    <li><a href={`${base}/`}>Home</a></li>
+    <li><a href={`${base}/download/`}>Download</a></li>
+    <li><a href={`${base}/docs/`}>Docs</a></li>
+    <li><a href={`${base}/guides/`}>Guides</a></li>
+    <li><a href={`${base}/changelog/`}>Changelog</a></li>
+  </ul>
+</Prose>

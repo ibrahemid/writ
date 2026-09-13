@@ -1,0 +1,23 @@
+---
+import Capture from './Capture.astro';
+
+interface Props {
+  id: string;
+  title: string;
+  capture: string;
+  alt: string;
+  /** Media on the left, text on the right. */
+  flip?: boolean;
+}
+
+const { id, title, capture, alt, flip = false } = Astro.props;
+---
+<section class:list={['feature', { 'is-flip': flip }]} id={id}>
+  <div class="wrap feature-grid">
+    <div class="feature-text">
+      <h2>{title}</h2>
+      <slot />
+    </div>
+    <Capture name={capture} alt={alt} sizes="(max-width: 880px) 100vw, 660px" />
+  </div>
+</section>

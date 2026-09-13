@@ -205,6 +205,8 @@ StyleDictionary.registerFormat({
 
 StyleDictionary.registerFormat({
   name: "css/writ-site",
+  // The site is light only (no toggle, no dark captures), so it takes the
+  // light colour layer alone, plus the site's own layout and type tokens.
   format: ({ dictionary }) => {
     const all = dictionary.allTokens;
     return sheet([
@@ -212,11 +214,16 @@ StyleDictionary.registerFormat({
         ...under(all, "base"),
         ...under(all, "color", "light"),
         ...under(all, "accent", DEFAULT_ACCENT, "light"),
+        ...under(all, "site"),
       ]),
-      block("[data-theme='dark']", [
-        ...under(all, "color", "dark"),
-        ...under(all, "accent", DEFAULT_ACCENT, "dark"),
-      ]),
+      "@media (prefers-reduced-motion: reduce) {\n" +
+        "  :root {\n" +
+        "    --writ-motion-fast: 0ms;\n" +
+        "    --writ-motion-duration: 0ms;\n" +
+        "    --writ-motion-slow: 0ms;\n" +
+        "    --writ-site-motion-crossfade: 0ms;\n" +
+        "  }\n" +
+        "}\n",
     ]);
   },
 });
@@ -617,7 +624,7 @@ export default {
     },
     "site-css": {
       transforms: ["value/dimension-css", "value/shadow-css", "name/writ-css"],
-      buildPath: "site/design-system/generated/",
+      buildPath: "site/src/styles/",
       files: [{ destination: "tokens.css", format: "css/writ-site" }],
     },
   },
