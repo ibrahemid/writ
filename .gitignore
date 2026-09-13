@@ -45,7 +45,7 @@ src-tauri/binaries/writ-*
 
 # Local working dirs (status boards, design sync)
 .design-sync/
-.status/
+.status/ .codex/
 
 # Release artifacts downloaded by workflows (never committed)
 /artifacts/
