@@ -10,7 +10,8 @@
 #
 # Flags
 #   --scene <name>    one scene (repeatable); names are listed under SCENES
-#   --all             every scene, the two shell heroes included
+#                     and REPORT_SCENES
+#   --all             every scene in SCENES, the two shell heroes included
 #   --theme           light | dark | both (default both)
 #   --shell           mac | win | linux (default mac; win and linux run a dev
 #                     instance built with VITE_WRIT_PLATFORM, so they are slower)
@@ -27,6 +28,7 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 OUT="$ROOT/site/src/assets/captures"
 SHOTS="$ROOT/.status/v2/shots"
+PROGRAMS_OUT="${CAPTURE_PROGRAMS_OUT:-$ROOT/.status/reports/programs-section}"
 FIXTURE="$HERE/fixtures/home/Notes"
 VERSIONS="$HERE/fixtures/versions"
 DRIVE="$HERE/.bin/drive"
@@ -38,6 +40,8 @@ WIN_X=120
 WIN_Y=100
 
 SCENES=(hero-window notes-folder connections graph-folder graph-local search preview-rich chat versions activity settings-appearance obsidian-folder today tags)
+# Named only: report stills, not site assets.
+REPORT_SCENES=(settings-programs)
 SHELL_SCENES=(hero-window-win hero-window-linux)
 
 # ---------------------------------------------------------------- flags ----
@@ -123,7 +127,7 @@ preflight() {
     log "compiling the driver"
     swiftc -O -o "$DRIVE" "$HERE/drive.swift" 2>&1 | grep -i ' error' && exit 1
   fi
-  mkdir -p "$OUT" "$SHOTS" "$WORK"
+  mkdir -p "$OUT" "$SHOTS" "$PROGRAMS_OUT" "$WORK"
   wait_idle
 }
 
@@ -174,6 +178,7 @@ PANEL_OPEN=false
 CHAT_OPEN=false
 LAYOUT=source
 EXTRA_CONFIG=""
+APPEARANCE_EXTRA=""
 SEED_CONFIG=1
 EMPTY_NOTES=0
 PRESEED=0
@@ -184,7 +189,7 @@ reset_state() {
   W=${SIZE%x*}; H=${SIZE#*x}
   set -- $THEMES; POLARITY=$1
   SIDEBAR_OPEN=true; COLLAPSED='[]'; PANEL_OPEN=false; CHAT_OPEN=false; LAYOUT=source
-  EXTRA_CONFIG=""; SEED_CONFIG=1; EMPTY_NOTES=0; PRESEED=0; WORKSPACE=1
+  EXTRA_CONFIG=""; APPEARANCE_EXTRA=""; SEED_CONFIG=1; EMPTY_NOTES=0; PRESEED=0; WORKSPACE=1
 }
 
 write_config() {
@@ -196,6 +201,7 @@ write_config() {
 [appearance]
 polarity = "$POLARITY"
 accent = "pine"
+$APPEARANCE_EXTRA
 
 [theme]
 preset = "writ-$POLARITY"
@@ -623,6 +629,56 @@ scene_settings_appearance() {
   quit_app
 }
 
+# The programs row at three interface text sizes, plus the narrowest window the
+# app allows, into .status rather than the site's assets.
+scene_settings_programs() {
+  local clients size theme
+  clients='
+[mcp]
+enabled = true
+
+[[mcp.approved_clients]]
+name = "Scribe CLI"
+first_seen = "2026-09-11T09:12:00Z"
+read = true
+write = true
+
+[[mcp.approved_clients]]
+name = "Desk helper"
+first_seen = "2026-09-12T10:04:00Z"
+read = true
+write = false
+'
+  for size in 12 16 22; do
+    reset_state
+    APPEARANCE_EXTRA="interface_text_size = $size"
+    EXTRA_CONFIG="$clients"
+    begin "settings-programs-$size"
+    open_note "Garden plan"
+    open_setting "What a program can do"
+    sleep 1
+    for theme in $THEMES; do
+      set_polarity "$theme"
+      capture_window "$PROGRAMS_OUT/programs-$size-$theme.png"
+    done
+    quit_app
+  done
+
+  reset_state
+  W=720; H=600
+  APPEARANCE_EXTRA="interface_text_size = 22"
+  EXTRA_CONFIG="$clients"
+  begin settings-programs-22-narrow
+  open_note "Garden plan"
+  open_setting "What a program can do"
+  sleep 1
+  for theme in $THEMES; do
+    set_polarity "$theme"
+    capture_window "$PROGRAMS_OUT/programs-22-narrow-$theme.png"
+  done
+  quit_app
+}
+
 scene_obsidian_folder() {
   reset_state
   PANEL_OPEN=true
@@ -672,6 +728,7 @@ run_scene() {
     versions) scene_versions ;;
     activity) scene_activity ;;
     settings-appearance) scene_settings_appearance ;;
+    settings-programs) scene_settings_programs ;;
     obsidian-folder) scene_obsidian_folder ;;
     today) scene_today ;;
     tags) scene_tags ;;

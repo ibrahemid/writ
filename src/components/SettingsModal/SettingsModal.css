@@ -169,6 +169,12 @@
   border-radius: var(--writ-r-row);
 }
 
+/* A row whose control is a list, not a single field: the label reads from the
+   top of it rather than from its middle. */
+.settings-row[data-align="start"] {
+  align-items: flex-start;
+}
+
 .settings-row-highlight {
   animation: settings-row-pulse var(--writ-motion-slow);
 }
@@ -342,6 +348,11 @@
 
 .settings-switch-on {
   background: var(--writ-accent);
+}
+
+.settings-switch:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .settings-switch-knob {
@@ -567,14 +578,31 @@
   padding: 0;
   list-style: none;
   min-width: 0;
+  /* Basis 0, like the label beside it, or the list keeps its max-content width
+     and the label collapses to the slack. */
+  flex: 1 1 0%;
 }
 
 .settings-program {
   display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-program-row {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--writ-space-4);
+  gap: var(--writ-space-2) var(--writ-space-4);
   min-height: var(--writ-sidebar-row-pitch);
+}
+
+.settings-program-note {
+  color: var(--writ-fg-faint);
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
 }
 
 .settings-program-name {
@@ -588,9 +616,10 @@
 
 .settings-program-grants {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--writ-space-3);
-  flex-shrink: 0;
+  gap: var(--writ-space-2) var(--writ-space-3);
+  margin-left: auto;
 }
 
 .settings-program-grant {
@@ -608,8 +637,8 @@
   line-height: var(--writ-ui-sm-lh);
 }
 
-/* The tools behind each grant. Two rows, name then names, so the reader can
-   line the grant up with the switch of the same name two rows down. */
+/* The tools behind each grant. One sentence per grant, named for the switch of
+   the same name two rows down. */
 .settings-tools {
   display: flex;
   flex-direction: column;
@@ -618,12 +647,12 @@
   padding: 0;
   list-style: none;
   min-width: 0;
+  /* Basis 0, like the label beside it, or the list keeps its max-content width
+     and the label collapses to the slack. */
+  flex: 1 1 0%;
 }
 
 .settings-tool-grant {
-  display: flex;
-  align-items: baseline;
-  gap: var(--writ-space-3);
   min-width: 0;
 }
 
@@ -631,7 +660,6 @@
   color: var(--writ-fg);
   font-size: var(--writ-ui-xs);
   line-height: var(--writ-ui-xs-lh);
-  flex: 0 0 4rem;
 }
 
 .settings-tool-names {

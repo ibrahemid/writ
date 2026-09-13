@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 import { configStore } from "../../stores/global/config";
 import type { WritConfig } from "../../types/config";
@@ -1189,7 +1191,56 @@ describe("Notes section", () => {
   });
 });
 
+const SERVER_READ_TOOLS = [
+  "list_notes",
+  "search_notes",
+  "read_note",
+  "note_links",
+  "note_backlinks",
+  "note_properties",
+  "note_tags",
+  "folder_tags",
+];
+const SERVER_WRITE_TOOLS = ["write_note", "create_note", "rename_note"];
+
+const WRITING_CLIENT = {
+  name: "Scribe CLI",
+  first_seen: "2026-09-11T09:12:00Z",
+  read: true,
+  write: true,
+};
+const READING_CLIENT = {
+  name: "Desk helper",
+  first_seen: "2026-09-12T10:04:00Z",
+  read: true,
+  write: false,
+};
+
+const SETTINGS_CSS = readFileSync(
+  resolve(process.cwd(), "src/components/SettingsModal/SettingsModal.css"),
+  "utf8",
+);
+
+/** The real sheet in the document, so a row's widths can be read back. */
+function injectSettingsCss(): HTMLStyleElement {
+  const style = document.createElement("style");
+  style.textContent = SETTINGS_CSS;
+  document.head.append(style);
+  return style;
+}
+
+async function openPrograms() {
+  const result = render(() => <SettingsModal />);
+  openSettings("programs");
+  await waitFor(() =>
+    expect(result.container.querySelector("[data-setting-id='mcp.tools']")).not.toBeNull(),
+  );
+  return result;
+}
+
 describe("Connected programs section — the tool row", () => {
+  let sheet: HTMLStyleElement | undefined;
+
   beforeEach(() => {
     mocks.config.mockReset().mockReturnValue(baseConfig());
     mocks.mcpClients.mockReset().mockResolvedValue({ approved: [], waiting: [] });
@@ -1197,8 +1248,72 @@ describe("Connected programs section — the tool row", () => {
       .mockReset()
       .mockResolvedValue({ path: "/usr/local/bin/writ", command: "writ mcp" });
     mocks.mcpTools.mockReset().mockResolvedValue({
-      read: ["list_notes", "read_note"],
-      write: ["write_note", "create_note", "rename_note"],
+      read: SERVER_READ_TOOLS,
+      write: SERVER_WRITE_TOOLS,
+    });
+  });
+
+  afterEach(() => {
+    sheet?.remove();
+    sheet = undefined;
+    closeSettings();
+    cleanup();
+  });
+
+  it("says in plain words what each grant lets a program do", async () => {
+    const { container } = await openPrograms();
+
+    await waitFor(() => expect(container.querySelector(".settings-tools")).not.toBeNull());
+    expect(container.querySelector("[data-grant='read']")?.textContent).toBe(
+      "Reading: list, search and open notes, and see their links, properties and tags.",
+    );
+    expect(container.querySelector("[data-grant='write']")?.textContent).toBe(
+      "Writing: replace a note's text, make a new note, rename a note.",
+    );
+  });
+
+  it("never lets the label column end up narrower than the list column", async () => {
+    mocks.mcpClients.mockResolvedValue({ approved: [READING_CLIENT], waiting: [] });
+    sheet = injectSettingsCss();
+    const { container } = await openPrograms();
+
+    await waitFor(() => expect(container.querySelector(".settings-programs")).not.toBeNull());
+    for (const id of ["mcp.tools", "mcp.clients"]) {
+      const row = container.querySelector<HTMLElement>(`[data-setting-id='${id}']`);
+      expect(row, id).not.toBeNull();
+      expect(row!.getAttribute("data-align")).toBe("start");
+      expect(getComputedStyle(row!).alignItems).toBe("flex-start");
+
+      const label = container.querySelector<HTMLElement>(`[data-setting-id='${id}'] .settings-row-label`);
+      const list = container.querySelector<HTMLElement>(`[data-setting-id='${id}'] ul`);
+      expect(label, id).not.toBeNull();
+      expect(list, id).not.toBeNull();
+      const labelStyle = getComputedStyle(label!);
+      const listStyle = getComputedStyle(list!);
+      expect(labelStyle.flexGrow).toBe("1");
+      expect(listStyle.flexGrow).toBe("1");
+      expect(parseFloat(labelStyle.flexBasis)).toBe(0);
+      expect(parseFloat(listStyle.flexBasis)).toBe(0);
+    }
+
+    const programRow = container.querySelector<HTMLElement>(".settings-program-row");
+    const grants = container.querySelector<HTMLElement>(".settings-program-grants");
+    expect(getComputedStyle(programRow!).flexWrap).toBe("wrap");
+    expect(getComputedStyle(grants!).flexWrap).toBe("wrap");
+  });
+});
+
+describe("Connected programs section, programs you approved", () => {
+  beforeEach(() => {
+    mocks.config.mockReset().mockReturnValue(baseConfig());
+    mocks.mcpClients.mockReset().mockResolvedValue({ approved: [], waiting: [] });
+    mocks.mcpSetClientPermission.mockReset().mockResolvedValue({ approved: [], waiting: [] });
+    mocks.mcpServerCommand
+      .mockReset()
+      .mockResolvedValue({ path: "/usr/local/bin/writ", command: "writ mcp" });
+    mocks.mcpTools.mockReset().mockResolvedValue({
+      read: SERVER_READ_TOOLS,
+      write: SERVER_WRITE_TOOLS,
     });
   });
 
@@ -1207,22 +1322,68 @@ describe("Connected programs section — the tool row", () => {
     cleanup();
   });
 
-  async function openPrograms() {
-    const result = render(() => <SettingsModal />);
-    openSettings("programs");
-    await waitFor(() =>
-      expect(result.container.querySelector("[data-setting-id='mcp.tools']")).not.toBeNull(),
-    );
+  async function openProgramList(approved: object[]) {
+    mocks.mcpClients.mockResolvedValue({ approved, waiting: [] });
+    const result = await openPrograms();
+    await waitFor(() => expect(result.container.querySelector(".settings-program")).not.toBeNull());
     return result;
   }
 
-  it("lists the tools the server registers, under the grant each one needs", async () => {
-    const { container } = await openPrograms();
+  it("holds reading on and out of reach while a program may write", async () => {
+    const { container } = await openProgramList([WRITING_CLIENT]);
 
-    await waitFor(() => expect(container.querySelector(".settings-tools")).not.toBeNull());
-    const read = container.querySelector("[data-grant='read'] .settings-tool-names");
-    const write = container.querySelector("[data-grant='write'] .settings-tool-names");
-    expect(read?.textContent).toBe("list_notes, read_note");
-    expect(write?.textContent).toBe("write_note, create_note, rename_note");
+    const read = container.querySelector<HTMLButtonElement>(
+      '[data-setting="mcp_read_Scribe CLI"]',
+    );
+    expect(read?.getAttribute("aria-checked")).toBe("true");
+    expect(read?.disabled).toBe(true);
+    expect(
+      container.querySelector("[data-program='Scribe CLI'] [data-program-note='write']")?.textContent,
+    ).toBe("Writing includes reading.");
+
+    read!.click();
+    expect(mocks.mcpSetClientPermission).not.toHaveBeenCalled();
+  });
+
+  it("lets a reading program be switched either way", async () => {
+    const { container } = await openProgramList([READING_CLIENT]);
+
+    const read = container.querySelector<HTMLButtonElement>(
+      '[data-setting="mcp_read_Desk helper"]',
+    );
+    const write = container.querySelector<HTMLButtonElement>(
+      '[data-setting="mcp_write_Desk helper"]',
+    );
+    expect(read?.disabled).toBe(false);
+    expect(
+      container.querySelector("[data-program='Desk helper'] [data-program-note='write']"),
+    ).toBeNull();
+
+    fireEvent.click(write!);
+    expect(mocks.mcpSetClientPermission).toHaveBeenCalledWith("Desk helper", true, true);
+
+    mocks.mcpSetClientPermission.mockClear();
+    fireEvent.click(read!);
+    expect(mocks.mcpSetClientPermission).toHaveBeenCalledWith("Desk helper", false, false);
+  });
+
+  it("says what forgetting a program does, on every program", async () => {
+    const { container } = await openProgramList([WRITING_CLIENT, READING_CLIENT]);
+
+    const notes = container.querySelectorAll("[data-program-note='forget']");
+    expect(notes.length).toBe(2);
+    for (const note of notes) {
+      expect(note.textContent).toBe(
+        "Removes this program. It can ask again next time it connects.",
+      );
+    }
+  });
+
+  it("carries no caution on the row, now that the rule is at the switch", async () => {
+    const { container } = await openProgramList([WRITING_CLIENT]);
+
+    expect(
+      container.querySelector("[data-setting-id='mcp.clients'] .settings-row-caution"),
+    ).toBeNull();
   });
 });
