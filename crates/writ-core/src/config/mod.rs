@@ -957,6 +957,25 @@ mod tests {
     }
 
     #[test]
+    fn an_ai_section_written_before_the_connection_upgrades() {
+        let config: WritConfig = toml::from_str(
+            "[ai]\nenabled = true\npreset = \"groq\"\nbase_url = \"https://api.groq.com/openai/v1\"\nmodel = \"llama-3.3-70b-versatile\"\nconsented_hosts = [\"api.groq.com\"]\n\n[ai.chat]\nenabled = true\nprovider = \"anthropic\"\nbase_url = \"https://api.anthropic.com\"\nmodel = \"claude-opus-5\"\n",
+        )
+        .unwrap();
+        assert_eq!(config.ai.provider, "groq");
+        assert!(config.ai.rewrite.enabled);
+        assert!(config.ai.chat.enabled);
+        assert!(config.ai.chat.model.is_empty());
+        assert_eq!(config.ai.model, "llama-3.3-70b-versatile");
+        assert_eq!(config.ai.consented_hosts, vec!["api.groq.com".to_string()]);
+
+        let written = toml::to_string(&config).unwrap();
+        assert!(written.contains("[ai.rewrite]"), "{written}");
+        let reread: WritConfig = toml::from_str(&written).unwrap();
+        assert_eq!(reread.ai, config.ai);
+    }
+
+    #[test]
     fn ai_section_round_trips_through_toml() {
         let mut config = WritConfig::default();
         config.ai.rewrite.enabled = true;
