@@ -1392,7 +1392,7 @@ async fn knock(client: &reqwest::Client, url: &str) -> bool {
 
 /// Knocks on both addresses at once. Taken as arguments so the knock is driven
 /// against a socket a test owns.
-async fn probe_local_at(ollama_url: &str, lmstudio_url: &str) -> LocalProbe {
+pub async fn probe_local_at(ollama_url: &str, lmstudio_url: &str) -> LocalProbe {
     let Ok(client) = build_local_probe_client() else {
         return LocalProbe {
             ollama: false,

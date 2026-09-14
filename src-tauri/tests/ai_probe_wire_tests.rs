@@ -3,18 +3,15 @@
 //! ADR-040 section 4 and ADR-031 rule 2.7 rest on the claim that the local
 //! runtime probe carries no credential, no note text and no header beyond what
 //! the HTTP client adds to every request. The unit tests assert the client is
-//! built without a key; this one binds the two ports the probe knocks on,
-//! records the raw bytes, and reads them back.
-//!
-//! The ports are the real ones (11434 and 1234), so the test skips itself when
-//! something is already listening there.
+//! built without a key; this one binds two loopback sockets of its own, points
+//! the probe at them, records the raw bytes, and reads them back.
 
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use writ_tauri_lib::commands::ai::ai_probe_local;
+use writ_tauri_lib::commands::ai::probe_local_at;
 
 /// Reads one request off a connection and answers 200, returning the bytes.
 fn record_one(listener: TcpListener) -> String {
@@ -29,36 +26,12 @@ fn record_one(listener: TcpListener) -> String {
     String::from_utf8_lossy(&buf[..read]).to_string()
 }
 
-fn port_is_free(port: u16) -> bool {
-    TcpStream::connect_timeout(
-        &format!("127.0.0.1:{port}")
-            .parse()
-            .expect("a loopback addr"),
-        Duration::from_millis(200),
-    )
-    .is_err()
-}
-
 #[test]
 fn the_local_probe_sends_no_credential_and_no_header_of_its_own() {
-    if !port_is_free(11434) || !port_is_free(1234) {
-        eprintln!("skipped: a local runtime is already listening on 11434 or 1234");
-        return;
-    }
-    let ollama = match TcpListener::bind("127.0.0.1:11434") {
-        Ok(l) => l,
-        Err(_) => {
-            eprintln!("skipped: port 11434 could not be bound");
-            return;
-        }
-    };
-    let lmstudio = match TcpListener::bind("127.0.0.1:1234") {
-        Ok(l) => l,
-        Err(_) => {
-            eprintln!("skipped: port 1234 could not be bound");
-            return;
-        }
-    };
+    let ollama = TcpListener::bind("127.0.0.1:0").expect("a loopback socket");
+    let lmstudio = TcpListener::bind("127.0.0.1:0").expect("a loopback socket");
+    let ollama_url = format!("http://{}/api/tags", ollama.local_addr().unwrap());
+    let lmstudio_url = format!("http://{}/v1/models", lmstudio.local_addr().unwrap());
 
     let (tx, rx) = mpsc::channel();
     for (name, listener) in [("ollama", ollama), ("lmstudio", lmstudio)] {
@@ -69,7 +42,7 @@ fn the_local_probe_sends_no_credential_and_no_header_of_its_own() {
     }
     drop(tx);
 
-    let probe = tauri::async_runtime::block_on(ai_probe_local());
+    let probe = tauri::async_runtime::block_on(probe_local_at(&ollama_url, &lmstudio_url));
     assert!(
         probe.ollama,
         "the probe should see the ollama socket answer"
