@@ -2764,6 +2764,26 @@ mod tests {
     }
 
     #[test]
+    fn every_command_here_is_in_the_invoke_handler() {
+        // A command that is not registered cannot be called however well it
+        // behaves, and the settings section calls all of these on open.
+        const LIB_RS: &str = include_str!("../lib.rs");
+        for command in [
+            "commands::ai::ai_providers",
+            "commands::ai::ai_list_models",
+            "commands::ai::ai_probe_local",
+            "commands::ai::ai_check_connection",
+            "commands::ai::ai_endpoint_state",
+            "commands::ai::ai_consent_host",
+            "commands::ai::ai_set_api_key",
+            "commands::ai::ai_clear_api_key",
+            "commands::ai::ai_has_api_key",
+        ] {
+            assert!(LIB_RS.contains(command), "{command} is not registered");
+        }
+    }
+
+    #[test]
     fn the_table_is_answered_whole() {
         let rows = ai_providers();
         assert_eq!(rows.len(), writ_core::ai::providers::PROVIDERS.len());
