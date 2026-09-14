@@ -111,8 +111,9 @@ are attached, and attaching one is a user action (U7).
 
 2.7. A request to a loopback address that carries no credential and no note text is not a
 destination under rule 2.1, because nothing leaves the machine. The two local runtime probes of
-ADR-040 section 4 are the only such requests, and a probe that carried a key would be a send under
-rule 2.2.
+ADR-040 section 4 are the only such requests: they carry no credential, no note text and no header
+beyond what the HTTP client adds to every request (host, accept, an empty user agent), and a probe
+that carried a key would be a send under rule 2.2.
 
 ### 3. A client is untrusted input
 

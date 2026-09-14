@@ -200,8 +200,9 @@ they press it.
 Selecting the provider dropdown, and opening the AI section, probes `GET
 http://localhost:11434/api/tags` and `GET http://localhost:1234/v1/models` with a 1-second
 timeout. Whichever answers shows a "Running" pill; the other shows "Not running" with the
-benchmark's one-line help. The probe carries no header beyond the request line, no key, no note
-text. Ollama's native `/api/tags` is used for detection because it lists installed models without
+benchmark's one-line help. The probe carries no credential, no note text and no header beyond what
+the HTTP client adds to every request (host, accept, an empty user agent). Ollama's native
+`/api/tags` is used for detection because it lists installed models without
 a key, and the client is configured against `/v1` on both runtimes, which is the OpenAI-compatible
 path.
 
@@ -386,8 +387,9 @@ overlay may adopt the same hunks later, and this is the implementation it would 
   after a completed or abandoned Connect."
 - **Rule 2.7**, new: "A request to a loopback address that carries no credential and no note text
   is not a destination under rule 2.1, because nothing leaves the machine. The two local runtime
-  probes of ADR-040 section 4 are the only such requests, and a probe that carried a key would be
-  a send under rule 2.2."
+  probes of ADR-040 section 4 are the only such requests: they carry no credential, no note text
+  and no header beyond what the HTTP client adds to every request (host, accept, an empty user
+  agent), and a probe that carried a key would be a send under rule 2.2."
 - **Rule 5.2**, add: "The conversation store of ADR-040 section 8, under `<writ_dir>/chats/`, is
   the one place prompt text and reply text persist. It holds no API key and no attached note
   text."
