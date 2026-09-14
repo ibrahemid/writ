@@ -33,9 +33,9 @@ use writ_core::ai::models::{
     filter_openai_ids, parse_anthropic_page, parse_model_list, sort_ids, ListFamily, ModelListError,
 };
 use writ_core::ai::providers::{self, ProviderGroup, ProviderInfo};
-use writ_core::chat;
+use writ_core::chat::{self, Provider};
 use writ_core::config::AiConfig;
-use writ_core::polish::{self, PolishAction, PolishError, POLISH_TEMPERATURE};
+use writ_core::polish::{self, PolishAction, PolishError};
 
 use crate::events::{emit_event, WritFrontendEvent};
 use crate::poison::recover_poison;
@@ -595,6 +595,9 @@ pub fn ai_consent_host(app: AppHandle) -> Result<AiEndpointState, String> {
 #[derive(Debug, Clone, PartialEq)]
 struct PreparedRequest {
     endpoint: String,
+    /// The wire the endpoint speaks, which decides the headers and how a
+    /// frame of the stream is read.
+    provider: Provider,
     body: serde_json::Value,
     api_key: Option<String>,
     is_localhost: bool,
@@ -648,18 +651,12 @@ fn prepare_request(
         None
     };
 
-    let base = base_url.trim().trim_end_matches('/');
-    let endpoint = format!("{base}/chat/completions");
-    let body = serde_json::json!({
-        "model": cfg.model.trim(),
-        "messages": messages,
-        "stream": true,
-        "temperature": POLISH_TEMPERATURE,
-    });
-
+    let wire = cfg.wire();
+    let provider = Provider::from_wire(wire);
     Ok(PreparedRequest {
-        endpoint,
-        body,
+        endpoint: chat::endpoint(provider, &base_url),
+        provider,
+        body: polish::build_request_body(wire, &cfg.model, &messages),
         api_key,
         is_localhost: !target.is_hosted,
     })
@@ -696,10 +693,10 @@ const STREAM_FAILED: &str = "The model server ended the reply.";
 /// Parses a single already-trimmed SSE line.
 ///
 /// The grammar is [`writ_core::chat::parse_delta`]'s: the rewrite stream and
-/// the chat pane read the same `chat/completions` frames, so there is one
-/// answer to what a line means rather than two that can drift.
-fn parse_sse_line(line: &str) -> SseLine {
-    match writ_core::chat::parse_delta(writ_core::chat::Provider::OpenAiCompatible, line) {
+/// the chat pane read the same frames on either wire, so there is one answer
+/// to what a line means rather than two that can drift.
+fn parse_sse_line(provider: Provider, line: &str) -> SseLine {
+    match chat::parse_delta(provider, line) {
         writ_core::chat::Delta::Text(content) => SseLine::Chunk(content),
         writ_core::chat::Delta::Done => SseLine::Done,
         writ_core::chat::Delta::Failed => SseLine::Failed,
@@ -730,9 +727,16 @@ async fn run_rewrite_stream(
     mut on_event: impl FnMut(StreamEvent),
 ) {
     let mut builder = client.post(&prepared.endpoint).json(&prepared.body);
-    if let Some(key) = &prepared.api_key {
-        builder = builder.bearer_auth(key);
-    }
+    builder = match (&prepared.api_key, prepared.provider) {
+        // The Messages API takes the key in its own header and requires the
+        // version it is being called against.
+        (Some(key), Provider::Anthropic) => builder
+            .header("x-api-key", key)
+            .header("anthropic-version", chat::ANTHROPIC_VERSION),
+        (Some(key), Provider::OpenAiCompatible) => builder.bearer_auth(key),
+        (None, Provider::Anthropic) => builder.header("anthropic-version", chat::ANTHROPIC_VERSION),
+        (None, Provider::OpenAiCompatible) => builder,
+    };
 
     let response = match builder.send().await {
         Ok(resp) => resp,
@@ -774,7 +778,7 @@ async fn run_rewrite_stream(
         };
         buf.extend_from_slice(&bytes);
         for line in drain_complete_lines(&mut buf) {
-            match parse_sse_line(&line) {
+            match parse_sse_line(prepared.provider, &line) {
                 SseLine::Chunk(content) => on_event(StreamEvent::Chunk(content)),
                 SseLine::Done => {
                     on_event(StreamEvent::Done);
@@ -1564,7 +1568,10 @@ mod tests {
 
     #[test]
     fn parse_sse_extracts_delta_content() {
-        match parse_sse_line("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}") {
+        match parse_sse_line(
+            Provider::OpenAiCompatible,
+            "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}",
+        ) {
             SseLine::Chunk(c) => assert_eq!(c, "hi"),
             _ => panic!("expected chunk"),
         }
@@ -1572,11 +1579,23 @@ mod tests {
 
     #[test]
     fn parse_sse_recognizes_done_and_ignores_noise() {
-        assert!(matches!(parse_sse_line("data: [DONE]"), SseLine::Done));
-        assert!(matches!(parse_sse_line(": keep-alive"), SseLine::Ignore));
-        assert!(matches!(parse_sse_line(""), SseLine::Ignore));
         assert!(matches!(
-            parse_sse_line("data: {\"choices\":[{\"delta\":{}}]}"),
+            parse_sse_line(Provider::OpenAiCompatible, "data: [DONE]"),
+            SseLine::Done
+        ));
+        assert!(matches!(
+            parse_sse_line(Provider::OpenAiCompatible, ": keep-alive"),
+            SseLine::Ignore
+        ));
+        assert!(matches!(
+            parse_sse_line(Provider::OpenAiCompatible, ""),
+            SseLine::Ignore
+        ));
+        assert!(matches!(
+            parse_sse_line(
+                Provider::OpenAiCompatible,
+                "data: {\"choices\":[{\"delta\":{}}]}"
+            ),
             SseLine::Ignore
         ));
     }
@@ -1590,7 +1609,12 @@ mod tests {
             include_str!("../../../crates/writ-core/tests/fixtures/chat/openai-error.sse");
         let failures = OPENAI_ERROR_STREAM
             .lines()
-            .filter(|line| matches!(parse_sse_line(line), SseLine::Failed))
+            .filter(|line| {
+                matches!(
+                    parse_sse_line(Provider::OpenAiCompatible, line),
+                    SseLine::Failed
+                )
+            })
             .count();
         assert_eq!(failures, 2, "both spellings of the frame end the stream");
 
@@ -1598,11 +1622,11 @@ mod tests {
         // shows is fixed, and the token in the fixture is in neither.
         assert!(!STREAM_FAILED.contains("ZZ-server-text-that-must-never-be-logged"));
         assert!(matches!(
-            parse_sse_line("data: {\"error\":null}"),
+            parse_sse_line(Provider::OpenAiCompatible, "data: {\"error\":null}"),
             SseLine::Ignore
         ));
         assert!(matches!(
-            parse_sse_line("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}],\"error\":null}"),
+            parse_sse_line(Provider::OpenAiCompatible, "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}],\"error\":null}"),
             SseLine::Chunk(c) if c == "hi"
         ));
     }
@@ -1615,8 +1639,13 @@ mod tests {
         buf.extend_from_slice(b"llo\"}}]}\ndata: [DONE]\n");
         let lines = drain_complete_lines(&mut buf);
         assert_eq!(lines.len(), 2);
-        assert!(matches!(parse_sse_line(&lines[0]), SseLine::Chunk(c) if c == "Hello"));
-        assert!(matches!(parse_sse_line(&lines[1]), SseLine::Done));
+        assert!(
+            matches!(parse_sse_line(Provider::OpenAiCompatible, &lines[0]), SseLine::Chunk(c) if c == "Hello")
+        );
+        assert!(matches!(
+            parse_sse_line(Provider::OpenAiCompatible, &lines[1]),
+            SseLine::Done
+        ));
     }
 
     #[test]
@@ -1697,6 +1726,120 @@ mod tests {
             prepare_request(&cfg, "polish", "x", None, |_| Some("secret".to_string())).unwrap();
         assert_eq!(ok.api_key.as_deref(), Some("secret"));
         assert!(!ok.is_localhost);
+    }
+
+    #[test]
+    fn an_anthropic_connection_prepares_the_messages_api() {
+        let mut cfg = base_cfg();
+        cfg.provider = "anthropic".to_string();
+        cfg.model = "claude-sonnet-5".to_string();
+        cfg.consented_hosts = vec!["api.anthropic.com".to_string()];
+
+        let prepared = prepare_request(&cfg, "proofread", "teh text", None, |account| {
+            assert_eq!(account, "anthropic");
+            Some("sk-ant".to_string())
+        })
+        .expect("prepared");
+
+        assert_eq!(prepared.endpoint, "https://api.anthropic.com/v1/messages");
+        assert_eq!(prepared.provider, Provider::Anthropic);
+        assert!(prepared.body["system"].as_str().is_some());
+        assert_eq!(prepared.body["max_tokens"], chat::ANTHROPIC_MAX_TOKENS);
+        assert_eq!(prepared.body["messages"][0]["role"], "user");
+    }
+
+    #[test]
+    fn the_messages_api_is_called_with_its_own_headers_and_no_bearer() {
+        let (base, seen) = spawn_recording_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: text/event-stream\r\nConnection: close\r\n",
+            "data: [DONE]\n\n",
+        );
+        let mut cfg = custom_cfg(&base);
+        cfg.model = "claude-sonnet-5".to_string();
+        let prepared = PreparedRequest {
+            provider: Provider::Anthropic,
+            endpoint: chat::endpoint(Provider::Anthropic, &base),
+            body: serde_json::json!({ "model": "claude-sonnet-5" }),
+            api_key: Some(SECRET_KEY.to_string()),
+            is_localhost: true,
+        };
+        drain_stream(&prepared, Arc::new(AtomicBool::new(false)));
+
+        let request = seen.lock().expect("seen").clone();
+        let lowered = request.to_lowercase();
+        assert!(lowered.contains("x-api-key:"), "{request}");
+        assert!(
+            lowered.contains("anthropic-version: 2023-06-01"),
+            "{request}"
+        );
+        assert!(
+            !lowered.contains("authorization:"),
+            "the Messages API was called with a bearer token"
+        );
+    }
+
+    #[test]
+    fn the_openai_wire_still_carries_a_bearer_and_nothing_else() {
+        let (base, seen) = spawn_recording_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: text/event-stream\r\nConnection: close\r\n",
+            "data: [DONE]\n\n",
+        );
+        let mut cfg = custom_cfg(&base);
+        cfg.consented_hosts = vec![];
+        let prepared = PreparedRequest {
+            provider: Provider::OpenAiCompatible,
+            endpoint: chat::endpoint(Provider::OpenAiCompatible, &base),
+            body: serde_json::json!({ "model": cfg.model }),
+            api_key: Some(SECRET_KEY.to_string()),
+            is_localhost: true,
+        };
+        drain_stream(&prepared, Arc::new(AtomicBool::new(false)));
+
+        let request = seen.lock().expect("seen").clone();
+        let lowered = request.to_lowercase();
+        assert!(
+            request.starts_with("POST /v1/chat/completions"),
+            "{request}"
+        );
+        assert!(lowered.contains("authorization: bearer"), "{request}");
+        assert!(!lowered.contains("x-api-key:"), "{request}");
+    }
+
+    #[test]
+    fn a_recorded_messages_stream_reads_as_the_chat_reads_it() {
+        let (base, _seen) = spawn_recording_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: text/event-stream\r\nConnection: close\r\n",
+            ANTHROPIC_STREAM,
+        );
+        let prepared = PreparedRequest {
+            provider: Provider::Anthropic,
+            endpoint: chat::endpoint(Provider::Anthropic, &base),
+            body: serde_json::json!({ "model": "claude-sonnet-5" }),
+            api_key: None,
+            is_localhost: true,
+        };
+        let events = drain_stream(&prepared, Arc::new(AtomicBool::new(false)));
+
+        // What the chat pane's parser makes of the same frames.
+        let expected: String = ANTHROPIC_STREAM
+            .lines()
+            .filter_map(
+                |line| match chat::parse_delta(Provider::Anthropic, line.trim()) {
+                    writ_core::chat::Delta::Text(text) => Some(text),
+                    _ => None,
+                },
+            )
+            .collect();
+        let streamed: String = events
+            .iter()
+            .filter_map(|event| event.strip_prefix("chunk:"))
+            .collect();
+        assert_eq!(streamed, expected);
+        assert!(!expected.is_empty(), "the fixture carries no text");
+        assert_eq!(events.last().map(String::as_str), Some("done"));
     }
 
     #[test]
@@ -2142,6 +2285,61 @@ mod tests {
             }
         });
         format!("http://127.0.0.1:{}/v1", addr.port())
+    }
+
+    /// The frames `writ-core` reads its Messages-API grammar against, served
+    /// over a socket so the rewrite stream meets the real thing.
+    const ANTHROPIC_STREAM: &str =
+        include_str!("../../../crates/writ-core/tests/fixtures/chat/anthropic-stream.sse");
+
+    /// A key that must never reach a header it does not belong in.
+    const SECRET_KEY: &str = "ZZ-rewrite-key";
+
+    /// A mock that hands back the request bytes it read.
+    fn spawn_recording_mock(
+        status_line: &'static str,
+        headers: &'static str,
+        body: &'static str,
+    ) -> (String, Arc<Mutex<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let seen = Arc::new(Mutex::new(String::new()));
+        let recorder = seen.clone();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 8192];
+                if let Ok(read) = stream.read(&mut buf) {
+                    *recorder.lock().expect("recorder") =
+                        String::from_utf8_lossy(&buf[..read]).to_string();
+                }
+                let _ =
+                    stream.write_all(format!("{status_line}\r\n{headers}\r\n{body}").as_bytes());
+                let _ = stream.flush();
+            }
+        });
+        (format!("http://127.0.0.1:{}/v1", addr.port()), seen)
+    }
+
+    /// Runs one prepared request to the end and collects what it emitted.
+    fn drain_stream(prepared: &PreparedRequest, cancel: Arc<AtomicBool>) -> Vec<String> {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let sink = events.clone();
+        tauri::async_runtime::block_on(async move {
+            let client = build_client().expect("client");
+            run_rewrite_stream(&client, prepared, &cancel, |event| {
+                let mut collected = sink.lock().expect("events");
+                match event {
+                    StreamEvent::Chunk(text) => collected.push(format!("chunk:{text}")),
+                    StreamEvent::Done => collected.push("done".to_string()),
+                    StreamEvent::Error(message) => collected.push(format!("error:{message}")),
+                }
+            })
+            .await;
+        });
+        Arc::try_unwrap(events)
+            .expect("one reference")
+            .into_inner()
+            .expect("events")
     }
 
     fn run_against(base_url: String, cancel: Arc<AtomicBool>) -> Vec<String> {

@@ -7,6 +7,10 @@
 //! the decision.
 
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+
+use crate::ai::providers::Wire;
+use crate::chat::ANTHROPIC_MAX_TOKENS;
 
 /// Sampling temperature used for every rewrite. Low, to keep edits faithful.
 pub const POLISH_TEMPERATURE: f32 = 0.3;
@@ -162,6 +166,42 @@ pub fn resolve_endpoint(base_url: &str) -> Result<EndpointTarget, PolishError> {
     })
 }
 
+/// The JSON body for one rewrite, in the wire the connection speaks.
+///
+/// [`build_messages`] returns one instruction and one piece of input, which is
+/// already the OpenAI shape. The Messages API carries the instruction in a
+/// `system` field outside `messages` and requires an output ceiling, so the
+/// pair is split here rather than built twice.
+pub fn build_request_body(wire: Wire, model: &str, messages: &[ChatMessage]) -> Value {
+    match wire {
+        Wire::OpenAi => json!({
+            "model": model.trim(),
+            "messages": messages,
+            "stream": true,
+            "temperature": POLISH_TEMPERATURE,
+        }),
+        Wire::Anthropic => {
+            let system: Vec<&str> = messages
+                .iter()
+                .filter(|message| message.role == "system")
+                .map(|message| message.content.as_str())
+                .collect();
+            let rest: Vec<&ChatMessage> = messages
+                .iter()
+                .filter(|message| message.role != "system")
+                .collect();
+            json!({
+                "model": model.trim(),
+                "max_tokens": ANTHROPIC_MAX_TOKENS,
+                "stream": true,
+                "temperature": POLISH_TEMPERATURE,
+                "system": system.join("\n\n"),
+                "messages": rest,
+            })
+        }
+    }
+}
+
 const RETURN_ONLY: &str = "Return only the resulting text, with no preamble, \
 explanation, notes, or code fences.";
 
@@ -230,6 +270,31 @@ pub fn is_endpoint_allowed(scheme: &str, host: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_openai_body_carries_the_instruction_as_the_first_message() {
+        let messages = build_messages(&PolishAction::Proofread, "teh text").expect("messages");
+        let body = build_request_body(Wire::OpenAi, "  gpt-5-mini  ", &messages);
+        assert_eq!(body["model"], "gpt-5-mini");
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(body["messages"][1]["content"], "teh text");
+        assert!(body.get("system").is_none());
+        assert!(body.get("max_tokens").is_none());
+    }
+
+    #[test]
+    fn the_anthropic_body_lifts_the_instruction_out_of_the_messages() {
+        let messages = build_messages(&PolishAction::Proofread, "teh text").expect("messages");
+        let body = build_request_body(Wire::Anthropic, "claude-sonnet-5", &messages);
+        assert_eq!(body["model"], "claude-sonnet-5");
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["max_tokens"], ANTHROPIC_MAX_TOKENS);
+        assert_eq!(body["system"], messages[0].content);
+        assert_eq!(body["messages"].as_array().expect("messages").len(), 1);
+        assert_eq!(body["messages"][0]["role"], "user");
+        assert_eq!(body["messages"][0]["content"], "teh text");
+    }
+
     use super::*;
 
     #[test]
