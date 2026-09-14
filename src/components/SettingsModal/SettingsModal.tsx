@@ -260,7 +260,13 @@ interface SettingsRowProps {
   id: string;
   label: string;
   labelFor?: string;
+  /** What the row does, in the label's slot and a neutral tone. */
+  description?: string;
+  /** What the row warns about, in the same slot. */
   caution?: string;
+  /** A control that belongs with the label rather than with the row's own
+   * control, such as the link to a provider's key page. */
+  labelAside?: JSX.Element;
   align?: "start";
   children: JSX.Element;
 }
@@ -280,6 +286,10 @@ function SettingsRow(props: SettingsRowProps) {
           fallback={
             <span class="settings-row-label">
               {props.label}
+              {props.labelAside}
+              <Show when={props.description}>
+                <span class="settings-row-description">{props.description}</span>
+              </Show>
               <Show when={props.caution}>
                 <span class="settings-row-caution">{props.caution}</span>
               </Show>
@@ -288,6 +298,10 @@ function SettingsRow(props: SettingsRowProps) {
         >
           <label class="settings-row-label" for={props.labelFor}>
             {props.label}
+            {props.labelAside}
+            <Show when={props.description}>
+              <span class="settings-row-description">{props.description}</span>
+            </Show>
             <Show when={props.caution}>
               <span class="settings-row-caution">{props.caution}</span>
             </Show>

@@ -441,11 +441,19 @@
   color: var(--writ-fg-muted);
 }
 
-.settings-row-caution {
+.settings-row-caution,
+.settings-row-description {
   display: block;
   font-size: var(--writ-ui-sm);
   color: var(--writ-fg-faint);
   margin-top: 3px;
+}
+
+/* The label column holds a sentence now, so it is given a measure of its own
+   rather than pushing the control column narrower on a long one. */
+.settings-row-description {
+  max-width: 34ch;
+  line-height: 1.4;
 }
 
 .settings-notes {
