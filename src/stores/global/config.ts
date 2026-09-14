@@ -1,8 +1,6 @@
 import { createSignal, createRoot } from "solid-js";
 import type {
-  AiPreset,
   AppearanceConfig,
-  ChatProvider,
   CommandUsage,
   SidebarSectionId,
   WritConfig,
@@ -60,33 +58,6 @@ export function clampChatWidth(width: number): number {
   return Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, Math.round(width)));
 }
 
-// Every rewrite preset id, as an exhaustive map so the list and the type
-// cannot drift: a missing or an extra key is a type error.
-const REWRITE_PRESETS: Record<AiPreset, true> = {
-  ollama: true,
-  groq: true,
-  gemini: true,
-  deepseek: true,
-  openrouter: true,
-  custom: true,
-};
-
-/** The rewrite preset ids, which are also the keychain accounts it uses. */
-export const AI_PRESETS = Object.keys(REWRITE_PRESETS) as AiPreset[];
-
-/** The chat providers, which are not preset ids. */
-export const CHAT_PROVIDERS: ChatProvider[] = ["anthropic", "openai_compatible"];
-
-/** The keychain account a chat key is stored under.
- *
- * Namespaced away from the rewrite path's accounts, which are bare preset ids
- * read from config.toml: without the prefix a hand-edited `preset` could point
- * both surfaces at one credential, so clearing one key row would destroy the
- * other's. Mirrors `writ_core::chat::Provider::key_account`. */
-export function chatKeyAccount(provider: string): string {
-  return `chat:${provider}`;
-}
-
 // Interface text bounds (spec A1). The settings row and the root token both
 // read these; null keeps whatever size the platform layer already resolves.
 export const INTERFACE_TEXT_MIN = 12;
@@ -140,17 +111,12 @@ const DEFAULT_CONFIG: WritConfig = {
   inbox: { path: null, focus: true },
   updater: { auto_check: true },
   ai: {
-    enabled: false,
-    preset: "ollama",
-    base_url: "http://localhost:11434/v1",
+    provider: "ollama",
+    base_url: "",
     model: "",
     consented_hosts: [],
-    chat: {
-      enabled: false,
-      provider: "openai_compatible",
-      base_url: "http://localhost:11434/v1",
-      model: "",
-    },
+    rewrite: { enabled: false },
+    chat: { enabled: false, model: "" },
   },
   mcp: { enabled: false, approved_clients: [] },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
@@ -195,16 +161,16 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
       prose_face: incoming.appearance?.prose_face ?? DEFAULT_APPEARANCE.prose_face,
       interface_text_size: incoming.appearance?.interface_text_size ?? null,
     },
+    // The new shape only. An older `[ai]` table is migrated once, in Rust
+    // (`AiConfigOnDisk`), so a second copy of those rules cannot drift from it.
     ai: {
-      enabled: incoming.ai?.enabled ?? false,
-      preset: incoming.ai?.preset ?? "ollama",
-      base_url: incoming.ai?.base_url ?? "http://localhost:11434/v1",
+      provider: incoming.ai?.provider ?? "ollama",
+      base_url: incoming.ai?.base_url ?? "",
       model: incoming.ai?.model ?? "",
       consented_hosts: incoming.ai?.consented_hosts ?? [],
+      rewrite: { enabled: incoming.ai?.rewrite?.enabled ?? false },
       chat: {
         enabled: incoming.ai?.chat?.enabled ?? false,
-        provider: incoming.ai?.chat?.provider ?? "openai_compatible",
-        base_url: incoming.ai?.chat?.base_url ?? "http://localhost:11434/v1",
         model: incoming.ai?.chat?.model ?? "",
       },
     },

@@ -6,7 +6,7 @@ import type {
   FileOpenResult,
   ResolveOutcome,
 } from "../types/buffer";
-import type { ClientApproval, WritConfig } from "../types/config";
+import type { AiWire, ClientApproval, WritConfig } from "../types/config";
 
 export type { ClientApproval };
 import type { TransformDescriptor } from "../types/transforms";
@@ -1238,6 +1238,7 @@ export interface AiEndpointState {
   is_hosted: boolean;
   is_allowed: boolean;
   is_consented: boolean;
+  provider: string;
   key_state: AiKeyState;
 }
 
@@ -1245,16 +1246,102 @@ export async function aiEndpointState(): Promise<AiEndpointState> {
   return invoke("ai_endpoint_state");
 }
 
-/** Which endpoint the consent is being granted for. Consent is recorded per
- * host in one list, and the two surfaces have separate base URLs, so the call
- * says which one it means. */
-export type ConsentSurface = "rewrite" | "chat";
+/** Records the send notice for the host the connection points at. One
+ * connection serves both features, so the call takes no surface. */
+export async function aiConsentHost(): Promise<AiEndpointState> {
+  return invoke("ai_consent_host");
+}
 
-/** Records the send notice for the host that surface is configured to reach. */
-export async function aiConsentHost(
-  surface: ConsentSurface = "rewrite",
-): Promise<AiEndpointState> {
-  return invoke("ai_consent_host", { surface });
+/** Where a provider runs: on this machine, on someone's server, or wherever
+ * the user typed. */
+export type AiProviderGroup = "local" | "hosted" | "custom";
+
+/** One row of the provider table `writ-core` owns (ADR-040 section 2). The
+ * dropdown, the probe, the model fetch and the endpoint guard read this one
+ * definition, so the frontend hardcodes no base URL and no key page. */
+export interface AiProviderInfo {
+  id: string;
+  label: string;
+  group: AiProviderGroup;
+  wire: AiWire;
+  base_url: string;
+  models_url: string;
+  key_page_url: string | null;
+  default_model: string;
+  needs_key: boolean;
+  supports_connect: boolean;
+  probe_port: number | null;
+}
+
+export async function aiProviders(): Promise<AiProviderInfo[]> {
+  return invoke("ai_providers");
+}
+
+/** Why a model list could not be read. The text of a failure never reaches the
+ * panel (ADR-031 rule 5.3); the kind picks a written line. */
+export type ModelListError =
+  | { kind: "unreachable" }
+  | { kind: "timeout" }
+  | { kind: "unauthorized" }
+  | { kind: "malformed" }
+  | { kind: "status"; code: number }
+  | { kind: "consent_required" };
+
+/** The models a provider lists, or why it could not be read.
+ *
+ * The command answers a typed error, and a rejection Tauri could only hand
+ * over as a plain string is narrowed here: this file is the only one that
+ * knows what a rejection looks like. */
+export type ModelListResult =
+  | { models: string[] }
+  | { error: ModelListError };
+
+function narrowModelListError(err: unknown): ModelListError {
+  if (err && typeof err === "object" && "kind" in err) {
+    const kind = (err as { kind: unknown }).kind;
+    if (kind === "status") {
+      const code = (err as { code?: unknown }).code;
+      return { kind: "status", code: typeof code === "number" ? code : 0 };
+    }
+    if (
+      kind === "unreachable" ||
+      kind === "timeout" ||
+      kind === "unauthorized" ||
+      kind === "malformed" ||
+      kind === "consent_required"
+    ) {
+      return { kind };
+    }
+  }
+  return { kind: "unreachable" };
+}
+
+export async function aiListModels(): Promise<ModelListResult> {
+  try {
+    return { models: await invoke<string[]>("ai_list_models") };
+  } catch (err) {
+    return { error: narrowModelListError(err) };
+  }
+}
+
+/** Which local runtime answered its port. Keyless, and carries no note text
+ * (ADR-040 section 4). */
+export interface LocalProbe {
+  ollama: boolean;
+  lmstudio: boolean;
+}
+
+export async function aiProbeLocal(): Promise<LocalProbe> {
+  return invoke("ai_probe_local");
+}
+
+/** Runs the OpenRouter PKCE flow and resolves once the key is stored. */
+export async function aiOpenrouterConnect(): Promise<AiKeyState> {
+  return invoke("ai_openrouter_connect");
+}
+
+export async function aiOpenrouterCancel(): Promise<void> {
+  return invoke("ai_openrouter_cancel");
 }
 
 export async function aiRewrite(
@@ -1277,12 +1364,9 @@ export async function aiCancel(requestId: string): Promise<void> {
 
 // --- Chat (opt-in) ---
 
-/** Which wire format the chat endpoint speaks. */
-export type ChatProvider = "anthropic" | "openai_compatible";
-
-/** Where the chat endpoint points and what it still needs. The host is
- * resolved in Rust by the same code the send guard uses, so the frontend never
- * parses a base URL itself. */
+/** Where the chat endpoint points and what it still needs. The host, the
+ * provider and the model are resolved in Rust by the same code the send guard
+ * uses, so the frontend never parses a base URL or picks a model itself. */
 export interface ChatEndpointState {
   enabled: boolean;
   provider: string;
@@ -1387,16 +1471,16 @@ export async function aiCheckConnection(): Promise<AiConnectionStatus> {
   return invoke("ai_check_connection");
 }
 
-export async function aiSetApiKey(preset: string, key: string): Promise<AiKeyState> {
-  return invoke("ai_set_api_key", { preset, key });
+export async function aiSetApiKey(provider: string, key: string): Promise<AiKeyState> {
+  return invoke("ai_set_api_key", { provider, key });
 }
 
-export async function aiClearApiKey(preset: string): Promise<AiKeyState> {
-  return invoke("ai_clear_api_key", { preset });
+export async function aiClearApiKey(provider: string): Promise<AiKeyState> {
+  return invoke("ai_clear_api_key", { provider });
 }
 
-export async function aiHasApiKey(preset: string): Promise<AiKeyState> {
-  return invoke("ai_has_api_key", { preset });
+export async function aiHasApiKey(provider: string): Promise<AiKeyState> {
+  return invoke("ai_has_api_key", { provider });
 }
 
 // The raw string travels untouched. Normalization and the scheme allowlist are
