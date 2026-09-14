@@ -13,6 +13,7 @@
 //!
 //! # Module layout
 //!
+//! - [`ai`]: the provider table and the model-list parsers (ADR-040).
 //! - [`buffer`]: document model and the in-memory [`buffer::BufferManager`].
 //! - [`chat`]: request shape and stream grammar for the chat pane (ADR-031).
 //! - [`command`]: command registry types for palette-driven actions.
@@ -45,6 +46,8 @@
 
 /// What Writ did on someone else's behalf, and what it decided about it.
 pub mod activity;
+/// The AI connection: the provider table and the model-list parsers.
+pub mod ai;
 /// Buffer document model and in-memory manager.
 pub mod buffer;
 /// Request shape and stream grammar for the chat pane.
