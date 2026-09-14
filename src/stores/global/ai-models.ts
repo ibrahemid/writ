@@ -9,7 +9,7 @@ const CURATED: Record<string, string[]> = {
   anthropic: ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5"],
   openai: ["gpt-5-mini", "gpt-5", "gpt-4.1-mini"],
   gemini: ["gemini-2.5-flash", "gemini-2.5-flash-lite"],
-  openrouter: ["meta-llama/llama-3.3-70b-instruct:free", "deepseek/deepseek-chat-v3-0324:free"],
+  openrouter: ["meta-llama/llama-3.3-70b-instruct", "openai/gpt-5-mini", "google/gemma-4-26b-a4b-it:free"],
   groq: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
   deepseek: ["deepseek-chat", "deepseek-reasoner"],
   mistral: ["mistral-small-latest", "mistral-large-latest"],
