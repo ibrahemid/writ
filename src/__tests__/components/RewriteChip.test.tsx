@@ -10,6 +10,11 @@ vi.mock("../../services/tauri", () => ({
   updateConfig: vi.fn().mockResolvedValue(undefined),
   getConfig: vi.fn(),
   aiCheckConnection: hoisted.aiCheckConnection,
+  aiProviders: vi.fn().mockResolvedValue([]),
+  aiListModels: vi.fn().mockResolvedValue({ models: [] }),
+  aiProbeLocal: vi.fn().mockResolvedValue({ ollama: false, lmstudio: false }),
+  aiOpenrouterConnect: vi.fn().mockResolvedValue({ is_set: true, memory_only: false }),
+  aiOpenrouterCancel: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../components/SettingsModal/SettingsModal", () => ({
@@ -38,10 +43,9 @@ async function enableRewrite() {
     ...current,
     ai: {
       ...current.ai,
-      enabled: true,
-      preset: "groq",
-      base_url: "https://api.groq.com/openai/v1",
+      provider: "groq",
       model: "llama3",
+      rewrite: { enabled: true },
     },
   });
 }

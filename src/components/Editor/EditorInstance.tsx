@@ -197,7 +197,7 @@ export default function EditorInstance(props: Props) {
       showContextMenu(x, y, items, bounds);
     },
     spellingEntries: () => spellingStore.entries(),
-    aiEnabled: () => configStore.config().ai.enabled,
+    aiEnabled: () => configStore.config().ai.rewrite.enabled,
     editable: (view) => !view.state.readOnly,
     clipboard: {
       copy: (view) => void copySelection(view),

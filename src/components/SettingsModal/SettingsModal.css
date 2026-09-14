@@ -441,11 +441,19 @@
   color: var(--writ-fg-muted);
 }
 
-.settings-row-caution {
+.settings-row-caution,
+.settings-row-description {
   display: block;
   font-size: var(--writ-ui-sm);
   color: var(--writ-fg-faint);
   margin-top: 3px;
+}
+
+/* The label column holds a sentence now, so it is given a measure of its own
+   rather than pushing the control column narrower on a long one. */
+.settings-row-description {
+  max-width: 34ch;
+  line-height: 1.4;
 }
 
 .settings-notes {
@@ -546,8 +554,53 @@
 .settings-ai-connection {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--writ-space-3);
-  padding: var(--writ-space-3) 16px 0;
+  min-width: 0;
+}
+
+/* The one shaped, coloured element in the section: whether the runtime a
+   person picked is answering. Everything around it stays text. */
+.settings-provider-control {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-2);
+  min-width: 0;
+}
+
+.settings-ai-pill {
+  flex: none;
+  padding: 1px var(--writ-space-2);
+  border-radius: var(--writ-r-pill);
+  font-size: var(--writ-ui-xs);
+  color: var(--writ-fg-muted);
+  background: var(--writ-bg-sunken);
+}
+
+.settings-ai-pill[data-running="yes"] {
+  color: var(--writ-status-success);
+}
+
+.settings-ai-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--writ-accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* The two features that use the connection, each under the switch that turns
+   it on. The rule is what separates them from the connection above. */
+.settings-group {
+  margin-top: var(--writ-space-4);
+  border-top: 1px solid var(--writ-border-soft);
+}
+
+.settings-group > .settings-row:first-child .settings-row-label {
+  font-weight: 600;
 }
 
 .settings-ai-connection-status {
