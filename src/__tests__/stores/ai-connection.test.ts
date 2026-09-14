@@ -122,11 +122,11 @@ describe("connectionDisplay", () => {
     expect(missing.text).toContain("llama3");
 
     const auth = connectionDisplay(
-      { reachable: true, model_listed: null, kind: "unauthorized", detail: "401", models: [] },
+      { reachable: true, model_listed: null, kind: "unauthorized", detail: "api.groq.com", models: [] },
       "",
     );
     expect(auth.tone).toBe("error");
-    expect(auth.text).toContain("401");
+    expect(auth.text).toContain("api.groq.com");
 
     hoisted.ai.provider = "ollama";
     const refusedLocal = connectionDisplay(
@@ -186,7 +186,7 @@ describe("modelListDisplay", () => {
       tone: "error",
     });
     expect(modelListDisplay({ kind: "unauthorized" }, "api.groq.com")).toEqual({
-      text: "Authentication failed. Check the API key.",
+      text: "api.groq.com rejected the API key. Check it.",
       tone: "error",
     });
     expect(modelListDisplay({ kind: "status", code: 503 }, "api.groq.com")).toEqual({

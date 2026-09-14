@@ -49,7 +49,7 @@ export function connectionDisplay(
     case "model_missing":
       return { text: `Connected, but "${status.detail || model}" is not available`, tone: "warn" };
     case "unauthorized":
-      return { text: `Authentication failed (${status.detail}). Check the API key.`, tone: "error" };
+      return { text: `${status.detail} rejected the API key. Check it.`, tone: "error" };
     case "server_error":
       return { text: `The server returned status ${status.detail}`, tone: "error" };
     case "refused":
@@ -75,7 +75,7 @@ export function modelListDisplay(error: ModelListError, host: string): Connectio
     case "timeout":
       return { text: `No response from ${host} within 5 seconds`, tone: "error" };
     case "unauthorized":
-      return { text: "Authentication failed. Check the API key.", tone: "error" };
+      return { text: `${host} rejected the API key. Check it.`, tone: "error" };
     case "status":
       return { text: `The server returned status ${error.code}`, tone: "error" };
     case "malformed":
