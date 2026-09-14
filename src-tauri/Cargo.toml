@@ -57,6 +57,11 @@ rustls = { version = "0.23", default-features = false, features = [
 ] }
 futures-util = "0.3"
 tauri-plugin-clipboard-manager = "2"
+# The OS entropy source, already in the tree under rustls/ring. Taken directly
+# for the PKCE verifier and state of the connect flow (ADR-040 section 6); no
+# generator crate is added, because 48 bytes read once per flow is all that is
+# wanted.
+getrandom = "0.4"
 
 [target.'cfg(not(any(target_os = "macos", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
