@@ -88,6 +88,11 @@ function hostedEndpoint(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** Rendered text, with the line wrapping the markup adds taken back out. */
+function collapse(text: string | null): string {
+  return (text ?? "").replace(/\s+/g, " ").trim();
+}
+
 /** The provider table, as the AI section reads it (ADR-040 section 2). */
 function providerRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -125,7 +130,7 @@ const TEST_PROVIDERS = [
     group: "hosted",
     base_url: "https://openrouter.ai/api/v1",
     key_page_url: "https://openrouter.ai/settings/keys",
-    default_model: "meta-llama/llama-3.3-70b-instruct:free",
+    default_model: "meta-llama/llama-3.3-70b-instruct",
     needs_key: true,
     supports_connect: true,
     probe_port: null,
@@ -1213,6 +1218,19 @@ describe("AI section", () => {
     );
   });
 
+  // The sentence is what a person reads before they press Allow, so it is
+  // pinned word for word rather than by the host it names.
+  it("states what a send carries, in the words the record settled on", async () => {
+    const { container } = await openAiSection();
+    await waitFor(() => expect(container.querySelector(".settings-ai-consent")).not.toBeNull());
+    expect(collapse(container.querySelector(".settings-ai-consent-text")!.textContent)).toBe(
+      "The notes you attach and the text you rewrite are sent to api.deepseek.com with your " +
+        "API key. Writ also sends the key on its own to check the host is reachable; nothing " +
+        "else leaves your machine.",
+    );
+    expect(container.querySelector('[data-action="ai-consent"]')!.textContent).toBe("Allow");
+  });
+
   it("sits above the model and key rows, not below the connection line", async () => {
     const { container } = await openAiSection();
     await waitFor(() => expect(container.querySelector(".settings-ai-consent")).not.toBeNull());
@@ -1252,7 +1270,7 @@ describe("AI section", () => {
     await waitFor(() =>
       expect(container.querySelector('[data-note="local-endpoint"]')).not.toBeNull(),
     );
-    expect(container.querySelector('[data-note="local-endpoint"]')!.textContent).toContain(
+    expect(collapse(container.querySelector('[data-note="local-endpoint"]')!.textContent)).toBe(
       "Requests go to localhost:11434 on this machine. Nothing leaves it.",
     );
     expect(container.querySelector(".settings-ai-consent")).toBeNull();
