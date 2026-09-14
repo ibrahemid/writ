@@ -138,7 +138,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://openrouter.ai/api/v1",
         models_url: "https://openrouter.ai/api/v1/models",
         key_page_url: Some("https://openrouter.ai/settings/keys"),
-        default_model: "meta-llama/llama-3.3-70b-instruct:free",
+        default_model: "meta-llama/llama-3.3-70b-instruct",
         needs_key: true,
         supports_connect: true,
         probe_port: None,
