@@ -2640,46 +2640,67 @@ mod tests {
         )
     }
 
-    fn pages_of(bodies: Vec<String>) -> Result<Vec<String>, ModelListError> {
+    /// Runs the driver over recorded pages, handing back what it read and the
+    /// cursor each page was asked for.
+    fn pages_of(bodies: Vec<String>) -> (Result<Vec<String>, ModelListError>, Vec<Option<String>>) {
         let served = Mutex::new((0usize, bodies, Vec::<Option<String>>::new()));
-        tauri::async_runtime::block_on(collect_list_pages(ListFamily::Anthropic, |cursor| {
-            let mut state = served.lock().expect("served");
-            let (index, bodies, cursors) = &mut *state;
-            cursors.push(cursor);
-            let body = bodies
-                .get(*index)
-                .cloned()
-                .unwrap_or_else(|| anthropic_page(&[], false));
-            *index += 1;
-            std::future::ready(Ok(body))
-        }))
+        let ids =
+            tauri::async_runtime::block_on(collect_list_pages(ListFamily::Anthropic, |cursor| {
+                let mut state = served.lock().expect("served");
+                let (index, bodies, cursors) = &mut *state;
+                cursors.push(cursor);
+                let body = bodies
+                    .get(*index)
+                    .cloned()
+                    .unwrap_or_else(|| anthropic_page(&[], false));
+                *index += 1;
+                std::future::ready(Ok(body))
+            }));
+        let cursors = served.into_inner().expect("served").2;
+        (ids, cursors)
     }
 
     #[test]
     fn a_list_that_fits_on_one_page_is_read_once() {
-        let ids = pages_of(vec![anthropic_page(&["claude-b", "claude-a"], false)]).expect("ids");
-        assert_eq!(ids, vec!["claude-a".to_string(), "claude-b".to_string()]);
+        let (ids, cursors) = pages_of(vec![anthropic_page(&["claude-b", "claude-a"], false)]);
+        assert_eq!(
+            ids.expect("ids"),
+            vec!["claude-a".to_string(), "claude-b".to_string()]
+        );
+        assert_eq!(cursors, vec![None]);
     }
 
     #[test]
     fn a_cursor_is_followed_to_the_end_of_the_list() {
-        let ids = pages_of(vec![
+        let (ids, cursors) = pages_of(vec![
             anthropic_page(&["a"], true),
             anthropic_page(&["b"], true),
             anthropic_page(&["c"], false),
-        ])
-        .expect("ids");
-        assert_eq!(ids, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        ]);
+        assert_eq!(
+            ids.expect("ids"),
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
+        // Each page is asked for with the cursor the page before it answered,
+        // which is the half of pagination a growing list depends on.
+        assert_eq!(
+            cursors,
+            vec![None, Some("a".to_string()), Some("b".to_string())]
+        );
     }
 
     #[test]
     fn a_page_that_is_not_a_list_ends_the_read() {
-        let error = pages_of(vec![
+        let (ids, cursors) = pages_of(vec![
             anthropic_page(&["a"], true),
             "{\"nonsense\":true}".to_string(),
-        ])
-        .expect_err("refused");
-        assert_eq!(error, ModelListError::Malformed);
+        ]);
+        assert_eq!(ids.expect_err("stopped"), ModelListError::Malformed);
+        assert_eq!(
+            cursors.len(),
+            2,
+            "the read stopped where it could not parse"
+        );
     }
 
     #[test]
@@ -2689,8 +2710,9 @@ mod tests {
         let forever: Vec<String> = (0..MAX_LIST_PAGES + 10)
             .map(|n| anthropic_page(&[&format!("m{n:02}")], true))
             .collect();
-        let ids = pages_of(forever).expect("ids");
-        assert_eq!(ids.len(), MAX_LIST_PAGES);
+        let (ids, cursors) = pages_of(forever);
+        assert_eq!(ids.expect("ids").len(), MAX_LIST_PAGES);
+        assert_eq!(cursors.len(), MAX_LIST_PAGES);
     }
 
     #[test]
