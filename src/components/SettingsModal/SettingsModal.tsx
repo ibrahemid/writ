@@ -164,6 +164,7 @@ interface ToggleSwitchProps {
   setting: string;
   label: string;
   checked: boolean;
+  disabled?: boolean;
   onChange: () => void;
 }
 
@@ -178,6 +179,7 @@ function ToggleSwitch(props: ToggleSwitchProps) {
       role="switch"
       aria-checked={props.checked}
       aria-label={props.label}
+      disabled={props.disabled}
       onClick={props.onChange}
     >
       <span class="settings-switch-knob" />
@@ -259,6 +261,7 @@ interface SettingsRowProps {
   label: string;
   labelFor?: string;
   caution?: string;
+  align?: "start";
   children: JSX.Element;
 }
 
@@ -270,6 +273,7 @@ function SettingsRow(props: SettingsRowProps) {
         class="settings-row"
         classList={{ "settings-row-highlight": search.highlighted(props.id) }}
         data-setting-id={props.id}
+        data-align={props.align}
       >
         <Show
           when={props.labelFor}
@@ -1706,6 +1710,59 @@ function AdvancedSection() {
   );
 }
 
+export type ToolPhrase =
+  | { group: "do"; phrase: string }
+  | { group: "see"; phrase: string }
+  | { group: "write"; phrase: string };
+
+export const TOOL_PHRASES: Readonly<Record<string, ToolPhrase>> = {
+  list_notes: { group: "do", phrase: "list" },
+  search_notes: { group: "do", phrase: "search" },
+  read_note: { group: "do", phrase: "open" },
+  note_links: { group: "see", phrase: "links" },
+  note_backlinks: { group: "see", phrase: "links" },
+  note_properties: { group: "see", phrase: "properties" },
+  note_tags: { group: "see", phrase: "tags" },
+  folder_tags: { group: "see", phrase: "tags" },
+  write_note: { group: "write", phrase: "replace a note's text" },
+  create_note: { group: "write", phrase: "make a new note" },
+  rename_note: { group: "write", phrase: "rename a note" },
+};
+
+function joinAnd(parts: readonly string[]): string {
+  if (parts.length < 2) return parts[0] ?? "";
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+export function describeReadTools(ids: readonly string[]): string {
+  const verbs: string[] = [];
+  const nouns: string[] = [];
+  const unnamed: string[] = [];
+  for (const id of ids) {
+    const named = TOOL_PHRASES[id];
+    if (named?.group === "do") {
+      if (!verbs.includes(named.phrase)) verbs.push(named.phrase);
+    } else if (named?.group === "see") {
+      if (!nouns.includes(named.phrase)) nouns.push(named.phrase);
+    } else {
+      unnamed.push(id);
+    }
+  }
+  const clauses: string[] = [];
+  if (verbs.length > 0) clauses.push(`${joinAnd(verbs)} notes`);
+  if (nouns.length > 0) clauses.push(`see their ${joinAnd(nouns)}`);
+  return [...clauses, ...unnamed].join(", and ");
+}
+
+export function describeWriteTools(ids: readonly string[]): string {
+  return ids
+    .map((id) => {
+      const named = TOOL_PHRASES[id];
+      return named?.group === "write" ? named.phrase : id;
+    })
+    .join(", ");
+}
+
 /**
  * Which programs may reach the notes folder, and how one is pointed at it.
  *
@@ -1713,9 +1770,8 @@ function AdvancedSection() {
  * user to decide on it, in Activity (ADR-031 rules 3.2 and 7.2). Reading and
  * writing are separate grants, so a program approved to read never writes.
  *
- * The tool list under each grant comes from the server's own list, over
- * `mcp_tools`. A list written out here would go stale the first time a tool
- * was added, and the user would be granting one thing while reading another.
+ * The grants read as sentences: the server reports the tool ids it registers,
+ * and TOOL_PHRASES turns them into the words under each grant.
  */
 function ProgramsSection() {
   const mcp = () => configStore.config().mcp;
@@ -1784,7 +1840,8 @@ function ProgramsSection() {
       <SettingsRow
         id="mcp.tools"
         label="What a program can do"
-        caution="Writing replaces, makes and renames notes. Nothing deletes one, and a rename leaves other notes pointing at the old name."
+        align="start"
+        caution="Nothing deletes a note, and a rename leaves other notes pointing at the old name."
       >
         <Show
           when={activityStore.tools()}
@@ -1793,23 +1850,19 @@ function ProgramsSection() {
           {(tools) => (
             <ul class="settings-tools">
               <li class="settings-tool-grant" data-grant="read">
-                <span class="settings-tool-grant-name">Reading</span>
-                <span class="settings-tool-names">{tools().read.join(", ")}</span>
+                <span class="settings-tool-grant-name">Reading:</span>{" "}
+                <span class="settings-tool-names">{describeReadTools(tools().read)}.</span>
               </li>
               <li class="settings-tool-grant" data-grant="write">
-                <span class="settings-tool-grant-name">Writing</span>
-                <span class="settings-tool-names">{tools().write.join(", ")}</span>
+                <span class="settings-tool-grant-name">Writing:</span>{" "}
+                <span class="settings-tool-names">{describeWriteTools(tools().write)}.</span>
               </li>
             </ul>
           )}
         </Show>
       </SettingsRow>
 
-      <SettingsRow
-        id="mcp.clients"
-        label="Programs you approved"
-        caution="Writing includes reading. Turning reading off turns writing off too."
-      >
+      <SettingsRow id="mcp.clients" label="Programs you approved" align="start">
         <Show
           when={activityStore.clients().length > 0}
           fallback={<span class="settings-programs-none">None yet.</span>}
@@ -1818,36 +1871,43 @@ function ProgramsSection() {
             <For each={activityStore.clients()}>
               {(client) => (
                 <li class="settings-program" data-program={client.name}>
-                  <span class="settings-program-name">{client.name}</span>
-                  <span class="settings-program-grants">
-                    <label class="settings-program-grant">
-                      Read
-                      <ToggleSwitch
-                        setting={`mcp_read_${client.name}`}
-                        label={`Let ${client.name} read your notes`}
-                        checked={client.read}
-                        onChange={() =>
-                          void onSetPermission(client.name, !client.read, client.read ? false : client.write)
-                        }
-                      />
-                    </label>
-                    <label class="settings-program-grant">
-                      Write
-                      <ToggleSwitch
-                        setting={`mcp_write_${client.name}`}
-                        label={`Let ${client.name} write your notes`}
-                        checked={client.write}
-                        onChange={() =>
-                          void onSetPermission(client.name, true, !client.write)
-                        }
-                      />
-                    </label>
-                    <Button
-                      data-action="mcp-forget"
-                      onClick={() => void onForget(client.name)}
-                    >
-                      Forget
-                    </Button>
+                  <div class="settings-program-row">
+                    <span class="settings-program-name">{client.name}</span>
+                    <span class="settings-program-grants">
+                      <label class="settings-program-grant">
+                        Read
+                        <ToggleSwitch
+                          setting={`mcp_read_${client.name}`}
+                          label={`Let ${client.name} read your notes`}
+                          checked={client.read || client.write}
+                          disabled={client.write}
+                          onChange={() => void onSetPermission(client.name, !client.read, false)}
+                        />
+                      </label>
+                      <label class="settings-program-grant">
+                        Write
+                        <ToggleSwitch
+                          setting={`mcp_write_${client.name}`}
+                          label={`Let ${client.name} write your notes`}
+                          checked={client.write}
+                          onChange={() => void onSetPermission(client.name, true, !client.write)}
+                        />
+                      </label>
+                      <Button
+                        data-action="mcp-forget"
+                        onClick={() => void onForget(client.name)}
+                      >
+                        Forget
+                      </Button>
+                    </span>
+                  </div>
+                  <Show when={client.write}>
+                    <span class="settings-program-note" data-program-note="write">
+                      Writing includes reading.
+                    </span>
+                  </Show>
+                  <span class="settings-program-note" data-program-note="forget">
+                    Removes this program. It can ask again next time it connects.
                   </span>
                 </li>
               )}
