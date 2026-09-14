@@ -29,6 +29,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
+use writ_core::ai::providers::{self, ProviderGroup};
 use writ_core::config::AiConfig;
 use writ_core::polish::{self, PolishAction, PolishError, POLISH_TEMPERATURE};
 
@@ -58,14 +59,99 @@ pub(crate) fn key_state_for(app: &AppHandle, account: &str) -> AiKeyState {
     key_state(&ai, &memory, account)
 }
 
+/// Where a provider key is kept.
+///
+/// One trait rather than a direct call to the platform store, so the lazy move
+/// off the pre-1.0 accounts ([`resolve_stored_key`]) is exercised against an
+/// in-memory store instead of a machine's real keychain.
+pub trait KeyStore: Send + Sync {
+    /// The key stored for `account`, or `None` when there is none. `Err` when
+    /// the store is unavailable or access was denied.
+    fn get(&self, account: &str) -> Result<Option<String>, String>;
+    /// Stores `key` under `account`, replacing whatever was there.
+    fn set(&self, account: &str, key: &str) -> Result<(), String>;
+    /// Removes `account`. Removing what is not there succeeds.
+    fn delete(&self, account: &str) -> Result<(), String>;
+    /// Whether a key written here outlives the process. False for the
+    /// in-memory store, which is what the key row's session-only warning is.
+    fn is_persistent(&self) -> bool;
+}
+
+/// The platform credential store.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+struct OsKeychain;
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+impl KeyStore for OsKeychain {
+    fn get(&self, account: &str) -> Result<Option<String>, String> {
+        keychain::get(account)
+    }
+
+    fn set(&self, account: &str, key: &str) -> Result<(), String> {
+        keychain::set(account, key)
+    }
+
+    fn delete(&self, account: &str) -> Result<(), String> {
+        keychain::delete(account)
+    }
+
+    fn is_persistent(&self) -> bool {
+        true
+    }
+}
+
+/// A store that lives and dies with the process, for a platform with no
+/// credential store of its own and for the tests.
+#[derive(Default)]
+pub struct MemoryKeyStore {
+    entries: Mutex<HashMap<String, String>>,
+}
+
+impl KeyStore for MemoryKeyStore {
+    fn get(&self, account: &str) -> Result<Option<String>, String> {
+        let entries = recover_poison(self.entries.lock(), "commands::ai::MemoryKeyStore::get");
+        Ok(entries.get(account).cloned())
+    }
+
+    fn set(&self, account: &str, key: &str) -> Result<(), String> {
+        let mut entries = recover_poison(self.entries.lock(), "commands::ai::MemoryKeyStore::set");
+        entries.insert(account.to_string(), key.to_string());
+        Ok(())
+    }
+
+    fn delete(&self, account: &str) -> Result<(), String> {
+        let mut entries =
+            recover_poison(self.entries.lock(), "commands::ai::MemoryKeyStore::delete");
+        entries.remove(account);
+        Ok(())
+    }
+
+    fn is_persistent(&self) -> bool {
+        false
+    }
+}
+
+/// The store this platform keeps keys in.
+fn platform_key_store() -> Box<dyn KeyStore> {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        Box::new(OsKeychain)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Box::new(MemoryKeyStore::default())
+    }
+}
+
 /// Session-scoped runtime state for rewriting, managed separately from
 /// [`AppState`] so the large app initializer stays untouched.
-#[derive(Default)]
 pub struct AiState {
-    /// In-memory keys, keyed by provider id, used only when the OS keychain is
+    /// Where keys are kept on this platform.
+    store: Box<dyn KeyStore>,
+    /// In-memory keys, keyed by provider id, used only when the store is
     /// unavailable or access was denied. Never persisted.
     keys: Mutex<HashMap<String, String>>,
-    /// What the keychain answered for a provider this session: `Some(key)` when
+    /// What the store answered for a provider this session: `Some(key)` when
     /// one is stored, `None` when the lookup succeeded and found nothing.
     ///
     /// Every keychain read on macOS can raise a system password prompt, and an
@@ -74,9 +160,32 @@ pub struct AiState {
     /// key" from this cache keeps that to at most one prompt per session
     /// instead of one per rewrite. Invalidated whenever a key is set or
     /// cleared. Never persisted, never logged.
-    keychain_cache: Mutex<HashMap<String, Option<String>>>,
+    key_cache: Mutex<HashMap<String, Option<String>>>,
     /// Cancel flags for in-flight streams, keyed by the frontend's request id.
     tasks: Mutex<HashMap<String, Arc<AtomicBool>>>,
+}
+
+impl AiState {
+    /// Session state backed by this platform's key store.
+    pub fn new() -> Self {
+        Self::with_store(platform_key_store())
+    }
+
+    /// Session state backed by `store`.
+    pub fn with_store(store: Box<dyn KeyStore>) -> Self {
+        Self {
+            store,
+            keys: Mutex::new(HashMap::new()),
+            key_cache: Mutex::new(HashMap::new()),
+            tasks: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+impl Default for AiState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Whether a key is stored for a provider, and whether it is confined to memory
@@ -127,21 +236,6 @@ mod keychain {
     }
 }
 
-/// No native keychain on this platform; callers always use the in-memory
-/// fallback.
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-mod keychain {
-    pub fn set(_account: &str, _key: &str) -> Result<(), String> {
-        Err("no native keychain on this platform".to_string())
-    }
-    pub fn get(_account: &str) -> Result<Option<String>, String> {
-        Err("no native keychain on this platform".to_string())
-    }
-    pub fn delete(_account: &str) -> Result<(), String> {
-        Ok(())
-    }
-}
-
 /// Pure key-state policy: keychain wins; otherwise a memory entry is
 /// "set but session-only". Separated from the OS call so it is testable.
 fn compute_key_state(
@@ -176,33 +270,88 @@ fn resolve_key_from(
     keychain_value.or_else(|| memory.get(account).cloned())
 }
 
-/// Reads the keychain at most once per account per session.
+/// The account a pre-1.0 build would have stored this provider's key under.
 ///
-/// A miss consults the OS (which may prompt) and records the answer, including
-/// "there is no key", so a provider with no key does not re-prompt on every
-/// rewrite. A keychain *error* is not cached: it means access was denied or the
-/// store was unavailable, and the next attempt should be free to succeed.
-fn cached_keychain_get(ai: &AiState, account: &str) -> Option<String> {
+/// Before 1.0 the rewrite path used the bare preset id, which is already the
+/// new account name, and the chat pane used a namespace of its own. `None` for
+/// a local row, which never had a key to move.
+fn legacy_account(provider: &str) -> Option<&'static str> {
+    if matches!(
+        providers::provider(provider).map(|row| row.group),
+        Some(ProviderGroup::Local)
+    ) {
+        return None;
+    }
+    match provider {
+        "anthropic" => Some("chat:anthropic"),
+        _ => Some("chat:openai_compatible"),
+    }
+}
+
+/// The key stored for a provider, reading the store at most once per session
+/// and moving a pre-1.0 chat key onto the new account on the way.
+///
+/// A cached answer, "there is no key" included, is the whole answer: every
+/// keychain read on macOS can raise a system password prompt, so a provider
+/// with no key must not re-prompt on every rewrite, and a provider whose new
+/// account answers must never reach for a legacy one. A local row reads
+/// nothing at all.
+///
+/// The move is per account and happens on the first read: the key is copied
+/// onto the provider id and the old entry deleted. A key under both accounts
+/// keeps the new one. A failed copy leaves the old entry where it is, so the
+/// key is never lost between two stores, and a failed delete still answers.
+/// Nothing here, on any path, puts a key in a log line or an error string.
+fn resolve_stored_key(
+    store: &dyn KeyStore,
+    cache: &Mutex<HashMap<String, Option<String>>>,
+    provider: &str,
+) -> Result<Option<String>, String> {
     {
-        let cache = recover_poison(
-            ai.keychain_cache.lock(),
-            "commands::ai::cached_keychain_get",
-        );
-        if let Some(hit) = cache.get(account) {
-            return hit.clone();
+        let hit = recover_poison(cache.lock(), "commands::ai::resolve_stored_key");
+        if let Some(answer) = hit.get(provider) {
+            return Ok(answer.clone());
         }
     }
-    match keychain::get(account) {
-        Ok(found) => {
-            let mut cache = recover_poison(
-                ai.keychain_cache.lock(),
-                "commands::ai::cached_keychain_get",
-            );
-            cache.insert(account.to_string(), found.clone());
-            found
+
+    let remember = |answer: Option<String>| {
+        let mut cache = recover_poison(cache.lock(), "commands::ai::resolve_stored_key");
+        cache.insert(provider.to_string(), answer.clone());
+        answer
+    };
+
+    let Some(legacy) = legacy_account(provider) else {
+        return Ok(remember(None));
+    };
+
+    if let Some(key) = store.get(provider)? {
+        return Ok(remember(Some(key)));
+    }
+
+    let Some(key) = store.get(legacy)? else {
+        return Ok(remember(None));
+    };
+
+    match store.set(provider, &key) {
+        Ok(()) => {
+            if let Err(reason) = store.delete(legacy) {
+                tracing::debug!(error = %reason, "the old key entry could not be removed");
+            }
         }
         Err(reason) => {
-            tracing::debug!(error = %reason, "keychain read failed; falling back to memory");
+            tracing::debug!(error = %reason, "the key could not be moved to its new entry");
+        }
+    }
+    Ok(remember(Some(key)))
+}
+
+/// [`resolve_stored_key`] against this session's store, with a store failure
+/// read as "nothing here" so the caller falls through to the memory map.
+fn cached_store_get(ai: &AiState, account: &str) -> Option<String> {
+    match resolve_stored_key(ai.store.as_ref(), &ai.key_cache, account) {
+        Ok(found) => found,
+        Err(reason) => {
+            tracing::debug!(error = %reason, "key store read failed; falling back to memory");
             None
         }
     }
@@ -211,19 +360,26 @@ fn cached_keychain_get(ai: &AiState, account: &str) -> Option<String> {
 /// Drops the cached answer for an account, after the stored key changes.
 fn invalidate_keychain_cache(ai: &AiState, account: &str) {
     let mut cache = recover_poison(
-        ai.keychain_cache.lock(),
+        ai.key_cache.lock(),
         "commands::ai::invalidate_keychain_cache",
     );
     cache.remove(account);
 }
 
 fn key_state(ai: &AiState, memory: &HashMap<String, String>, account: &str) -> AiKeyState {
-    let hit = cached_keychain_get(ai, account).is_some();
-    compute_key_state(hit, memory, account)
+    match cached_store_get(ai, account) {
+        // A store that dies with the process is the session-only warning the
+        // key row shows, whichever platform put us on one.
+        Some(_) => AiKeyState {
+            is_set: true,
+            memory_only: !ai.store.is_persistent(),
+        },
+        None => compute_key_state(false, memory, account),
+    }
 }
 
 fn resolve_key(ai: &AiState, memory: &HashMap<String, String>, account: &str) -> Option<String> {
-    resolve_key_from(cached_keychain_get(ai, account), memory, account)
+    resolve_key_from(cached_store_get(ai, account), memory, account)
 }
 
 /// Stores a provider key. Prefers the OS keychain; on failure holds the key in
@@ -240,17 +396,17 @@ pub fn ai_set_api_key(
     }
     let mut memory = recover_poison(ai.keys.lock(), "commands::ai::ai_set_api_key");
     invalidate_keychain_cache(&ai, &provider);
-    match keychain::set(&provider, &key) {
+    match ai.store.set(&provider, &key) {
         Ok(()) => {
             memory.remove(&provider);
             Ok(AiKeyState {
                 is_set: true,
-                memory_only: false,
+                memory_only: !ai.store.is_persistent(),
             })
         }
         Err(reason) => {
-            // `reason` is a keychain error; it never contains the key.
-            tracing::warn!(error = %reason, "keychain unavailable; holding key in memory for this session");
+            // `reason` is a store error; it never contains the key.
+            tracing::warn!(error = %reason, "key store unavailable; holding key in memory for this session");
             memory.insert(provider, key);
             Ok(AiKeyState {
                 is_set: true,
@@ -266,8 +422,15 @@ pub fn ai_clear_api_key(ai: State<'_, AiState>, provider: String) -> Result<AiKe
     let mut memory = recover_poison(ai.keys.lock(), "commands::ai::ai_clear_api_key");
     memory.remove(&provider);
     invalidate_keychain_cache(&ai, &provider);
-    if let Err(reason) = keychain::delete(&provider) {
-        tracing::debug!(error = %reason, "keychain delete failed");
+    if let Err(reason) = ai.store.delete(&provider) {
+        tracing::debug!(error = %reason, "key store delete failed");
+    }
+    // A key the old build left behind would otherwise be moved onto the
+    // account by the next read, undoing the clear.
+    if let Some(legacy) = legacy_account(&provider) {
+        if let Err(reason) = ai.store.delete(legacy) {
+            tracing::debug!(error = %reason, "the old key entry could not be removed");
+        }
     }
     Ok(AiKeyState {
         is_set: false,
@@ -1224,7 +1387,7 @@ mod tests {
         let ai = AiState::default();
         // Seed the cache as a successful lookup would.
         {
-            let mut cache = ai.keychain_cache.lock().unwrap();
+            let mut cache = ai.key_cache.lock().unwrap();
             cache.insert("groq".to_string(), Some("k".to_string()));
         }
         let memory = HashMap::new();
@@ -1238,7 +1401,7 @@ mod tests {
     fn a_cached_absence_is_honoured_without_asking_again() {
         let ai = AiState::default();
         {
-            let mut cache = ai.keychain_cache.lock().unwrap();
+            let mut cache = ai.key_cache.lock().unwrap();
             cache.insert("groq".to_string(), None);
         }
         let memory = HashMap::new();
@@ -1250,7 +1413,7 @@ mod tests {
     fn the_memory_fallback_still_wins_when_the_keychain_holds_nothing() {
         let ai = AiState::default();
         {
-            let mut cache = ai.keychain_cache.lock().unwrap();
+            let mut cache = ai.key_cache.lock().unwrap();
             cache.insert("groq".to_string(), None);
         }
         let mut memory = HashMap::new();
@@ -1268,11 +1431,11 @@ mod tests {
     fn changing_a_key_drops_the_cached_answer() {
         let ai = AiState::default();
         {
-            let mut cache = ai.keychain_cache.lock().unwrap();
+            let mut cache = ai.key_cache.lock().unwrap();
             cache.insert("groq".to_string(), Some("old".to_string()));
         }
         invalidate_keychain_cache(&ai, "groq");
-        assert!(!ai.keychain_cache.lock().unwrap().contains_key("groq"));
+        assert!(!ai.key_cache.lock().unwrap().contains_key("groq"));
     }
 
     #[test]
@@ -1337,6 +1500,217 @@ mod tests {
 
         let prepared = prepare_request(&cfg, "polish", "x", None, |_| Some("k".to_string()));
         assert!(prepared.is_ok(), "got: {:?}", prepared.unwrap_err());
+    }
+
+    /// A store that refuses to be asked about a pre-1.0 chat account, so a
+    /// read that should never reach for one fails loudly.
+    struct NoLegacyReads {
+        inner: MemoryKeyStore,
+    }
+
+    impl KeyStore for NoLegacyReads {
+        fn get(&self, account: &str) -> Result<Option<String>, String> {
+            assert!(
+                !account.starts_with("chat:"),
+                "the old entry was read when the new one answered"
+            );
+            self.inner.get(account)
+        }
+
+        fn set(&self, account: &str, key: &str) -> Result<(), String> {
+            self.inner.set(account, key)
+        }
+
+        fn delete(&self, account: &str) -> Result<(), String> {
+            self.inner.delete(account)
+        }
+
+        fn is_persistent(&self) -> bool {
+            false
+        }
+    }
+
+    /// A store whose deletes always fail, for the half-finished move.
+    struct DeletesFail {
+        inner: MemoryKeyStore,
+    }
+
+    impl KeyStore for DeletesFail {
+        fn get(&self, account: &str) -> Result<Option<String>, String> {
+            self.inner.get(account)
+        }
+
+        fn set(&self, account: &str, key: &str) -> Result<(), String> {
+            self.inner.set(account, key)
+        }
+
+        fn delete(&self, _account: &str) -> Result<(), String> {
+            Err("the entry is locked".to_string())
+        }
+
+        fn is_persistent(&self) -> bool {
+            false
+        }
+    }
+
+    fn empty_cache() -> Mutex<HashMap<String, Option<String>>> {
+        Mutex::new(HashMap::new())
+    }
+
+    fn stored(store: &dyn KeyStore, account: &str) -> Option<String> {
+        store.get(account).expect("the store answered")
+    }
+
+    #[test]
+    fn an_anthropic_key_moves_off_the_old_chat_entry() {
+        let store = MemoryKeyStore::default();
+        store.set("chat:anthropic", "sk-ant").expect("seeded");
+
+        let cache = empty_cache();
+        assert_eq!(
+            resolve_stored_key(&store, &cache, "anthropic"),
+            Ok(Some("sk-ant".to_string()))
+        );
+        assert_eq!(stored(&store, "anthropic").as_deref(), Some("sk-ant"));
+        assert_eq!(stored(&store, "chat:anthropic"), None);
+    }
+
+    #[test]
+    fn a_hosted_key_moves_off_the_shared_old_chat_entry() {
+        let store = MemoryKeyStore::default();
+        store
+            .set("chat:openai_compatible", "sk-groq")
+            .expect("seeded");
+
+        let cache = empty_cache();
+        assert_eq!(
+            resolve_stored_key(&store, &cache, "groq"),
+            Ok(Some("sk-groq".to_string()))
+        );
+        assert_eq!(stored(&store, "groq").as_deref(), Some("sk-groq"));
+        assert_eq!(stored(&store, "chat:openai_compatible"), None);
+    }
+
+    #[test]
+    fn a_typed_endpoint_moves_off_the_same_old_chat_entry() {
+        let store = MemoryKeyStore::default();
+        store
+            .set("chat:openai_compatible", "sk-custom")
+            .expect("seeded");
+
+        let cache = empty_cache();
+        assert_eq!(
+            resolve_stored_key(&store, &cache, "custom"),
+            Ok(Some("sk-custom".to_string()))
+        );
+        assert_eq!(stored(&store, "custom").as_deref(), Some("sk-custom"));
+        assert_eq!(stored(&store, "chat:openai_compatible"), None);
+    }
+
+    #[test]
+    fn a_key_under_both_entries_keeps_the_new_one() {
+        let store = MemoryKeyStore::default();
+        store.set("groq", "sk-new").expect("seeded");
+        store
+            .set("chat:openai_compatible", "sk-old")
+            .expect("seeded");
+
+        let cache = empty_cache();
+        assert_eq!(
+            resolve_stored_key(&store, &cache, "groq"),
+            Ok(Some("sk-new".to_string()))
+        );
+        // The old entry is another provider\'s key as often as it is this
+        // one\'s, so a read that did not need it leaves it alone.
+        assert_eq!(
+            stored(&store, "chat:openai_compatible").as_deref(),
+            Some("sk-old")
+        );
+    }
+
+    #[test]
+    fn the_old_entry_is_never_read_when_the_new_one_answers() {
+        let store = NoLegacyReads {
+            inner: MemoryKeyStore::default(),
+        };
+        store.set("groq", "sk-new").expect("seeded");
+
+        let cache = empty_cache();
+        assert_eq!(
+            resolve_stored_key(&store, &cache, "groq"),
+            Ok(Some("sk-new".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_local_provider_never_reads_the_store() {
+        let store = NoLegacyReads {
+            inner: MemoryKeyStore::default(),
+        };
+        // Would panic on a `chat:` read, and answers nothing for a local row
+        // either: a machine that never used AI must see no password prompt.
+        store
+            .set("ollama", "sk-should-not-be-read")
+            .expect("seeded");
+
+        let cache = empty_cache();
+        assert_eq!(resolve_stored_key(&store, &cache, "ollama"), Ok(None));
+        assert_eq!(resolve_stored_key(&store, &cache, "lmstudio"), Ok(None));
+    }
+
+    #[test]
+    fn a_move_that_cannot_delete_the_old_entry_still_answers() {
+        let store = DeletesFail {
+            inner: MemoryKeyStore::default(),
+        };
+        store.set("chat:anthropic", "sk-ant").expect("seeded");
+
+        let cache = empty_cache();
+        assert_eq!(
+            resolve_stored_key(&store, &cache, "anthropic"),
+            Ok(Some("sk-ant".to_string()))
+        );
+        assert_eq!(stored(&store, "anthropic").as_deref(), Some("sk-ant"));
+    }
+
+    #[test]
+    fn a_moved_key_is_answered_from_the_cache_next_time() {
+        let store = MemoryKeyStore::default();
+        store.set("chat:anthropic", "sk-ant").expect("seeded");
+        let cache = empty_cache();
+
+        assert_eq!(
+            resolve_stored_key(&store, &cache, "anthropic"),
+            Ok(Some("sk-ant".to_string()))
+        );
+        // The move already happened, so a second read finds the new entry and
+        // asks the OS nothing.
+        store.delete("anthropic").expect("removed behind the cache");
+        assert_eq!(
+            resolve_stored_key(&store, &cache, "anthropic"),
+            Ok(Some("sk-ant".to_string()))
+        );
+    }
+
+    #[test]
+    fn the_old_entry_names_the_chat_namespace_for_every_hosted_row() {
+        assert_eq!(legacy_account("anthropic"), Some("chat:anthropic"));
+        for id in ["openai", "gemini", "openrouter", "groq", "custom"] {
+            assert_eq!(legacy_account(id), Some("chat:openai_compatible"), "{id}");
+        }
+        for id in ["ollama", "lmstudio"] {
+            assert_eq!(legacy_account(id), None, "{id}");
+        }
+    }
+
+    #[test]
+    fn a_key_in_a_store_that_dies_with_the_session_is_reported_as_such() {
+        let ai = AiState::with_store(Box::new(MemoryKeyStore::default()));
+        ai.store.set("groq", "sk-x").expect("seeded");
+        let memory = HashMap::new();
+        let state = key_state(&ai, &memory, "groq");
+        assert!(state.is_set);
+        assert!(state.memory_only, "a session-only store must say so");
     }
 
     #[test]
