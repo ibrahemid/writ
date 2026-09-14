@@ -1247,12 +1247,66 @@ pub fn ai_providers() -> Vec<ProviderInfo> {
     providers::PROVIDERS.to_vec()
 }
 
+/// Where one model list request is allowed to go.
+#[derive(Debug)]
+struct ListTargets {
+    /// The resolved list endpoint, which decides whether a key is read.
+    list: polish::EndpointTarget,
+    /// The URL the request is made against.
+    list_url: String,
+}
+
+/// Whether the model list may be read at all, and from where.
+///
+/// The list carries the key, so it is a send under ADR-031 rule 2.2 and waits
+/// for Allow exactly as a rewrite does. Both the base URL and the list URL go
+/// through the endpoint guard and the consent check, because the two differ on
+/// one row and a hand-typed base is reachable from both. This is the only
+/// place the list URL is produced, so no caller can reach the network around
+/// the gate.
+fn list_gate(cfg: &AiConfig) -> Result<ListTargets, ModelListError> {
+    let base_url = cfg.effective_base_url();
+    let base = allowed_target(&base_url)?;
+    let list_url =
+        providers::models_url_for(&cfg.provider, &base_url).ok_or(ModelListError::Unreachable)?;
+    let list = allowed_target(&list_url)?;
+
+    for reached in [&base, &list] {
+        if reached.is_hosted && !is_consented(cfg, &reached.host) {
+            return Err(ModelListError::ConsentRequired);
+        }
+    }
+
+    Ok(ListTargets { list, list_url })
+}
+
+/// The gate, then the key, in that order.
+///
+/// Reading a key can raise a system password prompt and puts a credential in
+/// memory, so a list that will not be sent must never reach one: `read_key` is
+/// called only once [`list_gate`] has allowed the request, and not at all for a
+/// local endpoint.
+fn gated_list_key<F>(
+    cfg: &AiConfig,
+    read_key: F,
+) -> Result<(ListTargets, Option<String>), ModelListError>
+where
+    F: FnOnce(&str) -> Option<String>,
+{
+    let targets = list_gate(cfg)?;
+    let api_key = if targets.list.is_hosted {
+        read_key(&cfg.provider)
+    } else {
+        None
+    };
+    Ok((targets, api_key))
+}
+
 /// Reads the model list of the configured connection.
 ///
 /// The list carries the key, so it is a send: a hosted host that has not been
-/// allowed answers `ConsentRequired` and nothing leaves the machine. The
-/// endpoint guard runs on the list URL as well as the base URL, because the
-/// two differ on one row and a hand-typed base is reachable from both.
+/// allowed answers `ConsentRequired` and nothing leaves the machine. Both the
+/// gate and the list URL come from [`list_gate`].
 #[tauri::command]
 pub async fn ai_list_models(app: AppHandle) -> Result<Vec<String>, ModelListError> {
     let cfg = {
@@ -1261,35 +1315,25 @@ pub async fn ai_list_models(app: AppHandle) -> Result<Vec<String>, ModelListErro
         guard.ai.clone()
     };
 
-    let base_url = cfg.effective_base_url();
-    let target = allowed_target(&base_url)?;
-    let list_url =
-        providers::models_url_for(&cfg.provider, &base_url).ok_or(ModelListError::Unreachable)?;
-    let list_target = allowed_target(&list_url)?;
-
-    for reached in [&target, &list_target] {
-        if reached.is_hosted && !is_consented(&cfg, &reached.host) {
-            return Err(ModelListError::ConsentRequired);
-        }
-    }
-
-    let api_key = if list_target.is_hosted {
-        key_for(&app, &cfg.provider)
-    } else {
-        None
-    };
+    let (targets, api_key) = gated_list_key(&cfg, |provider| key_for(&app, provider))?;
 
     let client = build_http_client(MODEL_LIST_TIMEOUT).map_err(|_| ModelListError::Unreachable)?;
-    let ids = fetch_model_ids(&client, &cfg.provider, &list_url, api_key.as_deref()).await;
+    let ids = fetch_model_ids(
+        &client,
+        &cfg.provider,
+        &targets.list_url,
+        api_key.as_deref(),
+    )
+    .await;
     match &ids {
         Ok(ids) => tracing::info!(
-            host = %list_target.host,
+            host = %targets.list.host,
             provider = %cfg.provider,
             count = ids.len(),
             "read the model list"
         ),
         Err(error) => tracing::warn!(
-            host = %list_target.host,
+            host = %targets.list.host,
             provider = %cfg.provider,
             kind = list_error_kind(error),
             "the model list could not be read"
@@ -2505,6 +2549,113 @@ mod tests {
         // The consent key, so the line names what the user would be allowing.
         assert_eq!(status.detail, "api.groq.com");
         assert!(status.models.is_empty());
+    }
+
+    #[test]
+    fn an_unconsented_hosted_list_is_refused() {
+        // Gemini lists from its native path rather than from the base its chat
+        // requests use, so the gate has two URLs to resolve on this row.
+        let gemini = AiConfig {
+            provider: "gemini".to_string(),
+            ..base_cfg()
+        };
+        assert_eq!(
+            list_gate(&gemini).unwrap_err(),
+            ModelListError::ConsentRequired
+        );
+
+        let anthropic = AiConfig {
+            provider: "anthropic".to_string(),
+            ..base_cfg()
+        };
+        assert_eq!(
+            list_gate(&anthropic).unwrap_err(),
+            ModelListError::ConsentRequired
+        );
+    }
+
+    #[test]
+    fn a_consented_hosted_list_names_the_native_url() {
+        let cfg = AiConfig {
+            provider: "gemini".to_string(),
+            consented_hosts: vec!["generativelanguage.googleapis.com".to_string()],
+            ..base_cfg()
+        };
+        let targets = list_gate(&cfg).expect("a consented host passes");
+        assert_eq!(
+            targets.list_url,
+            "https://generativelanguage.googleapis.com/v1beta/models"
+        );
+        assert!(targets.list.is_hosted);
+    }
+
+    #[test]
+    fn a_local_list_needs_no_consent() {
+        let cfg = base_cfg();
+        assert!(cfg.consented_hosts.is_empty());
+        let targets = list_gate(&cfg).expect("a local row reaches nobody");
+        assert_eq!(targets.list_url, "http://localhost:11434/api/tags");
+        assert!(!targets.list.is_hosted);
+    }
+
+    #[test]
+    fn a_hand_typed_remote_http_list_is_refused_however_it_was_consented() {
+        let mut cfg = custom_cfg("http://models.example.com/v1");
+        cfg.consented_hosts = vec!["models.example.com".to_string()];
+        assert_eq!(list_gate(&cfg).unwrap_err(), ModelListError::Unreachable);
+    }
+
+    #[test]
+    fn a_refused_list_never_reads_the_key() {
+        let reads = std::cell::Cell::new(0);
+        let cfg = AiConfig {
+            provider: "anthropic".to_string(),
+            ..base_cfg()
+        };
+
+        let refused = gated_list_key(&cfg, |_| {
+            reads.set(reads.get() + 1);
+            Some("a key".to_string())
+        });
+        assert_eq!(refused.unwrap_err(), ModelListError::ConsentRequired);
+        assert_eq!(
+            reads.get(),
+            0,
+            "the keychain was read for a list that was never sent"
+        );
+
+        let consented = AiConfig {
+            consented_hosts: vec!["api.anthropic.com".to_string()],
+            ..cfg
+        };
+        let (targets, key) = gated_list_key(&consented, |provider| {
+            reads.set(reads.get() + 1);
+            Some(format!("key for {provider}"))
+        })
+        .expect("a consented host passes");
+        assert_eq!(reads.get(), 1);
+        assert_eq!(key.as_deref(), Some("key for anthropic"));
+        assert_eq!(targets.list_url, "https://api.anthropic.com/v1/models");
+    }
+
+    #[test]
+    fn a_local_list_reads_no_key_either() {
+        let reads = std::cell::Cell::new(0);
+        let (_, key) = gated_list_key(&base_cfg(), |_| {
+            reads.set(reads.get() + 1);
+            Some("a key".to_string())
+        })
+        .expect("a local row passes");
+        assert_eq!(reads.get(), 0);
+        assert_eq!(key, None);
+    }
+
+    #[test]
+    fn the_list_and_probe_budgets_are_the_ones_the_record_names() {
+        // ADR-040 section 3: the model list's timeout is 5 seconds.
+        assert_eq!(MODEL_LIST_TIMEOUT, Duration::from_secs(5));
+        // ADR-040 section 4: each knock on a local runtime gets 1 second.
+        assert_eq!(LOCAL_PROBE_TIMEOUT, Duration::from_secs(1));
     }
 
     #[test]

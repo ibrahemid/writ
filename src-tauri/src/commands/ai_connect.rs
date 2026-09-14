@@ -486,6 +486,13 @@ pub fn ai_openrouter_cancel(app: AppHandle) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_connect_flow_waits_five_minutes_for_the_browser() {
+        // ADR-040 section 6: "The flow times out after five minutes", which is
+        // also what the frontend says when it does.
+        assert_eq!(FLOW_BUDGET, Duration::from_secs(300));
+    }
+
     /// A listener on an ephemeral loopback port, and where it is.
     fn bound() -> (TcpListener, SocketAddr) {
         let listener = TcpListener::bind(("127.0.0.1", 0)).expect("a loopback port");
