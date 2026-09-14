@@ -76,7 +76,7 @@ impl std::fmt::Display for ModelListError {
         match self {
             Self::Unreachable => write!(f, "Nothing answered at that address."),
             Self::Timeout => write!(f, "The provider did not answer in time."),
-            Self::Unauthorized => write!(f, "The provider refused the request."),
+            Self::Unauthorized => write!(f, "The provider rejected the request."),
             Self::Status { code } => write!(f, "The provider answered with status {code}."),
             Self::Malformed => write!(f, "The answer was not a model list."),
         }

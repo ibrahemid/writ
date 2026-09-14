@@ -10,12 +10,12 @@
 use std::path::Path;
 
 use writ_core::activity::{Actor, Decision};
-use writ_core::chat::{ChatError, ChatTurn, Provider, Role};
+use writ_core::chat::{ChatError, ChatTurn, Role};
 use writ_core::config::{AiChatConfig, AiConfig};
 use writ_tauri_lib::commands::ai::AiKeyState;
 use writ_tauri_lib::commands::chat::{
     apply_proposal_inner, attached_sizes_in, discard_proposal_inner, endpoint_state_from,
-    key_account, note_file_in, prepare_chat, read_attached_in, ChatState,
+    note_file_in, prepare_chat, read_attached_in, ChatState,
 };
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
@@ -36,13 +36,16 @@ fn no_key() -> AiKeyState {
     }
 }
 
-fn config(base_url: &str, provider: &str) -> AiConfig {
+/// A connection pointed at a hand-typed endpoint, with the pane on. `custom`
+/// is the row whose base URL comes from the file rather than the table.
+fn config(base_url: &str) -> AiConfig {
     AiConfig {
+        provider: "custom".to_string(),
+        base_url: base_url.to_string(),
+        model: "a-model".to_string(),
         chat: AiChatConfig {
             enabled: true,
-            provider: provider.to_string(),
-            base_url: base_url.to_string(),
-            model: "a-model".to_string(),
+            model: String::new(),
         },
         ..AiConfig::default()
     }
@@ -75,7 +78,7 @@ fn log_of(writ: &Path) -> Vec<writ_core::activity::ActivityRecord> {
 
 #[test]
 fn chat_state_reports_where_a_hosted_endpoint_points_and_what_it_needs() {
-    let cfg = config("https://api.example.com/v1", "openai_compatible");
+    let cfg = config("https://api.example.com/v1");
     let state = endpoint_state_from(&cfg, no_key());
     assert!(state.enabled);
     assert_eq!(state.host.as_deref(), Some("api.example.com"));
@@ -87,36 +90,34 @@ fn chat_state_reports_where_a_hosted_endpoint_points_and_what_it_needs() {
 
 #[test]
 fn chat_state_says_a_consented_host_is_consented() {
-    let mut cfg = config("https://api.example.com/v1", "openai_compatible");
+    let mut cfg = config("https://api.example.com/v1");
     cfg.consented_hosts = vec!["api.example.com".to_string()];
     assert!(endpoint_state_from(&cfg, no_key()).is_consented);
 }
 
 #[test]
 fn chat_state_refuses_plaintext_to_a_remote_host() {
-    let cfg = config("http://api.example.com/v1", "openai_compatible");
+    let cfg = config("http://api.example.com/v1");
     let state = endpoint_state_from(&cfg, no_key());
     assert!(state.is_hosted);
     assert!(!state.is_allowed);
 }
 
 #[test]
-fn chat_state_names_the_keychain_account_of_each_provider() {
-    assert_eq!(
-        key_account(&config("https://api.anthropic.com", "anthropic")),
-        Some(Provider::Anthropic.key_account())
-    );
-    assert_eq!(Provider::Anthropic.key_account(), "chat:anthropic");
-    // The rewrite path's account for that provider id would be the bare word,
-    // and the two must never meet in the keychain.
-    assert_ne!(
-        key_account(&config("https://api.anthropic.com", "anthropic")),
-        Some("anthropic")
-    );
-    assert_eq!(
-        key_account(&config("http://localhost:11434/v1", "telepathy")),
-        None
-    );
+fn chat_state_reports_the_connection_and_its_model() {
+    let mut cfg = config("");
+    cfg.provider = "anthropic".to_string();
+    cfg.model = "claude-sonnet-5".to_string();
+
+    // The pane reads the connection, so the row it shows is the row the
+    // rewrite path sends on, and the key behind both is one.
+    let state = endpoint_state_from(&cfg, no_key());
+    assert_eq!(state.provider, "anthropic");
+    assert_eq!(state.host.as_deref(), Some("api.anthropic.com"));
+    assert_eq!(state.model, "claude-sonnet-5");
+
+    cfg.chat.model = "claude-haiku-5".to_string();
+    assert_eq!(endpoint_state_from(&cfg, no_key()).model, "claude-haiku-5");
 }
 
 // --- chat_attached_sizes ----------------------------------------------------
@@ -210,7 +211,7 @@ fn chat_send_carries_the_attached_notes_and_nothing_else() {
     assert_eq!(attached.len(), 1, "one note was named, one was read");
 
     let prepared = prepare_chat(
-        &config("http://localhost:11434/v1", "openai_compatible"),
+        &config("http://localhost:11434/v1"),
         &turn("what does it argue"),
         attached,
         |_| None,
@@ -245,7 +246,7 @@ fn chat_send_refuses_a_path_outside_the_notes_folder() {
 #[test]
 fn chat_send_refuses_an_unconsented_hosted_host_before_the_body_is_built() {
     let error = prepare_chat(
-        &config("https://api.example.com/v1", "openai_compatible"),
+        &config("https://api.example.com/v1"),
         &turn("hello"),
         Vec::new(),
         |_| panic!("the key was read for a host with no consent"),
@@ -261,7 +262,7 @@ fn chat_send_refuses_an_unconsented_hosted_host_before_the_body_is_built() {
 
 #[test]
 fn chat_send_refuses_when_the_switch_is_off() {
-    let mut cfg = config("http://localhost:11434/v1", "openai_compatible");
+    let mut cfg = config("http://localhost:11434/v1");
     cfg.chat.enabled = false;
     assert_eq!(
         prepare_chat(&cfg, &turn("hello"), Vec::new(), |_| None),

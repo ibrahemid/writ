@@ -97,16 +97,17 @@ impl ChatState {
 
 /// Where the chat endpoint points and what it still needs.
 ///
-/// Mirrors [`super::ai::AiEndpointState`] rather than sharing it: the two
-/// surfaces have separate endpoints, and one struct for both would let a
-/// reading of one be rendered for the other.
+/// Mirrors [`super::ai::AiEndpointState`] rather than sharing it: the pane
+/// reads its own switch and may name a model of its own, so the two answers
+/// differ even though the connection behind them is one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ChatEndpointState {
     /// Whether `[ai.chat] enabled` is on.
     pub enabled: bool,
-    /// The configured provider id, whether or not this build speaks it.
+    /// The connection's provider id.
     pub provider: String,
-    /// The configured model id.
+    /// The model chat sends: its own when it names one, the connection's
+    /// otherwise.
     pub model: String,
     /// Resolved host, or `None` when the base URL does not parse.
     pub host: Option<String>,
@@ -161,8 +162,8 @@ pub struct ProposalOutcome {
 pub fn endpoint_state_from(cfg: &AiConfig, key_state: AiKeyState) -> ChatEndpointState {
     let base = ChatEndpointState {
         enabled: cfg.chat.enabled,
-        provider: cfg.chat.provider.clone(),
-        model: cfg.chat.model.clone(),
+        provider: cfg.provider.clone(),
+        model: cfg.chat_model().to_string(),
         host: None,
         host_port: None,
         is_hosted: false,
@@ -170,7 +171,7 @@ pub fn endpoint_state_from(cfg: &AiConfig, key_state: AiKeyState) -> ChatEndpoin
         is_consented: false,
         key_state,
     };
-    match polish::resolve_endpoint(&cfg.chat.base_url) {
+    match polish::resolve_endpoint(&cfg.effective_base_url()) {
         Ok(target) => ChatEndpointState {
             is_consented: !target.is_hosted || super::ai::is_consented(cfg, &target.host),
             host: Some(target.host),
@@ -188,18 +189,10 @@ pub fn endpoint_state_from(cfg: &AiConfig, key_state: AiKeyState) -> ChatEndpoin
 /// A local endpoint needs no key, and every keychain read on macOS can raise a
 /// system password prompt, so the question is not asked for a local one.
 pub fn needs_key_lookup(cfg: &AiConfig) -> bool {
-    match polish::resolve_endpoint(&cfg.chat.base_url) {
+    match polish::resolve_endpoint(&cfg.effective_base_url()) {
         Ok(target) => target.is_hosted,
         Err(_) => false,
     }
-}
-
-/// The account a key for the configured provider is stored under, or `None`
-/// when the provider id is not one this build speaks.
-pub fn key_account(cfg: &AiConfig) -> Option<&'static str> {
-    Provider::parse(&cfg.chat.provider)
-        .ok()
-        .map(Provider::key_account)
 }
 
 fn chat_config(app: &AppHandle) -> AiConfig {
@@ -213,12 +206,13 @@ fn chat_config(app: &AppHandle) -> AiConfig {
 #[tauri::command]
 pub fn chat_state(app: AppHandle) -> ChatEndpointState {
     let cfg = chat_config(&app);
-    let key_state = match (needs_key_lookup(&cfg), key_account(&cfg)) {
-        (true, Some(account)) => super::ai::key_state_for(&app, account),
-        _ => AiKeyState {
+    let key_state = if needs_key_lookup(&cfg) {
+        super::ai::key_state_for(&app, &cfg.provider)
+    } else {
+        AiKeyState {
             is_set: false,
             memory_only: false,
-        },
+        }
     };
     endpoint_state_from(&cfg, key_state)
 }
@@ -254,7 +248,7 @@ pub struct PreparedChat {
 
 /// Validates config and inputs and resolves the request.
 ///
-/// `lookup_key` maps a keychain account to its key and is consulted only for a
+/// `lookup_key` maps a provider id to its key and is consulted only for a
 /// hosted endpoint, after consent, so a refused request reads no credential.
 pub fn prepare_chat(
     cfg: &AiConfig,
@@ -265,7 +259,7 @@ pub fn prepare_chat(
     if !cfg.chat.enabled {
         return Err(ChatError::Disabled);
     }
-    let provider = Provider::parse(&cfg.chat.provider)?;
+    let provider = Provider::from_wire(cfg.wire());
     if turns
         .iter()
         .last()
@@ -276,11 +270,12 @@ pub fn prepare_chat(
 
     // The one authority: the guard here and `ai_consent_host` resolve the host
     // through the same call, so the string checked is the string recorded.
-    let target = polish::resolve_endpoint(&cfg.chat.base_url)?;
+    let base_url = cfg.effective_base_url();
+    let target = polish::resolve_endpoint(&base_url)?;
     if !target.is_allowed {
         return Err(ChatError::EndpointNotAllowed);
     }
-    if cfg.chat.model.trim().is_empty() {
+    if cfg.chat_model().trim().is_empty() {
         return Err(ChatError::ModelRequired);
     }
 
@@ -290,7 +285,7 @@ pub fn prepare_chat(
                 host: target.host.clone(),
             });
         }
-        match lookup_key(provider.key_account()) {
+        match lookup_key(&cfg.provider) {
             Some(key) => Some(key),
             None => {
                 return Err(ChatError::ApiKeyRequired {
@@ -304,13 +299,13 @@ pub fn prepare_chat(
 
     let body = chat::build_request_body(
         provider,
-        &cfg.chat.model,
+        cfg.chat_model(),
         chat::SYSTEM_PROMPT,
         turns,
         &context,
     );
     Ok(PreparedChat {
-        endpoint: chat::endpoint(provider, &cfg.chat.base_url),
+        endpoint: chat::endpoint(provider, &base_url),
         provider,
         body,
         api_key,
@@ -879,7 +874,7 @@ pub fn chat_discard_proposal(app: AppHandle, path: String) {
 /// The host the pane is talking to, which is how the log names it.
 fn chat_host(app: &AppHandle) -> String {
     let cfg = chat_config(app);
-    polish::resolve_endpoint(&cfg.chat.base_url)
+    polish::resolve_endpoint(&cfg.effective_base_url())
         .map(|target| target.host)
         .unwrap_or_default()
 }
@@ -907,13 +902,17 @@ impl From<ChatTurnDto> for ChatTurn {
 mod tests {
     use super::*;
 
+    /// A connection pointed at a hand-typed endpoint, with the pane switched
+    /// on or off. `custom` is the row whose base URL is read from the file, so
+    /// a test can name an endpoint no table row carries.
     fn config(enabled: bool, base_url: &str, model: &str) -> AiConfig {
         AiConfig {
+            provider: "custom".to_string(),
+            base_url: base_url.to_string(),
+            model: model.to_string(),
             chat: writ_core::config::AiChatConfig {
                 enabled,
-                provider: "openai_compatible".to_string(),
-                base_url: base_url.to_string(),
-                model: model.to_string(),
+                model: String::new(),
             },
             ..AiConfig::default()
         }
@@ -1051,13 +1050,25 @@ mod tests {
     }
 
     #[test]
-    fn a_provider_this_build_does_not_speak_is_refused() {
+    fn the_table_decides_the_wire_and_the_endpoint() {
+        let mut cfg = config(true, "", "claude-sonnet-5");
+        cfg.provider = "anthropic".to_string();
+        cfg.consented_hosts = vec!["api.anthropic.com".to_string()];
+        let prepared =
+            prepare_chat(&cfg, &turns(), Vec::new(), |_| Some("k".to_string())).expect("prepared");
+        assert_eq!(prepared.provider, Provider::Anthropic);
+        assert_eq!(prepared.endpoint, "https://api.anthropic.com/v1/messages");
+    }
+
+    #[test]
+    fn the_pane_sends_its_own_model_only_when_it_names_one() {
         let mut cfg = config(true, "http://localhost:11434/v1", "llama3");
-        cfg.chat.provider = "telepathy".to_string();
-        assert_eq!(
-            prepare_chat(&cfg, &turns(), Vec::new(), no_key),
-            Err(ChatError::UnknownProvider("telepathy".to_string()))
-        );
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), no_key).expect("prepared");
+        assert_eq!(prepared.body["model"], "llama3");
+
+        cfg.chat.model = "mistral".to_string();
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), no_key).expect("prepared");
+        assert_eq!(prepared.body["model"], "mistral");
     }
 
     #[test]
@@ -1092,14 +1103,29 @@ mod tests {
     }
 
     #[test]
-    fn each_provider_names_its_own_keychain_account() {
-        let mut cfg = config(true, "https://api.anthropic.com", "claude-opus-5");
-        cfg.chat.provider = "anthropic".to_string();
-        assert_eq!(key_account(&cfg), Some("chat:anthropic"));
-        cfg.chat.provider = "openai_compatible".to_string();
-        assert_eq!(key_account(&cfg), Some("chat:openai_compatible"));
-        cfg.chat.provider = "telepathy".to_string();
-        assert_eq!(key_account(&cfg), None);
+    fn the_key_is_read_under_the_connection_s_provider_id() {
+        let mut cfg = config(true, "", "llama-3.3-70b-versatile");
+        cfg.provider = "groq".to_string();
+        cfg.consented_hosts = vec!["api.groq.com".to_string()];
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), |account| {
+            assert_eq!(account, "groq", "the chat read another provider's key");
+            Some("secret".to_string())
+        })
+        .expect("prepared");
+        assert_eq!(prepared.api_key.as_deref(), Some("secret"));
+        // The pane and the rewrite path now share one account, so the state
+        // the settings row reports is the one the send reads.
+        assert_eq!(
+            endpoint_state_from(
+                &cfg,
+                super::AiKeyState {
+                    is_set: true,
+                    memory_only: false,
+                }
+            )
+            .provider,
+            "groq"
+        );
     }
 }
 

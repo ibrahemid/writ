@@ -62,10 +62,10 @@ pub(crate) fn key_state_for(app: &AppHandle, account: &str) -> AiKeyState {
 /// [`AppState`] so the large app initializer stays untouched.
 #[derive(Default)]
 pub struct AiState {
-    /// In-memory keys, keyed by preset, used only when the OS keychain is
+    /// In-memory keys, keyed by provider id, used only when the OS keychain is
     /// unavailable or access was denied. Never persisted.
     keys: Mutex<HashMap<String, String>>,
-    /// What the keychain answered for a preset this session: `Some(key)` when
+    /// What the keychain answered for a provider this session: `Some(key)` when
     /// one is stored, `None` when the lookup succeeded and found nothing.
     ///
     /// Every keychain read on macOS can raise a system password prompt, and an
@@ -79,11 +79,11 @@ pub struct AiState {
     tasks: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
 
-/// Whether a key is stored for a preset, and whether it is confined to memory
+/// Whether a key is stored for a provider, and whether it is confined to memory
 /// for this session (keychain unavailable). Surfaced so the UI can warn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct AiKeyState {
-    /// A key exists for this preset.
+    /// A key exists for this provider.
     pub is_set: bool,
     /// The key lives only in memory this session; it will be gone on restart.
     pub memory_only: bool,
@@ -99,7 +99,7 @@ mod keychain {
     use keyring::{Entry, Error};
 
     /// Keychain service name under which provider keys are stored. The account
-    /// is the preset id, so switching presets keeps independent keys.
+    /// is the provider id, so switching providers keeps independent keys.
     const KEYCHAIN_SERVICE: &str = "com.writ.ai";
 
     fn entry(account: &str) -> Result<Entry, String> {
@@ -147,14 +147,14 @@ mod keychain {
 fn compute_key_state(
     keychain_hit: bool,
     memory: &HashMap<String, String>,
-    preset: &str,
+    account: &str,
 ) -> AiKeyState {
     if keychain_hit {
         AiKeyState {
             is_set: true,
             memory_only: false,
         }
-    } else if memory.contains_key(preset) {
+    } else if memory.contains_key(account) {
         AiKeyState {
             is_set: true,
             memory_only: true,
@@ -171,34 +171,34 @@ fn compute_key_state(
 fn resolve_key_from(
     keychain_value: Option<String>,
     memory: &HashMap<String, String>,
-    preset: &str,
+    account: &str,
 ) -> Option<String> {
-    keychain_value.or_else(|| memory.get(preset).cloned())
+    keychain_value.or_else(|| memory.get(account).cloned())
 }
 
-/// Reads the keychain at most once per preset per session.
+/// Reads the keychain at most once per account per session.
 ///
 /// A miss consults the OS (which may prompt) and records the answer, including
-/// "there is no key", so a preset with no key does not re-prompt on every
+/// "there is no key", so a provider with no key does not re-prompt on every
 /// rewrite. A keychain *error* is not cached: it means access was denied or the
 /// store was unavailable, and the next attempt should be free to succeed.
-fn cached_keychain_get(ai: &AiState, preset: &str) -> Option<String> {
+fn cached_keychain_get(ai: &AiState, account: &str) -> Option<String> {
     {
         let cache = recover_poison(
             ai.keychain_cache.lock(),
             "commands::ai::cached_keychain_get",
         );
-        if let Some(hit) = cache.get(preset) {
+        if let Some(hit) = cache.get(account) {
             return hit.clone();
         }
     }
-    match keychain::get(preset) {
+    match keychain::get(account) {
         Ok(found) => {
             let mut cache = recover_poison(
                 ai.keychain_cache.lock(),
                 "commands::ai::cached_keychain_get",
             );
-            cache.insert(preset.to_string(), found.clone());
+            cache.insert(account.to_string(), found.clone());
             found
         }
         Err(reason) => {
@@ -208,22 +208,22 @@ fn cached_keychain_get(ai: &AiState, preset: &str) -> Option<String> {
     }
 }
 
-/// Drops the cached answer for a preset, after the stored key changes.
-fn invalidate_keychain_cache(ai: &AiState, preset: &str) {
+/// Drops the cached answer for an account, after the stored key changes.
+fn invalidate_keychain_cache(ai: &AiState, account: &str) {
     let mut cache = recover_poison(
         ai.keychain_cache.lock(),
         "commands::ai::invalidate_keychain_cache",
     );
-    cache.remove(preset);
+    cache.remove(account);
 }
 
-fn key_state(ai: &AiState, memory: &HashMap<String, String>, preset: &str) -> AiKeyState {
-    let hit = cached_keychain_get(ai, preset).is_some();
-    compute_key_state(hit, memory, preset)
+fn key_state(ai: &AiState, memory: &HashMap<String, String>, account: &str) -> AiKeyState {
+    let hit = cached_keychain_get(ai, account).is_some();
+    compute_key_state(hit, memory, account)
 }
 
-fn resolve_key(ai: &AiState, memory: &HashMap<String, String>, preset: &str) -> Option<String> {
-    resolve_key_from(cached_keychain_get(ai, preset), memory, preset)
+fn resolve_key(ai: &AiState, memory: &HashMap<String, String>, account: &str) -> Option<String> {
+    resolve_key_from(cached_keychain_get(ai, account), memory, account)
 }
 
 /// Stores a provider key. Prefers the OS keychain; on failure holds the key in
@@ -232,17 +232,17 @@ fn resolve_key(ai: &AiState, memory: &HashMap<String, String>, preset: &str) -> 
 #[tauri::command]
 pub fn ai_set_api_key(
     ai: State<'_, AiState>,
-    preset: String,
+    provider: String,
     key: String,
 ) -> Result<AiKeyState, String> {
     if key.is_empty() {
         return Err("The API key is empty.".to_string());
     }
     let mut memory = recover_poison(ai.keys.lock(), "commands::ai::ai_set_api_key");
-    invalidate_keychain_cache(&ai, &preset);
-    match keychain::set(&preset, &key) {
+    invalidate_keychain_cache(&ai, &provider);
+    match keychain::set(&provider, &key) {
         Ok(()) => {
-            memory.remove(&preset);
+            memory.remove(&provider);
             Ok(AiKeyState {
                 is_set: true,
                 memory_only: false,
@@ -251,7 +251,7 @@ pub fn ai_set_api_key(
         Err(reason) => {
             // `reason` is a keychain error; it never contains the key.
             tracing::warn!(error = %reason, "keychain unavailable; holding key in memory for this session");
-            memory.insert(preset, key);
+            memory.insert(provider, key);
             Ok(AiKeyState {
                 is_set: true,
                 memory_only: true,
@@ -262,11 +262,11 @@ pub fn ai_set_api_key(
 
 /// Removes a provider key from both the keychain and memory.
 #[tauri::command]
-pub fn ai_clear_api_key(ai: State<'_, AiState>, preset: String) -> Result<AiKeyState, String> {
+pub fn ai_clear_api_key(ai: State<'_, AiState>, provider: String) -> Result<AiKeyState, String> {
     let mut memory = recover_poison(ai.keys.lock(), "commands::ai::ai_clear_api_key");
-    memory.remove(&preset);
-    invalidate_keychain_cache(&ai, &preset);
-    if let Err(reason) = keychain::delete(&preset) {
+    memory.remove(&provider);
+    invalidate_keychain_cache(&ai, &provider);
+    if let Err(reason) = keychain::delete(&provider) {
         tracing::debug!(error = %reason, "keychain delete failed");
     }
     Ok(AiKeyState {
@@ -275,11 +275,11 @@ pub fn ai_clear_api_key(ai: State<'_, AiState>, preset: String) -> Result<AiKeyS
     })
 }
 
-/// Reports whether a key is set for a preset, without returning it.
+/// Reports whether a key is set for a provider, without returning it.
 #[tauri::command]
-pub fn ai_has_api_key(ai: State<'_, AiState>, preset: String) -> Result<AiKeyState, String> {
+pub fn ai_has_api_key(ai: State<'_, AiState>, provider: String) -> Result<AiKeyState, String> {
     let memory = recover_poison(ai.keys.lock(), "commands::ai::ai_has_api_key");
-    Ok(key_state(&ai, &memory, &preset))
+    Ok(key_state(&ai, &memory, &provider))
 }
 
 // --- Consent ---------------------------------------------------------------
@@ -301,15 +301,17 @@ pub struct AiEndpointState {
     pub is_allowed: bool,
     /// The send notice has been accepted for this exact host.
     pub is_consented: bool,
-    /// Whether a key is stored for the current preset, and where it lives.
+    /// Whether a key is stored for the current provider, and where it lives.
     pub key_state: AiKeyState,
+    /// The connection's provider id, so the UI names the row it is reporting.
+    pub provider: String,
 }
 
 /// Whether answering "is a key set?" for this config needs the OS keychain at
 /// all. A local endpoint never uses a key, so asking would raise a system
 /// password prompt to compute a value nothing reads.
 fn needs_key_lookup(cfg: &AiConfig) -> bool {
-    polish::resolve_endpoint(&cfg.base_url)
+    polish::resolve_endpoint(&cfg.effective_base_url())
         .map(|t| t.is_hosted)
         .unwrap_or(false)
 }
@@ -317,7 +319,8 @@ fn needs_key_lookup(cfg: &AiConfig) -> bool {
 /// Builds the endpoint state for `cfg`. Pure over its key lookup so the
 /// consent/key matrix is testable without a keychain.
 fn endpoint_state_from(cfg: &AiConfig, key_state: AiKeyState) -> AiEndpointState {
-    match polish::resolve_endpoint(&cfg.base_url) {
+    let provider = cfg.provider.clone();
+    match polish::resolve_endpoint(&cfg.effective_base_url()) {
         Ok(target) => AiEndpointState {
             is_consented: !target.is_hosted || is_consented(cfg, &target.host),
             host: Some(target.host),
@@ -325,6 +328,7 @@ fn endpoint_state_from(cfg: &AiConfig, key_state: AiKeyState) -> AiEndpointState
             is_hosted: target.is_hosted,
             is_allowed: target.is_allowed,
             key_state,
+            provider,
         },
         Err(_) => AiEndpointState {
             host: None,
@@ -333,6 +337,7 @@ fn endpoint_state_from(cfg: &AiConfig, key_state: AiKeyState) -> AiEndpointState
             is_allowed: false,
             is_consented: false,
             key_state,
+            provider,
         },
     }
 }
@@ -352,7 +357,7 @@ pub fn ai_endpoint_state(app: AppHandle) -> Result<AiEndpointState, String> {
     let key_state = if needs_key_lookup(&cfg) {
         let ai = app.state::<AiState>();
         let memory = recover_poison(ai.keys.lock(), "commands::ai::ai_endpoint_state");
-        key_state(&ai, &memory, &cfg.preset)
+        key_state(&ai, &memory, &cfg.provider)
     } else {
         AiKeyState {
             is_set: false,
@@ -362,58 +367,24 @@ pub fn ai_endpoint_state(app: AppHandle) -> Result<AiEndpointState, String> {
     Ok(endpoint_state_from(&cfg, key_state))
 }
 
-/// Which endpoint a consent is being granted for.
+/// Records the send notice for the host the connection reaches.
 ///
-/// Consent is per host, and the two surfaces have separate base URLs, so the
-/// caller says which one it is asking about. The record itself is one list
-/// (`ai.consented_hosts`): a host consented to from either surface is
-/// consented to for both, and consenting to one host never covers another
-/// (ADR-031 rule 6.4).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConsentSurface {
-    /// The rewrite endpoint (`ai.base_url`).
-    Rewrite,
-    /// The chat endpoint (`ai.chat.base_url`).
-    Chat,
-}
-
-impl ConsentSurface {
-    /// Reads the wire id. Anything unrecognised is the rewrite endpoint, which
-    /// is the surface that shipped first and the one a caller sending nothing
-    /// means.
-    pub fn parse(id: Option<&str>) -> Self {
-        match id {
-            Some("chat") => Self::Chat,
-            _ => Self::Rewrite,
-        }
-    }
-
-    /// The base URL this surface sends to.
-    pub fn base_url(self, cfg: &AiConfig) -> &str {
-        match self {
-            Self::Rewrite => &cfg.base_url,
-            Self::Chat => &cfg.chat.base_url,
-        }
-    }
-}
-
-/// Records the send notice for the host `surface` is configured to reach.
-///
-/// The host is resolved here rather than supplied by the caller, so consent is
-/// always stored under the exact string the guard later checks — a
-/// client-computed host could never drift out of agreement with the guard.
-/// Refuses a local or disallowed endpoint: there is nothing to consent to.
+/// Rewriting and the chat share one connection, so there is one host to
+/// consent to and the caller names nothing. The host is resolved here rather
+/// than supplied by the caller, so consent is always stored under the exact
+/// string the guard later checks — a client-computed host could never drift
+/// out of agreement with the guard. Refuses a local or disallowed endpoint:
+/// there is nothing to consent to.
 #[tauri::command]
-pub fn ai_consent_host(app: AppHandle, surface: Option<String>) -> Result<AiEndpointState, String> {
+pub fn ai_consent_host(app: AppHandle) -> Result<AiEndpointState, String> {
     let state = app.state::<AppState>();
-    let surface = ConsentSurface::parse(surface.as_deref());
     let mut config = {
         let guard = recover_poison(state.config.lock(), "commands::ai::ai_consent_host");
         guard.clone()
     };
 
     let target =
-        polish::resolve_endpoint(surface.base_url(&config.ai)).map_err(|e| e.to_string())?;
+        polish::resolve_endpoint(&config.ai.effective_base_url()).map_err(|e| e.to_string())?;
     if !target.is_allowed {
         return Err(PolishError::EndpointNotAllowed.to_string());
     }
@@ -445,7 +416,7 @@ pub fn ai_consent_host(app: AppHandle, surface: Option<String>) -> Result<AiEndp
         let ai = app.state::<AiState>();
         let memory = recover_poison(ai.keys.lock(), "commands::ai::ai_consent_host");
         // Reached only for a hosted endpoint, which does need a key.
-        key_state(&ai, &memory, &config.ai.preset)
+        key_state(&ai, &memory, &config.ai.provider)
     };
     Ok(endpoint_state_from(&config.ai, key_state))
 }
@@ -463,8 +434,8 @@ struct PreparedRequest {
 }
 
 /// Validates config + inputs and resolves the request. `lookup_key` maps a
-/// preset to its key (keychain or memory); it is only consulted for hosted
-/// endpoints. Errors carry a plain, secret-free message for the UI.
+/// provider id to its key (keychain or memory); it is only consulted for
+/// hosted endpoints. Errors carry a plain, secret-free message for the UI.
 fn prepare_request(
     cfg: &AiConfig,
     action_id: &str,
@@ -472,7 +443,7 @@ fn prepare_request(
     custom_instruction: Option<String>,
     lookup_key: impl FnOnce(&str) -> Option<String>,
 ) -> Result<PreparedRequest, PolishError> {
-    if !cfg.enabled {
+    if !cfg.rewrite.enabled {
         return Err(PolishError::Disabled);
     }
 
@@ -482,7 +453,8 @@ fn prepare_request(
     // The one authority: the guard below and `ai_consent_host` resolve the host
     // through the same call, so the string checked here is always the string
     // recorded as consent.
-    let target = polish::resolve_endpoint(&cfg.base_url)?;
+    let base_url = cfg.effective_base_url();
+    let target = polish::resolve_endpoint(&base_url)?;
     if !target.is_allowed {
         return Err(PolishError::EndpointNotAllowed);
     }
@@ -497,7 +469,7 @@ fn prepare_request(
                 host: target.host.clone(),
             });
         }
-        match lookup_key(&cfg.preset) {
+        match lookup_key(&cfg.provider) {
             Some(k) => Some(k),
             None => {
                 return Err(PolishError::ApiKeyRequired {
@@ -509,7 +481,7 @@ fn prepare_request(
         None
     };
 
-    let base = cfg.base_url.trim().trim_end_matches('/');
+    let base = base_url.trim().trim_end_matches('/');
     let endpoint = format!("{base}/chat/completions");
     let body = serde_json::json!({
         "model": cfg.model.trim(),
@@ -828,7 +800,7 @@ pub struct AiConnectionStatus {
     pub model_listed: Option<bool>,
     /// One of `ok`, `model_missing`, `unauthorized`, `server_error`, `refused`,
     /// `timeout`, `error`, or one of the three decided before any request is
-    /// made: `invalid_url`, `disabled`, `consent_required`.
+    /// made: `invalid_url`, `consent_required`, `key_required`.
     pub kind: String,
     /// Sanitized fragment: host:port, a status code, or empty.
     pub detail: String,
@@ -949,15 +921,13 @@ async fn run_connection_check(
 /// Whether the probe may contact `target`.
 ///
 /// The probe carries the API key, so it is a request to the provider like any
-/// other and passes the same two gates [`prepare_request`] applies before text
-/// is sent: the feature must be on, and the host must be consented to. A local
-/// endpoint reaches nobody and stays ungated.
+/// other and passes the gate [`prepare_request`] applies before text is sent:
+/// the host must be consented to. The connection is checked from the settings
+/// section whether or not either feature is switched on, so no feature switch
+/// is read here. A local endpoint reaches nobody and stays ungated.
 fn probe_gate(cfg: &AiConfig, target: &polish::EndpointTarget) -> Result<(), PolishError> {
     if !target.is_hosted {
         return Ok(());
-    }
-    if !cfg.enabled {
-        return Err(PolishError::Disabled);
     }
     if !is_consented(cfg, &target.host) {
         return Err(PolishError::ConsentRequired {
@@ -974,7 +944,6 @@ fn probe_gate(cfg: &AiConfig, target: &polish::EndpointTarget) -> Result<(), Pol
 /// pre-request state rather than as a connection failure.
 fn blocked_probe_status(err: &PolishError, host: &str) -> AiConnectionStatus {
     let kind = match err {
-        PolishError::Disabled => "disabled",
         PolishError::ConsentRequired { .. } => "consent_required",
         _ => "error",
     };
@@ -995,7 +964,8 @@ pub async fn ai_check_connection(app: AppHandle) -> Result<AiConnectionStatus, S
 
     // Same resolver as the rewrite guard and the consent recorder — the probe
     // must never disagree with them about where the endpoint points.
-    let target = match polish::resolve_endpoint(&cfg.base_url) {
+    let base_url = cfg.effective_base_url();
+    let target = match polish::resolve_endpoint(&base_url) {
         Ok(t) if t.is_allowed => t,
         _ => {
             return Ok(AiConnectionStatus::new(
@@ -1017,12 +987,12 @@ pub async fn ai_check_connection(app: AppHandle) -> Result<AiConnectionStatus, S
     let api_key = if target.is_hosted {
         let ai = app.state::<AiState>();
         let memory = recover_poison(ai.keys.lock(), "commands::ai::ai_check_connection");
-        resolve_key(&ai, &memory, &cfg.preset)
+        resolve_key(&ai, &memory, &cfg.provider)
     } else {
         None
     };
 
-    let base = cfg.base_url.trim().trim_end_matches('/');
+    let base = base_url.trim().trim_end_matches('/');
     let endpoint = format!("{base}/models");
     let client = match build_probe_client() {
         Ok(c) => c,
@@ -1048,12 +1018,22 @@ mod tests {
 
     fn base_cfg() -> AiConfig {
         AiConfig {
-            enabled: true,
-            preset: "ollama".to_string(),
-            base_url: "http://localhost:11434/v1".to_string(),
+            provider: "ollama".to_string(),
+            base_url: String::new(),
             model: "llama3".to_string(),
             consented_hosts: Vec::new(),
+            rewrite: writ_core::config::AiRewriteConfig { enabled: true },
             chat: writ_core::config::AiChatConfig::default(),
+        }
+    }
+
+    /// A connection pointed at a hand-typed endpoint, for the guard tests that
+    /// need a URL no table row carries.
+    fn custom_cfg(base_url: &str) -> AiConfig {
+        AiConfig {
+            provider: "custom".to_string(),
+            base_url: base_url.to_string(),
+            ..base_cfg()
         }
     }
 
@@ -1117,23 +1097,21 @@ mod tests {
     #[test]
     fn prepare_rejects_disabled() {
         let mut cfg = base_cfg();
-        cfg.enabled = false;
+        cfg.rewrite.enabled = false;
         let err = prepare_request(&cfg, "proofread", "x", None, |_| None).unwrap_err();
         assert_eq!(err, PolishError::Disabled);
     }
 
     #[test]
     fn prepare_rejects_http_to_remote_host() {
-        let mut cfg = base_cfg();
-        cfg.base_url = "http://api.groq.com/openai/v1".to_string();
+        let cfg = custom_cfg("http://api.groq.com/openai/v1");
         let err = prepare_request(&cfg, "proofread", "x", None, |_| None).unwrap_err();
         assert_eq!(err, PolishError::EndpointNotAllowed);
     }
 
     #[test]
     fn prepare_rejects_substring_bypass_host() {
-        let mut cfg = base_cfg();
-        cfg.base_url = "http://localhost.evil.com/v1".to_string();
+        let cfg = custom_cfg("http://localhost.evil.com/v1");
         let err = prepare_request(&cfg, "proofread", "x", None, |_| None).unwrap_err();
         assert_eq!(err, PolishError::EndpointNotAllowed);
     }
@@ -1161,8 +1139,7 @@ mod tests {
     #[test]
     fn prepare_hosted_requires_consent_then_key() {
         let mut cfg = base_cfg();
-        cfg.preset = "groq".to_string();
-        cfg.base_url = "https://api.groq.com/openai/v1".to_string();
+        cfg.provider = "groq".to_string();
 
         let no_consent = prepare_request(&cfg, "polish", "x", None, |_| Some("k".to_string()));
         assert_eq!(
@@ -1216,19 +1193,34 @@ mod tests {
     #[test]
     fn a_hosted_endpoint_needs_the_keychain() {
         let mut cfg = base_cfg();
-        cfg.base_url = "https://api.deepseek.com/v1".to_string();
+        cfg.provider = "deepseek".to_string();
         assert!(needs_key_lookup(&cfg));
     }
 
     #[test]
     fn an_unparseable_url_needs_no_keychain_lookup() {
-        let mut cfg = base_cfg();
-        cfg.base_url = "not a url".to_string();
-        assert!(!needs_key_lookup(&cfg));
+        assert!(!needs_key_lookup(&custom_cfg("not a url")));
     }
 
     #[test]
-    fn the_keychain_is_read_once_per_preset_then_served_from_cache() {
+    fn the_table_decides_where_a_request_goes() {
+        // A base URL left over from an older file is read for `custom` only,
+        // so a stale line cannot redirect a provider the table knows.
+        let mut cfg = base_cfg();
+        cfg.provider = "groq".to_string();
+        cfg.base_url = "http://elsewhere.example".to_string();
+        let prepared =
+            prepare_request(&cfg, "polish", "x", None, |_| Some("k".to_string())).unwrap_err();
+        assert_eq!(
+            prepared,
+            PolishError::ConsentRequired {
+                host: "api.groq.com".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn the_keychain_is_read_once_per_account_then_served_from_cache() {
         let ai = AiState::default();
         // Seed the cache as a successful lookup would.
         {
@@ -1286,8 +1278,7 @@ mod tests {
     #[test]
     fn endpoint_state_reports_consent_and_key_for_a_hosted_provider() {
         let mut cfg = base_cfg();
-        cfg.preset = "deepseek".to_string();
-        cfg.base_url = "https://api.deepseek.com/v1".to_string();
+        cfg.provider = "deepseek".to_string();
         let no_key = AiKeyState {
             is_set: false,
             memory_only: false,
@@ -1296,6 +1287,7 @@ mod tests {
         // The operator's reported state: hosted, allowed, no consent recorded.
         let state = endpoint_state_from(&cfg, no_key);
         assert_eq!(state.host.as_deref(), Some("api.deepseek.com"));
+        assert_eq!(state.provider, "deepseek");
         assert!(state.is_hosted);
         assert!(state.is_allowed);
         assert!(!state.is_consented);
@@ -1321,8 +1313,7 @@ mod tests {
 
     #[test]
     fn endpoint_state_survives_an_unparseable_url() {
-        let mut cfg = base_cfg();
-        cfg.base_url = "not a url".to_string();
+        let cfg = custom_cfg("not a url");
         let state = endpoint_state_from(
             &cfg,
             AiKeyState {
@@ -1339,11 +1330,9 @@ mod tests {
     fn consent_is_recorded_under_the_host_the_guard_checks() {
         // The whole point of resolving server-side: whatever `ai_consent_host`
         // would store must satisfy `prepare_request` on the very next call.
-        let mut cfg = base_cfg();
-        cfg.preset = "deepseek".to_string();
-        cfg.base_url = "  https://API.DeepSeek.com/v1/  ".to_string();
+        let mut cfg = custom_cfg("  https://API.DeepSeek.com/v1/  ");
 
-        let target = polish::resolve_endpoint(&cfg.base_url).unwrap();
+        let target = polish::resolve_endpoint(&cfg.effective_base_url()).unwrap();
         cfg.consented_hosts = vec![target.host];
 
         let prepared = prepare_request(&cfg, "polish", "x", None, |_| Some("k".to_string()));
@@ -1420,10 +1409,7 @@ mod tests {
     }
 
     fn run_against(base_url: String, cancel: Arc<AtomicBool>) -> Vec<String> {
-        let cfg = AiConfig {
-            base_url,
-            ..base_cfg()
-        };
+        let cfg = custom_cfg(&base_url);
         let prepared = prepare_request(&cfg, "proofread", "hello", None, |_| None).unwrap();
         let events = Arc::new(Mutex::new(Vec::new()));
         let events_task = events.clone();
@@ -1524,14 +1510,13 @@ mod tests {
     }
 
     fn gate_for(cfg: &AiConfig) -> Result<(), PolishError> {
-        let target = polish::resolve_endpoint(&cfg.base_url).unwrap();
+        let target = polish::resolve_endpoint(&cfg.effective_base_url()).unwrap();
         probe_gate(cfg, &target)
     }
 
     fn hosted_cfg() -> AiConfig {
         AiConfig {
-            preset: "groq".to_string(),
-            base_url: "https://api.groq.com/openai/v1".to_string(),
+            provider: "groq".to_string(),
             ..base_cfg()
         }
     }
@@ -1565,11 +1550,14 @@ mod tests {
     }
 
     #[test]
-    fn hosted_probe_is_rejected_while_rewriting_is_off() {
+    fn a_consented_probe_runs_with_both_features_off() {
+        // The connection is checked from the settings section before either
+        // feature is switched on, so no switch gates the check.
         let mut cfg = hosted_cfg();
-        cfg.enabled = false;
+        cfg.rewrite.enabled = false;
+        cfg.chat.enabled = false;
         cfg.consented_hosts = vec!["api.groq.com".to_string()];
-        assert_eq!(gate_for(&cfg).unwrap_err(), PolishError::Disabled);
+        assert_eq!(gate_for(&cfg), Ok(()));
     }
 
     #[test]
@@ -1583,11 +1571,6 @@ mod tests {
         // The consent key, so the line names what the user would be allowing.
         assert_eq!(status.detail, "api.groq.com");
         assert!(status.models.is_empty());
-
-        assert_eq!(
-            blocked_probe_status(&PolishError::Disabled, "api.groq.com").kind,
-            "disabled"
-        );
     }
 
     #[test]
@@ -1595,7 +1578,7 @@ mod tests {
         let mut cfg = base_cfg();
         assert!(cfg.consented_hosts.is_empty());
         assert_eq!(gate_for(&cfg), Ok(()));
-        cfg.enabled = false;
+        cfg.rewrite.enabled = false;
         assert_eq!(gate_for(&cfg), Ok(()));
     }
 
