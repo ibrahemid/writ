@@ -5,7 +5,7 @@
 //! configs remain valid and new fields can be introduced without
 //! breaking existing user files.
 
-/// Opt-in rewrite configuration (`[ai]`).
+/// The AI connection and its two feature switches (`[ai]`).
 pub mod ai;
 /// Keybinding conflict reporting types.
 pub mod keybinding;
@@ -18,7 +18,7 @@ pub mod preview;
 /// Spell-check configuration (`[spelling]`).
 pub mod spelling;
 
-pub use ai::{AiChatConfig, AiConfig};
+pub use ai::{AiChatConfig, AiConfig, AiConfigOnDisk, AiRewriteConfig};
 pub use mcp::{ClientApproval, McpConfig};
 pub use notes::NotesConfig;
 pub use preview::{DefaultLayout, PreviewConfig};
@@ -726,7 +726,7 @@ pub struct WritConfig {
     /// Auto-update configuration.
     #[serde(default)]
     pub updater: UpdaterConfig,
-    /// Opt-in rewrite configuration.
+    /// The AI connection and its two feature switches.
     #[serde(default)]
     pub ai: AiConfig,
     /// MCP server configuration.
@@ -950,17 +950,17 @@ mod tests {
     #[test]
     fn missing_ai_section_defaults_to_off() {
         let config: WritConfig = toml::from_str("").unwrap();
-        assert!(!config.ai.enabled);
-        assert_eq!(config.ai.preset, "ollama");
+        assert!(!config.ai.rewrite.enabled);
+        assert!(!config.ai.chat.enabled);
+        assert_eq!(config.ai.provider, "ollama");
         assert!(config.ai.consented_hosts.is_empty());
     }
 
     #[test]
     fn ai_section_round_trips_through_toml() {
         let mut config = WritConfig::default();
-        config.ai.enabled = true;
-        config.ai.preset = "deepseek".to_string();
-        config.ai.base_url = "https://api.deepseek.com/v1".to_string();
+        config.ai.rewrite.enabled = true;
+        config.ai.provider = "deepseek".to_string();
         config.ai.model = "deepseek-chat".to_string();
         config.ai.consented_hosts = vec!["api.deepseek.com".to_string()];
 
