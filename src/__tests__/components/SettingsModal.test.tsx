@@ -45,6 +45,12 @@ const mocks = vi.hoisted(() => ({
   requestExternalReload: vi.fn(),
   aiEndpointState: vi.fn(),
   aiConsentHost: vi.fn(),
+  aiProviders: vi.fn(),
+  aiListModels: vi.fn(),
+  aiProbeLocal: vi.fn(),
+  aiOpenrouterConnect: vi.fn(),
+  aiOpenrouterCancel: vi.fn(),
+  openExternalUrl: vi.fn().mockResolvedValue(undefined),
   notesFolder: vi.fn(),
   notesLoadFolder: vi.fn(),
   notesShowInFileManager: vi.fn(),
@@ -76,10 +82,64 @@ function hostedEndpoint(overrides: Record<string, unknown> = {}) {
     is_hosted: true,
     is_allowed: true,
     is_consented: false,
+    provider: "deepseek",
     key_state: { is_set: true, memory_only: false },
     ...overrides,
   };
 }
+
+/** The provider table, as the AI section reads it (ADR-040 section 2). */
+function providerRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "ollama",
+    label: "Ollama",
+    group: "local",
+    wire: "openai",
+    base_url: "http://localhost:11434/v1",
+    models_url: "http://localhost:11434/api/tags",
+    key_page_url: null,
+    default_model: "",
+    needs_key: false,
+    supports_connect: false,
+    probe_port: 11434,
+    ...overrides,
+  };
+}
+
+const TEST_PROVIDERS = [
+  providerRow(),
+  providerRow({ id: "lmstudio", label: "LM Studio", probe_port: 1234 }),
+  providerRow({
+    id: "deepseek",
+    label: "DeepSeek",
+    group: "hosted",
+    base_url: "https://api.deepseek.com",
+    key_page_url: "https://platform.deepseek.com/api_keys",
+    default_model: "deepseek-chat",
+    needs_key: true,
+    probe_port: null,
+  }),
+  providerRow({
+    id: "openrouter",
+    label: "OpenRouter",
+    group: "hosted",
+    base_url: "https://openrouter.ai/api/v1",
+    key_page_url: "https://openrouter.ai/settings/keys",
+    default_model: "meta-llama/llama-3.3-70b-instruct:free",
+    needs_key: true,
+    supports_connect: true,
+    probe_port: null,
+  }),
+  providerRow({
+    id: "custom",
+    label: "Custom (OpenAI-compatible)",
+    group: "custom",
+    base_url: "",
+    models_url: "",
+    needs_key: false,
+    probe_port: null,
+  }),
+];
 
 vi.mock("../../services/tauri", () => ({
   getConfig: vi.fn().mockResolvedValue(undefined),
@@ -93,6 +153,13 @@ vi.mock("../../services/tauri", () => ({
   aiEndpointState: mocks.aiEndpointState,
   aiConsentHost: mocks.aiConsentHost,
   aiCheckConnection: mocks.aiCheckConnection,
+  aiProviders: mocks.aiProviders,
+  aiListModels: mocks.aiListModels,
+  aiProbeLocal: mocks.aiProbeLocal,
+  aiOpenrouterConnect: mocks.aiOpenrouterConnect,
+  aiOpenrouterCancel: mocks.aiOpenrouterCancel,
+  openExternalUrl: mocks.openExternalUrl,
+  classifyExternalUrl: vi.fn().mockResolvedValue({ kind: "allow" }),
   activityRecent: mocks.activityRecent,
   activityClear: mocks.activityClear,
   mcpClients: mocks.mcpClients,
@@ -197,7 +264,7 @@ function baseConfig(): WritConfig {
   workspace: { root: null },
   inbox: { path: null, focus: true },
   updater: { auto_check: true },
-  ai: { enabled: false, preset: "ollama", base_url: "http://localhost:11434/v1", model: "", consented_hosts: [], chat: { enabled: false, provider: "openai_compatible", base_url: "http://localhost:11434/v1", model: "" } },
+  ai: { provider: "ollama", base_url: "", model: "", consented_hosts: [], rewrite: { enabled: false }, chat: { enabled: false, model: "" } },
   mcp: { enabled: false, approved_clients: [] },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
     preview: {
@@ -235,6 +302,12 @@ describe("SettingsModal", () => {
       .mockResolvedValue({ doc: { id: "notices-buffer" }, reused: false });
     mocks.setActiveTabId.mockReset();
     mocks.requestExternalReload.mockReset();
+    mocks.aiProviders.mockReset().mockResolvedValue(TEST_PROVIDERS);
+    mocks.aiListModels.mockReset().mockResolvedValue({ models: [] });
+    mocks.aiProbeLocal.mockReset().mockResolvedValue({ ollama: false, lmstudio: false });
+    mocks.aiOpenrouterConnect.mockReset().mockResolvedValue({ is_set: true, memory_only: false });
+    mocks.aiOpenrouterCancel.mockReset().mockResolvedValue(undefined);
+    mocks.openExternalUrl.mockReset().mockResolvedValue(undefined);
     mocks.notesFolder
       .mockReset()
       .mockReturnValue({
@@ -955,6 +1028,14 @@ describe("SettingsModal", () => {
         })),
       );
       mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "is_default" });
+      // Two AI rows are conditional: the base URL belongs to a custom server
+      // and the key row is hidden for a provider on this machine. `custom` is
+      // the one provider that shows both, so the parity check can see them.
+      const base = baseConfig();
+      mocks.config.mockReturnValue({
+        ...base,
+        ai: { ...base.ai, provider: "custom" },
+      });
       const { container } = render(() => <SettingsModal />);
       openSettings();
       await waitFor(() => expect(container.querySelector(".settings-search-input")).not.toBeNull());
@@ -984,38 +1065,157 @@ describe("SettingsModal", () => {
   });
 });
 
-describe("AI consent notice", () => {
-  async function openAiSection(enabled: boolean) {
-    mocks.config.mockReturnValue({
-      ...baseConfig(),
-      ai: {
-        enabled,
-        preset: "deepseek",
-        base_url: "https://api.deepseek.com/v1",
-        model: "deepseek-chat",
-        consented_hosts: [], chat: { enabled: false, provider: "openai_compatible", base_url: "http://localhost:11434/v1", model: "" },
-      },
-    });
+describe("AI section", () => {
+  function aiConfig(overrides: Record<string, unknown> = {}) {
+    return {
+      provider: "deepseek",
+      base_url: "",
+      model: "deepseek-chat",
+      consented_hosts: [] as string[],
+      rewrite: { enabled: false },
+      chat: { enabled: false, model: "" },
+      ...overrides,
+    };
+  }
+
+  async function openAiSection(overrides: Record<string, unknown> = {}) {
+    mocks.config.mockReturnValue({ ...baseConfig(), ai: aiConfig(overrides) });
     const result = render(() => <SettingsModal />);
     openSettings("ai");
+    await waitFor(() =>
+      expect(result.container.querySelector('[data-setting-id="ai.provider"]')).not.toBeNull(),
+    );
     return result;
   }
 
-  it("names the host that text would be sent to", async () => {
-    const { container } = await openAiSection(true);
+  beforeEach(() => {
+    aiConnectionStore.reset();
+    mocks.save.mockReset().mockResolvedValue(undefined);
+    mocks.config.mockReset().mockReturnValue(baseConfig());
+    mocks.aiProviders.mockReset().mockResolvedValue(TEST_PROVIDERS);
+    mocks.aiListModels.mockReset().mockResolvedValue({ models: [] });
+    mocks.aiProbeLocal.mockReset().mockResolvedValue({ ollama: false, lmstudio: false });
+    mocks.aiConsentHost.mockReset().mockResolvedValue(hostedEndpoint({ is_consented: true }));
+    mocks.aiEndpointState.mockReset().mockResolvedValue(hostedEndpoint());
+    mocks.openExternalUrl.mockReset().mockResolvedValue(undefined);
+    mocks.aiCheckConnection.mockReset().mockResolvedValue({
+      reachable: true,
+      model_listed: true,
+      kind: "ok",
+      detail: "",
+      models: [],
+    });
+  });
+
+  afterEach(() => {
+    closeSettings();
+    cleanup();
+  });
+
+  it("carries a description under every row's label", async () => {
+    const { container } = await openAiSection();
+    for (const id of ["ai.provider", "ai.api_key", "ai.model", "ai.connection"]) {
+      const row = container.querySelector(`[data-setting-id="${id}"]`)!;
+      expect(row.querySelector(".settings-row-description")?.textContent, id).toBeTruthy();
+    }
+    expect(
+      container
+        .querySelector('[data-setting-id="ai.provider"] .settings-row-description')!
+        .textContent,
+    ).toBe("The service that runs the model.");
+  });
+
+  // The table is data `writ-core` owns, so the picker never spells a provider
+  // out itself: a row added in Rust appears here with no frontend change.
+  it("groups the providers the table names, running-on-this-machine first", async () => {
+    const { container } = await openAiSection();
+    const groups = [...container.querySelectorAll('[data-setting="ai_provider"] optgroup')];
+    expect(groups.map((g) => g.getAttribute("label"))).toEqual([
+      "Running on this machine",
+      "Hosted",
+      "Custom (OpenAI-compatible)",
+    ]);
+    expect([...groups[0].querySelectorAll("option")].map((o) => o.textContent)).toEqual([
+      "Ollama",
+      "LM Studio",
+    ]);
+  });
+
+  it("shows the base URL row only for a custom server", async () => {
+    const hosted = await openAiSection();
+    expect(hosted.container.querySelector('[data-setting-id="ai.base_url"]')).toBeNull();
+    closeSettings();
+    cleanup();
+    const custom = await openAiSection({ provider: "custom", model: "" });
+    expect(custom.container.querySelector('[data-setting-id="ai.base_url"]')).not.toBeNull();
+  });
+
+  it("hides the key row for a provider on this machine", async () => {
+    const { container } = await openAiSection({ provider: "ollama", model: "" });
+    expect(container.querySelector('[data-setting-id="ai.api_key"]')).toBeNull();
+  });
+
+  it("offers the provider's own key page", async () => {
+    const { container } = await openAiSection();
+    const link = container.querySelector('[data-action="ai-key-page"]')!;
+    fireEvent.click(link);
     await waitFor(() =>
-      expect(container.querySelector(".settings-ai-consent")).not.toBeNull(),
+      expect(mocks.openExternalUrl).toHaveBeenCalledWith("https://platform.deepseek.com/api_keys"),
     );
+  });
+
+  it("says whether the local runtime answered its port", async () => {
+    mocks.aiProbeLocal.mockResolvedValue({ ollama: true, lmstudio: false });
+    const { container } = await openAiSection({ provider: "ollama", model: "" });
+    await waitFor(() => expect(container.querySelector(".settings-ai-pill")).not.toBeNull());
+    expect(container.querySelector(".settings-ai-pill")!.textContent).toBe("Running");
+  });
+
+  // The probe cannot tell "installed but stopped" from "not installed", so the
+  // line states the fact it knows and the link covers the other case.
+  it("explains a runtime that did not answer, and offers the download", async () => {
+    mocks.aiProbeLocal.mockResolvedValue({ ollama: false, lmstudio: false });
+    const { container } = await openAiSection({ provider: "ollama", model: "" });
+    await waitFor(() => expect(container.querySelector(".settings-ai-pill")).not.toBeNull());
+    expect(container.querySelector(".settings-ai-pill")!.textContent).toBe("Not running");
+    expect(container.textContent).toContain("Writ could not reach Ollama on port 11434.");
+    fireEvent.click(container.querySelector('[data-action="get-ollama"]')!);
+    await waitFor(() =>
+      expect(mocks.openExternalUrl).toHaveBeenCalledWith("https://ollama.com/download"),
+    );
+  });
+
+  it("marks the curated ids as suggestions when no list was fetched", async () => {
+    const { container } = await openAiSection();
+    await waitFor(() =>
+      expect(container.querySelector('[data-setting="ai_model"] option')).not.toBeNull(),
+    );
+    const options = [...container.querySelectorAll('[data-setting="ai_model"] option')];
+    expect(options[0].textContent).toBe("deepseek-chat (suggested)");
+    expect(options[options.length - 1].textContent).toBe("Custom…");
+  });
+
+  it("drops the suggestion marking once the provider answers with a list", async () => {
+    mocks.aiListModels.mockResolvedValue({ models: ["deepseek-chat", "deepseek-reasoner"] });
+    const { container } = await openAiSection();
+    await waitFor(() =>
+      expect(container.querySelector('[data-setting="ai_model"] option')!.textContent).toBe(
+        "deepseek-chat",
+      ),
+    );
+  });
+
+  it("names the host that notes and text would be sent to", async () => {
+    const { container } = await openAiSection();
+    await waitFor(() => expect(container.querySelector(".settings-ai-consent")).not.toBeNull());
     expect(container.querySelector(".settings-ai-consent-text")!.textContent).toContain(
       "api.deepseek.com",
     );
   });
 
   it("sits above the model and key rows, not below the connection line", async () => {
-    const { container } = await openAiSection(true);
-    await waitFor(() =>
-      expect(container.querySelector(".settings-ai-consent")).not.toBeNull(),
-    );
+    const { container } = await openAiSection();
+    await waitFor(() => expect(container.querySelector(".settings-ai-consent")).not.toBeNull());
     const notice = container.querySelector(".settings-ai-consent")!;
     const keyRow = container.querySelector('[data-setting-id="ai.api_key"]')!;
     // Buried below the fold is why the operator never saw it.
@@ -1023,40 +1223,45 @@ describe("AI consent notice", () => {
   });
 
   it("records consent host-side rather than patching the config itself", async () => {
-    const { container, getByText } = await openAiSection(true);
-    await waitFor(() =>
-      expect(container.querySelector(".settings-ai-consent")).not.toBeNull(),
-    );
+    const { container, getByText } = await openAiSection();
+    await waitFor(() => expect(container.querySelector(".settings-ai-consent")).not.toBeNull());
     fireEvent.click(getByText("Allow"));
     await waitFor(() => expect(mocks.aiConsentHost).toHaveBeenCalledTimes(1));
   });
 
   it("stays hidden once the host is consented to", async () => {
     mocks.aiEndpointState.mockResolvedValue(hostedEndpoint({ is_consented: true }));
-    const { container } = await openAiSection(true);
+    const { container } = await openAiSection();
     await waitFor(() => expect(mocks.aiEndpointState).toHaveBeenCalled());
     expect(container.querySelector(".settings-ai-consent")).toBeNull();
   });
 
-  it("stays hidden for a local endpoint", async () => {
+  // A local row asks for nothing, so the same slot states what it does instead
+  // of leaving a person to infer it.
+  it("says nothing leaves the machine for a local provider, and asks for no consent", async () => {
     mocks.aiEndpointState.mockResolvedValue(
-      hostedEndpoint({ host: "localhost", is_hosted: false, is_consented: true }),
+      hostedEndpoint({
+        host: "localhost",
+        host_port: "localhost:11434",
+        is_hosted: false,
+        is_consented: true,
+        provider: "ollama",
+      }),
     );
-    const { container } = await openAiSection(true);
-    await waitFor(() => expect(mocks.aiEndpointState).toHaveBeenCalled());
+    const { container } = await openAiSection({ provider: "ollama", model: "" });
+    await waitFor(() =>
+      expect(container.querySelector('[data-note="local-endpoint"]')).not.toBeNull(),
+    );
+    expect(container.querySelector('[data-note="local-endpoint"]')!.textContent).toContain(
+      "Requests go to localhost:11434 on this machine. Nothing leaves it.",
+    );
     expect(container.querySelector(".settings-ai-consent")).toBeNull();
   });
 
-  it("asks nothing while the feature is off", async () => {
-    const { container } = await openAiSection(false);
-    expect(container.querySelector(".settings-ai-consent")).toBeNull();
-  });
-
-  // The probe carries the API key, so an unconsented hosted endpoint is not
+  // The check carries the API key, so an unconsented hosted endpoint is not
   // contacted at all. The line has to read as "nothing was sent yet", not as a
   // dead endpoint.
-  it("reports a probe held back for consent instead of a connection failure", async () => {
-    aiConnectionStore.reset();
+  it("reports a check held back for consent instead of a connection failure", async () => {
     mocks.aiCheckConnection.mockResolvedValue({
       reachable: false,
       model_listed: null,
@@ -1064,7 +1269,7 @@ describe("AI consent notice", () => {
       detail: "api.deepseek.com",
       models: [],
     });
-    const { container } = await openAiSection(true);
+    const { container } = await openAiSection();
     await waitFor(() => {
       const line = container.querySelector(".settings-ai-connection-status");
       expect(line?.textContent).toBe("Not checked until you allow api.deepseek.com");
@@ -1072,6 +1277,17 @@ describe("AI consent notice", () => {
     expect(
       container.querySelector(".settings-ai-connection-status")!.getAttribute("data-tone"),
     ).toBe("warn");
+  });
+
+  it("closing the chat model disclosure hands chat back to the connection's model", async () => {
+    const { container } = await openAiSection({ chat: { enabled: true, model: "deepseek-reasoner" } });
+    const row = container.querySelector('[data-setting-id="ai.chat.model"]')!;
+    expect(row.querySelector('[data-setting="ai_chat_model"]')).not.toBeNull();
+    fireEvent.click(row.querySelector('[data-setting="ai_chat_model_disclosure"]')!);
+    await waitFor(() => expect(mocks.save).toHaveBeenCalled());
+    const calls = mocks.save.mock.calls;
+    const saved = calls[calls.length - 1][0];
+    expect(saved.ai.chat.model).toBe("");
   });
 });
 

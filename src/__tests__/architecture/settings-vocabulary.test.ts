@@ -28,16 +28,14 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["preview.run_scripts", "preview", "Allow HTML files to run their scripts", ["scripts", "javascript", "html", "run", "safety"]],
   ["preview.layout_md", "preview", "When opening a Markdown file, show:", ["layout", "markdown", "md", "text", "preview", "split"]],
   ["preview.layout_html", "preview", "When opening an HTML file, show:", ["layout", "html", "text", "preview", "split"]],
-  ["ai.enabled", "ai", "Rewrite selected text", ["ai", "rewrite", "proofread", "rephrase", "polish", "model", "llm", "ollama", "enable"]],
-  ["ai.preset", "ai", "Provider", ["ai", "provider", "preset", "ollama", "groq", "gemini", "deepseek", "openrouter", "custom"]],
+  ["ai.provider", "ai", "Provider", ["ai", "provider", "ollama", "lm studio", "anthropic", "openai", "gemini", "openrouter", "groq", "deepseek", "mistral", "xai", "together", "fireworks", "custom"]],
   ["ai.base_url", "ai", "Base URL", ["ai", "base url", "endpoint", "host", "server"]],
-  ["ai.model", "ai", "Model", ["ai", "model", "id"]],
   ["ai.api_key", "ai", "API key", ["ai", "api key", "token", "secret", "credential"]],
-  ["ai.chat_enabled", "ai", "Chat about the notes you attach", ["ai", "chat", "ask", "conversation", "model", "attach", "enable"]],
-  ["ai.chat_provider", "ai", "Chat provider", ["ai", "chat", "provider", "anthropic", "ollama", "openai", "compatible"]],
-  ["ai.chat_base_url", "ai", "Chat base URL", ["ai", "chat", "base url", "endpoint", "host", "server"]],
-  ["ai.chat_model", "ai", "Chat model", ["ai", "chat", "model", "id"]],
-  ["ai.chat_api_key", "ai", "Chat API key", ["ai", "chat", "api key", "token", "secret", "credential"]],
+  ["ai.model", "ai", "Model", ["ai", "model", "id"]],
+  ["ai.connection", "ai", "Connection", ["ai", "connection", "check", "reachable", "status"]],
+  ["ai.rewrite.enabled", "ai", "Rewrite selected text", ["ai", "rewrite", "proofread", "rephrase", "polish", "selection", "enable"]],
+  ["ai.chat.enabled", "ai", "Chat about your notes", ["ai", "chat", "ask", "conversation", "attach", "enable"]],
+  ["ai.chat.model", "ai", "Use a different model for chat", ["ai", "chat", "model", "id", "different"]],
   ["mcp.enabled", "programs", "Let other programs read and write your notes", ["mcp", "programs", "clients", "connect", "claude", "editor", "assistant", "tools", "server", "enable"]],
   ["mcp.command", "programs", "Command to give a program", ["mcp", "command", "copy", "paste", "configure", "setup", "stdio"]],
   ["mcp.tools", "programs", "What a program can do", ["mcp", "tools", "read", "write", "rename", "create", "delete", "permission"]],
@@ -77,6 +75,22 @@ describe("settings vocabulary", () => {
     );
   });
 
+  // One connection serves rewriting and chat, so the section is no longer
+  // named after one of them (ADR-040 section 1).
+  it("names the section after what it holds, not after one feature", () => {
+    expect(SECTION_LABELS.ai).toBe("AI");
+    for (const entry of SETTINGS_INDEX.filter((e) => e.section === "ai")) {
+      expect(entry.keywords, entry.id).toContain("ai");
+    }
+  });
+
+  // The provider row is the one a person reaches for by naming their service.
+  it("the provider row claims every provider name", () => {
+    for (const name of ["ollama", "lm studio", "anthropic", "openai", "openrouter", "fireworks"]) {
+      expect(rankSettings(name)[0]?.id, name).toBe("ai.provider");
+    }
+  });
+
   it("settings_sections_are_named_and_ordered_as_pinned", () => {
     expect(SECTION_ORDER).toEqual([
       "notes",
@@ -96,7 +110,7 @@ describe("settings vocabulary", () => {
       "Editor",
       "Files",
       "Preview",
-      "AI rewriting",
+      "AI",
       "Connected programs",
       "Appearance",
       "Sidebar",
