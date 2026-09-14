@@ -10,6 +10,10 @@ use serde::{Deserialize, Serialize};
 
 /// Substrings that mark an OpenAI model id as something other than a chat
 /// model. Without them the dropdown is mostly embeddings and speech.
+///
+/// `audio` is deliberately absent: `gpt-4o-audio-preview` answers
+/// `chat/completions` like any other chat model, and a marker for it would
+/// take that row out of the picker.
 const NON_CHAT_MARKERS: &[&str] = &[
     "embedding",
     "tts",
@@ -17,7 +21,6 @@ const NON_CHAT_MARKERS: &[&str] = &[
     "dall-e",
     "moderation",
     "realtime",
-    "audio",
     "transcribe",
     "image",
 ];
@@ -296,10 +299,29 @@ mod tests {
             ids,
             vec![
                 "chatgpt-4o-latest".to_string(),
+                // Audio in, audio out, but it is a chat model and the picker
+                // is the only place a person can reach it.
+                "gpt-4o-audio-preview".to_string(),
                 "gpt-4o-mini".to_string(),
                 "gpt-5-mini".to_string(),
             ]
         );
+
+        for dropped in [
+            "gpt-4o-mini-tts",
+            "gpt-4o-realtime-preview",
+            "gpt-4o-transcribe",
+            "gpt-image-1",
+            "text-embedding-3-small",
+            "whisper-1",
+            "omni-moderation-latest",
+            "dall-e-3",
+        ] {
+            assert!(
+                !ids.iter().any(|id| id == dropped),
+                "{dropped} cannot answer a chat request"
+            );
+        }
     }
 
     #[test]
