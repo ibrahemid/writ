@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -13,7 +17,75 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Required checks need a status: a job-level `if` reports skipped, trigger `paths` leaves Expected.
+  changes:
+    name: Changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+      site: ${{ steps.classify.outputs.site }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: classify
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          all=0
+          files=""
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            git rev-parse --verify --quiet "origin/${BASE_REF}" >/dev/null \
+              || git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}" \
+              || all=1
+            if [ "${all}" -eq 0 ] && ! files=$(git diff --name-only "origin/${BASE_REF}...HEAD"); then
+              all=1
+            fi
+          elif [ -z "${BEFORE}" ] || [ "${BEFORE}" = "0000000000000000000000000000000000000000" ]; then
+            all=1
+          elif ! files=$(git diff --name-only "${BEFORE}..HEAD"); then
+            all=1
+          fi
+
+          if [ "${all}" -eq 0 ] && [ -z "${files}" ]; then
+            all=1
+          fi
+
+          code=false
+          site=false
+          if [ "${all}" -eq 1 ]; then
+            code=true
+            site=true
+            echo "no usable diff: treating every path as changed"
+          else
+            echo "changed files:"
+            echo "${files}"
+            while IFS= read -r file; do
+              [ -n "${file}" ] || continue
+              case "${file}" in
+                docs/*|.github/*.md|*.md|.status/*|LICENSE*|.gitignore|.github/ISSUE_TEMPLATE/*) ;;
+                *) code=true ;;
+              esac
+              case "${file}" in
+                site/*|.github/workflows/ci.yml|src/styles/generated/*|src/lib/keybinding-format.ts) site=true ;;
+              esac
+            done <<< "${files}"
+          fi
+
+          echo "code=${code}" >> "${GITHUB_OUTPUT}"
+          echo "site=${site}" >> "${GITHUB_OUTPUT}"
+          echo "decision: code=${code} site=${site}"
+
   check:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -41,7 +113,10 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        if: matrix.os == 'ubuntu-latest'
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375  # v2.87.12
+        with:
+          tool: cargo-audit
         continue-on-error: true
 
       - name: Install Linux dependencies
@@ -105,6 +180,8 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run tests
+        # Cross-OS tests run once on main, after integration.
+        if: matrix.cross_only == false || github.event_name == 'push'
         run: cargo test --workspace
 
       - name: Release script tests
@@ -112,6 +189,7 @@ jobs:
         run: python3 -m unittest discover -s .github/scripts -t .github/scripts
 
       - name: Security audit
+        if: matrix.os == 'ubuntu-latest'
         run: cargo audit
         continue-on-error: true
 
@@ -130,6 +208,8 @@ jobs:
 
   site:
     name: Site
+    needs: changes
+    if: needs.changes.outputs.site == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
