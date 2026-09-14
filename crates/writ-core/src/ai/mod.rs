@@ -7,4 +7,5 @@
 //! response body, so every wire family is tested against a recorded answer
 //! without a network.
 
+pub mod models;
 pub mod providers;
