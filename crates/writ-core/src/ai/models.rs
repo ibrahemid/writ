@@ -69,6 +69,10 @@ pub enum ModelListError {
     },
     /// The answer was not a model list.
     Malformed,
+    /// The host has not been allowed yet, so nothing was sent. The list
+    /// carries the key, which makes it a send like any other (ADR-031 rule
+    /// 2.2), and every send waits for Allow.
+    ConsentRequired,
 }
 
 impl std::fmt::Display for ModelListError {
@@ -79,6 +83,7 @@ impl std::fmt::Display for ModelListError {
             Self::Unauthorized => write!(f, "The provider rejected the request."),
             Self::Status { code } => write!(f, "The provider answered with status {code}."),
             Self::Malformed => write!(f, "The answer was not a model list."),
+            Self::ConsentRequired => write!(f, "Allow this host first."),
         }
     }
 }
@@ -400,6 +405,10 @@ mod tests {
             serde_json::to_string(&ModelListError::Status { code: 401 }).unwrap(),
             "{\"kind\":\"status\",\"code\":401}"
         );
+        assert_eq!(
+            serde_json::to_string(&ModelListError::ConsentRequired).unwrap(),
+            "{\"kind\":\"consent_required\"}"
+        );
     }
 
     #[test]
@@ -409,6 +418,7 @@ mod tests {
             ModelListError::Timeout,
             ModelListError::Unauthorized,
             ModelListError::Malformed,
+            ModelListError::ConsentRequired,
             ModelListError::Status { code: 500 },
         ] {
             let sentence = e.to_string();

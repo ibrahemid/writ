@@ -29,7 +29,11 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
-use writ_core::ai::providers::{self, ProviderGroup};
+use writ_core::ai::models::{
+    filter_openai_ids, parse_anthropic_page, parse_model_list, sort_ids, ListFamily, ModelListError,
+};
+use writ_core::ai::providers::{self, ProviderGroup, ProviderInfo};
+use writ_core::chat;
 use writ_core::config::AiConfig;
 use writ_core::polish::{self, PolishAction, PolishError, POLISH_TEMPERATURE};
 
@@ -945,6 +949,10 @@ pub fn ai_cancel(ai: State<'_, AiState>, request_id: String) {
 
 /// Timeout for the connection probe (connect and overall).
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+/// Budget for one model list, every page of it included.
+const MODEL_LIST_TIMEOUT: Duration = Duration::from_secs(5);
+/// Budget for one knock on a local runtime's port.
+const LOCAL_PROBE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Upper bound on model ids returned to the UI, so a provider with a huge
 /// catalogue never floods the picker.
@@ -990,25 +998,6 @@ impl AiConnectionStatus {
     }
 }
 
-/// Extracts model ids from an OpenAI-compatible `/models` body: sorted,
-/// deduped, and capped. Empty when the body has no `data[].id` entries.
-fn parse_model_ids(body: &str) -> Vec<String> {
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
-        return Vec::new();
-    };
-    let Some(data) = value.get("data").and_then(|d| d.as_array()) else {
-        return Vec::new();
-    };
-    let mut ids: Vec<String> = data
-        .iter()
-        .filter_map(|item| item.get("id").and_then(|v| v.as_str()).map(String::from))
-        .collect();
-    ids.sort();
-    ids.dedup();
-    ids.truncate(MODEL_LIST_CAP);
-    ids
-}
-
 /// Whether `model` is among `ids`. `None` when `model` is empty or `ids` is
 /// empty (the list is unusable for the decision).
 fn model_listed_among(ids: &[String], model: &str) -> Option<bool> {
@@ -1018,59 +1007,404 @@ fn model_listed_among(ids: &[String], model: &str) -> Option<bool> {
     Some(ids.iter().any(|id| id == model))
 }
 
-/// Builds the probe client (3s connect + overall, redirects refused).
-fn build_probe_client() -> Result<reqwest::Client, String> {
+/// Builds a client on one time budget. Redirects are refused everywhere for
+/// the reason [`build_client`] gives: a 3xx would re-send to the `Location`
+/// host, escaping the endpoint guard.
+fn build_http_client(budget: Duration) -> Result<reqwest::Client, String> {
     ensure_crypto_provider();
     reqwest::Client::builder()
-        .connect_timeout(PROBE_TIMEOUT)
-        .timeout(PROBE_TIMEOUT)
+        .connect_timeout(budget)
+        .timeout(budget)
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| sanitize_ai_error(&e.to_string()))
 }
 
-/// Performs the probe and classifies the outcome. Only model ids are read from
-/// the body; nothing else is logged or returned.
+/// Builds the connection-check client (3s connect + overall).
+fn build_probe_client() -> Result<reqwest::Client, String> {
+    build_http_client(PROBE_TIMEOUT)
+}
+
+// --- Reading a provider's model list ---------------------------------------
+
+/// A transport failure, free of the HTTP client's types so what it means for a
+/// model list is decided by a function a test can call with no network.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TransportFailure {
+    /// The request ran out of time.
+    Timeout,
+    /// The address could not be reached: no route, no name, nothing listening.
+    Connect,
+    /// Anything else the client refused to do.
+    Other,
+}
+
+fn transport_failure(err: &reqwest::Error) -> TransportFailure {
+    if err.is_timeout() {
+        TransportFailure::Timeout
+    } else if err.is_connect() || err.is_request() {
+        TransportFailure::Connect
+    } else {
+        TransportFailure::Other
+    }
+}
+
+/// What a transport failure means for a model list.
+fn list_error_for(failure: TransportFailure) -> ModelListError {
+    match failure {
+        TransportFailure::Timeout => ModelListError::Timeout,
+        TransportFailure::Connect | TransportFailure::Other => ModelListError::Unreachable,
+    }
+}
+
+/// What an HTTP status means for a model list, or `None` when it is a success.
+fn list_error_for_status(code: u16) -> Option<ModelListError> {
+    match code {
+        200..=299 => None,
+        401 | 403 => Some(ModelListError::Unauthorized),
+        other => Some(ModelListError::Status { code: other }),
+    }
+}
+
+/// The word a failed list is logged under. Never the provider's own text.
+fn list_error_kind(error: &ModelListError) -> &'static str {
+    match error {
+        ModelListError::Unreachable => "unreachable",
+        ModelListError::Timeout => "timeout",
+        ModelListError::Unauthorized => "unauthorized",
+        ModelListError::Status { .. } => "status",
+        ModelListError::Malformed => "malformed",
+        ModelListError::ConsentRequired => "consent_required",
+    }
+}
+
+/// How many ids one page asks for.
+const LIST_PAGE_SIZE: u32 = 1000;
+
+/// How many pages of a cursor-paginated list are followed before the rest is
+/// left unread. A provider that answers an endless cursor cannot hang the
+/// picker.
+const MAX_LIST_PAGES: usize = 20;
+
+/// The URL of one page of a model list.
+///
+/// Gemini's native list takes the key in the query, which is the reason no
+/// error or log line in this module may ever carry a URL.
+fn list_page_url(
+    family: ListFamily,
+    list_url: &str,
+    api_key: Option<&str>,
+    cursor: Option<&str>,
+) -> Result<String, ModelListError> {
+    if !matches!(family, ListFamily::Anthropic | ListFamily::Gemini) {
+        return Ok(list_url.to_string());
+    }
+    let mut url = url::Url::parse(list_url).map_err(|_| ModelListError::Unreachable)?;
+    {
+        let mut query = url.query_pairs_mut();
+        match family {
+            ListFamily::Anthropic => {
+                query.append_pair("limit", &LIST_PAGE_SIZE.to_string());
+                if let Some(cursor) = cursor {
+                    query.append_pair("after_id", cursor);
+                }
+            }
+            _ => {
+                query.append_pair("pageSize", &LIST_PAGE_SIZE.to_string());
+                if let Some(key) = api_key {
+                    query.append_pair("key", key);
+                }
+                if let Some(cursor) = cursor {
+                    query.append_pair("pageToken", cursor);
+                }
+            }
+        }
+    }
+    Ok(url.to_string())
+}
+
+/// Reads one page of a model list. Only the ids are taken from the body.
+async fn fetch_list_page(
+    client: &reqwest::Client,
+    family: ListFamily,
+    url: &str,
+    api_key: Option<&str>,
+) -> Result<String, ModelListError> {
+    let mut request = client.get(url);
+    request = match (family, api_key) {
+        (ListFamily::Anthropic, key) => {
+            let request = request.header("anthropic-version", chat::ANTHROPIC_VERSION);
+            match key {
+                Some(key) => request.header("x-api-key", key),
+                None => request,
+            }
+        }
+        // Gemini's key rides the query, so no header is added here.
+        (ListFamily::Gemini, _) => request,
+        (_, Some(key)) => request.bearer_auth(key),
+        (_, None) => request,
+    };
+
+    let response = request
+        .send()
+        .await
+        .map_err(|error| list_error_for(transport_failure(&error)))?;
+    if let Some(error) = list_error_for_status(response.status().as_u16()) {
+        return Err(error);
+    }
+    response.text().await.map_err(|_| ModelListError::Malformed)
+}
+
+/// One page of a list: its ids, and the cursor the next page is asked for
+/// with. Only the two paginated families answer a cursor.
+fn parse_list_page(
+    family: ListFamily,
+    body: &str,
+) -> Result<(Vec<String>, Option<String>), ModelListError> {
+    match family {
+        ListFamily::Anthropic => {
+            let page = parse_anthropic_page(body)?;
+            Ok((page.ids, page.next_cursor))
+        }
+        ListFamily::Gemini => Ok((
+            parse_model_list(ListFamily::Gemini, body)?,
+            next_page_token(body),
+        )),
+        other => Ok((parse_model_list(other, body)?, None)),
+    }
+}
+
+/// Gemini's cursor, which its list carries beside the models.
+fn next_page_token(body: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()?
+        .get("nextPageToken")
+        .and_then(|token| token.as_str())
+        .filter(|token| !token.is_empty())
+        .map(String::from)
+}
+
+/// Follows a list to its end, page by page.
+///
+/// The page fetcher is a parameter so the driver is exercised over recorded
+/// bodies without a network, and so one implementation serves every family:
+/// the families that answer no cursor stop after one page.
+async fn collect_list_pages<F, Fut>(
+    family: ListFamily,
+    mut fetch_page: F,
+) -> Result<Vec<String>, ModelListError>
+where
+    F: FnMut(Option<String>) -> Fut,
+    Fut: std::future::Future<Output = Result<String, ModelListError>>,
+{
+    let mut ids: Vec<String> = Vec::new();
+    let mut cursor: Option<String> = None;
+    for _ in 0..MAX_LIST_PAGES {
+        let body = fetch_page(cursor.take()).await?;
+        let (page, next) = parse_list_page(family, &body)?;
+        ids.extend(page);
+        match next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    let mut ids = sort_ids(ids);
+    ids.dedup();
+    Ok(ids)
+}
+
+/// The model ids a provider advertises, in the order the picker shows them.
+///
+/// OpenAI's own catalogue is filtered to what can answer a chat request; every
+/// other family is shown whole, because the same words appear in ids that do
+/// answer one elsewhere.
+async fn fetch_model_ids(
+    client: &reqwest::Client,
+    provider: &str,
+    list_url: &str,
+    api_key: Option<&str>,
+) -> Result<Vec<String>, ModelListError> {
+    let family = ListFamily::for_provider(provider);
+    let ids = collect_list_pages(family, |cursor| async move {
+        let url = list_page_url(family, list_url, api_key, cursor.as_deref())?;
+        fetch_list_page(client, family, &url, api_key).await
+    })
+    .await?;
+    Ok(match provider {
+        "openai" => filter_openai_ids(ids),
+        _ => ids,
+    })
+}
+
+/// The provider table, so the settings dropdown, the probe and the model list
+/// read one definition of a row rather than three.
+#[tauri::command]
+pub fn ai_providers() -> Vec<ProviderInfo> {
+    providers::PROVIDERS.to_vec()
+}
+
+/// Reads the model list of the configured connection.
+///
+/// The list carries the key, so it is a send: a hosted host that has not been
+/// allowed answers `ConsentRequired` and nothing leaves the machine. The
+/// endpoint guard runs on the list URL as well as the base URL, because the
+/// two differ on one row and a hand-typed base is reachable from both.
+#[tauri::command]
+pub async fn ai_list_models(app: AppHandle) -> Result<Vec<String>, ModelListError> {
+    let cfg = {
+        let state = app.state::<AppState>();
+        let guard = recover_poison(state.config.lock(), "commands::ai::ai_list_models");
+        guard.ai.clone()
+    };
+
+    let base_url = cfg.effective_base_url();
+    let target = allowed_target(&base_url)?;
+    let list_url =
+        providers::models_url_for(&cfg.provider, &base_url).ok_or(ModelListError::Unreachable)?;
+    let list_target = allowed_target(&list_url)?;
+
+    for reached in [&target, &list_target] {
+        if reached.is_hosted && !is_consented(&cfg, &reached.host) {
+            return Err(ModelListError::ConsentRequired);
+        }
+    }
+
+    let api_key = if list_target.is_hosted {
+        key_for(&app, &cfg.provider)
+    } else {
+        None
+    };
+
+    let client = build_http_client(MODEL_LIST_TIMEOUT).map_err(|_| ModelListError::Unreachable)?;
+    let ids = fetch_model_ids(&client, &cfg.provider, &list_url, api_key.as_deref()).await;
+    match &ids {
+        Ok(ids) => tracing::info!(
+            host = %list_target.host,
+            provider = %cfg.provider,
+            count = ids.len(),
+            "read the model list"
+        ),
+        Err(error) => tracing::warn!(
+            host = %list_target.host,
+            provider = %cfg.provider,
+            kind = list_error_kind(error),
+            "the model list could not be read"
+        ),
+    }
+    ids
+}
+
+/// Resolves a URL the guard allows, or says nothing answered there.
+fn allowed_target(url: &str) -> Result<polish::EndpointTarget, ModelListError> {
+    match polish::resolve_endpoint(url) {
+        Ok(target) if target.is_allowed => Ok(target),
+        _ => Err(ModelListError::Unreachable),
+    }
+}
+
+// --- Knocking on the local runtimes ----------------------------------------
+
+/// Whether each local runtime answered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct LocalProbe {
+    /// Ollama answered on its own port.
+    pub ollama: bool,
+    /// LM Studio answered on its own port.
+    pub lmstudio: bool,
+}
+
+/// Ollama's native tag list: it names what is installed without a key.
+const OLLAMA_PROBE_URL: &str = "http://127.0.0.1:11434/api/tags";
+/// LM Studio's OpenAI-compatible model list, which also needs no key.
+const LMSTUDIO_PROBE_URL: &str = "http://127.0.0.1:1234/v1/models";
+
+/// Builds the client the loopback knock uses: no proxy, no key, and no header
+/// beyond what the client insists on sending. A loopback request carrying
+/// neither a credential nor note text is not a destination (ADR-040 section 4).
+fn build_local_probe_client() -> Result<reqwest::Client, String> {
+    ensure_crypto_provider();
+    reqwest::Client::builder()
+        .connect_timeout(LOCAL_PROBE_TIMEOUT)
+        .timeout(LOCAL_PROBE_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .user_agent("")
+        .build()
+        .map_err(|e| sanitize_ai_error(&e.to_string()))
+}
+
+/// Whether something answered at `url`. Any 2xx is "running"; the body is not
+/// read.
+async fn knock(client: &reqwest::Client, url: &str) -> bool {
+    match client.get(url).send().await {
+        Ok(response) => response.status().is_success(),
+        Err(_) => false,
+    }
+}
+
+/// Knocks on both addresses at once. Taken as arguments so the knock is driven
+/// against a socket a test owns.
+async fn probe_local_at(ollama_url: &str, lmstudio_url: &str) -> LocalProbe {
+    let Ok(client) = build_local_probe_client() else {
+        return LocalProbe {
+            ollama: false,
+            lmstudio: false,
+        };
+    };
+    let (ollama, lmstudio) =
+        futures_util::future::join(knock(&client, ollama_url), knock(&client, lmstudio_url)).await;
+    LocalProbe { ollama, lmstudio }
+}
+
+/// Reports which local runtimes are running, so the provider rows can say so
+/// before one is chosen.
+#[tauri::command]
+pub async fn ai_probe_local() -> LocalProbe {
+    probe_local_at(OLLAMA_PROBE_URL, LMSTUDIO_PROBE_URL).await
+}
+
+/// What a failed list is as a connection status. The provider's own words are
+/// not among the fields: `detail` is the host, or a status code.
+fn check_status_for(error: &ModelListError, host_port: &str) -> AiConnectionStatus {
+    match error {
+        ModelListError::Timeout => {
+            AiConnectionStatus::new(false, None, "timeout", host_port.to_string())
+        }
+        ModelListError::Unreachable => {
+            AiConnectionStatus::new(false, None, "refused", host_port.to_string())
+        }
+        ModelListError::Unauthorized => {
+            AiConnectionStatus::new(true, None, "unauthorized", host_port.to_string())
+        }
+        ModelListError::Status { code } => {
+            AiConnectionStatus::new(true, None, "server_error", code.to_string())
+        }
+        ModelListError::Malformed => {
+            AiConnectionStatus::new(true, None, "error", host_port.to_string())
+        }
+        ModelListError::ConsentRequired => {
+            AiConnectionStatus::new(false, None, "consent_required", host_port.to_string())
+        }
+    }
+}
+
+/// Reads the connection's model list and answers what it says about the
+/// configured model. The list is the same one [`ai_list_models`] reads, so the
+/// check cannot pass against a request the picker never makes.
 async fn run_connection_check(
     client: &reqwest::Client,
-    endpoint: &str,
+    provider: &str,
+    list_url: &str,
     api_key: Option<&str>,
     model: &str,
     host_port: &str,
 ) -> AiConnectionStatus {
-    let mut req = client.get(endpoint);
-    if let Some(key) = api_key {
-        req = req.bearer_auth(key);
-    }
-
-    let response = match req.send().await {
-        Ok(resp) => resp,
-        Err(err) => {
-            if err.is_timeout() {
-                return AiConnectionStatus::new(false, None, "timeout", host_port.to_string());
-            }
-            if err.is_connect() {
-                return AiConnectionStatus::new(false, None, "refused", host_port.to_string());
-            }
-            return AiConnectionStatus::new(
-                false,
-                None,
-                "error",
-                sanitize_ai_error(&err.to_string()),
-            );
-        }
+    let mut ids = match fetch_model_ids(client, provider, list_url, api_key).await {
+        Ok(ids) => ids,
+        Err(error) => return check_status_for(&error, host_port),
     };
+    ids.truncate(MODEL_LIST_CAP);
 
-    let status = response.status();
-    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-        return AiConnectionStatus::new(true, None, "unauthorized", status.as_u16().to_string());
-    }
-    if !status.is_success() {
-        return AiConnectionStatus::new(true, None, "server_error", status.as_u16().to_string());
-    }
-
-    let body = response.text().await.unwrap_or_default();
-    let ids = parse_model_ids(&body);
     let status = match model_listed_among(&ids, model) {
         Some(true) => AiConnectionStatus::new(true, Some(true), "ok", String::new()),
         Some(false) => {
@@ -1154,9 +1488,36 @@ pub async fn ai_check_connection(app: AppHandle) -> Result<AiConnectionStatus, S
     } else {
         None
     };
+    // A hosted provider with no key would answer 401 and read as a broken
+    // endpoint; the row is a missing key and says so.
+    if target.is_hosted && api_key.is_none() {
+        return Ok(AiConnectionStatus::new(
+            false,
+            None,
+            "key_required",
+            target.host.clone(),
+        ));
+    }
 
-    let base = base_url.trim().trim_end_matches('/');
-    let endpoint = format!("{base}/models");
+    let Some(list_url) = providers::models_url_for(&cfg.provider, &base_url) else {
+        return Ok(AiConnectionStatus::new(
+            false,
+            None,
+            "invalid_url",
+            String::new(),
+        ));
+    };
+    // The guard runs on the list URL too: one row lists from a host of its own,
+    // and a hand-typed base reaches both.
+    if allowed_target(&list_url).is_err() {
+        return Ok(AiConnectionStatus::new(
+            false,
+            None,
+            "invalid_url",
+            String::new(),
+        ));
+    }
+
     let client = match build_probe_client() {
         Ok(c) => c,
         Err(detail) => return Ok(AiConnectionStatus::new(false, None, "error", detail)),
@@ -1164,7 +1525,8 @@ pub async fn ai_check_connection(app: AppHandle) -> Result<AiConnectionStatus, S
 
     Ok(run_connection_check(
         &client,
-        &endpoint,
+        &cfg.provider,
+        &list_url,
         api_key.as_deref(),
         cfg.model.trim(),
         &host_port,
@@ -1876,10 +2238,10 @@ mod tests {
     }
 
     fn check_against(base_url: &str, model: &str) -> AiConnectionStatus {
-        let endpoint = format!("{}/models", base_url.trim_end_matches('/'));
+        let list_url = format!("{}/models", base_url.trim_end_matches('/'));
         tauri::async_runtime::block_on(async move {
             let client = build_probe_client().unwrap();
-            run_connection_check(&client, &endpoint, None, model, "127.0.0.1:0").await
+            run_connection_check(&client, "custom", &list_url, None, model, "127.0.0.1:0").await
         })
     }
 
@@ -1999,7 +2361,9 @@ mod tests {
         assert!(status.reachable);
         assert_eq!(status.model_listed, None);
         assert_eq!(status.kind, "unauthorized");
-        assert_eq!(status.detail, "401");
+        // The host, not the code: the list answers one refusal for 401 and 403
+        // alike, and the row names what would not take the key.
+        assert_eq!(status.detail, "127.0.0.1:0");
     }
 
     #[test]
@@ -2015,13 +2379,267 @@ mod tests {
     }
 
     #[test]
-    fn parse_model_ids_sorts_dedups_and_handles_junk() {
-        assert_eq!(parse_model_ids("not json"), Vec::<String>::new());
-        assert_eq!(parse_model_ids("{\"data\":[]}"), Vec::<String>::new());
-        assert_eq!(
-            parse_model_ids("{\"data\":[{\"id\":\"b\"},{\"id\":\"a\"},{\"id\":\"a\"}]}"),
-            vec!["a".to_string(), "b".to_string()]
+    fn a_body_that_is_not_a_model_list_is_a_malformed_answer() {
+        let base = spawn_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: application/json\r\nConnection: close\r\n",
+            "not json",
         );
+        let status = check_against(&base, "llama3");
+        assert!(status.reachable);
+        assert_eq!(status.kind, "error");
+        assert!(status.models.is_empty());
+    }
+
+    #[test]
+    fn a_transport_failure_is_read_as_one_of_two_things() {
+        assert_eq!(
+            list_error_for(TransportFailure::Timeout),
+            ModelListError::Timeout
+        );
+        assert_eq!(
+            list_error_for(TransportFailure::Connect),
+            ModelListError::Unreachable
+        );
+        assert_eq!(
+            list_error_for(TransportFailure::Other),
+            ModelListError::Unreachable
+        );
+    }
+
+    #[test]
+    fn a_status_says_whether_the_key_or_the_server_was_the_trouble() {
+        assert_eq!(list_error_for_status(200), None);
+        assert_eq!(list_error_for_status(204), None);
+        assert_eq!(
+            list_error_for_status(401),
+            Some(ModelListError::Unauthorized)
+        );
+        assert_eq!(
+            list_error_for_status(403),
+            Some(ModelListError::Unauthorized)
+        );
+        assert_eq!(
+            list_error_for_status(500),
+            Some(ModelListError::Status { code: 500 })
+        );
+        assert_eq!(
+            list_error_for_status(404),
+            Some(ModelListError::Status { code: 404 })
+        );
+    }
+
+    /// One page of the Anthropic list, with the cursor that follows it.
+    fn anthropic_page(ids: &[&str], has_more: bool) -> String {
+        let rows: Vec<String> = ids
+            .iter()
+            .map(|id| format!("{{\"id\":\"{id}\",\"display_name\":\"{id}\"}}"))
+            .collect();
+        let last = ids.last().copied().unwrap_or_default();
+        format!(
+            "{{\"data\":[{}],\"has_more\":{has_more},\"last_id\":\"{last}\"}}",
+            rows.join(",")
+        )
+    }
+
+    fn pages_of(bodies: Vec<String>) -> Result<Vec<String>, ModelListError> {
+        let served = Mutex::new((0usize, bodies, Vec::<Option<String>>::new()));
+        tauri::async_runtime::block_on(collect_list_pages(ListFamily::Anthropic, |cursor| {
+            let mut state = served.lock().expect("served");
+            let (index, bodies, cursors) = &mut *state;
+            cursors.push(cursor);
+            let body = bodies
+                .get(*index)
+                .cloned()
+                .unwrap_or_else(|| anthropic_page(&[], false));
+            *index += 1;
+            std::future::ready(Ok(body))
+        }))
+    }
+
+    #[test]
+    fn a_list_that_fits_on_one_page_is_read_once() {
+        let ids = pages_of(vec![anthropic_page(&["claude-b", "claude-a"], false)]).expect("ids");
+        assert_eq!(ids, vec!["claude-a".to_string(), "claude-b".to_string()]);
+    }
+
+    #[test]
+    fn a_cursor_is_followed_to_the_end_of_the_list() {
+        let ids = pages_of(vec![
+            anthropic_page(&["a"], true),
+            anthropic_page(&["b"], true),
+            anthropic_page(&["c"], false),
+        ])
+        .expect("ids");
+        assert_eq!(ids, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+    }
+
+    #[test]
+    fn a_page_that_is_not_a_list_ends_the_read() {
+        let error = pages_of(vec![
+            anthropic_page(&["a"], true),
+            "{\"nonsense\":true}".to_string(),
+        ])
+        .expect_err("refused");
+        assert_eq!(error, ModelListError::Malformed);
+    }
+
+    #[test]
+    fn an_endless_cursor_stops_at_the_page_cap() {
+        // Every page says there is another, which a provider answering its own
+        // cursor forever would. The read ends and the picker still opens.
+        let forever: Vec<String> = (0..MAX_LIST_PAGES + 10)
+            .map(|n| anthropic_page(&[&format!("m{n:02}")], true))
+            .collect();
+        let ids = pages_of(forever).expect("ids");
+        assert_eq!(ids.len(), MAX_LIST_PAGES);
+    }
+
+    #[test]
+    fn a_page_url_carries_the_cursor_its_family_asks_for() {
+        let anthropic = list_page_url(
+            ListFamily::Anthropic,
+            "https://api.anthropic.com/v1/models",
+            Some("sk-ant"),
+            Some("model-42"),
+        )
+        .expect("url");
+        assert!(anthropic.contains("limit=1000"), "{anthropic}");
+        assert!(anthropic.contains("after_id=model-42"), "{anthropic}");
+        // The key rides a header on this wire, never the query.
+        assert!(!anthropic.contains("sk-ant"), "{anthropic}");
+
+        let openai = list_page_url(
+            ListFamily::OpenAi,
+            "https://api.openai.com/v1/models",
+            Some("sk-openai"),
+            None,
+        )
+        .expect("url");
+        assert_eq!(openai, "https://api.openai.com/v1/models");
+    }
+
+    #[test]
+    fn a_gemini_failure_names_neither_the_query_nor_the_key() {
+        const KEY: &str = "ZZ-gemini-key-that-must-never-be-logged";
+        let url = list_page_url(
+            ListFamily::Gemini,
+            "https://generativelanguage.googleapis.com/v1beta/models",
+            Some(KEY),
+            Some("page-2"),
+        )
+        .expect("url");
+        assert!(url.contains("pageSize=1000"), "{url}");
+        assert!(url.contains("pageToken=page-2"), "{url}");
+        assert!(url.contains(KEY), "the key rides the query on this wire");
+
+        // Everything the failure of that request can be, as the frontend and
+        // the log see it.
+        for error in [
+            list_error_for(TransportFailure::Timeout),
+            list_error_for(TransportFailure::Connect),
+            ModelListError::Unauthorized,
+            ModelListError::Malformed,
+            ModelListError::Status { code: 500 },
+        ] {
+            let sentence = error.to_string();
+            assert!(!sentence.contains(KEY), "{sentence}");
+            assert!(!sentence.contains("key="), "{sentence}");
+            assert!(!sentence.contains("http"), "{sentence}");
+            assert!(!list_error_kind(&error).contains(KEY));
+        }
+        // And the one place a raw client error could carry it.
+        assert!(
+            !sanitize_ai_error(&format!("error sending request for url ({url})")).contains(KEY)
+        );
+    }
+
+    #[test]
+    fn a_gemini_body_answers_its_own_cursor() {
+        assert_eq!(
+            next_page_token("{\"models\":[],\"nextPageToken\":\"abc\"}"),
+            Some("abc".to_string())
+        );
+        assert_eq!(next_page_token("{\"models\":[]}"), None);
+        assert_eq!(next_page_token("{\"nextPageToken\":\"\"}"), None);
+        assert_eq!(next_page_token("not json"), None);
+    }
+
+    #[test]
+    fn the_table_is_answered_whole() {
+        let rows = ai_providers();
+        assert_eq!(rows.len(), writ_core::ai::providers::PROVIDERS.len());
+        assert_eq!(rows[0].id, "ollama");
+        let json = serde_json::to_string(&rows).expect("serialised");
+        assert!(json.contains("\"group\":\"local\""), "{json}");
+        assert!(json.contains("\"wire\":\"anthropic\""), "{json}");
+    }
+
+    /// A socket that answers one request with `status_line` and a tiny body,
+    /// handing back the raw request bytes it read.
+    fn spawn_knock_target(status_line: &'static str) -> (String, Arc<Mutex<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let seen = Arc::new(Mutex::new(String::new()));
+        let recorder = seen.clone();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 2048];
+                if let Ok(read) = stream.read(&mut buf) {
+                    *recorder.lock().expect("recorder") =
+                        String::from_utf8_lossy(&buf[..read]).to_string();
+                }
+                let _ = stream.write_all(
+                    format!("{status_line}\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}")
+                        .as_bytes(),
+                );
+                let _ = stream.flush();
+            }
+        });
+        (format!("http://127.0.0.1:{}/api/tags", addr.port()), seen)
+    }
+
+    /// An address with nothing behind it.
+    fn dead_url() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        drop(listener);
+        format!("http://127.0.0.1:{port}/v1/models")
+    }
+
+    #[test]
+    fn a_runtime_that_answers_is_running_and_one_that_does_not_is_not() {
+        let (alive, seen) = spawn_knock_target("HTTP/1.1 200 OK");
+        let probe = tauri::async_runtime::block_on(probe_local_at(&alive, &dead_url()));
+        assert!(probe.ollama, "a 200 on the port is a running runtime");
+        assert!(!probe.lmstudio, "nothing listens on that port");
+
+        // The knock carries the request line and no credential of any kind.
+        let request = seen.lock().expect("seen").clone();
+        assert!(request.starts_with("GET /api/tags HTTP/1.1"), "{request}");
+        // The knock is the request line and what the client will not leave
+        // out: an empty user-agent, `accept`, and the host it is dialling.
+        let headers: Vec<String> = request
+            .lines()
+            .skip(1)
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| line.split(':').next().unwrap_or_default().to_lowercase())
+            .collect();
+        assert_eq!(headers, vec!["accept", "user-agent", "host"], "{request}");
+        assert!(request.contains("user-agent: \r\n"), "{request}");
+        assert!(
+            !request.to_lowercase().contains("authorization"),
+            "{request}"
+        );
+        assert!(!request.to_lowercase().contains("cookie"), "{request}");
+        assert!(!request.to_lowercase().contains("x-api-key"), "{request}");
+    }
+
+    #[test]
+    fn a_runtime_that_answers_an_error_is_not_running() {
+        let (refusing, _seen) = spawn_knock_target("HTTP/1.1 500 Internal Server Error");
+        let probe = tauri::async_runtime::block_on(probe_local_at(&refusing, &dead_url()));
+        assert!(!probe.ollama);
     }
 
     #[test]
