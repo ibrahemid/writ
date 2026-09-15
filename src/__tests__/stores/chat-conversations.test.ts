@@ -247,6 +247,19 @@ describe("the stream", () => {
     expect(chatStore.messages()[1].content).toBe("half an ans");
   });
 
+  it("leaves a pane with nothing in flight as it is", async () => {
+    mocks.chatList.mockResolvedValue([summary("c1", "A chat", "2026-09-14T10:00:00+00:00")]);
+    mocks.chatOpen.mockResolvedValue(
+      conversation("c1", [userTurn("what does it argue"), replyTurn("it argues this")]),
+    );
+    await chatStore.openPane();
+    expect(chatStore.status()).toBe("idle");
+
+    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "stopped" });
+
+    expect(chatStore.status()).toBe("idle");
+  });
+
   it("ignores a frame from another conversation", async () => {
     await startSend();
     chatStore.handleStreamEvent({ conversation_id: "other", kind: "chunk", text: "not mine" });

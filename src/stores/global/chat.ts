@@ -466,6 +466,7 @@ function createChatStore() {
       setPendingReply((held) => (held ? { ...held, proposals: payload.proposals ?? [] } : held));
       settle("done");
     } else if (payload.kind === "stopped") {
+      if (!isBusy()) return;
       settle("stopped");
     } else if (payload.kind === "error") {
       setErrorMessage(payload.text ?? "The reply did not arrive.");
