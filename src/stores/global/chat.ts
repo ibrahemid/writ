@@ -531,6 +531,7 @@ function createChatStore() {
       if (!isBusy()) return;
       settle("stopped");
     } else if (payload.kind === "error") {
+      if (!isBusy()) return;
       setErrorMessage(payload.text ?? "The reply did not arrive.");
       settle("error");
     }

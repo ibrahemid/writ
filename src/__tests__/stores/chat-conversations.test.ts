@@ -560,6 +560,28 @@ describe("a send that was refused", () => {
     expect(mocks.chatSend).toHaveBeenCalledWith("c1", "a better second question", [], 2);
   });
 
+  // Three of the four stream arms already refuse a frame the pane is not
+  // waiting for. The fourth is the one that would put an error over a
+  // conversation that finished cleanly.
+  it("ignores an error frame for a conversation that is not streaming", async () => {
+    mocks.chatList.mockResolvedValue([summary("c1", "A chat", "2026-09-14T10:00:00+00:00")]);
+    mocks.chatOpen.mockResolvedValue(
+      conversation("c1", [userTurn("what does it argue"), replyTurn("it argues this")]),
+    );
+    await chatStore.openPane();
+    expect(chatStore.status()).toBe("idle");
+
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      kind: "error",
+      text: "The model did not answer.",
+    });
+    await flush();
+
+    expect(chatStore.status()).toBe("idle");
+    expect(chatStore.errorMessage()).toBe("");
+  });
+
   it("keeps a refused retry's words in the pane and the composer as it found it", async () => {
     mocks.chatNew.mockResolvedValue(conversation("c1"));
     chatStore.setDraft("what does it argue");
