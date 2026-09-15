@@ -1,4 +1,4 @@
-import { Show, createEffect, createMemo, createSignal } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, untrack } from "solid-js";
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
 import EdgeResizer from "../Resizer/EdgeResizer";
@@ -50,12 +50,19 @@ export default function ChatPane() {
   }
 
   // Opening attaches the note in front and nothing else. Every later change to
-  // the list is a person's: a tab switch does not quietly add a note to what
-  // the next message carries.
+  // the list is a person's: a removed chip stays removed, and a tab switch does
+  // not quietly add a note to what the next message carries. A new chat clears
+  // the chips and counts as an opening, so it starts the way a first open does.
+  let attachedFor: number | null = null;
   createEffect(() => {
-    if (!isOpen()) return;
-    if (chatStore.attachments().length > 0) return;
-    const front = frontNote();
+    if (!isOpen()) {
+      attachedFor = null;
+      return;
+    }
+    const opening = chatStore.attachGeneration();
+    if (attachedFor === opening) return;
+    attachedFor = opening;
+    const front = untrack(frontNote);
     if (front) chatStore.attach(front);
   });
 

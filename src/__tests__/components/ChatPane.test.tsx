@@ -282,6 +282,42 @@ describe("the chat column", () => {
     expect(mocks.chatSend.mock.calls[0][2]).toEqual([OTHER]);
   });
 
+  it("keeps a removed note out of what the next message carries", async () => {
+    const { container } = open();
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
+
+    fireEvent.click(container.querySelector(".chat-chip-remove") as HTMLElement);
+
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(0));
+    chatStore.setDraft("without the note");
+    await chatStore.send();
+    expect(mocks.chatSend.mock.calls[0][2]).toEqual([]);
+  });
+
+  it("attaches nothing when another tab comes to the front", async () => {
+    const { container } = open();
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
+    fireEvent.click(container.querySelector(".chat-chip-remove") as HTMLElement);
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(0));
+
+    windowRegistry.getActive()?.tabs.setActiveTabId("O1");
+    await Promise.resolve();
+
+    expect(container.querySelectorAll(".chat-chip")).toHaveLength(0);
+  });
+
+  it("starts a new chat with the note in front and nothing else", async () => {
+    const { container } = open();
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
+    chatStore.attach({ path: OTHER, name: "Other.md", bytes: 40 });
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(2));
+
+    fireEvent.click(container.querySelector('[aria-label="New chat"]') as HTMLElement);
+
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
+    expect(container.querySelector(".chat-chip-name")?.textContent).toBe("Launch.md");
+  });
+
   it("shows a proposal as the lines it would change", async () => {
     const { container } = open();
     await exchange();

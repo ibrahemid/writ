@@ -94,6 +94,9 @@ function createChatStore() {
   const [editing, setEditing] = createSignal<number | null>(null);
   const [refusals, setRefusals] = createSignal<Record<string, string>>({});
   const [liveModels, setLiveModels] = createSignal<string[]>([]);
+  // Counts the chat openings the pane has to attach the note in front for: the
+  // pane latches on it, so one open attaches once however often it re-renders.
+  const [attachGeneration, setAttachGeneration] = createSignal(0);
   const [lastSend, setLastSend] = createSignal<{
     turn: number;
     text: string;
@@ -248,6 +251,10 @@ function createChatStore() {
   function newChat() {
     if (isBusy()) return;
     reset();
+    // The notes belong to the chat they were attached in, so a new one starts
+    // with the note in front and nothing the last chat carried.
+    setAttachments([]);
+    setAttachGeneration((count) => count + 1);
   }
 
   async function rename(id: string, title: string) {
@@ -566,6 +573,7 @@ function createChatStore() {
     loadModels,
     copyCode,
     attachments,
+    attachGeneration,
     status,
     errorMessage,
     draft,
