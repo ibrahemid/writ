@@ -412,6 +412,14 @@ describe("the chat column", () => {
     expect(container.querySelector(".chat-error button")?.textContent).toBe("Retry");
   });
 
+  it("says what to do with an empty chat", async () => {
+    const { container } = open();
+    await waitFor(() => expect(container.querySelector(".chat-empty")).not.toBeNull());
+    expect(container.querySelector(".chat-transcript .chat-empty")?.textContent).toBe(
+      "Ask about a note. Apply the change an answer offers, or discard it.",
+    );
+  });
+
   it("says what the field is for whether a note is attached or not", async () => {
     const { container } = open();
     await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));

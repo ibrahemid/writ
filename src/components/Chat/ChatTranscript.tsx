@@ -25,7 +25,7 @@ export default function ChatTranscript() {
         when={chatStore.messages().length > 0}
         fallback={
           <p class="chat-empty">
-            An answer can propose a change to a note, which you apply or discard.
+            Ask about a note. Apply the change an answer offers, or discard it.
           </p>
         }
       >
