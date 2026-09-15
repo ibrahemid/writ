@@ -199,6 +199,20 @@ function createChatStore() {
     return status() === "thinking" || status() === "streaming";
   }
 
+  /** Whether the pane holds a message it could send again. Retry re-sends the
+   * last one, so an error with nothing behind it is a message and no button. */
+  function canRetry(): boolean {
+    return lastSend() !== null;
+  }
+
+  /** Shows a failure that nothing can be sent again for: opening, renaming and
+   * deleting a conversation all end here. */
+  function failWith(message: string) {
+    setLastSend(null);
+    setStatus("error");
+    setErrorMessage(message);
+  }
+
   function reset() {
     cancelScheduledRender();
     setCurrent(null);
@@ -332,8 +346,7 @@ function createChatStore() {
     try {
       conversation = await chatOpen(id);
     } catch (error) {
-      setStatus("error");
-      setErrorMessage(readableError(error));
+      failWith(readableError(error));
       return;
     }
     reset();
@@ -358,7 +371,7 @@ function createChatStore() {
       if (current()?.id === id) setCurrent((held) => (held ? { ...held, ...renamed } : renamed));
       await refreshList();
     } catch (error) {
-      setErrorMessage(readableError(error));
+      failWith(readableError(error));
     }
   }
 
@@ -366,7 +379,7 @@ function createChatStore() {
     try {
       await chatDelete(id);
     } catch (error) {
-      setErrorMessage(readableError(error));
+      failWith(readableError(error));
       return;
     }
     if (current()?.id === id) reset();
@@ -724,6 +737,7 @@ function createChatStore() {
     attachGeneration,
     status,
     errorMessage,
+    canRetry,
     draft,
     setDraft,
     editing,

@@ -662,6 +662,49 @@ describe("the conversation list", () => {
     expect(chatStore.current()?.title).toBe("Launch copy");
   });
 
+  // Retry re-sends the last message, so it is offered only where there is a
+  // last message. A chat that would not open, a rename and a delete all fail
+  // where there is nothing to send again.
+  it("offers nothing to retry after a chat that would not open", async () => {
+    mocks.chatList.mockResolvedValue([summary("c1", "A chat", "2026-09-14T10:00:00+00:00")]);
+    mocks.chatOpen.mockRejectedValue("This chat no longer exists.");
+
+    await chatStore.openPane();
+
+    expect(chatStore.status()).toBe("error");
+    expect(chatStore.errorMessage()).toBe("This chat no longer exists.");
+    expect(chatStore.canRetry()).toBe(false);
+    await chatStore.retry();
+    expect(mocks.chatSend).not.toHaveBeenCalled();
+  });
+
+  it("says so when a rename does not land", async () => {
+    mocks.chatList.mockResolvedValue([summary("c1", "A chat", "2026-09-14T10:00:00+00:00")]);
+    mocks.chatOpen.mockResolvedValue(conversation("c1"));
+    await chatStore.openPane();
+    mocks.chatRename.mockRejectedValue("Could not write this chat.");
+
+    await chatStore.rename("c1", "Launch copy");
+
+    expect(chatStore.status()).toBe("error");
+    expect(chatStore.errorMessage()).toBe("Could not write this chat.");
+    expect(chatStore.canRetry()).toBe(false);
+  });
+
+  it("says so when a delete does not land", async () => {
+    mocks.chatList.mockResolvedValue([summary("c1", "A chat", "2026-09-14T10:00:00+00:00")]);
+    mocks.chatOpen.mockResolvedValue(conversation("c1"));
+    await chatStore.openPane();
+    mocks.chatDelete.mockRejectedValue("Could not delete this chat.");
+
+    await chatStore.remove("c1");
+
+    expect(chatStore.status()).toBe("error");
+    expect(chatStore.errorMessage()).toBe("Could not delete this chat.");
+    expect(chatStore.canRetry()).toBe(false);
+    expect(chatStore.current()?.id).toBe("c1");
+  });
+
   it("deleting the open conversation clears the pane", async () => {
     mocks.chatList.mockResolvedValue([summary("c1", "A chat", "2026-09-14T10:00:00+00:00")]);
     mocks.chatOpen.mockResolvedValue(conversation("c1", [userTurn("ask")]));

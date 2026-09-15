@@ -387,6 +387,31 @@ describe("the chat column", () => {
     expect(chatStore.attachments().map((note) => note.path)).toEqual(["Launch.md"]);
   });
 
+  it("shows a chat that would not open with nothing to retry", async () => {
+    mocks.chatList.mockResolvedValue([
+      { id: "c1", title: "A chat", created_at: "", updated_at: "", turns: 2 },
+    ]);
+    mocks.chatOpen.mockRejectedValue("This chat no longer exists.");
+
+    const { container } = open();
+
+    await waitFor(() => expect(container.querySelector(".chat-error")).not.toBeNull());
+    expect(container.querySelector(".chat-error-text")?.textContent).toBe(
+      "This chat no longer exists.",
+    );
+    expect(container.querySelector(".chat-error button")).toBeNull();
+  });
+
+  it("offers Retry for a send that did not leave", async () => {
+    const { container } = open();
+    mocks.chatSend.mockRejectedValue("The model did not answer.");
+    chatStore.setDraft("what does it argue");
+    await chatStore.send();
+
+    await waitFor(() => expect(container.querySelector(".chat-error")).not.toBeNull());
+    expect(container.querySelector(".chat-error button")?.textContent).toBe("Retry");
+  });
+
   it("says what the field is for whether a note is attached or not", async () => {
     const { container } = open();
     await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));

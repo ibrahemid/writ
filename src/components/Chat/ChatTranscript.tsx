@@ -46,9 +46,11 @@ export default function ChatTranscript() {
       <Show when={chatStore.status() === "error"}>
         <div class="chat-error" role="alert">
           <p class="chat-error-text">{chatStore.errorMessage()}</p>
-          <Button icon="arrow-u-down-left" iconSize={12} onClick={() => void chatStore.retry()}>
-            Retry
-          </Button>
+          <Show when={chatStore.canRetry()}>
+            <Button icon="arrow-u-down-left" iconSize={12} onClick={() => void chatStore.retry()}>
+              Retry
+            </Button>
+          </Show>
         </div>
       </Show>
     </div>
