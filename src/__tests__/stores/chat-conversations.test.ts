@@ -204,6 +204,21 @@ describe("the stream", () => {
     expect(chatStore.messages()[1].html).toBe("<p>it argues this</p>");
   });
 
+  it("keeps a tail that arrives with nothing shown before it", async () => {
+    await startSend();
+    expect(chatStore.status()).toBe("thinking");
+
+    // A reply the filter withheld whole releases its tail when the stream
+    // ends, one frame before the ending, so the first chunk can be the last.
+    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "chunk", text: "```" });
+    fileAfter("c1", [userTurn("what does it argue"), replyTurn("```")]);
+    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "done", proposals: [] });
+    await flush();
+
+    expect(chatStore.messages()[1].content).toBe("```");
+    expect(chatStore.current()?.turns).toHaveLength(2);
+  });
+
   it("renders a live reply no more than once per throttle window", async () => {
     vi.useFakeTimers();
     try {

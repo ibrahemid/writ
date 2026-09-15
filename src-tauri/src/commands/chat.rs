@@ -1029,6 +1029,20 @@ impl ReplyBuffer {
     }
 }
 
+/// Ends the stream and sends what the filter was still holding as one last
+/// `chunk`, before the frame that ends the reply.
+///
+/// A reply whose last line is a closing fence with no newline after it leaves
+/// those backticks in the filter until the stream ends. They are part of the
+/// saved reply, so the pane has to be handed them too; without this the pane
+/// renders an unterminated fence until the conversation is reopened.
+fn emit_tail(app: &AppHandle, conversation_id: &str, buffer: &mut ReplyBuffer) {
+    let tail = buffer.finish();
+    if !tail.is_empty() {
+        emit_chat(app, conversation_id, "chunk", Some(tail));
+    }
+}
+
 /// Appends what a stream produced to the stored conversation and saves it.
 ///
 /// A reply that produced neither text nor a proposal appends nothing and still
@@ -1173,14 +1187,14 @@ pub async fn chat_send(
             }
             ChatEvent::Done => {
                 ended = true;
-                buffer.finish();
+                emit_tail(&task_app, &task_id, &mut buffer);
                 let proposals = chat::parse_proposals(&buffer.raw, &prepared.context);
                 record_reply(&store, &task_id, &buffer.shown, &proposals);
                 emit_chat_with(&task_app, &task_id, "done", None, proposals);
             }
             ChatEvent::Error(message) => {
                 ended = true;
-                buffer.finish();
+                emit_tail(&task_app, &task_id, &mut buffer);
                 record_reply(&store, &task_id, &buffer.shown, &[]);
                 emit_chat(&task_app, &task_id, "error", Some(message));
             }
@@ -1191,7 +1205,7 @@ pub async fn chat_send(
         // What arrived before the stop is the reply, so it is saved and the
         // pane is told to render what it has.
         if !ended {
-            buffer.finish();
+            emit_tail(&task_app, &task_id, &mut buffer);
             record_reply(&store, &task_id, &buffer.shown, &[]);
             emit_chat(&task_app, &task_id, "stopped", None);
         }
@@ -1561,12 +1575,17 @@ Tell me if that reads better.\n";
     }
 
     /// Feeds a reply through the buffer one character at a time, the way a
-    /// stream arrives.
+    /// stream arrives, and hands back the `chunk` frames the pane was sent.
+    ///
+    /// Only what the stream closure in `chat_send` passes to `emit_chat` lands
+    /// in the string, the tail included, so text the filter releases and no
+    /// frame carries reads here as a gap against `buffer.shown`.
     fn stream_through(buffer: &mut ReplyBuffer, reply: &str) -> String {
         let mut emitted = String::new();
         for character in reply.chars() {
             emitted.push_str(&buffer.push(&character.to_string()));
         }
+        // What `emit_tail` sends before the terminal frame.
         emitted.push_str(&buffer.finish());
         emitted
     }
@@ -1665,6 +1684,27 @@ Tell me if that reads better.\n";
         let saved = store.load(ID).expect("load");
         assert_eq!(saved.turns.len(), 1);
         assert_eq!(saved.turns[0].role, Role::User);
+    }
+
+    #[test]
+    fn a_reply_ending_in_a_closing_fence_reaches_the_pane() {
+        let mut buffer = ReplyBuffer::new();
+        let emitted = stream_through(&mut buffer, "here\n\n```rust\nlet x = 1;\n```");
+
+        // The last three bytes arrive with no newline after them, so the
+        // filter is still holding them when the stream ends. Without them the
+        // pane renders an unterminated fence.
+        assert!(emitted.ends_with("```"), "got: {emitted}");
+        assert_eq!(emitted, buffer.shown);
+    }
+
+    #[test]
+    fn a_reply_ending_mid_fence_word_reaches_the_pane() {
+        let mut buffer = ReplyBuffer::new();
+        let emitted = stream_through(&mut buffer, "here\n\n```writ-propos");
+
+        assert!(emitted.ends_with("```writ-propos"), "got: {emitted}");
+        assert_eq!(emitted, buffer.shown);
     }
 
     #[test]
