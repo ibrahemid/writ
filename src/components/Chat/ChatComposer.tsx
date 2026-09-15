@@ -160,7 +160,11 @@ export default function ChatComposer() {
           class="chat-composer-input"
           rows={3}
           spellcheck={false}
-          placeholder="Ask about the attached notes. @ attaches another."
+          placeholder={
+            chatStore.attachments().length > 0
+              ? "Ask about the attached notes. @ attaches another."
+              : "@ attaches a note."
+          }
           aria-label="Message"
           ref={input}
           value={chatStore.draft()}

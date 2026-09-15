@@ -370,6 +370,17 @@ describe("the chat column", () => {
     expect(chatStore.attachments().map((note) => note.path)).toEqual([LAUNCH, "Other.md"]);
   });
 
+  it("says what the field is for whether a note is attached or not", async () => {
+    const { container } = open();
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
+    const composer = container.querySelector(".chat-composer-input") as HTMLTextAreaElement;
+    expect(composer.placeholder).toBe("Ask about the attached notes. @ attaches another.");
+
+    fireEvent.click(container.querySelector(".chat-chip-remove") as HTMLElement);
+
+    await waitFor(() => expect(composer.placeholder).toBe("@ attaches a note."));
+  });
+
   it("shows a proposal as the lines it would change", async () => {
     const { container } = open();
     await exchange();
