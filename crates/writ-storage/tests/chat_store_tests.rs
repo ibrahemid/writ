@@ -235,6 +235,36 @@ fn an_id_that_is_not_a_uuid_names_no_file() {
     }
 }
 
+/// A UUID has four spellings and one value. The file is named by the value,
+/// so a caller that hands back the braced or URN form of an id it was given
+/// reads and writes the conversation it means.
+#[test]
+fn the_spellings_of_one_id_name_one_file() {
+    let dir = TempDir::new().unwrap();
+    let store = ChatStore::new(dir.path());
+    store
+        .save(&conversation(ID_A, "2026-09-15T10:00:00+00:00"))
+        .unwrap();
+
+    let braced = format!("{{{ID_A}}}");
+    let urn = format!("urn:uuid:{ID_A}");
+    let unhyphenated = ID_A.replace('-', "");
+
+    for spelling in [&braced, &urn, &unhyphenated] {
+        assert_eq!(store.load(spelling).unwrap().id, ID_A, "{spelling} loaded");
+        store.rename(spelling, "Launch").unwrap();
+    }
+
+    let files: Vec<String> = fs::read_dir(chats_dir(dir.path()))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(files, vec![format!("{ID_A}.json")]);
+
+    store.delete(&urn).unwrap();
+    assert!(matches!(store.load(ID_A), Err(ChatStoreError::NotFound(_))));
+}
+
 #[test]
 fn a_conversation_over_the_cap_is_refused_and_the_file_it_would_replace_stands() {
     let dir = TempDir::new().unwrap();

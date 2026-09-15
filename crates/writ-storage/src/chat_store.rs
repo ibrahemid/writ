@@ -9,8 +9,9 @@
 //! holds no API key and no attached note's text, which the crate's
 //! `chat_store_tests` prove by walking the written file's keys.
 //!
-//! An id is parsed as a UUID before a path is built from it, so no caller can
-//! name a file outside the folder. Every write goes through
+//! An id is parsed as a UUID and the file is named by the hyphenated form it
+//! prints as, so no caller can name a file outside the folder and no spelling
+//! of an id names a second file. Every write goes through
 //! [`crate::atomic::write_atomic`], so a conversation is never half a file.
 
 use std::fs;
@@ -239,11 +240,16 @@ impl ChatStore {
 
     /// The file an id names, refusing an id that is not a UUID.
     ///
-    /// The parse is the containment check: a UUID holds no separator, no dot
-    /// and no drive letter, so a path built from one cannot leave the folder.
+    /// The name is built from the hyphenated form the parsed value prints as,
+    /// never from the string the caller wrote, which `Uuid::parse_str` also
+    /// accepts braced, as a URN and unhyphenated. So the four spellings of one
+    /// id name one file, and the name holds no separator, no dot, no colon and
+    /// no drive letter: a path built from it cannot leave the folder.
     fn file(&self, id: &str) -> Result<PathBuf, ChatStoreError> {
-        uuid::Uuid::parse_str(id).map_err(|_| ChatStoreError::InvalidId(id.to_string()))?;
-        Ok(self.dir.join(format!("{id}.{CHAT_EXTENSION}")))
+        let name = uuid::Uuid::parse_str(id)
+            .map_err(|_| ChatStoreError::InvalidId(id.to_string()))?
+            .to_string();
+        Ok(self.dir.join(format!("{name}.{CHAT_EXTENSION}")))
     }
 }
 
