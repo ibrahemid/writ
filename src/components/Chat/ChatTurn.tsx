@@ -113,7 +113,7 @@ export default function ChatTurn(props: { message: Message; thinking: boolean })
               variant="ghost"
               icon="pencil-simple"
               iconSize={12}
-              onClick={() => chatStore.beginEdit(props.message.turn)}
+              onClick={() => void chatStore.beginEdit(props.message.turn)}
             >
               Edit
             </Button>

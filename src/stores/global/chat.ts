@@ -160,6 +160,9 @@ function createChatStore() {
   // result for a turn is painted: a slow one cannot overwrite a newer one.
   const renderGeneration = new Map<number, number>();
   let renderTimer: ReturnType<typeof setTimeout> | null = null;
+  // Held for as long as a send is between the draft and the status that says
+  // the pane is busy.
+  let sending = false;
 
   function toMessage(turn: ChatStoredTurn, index: number): Message {
     return {
@@ -228,21 +231,46 @@ function createChatStore() {
     return attachments().some((note) => note.path === path);
   }
 
-  /** Attaches a note the pane knows only a path for, reading its size from
-   * disk so the chip and the send dialog state the same number.
+  /** Adds notes, each of them once, with the key the folder knows them by.
    *
    * A conversation file names a note by its folder-relative key and the pane
-   * holds absolute paths, so the same note reaches this by two spellings. The
-   * sizes are read for the held notes as well, and the key they come back with
-   * is what says whether the note is a chip already. */
-  async function attachByPath(path: string) {
-    if (isAttached(path)) return;
+   * holds absolute paths, so one note reaches the list by two spellings. The
+   * keys are read for the notes arriving and the held ones in one call, so a
+   * note already on the list is recognised whichever spelling arrives. Every
+   * writer that does not already know a note's key comes through here. */
+  async function attachAll(notes: Attachment[]) {
     const held = attachments();
-    const sizes = await chatAttachedSizes([path, ...held.map((note) => note.path)]).catch(() => []);
+    const wanted = notes.filter(
+      (note, index) =>
+        !held.some((other) => other.path === note.path) &&
+        notes.findIndex((other) => other.path === note.path) === index,
+    );
+    if (wanted.length === 0) return;
+    const sizes = await chatAttachedSizes([
+      ...wanted.map((note) => note.path),
+      ...held.map((note) => note.path),
+    ]).catch(() => []);
     const byPath = new Map(sizes.map((note) => [note.path, note]));
-    const key = byPath.get(path)?.key;
-    if (key && held.some((note) => (byPath.get(note.path)?.key ?? note.key) === key)) return;
-    attach({ path, name: noteName(path), bytes: byPath.get(path)?.bytes ?? 0, key });
+    const taken = new Set<string>();
+    for (const note of held) {
+      const key = byPath.get(note.path)?.key ?? note.key;
+      if (key !== undefined) taken.add(key);
+    }
+    for (const note of wanted) {
+      const found = byPath.get(note.path);
+      const key = found?.key ?? note.key;
+      if (key !== undefined) {
+        if (taken.has(key)) continue;
+        taken.add(key);
+      }
+      attach({ ...note, bytes: found?.bytes ?? note.bytes, key });
+    }
+  }
+
+  /** Attaches a note the pane knows only a path for, reading its size from
+   * disk so the chip and the send dialog state the same number. */
+  async function attachByPath(path: string) {
+    await attachAll([{ path, name: noteName(path), bytes: 0 }]);
   }
 
   /** The models the endpoint itself lists, for the picker.
@@ -353,8 +381,18 @@ function createChatStore() {
    * created here, on the first send. */
   async function send() {
     const text = draft().trim();
-    if (!text || isBusy()) return;
+    // The status says nothing until the notes have been read off disk, so the
+    // latch is what a second Send before that meets.
+    if (!text || isBusy() || sending) return;
+    sending = true;
+    try {
+      await sendTyped(text);
+    } finally {
+      sending = false;
+    }
+  }
 
+  async function sendTyped(text: string) {
     let conversation = current();
     if (!conversation) {
       try {
@@ -370,10 +408,12 @@ function createChatStore() {
       void refreshList();
     }
 
+    // The paths come from the list the dialog counted, so one note is one path
+    // in the request however each writer of the list spelled it.
+    const paths = (await attachedOnDisk().catch(() => attachments())).map((note) => note.path);
     const truncateTo = editing();
     const kept = truncateTo === null ? conversation.turns : conversation.turns.slice(0, truncateTo);
     if (truncateTo !== null) setCurrent({ ...conversation, turns: kept });
-    const paths = attachments().map((note) => note.path);
     beginExchange(kept.length, text, paths);
 
     try {
@@ -449,12 +489,13 @@ function createChatStore() {
 
   /** Puts a sent turn back in the composer. Sending it again replaces it and
    * everything after it, which is what the file then holds. */
-  function beginEdit(turn: number) {
+  async function beginEdit(turn: number) {
     const stored = current()?.turns[turn];
     if (!stored || stored.role !== "user" || isBusy()) return;
     setEditing(turn);
     setDraft(stored.content);
-    setAttachments(
+    setAttachments([]);
+    await attachAll(
       stored.attachments.map((note) => ({
         path: note.path,
         name: noteName(note.path),
@@ -643,6 +684,34 @@ function createChatStore() {
     await chatDiscardProposal(id, turn, proposal.path).catch(() => undefined);
   }
 
+  /** The attached notes with the sizes the files hold now, one note per note.
+   *
+   * A tab records a note's size when it reads it, and another program can
+   * rewrite the file after that. The dialog asking to send it must state the
+   * bytes the send will carry, so it asks disk rather than the tab. Two
+   * spellings of one note are one line in that sentence and one path in the
+   * request, which is why the send reads this list rather than the chips. */
+  async function attachedOnDisk(): Promise<Attachment[]> {
+    const held = attachments();
+    const sizes = await chatAttachedSizes(held.map((note) => note.path));
+    // Keyed by the path that was asked about, which is the spelling these
+    // attachments hold. The command's own folder-relative key names the same
+    // note in a different shape and would miss every row.
+    const byPath = new Map(sizes.map((note) => [note.path, note]));
+    const counted = new Set<string>();
+    const shown: Attachment[] = [];
+    for (const note of held) {
+      const found = byPath.get(note.path);
+      const key = found?.key ?? note.key;
+      if (key !== undefined) {
+        if (counted.has(key)) continue;
+        counted.add(key);
+      }
+      shown.push({ ...note, bytes: found?.bytes ?? note.bytes });
+    }
+    return shown;
+  }
+
   return {
     conversations,
     current,
@@ -659,6 +728,7 @@ function createChatStore() {
     editing,
     refusalFor,
     attach,
+    attachAll,
     attachByPath,
     detach,
     isAttached,
@@ -679,33 +749,7 @@ function createChatStore() {
     handleStreamEvent,
     /** Where the chat endpoint points and what it still needs. */
     endpointState: (): Promise<ChatEndpointState> => chatState(),
-    /** The attached notes with the sizes the files hold now.
-     *
-     * A tab records a note's size when it reads it, and another program can
-     * rewrite the file after that. The dialog asking to send it must state the
-     * bytes the send will carry, so it asks disk rather than the tab. */
-    async attachedOnDisk(): Promise<Attachment[]> {
-      const held = attachments();
-      const sizes = await chatAttachedSizes(held.map((note) => note.path));
-      // Keyed by the path that was asked about, which is the absolute one
-      // these attachments hold. The command's own folder-relative key names
-      // the same note in a different shape and would miss every row.
-      const byPath = new Map(sizes.map((note) => [note.path, note]));
-      // Two spellings of one note are one note to send, and one size in the
-      // sentence that asks to send it.
-      const counted = new Set<string>();
-      const shown: Attachment[] = [];
-      for (const note of held) {
-        const found = byPath.get(note.path);
-        const key = found?.key ?? note.key;
-        if (key !== undefined) {
-          if (counted.has(key)) continue;
-          counted.add(key);
-        }
-        shown.push({ ...note, bytes: found?.bytes ?? note.bytes });
-      }
-      return shown;
-    },
+    attachedOnDisk,
   };
 }
 

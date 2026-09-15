@@ -370,6 +370,23 @@ describe("the chat column", () => {
     expect(chatStore.attachments().map((note) => note.path)).toEqual([LAUNCH, "Other.md"]);
   });
 
+  it("does not chip the note in front a second time for the file's spelling", async () => {
+    mocks.chatAttachedSizes.mockResolvedValue([
+      { path: LAUNCH, key: "Launch.md", bytes: 120 },
+      { path: "Launch.md", key: "Launch.md", bytes: 120 },
+    ]);
+    // The shape a conversation file stores, which is what an edited turn hands
+    // back to the composer before the pane is opened again.
+    chatStore.attach({ path: "Launch.md", name: "Launch.md", bytes: 120 });
+
+    const { container } = open();
+    await waitFor(() => expect(mocks.chatAttachedSizes).toHaveBeenCalled());
+    await waitFor(() => expect(chatStore.attachments()).toHaveLength(1));
+
+    expect(container.querySelectorAll(".chat-chip")).toHaveLength(1);
+    expect(chatStore.attachments().map((note) => note.path)).toEqual(["Launch.md"]);
+  });
+
   it("says what the field is for whether a note is attached or not", async () => {
     const { container } = open();
     await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));

@@ -336,7 +336,7 @@ describe("editing a sent turn", () => {
     );
     await chatStore.openPane();
 
-    chatStore.beginEdit(0);
+    await chatStore.beginEdit(0);
 
     expect(chatStore.draft()).toBe("first question");
     expect(chatStore.editing()).toBe(0);
@@ -364,6 +364,43 @@ describe("editing a sent turn", () => {
     );
   });
 
+  // One note is one chip and one path in the request, whatever spelling the
+  // writer of the list used: the file stores a folder-relative key, the pane
+  // holds an absolute path, and both reach the list through the same lookup.
+  it("holds one note when the file and the pane spell its path differently", async () => {
+    mocks.chatList.mockResolvedValue([summary("c1", "A chat", "2026-09-14T10:00:00+00:00")]);
+    mocks.chatOpen.mockResolvedValue(
+      conversation("c1", [
+        userTurn("first question", ["Ideas/Launch.md"]),
+        replyTurn("first answer"),
+      ]),
+    );
+    mocks.chatAttachedSizes.mockImplementation(async (paths: string[]) =>
+      paths.map((path) => ({ path, key: "Ideas/Launch.md", bytes: 42 })),
+    );
+    await chatStore.openPane();
+
+    await chatStore.beginEdit(0);
+    // The pane opens again with that same note in front, which reaches the
+    // list as an absolute path with the size the tab recorded.
+    await chatStore.attachAll([
+      { path: "/Users/someone/Notes/Ideas/Launch.md", name: "Launch.md", bytes: 42 },
+    ]);
+
+    expect(chatStore.attachments().map((note) => note.path)).toEqual(["Ideas/Launch.md"]);
+    expect(await chatStore.attachedOnDisk()).toHaveLength(1);
+
+    chatStore.setDraft("a better first question");
+    await chatStore.send();
+
+    expect(mocks.chatSend).toHaveBeenCalledWith(
+      "c1",
+      "a better first question",
+      ["Ideas/Launch.md"],
+      0,
+    );
+  });
+
   it("replaces that turn and everything after it", async () => {
     mocks.chatList.mockResolvedValue([summary("c1", "A chat", "2026-09-14T10:00:00+00:00")]);
     mocks.chatOpen.mockResolvedValue(
@@ -376,7 +413,7 @@ describe("editing a sent turn", () => {
     );
     await chatStore.openPane();
 
-    chatStore.beginEdit(2);
+    await chatStore.beginEdit(2);
     chatStore.setDraft("a better second question");
     await chatStore.send();
 
@@ -388,6 +425,29 @@ describe("editing a sent turn", () => {
       "",
     ]);
     expect(chatStore.editing()).toBeNull();
+  });
+});
+
+describe("what the send carries", () => {
+  // The dedupe at the send is the backstop: a writer that added a note without
+  // its key cannot make the request carry the note twice while the dialog
+  // counts it once.
+  it("sends one path per note when the list was written without a key", async () => {
+    mocks.chatNew.mockResolvedValue(conversation("c1"));
+    mocks.chatAttachedSizes.mockImplementation(async (paths: string[]) =>
+      paths.map((path) => ({ path, key: "Ideas/Launch.md", bytes: 42 })),
+    );
+    chatStore.attach({ path: "Ideas/Launch.md", name: "Launch.md", bytes: 42 });
+    chatStore.attach({
+      path: "/Users/someone/Notes/Ideas/Launch.md",
+      name: "Launch.md",
+      bytes: 42,
+    });
+
+    chatStore.setDraft("what does it argue");
+    await chatStore.send();
+
+    expect(mocks.chatSend.mock.calls[0][2]).toEqual(["Ideas/Launch.md"]);
   });
 });
 
@@ -480,7 +540,7 @@ describe("a send that was refused", () => {
     );
     await chatStore.openPane();
 
-    chatStore.beginEdit(2);
+    await chatStore.beginEdit(2);
     chatStore.setDraft("a better second question");
     mocks.chatSend.mockRejectedValue("The model did not answer.");
     await chatStore.send();

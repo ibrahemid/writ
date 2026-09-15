@@ -63,7 +63,7 @@ export default function ChatPane() {
     if (attachedFor === opening) return;
     attachedFor = opening;
     const front = untrack(frontNote);
-    if (front) chatStore.attach(front);
+    if (front) void chatStore.attachAll([front]);
   });
 
   // One load per open, not one per reactive read: the effect tracks the open
