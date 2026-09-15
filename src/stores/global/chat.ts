@@ -411,8 +411,7 @@ function createChatStore() {
       try {
         conversation = await chatNew();
       } catch (error) {
-        setStatus("error");
-        setErrorMessage(readableError(error));
+        failWith(readableError(error));
         return;
       }
       const started = conversation;
